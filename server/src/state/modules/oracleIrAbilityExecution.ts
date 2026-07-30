@@ -385,7 +385,7 @@ export function tryApplyOracleIRToActivatedAbility(
       : queueBefore;
 
     const applied = result.appliedSteps.length;
-    const pendingOptional = (result.pendingOptionalSteps || []).length;
+    const pendingOptional = (result.pendingOptionalSteps || []).length > 0;
     const handled = isOracleIrActivatedAbilityHandled(steps, result, {
       resolutionQueueStepsBefore: queueBefore,
       resolutionQueueStepsAfter: queueAfter,

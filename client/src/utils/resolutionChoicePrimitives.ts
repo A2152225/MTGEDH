@@ -1,3 +1,6 @@
+import type { KnownCardRef } from '../../../shared/src';
+import type { OptionChoiceOption } from '../components/OptionChoiceModal';
+
 /**
  * Generic resolution choice primitives (task D6).
  *
@@ -138,7 +141,7 @@ export interface GenericOptionChoiceRequestShape {
   sourceName: string;
   sourceImage?: string;
   description: string;
-  options: unknown[];
+  options: OptionChoiceOption[];
   minSelections: number;
   maxSelections: number;
   mandatory: boolean;
@@ -156,7 +159,7 @@ export function buildGenericOptionChoiceRequestFromStep(
     sourceName: String(step.sourceName || 'Make a Choice'),
     sourceImage: typeof step.sourceImage === 'string' ? step.sourceImage : undefined,
     description: String(step.description || ''),
-    options: Array.isArray(step.options) ? step.options : [],
+    options: Array.isArray(step.options) ? step.options as OptionChoiceOption[] : [],
     minSelections: Number(step.minSelections ?? 0),
     maxSelections: Number(step.maxSelections ?? 1),
     mandatory,
@@ -185,13 +188,24 @@ export function isGraveyardSourceLibrarySearchStep(step: Record<string, unknown>
 }
 
 export interface LibrarySearchModalStateShape {
-  cards: unknown[];
-  nonSelectableCards: unknown[];
-  revealedCards: unknown[];
-  castableWhileSearchingCards: unknown[];
+  cards: KnownCardRef[];
+  nonSelectableCards: KnownCardRef[];
+  revealedCards: KnownCardRef[];
+  castableWhileSearchingCards: KnownCardRef[];
   title: string;
   description: string;
-  filter: Record<string, unknown>;
+  filter: {
+    supertypes?: string[];
+    types?: string[];
+    subtypes?: string[];
+    maxCmc?: number;
+    minCmc?: number;
+    maxPower?: number;
+    minPower?: number;
+    maxToughness?: number;
+    minToughness?: number;
+    colors?: string[];
+  };
   minSelections: number;
   maxSelections: number;
   maxTotalManaValue?: number;
@@ -221,15 +235,15 @@ export function buildLibrarySearchModalStateFromStep(
     : (stepDescription || searchCriteria || 'Search your library');
 
   return {
-    cards: Array.isArray(step.availableCards) ? step.availableCards : [],
-    nonSelectableCards: Array.isArray(step.nonSelectableCards) ? step.nonSelectableCards : [],
-    revealedCards: Array.isArray(step.revealedCards) ? step.revealedCards : [],
+    cards: Array.isArray(step.availableCards) ? step.availableCards as KnownCardRef[] : [],
+    nonSelectableCards: Array.isArray(step.nonSelectableCards) ? step.nonSelectableCards as KnownCardRef[] : [],
+    revealedCards: Array.isArray(step.revealedCards) ? step.revealedCards as KnownCardRef[] : [],
     castableWhileSearchingCards: Array.isArray(step.castableWhileSearchingCards)
-      ? step.castableWhileSearchingCards
+      ? step.castableWhileSearchingCards as KnownCardRef[]
       : [],
     title: defaultTitle,
     description: defaultDescription,
-    filter: (step.filter && typeof step.filter === 'object' ? step.filter : {}) as Record<string, unknown>,
+    filter: (step.filter && typeof step.filter === 'object' ? step.filter : {}) as LibrarySearchModalStateShape['filter'],
     minSelections: Math.max(0, Number(step.minSelections ?? 0)),
     maxSelections: Math.max(0, Number(step.maxSelections ?? 1)),
     maxTotalManaValue: Number.isFinite(Number(step.maxTotalManaValue))

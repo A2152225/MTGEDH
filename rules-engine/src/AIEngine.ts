@@ -683,7 +683,7 @@ export class AIEngine {
         decision = this.makeComboDecision(context, config);
         break;
       default:
-        decision = this.makeRandomDecision(context);
+        decision = this.makeRandomDecision(context, config);
     }
     
     // Record decision in history
@@ -855,7 +855,6 @@ export class AIEngine {
    */
   private makeControlDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
     return makeControlDecisionFromSupport(context, config, {
-      selectAttackTarget: (gameState, playerId) => this.selectAttackTarget(gameState, playerId),
       getProcessedBattlefield: (gameState) => this.getProcessedBattlefield(gameState),
       hasPermanentType: (perm, type) => this.hasPermanentType(perm, type),
       makeBasicCastDecision: (ctx, cfg) => this.makeBasicCastDecision(ctx, cfg),

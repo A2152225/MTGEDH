@@ -50,6 +50,7 @@ import {
 } from "../utils/oraclePromptContext.js";
 import { spellOracleUsesTeamworkChooseBoth } from "../state/modules/marvelMechanicsHelpers.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
+import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { shouldPerformDrawStepTurnAction } from "../state/modules/turn.js";
 import { tryAutoStartGameFromPreGame } from "./pregame-auto-start.js";
@@ -734,7 +735,6 @@ function buildAlternateCostPaymentExtrasForCast(
   };
 
   for (const keywordId of genericKeywordIds) {
-    if (keywordId === 'warp') continue;
     if (keywordId === 'mutate') {
       if (!timingContext?.game || !timingContext?.playerId) continue;
       const mutateCtx: any = { state: timingContext.game.state };
@@ -3610,8 +3610,11 @@ function createSpellCastTriggerToken(game: any, io: Server, gameId: string, cast
     red: 'R',
     green: 'G',
   };
-  const colors = Array.isArray(details.colors)
-    ? details.colors.map((color: string) => colorMap[String(color).toLowerCase()] || String(color).toUpperCase())
+  const detailColors = 'colors' in details && Array.isArray(details.colors)
+    ? details.colors
+    : undefined;
+  const colors = detailColors
+    ? detailColors.map((color: string) => colorMap[String(color).toLowerCase()] || String(color).toUpperCase())
     : undefined;
 
   const createdTokenIds = createToken(
@@ -10732,7 +10735,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
         const sneakValidation = validateSneakReturnedCreature(game.state, playerId as PlayerID, String(sneakReturnedCreatureId || ''));
-        if (!sneakValidation.ok) {
+        if (sneakValidation.ok === false) {
           socket.emit('error', { code: sneakValidation.code, message: sneakValidation.message });
           return;
         }
@@ -12720,7 +12723,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 ) {
                   const stackItem = (game.state.stack || []).find((s: any) => String(s?.id || '') === String(targetId));
                   const isAbility = stackItem
-                    && (stackItem.type === 'ability' || stackItem.type === 'triggered_ability' || stackItem.type === 'activated_ability');
+                    && (stackItem.type === 'ability' || stackItem.type === 'triggered_ability');
                   const controllerId = stackItem?.controller;
                   const controllerPlayer = controllerId ? (game.state.players || []).find((p: any) => p.id === controllerId) : undefined;
                   targetDetails.push({
@@ -13077,7 +13080,10 @@ export function registerGameActions(io: Server, socket: Socket) {
           message: formatCastSpellMessage(
             getPlayerName(game, playerId),
             cardInHand.name,
-            stackTop?.targetDetails,
+            stackTop?.targetDetails?.map((target) => ({
+              ...target,
+              type: target.type === 'player' ? 'player' as const : 'permanent' as const,
+            })),
             (id) => getPlayerName(game, id),
             castSuffix,
           ),

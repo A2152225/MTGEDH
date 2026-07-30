@@ -8,6 +8,7 @@ import {
   trackAppliedStepKind,
   type StepLedger,
 } from './oracleIRStepLedger';
+export type { StepLedger } from './oracleIRStepLedger';
 
 export const BRIDGED_STEP_CARRY_OVER_KEYS = [
   'lastMovedCards',
@@ -52,7 +53,9 @@ export function flushObservationLedgerFromChoiceDeferredResult(args: {
 
 /** Reuse ctx.stepLedger when present so flush and serverBridge share one Map. */
 export function acquireStepLedgerForExecution(ctx?: OracleIRExecutionContext): StepLedger {
-  return ctx?.stepLedger ?? createEmptyStepLedger();
+  return ctx?.stepLedger instanceof Map
+    ? ctx.stepLedger as StepLedger
+    : createEmptyStepLedger();
 }
 
 function resolveLedgerZoneForFlushedMovedCards(step: OracleEffectStep): RuntimeObjectZone {

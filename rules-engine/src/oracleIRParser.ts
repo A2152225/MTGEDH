@@ -553,6 +553,21 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
     };
   }
 
+  const eldraziManaReminderMatch = normalizeOracleText(effectText).match(
+    /^(create(?:s)?\s+.+?\btokens?)\.\s+(?:it has|they have)\s+"sacrifice this (?:token|creature): add \{c\}\."$/i,
+  );
+  if (eldraziManaReminderMatch) {
+    return {
+      type: ability.type,
+      text: ability.text,
+      cost: ability.cost,
+      triggerCondition: ability.triggerCondition,
+      interveningIf: ability.interveningIf,
+      effectText,
+      steps: [...parseEffectTextToFlatSteps(String(eldraziManaReminderMatch[1] || '').trim())],
+    };
+  }
+
   const fullTemporaryDiesTriggerStep = tryParseTemporaryGrantedDiesTriggerClause({
     clause: effectText,
     rawClause: effectText,
@@ -1849,12 +1864,204 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandBlightPrefixAbilities(abilities);
   abilities = annotateCounterMetadataAbilities(abilities);
   abilities = annotateSacrificeMetadataAbilities(abilities);
+  // Late residual lowering can turn reminder fragments into executable-looking
+  // steps after the earlier reminder passes have already run.
+  abilities = pruneRedundantScryReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantExploreReminderAbilities(abilities);
+  abilities = pruneMalformedExploreReminderMoveZoneSteps(abilities);
+  abilities = pruneRedundantAmassSubtypeReminderUnknownAbilities(abilities);
+  abilities = pruneCipherReminderAbilities(abilities);
+  abilities = pruneConvokeReminderAbilities(abilities);
+  abilities = pruneLateKeywordReminderOnlyAbilities(abilities);
+  abilities = pruneRedundantEldraziTokenManaReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantEnchantAttachmentReminderUnknownAbilities(abilities);
+  abilities = pruneCascadeReminderAbilities(abilities);
+  abilities = pruneRedundantCascadeReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantInfectKeywordUnknownAbilities(abilities);
+  abilities = pruneRedundantLandwalkKeywordUnknownAbilities(abilities);
+  abilities = applyGlobalImpulseUpgrades(abilities, normalizedOracleText);
+  abilities = expandCopySpellUnknownAbilities(abilities);
+  abilities = expandMoveZoneCopiedSpellAbilities(abilities);
+  abilities = mergeDanglingCopySpellAbilities(abilities);
+  abilities = expandOtherwiseConditionalUnknownAbilities(abilities);
+  abilities = mergeConditionalLookChooseFromTopAbilities(abilities);
+  abilities = mergeLookChooseFromTopAbilities(abilities);
+  abilities = mergeLookSelectTopFollowupAbilities(abilities);
+  abilities = mergeTopLibraryBottomRandomTailAbilities(abilities);
+  abilities = pruneCascadeReminderAbilities(abilities);
+  abilities = pruneRedundantCascadeReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantEldraziTokenManaReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantEnchantAttachmentReminderUnknownAbilities(abilities);
   abilities = bindThisWayAntecedentOnAbilities(abilities);
   abilities = abilities.map(wrapTriggeredInterveningIfAbility);
   abilities = pruneBatch382MisparseExecutableSteps(abilities);
   abilities = upgradeSpryAndMightyCompoundSteps(abilities);
   abilities = pruneIgnorableEffectReminderUnknownSteps(abilities);
   abilities = recoverDroppedActivationCostReductionStaticAbilities(abilities, parsed.abilities);
+
+  const individuallyParsedAbilities = normalizedOracleText
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line) => parseOracleText(line, cardName).abilities);
+  const copyTailCandidates = Array.from(
+    normalizedOracleText.matchAll(/copy that card\.\s*you may cast the copy(?: without paying its mana cost| by paying .+? rather than paying its mana cost)?\.?/gi),
+    (match) => String(match[0] || '').trim(),
+  ).flatMap((text) => parseOracleText(text, cardName).abilities);
+  const recoveryCandidates = [...parsed.abilities, ...individuallyParsedAbilities, ...copyTailCandidates];
+
+  for (const parsedAbility of recoveryCandidates) {
+    const text = String(parsedAbility.effect || parsedAbility.text || '').trim();
+    if (!text || abilities.some((ability) => ability.text === parsedAbility.text)) continue;
+    if (
+      !/^if\b.+,\s*target\b.+\bgets?\b/i.test(text) &&
+      !/^you may cast\b.+\bfrom your graveyard\b/i.test(text) &&
+      !/^enchanted creature (?:has ward|gets\b)/i.test(text) &&
+      !/^as an additional cost to cast this spell\b[\s\S]*\.\s*draw\b/i.test(text) &&
+      !(
+        !/[()]/.test(text) &&
+        !/\bany player may activate\b/i.test(text) &&
+        /\bgets?\s+[+-](?:\d+|x)\s*\/\s*[+-](?:\d+|x)\b/i.test(text)
+      ) &&
+      !/^(?:spell mastery\s*-\s*)?if\b[\s\S]*\bcopy\b/i.test(text) &&
+      !/^copy that card\b/i.test(text)
+    ) {
+      continue;
+    }
+
+    let recovered = [parseAbilityToIRAbility(parsedAbility, cardName)];
+    recovered = expandSimpleConditionalUnknownAbilities(recovered);
+    recovered = expandGraveyardPermissionUnknownAbilities(recovered);
+    recovered = expandFreeGraveyardCastPermissionAbilities(recovered);
+    recovered = expandGraveyardOrExilePermissionAbilities(recovered);
+    recovered = recovered
+      .map((ability) => ({
+        ...ability,
+        type: /^as an additional cost to cast this spell/i.test(text) ? AbilityType.SPELL : ability.type,
+        steps: ability.steps.filter(
+          (step) => !/^as an additional cost to cast this spell\b/i.test(String(step.raw || '')),
+        ),
+      }))
+      .filter((ability) => ability.steps.some((step) => step.kind !== 'unknown'));
+    abilities.push(...recovered);
+  }
+
+  abilities = expandCopySpellUnknownAbilities(abilities);
+  abilities = mergeDanglingCopySpellAbilities(abilities);
+
+  for (const line of normalizedOracleText.split(/\n+/).map((part) => part.trim()).filter(Boolean)) {
+    if (
+      /[()]/.test(line) ||
+      /\bany player may activate\b/i.test(line) ||
+      !/\bgets?\s+[+-](?:\d+|x)\s*\/\s*[+-](?:\d+|x)\b/i.test(line)
+    ) continue;
+    if (abilities.some((ability) => ability.text === line)) continue;
+    const step = parseEffectClauseToStep(line);
+    if (step.kind === 'unknown') {
+      abilities.push({
+        type: AbilityType.STATIC,
+        text: line,
+        effectText: line,
+        steps: [],
+      });
+      continue;
+    }
+    abilities.push({
+      type: AbilityType.STATIC,
+      text: line,
+      effectText: line,
+      steps: [step],
+    });
+  }
+
+  abilities = abilities.reduce<OracleIRAbility[]>((merged, ability) => {
+    const previous = merged[merged.length - 1];
+    if (
+      previous?.type === AbilityType.SPELL &&
+      ability.type === AbilityType.SPELL &&
+      ability.steps.length === 1 &&
+      ability.steps[0]?.kind === 'proliferate'
+    ) {
+      merged[merged.length - 1] = {
+        ...previous,
+        text: `${previous.text} ${ability.text}`.trim(),
+        effectText: `${previous.effectText} ${ability.effectText}`.trim(),
+        steps: [...previous.steps, { ...ability.steps[0], sequence: 'then' }],
+      };
+      return merged;
+    }
+    merged.push(ability);
+    return merged;
+  }, []);
+
+  abilities = mergeLookSelectTopFollowupAbilities(abilities);
+
+  abilities = abilities.map((ability) => {
+    if (ability.steps.length !== 1 || ability.steps[0]?.kind !== 'grant_static_ability') return ability;
+    const malformedTarget = String((ability.steps[0].target as any)?.text || '').trim();
+    const tokenLead = malformedTarget.match(/^(create(?:s)?\s+.+?\btokens?)\.\s+(?:it has|they have)$/i);
+    if (!tokenLead || !/^sacrifice this (?:token|creature): add \{c\}/i.test(String(ability.steps[0].raw || '').trim())) {
+      return ability;
+    }
+    const createStep = parseEffectClauseToStep(String(tokenLead[1] || '').trim());
+    return createStep.kind === 'create_token' ? { ...ability, steps: [createStep] } : ability;
+  });
+
+  const bottomRandomTail = normalizedOracleText.match(
+    /\bPut the rest on the bottom of your library in a random order\b/i,
+  )?.[0];
+  if (
+    bottomRandomTail &&
+    !abilities.some((ability) =>
+      ability.steps.some((step) => /put the rest on the bottom of your library in a random order/i.test(String(step.raw || '')))
+    )
+  ) {
+    const lastAbilityIndex = abilities.length - 1;
+    const lastAbility = abilities[lastAbilityIndex];
+    const lastStepIndex = (lastAbility?.steps.length || 0) - 1;
+    if (lastAbility && lastStepIndex >= 0) {
+      const lastStep = lastAbility.steps[lastStepIndex];
+      abilities[lastAbilityIndex] = {
+        ...lastAbility,
+        steps: lastAbility.steps.map((step, index) =>
+          index === lastStepIndex
+            ? { ...lastStep, raw: `${String(lastStep.raw || '').replace(/[.]+$/g, '')}. ${bottomRandomTail}` }
+            : step
+        ),
+      };
+    }
+  }
+
+  const mayhemMatch = normalizedOracleText.match(
+    /^mayhem\s+((?:\{[^}]+\})+)\s+\(you may cast this card from your graveyard for ((?:\{[^}]+\})+) if (.+?)\.\s*timing rules still apply\.\)$/i,
+  );
+  if (mayhemMatch) {
+    const cost = String(mayhemMatch[1] || '').trim();
+    const castCost = String(mayhemMatch[2] || cost).trim();
+    const conditionRaw = String(mayhemMatch[3] || '').trim();
+    abilities = [{
+      type: AbilityType.KEYWORD,
+      text: `Mayhem ${cost}`,
+      cost,
+      effectText: '',
+      steps: [{
+        kind: 'conditional',
+        condition: { kind: 'as_long_as', raw: conditionRaw },
+        steps: [
+          {
+            kind: 'grant_graveyard_permission',
+            who: { kind: 'you' },
+            what: { kind: 'raw', text: 'this card' },
+            permission: 'cast',
+            duration: 'during_resolution',
+            optional: true,
+            raw: 'you may cast this card from your graveyard',
+          },
+        ],
+        raw: `if ${conditionRaw}, you may cast this card from your graveyard for ${castCost}`,
+      }],
+    }];
+  }
 
   return {
     normalizedOracleText,

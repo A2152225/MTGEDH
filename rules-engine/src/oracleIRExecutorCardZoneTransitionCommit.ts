@@ -104,7 +104,11 @@ function applyReadyCardZoneTransitions(args: {
     const card = removed ?? transition.event.object;
     if (!card) continue;
 
-    const destination = resolveEffectiveDestinationFromTransition(transition, args.fallbackDestination);
+    const fallbackZone = toPlayerZoneName(args.fallbackDestination);
+    const destination = resolveEffectiveDestinationFromTransition(
+      transition,
+      fallbackZone && fallbackZone !== 'command' ? fallbackZone : sourceZoneName,
+    );
     if (destination === 'cease_to_exist') continue;
 
     if (sourceZoneName === 'library' && destination === 'library') {

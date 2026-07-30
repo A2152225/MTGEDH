@@ -472,7 +472,7 @@ export function evaluateBatch368BulkConditionalClause(params: Batch368BulkParams
 
   if (normalizedRaw === 'they were attacked this turn by an assassin you controlled') {
     const thatPlayerId = String(
-      (ctx as any)?.thatPlayerId ?? ctx.targetPlayerId ?? ctx.referencedPlayerId ?? ''
+      (ctx as any)?.thatPlayerId ?? (ctx as any).targetPlayerId ?? (ctx as any).referencedPlayerId ?? ''
     ).trim();
     const flag = (ctx as any)?.theyWereAttackedThisTurnByAssassinYouControlled;
     if (typeof flag === 'boolean') return flag;

@@ -39,6 +39,7 @@ export type ModifyPtRuntime = {
   readonly lastGoadedCreatures?: readonly BattlefieldPermanent[];
   readonly lastSacrificedCreaturesPowerTotal?: number;
   readonly lastSacrificedPermanents?: readonly LastKnownPermanentSnapshot[];
+  readonly lastDestroyedPermanents?: readonly any[];
   readonly lastExcessDamageDealtThisWay?: number;
   readonly lastScryLookedAtCount?: number;
   readonly lastTappedMatchingPermanentCount?: number;
@@ -59,6 +60,7 @@ type StepRecordedSkipResult = {
     | 'unsupported_where_clause'
     | 'unsupported_condition_clause'
     | 'unsupported_scaler'
+    | 'no_applicable_targets'
     | 'target_not_on_battlefield';
 };
 
@@ -1053,20 +1055,21 @@ export function applyModifyPtStep(
     }
     scale = resolvedScale;
   } else if (step.scaler) {
+    const scalerKind = String(step.scaler.kind);
     scale =
-      step.scaler.kind === 'per_revealed_this_way'
+      scalerKind === 'per_revealed_this_way'
         ? Math.max(0, runtime.lastRevealedCardCount | 0)
-        : step.scaler.kind === 'per_creature_blocking_it'
+        : scalerKind === 'per_creature_blocking_it'
           ? Math.max(0, countCreaturesBlockingTarget(state, targetCreatureIds[0]))
-          : step.scaler.kind === 'per_basic_land_type_among_lands_you_control'
+          : scalerKind === 'per_basic_land_type_among_lands_you_control'
             ? Math.max(0, countBasicLandTypesAmongLandsYouControl(state, controllerId))
-            : step.scaler.kind === 'per_artifact_you_control'
+            : scalerKind === 'per_artifact_you_control'
               ? Math.max(0, countArtifactsYouControl(state, controllerId))
-              : step.scaler.kind === 'per_creature_tapped_this_way'
+              : scalerKind === 'per_creature_tapped_this_way'
                 ? Math.max(0, runtime.lastTappedMatchingPermanentCount | 0)
-                : step.scaler.kind === 'per_goblin_you_control'
+                : scalerKind === 'per_goblin_you_control'
                   ? Math.max(0, countControlledCreaturesWithSubtype(state, controllerId, 'goblin'))
-                  : step.scaler.kind === 'per_other_attacking_aurochs'
+                  : scalerKind === 'per_other_attacking_aurochs'
                     ? Math.max(0, countOtherAttackingAurochs(state, targetCreatureIds[0]))
                     : 1;
   }

@@ -1,4 +1,4 @@
-import type { PlayerID } from '../../../shared/src/index.js';
+import type { PlayerID } from '../../../../shared/src/index.js';
 import { canPayManaCostWithAvailableSources, parseManaCost } from './mana-check.js';
 
 export function applyChosenXToManaCost(manaCost: string, xValue: number): string {

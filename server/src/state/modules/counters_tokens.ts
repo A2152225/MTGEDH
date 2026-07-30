@@ -3,7 +3,7 @@ import { buildZoneObjectWithRetainedCounters } from "../../../../shared/src/zone
 import type { GameContext } from "../context";
 import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
 import { uid, parsePT, parseWordNumber, triggerLifeGainEffects } from "../utils";
-import { recalculatePlayerEffects } from "./game-state-effects.js";
+import { processLifeChange, recalculatePlayerEffects } from "./game-state-effects.js";
 import { evaluateCounterPlacementReplacementEvent, evaluateTokenCreationReplacementEvent } from "./replacement-effects.js";
 import { getDeathTriggers, processLinkedExileReturns } from "./triggered-abilities.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";

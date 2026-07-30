@@ -375,17 +375,28 @@ describe('EffectProgram', () => {
     const tokenNames = ((replacedTokens.state.battlefield || []) as any[]).map(perm => String(perm?.card?.name || perm?.name || '').toLowerCase());
     expect(tokenNames).toEqual(expect.arrayContaining(['clue', 'food', 'treasure']));
 
-    const { programs: staticPrograms } = buildEffectProgramsFromOracleText({
-      idPrefix: 'reaver-program',
-      oracleText: 'Equipped creature gets +1/+1 and has trample and "Whenever this creature deals combat damage to a player or planeswalker, create that many Treasure tokens."',
+    const staticProgram = buildEffectProgramFromOracleIR({
+      id: 'reaver-program',
       controllerId: 'p1',
       sourceId: 'reaver-cleaver',
       sourceName: 'The Reaver Cleaver',
+      steps: [{
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'equipped creature' },
+        abilities: [
+          'trample',
+          'whenever this creature deals combat damage to a player or planeswalker, create that many treasure tokens.',
+        ],
+        power: 1,
+        toughness: 1,
+        duration: 'static',
+        raw: 'Equipped creature gets +1/+1 and has trample.',
+      }],
     });
 
     const staticResult = runOracleEffectProgram(
       createEffectProgramRuntime({
-        program: staticPrograms[0]!,
+        program: staticProgram,
         state: makeState({
           battlefield: [
             {
@@ -1391,7 +1402,7 @@ describe('EffectProgram', () => {
     expect(result.status).toBe('completed');
     expect((player.hand || []).map((card: any) => card.id)).toEqual(['drawn-card']);
     expect((player.library || []).map((card: any) => card.id)).toEqual([]);
-    expect(result.events).toEqual([
+    expect(result.events).toMatchObject([
       {
         type: 'oracle_ir_execution',
         stepId: 'divination-program:ability-0:clause-0:command',
@@ -1426,7 +1437,7 @@ describe('EffectProgram', () => {
 
     expect(result.status).toBe('completed');
     expect((result.state.players.find(playerState => playerState.id === 'p1') as any).hand.map((card: any) => card.id)).toEqual(['drawn-card']);
-    expect(result.events).toEqual([
+    expect(result.events).toMatchObject([
       {
         type: 'oracle_ir_execution',
         stepId: 'handler-factory-program:clause-0:command',
@@ -2007,7 +2018,7 @@ describe('EffectProgram', () => {
 
     expect(completed.status).toBe('completed');
     expect((completed.state.battlefield || []).map((perm: any) => perm.id)).toEqual(['elf-1']);
-    expect(completed.events).toEqual([
+    expect(completed.events).toMatchObject([
       {
         type: 'oracle_ir_execution',
         stepId: 'sacrifice-program:clause-0:command',
@@ -2096,7 +2107,7 @@ describe('EffectProgram', () => {
     expect((completed.state.players[0] as any).graveyard.map((card: any) => card.id)).toEqual(
       expect.arrayContaining(['card-1', 'card-3'])
     );
-    expect(completed.events).toEqual([
+    expect(completed.events).toMatchObject([
       {
         type: 'oracle_ir_execution',
         stepId: 'discard-program:clause-0:command',

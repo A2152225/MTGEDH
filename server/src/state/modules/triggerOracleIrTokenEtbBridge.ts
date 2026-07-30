@@ -6,7 +6,9 @@ import { debug } from '../../utils/debug.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { queueTokenCreatedTriggers } from './triggers/tokens.js';
 
-function collectCreateTokenMutations(result: OracleIRExecutionResult): OracleIRReplayMutation[] {
+function collectCreateTokenMutations(
+  result: OracleIRExecutionResult,
+): Extract<OracleIRReplayMutation, { kind: 'createToken' }>[] {
   return (result.replayMutations || []).filter(
     (mutation): mutation is Extract<OracleIRReplayMutation, { kind: 'createToken' }> =>
       mutation.kind === 'createToken',

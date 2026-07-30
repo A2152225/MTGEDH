@@ -13,6 +13,7 @@ export type ReplacementEvent = ZoneChangeReplacementEvent | BattlefieldEntryRepl
 
 export interface ZoneChangeReplacementEvent {
   type: 'zone-change';
+  state?: any;
   object?: any;
   objectId?: string;
   sourceZone?: ReplacementZone;

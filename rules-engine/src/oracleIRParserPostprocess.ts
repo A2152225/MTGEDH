@@ -5,6 +5,7 @@
   OracleIRAbility,
   OraclePlayerSelector,
   OracleQuantity,
+  OracleScaler,
 } from './oracleIR';
 import { AbilityType, type ParsedAbility } from './oracleTextParser';
 import { parseKeywordActionAbility } from './oracleTextParserKeywordActionAbilities';
@@ -295,7 +296,15 @@ export function applyGlobalImpulseUpgrades(
   }
 
   const globalLoosePermission = (() => {
-    const allClauses = splitIntoClauses(normalizedOracleText);
+    const withoutParentheticalReminders = normalizedOracleText.replace(/\([^)]*\)/g, ' ');
+    const allClauses = [
+      ...splitIntoClauses(normalizedOracleText),
+      ...splitIntoClauses(withoutParentheticalReminders),
+    ];
+    const permissionTail = withoutParentheticalReminders.match(
+      /\b(?:you|they|that player|that opponent|its controller|its owner)\s+(?:may|can)\s+(?:play|cast)\s+(?:that card|those cards|them|it|the exiled card|the exiled cards)(?:\s+this turn)?(?:\s+without paying (?:its|their) mana cost)?/i,
+    );
+    if (permissionTail?.[0]) allClauses.push(permissionTail[0]);
     for (const c of allClauses) {
       const parsed = parseGlobalLooseImpulsePermission(c);
       if (parsed) return parsed;
@@ -311,9 +320,9 @@ export function applyGlobalImpulseUpgrades(
     let changed = false;
     const upgradedSteps = ability.steps.map((step) => {
       if (step.kind !== 'exile_top') return step;
-      if (step.amount.kind === 'unknown') {
+      if (step.amount.kind === 'unknown' || step.amount.kind === 'reference_amount') {
         const raw = String((step.amount as any).raw || '').trim().toLowerCase();
-        if (!raw.startsWith('until ')) return step;
+        if (step.amount.kind === 'unknown' && !raw.startsWith('until ')) return step;
       } else if (step.amount.kind === 'number' && step.amount.value === 1) {
         const permissionRaw = String(globalLoosePermission.rawClause || '').toLowerCase();
         const singularPermissionRef =
@@ -470,7 +479,10 @@ export function mergeSearchLibraryPutOnTopFollowupAbilities(
       merged.push(current);
     }
 
-    return merged.length === ability.steps.length ? ability : { ...ability, steps: merged };
+    return merged.length === ability.steps.length &&
+      merged.every((step, index) => step === ability.steps[index])
+      ? ability
+      : { ...ability, steps: merged };
   });
 }
 
@@ -666,7 +678,16 @@ export function mergeLookSelectTopFollowupAbilities(
     const merged: OracleEffectStep[] = [];
 
     for (let i = 0; i < ability.steps.length; i += 1) {
-      const current = ability.steps[i];
+      let current = ability.steps[i];
+      if (current.kind === 'conditional') {
+        const nestedAbility = mergeLookSelectTopFollowupAbilities([{
+          ...ability,
+          steps: current.steps,
+        }])[0];
+        if (nestedAbility && nestedAbility.steps !== current.steps) {
+          current = { ...current, steps: nestedAbility.steps };
+        }
+      }
       const next = ability.steps[i + 1];
       const combined = parseLookTopMoveZoneSelectPair(current, next)
         ?? parseLookSelectTopFollowupPair(current, next);
@@ -679,7 +700,10 @@ export function mergeLookSelectTopFollowupAbilities(
       merged.push(current);
     }
 
-    return merged.length === ability.steps.length ? ability : { ...ability, steps: merged };
+    return merged.length === ability.steps.length &&
+      merged.every((step, index) => step === ability.steps[index])
+      ? ability
+      : { ...ability, steps: merged };
   });
 }
 
@@ -775,16 +799,43 @@ function parseLookChooseFromTopPair(
   next: OracleEffectStep | undefined
 ): OracleEffectStep | null {
   if (current.kind !== 'look_top' && current.kind !== 'reveal_top') return null;
-  if (next?.kind !== 'unknown') return null;
 
   const amount = (current as { amount?: ReturnType<typeof parseQuantity> }).amount;
   if (!amount || amount.kind === 'unknown') return null;
+  if (!next) return null;
 
   const normalized = normalizeOracleText(String(next.raw || ''))
     .replace(/[.]+$/g, '')
     .trim();
+  if (next?.kind === 'move_zone' && next.optional === true) {
+    if (next.to !== 'hand' && next.to !== 'exile' && next.to !== 'battlefield') return null;
+    const moveMatch = normalized.match(
+      /^you may (?:reveal and )?(?:put|exile) (.+?) from among them(?: and put (?:it|that card) into your hand)?\.\s*put the rest on the bottom of your library in (a random|any) order$/i,
+    );
+    if (!moveMatch) return null;
+    const selectorText = String(moveMatch[1] || '')
+      .trim()
+      .replace(/^an?\s+/i, '')
+      .replace(/\s+card(?=\s+with\b|$)/i, '')
+      .trim();
+    if (!selectorText) return null;
+    const restOrder = /^any$/i.test(String(moveMatch[2] || '').replace(/^a\s+/i, '')) ? 'any' as const : undefined;
+    return {
+      kind: 'look_choose_from_top',
+      who: (current as { who?: { kind: 'you' } }).who ?? { kind: 'you' },
+      amount,
+      selectorText,
+      destination: next.to,
+      ...(/\breveal\b/i.test(normalized) ? { reveal: true } : {}),
+      ...(restOrder ? { restOrder } : {}),
+      optional: true,
+      ...(current.sequence ? { sequence: current.sequence } : {}),
+      raw: `${normalizeOracleText(String(current.raw || '')).trim()}. ${normalized}`.trim(),
+    };
+  }
+  if (next?.kind !== 'unknown') return null;
   const combined = normalized.match(
-    /^you may reveal (.+?) card from among them and put (?:it|that card) into your hand\.\s*put the rest on the bottom of your library in (?:a random|any) order$/i
+    /^you may reveal (.+?) card from among them and put (?:it|that card) into your hand\.\s*put the rest on the bottom of your library in (a random|any) order$/i
   );
   if (!combined) return null;
 
@@ -965,7 +1016,7 @@ function parseChosenTypeTopLookChooseFromTopSequence(
     if (after?.kind !== 'move_zone' || (after as { to?: string }).to !== 'graveyard') return null;
     if (next?.kind !== 'conditional') return null;
 
-    const conditionRaw = normalizeStepText({ raw: String((next.condition as { raw?: string } | undefined)?.raw || '') } as OracleEffectStep);
+    const conditionRaw = normalizeStepText({ raw: String((next.condition as { raw?: string } | undefined)?.raw || '') } as unknown as OracleEffectStep);
     if (!conditionRaw.includes('chosen type')) return null;
 
     const creatureOnly = conditionRaw.includes('creature');
@@ -990,7 +1041,7 @@ function parseChosenTypeTopLookChooseFromTopSequence(
   const amount = (current as { amount?: ReturnType<typeof parseQuantity> }).amount;
   if (amount?.kind !== 'number' || amount.value !== 1) return null;
 
-  const tailSteps = [next, after, fourth].filter(Boolean) as OracleEffectStep[];
+  const tailSteps = [next, after, fourth].filter(Boolean) as unknown as OracleEffectStep[];
   const tailRaw = tailSteps.map(normalizeStepText).join(' ');
   if (!tailRaw.includes('chosen type') || !tailRaw.includes('hand')) return null;
 
@@ -1463,7 +1514,7 @@ function lowerAmongThemChoosePlayerChoiceStep(step: OracleEffectStep): OracleEff
     toRaw: /\btapped\b/i.test(primary) ? 'the battlefield tapped' : 'the battlefield',
     ...( /\btapped\b/i.test(primary) ? { entersTapped: true } : {}),
     raw: moveRaw,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function trySplitAmongThemRevealedChosenThisWayStep(step: OracleEffectStep): OracleEffectStep[] | null {
@@ -1487,7 +1538,7 @@ function trySplitAmongThemRevealedChosenThisWayStep(step: OracleEffectStep): Ora
       to: 'battlefield',
       toRaw: 'the battlefield',
       raw: 'Put all nonland cards chosen this way onto the battlefield',
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
     {
       kind: 'move_zone',
       what: { kind: 'raw', text: 'all land cards chosen this way' },
@@ -1495,14 +1546,14 @@ function trySplitAmongThemRevealedChosenThisWayStep(step: OracleEffectStep): Ora
       toRaw: 'the battlefield tapped',
       entersTapped: true,
       raw: 'Put all land cards chosen this way onto the battlefield tapped',
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
     {
       kind: 'move_zone',
       what: { kind: 'raw', text: 'the rest' },
       to: 'library',
       toRaw: 'the bottom of your library in a random order',
       raw: 'Put the rest on the bottom of your library in a random order',
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
   ];
 }
 
@@ -1556,7 +1607,7 @@ export function upgradeXAtLeastAlternateMoveDestinations(
           threshold: 5,
           destinations: ['battlefield', 'hand'],
         },
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     });
     return changed ? { ...ability, steps: nextSteps } : ability;
   });
@@ -1586,7 +1637,7 @@ export function splitCompoundChosenCardsMoveZoneAbilities(
             battlefieldController: { kind: 'you' },
             raw: 'Put one of the chosen cards onto the battlefield',
             ...(step.sequence ? { sequence: step.sequence } : {}),
-          } as OracleEffectStep,
+          } as unknown as OracleEffectStep,
           {
             kind: 'move_zone',
             what: parseObjectSelector('the other chosen cards'),
@@ -1594,7 +1645,7 @@ export function splitCompoundChosenCardsMoveZoneAbilities(
             toRaw: 'your hand',
             raw: 'Put the other chosen cards into your hand',
             sequence: 'then',
-          } as OracleEffectStep,
+          } as unknown as OracleEffectStep,
           {
             kind: 'move_zone',
             what: parseObjectSelector('the rest'),
@@ -1602,7 +1653,7 @@ export function splitCompoundChosenCardsMoveZoneAbilities(
             toRaw: 'your graveyard',
             raw: 'Put the rest into your graveyard',
             sequence: 'then',
-          } as OracleEffectStep
+          } as unknown as OracleEffectStep
         );
         continue;
       }
@@ -1831,7 +1882,7 @@ function stripMalformedDynamicWithCounters(step: OracleEffectStep): OracleEffect
   if (!entries.some(([counter]) => /\bnumber\s+of\b/i.test(counter))) return step;
 
   const { withCounters: _withCounters, ...rest } = step as any;
-  return rest as OracleEffectStep;
+  return rest as unknown as OracleEffectStep;
 }
 
 function parseSimpleCounterTailStep(rawTail: string): OracleEffectStep | null {
@@ -2008,7 +2059,7 @@ function splitDrawAndLifeStep(step: OracleEffectStep): readonly OracleEffectStep
           duration: 'static',
           raw: 'reveal it',
           sequence: 'then',
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
       ];
     }
   }
@@ -2071,7 +2122,7 @@ function splitDrawAndLifeStep(step: OracleEffectStep): readonly OracleEffectStep
           duration: 'static',
           raw: `convert ${String(drawConvert[3] || '').trim()}`,
           sequence: 'then',
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
       ];
     }
   }
@@ -2244,13 +2295,13 @@ function splitGainLifeDrawLeadFromDrawStep(step: OracleEffectStep): readonly Ora
       who: { kind: 'you' },
       amount: { kind: 'number', value: Number.parseInt(String(match[1] || '0'), 10) || 0 },
       raw: `you gain ${String(match[1] || '').trim()} life`,
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
     {
       kind: 'draw',
       who: { kind: 'you' },
       amount: parseQuantity(drawAmountRaw),
       raw: `draw ${String(match[2] || '').trim()}`,
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
   ];
 }
 
@@ -2291,7 +2342,7 @@ function splitDrawAndCreatureBuffStep(step: OracleEffectStep): readonly OracleEf
       duration: 'end_of_turn',
       raw: `${targetText} get ${buffText.split(/,\s*where/i)[0]?.trim() || buffText}`,
       sequence: 'then',
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
   ];
 
   const keywordMatch = buffText.match(/\band\s+gain\s+(trample|flying|hexproof|reach|haste|menace|deathtouch|lifelink|first strike|double strike)\b/i);
@@ -2303,7 +2354,7 @@ function splitDrawAndCreatureBuffStep(step: OracleEffectStep): readonly OracleEf
       duration: 'end_of_turn',
       raw: `${targetText} gain ${String(keywordMatch[1] || '').trim()} until end of turn`,
       sequence: 'then',
-    } as OracleEffectStep);
+    } as unknown as OracleEffectStep);
   }
 
   return steps;
@@ -2343,7 +2394,7 @@ function parseVillainousChoiceFromClause(rawClause: string): OracleEffectStep | 
       { label: optionBText, raw: optionBText, steps: [...parseModeEffectSteps(optionBText)] },
     ],
     raw: `${chooserText} faces a villainous choice - ${optionAText}, or ${optionBText}`,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function splitMisparseVillainousChoiceDrawStep(step: OracleEffectStep): OracleEffectStep | null {
@@ -2445,7 +2496,7 @@ function splitDrawCreateTreasureStep(step: OracleEffectStep): readonly OracleEff
       entersTapped: true,
       raw: `create ${createRef} tapped Treasure tokens`,
       sequence: 'then',
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
   ];
 }
 
@@ -2475,7 +2526,7 @@ function mergeOrphanConnectorSteps(steps: readonly OracleEffectStep[]): OracleEf
       merged.push(
         next.sequence || !step.sequence
           ? next
-          : ({ ...next, sequence: step.sequence } as OracleEffectStep),
+          : ({ ...next, sequence: step.sequence } as unknown as OracleEffectStep),
       );
       index += 1;
       continue;
@@ -2485,7 +2536,7 @@ function mergeOrphanConnectorSteps(steps: readonly OracleEffectStep[]): OracleEf
         ...next,
         who: parsePlayerSelector('that player'),
         raw: `That player ${String(next.raw || '').replace(/^then\s+/i, '')}`,
-      } as OracleEffectStep);
+      } as unknown as OracleEffectStep);
       index += 1;
       continue;
     }
@@ -2503,7 +2554,7 @@ function pruneMalformedAbilitySteps(steps: readonly OracleEffectStep[]): OracleE
         effectText: ['firstest strike'],
         duration: 'static',
         raw: String(step.raw || ''),
-      } as OracleEffectStep];
+      } as unknown as OracleEffectStep];
     }
     if (isKeywordReminderTailStep(step)) return [];
     return [step];
@@ -2528,13 +2579,13 @@ function pruneMalformedAbilitySteps(steps: readonly OracleEffectStep[]): OracleE
         return who?.kind === 'unknown';
       });
       if (Array.isArray(effectText) && effectText.length > 0 && hasMalformedNested) {
-        const { steps: _removed, ...rest } = step as OracleEffectStep & { steps?: readonly OracleEffectStep[] };
-        return rest as OracleEffectStep;
+        const { steps: _removed, ...rest } = step as unknown as OracleEffectStep & { steps?: readonly OracleEffectStep[] };
+        return rest as unknown as OracleEffectStep;
       }
       const nested = pruneMalformedAbilitySteps(nestedSteps);
       if (nested.length === 0) {
-        const { steps: _removed, ...rest } = step as OracleEffectStep & { steps?: readonly OracleEffectStep[] };
-        return rest as OracleEffectStep;
+        const { steps: _removed, ...rest } = step as unknown as OracleEffectStep & { steps?: readonly OracleEffectStep[] };
+        return rest as unknown as OracleEffectStep;
       }
       return nested !== (step as { steps: readonly OracleEffectStep[] }).steps ? { ...step, steps: nested } : step;
     }
@@ -2660,7 +2711,7 @@ function parseUntilEndTriggeredLifeUnknownStep(step: OracleEffectStep): OracleEf
     amount: parseQuantity(`${String(match[2] || '').trim()} for each ${String(match[3] || '').trim()}`),
     duration: 'end_of_turn',
     raw,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function parseForAnyNumberOpponentsDestroyUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
@@ -2907,7 +2958,7 @@ function parseTimedDestroyUnknownStep(step: OracleEffectStep): OracleEffectStep 
     rawClause: destroyClause,
     withMeta: <T extends OracleEffectStep>(value: T) => value,
   });
-  return parsed?.kind === 'destroy' ? ({ ...parsed, timing: 'end_of_combat' } as OracleEffectStep) : null;
+  return parsed?.kind === 'destroy' ? ({ ...parsed, timing: 'end_of_combat' } as unknown as OracleEffectStep) : null;
 }
 
 function parseForEachGainLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
@@ -2920,7 +2971,7 @@ function parseForEachGainLifeUnknownStep(step: OracleEffectStep): OracleEffectSt
     who: parsePlayerSelector(String(match[2] || '').trim()),
     amount: parseQuantity(`${String(match[3] || '').trim()} for each ${String(match[1] || '').trim()}`),
     raw,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function parseForEachManaGainLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
@@ -2933,7 +2984,7 @@ function parseForEachManaGainLifeUnknownStep(step: OracleEffectStep): OracleEffe
     who: parsePlayerSelector(String(match[2] || '').trim()),
     amount: parseQuantity(`${String(match[3] || '').trim()} for each ${String(match[1] || '').trim()}`),
     raw,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function parseEnterAsCopyUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
@@ -2948,7 +2999,7 @@ function parseEnterAsCopyUnknownStep(step: OracleEffectStep): OracleEffectStep |
     effectText: ['may enter as a copy of any creature on the battlefield'],
     duration: 'static',
     raw,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 const STANDALONE_KEYWORD_STATICS = [
@@ -3047,8 +3098,12 @@ function buildAnnihilatorTriggerMetadata(count: number): {
 }
 
 function hasAnnihilatorAttackTriggerMetadata(step: OracleEffectStep): boolean {
-  if (Array.isArray(step.steps) && step.steps.some((nested) => nested.kind === 'sacrifice')) return true;
-  const lines = Array.isArray(step.effectText) ? step.effectText : [];
+  const withNested = step as OracleEffectStep & {
+    steps?: readonly OracleEffectStep[];
+    effectText?: readonly string[];
+  };
+  if (Array.isArray(withNested.steps) && withNested.steps.some((nested) => nested.kind === 'sacrifice')) return true;
+  const lines = Array.isArray(withNested.effectText) ? withNested.effectText : [];
   return lines.some((line) => /whenever this creature attacks/i.test(String(line || '')));
 }
 
@@ -3096,7 +3151,7 @@ function splitAnnihilatorFromGrantStep(step: OracleEffectStep): OracleEffectStep
       ...buildAnnihilatorTriggerMetadata(count),
       raw: `annihilator ${count}`,
       ...sequence,
-    } as OracleEffectStep);
+    } as unknown as OracleEffectStep);
   }
 
   return result;
@@ -3227,7 +3282,7 @@ function createAnnihilatorGrantStep(
     duration: 'static',
     raw: rawSuffix,
     ...sequence,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function createStructuredKeywordActionGrantStep(
@@ -3243,7 +3298,7 @@ function createStructuredKeywordActionGrantStep(
     duration: 'static',
     raw: rawSuffix,
     ...sequence,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function createSemanticStaticGrantStep(
@@ -3259,7 +3314,7 @@ function createSemanticStaticGrantStep(
     duration: 'static',
     raw: rawSuffix,
     ...sequence,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function parseStructuredKeywordActionGrant(
@@ -3517,7 +3572,7 @@ function parseStructuredKeywordActionGrant(
       target: parseObjectSelector('enchanted creature'),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const landwalkMatch = raw.match(
@@ -3544,7 +3599,7 @@ function parseStructuredKeywordActionGrant(
         amount: parseQuantity(String(amassMillMatch[2] || '').trim()),
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -3563,7 +3618,7 @@ function parseBlightActionFragmentSteps(
       amount: parseQuantity(String(self[1] || '1').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOpponent = raw.match(/^each\s+opponent\s+blights?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)$/i);
@@ -3574,7 +3629,7 @@ function parseBlightActionFragmentSteps(
       amount: parseQuantity(String(eachOpponent[1] || '1').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachPlayer = raw.match(/^each\s+player\s+blights?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)$/i);
@@ -3585,7 +3640,7 @@ function parseBlightActionFragmentSteps(
       amount: parseQuantity(String(eachPlayer[1] || '1').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetOpponent = raw.match(/^target\s+opponent\s+blights?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)$/i);
@@ -3596,7 +3651,7 @@ function parseBlightActionFragmentSteps(
       amount: parseQuantity(String(targetOpponent[1] || '1').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetPlayer = raw.match(/^target\s+player\s+blights?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)$/i);
@@ -3607,7 +3662,7 @@ function parseBlightActionFragmentSteps(
       amount: parseQuantity(String(targetPlayer[1] || '1').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   return null;
@@ -3636,10 +3691,10 @@ function parseConditionalAttachFragmentSteps(
       attachment: parseObjectSelector(attachSplit.attachmentRaw),
       to: parseObjectSelector(attachSplit.toRaw),
       raw: attachClause,
-    } as OracleEffectStep],
+    } as unknown as OracleEffectStep],
     raw: normalized,
     ...sequence,
-  } as OracleEffectStep];
+  } as unknown as OracleEffectStep];
 }
 
 export function parseBareTriggerEffectFragmentSteps(raw: string): readonly OracleEffectStep[] | null {
@@ -3678,7 +3733,7 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
       what: parseObjectSelector(`a ${String(eachPlayerSacrificeChoice[1] || '').trim()}`),
       raw: normalized,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^destroy (?:it|them)\.?$/i.test(normalized)) {
@@ -3688,7 +3743,7 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
       target: parseObjectSelector(pronoun),
       raw: normalized,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (
@@ -3703,12 +3758,12 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
         mode: 'untap',
         raw: 'untap all other creatures you control',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'add_extra_combat',
         raw: 'after this phase, there is an additional combat phase',
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -3726,7 +3781,7 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
         optional: true,
         raw: 'you may tap any number of untapped creatures you control',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'modify_pt',
         target: parseObjectSelector('this creature'),
@@ -3736,7 +3791,7 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
         scaler: { kind: 'per_creature_tapped_this_way' },
         raw: `this creature gets ${String(tapPumpMatch[1] || '').trim()}/${String(tapPumpMatch[2] || '').trim()} until end of turn for each creature tapped this way`,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -3750,7 +3805,7 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
         what: parseObjectSelector('target vehicle card from your graveyard'),
         to: 'battlefield',
         raw: 'return target vehicle card from your graveyard to the battlefield',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector('it'),
@@ -3758,7 +3813,7 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
         duration: 'this_turn',
         raw: 'it gains haste',
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'schedule_delayed_trigger',
         timing: 'your_next_end_step',
@@ -3769,10 +3824,10 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
           to: 'hand',
           toRaw: "its owner's hand",
           raw: "return it to its owner's hand",
-        } as OracleEffectStep],
+        } as unknown as OracleEffectStep],
         raw: "return it to its owner's hand at the beginning of your next end step",
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -3808,7 +3863,7 @@ function parseBareCounterFromAmongSteps(
         amount: { kind: 'number', value: 1 },
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'player_choice',
         choice: 'generic',
@@ -3816,7 +3871,7 @@ function parseBareCounterFromAmongSteps(
         options,
         raw: `a counter from among ${String(compoundMatch[1] || '').trim()} on it`,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -3834,7 +3889,7 @@ function parseBareCounterFromAmongSteps(
       options,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   return null;
@@ -3869,7 +3924,7 @@ function parseBareEnergyGainSteps(
         amount: { kind: 'number', value: lifeAmount },
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'add_player_counter',
         who: { kind: 'you' },
@@ -3877,7 +3932,7 @@ function parseBareEnergyGainSteps(
         counter: 'energy',
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -3893,7 +3948,7 @@ function parseBareEnergyGainSteps(
       counter: 'energy',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   return null;
@@ -3923,7 +3978,7 @@ function buildTemporaryGrantStepFields(
   return text ? { effectText: [text] } : {};
 }
 
-function buildForEachScalerField(forEachPartRaw: string): OracleEffectStep['scaler'] {
+function buildForEachScalerField(forEachPartRaw: string): OracleScaler | undefined {
   const eachRaw = `for each ${String(forEachPartRaw || '').trim()}`.trim();
   if (/^for\s+each\s+card\s+revealed\s+this\s+way$/i.test(eachRaw)) {
     return { kind: 'per_revealed_this_way' };
@@ -3966,7 +4021,7 @@ function buildForEachTemporaryPtStep(
     duration: 'end_of_turn',
     raw,
     ...sequence,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function parseBareScaledPtComponents(
@@ -4007,7 +4062,7 @@ function buildForEachScaledTemporaryPtStep(
     duration: 'end_of_turn',
     raw,
     ...sequence,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function buildStaticGrantMetadataStep(
@@ -4023,7 +4078,7 @@ function buildStaticGrantMetadataStep(
     duration: 'static',
     raw,
     ...sequence,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function tryParseSingleBareStaticCostReductionSentence(
@@ -4237,7 +4292,7 @@ export function recoverDroppedActivationCostReductionStaticAbilities(
     if (hasGrant) recovered.push(candidate);
   }
 
-  return recovered.length > 0 ? [...abilities, ...recovered] : abilities;
+  return recovered.length > 0 ? [...abilities, ...recovered] as OracleIRAbility[] : [...abilities];
 }
 
 function parseStructuredTriggerResidualGrant(
@@ -4251,7 +4306,7 @@ function parseStructuredTriggerResidualGrant(
       target: parseObjectSelector(`this ${String(flipThisMatch[1] || 'permanent').toLowerCase()}`),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^flip a coin at end of combat$/i.test(raw)) {
@@ -4260,7 +4315,7 @@ function parseStructuredTriggerResidualGrant(
       who: { kind: 'you' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^flip a coin for each creature that isn't a demon, devil, or imp$/i.test(raw)) {
@@ -4269,7 +4324,7 @@ function parseStructuredTriggerResidualGrant(
       who: { kind: 'you' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^flip that many coins$/i.test(raw)) {
@@ -4278,7 +4333,7 @@ function parseStructuredTriggerResidualGrant(
       who: { kind: 'you' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^flip a coin for each opponent you have$/i.test(raw)) {
@@ -4287,7 +4342,7 @@ function parseStructuredTriggerResidualGrant(
       who: { kind: 'you' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^prevent\s+all\s+combat\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+(it|this creature|~)\s+this\s+turn\.?$/i.test(raw)) {
@@ -4298,7 +4353,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const massTemporaryPt = raw.match(
@@ -4313,7 +4368,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const teamMassTemporaryPtX = raw.match(
@@ -4333,7 +4388,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(teamMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const teamMassAsymmetricTemporaryPtX = raw.match(
@@ -4354,7 +4409,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(teamMassAsymmetricTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const otherMassTemporaryPt = raw.match(
@@ -4369,7 +4424,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const otherMassTemporaryPtX = raw.match(
@@ -4390,7 +4445,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(otherMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const otherTypedTeamMassTemporaryPt = raw.match(
@@ -4405,7 +4460,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOtherMassTemporaryPt = raw.match(
@@ -4420,7 +4475,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const thoseCreaturesMassTemporaryPt = raw.match(
@@ -4435,7 +4490,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOtherCreatureMassTemporaryPt = raw.match(
@@ -4450,7 +4505,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const theyMassTemporaryPt = raw.match(
@@ -4465,7 +4520,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const theyMassTemporaryPtX = raw.match(
@@ -4486,7 +4541,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(theyMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOfThemMassTemporaryPt = raw.match(
@@ -4501,7 +4556,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOfThemMassTemporaryPtX = raw.match(
@@ -4522,7 +4577,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(eachOfThemMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOfThemCompoundTemporaryPt = raw.match(
@@ -4545,7 +4600,7 @@ function parseStructuredTriggerResidualGrant(
         condition: { kind: 'where', raw: `x is ${String(eachOfThemCompoundTemporaryPt[4] || '').trim()}` },
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector('each of them'),
@@ -4553,7 +4608,7 @@ function parseStructuredTriggerResidualGrant(
         duration: 'end_of_turn',
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -4569,7 +4624,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const referenceCreatureTemporaryPtX = raw.match(
@@ -4590,7 +4645,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(referenceCreatureTemporaryPtX[4] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const chosenCreatureTemporaryPt = raw.match(
@@ -4605,7 +4660,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const chosenCreatureTemporaryPtX = raw.match(
@@ -4626,7 +4681,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(chosenCreatureTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const nonartifactMassTemporaryPt = raw.match(
@@ -4641,7 +4696,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachCreatureMassTemporaryPt = raw.match(
@@ -4656,7 +4711,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachGlobalWithQualifierMassTemporaryPt = raw.match(
@@ -4671,7 +4726,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachCreatureMassTemporaryPtX = raw.match(
@@ -4690,7 +4745,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(eachCreatureMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const allCreaturesMassTemporaryPtX = raw.match(
@@ -4711,7 +4766,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(allCreaturesMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const allCreaturesMassTemporaryPt = raw.match(
@@ -4726,7 +4781,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const allOtherCreaturesMassTemporaryPt = raw.match(
@@ -4741,7 +4796,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOpponentCreaturesMassTemporaryPt = raw.match(
@@ -4756,7 +4811,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOpponentCreaturesForEachFixed = raw.match(
@@ -4832,7 +4887,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(eachOpponentCreaturesMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const opponentsMassTemporaryPtX = raw.match(
@@ -4853,7 +4908,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(opponentsMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const opponentsMassTemporaryPt = raw.match(
@@ -4868,7 +4923,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOpponentCreatureMassTemporaryPtX = raw.match(
@@ -4889,7 +4944,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(eachOpponentCreatureMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOpponentCreatureMassTemporaryPt = raw.match(
@@ -4904,7 +4959,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachDontControlMassTemporaryPt = raw.match(
@@ -4919,7 +4974,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachDontControlMassTemporaryPtX = raw.match(
@@ -4940,7 +4995,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(eachDontControlMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const allDontControlMassTemporaryPt = raw.match(
@@ -4955,7 +5010,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const allDontControlMassTemporaryPtX = raw.match(
@@ -4976,7 +5031,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(allDontControlMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const allCreaturesForEachFixed = raw.match(
@@ -5020,7 +5075,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const blockingCreatureMassTemporaryPtX = raw.match(
@@ -5042,7 +5097,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(blockingCreatureMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const blockingCreaturesMassTemporaryPt = raw.match(
@@ -5057,7 +5112,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const attackedCreatureTemporaryPt = raw.match(
@@ -5072,7 +5127,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const attackedCreatureTemporaryPtX = raw.match(
@@ -5092,7 +5147,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(attackedCreatureTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const attackingMassTemporaryPt = raw.match(
@@ -5110,7 +5165,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const flankingAttackingMassTemporaryPt = raw.match(
@@ -5125,7 +5180,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const unblockedAttackingMassTemporaryPt = raw.match(
@@ -5140,7 +5195,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const tokenMassTemporaryPt = raw.match(
@@ -5155,7 +5210,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const tokenMassTemporaryPtX = raw.match(
@@ -5176,7 +5231,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(tokenMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const qualifiedMassTemporaryPt = raw.match(
@@ -5191,7 +5246,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const reorderedQualifiedMassTemporaryPt = raw.match(
@@ -5206,7 +5261,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const withoutFlyingMassTemporaryPt = raw.match(
@@ -5221,7 +5276,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const nonColorMassTemporaryPt = raw.match(
@@ -5236,7 +5291,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const subtypeMassTemporaryPt = raw.match(
@@ -5253,7 +5308,7 @@ function parseStructuredTriggerResidualGrant(
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep];
+      } as unknown as OracleEffectStep];
     }
   }
 
@@ -5274,7 +5329,7 @@ function parseStructuredTriggerResidualGrant(
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector(target),
@@ -5282,7 +5337,7 @@ function parseStructuredTriggerResidualGrant(
         ...grantFields,
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -5298,7 +5353,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const prefixEachControlledTemporaryPt = raw.match(
@@ -5313,7 +5368,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const prefixEachGlobalTemporaryPt = raw.match(
@@ -5328,7 +5383,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const prefixEachGlobalTemporaryPtX = raw.match(
@@ -5347,7 +5402,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(prefixEachGlobalTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const prefixEachControlledTemporaryPtX = raw.match(
@@ -5366,7 +5421,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(prefixEachControlledTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const prefixEachGlobalForEachFixed = raw.match(
@@ -5527,7 +5582,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(prefixTeamAsymmetricTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const prefixTeamCompound = raw.match(
@@ -5544,7 +5599,7 @@ function parseStructuredTriggerResidualGrant(
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector('creatures you control'),
@@ -5552,7 +5607,7 @@ function parseStructuredTriggerResidualGrant(
         ...grantFields,
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -5571,7 +5626,7 @@ function parseStructuredTriggerResidualGrant(
         ...grantFields,
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'modify_pt',
         target: parseObjectSelector('creatures you control'),
@@ -5583,7 +5638,7 @@ function parseStructuredTriggerResidualGrant(
         condition: { kind: 'where', raw: `x is ${String(prefixTeamCompoundGainFirstX[4] || '').trim()}` },
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -5599,7 +5654,7 @@ function parseStructuredTriggerResidualGrant(
       ...grantFields,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const teamGainKeywordUntilEot = raw.match(
@@ -5614,7 +5669,7 @@ function parseStructuredTriggerResidualGrant(
       ...grantFields,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetGainKeywordUntilEot = raw.match(
@@ -5629,7 +5684,7 @@ function parseStructuredTriggerResidualGrant(
       ...grantFields,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const controlledTargetGainKeywordUntilEot = raw.match(
@@ -5644,7 +5699,7 @@ function parseStructuredTriggerResidualGrant(
       ...grantFields,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const anotherControlledTargetGainKeywordUntilEot = raw.match(
@@ -5659,7 +5714,7 @@ function parseStructuredTriggerResidualGrant(
       ...grantFields,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const referenceGainKeywordUntilEot = raw.match(
@@ -5674,7 +5729,7 @@ function parseStructuredTriggerResidualGrant(
       ...grantFields,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const otherGainKeywordUntilEot = raw.match(
@@ -5689,7 +5744,7 @@ function parseStructuredTriggerResidualGrant(
       ...grantFields,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachControlledGainKeywordUntilEot = raw.match(
@@ -5704,7 +5759,7 @@ function parseStructuredTriggerResidualGrant(
       ...grantFields,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const prefixSelfScaledTemporaryPtX = raw.match(
@@ -5725,7 +5780,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(prefixSelfScaledTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachWithQualifierGrantKeywordUntilEot = raw.match(
@@ -5740,7 +5795,7 @@ function parseStructuredTriggerResidualGrant(
       ...grantFields,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const prefixSelfGainKeywordUntilEot = raw.match(
@@ -5755,7 +5810,7 @@ function parseStructuredTriggerResidualGrant(
       ...grantFields,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const selfGainKeywordUntilEot = raw.match(
@@ -5770,7 +5825,7 @@ function parseStructuredTriggerResidualGrant(
       ...grantFields,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const prefixTargetScaledTemporaryPtX = raw.match(
@@ -5791,7 +5846,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(prefixTargetScaledTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetPlayerCompound = raw.match(
@@ -5808,7 +5863,7 @@ function parseStructuredTriggerResidualGrant(
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector('creatures target player controls'),
@@ -5816,7 +5871,7 @@ function parseStructuredTriggerResidualGrant(
         ...grantFields,
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -5834,7 +5889,7 @@ function parseStructuredTriggerResidualGrant(
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector('this creature'),
@@ -5842,7 +5897,7 @@ function parseStructuredTriggerResidualGrant(
         ...grantFields,
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -5860,7 +5915,7 @@ function parseStructuredTriggerResidualGrant(
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector('this creature'),
@@ -5868,7 +5923,7 @@ function parseStructuredTriggerResidualGrant(
         ...grantFields,
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -5890,7 +5945,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(selfScaledTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const selfScaledTemporaryPtNoCommaWhere = raw.match(
@@ -5911,7 +5966,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(selfScaledTemporaryPtNoCommaWhere[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const compoundTargetGrantFirstPt = raw.match(
@@ -5927,7 +5982,7 @@ function parseStructuredTriggerResidualGrant(
         ...grantFields,
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'modify_pt',
         target: parseObjectSelector('target creature'),
@@ -5936,7 +5991,7 @@ function parseStructuredTriggerResidualGrant(
         duration: 'end_of_turn',
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -5954,7 +6009,7 @@ function parseStructuredTriggerResidualGrant(
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector('target creature'),
@@ -5962,7 +6017,7 @@ function parseStructuredTriggerResidualGrant(
         ...grantFields,
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -5978,7 +6033,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const forEachTeamTemporaryPt = raw.match(
@@ -6055,7 +6110,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(eachControlledWithQualifierTemporaryPtX[4] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachControlledTemporaryPt = raw.match(
@@ -6070,7 +6125,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachControlledTemporaryPtX = raw.match(
@@ -6091,7 +6146,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(eachControlledTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const compoundChosenTypePtAndKeyword = raw.match(
@@ -6108,7 +6163,7 @@ function parseStructuredTriggerResidualGrant(
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector('creatures you control of the chosen type'),
@@ -6116,7 +6171,7 @@ function parseStructuredTriggerResidualGrant(
         ...grantFields,
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -6135,7 +6190,7 @@ function parseStructuredTriggerResidualGrant(
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector(targetText),
@@ -6143,7 +6198,7 @@ function parseStructuredTriggerResidualGrant(
         ...grantFields,
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -6165,7 +6220,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(chosenTypeMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const optionalTargetTemporaryPt = raw.match(
@@ -6181,7 +6236,7 @@ function parseStructuredTriggerResidualGrant(
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetTemporaryPt = raw.match(
@@ -6196,7 +6251,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const anotherTargetTemporaryPt = raw.match(
@@ -6211,7 +6266,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const anotherTargetTemporaryPtX = raw.match(
@@ -6232,7 +6287,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(anotherTargetTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const controlledTargetTemporaryPt = raw.match(
@@ -6247,7 +6302,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const upToOneTargetTemporaryPt = raw.match(
@@ -6262,7 +6317,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const multiTargetTemporaryPt = raw.match(
@@ -6277,7 +6332,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const exactCountMultiTargetTemporaryPt = raw.match(
@@ -6292,7 +6347,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetPlayerMassTemporaryPt = raw.match(
@@ -6307,7 +6362,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetPlayerMassTemporaryPtX = raw.match(
@@ -6327,7 +6382,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(targetPlayerMassTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetTemporaryPtX = raw.match(
@@ -6348,7 +6403,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(targetTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const controlledTargetTemporaryPtX = raw.match(
@@ -6369,7 +6424,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(controlledTargetTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const opponentTargetTemporaryPtX = raw.match(
@@ -6390,7 +6445,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(opponentTargetTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const opponentTargetTemporaryPt = raw.match(
@@ -6405,7 +6460,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetDontControlTemporaryPtX = raw.match(
@@ -6426,7 +6481,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(targetDontControlTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachAttackingControlledTemporaryPtX = raw.match(
@@ -6447,7 +6502,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(eachAttackingControlledTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const otherAttackingControlledTemporaryPtX = raw.match(
@@ -6468,7 +6523,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(otherAttackingControlledTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const attackingControlledTemporaryPtX = raw.match(
@@ -6489,7 +6544,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(attackingControlledTemporaryPtX[3] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOtherBasePtTeamTemporaryPtX = raw.match(
@@ -6511,7 +6566,7 @@ function parseStructuredTriggerResidualGrant(
       condition: { kind: 'where', raw: `x is ${String(eachOtherBasePtTeamTemporaryPtX[5] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOtherAttackingTemporaryPt = raw.match(
@@ -6526,7 +6581,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const selfTemporaryPt = raw.match(
@@ -6541,7 +6596,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const selfForEachBlockingTemporaryPt = raw.match(
@@ -6570,7 +6625,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const doubleTargetPowerToughness = raw.match(
@@ -6585,7 +6640,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetCantBlockThisTurn = raw.match(
@@ -6598,7 +6653,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const countersRemainMatch = raw.match(
@@ -6613,7 +6668,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const equipPayMatch = raw.match(/^equip-pay (.+)$/i);
@@ -6633,7 +6688,7 @@ function parseStructuredTriggerResidualGrant(
       who: { kind: 'you' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^any player may (?:exile (?:a card|three cards) from their graveyard|discard three cards|pay half their life, rounded up|pay \d+ life|sacrifice two creatures of their choice|activate this ability but only during (?:their turn before the end step|any upkeep step)|activate this ability but only as a sorcery)$/i.test(raw)) {
@@ -6644,7 +6699,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^any opponent may (?:tap an untapped creature they control|have you put that card into your graveyard)$/i.test(raw)) {
@@ -6686,7 +6741,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const depthshakerMatch = raw.match(
@@ -6703,7 +6758,7 @@ function parseStructuredTriggerResidualGrant(
       duration: untilEndOfTurn ? 'end_of_turn' : 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^sacrifice them at the beginning of (?:the )?next end step\.?$/i.test(raw)) {
@@ -6715,10 +6770,10 @@ function parseStructuredTriggerResidualGrant(
         kind: 'sacrifice',
         what: parseObjectSelector('them'),
         raw: 'sacrifice them',
-      } as OracleEffectStep],
+      } as unknown as OracleEffectStep],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^flying, lifelink each other nontoken creature you control has persist$/i.test(raw)) {
@@ -6736,7 +6791,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^copy it if you control an artifact$/i.test(raw)) {
@@ -6747,7 +6802,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^count the number of permanents(?: you control)?$/i.test(raw)) {
@@ -6758,7 +6813,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^count the number of \+1\/\+1 counters on creatures you control$/i.test(raw)) {
@@ -6769,7 +6824,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^copy the enchanted instant card$/i.test(raw)) {
@@ -6780,7 +6835,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^an opponent guesses whether the top card of your library is the chosen kind$/i.test(raw)) {
@@ -6807,7 +6862,7 @@ function parseStructuredTriggerResidualGrant(
       counter: 'experience',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const blightMayMatch = raw.match(/^you may blight (\d+)\.?$/i);
@@ -6821,7 +6876,7 @@ function parseStructuredTriggerResidualGrant(
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const blightWhenDoMatch = raw.match(
@@ -6838,7 +6893,7 @@ function parseStructuredTriggerResidualGrant(
         optional: true,
         raw: `you may blight ${count}`,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector('target creature'),
@@ -6846,7 +6901,7 @@ function parseStructuredTriggerResidualGrant(
         duration: 'end_of_turn',
         raw: String(blightWhenDoMatch[2] || '').trim(),
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -6862,13 +6917,13 @@ function parseStructuredTriggerResidualGrant(
         optional: true,
         raw: `you may pay ${String(payWhenDoCantBlock[1] || '').trim()}`,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'cant_block',
         target: parseObjectSelector('target creature'),
         raw: String(payWhenDoCantBlock[2] || '').trim(),
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -6949,7 +7004,7 @@ function parseStructuredTriggerResidualGrant(
       retainAbilityText: 'it has this ability',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^this creature becomes a copy of that creature,\s+except it has this ability$/i.test(raw)) {
@@ -6960,7 +7015,7 @@ function parseStructuredTriggerResidualGrant(
       retainAbilityText: 'it has this ability',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^that creature becomes a copy of this creature\.?$/i.test(raw)) {
@@ -6970,7 +7025,7 @@ function parseStructuredTriggerResidualGrant(
       source: parseObjectSelector('this creature'),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^then, not counting that draw, if you drew more cards this turn than an opponent drew on their last turn, you may put a land card from your hand onto the battlefield$/i.test(raw)) {
@@ -6981,7 +7036,7 @@ function parseStructuredTriggerResidualGrant(
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^then, if you have 1,000 or more life, you lose the game$/i.test(raw)) {
@@ -6991,7 +7046,7 @@ function parseStructuredTriggerResidualGrant(
       steps: [{ kind: 'lose_game', raw: 'you lose the game' }],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^then, double the amount of life you lose and cards you draw for the rest of the game from this ability$/i.test(raw)) {
@@ -7002,7 +7057,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^the next time you would lose the game this turn, instead draw (one|\d+|two|three|four|five|six|seven|eight|nine|ten) cards? and your life total becomes (\d+)$/i.test(raw)) {
@@ -7032,7 +7087,7 @@ function parseStructuredTriggerResidualGrant(
       expiresAt: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you and that player may each put a permanent card from your hand onto the battlefield$/i.test(raw)) {
@@ -7044,7 +7099,7 @@ function parseStructuredTriggerResidualGrant(
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^curse defending player$/i.test(raw)) {
@@ -7055,7 +7110,7 @@ function parseStructuredTriggerResidualGrant(
       token: 'Curse enchantment token attached to defending player',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^the attacking player gains control of this artifact and untaps it\.?$/i.test(raw)) {
@@ -7066,7 +7121,7 @@ function parseStructuredTriggerResidualGrant(
       duration: 'indefinite',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const drawAndLoseWhereMatch = raw.match(
@@ -7085,7 +7140,7 @@ function parseStructuredTriggerResidualGrant(
         whereX,
         raw: 'you draw x cards',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'lose_life',
         who: { kind: 'you' },
@@ -7093,7 +7148,7 @@ function parseStructuredTriggerResidualGrant(
         whereX,
         raw: `lose x life, where x is ${whereX.raw}`,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -7177,7 +7232,7 @@ function parseStandaloneKeywordFragmentUnknownStep(step: OracleEffectStep): read
       duration: 'static',
       raw: [...staticAbilities, ...supplementalEffectText].join(', ') || stripped,
       ...sequence,
-    } as OracleEffectStep);
+    } as unknown as OracleEffectStep);
   }
 
   let leftover = remaining;
@@ -7244,7 +7299,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     duration: 'static',
     raw,
     ...sequence,
-  } as OracleEffectStep];
+  } as unknown as OracleEffectStep];
 
   const temporaryMetadata = (target: string, effectText: string, duration: 'this_turn' | 'end_of_turn' | 'until_next_turn' = 'this_turn'): readonly OracleEffectStep[] => [{
     kind: 'grant_temporary_ability',
@@ -7253,7 +7308,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     duration,
     raw,
     ...sequence,
-  } as OracleEffectStep];
+  } as unknown as OracleEffectStep];
 
   const clauseBody = normalizeClauseForParse(raw).clause.trim();
 
@@ -7272,7 +7327,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'this_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^draw a card\.?$/i.test(raw)) {
@@ -7282,7 +7337,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 1 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^this creature gets \+1\/\+0 and gains menace until end of turn$/i.test(raw)) {
@@ -7295,7 +7350,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'end_of_turn',
         raw: 'this creature gets +1/+0 until end of turn',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector('this creature'),
@@ -7303,7 +7358,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -7315,7 +7370,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'until_next_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^target creature gets -2\/-0 until your next turn$/i.test(raw)) {
@@ -7327,7 +7382,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'until_next_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you may blight 1\b/i.test(raw)) {
@@ -7340,7 +7395,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         optional: true,
         raw: 'you may blight 1',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'create_token',
         optional: true,
@@ -7348,7 +7403,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         amount: { kind: 'number', value: 1 },
         raw: 'create a Treasure token',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -7372,7 +7427,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'this_turn',
         raw: 'prevent that damage',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'remove_counter',
         amount: { kind: 'reference_amount', raw: 'that many' },
@@ -7380,7 +7435,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         target: parseObjectSelector('it'),
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -7395,7 +7450,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'this_turn',
         raw: 'prevent that damage',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'move_zone',
         what: parseObjectSelector('that creature'),
@@ -7403,7 +7458,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         toRaw: "that creature's owner's library",
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -7418,7 +7473,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'this_turn',
         raw: 'prevent that damage',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'add_counter',
         amount: { kind: 'number', value: 1 },
@@ -7426,7 +7481,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         target: parseObjectSelector('this enchantment'),
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -7439,14 +7494,14 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'this_turn',
         raw: 'prevent that damage',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'mill',
         who: { kind: 'each_opponent' },
         amount: { kind: 'reference_amount', raw: 'that many' },
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -7461,7 +7516,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'this_turn',
         raw: 'prevent that damage',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'move_zone',
         what: parseObjectSelector('that many cards from the top of your library'),
@@ -7469,7 +7524,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         toRaw: 'exile',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -7486,7 +7541,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'this_turn',
         raw: 'prevent that damage',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'remove_counter',
         amount: { kind: 'reference_amount', raw: 'that many' },
@@ -7494,7 +7549,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         target: parseObjectSelector('this permanent'),
         raw: `remove that many ${counterName} counters from this permanent`,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'create_token',
         who: { kind: 'you' },
@@ -7502,7 +7557,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         amount: { kind: 'reference_amount', raw: 'that many' },
         raw: `create that many ${tokenText}`,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -7521,7 +7576,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       target: parseObjectSelector('that permanent or player'),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^multiblight\s+\d+$/i.test(raw)) {
@@ -7587,7 +7642,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       effect: 'draw a card',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you control enchanted (?:creature|permanent)$/i.test(raw)) {
@@ -7605,7 +7660,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 1 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^up to (\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?$/i.test(raw)) {
@@ -7616,7 +7671,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const drawWhereMatch = raw.match(
@@ -7631,7 +7686,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       whereX: { kind: 'where', raw: String(drawWhereMatch[1] || '').trim() },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^miracle\s+(?:\{[^}]+\})+$/i.test(raw)) {
@@ -7653,7 +7708,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 2 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^any number of land cards$/i.test(raw)) {
@@ -7668,7 +7723,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 1 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?(?:transform|flip)\s+it\.?$/i.test(raw)) {
@@ -7714,7 +7769,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       steps: [{ kind: 'draw', who: { kind: 'each_opponent' }, amount: { kind: 'number', value: 1 }, raw: 'each opponent draws a card' }],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?reveal\s+the\s+card$/i.test(raw)) {
@@ -7722,15 +7777,15 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^(?:then\s+)?reveal\s+the\s+top\s+card$/i.test(raw)) {
-    return [{ kind: 'reveal_top', who: { kind: 'you' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'reveal_top', who: { kind: 'you' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?reveals\s+the\s+top\s+card\s+of\s+their\s+library$/i.test(raw)) {
-    return [{ kind: 'reveal_top', who: { kind: 'owner_of_referenced_object' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'reveal_top', who: { kind: 'owner_of_referenced_object' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?shuffles\s+all\s+other\s+cards\s+revealed\s+this\s+way\s+into\s+their\s+library$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('all other cards revealed this way'), to: 'library', toRaw: 'their library', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector('all other cards revealed this way'), to: 'library', toRaw: 'their library', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (
@@ -7745,11 +7800,11 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: 'the bottom of your library in a random order',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?that\s+player\s+chooses\s+a\s+card\s+name$/i.test(raw)) {
-    return [{ kind: 'choose_card_name', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'choose_card_name', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?that\s+player\s+puts\s+the\s+exiled\s+cards\s+that\s+weren(?:'|’)?t\s+cast\s+this\s+way\s+on\s+the\s+bottom\s+of\s+their\s+library\s+in\s+a\s+random\s+order$/i.test(raw)) {
@@ -7761,7 +7816,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^(?:then\s+)?you\s+may\s+discard\s+a\s+nonland\s+card$/i.test(raw)) {
-    return [{ kind: 'discard', who: { kind: 'you' }, amount: { kind: 'number', value: 1 }, target: parseObjectSelector('a nonland card'), optional: true, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'discard', who: { kind: 'you' }, amount: { kind: 'number', value: 1 }, target: parseObjectSelector('a nonland card'), optional: true, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?you\s+may\s+pay\s+eight\s+\{e\}$/i.test(raw)) {
@@ -7778,19 +7833,19 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         entersFaceDown: true,
         raw: 'Manifest the top card of your library',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'attach',
         attachment: parseObjectSelector('this enchantment'),
         to: parseObjectSelector('it'),
         raw: 'attach this enchantment to it',
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
   if (/^(?:then\s+)?you\s+put\s+a\s+creature\s+card\s+from\s+a\s+graveyard\s+onto\s+the\s+battlefield\s+under\s+your\s+control$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('a creature card from a graveyard'), to: 'battlefield', toRaw: 'the battlefield under your control', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector('a creature card from a graveyard'), to: 'battlefield', toRaw: 'the battlefield under your control', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^there\s+is\s+an\s+additional\s+beginning\s+phase\s+after\s+this\s+phase$/i.test(raw)) {
@@ -7798,7 +7853,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^they\s+don(?:'|’)?t\s+untap\s+during\s+their\s+controller(?:'|’)?s\s+next\s+untap\s+step$/i.test(raw)) {
-    return [{ kind: 'skip_next_untap', target: parseObjectSelector('they'), raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'skip_next_untap', target: parseObjectSelector('they'), raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const phaseUnlessPay = raw.match(/^(?:at\s+the\s+beginning\s+of\s+your\s+upkeep,\s+)?this\s+creature\s+phases\s+out\s+unless\s+you\s+pay\s+((?:\{[^}]+\})+)$/i);
@@ -7818,7 +7873,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const abilityCostReduction = raw.match(/^this\s+ability\s+costs\s+(\{[^}]+\})\s+less\s+to\s+activate\s+for\s+each\s+(.+)$/i);
@@ -7864,7 +7919,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'deal_damage',
         source: parseObjectSelector('this creature'),
@@ -7872,7 +7927,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         amount: { kind: 'number', value: Number.parseInt(String(selfPumpAndDamage[3] || '0'), 10) || 0 },
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -7900,7 +7955,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^this\s+mana\s+can(?:not|'t)\s+be\s+spent\s+to\s+(?:cast\s+nonartifact\s+spells|pay\s+generic\s+mana\s+costs)$/i.test(raw)) {
@@ -7916,7 +7971,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^those\s+permanents\s+phase\s+out$/i.test(raw)) {
-    return [{ kind: 'phase_out', target: parseObjectSelector('those permanents'), raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'phase_out', target: parseObjectSelector('those permanents'), raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^transform\s+target\s+incubator\s+token\s+you\s+control$/i.test(raw)) {
@@ -7934,7 +7989,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: /^up\s+to/i.test(String(targetTemporaryPt[1] || '')) || undefined,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^two\s+target\s+players\s+exchange\s+life\s+totals$/i.test(raw)) {
@@ -7946,7 +8001,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^until\s+end\s+of\s+combat,\s+you\s+don(?:'|\u2019)?t\s+lose\s+this\s+mana\s+as\s+steps\s+end$/i.test(raw)) {
-    return [{ kind: 'retain_mana', who: { kind: 'you' }, duration: 'until_end_of_combat', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'retain_mana', who: { kind: 'you' }, duration: 'until_end_of_combat', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^until\s+end\s+of\s+turn,\s+damage\s+that\s+would\s+reduce\s+your\s+life\s+total\s+to\s+less\s+than\s+1\s+reduces\s+it\s+to\s+1\s+instead$/i.test(raw)) {
@@ -7966,7 +8021,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector(String(leadingTemporaryPtAndAbility[1] || '').trim()),
@@ -7974,7 +8029,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'end_of_turn',
         raw,
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -7993,7 +8048,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^until\s+end\s+of\s+turn,\s+this\s+creature\s+loses\s+"prevent\s+all\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+this\s+creature\."\s+any\s+player\s+may\s+activate\s+this\s+ability$/i.test(raw)) {
@@ -8009,7 +8064,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^until\s+the\s+end\s+of\s+your\s+next\s+turn,\s+you\s+may\s+cast\s+that\s+card$/i.test(raw)) {
@@ -8021,7 +8076,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       permission: 'cast',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^until\s+your\s+next\s+turn,\s+prevent\s+all\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+and\s+dealt\s+by\s+target\s+permanent\s+an\s+opponent\s+controls$/i.test(raw)) {
@@ -8071,7 +8126,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   const ticketCounter = raw.match(/^you\s+get\s+((?:\{TK\})+)(?:\s+\(a\s+ticket\s+counter\))?$/i);
   if (ticketCounter) {
     const amount = (String(ticketCounter[1] || '').match(/\{TK\}/gi) || []).length;
-    return [{ kind: 'add_player_counter', who: { kind: 'you' }, counter: 'ticket', amount: { kind: 'number', value: amount }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'add_player_counter', who: { kind: 'you' }, counter: 'ticket', amount: { kind: 'number', value: amount }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^you\s+may\s+activate\s+abilities\s+of\s+creatures\s+you\s+control\s+as\s+though\s+those\s+creatures\s+had\s+haste$/i.test(raw)) {
@@ -8091,7 +8146,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       permission: 'cast',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you\s+may\s+cast\s+the\s+copy$/i.test(raw)) {
@@ -8099,11 +8154,11 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^you\s+may\s+choose\s+new\s+targets\s+for\s+it$/i.test(raw)) {
-    return [{ kind: 'change_target', target: parseObjectSelector('it'), optional: true, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'change_target', target: parseObjectSelector('it'), optional: true, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^you\s+may\s+have\s+target\s+creature\s+block\s+it\s+this\s+turn\s+if\s+able$/i.test(raw)) {
-    return [{ kind: 'force_block', blocker: parseObjectSelector('target creature'), attacker: parseObjectSelector('it'), duration: 'end_of_turn', optional: true, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'force_block', blocker: parseObjectSelector('target creature'), attacker: parseObjectSelector('it'), duration: 'end_of_turn', optional: true, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^you\s+may\s+have\s+target\s+land\s+you\s+control\s+become\s+a\s+3\/3\s+elemental\s+creature\s+with\s+haste\s+until\s+end\s+of\s+turn$/i.test(raw)) {
@@ -8118,12 +8173,12 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const optionalMill = raw.match(/^you\s+may\s+have\s+(target\s+player)\s+mill\s+(\w+)\s+cards$/i);
   if (optionalMill) {
-    return [{ kind: 'mill', who: parsePlayerSelector(String(optionalMill[1] || '').trim()), amount: parseQuantity(String(optionalMill[2] || '').trim()), optional: true, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'mill', who: parsePlayerSelector(String(optionalMill[1] || '').trim()), amount: parseQuantity(String(optionalMill[2] || '').trim()), optional: true, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^you\s+may\s+have\s+that\s+player\s+shuffle$/i.test(raw)) {
@@ -8138,7 +8193,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       retainAbilityText: 'it has this ability',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^this creature becomes a copy of that creature,\s+except it has this ability$/i.test(raw)) {
@@ -8149,7 +8204,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       retainAbilityText: 'it has this ability',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^that creature becomes a copy of this creature\.?$/i.test(raw)) {
@@ -8159,7 +8214,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       source: parseObjectSelector('this creature'),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^then, not counting that draw, if you drew more cards this turn than an opponent drew on their last turn, you may put a land card from your hand onto the battlefield$/i.test(raw)) {
@@ -8170,7 +8225,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^then, if you have 1,000 or more life, you lose the game$/i.test(raw)) {
@@ -8183,7 +8238,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^three cards and your life total becomes 5$/i.test(raw)) {
     return [
-      { kind: 'draw', who: { kind: 'you' }, amount: { kind: 'number', value: 3 }, raw, ...sequence } as OracleEffectStep,
+      { kind: 'draw', who: { kind: 'you' }, amount: { kind: 'number', value: 3 }, raw, ...sequence } as unknown as OracleEffectStep,
       staticMetadata('your life total', 'becomes 5')[0]!,
     ];
   }
@@ -8196,7 +8251,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^curse defending player$/i.test(raw)) {
@@ -8209,8 +8264,8 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^you\s+may\s+pay\s+\{1\}\s+and\s+discard\s+a\s+card$/i.test(raw)) {
     return [
-      { kind: 'pay_mana', who: { kind: 'you' }, mana: '{1}', optional: true, raw, ...sequence } as OracleEffectStep,
-      { kind: 'discard', who: { kind: 'you' }, amount: { kind: 'number', value: 1 }, optional: true, raw, sequence: 'then' } as OracleEffectStep,
+      { kind: 'pay_mana', who: { kind: 'you' }, mana: '{1}', optional: true, raw, ...sequence } as unknown as OracleEffectStep,
+      { kind: 'discard', who: { kind: 'you' }, amount: { kind: 'number', value: 1 }, optional: true, raw, sequence: 'then' } as unknown as OracleEffectStep,
     ];
   }
 
@@ -8231,7 +8286,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you\s+may\s+reveal\s+a\s+dinosaur\s+card\s+from\s+your\s+hand$/i.test(raw)) {
@@ -8262,7 +8317,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const attachDirectOptional = /^you\s+may\s+/i.test(raw) || /\bup\s+to\s+(?:one|two|three|\d+|[a-z]+)\b/i.test(raw);
@@ -8276,7 +8331,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: attachDirectOptional || undefined,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const attachContext = raw.match(/^(?:for\s+each\s+of\s+those\s+tokens,\s+you\s+may\s+attach\s+an\s+equipment\s+you\s+control\s+to\s+it|if\s+an\s+equipment\s+is\s+put\s+onto\s+the\s+battlefield\s+this\s+way,\s+you\s+may\s+attach\s+it\s+to\s+a\s+creature\s+you\s+control|-\s*when\s+this\s+equipment\s+enters,\s+you\s+may\s+attach\s+it\s+to\s+target\s+creature\s+you\s+control)$/i);
@@ -8291,7 +8346,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       to: parseObjectSelector('that land'),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const textChange = raw.match(/^change\s+the\s+text\s+of\s+(target\s+permanent)\s+by\s+replacing\s+all\s+instances\s+of\s+(.+?)\s+until\s+end\s+of\s+turn$/i);
@@ -8307,7 +8362,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'the number of basic land types among lands you control' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^double\s+the\s+power\s+and\s+toughness\s+of\s+each\s+creature\s+you\s+control\s+until\s+end\s+of\s+turn$/i.test(raw)) {
@@ -8328,7 +8383,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const kickedInsteadDamage = raw.match(/^if\s+this\s+spell\s+was\s+kicked,\s+it\s+deals\s+(\d+)\s+damage\s+instead$/i);
@@ -8384,7 +8439,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: /^their\s+hands$/i.test(String(anyNumberDiscard[2] || '')) ? { kind: 'all' } : { kind: 'number', value: 1 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const anyNumberDraw = raw.match(/^any\s+number\s+of\s+target\s+players\s+each\s+draw\s+(.+?)\s+cards$/i);
@@ -8395,7 +8450,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: parseQuantity(String(anyNumberDraw[1] || '').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const anyNumberGainLife = raw.match(/^any\s+number\s+of\s+target\s+players\s+each\s+gain\s+(.+?)\s+life$/i);
@@ -8406,7 +8461,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: parseQuantity(String(anyNumberGainLife[1] || '').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const anyNumberMill = raw.match(/^any\s+number\s+of\s+target\s+players\s+each\s+mill\s+(.+)$/i);
@@ -8417,7 +8472,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: parseQuantity(String(anyNumberMill[1] || '').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const anotherPlayerCreatesToken = raw.match(/^another\s+target\s+player\s+creates\s+a\s+(.+?)\s+token\s+with\s+"([^"]+)"$/i);
@@ -8431,7 +8486,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       token: `${token} with "${tokenAbility}"`,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const youAndEachCreateToken = raw.match(
@@ -8448,7 +8503,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       token: token.charAt(0).toUpperCase() + token.slice(1),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const ownerCreatesQuestToken = raw.match(
@@ -8463,7 +8518,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       entersTapped: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const opportunisticDragonControl = raw.match(
@@ -8478,21 +8533,21 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'static',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'cant_attack',
         target: parseObjectSelector('that permanent'),
         duration: 'static',
         raw: "that permanent can't attack",
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'cant_block',
         target: parseObjectSelector('that permanent'),
         duration: 'static',
         raw: "that permanent can't block",
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -8506,7 +8561,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'half their life rounded down' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^then if an opponent controls more lands than you, repeat this process once\.?$/i.test(raw)) {
@@ -8516,7 +8571,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       steps: [staticMetadata('process', 'repeat this process once')[0]],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const landsBecomeSwamps = raw.match(/^((?:two|three|four|five|\d+|any number of|up to \w+)\s+target lands) become swamps\.?$/i);
@@ -8528,7 +8583,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^transform this (land|creature|permanent|enchantment|artifact)\.?/i.test(raw)) {
@@ -8538,7 +8593,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       target: parseObjectSelector(`this ${permanentType}`),
       raw: raw.replace(/\.\s*.+$/i, '').trim(),
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^convert this permanent\.?/i.test(raw)) {
@@ -8547,7 +8602,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       target: parseObjectSelector('this permanent'),
       raw: raw.replace(/\.\s*.+$/i, '').trim(),
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^any number of target players mulligan\.?$/i.test(raw)) {
@@ -8561,7 +8616,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'the amount of life they lost this turn' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const forEachShrineLife = raw.match(/^you gain (\d+) life for each shrine you control\.?$/i);
@@ -8572,7 +8627,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: parseQuantity(`${String(forEachShrineLife[1] || '').trim()} for each shrine you control`),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const forEachAgeCounterLife = raw.match(/^you gain (\d+) life for each age counter on it\.?$/i);
@@ -8583,7 +8638,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: parseQuantity(`${String(forEachAgeCounterLife[1] || '').trim()} for each age counter on it`),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you may have two target players exchange life totals\.?$/i.test(raw)) {
@@ -8600,7 +8655,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'next_main_phase_this_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^this creature can attack as though it had haste unless it entered this turn\.?$/i.test(raw)) {
@@ -8621,7 +8676,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: parseQuantity(String(faceUpCounters[1] || '').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const phylacteryCounter = raw.match(/^as\s+this\s+creature\s+enters,\s+put\s+a\s+phylactery\s+counter\s+on\s+(an\s+artifact\s+you\s+control)$/i);
@@ -8633,7 +8688,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 1 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const asEntersMill = raw.match(/^as\s+this\s+creature\s+enters,\s+(?:if\s+it\s+was\s+kicked,\s+)?mill\s+(.+)$/i);
@@ -8644,7 +8699,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: parseQuantity(String(asEntersMill[1] || '').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const asEntersDiscardHand = raw.match(/^as\s+this\s+enchantment\s+enters,\s+discard\s+your\s+hand$/i);
@@ -8655,7 +8710,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'all' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const asEntersSacrificeAllLands = raw.match(/^as\s+this\s+enchantment\s+enters,\s+sacrifice\s+all\s+lands\s+you\s+control$/i);
@@ -8666,7 +8721,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       what: parseObjectSelector('all lands you control'),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^another\s+target\s+creature\s+you\s+control\s+can't\s+be\s+blocked\s+this\s+turn\s+except\s+by\s+spirits$/i.test(raw)) {
@@ -8695,7 +8750,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep);
+    } as unknown as OracleEffectStep);
     return [
       buildPt(String(compoundAttackingPt[1] || ''), String(compoundAttackingPt[2] || ''), String(compoundAttackingPt[3] || '')),
       buildPt(String(compoundAttackingPt[4] || ''), String(compoundAttackingPt[5] || ''), String(compoundAttackingPt[6] || '')),
@@ -8710,7 +8765,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: parseQuantity(`a number of cards equal to ${String(anyNumberDiscardReference[2] || '').trim()}`),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^all\s+unblocked\s+creatures\s+attacking\s+you\s+become\s+blocked\s+by\s+this\s+permanent$/i.test(raw)) {
@@ -8752,7 +8807,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       entersFaceDown: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^.+?\s+-\s+exile\s+this\s+permanent$/i.test(raw)) {
@@ -8761,7 +8816,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       target: parseObjectSelector('this permanent'),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^counters\s+to\s+"0\."$/i.test(raw)) {
@@ -8780,7 +8835,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       token: `copy of ${String(createTokenCopy[1] || '').trim()}`,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^create\s+(?:a\s+5x5\s+grid|a\s+character\b|a\s+copy\b|a\s+token\s+from\b|a\s+token\s+of\b|an\s+animated\s+role\b|one\s+resource\b|two\s+(?:copies|tokens)\b|[A-Z][\s\S]+?\s+token\b)/i.test(raw)) {
@@ -8830,7 +8885,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep];
+      } as unknown as OracleEffectStep];
     }
     return [{
       kind: 'grant_static_ability',
@@ -8840,7 +8895,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^creature\s+spells\s+you\s+cast\s+gain\s+.+?\s+as\s+you\s+cast\s+them$/i.test(raw)) {
@@ -8883,7 +8938,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       target: parseObjectSelector('creature cards'),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^draw\s+(?:an\s+additional|two\s+additional|another)\b/i.test(raw)) {
@@ -8917,7 +8972,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'end_of_turn',
         raw,
         ...sequence,
-      } as OracleEffectStep];
+      } as unknown as OracleEffectStep];
     }
     return [{
       kind: 'grant_static_ability',
@@ -8927,7 +8982,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachLandTypeBeforeResidual = raw.match(/^(all|each)\s+lands?\s+(?:are|is)\s+(?:an?\s+)?(islands?|swamps?|mountains?|plains?|forests?)\s+in\s+addition\s+to\s+(?:their|its)\s+other\s+(?:types|land\s+types)$/i);
@@ -8945,7 +9000,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const playerMayPutLandEarly = raw.match(
@@ -8960,7 +9015,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (CONVOKE_DELVE_INNER_REMINDER_PATTERN.test(raw)) {
@@ -8996,7 +9051,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw: `Ward—Waterbend ${cost}`,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you gain hexproof until your next turn$/i.test(raw)) {
@@ -9007,7 +9062,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'until_next_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const delayedEarthbendMatch = raw.match(/^when that creature dies this turn, you earthbend (\d+)$/i);
@@ -9022,10 +9077,10 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         target: parseObjectSelector('target land you control'),
         amount: parseQuantity(count),
         raw: `you earthbend ${count}`,
-      } as OracleEffectStep],
+      } as unknown as OracleEffectStep],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (
@@ -9040,7 +9095,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         amount: { kind: 'x' },
         raw: 'You draw X cards',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'modify_pt',
         target: parseObjectSelector('the chosen creatures'),
@@ -9051,7 +9106,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'end_of_turn',
         raw: 'the chosen creatures get +X/+X until end of turn',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector('the chosen creatures'),
@@ -9059,7 +9114,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         duration: 'end_of_turn',
         raw: 'the chosen creatures gain trample until end of turn',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       ...staticMetadata('x', "where X is the difference between the chosen creatures' powers"),
     ];
   }
@@ -9072,7 +9127,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: parseQuantity(earthbendMatch[1]),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const earthbendWhereMatch = raw.match(/^(?:you\s+)?earthbend\s+x,\s+where\s+x\s+is\s+(.+)$/i);
@@ -9084,7 +9139,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       whereX: { kind: 'where', raw: String(earthbendWhereMatch[1] || '').trim() },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:ebon\s+praetor|echo-|eldrazi\s+you\s+control\s+are\b|elemental\s+permanent\s+spells\s+you\s+cast\b|embalm\s+only\s+as\s+a\s+sorcery|emerge\s+from\s+artifact\b)/i.test(raw)) {
@@ -9174,7 +9229,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       who: { kind: 'you' },
       raw,
       ...sequence,
-    } as OracleEffectStep;
+    } as unknown as OracleEffectStep;
     return [dreadStep, { ...dreadStep }];
   }
 
@@ -9190,10 +9245,10 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         kind: 'manifest_dread',
         who: { kind: 'you' },
         raw: 'manifest dread',
-      } as OracleEffectStep],
+      } as unknown as OracleEffectStep],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^manifest dread$/i.test(raw)) {
@@ -9202,7 +9257,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       who: { kind: 'you' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^redistribute any number of players(?:'|'|') life totals\b/i.test(raw)) {
@@ -9211,7 +9266,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       who: { kind: 'any_number_of_target_players' },
       raw: String(raw).replace(/\.\s*\([^)]*\)\s*$/, '.').trim(),
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:unleash\b|then\s+puts\s+one\s+onto\s+the\s+battlefield\s+face\s+down|(?:iv|v)\s+-\s+|jin-gitaxias\b|judge\b|jump\b|just\b|keyword\s*[→-]|kicker\b|kithkin\b|knights\b|kodama(?:'|’)s\s+reach\b|koh\b|kumena\b|land\b|landfall\b|lands\b|leave\b|legacy\b|legendary\s+partner\b|let(?:'|’)s\s+go\b|lethal\b|level\s+up\b|leviathan,\s+octopus,\s+or\s+serpent\b|life\s+and\s+limb\b|lifelink\b|lightning\s+bolt\b|liliana\b|look\b|lord\s+of\s+atlantis\b|loyalty\b|make\b|mana\b|manifest\b|mayhem\b|megalegendary\b|memory\s+lapse\b|menace\b|merchant\s+scroll\b|merfolk\b|merrow\b|mill\s+cards\s+equal\b|mobilize\b|modular-sunburst\b|monstrosity\b|moonfolk\s+offering\b|morph-|motivate\b|move\b|multicleave\b|multikicker\b|multiple\s+instances\b|myriad\b|nagas\b|name\b|negamorph\b|nice\s+try\b|ninjutsu\b|no\b|non-|noncreature\b|nonland\b|nontoken\b|note\b|offer\b|oil\b|oildying\b|oko\s+becomes\b|on\s+any\s+other\s+date\b|once\b|one\s+at\s+a\s+time\b|one\s+or\s+two\b|onionfect\b|only\b|opalescence\b|open\b|opponent\s+dredge\b|opponents\b|or\b|other\b|otherwise\b)/i.test(raw)) {
@@ -9241,7 +9296,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       ...(maxResults !== undefined ? { maxResults } : {}),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetOpponentLibrarySearchToBattlefield = raw.match(
@@ -9256,7 +9311,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       maxResults: 1,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetOpponentLibrarySearchToExile = raw.match(
@@ -9271,7 +9326,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       maxResults: 1,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^search\s+(?:its\s+(?:controller|owner)|that\s+player)(?:'|’)?s\s+graveyard,\s+hand,\s+and\s+library\s+for\s+(?:all\s+|any\s+number\s+of\s+)?cards?\s+with\s+the\s+same\s+name\s+as\s+.+?\s+and\s+exile\s+them$/i.test(raw)) {
@@ -9294,7 +9349,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         maxResults: /^(?:all|any\s+number\s+of)\s*$/i.test(limitText) ? 'any_number' : undefined,
         raw,
         ...sequence,
-      } as OracleEffectStep];
+      } as unknown as OracleEffectStep];
     }
   }
 
@@ -9308,7 +9363,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       maxResults: 1,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const namedModeSearch = raw.match(/^[A-Z][^()]+\(\s*Search\s+for\s+(.+?)\s*\.\s*\)$/i);
@@ -9322,7 +9377,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       maxResults: 1,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const pass41SearchResidual = /^search\b/i;
@@ -9347,12 +9402,12 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       what: parseObjectSelector(String(targetControllerSacrifices[1] || 'it').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetControllerRevealsRandom = raw.match(/^(target\s+.+?)(?:'|’)s\s+controller\s+reveals\s+a\s+card\s+at\s+random\s+from\s+their\s+hand$/i);
   if (targetControllerRevealsRandom) {
-    return [{ kind: 'reveal_hand', who: { kind: 'target_player' }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'reveal_hand', who: { kind: 'target_player' }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetPtAsLongAsTapped = raw.match(/^(target\s+creature)\s+gets\s+([+-]\d+)\/([+-]\d+)\s+for\s+as\s+long\s+as\s+this\s+artifact\s+remains\s+tapped$/i);
@@ -9366,15 +9421,15 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetPtAndCanBlock = raw.match(/^(target\s+creature)\s+gets\s+([+-]\d+)\/([+-]\d+)\s+until\s+end\s+of\s+turn\s+and\s+can\s+block\s+any\s+number\s+of\s+creatures\s+this\s+turn$/i);
   if (targetPtAndCanBlock) {
     const target = parseObjectSelector(String(targetPtAndCanBlock[1] || '').trim());
     return [
-      { kind: 'modify_pt', target, power: Number.parseInt(String(targetPtAndCanBlock[2] || '0'), 10), toughness: Number.parseInt(String(targetPtAndCanBlock[3] || '0'), 10), duration: 'end_of_turn', raw, ...sequence } as OracleEffectStep,
-      { kind: 'grant_temporary_ability', target, duration: 'this_turn', effectText: ['can block any number of creatures'], raw, ...sequence } as OracleEffectStep,
+      { kind: 'modify_pt', target, power: Number.parseInt(String(targetPtAndCanBlock[2] || '0'), 10), toughness: Number.parseInt(String(targetPtAndCanBlock[3] || '0'), 10), duration: 'end_of_turn', raw, ...sequence } as unknown as OracleEffectStep,
+      { kind: 'grant_temporary_ability', target, duration: 'this_turn', effectText: ['can block any number of creatures'], raw, ...sequence } as unknown as OracleEffectStep,
     ];
   }
 
@@ -9403,7 +9458,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: 'second from the top or on the bottom of its owner\'s library',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetOpponentMayPayLife = raw.match(/^target\s+opponent\s+may\s+pay\s+(\d+)\s+life$/i);
@@ -9415,7 +9470,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetOpponentChoosesSacrifice = raw.match(/^target\s+opponent\s+chooses\s+(.+?)\s+they\s+control(?:\s+at\s+random)?\s+and\s+sacrifices\s+it$/i);
@@ -9426,7 +9481,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       what: parseObjectSelector(String(targetOpponentChoosesSacrifice[1] || '').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetOpponentChoosesReturn = raw.match(/^target\s+opponent\s+chooses\s+(.+?)\s+they\s+control\s+and\s+returns\s+it\s+to\s+its\s+owner(?:'|’)s\s+hand$/i);
@@ -9438,48 +9493,48 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: "its owner's hand",
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetOpponentMayExileGraveyard = raw.match(/^target\s+opponent\s+may\s+exile\s+(.+?)\s+from\s+their\s+graveyard$/i);
   if (targetOpponentMayExileGraveyard) {
-    return [{ kind: 'exile', target: parseObjectSelector(`${String(targetOpponentMayExileGraveyard[1] || '').trim()} from target opponent's graveyard`), optional: true, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'exile', target: parseObjectSelector(`${String(targetOpponentMayExileGraveyard[1] || '').trim()} from target opponent's graveyard`), optional: true, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetOpponentExilesHandAndLosesLife = raw.match(/^target\s+opponent\s+exiles\s+(.+?)\s+cards?\s+from\s+their\s+hand\s+and\s+loses\s+(\d+)\s+life$/i);
   if (targetOpponentExilesHandAndLosesLife) {
     return [
-      { kind: 'exile', target: parseObjectSelector(`${String(targetOpponentExilesHandAndLosesLife[1] || '').trim()} cards from target opponent's hand`), raw, ...sequence } as OracleEffectStep,
-      { kind: 'lose_life', who: { kind: 'target_opponent' }, amount: { kind: 'number', value: Number.parseInt(String(targetOpponentExilesHandAndLosesLife[2] || '0'), 10) || 0 }, raw, ...sequence } as OracleEffectStep,
+      { kind: 'exile', target: parseObjectSelector(`${String(targetOpponentExilesHandAndLosesLife[1] || '').trim()} cards from target opponent's hand`), raw, ...sequence } as unknown as OracleEffectStep,
+      { kind: 'lose_life', who: { kind: 'target_opponent' }, amount: { kind: 'number', value: Number.parseInt(String(targetOpponentExilesHandAndLosesLife[2] || '0'), 10) || 0 }, raw, ...sequence } as unknown as OracleEffectStep,
     ];
   }
 
   const targetOpponentMillsHalf = raw.match(/^target\s+opponent\s+mills\s+half\s+their\s+library,\s+rounded\s+up$/i);
   if (targetOpponentMillsHalf) {
-    return [{ kind: 'mill', who: { kind: 'target_opponent' }, amount: { kind: 'reference_amount', raw: 'half their library, rounded up' }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'mill', who: { kind: 'target_opponent' }, amount: { kind: 'reference_amount', raw: 'half their library, rounded up' }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetOpponentPutsHandOnLibrary = raw.match(/^target\s+opponent\s+puts\s+(.+?)\s+cards?\s+from\s+their\s+hand\s+on\s+top\s+of\s+their\s+library(?:\s+in\s+any\s+order)?$/i);
   if (targetOpponentPutsHandOnLibrary) {
-    return [{ kind: 'move_zone', what: parseObjectSelector(`${String(targetOpponentPutsHandOnLibrary[1] || '').trim()} cards from target opponent's hand`), to: 'library', toRaw: 'top of their library', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector(`${String(targetOpponentPutsHandOnLibrary[1] || '').trim()} cards from target opponent's hand`), to: 'library', toRaw: 'top of their library', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^target\s+opponent\s+puts\s+the\s+cards\s+from\s+their\s+hand\s+on\s+top\s+of\s+their\s+library$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector("the cards from target opponent's hand"), to: 'library', toRaw: 'top of their library', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector("the cards from target opponent's hand"), to: 'library', toRaw: 'top of their library', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetOpponentPutsCounter = raw.match(/^target\s+opponent\s+puts\s+a\s+(.+?)\s+counter\s+on\s+a\s+creature\s+they\s+control$/i);
   if (targetOpponentPutsCounter) {
-    return [{ kind: 'add_counter', target: parseObjectSelector('a creature target opponent controls'), counter: String(targetOpponentPutsCounter[1] || '').trim(), amount: { kind: 'number', value: 1 }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'add_counter', target: parseObjectSelector('a creature target opponent controls'), counter: String(targetOpponentPutsCounter[1] || '').trim(), amount: { kind: 'number', value: 1 }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetOpponentRevealsTop = raw.match(/^target\s+opponent\s+reveals\s+the\s+top\s+(.+?)\s+cards?\s+of\s+their\s+library(?:,\s+may\s+put\s+.+)?$/i);
   if (targetOpponentRevealsTop) {
-    return [{ kind: 'reveal_top', who: { kind: 'target_opponent' }, amount: parseQuantity(String(targetOpponentRevealsTop[1] || '').trim()), raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'reveal_top', who: { kind: 'target_opponent' }, amount: parseQuantity(String(targetOpponentRevealsTop[1] || '').trim()), raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^target\s+opponent\s+reveals\s+(?:a\s+number\s+of\s+cards\s+from\s+their\s+hand\s+equal\s+to\s+.+|that\s+many\s+cards\s+from\s+their\s+hand|x\s+cards\s+from\s+their\s+hand,\s+where\s+x\s+is\s+.+)$/i.test(raw)) {
-    return [{ kind: 'reveal_hand', who: { kind: 'target_opponent' }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'reveal_hand', who: { kind: 'target_opponent' }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const earlyRevealUntilCreature = raw.match(/^(target\s+opponent|that\s+creature(?:'|’)?s\s+controller)\s+reveals\s+cards\s+from\s+the\s+top\s+of\s+their\s+library\s+until\s+they\s+reveal\s+a\s+creature\s+card$/i);
@@ -9491,7 +9546,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'until they reveal a creature card' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^target\s+opponent\s+(?:chooses\b|chosen\s+at\s+random\s+gains\s+control\b|exiles\s+(?:a\s+creature\s+they\s+control\s+and\s+their\s+graveyard|cards\s+from\s+the\s+bottom|the\s+top\s+half)|gets\s+an\s+emblem\b|guesses\b|looks\s+at\b|loses\s+all\s+counters\b|may\s+(?:ante|choose|guess|have|put|sacrifice)\b|reveals\s+cards\s+from\s+the\s+top\b|skips\b|whose\s+turn\s+it\s+is\b|(?:'|’)s\s+life\s+total\s+becomes\b)/i.test(raw)) {
@@ -9517,7 +9572,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       requiresChosenMana: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^target\s+player\s+can(?:'|’)t\s+cast\s+(?:creature\s+)?spells\s+this\s+turn$/i.test(raw)) {
@@ -9526,17 +9581,17 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   const targetPlayerDiscardReference = raw.match(/^target\s+player\s+discards\s+(.+)$/i);
   if (targetPlayerDiscardReference && /^(?:a\s+number\s+of\s+cards\s+equal\s+to\s+.+|cards\s+equal\s+to\s+.+)$/i.test(String(targetPlayerDiscardReference[1] || '').trim())) {
-    return [{ kind: 'discard', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerDiscardReference[1] || '').trim()), raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'discard', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerDiscardReference[1] || '').trim()), raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetPlayerDraws = raw.match(/^target\s+player\s+draws\s+(.+)\s+cards?$/i);
   if (targetPlayerDraws) {
-    return [{ kind: 'draw', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerDraws[1] || '').trim()), raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'draw', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerDraws[1] || '').trim()), raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetPlayerExilesTopLibrary = raw.match(/^target\s+player\s+exiles\s+the\s+top\s+(.+?)\s+cards?\s+of\s+their\s+library(?:,\s+where\s+x\s+is\s+.+)?$/i);
   if (targetPlayerExilesTopLibrary) {
-    return [{ kind: 'exile', target: parseObjectSelector(`the top ${String(targetPlayerExilesTopLibrary[1] || '').trim()} cards of target player's library`), raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'exile', target: parseObjectSelector(`the top ${String(targetPlayerExilesTopLibrary[1] || '').trim()} cards of target player's library`), raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetPlayerGainsLife = raw.match(/^target\s+player\s+gains\s+(.+)\s+life$/i);
@@ -9549,7 +9604,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       ...(whereX ? { whereX } : {}),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const sourceDealsDamageWhere = raw.match(
@@ -9568,7 +9623,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       ...(whereX ? { whereX } : {}),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const playerGainsLifeTail = raw.match(/^(.+?)\s+gains?\s+(.+)\s+life$/i);
@@ -9581,12 +9636,12 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       ...(whereX ? { whereX } : {}),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetPlayerLosesLife = raw.match(/^target\s+player(?:\s+(?:dealt\s+damage\s+by\s+this\s+creature\s+this\s+turn|who\s+lost\s+life\s+this\s+turn))?\s+loses\s+(\d+)\s+life$/i);
   if (targetPlayerLosesLife) {
-    return [{ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'number', value: Number.parseInt(String(targetPlayerLosesLife[1] || '0'), 10) || 0 }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'number', value: Number.parseInt(String(targetPlayerLosesLife[1] || '0'), 10) || 0 }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetPlayerMills = raw.match(/^target\s+player\s+mills\s+(.+)$/i);
@@ -9599,53 +9654,53 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       ...(whereX ? { whereX } : {}),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetPlayerBottomCardToGraveyard = raw.match(/^target\s+player\s+puts\s+the\s+bottom\s+card\s+of\s+their\s+library\s+into\s+their\s+graveyard$/i);
   if (targetPlayerBottomCardToGraveyard) {
-    return [{ kind: 'move_zone', what: parseObjectSelector("the bottom card of target player's library"), to: 'graveyard', toRaw: 'their graveyard', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector("the bottom card of target player's library"), to: 'graveyard', toRaw: 'their graveyard', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetPlayerReturnsCreature = raw.match(/^target\s+player\s+returns\s+(a\s+creature\s+they\s+control)\s+to\s+its\s+owner(?:'|’)s\s+hand$/i);
   if (targetPlayerReturnsCreature) {
-    return [{ kind: 'move_zone', what: parseObjectSelector(String(targetPlayerReturnsCreature[1] || '').trim()), to: 'hand', toRaw: "its owner's hand", raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector(String(targetPlayerReturnsCreature[1] || '').trim()), to: 'hand', toRaw: "its owner's hand", raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetPlayerReturnsCommanders = raw.match(/^target\s+player\s+returns\s+each\s+commander\s+they\s+control\s+from\s+the\s+battlefield\s+to\s+the\s+command\s+zone$/i);
   if (targetPlayerReturnsCommanders) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('each commander target player controls'), to: 'command', toRaw: 'the command zone', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector('each commander target player controls'), to: 'command', toRaw: 'the command zone', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetPlayerRevealTopCard = raw.match(/^target\s+player\s+reveals\s+the\s+top\s+card\s+of\s+their\s+library$/i);
   if (targetPlayerRevealTopCard) {
-    return [{ kind: 'reveal_top', who: { kind: 'target_player' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'reveal_top', who: { kind: 'target_player' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetPlayerRevealTopCards = raw.match(/^target\s+player\s+reveals\s+the\s+top\s+(.+?)\s+cards?\s+of\s+their\s+library$/i);
   if (targetPlayerRevealTopCards) {
-    return [{ kind: 'reveal_top', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerRevealTopCards[1] || '').trim()), raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'reveal_top', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerRevealTopCards[1] || '').trim()), raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^target\s+player\s+reveals\s+(?:a\s+number\s+of\s+cards\s+from\s+their\s+hand\s+equal\s+to\s+.+|(?:three|x)\s+cards\s+from\s+their\s+hand(?:\s+and\s+you\s+choose\s+one\s+of\s+them|,\s+where\s+x\s+is\s+.+)?)$/i.test(raw)) {
-    return [{ kind: 'reveal_hand', who: { kind: 'target_player' }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'reveal_hand', who: { kind: 'target_player' }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetPlayerSearchLibrary = raw.match(/^target\s+player\s+searches\s+their\s+library\s+for\s+a\s+card$/i);
   if (targetPlayerSearchLibrary) {
-    return [{ kind: 'search_library', who: { kind: 'target_player' }, criteria: { kind: 'raw', text: 'a card' }, destination: 'hand', revealFound: false, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'search_library', who: { kind: 'target_player' }, criteria: { kind: 'raw', text: 'a card' }, destination: 'hand', revealFound: false, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetPlayerShuffleGraveyardTargets = raw.match(/^target\s+player\s+shuffles\s+any\s+number\s+of\s+target\s+cards\s+from\s+their\s+graveyard\s+into\s+their\s+library$/i);
   if (targetPlayerShuffleGraveyardTargets) {
-    return [{ kind: 'move_zone', what: parseObjectSelector("any number of target cards from target player's graveyard"), to: 'library', toRaw: 'their library', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector("any number of target cards from target player's graveyard"), to: 'library', toRaw: 'their library', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetPlayerTakesExtraTurns = raw.match(/^target\s+player\s+takes\s+two\s+extra\s+turns\s+after\s+this\s+one$/i);
   if (targetPlayerTakesExtraTurns) {
     return [
-      { kind: 'take_extra_turn', who: { kind: 'target_player' }, raw, ...sequence } as OracleEffectStep,
-      { kind: 'take_extra_turn', who: { kind: 'target_player' }, raw, ...sequence } as OracleEffectStep,
+      { kind: 'take_extra_turn', who: { kind: 'target_player' }, raw, ...sequence } as unknown as OracleEffectStep,
+      { kind: 'take_extra_turn', who: { kind: 'target_player' }, raw, ...sequence } as unknown as OracleEffectStep,
     ];
   }
 
@@ -9656,7 +9711,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'the number of cards in their library' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^target\s+player\s+(?:chooses\b|gets\s+an\s+emblem\b|loses\s+the\s+game$|reveals\s+cards\s+from\s+the\s+top\b|skips\b|with\s+exactly\s+seven\s+poison\s+counters\s+loses\s+the\s+game$)/i.test(raw) || /^target\s+player(?:'|’)s\s+life\s+total\s+becomes\b/i.test(raw)) {
@@ -9686,7 +9741,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw: `${targetText} gets ${powerRaw}/${toughnessRaw} until end of turn`,
       ...sequence,
-    } as OracleEffectStep);
+    } as unknown as OracleEffectStep);
     const firstPower = String(ptChoice[2] || '').trim();
     const firstToughness = String(ptChoice[3] || '').trim();
     const secondPower = String(ptChoice[4] || '').trim();
@@ -9701,7 +9756,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       ],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetConnivesReference = raw.match(/^(target\s+(?:attacking\s+)?creature(?:\s+you\s+control)?)\s+connives\s+x,\s+where\s+x\s+is\s+(.+)$/i);
@@ -9712,14 +9767,14 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: `X, where X is ${String(targetConnivesReference[2] || '').trim()}` },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const splitTwoTargetPt = raw.match(/^(target\s+creature\s+an\s+opponent\s+controls)\s+gets\s+(-?\+?\d+)\/(-?\+?\d+)\s+until\s+end\s+of\s+turn\s+and\s+(target\s+creature\s+you\s+control)\s+gets\s+(\+?-?\d+)\/(\+?-?\d+)\s+until\s+end\s+of\s+turn$/i);
   if (splitTwoTargetPt) {
     return [
-      { kind: 'modify_pt', target: parseObjectSelector(String(splitTwoTargetPt[1] || '').trim()), power: Number.parseInt(String(splitTwoTargetPt[2] || '0'), 10) || 0, toughness: Number.parseInt(String(splitTwoTargetPt[3] || '0'), 10) || 0, duration: 'end_of_turn', raw, ...sequence } as OracleEffectStep,
-      { kind: 'modify_pt', target: parseObjectSelector(String(splitTwoTargetPt[4] || '').trim()), power: Number.parseInt(String(splitTwoTargetPt[5] || '0'), 10) || 0, toughness: Number.parseInt(String(splitTwoTargetPt[6] || '0'), 10) || 0, duration: 'end_of_turn', raw, ...sequence } as OracleEffectStep,
+      { kind: 'modify_pt', target: parseObjectSelector(String(splitTwoTargetPt[1] || '').trim()), power: Number.parseInt(String(splitTwoTargetPt[2] || '0'), 10) || 0, toughness: Number.parseInt(String(splitTwoTargetPt[3] || '0'), 10) || 0, duration: 'end_of_turn', raw, ...sequence } as unknown as OracleEffectStep,
+      { kind: 'modify_pt', target: parseObjectSelector(String(splitTwoTargetPt[4] || '').trim()), power: Number.parseInt(String(splitTwoTargetPt[5] || '0'), 10) || 0, toughness: Number.parseInt(String(splitTwoTargetPt[6] || '0'), 10) || 0, duration: 'end_of_turn', raw, ...sequence } as unknown as OracleEffectStep,
     ];
   }
 
@@ -9739,7 +9794,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   const targetOpponentRevealsTopCard = raw.match(/^target\s+opponent\s+reveals\s+the\s+top\s+card\s+of\s+their\s+library$/i);
   if (targetOpponentRevealsTopCard) {
-    return [{ kind: 'reveal_top', who: { kind: 'target_opponent' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'reveal_top', who: { kind: 'target_opponent' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const targetOpponentPutsGraveyardCreatureOntoBattlefield = raw.match(/^target\s+opponent\s+puts\s+a\s+creature\s+card\s+of\s+their\s+choice\s+from\s+their\s+graveyard\s+onto\s+the\s+battlefield\s+under\s+your\s+control$/i);
@@ -9752,7 +9807,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       battlefieldController: { kind: 'you' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^target\s+instant\s+or\s+sorcery\s+spell\s+becomes\s+the\s+color\s+of\s+your\s+choice$/i.test(raw)) {
@@ -9780,7 +9835,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^that\s+artifact\s+gains\s+haste$/i.test(raw)) {
-    return [{ kind: 'grant_static_ability', target: parseObjectSelector('that artifact'), abilities: ['haste'], raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'grant_static_ability', target: parseObjectSelector('that artifact'), abilities: ['haste'], raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const attackingPlayerCreatesToken = raw.match(/^that\s+attacking\s+player\s+(may\s+)?creates?\s+a\s+(tapped\s+)?(.+?\s+token(?:\s+(?:named\s+.+?|with\s+.+?))?)(?:\s+that(?:'|’)s\s+attacking\s+that\s+opponent)?$/i);
@@ -9795,11 +9850,11 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       ...(attackingPlayerCreatesToken[1] ? { optional: true } : {}),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^that\s+attacking\s+player\s+may\s+tap\s+or\s+untap\s+target\s+permanent\s+of\s+their\s+choice$/i.test(raw)) {
-    return [{ kind: 'tap_or_untap', target: parseObjectSelector('target permanent of their choice'), optional: true, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'tap_or_untap', target: parseObjectSelector('target permanent of their choice'), optional: true, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^that\s+creature\s+becomes\s+green$/i.test(raw)) {
@@ -9812,7 +9867,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   const thatCreatureGainsAbilities = raw.match(/^that\s+creature\s+gains\s+(.+)$/i);
   if (thatCreatureGainsAbilities && /\b(?:menace|deathtouch|haste)\b/i.test(String(thatCreatureGainsAbilities[1] || ''))) {
-    return [{ kind: 'grant_static_ability', target: parseObjectSelector('that creature'), abilities: String(thatCreatureGainsAbilities[1] || '').split(/\s*,\s*|\s+and\s+/i).map(part => part.trim()).filter(Boolean), raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'grant_static_ability', target: parseObjectSelector('that creature'), abilities: String(thatCreatureGainsAbilities[1] || '').split(/\s*,\s*|\s+and\s+/i).map(part => part.trim()).filter(Boolean), raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^that\s+creature\s+can\s+block\s+up\s+to\s+two\s+additional\s+creatures\s+this\s+turn$/i.test(raw)) {
@@ -9847,7 +9902,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       target: parseObjectSelector(String(namedModeDamage[2] || '').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const namedSelfPumpForEach = raw.match(/^[A-Z][A-Za-z0-9' -]+\s+gets\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+until\s+end\s+of\s+turn\s+for\s+each\s+(.+)$/i);
@@ -9865,7 +9920,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^change\s+the\s+text\s+of\s+.+?\s+by\s+replacing\s+all\s+instances\s+of\s+.+/i.test(raw)) {
@@ -9896,7 +9951,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         : /\bcreature\s+type\b/i.test(raw)
           ? 'generic'
           : 'generic';
-    return [{ kind: 'player_choice', choice, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'player_choice', choice, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^at\s+(?:the\s+)?(?:beginning\s+of|end\s+of|this\s+turn's\s+next)\s+.+/i.test(raw)) {
@@ -9928,7 +9983,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       destination: 'battlefield',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^search\s+its\s+controller(?:'|’)?s\s+graveyard,\s+hand,\s+and\s+library\s+for\s+all\s+cards\s+with\s+the\s+same\s+name\s+as\s+that\s+spell\s+and\s+exile\s+them$/i.test(raw)) {
@@ -9940,7 +9995,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       maxResults: 'any_number',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^target\s+opponent\s+chooses\s+two\s+of\s+those\s+cards$/i.test(raw)) {
@@ -9948,7 +10003,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^target\s+opponent\s+exiles\s+an\s+enchantment\s+they\s+control$/i.test(raw)) {
-    return [{ kind: 'exile', target: parseObjectSelector('an enchantment they control'), raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'exile', target: parseObjectSelector('an enchantment they control'), raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const revealUntilCreature = raw.match(/^(target\s+opponent|that\s+creature(?:'|’)?s\s+controller)\s+reveals\s+cards\s+from\s+the\s+top\s+of\s+their\s+library\s+until\s+they\s+reveal\s+a\s+creature\s+card$/i);
@@ -9960,7 +10015,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'until they reveal a creature card' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^target\s+permanent\s+becomes\s+white\s+until\s+end\s+of\s+turn$/i.test(raw)) {
@@ -9968,7 +10023,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^that\s+player\s+draws\s+two\s+additional\s+cards$/i.test(raw)) {
-    return [{ kind: 'draw', who: { kind: 'target_player' }, amount: { kind: 'number', value: 2 }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'draw', who: { kind: 'target_player' }, amount: { kind: 'number', value: 2 }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^that\s+token\s+gains\s+haste$/i.test(raw)) {
@@ -9989,15 +10044,15 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   const ownerLibraryChoice = raw.match(/^the\s+owner\s+of\s+target\s+(nonland\s+)?permanent\s+puts\s+it\s+(?:into\s+their\s+library\s+second\s+from\s+the\s+top\s+or\s+on\s+the\s+bottom|on\s+their\s+choice\s+of\s+the\s+top\s+or\s+bottom\s+of\s+their\s+library)$/i);
   if (ownerLibraryChoice) {
-    return [{ kind: 'move_zone', what: parseObjectSelector(`target ${ownerLibraryChoice[1] ? 'nonland ' : ''}permanent`), to: 'library', toRaw: 'top or bottom of their library', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector(`target ${ownerLibraryChoice[1] ? 'nonland ' : ''}permanent`), to: 'library', toRaw: 'top or bottom of their library', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^the\s+owner\s+of\s+target\s+permanent\s+shuffles\s+it\s+into\s+their\s+library$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('target permanent'), to: 'library', toRaw: 'their library', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector('target permanent'), to: 'library', toRaw: 'their library', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^the\s+player\s+puts\s+that\s+card\s+onto\s+the\s+battlefield$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('that card'), to: 'battlefield', toRaw: 'the battlefield', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector('that card'), to: 'battlefield', toRaw: 'the battlefield', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^(?:the\s+player\s+to\s+your\s+right\s+chooses\s+a\s+color,\s+you\s+choose\s+another\s+color|the\s+player\s+to\s+your\s+right\s+gains\s+control\s+of\s+this\s+artifact|the\s+token\s+enters\s+tapped\s+and\s+attacking|the\s+tokens\s+are\s+goaded\s+for\s+the\s+rest\s+of\s+the\s+game)$/i.test(raw)) {
@@ -10005,7 +10060,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^the\s+token\s+gets\s+\+1\/\+1\s+until\s+end\s+of\s+turn\.?\)?$/i.test(raw)) {
-    return [{ kind: 'modify_pt', target: parseObjectSelector('the token'), power: 1, toughness: 1, duration: 'end_of_turn', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'modify_pt', target: parseObjectSelector('the token'), power: 1, toughness: 1, duration: 'end_of_turn', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^(?:enchanted\s+creature\s+has\s+".+"|the\s+same\s+is\s+true\s+for\s+.+|if\s+an\s+opponent\s+would\s+put\s+one\s+or\s+more\s+counters\s+on\s+a\s+permanent\s+or\s+player,\s+they\s+put\s+half\s+that\s+many\s+of\s+each\s+of\s+those\s+kinds\s+of\s+counters\s+on\s+that\s+permanent\s+or\s+player\s+instead,\s+rounded\s+down|for\s+each\s+kind\s+of\s+counter\s+on\s+target\s+permanent(?:\s+or\s+player)?,\s+(?:give\s+that\s+permanent\s+or\s+player\s+another\s+counter\s+of\s+that\s+kind|put\s+another\s+counter\s+of\s+that\s+kind\s+on\s+it\s+or\s+remove\s+one\s+from\s+it)|if\s+you\s+would\s+roll\s+one\s+or\s+more\s+dice,\s+instead\s+roll\s+that\s+many\s+dice\s+plus\s+one\s+and\s+ignore\s+the\s+lowest\s+roll|its\s+controller\s+adds\s+an\s+additional\s+two\s+mana\s+in\s+any\s+combination\s+of\s+colors|jump\s+-\s+during\s+your\s+turn,\s+this\s+permanent\s+has\s+flying|lock\s+or\s+unlock\s+a\s+door\s+of\s+target\s+room\s+you\s+control|look\s+at\s+target\s+face-down\s+creature|otherwise,\s+suspect\s+it|players\s+discard\s+cards\s+and\s+sacrifice\s+creatures\s+the\s+same\s+way|reveal\s+the\s+first\s+card\s+you\s+draw\s+each\s+turn|flip\s+five\s+coins|that\s+source\s+deals\s+double\s+that\s+damage\s+to\s+that\s+player\s+or\s+permanent|it\s+has\s+trample,\s+haste,\s+and\s+"at\s+the\s+beginning\s+of\s+the\s+end\s+step,\s+sacrifice\s+this\s+token\."|it(?:'|’)?s\s+a\s+2\/2\s+cyberman\s+artifact\s+creature|if\s+it\s+isn(?:'|’)?t\s+a\s+creature,\s+it\s+becomes\s+a\s+0\/0\s+robot\s+creature\s+in\s+addition\s+to\s+its\s+other\s+types|if\s+that\s+spell\s+would\s+be\s+put\s+into\s+a\s+graveyard,\s+put\s+it\s+on\s+the\s+bottom\s+of\s+its\s+owner(?:'|’)?s\s+library\s+instead|if\s+you\s+do,\s+increase\s+or\s+decrease\s+the\s+result\s+by\s+1|i+\s+-\s+you\s+may\s+sacrifice\s+a\s+creature|iii\s+-\s+choose\s+target\s+opponent)$/i.test(raw)) {
@@ -10013,11 +10068,11 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^parley\s+-\s+each\s+player\s+reveals\s+the\s+top\s+card\s+of\s+their\s+library$/i.test(raw)) {
-    return [{ kind: 'reveal_top', who: { kind: 'each_player' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'reveal_top', who: { kind: 'each_player' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^if\s+it(?:'|’)?s\s+a\s+land\s+card,\s+the\s+player\s+puts\s+it\s+onto\s+the\s+battlefield$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('it'), to: 'battlefield', toRaw: 'the battlefield', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector('it'), to: 'battlefield', toRaw: 'the battlefield', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^if\s+it(?:'|’)?s\s+a\s+permanent\s+card,\s+they\s+put\s+it\s+onto\s+the\s+battlefield$/i.test(raw)) {
@@ -10031,18 +10086,18 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         toRaw: 'the battlefield',
         raw: 'they put it onto the battlefield',
         ...sequence,
-      } as OracleEffectStep],
+      } as unknown as OracleEffectStep],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^otherwise,\s+you\s+may\s+put\s+it\s+into\s+your\s+graveyard$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('it'), to: 'graveyard', toRaw: 'your graveyard', optional: true, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector('it'), to: 'graveyard', toRaw: 'your graveyard', optional: true, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^otherwise,\s+put\s+it\s+into\s+your\s+graveyard$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('it'), to: 'graveyard', toRaw: 'your graveyard', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector('it'), to: 'graveyard', toRaw: 'your graveyard', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?puts?\s+those\s+cards\s+into\s+their\s+graveyard$/i.test(raw)) {
@@ -10053,7 +10108,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: 'their graveyard',
       raw,
       sequence: 'then',
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?return\s+those\s+cards\s+to\s+the\s+battlefield\s+under\s+their\s+owners?'?\s+control$/i.test(raw)) {
@@ -10065,7 +10120,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       battlefieldController: { kind: 'owner_of_moved_cards' },
       raw,
       sequence: 'then',
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?that\s+player\s+returns?\s+a\s+creature\s+card\s+from\s+their\s+graveyard\s+to\s+the\s+battlefield$/i.test(raw)) {
@@ -10077,7 +10132,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       battlefieldController: { kind: 'owner_of_moved_cards' },
       raw,
       sequence: 'then',
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^return\s+a\s+creature\s+card\s+from\s+your\s+graveyard\s+to\s+the\s+battlefield$/i.test(raw)) {
@@ -10089,7 +10144,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       battlefieldController: { kind: 'you' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (
@@ -10106,7 +10161,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         battlefieldController: { kind: 'you' },
         raw: 'Put one of the chosen cards onto the battlefield',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'move_zone',
         what: parseObjectSelector('the other chosen cards'),
@@ -10114,7 +10169,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         toRaw: 'your hand',
         raw: 'Put the other chosen cards into your hand',
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'move_zone',
         what: parseObjectSelector('the rest'),
@@ -10122,7 +10177,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         toRaw: 'your graveyard',
         raw: 'Put the rest into your graveyard',
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -10131,19 +10186,19 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^put\s+the\s+cards\s+in\s+your\s+hand\s+on\s+the\s+bottom\s+of\s+your\s+library\s+in\s+any\s+order$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('the cards in your hand'), to: 'library', toRaw: 'bottom of your library', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector('the cards in your hand'), to: 'library', toRaw: 'bottom of your library', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^put\s+those\s+counters\s+on\s+up\s+to\s+one\s+target\s+creature$/i.test(raw)) {
-    return [{ kind: 'add_counter', target: parseObjectSelector('up to one target creature'), counter: 'those counters', amount: { kind: 'reference_amount', raw: 'those counters' }, optional: true, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'add_counter', target: parseObjectSelector('up to one target creature'), counter: 'those counters', amount: { kind: 'reference_amount', raw: 'those counters' }, optional: true, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^put\s+onto\s+the\s+battlefield\s+under\s+your\s+control\s+all\s+creature\s+cards\s+in\s+all\s+graveyards\s+that\s+were\s+put\s+there\s+from\s+anywhere\s+this\s+turn$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('all creature cards in all graveyards that were put there from anywhere this turn'), to: 'battlefield', toRaw: 'the battlefield under your control', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector('all creature cards in all graveyards that were put there from anywhere this turn'), to: 'battlefield', toRaw: 'the battlefield under your control', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^return\s+to\s+your\s+hand\s+all\s+creature\s+cards\s+in\s+your\s+graveyard\s+that\s+were\s+put\s+there\s+from\s+the\s+battlefield\s+this\s+turn$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('all creature cards in your graveyard that were put there from the battlefield this turn'), to: 'hand', toRaw: 'your hand', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector('all creature cards in your graveyard that were put there from the battlefield this turn'), to: 'hand', toRaw: 'your hand', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (
@@ -10156,7 +10211,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: 'the battlefield',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^return\s+this(?:\s+card)?(?:\s+to)?(?:\s+its)?(?:\s+owner's)?\s+hand$/i.test(raw)) {
@@ -10167,7 +10222,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: "its owner's hand",
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^this$/i.test(raw)) {
@@ -10216,7 +10271,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const drawIfEmptyHand = raw.match(
@@ -10231,10 +10286,10 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         who: { kind: 'you' },
         amount: { kind: 'number', value: 1 },
         raw,
-      } as OracleEffectStep],
+      } as unknown as OracleEffectStep],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const scryResult = raw.match(/^\d+\s*-\s*\d+\s*\|\s*scry\s+(\d+)$/i);
@@ -10245,7 +10300,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: parseQuantity(scryResult[1]),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:if\s+you\s+do,\s+)?(?:you\s+may\s+)?repeat\s+this\s+process(?:\s+any\s+number\s+of\s+times|\s+once)?$/i.test(raw)) {
@@ -10268,7 +10323,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const keywordMetadata = raw.match(/^(airbend\s+up\s+to\s+one\s+target\s+creature|incubate\s+x,\s+where\s+x\s+is\s+(?:its\s+power|that\s+spell(?:'|’)?s\s+mana\s+value)|it\s+endures\s+\d+|support\s+x)$/i);
@@ -10304,7 +10359,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const allLandType = raw.match(/^(all|each)\s+lands?\s+(?:are|is)\s+(?:an?\s+)?(islands?|swamps?|mountains?|plains?|forests?)\s+in\s+addition\s+to\s+(?:their|its)\s+other\s+(?:types|land\s+types)$/i);
@@ -10322,7 +10377,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const nonbasicLandType = raw.match(/^nonbasic\s+lands\s+are\s+(islands|swamps|mountains|plains|forests)$/i);
@@ -10340,7 +10395,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const landTypeWithCounter = raw.match(/^that\s+land\s+is\s+an?\s+(island|swamp|mountain|plains|forest)\s+in\s+addition\s+to\s+its\s+other\s+types\s+for\s+as\s+long\s+as\s+it\s+has\s+a\s+(.+?)\s+counter\s+on\s+it$/i);
@@ -10358,7 +10413,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const broadTemporaryPt = raw.match(/^(all\s+other\s+creatures|another\s+target\s+creature|creatures\s+target\s+player\s+controls|attacking\s+creatures\s+with\s+flying|each\s+creature\s+you\s+control\s+named\s+this\s+permanent|target\s+1\/1\s+creature|one\s+or\s+two\s+target\s+creatures)\s+(?:each\s+)?gets?\s+([+-]\d+)\/([+-]\d+)\s+until\s+end\s+of\s+turn$/i);
@@ -10372,7 +10427,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: /^one\s+or\s+two/i.test(String(broadTemporaryPt[1] || '')) || undefined,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const staticPt = raw.match(/^(creatures\s+of\s+the\s+chosen\s+type|during\s+your\s+turn,\s+this\s+creature|as\s+long\s+as\s+equipped\s+creature\s+is\s+a\s+human,\s+it)\s+gets?\s+(?:an\s+additional\s+)?([+-]\d+)\/([+-]\d+)$/i);
@@ -10386,7 +10441,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetLandAnimation = raw.match(/^(target\s+land(?:\s+you\s+control)?)\s+becomes\s+a\s+(\d+)\/(\d+)\s+([^\.]+?)\s+until\s+end\s+of\s+turn$/i);
@@ -10403,7 +10458,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const permanentArtifact = raw.match(/^(target\s+permanent)\s+becomes\s+an\s+artifact\s+in\s+addition\s+to\s+its\s+other\s+types(?:\s+until\s+end\s+of\s+turn)?$/i);
@@ -10414,7 +10469,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       addTypes: ['artifact'],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const combatRequirement = raw.match(/^(all\s+creatures\s+able\s+to\s+block\s+enchanted\s+creature\s+do\s+so|all\s+creatures\s+block\s+each\s+combat\s+if\s+able|target\s+creature\s+attacks\s+target\s+opponent\s+this\s+turn\s+if\s+able|target\s+creature\s+blocks\s+target\s+creature\s+this\s+turn\s+if\s+able|no\s+more\s+than\s+one\s+creature\s+can\s+(?:attack|block)\s+each\s+combat)$/i);
@@ -10458,7 +10513,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       combatOnly: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^prevent\s+all\s+combat\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+(it|this creature|~)\s+this\s+turn\.?$/i.test(raw)) {
@@ -10478,7 +10533,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'this_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const linkedSourcePrevent = raw.match(/^prevent\s+all\s+damage\s+that\s+would\s+be\s+dealt\s+this\s+turn\s+by\s+(target\s+source(?:\s+of\s+your\s+choice)?)\s+that\s+shares\s+a\s+color\s+with\s+the\s+exiled\s+card$/i);
@@ -10491,7 +10546,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       sharesColorWithLinkedExiledCard: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const preventAllDamage = raw.match(/^prevent\s+(all|the\s+next\s+(?:\d+|x))\s+((?:damage\b.+?)|(?:.+?damage.+?))(?:\s+this\s+turn)?$/i);
@@ -10504,7 +10559,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'this_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const conditionalPreventDamage = raw.match(/^if\s+a\s+source\s+an\s+opponent\s+controls\s+would\s+deal\s+damage\s+to\s+you,\s+prevent\s+(\d+)\s+of\s+that\s+damage$/i);
@@ -10516,7 +10571,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'this_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const preventXOfThatDamage = raw.match(/^prevent\s+x\s+of\s+that\s+damage,\s+where\s+x\s+is\s+the\s+amount\s+of\s+mana\s+that\s+player\s+paid\s+this\s+way$/i);
@@ -10528,7 +10583,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'this_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const anyTargetsDiscard = raw.match(/^any\s+number\s+of\s+target\s+players\s+each\s+discard\s+a\s+card$/i);
@@ -10539,7 +10594,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 1 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachPlayerDrawUpTo = raw.match(/^each\s+player\s+may\s+draw\s+up\s+to\s+(.+?)\s+cards?$/i);
@@ -10551,7 +10606,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachPlayerLoseHalf = raw.match(/^each\s+player\s+loses\s+half\s+their\s+life$/i);
@@ -10562,7 +10617,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'half their life' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const playerMayPutLand = raw.match(/^each\s+player\s+may\s+put\s+a\s+land\s+card\s+from\s+their\s+hand\s+onto\s+the\s+battlefield$/i);
@@ -10575,7 +10630,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const shuffleHandGraveyard = raw.match(/^each\s+player\s+may\s+shuffle\s+their\s+hand\s+and\s+graveyard\s+into\s+their\s+library$/i);
@@ -10587,7 +10642,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const shuffleHand = raw.match(/^each\s+player\s+shuffles\s+the\s+cards\s+from\s+their\s+hand\s+into\s+their\s+library$/i);
@@ -10598,7 +10653,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       zones: ['hand'],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const creatureControllerSacrifice = raw.match(/^target\s+creature(?:'|’)?s\s+controller\s+sacrifices\s+it$/i);
@@ -10609,7 +10664,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       what: parseObjectSelector('it'),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const youAndPlayerEachSacrifice = raw.match(
@@ -10622,7 +10677,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       what: parseObjectSelector(`a ${String(youAndPlayerEachSacrifice[1] || '').trim()}`),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachPlayerSacrificeChoice = raw.match(
@@ -10635,7 +10690,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       what: parseObjectSelector(`a ${String(eachPlayerSacrificeChoice[1] || '').trim()}`),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const eachOtherSacrifice = raw.match(/^each\s+other\s+player\s+sacrifices\s+a\s+(.+?)(?:\s+of\s+their\s+choice)?$/i);
@@ -10646,7 +10701,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       what: parseObjectSelector(`a ${String(eachOtherSacrifice[1] || '').trim()}`),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const opponentExilesControlled = raw.match(/^(target\s+opponent)\s+exiles\s+(a\s+.+?\s+they\s+control(?:\s+with\s+the\s+greatest\s+mana\s+value\s+among\s+.+)?)$/i);
@@ -10656,7 +10711,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       target: parseObjectSelector(String(opponentExilesControlled[2] || '').trim()),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const handExileFaceDown = raw.match(/^(target\s+player)\s+exiles\s+all\s+cards\s+from\s+their\s+hand\s+face\s+down$/i);
@@ -10668,7 +10723,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: 'exile face down',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const millHalfLibrary = raw.match(/^(target\s+player)\s+mills\s+half\s+their\s+library,\s+rounded\s+down$/i);
@@ -10679,7 +10734,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'half their library rounded down' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const playerSearchBasicLand = raw.match(/^(target\s+player)\s+searches\s+their\s+library\s+for\s+a\s+basic\s+land\s+card,\s+puts\s+it\s+onto\s+the\s+battlefield\s+tapped$/i);
@@ -10692,20 +10747,20 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       entersTapped: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^reveal\s+that\s+card,\s+put\s+it\s+into\s+your\s+hand$/i.test(raw)) {
     return [
-      { kind: 'grant_static_ability', target: parseObjectSelector('that card'), effectText: ['reveal'], duration: 'static', raw, ...sequence } as OracleEffectStep,
-      { kind: 'move_zone', what: parseObjectSelector('that card'), to: 'hand', toRaw: 'your hand', raw, sequence: 'then' } as OracleEffectStep,
+      { kind: 'grant_static_ability', target: parseObjectSelector('that card'), effectText: ['reveal'], duration: 'static', raw, ...sequence } as unknown as OracleEffectStep,
+      { kind: 'move_zone', what: parseObjectSelector('that card'), to: 'hand', toRaw: 'your hand', raw, sequence: 'then' } as unknown as OracleEffectStep,
     ];
   }
 
   if (/^reveal\s+the\s+top\s+card\s+of\s+your\s+library\s+and\s+put\s+it\s+into\s+your\s+hand$/i.test(raw)) {
     return [
-      { kind: 'reveal_top', who: { kind: 'you' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as OracleEffectStep,
-      { kind: 'move_zone', what: parseObjectSelector('the top card of your library'), to: 'hand', toRaw: 'your hand', raw, sequence: 'then' } as OracleEffectStep,
+      { kind: 'reveal_top', who: { kind: 'you' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as unknown as OracleEffectStep,
+      { kind: 'move_zone', what: parseObjectSelector('the top card of your library'), to: 'hand', toRaw: 'your hand', raw, sequence: 'then' } as unknown as OracleEffectStep,
     ];
   }
 
@@ -10735,8 +10790,8 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   const revealHandChoice = raw.match(/^target\s+player\s+reveals\s+three\s+cards\s+from\s+their\s+hand\s+and\s+you\s+choose\s+one\s+of\s+them$/i);
   if (revealHandChoice) {
     return [
-      { kind: 'reveal_hand', who: { kind: 'target_player' }, raw, ...sequence } as OracleEffectStep,
-      { kind: 'grant_static_ability', target: parseObjectSelector('revealed cards'), effectText: ['you choose one of them'], duration: 'static', raw, sequence: 'then' } as OracleEffectStep,
+      { kind: 'reveal_hand', who: { kind: 'target_player' }, raw, ...sequence } as unknown as OracleEffectStep,
+      { kind: 'grant_static_ability', target: parseObjectSelector('revealed cards'), effectText: ['you choose one of them'], duration: 'static', raw, sequence: 'then' } as unknown as OracleEffectStep,
     ];
   }
 
@@ -10747,7 +10802,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   const tapOtherwise = raw.match(/^otherwise,\s+tap\s+it$/i);
   if (tapOtherwise) {
-    return [{ kind: 'tap_or_untap', target: parseObjectSelector('it'), mode: 'tap', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'tap_or_untap', target: parseObjectSelector('it'), mode: 'tap', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   const skipUntapPlayer = raw.match(/^that\s+player\s+skips\s+their\s+next\s+untap\s+step$/i);
@@ -10757,12 +10812,12 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       target: parseObjectSelector('that player'),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const untapLand = raw.match(/^that\s+player\s+untaps\s+a\s+land\s+they\s+control$/i);
   if (untapLand) {
-    return [{ kind: 'tap_or_untap', target: parseObjectSelector('a land they control'), mode: 'untap', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'tap_or_untap', target: parseObjectSelector('a land they control'), mode: 'untap', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^its\s+controller\s+manifests\s+dread$/i.test(raw)) {
@@ -10771,7 +10826,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       who: { kind: 'target_player' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^it\s+gains\s+haste\s+until\s+your\s+next\s+turn$/i.test(raw)) {
@@ -10782,7 +10837,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'until_next_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^it\s+gains\s+suspend$/i.test(raw)) {
@@ -10805,7 +10860,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'three times that many' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^that\s+many\s+plus\s+one\s+of\s+each\s+of\s+those\s+kinds\s+of\s+counters\s+are\s+put\s+on\s+that\s+permanent$/i.test(raw)) {
@@ -10816,7 +10871,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'that many plus one' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^put\s+twice\s+that\s+many\s+of\s+each\s+of\s+those\s+kinds\s+of\s+counters\s+on\s+that\s+permanent\s+or\s+player$/i.test(raw)) {
@@ -10827,7 +10882,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'twice that many' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^put\s+all\s+creatures\s+on\s+the\s+bottom\s+of\s+their\s+owners(?:'|’)?\s+libraries$/i.test(raw)) {
@@ -10838,7 +10893,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: "bottom of their owners' libraries",
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^that\s+player\s+puts\s+that\s+card\s+onto\s+the\s+battlefield$/i.test(raw)) {
@@ -10849,7 +10904,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: 'the battlefield',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^that\s+player\s+returns\s+a\s+land\s+they\s+control\s+to\s+its\s+owner(?:'|’)?s\s+hand$/i.test(raw)) {
@@ -10860,7 +10915,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: "its owner's hand",
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const topBottomRest = raw.match(/^(?:(?:then\s+)?puts?\s+the\s+(?:rest|revealed\s+cards)\s+on\s+the\s+bottom(?:\s+of\s+(?:your|their)\s+library)?\s+in\s+(?:a\s+)?(?:random|any)\s+order|put\s+up\s+to\s+one\s+of\s+them\s+on\s+top\s+of\s+your\s+library\s+and\s+the\s+rest\s+on\s+the\s+bottom\s+of\s+your\s+library\s+in\s+a\s+random\s+order)$/i);
@@ -10878,14 +10933,14 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         entersFaceDown: true,
         raw: 'Manifest the top card of your library',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'attach',
         attachment: parseObjectSelector('this enchantment'),
         to: parseObjectSelector('it'),
         raw: 'attach this enchantment to it',
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -10898,7 +10953,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const handToTop = raw.match(/^(target\s+(?:opponent|player))\s+puts\s+a\s+card\s+from\s+their\s+hand\s+on\s+top\s+of\s+their\s+library$/i);
@@ -10911,7 +10966,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: 'top of their library',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^target\s+unblocked\s+attacking\s+creature\s+becomes\s+blocked$/i.test(raw)) {
@@ -10922,7 +10977,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       effectText: ['becomes blocked'],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^that\s+player\s+exiles\s+it$/i.test(raw)) {
@@ -10933,7 +10988,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: 'exile',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^that\s+player\s+reveals\s+the\s+top\s+card\s+of\s+their\s+library$/i.test(raw)) {
@@ -10943,7 +10998,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 1 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^the\s+replicate\s+cost\s+is\s+equal\s+to\s+its\s+mana\s+cost$/i.test(raw)) {
@@ -10954,7 +11009,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?manifest\s+those\s+cards$/i.test(raw)) {
@@ -10966,7 +11021,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       entersFaceDown: true,
       raw,
       sequence: 'then',
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?puts\s+all\s+cards\s+they\s+exiled\s+this\s+way\s+onto\s+the\s+battlefield$/i.test(raw)) {
@@ -10978,7 +11033,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       battlefieldController: { kind: 'owner_of_moved_cards' },
       raw,
       sequence: 'then',
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?shuffle\s+and\s+put\s+that\s+card\s+on\s+top$/i.test(raw)) {
@@ -10989,7 +11044,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       sequence: 'then',
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?those\s+choices\s+are\s+revealed$/i.test(raw)) {
@@ -11000,7 +11055,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const theyEachPt = raw.match(/^they\s+each\s+get\s+([+-]\d+)\/([+-]\d+)\s+until\s+end\s+of\s+turn$/i);
@@ -11013,7 +11068,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetEachPt = raw.match(/^(up\s+to\s+\w+\s+target\s+creatures?)\s+each\s+get\s+([+-]\d+)\/([+-]\d+)\s+until\s+end\s+of\s+turn$/i);
@@ -11027,7 +11082,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const theyHaveQuoted = raw.match(/^they\s+have\s+"([^"]+)"$/i);
@@ -11039,7 +11094,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const theyArePtType = raw.match(/^they(?:'|’)?re\s+(\d+)\/(\d+)\s+(.+)$/i);
@@ -11053,7 +11108,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^this\s+creature\s+blocks\s+each\s+combat\s+if\s+able$/i.test(raw)) {
@@ -11064,7 +11119,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^this\s+creature\s+can\s+block\s+an\s+additional\s+creature\s+this\s+turn$/i.test(raw)) {
@@ -11075,7 +11130,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       effectText: ['can block an additional creature'],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^this\s+creature\s+saddles\s+mounts\s+and\s+crews\s+vehicles\s+as\s+though\s+its\s+power\s+were\s+2\s+greater$/i.test(raw)) {
@@ -11086,7 +11141,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^those\s+creatures\s+don(?:'|’)?t\s+untap\s+during\s+their\s+controllers(?:'|’)?\s+next\s+untap\s+steps$/i.test(raw)) {
@@ -11095,7 +11150,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       target: parseObjectSelector('those creatures'),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^twice\s+that\s+many\s+\+1\/\+1\s+counters\s+are\s+put\s+on\s+that\s+creature$/i.test(raw)) {
@@ -11106,7 +11161,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'twice that many' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^when\s+the\s+last\s+is\s+removed,\s+they\s+may\s+play\s+it\s+without\s+paying\s+its\s+mana\s+cost$/i.test(raw)) {
@@ -11117,7 +11172,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^while\s+an\s+opponent\s+is\s+choosing\s+targets\s+as\s+part\s+of\s+casting\s+a\s+spell\s+they\s+control\s+or\s+activating\s+an\s+ability\s+they\s+control,\s+that\s+player\s+must\s+choose\s+at\s+least\s+one\s+flagbearer\s+on\s+the\s+battlefield\s+if\s+able$/i.test(raw)) {
@@ -11128,7 +11183,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^while\s+choosing\s+targets\s+as\s+part\s+of\s+casting\s+a\s+spell\s+or\s+activating\s+an\s+ability,\s+your\s+opponents\s+must\s+choose\s+at\s+least\s+one\s+flagbearer\s+if\s+able$/i.test(raw)) {
@@ -11214,7 +11269,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 1 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const gyReturnThisTurnMatch = raw.match(
@@ -11231,10 +11286,10 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         to: 'battlefield',
         raw: 'return that card to the battlefield',
         ...sequence,
-      } as OracleEffectStep],
+      } as unknown as OracleEffectStep],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const diesReturnThisTurnMatch = raw.match(
@@ -11252,10 +11307,10 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         toRaw: 'the battlefield under your control',
         raw: 'return that card to the battlefield under your control',
         ...sequence,
-      } as OracleEffectStep],
+      } as unknown as OracleEffectStep],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const wardDiscardMatch = raw.match(/^ward[-—]discard a card or pay (\{[^}]+\})$/i);
@@ -11268,7 +11323,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw: `Ward—Discard a card or pay ${cost}`,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^while\s+voting,\s+you\s+may\s+vote\s+an\s+additional\s+time$/i.test(raw)) {
@@ -11279,7 +11334,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^x\s+is\s+the\s+mana\s+value\s+of\s+that\s+card$/i.test(raw)) {
@@ -11290,7 +11345,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const chooseFromIt = raw.match(/^you\s+choose\s+(.+?)\s+from\s+it$/i);
@@ -11302,7 +11357,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you\s+choose\s+one\s+of\s+them$/i.test(raw)) {
@@ -11313,7 +11368,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you\s+control\s+target\s+player\s+during\s+that\s+player(?:'|’)?s\s+next\s+turn$/i.test(raw)) {
@@ -11324,7 +11379,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       effectText: ['you control that player during their next turn'],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const unspentManaMatch = raw.match(/^you\s+don(?:'|’)?t\s+lose\s+unspent\s+(.+?)\s+mana\s+as\s+steps\s+and\s+phases\s+end$/i);
@@ -11336,7 +11391,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you\s+get\s+that\s+many\s+\{E\}\s+\(energy\s+counters\)$/i.test(raw)) {
@@ -11347,7 +11402,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       counter: 'energy',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you\s+may\s+cast\s+spells\s+this\s+turn\s+as\s+though\s+they\s+had\s+flash$/i.test(raw)) {
@@ -11358,7 +11413,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       effectText: ['may cast spells as though they had flash'],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you\s+may\s+cast\s+that\s+card\s+for\s+as\s+long\s+as\s+it\s+remains\s+exiled,\s+and\s+you\s+may\s+spend\s+mana\s+as\s+though\s+it\s+were\s+mana\s+of\s+any\s+color\s+to\s+cast\s+that\s+spell$/i.test(raw)) {
@@ -11371,7 +11426,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (
@@ -11385,7 +11440,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const collectEvidenceMatch = raw.match(/^you\s+may\s+collect\s+evidence\s+(\d+)$/i);
@@ -11397,7 +11452,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const payToEndMatch = raw.match(/^you\s+may\s+pay\s+((?:\{[^}]+\})+)\s+to\s+end\s+this\s+effect$/i);
@@ -11409,7 +11464,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you\s+may\s+pay\s+\{W\}\{U\}\{B\}\{R\}\{G\}\s+rather\s+than\s+pay\s+the\s+mana\s+cost\s+for\s+spells\s+you\s+cast$/i.test(raw)) {
@@ -11420,7 +11475,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'static',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^enchanted\s+land\s+has\s+.*sacrifice\s+a\s+creature:\s+you$/i.test(raw)) {
@@ -11469,7 +11524,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^target\s+player\s+chooses\s+a\s+creature\s+they\s+control\s+and\s+puts\s+two\s+\+1\/\+1\s+counters\s+on\s+it$/i.test(raw)) {
@@ -11480,7 +11535,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 2 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^target\s+player\s+puts\s+a\s+\+1\/\+1\s+counter\s+on\s+each\s+creature\s+they\s+control$/i.test(raw)) {
@@ -11491,7 +11546,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 1 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const targetPlayerReturns = raw.match(/^target\s+player\s+returns\s+(.+?)\s+from\s+their\s+graveyard\s+to\s+their\s+hand$/i);
@@ -11503,7 +11558,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: 'their hand',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^that\s+creature(?:'|\u2019)s\s+controller\s+mills\s+cards\s+equal\s+to\s+its\s+power$/i.test(raw)) {
@@ -11513,7 +11568,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'cards equal to its power' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   const selfCreatureAnimation = raw.match(/^until\s+end\s+of\s+turn,\s+this\s+creature\s+becomes\s+a\s+([a-z][a-z -]+?)\s+with\s+base\s+power\s+and\s+toughness\s+(\d+)\/(\d+)(?:\s+and\s+gains\s+(.+))?$/i);
@@ -11530,7 +11585,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^when\s+this\s+creature\s+enters,\s+put\s+a\s+\+1\/\+1\s+counter\s+on\s+target\s+creature\s+or\s+a\s+lore\s+counter\s+on\s+target\s+saga\s+you\s+control$/i.test(raw)) {
@@ -11692,7 +11747,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 3 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^a card instead$/i.test(raw)) {
@@ -11702,7 +11757,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 1 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^two cards instead$/i.test(raw)) {
@@ -11724,7 +11779,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'number', value: 3 },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^this creature perpetually gets [+-]\d+\/[+-]?\d+$/i.test(raw)) {
@@ -11823,7 +11878,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       duration: 'end_of_turn',
       raw: raw.replace(/[".]+$/g, ''),
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^a card if /i.test(raw)) {
@@ -11845,14 +11900,14 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
           amount: drawAmount,
           raw: `${String(drawAndLose[1] || '').trim()} draws ${String(drawAndLose[2] || '').trim()}`,
           ...sequence,
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
         {
           kind: 'lose_life',
           who,
           amount: lifeAmount,
           raw: `${String(drawAndLose[1] || '').trim()} loses ${String(drawAndLose[3] || '').trim()} life`,
           sequence: 'then',
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
       ];
     }
 
@@ -11870,14 +11925,14 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
           amount: drawAmount,
           raw: `${String(drawCommaLose[1] || '').trim()} draws ${String(drawCommaLose[2] || '').trim()}`,
           ...sequence,
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
         {
           kind: 'lose_life',
           who,
           amount: lifeAmount,
           raw: `${String(drawCommaLose[1] || '').trim()} loses ${String(drawCommaLose[3] || '').trim()} life`,
           sequence: 'then',
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
       ];
     }
   }
@@ -11901,7 +11956,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you may pay (?:\{[^}]+\})+ up to three times$/i.test(raw)) {
@@ -11947,7 +12002,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: parseQuantity(raw.replace(/^the heroes lose\s+/i, '').replace(/\s+life$/i, '')),
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^a card and convert this permanent$/i.test(raw)) {
@@ -12030,21 +12085,21 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
           amount: parseQuantity(String(discardLoseSacrifice[2] || '').trim()),
           raw: `${who} ${discardVerb} ${String(discardLoseSacrifice[2] || '').trim()}`,
           ...sequence,
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
         {
           kind: 'lose_life',
           who: parsePlayerSelector(who),
           amount: parseQuantity(String(discardLoseSacrifice[3] || '').trim()),
           raw: `${who} ${loseVerb} ${String(discardLoseSacrifice[3] || '').trim()} life`,
           sequence: 'then',
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
         {
           kind: 'sacrifice',
           who: parsePlayerSelector(who),
           what: parseObjectSelector(String(discardLoseSacrifice[4] || '').trim()),
           raw: `${who} ${sacrificeVerb} ${String(discardLoseSacrifice[4] || '').trim()}`,
           sequence: 'then',
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
       ];
     }
   }
@@ -12230,7 +12285,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         withoutPayingManaCost: true,
         raw: 'you may cast a spell with mana value x or less from among cards revealed this way without paying its mana cost',
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'put_on_bottom',
         who: { kind: 'you' },
@@ -12238,7 +12293,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         order: 'random',
         raw: 'put the rest on the bottom of your library in a random order',
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -12379,7 +12434,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       optional: true,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^this creature isn't a creature until end of turn$/i.test(raw)) {
@@ -12408,7 +12463,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         raw: 'you may reveal a permanent card from among them and put it into your hand',
         optional: step.optional,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'put_on_bottom',
         who: { kind: 'you' },
@@ -12416,7 +12471,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         order: /in any order$/i.test(raw) ? 'any' : undefined,
         raw: 'put the rest on the bottom of your library',
         sequence: 'then',
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -12479,7 +12534,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       amount: { kind: 'reference_amount', raw: 'half x cards, rounded down' },
       raw: raw.replace(/^then\s+/i, ''),
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^hand, and library, seek two creature cards with mana value 3 or less$/i.test(raw)) {
@@ -12866,7 +12921,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       whereX: { kind: 'where', raw: 'the number of page counters on this artifact' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^draw x cards, where x is the number of creatures that died under your control this turn$/i.test(raw)) {
@@ -12877,7 +12932,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       whereX: { kind: 'where', raw: 'the number of creatures that died under your control this turn' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^draw a card unless that player pays \{x\}, where x is this creature's power$/i.test(raw)) {
@@ -13238,14 +13293,14 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
           amount: parseQuantity(String(cardAndSacrifice[1] || '').trim()),
           raw: `draw ${String(cardAndSacrifice[1] || '').trim()}`,
           ...sequence,
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
         {
           kind: 'sacrifice',
           who: { kind: 'you' },
           what: parseObjectSelector(String(cardAndSacrifice[2] || '').trim()),
           raw: `sacrifice ${String(cardAndSacrifice[2] || '').trim()}`,
           sequence: 'then',
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
       ];
     }
   }
@@ -13260,7 +13315,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
           amount: parseQuantity(String(cardAndReveal[1] || '').trim()),
           raw: `draw ${String(cardAndReveal[1] || '').trim()}`,
           ...sequence,
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
         {
           kind: 'grant_static_ability',
           target: parseObjectSelector('it'),
@@ -13268,7 +13323,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
           duration: 'static',
           raw: 'reveal it',
           sequence: 'then',
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
       ];
     }
   }
@@ -13283,7 +13338,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
           amount: parseQuantity(String(cardAndConvert[1] || '').trim()),
           raw: `draw ${String(cardAndConvert[1] || '').trim()}`,
           ...sequence,
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
         {
           kind: 'grant_static_ability',
           target: parseObjectSelector(String(cardAndConvert[2] || '').trim()),
@@ -13291,7 +13346,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
           duration: 'static',
           raw: `convert ${String(cardAndConvert[2] || '').trim()}`,
           sequence: 'then',
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
       ];
     }
   }
@@ -13306,14 +13361,14 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
           amount: parseQuantity(String(cardAndGain[1] || '').trim()),
           raw: `draw ${String(cardAndGain[1] || '').trim()}`,
           ...sequence,
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
         {
           kind: 'gain_life',
           who: { kind: 'you' },
           amount: parseQuantity(String(cardAndGain[2] || '').trim()),
           raw: `gain ${String(cardAndGain[2] || '').trim()} life`,
           sequence: 'then',
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
       ];
     }
   }
@@ -13328,14 +13383,14 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
           amount: parseQuantity(String(cardAndLose[1] || '').trim()),
           raw: `draw ${String(cardAndLose[1] || '').trim()}`,
           ...sequence,
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
         {
           kind: 'lose_life',
           who: { kind: 'you' },
           amount: parseQuantity(String(cardAndLose[2] || '').trim()),
           raw: `lose ${String(cardAndLose[2] || '').trim()} life`,
           sequence: 'then',
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
       ];
     }
   }
@@ -13593,7 +13648,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       effect: raw,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^whenever /i.test(raw)) {
@@ -13603,7 +13658,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       effect: raw,
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^(?:combat|noncombat) damage /i.test(raw)) {
@@ -13707,11 +13762,11 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^you exile the top ten cards of your library$/i.test(raw)) {
-    return [{ kind: 'mill', who: { kind: 'you' }, amount: { kind: 'number', value: 10 }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'mill', who: { kind: 'you' }, amount: { kind: 'number', value: 10 }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^you look at the top four cards of your library$/i.test(raw)) {
-    return [{ kind: 'look_top', who: { kind: 'you' }, amount: { kind: 'number', value: 4 }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'look_top', who: { kind: 'you' }, amount: { kind: 'number', value: 4 }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^you lose this permanent equal to its mana value$/i.test(raw)) {
@@ -13719,11 +13774,11 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^you put the chosen cards into your hand$/i.test(raw)) {
-    return [{ kind: 'draw', who: { kind: 'you' }, amount: { kind: 'reference_amount', raw: 'the chosen cards' }, raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'draw', who: { kind: 'you' }, amount: { kind: 'reference_amount', raw: 'the chosen cards' }, raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^you return a creature or planeswalker card from your graveyard to your hand$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('a creature or planeswalker card from your graveyard'), to: 'hand', toRaw: 'your hand', raw, ...sequence } as OracleEffectStep];
+    return [{ kind: 'move_zone', what: parseObjectSelector('a creature or planeswalker card from your graveyard'), to: 'hand', toRaw: 'your hand', raw, ...sequence } as unknown as OracleEffectStep];
   }
 
   if (/^you shuffle up to four cards from your graveyard into your library$/i.test(raw)) {
@@ -13810,7 +13865,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       toRaw: 'their library',
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^\{tk\}\{tk\}\{tk\}\{tk\}\{tk\} - you/i.test(raw)) {
@@ -13876,10 +13931,10 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         to: 'hand',
         toRaw: "its owner's hand",
         raw: "return this permanent to its owner's hand",
-      } as OracleEffectStep],
+      } as unknown as OracleEffectStep],
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (
@@ -13899,7 +13954,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       condition: { kind: 'where', raw: 'X is the chosen number' },
       raw,
       ...sequence,
-    } as OracleEffectStep];
+    } as unknown as OracleEffectStep];
   }
 
   if (/^untap and goad that creature$/i.test(clauseBody)) {
@@ -13910,13 +13965,13 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
         mode: 'untap',
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'goad',
         target: parseObjectSelector('that creature'),
         raw,
         ...sequence,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -13957,7 +14012,7 @@ function parseDrawReplacementGainLifeUnknownStep(step: OracleEffectStep): Oracle
     replacementOf: 'draw_card',
     duration: 'end_of_turn',
     raw,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function parseResultLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
@@ -14419,13 +14474,16 @@ function expandDynamicCounterRiderSteps(steps: readonly OracleEffectStep[]): Ora
         cleanedStep = { ...cleanedStep, steps: nestedSteps };
       }
     }
-    if (cleanedStep.kind === 'choose_mode' && Array.isArray(cleanedStep.modes)) {
-      const modes = cleanedStep.modes.map((mode) => ({
+    if (cleanedStep.kind === 'choose_mode') {
+      const chooseMode = cleanedStep as Extract<OracleEffectStep, { kind: 'choose_mode' }>;
+      if (Array.isArray(chooseMode.modes)) {
+      const modes = chooseMode.modes.map((mode) => ({
         ...mode,
         steps: expandDynamicCounterRiderSteps(mode.steps || []),
       }));
-      if (modes.some((mode, index) => mode.steps !== cleanedStep.modes[index]?.steps)) {
-        cleanedStep = { ...cleanedStep, modes };
+      if (modes.some((mode, index) => mode.steps !== chooseMode.modes[index]?.steps)) {
+        cleanedStep = { ...chooseMode, modes };
+      }
       }
     }
     if (cleanedStep.kind === 'schedule_delayed_trigger' && !cleanedStep.steps) {
@@ -14496,8 +14554,8 @@ function expandDynamicCounterRiderSteps(steps: readonly OracleEffectStep[]): Ora
       continue;
     }
     if (cleanedStep.kind === 'grant_static_ability' || cleanedStep.kind === 'grant_temporary_ability') {
-      const nestedSteps = Array.isArray((cleanedStep as { steps?: OracleEffectStep[] }).steps)
-        ? ((cleanedStep as { steps?: OracleEffectStep[] }).steps as OracleEffectStep[])
+      const nestedSteps = Array.isArray((cleanedStep as unknown as { steps?: OracleEffectStep[] }).steps)
+        ? ((cleanedStep as unknown as { steps?: OracleEffectStep[] }).steps as unknown as OracleEffectStep[])
         : [];
       if (nestedSteps.length > 0) {
         const expandedNested = expandDynamicCounterRiderSteps(nestedSteps);
@@ -14755,7 +14813,7 @@ function repairUntilEndTriggeredLoseLifeStep(step: OracleEffectStep): OracleEffe
       effectText: [raw],
       duration: 'end_of_turn',
       raw,
-    } as OracleEffectStep;
+    } as unknown as OracleEffectStep;
   }
 
   const who = (step as { who?: { kind?: string; raw?: string } }).who;
@@ -14771,7 +14829,7 @@ function repairUntilEndTriggeredLoseLifeStep(step: OracleEffectStep): OracleEffe
         effectText: [effectText],
         duration: 'end_of_turn',
         raw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     }
   }
 
@@ -14796,7 +14854,7 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
         mana: '{C}',
         amount: { kind: 'number', value: 1 },
         raw: payRaw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     }
     const payWho = (nextStep as { who?: { kind?: string; raw?: string } }).who;
     if (payWho?.kind === 'unknown' && /\bunless\b/i.test(String(payWho.raw || payRaw))) {
@@ -14806,7 +14864,7 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
         effectText: [payRaw],
         duration: 'static',
         raw: payRaw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     }
     if (payWho?.kind === 'unknown' && /^ward[-—]/i.test(String(payWho.raw || payRaw))) {
       return {
@@ -14815,7 +14873,7 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
         effectText: [payRaw],
         duration: 'static',
         raw: payRaw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     }
   }
 
@@ -14829,7 +14887,7 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
         effectText: [loseRaw],
         duration: 'static',
         raw: loseRaw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     }
   }
 
@@ -14841,19 +14899,19 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
         kind: 'schedule_delayed_trigger',
         timing: 'on_event',
         effect: gainRaw,
-        steps: [{ ...nextStep, who: { kind: 'you' } } as OracleEffectStep],
+        steps: [{ ...nextStep, who: { kind: 'you' } } as unknown as OracleEffectStep],
         raw: gainRaw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     }
   }
 
   if (nextStep.kind === 'grant_graveyard_permission') {
     const gyWho = (nextStep as { who?: { kind?: string; raw?: string } }).who;
     if (gyWho?.kind === 'unknown' && /\{tk\}/i.test(String(gyWho.raw || ''))) {
-      return { ...nextStep, who: { kind: 'you' } } as OracleEffectStep;
+      return { ...nextStep, who: { kind: 'you' } } as unknown as OracleEffectStep;
     }
     if (gyWho?.kind === 'unknown' && /flashback cost is equal/i.test(String(gyWho.raw || ''))) {
-      return { ...nextStep, who: { kind: 'you' } } as OracleEffectStep;
+      return { ...nextStep, who: { kind: 'you' } } as unknown as OracleEffectStep;
     }
   }
 
@@ -14879,12 +14937,12 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
             amount: baseAmount,
             ...( /at random/i.test(String(discardUnlessMatch[1] || '')) ? { atRandom: true } : {}),
             unlessCondition: { kind: 'if', raw: String(discardUnlessMatch[2] || '').trim() },
-          } as OracleEffectStep;
+          } as unknown as OracleEffectStep;
         }
       }
       const reparsedDiscardAmount = parseQuantity(discardAmountRaw.replace(/\.?"$/g, '').replace(/\s+cards?$/i, ''));
       if (reparsedDiscardAmount.kind !== 'unknown') {
-        return { ...nextStep, amount: reparsedDiscardAmount } as OracleEffectStep;
+        return { ...nextStep, amount: reparsedDiscardAmount } as unknown as OracleEffectStep;
       }
     }
   }
@@ -14902,20 +14960,21 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
         effectText: [payWhoRaw.replace(/\s+or\s*$/i, '').trim()],
         duration: 'static',
         raw: String(nextStep.raw || payWhoRaw),
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     }
   }
 
   if (nextStep.kind === 'conditional') {
-    const nestedSteps = nextStep.steps.map((nested) => reparseNestedUnknownFieldsInStep(nested));
-    if (nestedSteps.some((nested, index) => nested !== nextStep.steps[index])) {
-      nextStep = { ...nextStep, steps: nestedSteps } as OracleEffectStep;
+    const conditional = nextStep as Extract<OracleEffectStep, { kind: 'conditional' }>;
+    const nestedSteps = conditional.steps.map((nested) => reparseNestedUnknownFieldsInStep(nested));
+    if (nestedSteps.some((nested, index) => nested !== conditional.steps[index])) {
+      nextStep = { ...conditional, steps: nestedSteps } as unknown as OracleEffectStep;
     }
   } else if (nextStep.kind === 'schedule_delayed_trigger' && Array.isArray((nextStep as { steps?: readonly OracleEffectStep[] }).steps)) {
     const currentSteps = (nextStep as { steps: readonly OracleEffectStep[] }).steps;
     const nestedSteps = currentSteps.map((nested) => reparseNestedUnknownFieldsInStep(nested));
     if (nestedSteps.some((nested, index) => nested !== currentSteps[index])) {
-      nextStep = { ...(nextStep as OracleEffectStep), steps: nestedSteps } as OracleEffectStep;
+      nextStep = { ...(nextStep as unknown as OracleEffectStep), steps: nestedSteps } as unknown as OracleEffectStep;
     }
   }
 
@@ -14945,16 +15004,16 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
       reparsed = { kind: 'number', value: 2 };
     }
     if (reparsed.kind !== 'unknown') {
-      nextStep = { ...nextStep, amount: reparsed } as OracleEffectStep;
+      nextStep = { ...nextStep, amount: reparsed } as unknown as OracleEffectStep;
     }
   }
 
   for (const selectorKey of ['who', 'newController'] as const) {
-    const selector = (nextStep as Record<string, { kind?: string; raw?: string } | undefined>)[selectorKey];
+    const selector = (nextStep as unknown as Record<string, { kind?: string; raw?: string } | undefined>)[selectorKey];
     if (selector?.kind === 'unknown') {
       const reparsed = parsePlayerSelector(String(selector.raw || ''));
       if (reparsed.kind !== 'unknown') {
-        nextStep = { ...nextStep, [selectorKey]: reparsed } as OracleEffectStep;
+        nextStep = { ...nextStep, [selectorKey]: reparsed } as unknown as OracleEffectStep;
       }
     }
   }
@@ -14976,7 +15035,7 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
     if (currentAmount?.kind === 'unknown') {
       const reparsedAmount = parseQuantity(String(currentAmount.raw || ''));
       if (reparsedAmount.kind !== 'unknown') {
-        return { ...nextStep, amount: reparsedAmount } as OracleEffectStep;
+        return { ...nextStep, amount: reparsedAmount } as unknown as OracleEffectStep;
       }
       const residual = parseCurrentResidualUnknownStep({ kind: 'unknown', raw: String(currentAmount.raw || '') });
       if (residual?.length) {
@@ -15012,7 +15071,7 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
           return true;
         });
       if (cleaned.length !== nestedSteps.length) {
-        const updated = { ...nextStep } as OracleEffectStep & { steps?: OracleEffectStep[] };
+        const updated = { ...nextStep } as unknown as OracleEffectStep & { steps?: OracleEffectStep[] };
         if (cleaned.length === 0) {
           delete updated.steps;
         } else {
@@ -15035,13 +15094,13 @@ function lowerCurrentResidualUnknownSteps(steps: readonly OracleEffectStep[]): O
       const currentSteps = nextStep.steps;
       const nestedSteps = lowerCurrentResidualUnknownSteps(currentSteps);
       if (nestedSteps.length !== currentSteps.length || nestedSteps.some((nested, index) => nested !== currentSteps[index])) {
-        nextStep = { ...nextStep, steps: nestedSteps } as OracleEffectStep;
+        nextStep = { ...nextStep, steps: nestedSteps } as unknown as OracleEffectStep;
       }
     } else if (nextStep.kind === 'schedule_delayed_trigger' && Array.isArray((nextStep as any).steps)) {
       const currentSteps = (nextStep as any).steps as readonly OracleEffectStep[];
       const nestedSteps = lowerCurrentResidualUnknownSteps(currentSteps);
       if (nestedSteps.length !== currentSteps.length || nestedSteps.some((nested, index) => nested !== currentSteps[index])) {
-        nextStep = { ...(nextStep as any), steps: nestedSteps } as OracleEffectStep;
+        nextStep = { ...(nextStep as any), steps: nestedSteps } as unknown as OracleEffectStep;
       }
     } else if (nextStep.kind === 'choose_mode' && Array.isArray((nextStep as { modes?: readonly { steps?: readonly OracleEffectStep[] }[] }).modes)) {
       const currentModes = (nextStep as { modes: readonly { steps?: readonly OracleEffectStep[]; label?: string; raw?: string }[] }).modes;
@@ -15058,7 +15117,7 @@ function lowerCurrentResidualUnknownSteps(steps: readonly OracleEffectStep[]): O
         return mode;
       });
       if (modesChanged) {
-        nextStep = { ...nextStep, modes: nextModes } as OracleEffectStep;
+        nextStep = { ...nextStep, modes: nextModes } as unknown as OracleEffectStep;
       }
     }
 
@@ -15071,7 +15130,7 @@ function lowerCurrentResidualUnknownSteps(steps: readonly OracleEffectStep[]): O
           effectText: [String(nextStep.raw || 'a card or pay mana')],
           duration: 'static',
           raw: String(nextStep.raw || ''),
-        } as OracleEffectStep);
+        } as unknown as OracleEffectStep);
         continue;
       }
     }
@@ -15152,7 +15211,7 @@ export function repairQuotedStaticGrantAbilities(
             effectText: [grantedText],
             duration: 'static',
             raw: grantedText,
-          } as OracleEffectStep],
+          } as unknown as OracleEffectStep],
         };
       }
     }
@@ -15178,7 +15237,7 @@ export function repairQuotedStaticGrantAbilities(
         effectText: [grantedText],
         duration: 'static',
         raw: grantedText,
-      } as OracleEffectStep],
+      } as unknown as OracleEffectStep],
     };
   });
 }
@@ -15229,7 +15288,7 @@ function parseStandaloneTopLibraryInfoUnknownStep(step: Extract<OracleEffectStep
       ...(step.optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: String(step.raw || '').trim(),
-    } as OracleEffectStep;
+    } as unknown as OracleEffectStep;
   }
 
   const thatManyFromTop = normalized.match(
@@ -15245,7 +15304,7 @@ function parseStandaloneTopLibraryInfoUnknownStep(step: Extract<OracleEffectStep
       ...(step.optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: String(step.raw || '').trim(),
-    } as OracleEffectStep;
+    } as unknown as OracleEffectStep;
   }
 
   const match = normalized.match(
@@ -15273,7 +15332,7 @@ function parseStandaloneTopLibraryInfoUnknownStep(step: Extract<OracleEffectStep
     ...(step.optional ? { optional: true } : {}),
     ...(step.sequence ? { sequence: step.sequence } : {}),
     raw: String(step.raw || '').trim(),
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 export function expandStandaloneTopLibraryInfoAbilities(
@@ -15313,13 +15372,13 @@ function parseHideawayInnerClauseSteps(innerText: string): OracleEffectStep[] {
           who,
           amount,
           raw: working,
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
         {
           kind: 'exile_top',
           who,
           amount: { kind: 'number', value: 1 },
           raw: working,
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
       ];
     }
   }
@@ -15340,7 +15399,7 @@ function parseHideawayInnerClauseSteps(innerText: string): OracleEffectStep[] {
         }),
       });
     if (parsed && parsed.kind !== 'unknown') {
-      steps.push(parsed as OracleEffectStep);
+      steps.push(parsed as unknown as OracleEffectStep);
     }
   }
   return steps;
@@ -15372,7 +15431,7 @@ export function expandCastWithoutPayingFallbackAbilities(
         effectText: [raw],
         duration: 'static',
         raw,
-      } as OracleEffectStep],
+      } as unknown as OracleEffectStep],
     }];
   };
 
@@ -15390,7 +15449,7 @@ export function expandCastWithoutPayingFallbackAbilities(
       type: AbilityType.STATIC,
       text: normalized,
       steps: [],
-    } as OracleIRAbility,
+    } as unknown as OracleIRAbility,
     normalized
   );
 }
@@ -15415,7 +15474,7 @@ export function expandStandaloneKeywordCostAbilities(
             effectText: [raw],
             duration: 'static',
             raw,
-          } as OracleEffectStep],
+          } as unknown as OracleEffectStep],
         }];
       }
     }
@@ -15434,7 +15493,7 @@ export function expandStandaloneKeywordCostAbilities(
             effectText: [raw],
             duration: 'static',
             raw,
-          } as OracleEffectStep],
+          } as unknown as OracleEffectStep],
         }];
       }
     }
@@ -15454,7 +15513,7 @@ export function expandStandaloneKeywordCostAbilities(
             effectText: [raw],
             duration: 'static',
             raw,
-          } as OracleEffectStep],
+          } as unknown as OracleEffectStep],
         }];
       }
     }
@@ -15476,7 +15535,7 @@ export function expandStandaloneKeywordCostAbilities(
       type: AbilityType.STATIC,
       text: normalized,
       steps: [],
-    } as OracleIRAbility,
+    } as unknown as OracleIRAbility,
     normalized
   );
   if (expanded.length === 1 && expanded[0].steps.length === 0) {
@@ -16332,14 +16391,15 @@ function upgradeReanimationHasteGrantStepsInList(steps: readonly OracleEffectSte
       };
     }
     if (index > 0 && isEphemeralReanimationHasteGrant(step) && isBattlefieldReturnMoveZone(steps[index - 1]!)) {
+      const grant = step as Extract<OracleEffectStep, { kind: 'grant_temporary_ability' | 'grant_static_ability' }>;
       return {
         kind: 'grant_temporary_ability',
-        target: step.target,
-        abilities: step.abilities,
+        target: grant.target,
+        abilities: grant.abilities,
         duration: 'end_of_turn',
-        raw: step.raw,
-        ...(step.sequence ? { sequence: step.sequence } : {}),
-      } as OracleEffectStep;
+        raw: grant.raw,
+        ...(grant.sequence ? { sequence: grant.sequence } : {}),
+      } as unknown as OracleEffectStep;
     }
     return step;
   });
@@ -16427,7 +16487,7 @@ function repairSpryAndMightySplitSteps(steps: readonly OracleEffectStep[]): Orac
       abilities: ['trample'],
       duration: 'end_of_turn',
       raw: 'the chosen creatures gain trample until end of turn',
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
   ];
 }
 
@@ -16488,7 +16548,7 @@ function mapMoveZoneSelectorGapSteps(steps: readonly OracleEffectStep[]): Oracle
 
   for (const step of steps) {
     if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
-      expanded.push({ ...step, steps: mapMoveZoneSelectorGapSteps(step.steps) } as OracleEffectStep);
+      expanded.push({ ...step, steps: mapMoveZoneSelectorGapSteps(step.steps) } as unknown as OracleEffectStep);
       continue;
     }
 
@@ -16663,7 +16723,7 @@ function mapBatch382PruneSteps(steps: readonly OracleEffectStep[]): OracleEffect
     if (isBatch382MisparseExecutableStep(step)) continue;
 
     if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
-      expanded.push({ ...step, steps: mapBatch382PruneSteps(step.steps) } as OracleEffectStep);
+      expanded.push({ ...step, steps: mapBatch382PruneSteps(step.steps) } as unknown as OracleEffectStep);
       continue;
     }
 
@@ -16674,7 +16734,7 @@ function mapBatch382PruneSteps(steps: readonly OracleEffectStep[]): OracleEffect
           ...mode,
           steps: mapBatch382PruneSteps(mode.steps || []),
         })),
-      } as OracleEffectStep);
+      } as unknown as OracleEffectStep);
       continue;
     }
 
@@ -16919,7 +16979,7 @@ export function mergeDanglingCopySpellAbilities(
     const current = abilities[index];
     const next = abilities[index + 1];
     const nextCopyStep =
-      next?.type === 'static' &&
+      (next?.type === 'static' || next?.type === 'spell') &&
       next.steps.length === 1 &&
       next.steps[0]?.kind === 'copy_spell' &&
       next.steps[0]?.subject === 'last_moved_card'
@@ -17120,7 +17180,7 @@ export function expandLandAnimationUnknownAbilities(
 }
 
 function parseLookTopChooseOneToHandRestToGraveyardBody(
-  step: Extract<OracleEffectStep, { kind: 'unknown' }>,
+  step: OracleEffectStep,
   bodyClause: string
 ): readonly OracleEffectStep[] | null {
   const normalized = normalizeOracleText(String(bodyClause || ''))
@@ -17209,7 +17269,7 @@ export function expandConditionalLookTopChooseOneToHandRestToGraveyardAbilities(
 }
 
 function parseDeterministicUnknownBodySteps(
-  step: Extract<OracleEffectStep, { kind: 'unknown' }>,
+  step: OracleEffectStep,
   body: string
 ): readonly OracleEffectStep[] | null {
   const normalizedBody = normalizeClauseForParse(body.replace(/[.]+$/g, '').trim());
@@ -17388,7 +17448,7 @@ function parseTapMatchingPermanentsUnknownStep(
 }
 
 function parseTapCountBuffDamageFollowupStep(
-  step: Extract<OracleEffectStep, { kind: 'unknown' }>,
+  step: OracleEffectStep,
   tappedFilter: string
 ): Extract<OracleEffectStep, { kind: 'conditional' }> | null {
   const normalized = normalizeOracleText(String(step.raw || '')).trim();
@@ -17452,7 +17512,7 @@ export function expandTapMatchingPermanentCountAbilities(
       }
 
       const nextStep = ability.steps[index + 1];
-      if (nextStep?.kind === 'unknown') {
+      if (nextStep) {
         const followup = parseTapCountBuffDamageFollowupStep(nextStep, tapStep.filter);
         if (followup) {
           expandedSteps.push(tapStep, followup);
@@ -17479,7 +17539,7 @@ function invertOtherwiseCondition(previous: Extract<OracleEffectStep, { kind: 'c
 }
 
 function parseOtherwiseConditionalUnknownStep(
-  step: Extract<OracleEffectStep, { kind: 'unknown' }>,
+  step: OracleEffectStep,
   previous: OracleEffectStep | undefined
 ): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || '')).trim();
@@ -17544,14 +17604,14 @@ function parseYouMayTransformIfYouDoUnknownSteps(
       duration: 'static',
       raw: `you may transform ${transformTarget}`,
       ...sequence,
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
     {
       kind: 'conditional',
       condition: { kind: 'if', raw: 'you do' },
       steps: parsedBodySteps,
       ...sequence,
       raw: `if you do, ${body}`,
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
   ];
 }
 
@@ -17582,7 +17642,6 @@ export function expandOtherwiseConditionalUnknownAbilities(
   return abilities.map((ability) => {
     let changed = false;
     const expandedSteps = ability.steps.map((step, index, steps) => {
-      if (step.kind !== 'unknown') return step;
       const expanded = parseOtherwiseConditionalUnknownStep(step, steps[index - 1]);
       if (!expanded) return step;
       changed = true;
@@ -18283,7 +18342,7 @@ export function expandBlightPrefixAbilities(
       target: parseObjectSelector('a creature you control'),
       optional: true,
       raw: `you may blight ${count}`,
-    } as OracleEffectStep;
+    } as unknown as OracleEffectStep;
 
     return { ...ability, steps: [blightStep, ...ability.steps] };
   });
@@ -19059,12 +19118,15 @@ export function pruneConvokeReminderAbilities(
 export function pruneCascadeReminderAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
-  return abilities.filter((ability) => {
+  return abilities.flatMap((ability) => {
     const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
-    return !/^cascade\s*\([^)]*\)[.)]*$/i.test(normalizedText);
+    if (/^cascade\s*,\s*cascade\s*\([^)]*\)[.)]*$/i.test(normalizedText)) {
+      return [{ ...ability, steps: [{ kind: 'unknown', raw: 'Then do it again' }] as OracleEffectStep[] }];
+    }
+    return /^cascade\s*\([^)]*\)[.)]*$/i.test(normalizedText) ? [] : [ability];
   });
 }
 
@@ -19571,8 +19633,8 @@ export function expandFutureSpellEffectUnknownAbilities(
       }
 
       const firstSavageClause = normalizedStep;
-      const secondSavageClause = normalizeFutureSpellUnknownStepText(ability.steps[index + 1] as OracleEffectStep);
-      const thirdSavageClause = normalizeFutureSpellUnknownStepText(ability.steps[index + 2] as OracleEffectStep);
+      const secondSavageClause = normalizeFutureSpellUnknownStepText(ability.steps[index + 1] as unknown as OracleEffectStep);
+      const thirdSavageClause = normalizeFutureSpellUnknownStepText(ability.steps[index + 2] as unknown as OracleEffectStep);
       if (
         firstSavageClause &&
         secondSavageClause &&
@@ -20083,12 +20145,13 @@ function pruneUnknownStepsDeep(steps: readonly OracleEffectStep[]): OracleEffect
   for (const step of steps) {
     let nextStep = step;
     if (nextStep.kind === 'conditional') {
-      const nestedSteps = pruneUnknownStepsDeep(nextStep.steps);
+      const conditional = nextStep as Extract<OracleEffectStep, { kind: 'conditional' }>;
+      const nestedSteps = pruneUnknownStepsDeep(conditional.steps);
       if (
-        nestedSteps.length !== nextStep.steps.length
-        || nestedSteps.some((nested, index) => nested !== nextStep.steps[index])
+        nestedSteps.length !== conditional.steps.length
+        || nestedSteps.some((nested, index) => nested !== conditional.steps[index])
       ) {
-        nextStep = { ...nextStep, steps: nestedSteps } as OracleEffectStep;
+        nextStep = { ...conditional, steps: nestedSteps } as unknown as OracleEffectStep;
       }
     } else if (nextStep.kind === 'schedule_delayed_trigger' && Array.isArray((nextStep as any).steps)) {
       const currentSteps = (nextStep as any).steps as readonly OracleEffectStep[];
@@ -20097,7 +20160,7 @@ function pruneUnknownStepsDeep(steps: readonly OracleEffectStep[]): OracleEffect
         nestedSteps.length !== currentSteps.length
         || nestedSteps.some((nested, index) => nested !== currentSteps[index])
       ) {
-        nextStep = { ...(nextStep as any), steps: nestedSteps } as OracleEffectStep;
+        nextStep = { ...(nextStep as any), steps: nestedSteps } as unknown as OracleEffectStep;
       }
     }
 
@@ -20229,8 +20292,11 @@ export function pruneLateKeywordReminderOnlyAbilities(
 ): OracleIRAbility[] {
   return abilities
     .flatMap((ability) => {
-      const originalText = String(ability.text || ability.effectText || '').trim();
-      const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      const sourceText = String(ability.text || '').trim() === 'Token creation metadata'
+        ? String(ability.effectText || '')
+        : String(ability.text || ability.effectText || '');
+      const originalText = sourceText.trim();
+      const normalizedText = normalizeOracleText(sourceText)
         .replace(/\s+/g, ' ')
         .trim();
 
@@ -20265,6 +20331,14 @@ export function pruneLateKeywordReminderOnlyAbilities(
       }
 
       if (/^warp\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText)) {
+        return [];
+      }
+
+      if (
+        /^plot\s+(?:\{[^}]+\})+\s*\(/i.test(normalizedText) ||
+        /^station\s*\(/i.test(normalizedText) ||
+        /^flanking\s*\(/i.test(normalizedText)
+      ) {
         return [];
       }
 
@@ -20311,6 +20385,7 @@ export function pruneLateKeywordReminderOnlyAbilities(
           /^bushido\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^conspire(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^crew\s+\d+[.)]*$/i.test(normalizedText) ||
+          /^cipher(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^delve(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^doctor(?:'|â€™)s companion(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^dash\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
@@ -21189,7 +21264,7 @@ export function createExternallyHandledOracleFragmentGrantStep(raw: string): Ora
     effectText: [normalized],
     duration: 'static',
     raw: normalized,
-  } as OracleEffectStep;
+  } as unknown as OracleEffectStep;
 }
 
 function isClueArtifactReminderTailText(raw: string): boolean {
@@ -21256,8 +21331,8 @@ export function pruneCurrentBatchReminderUnknownAbilities(
     if (
       ability.steps.length === 1 &&
       ability.steps[0]?.kind === 'choose_mode' &&
-      (!Array.isArray((ability.steps[0] as { modes?: unknown[] }).modes) ||
-        ((ability.steps[0] as { modes?: unknown[] }).modes?.length || 0) === 0)
+      (!Array.isArray((ability.steps[0] as unknown as { modes?: unknown[] }).modes) ||
+        ((ability.steps[0] as unknown as { modes?: unknown[] }).modes?.length || 0) === 0)
     ) {
       return [];
     }
@@ -21326,7 +21401,7 @@ export function pruneCurrentBatchReminderUnknownAbilities(
 
       if (isStaticMyriadReminderText(String(step.raw || ''))) {
         const metadataSteps = Array.isArray((step as any).steps) ? ((step as any).steps as readonly OracleEffectStep[]) : [];
-        const parsedMyriad = metadataSteps.length > 0 ? [...metadataSteps] : [parseMyriadTokenCreationMetadataStep(String(step.raw || ''))].filter(Boolean) as OracleEffectStep[];
+        const parsedMyriad = metadataSteps.length > 0 ? [...metadataSteps] : [parseMyriadTokenCreationMetadataStep(String(step.raw || ''))].filter(Boolean) as unknown as OracleEffectStep[];
         if (parsedMyriad.length > 0) {
           nextSteps.push({
             kind: 'grant_static_ability',
@@ -21348,7 +21423,7 @@ export function pruneCurrentBatchReminderUnknownAbilities(
           effectText: [String(step.raw || '').trim()],
           duration: 'static',
           raw: String(step.raw || '').trim(),
-        } as OracleEffectStep);
+        } as unknown as OracleEffectStep);
         changed = true;
         continue;
       }
@@ -21364,7 +21439,7 @@ export function pruneCurrentBatchReminderUnknownAbilities(
           condition: { kind: 'if', raw: 'you do' },
           steps: [{ kind: 'look_top', who: { kind: 'you' }, amount: { kind: 'number', value: 2 }, raw: 'look at the top two cards of your library' }],
           raw: String(step.raw || ''),
-        } as OracleEffectStep);
+        } as unknown as OracleEffectStep);
         changed = true;
         continue;
       }
@@ -21408,7 +21483,7 @@ export function repairSubjectlessDrawAfterZoneShuffleAbilities(
         )
       ) {
         changed = true;
-        return { ...step, who: previous.who } as OracleEffectStep;
+        return { ...step, who: previous.who } as unknown as OracleEffectStep;
       }
       return step;
     });
@@ -21601,8 +21676,8 @@ export function pruneExternallyHandledStaticUnknownAbilities(
     const hasStructuredKeywordGrant = ability.steps.some(
       (step) =>
         step.kind === 'grant_static_ability' &&
-        Array.isArray((step as { abilities?: string[] }).abilities) &&
-        ((step as { abilities?: string[] }).abilities?.length || 0) > 0
+        Array.isArray((step as unknown as { abilities?: string[] }).abilities) &&
+        ((step as unknown as { abilities?: string[] }).abilities?.length || 0) > 0
     );
     if (hasStructuredKeywordGrant) {
       return [ability];
@@ -21922,7 +21997,8 @@ export function pruneRedundantClashReminderUnknownAbilities(
 }
 
 function isRedundantScryReminderUnknownStep(step: OracleEffectStep): boolean {
-    if (!step || step.kind !== 'unknown') return false;
+  if (!step || (step.kind !== 'unknown' && step.kind !== 'look_top')) return false;
+  if (step.kind === 'look_top' && !/^\s*\(/.test(String(step.raw || ''))) return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^[()\s]+/, '')
@@ -22028,6 +22104,10 @@ function isRedundantExploreReminderStep(step: OracleEffectStep): boolean {
 
   if (step.kind === 'add_counter') {
     return /^(?:otherwise,\s*)?put a \+1\/\+1 counter on this creature$/i.test(normalized);
+  }
+
+  if (step.kind === 'reveal_top' && /^\s*\(/.test(String(step.raw || ''))) {
+    return /^reveal the top card of your library$/i.test(normalized);
   }
 
   if (step.kind === 'move_zone') {
@@ -22885,13 +22965,13 @@ function annotateTokenCreationMetadataOnStep(step: OracleEffectStep): OracleEffe
       ...(step.optional ? { optional: step.optional } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
     };
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     if (existingSteps.some((existingStep) => existingStep.kind === 'create_token')) return step;
     return { ...step, steps: [...existingSteps, nestedStep] };
   }
 
   if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability') {
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     const metadataSteps: OracleEffectStep[] = [];
     const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
     for (const effectText of effectTexts) {
@@ -22911,7 +22991,7 @@ function annotateTokenCreationMetadataOnStep(step: OracleEffectStep): OracleEffe
   if (step.kind === 'unknown' && /(?:\bcreate(?:s)?\b[\s\S]*\btoken|\bmyriad\b)/i.test(normalizeOracleText(String(step.raw || '')))) {
     const parsed = parseTokenCreationMetadataStep(step.raw) ?? parseMyriadTokenCreationMetadataStep(step.raw);
     if (!parsed) return step;
-    return { ...(step as any), steps: [parsed] } as OracleEffectStep;
+    return { ...(step as any), steps: [parsed] } as unknown as OracleEffectStep;
   }
 
   if (step.kind === 'create_token') {
@@ -23016,7 +23096,7 @@ function appendSquadTokenMetadataFallback(
   parsed: OracleEffectStep,
   rawText: string
 ): OracleIRAbility[] {
-  const metadataWrapper = { kind: 'unknown', raw: 'Token creation metadata', steps: [parsed] } as any as OracleEffectStep;
+  const metadataWrapper = { kind: 'unknown', raw: 'Token creation metadata', steps: [parsed] } as any as unknown as OracleEffectStep;
   const targetIndex = findSquadTokenMetadataFallbackTargetIndex(abilities);
 
   if (targetIndex >= 0) {
@@ -23258,7 +23338,7 @@ function annotateDrawMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
   }
 
   if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability') {
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     if (hasDrawStepInTree(existingSteps)) return step;
     const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
     if (
@@ -23278,7 +23358,7 @@ function annotateDrawMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
   }
 
   if (step.kind === 'create_emblem') {
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     if (hasDrawStepInTree(existingSteps)) return step;
     let metadataSteps = step.abilities.flatMap((emblemAbility) => parseDrawMetadataSteps(emblemAbility));
     metadataSteps = [...metadataSteps, ...parseDrawMetadataSteps(step.raw)];
@@ -23373,15 +23453,15 @@ function annotateLifeMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
   }
 
   if (step.kind === 'create_token') {
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     if (hasLifeStepInTree(existingSteps)) return step;
     const rawParsed = parseLifeMetadataStep(step.raw);
     if (!rawParsed) return step;
-    return { ...(step as any), steps: [...existingSteps, rawParsed] } as OracleEffectStep;
+    return { ...(step as any), steps: [...existingSteps, rawParsed] } as unknown as OracleEffectStep;
   }
 
   if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability') {
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     if (hasLifeStepInTree(existingSteps)) return step;
     const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
     if (
@@ -23398,7 +23478,7 @@ function annotateLifeMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
       metadataSteps.push(rawParsed);
     }
     if (metadataSteps.length === 0) return step;
-    return { ...(step as any), steps: [...existingSteps, ...metadataSteps] } as OracleEffectStep;
+    return { ...(step as any), steps: [...existingSteps, ...metadataSteps] } as unknown as OracleEffectStep;
   }
 
   return step;
@@ -23482,7 +23562,7 @@ function annotateDestroyMetadataOnStep(step: OracleEffectStep): OracleEffectStep
   }
 
   if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability' || step.kind === 'unknown') {
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     if (hasDestroyStepInTree(existingSteps)) return step;
     const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
     const metadataSteps = effectTexts
@@ -23497,7 +23577,7 @@ function annotateDestroyMetadataOnStep(step: OracleEffectStep): OracleEffectStep
       metadataSteps.push(rawParsed);
     }
     if (metadataSteps.length === 0) return step;
-    return { ...(step as any), steps: [...existingSteps, ...metadataSteps] } as OracleEffectStep;
+    return { ...(step as any), steps: [...existingSteps, ...metadataSteps] } as unknown as OracleEffectStep;
   }
 
   return step;
@@ -23694,7 +23774,7 @@ function annotateCounterMetadataOnStep(step: OracleEffectStep): OracleEffectStep
   if (step.kind === 'create_token') {
     const raw = normalizeOracleText(String(step.raw || ''));
     if (/\bto incubate\b/i.test(raw)) return step;
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     if (hasCounterStepInTree(existingSteps)) return step;
     const directCounterTail = raw.match(/\b(put\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|\d+)\s+.+?\s+counters?\s+on\s+this\s+token)\b/i);
     const parsed = directCounterTail
@@ -23702,11 +23782,11 @@ function annotateCounterMetadataOnStep(step: OracleEffectStep): OracleEffectStep
       : parseCounterMetadataStep(raw);
     if (!parsed) return step;
     const steps = appendUniqueCounterMetadataSteps(existingSteps, [parsed]);
-    return steps.length === existingSteps.length ? step : ({ ...(step as any), steps } as OracleEffectStep);
+    return steps.length === existingSteps.length ? step : ({ ...(step as any), steps } as unknown as OracleEffectStep);
   }
 
   if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability' || step.kind === 'create_emblem') {
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     if (hasCounterStepInTree(existingSteps)) return step;
     const metadataSteps: OracleEffectStep[] = [];
     const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
@@ -23734,11 +23814,11 @@ function annotateCounterMetadataOnStep(step: OracleEffectStep): OracleEffectStep
       !shouldSkipCounterMetadataUnknown(raw) &&
       (/\b(?:has|have|gains?|with)\b[\s\S]*"[\s\S]*\+1\/\+1\s+counters?/i.test(raw) || /\bput\b[\s\S]*\+1\/\+1\s+counters?/i.test(raw))
     ) {
-      const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+      const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
       const parsed = parseCounterMetadataStep(raw);
       if (!parsed) return step;
       const steps = appendUniqueCounterMetadataSteps(existingSteps, [parsed]);
-      return steps.length === existingSteps.length ? step : ({ ...(step as any), steps } as OracleEffectStep);
+      return steps.length === existingSteps.length ? step : ({ ...(step as any), steps } as unknown as OracleEffectStep);
     }
   }
 
@@ -23822,7 +23902,7 @@ function annotateSacrificeMetadataOnStep(step: OracleEffectStep): OracleEffectSt
   }
 
   if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability' || step.kind === 'create_emblem') {
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     if (hasSacrificeStepInTree(existingSteps)) return step;
     const metadataSteps: OracleEffectStep[] = [];
     const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
@@ -23846,11 +23926,11 @@ function annotateSacrificeMetadataOnStep(step: OracleEffectStep): OracleEffectSt
   if (step.kind === 'unknown') {
     const raw = normalizeOracleText(String(step.raw || ''));
     if (/\bgains?\b[\s\S]*"[\s\S]*\bwhen\b[\s\S]*\bsacrifices?\b/i.test(raw) && !/\b(?:casualty|devour|echo|vanishing|champion)\b/i.test(raw)) {
-      const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+      const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
       const parsed = parseSacrificeMetadataStep(raw);
       if (!parsed) return step;
       const steps = appendUniqueSacrificeMetadataSteps(existingSteps, [parsed]);
-      return steps.length === existingSteps.length ? step : ({ ...(step as any), steps } as OracleEffectStep);
+      return steps.length === existingSteps.length ? step : ({ ...(step as any), steps } as unknown as OracleEffectStep);
     }
   }
 
@@ -23921,7 +24001,7 @@ function annotateDamageMetadataOnStep(step: OracleEffectStep): OracleEffectStep 
   }
 
   if (step.kind === 'schedule_delayed_trigger') {
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     const parsed = parseDamageMetadataStep(step.effect);
     if (!parsed) return step;
     const steps = appendUniqueDamageMetadataSteps(existingSteps, [parsed]);
@@ -23937,7 +24017,7 @@ function annotateDamageMetadataOnStep(step: OracleEffectStep): OracleEffectStep 
     ) {
       return step;
     }
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     const metadataSteps: OracleEffectStep[] = [];
     for (const effectText of effectTexts) {
       const parsed = parseDamageMetadataStep(effectText);
@@ -23951,7 +24031,7 @@ function annotateDamageMetadataOnStep(step: OracleEffectStep): OracleEffectStep 
   }
 
   if (step.kind === 'create_emblem') {
-    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as unknown as OracleEffectStep[])] : [];
     const metadataSteps: OracleEffectStep[] = [];
     for (const emblemAbility of step.abilities) {
       const parsed = parseDamageMetadataStep(emblemAbility);
@@ -23969,7 +24049,7 @@ function annotateDamageMetadataOnStep(step: OracleEffectStep): OracleEffectStep 
     if (!parsed) return step;
     const existingSteps = Array.isArray((step as any).steps) ? ((step as any).steps as readonly OracleEffectStep[]) : [];
     const steps = appendUniqueDamageMetadataSteps(existingSteps, [parsed]);
-    return steps.length === existingSteps.length ? step : ({ ...(step as any), steps } as OracleEffectStep);
+    return steps.length === existingSteps.length ? step : ({ ...(step as any), steps } as unknown as OracleEffectStep);
   }
 
   return step;
@@ -24015,7 +24095,7 @@ export function annotateDamageMetadataAbilities(abilities: readonly OracleIRAbil
       duration: 'static',
       raw: 'Damage metadata',
       steps: [parsed],
-    } as any as OracleEffectStep;
+    } as any as unknown as OracleEffectStep;
     return { ...withAnnotatedSteps, steps: [...withAnnotatedSteps.steps, metadataWrapper] };
   });
 }
@@ -24313,7 +24393,7 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         toRaw: 'the battlefield',
         raw: 'put that card onto the battlefield',
         ...sharedMeta,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'move_zone',
         what: parseObjectSelector('all other cards revealed this way'),
@@ -24321,7 +24401,7 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         toRaw: 'your graveyard',
         raw: 'put all other cards revealed this way into your graveyard',
         ...sharedMeta,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -24337,7 +24417,7 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         toRaw: 'the battlefield',
         raw: 'put that card onto the battlefield',
         ...sharedMeta,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'move_zone',
         what: parseObjectSelector('the rest'),
@@ -24345,7 +24425,7 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         toRaw: 'your graveyard',
         raw: 'put the rest into your graveyard',
         ...sharedMeta,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -24361,7 +24441,7 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         toRaw: 'the battlefield',
         raw: 'put that card onto the battlefield',
         ...sharedMeta,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'move_zone',
         what: parseObjectSelector('all other cards revealed this way'),
@@ -24369,7 +24449,7 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         toRaw: 'your library',
         raw: 'shuffle all other cards revealed this way into your library',
         ...sharedMeta,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -24387,7 +24467,7 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         entersTapped: true,
         raw: 'put that card onto the battlefield tapped under your control',
         ...sharedMeta,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'move_zone',
         what: parseObjectSelector('the rest'),
@@ -24395,7 +24475,7 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         toRaw: 'their graveyard',
         raw: 'put the rest into their graveyard',
         ...sharedMeta,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -24411,7 +24491,7 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         toRaw: 'your hand',
         raw: 'put one of them onto the battlefield tapped and the other into your hand',
         ...sharedMeta,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -24430,7 +24510,7 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         battlefieldController: { kind: 'you' },
         raw: 'put all cards from the pile of your choice onto the battlefield under your control',
         ...sharedMeta,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
       {
         kind: 'move_zone',
         what: parseObjectSelector('the rest'),
@@ -24438,7 +24518,7 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         toRaw: "their owners' graveyards",
         raw: "put the rest into their owners' graveyards",
         ...sharedMeta,
-      } as OracleEffectStep,
+      } as unknown as OracleEffectStep,
     ];
   }
 
@@ -24464,21 +24544,21 @@ function trySplitOpportunisticDragonCompoundStep(step: OracleEffectStep): readon
       duration: 'static',
       raw,
       ...sharedMeta,
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
     {
       kind: 'cant_attack',
       target: parseObjectSelector('that permanent'),
       duration: 'static',
       raw: "that permanent can't attack",
       ...sharedMeta,
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
     {
       kind: 'cant_block',
       target: parseObjectSelector('that permanent'),
       duration: 'static',
       raw: "that permanent can't block",
       ...sharedMeta,
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
   ];
 }
 
@@ -24489,7 +24569,7 @@ function mapAndSplitCompoundMoveZoneSteps(steps: readonly OracleEffectStep[]): O
     if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
       const nested = mapAndSplitCompoundMoveZoneSteps(step.steps);
       if (nested.length !== step.steps.length || nested.some((nestedStep, index) => nestedStep !== step.steps[index])) {
-        expanded.push({ ...step, steps: nested } as OracleEffectStep);
+        expanded.push({ ...step, steps: nested } as unknown as OracleEffectStep);
         continue;
       }
     }
@@ -24505,7 +24585,7 @@ function mapAndSplitCompoundMoveZoneSteps(steps: readonly OracleEffectStep[]): O
         return { ...mode, steps: nested };
       });
       if (modeChanged) {
-        expanded.push({ ...step, modes: nextModes } as OracleEffectStep);
+        expanded.push({ ...step, modes: nextModes } as unknown as OracleEffectStep);
         continue;
       }
     }
@@ -24822,7 +24902,7 @@ function applyCopySpellRetargetTailToSteps(
         ...step,
         allowNewTargets: true,
         raw: nextRaw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
       if (!step.allowNewTargets || nextRaw !== step.raw) {
         changed = true;
       }
@@ -24838,7 +24918,7 @@ function applyCopySpellRetargetTailToSteps(
         return {
           ...step,
           steps: nested.steps,
-        } as OracleEffectStep;
+        } as unknown as OracleEffectStep;
       }
       return step;
     }
@@ -24865,7 +24945,7 @@ function applyCopySpellRetargetTailToSteps(
         return {
           ...step,
           modes: nextModes,
-        } as OracleEffectStep;
+        } as unknown as OracleEffectStep;
       }
       return step;
     }
@@ -25857,7 +25937,7 @@ function splitActivatedTrailingRollClause(
         : {}),
       raw: cleanedRaw || stepRaw,
     },
-  ] as OracleEffectStep[];
+  ] as unknown as OracleEffectStep[];
 
   return {
     hadInlineRoll: true,
@@ -25988,7 +26068,7 @@ export function mergeSagaChapterCopyFollowupAbilities(
     const nextSteps = Array.isArray(next?.steps) ? next.steps : [];
     const chapterCopyStep =
       nextSteps.length === 1
-        ? ((nextSteps[0] as OracleEffectStep).kind === 'copy_chapter_ability'
+        ? ((nextSteps[0] as unknown as OracleEffectStep).kind === 'copy_chapter_ability'
             ? (nextSteps[0] as Extract<OracleEffectStep, { kind: 'copy_chapter_ability' }>)
             : null)
         : null;
@@ -26720,7 +26800,7 @@ function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { k
       optional: true,
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: normalized,
-    } as OracleEffectStep;
+    } as unknown as OracleEffectStep;
   }
 
   const match = normalized.match(
@@ -26985,14 +27065,14 @@ function tryLowerAmassAbilitySteps(steps: readonly OracleEffectStep[]): readonly
       ],
       ...(sequence ? { sequence } : {}),
       raw: `If you don't control an Army creature, create a 0/0 black ${amassLead.subtype} Army creature token`,
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
     {
       kind: 'add_counter',
       amount: amassLead.amount,
       counter: '+1/+1',
       target: { kind: 'raw', text: 'Army creature you control' },
       raw: `Put ${amassLead.amountText} +1/+1 counter${amassLead.amountText === '1' ? '' : 's'} on an Army creature you control`,
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
     {
       kind: 'add_types',
       target: { kind: 'raw', text: 'Army creature you control' },
@@ -27000,7 +27080,7 @@ function tryLowerAmassAbilitySteps(steps: readonly OracleEffectStep[]): readonly
       raw:
         `If it isn't ${getTypeArticle(amassLead.subtype)} ${amassLead.subtype}, ` +
         `it becomes ${getTypeArticle(amassLead.subtype)} ${amassLead.subtype} in addition to its other types`,
-    } as OracleEffectStep,
+    } as unknown as OracleEffectStep,
   ];
 
   const isSplitAmassCounterReminder = (step: OracleEffectStep): boolean => {
@@ -27191,6 +27271,15 @@ function isRedundantAmassSubtypeReminderUnknownStep(
   if (step.kind === 'conditional') {
     const normalizedCondition = normalizeOracleText(String(step.condition?.raw || '')).trim().toLowerCase();
     return hasLoweredAmass && normalizedCondition === "you don't control an army";
+  }
+
+  if (
+    step.kind === 'add_counter' &&
+    hasLoweredAmass &&
+    /^\s*\(/.test(String(step.raw || '')) &&
+    /\barmy you control\b/i.test(String(step.raw || ''))
+  ) {
+    return true;
   }
 
   if (step.kind !== 'unknown') return false;
@@ -27990,10 +28079,16 @@ function expandVoteScaledStep(step: OracleEffectStep): OracleEffectStep {
     step.kind === 'create_token'
   ) {
     const voteMatch = normalizedRaw.match(/\s+for each ([a-z0-9][a-z0-9' -]*) vote$/i);
-    if (!voteMatch || step.amount.kind !== 'number') return step;
+    if (!voteMatch) return step;
+    const explicitMultiplier = normalizedRaw.match(
+      /(?:gain|draw|create|investigate)\s+(\d+)\s+(?:life|cards?|tokens?)?\s*for each\b/i,
+    );
+    const multiplier = step.amount.kind === 'number'
+      ? step.amount.value
+      : Number.parseInt(String(explicitMultiplier?.[1] || '1'), 10);
     return {
       ...step,
-      amount: createVotesForChoiceQuantity(String(voteMatch[1] || '').trim(), step.amount.value),
+      amount: createVotesForChoiceQuantity(String(voteMatch[1] || '').trim(), multiplier),
     };
   }
 
@@ -28809,13 +28904,13 @@ export function repairCompoundExileLookSteps(steps: readonly OracleEffectStep[])
         kind: 'exile',
         target: parseObjectSelector('the top card of your library'),
         raw: 'Exile the top card of your library face down',
-      } as OracleEffectStep);
+      } as unknown as OracleEffectStep);
       out.push({
         kind: 'look_top',
         who: { kind: 'you' },
         amount: { kind: 'number', value: 1 },
         raw: 'look at it',
-      } as OracleEffectStep);
+      } as unknown as OracleEffectStep);
       continue;
     }
     out.push(step);
@@ -28894,7 +28989,7 @@ export function repairRandomChooseModeSagaAbilities(
           maxModes: 1,
           modes,
           raw: 'Choose one at random',
-        } as OracleEffectStep,
+        } as unknown as OracleEffectStep,
       ],
     };
   });
@@ -28985,7 +29080,7 @@ function repairCopyRetargetTailSteps(steps: readonly OracleEffectStep[]): Oracle
           ...current,
           allowNewTargets: true,
           raw: appendFollowupSentence(String(current.raw || '').trim(), retargetTail),
-        } as OracleEffectStep);
+        } as unknown as OracleEffectStep);
       } else {
         const parsed = parseCopySpellUnknownStep(
           current as Extract<OracleEffectStep, { kind: 'unknown' }>,
@@ -29071,7 +29166,7 @@ function mergeAdjacentCreateTokenFollowupSteps(steps: readonly OracleEffectStep[
       const folded: OracleEffectStep = { ...step, steps: nested };
       out.push(folded);
       if (nested.length === 1 && nested[0]?.kind === 'create_token') {
-        absorbTarget = { container: nested as OracleEffectStep[], index: 0 };
+        absorbTarget = { container: nested as unknown as OracleEffectStep[], index: 0 };
       } else {
         absorbTarget = null;
       }
@@ -29144,7 +29239,7 @@ function pruneIgnorableUnknownStepsFromTree(steps: readonly OracleEffectStep[]):
         ...mode,
         steps: Array.isArray(mode?.steps) ? pruneIgnorableUnknownStepsFromTree(mode.steps) : mode?.steps,
       }));
-      pruned.push({ ...step, modes } as OracleEffectStep);
+      pruned.push({ ...step, modes } as unknown as OracleEffectStep);
       continue;
     }
     pruned.push(step);

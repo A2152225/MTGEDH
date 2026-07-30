@@ -486,8 +486,12 @@ export function buildGameStateLogEntries(
     }
   }
 
-  const prevById = new Map(prevBattlefield.map((perm: any) => [String(perm?.id || ''), perm]));
-  const nextById = new Map(nextBattlefield.map((perm: any) => [String(perm?.id || ''), perm]));
+  const prevById = new Map<string, any>(
+    prevBattlefield.map((perm: any): [string, any] => [String(perm?.id || ''), perm]),
+  );
+  const nextById = new Map<string, any>(
+    nextBattlefield.map((perm: any): [string, any] => [String(perm?.id || ''), perm]),
+  );
 
   const newTokensByKey = new Map<string, { controllerId: string; controllerName: string; tokenName: string; count: number }>();
   for (const [id, perm] of nextById) {
@@ -598,8 +602,12 @@ export function buildGameStateLogEntries(
     }
   }
 
-  const prevStackById = new Map(prevStack.map((item: any) => [String(item?.id || ''), item]));
-  const nextStackById = new Map(nextStack.map((item: any) => [String(item?.id || ''), item]));
+  const prevStackById = new Map<string, any>(
+    prevStack.map((item: any): [string, any] => [String(item?.id || ''), item]),
+  );
+  const nextStackById = new Map<string, any>(
+    nextStack.map((item: any): [string, any] => [String(item?.id || ''), item]),
+  );
 
   for (const [stackId, item] of nextStackById) {
     if (!stackId || prevStackById.has(stackId)) continue;

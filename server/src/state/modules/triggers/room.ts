@@ -5,7 +5,7 @@
  * when the corresponding half is cast and the door unlocks on the battlefield.
  */
 
-import type { PlayerID } from '../../../../shared/src/index.js';
+import type { PlayerID } from '../../../../../shared/src/index.js';
 import type { GameContext, RegisteredTrigger } from './types.js';
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { uid } from '../../utils.js';

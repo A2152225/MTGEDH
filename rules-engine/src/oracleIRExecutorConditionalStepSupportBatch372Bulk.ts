@@ -79,7 +79,11 @@ function findNamedControlledPermanent(nextState: GameState, controllerId: Player
     const n = String(perm?.name ?? perm?.card?.name ?? '').trim();
     if (n && haveSameName(n, target)) return true;
   }
-  for (const obj of collectCommandZoneObjects(nextState) as any[]) {
+  for (const obj of collectCommandZoneObjects(
+    nextState,
+    controllerId,
+    (id) => findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, id),
+  ) as any[]) {
     if (String(obj?.controller || '').trim() !== String(controllerId || '').trim()) continue;
     const n = String(obj?.name ?? obj?.card?.name ?? '').trim();
     if (n && haveSameName(n, target)) return true;
@@ -146,7 +150,7 @@ export function evaluateBatch372BulkConditionalClause(params: Batch372BulkParams
   if (/you controlled a faerie as you cast this spell/i.test(normalizedRaw)) {
     const controlled =
       (ctx as any)?.controlledFaerieAsCast ??
-      ctx.selectorContext?.controlledFaerieAsCast ??
+      (ctx.selectorContext as any)?.controlledFaerieAsCast ??
       (ctx as any)?.faerieControlledAsCast;
     if (typeof controlled === 'boolean') return controlled;
     return (getProcessedBattlefield(nextState) as any[]).some((perm: any) => {
@@ -158,7 +162,7 @@ export function evaluateBatch372BulkConditionalClause(params: Batch372BulkParams
   if (/discard a card unless you exile a historic card from your graveyard/i.test(normalizedRaw)) {
     const unlessPaid =
       (ctx as any)?.unlessExiledHistoricFromGraveyard ??
-      ctx.selectorContext?.unlessExiledHistoricFromGraveyard;
+      (ctx.selectorContext as any)?.unlessExiledHistoricFromGraveyard;
     if (unlessPaid === true) return true;
     if (unlessPaid === false) return false;
     return params.getGraveyardCards(nextState, controllerId).some((card) => cardMatchesHistoric(card));
@@ -286,7 +290,7 @@ export function evaluateBatch372BulkConditionalClause(params: Batch372BulkParams
   if (/discard a card unless you return a land you control to its owner's hand/i.test(normalizedRaw)) {
     const paid =
       (ctx as any)?.unlessReturnedLandToHand ??
-      ctx.selectorContext?.unlessReturnedLandToHand;
+      (ctx.selectorContext as any)?.unlessReturnedLandToHand;
     if (paid === true) return true;
     if (paid === false) return false;
     return (getProcessedBattlefield(nextState) as any[]).some((perm: any) => {
@@ -524,7 +528,11 @@ export function evaluateBatch372BulkConditionalClause(params: Batch372BulkParams
 
   if (normalizedRaw === 'this permanent is in the command zone') {
     const sourceId = String(ctx.sourceId || '').trim();
-    return (collectCommandZoneObjects(nextState) as any[]).some(
+    return (collectCommandZoneObjects(
+      nextState,
+      controllerId,
+      (id) => findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, id),
+    ) as any[]).some(
       (obj) => String(obj?.id || '').trim() === sourceId
     );
   }
@@ -566,7 +574,7 @@ export function evaluateBatch372BulkConditionalClause(params: Batch372BulkParams
     const paid =
       (ctx as any)?.freerunningCostPaid ??
       (ctx as any)?.alternateCostId ??
-      ctx.selectorContext?.freerunningCostPaid;
+      (ctx.selectorContext as any)?.freerunningCostPaid;
     if (typeof paid === 'string') return paid.toLowerCase() === 'freerunning';
     if (typeof paid === 'boolean') return paid;
     return null;

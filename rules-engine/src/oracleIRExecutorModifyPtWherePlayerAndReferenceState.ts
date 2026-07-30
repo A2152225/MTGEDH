@@ -19,7 +19,7 @@ type SacrificedSnapshot = {
 
 type FindPlayerById = (id: string) => PlayerLike | null;
 type FindObjectById = (id: string) => unknown | null;
-type ResolveLastSacrificedSnapshot = (kind: 'artifact' | 'creature') => SacrificedSnapshot | null;
+type ResolveLastSacrificedSnapshot = (kind: 'artifact' | 'creature' | 'card') => SacrificedSnapshot | null;
 type TypeLineLower = (obj: unknown) => string;
 type GetCardManaValue = (obj: unknown) => number | null;
 type HasExecutorClass = (obj: unknown, klass: string) => boolean;

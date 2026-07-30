@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildAvailableManaSourcesForPlayer, buildSuggestedPaymentItems } from '../src/utils/manaSourceBuilder';
+import type { ManaPaymentSource } from '../src/utils/manaUtils';
 
 describe('buildSuggestedPaymentItems', () => {
   it('uses floating pool mana before tapping lands when explicit pool items are enabled', () => {
@@ -45,18 +46,18 @@ describe('buildSuggestedPaymentItems', () => {
   });
 
   it('uses restricted floating mana for auto-pay without duplicating regular pool slots', () => {
-    const floatingSources = [
-      { id: '__pool__:green:0', name: 'Floating {G}', options: ['G'] as const, amount: 1 },
-      { id: '__pool__:green:1', name: 'Floating {G}', options: ['G'] as const, amount: 1 },
-      { id: '__pool__:restricted:0:0', name: 'Restricted {G}', options: ['G'] as const, amount: 1 },
-      { id: '__pool__:restricted:0:1', name: 'Restricted {G}', options: ['G'] as const, amount: 1 },
-      { id: '__pool__:restricted:0:2', name: 'Restricted {G}', options: ['G'] as const, amount: 1 },
-      { id: '__pool__:restricted:0:3', name: 'Restricted {G}', options: ['G'] as const, amount: 1 },
-      { id: '__pool__:restricted:0:4', name: 'Restricted {G}', options: ['G'] as const, amount: 1 },
+    const floatingSources: ManaPaymentSource[] = [
+      { id: '__pool__:green:0', name: 'Floating {G}', options: ['G'], amount: 1 },
+      { id: '__pool__:green:1', name: 'Floating {G}', options: ['G'], amount: 1 },
+      { id: '__pool__:restricted:0:0', name: 'Restricted {G}', options: ['G'], amount: 1 },
+      { id: '__pool__:restricted:0:1', name: 'Restricted {G}', options: ['G'], amount: 1 },
+      { id: '__pool__:restricted:0:2', name: 'Restricted {G}', options: ['G'], amount: 1 },
+      { id: '__pool__:restricted:0:3', name: 'Restricted {G}', options: ['G'], amount: 1 },
+      { id: '__pool__:restricted:0:4', name: 'Restricted {G}', options: ['G'], amount: 1 },
     ];
-    const landSources = [
-      { id: 'forest_1', name: 'Forest', options: ['G'] as const },
-      { id: 'forest_2', name: 'Forest', options: ['G'] as const },
+    const landSources: ManaPaymentSource[] = [
+      { id: 'forest_1', name: 'Forest', options: ['G'] },
+      { id: 'forest_2', name: 'Forest', options: ['G'] },
     ];
 
     const items = buildSuggestedPaymentItems(

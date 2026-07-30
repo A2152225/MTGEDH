@@ -13,7 +13,12 @@ export interface CardDrawTrigger {
   permanentId: string;
   cardName: string;
   controllerId: string;
-  triggerType: "opponent_draws" | "player_draws" | "you_draw";
+  triggerType:
+    | "opponent_draws"
+    | "player_draws"
+    | "you_draw"
+    | "reveal_creature_this_way"
+    | "reveal_this_way";
   effect: string;
   mandatory: boolean;
 }

@@ -346,6 +346,121 @@ describe('Turn step engine basics', () => {
     });
     expect((g.state as any).controlChangeEffects).toBeUndefined();
   });
+
+  it('expires Oracle IR P/T modifiers and their server mirrors during cleanup', () => {
+    const g = createInitialGameState('t_steps_oracle_ir_pt_cleanup');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    (g.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (g.state as any).turnOrder = [p1, p2];
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).activePlayer = p1;
+    (g.state as any).phase = GamePhase.ENDING;
+    (g.state as any).step = GameStep.CLEANUP;
+    (g.state as any).stack = [];
+    (g.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+      [p2]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+    (g.state as any).battlefield = [{
+      id: 'cleanup_creature_1',
+      controller: p1,
+      owner: p1,
+      temporaryPTMods: [{
+        power: 0,
+        toughness: -2,
+        source: 'shrink_1',
+        expiresAt: 'end_of_turn',
+      }],
+      modifiers: [{
+        type: 'powerToughness',
+        power: 0,
+        toughness: -2,
+        sourceId: 'shrink_1',
+        duration: 'end_of_turn',
+      }, {
+        type: 'powerToughness',
+        power: 1,
+        toughness: 1,
+        sourceId: 'static_1',
+        duration: 'static',
+      }],
+      card: {
+        id: 'cleanup_creature_card_1',
+        name: 'Cleanup Creature',
+        type_line: 'Creature — Bear',
+        power: '2',
+        toughness: '2',
+      },
+    }];
+
+    g.applyEvent({ type: 'nextStep' } as any);
+
+    const creature = (g.state as any).battlefield[0];
+    expect(creature.temporaryPTMods).toBeUndefined();
+    expect(creature.modifiers).toEqual([
+      expect.objectContaining({ sourceId: 'static_1', duration: 'static' }),
+    ]);
+  });
+
+  it('replays a durable temporary control event and reverts it during cleanup', () => {
+    const g = createInitialGameState('t_steps_durable_control_cleanup');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    (g.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (g.state as any).turnOrder = [p1, p2];
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).activePlayer = p1;
+    (g.state as any).phase = GamePhase.ENDING;
+    (g.state as any).step = GameStep.CLEANUP;
+    (g.state as any).stack = [];
+    (g.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+      [p2]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+    (g.state as any).battlefield = [{
+      id: 'borrowed_creature_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'borrowed_creature_card_1',
+        name: 'Borrowed Creature',
+        type_line: 'Creature — Bear',
+        power: '2',
+        toughness: '2',
+      },
+    }];
+
+    g.applyEvent({
+      type: 'changePermanentControl',
+      permanentId: 'borrowed_creature_1',
+      oldController: p1,
+      newController: p2,
+      duration: 'eot',
+      appliedAt: 123,
+    } as any);
+
+    expect((g.state as any).battlefield[0].controller).toBe(p2);
+    expect((g.state as any).controlChangeEffects).toEqual([
+      expect.objectContaining({
+        permanentId: 'borrowed_creature_1',
+        originalController: p1,
+        newController: p2,
+        duration: 'eot',
+      }),
+    ]);
+
+    g.applyEvent({ type: 'nextStep' } as any);
+
+    expect((g.state as any).battlefield[0].controller).toBe(p1);
+    expect((g.state as any).controlChangeEffects).toBeUndefined();
+  });
 });
 
 describe('Declare attackers step guards', () => {

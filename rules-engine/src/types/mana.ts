@@ -44,6 +44,10 @@ export type ManaRestrictionType =
   | 'commander'           // Can only be spent on commander costs
   | 'activated_abilities' // Can only be spent to activate abilities
   | 'instant_sorcery'     // Can only be spent on instants and sorceries
+  | 'chosen_type_creature_spell'
+  | 'chosen_type_creature_source'
+  | 'chosen_type_spell'
+  | 'creature_spells_mv_or_x'
   | 'specific_card';      // Can only be spent on a specific card or permanent
 
 /**

@@ -13,6 +13,7 @@
 
 import type { PlayerID, KnownCardRef } from '../../../../shared/src/types.js';
 import { ChoiceEventType, type ChoiceEvent, type ChoiceOption } from '../../../../rules-engine/src/choiceEvents.js';
+import type { EffectProgramClauseRef } from '../../../../rules-engine/src/effectProgram.js';
 
 /**
  * Resolution step status
@@ -607,6 +608,16 @@ export interface OptionChoiceStep extends BaseResolutionStep {
   readonly options: readonly ChoiceOption[];
   readonly minSelections: number;
   readonly maxSelections: number;
+  readonly effectProgramPrompt?: boolean;
+  readonly effectProgramId?: string;
+  readonly effectProgramFamily?: string;
+  readonly effectProgramSourceId?: string;
+  readonly effectProgramSourceName?: string;
+  readonly effectProgramCursor?: number;
+  readonly effectProgramStepId?: string;
+  readonly effectProgramBindingKey?: string;
+  readonly effectProgramClause?: EffectProgramClauseRef;
+  readonly deferredTriggeredAbilityItem?: unknown;
 }
 
 /**

@@ -694,7 +694,13 @@ function buildScalingManaExactOptions(
     }
   }
 
-  const scaling = getCreatureCountManaAmount(state, permanent, playerId)
+  const scaling: {
+    color: string;
+    amount: number;
+    activationCost?: string;
+    requiresColorChoice?: boolean;
+    dynamicAmountSource?: 'devotion';
+  } | null = getCreatureCountManaAmount(state, permanent, playerId)
     || getDevotionManaAmount(state, permanent, playerId);
   if (!scaling || !Number.isFinite(scaling.amount) || scaling.amount <= 0) {
     return [];

@@ -10731,7 +10731,7 @@ async function handleStepResponse(
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
         maybeMarkPowerUpAbilityUsedFromActivationContext(game, controllerId, permanentId, {
-          activatedAbilityText: activatedAbilityText || `${manaCost}: ${abilityText}`,
+          activatedAbilityText: activatedAbilityText || `${String(stepData?.manaCost || '')}: ${abilityText}`,
           abilityId,
         });
         const exertedPermanentIdForCost = finalizeBattlefieldAbilitySelfExertCost(
@@ -11075,7 +11075,7 @@ async function handleStepResponse(
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
         maybeMarkPowerUpAbilityUsedFromActivationContext(game, controllerId, permanentId, {
-          activatedAbilityText: activatedAbilityText || `${manaCost}: ${abilityText}`,
+          activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
           abilityId,
         });
         fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
@@ -18887,7 +18887,7 @@ async function handleTargetSelectionResponse(
     if (manaOnly) {
       const { validateAbilityManaCostFromPool, payAbilityManaCostFromPool } = await import('./util.js');
       const validated = validateAbilityManaCostFromPool(game.state, controllerId, manaOnly, sourcePerm);
-      if (!validated.ok) {
+      if (validated.ok === false) {
         emitToPlayer(io, controllerId, 'error', {
           code: 'INSUFFICIENT_MANA',
           message: validated.error || 'Insufficient mana.',
@@ -19481,7 +19481,7 @@ async function handleTargetSelectionResponse(
     if (manaOnly) {
       const { validateAbilityManaCostFromPool, payAbilityManaCostFromPool } = await import('./util.js');
       const validated = validateAbilityManaCostFromPool(game.state, controllerId, manaOnly, sourcePerm);
-      if (!validated.ok) {
+      if (validated.ok === false) {
         emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: validated.error || 'Insufficient mana.' });
         return;
       }
@@ -30106,12 +30106,13 @@ async function handleOptionChoiceResponse(
 
   if (isOptionalPaymentPromptStep(stepData)) {
     const choiceId = extractId(selectedOption);
-    const oracleIrPaymentCtx = {
-      gameId,
-      state: game.state,
-      io,
-      ...(typeof game.bumpSeq === 'function' ? { bumpSeq: game.bumpSeq.bind(game) } : {}),
-    } as GameContext;
+    const oracleIrPaymentCtx = ((game as any).ctx || game) as unknown as GameContext & { io?: Server };
+    oracleIrPaymentCtx.gameId = gameId;
+    oracleIrPaymentCtx.state = game.state;
+    oracleIrPaymentCtx.io = io;
+    if (typeof game.bumpSeq === 'function') {
+      oracleIrPaymentCtx.bumpSeq = game.bumpSeq.bind(game);
+    }
     if (
       resolveOracleIrOptionalPaymentPromptFromResolution(oracleIrPaymentCtx, {
         step: { ...step, ...stepData },
@@ -30796,7 +30797,7 @@ async function handleOptionChoiceResponse(
       Boolean(response.cancelled),
     );
 
-    if (!resolved.ok) {
+    if (resolved.ok === false) {
       if (resolved.errorCode === 'LAND_NOT_IN_HAND') {
         emitToPlayer(io, playerId, 'error', {
           code: 'LAND_NOT_IN_HAND',

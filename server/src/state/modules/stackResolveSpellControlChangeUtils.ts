@@ -7,6 +7,7 @@ import { movePermanentToHand } from './zones.js';
 import { movePermanentToGraveyard } from './counters_tokens.js';
 import { addExtraTurn } from './turn.js';
 import { syncPreparedPermanentAfterControlChange, resyncPreparedExileCopiesWithControllers } from './prepared.js';
+import { appendEvent } from '../../db/index.js';
 import {
   queueSelfETBTriggersForPermanent,
   triggerETBEffectsForToken,
@@ -162,13 +163,48 @@ export function applyInstantSorceryControlChangeAndMassZoneEffects(
   const recordTemporaryControlChange = (permanentId: string, originalController: string, newController: string) => {
     const stateAny = state as any;
     stateAny.controlChangeEffects = Array.isArray(stateAny.controlChangeEffects) ? stateAny.controlChangeEffects : [];
-    stateAny.controlChangeEffects.push({
-      permanentId,
-      originalController,
-      newController,
-      duration: 'eot',
-      appliedAt: Date.now(),
-    });
+    const appliedAt = Date.now();
+    const alreadyTracked = stateAny.controlChangeEffects.some((entry: any) =>
+      String(entry?.permanentId || '').trim() === permanentId
+      && String(entry?.originalController || '').trim() === originalController
+      && String(entry?.newController || '').trim() === newController
+      && ['eot', 'turn', 'until_end_of_turn'].includes(String(entry?.duration || '').trim().toLowerCase())
+    );
+    if (!alreadyTracked) {
+      stateAny.controlChangeEffects.push({
+        permanentId,
+        originalController,
+        newController,
+        duration: 'eot',
+        appliedAt,
+      });
+    }
+
+    // Controller mutation and its cleanup tracker must be durable. Previously
+    // Reins of Power only persisted untap patches, so restart/replay could lose
+    // either the exchange or the information needed to revert it at cleanup.
+    if (!(ctx as any).isReplaying) {
+      const gameId = String((ctx as any).gameId || '').trim();
+      if (gameId && gameId !== 'unknown') {
+        try {
+          appendEvent(
+            gameId,
+            Number((ctx as any).seq?.value ?? (ctx as any).seq ?? stateAny?.seq ?? 0),
+            'changePermanentControl',
+            {
+              permanentId,
+              oldController: originalController,
+              newController,
+              duration: 'eot',
+              appliedAt,
+              spellResolutionMutation: true,
+            },
+          );
+        } catch (err) {
+          debugWarn(1, `[resolveTopOfStack] Failed to persist temporary control change for ${permanentId}:`, err);
+        }
+      }
+    }
   };
   const hasExchangeCreaturesEffect = controlChangeResolutionTexts.some((text: string) =>
     text.includes('exchange control of all creatures') ||

@@ -481,7 +481,7 @@ export type DetectedOpponentSpellCastTrigger = {
   triggerType: OpponentCastTriggerType;
   spellCondition: OpponentCastSpellCondition;
   casterScope: OpponentCastCasterScope;
-  paymentCost: string;
+  paymentCost?: string;
   paymentIsVariable?: boolean;
   benefitIfNotPaid: string;
   description: string;

@@ -98,6 +98,10 @@ import { resolveOracleIrBoundTargetSpellId } from '../../../../rules-engine/src/
 import type { GameContext } from '../context.js';
 import { registerLinkedExile } from './triggers/linked-exile.js';
 
+type MutableOracleIRExecutionResult = {
+  -readonly [K in keyof OracleIRExecutionResult]: OracleIRExecutionResult[K];
+};
+
 function enrichBattlefieldTokenImages(state: any): void {
   const cardsNeedingImages: any[] = [];
   for (const perm of state?.battlefield || []) {
@@ -685,7 +689,7 @@ function queueControllerMayPutLandFromHandPromptsFromOracleIRResult(
       (step) => !isControllerDrawIfDidntPutLandConditional(step),
     );
     if (filtered.length !== result.pendingContinuationSteps.length) {
-      (result as { pendingContinuationSteps?: OracleEffectStep[] }).pendingContinuationSteps = filtered;
+      (result as MutableOracleIRExecutionResult).pendingContinuationSteps = filtered;
     }
   }
 }
@@ -730,7 +734,7 @@ function queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult(
       (step) => !isOpponentDrawIfDidntPutLandConditional(step),
     );
     if (filtered.length !== result.pendingContinuationSteps.length) {
-      (result as { pendingContinuationSteps?: OracleEffectStep[] }).pendingContinuationSteps = filtered;
+      (result as MutableOracleIRExecutionResult).pendingContinuationSteps = filtered;
     }
   }
 }
@@ -943,13 +947,7 @@ function mergeOracleIrContinuationResult(
   target: OracleIRExecutionResult,
   continuation: OracleIRExecutionResult,
 ): void {
-  const mutable = target as {
-    appliedSteps: OracleEffectStep[];
-    skippedSteps: OracleEffectStep[];
-    pendingOptionalSteps: OracleEffectStep[];
-    pendingContinuationSteps?: OracleEffectStep[];
-    automationGaps: OracleIRExecutionResult['automationGaps'];
-  };
+  const mutable = target as MutableOracleIRExecutionResult;
   mutable.appliedSteps = [...mutable.appliedSteps, ...continuation.appliedSteps];
   mutable.skippedSteps = continuation.skippedSteps;
   mutable.pendingOptionalSteps = continuation.pendingOptionalSteps;
@@ -1060,7 +1058,7 @@ function queueSacrificeChoicePromptsFromOracleIRResult(
 
   mergeOracleIrContinuationResult(result, continuationResult);
   if (fizzledSacrificeSteps.length > 0) {
-    const mutable = result as { appliedSteps: OracleEffectStep[] };
+    const mutable = result as MutableOracleIRExecutionResult;
     mutable.appliedSteps = [...mutable.appliedSteps, ...fizzledSacrificeSteps];
   }
 }
@@ -2198,7 +2196,6 @@ function buildConniveDiscardPrompt(
     irCtx.controllerId,
     step.amount as OracleQuantity,
     irCtx,
-    playerId,
     { whereX: (step as any).whereX },
   );
   if (amount === null || amount <= 0) return null;
@@ -3036,10 +3033,6 @@ function resolveTapMatchingTargetCount(
   if (amount.kind === 'x') {
     const xValue = Number(irCtx?.xValue);
     return Number.isFinite(xValue) && xValue > 0 ? Math.max(1, Math.floor(xValue)) : 1;
-  }
-  const resolved = resolveOracleQuantity(amount, irCtx || ({} as OracleIRExecutionContext));
-  if (resolved.kind === 'number') {
-    return Math.max(1, Number(resolved.value) || 1);
   }
   return 1;
 }
@@ -4228,7 +4221,7 @@ export function resumeOracleIRRemainingStepsFromResolution(
     return null;
   }
 
-  const handIdsBefore = new Set(
+  const handIdsBefore = new Set<string>(
     ((ctx as any).state?.zones?.[controller]?.hand || [])
       .map((card: any) => String(card?.id || '').trim())
       .filter(Boolean),
@@ -5800,10 +5793,19 @@ function syncIrPowerToughnessModifiersToTemporaryPTMods(
 
       const power = Number(modifier?.power ?? 0);
       const toughness = Number(modifier?.toughness ?? 0);
+      // Use the modifier's own identity. Using the currently resolving effect's
+      // source name here caused every later Oracle IR resolution to mirror old
+      // modifiers again under a new source (for example, stacking Overkill's
+      // -0/-9999 repeatedly).
+      const modifierSource = String(
+        modifier?.sourceId
+        || modifier?.sourceName
+        || sourceName,
+      ).trim();
       const duplicate = perm.temporaryPTMods.some((entry: any) =>
         Number(entry?.power ?? 0) === power
         && Number(entry?.toughness ?? 0) === toughness
-        && String(entry?.source || '') === String(sourceName)
+        && String(entry?.source || '') === modifierSource
         && String(entry?.expiresAt || 'end_of_turn') === 'end_of_turn'
         && Number(entry?.turnApplied ?? turnNumber) === turnNumber
       );
@@ -5812,7 +5814,7 @@ function syncIrPowerToughnessModifiersToTemporaryPTMods(
       perm.temporaryPTMods.push({
         power,
         toughness,
-        source: sourceName,
+        source: modifierSource,
         expiresAt: 'end_of_turn',
         turnApplied: turnNumber,
       });

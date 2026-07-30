@@ -6,6 +6,7 @@ import {
   permanentHasDeathtouchDamageMarked,
 } from '../state/modules/counter-common-effects.js';
 import { calculateAllPTBonuses, calculateVariablePT, resolveSetBasePTFromAttachedAuras } from '../state/utils.js';
+import { sumActiveTemporaryPTMods } from '../state/modules/temporaryPtMods.js';
 
 /**
  * Parse power/toughness value from string or number
@@ -67,6 +68,28 @@ function isNumber(x: unknown): x is number {
   return typeof x === 'number' && Number.isFinite(x);
 }
 
+function getTemporaryPowerToughnessForSBA(perm: BattlefieldPermanent): { power: number; toughness: number } {
+  const mirroredMods = Array.isArray((perm as any).temporaryPTMods)
+    ? (perm as any).temporaryPTMods
+    : [];
+  if (mirroredMods.length > 0) {
+    return sumActiveTemporaryPTMods(perm);
+  }
+
+  // Oracle IR stores P/T changes canonically in `modifiers`. The server bridge
+  // normally mirrors end-of-turn entries to temporaryPTMods for the client, but
+  // SBA must remain correct before that bridge runs and for replayed old events.
+  let power = 0;
+  let toughness = 0;
+  for (const modifier of Array.isArray((perm as any).modifiers) ? (perm as any).modifiers : []) {
+    const type = String(modifier?.type || '').trim().toLowerCase();
+    if (type !== 'powertoughness' && type !== 'power_toughness') continue;
+    power += Number(modifier?.power ?? 0) || 0;
+    toughness += Number(modifier?.toughness ?? 0) || 0;
+  }
+  return { power, toughness };
+}
+
 function getEffectiveStatsForSBA(
   state: Readonly<GameState>,
   perm: BattlefieldPermanent
@@ -126,9 +149,10 @@ function getEffectiveStatsForSBA(
   }
 
   const allBonuses = calculateAllPTBonuses(perm, state);
+  const temporaryPT = getTemporaryPowerToughnessForSBA(perm);
   return {
-    power: Math.max(0, basePower + counterDelta + otherCounterPower + allBonuses.power),
-    toughness: baseToughness + counterDelta + otherCounterToughness + allBonuses.toughness,
+    power: Math.max(0, basePower + counterDelta + otherCounterPower + allBonuses.power + temporaryPT.power),
+    toughness: baseToughness + counterDelta + otherCounterToughness + allBonuses.toughness + temporaryPT.toughness,
   };
 }
 

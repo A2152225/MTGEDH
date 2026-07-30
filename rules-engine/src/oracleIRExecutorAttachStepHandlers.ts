@@ -544,7 +544,8 @@ function resolveAttachmentPermanentIds(
 
   if (/^all equipment attached to that creature$/.test(normalized)) {
     const creatureId = resolveBattlefieldPermanentBySelector(state, 'that creature', ctx, lastMovedBattlefieldPermanentIds);
-    if (!creatureId || creatureId === 'player_choice_required') return creatureId || '';
+    if (creatureId === 'player_choice_required') return creatureId;
+    if (!creatureId) return '';
     const creature = battlefield.find(perm => String((perm as any)?.id || '').trim() === creatureId) as any;
     const equipmentIds = Array.isArray(creature?.attachedEquipment)
       ? creature.attachedEquipment.map((id: any) => String(id || '').trim()).filter(Boolean)
@@ -707,14 +708,15 @@ export function applyAttachStep(
     ) as any;
     const hostId = String(attachmentPerm?.attachedTo || '').trim();
     if (hostId) {
+      const selectorContext = {
+        ...(ctx.selectorContext || {}),
+        excludeAttachTargetIds: attachmentIds,
+      };
       targetResolveCtx = {
         ...ctx,
         targetPermanentId: hostId,
         targetCreatureId: hostId,
-        selectorContext: {
-          ...(ctx.selectorContext || {}),
-          excludeAttachTargetIds: attachmentIds,
-        },
+        selectorContext,
       };
     }
   }
@@ -781,7 +783,7 @@ export function applyAttachStep(
               undefined,
               targetId
             );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }

@@ -4615,7 +4615,7 @@ export function chooseAITargetSelectionsForChoiceStep(
             game.state,
             playerId,
             permanent,
-            (entry) => getEffectivePower(entry, game.state) ?? readPermanentPower(entry),
+            (entry) => getEffectivePower(entry) ?? readPermanentPower(entry),
           );
           return { id: String(option?.id || '').trim(), score };
         })

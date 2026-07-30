@@ -12,12 +12,18 @@ export interface CounterPlacedTrigger {
   permanentId: string;
   cardName: string;
   controllerId: string;
-  triggerType: 'counters_put_on_creature_you_control' | 'counters_put_on_permanent_you_control' | 'counters_put_on_self';
+  triggerType:
+    | 'counters_put_on_creature_you_control'
+    | 'counters_put_on_permanent_you_control'
+    | 'counters_put_on_self'
+    | 'counters_put_on_creature'
+    | 'counters_put_on_target'
+    | 'proliferate';
   oracleClause: string;
   effect: string;
   mandatory: boolean;
-  counterFilter: 'any' | '+1/+1';
-  targetFilter: 'creature' | 'permanent';
+  counterFilter: string;
+  targetFilter: 'creature' | 'permanent' | 'enchantment';
 }
 
 export interface CounterRemovedTrigger {

@@ -244,8 +244,8 @@ function countControlledMatchingDescriptor(nextState: GameState, controllerId: P
   }).length;
 }
 
-function antecedentApplied(outcome: LastActionOutcome, stepKinds: readonly OracleEffectStep['kind'][]): boolean {
-  return outcome?.kind === 'applied' && stepKinds.includes(outcome.stepKind);
+function antecedentApplied(outcome: LastActionOutcome, stepKinds: readonly string[]): boolean {
+  return outcome?.kind === 'applied' && stepKinds.includes(String(outcome.stepKind));
 }
 
 function cardMatchesChosenColor(card: any, chosenColor: string): boolean {
@@ -426,11 +426,28 @@ function getDieRollResult(nextState: GameState, controllerId: PlayerID): number 
   return null;
 }
 
-function movedCardsFrom(params: ExtendedConditionalParams): any[] {
+type MovedCardsParams = {
+  readonly ctx: OracleIRExecutionContext;
+  readonly lastMovedCards?: readonly any[];
+};
+
+type DiscardedCardsParams = {
+  readonly ctx: OracleIRExecutionContext;
+  readonly lastDiscardedCards?: readonly any[];
+};
+
+type ContextualCardsParams = MovedCardsParams & DiscardedCardsParams;
+
+type ConditionalSubjectParams = MovedCardsParams & {
+  readonly nextState: GameState;
+  readonly step?: OracleEffectStep;
+};
+
+function movedCardsFrom(params: MovedCardsParams): any[] {
   return resolveAntecedentMovedCards(params.ctx, { lastMovedCards: params.lastMovedCards }) as any[];
 }
 
-function discardedCardsFrom(params: ExtendedConditionalParams): any[] {
+function discardedCardsFrom(params: DiscardedCardsParams): any[] {
   return resolveAntecedentDiscardedCards(params.ctx, {
     lastDiscardedCards: params.lastDiscardedCards,
   }) as any[];
@@ -440,14 +457,14 @@ function milledCardsFrom(ctx: OracleIRExecutionContext): any[] {
   return resolveAntecedentMilledCards(ctx) as any[];
 }
 
-function contextualCardsFrom(params: ExtendedConditionalParams): any[] {
+function contextualCardsFrom(params: ContextualCardsParams): any[] {
   return resolveAntecedentContextualCards(params.ctx, {
     lastMovedCards: params.lastMovedCards,
     lastDiscardedCards: params.lastDiscardedCards,
   }) as any[];
 }
 
-function getConditionalSubjectCard(params: ExtendedConditionalParams): any | null {
+function getConditionalSubjectCard(params: ConditionalSubjectParams): any | null {
   const revealedLedger = collectRevealedThisWayCardsLedgerFirst(params.ctx, params.step);
   if (revealedLedger.length > 0) return revealedLedger[revealedLedger.length - 1];
 
@@ -644,8 +661,8 @@ function isPermanentModified(nextState: GameState, subject: any): boolean {
 }
 
 function noColoredManaWasSpentToCast(nextState: GameState, ctx: OracleIRExecutionContext): boolean | null {
-  if (ctx.noColoredManaSpentToCast === true || ctx.selectorContext?.noColoredManaSpentToCast === true) return true;
-  if (ctx.noColoredManaSpentToCast === false || ctx.selectorContext?.noColoredManaSpentToCast === false) {
+  if ((ctx as any).noColoredManaSpentToCast === true || (ctx.selectorContext as any)?.noColoredManaSpentToCast === true) return true;
+  if ((ctx as any).noColoredManaSpentToCast === false || (ctx.selectorContext as any)?.noColoredManaSpentToCast === false) {
     return false;
   }
   const castSource = getCastManaSpendSource(nextState, ctx);
@@ -900,7 +917,7 @@ function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | nul
 
   if (normalizedRaw === 'you paid life this way') {
     return Boolean(
-      ctx.lifePaidThisWay ??
+      (ctx as any).lifePaidThisWay ??
         (ctx as any).paidLifeThisWay ??
         (nextState as any)?.lifePaidThisWay?.[controllerId]
     );
@@ -935,7 +952,6 @@ function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | nul
     return antecedentApplied(lastActionOutcome, ['deal_damage', 'damage']);
   }
   if (normalizedRaw === 'a creature is dealt damage this way') {
-    if (lastActionOutcome?.kind === 'impossible') return false;
     if ((ctx as any)?.creatureDealtDamageThisWay === true) return true;
     if (!antecedentApplied(lastActionOutcome, ['deal_damage', 'damage'])) return false;
     const damaged = (ctx as any)?.lastDamagedCards ?? movedCardsFrom(params);
@@ -948,7 +964,6 @@ function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | nul
     normalizedRaw === 'damage from a noncreature source is prevented this way'
   ) {
     const wantsCreature = normalizedRaw === 'damage from a creature source is prevented this way';
-    if (lastActionOutcome?.kind === 'impossible') return false;
     if (wantsCreature && (ctx as any)?.creatureDamagePreventedThisWay === true) return true;
     if (!wantsCreature && (ctx as any)?.noncreatureDamagePreventedThisWay === true) return true;
     if (wantsCreature && (ctx as any)?.noncreatureDamagePreventedThisWay === true) return false;
@@ -1100,7 +1115,7 @@ function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | nul
   }
 
   if (/^you paid one or more \{e\} this way$/i.test(normalizedRaw)) {
-    if (ctx.energyPaidThisWay === true || (ctx as any)?.paidEnergyThisWay === true) return true;
+    if ((ctx as any).energyPaidThisWay === true || (ctx as any)?.paidEnergyThisWay === true) return true;
     const paid = Number((ctx as any)?.energyPaidAmountThisWay ?? (ctx as any)?.energyPaidThisWayCount ?? NaN);
     return Number.isFinite(paid) ? paid >= 1 : antecedentApplied(lastActionOutcome, ['pay_energy', 'activate']);
   }

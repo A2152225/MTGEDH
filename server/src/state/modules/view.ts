@@ -7,6 +7,7 @@ import type {
   ClientGameView,
   BattlefieldPermanent,
 } from "../../../../shared/src/index.js";
+import type { GameContext } from "../context.js";
 import { sumActiveTemporaryPTMods } from "./temporaryPtMods.js";
 import { parsePT, calculateVariablePT, calculateAllPTBonusesWithSources, resolveSetBasePTFromAttachedAuras, type PTBonusSource } from "../utils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
@@ -205,7 +206,7 @@ export function viewFor(
           ptSources.push({ name: 'Other counters', power: otherCounterPower, toughness: otherCounterToughness, type: 'counter' });
         }
         if (temporaryPtBonus.power !== 0 || temporaryPtBonus.toughness !== 0) {
-          ptSources.push({ name: 'Until end of turn', power: temporaryPtBonus.power, toughness: temporaryPtBonus.toughness, type: 'effect' });
+          ptSources.push({ name: 'Until end of turn', power: temporaryPtBonus.power, toughness: temporaryPtBonus.toughness, type: 'modifier' });
         }
         
         // Add all other sources

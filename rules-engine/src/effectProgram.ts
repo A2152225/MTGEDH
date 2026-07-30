@@ -1043,11 +1043,11 @@ function oracleStepNeedsChoice(
     return true;
   }
 
-  if (kind === 'sacrifice' && sacrificeSelectorRequiresPlayerChoice(step)) {
+  if (step.kind === 'sacrifice' && sacrificeSelectorRequiresPlayerChoice(step)) {
     return true;
   }
 
-  if (kind === 'discard' && discardSelectorRequiresPlayerChoice(step)) {
+  if (step.kind === 'discard' && discardSelectorRequiresPlayerChoice(step)) {
     return true;
   }
 

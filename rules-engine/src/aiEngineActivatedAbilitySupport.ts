@@ -12,7 +12,6 @@ import {
   readPermanentPower,
 } from './aiEngineManaPoolSupport';
 import { getCombinedPermanentText } from './permanentText';
-import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import {
   isStationPermanentTypeLine,
   readStationChargeCreatureThresholdFromOracleText,

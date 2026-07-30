@@ -82,6 +82,42 @@ describe('battlefield permanent replay persistence', () => {
     expect(perm.tempToughnessBonus).toBe(1);
   });
 
+  it('captures controller and canonical Oracle IR modifier changes for replay', () => {
+    const before = snapshotBattlefieldPermanentReplayPatches({
+      battlefield: [{
+        id: 'borrowed_1',
+        controller: 'p1',
+      }],
+    });
+    const after = snapshotBattlefieldPermanentReplayPatches({
+      battlefield: [{
+        id: 'borrowed_1',
+        controller: 'p2',
+        modifiers: [{
+          type: 'powerToughness',
+          power: 0,
+          toughness: -2,
+          sourceId: 'shrink_1',
+          duration: 'end_of_turn',
+        }],
+      }],
+    });
+
+    expect(diffBattlefieldPermanentReplayPatches(before, after)).toEqual([{
+      permanentId: 'borrowed_1',
+      patch: {
+        controller: 'p2',
+        modifiers: [{
+          type: 'powerToughness',
+          power: 0,
+          toughness: -2,
+          sourceId: 'shrink_1',
+          duration: 'end_of_turn',
+        }],
+      },
+    }]);
+  });
+
   it('persists battlefieldPermanentPatch events after oracle IR execution', () => {
     const ctx = {
       gameId: 'game_patch',

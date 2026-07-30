@@ -57,9 +57,9 @@ export function inferResolutionStepMandatory(step: Record<string, unknown> | nul
   return true;
 }
 
-export function normalizeResolutionStepMandatory<T extends Record<string, unknown>>(step: T): T {
+export function normalizeResolutionStepMandatory<T extends object>(step: T): T {
   return {
     ...step,
-    mandatory: inferResolutionStepMandatory(step),
+    mandatory: inferResolutionStepMandatory(step as Record<string, unknown>),
   };
 }

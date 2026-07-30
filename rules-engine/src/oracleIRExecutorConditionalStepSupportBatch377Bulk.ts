@@ -186,7 +186,7 @@ export function evaluateBatch377BulkConditionalClause(params: Batch377BulkParams
 
   if (normalizedRaw === 'you control more creatures of that type than each other player') {
     const chosenType = String(
-      ctx.chosenCreatureType ??
+      (ctx as any).chosenCreatureType ??
         ctx.selectorContext?.chosenCreatureType ??
         (ctx as any)?.chosenType ??
         'goblin',

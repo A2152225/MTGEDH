@@ -3,7 +3,7 @@
  * Used by skipToPhase and passPriority resume paths.
  */
 import type { Server } from 'socket.io';
-import type { PlayerID } from '../../../shared/src/index.js';
+import type { PlayerID } from '../../../../shared/src/index.js';
 import { appendEvent } from '../../db/index.js';
 import { broadcastGame, getPlayerName } from '../../socket/util.js';
 import { debug, debugWarn } from '../../utils/debug.js';

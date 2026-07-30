@@ -96,6 +96,60 @@ export interface OracleIRSelectorContext {
   };
   /** Player-chosen destination for X-threshold alternate move_zone paths. */
   readonly moveZoneDestination?: string;
+  /** Additional runtime selector bindings carried by generic Oracle IR clauses. */
+  readonly activatedAbilityIsManaAbility?: boolean;
+  readonly attackingPlayerId?: PlayerID;
+  readonly beheldQuality?: string;
+  readonly bottomOrder?: readonly string[];
+  readonly castFromExile?: boolean;
+  readonly castFromZone?: string;
+  readonly chosenColors?: readonly string[];
+  readonly chosenName?: string;
+  readonly chosenRingBearerId?: string;
+  readonly chosenSpellId?: string;
+  readonly chosenType?: string;
+  readonly controlledDragonAsCast?: boolean;
+  readonly controlledFaerieAsCast?: boolean;
+  readonly convokeCreatureType?: string;
+  readonly creatureDiedThisWay?: boolean;
+  readonly creatureSpellCastThisWay?: boolean;
+  readonly enteredFromZone?: string;
+  readonly enchantedPermanentId?: string;
+  readonly freerunningCostPaid?: boolean;
+  readonly highBidderPlayerId?: PlayerID;
+  readonly keepTopOrder?: readonly string[];
+  readonly lastAntecedentBattlefieldPermanentIds?: readonly string[];
+  readonly lastCycledCardType?: string;
+  readonly lastDiscardedCardId?: string;
+  readonly lastReferencedPermanentId?: string;
+  readonly libraryPlacement?: string;
+  readonly lifeWasPaidToActivateIt?: boolean;
+  readonly manaSpentOnCreatureSpell?: boolean;
+  readonly manaSpentOnDragonCreatureSpell?: boolean;
+  readonly manaSpentOnNonHumanCreatureSpell?: boolean;
+  readonly manaSpentToCastCommander?: boolean;
+  readonly noColoredManaSpentToCast?: boolean;
+  readonly noManaSpentToCast?: boolean;
+  readonly otherSpellType?: string;
+  readonly referenceCardName?: string;
+  readonly revealedDragonAsCast?: boolean;
+  readonly scryResolutionComplete?: boolean;
+  readonly spellCastThisWay?: boolean;
+  readonly spellManaValue?: number;
+  readonly surveilResolutionComplete?: boolean;
+  readonly targetCreatureControllerId?: PlayerID;
+  readonly targetLandId?: string;
+  readonly thatPlayerId?: PlayerID;
+  readonly thoseCreatureIds?: readonly string[];
+  readonly toGraveyard?: boolean;
+  readonly unlessDealDamageChoice?: 'pay' | 'decline';
+  readonly unlessExiledHistoricFromGraveyard?: boolean;
+  readonly unlessPaysEnergyChoice?: 'pay' | 'decline';
+  readonly unlessPutCardOnTopOfLibraryChoice?: 'pay' | 'decline';
+  readonly unlessReturnedLandToHand?: boolean;
+  readonly wasCast?: boolean;
+  readonly wouldLoseTheGame?: boolean;
+  readonly youDoChoice?: 'accept' | 'decline' | boolean;
 }
 
 export interface OracleIRExecutionEventHint {
@@ -190,7 +244,7 @@ export type OracleIRStepOutcome = {
   readonly count?: number;
 };
 
-export interface OracleIRExecutionContext {
+export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly controllerId: PlayerID;
   readonly sourceId?: string;
   readonly sourceName?: string;
@@ -214,6 +268,16 @@ export interface OracleIRExecutionContext {
   readonly lastMovedCards?: readonly any[];
   /** Internal runtime carry-over for nested follow-up steps that reference cards discarded by prior steps. */
   readonly lastDiscardedCards?: readonly any[];
+  readonly lastDiscardedCardId?: string;
+  readonly lastRevealedCards?: readonly any[];
+  readonly lastRevealedCardCount?: number;
+  readonly lastSacrificedPermanents?: readonly any[];
+  readonly lastGreatestDiscardedCardCount?: number;
+  readonly lastCreatedTokenIds?: readonly string[];
+  readonly movedBattlefieldPermanentIds?: readonly string[];
+  readonly lastDamagePreventedThisWay?: number;
+  readonly lastReferenceAmount?: number;
+  readonly lastChosenCardName?: string;
   /** Internal runtime carry-over for nested follow-up steps that reference permanents tapped this way. */
   readonly lastTappedMatchingPermanentCount?: number;
   /** Internal runtime carry-over for clash follow-up conditionals like "If you win". */
@@ -254,6 +318,15 @@ export interface OracleIRExecutionContext {
   readonly winningVoteChoice?: string | null;
   /** Numeric amount referenced by text like "that much" from trigger data or prior steps. */
   readonly referenceAmount?: number;
+  readonly referenceCardName?: string;
+  readonly referencedCardName?: string;
+  readonly referencedPlayerId?: PlayerID;
+  readonly targetCardName?: string;
+  readonly otherSpellType?: string;
+  readonly presentVoteCount?: number;
+  readonly energyPaidThisWay?: number;
+  readonly lifePaidThisWay?: number;
+  readonly tributePaid?: boolean;
   /** Number of spells the triggering player has cast this turn when relevant. */
   readonly spellCastCountThisTurn?: number;
   /** Number of noncreature spells the triggering player has cast this turn when relevant. */

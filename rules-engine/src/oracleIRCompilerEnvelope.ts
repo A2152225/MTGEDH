@@ -227,39 +227,39 @@ function lowerCompilerNode(
         amount: pointerCount(src),
         raw,
         ...(antecedent !== undefined ? { thisWayAntecedentStepIndex: antecedent } : {}),
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     case 'LOOK':
       return {
         kind: 'look_top',
         who,
         amount: pointerCount(src),
         raw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     case 'DRAW':
       return {
         kind: 'draw',
         who,
         amount: pointerCount(src),
         raw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     case 'SHUFFLE':
       return {
         kind: 'shuffle_library',
         who,
         raw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     case 'DAMAGE':
       return {
         kind: 'deal_damage',
         who: { kind: 'target_player' },
         amount: pointerCount(src),
         raw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     case 'DECLARE_TARGET':
       return {
         kind: 'choose_target_creature',
         raw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     case 'MODIFY_COUNTERS':
       return {
         kind: 'add_counter',
@@ -269,7 +269,7 @@ function lowerCompilerNode(
         amount: pointerCount(src),
         raw,
         ...(antecedent !== undefined ? { thisWayAntecedentStepIndex: antecedent } : {}),
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     case 'APPLY_CONTINUOUS_EFFECT':
       return {
         kind: 'grant_temporary_ability',
@@ -278,7 +278,7 @@ function lowerCompilerNode(
         duration: 'end_of_turn',
         raw,
         ...(antecedent !== undefined ? { thisWayAntecedentStepIndex: antecedent } : {}),
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     case 'MOVE_ZONE': {
       const toZone = dest?.zone ? ZONE_MAP[dest.zone] : 'hand';
       return {
@@ -288,7 +288,7 @@ function lowerCompilerNode(
         toRaw: String(dest?.zone || 'hand').toLowerCase(),
         raw,
         ...(antecedent !== undefined ? { thisWayAntecedentStepIndex: antecedent } : {}),
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     }
     case 'PROMPT_CHOICE':
       return {
@@ -296,7 +296,7 @@ function lowerCompilerNode(
         who,
         choiceText: raw,
         raw,
-      } as OracleEffectStep;
+      } as unknown as OracleEffectStep;
     default:
       return null;
   }
@@ -361,14 +361,14 @@ function lowerConditionalGotoTree(
         const target = nodes.find((n) => n.queue_index === trueIndex);
         if (target) {
           const lowered = lowerCompilerNode(target, nodes, '');
-          if (lowered) trueSteps.push({ ...lowered, thisWayAntecedentStepIndex: antecedent } as OracleEffectStep);
+          if (lowered) trueSteps.push({ ...lowered, thisWayAntecedentStepIndex: antecedent } as unknown as OracleEffectStep);
         }
       }
       if (typeof falseIndex === 'number') {
         const target = nodes.find((n) => n.queue_index === falseIndex);
         if (target) {
           const lowered = lowerCompilerNode(target, nodes, '');
-          if (lowered) falseSteps.push({ ...lowered, thisWayAntecedentStepIndex: antecedent } as OracleEffectStep);
+          if (lowered) falseSteps.push({ ...lowered, thisWayAntecedentStepIndex: antecedent } as unknown as OracleEffectStep);
         }
       }
 
@@ -395,7 +395,7 @@ function lowerConditionalGotoTree(
           destination: 'hand',
           restDestination: 'graveyard',
           raw: String(revealAntecedent.raw || 'reveal the top card of your library'),
-        } as OracleEffectStep);
+        } as unknown as OracleEffectStep);
         continue;
       }
 
@@ -404,7 +404,7 @@ function lowerConditionalGotoTree(
         condition: { kind: 'if', raw: conditionRaw },
         steps: trueSteps,
         raw: conditionRaw,
-      } as OracleEffectStep);
+      } as unknown as OracleEffectStep);
       if (falseSteps.length > 0) {
         out.push(...falseSteps);
       }

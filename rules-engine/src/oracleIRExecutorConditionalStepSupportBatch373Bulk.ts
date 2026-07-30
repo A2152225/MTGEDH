@@ -2,7 +2,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
-import { getProcessedBattlefield, isPermanentAttacking } from './oracleIRExecutorCreatureStepUtils';
+import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
@@ -149,7 +149,7 @@ export function evaluateBatch373BulkConditionalClause(params: Batch373BulkParams
     const flag =
       (ctx as any)?.manaSpentOnDragonCreatureSpell ??
       (ctx as any)?.lastManaSpentOnSpellType ??
-      ctx.selectorContext?.manaSpentOnDragonCreatureSpell;
+      (ctx.selectorContext as any)?.manaSpentOnDragonCreatureSpell;
     if (typeof flag === 'boolean') return flag;
     const spell = (ctx as any)?.stackItem ?? params.getReferencedObject(nextState, ctx);
     const tl = getExecutorTypeLineLower(spell);
@@ -409,7 +409,7 @@ export function evaluateBatch373BulkConditionalClause(params: Batch373BulkParams
 
   if (normalizedRaw === "it's at least one of the chosen colors" || normalizedRaw === 'it is at least one of the chosen colors') {
     const ref = params.getReferencedObject(nextState, ctx) ?? params.movedCardsFrom(params)[0];
-    const chosen = (ctx as any)?.chosenColors ?? ctx.selectorContext?.chosenColors;
+    const chosen = (ctx as any)?.chosenColors ?? (ctx.selectorContext as any)?.chosenColors;
     if (!ref || !Array.isArray(chosen) || chosen.length === 0) return null;
     const colors = getColorsFromObject(ref);
     return colors.some((c) => chosen.includes(c));
@@ -432,7 +432,7 @@ export function evaluateBatch373BulkConditionalClause(params: Batch373BulkParams
       const targetId = String(
         ctx.selectorContext?.targetPlayerId ??
           ctx.selectorContext?.targetOpponentId ??
-          ctx.targetPlayerId ??
+          (ctx as any).targetPlayerId ??
           ''
       ).trim();
       if (!targetId) return null;
@@ -462,7 +462,7 @@ export function evaluateBatch373BulkConditionalClause(params: Batch373BulkParams
     const targetId = String(
       ctx.selectorContext?.targetPlayerId ??
         ctx.selectorContext?.targetOpponentId ??
-        ctx.targetPlayerId ??
+      (ctx as any).targetPlayerId ??
         ''
     ).trim();
     if (!targetId) return null;

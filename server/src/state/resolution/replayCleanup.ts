@@ -1,6 +1,6 @@
 import { debug } from '../../utils/debug.js';
 import { ResolutionQueueManager } from './ResolutionQueueManager.js';
-import { ResolutionStepStatus, ResolutionStepType } from './types.js';
+import { ResolutionStepStatus, ResolutionStepType, type ResolutionStep } from './types.js';
 
 const CAST_FLOW_STEP_TYPES = new Set<string>([
   ResolutionStepType.TARGET_SELECTION,
@@ -221,10 +221,17 @@ export function pruneObsoleteResolutionQueueAfterReplay(
       || stepType === ResolutionStepType.CARD_NAME_CHOICE
       || stepType === ResolutionStepType.PLAYER_CHOICE
     ) {
+      const choiceStep = step as ResolutionStep & {
+        permanentId?: string;
+        spellId?: string;
+        beholdCastCardId?: string;
+        spellBeholdCastCardId?: string;
+        castSpellFromHandArgs?: unknown;
+      };
       // Spell/behold cast-time type prompts keep castSpellFromHandArgs / spellId.
       const isPermanentAsEntersPrompt = Boolean(
-        step?.permanentId || step?.sourceId
-      ) && !step?.spellId && !step?.beholdCastCardId && !step?.spellBeholdCastCardId && !step?.castSpellFromHandArgs;
+        choiceStep.permanentId || choiceStep.sourceId
+      ) && !choiceStep.spellId && !choiceStep.beholdCastCardId && !choiceStep.spellBeholdCastCardId && !choiceStep.castSpellFromHandArgs;
       if (isPermanentAsEntersPrompt) {
         const permanent = findBattlefieldPermanentForChoiceStep(state, step);
         if (permanentAlreadyHasAsEntersChoice(permanent, stepType, state)) {

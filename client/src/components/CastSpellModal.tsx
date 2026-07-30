@@ -728,7 +728,7 @@ export function CastSpellModal({
       }
     }
 
-    const manaSymbols: Record<string, string> = {
+    const manaSymbols: Record<string, ManaColor> = {
       white: 'W',
       blue: 'U',
       black: 'B',

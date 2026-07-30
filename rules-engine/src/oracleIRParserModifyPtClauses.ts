@@ -34,6 +34,35 @@ export function tryParseTemporaryModifyPtClause(params: {
     .replace(/^have\s+(?=target|that|the|this|it\b|each|all|creatures?\b|unblocked\b)/i, '')
     .trim();
 
+  const modalPtMatch = workingClause.match(
+    new RegExp(
+      String.raw`^(${MODIFY_PT_TARGET_PATTERN})\s+gets?\s+([+-]\d+)\s*\/\s*([+-]\d+)\s+or\s+([+-]\d+)\s*\/\s*([+-]\d+)\s+until\s+end\s+of\s+turn\.?$`,
+      'i',
+    ),
+  );
+  if (modalPtMatch) {
+    const target = parseModifyPtTarget(String(modalPtMatch[1] || ''));
+    const buildMode = (powerRaw: string, toughnessRaw: string) => ({
+      kind: 'modify_pt' as const,
+      target,
+      power: Number.parseInt(powerRaw, 10),
+      toughness: Number.parseInt(toughnessRaw, 10),
+      duration: 'end_of_turn' as const,
+      raw: `${String(modalPtMatch[1] || '').trim()} gets ${powerRaw}/${toughnessRaw} until end of turn`,
+    });
+    return withMeta({
+      kind: 'choose_mode',
+      chooser: { kind: 'you' },
+      minModes: 1,
+      maxModes: 1,
+      modes: [
+        { label: `${modalPtMatch[2]}/${modalPtMatch[3]}`, raw: `${modalPtMatch[2]}/${modalPtMatch[3]}`, steps: [buildMode(modalPtMatch[2], modalPtMatch[3])] },
+        { label: `${modalPtMatch[4]}/${modalPtMatch[5]}`, raw: `${modalPtMatch[4]}/${modalPtMatch[5]}`, steps: [buildMode(modalPtMatch[4], modalPtMatch[5])] },
+      ],
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
+
   if (/^unblocked attacking creatures get \+1\/\+0 until end of turn$/i.test(workingClause)) {
     return withMeta({
       kind: 'modify_pt',

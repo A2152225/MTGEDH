@@ -15,6 +15,7 @@ import {
   resolveReferencedObjectPlayerIds,
   type ReferencedObjectRuntime,
 } from './oracleIRExecutorReferenceUtils';
+import type { GameState, PlayerID } from '../../shared/src';
 
 type PlayerZoneName = 'library' | 'hand' | 'graveyard' | 'exile';
 

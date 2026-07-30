@@ -82,6 +82,7 @@ const ORACLE_IR_MUTATION_TAIL_EVENT_TYPES = new Set([
   'assignTriggeredAbilityTargets',
   'goadPermanent',
   'battlefieldPermanentPatch',
+  'changePermanentControl',
   'updateCounters',
   'executeEffect',
   'adjustLife',
@@ -113,6 +114,7 @@ function isOracleIrMutationTailEvent(event: PersistedEvent): boolean {
   const payload = eventPayload(event);
   if (type === 'assignTriggeredAbilityTargets') return true;
   if (type === 'goadPermanent' || type === 'battlefieldPermanentPatch') return true;
+  if (type === 'changePermanentControl') return payload.spellResolutionMutation === true;
   if (payload.oracleIrReplayMutation === true || payload.effectProgramMutation === true) return true;
   if (type === 'updateCounters' && payload.skipCounterModifications === true) return true;
   return false;

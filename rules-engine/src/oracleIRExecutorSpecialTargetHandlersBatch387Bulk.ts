@@ -18,6 +18,8 @@ type Batch387StepResult =
       readonly reason: 'unsupported_target' | 'impossible_action';
     };
 
+type TargetedOracleEffectStep = Extract<OracleEffectStep, { readonly target: unknown }>;
+
 function readPower(perm: any): number | null {
   const value = perm?.effectivePower ?? perm?.basePower ?? perm?.card?.power ?? perm?.power;
   const parsed = Number(value);
@@ -28,8 +30,13 @@ function normalizeRaw(step: OracleEffectStep): string {
   return String(step.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
 }
 
-function normalizeTargetText(step: OracleEffectStep): string {
-  return String((step.target as any)?.text || step.raw || '')
+function normalizeTargetText(step: TargetedOracleEffectStep): string {
+  const target = step.target;
+  return String(
+    typeof target === 'object' && target !== null && 'kind' in target && target.kind === 'raw'
+      ? target.text || step.raw
+      : step.raw
+  )
     .replace(/\u2019/g, "'")
     .trim()
     .toLowerCase();

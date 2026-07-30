@@ -2,7 +2,12 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { ChoiceResponse } from '../../../../rules-engine/src/choiceEventsTypes.js';
 import type { OracleIRCommandExecutionEvent } from '../../../../rules-engine/src/effectProgramOracleRunner.js';
 import type { OracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
-import type { EffectProgramRunResult, EffectProgramStep } from '../../../../rules-engine/src/effectProgram.js';
+import type {
+  EffectProgramChoiceStep,
+  EffectProgramCommandStep,
+  EffectProgramRunResult,
+  EffectProgramStep,
+} from '../../../../rules-engine/src/effectProgram.js';
 import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debugWarn } from '../../utils/debug.js';
@@ -45,13 +50,13 @@ function programIncludesAbilityCopyStep(steps: readonly EffectProgramStep[]): bo
 
 function findOptionalPayManaMayChoiceStep(
   steps: readonly EffectProgramStep[],
-): { readonly choiceStep: EffectProgramStep; readonly manaCost: string } | undefined {
+): { readonly choiceStep: EffectProgramChoiceStep; readonly manaCost: string } | undefined {
   for (const step of steps) {
     if (step.kind !== 'choice' || !String(step.id || '').endsWith(':may-choice')) continue;
     const bindingKey = String(step.bindingKey || '').trim();
     if (!bindingKey) continue;
 
-    const commandStep = steps.find((candidate) =>
+    const commandStep = steps.find((candidate): candidate is EffectProgramCommandStep =>
       candidate.kind === 'command'
       && candidate.guard?.bindingKey === bindingKey
       && candidate.command?.kind === 'oracle_ir_step'

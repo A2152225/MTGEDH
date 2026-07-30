@@ -551,7 +551,11 @@ function tryApplyThoseReferencedTokenCreation(
     battlefield: [...(state.battlefield || []), ...copiedTokens],
   };
   if (blockTargetPermanentId) {
-    nextState = applyBlockingEntryToCreatedTokens(nextState, copiedTokens.map((token) => String((token as any)?.id || '').trim()).filter(Boolean), blockTargetPermanentId).state;
+    nextState = applyBlockingEntryToCreatedTokens(
+      nextState,
+      copiedTokens.map((token) => String((token as any)?.id || '').trim()).filter(Boolean),
+      blockTargetPermanentId,
+    );
   }
 
   const referenceName = String((reference as any)?.card?.name || (reference as any)?.name || 'token');
@@ -1997,6 +2001,7 @@ function tryApplyForEachDestroyedThisWayCreateCopyToken(
               '',
           ).trim() || undefined
         : undefined,
+      undefined,
       undefined,
       step.blocking === 'that_creature' ? resolveBlockTargetPermanentId(state, step, ctx) : undefined,
     );

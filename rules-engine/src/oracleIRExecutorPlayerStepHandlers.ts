@@ -1,12 +1,11 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
-import type { OracleEffectStep, OracleObjectSelector } from './oracleIR';
+import type { OracleClauseCondition, OracleEffectStep, OracleObjectSelector, OracleQuantity } from './oracleIR';
 import { createCustomEmblem } from './emblemSupport';
 import type { OracleIRExecutionContext, OracleIRExecutionOptions } from './oracleIRExecutionTypes';
 import type { OracleIRReplayMutation } from './oracleIRReplayMutations';
 import { omitBridgedStepCarryOver, usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
-import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
 import { resolveOracleIrBoundTargetSpellId } from './oracleIrTargetBinding';
 import {
@@ -22,7 +21,7 @@ import {
 import { payManaCost } from './spellCasting';
 import { createEmptyManaPool, setManaDoesNotEmpty, type ManaCost } from './types/mana';
 import { parseManaSymbols } from './types/numbers';
-import { oracleGraveyardAdditionalCostToSerializable } from './graveyardPermissionAdditionalCost.ts';
+import { oracleGraveyardAdditionalCostToSerializable } from './graveyardPermissionAdditionalCost';
 import {
   addManaToPoolForPlayer,
   applyExilePermissionMarkers,
@@ -57,7 +56,6 @@ import {
   resolveOracleQuantityForPlayer,
   type ResolveOracleQuantityOptions,
 } from './oracleIRExecutorResolveQuantity';
-import type { OracleClauseCondition } from './oracleIR';
 import { collectForEachReferenceBattlefieldPermanentIds } from './oracleIRExecutorForEachQuantity';
 import { evaluateOracleStepUnlessCondition } from './oracleIRExecutorConditionalStepSupport';
 import {
@@ -524,11 +522,22 @@ function resolveDynamicDrawAmount(
 type StepSkipResult = {
   readonly applied: false;
   readonly message: string;
-  readonly reason: 'unknown_amount' | 'unsupported_player_selector' | 'player_choice_required' | 'failed_to_apply' | 'invalid_input';
+  readonly reason:
+    | 'unknown_amount'
+    | 'unsupported_player_selector'
+    | 'unsupported_object_selector'
+    | 'unsupported_condition_clause'
+    | 'player_choice_required'
+    | 'impossible_action'
+    | 'failed_to_apply'
+    | 'invalid_input';
   readonly state?: GameState;
   readonly options?: {
     readonly classification?: 'ambiguous' | 'player_choice' | 'invalid_input';
-    readonly metadata?: Record<string, string | number | boolean | readonly string[]>;
+    readonly metadata?: Record<
+      string,
+      string | number | boolean | readonly string[] | Readonly<Record<string, number>>
+    >;
     readonly persist?: boolean;
   };
 };
@@ -3497,23 +3506,10 @@ function resolveVariableAmount(
     return null;
   }
   if (amount.kind === 'object_stat') {
-    if (amount.subject === 'the_milled_card') {
-      const milled = [
-        ...(Array.isArray((ctx as any).lastMilledCards) ? (ctx as any).lastMilledCards : []),
-        ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
-        ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
-      ];
-      if (milled.length > 0) {
-        const milledAmount = readObjectStat(milled[milled.length - 1], amount.stat);
-        if (milledAmount !== null) return milledAmount;
-      }
-    }
     const sacrificed = Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : [];
     if (
       sacrificed.length >= 1 &&
-      (amount.subject === 'the_sacrificed_permanent' ||
-        amount.subject === 'that_permanent' ||
-        amount.subject === 'the_sacrificed_enchantment')
+      amount.subject === 'the_sacrificed_permanent'
     ) {
       const sacrificedAmount = readObjectStat(sacrificed[sacrificed.length - 1], amount.stat);
       if (sacrificedAmount !== null) return sacrificedAmount;
@@ -4103,7 +4099,7 @@ export function applySearchLibraryStep(
           { entersTapped },
           { ctx, stepKind: step.kind, cause: 'oracle_ir:search_library_split' },
         );
-        if ('halted' in resolved && resolved.halted) {
+        if ('halted' in resolved) {
           return withDiscardLedgerFlags({
             applied: true,
             state: nextState,
@@ -4168,7 +4164,7 @@ export function applySearchLibraryStep(
           { entersTapped: Boolean(step.entersTapped) },
           { ctx, stepKind: step.kind, cause: 'oracle_ir:search_library' },
         );
-        if ('halted' in resolved && resolved.halted) {
+        if ('halted' in resolved) {
           return withDiscardLedgerFlags({
             applied: true,
             state: nextState,
@@ -5325,7 +5321,7 @@ export function applyLookChooseFromTopStep(
         state: nextState,
         playerId,
         rest: restCards,
-        destination: step.destination === 'hand' ? 'hand' : step.destination === 'exile' ? 'exile' : 'battlefield',
+        destination: step.destination === 'exile' ? 'exile' : 'hand',
         restDestination: 'library',
         restLibraryPlacement: 'bottom',
         restRandomOrder: step.restOrder !== 'any',
@@ -5348,7 +5344,7 @@ export function applyLookChooseFromTopStep(
         state: nextState,
         playerId,
         rest: restCards,
-        destination: step.destination === 'hand' ? 'hand' : step.destination === 'exile' ? 'exile' : 'battlefield',
+        destination: step.destination === 'exile' ? 'exile' : 'hand',
         restDestination: 'graveyard',
         restToTop: false,
         restRandomOrder: false,
@@ -6646,7 +6642,6 @@ export function applyConniveStep(
   let amount =
     resolveOracleQuantity(state, controllerId, step.amount, ctx, {
       targetCreatureId: targetId,
-      whereX: step.whereX,
       runtime,
     }) ?? quantityToNumber(step.amount, ctx);
 

@@ -2813,7 +2813,7 @@ export function moveTargetedCardFromAnyGraveyard(
   readonly log: readonly string[];
   readonly movedCards: readonly any[];
   readonly movedPermanentIds?: readonly string[];
-} | { readonly kind: 'impossible' } {
+} | { readonly kind: 'impossible' } | { readonly kind: 'halted' } {
   const wantedId = String(targetCardId || '').trim();
   if (!wantedId) return { kind: 'impossible' };
 
@@ -2999,9 +2999,10 @@ export function parseMoveZoneTypedCardFromYourHand(what: {
   if (creatureSubtype) {
     return { cardType: 'creature', creatureTypesAnyOf: [creatureSubtype] };
   }
-  const parsed = parseMoveZoneSingleTargetCriteria(typeText) || parseSimpleCardTypeFromText(typeText);
-  if (!parsed) return null;
-  return parsed;
+  const parsedCriteria = parseMoveZoneSingleTargetCriteria(typeText);
+  if (parsedCriteria) return parsedCriteria;
+  const parsedCardType = parseSimpleCardTypeFromText(typeText);
+  return parsedCardType ? { cardType: parsedCardType } : null;
 }
 
 export function parseMoveZoneTheCardsFromYourHand(what: {
@@ -3890,11 +3891,6 @@ function parseAmongThemOrTypeLineTerms(normalized: string): AmongThemMoveCriteri
       continue;
     }
     const parsed = parseSimpleCardTypeFromText(part);
-    if (parsed === 'vehicle') {
-      terms.push('vehicle');
-      includesPermanent = true;
-      continue;
-    }
     if (parsed === 'creature') {
       includesPermanent = true;
       continue;
@@ -8587,7 +8583,7 @@ export function parseMoveZoneAllFromTargetPlayersExile(what: {
 }
 
 export function parseMoveZoneAllFromEachPlayersGraveyard(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):
-  | { readonly cardType: SimpleCardType; readonly colorsAnyOf?: readonly string[]; readonly putIntoGraveyardThisTurn?: boolean }
+  | Pick<MoveZoneSingleTargetCriteria, 'cardType' | 'colorsAnyOf' | 'creatureTypesAnyOf' | 'putIntoGraveyardThisTurn'>
   | null {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim();
@@ -9837,7 +9833,7 @@ export function returnTargetAndSameNamedCardsFromYourGraveyardToBattlefield(
       undefined,
       undefined
     );
-    if (result.kind === 'impossible') continue;
+    if (result.kind !== 'applied') continue;
     workingState = result.state;
     combinedLog.push(...(result.log || []));
   }
@@ -10523,7 +10519,7 @@ export function putOpponentOwnedMatchingFromExileOntoBattlefield(
         entersFaceDown,
         withCounters
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedPermanentIds.push(...(result.movedPermanentIds || []));

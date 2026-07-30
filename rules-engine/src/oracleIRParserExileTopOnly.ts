@@ -67,7 +67,9 @@ export function tryParseExileTopOnly(params: {
         : String(directManyWithWhere[1] || '').trim();
       const parsed = parseQuantityWithOptionalWhereX(quantityTail);
       amount = parsed.amount;
-      whereX = parsed.whereX;
+      whereX = parsed.whereX?.kind === 'where'
+        ? { kind: 'where', raw: parsed.whereX.raw }
+        : undefined;
       who = mapLibrarySourceToPlayerSelector(directManyWithWhere[2]);
     }
 

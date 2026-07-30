@@ -20,13 +20,15 @@ export function tryDeferTriggeredAbilityBeforeExecution(
     sourceName,
     description,
     effectText,
-    triggerType,
-    sourceId,
+    triggerType: rawTriggerType,
+    sourceId: rawSourceId,
     optionalTriggeredAbilityDecisionApplied,
     state,
     bumpSeq,
     executeTriggerEffect,
   } = options;
+  const triggerType = String(rawTriggerType || '');
+  const sourceId = String(rawSourceId || '');
 
   if (trySkipTriggeredAbilityForUnmetInterveningIf(ctx, item, {
     triggerController,

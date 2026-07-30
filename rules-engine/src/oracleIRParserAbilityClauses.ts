@@ -57,7 +57,7 @@ function splitConservativeActionConjunctionClause(args: {
   if (!normalized || !/\band\b/i.test(normalized)) return null;
 
   const splitMatch = normalized.match(
-    /^(.*?)\s+and\s+((?:you|each player|each opponent|target player|target opponent|that player|that opponent|this permanent|this creature|that creature|it|they|suspect|create|draw|discard|exile|return|put|destroy|gain|lose|deal|tap|untap|mill|surveil|scry|investigate|populate|goad)\b.+)$/i
+    /^(.*?)\s+and\s+((?:you|each player|each opponent|target player|target opponent|that player|that opponent|this permanent|this creature|that creature|it|they|suspects?|creates?|draws?|discards?|exiles?|returns?|puts?|destroys?|gains?|loses?|deals?|taps?|untaps?|mills?|surveils?|scrys?|investigates?|populates?|goads?)\b.+)$/i
   );
   if (!splitMatch) return null;
 
@@ -69,6 +69,31 @@ function splitConservativeActionConjunctionClause(args: {
   const secondStep = parseEffectClauseToStep(second);
   if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;
 
+  return [first, second];
+}
+
+function splitConservativeKnownSentenceFollowups(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const normalized = normalizeOracleText(args.rawClause).trim();
+  const tokenReminder = normalized.match(
+    /^(create(?:s)?\s+.+?\btokens?)\.\s+((?:it has|they have)\s+.+)$/i,
+  );
+  if (tokenReminder) {
+    return [
+      String(tokenReminder[1] || '').trim(),
+      String(tokenReminder[2] || '').trim(),
+    ];
+  }
+  const match = normalized.match(/^(.+?)\.\s+(proliferate|draw\s+.+)$/i);
+  if (!match) return null;
+  const first = String(match[1] || '').trim();
+  const second = String(match[2] || '').trim();
+  if (!first || !second) return null;
+  const secondStep = args.parseEffectClauseToStep(second);
+  if (secondStep.kind === 'unknown') return null;
+  if (!/^as an additional cost\b/i.test(first) && args.parseEffectClauseToStep(first).kind === 'unknown') return null;
   return [first, second];
 }
 
@@ -413,12 +438,17 @@ export function buildAbilityClauses(args: {
     splitConservativeDrawGainControlClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCommaDrawGainClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeActionConjunctionClause({ rawClause: clause, parseEffectClauseToStep }) ??
+    splitConservativeKnownSentenceFollowups({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCreateTokenLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeExileFromLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??
     [clause]
   );
 
-  return mergeTrailingCreateTokenFollowupClauses(expandedClauses);
+  // Keep entry modifiers as separate clauses. The ability parser tracks the
+  // preceding create_token step(s) and folds these clauses into those steps.
+  // Recombining them here lets the broad create-token matcher consume the
+  // whole sentence and silently drops both multi-token segments and metadata.
+  return expandedClauses;
 }
 
 function acceptsCreateTokenFollowupModifierLead(clause: string): boolean {

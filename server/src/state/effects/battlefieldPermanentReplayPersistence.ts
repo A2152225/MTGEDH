@@ -5,6 +5,7 @@ import { debugWarn } from '../../utils/debug.js';
 
 /** Fields captured for undo/replay when Oracle IR mutates existing permanents. */
 export const BATTLEFIELD_PERMANENT_REPLAY_PATCH_FIELDS = [
+  'controller',
   'isSuspected',
   'tapped',
   'exerted',
@@ -15,6 +16,7 @@ export const BATTLEFIELD_PERMANENT_REPLAY_PATCH_FIELDS = [
   'grantedAbilities',
   'untilEndOfTurn',
   'temporaryPTMods',
+  'modifiers',
   'tempPowerBonus',
   'tempToughnessBonus',
   'temporaryPowerBoost',

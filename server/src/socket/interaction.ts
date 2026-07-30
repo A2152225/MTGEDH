@@ -5268,7 +5268,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               totalAmount,
               fixedSpendRestriction.restriction,
               fixedSpendRestriction.restrictedTo,
-              permanentId,
+              String(permanentId),
               cardName,
             );
           } else {

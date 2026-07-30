@@ -170,7 +170,7 @@ export function executeTriggerEffect(
     state,
     triggerCard,
   );
-  if (legacyBodyResult.handled) {
+  if (legacyBodyResult.handled === true) {
     recordLegacyTriggerHandled(
       ctx,
       sourceName,

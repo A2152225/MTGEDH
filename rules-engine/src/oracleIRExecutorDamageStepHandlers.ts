@@ -13,7 +13,11 @@ import {
   registerDamageCantBePreventedThisTurn,
   registerDamagePreventionEffect,
 } from './oracleIRDamagePrevention';
-import { trySpecialDealDamageStep, trySpecialPreventDamageStep } from './oracleIRExecutorSpecialTargetHandlers';
+import {
+  trySpecialDealDamageStep,
+  trySpecialPreventDamageStep,
+  type SpecialTargetStepResult,
+} from './oracleIRExecutorSpecialTargetHandlers';
 import {
   normalizeRepeatedEachAllInList,
   parseDeterministicMixedDamageTarget,
@@ -46,9 +50,17 @@ type StepApplyResult = {
 type StepSkipResult = {
   readonly applied: false;
   readonly message: string;
-  readonly reason: 'unknown_amount' | 'unsupported_target' | 'unsupported_permanent_types';
+  readonly reason:
+    | 'unknown_amount'
+    | 'unsupported_target'
+    | 'unsupported_permanent_types'
+    | 'no_deterministic_target'
+    | 'player_choice_required'
+    | 'impossible_action';
   readonly options?: {
-    readonly classification?: 'ambiguous';
+    readonly classification?: 'unsupported' | 'ambiguous' | 'player_choice' | 'invalid_input';
+    readonly persist?: boolean;
+    readonly metadata?: Record<string, string | number | boolean | null | readonly string[]>;
   };
 };
 
@@ -63,13 +75,28 @@ type PreventionStepApplyResult = {
 type PreventionStepSkipResult = {
   readonly applied: false;
   readonly message: string;
-  readonly reason: 'impossible_action' | 'unsupported_target' | 'missing_linked_card';
+  readonly reason:
+    | 'impossible_action'
+    | 'unsupported_target'
+    | 'missing_linked_card'
+    | 'no_deterministic_target'
+    | 'player_choice_required';
   readonly options?: {
-    readonly classification?: 'ambiguous' | 'invalid_input';
+    readonly classification?: 'unsupported' | 'ambiguous' | 'player_choice' | 'invalid_input';
+    readonly persist?: boolean;
+    readonly metadata?: Record<string, string | number | boolean | null | readonly string[]>;
   };
 };
 
 export type PreventDamageStepHandlerResult = PreventionStepApplyResult | PreventionStepSkipResult;
+
+function normalizeSpecialDamageResult(result: SpecialTargetStepResult): DamageStepHandlerResult {
+  if (result.applied === false) return result;
+  return {
+    ...result,
+    excessDamageDealtThisWay: 0,
+  };
+}
 
 type DamageRuntime = {
   readonly lastMovedCards?: readonly any[];
@@ -600,7 +627,7 @@ export function applyDealDamageStep(
   runtime?: DamageRuntime
 ): DamageStepHandlerResult {
   const fightEarly = trySpecialDealDamageStep(state, step, ctx, 0);
-  if (fightEarly) return fightEarly;
+  if (fightEarly) return normalizeSpecialDamageResult(fightEarly);
 
   const amount = resolveDamageAmount(state, step.amount, step.source, ctx, runtime, step.whereX);
   if (amount === null) {
@@ -613,7 +640,7 @@ export function applyDealDamageStep(
   }
 
   const specialDamage = trySpecialDealDamageStep(state, step, ctx, amount);
-  if (specialDamage) return specialDamage;
+  if (specialDamage) return normalizeSpecialDamageResult(specialDamage);
 
   let nextState = state;
   const log: string[] = [];

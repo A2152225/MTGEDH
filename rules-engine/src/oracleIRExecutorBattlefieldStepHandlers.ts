@@ -8,6 +8,7 @@ import {
   parseSimpleBattlefieldSelector,
   parseSimplePermanentTypeFromText,
   type SimpleBattlefieldSelector,
+  type SimplePermanentType,
 } from './oracleIRExecutorBattlefieldParser';
 import { parseQuantity } from './oracleIRParserUtils';
 import {
@@ -126,9 +127,13 @@ type StepApplyResult = {
   readonly state: GameState;
   readonly log: readonly string[];
   readonly count?: number;
+  readonly lastExiledCards?: readonly any[];
+  readonly lastExiledCardCount?: number;
   readonly lastSacrificedCreaturesPowerTotal?: number;
   readonly lastSacrificedPermanents?: readonly LastKnownPermanentSnapshot[];
   readonly lastMovedCards?: readonly any[];
+  readonly lastMovedBattlefieldPermanentIds?: readonly string[];
+  readonly lastAntecedentBattlefieldPermanentIds?: readonly string[];
   readonly lastTappedMatchingPermanentCount?: number;
   readonly lastTappedMatchingPermanentIds?: readonly string[];
   readonly skipLedgerFlush?: boolean;
@@ -147,7 +152,7 @@ type StepSkipResult = {
     | 'unsupported_condition'
     | 'condition_false';
   readonly options?: {
-    readonly classification?: 'player_choice';
+    readonly classification?: 'unsupported' | 'ambiguous' | 'player_choice' | 'invalid_input';
     readonly persist?: boolean;
     readonly metadata?: Record<string, string | number | boolean | null | readonly string[]>;
   };
@@ -159,6 +164,8 @@ type RecentBattlefieldRuntime = {
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   readonly lastCreatedTokenIds?: readonly string[];
   readonly lastMovedCards?: readonly any[];
+  readonly lastExiledCards?: readonly any[];
+  readonly lastExiledCardCount?: number;
   readonly lastDiscardedCards?: readonly any[];
   readonly lastSacrificedPermanents?: readonly any[];
 };
@@ -623,7 +630,7 @@ function exileCardFromZoneLocation(
   state: GameState,
   location: CardZoneLocation,
   cardId: string
-): BattlefieldStepHandlerResult | null {
+): StepApplyResult | null {
   if (location.zone === 'exile') {
     return { applied: true, state, log: [`${cardId} is already exiled`] };
   }
@@ -635,7 +642,7 @@ function exileCardFromZoneLocation(
         ? moveTargetedCardFromHand(state, location.playerId, cardId, 'any', 'exile')
         : null;
 
-  if (!result || result.kind === 'impossible') return null;
+  if (!result || result.kind !== 'applied') return null;
   return { applied: true, state: result.state, log: result.log };
 }
 
@@ -741,6 +748,7 @@ export function parseSacrificeWhat(what: { readonly kind: string; readonly text?
       readonly tokenOnly?: boolean;
       readonly excludeSource?: boolean;
       readonly usesVariableCount?: boolean;
+      readonly greatestPowerAmongControlled?: boolean;
     }
   | SacrificeAttachmentReference
   | { readonly mode: 'created_with_source'; readonly plural?: boolean }
@@ -1105,7 +1113,7 @@ export function buildSacrificeTargetSelectionOptions(
 
   const pushCandidateMatches = (
     filter: {
-      readonly types: readonly string[];
+      readonly types: readonly SimplePermanentType[];
       readonly subtype?: string;
       readonly tokenOnly?: boolean;
       readonly excludeSource?: boolean;
@@ -1139,7 +1147,10 @@ export function buildSacrificeTargetSelectionOptions(
       .replace(/^(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+/i, '')
       .replace(/^an?\s+/i, '')
       .trim();
-    const mixedTypes = stripped.split(/\s+(?:or|and\/or)\s+/i).map(part => parseSimplePermanentTypeFromText(part.trim())).filter(Boolean) as string[];
+    const mixedTypes = stripped
+      .split(/\s+(?:or|and\/or)\s+/i)
+      .map(part => parseSimplePermanentTypeFromText(part.trim()))
+      .filter((type): type is SimplePermanentType => type !== null);
     if (mixedTypes.length > 1) {
       pushCandidateMatches({ types: mixedTypes });
     } else {
@@ -1600,7 +1611,7 @@ function applyCounterDistributionToBattlefield(
   targetIds: readonly string[],
   perTargetCounts: readonly number[],
   counterName: string,
-): { state: GameState; log: string } {
+): { state: GameState; log: readonly string[] } {
   const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
     const permanentId = String(perm?.id || '').trim();
     const targetIndex = targetIds.indexOf(permanentId);
@@ -1650,7 +1661,10 @@ function resolveDistributeAmongTargetIds(
   ctx: OracleIRExecutionContext,
   normalizedTarget: OracleObjectSelector | undefined,
 ): string[] {
-  const targetText = String((normalizedTarget as any)?.text || step.target?.text || '')
+  const stepTargetText = step.target?.kind === 'raw' ? step.target.text : '';
+  const targetText = String(
+    normalizedTarget?.kind === 'raw' ? normalizedTarget.text : stepTargetText
+  )
     .replace(/,\s*where x is\b.*$/i, '')
     .trim()
     .toLowerCase();
@@ -1797,7 +1811,7 @@ function tryApplyDistributeCountersAmong(
     return {
       applied: true,
       state: applied.state,
-      log: [applied.log],
+      log: applied.log,
       lastMovedBattlefieldPermanentIds: targetIds,
     };
   }
@@ -1827,7 +1841,7 @@ function tryApplyDistributeCountersAmong(
   return {
     applied: true,
     state: applied.state,
-    log: [applied.log],
+    log: applied.log,
     lastMovedBattlefieldPermanentIds: targetIds,
   };
 }
@@ -2266,17 +2280,6 @@ function resolveContextualBattlefieldPermanents(
     return selfPermanent ? [selfPermanent] : [];
   }
 
-  if (parsed.mode === 'attached_to_source' || parsed.mode === 'attached_to_named') {
-    const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
-    const attachmentResolution = resolveAttachmentReferencePermanents(
-      battlefield,
-      parsed,
-      [controllerId],
-      ctx
-    );
-    return attachmentResolution.requiresChoice ? [] : [...attachmentResolution.permanents];
-  }
-
   const resolvedContextualTargetIds = buildContextualBattlefieldTargetIds(
     battlefield,
     ctx,
@@ -2603,7 +2606,7 @@ function resolveDestroyTargets(
       ).trim();
       if (!hostId) return [];
       return battlefield.filter((perm: any) => {
-        if (!permanentMatchesType(perm, 'equipment')) return false;
+        if (!permanentMatchesType(perm, 'artifact') || !typeLineHasSubtype(perm, 'equipment')) return false;
         return String((perm as any)?.attachedTo || '').trim() === hostId;
       });
     }
@@ -2723,7 +2726,7 @@ function resolveDestroyTargets(
     ).trim();
     if (!hostId) return [];
     return battlefield.filter((perm: any) => {
-      if (!permanentMatchesType(perm, 'equipment')) return false;
+      if (!permanentMatchesType(perm, 'artifact') || !typeLineHasSubtype(perm, 'equipment')) return false;
       return String((perm as any)?.attachedTo || '').trim() === hostId;
     });
   }
@@ -3094,7 +3097,8 @@ function resolveDirectBattlefieldPermanents(
     /^target (land|creature|artifact|enchantment|planeswalker|battle|vehicle) you control$/i,
   );
   if (typedYouControlMatch) {
-    const parsedType = String(typedYouControlMatch[1] || '').trim().toLowerCase();
+    const parsedType = parseSimplePermanentTypeFromText(String(typedYouControlMatch[1] || ''));
+    if (!parsedType) return [];
     const boundIds = collectBoundBattlefieldIds(ctx);
     const controllerId = String(ctx.controllerId || '').trim();
     const fromBound = battlefield.filter((perm: any) => {
@@ -3406,7 +3410,9 @@ function resolveEquippedCreaturesYouControl(
     battlefield
       .filter(
         (perm: any) =>
-          String(perm?.controller || '').trim() === controllerId && permanentMatchesType(perm, 'equipment')
+          String(perm?.controller || '').trim() === controllerId &&
+          permanentMatchesType(perm, 'artifact') &&
+          typeLineHasSubtype(perm, 'equipment')
       )
       .map((perm: any) => String(perm?.attachedTo || '').trim())
       .filter(Boolean)
@@ -6014,11 +6020,12 @@ export function applyCantBlockStep(
   step: Extract<OracleEffectStep, { kind: 'cant_block' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
+  const duration = step.duration as 'end_of_turn' | 'static' | 'until_next_turn';
   if (
-    step.duration &&
-    step.duration !== 'end_of_turn' &&
-    step.duration !== 'static' &&
-    step.duration !== 'until_next_turn'
+    duration &&
+    duration !== 'end_of_turn' &&
+    duration !== 'static' &&
+    duration !== 'until_next_turn'
   ) {
     return {
       applied: false,
@@ -6629,15 +6636,15 @@ export function applyCantBlockStep(
   }
 
   const cantBlockExpiresAt =
-    step.duration === 'end_of_turn'
+    duration === 'end_of_turn'
       ? 'end_of_turn'
-      : step.duration === 'until_next_turn'
+      : duration === 'until_next_turn'
         ? 'leaves_battlefield'
         : 'leaves_battlefield';
   const nextState = applyTemporaryEffectToPermanents(state, targets, ctx, {
     descriptions: ["can't block"],
     expiresAt: cantBlockExpiresAt,
-    ...(step.duration === 'until_next_turn' && ctx.controllerId
+    ...(duration === 'until_next_turn' && ctx.controllerId
       ? { expiresOnControllerTurn: ctx.controllerId }
       : {}),
   });
@@ -6654,11 +6661,12 @@ export function applyCantAttackStep(
   step: Extract<OracleEffectStep, { kind: 'cant_attack' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
+  const duration = step.duration as 'end_of_turn' | 'static' | 'until_next_turn';
   if (
-    step.duration &&
-    step.duration !== 'end_of_turn' &&
-    step.duration !== 'static' &&
-    step.duration !== 'until_next_turn'
+    duration &&
+    duration !== 'end_of_turn' &&
+    duration !== 'static' &&
+    duration !== 'until_next_turn'
   ) {
     return {
       applied: false,
@@ -6871,15 +6879,15 @@ export function applyCantAttackStep(
       };
     }
     const massExpiresAt =
-      step.duration === 'end_of_turn'
+      duration === 'end_of_turn'
         ? 'end_of_turn'
-        : step.duration === 'until_next_turn'
+        : duration === 'until_next_turn'
           ? 'leaves_battlefield'
           : 'leaves_battlefield';
     const nextState = applyTemporaryEffectToPermanents(state, creatures, ctx, {
       descriptions: ["can't attack"],
       expiresAt: massExpiresAt,
-      ...(step.duration === 'until_next_turn' && ctx.controllerId
+      ...(duration === 'until_next_turn' && ctx.controllerId
         ? { expiresOnControllerTurn: ctx.controllerId }
         : {}),
     });
@@ -6984,15 +6992,15 @@ export function applyCantAttackStep(
         };
       }
       const massExpiresAt =
-        step.duration === 'end_of_turn'
+        duration === 'end_of_turn'
           ? 'end_of_turn'
-          : step.duration === 'until_next_turn'
+          : duration === 'until_next_turn'
             ? 'leaves_battlefield'
             : 'leaves_battlefield';
       const nextState = applyTemporaryEffectToPermanents(state, creatures, ctx, {
         descriptions: ["can't attack"],
         expiresAt: massExpiresAt,
-        ...(step.duration === 'until_next_turn' && ctx.controllerId
+        ...(duration === 'until_next_turn' && ctx.controllerId
           ? { expiresOnControllerTurn: ctx.controllerId }
           : {}),
       });
@@ -7027,15 +7035,15 @@ export function applyCantAttackStep(
   }
 
   const cantAttackExpiresAt =
-    step.duration === 'end_of_turn'
+    duration === 'end_of_turn'
       ? 'end_of_turn'
-      : step.duration === 'until_next_turn'
+      : duration === 'until_next_turn'
         ? 'leaves_battlefield'
         : 'leaves_battlefield';
   const nextState = applyTemporaryEffectToPermanents(state, targets, ctx, {
     descriptions: ["can't attack"],
     expiresAt: cantAttackExpiresAt,
-    ...(step.duration === 'until_next_turn' && ctx.controllerId
+    ...(duration === 'until_next_turn' && ctx.controllerId
       ? { expiresOnControllerTurn: ctx.controllerId }
       : {}),
   });
@@ -7052,7 +7060,8 @@ export function applyCantActivateAbilitiesStep(
   step: Extract<OracleEffectStep, { kind: 'cant_activate_abilities' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
-  if (step.duration && step.duration !== 'end_of_turn' && step.duration !== 'static' && step.duration !== 'until_next_turn') {
+  const duration = step.duration as 'end_of_turn' | 'static' | 'until_next_turn';
+  if (duration && duration !== 'end_of_turn' && duration !== 'static' && duration !== 'until_next_turn') {
     return {
       applied: false,
       message: `Skipped cant_activate_abilities static restriction (continuous text handled elsewhere): ${step.raw}`,
@@ -7115,8 +7124,8 @@ export function applyCantActivateAbilitiesStep(
     if (thoseTargets.length > 0) {
       const nextState = applyTemporaryEffectToPermanents(state, thoseTargets, ctx, {
         descriptions: ["activated abilities can't be activated"],
-        expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
-        ...(step.duration === 'until_next_turn' && ctx.controllerId
+        expiresAt: duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+        ...(duration === 'until_next_turn' && ctx.controllerId
           ? { expiresOnControllerTurn: ctx.controllerId }
           : {}),
       });
@@ -7153,12 +7162,12 @@ export function applyCantActivateAbilitiesStep(
   const nextState = applyTemporaryEffectToPermanents(state, targets, ctx, {
     descriptions: ["activated abilities can't be activated"],
     expiresAt:
-      step.duration === 'end_of_turn'
+      duration === 'end_of_turn'
         ? 'end_of_turn'
-        : step.duration === 'until_next_turn'
+        : duration === 'until_next_turn'
           ? 'leaves_battlefield'
           : 'leaves_battlefield',
-    ...(step.duration === 'until_next_turn' && ctx.controllerId
+    ...(duration === 'until_next_turn' && ctx.controllerId
       ? { expiresOnControllerTurn: ctx.controllerId }
       : {}),
   });
@@ -9086,7 +9095,11 @@ function resolveGrantTemporaryMassTargets(
     if (!targetPlayerId) return null;
     const matches = battlefield.filter(
       (perm) =>
-        permanentMatchesSelector(perm, { kind: 'battlefield_selector', types: ['creature'] }, ctx)
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'any' },
+          ctx
+        )
         && String((perm as any)?.controller || '').trim() === targetPlayerId,
     );
     return matches.length > 0 ? matches : null;
@@ -9982,8 +9995,9 @@ export function applyRemoveCounterStep(
     ...step,
     target: effectiveStepTarget(step) || step.target,
   } as typeof step, ctx);
-  const normalizedTargetText = (effectiveStepTarget(step) || step.target).kind === 'raw'
-    ? normalizeSelfReferenceText(String((effectiveStepTarget(step) || step.target).text || '').trim()).toLowerCase()
+  const effectiveTarget = effectiveStepTarget(step) || step.target;
+  const normalizedTargetText = effectiveTarget.kind === 'raw'
+    ? normalizeSelfReferenceText(effectiveTarget.text.trim()).toLowerCase()
     : '';
   if (
     targets.length === 0 &&
@@ -11538,7 +11552,15 @@ export function applyExileStep(
     }
     const removedIds = new Set(toRemove.map((perm: any) => String(perm?.id || '').trim()));
     const kept = battlefield.filter((perm: any) => !removedIds.has(String(perm?.id || '').trim()));
-    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
+    const result = finalizeBattlefieldRemoval(
+      state,
+      toRemove,
+      removedIds,
+      kept,
+      'exile',
+      'exiled',
+      oracleIrBattlefieldRemovalOptions(ctx, 'exile')
+    );
     return { applied: true, state: result.state, log: result.log };
   }
 
@@ -11555,7 +11577,15 @@ export function applyExileStep(
     }
     const removedIds = new Set(toRemove.map((perm: any) => String(perm?.id || '').trim()));
     const kept = battlefield.filter((perm: any) => !removedIds.has(String(perm?.id || '').trim()));
-    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
+    const result = finalizeBattlefieldRemoval(
+      state,
+      toRemove,
+      removedIds,
+      kept,
+      'exile',
+      'exiled',
+      oracleIrBattlefieldRemovalOptions(ctx, 'exile')
+    );
     return { applied: true, state: result.state, log: result.log };
   }
 
@@ -12416,7 +12446,7 @@ export function applySacrificeStep(
       applied: true,
       state: result.state,
       log: result.log,
-      lastSacrificedPermanents: [enchantedPermanent],
+      lastSacrificedPermanents: [createLastKnownPermanentSnapshot(enchantedPermanent)],
     });
   }
 
@@ -12444,7 +12474,7 @@ export function applySacrificeStep(
       applied: true,
       state: result.state,
       log: result.log,
-      lastSacrificedPermanents: [creature],
+      lastSacrificedPermanents: [createLastKnownPermanentSnapshot(creature)],
     });
   }
 
@@ -12489,7 +12519,7 @@ export function applySacrificeStep(
       applied: true,
       state: result.state,
       log: result.log,
-      lastSacrificedPermanents: selected,
+      lastSacrificedPermanents: selected.map(createLastKnownPermanentSnapshot),
     });
   }
 
@@ -12538,7 +12568,7 @@ export function applySacrificeStep(
       applied: true,
       state: result.state,
       log: result.log,
-      lastSacrificedPermanents: toSacrifice,
+      lastSacrificedPermanents: toSacrifice.map(createLastKnownPermanentSnapshot),
     });
   }
 
@@ -12733,7 +12763,8 @@ export function applySacrificeStep(
     (parsed.mode === 'count' || parsed.mode === 'all')
   ) {
     const effectiveCount = (() => {
-      if (!Boolean((parsed as any).usesVariableCount)) return parsed.count;
+      if (parsed.mode !== 'count') return 0;
+      if (!parsed.usesVariableCount) return parsed.count;
       const xValue = Number((ctx as any).xValue);
       return Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue)) : null;
     })();

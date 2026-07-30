@@ -11,7 +11,7 @@ export function resolveInstantOrSorceryStackItem(
   options: InstantSorceryStackResolveOptions,
 ): boolean {
   const prefaceResult = tryResolveInstantSorceryPreface(ctx, options);
-  if (prefaceResult.handled) {
+  if (prefaceResult.handled === true) {
     return true;
   }
 

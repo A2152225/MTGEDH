@@ -488,12 +488,14 @@ function rebuildCastingModifierTextFromGrantStep(step: OracleEffectStep): string
     return '';
   }
 
-  const targetText = normalizeText((step as { target?: { text?: string } }).target?.text);
-  const abilities = Array.isArray((step as { abilities?: string[] }).abilities)
-    ? (step as { abilities?: string[] }).abilities!.map((entry) => normalizeText(entry)).filter(Boolean)
+  const targetText = 'text' in step.target
+    ? normalizeText(step.target.text)
+    : '';
+  const abilities = 'abilities' in step && Array.isArray(step.abilities)
+    ? step.abilities.map((entry) => normalizeText(entry)).filter(Boolean)
     : [];
-  const effectText = Array.isArray((step as { effectText?: string[] }).effectText)
-    ? (step as { effectText?: string[] }).effectText!.map((entry) => normalizeText(entry)).filter(Boolean)
+  const effectText = 'effectText' in step && Array.isArray(step.effectText)
+    ? step.effectText.map((entry) => normalizeText(entry)).filter(Boolean)
     : [];
   const clauses = [...abilities, ...effectText];
   if (!targetText || clauses.length === 0) return '';

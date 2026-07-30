@@ -9,6 +9,7 @@
 // NOTE: Small, safe additions: normalizeViewForEmit + ensureStateZonesForPlayers
 // and env-gated verbose logging when DEBUG_STATE=1.
 
+import type { Server } from "socket.io";
 import { sumActiveTemporaryPTMods } from "../state/modules/temporaryPtMods.js";
 import { games, priorityTimers, PRIORITY_TIMEOUT_MS } from "./socket.js";
 import { appendEvent, createGameIfNotExists, getEvents, gameExistsInDb } from "../db/index.js";
@@ -2850,18 +2851,21 @@ export function parseManaCost(
 ): {
   colors: Record<string, number>;
   generic: number;
+  hybrid: Array<Array<string>>;
   hybrids: Array<Array<string>>;
   hasX: boolean;
 } {
   const parsed = parseManaFromString(manaCost);
+  const hybrids = Array.isArray((parsed as any).hybrids)
+    ? (parsed as any).hybrids.map((entry: string[]) => [...entry])
+    : Array.isArray(parsed.hybrid)
+      ? parsed.hybrid.map((entry) => [...entry])
+      : [];
   return {
     colors: { ...parsed.colors },
     generic: parsed.generic,
-    hybrids: Array.isArray((parsed as any).hybrids)
-      ? (parsed as any).hybrids.map((entry: string[]) => [...entry])
-      : Array.isArray(parsed.hybrid)
-        ? parsed.hybrid.map((entry) => [...entry])
-        : [],
+    hybrid: hybrids,
+    hybrids,
     hasX: parsed.hasX,
   };
 }
@@ -3567,8 +3571,6 @@ export function deriveCreatureSpellHasteFromManaSpent(
   return false;
 }
 
-type ManaPoolColorKey = 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-
 function getOrInitManaProducedByPermanentLowerBound(gameState: any, playerId: string): Record<string, Record<ManaPoolColorKey, number>> {
   const pool = getOrInitManaPool(gameState, playerId) as any;
   if (!pool.manaProducedByPermanentLowerBound || typeof pool.manaProducedByPermanentLowerBound !== 'object') {
@@ -4101,13 +4103,16 @@ export function validateAndConsumeManaCostFromPool(
   if (validationError) return { ok: false, error: validationError };
 
   const { consumed, remaining } = opts?.purpose
-    ? consumeManaFromPoolForPurpose(
-        pool as ManaPool,
-        resolved.coloredCost,
-        resolved.genericCost,
-        opts.purpose,
-        opts?.logPrefix,
-      )
+    ? (() => {
+        const result = consumeManaFromPoolForPurpose(
+          pool as ManaPool,
+          resolved.coloredCost,
+          resolved.genericCost,
+          opts.purpose,
+          opts?.logPrefix,
+        );
+        return { ...result, remaining: getPoolNumericSnapshot(pool) };
+      })()
     : consumeManaFromPool(pool, resolved.coloredCost, resolved.genericCost, opts?.logPrefix);
   return { ok: true, consumed, remaining };
 }

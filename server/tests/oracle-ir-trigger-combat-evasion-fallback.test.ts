@@ -47,6 +47,45 @@ describe('oracle IR trigger fallback — combat evasion + counter-scaled modify_
     ]);
   });
 
+  it('does not mirror an old P/T modifier again when a later Oracle IR effect resolves', () => {
+    const p1 = 'p1' as PlayerID;
+    const game = createInitialGameState('temporary_pt_mirror_dedupe');
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    (game.state as any).battlefield = [{
+      id: 'target-1',
+      controller: p1,
+      card: { name: 'Target', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+    }];
+
+    const ctx = game as any;
+    ctx.gameId = 'temporary_pt_mirror_dedupe';
+    expect(applyOracleIRFallbackForTriggeredEffect(
+      ctx,
+      p1,
+      'First Effect',
+      'target creature gets -0/-2 until end of turn.',
+      { source: 'first-source', targets: ['target-1'] },
+    )).toBeGreaterThan(0);
+
+    expect(applyOracleIRFallbackForTriggeredEffect(
+      ctx,
+      p1,
+      'Later Effect',
+      'you gain 1 life.',
+      { source: 'later-source' },
+    )).toBeGreaterThan(0);
+
+    const target = (game.state as any).battlefield[0];
+    expect(target.temporaryPTMods).toEqual([
+      expect.objectContaining({
+        power: 0,
+        toughness: -2,
+        source: 'first-source',
+        expiresAt: 'end_of_turn',
+      }),
+    ]);
+  });
+
   it('applies self unblockable + scry via uncategorized IR fallback', () => {
     const p1 = 'p1' as PlayerID;
     const game = createInitialGameState('self_unblockable_fallback');
@@ -1093,6 +1132,7 @@ describe('oracle IR trigger fallback — modify_pt exert rewards', () => {
       expect.objectContaining({ power: 2, toughness: 2, expiresAt: 'end_of_turn' }),
     ]);
     delete (game.state as any).battlefield[0].temporaryPTMods;
+    delete (game.state as any).battlefield[0].modifiers;
 
     const equipApplied = applyOracleIRFallbackForTriggeredEffect(
       ctx,
@@ -1106,6 +1146,7 @@ describe('oracle IR trigger fallback — modify_pt exert rewards', () => {
       expect.objectContaining({ power: 2, toughness: 2, expiresAt: 'end_of_turn' }),
     ]);
     delete (game.state as any).battlefield[0].temporaryPTMods;
+    delete (game.state as any).battlefield[0].modifiers;
 
     const enchantApplied = applyOracleIRFallbackForTriggeredEffect(
       ctx,

@@ -49,23 +49,35 @@ import {
 } from './oracleIRExecutorSpecialTargetHandlersBatch389Bulk';
 import { tryBatch391DealDamageStep } from './oracleIRExecutorSpecialTargetHandlersBatch391Bulk';
 
-export type SpecialTargetStepResult =
-  | {
-      readonly applied: true;
-      readonly state: GameState;
-      readonly log: readonly string[];
-      readonly count?: number;
-      readonly lastMovedCards?: readonly any[];
-    }
-  | {
-      readonly applied: false;
-      readonly message: string;
-      readonly reason: 'unsupported_target' | 'impossible_action';
-      readonly options?: {
-        readonly persist?: boolean;
-        readonly metadata?: Record<string, string | number | boolean | null | readonly string[]>;
-      };
-    };
+type SpecialTargetAppliedResult = {
+  readonly applied: true;
+  readonly state: GameState;
+  readonly log: readonly string[];
+  readonly count?: number;
+  readonly lastMovedCards?: readonly any[];
+  readonly lastExiledCards?: readonly any[];
+  readonly lastExiledCardCount?: number;
+  readonly lastSacrificedPermanents?: readonly any[];
+};
+
+type SpecialTargetSkippedResult = {
+  readonly applied: false;
+  readonly message: string;
+  readonly reason:
+    | 'unsupported_target'
+    | 'no_deterministic_target'
+    | 'player_choice_required'
+    | 'impossible_action';
+  readonly options?: {
+    readonly classification?: 'unsupported' | 'ambiguous' | 'player_choice' | 'invalid_input';
+    readonly persist?: boolean;
+    readonly metadata?: Record<string, string | number | boolean | null | readonly string[]>;
+  };
+};
+
+export type SpecialTargetStepResult = SpecialTargetAppliedResult | SpecialTargetSkippedResult;
+
+type TargetedOracleEffectStep = Extract<OracleEffectStep, { readonly target: unknown }>;
 
 function readContextualCardsFromCtx(ctx: OracleIRExecutionContext): any[] {
   return collectContextualCardsLedgerFirst(ctx) as any[];
@@ -100,8 +112,12 @@ function normalizeClause(value: string): string {
     .replace(/\s+/g, ' ');
 }
 
-function normalizeTargetText(step: OracleEffectStep): string {
-  const rawTarget = step.target?.kind === 'raw' ? String(step.target.text || '') : '';
+function normalizeTargetText(step: TargetedOracleEffectStep): string {
+  const target = step.target;
+  const rawTarget =
+    typeof target === 'object' && target !== null && 'kind' in target && target.kind === 'raw'
+      ? String(target.text || '')
+      : '';
   return normalizeClause(rawTarget.replace(/^exile\s+/i, '').trim());
 }
 
@@ -144,7 +160,7 @@ function exileBattlefieldPermanents(
   permanents: readonly BattlefieldPermanent[],
   ctx: OracleIRExecutionContext,
   logLabel: string
-): SpecialTargetStepResult {
+): SpecialTargetAppliedResult {
   if (permanents.length === 0) {
     return { applied: true, state, log: [`No permanents to exile (${logLabel})`] };
   }
@@ -328,7 +344,7 @@ function exileSourceWithCounter(
   state: GameState,
   ctx: OracleIRExecutionContext,
   counterName: string
-): SpecialTargetStepResult {
+): SpecialTargetAppliedResult {
   const sourceId = String(ctx.sourceId || '').trim();
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
   const source = sourceId
@@ -1033,7 +1049,8 @@ export function trySpecialExileStep(
     const auras = attached
       ? battlefield.filter(
           (perm: any) =>
-            permanentMatchesType(perm, 'aura') &&
+            permanentMatchesType(perm, 'enchantment') &&
+            typeLineHasSubtype(perm, 'aura') &&
             String(perm?.attachedTo || perm?.enchanting || '').trim() === attachedToId
         )
       : [];
@@ -1487,7 +1504,10 @@ export function trySpecialDestroyStep(
     const hostId = String(ctx.targetCreatureId || ctx.selectorContext?.targetCreatureId || ctx.selectorContext?.combatOpponentCreatureId || '').trim();
     const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
     const matches = battlefield.filter(
-      (perm: any) => permanentMatchesType(perm, 'equipment') && String((perm as any)?.attachedTo || '').trim() === hostId
+      (perm: any) =>
+        permanentMatchesType(perm, 'artifact') &&
+        typeLineHasSubtype(perm, 'equipment') &&
+        String((perm as any)?.attachedTo || '').trim() === hostId
     );
     return exileBattlefieldPermanents(state, matches, ctx, 'equipment at EOC');
   }

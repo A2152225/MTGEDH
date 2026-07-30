@@ -183,4 +183,81 @@ describe('applyStateBasedActions dynamic toughness', () => {
     const result = applyStateBasedActions(state);
     expect(result.destroys).not.toContain('bear_1');
   });
+
+  it('puts a creature with an Oracle IR end-of-turn toughness reduction into the graveyard', () => {
+    const state = {
+      battlefield: [{
+        id: 'gravecaller_1',
+        controller: 'p1',
+        owner: 'p1',
+        counters: {},
+        temporaryPTMods: [{
+          power: 0,
+          toughness: -9999,
+          source: 'overkill_1',
+          expiresAt: 'end_of_turn',
+          turnApplied: 4,
+        }],
+        modifiers: [{
+          type: 'powerToughness',
+          power: 0,
+          toughness: -9999,
+          sourceId: 'overkill_1',
+          duration: 'end_of_turn',
+        }],
+        card: {
+          id: 'gravecaller_card_1',
+          name: 'Sephiroth, Planet\'s Heir',
+          type_line: 'Legendary Creature — Human Avatar',
+          oracle_text: 'Indestructible',
+          keywords: ['Indestructible'],
+          power: '1',
+          toughness: '3',
+        },
+      }],
+      players: [{ id: 'p1', name: 'P1', life: 40 }],
+      zones: { p1: { hand: [], graveyard: [], exile: [], library: [] } },
+      life: { p1: 40 },
+      commandZone: {},
+      emblems: [],
+      conspiracies: [],
+    } as any;
+
+    const result = applyStateBasedActions(state);
+    expect(result.destroys).toContain('gravecaller_1');
+  });
+
+  it('uses canonical Oracle IR P/T modifiers when no server mirror exists', () => {
+    const state = {
+      battlefield: [{
+        id: 'bear_ir_1',
+        controller: 'p1',
+        owner: 'p1',
+        counters: {},
+        modifiers: [{
+          type: 'powerToughness',
+          power: 0,
+          toughness: -3,
+          sourceId: 'shrink_spell_1',
+          duration: 'end_of_turn',
+        }],
+        card: {
+          id: 'bear_ir_card_1',
+          name: 'Grizzly Bears',
+          type_line: 'Creature — Bear',
+          power: '2',
+          toughness: '2',
+        },
+      }],
+      players: [{ id: 'p1', name: 'P1', life: 40 }],
+      zones: { p1: { hand: [], graveyard: [], exile: [], library: [] } },
+      life: { p1: 40 },
+      commandZone: {},
+      emblems: [],
+      conspiracies: [],
+    } as any;
+
+    const result = applyStateBasedActions(state);
+    expect(result.destroys).toContain('bear_ir_1');
+  });
 });

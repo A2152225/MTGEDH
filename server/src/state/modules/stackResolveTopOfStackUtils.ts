@@ -16,7 +16,7 @@ export function resolveTopOfStack(ctx: GameContext) {
   let guard = 0;
   while (guard++ < 64) {
     const preface = tryPrepareResolveTopOfStackContext(ctx);
-    if (preface.handled) {
+    if (preface.handled === true) {
       return;
     }
 

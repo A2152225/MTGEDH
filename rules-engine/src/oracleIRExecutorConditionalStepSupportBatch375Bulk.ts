@@ -2,7 +2,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
-import { getProcessedBattlefield, isPermanentAttacking } from './oracleIRExecutorCreatureStepUtils';
+import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
 import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 
@@ -198,7 +198,7 @@ export function evaluateBatch375BulkConditionalClause(params: Batch375BulkParams
   if (normalizedRaw === 'you chose a creature other than galadriel as your ring-bearer') {
     const ringBearerId = String(
       ctx.chosenRingBearerId ??
-        ctx.selectorContext?.chosenRingBearerId ??
+        (ctx.selectorContext as any)?.chosenRingBearerId ??
         (nextState.players.find((p) => p.id === controllerId) as any)?.ringBearerId ??
         ''
     ).trim();

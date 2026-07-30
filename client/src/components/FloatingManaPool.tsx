@@ -4,7 +4,7 @@
  * Supports both regular mana and restricted mana (mana that can only be spent on specific things)
  */
 import React from 'react';
-import type { ManaColor, ManaRestrictionType, RestrictedManaEntry } from '../../../shared/src';
+import type { ManaColor, ManaRestrictionType } from '../../../shared/src';
 
 // Mana symbol colors for styling
 const MANA_SYMBOL_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -47,7 +47,12 @@ type ManaPoolData = {
   green?: number;
   colorless?: number;
   /** Restricted mana entries */
-  restricted?: readonly RestrictedManaEntry[];
+  restricted?: readonly {
+    type?: string;
+    amount?: number;
+    restriction?: ManaRestrictionType | string;
+    sourceName?: string;
+  }[];
   /** Flag indicating mana doesn't empty at end of phases */
   doesNotEmpty?: boolean;
   /** Source name(s) for the doesn't empty effect */
@@ -69,7 +74,7 @@ export function FloatingManaPool({ manaPool, playerId, onManaClick, compact = fa
                       (manaPool.red || 0) + (manaPool.green || 0) + (manaPool.colorless || 0);
   
   // Calculate total restricted mana
-  const restrictedMana = manaPool.restricted?.reduce((sum, entry) => sum + entry.amount, 0) || 0;
+  const restrictedMana = manaPool.restricted?.reduce((sum, entry) => sum + Number(entry.amount || 0), 0) || 0;
   
   const totalMana = regularMana + restrictedMana;
   
@@ -291,9 +296,10 @@ export function FloatingManaPool({ manaPool, playerId, onManaClick, compact = fa
             {manaPool.restricted.map((entry, index) => {
               // Use 'type' as the primary color field
               const colorName = entry.type || 'colorless';
+              const amount = Number(entry.amount || 0);
               const colors = MANA_SYMBOL_COLORS[colorName] || MANA_SYMBOL_COLORS.colorless;
               const symbol = MANA_SYMBOLS[colorName] || '?';
-              const restrictionInfo = RESTRICTION_ICONS[entry.restriction] || { icon: '🔒', label: 'Restricted' };
+              const restrictionInfo = RESTRICTION_ICONS[entry.restriction || ''] || { icon: '🔒', label: 'Restricted' };
               
               return (
                 <div
@@ -310,7 +316,7 @@ export function FloatingManaPool({ manaPool, playerId, onManaClick, compact = fa
                     borderRadius: 12,
                     transition: 'transform 0.1s, box-shadow 0.1s',
                   }}
-                  title={`${entry.amount} ${colorName} mana - ${restrictionInfo.label}${entry.sourceName ? ` (from ${entry.sourceName})` : ''}`}
+                  title={`${amount} ${colorName} mana - ${restrictionInfo.label}${entry.sourceName ? ` (from ${entry.sourceName})` : ''}`}
                   onMouseEnter={(e) => {
                     if (onManaClick) {
                       (e.currentTarget as HTMLElement).style.transform = 'scale(1.1)';
@@ -333,7 +339,7 @@ export function FloatingManaPool({ manaPool, playerId, onManaClick, compact = fa
                   </span>
                   
                   {/* Amount badge */}
-                  {entry.amount > 1 && (
+                  {amount > 1 && (
                     <span style={{
                       fontSize: compact ? 10 : 11,
                       fontWeight: 'bold',
@@ -342,7 +348,7 @@ export function FloatingManaPool({ manaPool, playerId, onManaClick, compact = fa
                       borderRadius: 4,
                       padding: '0 3px',
                     }}>
-                      ×{entry.amount}
+                      ×{amount}
                     </span>
                   )}
                   

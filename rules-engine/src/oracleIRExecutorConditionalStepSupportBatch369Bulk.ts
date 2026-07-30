@@ -318,7 +318,7 @@ export function evaluateBatch369BulkConditionalClause(params: Batch369BulkParams
 
   if (normalizedRaw === "that player didn't cast a creature spell this turn") {
     const thatPlayerId = String(
-      (ctx as any)?.thatPlayerId ?? ctx.targetPlayerId ?? ctx.referencedPlayerId ?? ''
+      (ctx as any)?.thatPlayerId ?? (ctx as any).targetPlayerId ?? (ctx as any).referencedPlayerId ?? ''
     ).trim();
     if (!thatPlayerId) return null;
     const spells = (nextState as any)?.spellsCastThisTurn;

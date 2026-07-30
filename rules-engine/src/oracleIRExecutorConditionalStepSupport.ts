@@ -6,7 +6,7 @@ import { getAmountOfManaSpent, getAmountOfSpecificManaSymbolSpent } from './orac
 import { evaluateModifyPtCondition } from './oracleIRExecutorModifyPtCondition';
 import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
 import { getProcessedBattlefield, getSourceBattlefieldPermanent } from './oracleIRExecutorCreatureStepUtils';
-import { getCounterCountOnObject, findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
+import { getCounterCountOnObject, findObjectByIdInState, getCreatureSubtypeKeys } from './oracleIRExecutorModifyPtWhereUtils';
 import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { checkRolledDoubles } from './dieRoll';
 import { deriveWinningVoteChoice, getCardManaValue } from './oracleIRExecutorPlayerUtils';
@@ -30,7 +30,9 @@ function hasRecentExileOutcome(outcome: LastActionOutcome, movedCards: readonly 
   return Boolean(outcome?.stepKind && EXILE_THIS_WAY_STEP_KINDS.has(outcome.stepKind)) || movedCards.length > 0;
 }
 
-type ConditionalCondition = Extract<OracleEffectStep, { kind: 'conditional' }>['condition'];
+type ConditionalCondition =
+  | Extract<OracleEffectStep, { kind: 'conditional' }>['condition']
+  | { readonly kind: 'unless'; readonly raw: string };
 
 type LastActionOutcome = {
   readonly kind: 'applied' | 'choice_required' | 'impossible' | 'unsupported';
@@ -179,7 +181,7 @@ function resolveUnlessPayInnerCondition(
   if (/^you exile a historic card from your graveyard$/i.test(inner)) {
     const unlessPaid =
       (ctx as any)?.unlessExiledHistoricFromGraveyard ??
-      ctx.selectorContext?.unlessExiledHistoricFromGraveyard;
+      (ctx.selectorContext as any)?.unlessExiledHistoricFromGraveyard;
     if (unlessPaid === true) return true;
     if (unlessPaid === false) return false;
     if (nextState && controllerId) {
@@ -198,7 +200,7 @@ function resolveUnlessPayInnerCondition(
   if (/^you return a land you control to its owner's hand$/i.test(inner)) {
     const unlessPaid =
       (ctx as any)?.unlessReturnedLandToHand ??
-      ctx.selectorContext?.unlessReturnedLandToHand;
+      (ctx.selectorContext as any)?.unlessReturnedLandToHand;
     if (unlessPaid === true) return true;
     if (unlessPaid === false) return false;
     if (nextState && controllerId) {
@@ -224,7 +226,7 @@ function resolveUnlessPayInnerCondition(
   if (/^that player has this permanent deal 4 damage to them$/i.test(inner)) {
     const choice =
       (ctx as any)?.unlessDealDamageChoice ??
-      ctx.selectorContext?.unlessDealDamageChoice ??
+      (ctx.selectorContext as any)?.unlessDealDamageChoice ??
       (ctx as any)?.unlessPaysDamageChoice;
     if (choice === 'pay' || choice === 'deal') return true;
     if (choice === 'decline') return false;
@@ -234,7 +236,7 @@ function resolveUnlessPayInnerCondition(
   if (/^they put a card from their hand on top of their library$/i.test(inner)) {
     const choice =
       (ctx as any)?.unlessPutCardOnTopOfLibraryChoice ??
-      ctx.selectorContext?.unlessPutCardOnTopOfLibraryChoice;
+      (ctx.selectorContext as any)?.unlessPutCardOnTopOfLibraryChoice;
     if (choice === 'put_on_top') return true;
     if (choice === 'decline') return false;
     if (nextState) {
@@ -255,7 +257,7 @@ function resolveUnlessPayInnerCondition(
   if (/^you pay \{e\}\{e\}(?: \(two energy counters\))?$/i.test(inner)) {
     const choice =
       (ctx as any)?.unlessPaysEnergyChoice ??
-      ctx.selectorContext?.unlessPaysEnergyChoice;
+      (ctx.selectorContext as any)?.unlessPaysEnergyChoice;
     if (choice === 'pay') return true;
     if (choice === 'decline') return false;
     return null;
@@ -424,7 +426,7 @@ function getHandCountAtBeginningOfTurn(nextState: GameState, controllerId: Playe
 function countCreaturesThatDiedThisTurn(nextState: GameState): number {
   const byController = (nextState as any)?.creaturesDiedThisTurnByController;
   if (byController && typeof byController === 'object' && !Array.isArray(byController)) {
-    return Object.values(byController as Record<string, unknown>).reduce((sum: number, value) => {
+    return Object.values(byController as Record<string, unknown>).reduce<number>((sum, value) => {
       const count = Number(value);
       return sum + (Number.isFinite(count) ? count : 0);
     }, 0);
@@ -898,7 +900,7 @@ function resolveTargetSpellManaValue(nextState: GameState, ctx: OracleIRExecutio
     return ctx.referenceSpellManaValue;
   }
 
-  const selectorSpellManaValue = Number(ctx.selectorContext?.spellManaValue);
+  const selectorSpellManaValue = Number((ctx.selectorContext as any)?.spellManaValue);
   if (Number.isFinite(selectorSpellManaValue)) {
     return selectorSpellManaValue;
   }
@@ -1268,7 +1270,7 @@ export function evaluateConditionalWrapperCondition(params: {
         (movedCards.length > 0 ? movedCards[movedCards.length - 1] : null);
       if (!subject) {
         const ownerId = String(
-          ctx.lastTopLibraryOwnerId || ctx.targetPlayerId || ctx.selectorContext?.targetPlayerId || controllerId || '',
+          ctx.lastTopLibraryOwnerId || (ctx as any).targetPlayerId || ctx.selectorContext?.targetPlayerId || controllerId || '',
         ).trim();
         const player = (nextState.players || []).find(
           (entry: any) => String(entry?.id || '').trim() === ownerId,
@@ -1376,8 +1378,8 @@ export function evaluateConditionalWrapperCondition(params: {
       const thatPlayerId = String(
         ctx.selectorContext?.targetOpponentId ||
           ctx.selectorContext?.targetPlayerId ||
-          ctx.targetPlayerId ||
-          ctx.targetOpponentId ||
+          (ctx as any).targetPlayerId ||
+          (ctx as any).targetOpponentId ||
           ''
       ).trim();
       if (!thatPlayerId) return null;
@@ -1401,8 +1403,8 @@ export function evaluateConditionalWrapperCondition(params: {
     const thatPlayerId = String(
       ctx.selectorContext?.targetPlayerId ||
         ctx.selectorContext?.activePlayerId ||
-        ctx.targetPlayerId ||
-        ctx.selectorContext?.thatPlayerId ||
+        (ctx as any).targetPlayerId ||
+        (ctx.selectorContext as any)?.thatPlayerId ||
         (nextState as any)?.turnPlayer ||
         (nextState.players || [])[activeIndex]?.id ||
         ''
@@ -1533,8 +1535,7 @@ export function evaluateConditionalWrapperCondition(params: {
         const movedCards = movedCardsFromCtx(ctx, lastMovedCards);
         return movedCards.length === 0;
       }
-      if (lastActionOutcome.kind === 'impossible') return true;
-      return lastActionOutcome.kind !== 'applied';
+      return true;
     }
     return null;
   }
@@ -1769,7 +1770,7 @@ export function evaluateConditionalWrapperCondition(params: {
     const thatPlayerId = String(
       ctx.selectorContext?.targetOpponentId ||
         ctx.selectorContext?.targetPlayerId ||
-        ctx.targetOpponentId ||
+      (ctx as any).targetOpponentId ||
         ''
     ).trim();
     if (!thatPlayerId) return null;
@@ -1885,7 +1886,7 @@ export function evaluateConditionalWrapperCondition(params: {
   if (normalizedRaw === 'you do and your opponent guessed wrong') {
     const youDo =
       (ctx as any)?.youDoChoice ??
-      ctx.selectorContext?.youDoChoice ??
+      (ctx.selectorContext as any)?.youDoChoice ??
       (ctx as any)?.youDo;
     if (youDo !== true) return false;
     const guessCorrect = (ctx as { readonly lastGuessCorrect?: boolean }).lastGuessCorrect;
@@ -2117,7 +2118,7 @@ export function evaluateConditionalWrapperCondition(params: {
     const explicit =
       (ctx as any)?.lifeWasPaidToActivateIt ??
       (ctx as any)?.lifePaidToActivateIt ??
-      ctx.selectorContext?.lifeWasPaidToActivateIt;
+      (ctx.selectorContext as any)?.lifeWasPaidToActivateIt;
     if (typeof explicit === 'boolean') return explicit;
     const stackItem =
       (ctx as any)?.stackItem ??
@@ -2325,7 +2326,7 @@ export function evaluateConditionalWrapperCondition(params: {
     if (
       antecedent?.kind === 'applied' &&
       (antecedent.stepKind === 'grant_graveyard_permission' ||
-        antecedent.stepKind === 'cast_spell' ||
+        String(antecedent.stepKind) === 'cast_spell' ||
         antecedent.stepKind === 'copy_spell')
     ) {
       return true;
@@ -2350,7 +2351,6 @@ export function evaluateConditionalWrapperCondition(params: {
   if (normalizedRaw === "they can't" || normalizedRaw === 'they cannot') {
     if (lastActionOutcome?.kind === 'impossible') return true;
     if (lastActionOutcome?.stepKind === 'discard' && lastActionOutcome?.kind === 'applied') return false;
-    if (lastActionOutcome?.stepKind === 'discard' && lastActionOutcome?.kind === 'impossible') return true;
     return null;
   }
 
@@ -2548,7 +2548,7 @@ export function evaluateConditionalWrapperCondition(params: {
       const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
       if (!referencedObject) return null;
       const counters = ((referencedObject as any)?.counters || {}) as Record<string, unknown>;
-      const total = Object.values(counters).reduce((sum: number, value) => {
+      const total = Object.values(counters).reduce<number>((sum, value) => {
         const count = Number(value);
         return sum + (Number.isFinite(count) ? count : 0);
       }, 0);
@@ -2759,10 +2759,10 @@ export function evaluateConditionalWrapperCondition(params: {
     const provenance = referencedObject
       ? getConditionalObjectZoneProvenance(referencedObject)
       : {
-          castFromZone: String(ctx.castFromZone || ctx.selectorContext?.castFromZone || '')
+          castFromZone: String(ctx.castFromZone || (ctx.selectorContext as any)?.castFromZone || '')
             .trim()
             .toLowerCase() || undefined,
-          enteredFromZone: String(ctx.enteredFromZone || ctx.selectorContext?.enteredFromZone || '')
+          enteredFromZone: String(ctx.enteredFromZone || (ctx.selectorContext as any)?.enteredFromZone || '')
             .trim()
             .toLowerCase() || undefined,
         };
@@ -2780,7 +2780,7 @@ export function evaluateConditionalWrapperCondition(params: {
     normalizedRaw === 'this spell was cast from anywhere other than your hand' ||
     normalizedRaw === 'this spell was cast from somewhere other than your hand'
   ) {
-    const castFromZone = String(ctx.castFromZone || ctx.selectorContext?.castFromZone || '')
+    const castFromZone = String(ctx.castFromZone || (ctx.selectorContext as any)?.castFromZone || '')
       .trim()
       .toLowerCase();
     if (!castFromZone || castFromZone === 'hand') return false;
@@ -2788,19 +2788,19 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   if (normalizedRaw === 'this spell was cast from exile') {
-    const castFromZone = String(ctx.castFromZone || ctx.selectorContext?.castFromZone || '')
+    const castFromZone = String(ctx.castFromZone || (ctx.selectorContext as any)?.castFromZone || '')
       .trim()
       .toLowerCase();
     if (castFromZone === 'exile') return true;
     if (castFromZone) return false;
-    if (ctx.castFromExile === true || ctx.selectorContext?.castFromExile === true) return true;
+    if ((ctx as any).castFromExile === true || (ctx.selectorContext as any)?.castFromExile === true) return true;
     return null;
   }
 
   if (normalizedRaw === 'it was cast' || normalizedRaw === 'he was cast' || normalizedRaw === 'she was cast') {
-    if (ctx.wasCast === true || ctx.selectorContext?.wasCast === true) return true;
-    if (ctx.wasCast === false || ctx.selectorContext?.wasCast === false) return false;
-    const castFromZone = String(ctx.castFromZone || ctx.selectorContext?.castFromZone || '').trim().toLowerCase();
+    if (ctx.wasCast === true || (ctx.selectorContext as any)?.wasCast === true) return true;
+    if (ctx.wasCast === false || (ctx.selectorContext as any)?.wasCast === false) return false;
+    const castFromZone = String(ctx.castFromZone || (ctx.selectorContext as any)?.castFromZone || '').trim().toLowerCase();
     if (castFromZone) return true;
     const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
     if (referencedObject) {
@@ -2811,13 +2811,13 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   if (normalizedRaw === "it wasn't cast" || normalizedRaw === 'it was not cast') {
-    if (ctx.wasCast === false || ctx.selectorContext?.wasCast === false) return true;
-    if (ctx.wasCast === true || ctx.selectorContext?.wasCast === true) return false;
+    if (ctx.wasCast === false || (ctx.selectorContext as any)?.wasCast === false) return true;
+    if (ctx.wasCast === true || (ctx.selectorContext as any)?.wasCast === true) return false;
     const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
     const provenance = referencedObject
       ? getConditionalObjectZoneProvenance(referencedObject)
       : {
-          castFromZone: String(ctx.castFromZone || ctx.selectorContext?.castFromZone || '')
+          castFromZone: String(ctx.castFromZone || (ctx.selectorContext as any)?.castFromZone || '')
             .trim()
             .toLowerCase() || undefined,
         };
@@ -2842,7 +2842,7 @@ export function evaluateConditionalWrapperCondition(params: {
       : null;
     if (provenance?.castFromZone) return provenance.castFromZone !== 'hand';
     const castFromZone = String(
-      ctx.castFromZone || ctx.selectorContext?.castFromZone || ''
+      ctx.castFromZone || (ctx.selectorContext as any)?.castFromZone || ''
     )
       .trim()
       .toLowerCase();
@@ -2855,7 +2855,7 @@ export function evaluateConditionalWrapperCondition(params: {
     normalizedRaw === 'this spell was cast from somewhere other than your hand'
   ) {
     const castFromZone = String(
-      ctx.castFromZone || ctx.selectorContext?.castFromZone || ''
+      ctx.castFromZone || (ctx.selectorContext as any)?.castFromZone || ''
     )
       .trim()
       .toLowerCase();
@@ -2867,8 +2867,8 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   if (normalizedRaw === 'no mana was spent to cast it') {
-    if (ctx.noManaSpentToCast === true || ctx.selectorContext?.noManaSpentToCast === true) return true;
-    if (ctx.noManaSpentToCast === false || ctx.selectorContext?.noManaSpentToCast === false) return false;
+    if (ctx.noManaSpentToCast === true || (ctx.selectorContext as any)?.noManaSpentToCast === true) return true;
+    if (ctx.noManaSpentToCast === false || (ctx.selectorContext as any)?.noManaSpentToCast === false) return false;
     const sourceRef = getContextSourceObject(ctx, (idRaw: string) =>
       findObjectByIdInState(nextState, battlefield, idRaw)
     );
@@ -2887,8 +2887,8 @@ export function evaluateConditionalWrapperCondition(params: {
       ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds)
         ? ctx.lastAntecedentBattlefieldPermanentIds
         : []),
-      ...(Array.isArray(ctx.selectorContext?.lastAntecedentBattlefieldPermanentIds)
-        ? ctx.selectorContext.lastAntecedentBattlefieldPermanentIds
+      ...(Array.isArray((ctx.selectorContext as any)?.lastAntecedentBattlefieldPermanentIds)
+        ? (ctx.selectorContext as any).lastAntecedentBattlefieldPermanentIds
         : []),
     ].map((id) => String(id || '').trim()).filter(Boolean);
     if (antecedentIds.length > 0) {
@@ -2927,8 +2927,8 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   if (normalizedRaw === 'you would lose the game') {
-    if (ctx.wouldLoseTheGame === true || ctx.selectorContext?.wouldLoseTheGame === true) return true;
-    if (ctx.wouldLoseTheGame === false || ctx.selectorContext?.wouldLoseTheGame === false) return false;
+    if (ctx.wouldLoseTheGame === true || (ctx.selectorContext as any)?.wouldLoseTheGame === true) return true;
+    if (ctx.wouldLoseTheGame === false || (ctx.selectorContext as any)?.wouldLoseTheGame === false) return false;
     return true;
   }
 
@@ -3045,7 +3045,7 @@ export function evaluateConditionalWrapperCondition(params: {
     const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
     if (!referencedObject) return false;
     const counters = ((referencedObject as any)?.counters || {}) as Record<string, unknown>;
-    const total = Object.values(counters).reduce((sum, value) => {
+    const total = Object.values(counters).reduce<number>((sum, value) => {
       const count = Number(value ?? 0);
       return sum + (Number.isFinite(count) ? count : 0);
     }, 0);
@@ -3176,9 +3176,9 @@ export function evaluateConditionalWrapperCondition(params: {
           const player = (nextState.players || []).find((p: any) => String(p?.id || '').trim() === libraryOwnerId) as any;
           const topCard = Array.isArray(player?.library) && player.library.length > 0 ? player.library[0] : null;
           if (!topCard) return null;
-          return cardMatchesType(topCard, 'snow');
+          return matchesTypeLine(topCard?.type_line ?? topCard?.cardType, 'snow');
         }
-        return cardMatchesType(card, 'snow');
+        return matchesTypeLine(card?.type_line ?? card?.cardType, 'snow');
       }
       const parsedType = parseSimpleCardTypeFromText(normalizedTypeText);
       if (parsedType) {

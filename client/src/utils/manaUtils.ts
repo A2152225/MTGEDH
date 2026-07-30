@@ -466,7 +466,11 @@ export function calculateSuggestedPayment(
     if (available <= 0 || requestedAmount <= 0) return 0;
 
     const sourcePermanentId = getPaymentSourcePermanentId(source);
-    if (sourcePermanentId && usedPermanentIds.has(sourcePermanentId)) {
+    if (
+      sourcePermanentId
+      && usedPermanentIds.has(sourcePermanentId)
+      && !suggestions.has(source.id)
+    ) {
       return 0;
     }
 

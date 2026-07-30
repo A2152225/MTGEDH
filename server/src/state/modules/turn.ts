@@ -3140,6 +3140,40 @@ function endTemporaryEffects(ctx: GameContext) {
         endedCount++;
       }
 
+      // Oracle IR P/T changes are canonical in `modifiers` and mirrored into
+      // `temporaryPTMods` for server/client stat calculation. Expire both
+      // representations together so old effects cannot survive cleanup or be
+      // mirrored again by a later Oracle IR resolution.
+      if (Array.isArray((permanent as any).temporaryPTMods)) {
+        const before = (permanent as any).temporaryPTMods.length;
+        (permanent as any).temporaryPTMods = (permanent as any).temporaryPTMods.filter((entry: any) => {
+          const duration = String(entry?.until || entry?.expiresAt || '').trim().toLowerCase();
+          return duration !== 'end_of_turn'
+            && duration !== 'until_end_of_turn'
+            && duration !== 'eot'
+            && duration !== 'this_turn';
+        });
+        if ((permanent as any).temporaryPTMods.length === 0) {
+          delete (permanent as any).temporaryPTMods;
+        }
+        endedCount += before - ((permanent as any).temporaryPTMods?.length || 0);
+      }
+
+      if (Array.isArray((permanent as any).modifiers)) {
+        const before = (permanent as any).modifiers.length;
+        (permanent as any).modifiers = (permanent as any).modifiers.filter((entry: any) => {
+          const duration = String(entry?.duration || entry?.until || entry?.expiresAt || '').trim().toLowerCase();
+          return duration !== 'end_of_turn'
+            && duration !== 'until_end_of_turn'
+            && duration !== 'eot'
+            && duration !== 'this_turn';
+        });
+        if ((permanent as any).modifiers.length === 0) {
+          delete (permanent as any).modifiers;
+        }
+        endedCount += before - ((permanent as any).modifiers?.length || 0);
+      }
+
       delete permanent.effectivePower;
       delete permanent.effectiveToughness;
       

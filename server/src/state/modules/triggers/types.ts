@@ -177,6 +177,7 @@ export interface SpellCastTrigger {
     power: number;
     toughness: number;
     types: string;
+    colors?: string[];
     abilities?: string[];
   };
   addsLoyaltyCounters?: number; // Number of loyalty counters to add (for planeswalkers like Ral, Crackling Wit)

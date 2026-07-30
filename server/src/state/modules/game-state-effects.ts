@@ -2428,9 +2428,7 @@ export function detectCombatDamageReplacement(
 ): CombatDamageReplacementEffect | null {
   const controllerId = String(attackerPermanent?.controller || attackerCard?.controller || '').trim();
   if (controllerId) {
-    const fromBattlefield = detectPreventDamageMillReplacementForController(ctx, controllerId, {
-      combatContext: true,
-    });
+    const fromBattlefield = detectPreventDamageMillReplacementForController(ctx, controllerId);
     if (fromBattlefield) return fromBattlefield.effect;
   }
 

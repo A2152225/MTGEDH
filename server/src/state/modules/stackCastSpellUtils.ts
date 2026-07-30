@@ -256,7 +256,7 @@ export function castSpell(
       if (targetKind === 'stack' || (!targetKind && Array.isArray(state.stack) && state.stack.some((s: any) => String(s?.id || '') === String(targetId)))) {
         const stackItem = (state.stack || []).find((s: any) => String(s?.id || '') === String(targetId));
         const isAbility = stackItem
-          && (stackItem.type === 'ability' || stackItem.type === 'triggered_ability' || stackItem.type === 'activated_ability');
+          && (stackItem.type === 'ability' || stackItem.type === 'triggered_ability');
         const controllerId = stackItem?.controller;
         const controllerPlayer = controllerId ? (state.players || []).find((p: any) => p.id === controllerId) : undefined;
         targetDetails.push({

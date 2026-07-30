@@ -403,7 +403,7 @@ export function collectOracleIrCompoundDrawnCardIds(
 }
 
 export function persistOracleIrCompoundResumeDrawCardsEvent(
-  ctx: { gameId?: string; seq?: number; isReplaying?: boolean; bumpSeq?: () => void },
+  ctx: { gameId?: string; seq?: unknown; isReplaying?: boolean; bumpSeq?: () => void },
   params: {
     controller: string;
     result: OracleIRExecutionResult;
@@ -444,7 +444,7 @@ export function persistOracleIrCompoundResumeDrawCardsEvent(
 }
 
 export function persistOracleIrCompoundDrawAfterResolution(
-  ctx: { gameId?: string; seq?: number; isReplaying?: boolean; bumpSeq?: () => void; state?: unknown },
+  ctx: { gameId?: string; seq?: unknown; isReplaying?: boolean; bumpSeq?: () => void; state?: unknown },
   params: {
     controller: string;
     result: OracleIRExecutionResult | null;

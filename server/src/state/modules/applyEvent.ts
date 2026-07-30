@@ -8074,7 +8074,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             syncPreparedPermanentAfterControlChange(ctx.state, permanent, oldController);
           }
 
-          if (duration === 'eot' || duration === 'turn') {
+          if (duration === 'eot' || duration === 'turn' || duration === 'until_end_of_turn') {
             const stateAny = ctx.state as any;
             stateAny.controlChangeEffects = Array.isArray(stateAny.controlChangeEffects) ? stateAny.controlChangeEffects : [];
             const alreadyTracked = stateAny.controlChangeEffects.some((entry: any) =>
@@ -8082,8 +8082,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               String(entry.permanentId || '') === permanentId &&
               String(entry.originalController || '') === oldController &&
               String(entry.newController || '') === newController &&
-              String(entry.duration || '') === duration &&
-              Number(entry.appliedAt || 0) === appliedAt
+              ['eot', 'turn', 'until_end_of_turn'].includes(String(entry.duration || '').trim().toLowerCase())
             );
 
             if (!alreadyTracked) {

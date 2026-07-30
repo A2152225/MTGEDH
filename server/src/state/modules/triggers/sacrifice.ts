@@ -12,7 +12,13 @@ export interface SacrificeTrigger {
   permanentId: string;
   cardName: string;
   controllerId: string;
-  triggerType: 'you_sacrifice' | 'opponent_sacrifices' | 'player_sacrifices' | 'creature_sacrificed' | 'permanent_sacrificed';
+  triggerType:
+    | 'you_sacrifice'
+    | 'opponent_sacrifices'
+    | 'player_sacrifices'
+    | 'creature_sacrificed'
+    | 'permanent_sacrificed'
+    | 'artifact_sacrificed';
   oracleClause: string;
   effect: string;
   mandatory: boolean;

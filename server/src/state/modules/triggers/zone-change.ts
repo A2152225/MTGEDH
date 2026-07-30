@@ -12,7 +12,10 @@ export interface ExiledFromBattlefieldTrigger {
   permanentId: string;
   cardName: string;
   controllerId: string;
-  triggerType: 'creature_exiled_from_battlefield' | 'permanent_exiled_from_battlefield';
+  triggerType:
+    | 'creature_exiled_from_battlefield'
+    | 'permanent_exiled_from_battlefield'
+    | 'unearthed_creature_exiled';
   oracleClause: string;
   effect: string;
   mandatory: boolean;
@@ -40,7 +43,7 @@ export function detectExiledFromBattlefieldTriggers(card: any, permanent: any): 
         permanentId,
         cardName,
         controllerId,
-        triggerType: 'creature_exiled_from_battlefield',
+        triggerType: 'unearthed_creature_exiled',
         oracleClause: String(match[0] || '').trim(),
         effect,
         mandatory: !/^you may\b/i.test(effect),

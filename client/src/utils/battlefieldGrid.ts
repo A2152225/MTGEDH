@@ -101,7 +101,11 @@ export function computeRequiredGridRows(
   let rows = Math.max(minRows, highestRow + 1);
   while (rows <= maxRows) {
     const grid = createBattlefieldGridFromDimensions(cols, rows, tileWidth);
-    const { overflow } = assignPermanentsToCellsInternal(entries, grid);
+    const indexedEntries = entries.map((entry, index) => ({
+      id: String(index),
+      preferred: entry.preferred,
+    }));
+    const { overflow } = assignPermanentsToCellsInternal(indexedEntries, grid);
     if (!overflow) return rows;
     rows += 1;
   }

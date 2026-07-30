@@ -18,8 +18,9 @@ import {
   readEffectProgramQueueMetadata,
   type EffectProgramQueueMetadata,
 } from './effectProgramQueueAdapter.js';
-import { ResolutionStepType, type ResolutionStepResponse } from '../resolution/index.js';
+import { ResolutionStepStatus, ResolutionStepType, type ResolutionStepResponse } from '../resolution/index.js';
 import { isPerPlayerOptionalEffectText } from '../../../../rules-engine/src/oracleIRPerPlayerOptional.js';
+import type { OracleIRExecutionOptions } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
 
 function getGameContext(game: any): any {
   return (game as any)?.ctx || game;
@@ -102,7 +103,7 @@ export function restoreEffectProgramRuntimeForPendingStep(
   const family = String(metadata.effectProgramFamily || (step as any)?.effectProgramFamily || 'trigger_resolution').trim();
 
   let steps;
-  let executionOptions: { allowOptional: true; selectedModeIds?: readonly string[] } = { allowOptional: true };
+  let executionOptions: OracleIRExecutionOptions = { allowOptional: true };
   let sourceObjectType: 'spell' | 'ability' = 'ability';
 
   if (stackItem?.type === 'spell' || family.includes('spell')) {
@@ -234,12 +235,20 @@ export function buildResolutionStepFromReplayChoicePayload(
   payload: ReplayEffectProgramChoicePayload,
 ): ResolutionStep {
   const metadata = payload.effectProgram;
-  return {
+  const replayStep = {
     id: payload.resolvedStepId,
-    type: ResolutionStepType.OPTION_CHOICE,
+    type: ResolutionStepType.OPTION_CHOICE as const,
     playerId: payload.playerId,
     sourceId: payload.sourceId,
     sourceName: payload.sourceName,
+    description: payload.sourceName || 'Resolve effect choice',
+    mandatory: true,
+    status: ResolutionStepStatus.PENDING,
+    createdAt: payload.choiceBinding.response.timestamp ?? Date.now(),
+    priority: 0,
+    options: [],
+    minSelections: 0,
+    maxSelections: 1,
     effectProgramPrompt: true,
     effectProgramId: metadata.effectProgramId,
     effectProgramFamily: metadata.effectProgramFamily,
@@ -252,7 +261,8 @@ export function buildResolutionStepFromReplayChoicePayload(
     ...(payload.deferredTriggeredAbilityItem
       ? { deferredTriggeredAbilityItem: payload.deferredTriggeredAbilityItem }
       : {}),
-  } as ResolutionStep;
+  };
+  return replayStep;
 }
 
 export function applyEffectProgramChoiceBindingOnReplay(

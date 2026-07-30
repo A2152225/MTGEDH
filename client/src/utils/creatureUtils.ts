@@ -34,7 +34,7 @@ function getSummoningSickness(perm: BattlefieldPermanent): boolean {
 
 function getAttachedPermanents(
   perm: BattlefieldPermanent,
-  battlefield: BattlefieldPermanent[] | undefined,
+  battlefield: readonly BattlefieldPermanent[] | undefined,
 ): BattlefieldPermanent[] {
   if (!battlefield?.length) {
     return [];
@@ -115,7 +115,7 @@ export function isCurrentlyCreature(perm: BattlefieldPermanent): boolean {
 export function hasCurrentKeyword(
   perm: BattlefieldPermanent,
   keyword: string,
-  battlefield?: BattlefieldPermanent[],
+  battlefield?: readonly BattlefieldPermanent[],
 ): boolean {
   const normalizedKeyword = keyword.toLowerCase();
   if (getKeywordList(perm).includes(normalizedKeyword)) {
@@ -137,7 +137,7 @@ export function hasCurrentKeyword(
 
 export function hasCurrentHaste(
   perm: BattlefieldPermanent,
-  battlefield?: BattlefieldPermanent[],
+  battlefield?: readonly BattlefieldPermanent[],
 ): boolean {
   return hasCurrentKeyword(perm, 'haste', battlefield);
 }
@@ -149,7 +149,7 @@ function canAttackDespiteDefender(perm: BattlefieldPermanent): boolean {
 
 export function canCreatureUseTapAbilityNow(
   perm: BattlefieldPermanent,
-  battlefield?: BattlefieldPermanent[],
+  battlefield?: readonly BattlefieldPermanent[],
 ): boolean {
   return !getSummoningSickness(perm) || hasCurrentHaste(perm, battlefield);
 }

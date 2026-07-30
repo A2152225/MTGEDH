@@ -14,7 +14,7 @@ export function resolvePermanentSpellStackItem(
 
   const { bumpSeq, ...entryOptions } = options;
   const entryOutcome = resolvePermanentSpellBattlefieldEntry(ctx, entryOptions);
-  if (entryOutcome.mutateResolved) {
+  if (entryOutcome.mutateResolved === true) {
     bumpSeq();
     return 'mutate';
   }

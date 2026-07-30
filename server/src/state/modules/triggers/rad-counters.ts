@@ -1,4 +1,4 @@
-import type { PlayerID } from '../../../../shared/src/index.js';
+import type { PlayerID } from '../../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../../utils/debug.js';
 import { getOrCreatePlayerZones } from '../triggerLibraryMillUtils.js';

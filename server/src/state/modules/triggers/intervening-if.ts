@@ -1310,9 +1310,10 @@ function isCreatureDiedThisTurn(ctx: GameContext): boolean | null {
 
   const map = (ctx as any).state?.creaturesDiedThisTurnByController;
   if (map && typeof map === 'object') {
-    const total = (Object.values(map) as unknown[]).reduce((sum: number, entry) => {
-      return sum + (typeof entry === 'number' ? entry : 0);
-    }, 0);
+    let total = 0;
+    for (const entry of Object.values(map)) {
+      if (typeof entry === 'number') total += entry;
+    }
     return total > 0;
   }
 

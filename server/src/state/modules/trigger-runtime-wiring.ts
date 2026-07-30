@@ -160,12 +160,21 @@ export function normalizeTriggerEffectForIrAudit(effectText: string): string {
 
 export function oracleObjectSelectorText(selector: OracleObjectSelector | undefined): string {
   if (!selector) return '';
-  if (selector.kind === 'raw') return String(selector.text || '').trim();
-  if (selector.kind === 'battlefield_selector') {
-    const types = Array.isArray(selector.types) ? selector.types.join(' ') : '';
-    const controller = selector.controllerFilter ? `${selector.controllerFilter} ` : '';
+  const legacyBattlefieldSelector = (value: unknown): value is {
+    kind: 'battlefield_selector';
+    types?: readonly string[];
+    controllerFilter?: string;
+  } => {
+    if (!value || typeof value !== 'object') return false;
+    return (value as { kind?: unknown }).kind === 'battlefield_selector';
+  };
+  const runtimeSelector: unknown = selector;
+  if (legacyBattlefieldSelector(runtimeSelector)) {
+    const types = Array.isArray(runtimeSelector.types) ? runtimeSelector.types.join(' ') : '';
+    const controller = runtimeSelector.controllerFilter ? `${runtimeSelector.controllerFilter} ` : '';
     return `${controller}${types}`.trim();
   }
+  if (selector.kind === 'raw') return String(selector.text || '').trim();
   return String((selector as { text?: string; raw?: string }).text || (selector as { raw?: string }).raw || '').trim();
 }
 

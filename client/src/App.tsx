@@ -898,7 +898,7 @@ export function App() {
   const [myPendingResolutionCount, setMyPendingResolutionCount] = useState(0);
   const [minimizedResolutionStep, setMinimizedResolutionStep] = useState<{ stepId: string; title: string } | null>(null);
   const [activeResolutionPrompt, setActiveResolutionPrompt] = useState<{ stepId: string; title: string } | null>(null);
-  const resolutionPromptNudgeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resolutionPromptNudgeTimerRef = React.useRef<number | null>(null);
 
   const minimizeResolutionStep = React.useCallback((stepId: string, title: string) => {
     setMinimizedResolutionStep({ stepId: String(stepId), title: title || 'Pending choice' });
@@ -4740,7 +4740,7 @@ export function App() {
     } else if (spellToCast.effectId) {
       // MTG-compliant flow: targets were already selected, now completing with payment
       // Use completeCastSpell to finalize
-      socket.emit("completeCastSpell", {
+      const payload = {
         gameId: safeView.id,
         cardId: spellToCast.cardId,
         targets: spellToCast.targets,
@@ -4750,10 +4750,11 @@ export function App() {
         alternateCostId,
         convokeTappedCreatures,
         sneakReturnedCreatureId,
-      });
+      };
+      socket.emit("completeCastSpell", payload);
     } else {
       // Legacy flow: direct cast from hand (will check targets on server)
-      socket.emit("castSpellFromHand", {
+      const payload = {
         gameId: safeView.id,
         cardId: spellToCast.cardId,
         payment: payment.length > 0 ? payment : undefined,
@@ -4761,7 +4762,8 @@ export function App() {
         alternateCostId,
         sneakReturnedCreatureId,
         convokeTappedCreatures,
-      });
+      };
+      socket.emit("castSpellFromHand", payload);
     }
     
     setCastSpellModalOpen(false);

@@ -227,7 +227,6 @@ import {
   parseMoveZoneOneOnTopRestOnBottomLibrary,
   parseMoveZoneAllFromYourHand,
   parseMoveZoneCountFromYourGraveyard,
-  cardMatchesMoveZoneSingleTargetCriteria,
   selectRandomMatchingCardIdFromGraveyard,
   selectRandomMatchingCardIdsFromGraveyard,
   parseMoveZoneMostVotesCards,
@@ -251,7 +250,6 @@ import {
   parseMoveZoneUpToCountTotalMvFromYourGraveyard,
   parseMoveZoneAnyNumberTargetNonlandTotalMv,
   parseMoveZoneCreatureYouControl,
-  parseMoveZoneLastChosenCard,
   parseMoveZoneLesserMvThanDiedCreatureFromYourGraveyard,
   parseMoveZoneRandomCardFromTargetPlayerHand,
   parseMoveZoneCompoundExileItAndEachPlayerReturnAllGyCreaturesToHand,
@@ -378,6 +376,8 @@ type StepApplyResult = {
   readonly lastMovedCards?: readonly any[];
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   readonly lastReferenceAmount?: number;
+  readonly replayMutations?: readonly OracleIRReplayMutation[];
+  readonly skipLedgerFlush?: boolean;
 };
 
 type StepSkipResult = {
@@ -388,6 +388,7 @@ type StepSkipResult = {
     | 'unsupported_selector'
     | 'battlefield_requires_explicit_control_override'
     | 'player_choice_required'
+    | 'no_deterministic_target'
     | 'impossible_action';
   readonly options?: {
     readonly classification?: 'unsupported' | 'ambiguous' | 'player_choice' | 'invalid_input';
@@ -402,6 +403,10 @@ type MoveZoneRuntime = {
   readonly lastMovedCards?: readonly any[];
   readonly lastExiledCards?: readonly any[];
   readonly lastMilledCards?: readonly any[];
+  readonly lastDiscardedCards?: readonly any[];
+  readonly lastSacrificedPermanents?: readonly any[];
+  readonly lastTappedMatchingPermanentIds?: readonly string[];
+  readonly lastReferenceAmount?: number;
 };
 
 type BoundCardZoneLocation = {
@@ -430,6 +435,8 @@ function buildAppliedResult(
     readonly log: readonly string[];
     readonly movedCards?: readonly any[];
     readonly movedPermanentIds?: readonly string[];
+    readonly movedBattlefieldPermanentIds?: readonly string[];
+    readonly lastMovedBattlefieldPermanentIds?: readonly string[];
     readonly lastMovedCards?: readonly any[];
     readonly lastReferenceAmount?: number;
     readonly fromZone?: EffectProgramCardZone;
@@ -466,8 +473,19 @@ function buildAppliedResult(
     state: result.state,
     log: result.log,
     ...(Array.isArray(enrichedMovedCards) ? { lastMovedCards: [...enrichedMovedCards] } : {}),
-    ...(Array.isArray(result.movedPermanentIds)
-      ? { lastMovedBattlefieldPermanentIds: [...result.movedPermanentIds] }
+    ...(Array.isArray(
+      result.movedPermanentIds ??
+        result.movedBattlefieldPermanentIds ??
+        result.lastMovedBattlefieldPermanentIds
+    )
+      ? {
+          lastMovedBattlefieldPermanentIds: [
+            ...(result.movedPermanentIds ??
+              result.movedBattlefieldPermanentIds ??
+              result.lastMovedBattlefieldPermanentIds ??
+              []),
+          ],
+        }
       : {}),
     ...(typeof result.lastReferenceAmount === 'number' && Number.isFinite(result.lastReferenceAmount)
       ? { lastReferenceAmount: Math.max(0, Number(result.lastReferenceAmount) || 0) }
@@ -1266,7 +1284,7 @@ function resolveSourceCardZoneLocation(
   const sourceId = String(ctx.sourceId || '').trim();
   if (sourceId) {
     const exactLocation = findBoundCardZoneLocation(state, sourceId);
-    if (exactLocation && zonesToSearch.includes(exactLocation.zone)) {
+    if (exactLocation && zonesToSearch.some(zone => zone === exactLocation.zone)) {
       return { ...exactLocation, cardId: sourceId };
     }
 
@@ -1522,7 +1540,7 @@ function tryApplyMoveZoneLinkedExileBulkStep(params: {
     readonly movedCards?: readonly any[];
     readonly movedPermanentIds?: readonly string[];
   }) => StepApplyResult;
-}): StepApplyResult | null {
+}): MoveZoneStepHandlerResult | null {
   const parsedAllCardsExiledWithIt = parseMoveZoneAllCardsExiledWithIt(params.step.what as any);
   const parsedAllExiledWithThisPermanent = parseMoveZoneAllExiledWithThisPermanent(params.step.what as any);
   const parsedTheCardsExiledWithIt = parseMoveZoneTheCardsExiledWithIt(params.step.what as any);
@@ -1601,7 +1619,7 @@ function tryApplyMoveZoneLinkedExileBulkStep(params: {
       undefined,
       battlefieldEntryOverrides
     );
-    if (result.kind === 'impossible') continue;
+    if (result.kind !== 'applied') continue;
     workingState = result.state;
     combinedLog.push(...(result.log || []));
     movedPermanentIds = movedPermanentIds.concat(result.movedPermanentIds || []);
@@ -1705,12 +1723,6 @@ function getContextualThemSplitKind(
     return { kind: 'count_hand_only', count: spec.count };
   }
   if (!/\brest\b/i.test(toRaw) && !/\bother\b/i.test(toRaw)) return null;
-  if (spec.kind === 'any_number_hand_graveyard_rest') {
-    if (/\b(?:bottom of (?:your )?library|library)\b/i.test(toRaw)) {
-      return { kind: 'count_hand_library_bottom' as const, count: 2 };
-    }
-    return spec;
-  }
   if (spec.kind !== 'count_hand_graveyard_rest' && spec.kind !== 'count_hand_library_bottom') {
     return null;
   }
@@ -2231,16 +2243,11 @@ function moveContextualRestAfterPrimaryMove(
   for (const cardId of restIds) {
     const location = findBoundCardZoneLocation(workingState, cardId);
     if (!location || location.zone === 'graveyard') continue;
-    const result =
-      location.zone === 'library'
-        ? moveContextualCardToDestination(workingState, location, cardId, destination, {
-            controllerId,
-            cardType: 'any',
-          })
-        : location.zone === 'hand'
-          ? moveTargetedCardFromHand(workingState, location.playerId, cardId, 'any', destination)
-          : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', destination);
-    if (result.kind === 'impossible') continue;
+    const result = moveContextualCardToDestination(workingState, location, cardId, destination, {
+      controllerId,
+      cardType: 'any',
+    });
+    if (result.kind !== 'applied') continue;
     workingState = result.state;
     combinedLog.push(...(result.log || []));
   }
@@ -2562,13 +2569,24 @@ export function applyMoveZoneStep(
     }
   }
 
-  const finalizeAppliedResult = (result: {
-    readonly state: GameState;
-    readonly log: readonly string[];
-    readonly movedCards?: readonly any[];
-    readonly movedPermanentIds?: readonly string[];
-  }): StepApplyResult => {
-    let nextState =
+  const finalizeAppliedResult = (result:
+    | {
+        readonly kind?: 'applied';
+        readonly applied?: true;
+        readonly state: GameState;
+        readonly log: readonly string[];
+        readonly movedCards?: readonly any[];
+        readonly movedPermanentIds?: readonly string[];
+        readonly movedBattlefieldPermanentIds?: readonly string[];
+        readonly lastMovedBattlefieldPermanentIds?: readonly string[];
+        readonly lastMovedCards?: readonly any[];
+      }
+    | { readonly kind: 'halted' | 'impossible' | 'player_choice_required' }
+  ): StepApplyResult => {
+    if (!('state' in result)) {
+      return buildAppliedResult({ state: nextState, log: [] }, ctx);
+    }
+    let finalizedState =
       step.to === 'battlefield'
         ? applyBattlefieldEntryCharacteristicsToState(
             result.state,
@@ -2581,20 +2599,20 @@ export function applyMoveZoneStep(
 
     if (step.to === 'exile') {
       const annotated = annotateExiledCardsWithSource({
-        state: nextState,
+        state: finalizedState,
         movedCards: result.movedCards,
         ctx,
       });
-      nextState = annotated.state;
+      finalizedState = annotated.state;
       nextMovedCards = annotated.movedCards;
-      nextState = projectLinkedExileStaticText({
-        state: nextState,
+      finalizedState = projectLinkedExileStaticText({
+        state: finalizedState,
         movedCards: nextMovedCards,
         ctx,
       });
     }
 
-    return buildAppliedResult({ ...result, state: nextState, movedCards: nextMovedCards }, ctx);
+    return buildAppliedResult({ ...result, state: finalizedState, movedCards: nextMovedCards }, ctx);
   };
 
   const attachmentResolution = resolveBattlefieldAttachment(nextState, step, ctx);
@@ -3447,7 +3465,7 @@ export function applyMoveZoneStep(
             undefined,
             battlefieldEntryOverrides
           );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds = movedBattlefieldIds.concat(result.movedPermanentIds || []);
@@ -3514,7 +3532,7 @@ export function applyMoveZoneStep(
                 attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
                 battlefieldEntryOverrides
               );
-      if (sourceToBattlefieldResult.kind !== 'impossible') {
+      if (sourceToBattlefieldResult.kind === 'applied') {
         return finalizeAppliedResult(sourceToBattlefieldResult);
       }
     }
@@ -4040,7 +4058,7 @@ export function applyMoveZoneStep(
                   battlefieldEntryOverrides
                 );
 
-      if (result.kind === 'impossible') {
+      if (result.kind !== 'applied') {
         return {
           applied: false,
           message: `Skipped move zone (target object unavailable): ${step.raw}`,
@@ -4269,7 +4287,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') {
+      if (result.kind !== 'applied') {
         return {
           applied: false,
           message: `Skipped move zone (linked exiled card unavailable): ${step.raw}`,
@@ -4768,7 +4786,7 @@ export function applyMoveZoneStep(
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -4813,7 +4831,7 @@ export function applyMoveZoneStep(
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -5012,7 +5030,7 @@ export function applyMoveZoneStep(
             : location.zone === 'hand'
               ? { kind: 'applied' as const, state: workingState, log: [] as string[], movedCards: [] as any[] }
               : { kind: 'impossible' as const };
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -5105,7 +5123,7 @@ export function applyMoveZoneStep(
             : location.zone === 'exile'
               ? moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'graveyard')
               : { kind: 'impossible' as const };
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -5130,6 +5148,7 @@ export function applyMoveZoneStep(
       if (!location) continue;
       if (step.to === 'hand' && location.zone === 'hand') continue;
       if (step.to === 'graveyard' && location.zone === 'graveyard') continue;
+      if (step.to === 'hand' && location.zone === 'hand') continue;
       const result =
         location.zone === 'library'
           ? moveContextualCardToDestination(workingState, location, cardId, step.to, {
@@ -5161,7 +5180,7 @@ export function applyMoveZoneStep(
                   location.playerId,
                   cardId,
                   'any',
-                  step.to,
+                  step.to === 'battlefield' ? 'battlefield' : 'graveyard',
                   step.to === 'battlefield' ? controllerId : undefined,
                   step.entersTapped,
                   step.entersFaceDown,
@@ -5170,7 +5189,7 @@ export function applyMoveZoneStep(
                   battlefieldEntryOverrides
                 )
               : { kind: 'impossible' as const };
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...((result as any).movedPermanentIds || []));
@@ -5224,7 +5243,7 @@ export function applyMoveZoneStep(
               : location.zone === 'hand'
                 ? { kind: 'applied' as const, state: workingState, log: [] }
                 : { kind: 'impossible' as const };
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedToHandIds.add(cardId);
@@ -5245,7 +5264,7 @@ export function applyMoveZoneStep(
               : location.zone === 'exile'
                 ? moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'graveyard')
                 : { kind: 'impossible' as const };
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
       }
@@ -5278,7 +5297,7 @@ export function applyMoveZoneStep(
                 destination === 'hand' ? 'hand' : 'graveyard'
               )
             : { kind: 'impossible' as const };
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -5582,7 +5601,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -5713,7 +5732,7 @@ export function applyMoveZoneStep(
                 battlefieldEntryOverrides
               )
             : { kind: 'impossible' as const };
-      if (bfResult.kind !== 'impossible') {
+      if (bfResult.kind === 'applied') {
         workingState = bfResult.state;
         combinedLog.push(...(bfResult.log || []));
       }
@@ -5726,7 +5745,7 @@ export function applyMoveZoneStep(
           : handLocation.zone === 'exile'
             ? moveTargetedCardFromExile(workingState, handLocation.playerId, handId, 'any', 'hand')
             : { kind: 'impossible' as const };
-      if (handResult.kind !== 'impossible') {
+      if (handResult.kind === 'applied') {
         workingState = handResult.state;
         combinedLog.push(...(handResult.log || []));
       }
@@ -5907,7 +5926,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -6134,7 +6153,7 @@ export function applyMoveZoneStep(
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -6175,7 +6194,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -6259,10 +6278,9 @@ export function applyMoveZoneStep(
         true,
         effectiveWithCounters,
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
-        undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') break;
+      if (result.kind !== 'applied') break;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -6538,8 +6556,10 @@ export function applyMoveZoneStep(
       return buildAppliedResult({ state: nextState, log: [`Shared-type card unavailable: ${step.raw}`] });
     }
     const result =
-      location.zone === 'hand'
-        ? moveTargetedCardFromHand(nextState, location.playerId, cardId, 'any', step.to === 'battlefield' ? 'battlefield' : 'hand', step.to === 'battlefield' ? controllerId : undefined, step.entersTapped, step.entersFaceDown, effectiveWithCounters, undefined, battlefieldEntryOverrides)
+      location.zone === 'hand' && step.to === 'hand'
+        ? { kind: 'applied' as const, state: nextState, log: [] as string[] }
+        : location.zone === 'hand'
+        ? moveTargetedCardFromHand(nextState, location.playerId, cardId, 'any', 'battlefield', controllerId, step.entersTapped, step.entersFaceDown, effectiveWithCounters, undefined, battlefieldEntryOverrides)
         : location.zone === 'graveyard'
           ? moveTargetedCardFromGraveyard(nextState, location.playerId, cardId, { cardType: 'any' }, step.to === 'battlefield' ? 'battlefield' : 'hand', step.to === 'battlefield' ? controllerId : undefined, step.entersTapped, step.entersFaceDown, effectiveWithCounters, undefined, undefined, battlefieldEntryOverrides)
           : location.zone === 'library'
@@ -6665,7 +6685,7 @@ export function applyMoveZoneStep(
                 undefined,
                 battlefieldEntryOverrides
               );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -6705,7 +6725,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -6771,7 +6791,7 @@ export function applyMoveZoneStep(
                 undefined,
                 battlefieldEntryOverrides
               );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -6812,7 +6832,7 @@ export function applyMoveZoneStep(
         const topResult = moveContextualCardToDestination(workingState, topLocation, topId, 'library_top', {
           controllerId,
         });
-        if (topResult.kind === 'impossible') continue;
+        if (topResult.kind !== 'applied') continue;
         workingState = topResult.state;
         combinedLog.push(...topResult.log);
       }
@@ -6822,7 +6842,7 @@ export function applyMoveZoneStep(
         const restResult = moveContextualCardToDestination(workingState, restLocation, restId, 'graveyard', {
           controllerId,
         });
-        if (restResult.kind === 'impossible') continue;
+        if (restResult.kind !== 'applied') continue;
         workingState = restResult.state;
         combinedLog.push(...restResult.log);
       }
@@ -6845,7 +6865,7 @@ export function applyMoveZoneStep(
         const gyResult = moveContextualCardToDestination(workingState, gyLocation, gyId, 'graveyard', {
           controllerId,
         });
-        if (gyResult.kind === 'impossible') continue;
+        if (gyResult.kind !== 'applied') continue;
         workingState = gyResult.state;
         combinedLog.push(...gyResult.log);
       }
@@ -6855,7 +6875,7 @@ export function applyMoveZoneStep(
         const restResult = moveContextualCardToDestination(workingState, restLocation, restId, 'library_top', {
           controllerId,
         });
-        if (restResult.kind === 'impossible') continue;
+        if (restResult.kind !== 'applied') continue;
         workingState = restResult.state;
         combinedLog.push(...restResult.log);
       }
@@ -6891,7 +6911,7 @@ export function applyMoveZoneStep(
       const handResult = moveContextualCardToDestination(workingState, handLocation, handId, 'hand', {
         controllerId,
       });
-      if (handResult.kind === 'impossible') continue;
+      if (handResult.kind !== 'applied') continue;
       workingState = handResult.state;
       combinedLog.push(...handResult.log);
     }
@@ -6901,7 +6921,7 @@ export function applyMoveZoneStep(
       const restResult = moveContextualCardToDestination(workingState, restLocation, restId, restDestination, {
         controllerId,
       });
-      if (restResult.kind === 'impossible') continue;
+      if (restResult.kind !== 'applied') continue;
       workingState = restResult.state;
       combinedLog.push(...restResult.log);
     }
@@ -6935,7 +6955,7 @@ export function applyMoveZoneStep(
             : location.zone === 'hand'
               ? { kind: 'applied' as const, state: workingState, log: [] }
               : moveTargetedCardFromExile(workingState, location.playerId, handId, effectiveCriteria.cardType, 'hand');
-        if (handResult.kind !== 'impossible') {
+        if (handResult.kind === 'applied') {
           workingState = handResult.state;
           combinedLog.push(...(handResult.log || []));
         }
@@ -6950,7 +6970,7 @@ export function applyMoveZoneStep(
           : restLocation.zone === 'hand'
             ? moveTargetedCardFromHand(workingState, restLocation.playerId, restId, 'any', 'graveyard')
             : moveTargetedCardFromExile(workingState, restLocation.playerId, restId, 'any', 'graveyard');
-      if (restResult.kind === 'impossible') continue;
+      if (restResult.kind !== 'applied') continue;
       workingState = restResult.state;
       combinedLog.push(...(restResult.log || []));
     }
@@ -6993,7 +7013,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -7033,7 +7053,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -7067,7 +7087,7 @@ export function applyMoveZoneStep(
     const combinedLog: string[] = [];
     for (const match of targetMatches.slice(0, maxCount)) {
       const result = moveTargetedCardFromExile(workingState, match.playerId, match.cardId, 'any', 'hand');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -7139,7 +7159,7 @@ export function applyMoveZoneStep(
             { cardType: 'creature' },
             'exile'
           );
-          if (result.kind !== 'impossible') {
+          if (result.kind === 'applied') {
             workingState = result.state;
             combinedLog.push(...(result.log || []));
           }
@@ -7245,7 +7265,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -7420,7 +7440,7 @@ export function applyMoveZoneStep(
         ctx,
         stepKind: 'move_zone',
       });
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...result.log);
     }
@@ -7458,7 +7478,7 @@ export function applyMoveZoneStep(
                 'hand'
               )
             : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'hand');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -7504,7 +7524,7 @@ export function applyMoveZoneStep(
           : location.zone === 'graveyard'
             ? moveTargetedCardFromGraveyard(workingState, location.playerId, cardId, { cardType: 'any' }, 'hand')
             : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'hand');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -7542,7 +7562,7 @@ export function applyMoveZoneStep(
           : location.zone === 'graveyard'
             ? moveTargetedCardFromGraveyard(workingState, location.playerId, cardId, { cardType: 'any' }, destination)
             : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', destination);
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -7618,7 +7638,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -7659,7 +7679,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -7774,7 +7794,7 @@ export function applyMoveZoneStep(
         { cardType: 'any' },
         'exile'
       );
-      if (gyResult.kind !== 'impossible') {
+      if (gyResult.kind === 'applied') {
         workingState = gyResult.state;
         combinedLog.push(...(gyResult.log || []));
         if (Array.isArray(gyResult.movedCards)) movedCards.push(...gyResult.movedCards);
@@ -7956,7 +7976,7 @@ export function applyMoveZoneStep(
       const location = findBoundCardZoneLocation(workingState, cardId);
       if (!location || location.zone !== 'graveyard') continue;
       const result = moveTargetedCardFromGraveyard(workingState, location.playerId, cardId, { cardType: 'any' }, 'exile');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -8012,7 +8032,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedPermanentIds = movedPermanentIds.concat((result as any).movedPermanentIds || []);
@@ -8029,7 +8049,7 @@ export function applyMoveZoneStep(
           parsedCountExiledWithSource.cardType,
           'library_bottom'
         );
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
       }
@@ -8081,7 +8101,7 @@ export function applyMoveZoneStep(
                 battlefieldEntryOverrides
               )
             : moveTargetedCardFromExile(workingState, match.playerId, match.cardId, 'any', 'graveyard');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       if (Array.isArray((result as any).movedCards)) movedCards.push(...(result as any).movedCards);
@@ -8143,7 +8163,7 @@ export function applyMoveZoneStep(
                 battlefieldEntryOverrides
               )
             : moveTargetedCardFromExile(workingState, match.playerId, match.cardId, 'any', 'graveyard');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       if (Array.isArray((result as any).movedCards)) movedCards.push(...(result as any).movedCards);
@@ -8191,7 +8211,7 @@ export function applyMoveZoneStep(
                 battlefieldEntryOverrides
               )
             : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'graveyard');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedPermanentIds = movedPermanentIds.concat((result as any).movedPermanentIds || []);
@@ -8245,7 +8265,7 @@ export function applyMoveZoneStep(
                 battlefieldEntryOverrides
               )
             : moveTargetedCardFromExile(workingState, match.playerId, match.cardId, 'any', 'graveyard');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedPermanentIds = movedPermanentIds.concat((result as any).movedPermanentIds || []);
@@ -8273,7 +8293,7 @@ export function applyMoveZoneStep(
       const cardId = String((match as any)?.id || '').trim();
       if (cardId) {
         const result = moveTargetedCardFromHand(nextState, targetPlayerId, cardId, 'nonland', 'exile');
-        if (result.kind !== 'impossible') return finalizeAppliedResult(result);
+        if (result.kind === 'applied') return finalizeAppliedResult(result);
       }
     }
     const matches = findCardsExiledWithSource(nextState, sourceId, { cardType: 'nonland' });
@@ -8285,16 +8305,10 @@ export function applyMoveZoneStep(
     if (!chosen) {
       return buildAppliedResult({ state: nextState, log: [`No nonland card exiled with source: ${step.raw}`] });
     }
-    const result = moveTargetedCardFromExile(nextState, chosen.playerId, chosen.cardId, 'nonland', 'exile');
-    if (result.kind === 'impossible') {
-      return {
-        applied: false,
-        message: `Skipped move zone (linked exile card unavailable): ${step.raw}`,
-        reason: 'impossible_action',
-        options: { persist: false },
-      };
-    }
-    return finalizeAppliedResult(result);
+    return buildAppliedResult({
+      state: nextState,
+      log: [`Nonland card already exiled with source: ${step.raw}`],
+    });
   }
 
   if (parsedThisSpellBuybackToHand && step.to === 'hand') {
@@ -8664,7 +8678,9 @@ export function applyMoveZoneStep(
   }
 
   if (parsedOneOfThemHandBounce) {
-    const candidateIds = resolveContextualCardIdsInZones(nextState, ctx, runtime, ['battlefield']);
+    const candidateIds = getChosenObjectIds(ctx).filter(id =>
+      ((nextState.battlefield || []) as any[]).some(perm => String(perm?.id || '').trim() === id)
+    );
     const preferred = getChosenObjectIds(ctx).filter(id => candidateIds.includes(id));
     const targetId = preferred[0] || candidateIds[0] || '';
     if (!targetId) {
@@ -8778,7 +8794,7 @@ export function applyMoveZoneStep(
         { cardType: 'creature' },
         'hand'
       );
-      if (gyResult.kind !== 'impossible') {
+      if (gyResult.kind === 'applied') {
         workingState = gyResult.state;
         combinedLog.push(...(gyResult.log || []));
       }
@@ -8922,7 +8938,7 @@ export function applyMoveZoneStep(
         { cardType: parsedUpToFromSingleGraveyard.cardType },
         'exile'
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -8972,7 +8988,7 @@ export function applyMoveZoneStep(
           { cardType: parsedAllCardsMilledThisWay.cardType },
           'hand'
         );
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
       }
@@ -9037,7 +9053,7 @@ export function applyMoveZoneStep(
         const cardId = String((card as any)?.id || '').trim();
         if (!cardId || !cardMatchesMoveZoneSingleTargetCriteria(card, criteria)) continue;
         const result = moveTargetedCardFromGraveyard(workingState, playerId, cardId, criteria, 'exile');
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
       }
@@ -9077,7 +9093,7 @@ export function applyMoveZoneStep(
           { cardType: 'creature' },
           'hand'
         );
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
       }
@@ -9130,7 +9146,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       const bfId = String((result as any).movedPermanentId || '').trim();
@@ -9304,7 +9320,7 @@ export function applyMoveZoneStep(
       const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
       if (!graveyard.some((entry: any) => String(entry?.id || '').trim() === cardId)) continue;
       const result = moveTargetedCardFromGraveyard(workingState, controllerId, cardId, { cardType: 'creature' }, 'hand');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -9333,7 +9349,7 @@ export function applyMoveZoneStep(
       const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
       if (!graveyard.some((entry: any) => String(entry?.id || '').trim() === cardId)) continue;
       const result = moveTargetedCardFromGraveyard(workingState, controllerId, cardId, { cardType: 'any' }, 'hand');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedCount += 1;
@@ -9376,7 +9392,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -9428,7 +9444,8 @@ export function applyMoveZoneStep(
     const battlefieldControllerId =
       step.battlefieldController?.kind === 'you'
         ? controllerId
-        : step.battlefieldController?.kind === 'target'
+        : step.battlefieldController?.kind === 'target_player' ||
+            step.battlefieldController?.kind === 'target_opponent'
           ? getTargetPlayerId(ctx) || controllerId
           : controllerId;
     const result = moveTargetedCardFromGraveyard(
@@ -9607,7 +9624,7 @@ export function applyMoveZoneStep(
       );
       if (matches.length === 1) {
         cardId = String(matches[0]?.id || '').trim();
-        location = { playerId: zoneOwnerId, zone, cardId };
+        location = { playerId: zoneOwnerId, zone };
         break;
       }
       if (matches.length > 1 && preferredIds.length > 0) {
@@ -9616,7 +9633,7 @@ export function applyMoveZoneStep(
         );
         if (preferred) {
           cardId = String(preferred?.id || '').trim();
-          location = { playerId: zoneOwnerId, zone, cardId };
+          location = { playerId: zoneOwnerId, zone };
           break;
         }
       }
@@ -9731,11 +9748,14 @@ export function applyMoveZoneStep(
     for (const cardId of candidateIds) {
       const location = findBoundCardZoneLocation(workingState, cardId);
       if (!location || location.zone === 'library') continue;
-      const result =
-        location.zone === 'hand'
-          ? moveTargetedCardFromHand(workingState, location.playerId, cardId, 'any', 'library_bottom')
-          : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'library_bottom');
-      if (result.kind === 'impossible') continue;
+      const result = moveContextualCardToDestination(
+        workingState,
+        location,
+        cardId,
+        'library_bottom',
+        { controllerId, cardType: 'any' }
+      );
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -9784,7 +9804,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -9860,7 +9880,7 @@ export function applyMoveZoneStep(
         effectiveWithCounters,
         attachTargetId
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -10053,7 +10073,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -10424,7 +10444,7 @@ export function applyMoveZoneStep(
             log: [`${controllerId} puts ${cardId} onto the battlefield from contextual cards`],
             movedPermanentIds: [],
           };
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...((result as any).movedPermanentIds || []));
@@ -10528,7 +10548,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -10648,7 +10668,7 @@ export function applyMoveZoneStep(
           undefined,
           battlefieldEntryOverrides
         );
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
         movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -10701,7 +10721,7 @@ export function applyMoveZoneStep(
             entersFaceDown: step.entersFaceDown,
             withCounters: step.withCounters,
           });
-    if (result.kind === 'impossible') {
+    if (result.kind !== 'applied') {
       return {
         applied: false,
         message: `Skipped move zone (chosen card unavailable): ${step.raw}`,
@@ -10731,7 +10751,7 @@ export function applyMoveZoneStep(
                 controllerId,
                 cardType: 'any',
               });
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...result.log);
     }
@@ -10795,6 +10815,7 @@ export function applyMoveZoneStep(
               step.entersFaceDown,
               effectiveWithCounters,
               undefined,
+              undefined,
               battlefieldEntryOverrides
             )
           : location.zone === 'hand'
@@ -10824,7 +10845,7 @@ export function applyMoveZoneStep(
                 undefined,
                 battlefieldEntryOverrides
               );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       if (Array.isArray((result as any).movedPermanentIds)) {
@@ -10861,7 +10882,7 @@ export function applyMoveZoneStep(
           : location.zone === 'hand'
             ? { kind: 'applied' as const, state: workingState, log: [] }
             : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'hand');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedCardIds.push(cardId);
@@ -10919,7 +10940,7 @@ export function applyMoveZoneStep(
                 location.playerId,
                 cardId,
                 effectiveCriteria,
-                step.to,
+                step.to === 'battlefield' ? 'battlefield' : 'hand',
                 step.to === 'battlefield' ? controllerId : undefined,
                 step.entersTapped,
                 step.entersFaceDown,
@@ -10928,13 +10949,15 @@ export function applyMoveZoneStep(
                 undefined,
                 battlefieldEntryOverrides
               )
+            : location.zone === 'hand' && step.to === 'hand'
+              ? { kind: 'applied' as const, state: workingState, log: [] as string[] }
             : location.zone === 'hand'
               ? moveTargetedCardFromHand(
                   workingState,
                   location.playerId,
                   cardId,
                   effectiveCriteria.cardType,
-                  step.to,
+                  step.to === 'battlefield' ? 'battlefield' : 'graveyard',
                   step.to === 'battlefield' ? controllerId : undefined,
                   step.entersTapped,
                   step.entersFaceDown,
@@ -10955,7 +10978,7 @@ export function applyMoveZoneStep(
                   undefined,
                   battlefieldEntryOverrides
                 );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedCardIds.push(cardId);
@@ -11027,7 +11050,7 @@ export function applyMoveZoneStep(
             : location.zone === 'graveyard'
               ? moveTargetedCardFromGraveyard(workingState, location.playerId, cardId, effectiveCriteria, 'hand')
               : moveTargetedCardFromExile(workingState, location.playerId, cardId, effectiveCriteria.cardType, 'hand');
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
       }
@@ -11043,7 +11066,7 @@ export function applyMoveZoneStep(
             : location.zone === 'hand'
               ? moveTargetedCardFromHand(workingState, location.playerId, cardId, 'any', 'graveyard')
               : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'graveyard');
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
       }
@@ -11136,7 +11159,7 @@ export function applyMoveZoneStep(
                     undefined,
                     battlefieldEntryOverrides
                   );
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
         movedBattlefieldIds.push(...((result as any).movedPermanentIds || []));
@@ -11153,7 +11176,7 @@ export function applyMoveZoneStep(
             : location.zone === 'graveyard'
               ? moveTargetedCardFromGraveyard(workingState, location.playerId, cardId, { cardType: 'any' }, 'hand')
               : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'hand');
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
       }
@@ -11261,7 +11284,7 @@ export function applyMoveZoneStep(
                     undefined,
                     battlefieldEntryOverrides
                   );
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
         movedBattlefieldIds.push(...((result as any).movedPermanentIds || []));
@@ -11379,7 +11402,7 @@ export function applyMoveZoneStep(
         workingState = result.state;
         combinedLog.push(...(result.log || []));
         movedCardIds.push(cardId);
-        movedBattlefieldIds.push(...(result.movedPermanentIds || []));
+        movedBattlefieldIds.push(...('movedPermanentIds' in result ? result.movedPermanentIds || [] : []));
       }
       if (stepHasAmongThemRestToLibrary(step)) {
         const restResult = moveContextualRestToLibraryBottom(workingState, controllerId, ctx, runtime, movedCardIds);
@@ -11453,11 +11476,11 @@ export function applyMoveZoneStep(
                   undefined,
                   battlefieldEntryOverrides
                 );
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
         movedCardIds.push(cardId);
-        movedBattlefieldIds.push(...(result.movedPermanentIds || []));
+        movedBattlefieldIds.push(...('movedPermanentIds' in result ? result.movedPermanentIds || [] : []));
       }
       if (stepHasAmongThemRestToLibrary(step)) {
         const restResult = moveContextualRestToLibraryBottom(workingState, controllerId, ctx, runtime, movedCardIds);
@@ -11534,7 +11557,7 @@ export function applyMoveZoneStep(
               undefined,
               battlefieldEntryOverrides
             );
-    if (result.kind === 'impossible') {
+    if (result.kind !== 'applied') {
       return {
         applied: false,
         message: `Skipped move zone (typed among-them card unavailable): ${step.raw}`,
@@ -11567,7 +11590,7 @@ export function applyMoveZoneStep(
     const combinedLog: string[] = [];
     for (const cardId of cardIds) {
       const result = moveTargetedCardFromExile(workingState, controllerId, cardId, 'any', 'hand');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -11608,7 +11631,7 @@ export function applyMoveZoneStep(
           : location.zone === 'hand'
             ? moveTargetedCardFromHand(workingState, location.playerId, cardId, 'any', 'graveyard')
             : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'graveyard');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -11630,7 +11653,7 @@ export function applyMoveZoneStep(
     const movedBattlefieldIds: string[] = [];
     for (const cardId of cardIds) {
       const result = moveTargetedCardFromExile(workingState, controllerId, cardId, 'any', 'battlefield', controllerId);
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       const bfId = String((result as any).movedPermanentId || '').trim();
@@ -11666,7 +11689,7 @@ export function applyMoveZoneStep(
               cardType: 'any',
             })
           : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'hand');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -11791,8 +11814,8 @@ export function applyMoveZoneStep(
                 controllerId,
                 cardType: 'any',
               })
-            : moveTargetedCardFromHand(nextState, location.playerId, cardId, 'any', 'hand');
-    if (result.kind === 'impossible') {
+            : { kind: 'applied' as const, state: nextState, log: [] as string[] };
+    if (result.kind !== 'applied') {
       return buildAppliedResult({ state: nextState, log: [`That card unavailable: ${step.raw}`] });
     }
     return buildAppliedResult({ state: result.state, log: result.log || [`Returned that card to hand: ${step.raw}`] });
@@ -11869,7 +11892,7 @@ export function applyMoveZoneStep(
                 withCounters: effectiveWithCounters,
                 battlefieldEntryOverrides,
               });
-    if (result.kind === 'impossible') {
+    if (result.kind !== 'applied') {
       return buildAppliedResult({ state: nextState, log: [`Other contextual card unavailable: ${step.raw}`] });
     }
     return buildAppliedResult({
@@ -11914,7 +11937,7 @@ export function applyMoveZoneStep(
       controllerId: location.playerId,
       cardType: 'any',
     });
-    if (result.kind === 'impossible') {
+    if (result.kind !== 'applied') {
       return {
         applied: false,
         message: `Skipped move zone (other contextual card unavailable): ${step.raw}`,
@@ -11969,8 +11992,8 @@ export function applyMoveZoneStep(
           ? moveTargetedCardFromGraveyard(nextState, location.playerId, cardId, { cardType: 'any' }, 'hand')
         : location.zone === 'exile'
           ? moveTargetedCardFromExile(nextState, location.playerId, cardId, 'any', 'hand')
-          : moveTargetedCardFromHand(nextState, location.playerId, cardId, 'any', 'hand');
-    if (result.kind === 'impossible') {
+          : { kind: 'applied' as const, state: nextState, log: [] as string[] };
+    if (result.kind !== 'applied') {
       return {
         applied: false,
         message: `Skipped move zone (other contextual card unavailable): ${step.raw}`,
@@ -12052,8 +12075,8 @@ export function applyMoveZoneStep(
           ? moveTargetedCardFromGraveyard(nextState, location.playerId, lastChosenId, { cardType: 'any' }, 'hand')
           : location.zone === 'exile'
             ? moveTargetedCardFromExile(nextState, location.playerId, lastChosenId, 'any', 'hand')
-            : moveTargetedCardFromHand(nextState, location.playerId, lastChosenId, 'any', 'hand');
-    if (result.kind === 'impossible') {
+            : { kind: 'applied' as const, state: nextState, log: [] as string[] };
+    if (result.kind !== 'applied') {
       return {
         applied: false,
         message: `Skipped move zone (last chosen card unavailable): ${step.raw}`,
@@ -12089,7 +12112,7 @@ export function applyMoveZoneStep(
         location.zone === 'hand'
           ? moveTargetedCardFromHandToLibrary(workingState, location.playerId, cardId, 'bottom')
           : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'hand');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       if (location.zone === 'exile') {
@@ -12207,7 +12230,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -12243,7 +12266,7 @@ export function applyMoveZoneStep(
         { cardType: parsedExileXTargetCreatureCardsFromGraveyards.cardType },
         'exile'
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -12282,7 +12305,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -12317,7 +12340,7 @@ export function applyMoveZoneStep(
         { cardType: parsedUpToFromGraveyards.cardType },
         'exile'
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -12374,7 +12397,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedPermanentIds = movedPermanentIds.concat(result.movedPermanentIds || []);
@@ -12418,7 +12441,7 @@ export function applyMoveZoneStep(
       const handResult = moveContextualCardToDestination(workingState, handLocation, handId, 'hand', {
         controllerId,
       });
-      if (handResult.kind === 'impossible') continue;
+      if (handResult.kind !== 'applied') continue;
       workingState = handResult.state;
       combinedLog.push(...handResult.log);
     }
@@ -12429,7 +12452,7 @@ export function applyMoveZoneStep(
       const restResult = moveContextualCardToDestination(workingState, restLocation, restId, restDestination, {
         controllerId,
       });
-      if (restResult.kind === 'impossible') continue;
+      if (restResult.kind !== 'applied') continue;
       workingState = restResult.state;
       combinedLog.push(...restResult.log);
     }
@@ -12460,7 +12483,7 @@ export function applyMoveZoneStep(
       const handResult = moveContextualCardToDestination(workingState, handLocation, handId, 'hand', {
         controllerId,
       });
-      if (handResult.kind !== 'impossible') {
+      if (handResult.kind === 'applied') {
         workingState = handResult.state;
         combinedLog.push(...(handResult.log || []));
       }
@@ -12472,7 +12495,7 @@ export function applyMoveZoneStep(
       const restResult = moveContextualCardToDestination(workingState, restLocation, restId, restDestination, {
         controllerId,
       });
-      if (restResult.kind === 'impossible') continue;
+      if (restResult.kind !== 'applied') continue;
       workingState = restResult.state;
       combinedLog.push(...(restResult.log || []));
     }
@@ -12879,7 +12902,7 @@ export function applyMoveZoneStep(
             undefined,
             battlefieldEntryOverrides
           );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -13001,7 +13024,7 @@ export function applyMoveZoneStep(
           battlefieldEntryOverrides,
           sourcePermanentPower
         );
-        if (result.kind === 'impossible') continue;
+        if (result.kind !== 'applied') continue;
         workingState = result.state;
         combinedLog.push(...(result.log || []));
         movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -13548,7 +13571,7 @@ export function applyMoveZoneStep(
         battlefieldEntryOverrides,
         sourcePermanentPower
       );
-      if (gyResult.kind !== 'impossible') {
+      if (gyResult.kind === 'applied') {
         return finalizeAppliedResult(gyResult);
       }
     }
@@ -13591,7 +13614,7 @@ export function applyMoveZoneStep(
         effectiveCriteria.cardType,
         'hand'
       );
-      if (exileResult.kind !== 'impossible') {
+      if (exileResult.kind === 'applied') {
         return finalizeAppliedResult(exileResult);
       }
     }
@@ -13887,7 +13910,7 @@ export function applyMoveZoneStep(
     for (const matchingCard of cardsToExile) {
       const cardId = String((matchingCard as any)?.id || '').trim();
       const result = moveTargetedCardFromHand(workingState, controllerId, cardId, criteria.cardType, 'exile');
-      if (result.kind === 'impossible') {
+      if (result.kind !== 'applied') {
         return {
           applied: false,
           message: `Skipped move zone (alternate-cost card unavailable): ${step.raw}`,
@@ -14400,7 +14423,7 @@ export function applyMoveZoneStep(
                 undefined,
                 battlefieldEntryOverrides
               );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       if (Array.isArray(result.movedPermanentIds)) {
@@ -14615,7 +14638,7 @@ export function applyMoveZoneStep(
         { cardType: 'any' },
         'hand'
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -14699,7 +14722,7 @@ export function applyMoveZoneStep(
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -14787,7 +14810,7 @@ export function applyMoveZoneStep(
         ctx.sourceName,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       const bfId = String((result as any).movedPermanentId || '').trim();
@@ -14917,7 +14940,7 @@ export function applyMoveZoneStep(
         battlefieldEntryOverrides,
         sourcePermanentPower
       );
-      if (result.kind === 'impossible') {
+      if (result.kind !== 'applied') {
         return {
           applied: false,
           message: `Skipped move zone (target card unavailable): ${step.raw}`,
@@ -14979,7 +15002,7 @@ export function applyMoveZoneStep(
       const location = findBoundCardZoneLocation(workingState, cardId);
       if (!location || location.zone !== 'graveyard') continue;
       const result = moveTargetedCardFromGraveyard(workingState, location.playerId, cardId, { cardType: 'any' }, 'exile');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       const playerAfter = workingState.players.find(p => p.id === location.playerId) as any;
@@ -15063,7 +15086,7 @@ export function applyMoveZoneStep(
     const combinedLog: string[] = [];
     for (const cardId of cardIds) {
       const result = moveTargetedCardFromGraveyard(workingState, controllerId, cardId, { cardType: 'any' }, 'hand');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -15111,7 +15134,7 @@ export function applyMoveZoneStep(
         { cardType: parsedThisPermanentAndUpToFromSingleGy.cardType },
         'library_bottom'
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -15168,7 +15191,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -15212,7 +15235,7 @@ export function applyMoveZoneStep(
         { cardType: parsedCountTargetFromSingleGraveyard.cardType },
         'exile'
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -15345,7 +15368,7 @@ export function applyMoveZoneStep(
         ctx.sourceName,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       const bfId = String((result as any).movedPermanentId || '').trim();
@@ -15534,7 +15557,7 @@ export function applyMoveZoneStep(
           : location.zone === 'graveyard'
             ? moveTargetedCardFromGraveyard(nextState, location.playerId, nonlandCardId, { cardType: 'nonland' }, 'hand')
             : moveTargetedCardFromExile(nextState, location.playerId, nonlandCardId, 'nonland', 'hand');
-    if (moveResult.kind === 'impossible') {
+    if (moveResult.kind !== 'applied') {
       return {
         applied: false,
         message: `Skipped move zone (nonland reveal card unavailable): ${step.raw}`,
@@ -15551,7 +15574,7 @@ export function applyMoveZoneStep(
         const restResult = moveContextualCardToDestination(workingState, libraryLocation, cardId, 'library_bottom', {
           controllerId,
         });
-        if (restResult.kind === 'impossible') continue;
+        if (restResult.kind !== 'applied') continue;
         workingState = restResult.state;
         combinedLog.push(...restResult.log);
       }
@@ -15593,7 +15616,7 @@ export function applyMoveZoneStep(
         parsedExiledThisWayNotCast.cardType === 'instant_or_sorcery' ? 'instant_or_sorcery' : 'any',
         step.to === 'library' ? 'hand' : step.to
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedCardIds.push(cardId);
@@ -15614,7 +15637,7 @@ export function applyMoveZoneStep(
         const location = findBoundCardZoneLocation(workingState, cardId);
         if (!location || location.zone !== 'exile') continue;
         const toHand = moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'hand');
-        if (toHand.kind === 'impossible') continue;
+        if (toHand.kind !== 'applied') continue;
         workingState = toHand.state;
         combinedLog.push(...(toHand.log || []));
         const libraryResult = moveTargetedCardFromHandToLibrary(workingState, location.playerId, cardId, 'bottom');
@@ -15682,8 +15705,8 @@ export function applyMoveZoneStep(
               });
       nextState = result.state;
       log.push(...result.log);
-      if (Array.isArray((result as { moved?: any[] }).moved) && (result as { moved?: any[] }).moved!.length > 0) {
-        combinedMoved.push(...(result as { moved: any[] }).moved);
+      if ('moved' in result && Array.isArray(result.moved) && result.moved.length > 0) {
+        combinedMoved.push(...result.moved);
       }
     }
 
@@ -15949,7 +15972,7 @@ export function applyMoveZoneStep(
     const combinedLog: string[] = [];
     for (let index = 0; index < count; index += 1) {
       const result = moveTopCardFromLibrary(workingState, controllerId, 'hand');
-      if (result.kind === 'impossible') break;
+      if (result.kind !== 'applied') break;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -16058,7 +16081,7 @@ export function applyMoveZoneStep(
     const exiledCards: any[] = [];
     for (const cardId of cardIds) {
       const result = moveTargetedCardFromGraveyard(workingState, targetPlayerId, cardId, { cardType: 'any' }, 'exile');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       const moved = graveyard.find((card: any) => String(card?.id || '').trim() === cardId);
@@ -16084,7 +16107,7 @@ export function applyMoveZoneStep(
     const combinedLog: string[] = [];
     for (const cardId of cardIds) {
       const result = shuffleUpToMatchingFromGraveyardIntoLibrary(workingState, targetPlayerId, 1, { cardType: 'any' }, [cardId]);
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -16110,7 +16133,6 @@ export function applyMoveZoneStep(
       const permId = String((perm as any)?.id || '').trim();
       if (!permId) continue;
       const result = moveBattlefieldPermanentsByIdToOwnersHands(workingState, [permId]);
-      if (result.kind === 'impossible') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -16235,7 +16257,7 @@ export function applyMoveZoneStep(
     const combinedLog: string[] = [];
     for (const cardId of cardIds) {
       const result = moveTargetedCardFromGraveyard(workingState, controllerId, cardId, { cardType: 'any' }, 'exile');
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -16309,7 +16331,7 @@ export function applyMoveZoneStep(
         undefined,
         battlefieldEntryOverrides
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedBattlefieldIds.push(...(result.movedPermanentIds || []));
@@ -16326,7 +16348,7 @@ export function applyMoveZoneStep(
       const location = findBoundCardZoneLocation(nextState, id);
       return location?.zone === 'graveyard' && location.playerId === controllerId;
     });
-    const cardId = candidateIds[0] || resolveFirstMatchingCardIdFromPlayerGraveyard(nextState, controllerId, { cardType: 'any' }, getChosenObjectIds(ctx));
+    const cardId = candidateIds[0] || resolveFirstMatchingCardIdFromPlayerGraveyard(nextState, controllerId, [{ cardType: 'any' }], getChosenObjectIds(ctx));
     if (!cardId) {
       return buildAppliedResult({ state: nextState, log: [`No one-of-them graveyard card: ${step.raw}`] });
     }
@@ -16408,7 +16430,7 @@ export function applyMoveZoneStep(
         { cardType: 'any' },
         'exile'
       );
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }
@@ -16456,7 +16478,7 @@ export function applyMoveZoneStep(
                 battlefieldEntryOverrides
               )
             : { kind: 'impossible' as const };
-      if (moveResult.kind !== 'impossible') {
+      if (moveResult.kind === 'applied') {
         workingState = moveResult.state;
         combinedLog.push(...(moveResult.log || []));
       }
@@ -16484,7 +16506,7 @@ export function applyMoveZoneStep(
           : location.zone === 'hand'
             ? moveTargetedCardFromHand(workingState, location.playerId, cardId, 'any', 'graveyard')
             : { kind: 'impossible' as const };
-      if (result.kind === 'impossible') continue;
+      if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
     }

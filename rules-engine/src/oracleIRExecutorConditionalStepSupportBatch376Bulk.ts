@@ -166,7 +166,7 @@ export function evaluateBatch376BulkConditionalClause(params: Batch376BulkParams
     const flag =
       (ctx as any)?.manaSpentToCastCommander ??
       (ctx as any)?.commanderManaSpentOnCommander ??
-      ctx.selectorContext?.manaSpentToCastCommander;
+      (ctx.selectorContext as any)?.manaSpentToCastCommander;
     return typeof flag === 'boolean' ? flag : null;
   }
 

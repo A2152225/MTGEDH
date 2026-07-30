@@ -2,7 +2,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
-import { getProcessedBattlefield, isPermanentAttacking } from './oracleIRExecutorCreatureStepUtils';
+import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
@@ -196,7 +196,7 @@ export function evaluateBatch374BulkConditionalClause(params: Batch374BulkParams
   if (normalizedRaw === 'that mana is spent to cast a non-human creature spell') {
     const flag =
       (ctx as any)?.manaSpentOnNonHumanCreatureSpell ??
-      ctx.selectorContext?.manaSpentOnNonHumanCreatureSpell;
+      (ctx.selectorContext as any)?.manaSpentOnNonHumanCreatureSpell;
     if (typeof flag === 'boolean') return flag;
     const spell = (ctx as any)?.stackItem ?? params.getReferencedObject(nextState, ctx);
     const tl = getExecutorTypeLineLower(spell);
@@ -206,7 +206,7 @@ export function evaluateBatch374BulkConditionalClause(params: Batch374BulkParams
   if (normalizedRaw === 'this mana is spent to cast a creature spell') {
     const flag =
       ctx.manaSpentOnCreatureSpell ??
-      ctx.selectorContext?.manaSpentOnCreatureSpell ??
+      (ctx.selectorContext as any)?.manaSpentOnCreatureSpell ??
       (ctx as any)?.manaSpentOnCreatureSpell;
     return typeof flag === 'boolean' ? flag : null;
   }

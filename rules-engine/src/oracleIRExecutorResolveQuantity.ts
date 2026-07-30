@@ -242,7 +242,7 @@ export function resolveOracleQuantity(
         ? runtimeRef
         : Number.isFinite(ctxRef)
           ? ctxRef
-          : quantityToNumber({ kind: 'reference_amount', raw: 'that much' }, ctx, { runtime, step });
+          : quantityToNumber({ kind: 'reference_amount', raw: 'that much' }, ctx);
       return baseRef === null || !Number.isFinite(Number(baseRef)) ? null : Math.max(0, Number(baseRef) * 3);
     }
 
@@ -305,6 +305,7 @@ export function resolveOracleQuantity(
   }
 
   if (qty.kind === 'object_stat') {
+    const subject = String(qty.subject);
     const multiplier = Number.isFinite(Number((qty as any).multiplier)) ? Math.max(0, Number((qty as any).multiplier)) : 1;
     const readStat = (entry: any): number | null => {
       if (qty.stat === 'power') {
@@ -322,7 +323,7 @@ export function resolveOracleQuantity(
     };
 
     const contextualCards = collectContextualCardsLedgerFirst(ctx, runtime);
-    if (qty.subject === 'the_milled_card') {
+    if (subject === 'the_milled_card') {
       const milled = [
         ...(Array.isArray((ctx as any).lastMilledCards) ? (ctx as any).lastMilledCards : []),
         ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
@@ -335,7 +336,7 @@ export function resolveOracleQuantity(
     }
     if (
       contextualCards.length > 0 &&
-      (qty.subject === 'it' || qty.subject === 'that_card' || qty.subject === 'that_creature')
+      (subject === 'it' || subject === 'that_card' || subject === 'that_creature')
     ) {
       const contextualCard = contextualCards[contextualCards.length - 1];
       const contextualAmount = readStat(contextualCard);
@@ -351,19 +352,19 @@ export function resolveOracleQuantity(
     const sacrificedEntry = pickSacrificedPermanentEntry(sacrificed);
     if (
       sacrificedEntry &&
-      (qty.subject === 'that_creature' ||
-        qty.subject === 'the_sacrificed_creature' ||
-        qty.subject === 'the_sacrificed_permanent' ||
-        qty.subject === 'the_sacrificed_enchantment')
+      (subject === 'that_creature' ||
+        subject === 'the_sacrificed_creature' ||
+        subject === 'the_sacrificed_permanent' ||
+        subject === 'the_sacrificed_enchantment')
     ) {
       const sacrificedAmount = readStat(sacrificedEntry);
       if (sacrificedAmount !== null) return sacrificedAmount;
     }
 
     if (
-      qty.subject === 'that_permanent' ||
-      qty.subject === 'that_wall' ||
-      qty.subject === 'that_equipment'
+      subject === 'that_permanent' ||
+      subject === 'that_wall' ||
+      subject === 'that_equipment'
     ) {
       const targetPermanentId = String(
         ctx.targetPermanentId ||
@@ -385,7 +386,7 @@ export function resolveOracleQuantity(
       }
     }
 
-    if (qty.subject === 'that_spell') {
+    if (subject === 'that_spell') {
       const spellPower = Number((ctx as any).lastCastSpellPower ?? (ctx as any).targetSpellPower);
       if (qty.stat === 'power' && Number.isFinite(spellPower)) return Math.max(0, spellPower);
       if (qty.stat === 'mana_value') {

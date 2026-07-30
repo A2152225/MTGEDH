@@ -54,7 +54,11 @@ import {
   KNOWN_END_STEP_TRIGGERS,
   KNOWN_PRECOMBAT_MAIN_TRIGGERS,
 } from "./triggers/card-data-tables.js";
-import { escapeCardNameForRegex } from "./triggers/types.js";
+import {
+  escapeCardNameForRegex,
+  type RegisteredTrigger,
+  type TriggerTiming,
+} from "./triggers/types.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { permanentHasCreatureTypeNow } from "../creatureTypeNow.js";
 import { isEtbCreatureTypeChoiceOracle, parseChosenTypeCreatureEtbTrigger } from "./chosen-creature-type.js";
@@ -66,7 +70,7 @@ import {
   detectRoomUnlockDoorTriggers,
 } from './triggers/room.js';
 import { getCurrentGoaders } from './goad-effects.js';
-import { normalizeCardNameForOracleText } from '../utils.js';
+import { getActualPowerToughness, normalizeCardNameForOracleText } from '../utils.js';
 
 function buildCardNameRegexAlternatives(cardName: string): string[] {
   const names = new Set<string>();
@@ -207,50 +211,7 @@ export {
   type EndOfCombatTrigger,
 } from "./triggers/end-combat.js";
 
-/**
- * Trigger timing - when the trigger should fire
- */
-export type TriggerTiming = 
-  | 'upkeep'           // At the beginning of upkeep
-  | 'draw_step'        // At the beginning of draw step
-  | 'precombat_main'   // At the beginning of precombat main
-  | 'begin_combat'     // At the beginning of combat
-  | 'declare_attackers'// When attackers are declared
-  | 'declare_blockers' // When blockers are declared
-  | 'combat_damage'    // When combat damage is dealt
-  | 'end_combat'       // At end of combat
-  | 'postcombat_main'  // At the beginning of postcombat main
-  | 'end_step'         // At the beginning of end step
-  | 'cleanup'          // During cleanup step
-  | 'etb'              // When something enters the battlefield
-  | 'ltb'              // When something leaves the battlefield
-  | 'dies'             // When something dies
-  | 'cast'             // When a spell is cast
-  | 'draw'             // When a card is drawn
-  | 'discard'          // When a card is discarded
-  | 'damage'           // When damage is dealt
-  | 'life_change'      // When life total changes
-  | 'counter'          // When counters are added/removed
-  | 'tap'              // When something becomes tapped
-  | 'untap';           // When something becomes untapped
-
-/**
- * Registered trigger on a permanent - marks what triggers the permanent has
- */
-export interface RegisteredTrigger {
-  id: string;
-  permanentId: string;
-  controllerId: string;
-  cardName: string;
-  timing: TriggerTiming;
-  condition?: string;      // Additional condition text
-  effect: string;          // Effect description
-  mandatory: boolean;
-  requiresTarget?: boolean;
-  requiresChoice?: boolean;
-  triggerOnce?: boolean;   // Some triggers only fire once per turn
-  hasFiredThisTurn?: boolean;
-}
+export type { RegisteredTrigger, TriggerTiming } from "./triggers/types.js";
 
 function extendSpellCopyEffectText(
   oracleText: string,
@@ -683,59 +644,10 @@ export function groupTriggersByController(
 export interface TriggeredAbility {
   permanentId: string;
   cardName: string;
-  triggerType: 
-    | 'dies' 
-    | 'creature_dies' 
-    | 'any_creature_dies'
-    | 'opponent_creature_dies'  // Grave Betrayal style - when opponent's creature dies
-    | 'undying'
-    | 'persist'
-    | 'attacks'
-    | 'creature_attacks'
-    | 'chosen_type_creature_etb_or_attack'
-    | 'chosen_type_creature_etb'
-    | 'self_enters_or_attacks'
-    | 'etb'
-    | 'etb_sacrifice_unless_pay' // Transguild Promenade, Gateway Plaza, Rupture Spire
-    | 'etb_bounce_land' // Bounce lands - return a land you control to hand
-    | 'hideaway_etb' // Hideaway lands - look at top N, exile one face-down
-    | 'creature_etb'
-    | 'opponent_creature_etb' // Suture Priest style - when opponent's creature enters
-    | 'equipment_etb'     // Whenever an Equipment enters under your control (Puresteel Paladin)
-    | 'artifact_etb'      // Whenever an Artifact enters under your control
-    | 'enchantment_etb'   // Whenever an Enchantment enters under your control
-    | 'land_etb'          // Whenever a Land enters under your control (landfall variant)
-    | 'equipment_cast'    // Whenever you cast an Equipment spell (Barret)
-    | 'equipment_attack'  // Whenever equipped creature attacks (Sword of the Animist)
-    | 'aura_attack'       // Whenever enchanted creature attacks
-    | 'equipment_combat_damage' // Whenever equipped creature deals combat damage
-    | 'aura_combat_damage'      // Whenever enchanted creature deals combat damage
-    | 'job_select'        // Final Fantasy - create 1/1 Hero token and attach equipment
-    | 'living_weapon'     // Phyrexia - create 0/0 Phyrexian Germ token and attach equipment
-    | 'permanent_etb'     // Altar of the Brood style - whenever ANY permanent enters
-    | 'another_permanent_etb' // Whenever ANOTHER permanent enters under your control
-    | 'deals_damage'
-    | 'deals_combat_damage'
-    | 'creatures_deal_combat_damage_batched' // Batched trigger for one or more creatures dealing combat damage
-    | 'you_are_dealt_damage'
-    | 'you_are_dealt_combat_damage'
-    | 'creatures_deal_combat_damage_to_you_batched'
-    | 'annihilator'
-    | 'melee'
-    | 'myriad'
-    | 'exalted'
-    | 'dethrone'
-    | 'mentor'
-    | 'training'
-    | 'bushido'
-    | 'battle_cry'        // Battle cry - each other attacking creature gets +1/+0
-    | 'firebending'       // Avatar set mechanic - add red mana when attacking
-    | 'upkeep_create_copy'  // Progenitor Mimic style - create token copy at upkeep
-    | 'end_step_resource'   // Kynaios & Tiro style - draw/land resource at end step
-    | 'end_step_effect'     // Generic end step trigger
-    | 'cast_creature_type'  // Merrow Reejerey style - trigger when casting a spell of a type
-    | 'tap_untap_target'    // Tap or untap target permanent
-    | 'join_forces_attack'; // Mana-Charged Dragon - Join Forces when attacking
+  // Trigger detectors are extensible and already emit hundreds of generic
+  // runtime identifiers. Keep this aligned with the shared wire type instead
+  // of maintaining a second, permanently stale literal union here.
+  triggerType: string;
   description: string;
   effect?: string;
   value?: number | Record<string, any>; // For Annihilator N, or complex effect data
@@ -781,6 +693,7 @@ interface BlockTrigger {
   permanentId: string;
   cardName: string;
   controllerId: string;
+  triggerType?: string;
   description: string;
   effect?: string;
   mandatory: boolean;
@@ -10582,8 +10495,8 @@ export interface UntapTrigger {
   permanentId: string;
   cardName: string;
   controllerId: string;
-  triggerOn: 'attack' | 'combat_damage' | 'damage_to_player';
-  untapType: 'lands' | 'all' | 'creatures';
+  triggerOn: string;
+  untapType: string;
   effect: string;
 }
 
@@ -12203,7 +12116,7 @@ export interface SpellCastTrigger {
   copiesSpell?: boolean;
   firstSpellThisTurn?: boolean;
   firstSpellDuringOpponentTurn?: boolean;
-  sourceZoneRequirement?: 'library' | 'exile' | 'graveyard' | 'not_hand';
+  sourceZoneRequirement?: 'hand' | 'library' | 'exile' | 'graveyard' | 'not_hand';
   requiresTarget?: boolean;
   targetType?: string; // e.g., "permanent" for tap/untap effects
   createsToken?: boolean;
@@ -13572,7 +13485,7 @@ export function getSpellCastTriggers(
       }
 
       if (shouldTrigger && trigger.firstSpellDuringOpponentTurn === true) {
-        const activePlayer = String(ctx.state?.activePlayer || '');
+        const activePlayer = String((ctx.state as any)?.activePlayer || '');
         const controllerId = String(permanent.controller || '');
         const spellsCastThisTurn = (Array.isArray(ctx.state?.spellsCastThisTurn) ? ctx.state.spellsCastThisTurn : [])
           .filter((castEntry: any) => String(castEntry?.casterId || '') === casterId);
@@ -13623,9 +13536,10 @@ export interface TapTrigger {
   controllerId: string;
   description: string;
   effect: string;
-  triggerCondition: 'becomes_tapped' | 'becomes_untapped' | 'taps_for_mana';
-  affectedType: 'any' | 'creature' | 'tribal_type' | 'self';
+  triggerCondition: string;
+  affectedType: string;
   tribalType?: string; // For "Whenever a Merfolk becomes tapped"
+  nontokenOnly?: boolean;
   mandatory: boolean;
   lifeGain?: number;
   createsToken?: boolean;

@@ -120,7 +120,7 @@ export function applyKeywordTriggerFallbackFromOracle(
     permanent,
     controller: params.controller,
     state: params.state,
-    battlefield: params.battlefield,
+    battlefield: [...params.battlefield],
     players: params.state.players || [],
     activePlayer: params.state.activePlayer || params.controller,
     defendingPlayer:

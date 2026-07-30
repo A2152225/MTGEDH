@@ -8,6 +8,7 @@ function parseCreateTokenWhoFromSubject(rawWho: string | undefined): OraclePlaye
     .toLowerCase();
   if (normalized === 'its owner') return { kind: 'owner_of_referenced_object' };
   if (normalized === 'its controller') return { kind: 'controller_of_referenced_object' };
+  if (normalized === 'that attacking player') return { kind: 'target_player' };
   return parsePlayerSelector(rawWho);
 }
 
@@ -16,7 +17,7 @@ type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 const TOKEN_AMOUNT_PATTERN = '(?:twice\\s+that\\s+many|twice\\s+x|that many|that much|a|an|\\d+|x|[a-z]+)';
 
 const PLAYER_SUBJECT_PREFIX =
-  "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
+  "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|that attacking player|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
 
 function parseWithCountersFromClause(clauseText: string): Record<string, number> | undefined {
   const s = normalizeOracleText(clauseText);
@@ -98,12 +99,14 @@ function appendCreateTokenWithTail(token: string, clauseText: string): string {
   if (quotedWith) {
     return `${token}, ${String(quotedWith[1] || '').trim()}`.trim();
   }
-  const withTail = normalized.match(
-    /\btokens?\s+(with\s+.+?)(?:\s+that(?:'s|' s|\u2019s| is| are)\s+(?:attacking|blocking(?:\s+that\s+creature)?))?(?:\.|$)/i,
-  );
-  if (!withTail) return token;
-  const tail = String(withTail[1] || '').trim();
-  return tail ? `${token}, ${tail}`.trim() : token;
+  return token;
+}
+
+function normalizeTokenDescriptor(rawToken: string): string {
+  return String(rawToken || '')
+    .trim()
+    .replace(/\s+creature$/i, '')
+    .replace(/\s+/g, ' ');
 }
 
 function createTokenCombatEntryModifiers(clauseText: string): {
@@ -117,7 +120,7 @@ function createTokenCombatEntryModifiers(clauseText: string): {
 
 function buildSimpleCreateTokenLeadPattern(): RegExp {
   const playerSubjectPrefixNoCapture =
-    "(?:(?:you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s)? (?:controller|owner))\\s+)?";
+    "(?:(?:you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|that attacking player|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s)? (?:controller|owner))\\s+)?";
   return new RegExp(
     `^(${playerSubjectPrefixNoCapture}create(?:s)?\\s+${TOKEN_AMOUNT_PATTERN}\\s+(?:tapped\\s+)?(?:.+?)\\s+tokens?(?:\\s+tapped\\b)?(?:\\s+with\\s+[^,.]+?\\s+counters?\\s+on\\s+(?:it|them))?(?:\\s+attached\\s+to\\s+(?:it|that creature))?)\\s+and\\s+(.+)$`,
     'i'
@@ -394,7 +397,7 @@ export function tryParseSimpleCreateTokenClause(args: {
 
   const create = clause.match(
     new RegExp(
-      `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+((?:tapped\\s+and\\s+attacking|tapped)\\s+)?(.+?)\\s+tokens?\\b`,
+      `^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+((?:tapped\\s+and\\s+attacking|tapped)\\s+)?(.+?)\\s+tokens?\\b`,
       'i'
     )
   );
@@ -403,7 +406,7 @@ export function tryParseSimpleCreateTokenClause(args: {
     const amount = parseTokenQuantity(create[2]);
     const tappedAndAttacking = tokenIsAttacking(create[3], clause);
     const entersTapped = tokenEntersTapped(create[3], clause);
-    const token = appendCreateTokenWithTail(String(create[4] || '').trim(), clause);
+    const token = appendCreateTokenWithTail(normalizeTokenDescriptor(String(create[4] || '')), clause);
     const withCounters = parseWithCountersFromClause(clause);
     const battlefieldAttachedTo = parseAttachmentTargetFromClause(clause);
     const atNextEndStep = tokenDelayedCleanupFromRaw(rawClause);
@@ -418,6 +421,7 @@ export function tryParseSimpleCreateTokenClause(args: {
       ...(combatEntry.blocking ? { blocking: combatEntry.blocking } : {}),
       withCounters,
       battlefieldAttachedTo,
+      ...(/\bmay\s+create\b/i.test(clause) ? { optional: true } : {}),
       ...(atNextEndStep ? { atNextEndStep } : {}),
       raw: rawClause,
     });
@@ -449,7 +453,7 @@ export function tryParseSimpleCreateTokenClause(args: {
     const entersTapped = tokenEntersTapped(createDefault[2], clause);
     const withCounters = parseWithCountersFromClause(clause);
     const battlefieldAttachedTo = parseAttachmentTargetFromClause(clause);
-    const token = appendCreateTokenWithTail(String(createDefault[3] || '').trim(), clause);
+    const token = appendCreateTokenWithTail(normalizeTokenDescriptor(String(createDefault[3] || '')), clause);
     const atNextEndStep = tokenDelayedCleanupFromRaw(rawClause);
     const combatEntry = createTokenCombatEntryModifiers(clause);
     return withMeta({

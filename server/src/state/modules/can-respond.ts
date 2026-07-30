@@ -2995,7 +2995,11 @@ function hasPlayFromZoneEffect(ctx: GameContext, playerId: PlayerID, zone: strin
                 if (
                   /\bonce during each of your turns\b/i.test(oracleText)
                   && /\bfrom your graveyard\b/i.test(oracleText)
-                  && hasExhaustedOnceDuringEachGraveyardCastActivation(permanent, state, playerId)
+                  && hasExhaustedOnceDuringEachGraveyardCastActivation(
+                    permanent as typeof permanent & { activatedAbilityIndicesThisTurn?: Record<number, true> },
+                    state as typeof state & { castFromGraveyardThisTurn?: Record<string, boolean> },
+                    playerId,
+                  )
                 ) {
                   continue;
                 }

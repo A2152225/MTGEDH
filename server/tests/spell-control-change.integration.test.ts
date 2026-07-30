@@ -388,6 +388,20 @@ describe('spell control change resolution', () => {
       canBePlayedBy: p2,
       preparedSourcePermanentId: 'prepared_reins_perm',
     });
+
+    (game.state as any).turnOrder = [p1, p2];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).activePlayer = p1;
+    (game.state as any).phase = 'ending';
+    (game.state as any).step = 'CLEANUP';
+    (game.state as any).stack = [];
+
+    game.applyEvent({ type: 'nextStep' } as any);
+
+    expect(((game.state as any).battlefield || []).find((perm: any) => perm.id === 'prepared_reins_perm')?.controller).toBe(p1);
+    expect(((game.state as any).battlefield || []).find((perm: any) => perm.id === 'p1_creature_1')?.controller).toBe(p1);
+    expect(((game.state as any).battlefield || []).find((perm: any) => perm.id === 'p2_creature_1')?.controller).toBe(p2);
+    expect((game.state as any).controlChangeEffects).toBeUndefined();
   });
 
   it('resolves Harmless Offering-style donation with prepared migration', () => {

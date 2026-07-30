@@ -60,11 +60,11 @@ function countControlledMatchingSubtype(
 
 function antecedentApplied(
   lastActionOutcome: LastActionOutcome,
-  stepKinds: readonly OracleEffectStep['kind'][]
+  stepKinds: readonly string[]
 ): boolean {
   return (
     lastActionOutcome?.kind === 'applied' &&
-    stepKinds.includes(lastActionOutcome.stepKind as OracleEffectStep['kind'])
+    stepKinds.includes(String(lastActionOutcome.stepKind))
   );
 }
 
@@ -88,7 +88,7 @@ export function evaluateBatch370BulkConditionalClause(params: Batch370BulkParams
 
   if (normalizedRaw === 'that player attacked you during their last turn') {
     const thatPlayerId = String(
-      (ctx as any)?.thatPlayerId ?? ctx.targetPlayerId ?? ctx.referencedPlayerId ?? ''
+      (ctx as any)?.thatPlayerId ?? (ctx as any).targetPlayerId ?? (ctx as any).referencedPlayerId ?? ''
     ).trim();
     if (!thatPlayerId) return null;
     const map = (nextState as any)?.attackedYouLastTurnByPlayer;

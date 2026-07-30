@@ -163,7 +163,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
       }
     }
 
-    const manaSymbols: Record<string, string> = {
+    const manaSymbols: Record<string, ManaColor> = {
       white: 'W',
       blue: 'U',
       black: 'B',

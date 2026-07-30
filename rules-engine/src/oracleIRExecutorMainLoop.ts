@@ -678,7 +678,11 @@ export function applyOracleIRStepsToGameStateImpl(
   const localAutomationGaps: OracleAutomationGap[] = [];
   const automationGaps: OracleAutomationGap[] = [];
   const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
-  let currentCtx = ctx;
+  let currentCtx: OracleIRExecutionContext & {
+    readonly lastRevealedCards?: readonly unknown[];
+    readonly lastGreatestDiscardedCardCount?: number;
+    readonly lastCreatedTokenIds?: readonly string[];
+  } = ctx;
   let lastRevealedCardCount = 0;
   let lastDiscardedCardCount = 0;
   let lastGreatestDiscardedCardCount = Math.max(0, Number((ctx as any).lastGreatestDiscardedCardCount) || 0);
@@ -818,6 +822,26 @@ export function applyOracleIRStepsToGameStateImpl(
     ) {
       haltedForPlayerChoice = true;
     }
+  };
+
+  const normalizeSkipMetadata = (
+    metadata: Record<string, unknown> | undefined,
+  ): Record<string, string | number | boolean | null | readonly string[]> | undefined => {
+    if (!metadata) return undefined;
+    return Object.fromEntries(
+      Object.entries(metadata).map(([key, value]) => {
+        if (
+          value === null ||
+          typeof value === 'string' ||
+          typeof value === 'number' ||
+          typeof value === 'boolean' ||
+          Array.isArray(value)
+        ) {
+          return [key, value];
+        }
+        return [key, JSON.stringify(value)];
+      }),
+    ) as Record<string, string | number | boolean | null | readonly string[]>;
   };
 
   const applyHandledStepResult = (
@@ -3438,7 +3462,10 @@ export function applyOracleIRStepsToGameStateImpl(
       case 'unless_pays_life': {
         const result = evaluateUnlessPaysLifeStep(nextState, step, currentCtx);
         if (!('shouldApplyNestedSteps' in result)) {
-          recordSkippedStep(step, result.message, result.reason, result.options);
+          recordSkippedStep(step, result.message, result.reason, {
+            ...result.options,
+            metadata: normalizeSkipMetadata(result.options?.metadata),
+          });
           break;
         }
 
@@ -3466,7 +3493,10 @@ export function applyOracleIRStepsToGameStateImpl(
       case 'unless_pays_mana': {
         const result = evaluateUnlessPaysManaStep(nextState, step, currentCtx);
         if (!('shouldApplyNestedSteps' in result)) {
-          recordSkippedStep(step, result.message, result.reason, result.options);
+          recordSkippedStep(step, result.message, result.reason, {
+            ...result.options,
+            metadata: normalizeSkipMetadata(result.options?.metadata),
+          });
           break;
         }
 
@@ -3491,12 +3521,6 @@ export function applyOracleIRStepsToGameStateImpl(
         appliedSteps.push(step);
         break;
       }
-      case 'grant_cast_permission': {
-        setLastStepOutcome(step, 'applied');
-        log.push(`Registered cast permission: ${step.raw}`);
-        appliedSteps.push(step);
-        break;
-      }
       case 'modify_damage': {
         setLastStepOutcome(step, 'applied');
         log.push(`Registered damage modification: ${step.raw}`);
@@ -3504,6 +3528,12 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       default: {
+        if (String(step.kind) === 'grant_cast_permission') {
+          setLastStepOutcome(step, 'applied');
+          log.push(`Registered cast permission: ${String((step as { raw?: string }).raw || '')}`);
+          appliedSteps.push(step);
+          break;
+        }
         if (step.kind === 'unknown') {
           const normalizedUnknown = String(step.raw || '')
             .replace(/\u2019/g, "'")

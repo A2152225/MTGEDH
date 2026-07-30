@@ -104,7 +104,21 @@ export interface UpkeepTrigger {
     | 'opponent_upkeep'
     | 'upkeep_create_copy'  // Progenitor Mimic - create token copy at beginning of upkeep
     | 'saga_lore_counter'   // Saga - add lore counter at beginning of your precombat main phase (Rule 714.3b)
-    | 'sacrifice_creature_or_self';  // Eldrazi Monument - sacrifice a creature or sacrifice this
+    | 'sacrifice_creature_or_self'  // Eldrazi Monument - sacrifice a creature or sacrifice this
+    | 'next_turn_upkeep'
+    | 'planeswalk_and_upkeep'
+    | 'rebound'
+    | 'your_next_upkeep'
+    | 'enchanted_controller_upkeep'
+    | 'enchanted_player_first_upkeep'
+    | 'enchanted_player_upkeep'
+    | 'first_upkeep'
+    | 'your_first_upkeep'
+    | 'chosen_player_upkeep'
+    | 'each_participant_upkeep'
+    | 'each_other_player_upkeep'
+    | 'exiled_card_owner_upkeep'
+    | 'each_of_that_player_upkeep';
   cost?: string;
   description: string;
   effect?: string;

@@ -58,7 +58,7 @@ export function applyInstantSorceryGraveyardConditionalTokenRider(
     oracleTextLower,
     options.controller,
     (ctx as any).state,
-    options.spellXValue,
+    typeof options.spellXValue === 'number' ? options.spellXValue : undefined,
   );
   if (!tokenCreationResult) {
     return;
@@ -194,7 +194,7 @@ export function applyInstantSorceryFracturedIdentityAndFallbackRiders(
   const item = options.item;
   const oracleTextLower = options.oracleTextLower;
   const targets = options.targets;
-  const spellXValue = options.spellXValue;
+  const spellXValue = typeof options.spellXValue === 'number' ? options.spellXValue : undefined;
 
   const isFracturedIdentity = effectiveCard.name?.toLowerCase().includes('fractured identity')
     || (

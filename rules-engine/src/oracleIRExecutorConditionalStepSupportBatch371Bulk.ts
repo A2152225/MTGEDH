@@ -65,14 +65,18 @@ function permanentIsWhite(perm: any, cardMatchesChosenColor: (c: any, color: str
   return colors.includes('W');
 }
 
-function findNamedPermanentOrCommander(nextState: GameState, name: string): boolean {
+function findNamedPermanentOrCommander(nextState: GameState, controllerId: PlayerID, name: string): boolean {
   const target = String(name || '').trim().toLowerCase();
   if (!target) return false;
   for (const perm of getProcessedBattlefield(nextState) as any[]) {
     const n = String(perm?.name ?? perm?.card?.name ?? '').trim();
     if (n && haveSameName(n, name)) return true;
   }
-  for (const obj of collectCommandZoneObjects(nextState) as any[]) {
+  for (const obj of collectCommandZoneObjects(
+    nextState,
+    controllerId,
+    (id) => findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, id),
+  ) as any[]) {
     const n = String(obj?.name ?? obj?.card?.name ?? '').trim();
     if (n && haveSameName(n, name)) return true;
   }
@@ -156,7 +160,7 @@ export function evaluateBatch371BulkConditionalClause(params: Batch371BulkParams
   }
 
   if (normalizedRaw === 'edgar is in the command zone or on the battlefield') {
-    return findNamedPermanentOrCommander(nextState, 'Edgar Markov');
+    return findNamedPermanentOrCommander(nextState, controllerId, 'Edgar Markov');
   }
 
   {

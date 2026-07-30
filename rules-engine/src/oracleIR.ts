@@ -21,8 +21,17 @@ export type OracleQuantity =
         | 'it'
         | 'that_card'
         | 'that_creature'
+        | 'that_permanent'
+        | 'that_artifact'
+        | 'that_equipment'
+        | 'that_wall'
+        | 'that_spell'
         | 'the_sacrificed_creature'
         | 'the_sacrificed_permanent'
+        | 'the_sacrificed_enchantment'
+        | 'the_milled_card'
+        | 'the_discarded_card'
+        | 'the_tapped_creature'
         | 'this_creature'
         | 'this_permanent'
         | 'target_creature_you_control'
@@ -67,11 +76,21 @@ export type OraclePlayerSelector =
   | { readonly kind: 'each_player_who_controls_the_most'; readonly filter?: string }
   /** Each distinct controller among contextual "those" permanents (last moved / chosen). */
   | { readonly kind: 'each_controller_of_those' }
+  /** Parser fallback for free-form player phrases that still need runtime interpretation. */
+  | { readonly kind: 'raw'; readonly text: string }
   | { readonly kind: 'unknown'; readonly raw: string };
 
 export type OracleObjectSelector =
   | { readonly kind: 'raw'; readonly text: string }
   | { readonly kind: 'equipped_creature' }
+  | {
+      readonly kind: 'battlefield_selector';
+      readonly types?: readonly string[];
+      readonly controllerFilter?: string;
+      readonly text?: string;
+      readonly raw?: string;
+    }
+  | { readonly kind: 'target'; readonly text?: string; readonly raw?: string }
   | { readonly kind: 'unknown'; readonly raw: string };
 
 export type OracleScaler =
@@ -81,6 +100,7 @@ export type OracleScaler =
   | { readonly kind: 'per_artifact_you_control' }
   | { readonly kind: 'per_creature_tapped_this_way' }
   | { readonly kind: 'per_other_attacking_aurochs' }
+  | { readonly kind: 'per_goblin_you_control' }
   | { readonly kind: 'reference_scaler'; readonly raw: string }
   | { readonly kind: 'unknown'; readonly raw: string };
 
@@ -105,6 +125,7 @@ export type OracleGraveyardAdditionalCost =
   | {
       readonly kind: 'exile_from_graveyard';
       readonly count: number;
+      readonly filterText?: string;
       readonly raw: string;
     }
   | {
@@ -547,7 +568,9 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'player_choice';
-      readonly choice: 'card_type' | 'letter' | 'odd_even' | 'text_change' | 'number_of_lands' | 'generic';
+      readonly choice?: 'card_type' | 'letter' | 'odd_even' | 'text_change' | 'number_of_lands' | 'generic';
+      readonly choiceText?: string;
+      readonly who?: OraclePlayerSelector;
       readonly target?: OracleObjectSelector;
       readonly options?: readonly string[];
       readonly optional?: boolean;
@@ -777,7 +800,9 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'add_counter';
-      readonly target: OracleObjectSelector;
+      readonly target?: OracleObjectSelector;
+      readonly who?: OraclePlayerSelector;
+      readonly what?: OracleObjectSelector;
       readonly counter: string;
       readonly amount: OracleQuantity;
       /** When set, total `amount` is split among resolved targets (distribute … among …). */
@@ -785,6 +810,7 @@ export type OracleEffectStep =
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
+      readonly thisWayAntecedentStepIndex?: number;
     }
   | {
       readonly kind: 'move_counters';
@@ -936,7 +962,7 @@ export type OracleEffectStep =
       readonly powerUsesX?: boolean;
       /** When true, `toughness` is a signed X coefficient (e.g. +X => 1, -X => -1). */
       readonly toughnessUsesX?: boolean;
-      readonly duration: 'end_of_turn';
+      readonly duration: 'end_of_turn' | 'until_next_turn' | 'this_turn' | 'static';
       readonly scaler?: OracleScaler;
       readonly condition?: OracleClauseCondition;
       readonly optional?: boolean;
@@ -960,11 +986,15 @@ export type OracleEffectStep =
   | {
       readonly kind: 'grant_temporary_ability';
       readonly target: OracleObjectSelector;
-      readonly duration: 'end_of_turn' | 'this_turn' | 'until_next_turn';
+      readonly duration: 'end_of_turn' | 'this_turn' | 'until_next_turn' | 'during_resolution';
       /** Keyword-style granted abilities that should behave like transient grantedAbilities. */
       readonly abilities?: readonly string[];
+      /** Legacy compiled-envelope alias for temporary granted ability text. */
+      readonly abilityText?: string;
       /** Additional temporary text that should matter while this effect lasts. */
       readonly effectText?: readonly string[];
+      readonly power?: number;
+      readonly toughness?: number;
       /** Parsed metadata for granted effect text; not executed as part of the host effect. */
       readonly steps?: readonly OracleEffectStep[];
       readonly optional?: boolean;
@@ -976,9 +1006,10 @@ export type OracleEffectStep =
       readonly target: OracleObjectSelector;
       readonly abilities?: readonly string[];
       readonly effectText?: readonly string[];
+      readonly keyword?: string;
       readonly power?: number;
       readonly toughness?: number;
-      readonly duration?: 'static' | 'while_attached';
+      readonly duration?: 'static' | 'while_attached' | 'this_turn' | 'end_of_turn' | 'until_next_turn';
       /** Parsed metadata for granted effect text; not executed as part of the host effect. */
       readonly steps?: readonly OracleEffectStep[];
       readonly optional?: boolean;
@@ -1035,6 +1066,7 @@ export type OracleEffectStep =
       readonly whereX?: OracleClauseCondition;
       readonly source?: OracleObjectSelector;
       readonly target: OracleObjectSelector;
+      readonly who?: OraclePlayerSelector;
       readonly division?: 'as_you_choose' | 'evenly_rounded_down';
       readonly optional?: boolean;
       readonly sequence?: 'then';
@@ -1219,10 +1251,36 @@ export type OracleEffectStep =
         | 'next_end_step'
         | 'your_next_end_step'
         | 'next_upkeep'
-        | 'your_next_upkeep';
+        | 'your_next_upkeep'
+        | 'on_event';
       readonly effect: string;
       /** Parsed metadata for delayed effect text; not executed when scheduling. */
       readonly steps?: readonly OracleEffectStep[];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'grant_cast_permission';
+      readonly who: OraclePlayerSelector;
+      readonly filter?: string;
+      readonly withoutPayingManaCost?: boolean;
+      readonly duration?: string;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'copy_ability';
+      readonly target?: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /** Parser escape hatch for unstructured residual text. */
+      readonly kind: 'raw';
+      readonly text?: string;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
