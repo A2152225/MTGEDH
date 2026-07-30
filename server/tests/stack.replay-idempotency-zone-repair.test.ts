@@ -128,6 +128,38 @@ describe('replay idempotency repairs stale source zones', () => {
     expect(ctx.state.zones.p1.handCount).toBe(0);
   });
 
+  it('removes a resolved instant ghost from the battlefield and preserves its graveyard card', async () => {
+    const { repairAllDualZoneGhosts } = await import('../src/state/modules/stackReplayUtils.js');
+    const card = {
+      id: 'guff_1',
+      name: 'Guff Rewrites History',
+      type_line: 'Instant',
+    };
+    const ctx: any = {
+      state: {
+        zones: {
+          p1: {
+            hand: [],
+            graveyard: [{ ...card, zone: 'graveyard' }],
+            graveyardCount: 1,
+            exile: [],
+          },
+        },
+        battlefield: [{
+          id: 'stack_guff',
+          controller: 'p1',
+          owner: 'p1',
+          card: { ...card, zone: 'battlefield' },
+        }],
+      },
+      libraries: new Map(),
+    };
+
+    expect(repairAllDualZoneGhosts(ctx)).toBe(1);
+    expect(ctx.state.battlefield).toEqual([]);
+    expect(ctx.state.zones.p1.graveyard).toEqual([{ ...card, zone: 'graveyard' }]);
+  });
+
   it('repairGraveyardDualZoneGhosts strips hand ghosts for sacrificed fetch lands', async () => {
     const { repairGraveyardDualZoneGhosts } = await import('../src/state/modules/stackReplayUtils.js');
     const card = {

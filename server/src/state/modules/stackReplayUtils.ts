@@ -102,6 +102,66 @@ export function repairReplayCardSourceZones(
 }
 
 /**
+ * Instants and sorceries cannot exist as face-up battlefield permanents. Replay
+ * ordering bugs can leave the resolved stack snapshot there even though the same
+ * physical card was subsequently moved to another zone. Prefer the real zone and
+ * remove the impossible battlefield object.
+ */
+export function repairNonPermanentBattlefieldGhosts(ctxOrState: any): number {
+  const state = ctxOrState?.state || ctxOrState;
+  if (!state || !Array.isArray(state.battlefield)) return 0;
+
+  const zones = state.zones && typeof state.zones === 'object' ? state.zones : {};
+  const libraries = ctxOrState?.libraries;
+  const removed: any[] = [];
+  const kept = state.battlefield.filter((permanent: any) => {
+    const card = permanent?.card || {};
+    const typeLine = String(card?.type_line || permanent?.type_line || '').toLowerCase();
+    const isFaceDownPermanent = Boolean(
+      permanent?.faceDown
+      || permanent?.isFaceDown
+      || permanent?.manifested
+      || permanent?.cloaked
+      || card?.faceDown
+      || card?.isFaceDown,
+    );
+    const impossibleFaceUpPermanent = !isFaceDownPermanent
+      && (typeLine.includes('instant') || typeLine.includes('sorcery'));
+    if (!impossibleFaceUpPermanent) return true;
+    removed.push(permanent);
+    return false;
+  });
+
+  if (removed.length === 0) return 0;
+  state.battlefield = kept;
+
+  for (const permanent of removed) {
+    const card = permanent?.card || {};
+    const cardId = String(card?.id || '').trim();
+    const ownerId = String(permanent?.owner || permanent?.controller || '').trim();
+    if (!cardId || !ownerId) continue;
+    const ownerZones = zones?.[ownerId];
+    if (!ownerZones) continue;
+
+    const alreadyInZone = ['hand', 'graveyard', 'exile', 'library'].some((zoneName) =>
+      Array.isArray(ownerZones?.[zoneName])
+      && ownerZones[zoneName].some((entry: any) => String(entry?.id || entry?.card?.id || '') === cardId),
+    ) || (
+      libraries instanceof Map
+      && Array.isArray(libraries.get(ownerId))
+      && libraries.get(ownerId).some((entry: any) => String(entry?.id || entry?.card?.id || '') === cardId)
+    );
+    if (!alreadyInZone) {
+      ownerZones.graveyard = Array.isArray(ownerZones.graveyard) ? ownerZones.graveyard : [];
+      ownerZones.graveyard.push({ ...card, zone: 'graveyard' });
+      ownerZones.graveyardCount = ownerZones.graveyard.length;
+    }
+  }
+
+  return removed.length;
+}
+
+/**
  * After undo/replay, a card can sit on the battlefield while a ghost copy with the
  * same card.id remains in hand (snapshot BF-enter when source splice missed).
  * Strip those ghosts from non-battlefield zones for every battlefield card id.
@@ -200,7 +260,8 @@ export function repairExileDualZoneGhosts(ctxOrState: any): number {
 /** Run all dual-zone ghost scrubs used after undo/replay reconcile. */
 export function repairAllDualZoneGhosts(ctxOrState: any): number {
   return (
-    repairBattlefieldDualZoneGhosts(ctxOrState)
+    repairNonPermanentBattlefieldGhosts(ctxOrState)
+    + repairBattlefieldDualZoneGhosts(ctxOrState)
     + repairGraveyardDualZoneGhosts(ctxOrState)
     + repairExileDualZoneGhosts(ctxOrState)
   );
