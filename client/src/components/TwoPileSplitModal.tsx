@@ -5,7 +5,7 @@
  * Lets a player assign a set of items into Pile A / Pile B.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 export interface TwoPileSplitItem {
   id: string;
@@ -22,49 +22,67 @@ export interface TwoPileSplitRequest {
   description: string;
   items: TwoPileSplitItem[];
   minPerPile?: number;
+  pileCount?: number;
   mandatory: boolean;
 }
 
 export interface TwoPileSplitModalProps {
   open: boolean;
   request: TwoPileSplitRequest | null;
-  onRespond: (payload: { pileA: string[]; pileB: string[] }) => void;
+  onRespond: (payload: {
+    piles: string[][];
+    pileA: string[];
+    pileB: string[];
+    pileC?: string[];
+  }) => void;
 }
 
 export function TwoPileSplitModal({ open, request, onRespond }: TwoPileSplitModalProps) {
-  const [assignments, setAssignments] = useState<Record<string, 0 | 1>>({});
+  const [assignments, setAssignments] = useState<Record<string, number>>({});
 
   const items = request?.items || [];
   const minPerPile = request?.minPerPile ?? 0;
+  const pileCount = Math.max(2, Math.floor(request?.pileCount ?? 2));
+
+  useEffect(() => {
+    setAssignments({});
+  }, [request?.stepId]);
 
   const effectiveAssignments = useMemo(() => {
     // Default: put everything in pile A.
-    const base: Record<string, 0 | 1> = {};
+    const base: Record<string, number> = {};
     for (const it of items) base[it.id] = 0;
     return { ...base, ...assignments };
   }, [assignments, items]);
 
-  const { pileA, pileB } = useMemo(() => {
-    const a: string[] = [];
-    const b: string[] = [];
+  const piles = useMemo(() => {
+    const next = Array.from({ length: pileCount }, () => [] as string[]);
     for (const it of items) {
       const which = effectiveAssignments[it.id] ?? 0;
-      (which === 0 ? a : b).push(it.id);
+      next[Math.max(0, Math.min(pileCount - 1, which))].push(it.id);
     }
-    return { pileA: a, pileB: b };
-  }, [effectiveAssignments, items]);
+    return next;
+  }, [effectiveAssignments, items, pileCount]);
 
-  const canSubmit = pileA.length >= minPerPile && pileB.length >= minPerPile;
+  const canSubmit = piles.every((pile) => pile.length >= minPerPile);
 
   if (!open || !request) return null;
 
   const toggle = (id: string) => {
-    setAssignments((prev) => ({ ...prev, [id]: (prev[id] ?? 0) === 0 ? 1 : 0 }));
+    setAssignments((prev) => ({
+      ...prev,
+      [id]: ((prev[id] ?? 0) + 1) % pileCount,
+    }));
   };
 
   const handleSubmit = () => {
     if (!canSubmit) return;
-    onRespond({ pileA, pileB });
+    onRespond({
+      piles,
+      pileA: piles[0] || [],
+      pileB: piles[1] || [],
+      ...(pileCount > 2 ? { pileC: piles[2] || [] } : {}),
+    });
     setAssignments({});
   };
 
@@ -102,26 +120,32 @@ export function TwoPileSplitModal({ open, request, onRespond }: TwoPileSplitModa
             />
           )}
           <div style={{ flex: 1 }}>
-            <h2 style={{ margin: 0, color: '#fff', fontSize: 20 }}>{request.sourceName || 'Separate Into Two Piles'}</h2>
+            <h2 style={{ margin: 0, color: '#fff', fontSize: 20 }}>
+              {request.sourceName || `Separate Into ${pileCount} Piles`}
+            </h2>
             <div style={{ color: '#60a5fa', fontSize: 14, marginTop: 4 }}>{request.description}</div>
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-          <div style={{ flex: 1, color: '#fff' }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Pile A ({pileA.length})</div>
-            <div style={{ fontSize: 12, color: '#aaa' }}>Click a card to move it between piles.</div>
-          </div>
-          <div style={{ flex: 1, color: '#fff' }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Pile B ({pileB.length})</div>
-            <div style={{ fontSize: 12, color: '#aaa' }}>Minimum per pile: {minPerPile}</div>
-          </div>
+          {piles.map((pile, index) => (
+            <div key={index} style={{ flex: 1, color: '#fff' }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                Pile {String.fromCharCode(65 + index)} ({pile.length})
+              </div>
+              <div style={{ fontSize: 12, color: '#aaa' }}>
+                {index === 0 ? 'Click a card to move it to the next pile.' : `Minimum: ${minPerPile}`}
+              </div>
+            </div>
+          ))}
         </div>
 
         <div style={{ marginBottom: 16 }}>
           {items.map((it) => {
             const which = effectiveAssignments[it.id] ?? 0;
-            const pileLabel = which === 0 ? 'Pile A' : 'Pile B';
+            const pileLabel = `Pile ${String.fromCharCode(65 + which)}`;
+            const pileColors = ['#3b82f6', '#10b981', '#a855f7', '#f59e0b'];
+            const pileColor = pileColors[which % pileColors.length];
             return (
               <button
                 key={it.id}
@@ -130,8 +154,8 @@ export function TwoPileSplitModal({ open, request, onRespond }: TwoPileSplitModa
                   width: '100%',
                   padding: 12,
                   marginBottom: 8,
-                  backgroundColor: which === 0 ? 'rgba(59,130,246,0.12)' : 'rgba(16,185,129,0.12)',
-                  border: `2px solid ${which === 0 ? '#3b82f6' : '#10b981'}`,
+                  backgroundColor: `${pileColor}20`,
+                  border: `2px solid ${pileColor}`,
                   borderRadius: 8,
                   color: '#fff',
                   fontSize: 16,

@@ -4616,6 +4616,32 @@ export function chooseAITargetSelectionsForChoiceStep(
   step: any
 ): string[] {
   const validTargets = Array.isArray(step?.validTargets) ? step.validTargets : [];
+  const targetGrouping = step?.targetGrouping;
+  if (targetGrouping?.groupBy === 'controller' && Array.isArray(targetGrouping.groups)) {
+    const sourceCard = resolveChoiceStepSourceCard(game, step) || {
+      name: step?.sourceName || 'Effect',
+      oracle_text: step?.description || '',
+    };
+    const profile = ensureAIDeckProfile(game, playerId);
+    return targetGrouping.groups.flatMap((group: any) => {
+      const groupTargets = Array.isArray(group?.targets) ? group.targets : [];
+      const minForGroup = Math.max(0, Number(group?.minTargets ?? targetGrouping.minTargetsPerGroup ?? 0));
+      const maxForGroup = Math.max(minForGroup, Number(group?.maxTargets ?? targetGrouping.maxTargetsPerGroup ?? 1));
+      const desiredForGroup = Math.min(groupTargets.length, maxForGroup);
+      return groupTargets
+        .map((option: any) => {
+          const target = mapChoiceOptionToTargetRef(game, option);
+          return {
+            id: String(option?.id || ''),
+            score: target ? scoreChoiceTargetFallback(game, playerId, target, sourceCard, profile) : -9999,
+          };
+        })
+        .filter((entry: any) => entry.id)
+        .sort((left: any, right: any) => right.score - left.score)
+        .slice(0, desiredForGroup)
+        .map((entry: any) => entry.id);
+    });
+  }
   const minTargets = Math.max(0, Number(step?.minTargets ?? 0));
   const rawMaxTargets = Number(step?.maxTargets ?? minTargets);
   const maxTargets = Math.max(minTargets, Number.isFinite(rawMaxTargets) ? rawMaxTargets : minTargets);
@@ -10858,8 +10884,12 @@ export async function handleAIResolutionStep(
       
       case 'target_selection': {
         const targetsToSelect = chooseAITargetSelectionsForChoiceStep(game, playerId, step);
-        
-        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(targetsToSelect));
+        const targetResponse = createResponse(targetsToSelect);
+        ResolutionQueueManager.completeStep(gameId, step.id, targetResponse);
+        if ((step as any)?.oracleIrLibraryChaosTargetSelection === true) {
+          const { resolveLibraryChaosTargetSelectionForAI } = await import('./resolution.js');
+          await resolveLibraryChaosTargetSelectionForAI(io, game, gameId, step, targetResponse);
+        }
         debug(1, `[AI] Target selection: Selected ${targetsToSelect.length} target(s)`);
         break;
       }
@@ -10888,6 +10918,10 @@ export async function handleAIResolutionStep(
           timestamp: Date.now(),
         };
         ResolutionQueueManager.completeStep(gameId, step.id, response);
+        if ((step as any)?.oracleIrLibraryChaosCastPrompt === true) {
+          const { resolveLibraryChaosCastChoiceForAI } = await import('./resolution.js');
+          await resolveLibraryChaosCastChoiceForAI(io, game, gameId, step, response);
+        }
         debug(1, `[AI] ${step.type}: Selected ${optionDecision.selections.join(', ') || 'none'}`);
         break;
       }
@@ -11535,20 +11569,37 @@ export async function handleAIResolutionStep(
 
       case 'two_pile_split': {
         const items = Array.isArray((step as any)?.items) ? (step as any).items : [];
-        const pileA: string[] = [];
-        const pileB: string[] = [];
+        const pileCount = Math.max(2, Math.floor(Number((step as any)?.pileCount ?? 2)));
+        const piles = Array.from({ length: pileCount }, () => [] as string[]);
 
         items.forEach((item: any, index: number) => {
           const id = String(item?.id || '');
           if (!id) return;
-          (index % 2 === 0 ? pileA : pileB).push(id);
+          piles[index % pileCount].push(id);
         });
 
         ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
-          pileA,
-          pileB,
+          pileA: piles[0] || [],
+          pileB: piles[1] || [],
+          ...(pileCount > 2 ? { pileC: piles[2] || [] } : {}),
+          ...(pileCount > 2 ? { piles } : {}),
         }));
-        debug(1, `[AI] two_pile_split: pileA=${pileA.length}, pileB=${pileB.length}`);
+        if ((step as any)?.oracleIrSequentialPileSplit === true) {
+          const { resolveSequentialPileSplitForAI } = await import('./resolution.js');
+          await resolveSequentialPileSplitForAI(
+            io,
+            game,
+            gameId,
+            step,
+            createResponse({
+              piles,
+              pileA: piles[0] || [],
+              pileB: piles[1] || [],
+              ...(pileCount > 2 ? { pileC: piles[2] || [] } : {}),
+            }),
+          );
+        }
+        debug(1, `[AI] ${pileCount}-pile split: ${piles.map((pile) => pile.length).join('/')}`);
         break;
       }
 

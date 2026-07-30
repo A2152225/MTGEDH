@@ -3345,6 +3345,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               }
             };
 
+            if ((e as any).targetGrouping && typeof (e as any).targetGrouping === 'object') {
+              applyToStackItem('targetGrouping', (e as any).targetGrouping);
+            }
+
             // Provenance
             if (typeof (e as any).fromZone === 'string' && (e as any).fromZone) {
               const fromZone = String((e as any).fromZone);
@@ -7337,6 +7341,130 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
         } catch (err) {
           debugWarn(1, "applyEvent(sacrificeSelected): failed", err);
+        }
+        break;
+      }
+
+      case "randomPileSacrificeResolved": {
+        // Marker for sequential N-pile random sacrifice. Individual permanents are
+        // already applied via sacrificePermanent events; this only clears the
+        // prompt and advances the RNG cursor so later random effects stay aligned.
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          if (replayGameId && resolvedStepId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              return String(step?.id || '').trim() === resolvedStepId;
+            });
+          }
+
+          const playerOrder = Array.isArray((e as any).playerOrder)
+            ? ((e as any).playerOrder as any[]).map((id: any) => String(id || '').trim()).filter(Boolean)
+            : [];
+          const recorded = (e as any).randomPileByPlayer && typeof (e as any).randomPileByPlayer === 'object'
+            ? (e as any).randomPileByPlayer as Record<string, unknown>
+            : {};
+          const draws = playerOrder.length > 0
+            ? playerOrder.length
+            : Object.keys(recorded).length;
+          for (let i = 0; i < draws; i += 1) {
+            if (typeof ctx.rng === 'function') ctx.rng();
+          }
+        } catch (err) {
+          debugWarn(1, "applyEvent(randomPileSacrificeResolved): failed", err);
+        }
+        break;
+      }
+
+      case "libraryChaosExchangeResolved": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          if (replayGameId && resolvedStepId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) =>
+              String(step?.id || '').trim() === resolvedStepId);
+          }
+
+          const removedIds = new Set(
+            (Array.isArray((e as any).removedPermanents) ? (e as any).removedPermanents : [])
+              .map((entry: any) => String(entry?.id || '').trim())
+              .filter(Boolean),
+          );
+          ctx.state.battlefield = (ctx.state.battlefield || [])
+            .filter((permanent: any) => !removedIds.has(String(permanent?.id || '')));
+
+          const librarySnapshots = (e as any).librarySnapshots && typeof (e as any).librarySnapshots === 'object'
+            ? (e as any).librarySnapshots as Record<string, any[]>
+            : {};
+          const stateAny = ctx.state as any;
+          stateAny.zones = stateAny.zones || {};
+          for (const [playerId, snapshot] of Object.entries(librarySnapshots)) {
+            const library = (Array.isArray(snapshot) ? snapshot : []).map((card: any) => ({
+              ...card,
+              zone: 'library',
+            }));
+            if ((ctx as any).libraries instanceof Map) {
+              (ctx as any).libraries.set(playerId, library);
+            }
+            stateAny.zones[playerId] = stateAny.zones[playerId] || {};
+            stateAny.zones[playerId].library = library;
+            stateAny.zones[playerId].libraryCount = library.length;
+            const player = (stateAny.players || []).find((entry: any) => String(entry?.id || '') === playerId);
+            if (player) player.library = library;
+          }
+
+          const exileAdded = (e as any).exileAddedByPlayer && typeof (e as any).exileAddedByPlayer === 'object'
+            ? (e as any).exileAddedByPlayer as Record<string, any[]>
+            : {};
+          for (const [playerId, cards] of Object.entries(exileAdded)) {
+            stateAny.zones[playerId] = stateAny.zones[playerId] || {};
+            const exile = Array.isArray(stateAny.zones[playerId].exile)
+              ? stateAny.zones[playerId].exile
+              : [];
+            for (const card of Array.isArray(cards) ? cards : []) {
+              if (!exile.some((entry: any) => String(entry?.id || '') === String(card?.id || ''))) {
+                exile.push({ ...card, zone: 'exile' });
+              }
+            }
+            stateAny.zones[playerId].exile = exile;
+            stateAny.zones[playerId].exileCount = exile.length;
+            const player = (stateAny.players || []).find((entry: any) => String(entry?.id || '') === playerId);
+            if (player) player.exile = exile;
+          }
+
+          for (const permanent of Array.isArray((e as any).battlefieldAdded) ? (e as any).battlefieldAdded : []) {
+            const permanentId = String(permanent?.id || '').trim();
+            if (permanentId && !(ctx.state.battlefield || []).some((entry: any) => String(entry?.id || '') === permanentId)) {
+              (ctx.state.battlefield || []).push({ ...permanent, card: { ...(permanent.card || {}) } });
+            }
+          }
+
+          const rngDrawCount = Math.max(0, Math.floor(Number((e as any).rngDrawCount || 0)));
+          for (let i = 0; i < rngDrawCount; i += 1) {
+            if (typeof (ctx as any).rng === 'function') (ctx as any).rng();
+          }
+        } catch (err) {
+          debugWarn(1, "applyEvent(libraryChaosExchangeResolved): failed", err);
+        }
+        break;
+      }
+
+      case "repeatedZoneDraftPick": {
+        // Zone movement is applied by the paired effectProgramZoneMove event.
+        // This marker clears the completed draft prompt; the next chooser prompt
+        // is restored separately via resolveTopOfStackPrompt when present.
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          if (replayGameId && resolvedStepId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              return String(step?.id || '').trim() === resolvedStepId;
+            });
+          }
+        } catch (err) {
+          debugWarn(1, "applyEvent(repeatedZoneDraftPick): failed", err);
         }
         break;
       }

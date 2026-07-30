@@ -126,6 +126,67 @@ export function tryParseOwnedPermanentsShuffleRevealTemplate(rawText: string): O
 const AUCTION_PATTERN =
   /^exile all nontoken permanents\.\s*starting with you,\s*each player chooses one of the exiled cards and puts it onto the battlefield tapped under their control\.\s*repeat this process until all cards exiled this way have been chosen\.?$/i;
 
+const SEPARATE_CONTROLLED_PERMANENTS_PATTERN =
+  /^starting with you,\s*each player separates all permanents they control into three piles\.\s*then each player chooses one of their piles at random and sacrifices those permanents\.?$/i;
+
+const EACH_PLAYER_LIBRARY_CHAOS_PATTERN =
+  /^for each player,\s*choose target (.+?) that player controls\.\s*those permanents' owners shuffle them into their libraries\.\s*each player who controlled one of those permanents exiles cards from the top of their library until they exile a nonland card,\s*then puts the rest on the bottom of their library in a random order\.\s*each player may cast the nonland card they exiled without paying its mana cost\.?$/i;
+
+const SINGLE_TARGET_LIBRARY_CHAOS_PATTERN =
+  /^the owner of target (.+?) shuffles it into their library,\s*then exiles the top card of their library\.\s*if it's a land card,\s*they put it onto the battlefield\.\s*otherwise,\s*they may cast it without paying its mana cost\.?$/i;
+
+export function tryParseLibraryChaosExchangeTemplate(rawText: string): OracleEffectStep[] | null {
+  const normalized = stripReminderAndPhenomena(rawText).replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+
+  const eachPlayerMatch = normalized.match(EACH_PLAYER_LIBRARY_CHAOS_PATTERN);
+  if (eachPlayerMatch) {
+    return [{
+      kind: 'library_chaos_exchange',
+      targetMode: 'one_per_player',
+      target: parseObjectSelector(String(eachPlayerMatch[1] || '').trim()),
+      exileMode: 'until_nonland',
+      mayCastNonlandWithoutPayingManaCost: true,
+      bottomRestRandom: true,
+      raw: normalized,
+    } as OracleEffectStep];
+  }
+
+  const singleTargetMatch = normalized.match(SINGLE_TARGET_LIBRARY_CHAOS_PATTERN);
+  if (singleTargetMatch) {
+    return [{
+      kind: 'library_chaos_exchange',
+      targetMode: 'single_target',
+      target: parseObjectSelector(`target ${String(singleTargetMatch[1] || '').trim()}`),
+      exileMode: 'top_card',
+      putLandOntoBattlefield: true,
+      mayCastNonlandWithoutPayingManaCost: true,
+      raw: normalized,
+    } as OracleEffectStep];
+  }
+
+  return null;
+}
+
+/** Parse an N-pile, per-player partition followed by a random pile action. */
+export function tryParseSeparateControlledPermanentsIntoPilesTemplate(
+  rawText: string,
+): OracleEffectStep[] | null {
+  const normalized = stripReminderAndPhenomena(rawText).replace(/\s+/g, ' ').trim();
+  if (!SEPARATE_CONTROLLED_PERMANENTS_PATTERN.test(normalized)) return null;
+
+  return [{
+    kind: 'separate_into_piles',
+    who: { kind: 'each_player' },
+    what: parseObjectSelector('all permanents they control'),
+    pileCount: 3,
+    startingWith: { kind: 'you' },
+    allowEmptyPiles: true,
+    randomPileAction: 'sacrifice',
+    raw: normalized,
+  } as OracleEffectStep];
+}
+
 /**
  * Parse Thieves' Auction style: mass nontoken exile + repeated rotating zone draft.
  */
@@ -171,8 +232,20 @@ function abilityEffectText(ability: OracleIRAbility): string {
  */
 export function expandChaosZoneTemplateAbilities(
   abilities: readonly OracleIRAbility[],
+  fullOracleText?: string,
 ): OracleIRAbility[] {
-  if (!Array.isArray(abilities) || abilities.length === 0) return abilities as OracleIRAbility[];
+  if (!Array.isArray(abilities)) return [];
+  if (abilities.length === 0) {
+    const fullText = String(fullOracleText || '').trim();
+    const libraryChaosSteps = tryParseLibraryChaosExchangeTemplate(fullText);
+    if (!libraryChaosSteps) return [];
+    return [{
+      type: 'spell',
+      text: fullText,
+      effectText: fullText,
+      steps: libraryChaosSteps,
+    } as OracleIRAbility];
+  }
 
   // Merge consecutive spell/static fragments that together form auction text.
   const mergedTexts: { start: number; end: number; text: string; ability: OracleIRAbility }[] = [];
@@ -186,6 +259,28 @@ export function expandChaosZoneTemplateAbilities(
   let changed = false;
   const next: OracleIRAbility[] = abilities.map((ability) => {
     const text = abilityEffectText(ability);
+    const pileSteps = tryParseSeparateControlledPermanentsIntoPilesTemplate(text);
+    if (pileSteps) {
+      changed = true;
+      return {
+        ...ability,
+        type: 'spell',
+        steps: pileSteps,
+        effectText: text,
+      } as OracleIRAbility;
+    }
+
+    const libraryChaosSteps = tryParseLibraryChaosExchangeTemplate(text);
+    if (libraryChaosSteps) {
+      changed = true;
+      return {
+        ...ability,
+        type: 'spell',
+        steps: libraryChaosSteps,
+        effectText: text,
+      } as OracleIRAbility;
+    }
+
     const warpSteps = tryParseOwnedPermanentsShuffleRevealTemplate(text);
     if (warpSteps) {
       changed = true;

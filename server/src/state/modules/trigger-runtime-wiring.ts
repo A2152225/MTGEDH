@@ -90,6 +90,8 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'add_extra_combat',
   'take_extra_turn',
   'repeated_zone_draft',
+  'separate_into_piles',
+  'library_chaos_exchange',
 ]);
 
 /** Optional trigger steps with explicit runtime handlers outside the spell fallback. */

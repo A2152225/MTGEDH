@@ -1815,6 +1815,7 @@ function shouldPreferParsedTargetReqs(
   targetReqs: ReturnType<typeof parseTargetRequirements> | null | undefined,
 ): boolean {
   if (!targetReqs?.needsTargets) return false;
+  if (targetReqs.groupedTargets) return true;
   if (targetReqs.perOpponent === true) return true;
   return Array.isArray(targetReqs.targetTypes)
     && targetReqs.targetTypes.some((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'));
@@ -1855,6 +1856,10 @@ export function buildSpellTargetListFromRequirements(game: any, playerId: string
         const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
         if (targetControllerConstraint === 'you' && String(permanent?.controller || '') !== playerId) return false;
         if (targetControllerConstraint === 'opponent' && String(permanent?.controller || '') === playerId) return false;
+        const excludedTypes = Array.isArray(targetReqs?.targetFilterExcludeTypes)
+          ? targetReqs.targetFilterExcludeTypes.map((type: unknown) => String(type || '').toLowerCase())
+          : [];
+        if (excludedTypes.some((type: string) => type && typeLine.includes(type))) return false;
         if (targetTypeLower === 'permanent') return true;
         if (targetTypeLower.includes('nonland')) return !typeLine.includes('land');
         if (targetTypeLower.includes('noncreature')) return !typeLine.includes('creature');
@@ -1979,6 +1984,72 @@ export function buildSpellTargetListFromRequirements(game: any, playerId: string
   }
 
   return validTargetList.filter((target, index, all) => all.findIndex((candidate) => String(candidate.id) === String(target.id)) === index);
+}
+
+export function buildGroupedSpellTargetMetadata(
+  game: any,
+  casterId: string,
+  targetReqs: any,
+  validTargets: readonly any[],
+): { metadata?: any; missingRequiredPlayerIds: string[] } {
+  const requirement = targetReqs?.groupedTargets;
+  if (!requirement || requirement.groupBy !== 'controller') {
+    return { missingRequiredPlayerIds: [] };
+  }
+
+  const eligiblePlayers = (Array.isArray(game?.state?.players) ? game.state.players : [])
+    .filter((player: any) =>
+      player?.id &&
+      !player.spectator &&
+      !player.isSpectator &&
+      !player.hasLost &&
+      !player.eliminated &&
+      !player.conceded &&
+      (requirement.groupPlayers !== 'each_opponent' || String(player.id) !== String(casterId)),
+    );
+  const scopedPlayers = Number.isFinite(requirement.maxGroups)
+    ? eligiblePlayers.slice(0, Math.max(0, Number(requirement.maxGroups)))
+    : eligiblePlayers;
+  const minTargetsPerGroup = Math.max(0, Number(requirement.minTargetsPerGroup ?? 0));
+  const maxTargetsPerGroup = Math.max(minTargetsPerGroup, Number(requirement.maxTargetsPerGroup ?? 1));
+  const groups = scopedPlayers.map((player: any) => {
+    const targets = validTargets
+      .filter((target: any) => String(target?.controller || '') === String(player.id))
+      .map((target: any) => ({
+        id: String(target.id),
+        label: target.name || target.label || 'Target',
+        description: target.kind || target.description || 'permanent',
+        imageUrl: target.imageUrl,
+        type: target.kind === 'player' ? 'player' : (target.kind === 'stack' ? 'stack' : 'permanent'),
+        controller: String(player.id),
+        typeLine: target.typeLine,
+        life: target.life,
+        isOpponent: String(player.id) !== String(casterId),
+      }));
+    return {
+      playerId: String(player.id),
+      label: String(player.name || player.id),
+      required: minTargetsPerGroup > 0,
+      minTargets: minTargetsPerGroup,
+      maxTargets: maxTargetsPerGroup,
+      targets,
+    };
+  });
+  const missingRequiredPlayerIds = groups
+    .filter((group: any) => group.required && group.targets.length < group.minTargets)
+    .map((group: any) => group.playerId);
+
+  return {
+    metadata: {
+      groupBy: 'controller',
+      groupPlayers: requirement.groupPlayers,
+      minTargetsPerGroup,
+      maxTargetsPerGroup,
+      ...(Number.isFinite(requirement.maxGroups) ? { maxGroups: Number(requirement.maxGroups) } : {}),
+      groups,
+    },
+    missingRequiredPlayerIds,
+  };
 }
 
 function buildSpellTargetSelectionClauses(
@@ -6566,8 +6637,31 @@ export async function requestCastSpellForSocket(
         validTargetList = buildSpellTargetListFromRequirements(game, String(playerId), targetReqs);
       }
 
+      const groupedTargetResult = buildGroupedSpellTargetMetadata(
+        game,
+        String(playerId),
+        targetReqs,
+        validTargetList,
+      );
+      const targetGrouping = groupedTargetResult.metadata;
+      if (groupedTargetResult.missingRequiredPlayerIds.length > 0) {
+        socket.emit("error", {
+          code: "NO_VALID_TARGETS",
+          message: `Cannot cast ${cardName}: no legal target for ${groupedTargetResult.missingRequiredPlayerIds
+            .map((id) => getPlayerName(game, id))
+            .join(', ')}`,
+        });
+        return;
+      }
+      const groupedMinTargets = targetGrouping
+        ? targetGrouping.groups.reduce((sum: number, group: any) => sum + Number(group.minTargets || 0), 0)
+        : requiredMinTargets;
+      const groupedMaxTargets = targetGrouping
+        ? targetGrouping.groups.reduce((sum: number, group: any) => sum + Math.min(Number(group.maxTargets || 0), group.targets.length), 0)
+        : requiredMaxTargets;
+
       if (validTargetList.length === 0) {
-        if (requiredMinTargets > 0) {
+        if (groupedMinTargets > 0) {
           if ((game.state as any).pendingSpellCasts?.[effectId]) {
             delete (game.state as any).pendingSpellCasts[effectId];
           }
@@ -6613,6 +6707,7 @@ export async function requestCastSpellForSocket(
           selectedSpreeModes: Array.isArray((cardForCast as any).selectedSpreeModes) ? [...((cardForCast as any).selectedSpreeModes as string[])] : undefined,
           castWithEntwine: (cardForCast as any).castWithEntwine === true,
           validTargetIds: validTargetList.map((t: any) => t.id),
+          ...(targetGrouping ? { targetGrouping } : {}),
           card: { ...cardForCast },
           ...warpPaymentExtras,
           ...getPendingCastPaymentFields(paymentMetadata, paymentCostAdjustment),
@@ -7108,9 +7203,24 @@ export async function requestCastSpellForSocket(
               };
             }),
             targetTypes: [isAura ? 'aura_target' : 'spell_target'],
-            minTargets: requiredMinTargets,
-            maxTargets: requiredMaxTargets,
+            minTargets: groupedMinTargets,
+            maxTargets: groupedMaxTargets,
             targetDescription,
+            ...(targetGrouping
+              ? {
+                  targetGrouping,
+                  perOpponent: targetGrouping.groupPlayers === 'each_opponent',
+                  targetsPerOpponent: targetGrouping.groupPlayers === 'each_opponent'
+                    ? Object.fromEntries(targetGrouping.groups.map((group: any) => [group.playerId, group.targets]))
+                    : undefined,
+                  minTargetsPerOpponent: targetGrouping.groupPlayers === 'each_opponent'
+                    ? targetGrouping.minTargetsPerGroup
+                    : undefined,
+                  maxTargetsPerOpponent: targetGrouping.groupPlayers === 'each_opponent'
+                    ? targetGrouping.maxTargetsPerGroup
+                    : undefined,
+                }
+              : {}),
             spellCastContext: {
               cardId,
               cardName,
@@ -7126,6 +7236,7 @@ export async function requestCastSpellForSocket(
               castWithoutPayingManaCost: isFreeCast,
               bypassExilePermissionCheck,
               xValue: chosenXValue,
+              ...(targetGrouping ? { targetGrouping } : {}),
             },
           });
 
@@ -7154,9 +7265,24 @@ export async function requestCastSpellForSocket(
               };
             }),
             targetTypes: [isAura ? 'aura_target' : 'spell_target'],
-            minTargets: requiredMinTargets,
-            maxTargets: requiredMaxTargets,
+            minTargets: groupedMinTargets,
+            maxTargets: groupedMaxTargets,
             targetDescription,
+            ...(targetGrouping
+              ? {
+                  targetGrouping,
+                  perOpponent: targetGrouping.groupPlayers === 'each_opponent',
+                  targetsPerOpponent: targetGrouping.groupPlayers === 'each_opponent'
+                    ? Object.fromEntries(targetGrouping.groups.map((group: any) => [group.playerId, group.targets]))
+                    : undefined,
+                  minTargetsPerOpponent: targetGrouping.groupPlayers === 'each_opponent'
+                    ? targetGrouping.minTargetsPerGroup
+                    : undefined,
+                  maxTargetsPerOpponent: targetGrouping.groupPlayers === 'each_opponent'
+                    ? targetGrouping.maxTargetsPerGroup
+                    : undefined,
+                }
+              : {}),
             spellCastContext: {
               cardId,
               cardName,
@@ -7172,6 +7298,7 @@ export async function requestCastSpellForSocket(
               castWithoutPayingManaCost: isFreeCast,
               bypassExilePermissionCheck,
               xValue: chosenXValue,
+              ...(targetGrouping ? { targetGrouping } : {}),
             },
           };
 
@@ -10394,6 +10521,29 @@ export function registerGameActions(io: Server, socket: Socket) {
             });
             return;
           }
+
+          const groupedTargetResult = buildGroupedSpellTargetMetadata(
+            game,
+            String(playerId),
+            targetReqs,
+            validTargetList,
+          );
+          const targetGrouping = groupedTargetResult.metadata;
+          if (groupedTargetResult.missingRequiredPlayerIds.length > 0) {
+            socket.emit("error", {
+              code: "NO_VALID_TARGETS",
+              message: `Cannot cast ${cardInHand.name}: no legal target for ${groupedTargetResult.missingRequiredPlayerIds
+                .map((id) => getPlayerName(game, id))
+                .join(', ')}`,
+            });
+            return;
+          }
+          const groupedMinTargets = targetGrouping
+            ? targetGrouping.groups.reduce((sum: number, group: any) => sum + Number(group.minTargets || 0), 0)
+            : requiredMinTargets;
+          const groupedMaxTargets = targetGrouping
+            ? targetGrouping.groups.reduce((sum: number, group: any) => sum + Math.min(Number(group.maxTargets || 0), group.targets.length), 0)
+            : requiredMaxTargets;
           
           // Emit target selection request
           const targetDescription = preferParsedTargetReqs
@@ -10424,6 +10574,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             castWithEntwine: (cardInHand as any).castWithEntwine === true,
             entwineCost,
             validTargetIds: validTargetList.map((t: any) => t.id),
+            ...(targetGrouping ? { targetGrouping } : {}),
             card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
             ...getPendingCastPaymentFields(paymentMetadata),
             forcedAlternateCostId: alternateCostId,
@@ -10433,21 +10584,10 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           // Check for per-opponent targeting (e.g., Dismantling Wave)
           // For these spells, group targets by controller and let player select one per opponent
-          if (targetReqs?.perOpponent) {
-            const opponents = (game.state.players || []).filter((p: any) => p.id !== playerId);
-            const targetsPerOpponent: Record<string, typeof validTargetList> = {};
-            
-            // Group valid targets by their controller (opponent)
-            for (const target of validTargetList) {
-              if (target.controller && target.controller !== playerId) {
-                if (!targetsPerOpponent[target.controller]) {
-                  targetsPerOpponent[target.controller] = [];
-                }
-                targetsPerOpponent[target.controller].push(target);
-              }
-            }
-            
-            // Use Resolution Queue for per-opponent target selection
+          if (targetGrouping) {
+            const legacyTargetsPerOpponent = targetGrouping.groupPlayers === 'each_opponent'
+              ? Object.fromEntries(targetGrouping.groups.map((group: any) => [group.playerId, group.targets]))
+              : undefined;
             const perOpponentTargetStep = ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.TARGET_SELECTION,
               playerId: playerId as PlayerID,
@@ -10464,24 +10604,15 @@ export function registerGameActions(io: Server, socket: Socket) {
                 controller: t.controller,
               })),
               targetTypes: ['spell_target'],
-              minTargets: requiredMinTargets * Object.keys(targetsPerOpponent).length, // Adjusted for per-opponent
-              maxTargets: requiredMaxTargets * Object.keys(targetsPerOpponent).length,
+              minTargets: groupedMinTargets,
+              maxTargets: groupedMaxTargets,
               targetDescription,
-              perOpponent: true,
-              targetsPerOpponent: Object.fromEntries(
-                Object.entries(targetsPerOpponent).map(([oppId, targets]) => [
-                  oppId,
-                  targets.map((t: any) => ({
-                    id: t.id,
-                    label: t.name,
-                    description: t.kind,
-                    imageUrl: t.imageUrl,
-                  }))
-                ])
-              ),
-              opponents: opponents.map((p: any) => ({ id: p.id, name: p.name || p.id })),
-              minTargetsPerOpponent: requiredMinTargets,
-              maxTargetsPerOpponent: requiredMaxTargets,
+              targetGrouping,
+              perOpponent: targetGrouping.groupPlayers === 'each_opponent',
+              ...(legacyTargetsPerOpponent ? { targetsPerOpponent: legacyTargetsPerOpponent } : {}),
+              opponents: targetGrouping.groups.map((group: any) => ({ id: group.playerId, name: group.label || group.playerId })),
+              minTargetsPerOpponent: targetGrouping.minTargetsPerGroup,
+              maxTargetsPerOpponent: targetGrouping.maxTargetsPerGroup,
               spellCastContext: {
                 cardId,
                 cardName: cardInHand.name,
@@ -10490,6 +10621,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 effectId,
                 oracleText,
                 imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+                targetGrouping,
               },
             });
 
@@ -10505,7 +10637,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               },
             });
             
-            debug(2, `[castSpellFromHand] Added TARGET_SELECTION step for per-opponent targets for ${cardInHand.name} (${opponents.length} opponents, ${requiredMinTargets}-${requiredMaxTargets} targets each)`);
+            debug(2, `[castSpellFromHand] Added grouped TARGET_SELECTION step for ${cardInHand.name} (${targetGrouping.groups.length} players)`);
             return; // Wait for target selection via Resolution Queue
           }
           
@@ -11938,6 +12070,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               manaCost: castSourceZone === 'command' ? (commandZoneManaCost || cardInHand.mana_cost) : cardInHand.mana_cost,
               cardTypes: (cardInHand.type_line || '').split('ΓÇö').map((s: string) => s.trim()),
               targets: targets || [],
+              ...((targets as any)?.targetGrouping ? { targetGrouping: (targets as any).targetGrouping } : {}),
             });
             
             if (!result.success) {
@@ -12860,6 +12993,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         const persistedCastStackItem = Array.isArray(game.state.stack) && game.state.stack.length > 0
           ? game.state.stack[game.state.stack.length - 1]
           : undefined;
+        if (persistedCastStackItem && (targets as any)?.targetGrouping) {
+          (persistedCastStackItem as any).targetGrouping = (targets as any).targetGrouping;
+        }
         const persistedCastMetadata = (() => {
           const stackItem: any = persistedCastStackItem;
           if (!stackItem) return {};
@@ -12946,6 +13082,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           playerId, 
           cardId, 
           targets,
+          ...((targets as any)?.targetGrouping ? { targetGrouping: (targets as any).targetGrouping } : {}),
           ...(persistedCastStackItem?.id ? { stackItemId: String(persistedCastStackItem.id) } : {}),
           // Include full card data for replay to work correctly after server restart
           card: { ...cardInHand, ...(castSourceZone === 'command' ? { isCommander: true } : {}) },
@@ -13488,6 +13625,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       let pendingAlternateCostId: string | undefined;
       let pendingXValue: number | undefined;
       let pendingFaceIndex: number | undefined;
+      let pendingTargetGrouping: any;
       let suspendedLibrarySearchStep: any;
       let deferredMadnessPromptStepsAfterCast: any[] = [];
 
@@ -13523,6 +13661,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             : (typeof pendingCast?.alternateCostId === 'string' ? pendingCast.alternateCostId : undefined);
           pendingXValue = Number.isFinite(pendingCast?.xValue) ? Math.max(0, Math.floor(Number(pendingCast.xValue))) : undefined;
           pendingFaceIndex = Number.isFinite(pendingCast?.faceIndex) ? Number(pendingCast.faceIndex) : undefined;
+          pendingTargetGrouping = pendingCast?.targetGrouping;
           deferredMadnessPromptStepsAfterCast = Array.isArray(pendingCast?.queuedMadnessStepsAfterCast)
             ? pendingCast.queuedMadnessStepsAfterCast
                 .filter((step: any) => step && typeof step === 'object' && !Array.isArray(step))
@@ -13657,6 +13796,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         if (finalTargets) {
           (finalTargets as any).additionalCostPaid = pendingCast.additionalCostPaid === true;
           (finalTargets as any).additionalCostMethod = pendingCast.additionalCostMethod;
+          if (pendingTargetGrouping) {
+            (finalTargets as any).targetGrouping = pendingTargetGrouping;
+          }
         }
         
         // CRITICAL FIX: Validate that spell has required targets before allowing cast

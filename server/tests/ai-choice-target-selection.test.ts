@@ -19,6 +19,55 @@ function createPermanent(id: string, controller: string, card: any) {
 }
 
 describe('AI choice target selection', () => {
+  it('selects independently from every required controller group', () => {
+    const playerId = 'ai1' as PlayerID;
+    const battlefield = [
+      createPermanent('own_rock', playerId, { name: 'Mana Rock', type_line: 'Artifact' }),
+      createPermanent('opp_small', 'opp1', { name: 'Small Bear', type_line: 'Creature', power: '2', toughness: '2' }),
+      createPermanent('opp_large', 'opp1', { name: 'Large Threat', type_line: 'Creature', power: '8', toughness: '8' }),
+    ];
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI'), createPlayer('opp1', 'Opponent')],
+        battlefield,
+        zones: { [playerId]: { hand: [] } },
+      },
+    } as any;
+    const groups = [
+      {
+        playerId,
+        minTargets: 1,
+        maxTargets: 1,
+        targets: [{ id: 'own_rock', label: 'Mana Rock', type: 'permanent', controller: playerId }],
+      },
+      {
+        playerId: 'opp1',
+        minTargets: 1,
+        maxTargets: 1,
+        targets: [
+          { id: 'opp_small', label: 'Small Bear', type: 'permanent', controller: 'opp1' },
+          { id: 'opp_large', label: 'Large Threat', type: 'permanent', controller: 'opp1' },
+        ],
+      },
+    ];
+    const selections = chooseAITargetSelectionsForChoiceStep(game, playerId, {
+      sourceName: 'Grouped Removal',
+      description: 'Destroy each target permanent.',
+      minTargets: 2,
+      maxTargets: 2,
+      validTargets: groups.flatMap((group) => group.targets),
+      targetGrouping: {
+        groupBy: 'controller',
+        groupPlayers: 'each_player',
+        minTargetsPerGroup: 1,
+        maxTargetsPerGroup: 1,
+        groups,
+      },
+    });
+
+    expect(selections).toEqual(['own_rock', 'opp_large']);
+  });
+
   it('prefers hostile combo-engine targets during target selection steps', () => {
     const playerId = 'ai1' as PlayerID;
     const game = {

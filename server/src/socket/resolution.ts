@@ -43,7 +43,7 @@ import {
   refundGenericManaPayment,
   getFloatingPaymentPoolColorKey,
 } from "./util.js";
-import { validatePerOpponentTargetSelections } from "./perOpponentTargetValidation.js";
+import { validateGroupedTargetSelections, validatePerOpponentTargetSelections } from "./perOpponentTargetValidation.js";
 import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
 import { cardManaValue, parsePT, uid, calculateVariablePT, validateLifePayment } from "../state/utils.js";
@@ -149,6 +149,12 @@ import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.
 import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
 import { resolveLandWouldEnterSacrificeChoice, resolveWouldEnterDiscardLandChoice } from "../state/modules/land-would-enter-replacement.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
+import {
+  executeLibraryChaosExchange,
+  permanentMatchesLibraryChaosTarget,
+  queueLibraryChaosCastOffers,
+  type LibraryChaosExchangeStep,
+} from "../state/modules/oracleIrLibraryChaosExchange.js";
 import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
 import { buildResolutionEventDataFromGameState, buildTriggeredAbilityEventDataFromChoices, executeTriggeredAbilityEffectWithOracleIR } from "../../../rules-engine/src/triggeredAbilities.js";
@@ -4162,24 +4168,29 @@ async function handleAIResolutionStep(
       case ResolutionStepType.TWO_PILE_SPLIT: {
         const splitStep = step as any;
         const items: any[] = Array.isArray(splitStep.items) ? splitStep.items : [];
+        const pileCount = Math.max(2, Math.floor(Number(splitStep.pileCount ?? 2)));
 
-        // Simple AI: alternate items between piles.
-        const pileA: string[] = [];
-        const pileB: string[] = [];
+        // Simple AI: distribute items evenly among all requested piles.
+        const piles = Array.from({ length: pileCount }, () => [] as string[]);
         items.forEach((it: any, idx: number) => {
           const id = String(it?.id || '');
           if (!id) return;
-          (idx % 2 === 0 ? pileA : pileB).push(id);
+          piles[idx % pileCount].push(id);
         });
 
         response = {
           stepId: step.id,
           playerId: step.playerId,
-          selections: { pileA, pileB },
+          selections: {
+            pileA: piles[0] || [],
+            pileB: piles[1] || [],
+            ...(pileCount > 2 ? { pileC: piles[2] || [] } : {}),
+            ...(pileCount > 2 ? { piles } : {}),
+          },
           cancelled: false,
           timestamp: Date.now(),
         };
-        debug(2, `[Resolution] AI two-pile split: pileA=${pileA.length}, pileB=${pileB.length}`);
+        debug(2, `[Resolution] AI ${pileCount}-pile split: ${piles.map((pile) => pile.length).join('/')}`);
         break;
       }
       
@@ -6955,21 +6966,30 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         const allowed = new Set(itemIds);
 
         const raw: any = response.selections as any;
-        let pileAIn: any[] | null = null;
-        let pileBIn: any[] | null = null;
+        const pileCount = Math.max(2, Math.floor(Number(stepAny.pileCount ?? 2)));
+        let pilesIn: any[][] | null = null;
 
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-          if (Array.isArray(raw.pileA) && Array.isArray(raw.pileB)) {
-            pileAIn = raw.pileA;
-            pileBIn = raw.pileB;
-          } else if (Array.isArray(raw.piles) && raw.piles.length === 2 && Array.isArray(raw.piles[0]) && Array.isArray(raw.piles[1])) {
-            pileAIn = raw.piles[0];
-            pileBIn = raw.piles[1];
+          if (
+            Array.isArray(raw.piles)
+            && raw.piles.length === pileCount
+            && raw.piles.every((pile: any) => Array.isArray(pile))
+          ) {
+            pilesIn = raw.piles;
+          } else if (pileCount === 2 && Array.isArray(raw.pileA) && Array.isArray(raw.pileB)) {
+            pilesIn = [raw.pileA, raw.pileB];
+          } else if (
+            pileCount === 3
+            && Array.isArray(raw.pileA)
+            && Array.isArray(raw.pileB)
+            && Array.isArray(raw.pileC)
+          ) {
+            pilesIn = [raw.pileA, raw.pileB, raw.pileC];
           }
         }
 
-        if (!pileAIn || !pileBIn) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid two-pile split format' });
+        if (!pilesIn) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: `Invalid ${pileCount}-pile split format` });
           return;
         }
 
@@ -6980,26 +7000,28 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             .map((x: any) => String(x))
             .filter((x: string) => x.trim().length > 0);
 
-        const pileA = normalizeIds(pileAIn);
-        const pileB = normalizeIds(pileBIn);
-
-        const all = [...pileA, ...pileB];
+        const piles = pilesIn.map(normalizeIds);
+        const all = piles.flat();
         const seen = new Set(all);
         if (seen.size !== all.length) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate item assigned in two-pile split' });
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate item assigned in pile split' });
           return;
         }
         if (all.some((id) => !allowed.has(String(id)))) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Two-pile split contains invalid item id' });
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Pile split contains invalid item id' });
           return;
         }
         if (itemIds.length !== seen.size) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Two-pile split must assign all items' });
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Pile split must assign all items' });
           return;
         }
 
         const minPerPile = Number(stepAny.minPerPile ?? 0);
-        if (Number.isFinite(minPerPile) && minPerPile > 0 && (pileA.length < minPerPile || pileB.length < minPerPile)) {
+        if (
+          Number.isFinite(minPerPile)
+          && minPerPile > 0
+          && piles.some((pile) => pile.length < minPerPile)
+        ) {
           socket.emit('error', { code: 'INVALID_SELECTION', message: `Each pile must contain at least ${minPerPile} item(s)` });
           return;
         }
@@ -9734,6 +9756,7 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
     case ResolutionStepType.TWO_PILE_SPLIT:
       if ('items' in step) fields.items = (step as any).items;
       if ('minPerPile' in step) fields.minPerPile = (step as any).minPerPile;
+      if ('pileCount' in step) fields.pileCount = (step as any).pileCount;
       break;
       
     case ResolutionStepType.KYNAIOS_CHOICE:
@@ -17986,6 +18009,97 @@ async function handleTargetSelectionResponse(
   const minTargets = targetStepData.minTargets || 0;
   const maxTargets = targetStepData.maxTargets || Infinity;
 
+  if ((step as any).oracleIrLibraryChaosTargetSelection === true) {
+    const stepData = step as any;
+    const selectedId = String(selections[0] || '').trim();
+    const targetControllers = (Array.isArray(stepData.oracleIrLibraryChaosTargetControllers)
+      ? stepData.oracleIrLibraryChaosTargetControllers
+      : [])
+      .map((id: any) => String(id || '').trim())
+      .filter(Boolean);
+    const currentIndex = Math.max(0, Number(stepData.oracleIrLibraryChaosTargetIndex) || 0);
+    const expectedController = String(targetControllers[currentIndex] || '').trim();
+    const parsedStep = JSON.parse(String(stepData.oracleIrLibraryChaosStepJson || '{}')) as LibraryChaosExchangeStep;
+    const targetText = String((parsedStep.target as any)?.text || (parsedStep.target as any)?.raw || '');
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const selectedPermanent = battlefield.find((permanent: any) =>
+      String(permanent?.id || '') === selectedId
+      && String(permanent?.controller || '') === expectedController
+      && permanentMatchesLibraryChaosTarget(permanent, targetText),
+    );
+    if (!selectedPermanent) {
+      debugWarn(1, '[Resolution] Library chaos exchange target is no longer legal');
+      return;
+    }
+
+    const selectedIds = [
+      ...(Array.isArray(stepData.oracleIrLibraryChaosSelectedIds)
+        ? stepData.oracleIrLibraryChaosSelectedIds
+        : []),
+      selectedId,
+    ];
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < targetControllers.length) {
+      const nextController = targetControllers[nextIndex];
+      const nextValidTargets = battlefield
+        .filter((permanent: any) =>
+          String(permanent?.controller || '') === nextController
+          && permanentMatchesLibraryChaosTarget(permanent, targetText),
+        )
+        .map((permanent: any) => ({
+          id: String(permanent?.id || ''),
+          label: String(permanent?.card?.name || permanent?.id || 'Permanent'),
+          description: String(permanent?.card?.type_line || 'permanent'),
+          imageUrl: permanent?.card?.image_uris?.normal || permanent?.card?.image_uris?.small,
+          controller: nextController,
+        }));
+      const nextStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: pid,
+        description: `${String(stepData.sourceName || 'Ability')}: Choose a ${targetText} controlled by ${nextController}`,
+        mandatory: true,
+        sourceId: stepData.sourceId,
+        sourceName: stepData.sourceName,
+        validTargets: nextValidTargets,
+        targetTypes: ['permanent'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: targetText,
+        oracleIrLibraryChaosTargetSelection: true,
+        oracleIrLibraryChaosStepJson: stepData.oracleIrLibraryChaosStepJson,
+        oracleIrLibraryChaosTargetControllers: targetControllers,
+        oracleIrLibraryChaosTargetIndex: nextIndex,
+        oracleIrLibraryChaosSelectedIds: selectedIds,
+        oracleIrControllerId: stepData.oracleIrControllerId,
+        oracleIrSourceId: stepData.oracleIrSourceId,
+        oracleIrSourceName: stepData.oracleIrSourceName,
+      } as any);
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: String(pid),
+        sourceId: String(stepData.sourceId || '').trim(),
+        queuedResolutionStep: nextStep,
+      });
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const execution = executeLibraryChaosExchange(ctx, parsedStep, selectedIds, {
+      sourceId: String(stepData.sourceId || '').trim() || undefined,
+      sourceName: String(stepData.sourceName || 'Ability'),
+      resolvedStepId: String(stepData.id || ''),
+    });
+    queueLibraryChaosCastOffers(ctx, execution.castOffers, {
+      sourceId: String(stepData.sourceId || '').trim() || undefined,
+      sourceName: String(stepData.sourceName || 'Ability'),
+    });
+    game.state = ctx.state;
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   const emitPendingCastPaymentIfNeeded = (effectId: string, payerId: string) => {
     if (!effectId) return;
     const pendingCast = (game.state as any)?.pendingSpellCasts?.[effectId];
@@ -18184,7 +18298,49 @@ async function handleTargetSelectionResponse(
     return;
   }
 
-  if ((step as any)?.perOpponent === true) {
+  const targetGrouping = (step as any)?.targetGrouping;
+  if (targetGrouping?.groupBy === 'controller' && Array.isArray(targetGrouping.groups)) {
+    const groupedError = validateGroupedTargetSelections({
+      selections: uniqueSelections,
+      validTargets: validTargets.map((target: any) => ({
+        id: String(target.id || ''),
+        controller: String(target.controller || ''),
+      })),
+      groups: targetGrouping.groups.map((group: any) => ({
+        playerId: String(group.playerId || ''),
+        targets: Array.isArray(group.targets)
+          ? group.targets.map((target: any) => ({
+              id: String(target.id || ''),
+              controller: String(target.controller || group.playerId || ''),
+            }))
+          : [],
+        minTargets: Number(group.minTargets ?? targetGrouping.minTargetsPerGroup ?? 0),
+        maxTargets: Number(group.maxTargets ?? targetGrouping.maxTargetsPerGroup ?? 1),
+        required: group.required === true,
+      })),
+      minTargetsPerGroup: Number(targetGrouping.minTargetsPerGroup ?? 0),
+      maxTargetsPerGroup: Number(targetGrouping.maxTargetsPerGroup ?? 1),
+    });
+    if (groupedError) {
+      debugWarn(1, `[Resolution] Invalid grouped target selection: ${groupedError}`);
+      return;
+    }
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    for (const selectedId of uniqueSelections) {
+      const option = validTargets.find((target: any) => String(target.id) === String(selectedId)) as any;
+      if (option?.type !== 'permanent' && option?.description !== 'permanent') continue;
+      const permanent = battlefield.find((entry: any) => String(entry?.id || '') === String(selectedId));
+      if (
+        !permanent ||
+        String(permanent.controller || '') !== String(option.controller || '') ||
+        !canPermanentBeTargetedByPlayer(permanent, game.state as any, pid as any)
+      ) {
+        debugWarn(1, `[Resolution] Grouped target is no longer legal: ${selectedId}`);
+        return;
+      }
+    }
+  } else if ((step as any)?.perOpponent === true) {
     const perOpponentError = validatePerOpponentTargetSelections({
       selections: uniqueSelections,
       validTargets: validTargets.map((target: any) => ({
@@ -27709,9 +27865,169 @@ function handlePonderEffectResponse(
   }
 }
 
+async function handleSequentialOracleIrPileSplitResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  stepData: any,
+  response: ResolutionStepResponse,
+  piles: string[][],
+): Promise<void> {
+  const playerOrder = (Array.isArray(stepData.oracleIrPileSplitPlayerOrder)
+    ? stepData.oracleIrPileSplitPlayerOrder
+    : [response.playerId])
+    .map((id: any) => String(id || '').trim())
+    .filter(Boolean);
+  const currentIndex = Math.max(0, Number(stepData.oracleIrPileSplitPlayerIndex) || 0);
+  const currentPlayerId = String(playerOrder[currentIndex] || response.playerId || '').trim();
+  const assignmentsByPlayer = {
+    ...(stepData.oracleIrPileAssignmentsByPlayer || {}),
+    [currentPlayerId]: piles.map((pile) => [...pile]),
+  };
+  const nextIndex = currentIndex + 1;
+  const pileCount = Math.max(2, Math.floor(Number(stepData.pileCount ?? piles.length ?? 2)));
+  const sourceName = String(stepData.sourceName || stepData.oracleIrSourceName || 'Ability');
+
+  if (nextIndex < playerOrder.length) {
+    const nextPlayerId = String(playerOrder[nextIndex] || '').trim();
+    const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+    const controlled = battlefield.filter(
+      (perm: any) => String(perm?.controller || '').trim() === nextPlayerId,
+    );
+    const nextStep = {
+      ...stepData,
+      playerId: nextPlayerId,
+      description: `${sourceName}: Separate all permanents you control into ${pileCount} piles`,
+      items: controlled.map((perm: any) => ({
+        id: String(perm?.id || ''),
+        label: String(perm?.card?.name || perm?.name || perm?.id || 'Permanent'),
+        description: String(perm?.card?.type_line || perm?.type_line || ''),
+        imageUrl: perm?.card?.image_uris?.normal
+          || perm?.card?.image_uris?.small
+          || perm?.card?.imageUrl,
+      })),
+      oracleIrPileSplitPlayerIndex: nextIndex,
+      oracleIrPileAssignmentsByPlayer: assignmentsByPlayer,
+    } as any;
+    delete nextStep.id;
+    delete nextStep.status;
+    delete nextStep.createdAt;
+    delete nextStep.completedAt;
+    delete nextStep.response;
+
+    const queuedStep = ResolutionQueueManager.addStep(gameId, nextStep);
+    appendQueuedResolutionPromptEvent(game, gameId, {
+      playerId: nextPlayerId,
+      sourceId: String(stepData.sourceId || '').trim(),
+      queuedResolutionSteps: [queuedStep],
+    });
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  const ctx = ((game as any).ctx || game) as any;
+  ctx.gameId = gameId;
+  ctx.state = game.state;
+  const rng = typeof ctx.rng === 'function' ? () => Number(ctx.rng()) || 0 : () => Math.random();
+  const randomPileByPlayer: Record<string, number> = {};
+  const sacrificedIds: string[] = [];
+
+  for (const playerId of playerOrder) {
+    const playerPiles = Array.isArray(assignmentsByPlayer[playerId])
+      ? assignmentsByPlayer[playerId]
+      : Array.from({ length: pileCount }, () => []);
+    const randomIndex = Math.floor(Math.max(0, Math.min(0.999999, rng())) * pileCount);
+    randomPileByPlayer[playerId] = randomIndex;
+
+    for (const permanentId of playerPiles[randomIndex] || []) {
+      const id = String(permanentId || '').trim();
+      if (!id) continue;
+      const sacrificedName = sacrificePermanent(ctx, id, playerId);
+      if (!sacrificedName) continue;
+      sacrificedIds.push(id);
+      appendEvent(gameId, (game as any).seq ?? 0, 'sacrificePermanent', {
+        playerId,
+        permanentId: id,
+        sourceId: stepData.sourceId,
+        sourceName,
+        resolvedStepId: String(stepData.id || ''),
+      });
+    }
+  }
+
+  appendEvent(gameId, (game as any).seq ?? 0, 'randomPileSacrificeResolved', {
+    sourceId: stepData.sourceId,
+    sourceName,
+    playerOrder,
+    pileCount,
+    assignmentsByPlayer,
+    randomPileByPlayer,
+    sacrificedIds,
+    resolvedStepId: String(stepData.id || ''),
+  });
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${sourceName}: each player randomly selected a pile; ${sacrificedIds.length} permanent(s) were sacrificed.`,
+    ts: Date.now(),
+  });
+
+  maybeResumeOracleIRStepsAfterResolution(ctx, stepData);
+  game.state = ctx.state;
+  broadcastGame(io, game, gameId);
+}
+
+/** Apply the side effects for an AI-completed sequential pile assignment. */
+export async function resolveSequentialPileSplitForAI(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+): Promise<void> {
+  const stepData = step as any;
+  const pileCount = Math.max(2, Math.floor(Number(stepData.pileCount ?? 2)));
+  const selections = response.selections as any;
+  const piles = Array.isArray(selections?.piles)
+    ? selections.piles.slice(0, pileCount).map((pile: any) =>
+        (Array.isArray(pile) ? pile : []).map(String))
+    : [
+        Array.isArray(selections?.pileA) ? selections.pileA.map(String) : [],
+        Array.isArray(selections?.pileB) ? selections.pileB.map(String) : [],
+        ...(pileCount > 2
+          ? [Array.isArray(selections?.pileC) ? selections.pileC.map(String) : []]
+          : []),
+      ];
+  await handleSequentialOracleIrPileSplitResponse(io, game, gameId, stepData, response, piles);
+}
+
+/** Apply library-chaos target side effects after an AI completes its queue step. */
+export async function resolveLibraryChaosTargetSelectionForAI(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+): Promise<void> {
+  await handleTargetSelectionResponse(io, game, gameId, step, response);
+}
+
+/** Apply a library-chaos free-cast choice after an AI completes its queue step. */
+export async function resolveLibraryChaosCastChoiceForAI(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+): Promise<void> {
+  await handleOptionChoiceResponse(io, game, gameId, step, response);
+}
+
 /**
- * Handle TWO_PILE_SPLIT response from client
- * Used by planeswalker templates and other "separate into two piles" effects.
+ * Handle pile-split responses from clients. The legacy step type name is kept
+ * for wire compatibility, but pileCount supports generic N-pile effects.
  */
 async function handleTwoPileSplitResponse(
   io: Server,
@@ -27726,32 +28042,63 @@ async function handleTwoPileSplitResponse(
   const items: any[] = Array.isArray(stepData.items) ? stepData.items : [];
   const itemIds = items.map((it: any) => String(it?.id || '')).filter(Boolean);
   const validIds = new Set(itemIds);
+  const pileCount = Math.max(2, Math.floor(Number(stepData.pileCount ?? 2)));
 
-  let pileA: string[] = [];
-  let pileB: string[] = [];
+  let piles: string[][] = [];
 
   if (selections && typeof selections === 'object') {
-    if (Array.isArray(selections.pileA) && Array.isArray(selections.pileB)) {
-      pileA = selections.pileA.map(String);
-      pileB = selections.pileB.map(String);
-    } else if (Array.isArray(selections.piles) && selections.piles.length === 2) {
-      pileA = (selections.piles[0] || []).map(String);
-      pileB = (selections.piles[1] || []).map(String);
+    if (Array.isArray(selections.piles) && selections.piles.length === pileCount) {
+      piles = selections.piles.map((pile: any) =>
+        (Array.isArray(pile) ? pile : []).map(String),
+      );
+    } else if (pileCount === 2 && Array.isArray(selections.pileA) && Array.isArray(selections.pileB)) {
+      piles = [selections.pileA.map(String), selections.pileB.map(String)];
+    } else if (
+      pileCount === 3
+      && Array.isArray(selections.pileA)
+      && Array.isArray(selections.pileB)
+      && Array.isArray(selections.pileC)
+    ) {
+      piles = [
+        selections.pileA.map(String),
+        selections.pileB.map(String),
+        selections.pileC.map(String),
+      ];
     }
   }
 
   // Normalize: valid IDs only, no dupes, ensure full assignment.
-  pileA = pileA.filter((id) => validIds.has(id));
-  const pileASet = new Set(pileA);
-  pileB = pileB.filter((id) => validIds.has(id) && !pileASet.has(id));
-  const assigned = new Set([...pileA, ...pileB]);
+  const seenDuringNormalize = new Set<string>();
+  piles = piles.map((pile) => pile.filter((id) => {
+    if (!validIds.has(id) || seenDuringNormalize.has(id)) return false;
+    seenDuringNormalize.add(id);
+    return true;
+  }));
+  const assigned = new Set(piles.flat());
   if (assigned.size !== itemIds.length) {
-    pileA = [];
-    pileB = [];
-    itemIds.forEach((id, idx) => (idx % 2 === 0 ? pileA : pileB).push(id));
+    piles = Array.from({ length: pileCount }, () => [] as string[]);
+    itemIds.forEach((id, idx) => piles[idx % pileCount].push(id));
   }
 
   const minPerPile = Number(stepData.minPerPile ?? 0);
+  if (minPerPile > 0 && piles.some((pile) => pile.length < minPerPile)) {
+    for (const receiver of piles.filter((pile) => pile.length < minPerPile)) {
+      const donor = [...piles].sort((a, b) => b.length - a.length)[0];
+      while (receiver.length < minPerPile && donor.length > minPerPile) {
+        const moved = donor.pop();
+        if (moved) receiver.push(moved);
+      }
+    }
+  }
+
+  if (stepData.oracleIrSequentialPileSplit === true) {
+    await handleSequentialOracleIrPileSplitResponse(io, game, gameId, stepData, response, piles);
+    return;
+  }
+
+  const pileA = piles[0] || [];
+  const pileB = piles[1] || [];
+
   if (minPerPile > 0 && (pileA.length < minPerPile || pileB.length < minPerPile)) {
     const donor = pileA.length > pileB.length ? pileA : pileB;
     const receiver = donor === pileA ? pileB : pileA;

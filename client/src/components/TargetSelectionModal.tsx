@@ -38,6 +38,29 @@ export interface TargetOption {
   card?: KnownCardRef | BattlefieldPermanent;
 }
 
+export interface TargetSelectionGroup {
+  playerId: string;
+  label?: string;
+  required?: boolean;
+  minTargets: number;
+  maxTargets: number;
+  targets: TargetOption[];
+}
+
+export function isGroupedTargetSelectionComplete(
+  selectedIds: ReadonlySet<string>,
+  groups: readonly TargetSelectionGroup[],
+  minTargets: number,
+  maxTargets: number,
+): boolean {
+  if (selectedIds.size < minTargets || selectedIds.size > maxTargets) return false;
+  for (const group of groups) {
+    const count = group.targets.filter((target) => selectedIds.has(target.id)).length;
+    if (count < group.minTargets || count > group.maxTargets) return false;
+  }
+  return true;
+}
+
 function PermanentTargetCaption({ target }: { target: TargetOption }) {
   const controllerLabel = target.controllerName || target.controller;
   const ownerLabel = target.ownerName || target.owner;
@@ -102,6 +125,8 @@ export interface TargetSelectionModalProps {
   targets: TargetOption[];
   minTargets: number;
   maxTargets: number;
+  /** Controller-grouped targeting, including each-player effects. */
+  targetGroups?: TargetSelectionGroup[];
   /** When true, targets are chosen per opponent (up to N each). */
   perOpponent?: boolean;
   opponents?: Array<{ id: string; name: string }>;
@@ -127,6 +152,7 @@ export function TargetSelectionModal({
   targets,
   minTargets,
   maxTargets,
+  targetGroups,
   perOpponent = false,
   opponents,
   targetsPerOpponent,
@@ -146,13 +172,28 @@ export function TargetSelectionModal({
     }
   }, [open, targets]);
 
-  const opponentIdForTarget = useCallback((targetId: string): string | null => {
-    if (!perOpponent || !targetsPerOpponent) return null;
-    for (const [opponentId, opponentTargets] of Object.entries(targetsPerOpponent)) {
-      if (opponentTargets.some((target) => target.id === targetId)) return opponentId;
+  const effectiveTargetGroups = useMemo<TargetSelectionGroup[]>(() => {
+    if (Array.isArray(targetGroups) && targetGroups.length > 0) return targetGroups;
+    if (!perOpponent || !targetsPerOpponent) return [];
+    const orderedPlayers = opponents?.length
+      ? opponents
+      : Object.keys(targetsPerOpponent).map((id) => ({ id, name: id }));
+    return orderedPlayers.map((opponent) => ({
+      playerId: opponent.id,
+      label: opponent.name,
+      required: minTargetsPerOpponent > 0,
+      minTargets: minTargetsPerOpponent,
+      maxTargets: maxTargetsPerOpponent,
+      targets: targetsPerOpponent[opponent.id] || [],
+    }));
+  }, [targetGroups, perOpponent, targetsPerOpponent, opponents, minTargetsPerOpponent, maxTargetsPerOpponent]);
+
+  const groupForTarget = useCallback((targetId: string): TargetSelectionGroup | null => {
+    for (const group of effectiveTargetGroups) {
+      if (group.targets.some((target) => target.id === targetId)) return group;
     }
     return null;
-  }, [perOpponent, targetsPerOpponent]);
+  }, [effectiveTargetGroups]);
 
   const toggleSelect = useCallback((targetId: string) => {
     setSelectedIds(prev => {
@@ -162,11 +203,16 @@ export function TargetSelectionModal({
         return next;
       }
 
-      if (perOpponent && targetsPerOpponent) {
-        const opponentId = opponentIdForTarget(targetId);
-        if (opponentId) {
-          for (const target of targetsPerOpponent[opponentId] || []) {
-            if (target.id !== targetId) next.delete(target.id);
+      if (effectiveTargetGroups.length > 0) {
+        const group = groupForTarget(targetId);
+        if (group) {
+          const selectedInGroup = group.targets.filter((target) => next.has(target.id));
+          if (group.maxTargets <= 1) {
+            for (const target of group.targets) {
+              if (target.id !== targetId) next.delete(target.id);
+            }
+          } else if (selectedInGroup.length >= group.maxTargets) {
+            return prev;
           }
         }
         if (next.size >= maxTargets) return prev;
@@ -179,7 +225,7 @@ export function TargetSelectionModal({
       }
       return next;
     });
-  }, [maxTargets, opponentIdForTarget, perOpponent, targetsPerOpponent]);
+  }, [maxTargets, effectiveTargetGroups, groupForTarget]);
 
   const modePreferredTypes = useMemo(() => {
     const text = `${selectedMode?.name || ''} ${selectedMode?.description || ''}`.toLowerCase();
@@ -353,38 +399,23 @@ export function TargetSelectionModal({
   }, [targets, groupByType, groupByController]);
 
   const canConfirm = useMemo(() => {
-    if (selectedIds.size < minTargets || selectedIds.size > maxTargets) return false;
-    if (!perOpponent || !targetsPerOpponent) return true;
-
-    for (const opponentTargets of Object.values(targetsPerOpponent)) {
-      if (!opponentTargets.length) continue;
-      const count = opponentTargets.filter((target) => selectedIds.has(target.id)).length;
-      if (count > maxTargetsPerOpponent) return false;
-      if (count < minTargetsPerOpponent) return false;
-    }
-    return true;
+    return isGroupedTargetSelectionComplete(selectedIds, effectiveTargetGroups, minTargets, maxTargets);
   }, [
     selectedIds,
     minTargets,
     maxTargets,
-    perOpponent,
-    targetsPerOpponent,
-    minTargetsPerOpponent,
-    maxTargetsPerOpponent,
+    effectiveTargetGroups,
   ]);
 
   const perOpponentSections = useMemo(() => {
-    if (!perOpponent || !targetsPerOpponent) return null;
-    const orderedOpponents = opponents?.length
-      ? opponents
-      : Object.keys(targetsPerOpponent).map((id) => ({ id, name: id }));
-    return orderedOpponents
-      .map((opponent) => ({
-        opponent,
-        targets: targetsPerOpponent[opponent.id] || [],
-      }))
-      .filter((section) => section.targets.length > 0);
-  }, [perOpponent, opponents, targetsPerOpponent]);
+    if (effectiveTargetGroups.length === 0) return null;
+    return effectiveTargetGroups.map((group) => ({
+      opponent: { id: group.playerId, name: group.label || group.playerId },
+      targets: group.targets,
+      minTargets: group.minTargets,
+      maxTargets: group.maxTargets,
+    }));
+  }, [effectiveTargetGroups]);
 
   const handleConfirm = () => {
     if (canConfirm) {
@@ -493,12 +524,8 @@ export function TargetSelectionModal({
               </div>
             )}
             <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-              {perOpponent
-                ? minTargetsPerOpponent === maxTargetsPerOpponent
-                  ? `Select ${minTargetsPerOpponent === 1 ? 'one' : minTargetsPerOpponent} target per opponent`
-                  : minTargetsPerOpponent === 0
-                    ? `Select up to ${maxTargetsPerOpponent} target${maxTargetsPerOpponent !== 1 ? 's' : ''} per opponent`
-                    : `Select ${minTargetsPerOpponent} to ${maxTargetsPerOpponent} targets per opponent`
+              {effectiveTargetGroups.length > 0
+                ? `Select the required targets in every player section`
                 : minTargets === maxTargets
                 ? `Select exactly ${minTargets} target${minTargets !== 1 ? 's' : ''}`
                 : minTargets === 0
@@ -520,7 +547,7 @@ export function TargetSelectionModal({
           }}
         >
           {perOpponentSections
-            ? perOpponentSections.map(({ opponent, targets: opponentTargets }) => (
+            ? perOpponentSections.map(({ opponent, targets: opponentTargets, minTargets: sectionMin, maxTargets: sectionMax }) => (
               <div key={opponent.id} style={{ marginBottom: 8 }}>
                 <div
                   style={{
@@ -534,7 +561,7 @@ export function TargetSelectionModal({
                     zIndex: 1,
                   }}
                 >
-                  {opponent.name} ({opponentTargets.length})
+                  {opponent.name} ({sectionMin === sectionMax ? `${sectionMin} required` : `${sectionMin}-${sectionMax}`})
                 </div>
                 <div
                   style={{
@@ -549,8 +576,7 @@ export function TargetSelectionModal({
                     const isPlayer = target.type === 'player';
                     const isModePreferred = isModePreferredTarget(target);
                     const opponentAtMax =
-                      (targetsPerOpponent?.[opponent.id] || []).filter((entry) => selectedIds.has(entry.id)).length
-                      >= maxTargetsPerOpponent;
+                      opponentTargets.filter((entry) => selectedIds.has(entry.id)).length >= sectionMax;
 
                     return (
                       <div

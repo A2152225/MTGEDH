@@ -5,7 +5,10 @@ import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '..
 import {
   tryParseOwnedPermanentsShuffleRevealTemplate,
   tryParseRepeatedZoneDraftAuctionTemplate,
+  tryParseSeparateControlledPermanentsIntoPilesTemplate,
+  tryParseLibraryChaosExchangeTemplate,
 } from '../src/oracleIRParserChaosZoneTemplates.js';
+import { parseOracleTextToIR } from '../src/oracleIRParser.js';
 import { collectOracleEffectSteps } from '../../server/src/state/modules/trigger-runtime-wiring.js';
 
 const WARP_WORLD_TEXT =
@@ -16,6 +19,12 @@ const GLIMPSE_OF_TOMORROW_TEXT =
 
 const THIEVES_AUCTION_TEXT =
   "Exile all nontoken permanents. Starting with you, each player chooses one of the exiled cards and puts it onto the battlefield tapped under their control. Repeat this process until all cards exiled this way have been chosen.";
+const WHIMS_OF_THE_FATES_TEXT =
+  'Starting with you, each player separates all permanents they control into three piles. Then each player chooses one of their piles at random and sacrifices those permanents. (Piles can be empty.)';
+const GUFF_REWRITES_HISTORY_TEXT =
+  "For each player, choose target nonenchantment, nonland permanent that player controls. Those permanents' owners shuffle them into their libraries. Each player who controlled one of those permanents exiles cards from the top of their library until they exile a nonland card, then puts the rest on the bottom of their library in a random order. Each player may cast the nonland card they exiled without paying its mana cost.";
+const AUDACIOUS_SWAP_TEXT =
+  "The owner of target nonenchantment permanent shuffles it into their library, then exiles the top card of their library. If it's a land card, they put it onto the battlefield. Otherwise, they may cast it without paying its mana cost.";
 
 describe('Oracle IR chaos zone template parsing', () => {
   it('parses Warp World into 5 steps', () => {
@@ -76,6 +85,45 @@ describe('Oracle IR chaos zone template parsing', () => {
     expect(draftStep.destination).toBe('battlefield');
     expect(draftStep.entersTapped).toBe(true);
     expect(draftStep.battlefieldController?.kind).toBe('chooser');
+  });
+
+  it('parses an each-player three-pile random sacrifice as an interactive step', () => {
+    const steps = tryParseSeparateControlledPermanentsIntoPilesTemplate(WHIMS_OF_THE_FATES_TEXT);
+    expect(steps).toHaveLength(1);
+    expect(steps?.[0]).toMatchObject({
+      kind: 'separate_into_piles',
+      pileCount: 3,
+      allowEmptyPiles: true,
+      randomPileAction: 'sacrifice',
+      who: { kind: 'each_player' },
+      startingWith: { kind: 'you' },
+    });
+
+    const parsed = parseOracleTextToIR(WHIMS_OF_THE_FATES_TEXT, 'Whims of the Fates');
+    expect(parsed.abilities[0]?.steps.map((step) => step.kind)).toEqual(['separate_into_piles']);
+  });
+
+  it('parses each-player exile-until-nonland history exchange', () => {
+    expect(tryParseLibraryChaosExchangeTemplate(GUFF_REWRITES_HISTORY_TEXT)?.[0]).toMatchObject({
+      kind: 'library_chaos_exchange',
+      targetMode: 'one_per_player',
+      exileMode: 'until_nonland',
+      bottomRestRandom: true,
+    });
+    const parsed = parseOracleTextToIR(GUFF_REWRITES_HISTORY_TEXT, 'History Exchange');
+    expect(parsed.abilities[0]?.steps.map((step) => step.kind)).toEqual(['library_chaos_exchange']);
+  });
+
+  it('parses a single-target top-card land-or-free-cast exchange', () => {
+    expect(tryParseLibraryChaosExchangeTemplate(AUDACIOUS_SWAP_TEXT)?.[0]).toMatchObject({
+      kind: 'library_chaos_exchange',
+      targetMode: 'single_target',
+      exileMode: 'top_card',
+      putLandOntoBattlefield: true,
+    });
+    const parsed = parseOracleTextToIR(`Casualty 2\n${AUDACIOUS_SWAP_TEXT}`, 'Audacious Exchange');
+    expect(parsed.abilities.find((ability) => ability.type === 'spell')?.steps.map((step) => step.kind))
+      .toEqual(['library_chaos_exchange']);
   });
 });
 

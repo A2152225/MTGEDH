@@ -17,6 +17,16 @@ interface Props {
   embedded?: boolean;
 }
 
+export function formatStackTargetControllerLabel(
+  controllerId: string | undefined,
+  controllerName: string | undefined,
+  resolvePlayerName: (playerId: string) => string,
+): string | undefined {
+  if (controllerName) return controllerName;
+  if (!controllerId) return undefined;
+  return resolvePlayerName(controllerId) || controllerId;
+}
+
 export function CentralStack({ 
   stack, 
   battlefield, 
@@ -304,6 +314,45 @@ export function CentralStack({
           const isTriggeredAbility = (it as any).type === 'triggered_ability';
           const sourceId = (it as any).source || (it as any).sourceId;
           const sourceName = (it as any).sourceName || name;
+          const rawTargetDetails = Array.isArray(it.targetDetails) && it.targetDetails.length > 0
+            ? it.targetDetails
+            : (Array.isArray(it.targets) ? it.targets : []).map((rawTarget: any) => {
+                const targetId = String(typeof rawTarget === 'string' ? rawTarget : rawTarget?.id || '');
+                const targetPlayer = players?.find((player) => String(player.id) === targetId);
+                if (targetPlayer) {
+                  return { id: targetId, type: 'player' as const, name: targetPlayer.name || targetId };
+                }
+                const targetStackItem = stack.find((entry) => String(entry.id) === targetId);
+                if (targetStackItem) {
+                  const ability = targetStackItem.type === 'ability' || targetStackItem.type === 'triggered_ability';
+                  return {
+                    id: targetId,
+                    type: ability ? 'ability' as const : 'spell' as const,
+                    name: targetStackItem.card?.name || targetStackItem.sourceName || targetId,
+                    controllerId: targetStackItem.controller,
+                    controllerName: getPlayerName(targetStackItem.controller),
+                  };
+                }
+                const permanent = battlefield?.find((entry) => String(entry.id) === targetId);
+                return {
+                  id: targetId,
+                  type: 'permanent' as const,
+                  name: permanent?.card?.name || (typeof rawTarget === 'object' ? rawTarget?.name : undefined),
+                  controllerId: permanent?.controller || (typeof rawTarget === 'object' ? rawTarget?.controllerId || rawTarget?.controller : undefined),
+                  controllerName: permanent?.controller ? getPlayerName(permanent.controller) : rawTarget?.controllerName,
+                };
+              });
+          const targetDisplayDetails = rawTargetDetails.map((target: any) => {
+            if (target.type !== 'permanent') return target;
+            const currentPermanent = battlefield?.find((entry) => String(entry.id) === String(target.id));
+            const controllerId = currentPermanent?.controller || target.controllerId;
+            return {
+              ...target,
+              name: currentPermanent?.card?.name || target.name,
+              controllerId,
+              controllerName: formatStackTargetControllerLabel(controllerId, undefined, getPlayerName),
+            };
+          });
           
           return (
             <div
@@ -417,20 +466,20 @@ export function CentralStack({
                   {isTopOfStack && ' • Resolving next'}
                 </div>
                 {/* Display targets if any */}
-                {(it.targetDetails && it.targetDetails.length > 0) ? (
+                {targetDisplayDetails.length > 0 ? (
                   <div style={{ 
                     fontSize:11, 
                     color:'#f87171',
                     marginTop:4,
                     display:'flex',
-                    alignItems:'center',
+                    alignItems:'flex-start',
                     gap:4,
                     flexWrap:'wrap'
                   }}>
                     <span style={{ color:'#9ca3af', fontWeight: 600 }}>Targeting</span>
                     <span style={{ color:'#9ca3af' }}>→</span>
-                    <span style={{ fontWeight:'500' }}>
-                      {it.targetDetails.map((t, i) => {
+                    <span style={{ fontWeight:'500', display:'flex', flexWrap:'wrap', gap:4 }}>
+                      {targetDisplayDetails.map((t: any) => {
                         const targetCard = (t.type === 'permanent' || t.type === 'spell' || t.type === 'ability')
                           ? findTargetCard(t.id)
                           : undefined;
@@ -440,8 +489,7 @@ export function CentralStack({
                         if (t.type === 'player') {
                           // Player target - just show name (like declare attackers)
                           return (
-                            <span key={t.id}>
-                              {i > 0 && ', '}
+                            <span key={t.id} style={{ padding:'2px 6px', borderRadius:4, background:'rgba(96,165,250,0.14)' }}>
                               <span style={{ 
                                 color: '#60a5fa',
                                 fontWeight:'600'
@@ -453,8 +501,8 @@ export function CentralStack({
                         } else if (t.type === 'spell' || t.type === 'ability') {
                           const displayText = formatTargetDisplay(
                             extendedTarget.name,
-                            extendedTarget.controllerId,
-                            extendedTarget.controllerName,
+                            undefined,
+                            undefined,
                             t.id
                           );
                           const kindLabel = t.type === 'ability' ? 'ability' : 'spell';
@@ -475,7 +523,6 @@ export function CentralStack({
                               }}
                               style={{ cursor: targetCard ? 'pointer' : 'default' }}
                             >
-                              {i > 0 && ', '}
                               <span style={{
                                 color: '#fbbf24',
                                 fontWeight:'600',
@@ -484,17 +531,21 @@ export function CentralStack({
                               }}>
                                 {displayText}
                               </span>
-                              <span style={{ color: '#9ca3af', marginLeft: 4 }}>({kindLabel} on stack)</span>
+                              <span style={{ color: '#9ca3af', marginLeft: 4 }}>
+                                — controlled by {formatStackTargetControllerLabel(extendedTarget.controllerId, extendedTarget.controllerName, getPlayerName) || 'unknown'}
+                                {' '}({kindLabel})
+                              </span>
                             </span>
                           );
                         } else {
                           // Permanent target - format with controller info and add hover preview
-                          const displayText = formatTargetDisplay(
-                            extendedTarget.name, 
-                            extendedTarget.controllerId, 
+                          const displayText = formatTargetDisplay(extendedTarget.name, undefined, undefined, t.id);
+                          const controllerLabel = formatStackTargetControllerLabel(
+                            extendedTarget.controllerId,
                             extendedTarget.controllerName,
-                            t.id
+                            getPlayerName,
                           );
+                          const targetsYou = Boolean(you && extendedTarget.controllerId === you);
                           return (
                             <span 
                               key={t.id}
@@ -510,9 +561,14 @@ export function CentralStack({
                                   hideCardPreview(e.currentTarget as HTMLElement);
                                 }
                               }}
-                              style={{ cursor: targetCard ? 'pointer' : 'default' }}
+                              style={{
+                                cursor: targetCard ? 'pointer' : 'default',
+                                padding:'2px 6px',
+                                borderRadius:4,
+                                background: targetsYou ? 'rgba(239,68,68,0.22)' : 'rgba(248,113,113,0.10)',
+                                border: targetsYou ? '1px solid rgba(248,113,113,0.55)' : '1px solid rgba(248,113,113,0.18)',
+                              }}
                             >
-                              {i > 0 && ', '}
                               <span style={{ 
                                 color: '#f87171',
                                 fontWeight:'600',
@@ -521,41 +577,13 @@ export function CentralStack({
                               }}>
                                 {displayText}
                               </span>
+                              <span style={{ color: targetsYou ? '#fecaca' : '#cbd5e1', marginLeft:4 }}>
+                                — controlled by {controllerLabel || 'unknown'}
+                              </span>
                             </span>
                           );
                         }
                       })}
-                    </span>
-                  </div>
-                ) : (it.targets && it.targets.length > 0) ? (
-                  <div style={{ 
-                    fontSize:11, 
-                    color:'#f87171',
-                    marginTop:4,
-                    display:'flex',
-                    alignItems:'center',
-                    gap:4
-                  }}>
-                    <span style={{ color:'#9ca3af', fontWeight: 600 }}>Targeting</span>
-                    <span style={{ color:'#9ca3af' }}>→</span>
-                    <span style={{ fontWeight:'500' }}>
-                      {/* Fall back to targets array when targetDetails not available */}
-                      {it.targets.map((target: any) => {
-                        // Handle both string and object targets
-                        if (typeof target === 'string') {
-                          // Use the formatTargetDisplay helper for consistent formatting
-                          return formatTargetDisplay(undefined, undefined, undefined, target);
-                        } else if (target && typeof target === 'object') {
-                          // Object target - use formatTargetDisplay helper
-                          return formatTargetDisplay(
-                            target.name,
-                            target.controllerId || target.controller,
-                            target.controllerName,
-                            target.id || ''
-                          );
-                        }
-                        return String(target);
-                      }).join(', ')}
                     </span>
                   </div>
                 ) : null}

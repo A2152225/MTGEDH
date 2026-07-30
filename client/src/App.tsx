@@ -33,7 +33,7 @@ import { MulliganBottomModal } from "./components/MulliganBottomModal";
 import { DiscardSelectionModal } from "./components/DiscardSelectionModal";
 import { OpeningHandActionsModal } from "./components/OpeningHandActionsModal";
 import { LibrarySearchModal } from "./components/LibrarySearchModal";
-import { TargetSelectionModal, type TargetOption } from "./components/TargetSelectionModal";
+import { TargetSelectionModal, type TargetOption, type TargetSelectionGroup } from "./components/TargetSelectionModal";
 import { ProliferateModal, type ProliferateTarget } from "./components/ProliferateModal";
 import { LifeRedistributionModal, type LifeRedistributionPlayer } from "./components/LifeRedistributionModal";
 import { UndoRequestModal, type UndoBoundaryPreview, type UndoRequestData } from "./components/UndoRequestModal";
@@ -599,6 +599,7 @@ export function App() {
     targets: TargetOption[];
     minTargets: number;
     maxTargets: number;
+    targetGroups?: TargetSelectionGroup[];
     perOpponent?: boolean;
     opponents?: Array<{ id: string; name: string }>;
     targetsPerOpponent?: Record<string, TargetOption[]>;
@@ -3348,6 +3349,7 @@ export function App() {
           description: step.description || '',
           items: step.items || [],
           minPerPile: step.minPerPile ?? 0,
+          pileCount: step.pileCount ?? 2,
           mandatory: isResolutionStepMandatory(step),
         };
         setTwoPileSplitRequest(request);
@@ -4000,6 +4002,18 @@ export function App() {
               ]),
             )
           : undefined;
+        const targetGroupingRaw = (step as any).targetGrouping;
+        const targetGroups: TargetSelectionGroup[] | undefined =
+          targetGroupingRaw?.groupBy === 'controller' && Array.isArray(targetGroupingRaw.groups)
+            ? targetGroupingRaw.groups.map((group: any) => ({
+                playerId: String(group.playerId || ''),
+                label: String(group.label || group.playerId || 'Player'),
+                required: group.required === true,
+                minTargets: Number(group.minTargets ?? targetGroupingRaw.minTargetsPerGroup ?? 0),
+                maxTargets: Number(group.maxTargets ?? targetGroupingRaw.maxTargetsPerGroup ?? 1),
+                targets: (Array.isArray(group.targets) ? group.targets : []).map(mapTargetOption),
+              }))
+            : undefined;
         
         setTargetModalData({
           cardId: step.sourceId || '',
@@ -4017,8 +4031,9 @@ export function App() {
           contextSteps: (step.oracleContext?.steps || step.spellCastContext?.oracleContext?.steps || undefined) as any,
           selectedMode: selectedModeUi,
           targets: validTargets,
-          minTargets: step.minTargets || 1,
-          maxTargets: step.maxTargets || 1,
+          minTargets: step.minTargets ?? 1,
+          maxTargets: step.maxTargets ?? 1,
+          targetGroups,
           perOpponent,
           opponents: Array.isArray((step as any).opponents) ? (step as any).opponents : undefined,
           targetsPerOpponent,
@@ -8126,6 +8141,7 @@ export function App() {
         targets={targetModalData?.targets || []}
         minTargets={targetModalData?.minTargets ?? 1}
         maxTargets={targetModalData?.maxTargets ?? 1}
+        targetGroups={targetModalData?.targetGroups}
         perOpponent={targetModalData?.perOpponent}
         opponents={targetModalData?.opponents}
         targetsPerOpponent={targetModalData?.targetsPerOpponent}

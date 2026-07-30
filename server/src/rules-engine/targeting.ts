@@ -432,10 +432,19 @@ export function requiresTargeting(oracleText?: string): boolean {
     /target\s+ability\b/i,
     /up\s+to\s+\w+\s+target/i,
     /target\s+(?:nonland|noncreature|nonartifact)/i,
+    /target\s+(?:non\w+[\s,]+)+permanent/i,
     /each\s+target/i,
   ];
   
   return targetPatterns.some(pattern => pattern.test(t));
+}
+
+export interface GroupedTargetRequirement {
+  readonly groupBy: 'controller';
+  readonly groupPlayers: 'each_player' | 'each_opponent';
+  readonly minTargetsPerGroup: number;
+  readonly maxTargetsPerGroup: number;
+  readonly maxGroups?: number;
 }
 
 /**
@@ -450,6 +459,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   minTargetsIsX?: boolean;
   maxTargetsIsX?: boolean;
   targetDescription: string;
+  groupedTargets?: GroupedTargetRequirement;
   perOpponent?: boolean;  // For "for each opponent, up to one target X that player controls"
   targetControllerConstraint?: 'opponent' | 'that_player' | 'you' | 'any';
   graveyardScope?: 'your' | 'any';
@@ -473,6 +483,26 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   let minTargets = 0;
   let maxTargets = 0;
   let targetDescription = '';
+
+  const parseGroupedTargetPhrase = (
+    rawTargetPhrase: string,
+  ): { targetTypes: string[]; excludeTypes: string[] } => {
+    const normalized = String(rawTargetPhrase || '').trim().toLowerCase();
+    const excludeTypes = Array.from(
+      normalized.matchAll(/\bnon(artifact|creature|enchantment|land|planeswalker)\b/g),
+    ).map((match) => String(match[1]));
+    const positivePhrase = normalized
+      .replace(/\bnon(?:artifact|creature|enchantment|land|planeswalker)\b[\s,]*/g, '')
+      .trim();
+    const parsedTypes = positivePhrase
+      .split(/\s+or\s+/)
+      .map((type) => type.trim())
+      .filter(Boolean);
+    return {
+      targetTypes: parsedTypes.length > 0 ? parsedTypes : ['permanent'],
+      excludeTypes,
+    };
+  };
   
   // Check for "Choose any number of target opponents" pattern (Strive spells like Call the Coppercoats)
   // Pattern: "choose any number of target opponents" - can target 0 or more opponents
@@ -554,7 +584,62 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     };
   }
   
-  // Check for "for each opponent, X target Y that player controls" patterns
+  // Generic grouped controller targeting:
+  // "For each player/opponent, choose target ... that player controls."
+  const groupedExactMatch = t.match(
+    /for each (player|opponent),?\s+(?:choose\s+)?(?:destroy|exile|return|tap|untap)?\s*target\s+([^.]+?)\s+that\s+player\s+controls/i,
+  );
+  if (groupedExactMatch) {
+    const groupPlayers = groupedExactMatch[1] === 'player' ? 'each_player' : 'each_opponent';
+    const targetPhrase = groupedExactMatch[2].trim();
+    const parsed = parseGroupedTargetPhrase(targetPhrase);
+    return {
+      needsTargets: true,
+      targetTypes: parsed.targetTypes,
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: `for each ${groupedExactMatch[1]}, target ${targetPhrase} that player controls`,
+      groupedTargets: {
+        groupBy: 'controller',
+        groupPlayers,
+        minTargetsPerGroup: 1,
+        maxTargetsPerGroup: 1,
+      },
+      ...(groupPlayers === 'each_opponent' ? { perOpponent: true } : {}),
+      targetControllerConstraint: 'that_player',
+      ...(parsed.excludeTypes.length > 0 ? { targetFilterExcludeTypes: parsed.excludeTypes } : {}),
+    };
+  }
+
+  const groupedUpToMatch = t.match(
+    /for each (player|opponent),?\s+(?:choose\s+)?(?:destroy|exile|return|tap|untap)?\s*up\s+to\s+(\w+)\s+target\s+([^.]+?)\s+that\s+player\s+controls/i,
+  );
+  if (groupedUpToMatch) {
+    const groupPlayers = groupedUpToMatch[1] === 'player' ? 'each_player' : 'each_opponent';
+    const numWord = groupedUpToMatch[2];
+    const targetPhrase = groupedUpToMatch[3].trim();
+    const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+    const maxPerGroup = numMap[numWord] || parseInt(numWord, 10) || 1;
+    const parsed = parseGroupedTargetPhrase(targetPhrase);
+    return {
+      needsTargets: true,
+      targetTypes: parsed.targetTypes,
+      minTargets: 0,
+      maxTargets: maxPerGroup,
+      targetDescription: `for each ${groupedUpToMatch[1]}, up to ${numWord} target ${targetPhrase} that player controls`,
+      groupedTargets: {
+        groupBy: 'controller',
+        groupPlayers,
+        minTargetsPerGroup: 0,
+        maxTargetsPerGroup: maxPerGroup,
+      },
+      ...(groupPlayers === 'each_opponent' ? { perOpponent: true } : {}),
+      targetControllerConstraint: 'that_player',
+      ...(parsed.excludeTypes.length > 0 ? { targetFilterExcludeTypes: parsed.excludeTypes } : {}),
+    };
+  }
+
+  // Legacy "for each opponent, X target Y that player controls" patterns.
   // Examples:
   // - "For each opponent, destroy up to one target artifact or enchantment that player controls."
   // - "For each opponent, exile target creature that player controls."
@@ -579,6 +664,12 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       minTargets, 
       maxTargets, 
       targetDescription,
+      groupedTargets: {
+        groupBy: 'controller',
+        groupPlayers: 'each_opponent',
+        minTargetsPerGroup: 0,
+        maxTargetsPerGroup: targetsPerOpponent,
+      },
       perOpponent: true,
       targetControllerConstraint: 'that_player',
     };
@@ -601,6 +692,12 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       minTargets, 
       maxTargets, 
       targetDescription,
+      groupedTargets: {
+        groupBy: 'controller',
+        groupPlayers: 'each_opponent',
+        minTargetsPerGroup: 1,
+        maxTargetsPerGroup: 1,
+      },
       perOpponent: true,
       targetControllerConstraint: 'that_player',
     };

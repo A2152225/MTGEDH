@@ -236,6 +236,25 @@ export interface SpellCastContext {
   readonly oracleText?: string;
   readonly imageUrl?: string;
   readonly faceIndex?: number;
+  readonly targetGrouping?: TargetGroupingMetadata;
+}
+
+export interface TargetGroup {
+  readonly playerId: string;
+  readonly label?: string;
+  readonly required: boolean;
+  readonly minTargets: number;
+  readonly maxTargets: number;
+  readonly targets: readonly ChoiceOption[];
+}
+
+export interface TargetGroupingMetadata {
+  readonly groupBy: 'controller';
+  readonly groupPlayers: 'each_player' | 'each_opponent';
+  readonly minTargetsPerGroup: number;
+  readonly maxTargetsPerGroup: number;
+  readonly maxGroups?: number;
+  readonly groups: readonly TargetGroup[];
 }
 
 /**
@@ -248,6 +267,7 @@ export interface TargetSelectionStep extends BaseResolutionStep {
   readonly minTargets: number;
   readonly maxTargets: number;
   readonly targetDescription: string;
+  readonly targetGrouping?: TargetGroupingMetadata;
   /**
    * If true, the selected targets for this step must be different from targets chosen
    * in earlier TARGET_SELECTION steps for the same sourceId (spell/ability).

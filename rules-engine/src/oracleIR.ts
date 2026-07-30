@@ -298,6 +298,39 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      /**
+       * Each selected player partitions matching objects they control into a
+       * fixed number of piles, in turn order. A random pile may then be
+       * sacrificed for each player.
+       */
+      readonly kind: 'separate_into_piles';
+      readonly who: OraclePlayerSelector;
+      readonly what: OracleObjectSelector;
+      readonly pileCount: number;
+      readonly startingWith: OraclePlayerSelector;
+      readonly allowEmptyPiles?: boolean;
+      readonly randomPileAction?: 'sacrifice';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * A permanent-to-library exchange followed by exiling replacement cards.
+       * Supports either one existing target or one target chosen per player.
+       */
+      readonly kind: 'library_chaos_exchange';
+      readonly targetMode: 'single_target' | 'one_per_player';
+      readonly target: OracleObjectSelector;
+      readonly exileMode: 'top_card' | 'until_nonland';
+      readonly putLandOntoBattlefield?: boolean;
+      readonly mayCastNonlandWithoutPayingManaCost: true;
+      readonly bottomRestRandom?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'shuffle_zones_into_library';
       readonly who: OraclePlayerSelector;
       readonly zones: readonly ('hand' | 'graveyard')[];

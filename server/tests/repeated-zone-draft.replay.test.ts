@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { applyEvent } from '../src/state/modules/applyEvent.js';
+import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { ResolutionStepType } from '../src/state/resolution/types.js';
 
 describe('repeated zone draft replay', () => {
@@ -57,5 +58,39 @@ describe('repeated zone draft replay', () => {
 
   it('exposes REPEATED_ZONE_DRAFT as a resolution step type', () => {
     expect(ResolutionStepType.REPEATED_ZONE_DRAFT).toBe('repeated_zone_draft');
+  });
+
+  it('clears the completed draft prompt on repeatedZoneDraftPick replay', () => {
+    const gameId = 'repeated_zone_draft_pick_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.REPEATED_ZONE_DRAFT,
+      playerId: 'p1',
+      description: 'Choose a card',
+      mandatory: true,
+      remainingCardIds: ['c1'],
+      cards: [{ id: 'c1', name: 'Card' }],
+      chooserOrder: ['p1'],
+      chooserIndex: 0,
+    } as any);
+
+    const ctx: any = {
+      gameId,
+      state: { players: [{ id: 'p1' }], battlefield: [], zones: {}, stack: [] },
+      bumpSeq: () => undefined,
+    };
+
+    applyEvent(ctx, {
+      type: 'repeatedZoneDraftPick',
+      playerId: 'p1',
+      cardId: 'c1',
+      remainingCardIds: [],
+      chooserOrder: ['p1'],
+      chooserIndex: 0,
+      resolvedStepId: step.id,
+    } as any);
+
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => entry.id === step.id)).toBe(false);
+    ResolutionQueueManager.removeQueue(gameId);
   });
 });

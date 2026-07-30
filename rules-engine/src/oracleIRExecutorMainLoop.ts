@@ -651,6 +651,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'explore',
   'look_choose_from_top',
   'look_select_top',
+  'library_chaos_exchange',
   'move_zone',
   'pay_mana',
   'player_choice',
@@ -658,6 +659,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'redistribute_life_totals',
   'populate',
   'repeated_zone_draft',
+  'separate_into_piles',
   'sacrifice',
   'scry',
   'search_library',
@@ -3281,6 +3283,61 @@ export function applyOracleIRStepsToGameStateImpl(
             ...(lastExiledCards.length > 0 ? { lastExiledCards } : {}),
           };
         });
+        break;
+      }
+      case 'separate_into_piles': {
+        const activePlayerIds = new Set(
+          (nextState.players || [])
+            .filter((player: any) => player?.inactive !== true)
+            .map((player: any) => String(player?.id || '').trim())
+            .filter(Boolean),
+        );
+        const turnOrderIds = (Array.isArray((nextState as any).turnOrder) && (nextState as any).turnOrder.length > 0
+          ? (nextState as any).turnOrder
+          : (nextState.players || []).map((player: any) => String(player?.id || '').trim()))
+          .map((id: any) => String(id || '').trim())
+          .filter((id: string) => id && activePlayerIds.has(id));
+        const startId = String(controllerId || '').trim();
+        const startIndex = Math.max(0, turnOrderIds.indexOf(startId));
+        const playerOrder = turnOrderIds.length > 0
+          ? [...turnOrderIds.slice(startIndex), ...turnOrderIds.slice(0, startIndex)]
+          : [startId].filter(Boolean);
+
+        recordSkippedStep(
+          step,
+          `Skipped pile separation (requires player assignments): ${step.raw}`,
+          'player_choice_required',
+          {
+            classification: 'player_choice',
+            metadata: {
+              playerOrder,
+              pileCount: Math.max(2, Number(step.pileCount) || 2),
+              allowEmptyPiles: step.allowEmptyPiles === true,
+              randomPileAction: step.randomPileAction || '',
+              selector: String((step.what as any)?.text || (step.what as any)?.raw || ''),
+            },
+          },
+        );
+        break;
+      }
+      case 'library_chaos_exchange': {
+        recordSkippedStep(
+          step,
+          `Skipped library chaos exchange (requires server zone/cast continuation): ${step.raw}`,
+          step.targetMode === 'one_per_player'
+            ? 'player_choice_required'
+            : 'server_action_required',
+          {
+            classification: step.targetMode === 'one_per_player' ? 'player_choice' : 'unsupported',
+            metadata: {
+              targetMode: step.targetMode,
+              targetText: String((step.target as any)?.text || (step.target as any)?.raw || ''),
+              exileMode: step.exileMode,
+              putLandOntoBattlefield: step.putLandOntoBattlefield === true,
+              bottomRestRandom: step.bottomRestRandom === true,
+            },
+          },
+        );
         break;
       }
       case 'repeated_zone_draft': {
