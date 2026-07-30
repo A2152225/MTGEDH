@@ -44,8 +44,8 @@ function buildEmptyCostAdjustmentPlan(): CostAdjustmentPlan {
 }
 
 function getSpellCostAdjustmentTraits(card: any) {
-  const typeLine = String(card?.type_line || '').toLowerCase();
-  const manaCostRaw = String(card?.mana_cost || '').toUpperCase();
+  const typeLine = String(card?.type_line || card?.typeLine || '').toLowerCase();
+  const manaCostRaw = String(card?.mana_cost || card?.manaCost || '').toUpperCase();
   const colors = (card?.colors || card?.color_identity || []).map((color: string) => String(color || '').toUpperCase());
 
   return {
@@ -177,10 +177,18 @@ export function buildCostAdjustmentPlan(
 
     const chosenType = String(source.chosenCreatureType || '').trim().toLowerCase();
     const spellMatchesChosenType = Boolean(chosenType) && (
-      String(card?.type_line || '').toLowerCase().includes(chosenType)
-      || String(card?.oracle_text || '').toLowerCase().includes('changeling')
+      traits.typeLine.includes(chosenType)
+      || String(card?.oracle_text || card?.oracleText || '').toLowerCase().includes('changeling')
+      || (Array.isArray(card?.keywords) && card.keywords.some((keyword: unknown) => String(keyword || '').toLowerCase() === 'changeling'))
     );
     if (sourceAppliesReductionToPlayer && spellMatchesChosenType) {
+      const chosenTypeGenericReduction = permOracle.match(
+        /(?:creature\s+)?spells(?:\s+you\s+cast)?\s+of\s+the\s+chosen\s+type(?:\s+you\s+cast)?\s+cost\s+\{(\d+)\}\s+less/i,
+      );
+      if (chosenTypeGenericReduction && (!chosenTypeGenericReduction[0].startsWith('creature ') || traits.isCreatureSpell)) {
+        addGenericAdjustment(sourceName, -parseInt(chosenTypeGenericReduction[1], 10));
+      }
+
       const chosenTypeColoredReduction = permOracle.match(
         /spells(?:\s+you\s+cast)?\s+of\s+the\s+chosen\s+type(?:\s+you\s+cast)?\s+cost\s+((?:\{[wubrgc]\})+)\s+less/i,
       );

@@ -87,6 +87,32 @@ describe('cost adjustment engine', () => {
     expect(buildCostAdjustmentPlan(state, 'p2', redSpell).genericAdjustment).toBe(0);
   });
 
+  it("applies Urza's Incubator to a changeling creature spell", () => {
+    const incubator = permanent({
+      id: 'incubator',
+      controller: 'p1',
+      name: "Urza's Incubator",
+      oracleText: "As Urza's Incubator enters, choose a creature type.\nCreature spells of the chosen type cost {2} less to cast.",
+    });
+    (incubator as any).chosenCreatureType = 'Merfolk';
+
+    const morophon = {
+      id: 'morophon',
+      name: 'Morophon, the Boundless',
+      type_line: 'Legendary Creature — Shapeshifter',
+      oracle_text: 'Changeling',
+      mana_cost: '{7}',
+      colors: [],
+    };
+
+    const plan = buildCostAdjustmentPlan({ battlefield: [incubator] }, 'p1', morophon);
+    const adjusted = applyCostAdjustmentToParsedCost(parseManaCost(morophon.mana_cost), plan);
+
+    expect(plan.genericAdjustment).toBe(-2);
+    expect(plan.sources).toContainEqual({ name: "Urza's Incubator", amount: -2 });
+    expect(stringifyParsedManaCost(adjusted)).toBe('{5}');
+  });
+
   it('keeps opponent-scoped taxes off the source controller', () => {
     const state = {
       battlefield: [permanent({

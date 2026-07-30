@@ -2845,6 +2845,8 @@ export function calculateCostReduction(
     const cardCreatureTypes = extractCreatureTypes(cardTypeLine);
     const cardName = card.name || "Unknown";
     const cardManaCost = (card.mana_cost || "").toUpperCase();
+    const hasChangeling = cardOracleText.includes('changeling')
+      || (Array.isArray(card.keywords) && card.keywords.some((keyword: unknown) => String(keyword || '').toLowerCase() === 'changeling'));
     
     // Determine card characteristics
     const isCreature = cardTypeLine.includes("creature");
@@ -2876,7 +2878,7 @@ export function calculateCostReduction(
       
       // Morophon, the Boundless: Spells of the chosen creature type cost {W}{U}{B}{R}{G} less
       if (permName.includes("morophon") && chosenType) {
-        if (cardCreatureTypes.includes(chosenType) || cardTypeLine.includes(chosenType)) {
+        if (cardCreatureTypes.includes(chosenType) || cardTypeLine.includes(chosenType) || hasChangeling) {
           reduction.colors.white += 1;
           reduction.colors.blue += 1;
           reduction.colors.black += 1;
@@ -2892,7 +2894,7 @@ export function calculateCostReduction(
         if (chosenTypeCostReduction) {
           const amount = parseInt(chosenTypeCostReduction[1], 10);
           const creatureOnly = chosenTypeCostReduction[0].includes('creature spells');
-          const matchesType = cardCreatureTypes.includes(chosenType) || cardTypeLine.includes(chosenType);
+          const matchesType = cardCreatureTypes.includes(chosenType) || cardTypeLine.includes(chosenType) || hasChangeling;
           if (Number.isFinite(amount) && amount > 0 && matchesType && (!creatureOnly || isCreature)) {
             reduction.generic += amount;
             reduction.messages.push(`${perm.card?.name || 'Permanent'}: -{${amount}} (${chosenType})`);
