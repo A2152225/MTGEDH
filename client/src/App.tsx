@@ -6273,7 +6273,12 @@ export function App() {
         {minimizedResolutionStep && (
           <ResolutionMinimizedChip
             title={minimizedResolutionStep.title}
-            onRestore={restoreResolutionStep}
+            onRestore={() => {
+              restoreResolutionStep();
+              // Re-fetch so options whose affordability changed while minimized
+              // (e.g. after tapping lands for a "you may pay" prompt) are refreshed.
+              if (safeView?.id) scheduleResolutionPromptNudge(safeView.id);
+            }}
           />
         )}
 
@@ -8826,6 +8831,16 @@ export function App() {
       <OptionChoiceModal
         open={resolutionPromptOpen(optionChoiceModalOpen, optionChoiceRequest?.stepId)}
         request={optionChoiceRequest}
+        onMinimize={
+          optionChoiceRequest?.stepId
+            ? () => minimizeResolutionStep(
+                optionChoiceRequest.stepId,
+                optionChoiceRequest.sourceName
+                  ? `${optionChoiceRequest.sourceName}: choice`
+                  : 'Pending choice',
+              )
+            : undefined
+        }
         onRespond={handleOptionChoiceRespond}
       />
 

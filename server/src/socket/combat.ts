@@ -6,7 +6,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, getEffectiveToughness, broadcastManaPoolUpdate, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, millUntilLand, getMaxGenericManaAvailable } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, getEffectiveToughness, broadcastManaPoolUpdate, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, millUntilLand, getMaxGenericManaAvailable, payManaCostWithAvailableSources } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import {
@@ -422,11 +422,8 @@ export function resolveAttackTriggerManaPaymentChoice(
         return;
       }
     } else {
-      const parsedCost = parseManaCost(manaCost);
-      const pool = getOrInitManaPool(game.state, playerId);
-      const totalAvailable = calculateTotalAvailableMana(pool, []);
-
-      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      const payment = payManaCostWithAvailableSources(game.state, playerId, manaCost);
+      const validationError = payment.ok ? null : payment.error || 'Insufficient mana.';
       if (validationError) {
         emitToPlayer(io, playerId, "error", {
           code: "INSUFFICIENT_MANA",
@@ -447,8 +444,6 @@ export function resolveAttackTriggerManaPaymentChoice(
         broadcastGame(io, game, gameId);
         return;
       }
-
-      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[attackTriggerPayment:${cardName}]`);
     }
     const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
     const permanent = battlefield.find((p: any) => String(p?.id || '') === String(permanentId || ''));

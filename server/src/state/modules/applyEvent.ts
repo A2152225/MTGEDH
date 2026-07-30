@@ -1453,6 +1453,9 @@ function applyOpponentMayPayResolve(ctx: GameContext, e: any): void {
   const effectText = String(e?.declineEffect || e?.triggerText || '').trim();
 
   if (willPay) {
+    if (e?.manaAlreadyPaid === true) {
+      return;
+    }
     if (decidingPlayer && manaCost) {
       const stateAny = ctx.state as any;
       stateAny.manaPool = stateAny.manaPool || {};

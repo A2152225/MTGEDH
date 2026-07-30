@@ -3,11 +3,8 @@ import { ResolutionQueueManager, ResolutionStepType } from '../state/resolution/
 import { getEnergyCount, validateLifePayment } from '../state/utils.js';
 import {
   broadcastGame,
-  calculateTotalAvailableMana,
+  canPayManaCostStringWithAvailableSources,
   getPlayerName,
-  getOrInitManaPool,
-  parseManaCost,
-  validateManaPayment,
 } from './util.js';
 
 type PendingOptionalPaymentCallbackEntry = {
@@ -116,11 +113,12 @@ export function getOptionalPaymentValidationFailure(
     }
 
     try {
-      const parsed = parseManaCost(manaCost);
-      const pool = getOrInitManaPool(game.state, playerId) as any;
-      const totalAvailable = calculateTotalAvailableMana(pool, []);
-      const message = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
-      return message ? { code: 'INSUFFICIENT_MANA', message } : null;
+      return canPayManaCostStringWithAvailableSources(game.state, playerId, manaCost)
+        ? null
+        : {
+          code: 'INSUFFICIENT_MANA',
+          message: `Insufficient available mana to pay ${manaCost}.`,
+        };
     } catch {
       return { code: 'UNSUPPORTED_COST', message: 'Unable to validate mana payment.' };
     }

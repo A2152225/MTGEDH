@@ -5,7 +5,7 @@
  * Used by Agitator Ant and similar effects that let players choose from a list of options.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ResolutionPromptMinimizeButton } from './ResolutionMinimizedChip';
 
 export interface OptionChoiceOption {
@@ -44,11 +44,17 @@ export function OptionChoiceModal({
 }: OptionChoiceModalProps) {
   const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set());
 
+  useEffect(() => {
+    setSelectedOptions(new Set());
+  }, [request?.stepId]);
+
   if (!open || !request) return null;
 
   const { sourceName, sourceImage, description, options, minSelections = 0, maxSelections = 1, mandatory } = request;
+  const hasExplicitDeclineOption = options.some((option) => option.id === 'decline');
+  const effectiveMinSelections = options.length > 0 ? Math.max(1, minSelections) : minSelections;
 
-  const canSubmit = selectedOptions.size >= minSelections && selectedOptions.size <= maxSelections;
+  const canSubmit = selectedOptions.size >= effectiveMinSelections && selectedOptions.size <= maxSelections;
 
   const handleToggleOption = (optionId: string) => {
     const newSelected = new Set(selectedOptions);
@@ -191,7 +197,7 @@ export function OptionChoiceModal({
 
         {/* Action Buttons */}
         <div style={{ display: 'flex', gap: 12 }}>
-          {!mandatory && (
+          {!mandatory && !hasExplicitDeclineOption && (
             <button
               onClick={handleDecline}
               style={{

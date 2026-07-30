@@ -2,7 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { appendEvent } from '../../db/index.js';
-import { broadcastGame, consumeManaFromPool, getOrInitManaPool, parseManaCost } from '../../socket/util.js';
+import { broadcastGame, canPayManaCostStringWithAvailableSources, payManaCostWithAvailableSources } from '../../socket/util.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { getSavedTriggerShortcutPreference } from '../../socket/trigger-shortcuts.js';
 import { drawCards as drawCardsFromZone } from './zones.js';
@@ -81,9 +81,7 @@ function applyLiveOpponentMayPayOutcome(
   const { sourceName, sourceController, decidingPlayer, manaCost, declineEffect, willPay } = params;
 
   if (willPay) {
-    const parsedCost = parseManaCost(manaCost);
-    const pool = getOrInitManaPool(state as any, decidingPlayer);
-    consumeManaFromPool(pool as any, parsedCost.colors, parsedCost.generic, `[opponentMayPay:${sourceName}]`);
+    payManaCostWithAvailableSources(state as any, decidingPlayer, manaCost);
     return;
   }
 
@@ -188,19 +186,11 @@ function maybeQueueOpponentMayPaySpellCastTrigger(
     let willPay = savedPreference === 'always_pay';
     if (willPay) {
       try {
-        const parsedCost = parseManaCost(manaCost);
-        const pool = getOrInitManaPool((ctx as any).state as any, decidingPlayer);
-        const colorEntries = Object.entries(parsedCost.colors || {});
-        const hasColoredMana = colorEntries.every(([color, amount]) => {
-          const colorKey = ({ W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless' } as any)[String(color).toUpperCase()];
-          return Number((pool as any)?.[colorKey] || 0) >= Number(amount || 0);
-        });
-        const totalMana = ['white', 'blue', 'black', 'red', 'green', 'colorless']
-          .reduce((sum, key) => sum + Number((pool as any)?.[key] || 0), 0);
-        const totalCost = Number(parsedCost.generic || 0) + colorEntries.reduce((sum, [, amount]) => sum + Number(amount || 0), 0);
-        if (!hasColoredMana || totalMana < totalCost) {
-          willPay = false;
-        }
+        willPay = canPayManaCostStringWithAvailableSources(
+          (ctx as any).state as any,
+          decidingPlayer,
+          manaCost,
+        );
       } catch {
         willPay = false;
       }
@@ -318,9 +308,7 @@ function maybeQueueControllerMayPayTriggeredAbility(
       triggerDescription: String(description || '').trim(),
     },
     onPay: async () => {
-      const parsedCost = parseManaCost(manaCost);
-      const pool = getOrInitManaPool((ctx as any).state as any, triggerController);
-      consumeManaFromPool(pool as any, parsedCost.colors, parsedCost.generic, `[triggerManaPayment:${sourceName}]`);
+      payManaCostWithAvailableSources((ctx as any).state as any, triggerController, manaCost);
       const battlefieldBeforeIds = new Set(
         Array.isArray(((ctx as any).state as any)?.battlefield)
           ? ((((ctx as any).state as any).battlefield as any[]).map((permanent: any) => String(permanent?.id || '')))
@@ -478,9 +466,7 @@ function maybeQueueEchoTriggeredAbility(
       triggerDescription: String(description || '').trim(),
     },
     onPay: async () => {
-      const parsedCost = parseManaCost(manaCost);
-      const pool = getOrInitManaPool((ctx as any).state as any, triggerController);
-      consumeManaFromPool(pool as any, parsedCost.colors, parsedCost.generic, `[echo:${sourceName}]`);
+      payManaCostWithAvailableSources((ctx as any).state as any, triggerController, manaCost);
       markEchoPaid(ctx, permanentId);
 
       const io = (ctx as any).io;

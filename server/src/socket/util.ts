@@ -3349,6 +3349,216 @@ export function consumeManaFromPool(
     };
   }
 
+  type AvailableSourceManaPaymentPlanEntry = {
+    permanent: any;
+    additions: Record<string, number>;
+    sacrificesSelf: boolean;
+  };
+
+  export type AvailableSourceManaPaymentResult = GenericManaPaymentResult;
+
+  function getAvailableSourceManaPaymentOptions(
+    gameState: any,
+    playerId: string,
+  ): Array<{ permanent: any; options: Array<{ additions: Record<string, number>; sacrificesSelf: boolean }> }> {
+    const candidates = getGenericAutoPaymentCandidates(gameState, playerId);
+    const symbolToPoolKey: Record<string, string> = {
+      W: 'white',
+      U: 'blue',
+      B: 'black',
+      R: 'red',
+      G: 'green',
+      C: 'colorless',
+    };
+
+    return candidates.flatMap((candidate) => {
+      const production = calculateManaProduction(gameState, candidate.permanent, playerId);
+      const amount = Math.max(1, Number(production?.totalAmount || production?.baseAmount || candidate.amount || 0));
+      const colors = Array.from(new Set(
+        (Array.isArray(production?.colors) ? production.colors : [])
+          .map((color: any) => String(color || '').toUpperCase())
+          .filter(Boolean),
+      ));
+      if (colors.length === 0) return [];
+
+      const options: Array<{ additions: Record<string, number>; sacrificesSelf: boolean }> = [];
+      const isChoice = production?.requiresColorChoice === true || colors.includes('ANY');
+      if (isChoice) {
+        const choices = colors.includes('ANY')
+          ? ['W', 'U', 'B', 'R', 'G']
+          : colors.filter((color) => symbolToPoolKey[color]);
+        for (const color of choices) {
+          const poolKey = symbolToPoolKey[color];
+          if (!poolKey) continue;
+          options.push({
+            additions: { [poolKey]: amount },
+            sacrificesSelf: candidate.sacrificesSelf,
+          });
+        }
+      } else if (colors.length > 1) {
+        const amountPerColor = Math.max(1, Math.floor(amount / colors.length));
+        const additions: Record<string, number> = {};
+        for (const color of colors) {
+          const poolKey = symbolToPoolKey[color];
+          if (poolKey) additions[poolKey] = amountPerColor;
+        }
+        if (Object.keys(additions).length > 0) {
+          options.push({ additions, sacrificesSelf: candidate.sacrificesSelf });
+        }
+      } else {
+        const poolKey = symbolToPoolKey[colors[0]];
+        if (poolKey) {
+          options.push({
+            additions: { [poolKey]: amount },
+            sacrificesSelf: candidate.sacrificesSelf,
+          });
+        }
+      }
+
+      return options.length > 0 ? [{ permanent: candidate.permanent, options }] : [];
+    });
+  }
+
+  function findAvailableSourceManaPaymentPlan(
+    gameState: any,
+    playerId: string,
+    manaCost: string,
+  ): AvailableSourceManaPaymentPlanEntry[] | null {
+    const startingPool = getPoolNumericSnapshot(getOrInitManaPool(gameState, playerId));
+    if (validateAndConsumeManaCostFromPool({ ...startingPool }, manaCost).ok) {
+      return [];
+    }
+
+    const sources = getAvailableSourceManaPaymentOptions(gameState, playerId);
+    const memo = new Set<string>();
+
+    const search = (
+      sourceIndex: number,
+      pool: Record<string, number>,
+      plan: AvailableSourceManaPaymentPlanEntry[],
+    ): AvailableSourceManaPaymentPlanEntry[] | null => {
+      if (validateAndConsumeManaCostFromPool({ ...pool }, manaCost).ok) {
+        return plan;
+      }
+      if (sourceIndex >= sources.length) return null;
+
+      const signature = `${sourceIndex}|${MANA_COLOR_KEYS.map((key) => Number(pool[key] || 0)).join(',')}`;
+      if (memo.has(signature)) return null;
+      memo.add(signature);
+
+      const source = sources[sourceIndex];
+      for (const option of source.options) {
+        const nextPool = { ...pool };
+        for (const [poolKey, rawAmount] of Object.entries(option.additions)) {
+          nextPool[poolKey] = Number(nextPool[poolKey] || 0) + Number(rawAmount || 0);
+        }
+        const found = search(sourceIndex + 1, nextPool, [
+          ...plan,
+          {
+            permanent: source.permanent,
+            additions: option.additions,
+            sacrificesSelf: option.sacrificesSelf,
+          },
+        ]);
+        if (found) return found;
+      }
+
+      return search(sourceIndex + 1, pool, plan);
+    };
+
+    return search(0, startingPool, []);
+  }
+
+  export function canPayManaCostStringWithAvailableSources(
+    gameState: any,
+    playerId: string,
+    manaCost: string,
+  ): boolean {
+    return findAvailableSourceManaPaymentPlan(gameState, playerId, manaCost) !== null;
+  }
+
+  export function payManaCostWithAvailableSources(
+    gameState: any,
+    playerId: string,
+    manaCost: string,
+  ): AvailableSourceManaPaymentResult {
+    const pool = getOrInitManaPool(gameState, playerId) as any;
+    const beforePool = getPoolNumericSnapshot(pool);
+    const emptyConsumed = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+    const plan = findAvailableSourceManaPaymentPlan(gameState, playerId, manaCost);
+    if (!plan) {
+      return {
+        ok: false,
+        error: `Insufficient available mana to pay ${manaCost}.`,
+        tappedPermanents: [],
+        sacrificedPermanents: [],
+        paymentManaDelta: {},
+        consumed: emptyConsumed,
+      };
+    }
+
+    const tappedPermanents: string[] = [];
+    const sacrificedPermanents: string[] = [];
+    for (const entry of plan) {
+      const permanent = entry.permanent;
+      if (!permanent || permanent.tapped) continue;
+      if (entry.sacrificesSelf) {
+        const ownerId = String(permanent?.owner || permanent?.controller || playerId || '').trim();
+        const sacrificed = movePermanentToGraveyard({
+          state: gameState,
+          libraries: new Map(),
+          bumpSeq: () => undefined,
+          rng: Math.random,
+          gameId: '',
+        } as any, String(permanent.id || ''), true);
+        if (!sacrificed) continue;
+        recordTokenGraveyardSnapshot(gameState, ownerId, permanent);
+        sacrificedPermanents.push(String(permanent.id || ''));
+      } else {
+        permanent.tapped = true;
+        tappedPermanents.push(String(permanent.id || ''));
+      }
+      for (const [poolKey, rawAmount] of Object.entries(entry.additions)) {
+        pool[poolKey] = Number(pool[poolKey] || 0) + Number(rawAmount || 0);
+      }
+    }
+
+    const paid = validateAndConsumeManaCostFromPool(pool, manaCost, {
+      logPrefix: `[availableSourcePayment:${playerId}]`,
+    });
+    if (!paid.ok) {
+      for (const permanentId of tappedPermanents) {
+        const permanent = (Array.isArray(gameState?.battlefield) ? gameState.battlefield : [])
+          .find((entry: any) => String(entry?.id || '') === permanentId);
+        if (permanent) permanent.tapped = false;
+      }
+      for (const key of MANA_COLOR_KEYS) {
+        pool[key] = Number(beforePool[key] || 0);
+      }
+      return {
+        ok: false,
+        error: (paid as any).error || `Unable to pay ${manaCost}.`,
+        tappedPermanents: [],
+        sacrificedPermanents,
+        paymentManaDelta: {},
+        consumed: emptyConsumed,
+      };
+    }
+
+    const paymentManaDelta: Record<string, number> = {};
+    for (const key of MANA_COLOR_KEYS) {
+      const delta = Number(pool[key] || 0) - Number(beforePool[key] || 0);
+      if (delta !== 0) paymentManaDelta[key] = delta;
+    }
+    return {
+      ok: true,
+      tappedPermanents,
+      sacrificedPermanents,
+      paymentManaDelta,
+      consumed: paid.consumed,
+    };
+  }
+
   export function refundGenericManaPayment(
     gameState: any,
     playerId: string,

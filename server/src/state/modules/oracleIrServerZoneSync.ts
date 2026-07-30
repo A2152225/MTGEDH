@@ -43,7 +43,7 @@ import {
 } from './trigger-copy-permanent.js';
 import { queueCopySpellStackPushFromOracleIRResult } from './oracleIrServerCopySpellSync.js';
 import { appendCopyTriggeredAbilityResolveEvent } from './triggerAbilityCopyUtils.js';
-import { consumeManaFromPool, getOrInitManaPool, parseManaCost } from '../../socket/util.js';
+import { payManaCostWithAvailableSources } from '../../socket/util.js';
 import {
   clearPreparedPermanent,
   setPermanentPrepared,
@@ -4621,9 +4621,7 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
   if (paid && String(stepData.optionalPaymentValidationKind || '') === 'mana') {
     const manaCost = String(stepData.optionalPaymentManaCost || stepData.manaCost || '').trim();
     if (manaCost) {
-      const parsed = parseManaCost(manaCost);
-      const pool = getOrInitManaPool((ctx as any).state, playerId);
-      consumeManaFromPool(pool as any, parsed.colors, parsed.generic, `[oracleIR:${String(stepData.sourceName || 'Ability')}]`);
+      payManaCostWithAvailableSources((ctx as any).state, playerId, manaCost);
     }
   }
 

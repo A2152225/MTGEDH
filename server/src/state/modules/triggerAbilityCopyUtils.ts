@@ -3,7 +3,7 @@ import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { appendEvent } from '../../db/index.js';
-import { broadcastGame, consumeManaFromPool, getOrInitManaPool, parseManaCost } from '../../socket/util.js';
+import { broadcastGame, payManaCostWithAvailableSources } from '../../socket/util.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { ResolutionStepType } from '../resolution/index.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
@@ -244,9 +244,7 @@ export function tryDeferCopyTriggeredAbilityPrompts(
         cardName: sourceName,
       },
       onPay: async () => {
-        const parsedCost = parseManaCost(manaCost);
-        const pool = getOrInitManaPool(state as any, triggerController as PlayerID);
-        consumeManaFromPool(pool as any, parsedCost.colors, parsedCost.generic, `[copyAbilityTrigger:${sourceName}]`);
+        payManaCostWithAvailableSources(state as any, triggerController as PlayerID, manaCost);
         const copiedItem = cloneStackItemForAbilityCopy(ctx, sourceName, triggerController as PlayerID, (item as any).triggeringStackItemId);
         if (copiedItem) {
           persistCopyTriggeredAbilityResolve(true, String((copiedItem as any).id || '').trim());

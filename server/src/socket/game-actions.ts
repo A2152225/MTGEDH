@@ -1,6 +1,6 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, addCastSpellPaymentProducedMana, buildManaTotalsIncludingEligibleRestricted, consumeManaFromPool, consumeManaFromPoolForPurpose, deriveCreatureSpellHasteFromManaSpent, deriveCastUsedManaFromPermanentSource, getFloatingPaymentPoolColorKey, getOrInitManaPool, calculateTotalAvailableMana, parseFloatingPaymentPermanentId, validateManaPayment, validateSelectedFloatingPoolMana, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, snapshotManaProducedByPermanentLowerBound, applyManaSpendToManaProducedByPermanentLowerBound, resolveActivatedAbilityLineById, resolvePaymentManaAbilitySpendRestriction, restrictedManaSpendRestrictionAllowsPurpose, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower, type RestrictedManaSpendPurpose } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, addCastSpellPaymentProducedMana, buildManaTotalsIncludingEligibleRestricted, consumeManaFromPool, consumeManaFromPoolForPurpose, deriveCreatureSpellHasteFromManaSpent, deriveCastUsedManaFromPermanentSource, getFloatingPaymentPoolColorKey, getOrInitManaPool, calculateTotalAvailableMana, parseFloatingPaymentPermanentId, payManaCostWithAvailableSources, validateManaPayment, validateSelectedFloatingPoolMana, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, snapshotManaProducedByPermanentLowerBound, applyManaSpendToManaProducedByPermanentLowerBound, resolveActivatedAbilityLineById, resolvePaymentManaAbilitySpendRestriction, restrictedManaSpendRestrictionAllowsPurpose, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower, type RestrictedManaSpendPurpose } from "./util";
 import { emitResolutionStepPrompt, completeDanceWithCalamityDeferredAdvance, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingOracleIrCompoundResume, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
@@ -3659,10 +3659,9 @@ function resolveSpellCastOptionalPaymentChoice(
   const manaCost = String(trigger.optionalPaymentCost || '').trim();
   if (payMana) {
     if (manaCost) {
-      const parsedCost = parseManaCost(manaCost);
+      const payment = payManaCostWithAvailableSources(game.state, playerId, manaCost);
       const pool = getOrInitManaPool(game.state, playerId as PlayerID);
-      const totalAvailable = calculateTotalAvailableMana(pool, []);
-      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      const validationError = payment.ok ? null : payment.error || 'Insufficient mana.';
       if (validationError) {
         emitToPlayer(io, playerId as PlayerID, 'error', {
           code: 'INSUFFICIENT_MANA',
@@ -3679,7 +3678,6 @@ function resolveSpellCastOptionalPaymentChoice(
         broadcastGame(io, game, gameId);
         return;
       }
-      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[spellCastTriggerPayment:${trigger.cardName}]`);
       broadcastManaPoolUpdate(io, gameId, playerId as PlayerID, pool as any, `Spell-cast trigger payment for ${trigger.cardName}`, game);
     }
 

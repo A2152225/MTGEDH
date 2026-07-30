@@ -3,8 +3,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
-import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
+import { initializePriorityResolutionHandler, registerResolutionHandlers, sanitizeStepForClient } from '../src/socket/resolution.js';
 import { queueOptionalPaymentStep, queueShockLandPaymentStep } from '../src/socket/optional-payment-prompts.js';
+import { processSpellCastTriggersForCast } from '../src/socket/game-actions.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
 
@@ -203,5 +204,128 @@ describe('shared optional payment prompts (integration)', () => {
     expect(Number((game.state as any).life[playerId])).toBe(38);
     expect(Number((game.state as any).players[0]?.life)).toBe(38);
     expect(Number((game.state as any).lifeLostThisTurn?.[playerId] || 0)).toBe(2);
+  });
+
+  it('pays Emperor Mihail II optional {1} from an untapped mana source', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'mihail_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'mihail_card_1',
+          name: 'Emperor Mihail II',
+          type_line: 'Legendary Creature — Merfolk Noble',
+          oracle_text: 'Whenever you cast a Merfolk spell, you may pay {1}. If you do, create a 1/1 blue Merfolk creature token.',
+        },
+      },
+      {
+        id: 'island_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'island_card_1',
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '({T}: Add {U}.)',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    processSpellCastTriggersForCast(gameId, game as any, io as any, playerId, {
+      id: 'merfolk_spell_1',
+      name: 'Merfolk Looter',
+      type_line: 'Creature — Merfolk Rogue',
+      oracle_text: '',
+    });
+
+    const step = ResolutionQueueManager.getQueue(gameId).steps.find(
+      (entry: any) => entry?.spellCastTriggerOptionalPaymentChoice === true,
+    ) as any;
+    expect(step).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(step.id),
+      selections: ['pay_mana'],
+      cancelled: false,
+    });
+
+    expect((game.state as any).battlefield.find((permanent: any) => permanent.id === 'island_1')?.tapped).toBe(true);
+    expect(
+      (game.state as any).battlefield.some(
+        (permanent: any) => permanent?.isToken === true && /merfolk/i.test(String(permanent?.card?.name || permanent?.name || '')),
+      ),
+    ).toBe(true);
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+  });
+
+  it('marks a colored pay option unaffordable only while the player has no usable source', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [];
+
+    queueOptionalPaymentStep(gameId, {
+      playerId,
+      sourceName: 'Emperor Mihail II',
+      description: 'Optional trigger: You may pay {U}.',
+      payChoiceId: 'pay_mana',
+      payLabel: 'Pay {U}',
+      declineChoiceId: 'decline',
+      declineLabel: 'Decline',
+      validationKind: 'mana',
+      manaCost: '{U}',
+      onPay: async () => {},
+      onDecline: async () => {},
+    });
+
+    const step = ResolutionQueueManager.getQueue(gameId).steps.find(
+      (entry: any) => (entry as any).optionalPaymentPrompt === true,
+    ) as any;
+    expect(step).toBeDefined();
+
+    const findPayOption = () => (sanitizeStepForClient(gameId, step).options as any[])
+      .find((option: any) => option.id === 'pay_mana');
+
+    expect(findPayOption()?.disabled).toBe(true);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'island_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'island_card_2',
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '({T}: Add {U}.)',
+        },
+      },
+    ];
+
+    expect(findPayOption()?.disabled).toBeUndefined();
   });
 });

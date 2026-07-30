@@ -39,6 +39,7 @@ import {
   clearHumanAutoPassPauseOnAction,
   getMaxGenericManaAvailable,
   payGenericManaWithAvailableSources,
+  payManaCostWithAvailableSources,
   refundGenericManaPayment,
   getFloatingPaymentPoolColorKey,
 } from "./util.js";
@@ -8874,6 +8875,34 @@ export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any
       typeSpecificFields,
       oracleText,
     );
+  }
+
+  if (
+    step.type === ResolutionStepType.OPTION_CHOICE
+    && isOptionalPaymentPromptStep(step as any)
+  ) {
+    try {
+      const game = ensureGame(gameId);
+      const payChoiceId = String((step as any).optionalPaymentPayChoiceId || 'pay').trim();
+      const validationFailure = game
+        ? getOptionalPaymentValidationFailure(game, String(step.playerId || ''), step as any, payChoiceId)
+        : null;
+      if (validationFailure) {
+        const options = Array.isArray((typeSpecificFields as any).options)
+          ? (typeSpecificFields as any).options
+          : (Array.isArray((step as any).options) ? (step as any).options : []);
+        (typeSpecificFields as any).options = options.map((option: any) => {
+          if (String(option?.id || '') !== payChoiceId) return option;
+          return {
+            ...option,
+            disabled: true,
+            description: `${validationFailure.message} Minimize this prompt to tap mana sources.`,
+          };
+        });
+      }
+    } catch {
+      // best-effort affordability presentation; submission is still server-validated
+    }
   }
 
   if (
@@ -30209,53 +30238,19 @@ async function handleOptionChoiceResponse(
         });
       } else {
         try {
-          const parsed = parseManaCost(manaCost);
-          const coloredTotal = Object.values(parsed.colors || {}).reduce((sum, value) => sum + Number(value || 0), 0);
-
-          if (coloredTotal === 0 && Number(parsed.generic || 0) > 0) {
-            const payment = payGenericManaWithAvailableSources(game.state, playerId, Number(parsed.generic || 0));
-            if (!payment.ok) {
-              paymentFailed = true;
-              emitToPlayer(io, playerId, 'error', {
-                code: 'INSUFFICIENT_MANA',
-                message: payment.error || 'Insufficient mana.',
-              });
-            } else {
-              paid = true;
-              tappedPermanents = payment.tappedPermanents;
-              sacrificedPaymentPermanents = payment.sacrificedPermanents;
-              paymentManaDelta = payment.paymentManaDelta;
-              broadcastManaPoolUpdate(io, gameId, playerId, getOrInitManaPool(game.state, playerId) as any, `Paid ${manaCost} for ${cardName}`, game);
-            }
+          const payment = payManaCostWithAvailableSources(game.state, playerId, manaCost);
+          if (!payment.ok) {
+            paymentFailed = true;
+            emitToPlayer(io, playerId, 'error', {
+              code: 'INSUFFICIENT_MANA',
+              message: payment.error || 'Insufficient mana.',
+            });
           } else {
-            const pool = getOrInitManaPool(game.state, playerId) as any;
-            const totalAvailable = calculateTotalAvailableMana(pool, undefined);
-            const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
-
-            if (validationError) {
-              paymentFailed = true;
-              emitToPlayer(io, playerId, 'error', {
-                code: 'INSUFFICIENT_MANA',
-                message: validationError,
-              });
-            } else {
-              const beforePool = {
-                white: Number(pool.white || 0),
-                blue: Number(pool.blue || 0),
-                black: Number(pool.black || 0),
-                red: Number(pool.red || 0),
-                green: Number(pool.green || 0),
-                colorless: Number(pool.colorless || 0),
-              };
-              consumeManaFromPool(pool, parsed.colors, parsed.generic);
-              paymentManaDelta = {};
-              for (const key of ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const) {
-                const delta = Number(pool[key] || 0) - beforePool[key];
-                if (delta !== 0) paymentManaDelta[key] = delta;
-              }
-              paid = true;
-              broadcastManaPoolUpdate(io, gameId, playerId, pool as any, `Paid ${manaCost} for ${cardName}`, game);
-            }
+            paid = true;
+            tappedPermanents = payment.tappedPermanents;
+            sacrificedPaymentPermanents = payment.sacrificedPermanents;
+            paymentManaDelta = payment.paymentManaDelta;
+            broadcastManaPoolUpdate(io, gameId, playerId, getOrInitManaPool(game.state, playerId) as any, `Paid ${manaCost} for ${cardName}`, game);
           }
 
           if (paid) {

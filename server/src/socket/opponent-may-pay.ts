@@ -8,7 +8,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName, getOrInitManaPool, resolveManaCostForPoolPayment } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, payManaCostWithAvailableSources } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
@@ -81,11 +81,11 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
         // Fail closed: if auto-pay is chosen but not affordable, auto-decline.
         if (willPay) {
           try {
-            const pool = getOrInitManaPool(game.state as any, decidingPlayer) as any;
-            const resolved = resolveManaCostForPoolPayment(pool, String(manaCost || ''));
-            if (!resolved.ok) {
-              willPay = false;
-            }
+            willPay = payManaCostWithAvailableSources(
+              game.state as any,
+              decidingPlayer,
+              String(manaCost || ''),
+            ).ok;
           } catch {
             willPay = false;
           }
@@ -97,6 +97,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
           decidingPlayer,
           promptId,
           willPay,
+          manaAlreadyPaid: willPay || undefined,
           sourceName,
           sourceController,
           manaCost,
@@ -110,6 +111,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
           decidingPlayer,
           promptId,
           willPay,
+          manaAlreadyPaid: willPay || undefined,
           auto: true,
           sourceName,
           sourceController,
@@ -163,12 +165,15 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
         availableMana: manaPool,
       },
       onPay: async () => {
+        const payment = payManaCostWithAvailableSources(game.state as any, decidingPlayer, manaCost);
+        if (!payment.ok) return;
         game.applyEvent({
           type: 'opponentMayPayResolve',
           playerId: decidingPlayer,
           decidingPlayer,
           promptId,
           willPay: true,
+          manaAlreadyPaid: true,
           sourceName,
           sourceController,
           manaCost,
@@ -183,6 +188,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
             decidingPlayer,
             promptId,
             willPay: true,
+            manaAlreadyPaid: true,
             sourceName,
             sourceController,
             manaCost,
