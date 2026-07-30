@@ -5,6 +5,7 @@ import {
   detectETBTriggers,
   detectSpellCastTriggers,
   getAttackTriggersForCreatures,
+  getSpellCastTriggers,
 } from '../src/state/modules/triggered-abilities.js';
 import { evaluateDrawReplacementEvent } from '../src/state/modules/replacement-effects.js';
 
@@ -27,6 +28,36 @@ describe('Emperor Mihail II optional spell-cast trigger', () => {
     expect(trigger?.tokenDetails?.power).toBe(1);
     expect(trigger?.tokenDetails?.toughness).toBe(1);
     expect(String(trigger?.effect || '').toLowerCase()).toContain('create a 1/1 blue merfolk creature token');
+  });
+
+  it('recognizes a changeling spell as Merfolk', () => {
+    const mihail = {
+      id: 'mihail_1',
+      controller: 'p1',
+      card: {
+        name: 'Emperor Mihail II',
+        oracle_text:
+          'Whenever you cast a Merfolk spell, you may pay {1}. If you do, create a 1/1 blue Merfolk creature token.',
+      },
+    };
+    const morophon = {
+      name: 'Morophon, the Boundless',
+      type_line: 'Legendary Creature — Shapeshifter',
+      oracle_text: 'Changeling',
+    };
+
+    const triggers = getSpellCastTriggers({
+      state: { battlefield: [mihail] },
+    } as any, 'p1', morophon);
+
+    expect(triggers).toEqual([
+      expect.objectContaining({
+        cardName: 'Emperor Mihail II',
+        tribalType: 'merfolk',
+        optionalPaymentCost: '{1}',
+        createsToken: true,
+      }),
+    ]);
   });
 });
 

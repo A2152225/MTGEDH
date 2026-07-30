@@ -178,10 +178,16 @@ export function cardHasCreatureType(card: any, creatureType: string): boolean {
   const wanted = normalizeCreatureType(creatureType);
   if (!wanted || !card) return false;
 
-  const oracleText = String(card.oracle_text || '');
-  if (/\bchangeling\b/i.test(oracleText)) return true;
+  const keywords = Array.isArray(card.keywords) ? card.keywords : [];
+  const oracleText = String(card.oracle_text || card.oracleText || '');
+  if (
+    keywords.some((keyword: unknown) => String(keyword || '').toLowerCase() === 'changeling')
+    || /\bchangeling\b/i.test(oracleText)
+  ) {
+    return true;
+  }
 
-  const typeLine = String(card.type_line || '');
+  const typeLine = String(card.type_line || card.typeLine || '');
   const subTypes = (typeLine.split(/\s*[—–-]\s*/)[1] || '').toLowerCase();
   return subTypes.split(/\s+/).some((part) => normalizeCreatureType(part) === wanted);
 }

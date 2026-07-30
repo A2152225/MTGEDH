@@ -60,7 +60,7 @@ import {
   type TriggerTiming,
 } from "./triggers/types.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
-import { permanentHasCreatureTypeNow } from "../creatureTypeNow.js";
+import { cardHasCreatureType, permanentHasCreatureTypeNow } from "../creatureTypeNow.js";
 import { isEtbCreatureTypeChoiceOracle, parseChosenTypeCreatureEtbTrigger } from "./chosen-creature-type.js";
 import { detectCastTrigger } from "../../../../rules-engine/src/cards/castTriggers.js";
 import { hasTrainingKeyword } from "../../../../rules-engine/src/keywordAbilities/training.js";
@@ -13461,15 +13461,16 @@ export function getSpellCastTriggers(
           shouldTrigger = isCreatureSpell || spellTypeLine.includes('artifact');
           break;
         case 'tribal_type':
-          // Check if the spell has the tribal type
+          // Check if the spell has the tribal type.
           // This includes:
           // 1. Creature spells with the subtype (e.g., "Creature — Merfolk Wizard")
           // 2. Kindred/Tribal spells with the subtype (e.g., "Kindred Sorcery — Merfolk")
-          // 3. Any spell with the type in its type line
+          // 3. Cards with changeling, which have every creature type in every zone
           if (trigger.tribalType) {
             const tribalTypeLower = trigger.tribalType.toLowerCase();
-            shouldTrigger = spellCreatureTypes.includes(tribalTypeLower) ||
-                           spellTypeLine.includes(tribalTypeLower);
+            shouldTrigger = cardHasCreatureType(spellCard, tribalTypeLower)
+              || spellCreatureTypes.includes(tribalTypeLower)
+              || spellTypeLine.includes(tribalTypeLower);
             
             // Debug log for troubleshooting
             if (shouldTrigger) {
