@@ -60,6 +60,8 @@ describe('priority controls in-room authorization (integration)', () => {
 
     expect(() => handlers['setAutoPass'](undefined as any)).not.toThrow();
     expect(() => handlers['setAutoPassForTurn'](undefined as any)).not.toThrow();
+    expect(() => handlers['setAutoPassEmptyStackOnOpponentsTurn'](undefined as any)).not.toThrow();
+    expect(() => handlers['setAutoPassEmptyStackForTurn'](undefined as any)).not.toThrow();
     expect(() => handlers['claimPriority'](undefined as any)).not.toThrow();
     expect(() => handlers['checkCanRespond'](undefined as any)).not.toThrow();
     expect(() => handlers['setStop'](undefined as any)).not.toThrow();

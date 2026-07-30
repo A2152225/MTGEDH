@@ -2195,6 +2195,13 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
       ? stateAny.autoPassPlayers.has(priority)
       : false;
     const stackLen = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+    const autoPassEmptyStackOnOpponentsTurn =
+      (
+        stateAny.autoPassEmptyStackOnOpponentsTurn?.[priority] === true
+        || stateAny.autoPassEmptyStackForTurn?.[priority] === true
+      )
+      && stackLen === 0
+      && String(stateAny.turnPlayer || '') !== String(priority);
     let triggerAutoPassReason = (autoPassForTurn || loopStackDrain)
       ? undefined
       : getTopTriggeredAbilityAutoPassReason(game.state, priority);
@@ -2231,8 +2238,8 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
       return;
     }
     
-    // CRITICAL: If autoPassForTurn / loop drain / stack+autoPass is enabled, skip the idle check
-    if (!autoPassForTurn && !loopStackDrain && !triggerAutoPassReason && !bypassIdleForStack) {
+    // CRITICAL: Forced pass preferences skip the normal legal-action idle check.
+    if (!autoPassForTurn && !loopStackDrain && !autoPassEmptyStackOnOpponentsTurn && !triggerAutoPassReason && !bypassIdleForStack) {
       const ctx: any = {
         gameId,
         state: game.state,
@@ -2281,6 +2288,8 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
       debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} bypassing idle (stackLen=${stackLen}, autoPass=${autoPassEnabled}, loopDrain=${loopStackDrain}, autoPassForTurn=${autoPassForTurn}) (ID: ${debugCallId})`);
     } else if (triggerAutoPassReason) {
       debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} will auto-pass due to top stack trigger shortcut (${triggerAutoPassReason}) (ID: ${debugCallId})`);
+    } else if (autoPassEmptyStackOnOpponentsTurn) {
+      debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} will auto-pass empty stack on opponent ${stateAny.turnPlayer}'s turn (ID: ${debugCallId})`);
     } else {
       debug(2, `[checkAndTriggerAutoPass] Auto-pass for rest of turn / loop drain is enabled for ${priority} - bypassing canAct check`);
     }
@@ -2320,6 +2329,13 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
         ? currentState.autoPassPlayers.has(priority)
         : false;
       const currentStackLen = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+      const currentAutoPassEmptyStackOnOpponentsTurn =
+        (
+          currentState.autoPassEmptyStackOnOpponentsTurn?.[priority] === true
+          || currentState.autoPassEmptyStackForTurn?.[priority] === true
+        )
+        && currentStackLen === 0
+        && String(currentState.turnPlayer || '') !== String(priority);
       const currentBypassIdleForStack = shouldBypassIdleForNonEmptyStack({
         stackLen: currentStackLen,
         autoPassEnabled: currentAutoPassEnabled,
@@ -2331,7 +2347,7 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
       triggerAutoPassReason = (currentAutoPassForTurn || currentLoopDrain)
         ? undefined
         : getTopTriggeredAbilityAutoPassReason(game.state, priority);
-      if (!currentAutoPassForTurn && !currentLoopDrain && !triggerAutoPassReason && !currentBypassIdleForStack) {
+      if (!currentAutoPassForTurn && !currentLoopDrain && !currentAutoPassEmptyStackOnOpponentsTurn && !triggerAutoPassReason && !currentBypassIdleForStack) {
         // Recreate context for re-check
         // CRITICAL: Use actual game data (libraries, mana pool) for accurate checks
         const recheckCtx: any = {
@@ -2472,7 +2488,7 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
     
     // For human players without forced stack-drain, add a small delay
     // This allows them to evaluate and claim priority if needed
-    if (isHumanPlayer && !autoPassForTurn && !loopStackDrain && !bypassIdleForStack && !triggerAutoPassReason) {
+    if (isHumanPlayer && !autoPassForTurn && !loopStackDrain && !autoPassEmptyStackOnOpponentsTurn && !bypassIdleForStack && !triggerAutoPassReason) {
       if (existingHumanAutoPass?.playerId === priorityPlayerId) {
         debug(2, `${ts()} [checkAndTriggerAutoPass] Auto-pass already scheduled for ${priority} (ID: ${debugCallId})`);
         return;
@@ -2489,7 +2505,7 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
     } else {
       clearScheduledHumanAutoPass(gameId, priorityPlayerId);
       // AI players or stack-drain / autoPassForTurn: execute immediately
-      debug(2, `${ts()} [checkAndTriggerAutoPass] Executing auto-pass for ${priority} IMMEDIATELY (isHuman=${isHumanPlayer}, autoPassForTurn=${autoPassForTurn}, loopDrain=${loopStackDrain}, bypassStack=${bypassIdleForStack}) (ID: ${debugCallId})`);
+      debug(2, `${ts()} [checkAndTriggerAutoPass] Executing auto-pass for ${priority} IMMEDIATELY (isHuman=${isHumanPlayer}, autoPassForTurn=${autoPassForTurn}, emptyStackOpponentTurn=${autoPassEmptyStackOnOpponentsTurn}, loopDrain=${loopStackDrain}, bypassStack=${bypassIdleForStack}) (ID: ${debugCallId})`);
       executeAutoPass();
     }
   } catch (e) {

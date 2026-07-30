@@ -10,6 +10,8 @@ interface Props {
   isSinglePlayer?: boolean;
   onToggleAutoPassForTurn?: () => void;
   autoPassForTurnEnabled?: boolean;
+  autoPassEmptyStackOnOpponentsTurnEnabled?: boolean;
+  onToggleAutoPassEmptyStackOnOpponentsTurn?: (enabled: boolean) => void;
   autoYesOptionalEnabled?: boolean;
   onToggleAutoYesOptional?: (enabled: boolean) => void;
 }
@@ -41,6 +43,8 @@ export function AutoPassSettingsPanel({
   isSinglePlayer,
   onToggleAutoPassForTurn,
   autoPassForTurnEnabled,
+  autoPassEmptyStackOnOpponentsTurnEnabled = false,
+  onToggleAutoPassEmptyStackOnOpponentsTurn,
   autoYesOptionalEnabled = false,
   onToggleAutoYesOptional,
 }: Props) {
@@ -298,6 +302,41 @@ export function AutoPassSettingsPanel({
                 </>
               )}
             </button>
+          )}
+
+          {onToggleAutoPassEmptyStackOnOpponentsTurn && (
+            <div
+              style={{
+                background: '#252525',
+                border: '1px solid #333',
+                borderRadius: 6,
+                padding: '10px 12px',
+                marginBottom: 10,
+              }}
+            >
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span style={{ fontSize: 12, color: '#ddd', fontWeight: 500 }}>
+                  Pass Empty Stack on Opponents&apos; Turns
+                </span>
+                <input
+                  type="checkbox"
+                  checked={autoPassEmptyStackOnOpponentsTurnEnabled}
+                  onChange={(e) => onToggleAutoPassEmptyStackOnOpponentsTurn(e.target.checked)}
+                  style={{ cursor: 'pointer', width: 16, height: 16 }}
+                />
+              </label>
+              <p style={{ fontSize: 9, color: '#666', margin: '6px 0 0', lineHeight: 1.3 }}>
+                Yields priority when the stack is empty during another player&apos;s turn. You will still stop for spells and abilities on the stack.
+              </p>
+            </div>
           )}
 
           {onToggleAutoYesOptional && (

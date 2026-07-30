@@ -117,6 +117,7 @@ function restartGameWithKarnExemptions(
   state.stepAdvanceBlocked = undefined;
   state.noncreatureSpellsCastThisTurn = {};
   state.autoPassForTurn = {};
+  (state as any).autoPassEmptyStackForTurn = {};
   state.landsPlayedThisTurn = {};
   (ctx as any).landsPlayedThisTurn = state.landsPlayedThisTurn;
   (ctx as any).manaPool = {};

@@ -82,6 +82,9 @@ function createHarness(gameId: string, overrides: Record<string, unknown> = {}) 
   const resolveTopOfStack = vi.fn(() => {
     (ctx.state.stack as any[]).pop();
   });
+  const passPrioritySpy = vi.fn((playerId: string, isAutoPass?: boolean) =>
+    passPriority(ctx, playerId as any, isAutoPass)
+  );
 
   const game: any = {
     gameId,
@@ -101,8 +104,7 @@ function createHarness(gameId: string, overrides: Record<string, unknown> = {}) 
     bumpSeq: ctx.bumpSeq,
     participants: () => [],
     viewFor: () => ctx.state,
-    passPriority: (playerId: string, isAutoPass?: boolean) =>
-      passPriority(ctx, playerId as any, isAutoPass),
+    passPriority: passPrioritySpy,
     resolveTopOfStack,
   };
 
@@ -111,7 +113,7 @@ function createHarness(gameId: string, overrides: Record<string, unknown> = {}) 
     to: vi.fn(() => ({ emit })),
   };
 
-  return { ctx, game, io, resolveTopOfStack };
+  return { ctx, game, io, resolveTopOfStack, passPrioritySpy };
 }
 
 describe('Smart Pass own-stack bypass', () => {
@@ -126,6 +128,9 @@ describe('Smart Pass own-stack bypass', () => {
       'smart_pass_rest_of_turn',
       'smart_pass_timeout_opp',
       'smart_pass_missing_controller',
+      'smart_pass_empty_stack_opp_turn',
+      'smart_pass_empty_stack_for_turn',
+      'smart_pass_empty_pref_opp_spell',
     ]) {
       clearPriorityTimer(id);
       games.delete(id);
@@ -144,6 +149,51 @@ describe('Smart Pass own-stack bypass', () => {
     expect(ctx.state.priority).toBe('p_human');
     expect(ctx.state.stack).toHaveLength(1);
     expect((ctx.state.priorityPassedBy as Set<string>).has('p_human')).toBe(false);
+  });
+
+  it('passes an empty stack on an opponent turn when the preference is enabled', async () => {
+    const { ctx, game, io, passPrioritySpy } = createHarness('smart_pass_empty_stack_opp_turn', {
+      stack: [],
+      priorityPassedBy: new Set<string>(),
+      autoPassEmptyStackOnOpponentsTurn: { p_human: true },
+    });
+    games.set(game.gameId, game);
+
+    checkAndTriggerAutoPass(io, game, game.gameId);
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(passPrioritySpy).toHaveBeenCalledWith('p_human', true);
+    expect(ctx.state.priority).toBe('p_opp');
+  });
+
+  it('still stops for an opponent spell when empty-stack passing is enabled', async () => {
+    const { ctx, game, io, resolveTopOfStack } = createHarness('smart_pass_empty_pref_opp_spell', {
+      autoPassEmptyStackOnOpponentsTurn: { p_human: true },
+    });
+    games.set(game.gameId, game);
+
+    checkAndTriggerAutoPass(io, game, game.gameId);
+    await vi.advanceTimersByTimeAsync(AUTO_PASS_DELAY_MS + 50);
+
+    expect(resolveTopOfStack).not.toHaveBeenCalled();
+    expect(ctx.state.priority).toBe('p_human');
+    expect(ctx.state.stack).toHaveLength(1);
+  });
+
+  it('supports a per-turn empty-stack pass without passing a non-empty stack', async () => {
+    const { ctx, game, io, passPrioritySpy } = createHarness('smart_pass_empty_stack_for_turn', {
+      stack: [],
+      priorityPassedBy: new Set<string>(),
+      autoPassEmptyStackOnOpponentsTurn: {},
+      autoPassEmptyStackForTurn: { p_human: true },
+    });
+    games.set(game.gameId, game);
+
+    checkAndTriggerAutoPass(io, game, game.gameId);
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(passPrioritySpy).toHaveBeenCalledWith('p_human', true);
+    expect(ctx.state.priority).toBe('p_opp');
   });
 
   it('Smart Pass drains the human\'s own top stack object despite floating mana', async () => {

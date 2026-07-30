@@ -6,6 +6,8 @@ interface Props {
   phase?: string;
   onTake: () => void;
   onPass: () => void;
+  onPassEmptyStackForTurn?: () => void;
+  isOpponentsTurn?: boolean;
   autoPassSteps: Set<string>;
   onToggleAutoPass: (step: string, enabled: boolean) => void;
 }
@@ -39,7 +41,17 @@ function getStepDisplayName(step: string): string {
   return stepNames[step.toLowerCase()] || step;
 }
 
-export function PriorityModal({ open, step, phase, onTake, onPass, autoPassSteps, onToggleAutoPass }: Props) {
+export function PriorityModal({
+  open,
+  step,
+  phase,
+  onTake,
+  onPass,
+  onPassEmptyStackForTurn,
+  isOpponentsTurn = false,
+  autoPassSteps,
+  onToggleAutoPass,
+}: Props) {
   if (!open) return null;
   
   const stepKey = step?.toLowerCase() || '';
@@ -85,6 +97,25 @@ export function PriorityModal({ open, step, phase, onTake, onPass, autoPassSteps
             Pass Priority
           </button>
         </div>
+        {isOpponentsTurn && onPassEmptyStackForTurn && (
+          <button
+            onClick={onPassEmptyStackForTurn}
+            style={{
+              width: '100%',
+              padding: '7px 12px',
+              marginBottom: 12,
+              background: 'linear-gradient(90deg, #7c3aed, #6d28d9)',
+              border: 'none',
+              borderRadius: 4,
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 500,
+            }}
+          >
+            Pass Empty Stack for Rest of Turn
+          </button>
+        )}
         <div style={{ 
           borderTop: '1px solid #333', 
           paddingTop: 10,

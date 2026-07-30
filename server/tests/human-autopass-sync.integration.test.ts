@@ -104,6 +104,64 @@ describe('human auto-pass registration', () => {
     expect(emitted.some((entry) => entry.event === 'autoPassToggled' && entry.payload?.enabled === true)).toBe(true);
   });
 
+  it('syncs the empty-stack opponent-turn preference', () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', gameId, emitted);
+    const io = createMockIo(emitted);
+
+    games.set(gameId as any, {
+      state: {
+        players: [
+          { id: 'p1', name: 'Human', seat: 0 },
+          { id: 'p2', name: 'Other', seat: 1 },
+        ],
+        battlefield: [],
+        stack: [],
+        priority: 'p2',
+        turnPlayer: 'p2',
+      },
+      bumpSeq: () => {},
+      participants: () => [],
+    } as any);
+
+    registerPriorityHandlers(io as any, socket as any);
+    handlers['setAutoPassEmptyStackOnOpponentsTurn']({
+      gameId,
+      enabled: true,
+      syncOnly: true,
+    });
+
+    const game = games.get(gameId as any) as any;
+    expect(game.state.autoPassEmptyStackOnOpponentsTurn).toEqual({ p1: true });
+  });
+
+  it('enables the one-turn empty-stack pass option', () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', gameId, emitted);
+    const io = createMockIo(emitted);
+
+    games.set(gameId as any, {
+      state: {
+        players: [
+          { id: 'p1', name: 'Human', seat: 0 },
+          { id: 'p2', name: 'Other', seat: 1 },
+        ],
+        battlefield: [],
+        stack: [],
+        priority: 'p2',
+        turnPlayer: 'p2',
+      },
+      bumpSeq: () => {},
+      participants: () => [],
+    } as any);
+
+    registerPriorityHandlers(io as any, socket as any);
+    handlers['setAutoPassEmptyStackForTurn']({ gameId, enabled: true });
+
+    const game = games.get(gameId as any) as any;
+    expect(game.state.autoPassEmptyStackForTurn).toEqual({ p1: true });
+  });
+
   it('auto-passes for autoPassForTurn even when autoPassPlayers is empty', () => {
     const state: any = {
       players: [

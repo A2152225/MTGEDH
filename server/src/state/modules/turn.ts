@@ -4052,6 +4052,10 @@ export function nextTurn(ctx: GameContext) {
       (ctx as any).state.autoPassForTurn = {};
       debug(2, `${ts()} [nextTurn] Cleared autoPassForTurn flags for new turn`);
     }
+    if ((ctx as any).state.autoPassEmptyStackForTurn) {
+      (ctx as any).state.autoPassEmptyStackForTurn = {};
+      debug(2, `${ts()} [nextTurn] Cleared per-turn empty-stack auto-pass flags for new turn`);
+    }
     
     // Clear noncreature spells cast this turn counter (for Esper Sentinel, Rhystic Study, etc.)
     // These abilities trigger on each player's FIRST noncreature spell each turn

@@ -1250,6 +1250,13 @@ export function App() {
   // Auto-pass for rest of turn setting
   // When enabled, forces auto-pass for all remaining priority windows this turn
   const [autoPassForTurn, setAutoPassForTurn] = useState(false);
+  const [autoPassEmptyStackOnOpponentsTurn, setAutoPassEmptyStackOnOpponentsTurn] = useState(() => {
+    try {
+      return localStorage.getItem('mtgedh:autoPassEmptyStackOnOpponentsTurn') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   const [autoYesOptional, setAutoYesOptional] = useState(() => {
     try {
@@ -1293,6 +1300,26 @@ export function App() {
       return newValue;
     });
   }, [safeView?.id, socket]);
+
+  const handleToggleAutoPassEmptyStackOnOpponentsTurn = React.useCallback((enabled: boolean) => {
+    setAutoPassEmptyStackOnOpponentsTurn(enabled);
+    try {
+      if (enabled) {
+        localStorage.setItem('mtgedh:autoPassEmptyStackOnOpponentsTurn', '1');
+      } else {
+        localStorage.removeItem('mtgedh:autoPassEmptyStackOnOpponentsTurn');
+      }
+    } catch {
+      /* ignore */
+    }
+
+    if (safeView?.id) {
+      socket.emit('setAutoPassEmptyStackOnOpponentsTurn', {
+        gameId: safeView.id,
+        enabled,
+      });
+    }
+  }, [safeView?.id, socket]);
   
   // Reset auto-pass for turn when turn changes
   React.useEffect(() => {
@@ -1330,7 +1357,12 @@ export function App() {
       enabled: autoYesOptional,
       syncOnly: true,
     } as any);
-  }, [safeView?.id, you, socket, autoYesOptional]);
+    socket.emit('setAutoPassEmptyStackOnOpponentsTurn', {
+      gameId: targetGameId,
+      enabled: autoPassEmptyStackOnOpponentsTurn,
+      syncOnly: true,
+    } as any);
+  }, [safeView?.id, you, socket, autoYesOptional, autoPassEmptyStackOnOpponentsTurn]);
 
   // Sync when game/player identity is ready and whenever step preferences change.
   React.useEffect(() => {
@@ -6725,6 +6757,8 @@ export function App() {
                     }
                     onToggleAutoPassForTurn={handleToggleAutoPassForTurn}
                     autoPassForTurnEnabled={autoPassForTurn}
+                    autoPassEmptyStackOnOpponentsTurnEnabled={autoPassEmptyStackOnOpponentsTurn}
+                    onToggleAutoPassEmptyStackOnOpponentsTurn={handleToggleAutoPassEmptyStackOnOpponentsTurn}
                     autoYesOptionalEnabled={autoYesOptional}
                     onToggleAutoYesOptional={handleToggleAutoYesOptional}
                   />
@@ -9215,6 +9249,16 @@ export function App() {
             socket.emit("passPriority", { gameId: safeView.id, by: you });
           }
         }}
+        isOpponentsTurn={Boolean(you && safeView?.turnPlayer && safeView.turnPlayer !== you)}
+        onPassEmptyStackForTurn={() => {
+          setPriorityModalOpen(false);
+          if (safeView && you) {
+            socket.emit('setAutoPassEmptyStackForTurn', {
+              gameId: safeView.id,
+              enabled: true,
+            });
+          }
+        }}
         autoPassSteps={autoPassSteps}
         onToggleAutoPass={handleToggleAutoPass}
       />
@@ -9234,6 +9278,8 @@ export function App() {
             }
             onToggleAutoPassForTurn={handleToggleAutoPassForTurn}
             autoPassForTurnEnabled={autoPassForTurn}
+            autoPassEmptyStackOnOpponentsTurnEnabled={autoPassEmptyStackOnOpponentsTurn}
+            onToggleAutoPassEmptyStackOnOpponentsTurn={handleToggleAutoPassEmptyStackOnOpponentsTurn}
           />
           {/* Trigger Shortcuts Button */}
           <button

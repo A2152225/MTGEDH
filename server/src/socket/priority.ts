@@ -167,6 +167,67 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
     }
   });
 
+  socket.on("setAutoPassEmptyStackOnOpponentsTurn", (payload?: { gameId?: unknown; enabled?: unknown; syncOnly?: unknown }) => {
+    const gameId = payload?.gameId;
+    const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
+    const enabled = !!payload?.enabled;
+    const syncOnly = payload?.syncOnly === true;
+    const ctx = gameIdValue ? ensureInRoomAndSeated(gameIdValue) : null;
+    if (!ctx) return;
+
+    const { game, pid } = ctx;
+    const stateAny = game.state as any;
+    if (!stateAny.autoPassEmptyStackOnOpponentsTurn || typeof stateAny.autoPassEmptyStackOnOpponentsTurn !== 'object') {
+      stateAny.autoPassEmptyStackOnOpponentsTurn = {};
+    }
+
+    if (enabled) {
+      stateAny.autoPassEmptyStackOnOpponentsTurn[pid] = true;
+    } else {
+      delete stateAny.autoPassEmptyStackOnOpponentsTurn[pid];
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    if (enabled && stateAny.priority === pid) {
+      if (syncOnly) {
+        checkAndTriggerAutoPass(io as any, game, gameIdValue);
+      } else {
+        rerunAutoPassEvaluation(gameIdValue, game);
+      }
+    }
+  });
+
+  socket.on("setAutoPassEmptyStackForTurn", (payload?: { gameId?: unknown; enabled?: unknown }) => {
+    const gameId = payload?.gameId;
+    const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
+    const enabled = !!payload?.enabled;
+    const ctx = gameIdValue ? ensureInRoomAndSeated(gameIdValue) : null;
+    if (!ctx) return;
+
+    const { game, pid } = ctx;
+    const stateAny = game.state as any;
+    if (!stateAny.autoPassEmptyStackForTurn || typeof stateAny.autoPassEmptyStackForTurn !== 'object') {
+      stateAny.autoPassEmptyStackForTurn = {};
+    }
+
+    if (enabled) {
+      stateAny.autoPassEmptyStackForTurn[pid] = true;
+    } else {
+      delete stateAny.autoPassEmptyStackForTurn[pid];
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    if (enabled && stateAny.priority === pid) {
+      rerunAutoPassEvaluation(gameIdValue, game);
+    }
+  });
+
   /**
    * Loop shortcuts need to drain Summon / Reflections / Aura Shards without
    * clearing on cast (unlike autoPassForTurn). While enabled, auto-pass bypasses
