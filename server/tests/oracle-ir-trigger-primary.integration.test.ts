@@ -103,6 +103,36 @@ describe('oracle IR trigger execution', () => {
     expect(player.hand.length + player.library.length).toBe(1);
   });
 
+  it('counts the controller spell-cast ledger when resolving Aetherflux Reservoir', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const game = createInitialGameState('oracle_ir_trigger_aetherflux');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+
+    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
+    const lifeBefore = Number(player.life);
+    (game.state as any).spellsCastThisTurn = [
+      { id: 'spell-1', casterId: p1 },
+      { id: 'spell-2', casterId: p2 },
+      { id: 'spell-3', casterId: p1 },
+    ];
+
+    const outcome = tryResolveTriggerViaOracleIR(game as any, {
+      controller: p1,
+      sourceName: 'Aetherflux Reservoir',
+      effectText: "You gain 1 life for each spell you've cast this turn.",
+      triggerItem: { id: 'trigger-aetherflux', source: 'aetherflux-1' },
+    });
+
+    expect(outcome.handled).toBe(true);
+    expect(outcome.applied).toBe(1);
+    const playerAfter = (game.state as any).players.find((entry: any) => entry.id === p1);
+    expect(playerAfter.life).toBe(lifeBefore + 2);
+  });
+
   it('primary mode queues copy_permanent target selection via server zone sync', () => {
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
 

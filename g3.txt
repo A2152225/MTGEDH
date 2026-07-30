@@ -1,515 +1,279 @@
-}
-[completeCastSpell] Using client-sent targets: none
-[completeCastSpell] Final targets to use: none
-[completeCastSpell] Calling handleCastSpellFromHand with skipInteractivePrompts=true
-[completeCastSpell] DEBUG END ==========================================
-[handleCastSpellFromHand] ======== DEBUG START ========
-[handleCastSpellFromHand] cardId: 13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613
-[handleCastSpellFromHand] targets: []
-[handleCastSpellFromHand] payment: [{"permanentId":"__pool__:white:0","mana":"W","count":1},{"permanentId":"__pool__:white:1","mana":"W","count":1},{"permanentId":"__pool__:white:2","mana":"W","count":1}]
-[handleCastSpellFromHand] skipInteractivePrompts: true
-[handleCastSpellFromHand] playerId: p_akdrkkkc
-[handleCastSpellFromHand] fromZone: hand
-[handleCastSpellFromHand] priority: p_akdrkkkc
-[handleCastSpellFromHand] Summon the School: spellSpec=false, targetReqs=true, needsTargetSelection=false, hasTargets=false
-[handleCastSpellFromHand] ======== DEBUG END ========
-[costReduction] Summon the School: Morophon: -{W}{U}{B}{R}{G} (merfolk)
-[castSpellFromHand] Cost reduction for Summon the School: Morophon: -{W}{U}{B}{R}{G} (merfolk)
-[castSpellFromHand] Original cost: {3}{W}, Concrete cost: {3}{W}, Reduced generic: 3 -> 3
-[castSpellFromHand] Floating mana available in pool: 91 white
-[castSpellFromHand] Processing payment for Summon the School: [ { permanentId: '__pool__:white:0', mana: 'W', count: 1 },
-  { permanentId: '__pool__:white:1', mana: 'W', count: 1 },
-  { permanentId: '__pool__:white:2', mana: 'W', count: 1 } ]
-[castSpellFromHand][selectedPayment] Consumed mana with restricted-purpose spending: {"white":3,"blue":0,"black":0,"red":0,"green":0,"colorless":0}
-[castSpellFromHand] Converge: 1 different color(s) spent for Summon the School
-[castSpellFromHand] Player p_akdrkkkc cast Summon the School (13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613) - RulesBridge validated
-[castSpellFromHand] Added converge data to stack item: 1 colors (white)
-[castSpell] Player p_akdrkkkc cast Summon the School (13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613) from hand via applyEvent
-[processSpellCastTriggersForCast] Triggered: Reflections of Littjara - Whenever you cast a Merfolk spell, copy that spell
-[oracleIR] Reflections of Littjara: pushed 1 stack spell copy of Summon the School
-[oracleIR] Primary trigger resolution for Reflections of Littjara: 1 step(s) applied
-[TokenOptimization] Applied grouping: 471 → 54 entries, has grouped tokens with counts
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=0, availableMana=95
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:12:31.944Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298351944_l9ls7) ==========
-2026-07-29T04:12:31.944Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:12:31.945Z [checkAndTriggerAutoPass] Spell cast completion in progress - returning early (ID: autopass_1785298351944_l9ls7)
-[Resolution] Spell payment complete for Summon the School; completed cast server-side (effectId='cast_13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613_1785298346751')
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=0, availableMana=95
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:12:32.776Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298352776_8ikc2) ==========
-2026-07-29T04:12:32.776Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:12:32.842Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298352776_8ikc2)
-2026-07-29T04:12:32.843Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298352776_8ikc2)
-[TokenOptimization] Applied grouping: 471 → 54 entries, has grouped tokens with counts
-2026-07-29T04:12:36.144Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298356144_xka1m) ==========
-2026-07-29T04:12:36.145Z [checkAndTriggerAutoPass] Priority: p_suei9c3z, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:12:36.145Z [checkAndTriggerAutoPass] p_suei9c3z is AI, handled separately (ID: autopass_1785298356144_xka1m)
-[AI] handleAIGameFlow: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'POSTCOMBATMAIN',
-  step: 'MAIN2',
+mtgedh>
+2026-07-30T04:09:56.506Z [executeAutoPass] Advancing step after auto-pass for p_5h70rlna (ID: autopass_1785384596351_o96zr)
+2026-07-30T04:09:56.506Z [nextStep] ========== CALLED ==========
+2026-07-30T04:09:56.506Z [nextStep] Game: game_9512
+2026-07-30T04:09:56.506Z [nextStep] Current: beginning/UNTAP
+2026-07-30T04:09:56.506Z [nextStep] Priority: p_c0u83xzq, Turn: p_5h70rlna
+2026-07-30T04:09:56.506Z [nextStep] Call stack:
+        at Object.nextStep (D:\Git\MTGEDH\server\src\state\index.ts:105:21)
+        at Timeout.executeAutoPass (D:\Git\MTGEDH\server\src\socket\util.ts:2358:31)
+        at listOnTimeout (node:internal/timers:588:17)
+        at process.processTimers (node:internal/timers:523:7)
+2026-07-30T04:09:56.506Z [nextStep] Advanced to phase=beginning, step=UPKEEP
+2026-07-30T04:09:56.514Z [nextStep] Granting priority to active player p_5h70rlna (step: UPKEEP, stack size: 0)
+[canAct] p_5h70rlna: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_5h70rlna: No actions available - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:09:56.516Z [nextStep] DEBUG - Turn Player p_5h70rlna:
+2026-07-30T04:09:56.517Z [nextStep]   Hand (5): Swords to Plowshares, Fist of Suns, Fierce Guardianship, Counterspell, The Mindskinner
+2026-07-30T04:09:56.517Z [nextStep]   canAct: false, canRespond: false
+2026-07-30T04:09:56.517Z [nextStep] Checking if auto-pass should apply after granting priority
+[priority] autoPassLoop starting - active players: p_c0u83xzq, p_szrcpahj, p_5h70rlna, autoPassEnabled: p_c0u83xzq, p_szrcpahj, p_5h70rlna, currentPriority: p_5h70rlna, turnPlayer: p_5h70rlna
+[canAct] p_5h70rlna: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_5h70rlna: No actions available - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_5h70rlna - no available actions
+[canRespond] p_c0u83xzq: checking instant-speed responses only
+[canRespond] p_c0u83xzq: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_c0u83xzq - no available actions
+[canRespond] p_szrcpahj: checking instant-speed responses only
+[canRespond] p_szrcpahj: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_szrcpahj - no available actions
+2026-07-30T04:09:56.523Z [nextStep] All players auto-passed after granting priority - caller should advance step
+2026-07-30T04:09:56.524Z [untapPermanentsForPlayer] Player p_5h70rlna: untapped 5, stun counters removed 0, skipped (doesn't untap) 0
+2026-07-30T04:09:56.524Z [executeAutoPass] Cleared _autoPassInProgress flag for p_5h70rlna (ID: autopass_1785384596351_o96zr)
+2026-07-30T04:09:56.524Z [executeAutoPass] Broadcasting state after auto-pass (ID: autopass_1785384596351_o96zr)
+[TokenOptimization] Applied grouping: 31 → 30 entries, has grouped tokens with counts
+[getPlayableCardIds] Player p_5h70rlna: 1 playable option(s); step=UPKEEP, priority=p_5h70rlna, hand=5, availableMana=5
+[canAct] p_5h70rlna: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:09:56.595Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384596595_lmmgi) ==========
+2026-07-30T04:09:56.595Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: beginning, Step: UPKEEP
+[canAct] p_5h70rlna: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:09:56.598Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384596595_lmmgi)
+2026-07-30T04:09:56.598Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384596595_lmmgi)
+2026-07-30T04:09:56.598Z [executeAutoPass] Broadcast complete (ID: autopass_1785384596351_o96zr)
+[TokenOptimization] Applied grouping: 31 → 30 entries, has grouped tokens with counts
+2026-07-30T04:10:00.257Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384600257_u5nup) ==========
+2026-07-30T04:10:00.257Z [checkAndTriggerAutoPass] Priority: p_c0u83xzq, Phase: beginning, Step: UPKEEP
+2026-07-30T04:10:00.257Z [checkAndTriggerAutoPass] p_c0u83xzq is AI, handled separately (ID: autopass_1785384600257_u5nup)
+[AI] handleAIGameFlow: { gameId: 'game_9512',
+  playerId: 'p_c0u83xzq',
+  phase: 'BEGINNING',
+  step: 'UPKEEP',
   hasCommander: true,
   hasHand: true,
-  handCount: 9,
+  handCount: 7,
   isAITurn: false,
   hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'postcombatmain',
-  step: 'main2',
+[AI] AI player checking priority: { gameId: 'game_9512',
+  playerId: 'p_c0u83xzq',
+  phase: 'beginning',
+  step: 'upkeep',
   isAITurn: false,
-  stackEmpty: false,
-  priority: 'p_suei9c3z',
+  stackEmpty: true,
+  priority: 'p_c0u83xzq',
   hasPriority: true }
 [AI] AI has priority, proceeding with action
-[canRespond] p_suei9c3z: checking instant-speed responses only
-[canRespond] p_suei9c3z: No instant-speed responses available (returning false)
+[canRespond] p_c0u83xzq: checking instant-speed responses only
+[canRespond] p_c0u83xzq: No instant-speed responses available (returning false)
 [AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_554411', playerId: 'p_suei9c3z' }
-2026-07-29T04:12:36.776Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, autoPassEnabled: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, currentPriority: p_g4uqj6f6, turnPlayer: p_akdrkkkc
-[canRespond] p_g4uqj6f6: checking instant-speed responses only
-[canRespond] p_g4uqj6f6: No instant-speed responses available (returning false)
-[priority] Auto-passing for p_g4uqj6f6 - no available actions
-[AI] All players passed priority, resolving top of stack
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[oracleIR] Bridged ETB triggers for 8 IR-created token(s)
-[oracleIR] Primary spell resolution for Summon the School: 2 step(s) applied
-[tryResolveInstantSorceryOracleIrSpell] Summon the School resolved via Oracle IR primary path (2 step(s))
-[tryResolveInstantSorceryLegacyResolution] Summon the School: skipping legacy body handlers (IR primary resolved effect)
-[moveResolvedInstantOrSorceryAfterResolution] Copied spell Summon the School ceased to exist after resolution
-[resolveTopOfStack] Reset priorityPassedBy after spell resolution
-[AI] Stack resolved for game game_554411
-[TokenOptimization] Applied grouping: 479 → 54 entries, has grouped tokens with counts
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=1, availableMana=95
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:12:39.397Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298359397_4tn22) ==========
-2026-07-29T04:12:39.397Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:12:39.471Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298359397_4tn22)
-2026-07-29T04:12:39.472Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298359397_4tn22)
-[TokenOptimization] Applied grouping: 479 → 54 entries, has grouped tokens with counts
-2026-07-29T04:12:41.722Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298361722_slht4) ==========
-2026-07-29T04:12:41.722Z [checkAndTriggerAutoPass] Priority: p_suei9c3z, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:12:41.722Z [checkAndTriggerAutoPass] p_suei9c3z is AI, handled separately (ID: autopass_1785298361722_slht4)
-[AI] handleAIGameFlow: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'POSTCOMBATMAIN',
-  step: 'MAIN2',
+[AI] Passing priority: { gameId: 'game_9512', playerId: 'p_c0u83xzq' }
+[priority] autoPassLoop starting - active players: p_c0u83xzq, p_szrcpahj, p_5h70rlna, autoPassEnabled: p_c0u83xzq, p_szrcpahj, p_5h70rlna, currentPriority: p_szrcpahj, turnPlayer: p_5h70rlna
+[canRespond] p_szrcpahj: checking instant-speed responses only
+[canRespond] p_szrcpahj: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_szrcpahj - no available actions
+[AI] All players passed priority with empty stack, advancing step
+2026-07-30T04:10:00.883Z [nextStep] ========== CALLED ==========
+2026-07-30T04:10:00.883Z [nextStep] Game: game_9512
+2026-07-30T04:10:00.883Z [nextStep] Current: beginning/UPKEEP
+2026-07-30T04:10:00.884Z [nextStep] Priority: p_5h70rlna, Turn: p_5h70rlna
+2026-07-30T04:10:00.884Z [nextStep] Call stack:
+        at Object.nextStep (D:\Git\MTGEDH\server\src\state\index.ts:105:21)
+        at executePassPriority (D:\Git\MTGEDH\server\src\socket\ai.ts:11784:25)
+        at async <anonymous> (D:\Git\MTGEDH\server\src\socket\ai.ts:8982:7)
+        at async runExclusiveAIAction (D:\Git\MTGEDH\server\src\socket\ai.ts:1426:5)
+2026-07-30T04:10:00.884Z [nextStep] Advanced to phase=beginning, step=DRAW
+2026-07-30T04:10:00.898Z [nextStep] Drew 1 card(s) for p_5h70rlna at draw step (base: 1, additional: 0)
+2026-07-30T04:10:00.898Z [nextStep] Granting priority to active player p_5h70rlna (step: DRAW, stack size: 0)
+[canAct] p_5h70rlna: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:10:00.900Z [nextStep] DEBUG - Turn Player p_5h70rlna:
+2026-07-30T04:10:00.901Z [nextStep]   Hand (6): Swords to Plowshares, Fist of Suns, Fierce Guardianship, Counterspell, The Mindskinner, Aetherflux Reservoir
+2026-07-30T04:10:00.901Z [nextStep]   canAct: true, canRespond: true
+2026-07-30T04:10:00.901Z [nextStep] Checking if auto-pass should apply after granting priority
+[priority] autoPassLoop starting - active players: p_c0u83xzq, p_szrcpahj, p_5h70rlna, autoPassEnabled: p_c0u83xzq, p_szrcpahj, p_5h70rlna, currentPriority: p_5h70rlna, turnPlayer: p_5h70rlna
+[canAct] p_5h70rlna: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+[priority] autoPassLoop - stopping at p_5h70rlna: player has available actions
+2026-07-30T04:10:00.903Z [nextStep] Auto-pass stopped, player p_5h70rlna has priority
+[AI] Advanced to next step for game game_9512
+[TokenOptimization] Applied grouping: 31 → 30 entries, has grouped tokens with counts
+[getPlayableCardIds] Player p_5h70rlna: 1 playable option(s); step=DRAW, priority=p_5h70rlna, hand=6, availableMana=5
+[canAct] p_5h70rlna: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:10:00.968Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384600968_hfxti) ==========
+2026-07-30T04:10:00.968Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: beginning, Step: DRAW
+[canAct] p_5h70rlna: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:10:00.970Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384600968_hfxti)
+2026-07-30T04:10:00.970Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384600968_hfxti)
+[TokenOptimization] Applied grouping: 31 → 30 entries, has grouped tokens with counts
+2026-07-30T04:10:03.355Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384603355_mzvsc) ==========
+2026-07-30T04:10:03.355Z [checkAndTriggerAutoPass] Priority: p_c0u83xzq, Phase: beginning, Step: DRAW
+2026-07-30T04:10:03.355Z [checkAndTriggerAutoPass] p_c0u83xzq is AI, handled separately (ID: autopass_1785384603355_mzvsc)
+[AI] handleAIGameFlow: { gameId: 'game_9512',
+  playerId: 'p_c0u83xzq',
+  phase: 'BEGINNING',
+  step: 'DRAW',
   hasCommander: true,
   hasHand: true,
-  handCount: 9,
+  handCount: 7,
   isAITurn: false,
   hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'postcombatmain',
-  step: 'main2',
+[AI] AI player checking priority: { gameId: 'game_9512',
+  playerId: 'p_c0u83xzq',
+  phase: 'beginning',
+  step: 'draw',
   isAITurn: false,
-  stackEmpty: false,
-  priority: 'p_suei9c3z',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[canRespond] p_suei9c3z: checking instant-speed responses only
-[canRespond] p_suei9c3z: No instant-speed responses available (returning false)
-[AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_554411', playerId: 'p_suei9c3z' }
-2026-07-29T04:12:42.352Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, autoPassEnabled: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, currentPriority: p_g4uqj6f6, turnPlayer: p_akdrkkkc
-[canRespond] p_g4uqj6f6: checking instant-speed responses only
-[canRespond] p_g4uqj6f6: No instant-speed responses available (returning false)
-[priority] Auto-passing for p_g4uqj6f6 - no available actions
-[AI] All players passed priority, resolving top of stack
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[AI] Stack resolved for game game_554411
-[TokenOptimization] Applied grouping: 479 → 54 entries, has grouped tokens with counts
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=1, availableMana=95
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:12:43.236Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298363236_kzfwq) ==========
-2026-07-29T04:12:43.237Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:12:43.309Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298363236_kzfwq)
-2026-07-29T04:12:43.309Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298363236_kzfwq)
-[TokenOptimization] Applied grouping: 479 → 54 entries, has grouped tokens with counts
-2026-07-29T04:12:46.468Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298366468_fzsla) ==========
-2026-07-29T04:12:46.468Z [checkAndTriggerAutoPass] Priority: p_suei9c3z, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:12:46.468Z [checkAndTriggerAutoPass] p_suei9c3z is AI, handled separately (ID: autopass_1785298366468_fzsla)
-[AI] handleAIGameFlow: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'POSTCOMBATMAIN',
-  step: 'MAIN2',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 9,
-  isAITurn: false,
-  hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'postcombatmain',
-  step: 'main2',
-  isAITurn: false,
-  stackEmpty: false,
-  priority: 'p_suei9c3z',
+  stackEmpty: true,
+  priority: 'p_c0u83xzq',
   hasPriority: true }
 [AI] AI has priority, proceeding with action
-[canRespond] p_suei9c3z: checking instant-speed responses only
-[canRespond] p_suei9c3z: No instant-speed responses available (returning false)
+[canRespond] p_c0u83xzq: checking instant-speed responses only
+[canRespond] p_c0u83xzq: No instant-speed responses available (returning false)
 [AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_554411', playerId: 'p_suei9c3z' }
-2026-07-29T04:12:47.095Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, autoPassEnabled: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, currentPriority: p_g4uqj6f6, turnPlayer: p_akdrkkkc
-[canRespond] p_g4uqj6f6: checking instant-speed responses only
-[canRespond] p_g4uqj6f6: No instant-speed responses available (returning false)
-[priority] Auto-passing for p_g4uqj6f6 - no available actions
-[AI] All players passed priority, resolving top of stack
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[oracleIR] Bridged ETB triggers for 8 IR-created token(s)
-[oracleIR] All-or-nothing spell failed for Summon the School: applied 1/2 step(s)
-  reason: skipped_mandatory_step: move_zone — "Return this card from your graveyard to your hand"
-  reason: unapplied_mandatory_step: move_zone — "Return this card from your graveyard to your hand"
-[tryResolveInstantSorceryOracleIrSpell] Summon the School: IR primary owns spell but did not apply; legacy categorize skipped: Create two 1/1 blue Merfolk Wizard creature tokens.
-Tap four untapped Merfolk you control: Return this card from your graveyard to your hand.
-[createToken] Token doubling: creating 8 tokens (base: 2, multiplier: 4)
-[tokens] getTokenImageUrls (exact): {"name":"Merfolk Wizard","power":1,"toughness":1,"colors":["blue"],"typeLine":"","isArtifact":false,"isEnchantment":false}
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Summon the School created 2 Merfolk Wizard token(s) for p_akdrkkkc (xValue: 0)
-[resolveTopOfStack] Summon the School: IR primary owns spell effect but did not apply via top gate: Create two 1/1 blue Merfolk Wizard creature tokens.
-Tap four untapped Merfolk you control: Return this card from your graveyard to your hand.
-[resolveTopOfStack] Checking if Summon the School is a Join Forces spell...
-[resolveTopOfStack] Summon the School is NOT a Join Forces spell (name: "summon the school", has 'join forces': false)
-[resolveTopOfStack] Checking if Summon the School is a Tempting Offer spell...
-[resolveTopOfStack] Summon the School is NOT a Tempting Offer spell
-[moveResolvedInstantOrSorceryAfterResolution] Spell Summon the School resolved and moved to graveyard for p_akdrkkkc
-[resolveTopOfStack] Reset priorityPassedBy after spell resolution
-[AI] Stack resolved for game game_554411
-[TokenOptimization] Applied grouping: 495 → 54 entries, has grouped tokens with counts
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=0, availableMana=95
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:12:51.162Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298371162_8jaro) ==========
-2026-07-29T04:12:51.163Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:12:51.249Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298371162_8jaro)
-2026-07-29T04:12:51.250Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298371162_8jaro)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[TokenOptimization] Applied grouping: 495 → 54 entries, has grouped tokens with counts
-2026-07-29T04:12:55.050Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298375050_2lk3o) ==========
-2026-07-29T04:12:55.051Z [checkAndTriggerAutoPass] Priority: p_suei9c3z, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:12:55.051Z [checkAndTriggerAutoPass] p_suei9c3z is AI, handled separately (ID: autopass_1785298375050_2lk3o)
-[AI] handleAIGameFlow: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'POSTCOMBATMAIN',
-  step: 'MAIN2',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 9,
-  isAITurn: false,
-  hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'postcombatmain',
-  step: 'main2',
-  isAITurn: false,
-  stackEmpty: false,
-  priority: 'p_suei9c3z',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[canRespond] p_suei9c3z: checking instant-speed responses only
-[canRespond] p_suei9c3z: No instant-speed responses available (returning false)
-[AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_554411', playerId: 'p_suei9c3z' }
-2026-07-29T04:12:55.679Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, autoPassEnabled: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, currentPriority: p_g4uqj6f6, turnPlayer: p_akdrkkkc
-[canRespond] p_g4uqj6f6: checking instant-speed responses only
-[canRespond] p_g4uqj6f6: No instant-speed responses available (returning false)
-[priority] Auto-passing for p_g4uqj6f6 - no available actions
-[AI] All players passed priority, resolving top of stack
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[AI] Stack resolved for game game_554411
-[TokenOptimization] Applied grouping: 495 → 54 entries, has grouped tokens with counts
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=0, availableMana=95
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:12:56.675Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298376675_ch5ga) ==========
-2026-07-29T04:12:56.675Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:12:56.767Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298376675_ch5ga)
-2026-07-29T04:12:56.767Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298376675_ch5ga)
-[priority] Entering resolution mode - priority will return to p_akdrkkkc after resolution completes
-2026-07-29T04:13:04.524Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298384524_gurtz) ==========
-2026-07-29T04:13:04.524Z [checkAndTriggerAutoPass] Priority: null, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:13:04.524Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1785298384524_gurtz)
-2026-07-29T04:13:05.328Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298385328_z62h0) ==========
-2026-07-29T04:13:05.328Z [checkAndTriggerAutoPass] Priority: null, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:13:05.328Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1785298385328_z62h0)
-[priority] Exiting resolution mode - priority restored to p_akdrkkkc
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=0, availableMana=95
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:13:13.144Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298393144_rhjo3) ==========
-2026-07-29T04:13:13.144Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:13:13.240Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298393144_rhjo3)
-2026-07-29T04:13:13.240Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298393144_rhjo3)
-[Resolution] Step step-1785298383720-440 completed by p_akdrkkkc: target_selection
-[TokenOptimization] Applied grouping: 495 → 54 entries, has grouped tokens with counts
-[getPlayableCardIds] Player p_akdrkkkc: 2 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=1, availableMana=95
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:13:14.218Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298394218_nph5g) ==========
-2026-07-29T04:13:14.218Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:13:14.315Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298394218_nph5g)
-2026-07-29T04:13:14.315Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298394218_nph5g)
-[getPlayableCardIds] Player p_akdrkkkc: 2 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=1, availableMana=95
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:13:15.235Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298395235_dxqq7) ==========
-2026-07-29T04:13:15.235Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:13:15.328Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298395235_dxqq7)
-2026-07-29T04:13:15.328Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298395235_dxqq7)
+[AI] Passing priority: { gameId: 'game_9512', playerId: 'p_c0u83xzq' }
+[priority] autoPassLoop starting - active players: p_c0u83xzq, p_szrcpahj, p_5h70rlna, autoPassEnabled: p_c0u83xzq, p_szrcpahj, p_5h70rlna, currentPriority: p_szrcpahj, turnPlayer: p_5h70rlna
+[canRespond] p_szrcpahj: checking instant-speed responses only
+[canRespond] p_szrcpahj: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_szrcpahj - no available actions
+[AI] All players passed priority with empty stack, advancing step
+2026-07-30T04:10:03.974Z [nextStep] ========== CALLED ==========
+2026-07-30T04:10:03.974Z [nextStep] Game: game_9512
+2026-07-30T04:10:03.974Z [nextStep] Current: beginning/DRAW
+2026-07-30T04:10:03.974Z [nextStep] Priority: p_5h70rlna, Turn: p_5h70rlna
+2026-07-30T04:10:03.974Z [nextStep] Call stack:
+        at Object.nextStep (D:\Git\MTGEDH\server\src\state\index.ts:105:21)
+        at executePassPriority (D:\Git\MTGEDH\server\src\socket\ai.ts:11784:25)
+        at async <anonymous> (D:\Git\MTGEDH\server\src\socket\ai.ts:8982:7)
+        at async runExclusiveAIAction (D:\Git\MTGEDH\server\src\socket\ai.ts:1426:5)
+2026-07-30T04:10:03.975Z [clearManaPool] Processed mana pools for all players
+2026-07-30T04:10:03.975Z [nextStep] Advanced to phase=precombatMain, step=MAIN1
+2026-07-30T04:10:03.975Z [nextStep] Checking precombat main triggers for p_5h70rlna, found 0 trigger(s), 0 saga lore counter(s) added
+2026-07-30T04:10:03.975Z [nextStep] Granting priority to active player p_5h70rlna (step: MAIN1, stack size: 0)
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:10:03.978Z [nextStep] DEBUG - Turn Player p_5h70rlna:
+2026-07-30T04:10:03.978Z [nextStep]   Hand (6): Swords to Plowshares, Fist of Suns, Fierce Guardianship, Counterspell, The Mindskinner, Aetherflux Reservoir
+2026-07-30T04:10:03.978Z [nextStep]   canAct: true, canRespond: true
+2026-07-30T04:10:03.978Z [nextStep] Checking if auto-pass should apply after granting priority
+[priority] autoPassLoop starting - active players: p_c0u83xzq, p_szrcpahj, p_5h70rlna, autoPassEnabled: p_c0u83xzq, p_szrcpahj, p_5h70rlna, currentPriority: p_5h70rlna, turnPlayer: p_5h70rlna
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+[priority] autoPassLoop - stopping at p_5h70rlna: player has available actions
+2026-07-30T04:10:03.982Z [nextStep] Auto-pass stopped, player p_5h70rlna has priority
+[AI] Advanced to next step for game game_9512
+[TokenOptimization] Applied grouping: 31 → 30 entries, has grouped tokens with counts
+[getPlayableCardIds] Player p_5h70rlna: 5 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=6, availableMana=5
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:10:04.046Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384604046_woaxv) ==========
+2026-07-30T04:10:04.046Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:10:04.049Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384604046_woaxv)
+2026-07-30T04:10:04.049Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384604046_woaxv)
 [requestCastSpell] ======== REQUEST START ========
-[requestCastSpell] gameId: game_554411, cardId: 13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613, faceIndex: undefined
-[requestCastSpell] playerId: p_akdrkkkc, priority: p_akdrkkkc
-[costReduction] Summon the School: Morophon: -{W}{U}{B}{R}{G} (merfolk)
-[priority] Entering resolution mode - priority will return to p_akdrkkkc after resolution completes
-2026-07-29T04:13:24.243Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298404243_7ynme) ==========
-2026-07-29T04:13:24.243Z [checkAndTriggerAutoPass] Priority: null, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:13:24.244Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1785298404243_7ynme)
-[requestCastSpell] No targets needed, queued spell payment step for Summon the School
-[requestCastSpell] Cost reductions: Morophon: -{W}{U}{B}{R}{G} (merfolk)
+[requestCastSpell] gameId: game_9512, cardId: 96b6b2e1-c3e6-464c-8a13-b15deb34e862_ms6y1kut_p_afccf5f3, faceIndex: undefined
+[requestCastSpell] playerId: p_5h70rlna, priority: p_5h70rlna
+[priority] Entering resolution mode - priority will return to p_5h70rlna after resolution completes
+2026-07-30T04:10:47.008Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384647008_c3ns1) ==========
+2026-07-30T04:10:47.008Z [checkAndTriggerAutoPass] Priority: null, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:10:47.008Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1785384647008_c3ns1)
+[requestCastSpell] No targets needed, queued spell payment step for Aetherflux Reservoir
 [requestCastSpell] ======== REQUEST END (waiting for payment) ========
-[priority] Exiting resolution mode - priority restored to p_akdrkkkc
-[getPlayableCardIds] Player p_akdrkkkc: 2 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=1, availableMana=95
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:13:25.166Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298405166_dzejv) ==========
-2026-07-29T04:13:25.166Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:13:25.256Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298405166_dzejv)
-2026-07-29T04:13:25.256Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298405166_dzejv)
-[Resolution] Step step-1785298403463-441 completed by p_akdrkkkc: mana_payment_choice
+[priority] Exiting resolution mode - priority restored to p_5h70rlna
+[getPlayableCardIds] Player p_5h70rlna: 5 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=6, availableMana=5
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:10:51.248Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384651248_ctirz) ==========
+2026-07-30T04:10:51.249Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:10:51.251Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384651248_ctirz)
+2026-07-30T04:10:51.252Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384651248_ctirz)
+[Resolution] Step step-1785384646957-45 completed by p_5h70rlna: mana_payment_choice
 [completeCastSpell] DEBUG START ========================================
-[completeCastSpell] cardId: 13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613, effectId: cast_13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613_1785298403461
+[completeCastSpell] cardId: 96b6b2e1-c3e6-464c-8a13-b15deb34e862_ms6y1kut_p_afccf5f3, effectId: cast_96b6b2e1-c3e6-464c-8a13-b15deb34e862_ms6y1kut_p_afccf5f3_1785384646957
 [completeCastSpell] targets from client: undefined
-[completeCastSpell] payment from client: [{"permanentId":"__pool__:white:0","mana":"W","count":1},{"permanentId":"__pool__:white:1","mana":"W","count":1},{"permanentId":"__pool__:white:2","mana":"W","count":1}]
+[completeCastSpell] payment from client: [{"permanentId":"perm_druadz1w","paymentSourceId":"perm_druadz1w::18a1b3f5-473d-45ca-be0d-e67e77ba30ce_ms6y1kut_22_c0e1b172-ability-0","abilityId":"18a1b3f5-473d-45ca-be0d-e67e77ba30ce_ms6y1kut_22_c0e1b172-ability-0","mana":"C","count":1},{"permanentId":"perm_u1vxd430","paymentSourceId":"perm_u1vxd430::native_b","abilityId":"native_b","mana":"B","producedColors":["B"],"count":1},{"permanentId":"perm_pnmkx297","paymentSourceId":"perm_pnmkx297::native_g","abilityId":"native_g","mana":"G","producedColors":["G"],"count":1},{"permanentId":"perm_otselt7h","paymentSourceId":"perm_otselt7h::59a04e16-a767-4112-ab01-6ca1b09c286c_ms6y1kut_2k_1b842f23-ability-0","abilityId":"59a04e16-a767-4112-ab01-6ca1b09c286c_ms6y1kut_2k_1b842f23-ability-0","mana":"R","count":1}]
 [completeCastSpell] Found pendingCast: {
-  "cardId": "13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613",
-  "cardName": "Summon the School",
-  "manaCost": "{3}{W}",
-  "rawManaCost": "{3}{W}",
+  "cardId": "96b6b2e1-c3e6-464c-8a13-b15deb34e862_ms6y1kut_p_afccf5f3",
+  "cardName": "Aetherflux Reservoir",
+  "manaCost": "{4}",
+  "rawManaCost": "{4}",
   "fromZone": "hand",
-  "playerId": "p_akdrkkkc",
+  "playerId": "p_5h70rlna",
   "castWithEntwine": false,
   "validTargetIds": [],
   "targets": [],
   "card": {
-    "id": "13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613",
-    "name": "Summon the School",
-    "type_line": "Kindred Sorcery — Merfolk",
-    "oracle_text": "Create two 1/1 blue Merfolk Wizard creature tokens.\nTap four untapped Merfolk you control: Return this card from your graveyard to your hand.",
+    "id": "96b6b2e1-c3e6-464c-8a13-b15deb34e862_ms6y1kut_p_afccf5f3",
+    "name": "Aetherflux Reservoir",
+    "type_line": "Artifact",
+    "oracle_text": "Whenever you cast a spell, you gain 1 life for each spell you've cast this turn.\nPay 50 life: This artifact deals 50 damage to any target.",
     "image_uris": {
-      "small": "https://cards.scryfall.io/small/front/1/3/13a4c124-216b-44b1-b49a-3db3f033e4cd.jpg?1562338889",
-      "normal": "https://cards.scryfall.io/normal/front/1/3/13a4c124-216b-44b1-b49a-3db3f033e4cd.jpg?1562338889",
-      "art_crop": "https://cards.scryfall.io/art_crop/front/1/3/13a4c124-216b-44b1-b49a-3db3f033e4cd.jpg?1562338889"
+      "small": "https://cards.scryfall.io/small/front/9/6/96b6b2e1-c3e6-464c-8a13-b15deb34e862.jpg?1576382939",
+      "normal": "https://cards.scryfall.io/normal/front/9/6/96b6b2e1-c3e6-464c-8a13-b15deb34e862.jpg?1576382939",
+      "art_crop": "https://cards.scryfall.io/art_crop/front/9/6/96b6b2e1-c3e6-464c-8a13-b15deb34e862.jpg?1576382939"
     },
-    "mana_cost": "{3}{W}",
+    "mana_cost": "{4}",
     "layout": "normal",
-    "zone": "hand",
+    "zone": "library",
     "isFirstDrawnThisTurn": true,
-    "drawnAt": 1785285421898,
-    "additionalCostPaid": false,
-    "fromZone": "hand",
-    "castDuringMainPhase": true,
-    "castDuringOwnMainPhase": true,
-    "castStep": "MAIN2",
-    "castPhase": "postcombatMain",
-    "castSourceZone": "hand",
-    "source": "hand",
-    "isCommander": false,
-    "castFromHand": true,
-    "castFromExile": false,
-    "castFromGraveyard": false,
-    "castFromLibrary": false,
-    "manaSpentTotal": 3,
-    "manaSpentBreakdown": {
-      "white": 3,
-      "blue": 0,
-      "black": 0,
-      "red": 0,
-      "green": 0,
-      "colorless": 0
-    },
-    "snowManaOfSpellColorsSpentKnown": true,
-    "snowManaOfSpellColorsSpent": false,
-    "convergeValue": 1,
-    "manaColorsSpent": [
-      "white"
-    ],
-    "manaSpentColors": [
-      "white"
-    ],
-    "snowManaSpentKnown": true,
-    "snowManaSpent": false,
-    "manaFromTreasureSpentKnown": true,
-    "manaFromTreasureSpent": false,
-    "faceDown": false
+    "drawnAt": 1785384600897
   },
   "noTargets": true,
   "pendingPaymentAfterAdditionalCost": false,
-  "oracleText": "create two 1/1 blue merfolk wizard creature tokens.\ntap four untapped merfolk you control: return this card from your graveyard to your hand.",
+  "oracleText": "whenever you cast a spell, you gain 1 life for each spell you've cast this turn.\npay 50 life: this artifact deals 50 damage to any target.",
   "costMetadata": {
     "costReduction": {
       "generic": 0,
       "colors": {
-        "white": 1,
-        "blue": 1,
-        "black": 1,
-        "red": 1,
-        "green": 1,
+        "white": 0,
+        "blue": 0,
+        "black": 0,
+        "red": 0,
+        "green": 0,
         "colorless": 0
       },
-      "messages": [
-        "Morophon: -{W}{U}{B}{R}{G} (merfolk)"
-      ]
+      "messages": []
     },
     "staticCostTax": {
       "generic": 0,
@@ -517,32 +281,32 @@ Tap four untapped Merfolk you control: Return this card from your graveyard to y
     },
     "genericCostTax": 0,
     "paymentModel": {
-      "originalManaCost": "{3}{W}",
-      "effectiveManaCost": "{3}{W}",
+      "originalManaCost": "{4}",
+      "effectiveManaCost": "{4}",
       "parsedOriginalCost": {
         "colors": {
-          "W": 1,
+          "W": 0,
           "U": 0,
           "B": 0,
           "R": 0,
           "G": 0,
           "C": 0
         },
-        "generic": 3,
+        "generic": 4,
         "hasX": false,
         "hybrid": [],
         "hybrids": []
       },
       "parsedEffectiveCost": {
         "colors": {
-          "W": 1,
+          "W": 0,
           "U": 0,
           "B": 0,
           "R": 0,
           "G": 0,
           "C": 0
         },
-        "generic": 3,
+        "generic": 4,
         "hasX": false,
         "hybrid": [],
         "hybrids": []
@@ -563,441 +327,724 @@ Tap four untapped Merfolk you control: Return this card from your graveyard to y
 [completeCastSpell] Calling handleCastSpellFromHand with skipInteractivePrompts=true
 [completeCastSpell] DEBUG END ==========================================
 [handleCastSpellFromHand] ======== DEBUG START ========
-[handleCastSpellFromHand] cardId: 13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613
+[handleCastSpellFromHand] cardId: 96b6b2e1-c3e6-464c-8a13-b15deb34e862_ms6y1kut_p_afccf5f3
 [handleCastSpellFromHand] targets: []
-[handleCastSpellFromHand] payment: [{"permanentId":"__pool__:white:0","mana":"W","count":1},{"permanentId":"__pool__:white:1","mana":"W","count":1},{"permanentId":"__pool__:white:2","mana":"W","count":1}]
+[handleCastSpellFromHand] payment: [{"permanentId":"perm_druadz1w","paymentSourceId":"perm_druadz1w::18a1b3f5-473d-45ca-be0d-e67e77ba30ce_ms6y1kut_22_c0e1b172-ability-0","abilityId":"18a1b3f5-473d-45ca-be0d-e67e77ba30ce_ms6y1kut_22_c0e1b172-ability-0","mana":"C","count":1},{"permanentId":"perm_u1vxd430","paymentSourceId":"perm_u1vxd430::native_b","abilityId":"native_b","mana":"B","producedColors":["B"],"count":1},{"permanentId":"perm_pnmkx297","paymentSourceId":"perm_pnmkx297::native_g","abilityId":"native_g","mana":"G","producedColors":["G"],"count":1},{"permanentId":"perm_otselt7h","paymentSourceId":"perm_otselt7h::59a04e16-a767-4112-ab01-6ca1b09c286c_ms6y1kut_2k_1b842f23-ability-0","abilityId":"59a04e16-a767-4112-ab01-6ca1b09c286c_ms6y1kut_2k_1b842f23-ability-0","mana":"R","count":1}]
 [handleCastSpellFromHand] skipInteractivePrompts: true
-[handleCastSpellFromHand] playerId: p_akdrkkkc
+[handleCastSpellFromHand] playerId: p_5h70rlna
 [handleCastSpellFromHand] fromZone: hand
-[handleCastSpellFromHand] priority: p_akdrkkkc
-[handleCastSpellFromHand] Summon the School: spellSpec=false, targetReqs=true, needsTargetSelection=false, hasTargets=false
+[handleCastSpellFromHand] priority: p_5h70rlna
+[handleCastSpellFromHand] Aetherflux Reservoir: spellSpec=false, targetReqs=false, needsTargetSelection=null, hasTargets=false
 [handleCastSpellFromHand] ======== DEBUG END ========
-[costReduction] Summon the School: Morophon: -{W}{U}{B}{R}{G} (merfolk)
-[castSpellFromHand] Cost reduction for Summon the School: Morophon: -{W}{U}{B}{R}{G} (merfolk)
-[castSpellFromHand] Original cost: {3}{W}, Concrete cost: {3}{W}, Reduced generic: 3 -> 3
-[castSpellFromHand] Floating mana available in pool: 88 white
-[castSpellFromHand] Processing payment for Summon the School: [ { permanentId: '__pool__:white:0', mana: 'W', count: 1 },
-  { permanentId: '__pool__:white:1', mana: 'W', count: 1 },
-  { permanentId: '__pool__:white:2', mana: 'W', count: 1 } ]
-[castSpellFromHand][selectedPayment] Consumed mana with restricted-purpose spending: {"white":3,"blue":0,"black":0,"red":0,"green":0,"colorless":0}
-[castSpellFromHand] Converge: 1 different color(s) spent for Summon the School
-[castSpellFromHand] Player p_akdrkkkc cast Summon the School (13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613) - RulesBridge validated
+[castSpellFromHand] Processing payment for Aetherflux Reservoir: [ { permanentId: 'perm_druadz1w',
+    paymentSourceId: 'perm_druadz1w::18a1b3f5-473d-45ca-be0d-e67e77ba30ce_ms6y1kut_22_c0e1b172-ability-0',
+    abilityId: '18a1b3f5-473d-45ca-be0d-e67e77ba30ce_ms6y1kut_22_c0e1b172-ability-0',
+    mana: 'C',
+    count: 1 },
+  { permanentId: 'perm_u1vxd430', paymentSourceId: 'perm_u1vxd430::native_b', abilityId: 'native_b', mana: 'B', producedColors: [ 'B' ], count: 1 },
+  { permanentId: 'perm_pnmkx297', paymentSourceId: 'perm_pnmkx297::native_g', abilityId: 'native_g', mana: 'G', producedColors: [ 'G' ], count: 1 },
+  { permanentId: 'perm_otselt7h',
+    paymentSourceId: 'perm_otselt7h::59a04e16-a767-4112-ab01-6ca1b09c286c_ms6y1kut_2k_1b842f23-ability-0',
+    abilityId: '59a04e16-a767-4112-ab01-6ca1b09c286c_ms6y1kut_2k_1b842f23-ability-0',
+    mana: 'R',
+    count: 1 } ]
+[castSpellFromHand] Added 1 C mana to p_5h70rlna's pool from Reflecting Pool
+[castSpellFromHand] Added 1 black mana to p_5h70rlna's pool from Overgrown Tomb
+[castSpellFromHand] Added 1 green mana to p_5h70rlna's pool from Breeding Pool
+[castSpellFromHand] Added 1 R mana to p_5h70rlna's pool from Spirebluff Canal
+[castSpellFromHand][selectedPayment] Consumed mana with restricted-purpose spending: {"white":0,"blue":0,"black":1,"red":1,"green":1,"colorless":1}
+[castSpellFromHand] Converge: 3 different color(s) spent for Aetherflux Reservoir
+[castSpellFromHand] RulesBridge rejected post-payment cast of Aetherflux Reservoir (96b6b2e1-c3e6-464c-8a13-b15deb34e862_ms6y1kut_p_afccf5f3); continuing with authoritative applyEvent: Need 4 more mana for generic cost, have 0 remaining
+[castSpellFromHand] Added converge data to stack item: 3 colors (black, red, green)
+[castSpell] Player p_5h70rlna cast Aetherflux Reservoir (96b6b2e1-c3e6-464c-8a13-b15deb34e862_ms6y1kut_p_afccf5f3) from hand via applyEvent
+[TokenOptimization] Applied grouping: 31 → 30 entries, has grouped tokens with counts
+[getPlayableCardIds] Player p_5h70rlna: 1 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:10:51.323Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384651323_69dk2) ==========
+2026-07-30T04:10:51.323Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:10:51.323Z [checkAndTriggerAutoPass] Spell cast completion in progress - returning early (ID: autopass_1785384651323_69dk2)
+[Resolution] Spell payment complete for Aetherflux Reservoir; completed cast server-side (effectId='cast_96b6b2e1-c3e6-464c-8a13-b15deb34e862_ms6y1kut_p_afccf5f3_1785384646957')
+[getPlayableCardIds] Player p_5h70rlna: 1 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:10:51.382Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384651382_zdl4r) ==========
+2026-07-30T04:10:51.383Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:10:51.383Z [checkAndTriggerAutoPass] p_5h70rlna bypassing idle (stackLen=1, autoPass=true, loopDrain=false, autoPassForTurn=false) (ID: autopass_1785384651382_zdl4r)
+2026-07-30T04:10:51.383Z [checkAndTriggerAutoPass] Executing auto-pass for p_5h70rlna IMMEDIATELY (isHuman=true, autoPassForTurn=false, loopDrain=false, bypassStack=true) (ID: autopass_1785384651382_zdl4r)
+2026-07-30T04:10:51.383Z [executeAutoPass] ========== EXECUTING for p_5h70rlna (ID: autopass_1785384651382_zdl4r) ==========
+2026-07-30T04:10:51.384Z [executeAutoPass] Phase: precombatMain, Step: MAIN1
+2026-07-30T04:10:51.384Z [executeAutoPass] Proceeding with auto-pass for p_5h70rlna (ID: autopass_1785384651382_zdl4r)
+2026-07-30T04:10:51.384Z [executeAutoPass] Set _autoPassInProgress flag for p_5h70rlna (ID: autopass_1785384651382_zdl4r)
+2026-07-30T04:10:51.384Z [checkPendingInteractions] Pending: stack_not_empty
+[priority] autoPassLoop starting - active players: p_c0u83xzq, p_szrcpahj, p_5h70rlna, autoPassEnabled: p_c0u83xzq, p_szrcpahj, p_5h70rlna, currentPriority: p_c0u83xzq, turnPlayer: p_5h70rlna
+[canRespond] p_c0u83xzq: checking instant-speed responses only
+[canRespond] p_c0u83xzq: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_c0u83xzq - no available actions
+[canRespond] p_szrcpahj: checking instant-speed responses only
+[canRespond] p_szrcpahj: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_szrcpahj - no available actions
+2026-07-30T04:10:51.388Z [executeAutoPass] passPriority result: changed=true, advanceStep=false, resolvedNow=true (ID: autopass_1785384651382_zdl4r)
+[checkAndTriggerAutoPass] Stack resolved after auto-pass for p_5h70rlna
+[resolveTopOfStack] Permanent Aetherflux Reservoir entered battlefield under p_5h70rlna
+[recalculateHandVisibility] Players with hand reveal effects: none
+[resolveTopOfStack] Reset priorityPassedBy after spell resolution
+2026-07-30T04:10:51.484Z [executeAutoPass] Cleared _autoPassInProgress flag for p_5h70rlna (ID: autopass_1785384651382_zdl4r)
+2026-07-30T04:10:51.484Z [executeAutoPass] Broadcasting state after auto-pass (ID: autopass_1785384651382_zdl4r)
+[TokenOptimization] Applied grouping: 32 → 31 entries, has grouped tokens with counts
+2026-07-30T04:10:51.539Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384651539_dbvhj) ==========
+2026-07-30T04:10:51.539Z [checkAndTriggerAutoPass] Priority: p_c0u83xzq, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:10:51.539Z [checkAndTriggerAutoPass] p_c0u83xzq is AI, handled separately (ID: autopass_1785384651539_dbvhj)
+2026-07-30T04:10:51.539Z [executeAutoPass] Broadcast complete (ID: autopass_1785384651382_zdl4r)
+[AI] handleAIGameFlow: { gameId: 'game_9512',
+  playerId: 'p_c0u83xzq',
+  phase: 'PRECOMBATMAIN',
+  step: 'MAIN1',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
+  isAITurn: false,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_9512',
+  playerId: 'p_c0u83xzq',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: false,
+  stackEmpty: true,
+  priority: 'p_c0u83xzq',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[canRespond] p_c0u83xzq: checking instant-speed responses only
+[canRespond] p_c0u83xzq: No instant-speed responses available (returning false)
+[AI] Not AI turn, passing priority
+[AI] Passing priority: { gameId: 'game_9512', playerId: 'p_c0u83xzq' }
+[priority] autoPassLoop starting - active players: p_c0u83xzq, p_szrcpahj, p_5h70rlna, autoPassEnabled: p_c0u83xzq, p_szrcpahj, p_5h70rlna, currentPriority: p_szrcpahj, turnPlayer: p_5h70rlna
+[canRespond] p_szrcpahj: checking instant-speed responses only
+[canRespond] p_szrcpahj: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_szrcpahj - no available actions
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+[priority] autoPassLoop - stopping at p_5h70rlna: player has available actions
+[TokenOptimization] Applied grouping: 32 → 31 entries, has grouped tokens with counts
+[getPlayableCardIds] Player p_5h70rlna: 1 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:10:52.230Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384652230_09l75) ==========
+2026-07-30T04:10:52.230Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:10:52.233Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384652230_09l75)
+2026-07-30T04:10:52.233Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384652230_09l75)
+[activateBattlefieldAbility] Processing ability a1fc8d86-b118-46e3-92a5-8cbf2ca282f7_ms6y1kut_26_ff9c1ed9-ability-0 on Glacial Fortress
+[priority] Entering resolution mode - priority will return to p_5h70rlna after resolution completes
+2026-07-30T04:11:06.978Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384666978_4ygyr) ==========
+2026-07-30T04:11:06.979Z [checkAndTriggerAutoPass] Priority: null, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:06.979Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1785384666978_4ygyr)
+2026-07-30T04:11:07.032Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384667032_ow628) ==========
+2026-07-30T04:11:07.033Z [checkAndTriggerAutoPass] Priority: null, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:07.033Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1785384667032_ow628)
+[priority] Exiting resolution mode - priority restored to p_5h70rlna
+[getPlayableCardIds] Player p_5h70rlna: 0 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=0
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: In main phase with empty stack, checking sorcery-speed actions
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: No sorcery-speed actions available in main phase - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:08.113Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384668113_s2sdk) ==========
+2026-07-30T04:11:08.113Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: In main phase with empty stack, checking sorcery-speed actions
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: No sorcery-speed actions available in main phase - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:08.119Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=true (ID: autopass_1785384668113_s2sdk)
+2026-07-30T04:11:08.119Z [checkAndTriggerAutoPass] p_5h70rlna is idle - proceeding with auto-pass (ID: autopass_1785384668113_s2sdk)
+2026-07-30T04:11:08.119Z [checkAndTriggerAutoPass] Scheduling auto-pass for p_5h70rlna with 150ms delay (floatingMana=0) (ID: autopass_1785384668113_s2sdk)
+[Resolution] Step step-1785384666924-46 completed by p_5h70rlna: mana_color_selection
+[TokenOptimization] Applied grouping: 32 → 31 entries, has grouped tokens with counts
+[getPlayableCardIds] Player p_5h70rlna: 1 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:08.181Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384668181_85bht) ==========
+2026-07-30T04:11:08.181Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:08.184Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384668181_85bht)
+2026-07-30T04:11:08.184Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384668181_85bht)
+[getPlayableCardIds] Player p_5h70rlna: 1 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:08.247Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384668247_k0tkx) ==========
+2026-07-30T04:11:08.248Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:08.250Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384668247_k0tkx)
+2026-07-30T04:11:08.251Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384668247_k0tkx)
+[getPlayableCardIds] Player p_5h70rlna: 1 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:08.313Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384668313_t4us1) ==========
+2026-07-30T04:11:08.313Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:08.316Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384668313_t4us1)
+2026-07-30T04:11:08.316Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384668313_t4us1)
+[activateBattlefieldAbility] Processing ability 3d994115-378d-4685-a5dc-e448831da434_ms6y1kut_13_0d882d11-ability-0 on Arcane Signet
+[priority] Entering resolution mode - priority will return to p_5h70rlna after resolution completes
+2026-07-30T04:11:09.411Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384669411_mdms6) ==========
+2026-07-30T04:11:09.412Z [checkAndTriggerAutoPass] Priority: null, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:09.412Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1785384669411_mdms6)
+2026-07-30T04:11:09.465Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384669465_s7tys) ==========
+2026-07-30T04:11:09.465Z [checkAndTriggerAutoPass] Priority: null, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:09.465Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1785384669465_s7tys)
+[priority] Exiting resolution mode - priority restored to p_5h70rlna
+[getPlayableCardIds] Player p_5h70rlna: 1 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:13.351Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384673351_54wjk) ==========
+2026-07-30T04:11:13.352Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:13.355Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384673351_54wjk)
+2026-07-30T04:11:13.355Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384673351_54wjk)
+[Resolution] Step step-1785384669358-47 completed by p_5h70rlna: mana_color_selection
+[TokenOptimization] Applied grouping: 32 → 31 entries, has grouped tokens with counts
+[getPlayableCardIds] Player p_5h70rlna: 2 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=2
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:13.414Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384673414_ike9p) ==========
+2026-07-30T04:11:13.414Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:13.417Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384673414_ike9p)
+2026-07-30T04:11:13.417Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384673414_ike9p)
+[getPlayableCardIds] Player p_5h70rlna: 2 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=2
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:13.474Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384673474_d7fry) ==========
+2026-07-30T04:11:13.475Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:13.477Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384673474_d7fry)
+2026-07-30T04:11:13.478Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384673474_d7fry)
+[getPlayableCardIds] Player p_5h70rlna: 2 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=2
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:13.537Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384673537_nmpdz) ==========
+2026-07-30T04:11:13.537Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:13.540Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384673537_nmpdz)
+2026-07-30T04:11:13.540Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384673537_nmpdz)
+[requestCastSpell] ======== REQUEST START ========
+[requestCastSpell] gameId: game_9512, cardId: 3073f3f5-bff8-4ec1-a68f-c83d63435843_ms6y1kut_9_2e14e110, faceIndex: undefined
+[requestCastSpell] playerId: p_5h70rlna, priority: p_5h70rlna
+[priority] Entering resolution mode - priority will return to p_5h70rlna after resolution completes
+2026-07-30T04:11:15.393Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384675393_0p4yb) ==========
+2026-07-30T04:11:15.394Z [checkAndTriggerAutoPass] Priority: null, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:15.394Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1785384675393_0p4yb)
+[requestCastSpell] No targets needed, queued spell payment step for Judge of Currents
+[requestCastSpell] ======== REQUEST END (waiting for payment) ========
+[priority] Exiting resolution mode - priority restored to p_5h70rlna
+[getPlayableCardIds] Player p_5h70rlna: 2 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=2
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:20.910Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384680910_4zy1x) ==========
+2026-07-30T04:11:20.910Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: Can cast instant/flash spell - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: Can cast instant/flash spell
+2026-07-30T04:11:20.912Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384680910_4zy1x)
+2026-07-30T04:11:20.913Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384680910_4zy1x)
+[Resolution] Step step-1785384675342-48 completed by p_5h70rlna: mana_payment_choice
+[completeCastSpell] DEBUG START ========================================
+[completeCastSpell] cardId: 3073f3f5-bff8-4ec1-a68f-c83d63435843_ms6y1kut_9_2e14e110, effectId: cast_3073f3f5-bff8-4ec1-a68f-c83d63435843_ms6y1kut_9_2e14e110_1785384675342
+[completeCastSpell] targets from client: undefined
+[completeCastSpell] payment from client: [{"permanentId":"__pool__:white:0","mana":"W","count":1},{"permanentId":"__pool__:white:1","mana":"W","count":1}]
+[completeCastSpell] Found pendingCast: {
+  "cardId": "3073f3f5-bff8-4ec1-a68f-c83d63435843_ms6y1kut_9_2e14e110",
+  "cardName": "Judge of Currents",
+  "manaCost": "{1}{W}",
+  "rawManaCost": "{1}{W}",
+  "fromZone": "library",
+  "playerId": "p_5h70rlna",
+  "castWithEntwine": false,
+  "validTargetIds": [],
+  "targets": [],
+  "card": {
+    "id": "3073f3f5-bff8-4ec1-a68f-c83d63435843_ms6y1kut_9_2e14e110",
+    "name": "Judge of Currents",
+    "type_line": "Creature — Merfolk Wizard",
+    "oracle_text": "Whenever a Merfolk you control becomes tapped, you may gain 1 life.",
+    "image_uris": {
+      "small": "https://cards.scryfall.io/small/front/3/0/3073f3f5-bff8-4ec1-a68f-c83d63435843.jpg?1562343413",
+      "normal": "https://cards.scryfall.io/normal/front/3/0/3073f3f5-bff8-4ec1-a68f-c83d63435843.jpg?1562343413",
+      "art_crop": "https://cards.scryfall.io/art_crop/front/3/0/3073f3f5-bff8-4ec1-a68f-c83d63435843.jpg?1562343413"
+    },
+    "mana_cost": "{1}{W}",
+    "power": "1",
+    "toughness": "1",
+    "layout": "normal",
+    "zone": "library"
+  },
+  "noTargets": true,
+  "pendingPaymentAfterAdditionalCost": false,
+  "oracleText": "whenever a merfolk you control becomes tapped, you may gain 1 life.",
+  "costMetadata": {
+    "costReduction": {
+      "generic": 0,
+      "colors": {
+        "white": 0,
+        "blue": 0,
+        "black": 0,
+        "red": 0,
+        "green": 0,
+        "colorless": 0
+      },
+      "messages": []
+    },
+    "staticCostTax": {
+      "generic": 0,
+      "messages": []
+    },
+    "genericCostTax": 0,
+    "paymentModel": {
+      "originalManaCost": "{1}{W}",
+      "effectiveManaCost": "{1}{W}",
+      "parsedOriginalCost": {
+        "colors": {
+          "W": 1,
+          "U": 0,
+          "B": 0,
+          "R": 0,
+          "G": 0,
+          "C": 0
+        },
+        "generic": 1,
+        "hasX": false,
+        "hybrid": [],
+        "hybrids": []
+      },
+      "parsedEffectiveCost": {
+        "colors": {
+          "W": 1,
+          "U": 0,
+          "B": 0,
+          "R": 0,
+          "G": 0,
+          "C": 0
+        },
+        "generic": 1,
+        "hasX": false,
+        "hybrid": [],
+        "hybrids": []
+      },
+      "castWithoutPayingManaCost": false,
+      "additionalCosts": [],
+      "phyrexianCosts": [],
+      "hybridCosts": []
+    }
+  },
+  "castWithoutPayingManaCost": false,
+  "bypassExilePermissionCheck": false,
+  "ignoreTimingRestrictions": false,
+  "additionalCostPaid": false
+}
+[completeCastSpell] Using client-sent targets: none
+[completeCastSpell] Final targets to use: none
+[completeCastSpell] Calling handleCastSpellFromHand with skipInteractivePrompts=true
+[completeCastSpell] DEBUG END ==========================================
+[handleCastSpellFromHand] ======== DEBUG START ========
+[handleCastSpellFromHand] cardId: 3073f3f5-bff8-4ec1-a68f-c83d63435843_ms6y1kut_9_2e14e110
+[handleCastSpellFromHand] targets: []
+[handleCastSpellFromHand] payment: [{"permanentId":"__pool__:white:0","mana":"W","count":1},{"permanentId":"__pool__:white:1","mana":"W","count":1}]
+[handleCastSpellFromHand] skipInteractivePrompts: true
+[handleCastSpellFromHand] playerId: p_5h70rlna
+[handleCastSpellFromHand] fromZone: library
+[handleCastSpellFromHand] priority: p_5h70rlna
+[handleCastSpellFromHand] Judge of Currents: spellSpec=false, targetReqs=false, needsTargetSelection=null, hasTargets=false
+[handleCastSpellFromHand] ======== DEBUG END ========
+[castSpellFromHand] Floating mana available in pool: 2 white
+[castSpellFromHand] Processing payment for Judge of Currents: [ { permanentId: '__pool__:white:0', mana: 'W', count: 1 }, { permanentId: '__pool__:white:1', mana: 'W', count: 1 } ]
+[castSpellFromHand][selectedPayment] Consumed mana with restricted-purpose spending: {"white":2,"blue":0,"black":0,"red":0,"green":0,"colorless":0}
+[castSpellFromHand] Converge: 1 different color(s) spent for Judge of Currents
+[castSpellFromHand] RulesBridge rejected post-payment cast of Judge of Currents (3073f3f5-bff8-4ec1-a68f-c83d63435843_ms6y1kut_9_2e14e110); continuing with authoritative applyEvent: Need 1 white mana, have 0
 [castSpellFromHand] Added converge data to stack item: 1 colors (white)
-[castSpell] Player p_akdrkkkc cast Summon the School (13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613) from hand via applyEvent
+[castSpell] Player p_5h70rlna cast Judge of Currents (3073f3f5-bff8-4ec1-a68f-c83d63435843_ms6y1kut_9_2e14e110) from library via applyEvent
+[processSpellCastTriggersForCast] Triggered: Emperor Mihail II - Whenever you cast a merfolk spell, you may pay {1}. If you do, create a 1/1 blue Merfolk creature token.
+[priority] Entering resolution mode - priority will return to p_5h70rlna after resolution completes
+[TokenOptimization] Applied grouping: 32 → 31 entries, has grouped tokens with counts
+2026-07-30T04:11:20.975Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384680975_3d1b8) ==========
+2026-07-30T04:11:20.975Z [checkAndTriggerAutoPass] Priority: null, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:20.975Z [checkAndTriggerAutoPass] Spell cast completion in progress - returning early (ID: autopass_1785384680975_3d1b8)
 [processSpellCastTriggersForCast] Triggered: Reflections of Littjara - Whenever you cast a Merfolk spell, copy that spell
-[oracleIR] Reflections of Littjara: pushed 1 stack spell copy of Summon the School
+[oracleIR] Reflections of Littjara: pushed 1 stack spell copy of Judge of Currents
 [oracleIR] Primary trigger resolution for Reflections of Littjara: 1 step(s) applied
-[TokenOptimization] Applied grouping: 495 → 54 entries, has grouped tokens with counts
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=1, availableMana=92
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:13:26.980Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298406980_2mfyl) ==========
-2026-07-29T04:13:26.980Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:13:26.981Z [checkAndTriggerAutoPass] Spell cast completion in progress - returning early (ID: autopass_1785298406980_2mfyl)
-[Resolution] Spell payment complete for Summon the School; completed cast server-side (effectId='cast_13a4c124-216b-44b1-b49a-3db3f033e4cd_ms5a7pkt_11_30714613_1785298403461')
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=1, availableMana=92
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:13:27.865Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298407865_y8vac) ==========
-2026-07-29T04:13:27.865Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:13:27.942Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298407865_y8vac)
-2026-07-29T04:13:27.943Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298407865_y8vac)
-[TokenOptimization] Applied grouping: 495 → 54 entries, has grouped tokens with counts
-2026-07-29T04:15:51.323Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298551323_eu0bo) ==========
-2026-07-29T04:15:51.323Z [checkAndTriggerAutoPass] Priority: p_suei9c3z, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:15:51.324Z [checkAndTriggerAutoPass] p_suei9c3z is AI, handled separately (ID: autopass_1785298551323_eu0bo)
-[AI] handleAIGameFlow: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'POSTCOMBATMAIN',
-  step: 'MAIN2',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 9,
-  isAITurn: false,
-  hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'postcombatmain',
-  step: 'main2',
-  isAITurn: false,
-  stackEmpty: false,
-  priority: 'p_suei9c3z',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[canRespond] p_suei9c3z: checking instant-speed responses only
-[canRespond] p_suei9c3z: No instant-speed responses available (returning false)
-[AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_554411', playerId: 'p_suei9c3z' }
-2026-07-29T04:15:51.951Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, autoPassEnabled: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, currentPriority: p_g4uqj6f6, turnPlayer: p_akdrkkkc
-[canRespond] p_g4uqj6f6: checking instant-speed responses only
-[canRespond] p_g4uqj6f6: No instant-speed responses available (returning false)
-[priority] Auto-passing for p_g4uqj6f6 - no available actions
-[AI] All players passed priority, resolving top of stack
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[oracleIR] Bridged ETB triggers for 8 IR-created token(s)
-[oracleIR] All-or-nothing spell failed for Summon the School: applied 1/2 step(s)
-  reason: skipped_mandatory_step: move_zone — "Return this card from your graveyard to your hand"
-  reason: unapplied_mandatory_step: move_zone — "Return this card from your graveyard to your hand"
-[tryResolveInstantSorceryOracleIrSpell] Summon the School: IR primary owns spell but did not apply; legacy categorize skipped: Create two 1/1 blue Merfolk Wizard creature tokens.
-Tap four untapped Merfolk you control: Return this card from your graveyard to your hand.
-[createToken] Token doubling: creating 8 tokens (base: 2, multiplier: 4)
-[tokens] getTokenImageUrls (exact): {"name":"Merfolk Wizard","power":1,"toughness":1,"colors":["blue"],"typeLine":"","isArtifact":false,"isEnchantment":false}
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Summon the School created 2 Merfolk Wizard token(s) for p_akdrkkkc (xValue: 0)
-[resolveTopOfStack] Summon the School: IR primary owns spell effect but did not apply via top gate: Create two 1/1 blue Merfolk Wizard creature tokens.
-Tap four untapped Merfolk you control: Return this card from your graveyard to your hand.
-[resolveTopOfStack] Checking if Summon the School is a Join Forces spell...
-[resolveTopOfStack] Summon the School is NOT a Join Forces spell (name: "summon the school", has 'join forces': false)
-[resolveTopOfStack] Checking if Summon the School is a Tempting Offer spell...
-[resolveTopOfStack] Summon the School is NOT a Tempting Offer spell
-[moveResolvedInstantOrSorceryAfterResolution] Copied spell Summon the School ceased to exist after resolution
+[processSpellCastTriggersForCast] Triggered: Aetherflux Reservoir - Whenever you cast a spell, you gain 1 life for each spell you've cast this turn.
+[TokenOptimization] Applied grouping: 32 → 31 entries, has grouped tokens with counts
+2026-07-30T04:11:21.099Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384681099_bb7db) ==========
+2026-07-30T04:11:21.099Z [checkAndTriggerAutoPass] Priority: null, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:21.099Z [checkAndTriggerAutoPass] Spell cast completion in progress - returning early (ID: autopass_1785384681099_bb7db)
+[Resolution] Spell payment complete for Judge of Currents; completed cast server-side (effectId='cast_3073f3f5-bff8-4ec1-a68f-c83d63435843_ms6y1kut_9_2e14e110_1785384675342')
+2026-07-30T04:11:21.154Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384681154_owth7) ==========
+2026-07-30T04:11:21.154Z [checkAndTriggerAutoPass] Priority: null, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:21.154Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1785384681154_owth7)
+[scryfall] searchScryfallTokenImage failed (non-fatal): Blue Merfolk Error: Scryfall error 404 (https://api.scryfall.com/cards/search?q=is%3Atoken%20name%3A%22Blue%20Merfolk%22%20pow%3D1%20tou%3D1)
+    at doFetchJSON (D:\Git\MTGEDH\server\src\services\scryfall.ts:319:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async searchScryfallTokenImage (D:\Git\MTGEDH\server\src\services\scryfall.ts:586:18)
+    at async resolveTokenPrinting (D:\Git\MTGEDH\server\src\services\tokens.ts:827:18)
+    at async <anonymous> (D:\Git\MTGEDH\server\src\services\tokens.ts:887:24)
+    at async Promise.all (index 0)
+    at async enrichTokenCardImages (D:\Git\MTGEDH\server\src\services\tokens.ts:872:3)
+[scryfall] searchScryfallTokenImage failed (non-fatal): Blue Merfolk Error: Scryfall error 404 (https://api.scryfall.com/cards/search?q=is%3Atoken%20name%3A%22Blue%20Merfolk%22%20pow%3D1%20tou%3D1)
+    at doFetchJSON (D:\Git\MTGEDH\server\src\services\scryfall.ts:319:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async searchScryfallTokenImage (D:\Git\MTGEDH\server\src\services\scryfall.ts:586:18)
+    at async resolveTokenPrinting (D:\Git\MTGEDH\server\src\services\tokens.ts:827:18)
+    at async <anonymous> (D:\Git\MTGEDH\server\src\services\tokens.ts:887:24)
+    at async Promise.all (index 1)
+    at async enrichTokenCardImages (D:\Git\MTGEDH\server\src\services\tokens.ts:872:3)
+[priority] Exiting resolution mode - priority restored to p_5h70rlna
+[getPlayableCardIds] Player p_5h70rlna: 0 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=0
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
+[canAct] p_5h70rlna: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_5h70rlna: No actions available - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:27.636Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384687636_gz0k2) ==========
+2026-07-30T04:11:27.636Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:27.636Z [checkAndTriggerAutoPass] p_5h70rlna bypassing idle (stackLen=3, autoPass=true, loopDrain=false, autoPassForTurn=false) (ID: autopass_1785384687636_gz0k2)
+2026-07-30T04:11:27.637Z [checkAndTriggerAutoPass] Executing auto-pass for p_5h70rlna IMMEDIATELY (isHuman=true, autoPassForTurn=false, loopDrain=false, bypassStack=true) (ID: autopass_1785384687636_gz0k2)
+2026-07-30T04:11:27.637Z [executeAutoPass] ========== EXECUTING for p_5h70rlna (ID: autopass_1785384687636_gz0k2) ==========
+2026-07-30T04:11:27.637Z [executeAutoPass] Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:27.637Z [executeAutoPass] Proceeding with auto-pass for p_5h70rlna (ID: autopass_1785384687636_gz0k2)
+2026-07-30T04:11:27.638Z [executeAutoPass] Set _autoPassInProgress flag for p_5h70rlna (ID: autopass_1785384687636_gz0k2)
+2026-07-30T04:11:27.638Z [checkPendingInteractions] Pending: stack_not_empty
+[priority] autoPassLoop starting - active players: p_c0u83xzq, p_szrcpahj, p_5h70rlna, autoPassEnabled: p_c0u83xzq, p_szrcpahj, p_5h70rlna, currentPriority: p_c0u83xzq, turnPlayer: p_5h70rlna
+[canRespond] p_c0u83xzq: checking instant-speed responses only
+[canRespond] p_c0u83xzq: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_c0u83xzq - no available actions
+[canRespond] p_szrcpahj: checking instant-speed responses only
+[canRespond] p_szrcpahj: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_szrcpahj - no available actions
+2026-07-30T04:11:27.642Z [executeAutoPass] passPriority result: changed=true, advanceStep=false, resolvedNow=true (ID: autopass_1785384687636_gz0k2)
+[checkAndTriggerAutoPass] Stack resolved after auto-pass for p_5h70rlna
+[resolveTopOfStack] Triggered ability from Aetherflux Reservoir resolved: Whenever you cast a spell, you gain 1 life for each spell you've cast this turn.
+[resolveTopOfStack] Executing trigger effect: controller=p_5h70rlna, sourceName=Aetherflux Reservoir, triggerType=cast_creature_type
+[oracleIR] All-or-nothing trigger failed for Aetherflux Reservoir: applied 0/1 step(s)
+  reason: no_effect_applied_or_queued
+  reason: skipped_mandatory_step: gain_life — "you gain 1 life for each spell you've cast this turn"
+  reason: unapplied_mandatory_step: gain_life — "you gain 1 life for each spell you've cast this turn"
+mtgedh> [oracleIR-telemetry] all_or_nothing_failure (trigger) Aetherflux Reservoir — no_effect_applied_or_queued; skipped_mandatory_step: gain_life — "you gain 1 life for each spell you've cast this turn"; unapplied_mandatory_step: gain_life — "you gain 1 life for each spell you've cast this turn"
+
+[executeTriggerEffect] Aetherflux Reservoir: IR primary owns trigger effect but did not apply; skipping legacy regex tail handlers: you gain 1 life for each spell you've cast this turn
+mtgedh> [oracleIR-telemetry] owned_but_unhandled (trigger) Aetherflux Reservoir — ir_primary_owns_effect_but_did_not_apply; legacy regex tail skipped
+
+[executeTriggerEffect] Aetherflux Reservoir: IR primary owns trigger effect but did not apply; skipping uncategorized spell fallback shim: you gain 1 life for each spell you've cast this turn
+[executeTriggerEffect] Unhandled trigger effect: "you gain 1 life for each spell you've cast this turn" from Aetherflux Reservoir
+[resolveTopOfStack] Permanent Judge of Currents entered battlefield under p_5h70rlna (summoning sickness)
+[recalculateHandVisibility] Players with hand reveal effects: none
 [resolveTopOfStack] Reset priorityPassedBy after spell resolution
-[AI] Stack resolved for game game_554411
-[TokenOptimization] Applied grouping: 511 → 54 entries, has grouped tokens with counts
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=1, availableMana=92
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:15:56.059Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298556059_xx93g) ==========
-2026-07-29T04:15:56.059Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:15:56.145Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298556059_xx93g)
-2026-07-29T04:15:56.145Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298556059_xx93g)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[TokenOptimization] Applied grouping: 511 → 54 entries, has grouped tokens with counts
-2026-07-29T04:15:59.676Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298559676_ugw0a) ==========
-2026-07-29T04:15:59.676Z [checkAndTriggerAutoPass] Priority: p_suei9c3z, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:15:59.677Z [checkAndTriggerAutoPass] p_suei9c3z is AI, handled separately (ID: autopass_1785298559676_ugw0a)
-[AI] handleAIGameFlow: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'POSTCOMBATMAIN',
-  step: 'MAIN2',
+2026-07-30T04:11:27.889Z [executeAutoPass] Cleared _autoPassInProgress flag for p_5h70rlna (ID: autopass_1785384687636_gz0k2)
+2026-07-30T04:11:27.890Z [executeAutoPass] Broadcasting state after auto-pass (ID: autopass_1785384687636_gz0k2)
+[TokenOptimization] Applied grouping: 33 → 32 entries, has grouped tokens with counts
+2026-07-30T04:11:27.951Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384687951_e0y7u) ==========
+2026-07-30T04:11:27.951Z [checkAndTriggerAutoPass] Priority: p_c0u83xzq, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:27.951Z [checkAndTriggerAutoPass] p_c0u83xzq is AI, handled separately (ID: autopass_1785384687951_e0y7u)
+2026-07-30T04:11:27.951Z [executeAutoPass] Broadcast complete (ID: autopass_1785384687636_gz0k2)
+[Resolution] Step step-1785384680921-49 completed by p_5h70rlna: option_choice
+[Resolution] Option choice response from p_5h70rlna: decline
+[TokenOptimization] Applied grouping: 33 → 32 entries, has grouped tokens with counts
+2026-07-30T04:11:28.008Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384688008_j9jyi) ==========
+2026-07-30T04:11:28.008Z [checkAndTriggerAutoPass] Priority: p_c0u83xzq, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:28.009Z [checkAndTriggerAutoPass] p_c0u83xzq is AI, handled separately (ID: autopass_1785384688008_j9jyi)
+2026-07-30T04:11:28.063Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384688063_0alov) ==========
+2026-07-30T04:11:28.063Z [checkAndTriggerAutoPass] Priority: p_c0u83xzq, Phase: precombatMain, Step: MAIN1
+2026-07-30T04:11:28.063Z [checkAndTriggerAutoPass] p_c0u83xzq is AI, handled separately (ID: autopass_1785384688063_0alov)
+[scryfall] searchScryfallTokenImage failed (non-fatal): Blue Merfolk Error: Scryfall error 404 (https://api.scryfall.com/cards/search?q=is%3Atoken%20name%3A%22Blue%20Merfolk%22%20pow%3D1%20tou%3D1)
+    at doFetchJSON (D:\Git\MTGEDH\server\src\services\scryfall.ts:319:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async searchScryfallTokenImage (D:\Git\MTGEDH\server\src\services\scryfall.ts:586:18)
+    at async resolveTokenPrinting (D:\Git\MTGEDH\server\src\services\tokens.ts:827:18)
+    at async <anonymous> (D:\Git\MTGEDH\server\src\services\tokens.ts:887:24)
+    at async Promise.all (index 1)
+    at async enrichTokenCardImages (D:\Git\MTGEDH\server\src\services\tokens.ts:872:3)
+[scryfall] searchScryfallTokenImage failed (non-fatal): Blue Merfolk Error: Scryfall error 404 (https://api.scryfall.com/cards/search?q=is%3Atoken%20name%3A%22Blue%20Merfolk%22%20pow%3D1%20tou%3D1)
+    at doFetchJSON (D:\Git\MTGEDH\server\src\services\scryfall.ts:319:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async searchScryfallTokenImage (D:\Git\MTGEDH\server\src\services\scryfall.ts:586:18)
+    at async resolveTokenPrinting (D:\Git\MTGEDH\server\src\services\tokens.ts:827:18)
+    at async <anonymous> (D:\Git\MTGEDH\server\src\services\tokens.ts:887:24)
+    at async Promise.all (index 0)
+    at async enrichTokenCardImages (D:\Git\MTGEDH\server\src\services\tokens.ts:872:3)
+[AI] handleAIGameFlow: { gameId: 'game_9512',
+  playerId: 'p_c0u83xzq',
+  phase: 'PRECOMBATMAIN',
+  step: 'MAIN1',
   hasCommander: true,
   hasHand: true,
-  handCount: 9,
+  handCount: 7,
   isAITurn: false,
   hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'postcombatmain',
-  step: 'main2',
-  isAITurn: false,
-  stackEmpty: false,
-  priority: 'p_suei9c3z',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[canRespond] p_suei9c3z: checking instant-speed responses only
-[canRespond] p_suei9c3z: No instant-speed responses available (returning false)
-[AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_554411', playerId: 'p_suei9c3z' }
-2026-07-29T04:16:00.309Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, autoPassEnabled: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, currentPriority: p_g4uqj6f6, turnPlayer: p_akdrkkkc
-[canRespond] p_g4uqj6f6: checking instant-speed responses only
-[canRespond] p_g4uqj6f6: No instant-speed responses available (returning false)
-[priority] Auto-passing for p_g4uqj6f6 - no available actions
-[AI] All players passed priority, resolving top of stack
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[AI] Stack resolved for game game_554411
-[TokenOptimization] Applied grouping: 511 → 54 entries, has grouped tokens with counts
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=1, availableMana=92
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:16:01.365Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298561365_6c5zb) ==========
-2026-07-29T04:16:01.365Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:16:01.473Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298561365_6c5zb)
-2026-07-29T04:16:01.473Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298561365_6c5zb)
-[TokenOptimization] Applied grouping: 511 → 54 entries, has grouped tokens with counts
-2026-07-29T04:16:08.333Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298568333_3olbs) ==========
-2026-07-29T04:16:08.334Z [checkAndTriggerAutoPass] Priority: p_suei9c3z, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:16:08.334Z [checkAndTriggerAutoPass] p_suei9c3z is AI, handled separately (ID: autopass_1785298568333_3olbs)
-[AI] handleAIGameFlow: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'POSTCOMBATMAIN',
-  step: 'MAIN2',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 9,
-  isAITurn: false,
-  hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'postcombatmain',
-  step: 'main2',
+[AI] AI player checking priority: { gameId: 'game_9512',
+  playerId: 'p_c0u83xzq',
+  phase: 'precombatmain',
+  step: 'main1',
   isAITurn: false,
   stackEmpty: false,
-  priority: 'p_suei9c3z',
+  priority: 'p_c0u83xzq',
   hasPriority: true }
 [AI] AI has priority, proceeding with action
-[canRespond] p_suei9c3z: checking instant-speed responses only
-[canRespond] p_suei9c3z: No instant-speed responses available (returning false)
+[canRespond] p_c0u83xzq: checking instant-speed responses only
+[canRespond] p_c0u83xzq: No instant-speed responses available (returning false)
 [AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_554411', playerId: 'p_suei9c3z' }
-2026-07-29T04:16:08.955Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, autoPassEnabled: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, currentPriority: p_g4uqj6f6, turnPlayer: p_akdrkkkc
-[canRespond] p_g4uqj6f6: checking instant-speed responses only
-[canRespond] p_g4uqj6f6: No instant-speed responses available (returning false)
-[priority] Auto-passing for p_g4uqj6f6 - no available actions
+[AI] Passing priority: { gameId: 'game_9512', playerId: 'p_c0u83xzq' }
+2026-07-30T04:11:28.682Z [checkPendingInteractions] Pending: stack_not_empty
+[priority] autoPassLoop starting - active players: p_c0u83xzq, p_szrcpahj, p_5h70rlna, autoPassEnabled: p_c0u83xzq, p_szrcpahj, p_5h70rlna, currentPriority: p_szrcpahj, turnPlayer: p_5h70rlna
+[canRespond] p_szrcpahj: checking instant-speed responses only
+[canRespond] p_szrcpahj: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_szrcpahj - no available actions
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
+[canAct] p_5h70rlna: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_5h70rlna: No actions available - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_5h70rlna - no available actions
 [AI] All players passed priority, resolving top of stack
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[oracleIR] Bridged ETB triggers for 8 IR-created token(s)
-[oracleIR] All-or-nothing spell failed for Summon the School: applied 1/2 step(s)
-  reason: skipped_mandatory_step: move_zone — "Return this card from your graveyard to your hand"
-  reason: unapplied_mandatory_step: move_zone — "Return this card from your graveyard to your hand"
-[tryResolveInstantSorceryOracleIrSpell] Summon the School: IR primary owns spell but did not apply; legacy categorize skipped: Create two 1/1 blue Merfolk Wizard creature tokens.
-Tap four untapped Merfolk you control: Return this card from your graveyard to your hand.
-[createToken] Token doubling: creating 8 tokens (base: 2, multiplier: 4)
-[tokens] getTokenImageUrls (exact): {"name":"Merfolk Wizard","power":1,"toughness":1,"colors":["blue"],"typeLine":"","isArtifact":false,"isEnchantment":false}
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[triggerETBEffectsForPermanent] âš¡ Aura Shards's triggered ability: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Summon the School created 2 Merfolk Wizard token(s) for p_akdrkkkc (xValue: 0)
-[resolveTopOfStack] Summon the School: IR primary owns spell effect but did not apply via top gate: Create two 1/1 blue Merfolk Wizard creature tokens.
-Tap four untapped Merfolk you control: Return this card from your graveyard to your hand.
-[resolveTopOfStack] Checking if Summon the School is a Join Forces spell...
-[resolveTopOfStack] Summon the School is NOT a Join Forces spell (name: "summon the school", has 'join forces': false)
-[resolveTopOfStack] Checking if Summon the School is a Tempting Offer spell...
-[resolveTopOfStack] Summon the School is NOT a Tempting Offer spell
-[moveResolvedInstantOrSorceryAfterResolution] Spell Summon the School resolved and moved to graveyard for p_akdrkkkc
+[resolveTopOfStack] Permanent Judge of Currents entered battlefield under p_5h70rlna (summoning sickness)
+[recalculateHandVisibility] Players with hand reveal effects: none
 [resolveTopOfStack] Reset priorityPassedBy after spell resolution
-[AI] Stack resolved for game game_554411
-[TokenOptimization] Applied grouping: 527 → 54 entries, has grouped tokens with counts
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=0, availableMana=92
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:16:13.263Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298573263_mg427) ==========
-2026-07-29T04:16:13.264Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:16:13.379Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298573263_mg427)
-2026-07-29T04:16:13.379Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298573263_mg427)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[tokens] Fuzzy token image fallback for Merfolk Wizard: Merfolk Wizard (score: 8)
-[TokenOptimization] Applied grouping: 527 → 54 entries, has grouped tokens with counts
-2026-07-29T04:16:17.770Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298577770_2gxos) ==========
-2026-07-29T04:16:17.770Z [checkAndTriggerAutoPass] Priority: p_suei9c3z, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:16:17.770Z [checkAndTriggerAutoPass] p_suei9c3z is AI, handled separately (ID: autopass_1785298577770_2gxos)
-[AI] handleAIGameFlow: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'POSTCOMBATMAIN',
-  step: 'MAIN2',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 9,
-  isAITurn: false,
-  hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_554411',
-  playerId: 'p_suei9c3z',
-  phase: 'postcombatmain',
-  step: 'main2',
-  isAITurn: false,
-  stackEmpty: false,
-  priority: 'p_suei9c3z',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[canRespond] p_suei9c3z: checking instant-speed responses only
-[canRespond] p_suei9c3z: No instant-speed responses available (returning false)
-[AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_554411', playerId: 'p_suei9c3z' }
-2026-07-29T04:16:18.394Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, autoPassEnabled: p_suei9c3z, p_g4uqj6f6, p_akdrkkkc, currentPriority: p_g4uqj6f6, turnPlayer: p_akdrkkkc
-[canRespond] p_g4uqj6f6: checking instant-speed responses only
-[canRespond] p_g4uqj6f6: No instant-speed responses available (returning false)
-[priority] Auto-passing for p_g4uqj6f6 - no available actions
-[AI] All players passed priority, resolving top of stack
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[resolveTopOfStack] Triggered ability from Aura Shards resolved: you may destroy target artifact or enchantment.
-[resolveTopOfStack] Optional no-until-targets auto-no for Aura Shards (p_akdrkkkc)
-[AI] Stack resolved for game game_554411
-[TokenOptimization] Applied grouping: 527 → 54 entries, has grouped tokens with counts
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=0, availableMana=92
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:16:19.495Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298579495_dnzlx) ==========
-2026-07-29T04:16:19.495Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:16:19.632Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298579495_dnzlx)
-2026-07-29T04:16:19.632Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298579495_dnzlx)
-[priority] Entering resolution mode - priority will return to p_akdrkkkc after resolution completes
-2026-07-29T04:16:20.414Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298580414_td49y) ==========
-2026-07-29T04:16:20.414Z [checkAndTriggerAutoPass] Priority: null, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:16:20.414Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1785298580414_td49y)
-2026-07-29T04:16:21.258Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298581258_isg1m) ==========
-2026-07-29T04:16:21.259Z [checkAndTriggerAutoPass] Priority: null, Phase: postcombatMain, Step: MAIN2
-2026-07-29T04:16:21.259Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1785298581258_isg1m)
-[priority] Exiting resolution mode - priority restored to p_akdrkkkc
-[getPlayableCardIds] Player p_akdrkkkc: 1 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=0, availableMana=92
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:16:22.331Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298582331_sxl58) ==========
-2026-07-29T04:16:22.331Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:16:22.463Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298582331_sxl58)
-2026-07-29T04:16:22.463Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298582331_sxl58)
-[Resolution] Step step-1785298579635-442 completed by p_akdrkkkc: target_selection
-[TokenOptimization] Applied grouping: 527 → 54 entries, has grouped tokens with counts
-[getPlayableCardIds] Player p_akdrkkkc: 2 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=1, availableMana=92
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:16:23.551Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298583551_u2kb4) ==========
-2026-07-29T04:16:23.551Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:16:23.677Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298583551_u2kb4)
-2026-07-29T04:16:23.677Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298583551_u2kb4)
-[getPlayableCardIds] Player p_akdrkkkc: 2 playable option(s); step=MAIN2, priority=p_akdrkkkc, hand=1, availableMana=92
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:16:24.678Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785298584678_xn9sj) ==========
-2026-07-29T04:16:24.679Z [checkAndTriggerAutoPass] Priority: p_akdrkkkc, Phase: postcombatMain, Step: MAIN2
-[canAct] p_akdrkkkc: step=MAIN2, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[canPlayLand] p_akdrkkkc: No playable land candidates found
-[canAct] p_akdrkkkc: Can activate ability - returning TRUE
-[canRespond] p_akdrkkkc: checking instant-speed responses only
-[canRespond] p_akdrkkkc: Can activate ability
-2026-07-29T04:16:24.799Z [checkAndTriggerAutoPass] idle check: p_akdrkkkc playerIdle=false (ID: autopass_1785298584678_xn9sj)
-2026-07-29T04:16:24.799Z [checkAndTriggerAutoPass] p_akdrkkkc has available actions - returning early, NO auto-pass (ID: autopass_1785298584678_xn9sj)
+[AI] Stack resolved for game game_9512
+[TokenOptimization] Applied grouping: 34 → 33 entries, has grouped tokens with counts
+[getPlayableCardIds] Player p_5h70rlna: 0 playable option(s); step=MAIN1, priority=p_5h70rlna, hand=5, availableMana=0
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: In main phase with empty stack, checking sorcery-speed actions
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: No sorcery-speed actions available in main phase - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:28.862Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384688862_oncbo) ==========
+2026-07-30T04:11:28.862Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: In main phase with empty stack, checking sorcery-speed actions
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: No sorcery-speed actions available in main phase - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:28.870Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=true (ID: autopass_1785384688862_oncbo)
+2026-07-30T04:11:28.870Z [checkAndTriggerAutoPass] p_5h70rlna is idle - proceeding with auto-pass (ID: autopass_1785384688862_oncbo)
+2026-07-30T04:11:28.871Z [checkAndTriggerAutoPass] Scheduling auto-pass for p_5h70rlna with 150ms delay (floatingMana=0) (ID: autopass_1785384688862_oncbo)
+2026-07-30T04:11:29.036Z [executeAutoPass] ========== EXECUTING for p_5h70rlna (ID: autopass_1785384688862_oncbo) ==========
+2026-07-30T04:11:29.036Z [executeAutoPass] Phase: precombatMain, Step: MAIN1
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: In main phase with empty stack, checking sorcery-speed actions
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: No sorcery-speed actions available in main phase - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:29.044Z [executeAutoPass] Re-check: p_5h70rlna playerIdle=true (ID: autopass_1785384688862_oncbo)
+2026-07-30T04:11:29.044Z [executeAutoPass] Proceeding with auto-pass for p_5h70rlna (ID: autopass_1785384688862_oncbo)
+2026-07-30T04:11:29.044Z [executeAutoPass] Set _autoPassInProgress flag for p_5h70rlna (ID: autopass_1785384688862_oncbo)
+[priority] autoPassLoop starting - active players: p_c0u83xzq, p_szrcpahj, p_5h70rlna, autoPassEnabled: p_c0u83xzq, p_szrcpahj, p_5h70rlna, currentPriority: p_c0u83xzq, turnPlayer: p_5h70rlna
+[canRespond] p_c0u83xzq: checking instant-speed responses only
+[canRespond] p_c0u83xzq: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_c0u83xzq - no available actions
+[canRespond] p_szrcpahj: checking instant-speed responses only
+[canRespond] p_szrcpahj: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_szrcpahj - no available actions
+[canAct] p_5h70rlna: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: In main phase with empty stack, checking sorcery-speed actions
+[canPlayLand] p_5h70rlna: No playable land candidates found
+[canAct] p_5h70rlna: No sorcery-speed actions available in main phase - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:29.056Z [executeAutoPass] passPriority result: changed=true, advanceStep=true, resolvedNow=false (ID: autopass_1785384688862_oncbo)
+2026-07-30T04:11:29.057Z [executeAutoPass] Advancing step after auto-pass for p_5h70rlna (ID: autopass_1785384688862_oncbo)
+2026-07-30T04:11:29.057Z [nextStep] ========== CALLED ==========
+2026-07-30T04:11:29.057Z [nextStep] Game: game_9512
+2026-07-30T04:11:29.057Z [nextStep] Current: precombatMain/MAIN1
+2026-07-30T04:11:29.058Z [nextStep] Priority: p_c0u83xzq, Turn: p_5h70rlna
+2026-07-30T04:11:29.058Z [nextStep] Call stack:
+        at Object.nextStep (D:\Git\MTGEDH\server\src\state\index.ts:105:21)
+        at Timeout.executeAutoPass (D:\Git\MTGEDH\server\src\socket\util.ts:2358:31)
+        at listOnTimeout (node:internal/timers:588:17)
+        at process.processTimers (node:internal/timers:523:7)
+2026-07-30T04:11:29.058Z [clearManaPool] Processed mana pools for all players
+2026-07-30T04:11:29.058Z [nextStep] Advanced to phase=combat, step=BEGIN_COMBAT
+2026-07-30T04:11:29.059Z [nextStep] Granting priority to active player p_5h70rlna (step: BEGIN_COMBAT, stack size: 0)
+[canAct] p_5h70rlna: step=BEGIN_COMBAT, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_5h70rlna: No actions available - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:29.067Z [nextStep] DEBUG - Turn Player p_5h70rlna:
+2026-07-30T04:11:29.067Z [nextStep]   Hand (5): Swords to Plowshares, Fist of Suns, Fierce Guardianship, Counterspell, The Mindskinner
+2026-07-30T04:11:29.067Z [nextStep]   canAct: false, canRespond: false
+2026-07-30T04:11:29.067Z [nextStep] Checking if auto-pass should apply after granting priority
+[priority] autoPassLoop starting - active players: p_c0u83xzq, p_szrcpahj, p_5h70rlna, autoPassEnabled: p_c0u83xzq, p_szrcpahj, p_5h70rlna, currentPriority: p_5h70rlna, turnPlayer: p_5h70rlna
+[canAct] p_5h70rlna: step=BEGIN_COMBAT, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_5h70rlna: No actions available - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_5h70rlna - no available actions
+[canRespond] p_c0u83xzq: checking instant-speed responses only
+[canRespond] p_c0u83xzq: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_c0u83xzq - no available actions
+[canRespond] p_szrcpahj: checking instant-speed responses only
+[canRespond] p_szrcpahj: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_szrcpahj - no available actions
+2026-07-30T04:11:29.079Z [nextStep] All players auto-passed after granting priority - caller should advance step
+2026-07-30T04:11:29.079Z [executeAutoPass] Cleared _autoPassInProgress flag for p_5h70rlna (ID: autopass_1785384688862_oncbo)
+2026-07-30T04:11:29.079Z [executeAutoPass] Broadcasting state after auto-pass (ID: autopass_1785384688862_oncbo)
+[TokenOptimization] Applied grouping: 34 → 33 entries, has grouped tokens with counts
+[getPlayableCardIds] Player p_5h70rlna: 0 playable option(s); step=BEGIN_COMBAT, priority=p_5h70rlna, hand=5, availableMana=0
+[canAct] p_5h70rlna: step=BEGIN_COMBAT, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_5h70rlna: No actions available - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:29.144Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384689144_ri3ix) ==========
+2026-07-30T04:11:29.144Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: combat, Step: BEGIN_COMBAT
+[canAct] p_5h70rlna: step=BEGIN_COMBAT, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_5h70rlna: No actions available - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:29.154Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=true (ID: autopass_1785384689144_ri3ix)
+2026-07-30T04:11:29.155Z [checkAndTriggerAutoPass] p_5h70rlna is idle - proceeding with auto-pass (ID: autopass_1785384689144_ri3ix)
+2026-07-30T04:11:29.155Z [checkAndTriggerAutoPass] Scheduling auto-pass for p_5h70rlna with 150ms delay (floatingMana=0) (ID: autopass_1785384689144_ri3ix)
+2026-07-30T04:11:29.155Z [executeAutoPass] Broadcast complete (ID: autopass_1785384688862_oncbo)
+2026-07-30T04:11:29.315Z [executeAutoPass] ========== EXECUTING for p_5h70rlna (ID: autopass_1785384689144_ri3ix) ==========
+2026-07-30T04:11:29.315Z [executeAutoPass] Phase: combat, Step: BEGIN_COMBAT
+[canAct] p_5h70rlna: step=BEGIN_COMBAT, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_5h70rlna: No actions available - returning FALSE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:29.324Z [executeAutoPass] Re-check: p_5h70rlna playerIdle=true (ID: autopass_1785384689144_ri3ix)
+2026-07-30T04:11:29.324Z [executeAutoPass] Proceeding with auto-pass for p_5h70rlna (ID: autopass_1785384689144_ri3ix)
+2026-07-30T04:11:29.324Z [executeAutoPass] Set _autoPassInProgress flag for p_5h70rlna (ID: autopass_1785384689144_ri3ix)
+[priority] autoPassLoop starting - active players: p_c0u83xzq, p_szrcpahj, p_5h70rlna, autoPassEnabled: p_c0u83xzq, p_szrcpahj, p_5h70rlna, currentPriority: p_c0u83xzq, turnPlayer: p_5h70rlna
+[canRespond] p_c0u83xzq: checking instant-speed responses only
+[canRespond] p_c0u83xzq: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_c0u83xzq - no available actions
+[canRespond] p_szrcpahj: checking instant-speed responses only
+[canRespond] p_szrcpahj: No instant-speed responses available (returning false)
+[priority] Auto-passing for p_szrcpahj - no available actions
+2026-07-30T04:11:29.328Z [executeAutoPass] passPriority result: changed=true, advanceStep=true, resolvedNow=false (ID: autopass_1785384689144_ri3ix)
+2026-07-30T04:11:29.329Z [executeAutoPass] Advancing step after auto-pass for p_5h70rlna (ID: autopass_1785384689144_ri3ix)
+2026-07-30T04:11:29.329Z [nextStep] ========== CALLED ==========
+2026-07-30T04:11:29.329Z [nextStep] Game: game_9512
+2026-07-30T04:11:29.329Z [nextStep] Current: combat/BEGIN_COMBAT
+2026-07-30T04:11:29.329Z [nextStep] Priority: p_c0u83xzq, Turn: p_5h70rlna
+2026-07-30T04:11:29.329Z [nextStep] Call stack:
+        at Object.nextStep (D:\Git\MTGEDH\server\src\state\index.ts:105:21)
+        at Timeout.executeAutoPass (D:\Git\MTGEDH\server\src\socket\util.ts:2358:31)
+        at listOnTimeout (node:internal/timers:588:17)
+        at process.processTimers (node:internal/timers:523:7)
+2026-07-30T04:11:29.330Z [nextStep] Entering DECLARE_ATTACKERS, initialized attackersDeclaredBy array
+2026-07-30T04:11:29.330Z [nextStep] Advanced to phase=combat, step=DECLARE_ATTACKERS
+2026-07-30T04:11:29.330Z [nextStep] Granting priority to active player p_5h70rlna (step: DECLARE_ATTACKERS, stack size: 0)
+[canAct] p_5h70rlna: step=DECLARE_ATTACKERS, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_5h70rlna: Has valid attackers - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:29.339Z [nextStep] DEBUG - Turn Player p_5h70rlna:
+2026-07-30T04:11:29.339Z [nextStep]   Hand (5): Swords to Plowshares, Fist of Suns, Fierce Guardianship, Counterspell, The Mindskinner
+2026-07-30T04:11:29.339Z [nextStep]   canAct: true, canRespond: false
+2026-07-30T04:11:29.339Z [nextStep] Checking if auto-pass should apply after granting priority
+2026-07-30T04:11:29.339Z [checkPendingInteractions] Waiting for p_5h70rlna to declare attackers
+2026-07-30T04:11:29.340Z [checkPendingInteractions] Pending: attacker_declaration
+[priority] autoPassLoop - blocking due to pending interactions: attacker_declaration
+2026-07-30T04:11:29.340Z [nextStep] Auto-pass stopped, player p_5h70rlna has priority
+2026-07-30T04:11:29.340Z [executeAutoPass] Cleared _autoPassInProgress flag for p_5h70rlna (ID: autopass_1785384689144_ri3ix)
+2026-07-30T04:11:29.340Z [executeAutoPass] Broadcasting state after auto-pass (ID: autopass_1785384689144_ri3ix)
+[TokenOptimization] Applied grouping: 34 → 33 entries, has grouped tokens with counts
+[getPlayableCardIds] Player p_5h70rlna: 0 playable option(s); step=DECLARE_ATTACKERS, priority=p_5h70rlna, hand=5, availableMana=0
+[canAct] p_5h70rlna: step=DECLARE_ATTACKERS, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_5h70rlna: Has valid attackers - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:29.418Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1785384689418_a00cg) ==========
+2026-07-30T04:11:29.418Z [checkAndTriggerAutoPass] Priority: p_5h70rlna, Phase: combat, Step: DECLARE_ATTACKERS
+[canAct] p_5h70rlna: step=DECLARE_ATTACKERS, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_5h70rlna: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_5h70rlna: Has valid attackers - returning TRUE
+[canRespond] p_5h70rlna: checking instant-speed responses only
+[canRespond] p_5h70rlna: No instant-speed responses available (returning false)
+2026-07-30T04:11:29.426Z [checkAndTriggerAutoPass] idle check: p_5h70rlna playerIdle=false (ID: autopass_1785384689418_a00cg)
+2026-07-30T04:11:29.426Z [checkAndTriggerAutoPass] p_5h70rlna has available actions - returning early, NO auto-pass (ID: autopass_1785384689418_a00cg)
+2026-07-30T04:11:29.426Z [executeAutoPass] Broadcast complete (ID: autopass_1785384689144_ri3ix)
+mtgedh>

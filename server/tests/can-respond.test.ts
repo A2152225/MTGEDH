@@ -4952,6 +4952,78 @@ describe('canAct', () => {
         expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
       });
 
+      it('uses untapped choice-based mana sources for a top-library spell', () => {
+        const ctx = createTestContext({
+          zones: {
+            p1: {
+              hand: [],
+              graveyard: [],
+              exile: [],
+              handCount: 0,
+              graveyardCount: 0,
+              exileCount: 0,
+              libraryCount: 1,
+            },
+          },
+          battlefield: [
+            {
+              id: 'emperor',
+              controller: 'p1',
+              tapped: false,
+              card: {
+                name: 'Emperor Mihail II',
+                type_line: 'Legendary Creature — Merfolk Noble',
+                oracle_text: 'You may look at the top card of your library any time. You may cast Merfolk spells from the top of your library.',
+              },
+            },
+            {
+              id: 'glacial_fortress',
+              controller: 'p1',
+              tapped: false,
+              card: {
+                name: 'Glacial Fortress',
+                type_line: 'Land',
+                oracle_text: 'Glacial Fortress enters tapped unless you control a Plains or an Island.\n{T}: Add {W} or {U}.',
+              },
+            },
+            {
+              id: 'arcane_signet',
+              controller: 'p1',
+              tapped: false,
+              card: {
+                name: 'Arcane Signet',
+                type_line: 'Artifact',
+                oracle_text: "{T}: Add one mana of any color in your commander's color identity.",
+              },
+            },
+          ],
+          commandZone: {
+            p1: {
+              commanderCards: [{ id: 'commander', color_identity: ['W', 'U'] }],
+            },
+          },
+          manaPool: {
+            p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+          step: 'MAIN1',
+          stack: [],
+          turnPlayer: 'p1',
+          priority: 'p1',
+        });
+
+        (ctx as any).libraries = new Map([
+          ['p1', [{
+            id: 'judge_top',
+            name: 'Judge of Currents',
+            type_line: 'Creature — Merfolk Wizard',
+            mana_cost: '{1}{W}',
+            oracle_text: 'Whenever a Merfolk you control becomes tapped, you may gain 1 life.',
+          }]],
+        ]);
+
+        expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+      });
+
       it('should not claim a top-library land is playable during main phase when the effect only allows casting spells', () => {
         const ctx = createTestContext({
           zones: {

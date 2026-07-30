@@ -52,6 +52,7 @@ import { countManaSymbolsInManaCost } from './oracleIRExecutorManaUtils';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import { resolveSingleCreatureTargetId, resolveCreatureTargetIds } from './oracleIRExecutorCreatureStepUtils';
 import {
+  resolveControllerSpellCastCountThisTurn,
   resolveOracleQuantity,
   resolveOracleQuantityForPlayer,
   type ResolveOracleQuantityOptions,
@@ -3444,23 +3445,19 @@ function resolveVariableAmount(
   }
   if (amount.kind === 'unknown') {
     const normalized = normalizeOracleText(String(amount.raw || ''));
-    const spellsCastMatch = normalized.match(/^(?:(\d+)\s+)?for each spells? (?:you(?:'ve| have)?|you) cast this turn$|^(\d+)\s+for each spells? (?:you(?:'ve| have)?|you) cast this turn$/i);
+    const spellsCastMatch = normalized.match(/^(?:(\d+)\s+(?:life\s+)?)?for each spells? (?:you(?:'ve| have)?|you) cast this turn$/i);
     if (spellsCastMatch) {
-      const multiplier = Number(spellsCastMatch[1] || spellsCastMatch[2] || 1);
-      const contextCount = readFinite(ctx.spellCastCountThisTurn);
-      const stateCount = readFinite((state as any)?.spellsCastThisTurn?.[controllerId]);
-      const castCount = contextCount ?? stateCount;
+      const multiplier = Number(spellsCastMatch[1] || 1);
+      const castCount = resolveControllerSpellCastCountThisTurn(state, controllerId, ctx.spellCastCountThisTurn);
       if (castCount !== null && Number.isFinite(multiplier)) return Math.max(0, castCount * Math.max(0, multiplier));
     }
   }
   if (amount.kind === 'reference_amount') {
     const normalized = normalizeOracleText(String(amount.raw || ''));
-    const spellsCastMatch = normalized.match(/^(?:(\d+)\s+)?for each spells? (?:you(?:'ve| have)?|you) cast this turn$|^(\d+)\s+for each spells? (?:you(?:'ve| have)?|you) cast this turn$|^the number of spells? (?:you(?:'ve| have)?|you) cast this turn$/i);
+    const spellsCastMatch = normalized.match(/^(?:(\d+)\s+(?:life\s+)?)?for each spells? (?:you(?:'ve| have)?|you) cast this turn$|^the number of spells? (?:you(?:'ve| have)?|you) cast this turn$/i);
     if (spellsCastMatch) {
-      const multiplier = Number(spellsCastMatch[1] || spellsCastMatch[2] || 1);
-      const contextCount = readFinite(ctx.spellCastCountThisTurn);
-      const stateCount = readFinite((state as any)?.spellsCastThisTurn?.[controllerId]);
-      const castCount = contextCount ?? stateCount;
+      const multiplier = Number(spellsCastMatch[1] || 1);
+      const castCount = resolveControllerSpellCastCountThisTurn(state, controllerId, ctx.spellCastCountThisTurn);
       if (castCount !== null && Number.isFinite(multiplier)) return Math.max(0, castCount * Math.max(0, multiplier));
     }
     const runtimeAmount = Number(runtime?.lastReferenceAmount);
