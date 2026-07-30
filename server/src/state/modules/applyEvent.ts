@@ -15,7 +15,13 @@ import type { PlayerID, GameEvent } from "../types";
 
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
-import { repairReplayCardSourceZones, repairCardIdAwayFromZones, repairAllDualZoneGhosts } from "./stackReplayUtils.js";
+import {
+  repairReplayCardSourceZones,
+  repairCardIdAwayFromZones,
+  repairAllDualZoneGhosts,
+  isImpossibleFaceUpNonPermanentBattlefieldCard,
+  isFaceDownBattlefieldPermanentFlags,
+} from "./stackReplayUtils.js";
 
 import {
   importDeckResolved,
@@ -15858,22 +15864,44 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
 
           if (toZone === 'battlefield' && permanentId && card) {
-            const battlefield = Array.isArray(ctx.state.battlefield)
-              ? ctx.state.battlefield
-              : ((ctx.state as any).battlefield = []);
-            const typeLine = String(card.type_line || '').toLowerCase();
-            const isCreature = typeLine.includes('creature');
-            battlefield.push({
-              id: permanentId,
-              controller: playerId,
-              owner: playerId,
-              tapped: false,
-              counters: {},
-              basePower: isCreature ? parsePT(card.power) : undefined,
-              baseToughness: isCreature ? parsePT(card.toughness) : undefined,
-              summoningSickness: isCreature,
-              card: { ...card, zone: 'battlefield' },
-            } as any);
+            if (isImpossibleFaceUpNonPermanentBattlefieldCard(card, e)) {
+              // Face-up instants/sorceries cannot enter the battlefield via replay.
+              // Divert to graveyard so the physical card is not lost after the source splice.
+              const zones = (ctx.state as any).zones = (ctx.state as any).zones || {};
+              const z = zones[playerId] = zones[playerId] || {
+                hand: [],
+                handCount: 0,
+                graveyard: [],
+                graveyardCount: 0,
+                exile: [],
+                exileCount: 0,
+              };
+              z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+              const gy = z.graveyard as any[];
+              if (!gy.some((entry: any) => entry && String(entry.id || '') === String(card.id || ''))) {
+                pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, card, gy);
+                z.graveyardCount = gy.length;
+              }
+            } else {
+              const battlefield = Array.isArray(ctx.state.battlefield)
+                ? ctx.state.battlefield
+                : ((ctx.state as any).battlefield = []);
+              const typeLine = String(card.type_line || '').toLowerCase();
+              const isCreature = typeLine.includes('creature');
+              const faceDown = isFaceDownBattlefieldPermanentFlags(e, card);
+              battlefield.push({
+                id: permanentId,
+                controller: String((e as any).controllerId || playerId).trim() || playerId,
+                owner: String((e as any).ownerId || (e as any).fromPlayerId || playerId).trim() || playerId,
+                tapped: (e as any).tapped === true || (e as any).entersTapped === true,
+                counters: {},
+                faceDown: faceDown || undefined,
+                basePower: isCreature ? parsePT(card.power) : undefined,
+                baseToughness: isCreature ? parsePT(card.toughness) : undefined,
+                summoningSickness: isCreature,
+                card: { ...card, zone: 'battlefield' },
+              } as any);
+            }
           } else if (toZone === 'library' && card) {
             const lib = ctx.libraries.get(playerId) || [];
             if (!lib.some((entry: any) => entry && String(entry.id || '') === String(card.id || ''))) {
@@ -15961,20 +15989,31 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const existingPermanent = battlefield.find((perm: any) => perm && String(perm.id || '') === permanentId);
 
           if (!existingPermanent && card) {
-            const typeLine = String(card.type_line || '').toLowerCase();
-            const isCreature = typeLine.includes('creature');
-            battlefield.push({
-              id: permanentId,
-              controller: playerId,
-              owner: playerId,
-              tapped: tappedAndAttacking,
-              counters: {},
-              basePower: isCreature ? parsePT(card.power) : undefined,
-              baseToughness: isCreature ? parsePT(card.toughness) : undefined,
-              summoningSickness: isCreature && !tappedAndAttacking,
-              isAttacking: tappedAndAttacking,
-              card: { ...card, zone: 'battlefield' },
-            } as any);
+            if (isImpossibleFaceUpNonPermanentBattlefieldCard(card, e)) {
+              z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+              const gy = z.graveyard as any[];
+              if (!gy.some((entry: any) => entry && String(entry.id || '') === String(card.id || ''))) {
+                pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, card, gy);
+                z.graveyardCount = gy.length;
+              }
+            } else {
+              const typeLine = String(card.type_line || '').toLowerCase();
+              const isCreature = typeLine.includes('creature');
+              const faceDown = isFaceDownBattlefieldPermanentFlags(e, card);
+              battlefield.push({
+                id: permanentId,
+                controller: playerId,
+                owner: playerId,
+                tapped: tappedAndAttacking,
+                counters: {},
+                faceDown: faceDown || undefined,
+                basePower: isCreature ? parsePT(card.power) : undefined,
+                baseToughness: isCreature ? parsePT(card.toughness) : undefined,
+                summoningSickness: isCreature && !tappedAndAttacking,
+                isAttacking: tappedAndAttacking,
+                card: { ...card, zone: 'battlefield' },
+              } as any);
+            }
           }
 
           ctx.bumpSeq();

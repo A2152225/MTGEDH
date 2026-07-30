@@ -53,6 +53,8 @@ export enum ChoiceEventType {
   SCRY = 'scry',
   SURVEIL = 'surveil',
   FATESEAL = 'fateseal',
+  /** Repeated rotating zone draft (Thieves' Auction style). */
+  REPEATED_ZONE_DRAFT = 'repeated_zone_draft',
 }
 
 /**

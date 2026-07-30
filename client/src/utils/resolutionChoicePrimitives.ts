@@ -40,6 +40,7 @@ const SPECIALIZED_STEP_TYPES = new Set([
   'life_payment',
   'return_controlled_permanent_choice',
   'hideaway_choice',
+  'repeated_zone_draft',
   'join_forces',
   'tempting_offer',
   'player_choice',

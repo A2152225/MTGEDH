@@ -5091,11 +5091,21 @@ export function applyRevealTopStep(
     ? { ctx, stepIndex: Number(ctx.currentStepIndex), stepKind: step.kind }
     : undefined;
 
+  const isThatManyOrMuchReference =
+    step.amount.kind === 'reference_amount' &&
+    /^that\s+(?:many|much)$/i.test(String(step.amount.raw || '').trim());
+
   for (const playerId of players) {
     const untilReveal = resolveRevealUntilReferenceAmountForPlayer(state, playerId, step.amount, ctx);
     if (untilReveal) {
       totalRevealed += untilReveal.count;
-      revealedCards.push(...untilReveal.cards);
+      revealedCards.push(
+        ...untilReveal.cards.map((card: any) => ({
+          ...card,
+          owner: card?.owner ?? playerId,
+          ownerId: card?.ownerId ?? playerId,
+        }))
+      );
       const revealedNames = untilReveal.cards
         .map((card: any) => String(card?.name || 'unknown card').trim() || 'unknown card');
       log.push(
@@ -5106,9 +5116,15 @@ export function applyRevealTopStep(
       continue;
     }
 
-    const amount = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
-      whereX: step.whereX,
-    });
+    const perPlayerAmount = isThatManyOrMuchReference
+      ? (ctx as any)?.lastMovedCountByPlayer?.[playerId]
+      : undefined;
+    const amount =
+      typeof perPlayerAmount === 'number' && Number.isFinite(perPlayerAmount)
+        ? perPlayerAmount
+        : resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
+            whereX: step.whereX,
+          });
     if (amount === null) {
       return {
         applied: false,
@@ -5123,7 +5139,13 @@ export function applyRevealTopStep(
     const revealedCount = Math.max(0, Math.min(library.length, amount | 0));
     totalRevealed += revealedCount;
     if (revealedCount > 0) {
-      revealedCards.push(...library.slice(0, revealedCount));
+      revealedCards.push(
+        ...library.slice(0, revealedCount).map((card: any) => ({
+          ...card,
+          owner: card?.owner ?? playerId,
+          ownerId: card?.ownerId ?? playerId,
+        }))
+      );
     }
     const revealedNames = library
       .slice(0, revealedCount)

@@ -3338,6 +3338,25 @@ async function handleAIResolutionStep(
         debug(2, `[Resolution] AI chose hideaway card: ${cardId}`);
         break;
       }
+
+      case ResolutionStepType.REPEATED_ZONE_DRAFT: {
+        const draftStep = step as any;
+        const remaining = Array.isArray(draftStep.remainingCardIds) ? draftStep.remainingCardIds : [];
+        const cardId = String(remaining[0] || '').trim();
+        if (!cardId) {
+          debugWarn(1, `[Resolution] AI repeated zone draft: no cards remaining`);
+          break;
+        }
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: [cardId],
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI chose draft card: ${cardId}`);
+        break;
+      }
       
       case ResolutionStepType.JOIN_FORCES: {
         // AI declines to contribute to Join Forces (simple strategy)
@@ -7655,6 +7674,36 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       }
     }
 
+    if (step.type === ResolutionStepType.REPEATED_ZONE_DRAFT) {
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const stepAny = step as any;
+        const raw: any = response.selections as any;
+        let selectedCardId = '';
+        if (typeof raw === 'string') selectedCardId = raw;
+        else if (Array.isArray(raw) && raw.length > 0) selectedCardId = String(raw[0] || '');
+        else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          selectedCardId = String(raw.cardId || raw.selectedCardId || raw.id || '');
+        }
+        selectedCardId = String(selectedCardId || '').trim();
+        if (!selectedCardId) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'No draft card selected' });
+          return;
+        }
+        const remaining = Array.isArray(stepAny.remainingCardIds)
+          ? stepAny.remainingCardIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+          : [];
+        if (!remaining.includes(selectedCardId)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected card is not in the remaining draft pool' });
+          return;
+        }
+      }
+    }
+
     // Validate DEVOUR_SELECTION selections before completing the step.
     // If we complete first, invalid input would permanently consume the step and skip devour.
     if (step.type === ResolutionStepType.DEVOUR_SELECTION) {
@@ -9730,6 +9779,15 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('hideawayCondition' in step) fields.hideawayCondition = (step as any).hideawayCondition;
       if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
       if ('stackItemId' in step) fields.stackItemId = (step as any).stackItemId;
+      break;
+
+    case ResolutionStepType.REPEATED_ZONE_DRAFT:
+      if ('remainingCardIds' in step) fields.remainingCardIds = (step as any).remainingCardIds;
+      if ('cards' in step) fields.cards = (step as any).cards;
+      if ('chooserOrder' in step) fields.chooserOrder = (step as any).chooserOrder;
+      if ('chooserIndex' in step) fields.chooserIndex = (step as any).chooserIndex;
+      if ('entersTapped' in step) fields.entersTapped = (step as any).entersTapped;
+      if ('destination' in step) fields.destination = (step as any).destination;
       break;
 
     case ResolutionStepType.RIOT_CHOICE:
@@ -15206,6 +15264,10 @@ async function handleStepResponse(
 
     case ResolutionStepType.HIDEAWAY_CHOICE:
       handleHideawayChoiceResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.REPEATED_ZONE_DRAFT:
+      handleRepeatedZoneDraftResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.ACTIVATED_ABILITY:
@@ -23478,6 +23540,190 @@ function handleHideawayChoiceResponse(
 
   if (typeof (game as any).bumpSeq === 'function') {
     (game as any).bumpSeq();
+  }
+
+  broadcastGame(io, game, gameId);
+}
+
+/**
+ * Handle one pick in a repeated rotating zone draft (Thieves' Auction style).
+ * Moves the chosen exiled card onto the battlefield under the chooser, then either
+ * queues the next chooser's prompt or resumes remaining Oracle IR steps.
+ */
+function handleRepeatedZoneDraftResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+): void {
+  if (response.cancelled) {
+    debugWarn(1, `[Resolution] Repeated zone draft cancelled by ${response.playerId}`);
+    return;
+  }
+
+  const stepData = step as any;
+  const chooserId = String(response.playerId || step.playerId || '').trim();
+  const selection = response.selections as any;
+  let selectedCardId = '';
+  if (typeof selection === 'string') selectedCardId = selection;
+  else if (Array.isArray(selection) && selection.length > 0) selectedCardId = String(selection[0] || '');
+  else if (selection && typeof selection === 'object' && !Array.isArray(selection)) {
+    selectedCardId = String(selection.cardId || selection.selectedCardId || selection.id || '');
+  }
+  selectedCardId = String(selectedCardId || '').trim();
+  if (!selectedCardId || !chooserId) {
+    debugWarn(1, `[Resolution] Repeated zone draft: missing selection or chooser`);
+    return;
+  }
+
+  const remainingCardIds = (Array.isArray(stepData.remainingCardIds) ? stepData.remainingCardIds : [])
+    .map((id: any) => String(id || '').trim())
+    .filter(Boolean);
+  if (!remainingCardIds.includes(selectedCardId)) {
+    debugWarn(1, `[Resolution] Repeated zone draft: ${selectedCardId} not in remaining pool`);
+    return;
+  }
+
+  game.state = game.state || {};
+  game.state.zones = game.state.zones || {};
+  game.state.battlefield = Array.isArray(game.state.battlefield) ? game.state.battlefield : [];
+
+  let ownerId = '';
+  let card: any = null;
+  for (const [playerId, zones] of Object.entries(game.state.zones as Record<string, any>)) {
+    const exile = Array.isArray(zones?.exile) ? zones.exile : [];
+    const index = exile.findIndex((entry: any) => String(entry?.id || '') === selectedCardId);
+    if (index === -1) continue;
+    ownerId = String(playerId);
+    [card] = exile.splice(index, 1);
+    zones.exileCount = exile.length;
+    break;
+  }
+
+  if (!card || !ownerId) {
+    debugWarn(1, `[Resolution] Repeated zone draft: card ${selectedCardId} not found in exile`);
+    return;
+  }
+
+  const permanentId = uid('perm');
+  const entersTapped = stepData.entersTapped !== false;
+  const typeLine = String(card.type_line || '').toLowerCase();
+  const isCreature = typeLine.includes('creature');
+  game.state.battlefield.push({
+    id: permanentId,
+    controller: chooserId,
+    owner: ownerId,
+    tapped: entersTapped,
+    counters: {},
+    basePower: isCreature ? parsePT(card.power) : undefined,
+    baseToughness: isCreature ? parsePT(card.toughness) : undefined,
+    summoningSickness: isCreature,
+    card: { ...card, zone: 'battlefield' },
+  });
+
+  const nextRemaining = remainingCardIds.filter((id: string) => id !== selectedCardId);
+  const chooserOrder = (Array.isArray(stepData.chooserOrder) ? stepData.chooserOrder : [chooserId])
+    .map((id: any) => String(id || '').trim())
+    .filter(Boolean);
+  const currentIndex = Number.isFinite(Number(stepData.chooserIndex))
+    ? Math.max(0, Number(stepData.chooserIndex))
+    : Math.max(0, chooserOrder.indexOf(chooserId));
+  const nextChooserIndex = chooserOrder.length > 0 ? (currentIndex + 1) % chooserOrder.length : 0;
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'effectProgramZoneMove', {
+      playerId: chooserId,
+      fromPlayerId: ownerId,
+      ownerId,
+      controllerId: chooserId,
+      cardId: selectedCardId,
+      fromZone: 'exile',
+      toZone: 'battlefield',
+      permanentId,
+      card: { ...card },
+      tapped: entersTapped,
+      entersTapped,
+    });
+    appendEvent(gameId, (game as any).seq ?? 0, 'repeatedZoneDraftPick', {
+      playerId: chooserId,
+      cardId: selectedCardId,
+      permanentId,
+      remainingCardIds: nextRemaining,
+      chooserOrder,
+      chooserIndex: nextChooserIndex,
+      sourceId: stepData.sourceId,
+      sourceName: stepData.sourceName,
+      resolvedStepId: String(stepData.id || step.id || ''),
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(repeatedZoneDraftPick) failed:', err);
+  }
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${getPlayerName(game, chooserId)} chooses ${card.name || 'a card'} from the auction.`,
+    ts: Date.now(),
+  });
+
+  if (typeof (game as any).bumpSeq === 'function') {
+    (game as any).bumpSeq();
+  }
+
+  if (nextRemaining.length > 0 && chooserOrder.length > 0) {
+    const nextChooser = chooserOrder[nextChooserIndex] || chooserOrder[0];
+    const cards = nextRemaining
+      .map((cardId: string) => {
+        for (const zones of Object.values(game.state.zones as Record<string, any>)) {
+          const exile = Array.isArray(zones?.exile) ? zones.exile : [];
+          const found = exile.find((entry: any) => String(entry?.id || '') === cardId);
+          if (found) {
+            return {
+              id: cardId,
+              name: String(found.name || cardId),
+              imageUrl: found.image_uris?.normal || found.imageUrl,
+            };
+          }
+        }
+        return { id: cardId, name: cardId };
+      });
+
+    const nextDraftStep = {
+      type: ResolutionStepType.REPEATED_ZONE_DRAFT,
+      playerId: nextChooser,
+      description: String(stepData.description || step.description || 'Choose a card from the exiled pool'),
+      mandatory: true,
+      sourceId: stepData.sourceId,
+      sourceName: stepData.sourceName,
+      remainingCardIds: nextRemaining,
+      cards,
+      chooserOrder,
+      chooserIndex: nextChooserIndex,
+      entersTapped,
+      destination: String(stepData.destination || 'battlefield'),
+      oracleIrChoiceStepJson: stepData.oracleIrChoiceStepJson,
+      oracleIrResumeStepsJson: stepData.oracleIrResumeStepsJson,
+      oracleIrControllerId: stepData.oracleIrControllerId,
+      oracleIrSourceId: stepData.oracleIrSourceId,
+      oracleIrSourceName: stepData.oracleIrSourceName,
+      oracleIrContinuationStepIndex: stepData.oracleIrContinuationStepIndex,
+    } as any;
+
+    ResolutionQueueManager.addStep(gameId, nextDraftStep);
+    appendQueuedResolutionPromptEvent(game, gameId, {
+      playerId: String(nextChooser),
+      sourceId: String(stepData.sourceId || '').trim(),
+      queuedResolutionSteps: [nextDraftStep],
+    });
+  } else {
+    // Draft finished — resume any remaining Oracle IR steps after this choice gap.
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    maybeResumeOracleIRStepsAfterResolution(ctx, step);
+    game.state = ctx.state;
   }
 
   broadcastGame(io, game, gameId);

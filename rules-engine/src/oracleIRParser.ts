@@ -1,4 +1,5 @@
 import { bindThisWayAntecedentOnAbilities } from './oracleIRThisWayBinding';
+import { expandChaosZoneTemplateAbilities } from './oracleIRParserChaosZoneTemplates';
 import {
   type ParsedAbility,
   type OracleTextParseResult,
@@ -1810,6 +1811,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandStandaloneKeywordCostAbilities(abilities, normalizedOracleText);
   abilities = expandCastWithoutPayingFallbackAbilities(abilities, normalizedOracleText);
   abilities = repairQuotedStaticGrantAbilities(abilities);
+  abilities = expandChaosZoneTemplateAbilities(abilities);
   abilities = lowerCurrentResidualUnknownAbilities(abilities);
   abilities = pruneThassaOracleWinGrantAbilities(abilities);
   abilities = pruneCurrentBatchReminderUnknownAbilities(abilities);
@@ -1888,6 +1890,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeLookChooseFromTopAbilities(abilities);
   abilities = mergeLookSelectTopFollowupAbilities(abilities);
   abilities = mergeTopLibraryBottomRandomTailAbilities(abilities);
+  abilities = expandChaosZoneTemplateAbilities(abilities);
   abilities = pruneCascadeReminderAbilities(abilities);
   abilities = pruneRedundantCascadeReminderUnknownAbilities(abilities);
   abilities = pruneRedundantEldraziTokenManaReminderUnknownAbilities(abilities);

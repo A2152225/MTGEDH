@@ -750,6 +750,15 @@ export function trySpecialExileStep(
   }
 
   if (
+    target === 'all nontoken permanents' ||
+    /^exile all nontoken permanents\b/.test(raw)
+  ) {
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const matches = battlefield.filter((perm: any) => !(perm as any)?.isToken);
+    return exileBattlefieldPermanents(state, matches, ctx, 'all nontoken permanents');
+  }
+
+  if (
     /this permanent or up to one target creature/i.test(target) ||
     /this permanent or up to one target creature/i.test(raw)
   ) {

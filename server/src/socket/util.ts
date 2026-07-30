@@ -48,6 +48,7 @@ import { getTopTriggeredAbilityAutoPassReason } from "./trigger-shortcuts.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { evaluateLibrarySearchReplacementEvent } from "../state/modules/replacement-effects.js";
 import { countControlledCreaturesOfChosenType } from "../state/modules/chosen-creature-type.js";
+import { repairNonPermanentBattlefieldGhosts, isImpossibleFaceUpNonPermanentBattlefieldCard } from "../state/modules/stackReplayUtils.js";
 
 // ============================================================================
 // Constants
@@ -59,6 +60,40 @@ import { countControlledCreaturesOfChosenType } from "../state/modules/chosen-cr
  * AI players and "Auto-Pass Rest of Turn" skip this delay for faster gameplay.
  */
 const AUTO_PASS_DELAY_MS = 150;
+
+/**
+ * Smart Pass may skip the idle/canRespond check only when the top stack object
+ * is controlled by the priority player (so floating mana does not stall their
+ * own spells). Opponent-controlled objects fail closed and require a real response check.
+ */
+function topStackObjectControlledByPlayer(state: any, playerId: string): boolean {
+  const stack = Array.isArray(state?.stack) ? state.stack : [];
+  if (stack.length === 0) return false;
+  const top = stack[stack.length - 1];
+  const controller = String(top?.controller || '').trim();
+  if (!controller) return false;
+  return controller === String(playerId || '').trim();
+}
+
+/**
+ * Whether Smart Pass / loop-drain may bypass idle checks for a nonempty stack.
+ * Explicit rest-of-turn and loop-drain always bypass; ordinary Smart Pass only
+ * bypasses for the player's own top stack object.
+ */
+function shouldBypassIdleForNonEmptyStack(options: {
+  stackLen: number;
+  autoPassEnabled: boolean;
+  loopStackDrain: boolean;
+  autoPassForTurn: boolean;
+  state: any;
+  playerId: string;
+}): boolean {
+  const { stackLen, autoPassEnabled, loopStackDrain, autoPassForTurn, state, playerId } = options;
+  if (stackLen <= 0) return false;
+  if (loopStackDrain || autoPassForTurn) return true;
+  if (!autoPassEnabled) return false;
+  return topStackObjectControlledByPlayer(state, playerId);
+}
 
 const LAND_PLAY_AUTOMATION_SUPPRESSION_MS = 600;
 
@@ -1205,6 +1240,32 @@ function applySharedBattlefieldCacheToView(view: any, game: any): void {
     return;
   }
 
+  // Scrub impossible face-up instant/sorcery ghosts before reusing or building
+  // the emit projection. Repairs must invalidate any cache for this seq.
+  try {
+    const repaired = repairNonPermanentBattlefieldGhosts(game);
+    if (repaired > 0) {
+      if (game) {
+        game._sharedEmitBattlefieldCache = undefined;
+      }
+      if (Array.isArray(game?.state?.battlefield)) {
+        // viewFor may have copied ghosts before repair; prefer authoritative BF.
+        view.battlefield = game.state.battlefield.map((perm: any) => ({ ...perm }));
+      } else {
+        view.battlefield = view.battlefield.filter(
+          (perm: any) => !isImpossibleFaceUpNonPermanentBattlefieldCard(perm),
+        );
+      }
+      debug(1, `applySharedBattlefieldCacheToView: removed ${repaired} non-permanent battlefield ghost(s)`);
+    }
+  } catch (err) {
+    debugWarn(1, "applySharedBattlefieldCacheToView: ghost repair failed", err);
+  }
+
+  if (!Array.isArray(view.battlefield) || view.battlefield.length === 0) {
+    return;
+  }
+
   let cache = getSharedEmitBattlefieldCache(game);
   if (!cache) {
     cache = buildSharedEmitBattlefieldCache(game, view.battlefield);
@@ -2121,8 +2182,10 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
     
     // Idle players auto-pass; autoPassForTurn, loop stack-drain, and top-stack trigger
     // shortcuts bypass the idle check. With a non-empty stack, enabled auto-pass
-    // ("Smart Pass") must also bypass — otherwise floating mana / activatable abilities
-    // leave the player stuck clicking Pass Priority to resolve their own spells.
+    // ("Smart Pass") may also bypass — but only for the player's own top stack
+    // object — otherwise floating mana / activatable abilities leave them stuck
+    // clicking Pass Priority to resolve their own spells. Opponent spells still
+    // require a real canRespond check (e.g. Cyclonic Rift vs Murder).
     const autoPassForTurn = stateAny.autoPassForTurn?.[priority] || false;
     const loopStackDrain = stateAny.loopShortcutStackDrain?.[priority] === true;
     const autoPassEnabled = stateAny.autoPassPlayers instanceof Set
@@ -2132,8 +2195,14 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
     let triggerAutoPassReason = (autoPassForTurn || loopStackDrain)
       ? undefined
       : getTopTriggeredAbilityAutoPassReason(game.state, priority);
-    const bypassIdleForStack =
-      stackLen > 0 && (autoPassEnabled || loopStackDrain || autoPassForTurn);
+    const bypassIdleForStack = shouldBypassIdleForNonEmptyStack({
+      stackLen,
+      autoPassEnabled,
+      loopStackDrain,
+      autoPassForTurn,
+      state: game.state,
+      playerId: String(priority),
+    });
     const pausedForUndoPlayer = String(stateAny._pauseHumanAutoPassUntilActionFor || '').trim();
 
     if (pausedForUndoPlayer && pausedForUndoPlayer === String(priority)) {
@@ -2248,8 +2317,14 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
         ? currentState.autoPassPlayers.has(priority)
         : false;
       const currentStackLen = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
-      const currentBypassIdleForStack =
-        currentStackLen > 0 && (currentAutoPassEnabled || currentLoopDrain || currentAutoPassForTurn);
+      const currentBypassIdleForStack = shouldBypassIdleForNonEmptyStack({
+        stackLen: currentStackLen,
+        autoPassEnabled: currentAutoPassEnabled,
+        loopStackDrain: currentLoopDrain,
+        autoPassForTurn: currentAutoPassForTurn,
+        state: game.state,
+        playerId: String(priority),
+      });
       triggerAutoPassReason = (currentAutoPassForTurn || currentLoopDrain)
         ? undefined
         : getTopTriggeredAbilityAutoPassReason(game.state, priority);
@@ -2627,8 +2702,14 @@ function doAutoPass(
       const autoPassEnabled = stateAny.autoPassPlayers instanceof Set
         ? stateAny.autoPassPlayers.has(playerId)
         : false;
-      const bypassIdleForStack =
-        stackLen > 0 && (autoPassEnabled || loopStackDrain || autoPassForTurn);
+      const bypassIdleForStack = shouldBypassIdleForNonEmptyStack({
+        stackLen,
+        autoPassEnabled,
+        loopStackDrain,
+        autoPassForTurn,
+        state: game.state,
+        playerId: String(playerId),
+      });
       
       if (hasActions && !triggerAutoPassReason && !bypassIdleForStack) {
         debug(2, `[doAutoPass] Skipping auto-pass for human player ${playerId} (${isActivePlayer ? 'active' : 'non-active'}) - they have valid actions available`);

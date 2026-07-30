@@ -25,6 +25,36 @@ function lastJoinKey() {
 
 export type ImportConfirmVotes = Record<string, "pending" | "yes" | "no">;
 
+/** Resolve sequence from state / stateDiff payloads (top-level, diff, or view). */
+export function resolveIncomingStateSeq(payload: any, viewLike?: any): number | null {
+  const candidates = [
+    payload?.seq,
+    payload?.diff?.seq,
+    viewLike?.seq,
+    payload?.view?.seq,
+    payload?.diff?.full?.seq,
+    payload?.diff?.after?.seq,
+  ];
+  for (const candidate of candidates) {
+    const n = Number(candidate);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+/**
+ * Reject stale snapshots that would restore removed battlefield ghosts.
+ * Missing sequence metadata fails open so older payloads still apply.
+ */
+export function shouldAcceptStateSequence(
+  lastAcceptedSeq: number | null | undefined,
+  incomingSeq: number | null | undefined,
+): boolean {
+  if (incomingSeq == null || !Number.isFinite(incomingSeq)) return true;
+  if (lastAcceptedSeq == null || !Number.isFinite(lastAcceptedSeq)) return true;
+  return Number(incomingSeq) >= Number(lastAcceptedSeq);
+}
+
 export interface UseGameSocketState {
   connected: boolean;
   gameIdInput: GameID;
@@ -123,6 +153,7 @@ export function useGameSocket(): UseGameSocketState {
     name: string;
     spectator: boolean;
   } | null>(null);
+  const lastAcceptedStateSeqRef = useRef<number | null>(null);
   
   // Cache the player name whenever it changes
   const handleSetNameInput = useCallback((name: string) => {
@@ -350,6 +381,22 @@ export function useGameSocket(): UseGameSocketState {
       return true;
     };
 
+    const acceptIncomingSequence = (payload: any, viewLike?: any): boolean => {
+      const incomingSeq = resolveIncomingStateSeq(payload, viewLike);
+      if (!shouldAcceptStateSequence(lastAcceptedStateSeqRef.current, incomingSeq)) {
+        // eslint-disable-next-line no-console
+        console.debug("[socket] state update ignored - stale seq", {
+          incomingSeq,
+          lastAccepted: lastAcceptedStateSeqRef.current,
+        });
+        return false;
+      }
+      if (incomingSeq != null) {
+        lastAcceptedStateSeqRef.current = incomingSeq;
+      }
+      return true;
+    };
+
     // full state => always hard-replace
     socket.on("state", (payload: any) => {
       try {
@@ -380,6 +427,10 @@ export function useGameSocket(): UseGameSocketState {
         // This prevents the race condition where leaving a game clears state,
         // but then a delayed state broadcast re-populates it
         if (!shouldAcceptStateUpdate(incomingGameId)) {
+          return;
+        }
+
+        if (!acceptIncomingSequence(payload, newView)) {
           return;
         }
 
@@ -431,6 +482,11 @@ export function useGameSocket(): UseGameSocketState {
         // This prevents the race condition where leaving a game clears state,
         // but then a delayed state broadcast re-populates it
         if (!shouldAcceptStateUpdate(incomingGameId)) {
+          return;
+        }
+
+        const incomingView = diff?.full || diff?.after;
+        if (!acceptIncomingSequence(payload, incomingView)) {
           return;
         }
 
@@ -758,6 +814,7 @@ export function useGameSocket(): UseGameSocketState {
       name: nameInput,
       spectator: false, // Always join as player from manual join button
     };
+    lastAcceptedStateSeqRef.current = null;
     try {
       sessionStorage.setItem(
         lastJoinKey(),
@@ -790,6 +847,7 @@ export function useGameSocket(): UseGameSocketState {
         name: nameInput,
         spectator: isSpectator,
       };
+      lastAcceptedStateSeqRef.current = null;
       try {
         sessionStorage.setItem(
           lastJoinKey(),
@@ -839,6 +897,7 @@ export function useGameSocket(): UseGameSocketState {
     
     // Clear lastJoinRef so we don't auto-rejoin on reconnect
     lastJoinRef.current = null;
+    lastAcceptedStateSeqRef.current = null;
     
     // Clear lastJoin from sessionStorage
     try {

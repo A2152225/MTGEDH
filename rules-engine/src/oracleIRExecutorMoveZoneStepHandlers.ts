@@ -376,6 +376,7 @@ type StepApplyResult = {
   readonly lastMovedCards?: readonly any[];
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   readonly lastReferenceAmount?: number;
+  readonly lastMovedCountByPlayer?: Readonly<Record<string, number>>;
   readonly replayMutations?: readonly OracleIRReplayMutation[];
   readonly skipLedgerFlush?: boolean;
 };
@@ -416,6 +417,15 @@ type BoundCardZoneLocation = {
 
 import { bridgedZoneStepResult } from './oracleIRStepLedgerRuntime';
 
+function shuffleCardArray<T>(items: readonly T[]): T[] {
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
 function enrichMovedCardSnapshot(card: any): any {
   if (!card || typeof card !== 'object') return card;
   const manaValue = getCardManaValue(card);
@@ -439,6 +449,7 @@ function buildAppliedResult(
     readonly lastMovedBattlefieldPermanentIds?: readonly string[];
     readonly lastMovedCards?: readonly any[];
     readonly lastReferenceAmount?: number;
+    readonly lastMovedCountByPlayer?: Readonly<Record<string, number>>;
     readonly fromZone?: EffectProgramCardZone;
     readonly toZone?: EffectProgramCardZone;
     readonly replayMutations?: readonly OracleIRReplayMutation[];
@@ -490,6 +501,7 @@ function buildAppliedResult(
     ...(typeof result.lastReferenceAmount === 'number' && Number.isFinite(result.lastReferenceAmount)
       ? { lastReferenceAmount: Math.max(0, Number(result.lastReferenceAmount) || 0) }
       : {}),
+    ...(result.lastMovedCountByPlayer ? { lastMovedCountByPlayer: { ...result.lastMovedCountByPlayer } } : {}),
     ...(replayMutations.length > 0 ? { replayMutations } : {}),
   });
 }
@@ -1634,6 +1646,7 @@ function tryApplyMoveZoneLinkedExileBulkStep(params: {
 
 function getLibraryPlacement(step: Extract<OracleEffectStep, { kind: 'move_zone' }>): 'top' | 'bottom' | '' {
   if (step.to !== 'library') return '';
+  if (step.libraryPlacement === 'top' || step.libraryPlacement === 'bottom') return step.libraryPlacement;
   const toRaw = String(step.toRaw || '').trim().toLowerCase();
   const raw = String(step.raw || '').trim().toLowerCase();
   const hasTop = /\b(?:on\s+)?top(?:\s+of)?\b/i.test(toRaw) || /\bon top\b/i.test(raw);
@@ -3202,22 +3215,81 @@ export function applyMoveZoneStep(
   }
 
   if (parsedAllPermanentsYouOwn && step.to === 'library') {
-    const ownedIds = ((nextState.battlefield || []) as any[])
-      .filter(
-        (perm: any) =>
-          String(perm?.owner || perm?.ownerId || perm?.controller || '').trim() === controllerId
-      )
-      .map((perm: any) => String(perm?.id || '').trim())
-      .filter(Boolean);
-    const result = moveBattlefieldPermanentsByIdToOwnersLibraries(nextState, ownedIds, 'bottom');
-    return finalizeAppliedResult({
-      applied: true,
-      state: result.state,
-      log:
-        result.log.length > 0
-          ? [`Shuffled owned permanents into library: ${step.raw}`, ...result.log]
-          : [`Shuffled owned permanents into library: ${step.raw}`],
-    });
+    const eachOwnerOwnsTheirOwn =
+      parsedAllPermanentsYouOwn === 'they_own' || step.who?.kind === 'each_player';
+    const playerIds: PlayerID[] = eachOwnerOwnsTheirOwn
+      ? ((nextState.players || []) as any[])
+          .map((player: any) => String(player?.id || '').trim())
+          .filter(Boolean)
+      : [controllerId];
+
+    let workingState = nextState;
+    const combinedLog: string[] = [];
+    const movedCardSnapshots: any[] = [];
+    const movedCountByPlayer: Record<string, number> = {};
+
+    for (const playerId of playerIds) {
+      const ownedPermanents = ((workingState.battlefield || []) as any[]).filter(
+        (perm: any) => String(perm?.owner || perm?.ownerId || '').trim() === playerId
+      );
+      const totalOwnedCount = ownedPermanents.length;
+      movedCountByPlayer[playerId] = totalOwnedCount;
+
+      const allOwnedIds = ownedPermanents
+        .map((perm: any) => String(perm?.id || '').trim())
+        .filter(Boolean);
+
+      for (const perm of ownedPermanents) {
+        if ((perm as any)?.isToken === true) continue;
+        movedCardSnapshots.push({
+          ...((perm as any)?.card || {}),
+          id: String((perm as any)?.id || (perm as any)?.card?.id || '').trim(),
+          owner: playerId,
+          ownerId: playerId,
+        });
+      }
+
+      if (allOwnedIds.length > 0) {
+        // Tokens cease to exist rather than entering the library; the helper already
+        // skips writing token cards into the library while still clearing them from
+        // the battlefield when their id is included here.
+        const moveResult = moveBattlefieldPermanentsByIdToOwnersLibraries(workingState, allOwnedIds, 'bottom');
+        workingState = moveResult.state;
+        combinedLog.push(...moveResult.log);
+      }
+
+      const player = workingState.players.find((entry: any) => entry.id === playerId) as any;
+      if (player) {
+        const library = shuffleCardArray(Array.isArray(player.library) ? player.library : []);
+        workingState = {
+          ...(workingState as any),
+          players: workingState.players.map((entry: any) =>
+            entry.id === playerId ? { ...entry, library } : entry
+          ),
+        } as GameState;
+      }
+
+      combinedLog.push(`${playerId} shuffled ${totalOwnedCount} owned permanent(s) into their library`);
+    }
+
+    const totalMovedCount = Object.values(movedCountByPlayer).reduce((sum, count) => sum + count, 0);
+    const singlePlayerAmount = playerIds.length === 1 ? movedCountByPlayer[playerIds[0]] ?? 0 : totalMovedCount;
+
+    return buildAppliedResult(
+      {
+        state: workingState,
+        log:
+          combinedLog.length > 0
+            ? combinedLog
+            : [`Shuffled owned permanents into library: ${step.raw}`],
+        movedCards: movedCardSnapshots,
+        lastReferenceAmount: singlePlayerAmount,
+        lastMovedCountByPlayer: movedCountByPlayer,
+        fromZone: 'battlefield',
+        toZone: 'library',
+      },
+      ctx,
+    );
   }
 
   if (parsedShuffleSourceArtifactAndGraveyard && step.to === 'library') {
@@ -5103,10 +5175,53 @@ export function applyMoveZoneStep(
     let workingState = nextState;
     const combinedLog: string[] = [];
     if (step.to === 'library') {
-      const shuffleResult = shuffleContextualCardsIntoLibrary(workingState, controllerId, restIds);
+      const placement = getLibraryPlacement(step) || 'bottom';
+      const randomOrder =
+        step.order === 'random' || /\bin a random order\b/i.test(String(step.raw || ''));
+
+      const remainderIdsByOwnerInLibrary = new Map<string, string[]>();
+      const remainderIdsByOwnerOutsideLibrary = new Map<string, string[]>();
+      for (const cardId of restIds) {
+        const location = findBoundCardZoneLocation(workingState, cardId);
+        if (!location) continue;
+        const bucket =
+          location.zone === 'library' ? remainderIdsByOwnerInLibrary : remainderIdsByOwnerOutsideLibrary;
+        const existing = bucket.get(location.playerId) || [];
+        existing.push(cardId);
+        bucket.set(location.playerId, existing);
+      }
+
+      for (const [playerId, ids] of remainderIdsByOwnerInLibrary.entries()) {
+        const player = workingState.players.find((entry: any) => entry.id === playerId) as any;
+        if (!player) continue;
+        const wanted = new Set(ids);
+        const library = Array.isArray(player.library) ? player.library : [];
+        const remainderCards = library.filter((card: any) => wanted.has(String(card?.id || '').trim()));
+        const keptLibrary = library.filter((card: any) => !wanted.has(String(card?.id || '').trim()));
+        const orderedRemainder = randomOrder ? shuffleCardArray(remainderCards) : remainderCards;
+        const nextLibrary =
+          placement === 'top' ? [...orderedRemainder, ...keptLibrary] : [...keptLibrary, ...orderedRemainder];
+        workingState = {
+          ...(workingState as any),
+          players: workingState.players.map((entry: any) =>
+            entry.id === playerId ? { ...entry, library: nextLibrary } : entry
+          ),
+        } as GameState;
+        combinedLog.push(`${playerId} put ${ids.length} revealed card(s) on the ${placement} of their library`);
+      }
+
+      for (const [playerId, ids] of remainderIdsByOwnerOutsideLibrary.entries()) {
+        const shuffleResult = shuffleContextualCardsIntoLibrary(workingState, playerId as PlayerID, ids);
+        workingState = shuffleResult.state;
+        combinedLog.push(...shuffleResult.log);
+      }
+
       return buildAppliedResult({
-        state: shuffleResult.state,
-        log: shuffleResult.log.length > 0 ? shuffleResult.log : [`Shuffled other revealed cards into library: ${step.raw}`],
+        state: workingState,
+        log:
+          combinedLog.length > 0
+            ? combinedLog
+            : [`Put other revealed cards on the ${placement} of libraries: ${step.raw}`],
       });
     }
     for (const cardId of restIds) {
@@ -10923,10 +11038,12 @@ export function applyMoveZoneStep(
     for (const cardId of matchingIds) {
       const location = findBoundCardZoneLocation(workingState, cardId);
       if (!location) continue;
+      const battlefieldControllerId =
+        step.battlefieldController?.kind === 'owner_of_moved_cards' ? location.playerId : controllerId;
       const result =
         location.zone === 'library'
           ? moveContextualCardToDestination(workingState, location, cardId, step.to, {
-              controllerId,
+              controllerId: battlefieldControllerId,
               ctx,
               cardType: effectiveCriteria.cardType,
               entersTapped: step.entersTapped,
@@ -10941,7 +11058,7 @@ export function applyMoveZoneStep(
                 cardId,
                 effectiveCriteria,
                 step.to === 'battlefield' ? 'battlefield' : 'hand',
-                step.to === 'battlefield' ? controllerId : undefined,
+                step.to === 'battlefield' ? battlefieldControllerId : undefined,
                 step.entersTapped,
                 step.entersFaceDown,
                 effectiveWithCounters,
@@ -10958,7 +11075,7 @@ export function applyMoveZoneStep(
                   cardId,
                   effectiveCriteria.cardType,
                   step.to === 'battlefield' ? 'battlefield' : 'graveyard',
-                  step.to === 'battlefield' ? controllerId : undefined,
+                  step.to === 'battlefield' ? battlefieldControllerId : undefined,
                   step.entersTapped,
                   step.entersFaceDown,
                   effectiveWithCounters,
@@ -10971,7 +11088,7 @@ export function applyMoveZoneStep(
                   cardId,
                   effectiveCriteria.cardType,
                   step.to,
-                  step.to === 'battlefield' ? controllerId : undefined,
+                  step.to === 'battlefield' ? battlefieldControllerId : undefined,
                   step.entersTapped,
                   step.entersFaceDown,
                   effectiveWithCounters,

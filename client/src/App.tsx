@@ -3500,6 +3500,24 @@ export function App() {
         });
         setHideawayChoiceModalOpen(true);
       }
+      else if (step.type === 'repeated_zone_draft') {
+        const sourceName = step.sourceName || 'Draft';
+        const cards = Array.isArray(step.cards)
+          ? step.cards
+          : (Array.isArray(step.remainingCardIds) ? step.remainingCardIds.map((id: string) => ({ id, name: id })) : []);
+        setHideawayChoiceData({
+          sourceName,
+          imageUrl: step.sourceImage || step.sourceImageUrl,
+          cards,
+          title: `${sourceName}: Choose a permanent`,
+          subtitle: 'Put it onto the battlefield tapped under your control',
+          oracleText: step.description || 'Choose one of the remaining exiled cards.',
+          confirmButtonText: 'Choose Card',
+          mandatory: isResolutionStepMandatory(step),
+          stepId: step.id,
+        });
+        setHideawayChoiceModalOpen(true);
+      }
 
       // Handle Join Forces resolution step
       else if (step.type === 'join_forces') {

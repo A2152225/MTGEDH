@@ -122,6 +122,9 @@ export enum ResolutionStepType {
   CLASH = 'clash',
   VOTE = 'vote',
 
+  // Repeated rotating zone draft (Thieves' Auction style)
+  REPEATED_ZONE_DRAFT = 'repeated_zone_draft',
+
   // Two-pile split (Fact or Fiction style)
   TWO_PILE_SPLIT = 'two_pile_split',
   
@@ -181,6 +184,7 @@ export const STEP_TO_CHOICE_EVENT_TYPE: Partial<Record<ResolutionStepType, Choic
   [ResolutionStepType.SCRY]: ChoiceEventType.SCRY,
   [ResolutionStepType.SURVEIL]: ChoiceEventType.SURVEIL,
   [ResolutionStepType.FATESEAL]: ChoiceEventType.FATESEAL,
+  [ResolutionStepType.REPEATED_ZONE_DRAFT]: ChoiceEventType.REPEATED_ZONE_DRAFT,
 };
 
 /**
@@ -796,6 +800,30 @@ export interface VoteStep extends BaseResolutionStep {
 }
 
 /**
+ * Repeated rotating zone draft resolution step (Thieves' Auction style).
+ *
+ * Starting with a designated player, each player in turn order chooses one
+ * card from a shared pool (e.g. cards exiled by an earlier step in the same
+ * ability) and puts it onto the battlefield under their control. Repeats
+ * until the pool is empty.
+ */
+export interface RepeatedZoneDraftStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.REPEATED_ZONE_DRAFT;
+  /** Card IDs still available to be drafted from the shared pool. */
+  readonly remainingCardIds: readonly string[];
+  /** Display info for the remaining pool cards, when known. */
+  readonly cards?: readonly KnownCardRef[];
+  /** Player IDs in the order they choose, starting with whoever goes first. */
+  readonly chooserOrder: readonly string[];
+  /** Index into chooserOrder for whose turn it currently is to choose. */
+  readonly chooserIndex: number;
+  /** Whether drafted permanents enter the battlefield tapped. */
+  readonly entersTapped: boolean;
+  /** Destination zone for drafted cards (currently always 'battlefield'). */
+  readonly destination: string;
+}
+
+/**
  * Kynaios and Tiro style choice resolution step
  * Player may put a land onto the battlefield, or (for opponents) draw a card
  */
@@ -989,6 +1017,7 @@ export type ResolutionStep =
   | FatesealStep
   | ClashStep
   | VoteStep
+  | RepeatedZoneDraftStep
   | KynaiosChoiceStep
   | JoinForcesStep
   | TemptingOfferStep

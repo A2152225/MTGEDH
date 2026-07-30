@@ -3938,6 +3938,33 @@ function parseCompoundCardTypeFromText(typeText: string): SimpleCardType | null 
 
 const BASIC_LAND_TYPE_NAMES = new Set(['plains', 'island', 'swamp', 'mountain', 'forest', 'wastes']);
 
+/**
+ * Simple permanent-type Oxford-comma lists, e.g. Warp World's
+ * "artifact, creature, and land" (optionally including "planeswalker").
+ * Restricted to a known small vocabulary so this never misparses unrelated
+ * multi-clause type text handled elsewhere.
+ */
+const PERMANENT_TYPE_LIST_TERMS = new Set(['artifact', 'creature', 'land', 'planeswalker', 'enchantment', 'battle']);
+
+function parsePermanentTypeOxfordCommaList(typeText: string): AmongThemMoveCriteria | null {
+  const normalized = String(typeText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!/,/.test(normalized) || !/\band\b/.test(normalized)) return null;
+
+  const andSplit = normalized.match(/^(.+?),?\s+and\s+([a-z]+)$/i);
+  if (!andSplit) return null;
+
+  const headParts = String(andSplit[1] || '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+  const tailPart = String(andSplit[2] || '').trim();
+  const parts = [...headParts, tailPart];
+  if (parts.length < 2) return null;
+  if (!parts.every(part => PERMANENT_TYPE_LIST_TERMS.has(part))) return null;
+
+  return { cardType: 'permanent', typeLineTermsAnyOf: Array.from(new Set(parts)) };
+}
+
 function parseRevealedThisWayTypeText(typeText: string): AmongThemMoveCriteria | null {
   const normalized = String(typeText || '').replace(/\s+/g, ' ').trim();
   if (/^non-aura permanent$/i.test(normalized)) {
@@ -3950,6 +3977,8 @@ function parseRevealedThisWayTypeText(typeText: string): AmongThemMoveCriteria |
   if (BASIC_LAND_TYPE_NAMES.has(basicLandType)) {
     return { cardType: 'land', typeLineTermsAnyOf: [basicLandType], anyNumber: true };
   }
+  const permanentTypeList = parsePermanentTypeOxfordCommaList(normalized);
+  if (permanentTypeList) return { ...permanentTypeList, anyNumber: true };
   const creatureSubtype = parseCreatureSubtypeWord(normalized);
   if (creatureSubtype) {
     return { cardType: 'creature', creatureTypesAnyOf: [creatureSubtype], anyNumber: true };
@@ -4564,10 +4593,12 @@ export function parseMoveZoneAllPermanentsYouOwn(what: {
   readonly kind: string;
   readonly text?: string;
   readonly raw?: string;
-}): boolean {
+}): 'you_own' | 'they_own' | false {
   if (what.kind !== 'raw') return false;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
-  return raw === 'all permanents you own';
+  if (raw === 'all permanents you own') return 'you_own';
+  if (raw === 'all permanents they own') return 'they_own';
+  return false;
 }
 
 export function parseMoveZoneReturnThisCardAndUpToOneOtherFromGraveyard(what: {

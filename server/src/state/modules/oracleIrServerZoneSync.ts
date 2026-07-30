@@ -3159,6 +3159,99 @@ function queueTapMatchingPermanentsChoicePromptsFromOracleIRResult(
   }
 }
 
+function findExiledCardDisplayInfo(
+  state: any,
+  cardId: string,
+): { id: string; name: string; imageUrl?: string } | null {
+  const wanted = String(cardId || '').trim();
+  if (!wanted) return null;
+  for (const player of (Array.isArray(state?.players) ? state.players : []) as any[]) {
+    const exile = Array.isArray(player?.exile) ? player.exile : [];
+    const card = exile.find((entry: any) => String(entry?.id || '').trim() === wanted);
+    if (card) {
+      return {
+        id: wanted,
+        name: String(card?.name || 'Unknown card').trim() || 'Unknown card',
+        imageUrl: typeof card?.imageUrl === 'string' ? card.imageUrl : undefined,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Bridges a `repeated_zone_draft` player-choice gap (Thieves' Auction style) to a
+ * queued resolution step. Only queues the initial prompt for the first chooser;
+ * persists the full remaining pool + chooser order/index on the step so the
+ * resolution handler can advance the rotation and re-queue for the next chooser
+ * after each pick.
+ */
+function queueRepeatedZoneDraftChoicePromptFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (String(gap.stepKind || '') !== 'repeated_zone_draft') continue;
+    if (gap.reasonCode !== 'player_choice_required') continue;
+
+    const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'repeated_zone_draft' }> | undefined;
+    if (!step || step.kind !== 'repeated_zone_draft') continue;
+
+    const queueKey = `repeated_zone_draft:${String(step.raw || '')}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    const remainingCardIds = Array.isArray(gap.metadata?.remainingCardIds)
+      ? (gap.metadata!.remainingCardIds as readonly unknown[]).map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (remainingCardIds.length === 0) continue;
+
+    const chooserOrder = Array.isArray(gap.metadata?.chooserOrder)
+      ? (gap.metadata!.chooserOrder as readonly unknown[]).map((id) => String(id || '').trim()).filter(Boolean)
+      : [String(params.controller)];
+    const entersTapped = gap.metadata?.entersTapped === true;
+    const destination = String(gap.metadata?.destination || 'battlefield');
+    const firstChooser = (chooserOrder[0] || String(params.controller)) as PlayerID;
+
+    const cards = remainingCardIds
+      .map((cardId) => findExiledCardDisplayInfo(state, cardId))
+      .filter(Boolean) as { id: string; name: string; imageUrl?: string }[];
+
+    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+      type: ResolutionStepType.REPEATED_ZONE_DRAFT,
+      playerId: firstChooser,
+      description: `${sourceName}: ${String(step.raw || 'Choose a card from the exiled pool').trim()}`,
+      mandatory: true,
+      sourceId,
+      sourceName,
+      remainingCardIds,
+      cards,
+      chooserOrder,
+      chooserIndex: 0,
+      entersTapped,
+      destination,
+      oracleIrChoiceStepJson: JSON.stringify([step]),
+      oracleIrControllerId: params.controller,
+      oracleIrSourceId: sourceId,
+      oracleIrSourceName: sourceName,
+    } as any, result, params) as any);
+  }
+}
+
 function queueTapOrUntapChoicePromptsFromOracleIRResult(
   ctx: GameContext,
   state: any,
@@ -5125,6 +5218,12 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
     triggerItem: resolutionTriggerItem,
+  });
+  queueRepeatedZoneDraftChoicePromptFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
   });
   queueCopyPermanentChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,

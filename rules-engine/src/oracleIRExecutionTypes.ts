@@ -277,6 +277,8 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly movedBattlefieldPermanentIds?: readonly string[];
   readonly lastDamagePreventedThisWay?: number;
   readonly lastReferenceAmount?: number;
+  /** Per-player reference amounts for multiplayer effects (e.g. Warp World's "that many" per player). */
+  readonly lastMovedCountByPlayer?: Readonly<Record<string, number>>;
   readonly lastChosenCardName?: string;
   /** Internal runtime carry-over for nested follow-up steps that reference permanents tapped this way. */
   readonly lastTappedMatchingPermanentCount?: number;

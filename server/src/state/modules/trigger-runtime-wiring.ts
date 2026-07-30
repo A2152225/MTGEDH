@@ -89,6 +89,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'pay_mana',
   'add_extra_combat',
   'take_extra_turn',
+  'repeated_zone_draft',
 ]);
 
 /** Optional trigger steps with explicit runtime handlers outside the spell fallback. */

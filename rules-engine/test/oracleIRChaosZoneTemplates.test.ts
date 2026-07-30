@@ -1,0 +1,257 @@
+import { describe, expect, it } from 'vitest';
+
+import type { GameState, PlayerID } from '../../shared/src';
+import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor.js';
+import {
+  tryParseOwnedPermanentsShuffleRevealTemplate,
+  tryParseRepeatedZoneDraftAuctionTemplate,
+} from '../src/oracleIRParserChaosZoneTemplates.js';
+import { collectOracleEffectSteps } from '../../server/src/state/modules/trigger-runtime-wiring.js';
+
+const WARP_WORLD_TEXT =
+  "Each player shuffles all permanents they own into their library, then reveals that many cards from the top of their library. Each player puts all artifact, creature, and land cards revealed this way onto the battlefield, then does the same for enchantment cards, then puts all cards revealed this way that weren't put onto the battlefield on the bottom of their library.";
+
+const GLIMPSE_OF_TOMORROW_TEXT =
+  "Shuffle all permanents you own into your library, then reveal that many cards from the top of your library. Put all non-Aura permanent cards revealed this way onto the battlefield, then do the same for Aura cards, then put the rest on the bottom of your library in a random order.";
+
+const THIEVES_AUCTION_TEXT =
+  "Exile all nontoken permanents. Starting with you, each player chooses one of the exiled cards and puts it onto the battlefield tapped under their control. Repeat this process until all cards exiled this way have been chosen.";
+
+describe('Oracle IR chaos zone template parsing', () => {
+  it('parses Warp World into 5 steps', () => {
+    const steps = tryParseOwnedPermanentsShuffleRevealTemplate(WARP_WORLD_TEXT);
+    expect(steps).not.toBeNull();
+    expect(steps?.map((step) => step.kind)).toEqual([
+      'move_zone',
+      'reveal_top',
+      'move_zone',
+      'move_zone',
+      'move_zone',
+    ]);
+    const shuffleStep = steps?.[0] as any;
+    expect(shuffleStep.who?.kind).toBe('each_player');
+    expect(shuffleStep.to).toBe('library');
+    const revealStep = steps?.[1] as any;
+    expect(revealStep.who?.kind).toBe('each_player');
+    expect(revealStep.amount?.kind).toBe('reference_amount');
+    const firstWave = steps?.[2] as any;
+    expect(firstWave.what?.text).toMatch(/artifact, creature, and land/i);
+    expect(firstWave.battlefieldController?.kind).toBe('owner_of_moved_cards');
+    const secondWave = steps?.[3] as any;
+    expect(secondWave.what?.text).toMatch(/enchantment/i);
+    const remainder = steps?.[4] as any;
+    expect(remainder.to).toBe('library');
+  });
+
+  it('parses Glimpse of Tomorrow into 5 steps including the random-order rest', () => {
+    const steps = tryParseOwnedPermanentsShuffleRevealTemplate(GLIMPSE_OF_TOMORROW_TEXT);
+    expect(steps).not.toBeNull();
+    expect(steps?.map((step) => step.kind)).toEqual([
+      'move_zone',
+      'reveal_top',
+      'move_zone',
+      'move_zone',
+      'move_zone',
+    ]);
+    const shuffleStep = steps?.[0] as any;
+    expect(shuffleStep.who).toBeUndefined();
+    const firstWave = steps?.[2] as any;
+    expect(firstWave.what?.text).toMatch(/non-aura permanent/i);
+    const secondWave = steps?.[3] as any;
+    expect(secondWave.what?.text).toMatch(/aura/i);
+    const remainder = steps?.[4] as any;
+    expect(remainder.to).toBe('library');
+    expect(remainder.raw).toMatch(/random order/i);
+  });
+
+  it("parses Thieves' Auction into exile + repeated_zone_draft", () => {
+    const steps = tryParseRepeatedZoneDraftAuctionTemplate(THIEVES_AUCTION_TEXT);
+    expect(steps).not.toBeNull();
+    expect(steps?.map((step) => step.kind)).toEqual(['exile', 'repeated_zone_draft']);
+    const exileStep = steps?.[0] as any;
+    expect(exileStep.target?.text).toMatch(/all nontoken permanents/i);
+    const draftStep = steps?.[1] as any;
+    expect(draftStep.whoStarts?.kind).toBe('you');
+    expect(draftStep.chooserOrder).toBe('turn_order');
+    expect(draftStep.destination).toBe('battlefield');
+    expect(draftStep.entersTapped).toBe(true);
+    expect(draftStep.battlefieldController?.kind).toBe('chooser');
+  });
+});
+
+describe('Oracle IR Warp World executor dry-run', () => {
+  it('shuffles owned permanents per player, reveals typed waves onto battlefield, and bottoms the remainder', () => {
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    const state = {
+      players: [
+        {
+          id: p1,
+          hand: [],
+          graveyard: [],
+          library: [{ id: 'card_p1_instant', name: 'P1 Bolt', type_line: 'Instant' }],
+        },
+        {
+          id: p2,
+          hand: [],
+          graveyard: [],
+          library: [],
+        },
+      ],
+      battlefield: [
+        {
+          id: 'perm_p1_creature',
+          owner: p1,
+          controller: p1,
+          card: { id: 'card_p1_creature', name: 'P1 Bear', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+        },
+        {
+          id: 'perm_p1_land',
+          owner: p1,
+          controller: p1,
+          card: { id: 'card_p1_land', name: 'P1 Forest', type_line: 'Land — Forest' },
+        },
+        {
+          id: 'perm_p1_token',
+          owner: p1,
+          controller: p1,
+          isToken: true,
+          card: { id: 'card_p1_token', name: 'P1 Token', type_line: 'Creature Token — Spirit' },
+        },
+        {
+          id: 'perm_p2_enchant',
+          owner: p2,
+          controller: p2,
+          card: { id: 'card_p2_enchant', name: 'P2 Aura', type_line: 'Enchantment' },
+        },
+        {
+          id: 'perm_p2_land',
+          owner: p2,
+          controller: p2,
+          card: { id: 'card_p2_land', name: 'P2 Island', type_line: 'Land — Island' },
+        },
+      ],
+      life: { [p1]: 40, [p2]: 40 },
+    } as unknown as GameState;
+
+    const steps = collectOracleEffectSteps(WARP_WORLD_TEXT, 'Warp World');
+    expect(steps.map((step) => step.kind)).toEqual([
+      'move_zone',
+      'reveal_top',
+      'move_zone',
+      'move_zone',
+      'move_zone',
+    ]);
+
+    const ctx = buildOracleIRExecutionContext({
+      controllerId: p1,
+      sourceId: 'warp_world_spell',
+      sourceName: 'Warp World',
+      sourceObjectType: 'spell',
+    });
+
+    const result = applyOracleIRStepsToGameState(state, steps, ctx, { allowOptional: true });
+    const nextState = result.state as GameState;
+
+    expect(result.appliedSteps?.map((step) => step.kind)).toEqual([
+      'move_zone',
+      'reveal_top',
+      'move_zone',
+      'move_zone',
+      'move_zone',
+    ]);
+
+    const battlefield = (nextState.battlefield || []) as any[];
+    // Both players' original permanents left the battlefield (to library or, for the
+    // token, ceasing to exist); typed waves reconstituted the two real permanents each.
+    expect(battlefield).toHaveLength(4);
+    expect(battlefield.some((perm) => perm?.card?.name === 'P1 Token')).toBe(false);
+
+    const p1Battlefield = battlefield.filter((perm) => perm.owner === p1);
+    const p2Battlefield = battlefield.filter((perm) => perm.owner === p2);
+    expect(p1Battlefield.map((perm) => perm.card?.name).sort()).toEqual(['P1 Bear', 'P1 Forest']);
+    expect(p2Battlefield.map((perm) => perm.card?.name).sort()).toEqual(['P2 Aura', 'P2 Island']);
+    for (const perm of battlefield) {
+      expect(perm.controller).toBe(perm.owner);
+    }
+
+    const nextP1 = nextState.players.find((entry: any) => entry.id === p1) as any;
+    const nextP2 = nextState.players.find((entry: any) => entry.id === p2) as any;
+    // The instant wasn't a permanent type eligible for either wave, so it's the
+    // "revealed this way" remainder and lands on the bottom of the owner's library.
+    expect(nextP1.library.map((card: any) => card.id)).toEqual(['card_p1_instant']);
+    expect(nextP2.library).toHaveLength(0);
+  });
+});
+
+describe("Oracle IR Thieves' Auction executor dry-run", () => {
+  it('exiles nontoken permanents then drafts them onto the battlefield tapped under rotating controllers', () => {
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    const state = {
+      players: [
+        { id: p1, hand: [], graveyard: [], library: [], exile: [] },
+        { id: p2, hand: [], graveyard: [], library: [], exile: [] },
+      ],
+      battlefield: [
+        { id: 'perm_a', owner: p2, controller: p2, card: { id: 'card_a', name: 'Card A', type_line: 'Creature' } },
+        { id: 'perm_b', owner: p1, controller: p1, card: { id: 'card_b', name: 'Card B', type_line: 'Artifact' } },
+        { id: 'perm_c', owner: p2, controller: p2, card: { id: 'card_c', name: 'Card C', type_line: 'Land' } },
+        {
+          id: 'perm_token',
+          owner: p1,
+          controller: p1,
+          isToken: true,
+          card: { id: 'card_token', name: 'Token Creature', type_line: 'Creature Token' },
+        },
+      ],
+      life: { [p1]: 40, [p2]: 40 },
+    } as unknown as GameState;
+
+    const steps = collectOracleEffectSteps(THIEVES_AUCTION_TEXT, "Thieves' Auction");
+    expect(steps.map((step) => step.kind)).toEqual(['exile', 'repeated_zone_draft']);
+
+    const ctx = buildOracleIRExecutionContext({
+      controllerId: p1,
+      sourceId: 'auction_spell',
+      sourceName: "Thieves' Auction",
+      sourceObjectType: 'spell',
+    });
+
+    const result = applyOracleIRStepsToGameState(state, steps, ctx, { allowOptional: true });
+    const nextState = result.state as GameState;
+
+    expect(result.appliedSteps?.map((step) => step.kind)).toEqual(['exile', 'repeated_zone_draft']);
+
+    const battlefield = (nextState.battlefield || []) as any[];
+    // The token was exiled-immune (nontoken-only target) and stays put; the three
+    // nontoken permanents were drafted back tapped, starting with the controller.
+    expect(battlefield).toHaveLength(4);
+    const tokenPerm = battlefield.find((perm) => perm.id === 'perm_token');
+    expect(tokenPerm).toBeTruthy();
+    expect(tokenPerm.tapped).toBeFalsy();
+
+    const draftedPerms = battlefield.filter((perm) => perm.id !== 'perm_token');
+    expect(draftedPerms).toHaveLength(3);
+    for (const perm of draftedPerms) {
+      expect(perm.tapped).toBe(true);
+    }
+
+    const byName = Object.fromEntries(draftedPerms.map((perm) => [perm.card?.name, perm]));
+    // Pick order follows turn order starting with the controller (p1, p2, p1, ...),
+    // independent of who originally owned each exiled card.
+    expect(byName['Card A'].owner).toBe(p2);
+    expect(byName['Card A'].controller).toBe(p1);
+    expect(byName['Card B'].owner).toBe(p1);
+    expect(byName['Card B'].controller).toBe(p2);
+    expect(byName['Card C'].owner).toBe(p2);
+    expect(byName['Card C'].controller).toBe(p1);
+
+    const nextP1 = nextState.players.find((entry: any) => entry.id === p1) as any;
+    const nextP2 = nextState.players.find((entry: any) => entry.id === p2) as any;
+    expect(nextP1.exile).toHaveLength(0);
+    expect(nextP2.exile).toHaveLength(0);
+  });
+});

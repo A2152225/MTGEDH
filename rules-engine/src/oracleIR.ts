@@ -62,6 +62,8 @@ export type OraclePlayerSelector =
   | { readonly kind: 'enchanted_player' }
   /** Special-case selector used by move_zone battlefield control overrides. */
   | { readonly kind: 'owner_of_moved_cards' }
+  /** Current chooser in a repeated zone-draft loop. */
+  | { readonly kind: 'chooser' }
   /** Controller of the object referenced by it/its/that in the current execution context. */
   | { readonly kind: 'controller_of_referenced_object' }
   /** Owner of the object referenced by it/its/that in the current execution context. */
@@ -1316,6 +1318,25 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      /**
+       * Repeatedly let players choose one card from a shared zone pool (e.g. exiled this way)
+       * until the pool is empty. Chooser order starts with `whoStarts` then follows turn order.
+       */
+      readonly kind: 'repeated_zone_draft';
+      readonly pool: OracleObjectSelector;
+      readonly whoStarts: OraclePlayerSelector;
+      readonly chooserOrder: 'turn_order';
+      readonly destination: OracleZone;
+      readonly entersTapped?: boolean;
+      /** Who controls the permanent after drafting (defaults to the current chooser). */
+      readonly battlefieldController?: OraclePlayerSelector;
+      readonly thisWayAntecedentStepIndex?: number;
+      readonly thisWayAntecedentStepKind?: string;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'sacrifice';
       readonly who: OraclePlayerSelector;
       readonly what: OracleObjectSelector;
@@ -1329,6 +1350,19 @@ export type OracleEffectStep =
       readonly what: OracleObjectSelector;
       readonly to: OracleZone;
       readonly toRaw: string;
+      /**
+       * Who performs the move (e.g. "each player shuffles all permanents they own").
+       * When absent, defaults to the ability controller.
+       */
+      readonly who?: OraclePlayerSelector;
+      /** Explicit library placement when `to === 'library'` (overrides text heuristics). */
+      readonly libraryPlacement?: 'top' | 'bottom';
+      /** Order cards are put into the destination zone (e.g. remainder cards to library). */
+      readonly order?: 'random' | 'any';
+      /** Index of an earlier step in the same ability whose "this way" pool this move draws from. */
+      readonly thisWayAntecedentStepIndex?: number;
+      /** Kind of the earlier "this way" antecedent step (e.g. 'reveal_top', 'exile'). */
+      readonly thisWayAntecedentStepKind?: string;
       /**
        * For moves that put cards onto the battlefield, oracle text can override who controls
        * the resulting permanents (e.g. "... onto the battlefield under your control").

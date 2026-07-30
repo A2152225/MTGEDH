@@ -101,6 +101,47 @@ export function repairReplayCardSourceZones(
   ]);
 }
 
+/** Face-down / morph / manifest / cloak objects may legally be instants or sorceries. */
+export function isFaceDownBattlefieldPermanentFlags(...candidates: any[]): boolean {
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    if (
+      candidate.faceDown
+      || candidate.isFaceDown
+      || candidate.manifested
+      || candidate.cloaked
+      || candidate.card?.faceDown
+      || candidate.card?.isFaceDown
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Instants and sorceries cannot exist as face-up battlefield permanents.
+ * Face-down morph/manifest/cloak objects remain legal.
+ */
+export function isImpossibleFaceUpNonPermanentBattlefieldCard(
+  cardOrPermanent: any,
+  extraFlags?: any,
+): boolean {
+  const card = cardOrPermanent?.card && typeof cardOrPermanent.card === 'object'
+    ? cardOrPermanent.card
+    : cardOrPermanent;
+  const typeLine = String(
+    card?.type_line || cardOrPermanent?.type_line || '',
+  ).toLowerCase();
+  if (!(typeLine.includes('instant') || typeLine.includes('sorcery'))) {
+    return false;
+  }
+  if (isFaceDownBattlefieldPermanentFlags(cardOrPermanent, extraFlags, card)) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Instants and sorceries cannot exist as face-up battlefield permanents. Replay
  * ordering bugs can leave the resolved stack snapshot there even though the same
@@ -115,19 +156,7 @@ export function repairNonPermanentBattlefieldGhosts(ctxOrState: any): number {
   const libraries = ctxOrState?.libraries;
   const removed: any[] = [];
   const kept = state.battlefield.filter((permanent: any) => {
-    const card = permanent?.card || {};
-    const typeLine = String(card?.type_line || permanent?.type_line || '').toLowerCase();
-    const isFaceDownPermanent = Boolean(
-      permanent?.faceDown
-      || permanent?.isFaceDown
-      || permanent?.manifested
-      || permanent?.cloaked
-      || card?.faceDown
-      || card?.isFaceDown,
-    );
-    const impossibleFaceUpPermanent = !isFaceDownPermanent
-      && (typeLine.includes('instant') || typeLine.includes('sorcery'));
-    if (!impossibleFaceUpPermanent) return true;
+    if (!isImpossibleFaceUpNonPermanentBattlefieldCard(permanent)) return true;
     removed.push(permanent);
     return false;
   });

@@ -103,6 +103,7 @@ import {
   applySwitchPowerToughnessStep,
 } from './oracleIRExecutorModifyPtStepHandlers';
 import { applyMoveZoneStep } from './oracleIRExecutorMoveZoneStepHandlers';
+import { moveTargetedCardFromExile } from './oracleIRExecutorZoneOps';
 import {
   applyAddManaStep,
   applyAddPlayerCounterStep,
@@ -656,6 +657,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'proliferate',
   'redistribute_life_totals',
   'populate',
+  'repeated_zone_draft',
   'sacrifice',
   'scry',
   'search_library',
@@ -711,6 +713,7 @@ export function applyOracleIRStepsToGameStateImpl(
     : Number.isFinite(Number((ctx as any).lastReferenceAmount))
       ? Math.max(0, Number((ctx as any).lastReferenceAmount) || 0)
       : undefined;
+  let lastMovedCountByPlayer: Readonly<Record<string, number>> | undefined = (ctx as any).lastMovedCountByPlayer;
   let lastClashWon = typeof ctx.lastClashWon === 'boolean' ? ctx.lastClashWon : undefined;
   let lastCollectedEvidence = typeof ctx.lastCollectedEvidence === 'boolean' ? ctx.lastCollectedEvidence : undefined;
   let lastSetInMotionScheme = (ctx as any).lastSetInMotionScheme;
@@ -2836,6 +2839,9 @@ export function applyOracleIRStepsToGameStateImpl(
           if (typeof appliedResult.lastReferenceAmount === 'number' && Number.isFinite(appliedResult.lastReferenceAmount)) {
             lastReferenceAmount = Math.max(0, Number(appliedResult.lastReferenceAmount) || 0);
           }
+          if (appliedResult.lastMovedCountByPlayer) {
+            lastMovedCountByPlayer = { ...appliedResult.lastMovedCountByPlayer };
+          }
           lastMovedBattlefieldPermanentIds = Array.isArray(appliedResult.lastMovedBattlefieldPermanentIds)
             ? [...appliedResult.lastMovedBattlefieldPermanentIds]
             : [];
@@ -2847,6 +2853,7 @@ export function applyOracleIRStepsToGameStateImpl(
             ...(typeof lastReferenceAmount === 'number' && Number.isFinite(lastReferenceAmount)
               ? { referenceAmount: lastReferenceAmount }
               : {}),
+            ...(lastMovedCountByPlayer ? { lastMovedCountByPlayer } : {}),
           };
         });
         break;
@@ -3274,6 +3281,107 @@ export function applyOracleIRStepsToGameStateImpl(
             ...(lastExiledCards.length > 0 ? { lastExiledCards } : {}),
           };
         });
+        break;
+      }
+      case 'repeated_zone_draft': {
+        const draftPoolCards: any[] = Array.isArray(lastExiledCards) && lastExiledCards.length > 0
+          ? [...lastExiledCards]
+          : Array.isArray((currentCtx as any).lastMovedCards)
+            ? [...(currentCtx as any).lastMovedCards]
+            : [];
+        const findExiledCardOwner = (cardId: string): string | null => {
+          for (const player of (nextState.players || []) as any[]) {
+            const exile = Array.isArray(player?.exile) ? player.exile : [];
+            if (exile.some((card: any) => String(card?.id || '').trim() === cardId)) {
+              return String(player?.id || '').trim();
+            }
+          }
+          return null;
+        };
+        const remainingCardIds = draftPoolCards
+          .map((card) => String(card?.id || '').trim())
+          .filter((id) => Boolean(id) && findExiledCardOwner(id) !== null);
+
+        if (remainingCardIds.length === 0) {
+          setLastStepOutcome(step, 'applied');
+          log.push(`No cards remain to draft: ${step.raw}`);
+          appliedSteps.push(step);
+          break;
+        }
+
+        const startingPlayerId =
+          step.whoStarts?.kind === 'you' ? String(controllerId).trim() : String(controllerId).trim();
+        const turnOrderIds = (Array.isArray((nextState as any).turnOrder) && (nextState as any).turnOrder.length > 0
+          ? (nextState as any).turnOrder
+          : (nextState.players || []).map((player: any) => player?.id)
+        )
+          .map((id: unknown) => String(id || '').trim())
+          .filter(Boolean);
+        const startIndex = Math.max(0, turnOrderIds.indexOf(startingPlayerId));
+        const chooserOrder = turnOrderIds.length > 0
+          ? [...turnOrderIds.slice(startIndex), ...turnOrderIds.slice(0, startIndex)]
+          : [startingPlayerId];
+        const entersTapped = step.entersTapped === true;
+
+        if (currentCtx.interactivePlayerChoices === true) {
+          recordSkippedStep(
+            step,
+            `Skipped repeated zone draft (requires player choice): ${step.raw}`,
+            'player_choice_required',
+            {
+              classification: 'player_choice',
+              metadata: {
+                remainingCardIds,
+                chooserOrder,
+                entersTapped,
+                destination: step.destination,
+              },
+            }
+          );
+          break;
+        }
+
+        let workingState = nextState;
+        let remainingPool = [...remainingCardIds];
+        let chooserIndex = 0;
+        const draftLog: string[] = [];
+        const draftedBattlefieldIds: string[] = [];
+        while (remainingPool.length > 0) {
+          const chooserId = chooserOrder[chooserIndex % chooserOrder.length] as PlayerID;
+          chooserIndex += 1;
+          const cardId = remainingPool.shift() as string;
+          const ownerId = findExiledCardOwner(cardId);
+          if (!ownerId) continue;
+          const result = moveTargetedCardFromExile(
+            workingState,
+            ownerId as PlayerID,
+            cardId,
+            'any',
+            'battlefield',
+            chooserId,
+            entersTapped
+          );
+          if (result.kind !== 'applied') continue;
+          workingState = result.state;
+          draftLog.push(...(result.log || []));
+          if (Array.isArray((result as any).movedPermanentIds)) {
+            draftedBattlefieldIds.push(...((result as any).movedPermanentIds || []));
+          }
+        }
+
+        nextState = workingState;
+        lastMovedBattlefieldPermanentIds = draftedBattlefieldIds;
+        currentCtx = {
+          ...currentCtx,
+          lastMovedBattlefieldPermanentIds: draftedBattlefieldIds,
+        };
+        setLastStepOutcome(step, 'applied');
+        log.push(
+          ...(draftLog.length > 0
+            ? draftLog
+            : [`Drafted ${remainingCardIds.length} card(s) onto the battlefield: ${step.raw}`])
+        );
+        appliedSteps.push(step);
         break;
       }
       case 'sacrifice': {
