@@ -61,6 +61,7 @@ function shouldBlockStepAdvance(ctx: GameContext): boolean {
  * Manual Pass Priority still advances even with floating mana / activatable abilities.
  */
 const ACTIVE_PLAYER_MANUAL_PASS_SENTINEL = '__active_player_manual_pass__';
+const ACTIVE_PLAYER_AUTO_ADVANCE_ALLOWED_SENTINEL = '__active_player_auto_advance_allowed__';
 
 function shouldProtectActiveMainPhaseFromAutoAdvance(
   ctx: GameContext,
@@ -163,6 +164,12 @@ export function passPriority(
   if (!isAutoPass && playerId === turnPlayer) {
     stateAny.priorityPassedBy.add(ACTIVE_PLAYER_MANUAL_PASS_SENTINEL);
   }
+  if (isAutoPass && options?.allowActiveMainPhaseAutoAdvance && playerId === turnPlayer) {
+    // The active AI has exhausted every action it knows how to take. Preserve
+    // that decision while opponents receive priority; the player who makes the
+    // final pass in the round will not carry this per-call option.
+    stateAny.priorityPassedBy.add(ACTIVE_PLAYER_AUTO_ADVANCE_ALLOWED_SENTINEL);
+  }
 
   // Phase navigator metadata: once the initiating player manually passes,
   // the special protection should end (tests expect this behavior).
@@ -175,7 +182,9 @@ export function passPriority(
   
   // Check if all active players have passed priority
   const allPassed = active.every(p => stateAny.priorityPassedBy.has(p.id));
-  const activePlayerManuallyPassed = stateAny.priorityPassedBy.has(ACTIVE_PLAYER_MANUAL_PASS_SENTINEL);
+  const activePlayerManuallyPassed =
+    stateAny.priorityPassedBy.has(ACTIVE_PLAYER_MANUAL_PASS_SENTINEL)
+    || stateAny.priorityPassedBy.has(ACTIVE_PLAYER_AUTO_ADVANCE_ALLOWED_SENTINEL);
   
   if (state.stack.length > 0) {
     passesInRow.value++;

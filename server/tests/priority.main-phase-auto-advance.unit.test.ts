@@ -161,6 +161,71 @@ describe('main-phase auto step-advance guard', () => {
     expect(state.priorityPassedBy.size).toBe(0);
   });
 
+  it('preserves the active AI advance decision while an opponent receives priority', () => {
+    const state: any = {
+      players: [
+        { id: 'p_ai', name: 'Active AI', seat: 0, isAI: true },
+        { id: 'p_responder', name: 'Responder', seat: 1 },
+        { id: 'p_other', name: 'Other', seat: 2 },
+      ],
+      battlefield: [{
+        id: 'sol_1',
+        controller: 'p_ai',
+        tapped: false,
+        card: {
+          id: 'sol_card',
+          name: 'Sol Ring',
+          type_line: 'Artifact',
+          oracle_text: '{T}: Add {C}{C}.',
+        },
+      }],
+      stack: [],
+      zones: {
+        p_ai: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [] },
+        p_responder: {
+          hand: [{
+            id: 'opt_1',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1. Draw a card.',
+            mana_cost: '{U}',
+          }],
+          handCount: 1,
+          library: [],
+          libraryCount: 0,
+          graveyard: [],
+        },
+        p_other: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [] },
+      },
+      priority: 'p_ai',
+      turnPlayer: 'p_ai',
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      priorityPassedBy: new Set<string>(),
+      autoPassPlayers: new Set(['p_ai', 'p_responder', 'p_other']),
+      landsPlayedThisTurn: { p_ai: 1 },
+      manaPool: {
+        p_ai: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p_responder: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+        p_other: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      turnDirection: 1,
+    };
+
+    const ctx = buildCtx(state, 'ai_advance_after_opponent_window');
+    const activeAIPass = passPriority(ctx, 'p_ai', true, {
+      allowActiveMainPhaseAutoAdvance: true,
+    });
+
+    expect(activeAIPass.advanceStep).toBe(false);
+    expect(state.priority).toBe('p_responder');
+
+    const responderAutoPass = passPriority(ctx, 'p_responder', true);
+    expect(responderAutoPass.advanceStep).toBe(true);
+    expect(state.priority).toBe('p_ai');
+    expect(state.priorityPassedBy.size).toBe(0);
+  });
+
   it('still advances MAIN1 when the active player manually passes with others already passed', () => {
     const state: any = {
       players: [
