@@ -8622,13 +8622,23 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         );
       }
       
-      // Check if there are more steps for this player
-      const remainingSteps = ResolutionQueueManager.getStepsForPlayer(gameId, pid);
-      if (remainingSteps.length > 0) {
-        socket.emit("resolutionStepPrompt", {
-          gameId,
-          step: sanitizeStepForClient(gameId, remainingSteps[0]),
-        });
+      // Re-prompt every player who still owns a pending step. A completed choice can
+      // reveal a step for a different player, and relying only on the original STEP_ADDED
+      // emit can leave that owner with no visible UI if the prompt raced a state update.
+      const pendingByPlayer = ResolutionQueueManager.getPendingSummary(gameId).pendingByPlayer;
+      for (const pendingPlayerId of Object.keys(pendingByPlayer)) {
+        emitNextPendingResolutionStep(io, gameId, String(pendingPlayerId));
+      }
+
+      const remainingQueueSteps = ResolutionQueueManager.getQueue(gameId).steps;
+      if (remainingQueueSteps.length > 0) {
+        debug(2, '[Resolution] Pending steps after completion:', remainingQueueSteps.map((queuedStep: any) => ({
+          id: queuedStep?.id,
+          type: queuedStep?.type,
+          playerId: queuedStep?.playerId,
+          sourceName: queuedStep?.sourceName,
+          description: queuedStep?.description,
+        })));
       }
     } else {
       socket.emit("error", { code: "STEP_COMPLETION_FAILED", message: "Failed to complete resolution step" });
