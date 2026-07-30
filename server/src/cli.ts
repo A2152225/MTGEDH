@@ -13,6 +13,7 @@ import { games as socketGames, priorityTimers } from './socket/socket.js';
 import { debug, debugWarn, debugError } from "./utils/debug.js";
 import {
   hasInteractiveConsoleTty,
+  registerCliPromptClear,
   registerCliPromptRedraw,
   setInteractiveCliActive,
 } from './utils/cliConsoleState.js';
@@ -486,6 +487,10 @@ export function initCLI(): void {
   });
   cliReadline = rl;
   setInteractiveCliActive(true);
+  registerCliPromptClear(() => {
+    readline.cursorTo(cliOutput, 0);
+    readline.clearLine(cliOutput, 0);
+  });
   registerCliPromptRedraw(() => {
     cliReadline?.prompt();
   });

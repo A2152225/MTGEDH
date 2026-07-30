@@ -22,22 +22,20 @@ let cachedDebugLevel: number | null = null;
 const cachedDebugFlags = new Map<string, boolean>();
 
 import { inspect } from 'node:util';
-import { isInteractiveCliActive, redrawCliPromptIfNeeded } from './cliConsoleState.js';
-
-function prefixInteractiveLogArgs(args: any[]): any[] {
-  if (!isInteractiveCliActive() || args.length === 0) {
-    return args;
-  }
-  const first = args[0];
-  if (typeof first === 'string' && !first.startsWith('\n')) {
-    return [`\n${first}`, ...args.slice(1)];
-  }
-  return ['\n', ...args];
-}
+import {
+  clearCliPromptIfNeeded,
+  isInteractiveCliActive,
+  redrawCliPromptIfNeeded,
+} from './cliConsoleState.js';
 
 function emitInteractiveLog(write: (...items: any[]) => void, args: any[]): void {
-  write(...prefixInteractiveLogArgs(args).map(formatDebugArg));
-  redrawCliPromptIfNeeded();
+  const interactive = isInteractiveCliActive();
+  if (interactive) clearCliPromptIfNeeded();
+  try {
+    write(...args.map(formatDebugArg));
+  } finally {
+    if (interactive) redrawCliPromptIfNeeded();
+  }
 }
 
 function getDebugLevel(): number {
