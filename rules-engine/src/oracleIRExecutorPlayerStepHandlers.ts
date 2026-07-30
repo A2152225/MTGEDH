@@ -4247,10 +4247,21 @@ export function applySearchLibraryStep(
       }
 
       const playerAfterCommit = nextState.players.find((entry) => entry.id === playerId) as any;
-      const remainingLibrary = readPlayerZoneCards(nextState, playerId, playerAfterCommit, 'library');
-      const shuffledLibrary = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
-      writePlayerZoneCards(nextState, playerId, playerAfterCommit, 'library', shuffledLibrary);
-      recordShuffledLibrary(playerId, shuffledLibrary);
+      const libraryAfterCommit = readPlayerZoneCards(nextState, playerId, playerAfterCommit, 'library');
+      const committedSelectedCards = libraryAfterCommit.filter((card) =>
+        selectedIds.has(String(card?.id || card?.cardId || '').trim()),
+      );
+      const remainingLibrary = libraryAfterCommit.filter((card) =>
+        !selectedIds.has(String(card?.id || card?.cardId || '').trim()),
+      );
+      const shuffledRemainder = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
+      const finalLibrary = step.destination === 'top'
+        ? [...committedSelectedCards, ...shuffledRemainder]
+        : step.destination === 'bottom'
+          ? [...shuffledRemainder, ...committedSelectedCards]
+          : shuffledRemainder;
+      writePlayerZoneCards(nextState, playerId, playerAfterCommit, 'library', finalLibrary);
+      recordShuffledLibrary(playerId, finalLibrary);
 
       allMovedCards.push(...commitResult.movedCards);
       if (commitResult.ledgerRecordedViaBridge) {

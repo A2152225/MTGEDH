@@ -866,6 +866,9 @@ describe('undo authorization (integration)', () => {
 
     const undoComplete = emitted.find(e => e.event === 'undoComplete');
     expect(undoComplete?.payload).toEqual({ gameId: wrapperGameId, success: true });
+
+    const rollbackState = emitted.find(e => e.event === 'state' && e.payload?.gameId === wrapperGameId);
+    expect(rollbackState?.payload?.forceStateReplace).toBe(true);
   });
 
   it('emits refreshed undo counts after a successful undo rebuild', async () => {

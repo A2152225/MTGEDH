@@ -1708,7 +1708,8 @@ export function emitStateToSocket(
 export function broadcastGame(
   io: Server,
   game: InMemoryGame,
-  gameId: string
+  gameId: string,
+  options: { forceStateReplace?: boolean } = {},
 ) {
   repairMissingPriorityIfStuck(game, gameId, '[broadcastGame]');
 
@@ -1763,6 +1764,7 @@ export function broadcastGame(
             gameId,
             view,
             seq: (game as any).seq,
+            ...(options.forceStateReplace ? { forceStateReplace: true } : {}),
           });
           anySent = true;
         }
@@ -1801,6 +1803,7 @@ export function broadcastGame(
         gameId,
         view,
         seq: (game as any).seq,
+        ...(options.forceStateReplace ? { forceStateReplace: true } : {}),
       });
     } catch (err) {
       debugWarn(1, 

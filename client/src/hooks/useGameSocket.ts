@@ -49,7 +49,9 @@ export function resolveIncomingStateSeq(payload: any, viewLike?: any): number | 
 export function shouldAcceptStateSequence(
   lastAcceptedSeq: number | null | undefined,
   incomingSeq: number | null | undefined,
+  forceStateReplace = false,
 ): boolean {
+  if (forceStateReplace) return true;
   if (incomingSeq == null || !Number.isFinite(incomingSeq)) return true;
   if (lastAcceptedSeq == null || !Number.isFinite(lastAcceptedSeq)) return true;
   return Number(incomingSeq) >= Number(lastAcceptedSeq);
@@ -383,7 +385,8 @@ export function useGameSocket(): UseGameSocketState {
 
     const acceptIncomingSequence = (payload: any, viewLike?: any): boolean => {
       const incomingSeq = resolveIncomingStateSeq(payload, viewLike);
-      if (!shouldAcceptStateSequence(lastAcceptedStateSeqRef.current, incomingSeq)) {
+      const forceStateReplace = payload?.forceStateReplace === true;
+      if (!shouldAcceptStateSequence(lastAcceptedStateSeqRef.current, incomingSeq, forceStateReplace)) {
         // eslint-disable-next-line no-console
         console.debug("[socket] state update ignored - stale seq", {
           incomingSeq,

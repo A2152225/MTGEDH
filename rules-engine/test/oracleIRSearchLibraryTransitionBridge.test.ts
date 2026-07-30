@@ -116,6 +116,58 @@ describe('oracleIR search library transition bridge', () => {
     )).toBe(1);
   });
 
+  it('keeps the selected card on top after shuffling the library remainder', () => {
+    const state: any = {
+      players: [{
+        id: 'p1',
+        hand: [],
+        graveyard: [],
+        exile: [],
+        library: [
+          { id: 'lib-1', name: 'Bear', type_line: 'Creature — Bear' },
+          { id: 'lib-2', name: 'Sol Ring', type_line: 'Artifact' },
+          { id: 'lib-3', name: 'Forest', type_line: 'Basic Land — Forest' },
+        ],
+      }],
+      battlefield: [],
+    };
+
+    const steps: OracleEffectStep[] = [{
+      kind: 'search_library',
+      raw: 'search your library for an artifact card, reveal it, then shuffle and put that card on top',
+      who: { kind: 'you' },
+      criteria: { kind: 'raw', text: 'artifact' },
+      destination: 'top',
+      shuffle: true,
+      revealFound: true,
+      maxResults: 1,
+    }];
+
+    const ledger = createEmptyStepLedger();
+    const haltState: OracleIRTransitionHaltState = { halted: false, deferred: [] };
+    const serverBridge = createOracleIRServerExecutionBridge({
+      state,
+      ledger,
+      interactivePlayerChoices: true,
+      haltState,
+    });
+    const ctx = buildOracleIRExecutionContext({
+      controllerId: 'p1' as PlayerID,
+      sourceId: 'enlightened-tutor',
+      serverBridge,
+      transitionHaltState: haltState,
+      stepLedger: ledger,
+      appliedStepKinds: new Map(),
+      selectorContext: { chosenObjectIds: ['lib-2'] },
+    });
+
+    const result = applyOracleIRStepsToGameState(state, steps, ctx, { allowOptional: true });
+
+    expect(haltState.halted).toBe(false);
+    expect((result.state as any).players[0].library).toHaveLength(3);
+    expect((result.state as any).players[0].library[0].id).toBe('lib-2');
+  });
+
   it('puts player-selected search match into hand via pre-commit bridge', () => {
     const state: any = {
       players: [{

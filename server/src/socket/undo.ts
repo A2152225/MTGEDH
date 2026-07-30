@@ -959,7 +959,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
         socket.emit("undoComplete", { gameId, success: true });
         emitUndoCountsUpdate(io, gameId, game);
-        broadcastGame(io, game, gameId);
+        broadcastGame(io, game, gameId, { forceStateReplace: true });
         resumePregameAIFlowAfterUndo(io, gameId, game);
       } else {
         socket.emit("error", {
@@ -1008,7 +1008,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
         socket.emit("undoComplete", { gameId, success: true });
         emitUndoCountsUpdate(io, gameId, game);
-        broadcastGame(io, game, gameId);
+        broadcastGame(io, game, gameId, { forceStateReplace: true });
         resumePregameAIFlowAfterUndo(io, gameId, game);
       } else {
         socket.emit("error", {
@@ -1226,7 +1226,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
           });
 
           emitUndoCountsUpdate(io, gameId, game);
-          broadcastGame(io, game, gameId);
+          broadcastGame(io, game, gameId, { forceStateReplace: true });
           resumePregameAIFlowAfterUndo(io, gameId, game);
         } else {
           io.to(gameId).emit("undoCancelled", {

@@ -25,6 +25,10 @@ describe('client state sequence gating', () => {
     expect(shouldAcceptStateSequence(10, 11)).toBe(true);
   });
 
+  it('accepts an authoritative rollback snapshot after undo', () => {
+    expect(shouldAcceptStateSequence(10, 4, true)).toBe(true);
+  });
+
   it('fails open when sequence metadata is missing', () => {
     expect(shouldAcceptStateSequence(10, null)).toBe(true);
     expect(shouldAcceptStateSequence(null, 5)).toBe(true);
