@@ -378,7 +378,10 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
     // Check for "legendary" supertype (both legendary creatures and legendary planeswalkers)
     if (!typeLine.includes('legendary')) continue;
     
-    const controller = (perm as any).controller || (perm as any).owner || '';
+    // The legend rule is based on control, not ownership. Battlefield replay can
+    // retain owner-only shells for permanents that have already left play; those
+    // must not be treated as permanents the owner still controls.
+    const controller = (perm as any).controller || '';
     const cardName = (perm.card as any)?.name || '';
     
     if (!controller || !cardName) continue;

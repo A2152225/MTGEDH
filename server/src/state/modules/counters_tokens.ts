@@ -2201,7 +2201,7 @@ export function runSBA(ctx: GameContext) {
       const perm = state.battlefield.find(p => p.id === permId);
       if (!perm) continue;
       
-      const controller = (perm as any).controller || (perm as any).owner || '';
+      const controller = (perm as any).controller || '';
       const cardName = (perm.card as any)?.name || perm.id; // Use permanent ID as fallback if no name
       
       // Skip permanents without a name (shouldn't happen for legendaries, but be safe)

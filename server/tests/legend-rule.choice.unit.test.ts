@@ -10,6 +10,57 @@ afterEach(() => {
 });
 
 describe('legend rule controller choice', () => {
+  it('ignores owner-only shells for permanents that have already left play', () => {
+    const makeLegend = (id: string, controller?: string) => ({
+      id,
+      ...(controller ? { controller } : {}),
+      owner: 'p1',
+      card: {
+        id: `${id}-card`,
+        name: 'Neera, Wild Mage',
+        type_line: 'Legendary Creature — Human Elf Shaman',
+        oracle_text: '',
+        power: '2',
+        toughness: '7',
+      },
+    });
+    const state: any = {
+      battlefield: [makeLegend('neera-stale'), makeLegend('neera-live', 'p1')],
+      players: [{ id: 'p1', name: 'P1', life: 40 }],
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          library: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40 },
+      manaPool: {},
+      commandZone: {},
+      emblems: [],
+      conspiracies: [],
+      stack: [],
+      turnPlayer: 'p1',
+    };
+    const ctx: any = {
+      state,
+      gameId,
+      libraries: new Map([['p1', []]]),
+      bumpSeq: () => {},
+      rng: () => 0.5,
+    };
+
+    runSBA(ctx);
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(gameId, 'p1' as any);
+    expect(steps).toHaveLength(0);
+    expect((state as any)._legendRuleChoiceBatch).toBeUndefined();
+  });
+
   it('lets the controller keep the real card and clearly marks the token option', () => {
     const original = {
       id: 'mihail-card',
