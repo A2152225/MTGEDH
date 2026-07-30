@@ -208,4 +208,52 @@ describe('main-phase auto step-advance guard', () => {
     expect(result.advanceStep).toBe(true);
     expect(state.priority).toBe('p_ap');
   });
+
+  it('preserves a manual phase pass while opponents subsequently auto-pass', () => {
+    const state: any = {
+      players: [
+        { id: 'p_ap', name: 'Active', seat: 0 },
+        { id: 'p_ai', name: 'AI', seat: 1, isAI: true },
+      ],
+      battlefield: [],
+      stack: [],
+      zones: {
+        p_ap: {
+          hand: [{
+            id: 'mox_diamond',
+            name: 'Mox Diamond',
+            type_line: 'Artifact',
+            mana_cost: '{0}',
+            oracle_text: 'If Mox Diamond would enter the battlefield, you may discard a land card instead.',
+          }],
+          handCount: 1,
+          library: [],
+          libraryCount: 0,
+          graveyard: [],
+        },
+        p_ai: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [] },
+      },
+      priority: 'p_ap',
+      turnPlayer: 'p_ap',
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      priorityPassedBy: new Set<string>(),
+      autoPassPlayers: new Set(['p_ai']),
+      landsPlayedThisTurn: { p_ap: 1 },
+      manaPool: {
+        p_ap: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p_ai: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      turnDirection: 1,
+    };
+
+    const ctx = buildCtx(state);
+    const manualPass = passPriority(ctx, 'p_ap', false);
+    expect(manualPass.advanceStep).toBe(false);
+    expect(state.priority).toBe('p_ai');
+
+    const opponentAutoPass = passPriority(ctx, 'p_ai', true);
+    expect(opponentAutoPass.advanceStep).toBe(true);
+    expect(state.priority).toBe('p_ap');
+  });
 });

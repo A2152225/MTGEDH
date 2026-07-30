@@ -14,6 +14,7 @@ export interface OptionChoiceOption {
   description?: string;
   imageUrl?: string;
   disabled?: boolean;
+  isToken?: boolean;
 }
 
 export interface OptionChoiceRequest {
@@ -171,7 +172,23 @@ export function OptionChoiceModal({
                   />
                 )}
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: isSelected ? 600 : 400 }}>{option.label}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: isSelected ? 600 : 400 }}>
+                    <span>{option.label}</span>
+                    {option.isToken && (
+                      <span style={{
+                        padding: '2px 6px',
+                        borderRadius: 999,
+                        background: 'rgba(168, 85, 247, 0.22)',
+                        border: '1px solid rgba(192, 132, 252, 0.7)',
+                        color: '#d8b4fe',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                      }}>
+                        Token
+                      </span>
+                    )}
+                  </div>
                   {option.description && (
                     <div style={{ fontSize: 13, color: '#aaa', marginTop: 4 }}>
                       {option.description}

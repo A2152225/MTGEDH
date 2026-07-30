@@ -60,13 +60,17 @@ function shouldBlockStepAdvance(ctx: GameContext): boolean {
  * Never advance out of their main phase via automation while they still have actions.
  * Manual Pass Priority still advances even with floating mana / activatable abilities.
  */
+const ACTIVE_PLAYER_MANUAL_PASS_SENTINEL = '__active_player_manual_pass__';
+
 function shouldProtectActiveMainPhaseFromAutoAdvance(
   ctx: GameContext,
   isAutoPass: boolean | undefined,
   allowActiveMainPhaseAutoAdvance: boolean | undefined,
+  activePlayerManuallyPassed = false,
 ): boolean {
   if (!isAutoPass) return false;
   if (allowActiveMainPhaseAutoAdvance) return false;
+  if (activePlayerManuallyPassed) return false;
 
   const stateAny = ctx.state as any;
   const turnPlayer = stateAny.turnPlayer as PlayerID | undefined;
@@ -156,6 +160,9 @@ export function passPriority(
     stateAny.priorityPassedBy = new Set<string>();
   }
   stateAny.priorityPassedBy.add(playerId);
+  if (!isAutoPass && playerId === turnPlayer) {
+    stateAny.priorityPassedBy.add(ACTIVE_PLAYER_MANUAL_PASS_SENTINEL);
+  }
 
   // Phase navigator metadata: once the initiating player manually passes,
   // the special protection should end (tests expect this behavior).
@@ -168,6 +175,7 @@ export function passPriority(
   
   // Check if all active players have passed priority
   const allPassed = active.every(p => stateAny.priorityPassedBy.has(p.id));
+  const activePlayerManuallyPassed = stateAny.priorityPassedBy.has(ACTIVE_PLAYER_MANUAL_PASS_SENTINEL);
   
   if (state.stack.length > 0) {
     passesInRow.value++;
@@ -189,7 +197,7 @@ export function passPriority(
         if (result.resolved) {
           // Another item was resolved from stack
           resolvedNow = true;
-        } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass, options?.allowActiveMainPhaseAutoAdvance)) {
+        } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass, options?.allowActiveMainPhaseAutoAdvance, activePlayerManuallyPassed)) {
           denyEmptyStackAutoAdvance(ctx, 'active player still has main-phase actions after stack resolve');
         } else if (!shouldBlockStepAdvance(ctx)) {
           // Empty stack now - advance step
@@ -223,7 +231,7 @@ export function passPriority(
       stateAny.priorityPassedBy = new Set<string>(); // Reset tracking
       // Priority stays with the active player (turn player) for the next step
       state.priority = turnPlayer;
-      if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass, options?.allowActiveMainPhaseAutoAdvance)) {
+      if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass, options?.allowActiveMainPhaseAutoAdvance, activePlayerManuallyPassed)) {
         denyEmptyStackAutoAdvance(ctx, 'active player still has main-phase actions');
       } else if (!shouldBlockStepAdvance(ctx)) {
         advanceStep = true;
@@ -244,7 +252,7 @@ export function passPriority(
           if (result.resolved) {
             // Stack was resolved
             resolvedNow = true;
-          } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass, options?.allowActiveMainPhaseAutoAdvance)) {
+          } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass, options?.allowActiveMainPhaseAutoAdvance, activePlayerManuallyPassed)) {
             denyEmptyStackAutoAdvance(ctx, 'active player still has main-phase actions after auto-pass chain');
           } else if (!shouldBlockStepAdvance(ctx)) {
             // Empty stack - advance step

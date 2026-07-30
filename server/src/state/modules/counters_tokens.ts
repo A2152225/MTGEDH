@@ -2021,8 +2021,73 @@ export function movePermanentToExile(
  * - If a creature was already removed by sacrifice/destroy spell, it won't be found here
  * - Each creature dies exactly once through exactly one code path
  */
+export function resolveLegendRuleChoice(
+  ctx: GameContext,
+  args: {
+    batchId: string;
+    groupKey: string;
+    playerId: string;
+    selectedPermanentId: string;
+  },
+): { accepted: boolean; complete: boolean; removedIds: string[]; error?: string } {
+  const stateAny = ctx.state as any;
+  const batch = stateAny._legendRuleChoiceBatch;
+  if (!batch || String(batch.batchId || '') !== String(args.batchId || '')) {
+    return { accepted: false, complete: false, removedIds: [], error: 'Legend-rule choice is no longer pending.' };
+  }
+
+  const groups = Array.isArray(batch.groups) ? batch.groups : [];
+  const group = groups.find((entry: any) => String(entry?.key || '') === String(args.groupKey || ''));
+  if (!group || String(group.controller || '') !== String(args.playerId || '')) {
+    return { accepted: false, complete: false, removedIds: [], error: 'This legend-rule choice does not belong to that player.' };
+  }
+
+  const candidateIds = Array.isArray(group.candidateIds)
+    ? group.candidateIds.map((id: any) => String(id || '')).filter(Boolean)
+    : [];
+  const selectedId = String(args.selectedPermanentId || '');
+  if (!candidateIds.includes(selectedId)) {
+    return { accepted: false, complete: false, removedIds: [], error: 'The selected permanent is not a valid legend-rule choice.' };
+  }
+  const selectedStillExists = (ctx.state.battlefield || []).some((permanent: any) => String(permanent?.id || '') === selectedId);
+  if (!selectedStillExists) {
+    return { accepted: false, complete: false, removedIds: [], error: 'The selected permanent is no longer on the battlefield.' };
+  }
+
+  group.chosenId = selectedId;
+  const complete = groups.length > 0 && groups.every((entry: any) => Boolean(String(entry?.chosenId || '')));
+  if (!complete) {
+    return { accepted: true, complete: false, removedIds: [] };
+  }
+
+  const removedIds: string[] = [];
+  const idsToRemove = groups.flatMap((entry: any) => {
+    const chosenId = String(entry?.chosenId || '');
+    return (Array.isArray(entry?.candidateIds) ? entry.candidateIds : [])
+      .map((id: any) => String(id || ''))
+      .filter((id: string) => id && id !== chosenId);
+  });
+
+  // Clear first so the follow-up SBA pass cannot mistake this completed batch for
+  // an unresolved one.
+  delete stateAny._legendRuleChoiceBatch;
+  for (const permanentId of idsToRemove) {
+    if (movePermanentToGraveyard(ctx, permanentId, true)) {
+      removedIds.push(permanentId);
+    }
+  }
+  runSBA(ctx);
+  return { accepted: true, complete: true, removedIds };
+}
+
 export function runSBA(ctx: GameContext) {
   const { state, bumpSeq } = ctx;
+
+  // A legend-rule choice is itself part of performing state-based actions. Do not
+  // enqueue duplicate prompts while the affected controllers are still choosing.
+  if ((state as any)._legendRuleChoiceBatch) {
+    return;
+  }
 
   try {
     hydrateGameStateOracleText(state, ctx.libraries);
@@ -2149,28 +2214,76 @@ export function runSBA(ctx: GameContext) {
       violationsByKey.set(key, existing);
     }
     
-    // For each group of duplicate legendaries, need to keep only one
-    // Since we can't synchronously prompt the user, we'll handle this by:
-    // 1. If a player has multiple copies of the same legendary, keep the first one (by timestamp/order)
-    // 2. Move the rest to graveyard
-    // This is a simplification; a full implementation would use ResolutionQueueManager
-    // to prompt the player to choose which to keep
-    for (const [key, perms] of violationsByKey) {
-      if (perms.length <= 1) continue;
-      
-      // Keep the first one (oldest by array position), sacrifice the rest
-      // In a full implementation, we'd let the player choose
-      const [keep, ...toSacrifice] = perms;
-      
-      const controller = (keep as any).controller || '';
-      const cardName = (keep.card as any)?.name || '';
-      
-      debug(1, `[runSBA] Legend Rule: ${controller} controls ${perms.length} copies of ${cardName}, keeping first and sacrificing ${toSacrifice.length}`);
-      
-      for (const toRemove of toSacrifice) {
-        if (movePermanentToGraveyard(ctx, String(toRemove.id), true)) {
-          changed = true;
-        }
+    const groups = Array.from(violationsByKey.entries())
+      .filter(([, perms]) => perms.length > 1)
+      .map(([key, perms]) => {
+        const controller = String((perms[0] as any)?.controller || '');
+        return {
+          key,
+          controller,
+          cardName: String((perms[0]?.card as any)?.name || 'legendary permanent'),
+          candidateIds: perms.map((perm) => String(perm.id)),
+          chosenId: '',
+        };
+      });
+
+    if (groups.length > 0 && !(ctx as any).isReplaying) {
+      const batchId = `legend-rule-${uid()}`;
+      (state as any)._legendRuleChoiceBatch = { batchId, groups };
+
+      const configs = groups.map((group) => ({
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: group.controller as PlayerID,
+        sourceName: 'Legend Rule',
+        description: `Choose which ${group.cardName} to keep. Put the rest into their owners' graveyards.`,
+        mandatory: true,
+        minSelections: 1,
+        maxSelections: 1,
+        options: group.candidateIds.map((permanentId) => {
+          const permanent = state.battlefield.find((entry: any) => String(entry?.id || '') === permanentId) as any;
+          const card = permanent?.card || {};
+          const isToken = Boolean(permanent?.isToken || permanent?.isCopy || card?.isToken || card?.isCopy);
+          const counters = permanent?.counters && typeof permanent.counters === 'object'
+            ? Object.entries(permanent.counters)
+                .filter(([, amount]) => Number(amount) > 0)
+                .map(([name, amount]) => `${amount} ${name}`)
+                .join(', ')
+            : '';
+          const details = [
+            String(card?.type_line || '').trim(),
+            isToken ? 'Token copy' : 'Nontoken card',
+            permanent?.tapped ? 'Tapped' : 'Untapped',
+            counters ? `Counters: ${counters}` : '',
+          ].filter(Boolean);
+          return {
+            id: permanentId,
+            label: `${String(card?.name || group.cardName)}${isToken ? ' (Token)' : ' (Card)'}`,
+            description: details.join(' • '),
+            imageUrl: card?.image_uris?.small || card?.image_uris?.normal || card?.imageUrl,
+            isToken,
+          };
+        }),
+        legendRuleChoice: true,
+        legendRuleBatchId: batchId,
+        legendRuleGroupKey: group.key,
+        legendRuleCandidateIds: group.candidateIds,
+      } as any));
+
+      const turnOrder = (state.players || []).map((player: any) => String(player?.id || '')).filter(Boolean) as PlayerID[];
+      ResolutionQueueManager.addStepsWithAPNAP(
+        String((ctx as any).gameId || ''),
+        configs,
+        turnOrder,
+        state.turnPlayer as PlayerID,
+      );
+      debug(1, `[runSBA] Legend Rule: queued ${groups.length} controller choice(s)`);
+      return;
+    }
+
+    // Replay fallback for legacy event streams that predate interactive legend choices.
+    for (const group of groups) {
+      for (const permanentId of group.candidateIds.slice(1)) {
+        if (movePermanentToGraveyard(ctx, permanentId, true)) changed = true;
       }
     }
   }

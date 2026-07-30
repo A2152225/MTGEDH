@@ -19,10 +19,40 @@
 
 import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
-import { parseManaCost, canPayManaCostWithAvailableSources } from "./mana-check";
+import { parseManaCost, normalizeParsedManaCost, canPayManaCostWithAvailableSources } from "./mana-check";
 import { collectStaticEffectSources } from "./static-effect-sources";
 import { spellHasConvokeForCast } from "./casting-modifiers.js";
 import { permanentIsCommanderCard } from "./triggerPermanentUtils.js";
+import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan } from "./cost-adjustments.js";
+
+function canPayAdjustedAlternateManaCost(
+  ctx: GameContext,
+  playerId: PlayerID,
+  card: any,
+  manaCost: string,
+  excludedHandCardIds?: string[],
+): boolean {
+  const parsedCost = parseManaCost(manaCost);
+  const adjustmentPlan = buildCostAdjustmentPlan(ctx.state, playerId, card);
+  const adjustedCost = normalizeParsedManaCost(
+    applyCostAdjustmentToParsedCost(parsedCost, adjustmentPlan),
+  );
+  const typeLine = String(card?.type_line || '').toLowerCase();
+
+  return canPayManaCostWithAvailableSources(
+    ctx.state,
+    playerId,
+    adjustedCost,
+    Infinity,
+    {
+      ...(excludedHandCardIds?.length ? { excludedHandCardIds } : {}),
+      restrictedSpendPurpose: {
+        isCreature: typeLine.includes('creature'),
+        spellCard: card,
+      },
+    },
+  );
+}
 
 /**
  * Alternate cost types
@@ -606,26 +636,36 @@ export function hasPayableAlternateCost(
 
   if (hasMutateAlternateCost(ctx, playerId, card)) {
     const costStr = parseMutateCost(card.oracle_text || "");
-    if (costStr) {
-      const parsedCost = parseManaCost(costStr);
-      if (canPayManaCostWithAvailableSources(ctx.state, playerId, parsedCost, Infinity, excludedHandCardIds?.length ? { excludedHandCardIds } : undefined)) {
-        return true;
-      }
+    if (costStr && canPayAdjustedAlternateManaCost(ctx, playerId, card, costStr, excludedHandCardIds)) {
+      return true;
     }
   }
 
   if (hasSelfWUBRGAlternateCost(card)) {
-    const parsedCost = parseManaCost('{W}{U}{B}{R}{G}');
-    if (canPayManaCostWithAvailableSources(ctx.state, playerId, parsedCost, Infinity, excludedHandCardIds?.length ? { excludedHandCardIds } : undefined)) {
+    if (canPayAdjustedAlternateManaCost(ctx, playerId, card, '{W}{U}{B}{R}{G}', excludedHandCardIds)) {
       return true;
     }
   }
 
   if (getExternalWUBRGSource(ctx, playerId)) {
-    const parsedCost = parseManaCost('{W}{U}{B}{R}{G}');
-    if (canPayManaCostWithAvailableSources(ctx.state, playerId, parsedCost, Infinity, excludedHandCardIds?.length ? { excludedHandCardIds } : undefined)) {
+    if (canPayAdjustedAlternateManaCost(ctx, playerId, card, '{W}{U}{B}{R}{G}', excludedHandCardIds)) {
       return true;
     }
+  }
+
+  const conditionalAlternateCost = hasConditionalAlternateCost(card);
+  if (
+    conditionalAlternateCost.hasCost
+    && conditionalAlternateCost.manaCost
+    && canPayAdjustedAlternateManaCost(
+      ctx,
+      playerId,
+      card,
+      conditionalAlternateCost.manaCost,
+      excludedHandCardIds,
+    )
+  ) {
+    return true;
   }
 
   if (getOmniscienceSource(ctx, playerId)) return true;

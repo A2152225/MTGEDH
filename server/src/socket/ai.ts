@@ -3630,6 +3630,13 @@ export function chooseAIOptionSelectionsForStep(
 
   const resolveOptionId = (option: any): string => String(option?.id || option?.value || option || '');
 
+  if (step?.legendRuleChoice === true) {
+    // Prefer the nontoken card when otherwise equivalent. Tokens cease to exist
+    // after leaving the battlefield, while the real card remains recoverable.
+    const preferred = options.find((option: any) => option?.isToken !== true) || options[0];
+    return { selections: [resolveOptionId(preferred)], cancelled: false };
+  }
+
   if (step?.mutateCastModeChoice === true) {
     const mutateOption = options.find((option: any) => resolveOptionId(option) === 'cast_mutate');
     const normalOption = options.find((option: any) => resolveOptionId(option) === 'cast_normal');

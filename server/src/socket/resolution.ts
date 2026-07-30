@@ -136,7 +136,7 @@ import {
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile, removePlayableFromExileForCard, stripPlayableFromExileTags } from "../state/modules/playable-from-exile.js";
 import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "../state/modules/durable-permissions.js";
-import { destroyPermanent, movePermanentToExile, removePermanent } from "../state/modules/counters_tokens.js";
+import { destroyPermanent, movePermanentToExile, removePermanent, resolveLegendRuleChoice } from "../state/modules/counters_tokens.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { updateCounters } from "../state/modules/counters_tokens.js";
 import { transformPermanentToFace } from "../state/modules/day-night.js";
@@ -28423,6 +28423,48 @@ async function handleOptionChoiceResponse(
     if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
     return null;
   };
+
+  if (stepData?.legendRuleChoice === true) {
+    const selectedPermanentId = String(extractId(selectedOption) || '').trim();
+    const ctx = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as unknown as GameContext;
+    const result = resolveLegendRuleChoice(ctx, {
+      batchId: String(stepData.legendRuleBatchId || ''),
+      groupKey: String(stepData.legendRuleGroupKey || ''),
+      playerId: String(playerId || ''),
+      selectedPermanentId,
+    });
+    if (!result.accepted) {
+      emitToPlayer(io, playerId as any, 'error', {
+        code: 'INVALID_LEGEND_RULE_CHOICE',
+        message: result.error || 'Unable to apply that legend-rule choice.',
+      });
+      return;
+    }
+
+    const selectedPermanent = (game.state.battlefield || []).find(
+      (permanent: any) => String(permanent?.id || '') === selectedPermanentId,
+    ) as any;
+    const selectedName = String(selectedPermanent?.card?.name || stepData?.sourceName || 'legendary permanent');
+    const tokenLabel = selectedPermanent?.isToken || selectedPermanent?.isCopy
+      || selectedPermanent?.card?.isToken || selectedPermanent?.card?.isCopy
+      ? ' token copy'
+      : ' card';
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} keeps the ${selectedName}${tokenLabel} for the legend rule.`,
+      ts: Date.now(),
+    });
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
+    return;
+  }
 
   if (String(stepData?.oracleIrChoiceStepJson || '').trim()) {
     const ctx = ((game as any).ctx || game) as any;

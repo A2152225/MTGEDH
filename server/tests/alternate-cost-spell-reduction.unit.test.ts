@@ -5,7 +5,8 @@ import {
   formatSpellAlternateCostWithReduction,
   resolveEffectiveSpellBaseManaCost,
 } from '../src/socket/game-actions.js';
-import { getExternalWUBRGSource } from '../src/state/modules/alternate-costs.js';
+import { getExternalWUBRGSource, hasPayableAlternateCost } from '../src/state/modules/alternate-costs.js';
+import { canAct, getCastableSpellCandidates } from '../src/state/modules/can-respond.js';
 
 const HAKBAL = {
   name: 'Hakbal of the Surging Soul',
@@ -69,6 +70,49 @@ describe('alternate cost spell reductions', () => {
       forcedAlternateCostId: 'wubrg_external',
       card: HAKBAL,
     })).toBe('{W}{U}{B}{R}{G}');
+  });
+
+  it('keeps main phase open when Morophon makes an external WUBRG alternate cost free', () => {
+    const card = {
+      id: 'judge',
+      name: 'Judge of Currents',
+      mana_cost: '{1}{W}',
+      type_line: 'Creature — Merfolk Wizard',
+      oracle_text: 'Whenever a Merfolk you control becomes tapped, you may gain 1 life.',
+    };
+    const ctx = {
+      state: {
+        ...HAKBAL_MOROPHON_LEYLINE_GAME.state,
+        turnPlayer: 'p1',
+        priority: 'p1',
+        phase: 'precombatMain',
+        step: 'MAIN1',
+        stack: [],
+        zones: {
+          p1: {
+            hand: [card],
+            graveyard: [],
+            exile: [],
+          },
+        },
+        manaPool: {
+          p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      },
+    } as any;
+
+    expect(hasPayableAlternateCost(ctx, 'p1', card, [card.id], 'hand')).toBe(true);
+    expect(getCastableSpellCandidates(ctx, 'p1', {
+      mode: 'main',
+      allowUnknownCostFallback: false,
+      conservativeTargets: false,
+    })).toEqual([
+      expect.objectContaining({
+        card,
+        payability: 'alternate',
+      }),
+    ]);
+    expect(canAct(ctx, 'p1')).toBe(true);
   });
 
   it('resolves mutate and WUBRG alternate base costs from pending cast metadata', () => {

@@ -10,6 +10,7 @@ export interface StaticEffectSource {
   affectsAllPlayers?: boolean;
   phasedOut?: boolean;
   counters?: any;
+  chosenCreatureType?: string;
 }
 
 function normalizeModeLabel(label: string): string {
@@ -98,6 +99,12 @@ export function collectStaticEffectSources(
         typeLine: String(permanent.card?.type_line || permanent.card?.typeLine || ''),
         phasedOut: Boolean(permanent.phasedOut),
         counters: (permanent as any)?.counters,
+        chosenCreatureType: String(
+          permanent.chosenCreatureType
+          || permanent.card?.chosenCreatureType
+          || state?.morophonChosenType?.[String(permanent.id || '')]
+          || '',
+        ),
       });
     }
   }

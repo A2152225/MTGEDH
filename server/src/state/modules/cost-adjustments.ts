@@ -10,6 +10,7 @@ export interface CostAdjustmentEntry {
 export interface CostAdjustmentPlan {
   genericAdjustment: number;
   coloredReductions: Record<string, number>;
+  strictColoredReductions: Record<string, number>;
   totalAdjustment: number;
   sources: Array<{ name: string; amount: number }>;
   entries: CostAdjustmentEntry[];
@@ -35,6 +36,7 @@ function buildEmptyCostAdjustmentPlan(): CostAdjustmentPlan {
   return {
     genericAdjustment: 0,
     coloredReductions: {},
+    strictColoredReductions: {},
     totalAdjustment: 0,
     sources: [],
     entries: [],
@@ -152,6 +154,15 @@ export function buildCostAdjustmentPlan(
     plan.sources.push({ name: sourceName, amount: -normalizedAmount });
     plan.entries.push({ name: sourceName, amount: -normalizedAmount, color: normalizedColor });
   };
+  const addStrictColoredReduction = (sourceName: string, color: string, amount: number) => {
+    const normalizedColor = String(color || '').toUpperCase();
+    const normalizedAmount = Math.max(0, Number(amount) || 0);
+    if (!normalizedColor || !normalizedAmount) return;
+    plan.strictColoredReductions[normalizedColor] = (plan.strictColoredReductions[normalizedColor] || 0) + normalizedAmount;
+    plan.totalAdjustment -= normalizedAmount;
+    plan.sources.push({ name: sourceName, amount: -normalizedAmount });
+    plan.entries.push({ name: sourceName, amount: -normalizedAmount, color: normalizedColor });
+  };
 
   for (const source of costSources) {
     if (source.phasedOut) continue;
@@ -163,6 +174,22 @@ export function buildCostAdjustmentPlan(
     const sourceTextAppliesToPlayer = scopedSpellCostTextAppliesToPlayer(permOracle, source.controller, playerId, source.affectsAllPlayers);
     const sourceAppliesReductionToPlayer = sourceTextAppliesToPlayer;
     const sourceAppliesTaxToPlayer = sourceTextAppliesToPlayer;
+
+    const chosenType = String(source.chosenCreatureType || '').trim().toLowerCase();
+    const spellMatchesChosenType = Boolean(chosenType) && (
+      String(card?.type_line || '').toLowerCase().includes(chosenType)
+      || String(card?.oracle_text || '').toLowerCase().includes('changeling')
+    );
+    if (sourceAppliesReductionToPlayer && spellMatchesChosenType) {
+      const chosenTypeColoredReduction = permOracle.match(
+        /spells(?:\s+you\s+cast)?\s+of\s+the\s+chosen\s+type(?:\s+you\s+cast)?\s+cost\s+((?:\{[wubrgc]\})+)\s+less/i,
+      );
+      if (chosenTypeColoredReduction) {
+        for (const color of chosenTypeColoredReduction[1].match(/[wubrgc]/gi) || []) {
+          addStrictColoredReduction(sourceName, color, 1);
+        }
+      }
+    }
 
     if (sourceAppliesReductionToPlayer && permOracle.includes('spells') && permOracle.includes('cost') && permOracle.includes('less')) {
       const costReductionMatch = permOracle.match(/(?:(white|blue|black|red|green|colorless|artifact|enchantment|noncreature|creature|instant|sorcery)\s+)?(?:(creature|artifact|enchantment)\s+)?spells(?:\s+you\s+cast)?\s+cost\s+\{(\d+|[wubrgc])\}\s+less/i);
@@ -241,8 +268,13 @@ export function applyCostAdjustmentToParsedCost(
   const hasStructuredAdjustment = typeof adjustment !== 'number';
   const genericAdjustment = (hasStructuredAdjustment ? adjustment.genericAdjustment : adjustment) + extraGenericAdjustment;
   const coloredReductions = hasStructuredAdjustment ? adjustment.coloredReductions : {};
+  const strictColoredReductions = hasStructuredAdjustment ? (adjustment.strictColoredReductions || {}) : {};
 
-  if (!genericAdjustment && Object.keys(coloredReductions).length === 0) return parsedCost;
+  if (
+    !genericAdjustment
+    && Object.keys(coloredReductions).length === 0
+    && Object.keys(strictColoredReductions).length === 0
+  ) return parsedCost;
 
   const hybridEntries = Array.isArray(parsedCost.hybrid)
     ? parsedCost.hybrid.map((entry) => [...entry])
@@ -276,6 +308,11 @@ export function applyCostAdjustmentToParsedCost(
       const genericReduction = Math.min(result.generic, remainingColorReduction);
       result.generic -= genericReduction;
     }
+  }
+
+  for (const [color, count] of Object.entries(strictColoredReductions)) {
+    const available = result.colors[color] || 0;
+    result.colors[color] = Math.max(0, available - Math.max(0, Number(count) || 0));
   }
 
   let remainingReduction = Math.abs(Math.min(genericAdjustment, 0));
