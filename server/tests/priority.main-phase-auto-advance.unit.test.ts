@@ -112,6 +112,55 @@ describe('main-phase auto step-advance guard', () => {
     expect(state.priorityPassedBy.size).toBe(0);
   });
 
+  it('advances after the active AI explicitly exhausts its supported main-phase actions', () => {
+    const state: any = {
+      players: [
+        { id: 'p_ai', name: 'AI', seat: 0, isAI: true },
+        { id: 'p_other', name: 'Other', seat: 1 },
+      ],
+      battlefield: [],
+      stack: [],
+      zones: {
+        p_ai: {
+          hand: [{
+            id: 'spell_1',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            oracle_text: '',
+            mana_cost: '{1}{G}',
+          }],
+          handCount: 1,
+          library: [],
+          libraryCount: 0,
+          graveyard: [],
+        },
+        p_other: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [] },
+      },
+      priority: 'p_ai',
+      turnPlayer: 'p_ai',
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      priorityPassedBy: new Set<string>(),
+      autoPassPlayers: new Set(['p_ai', 'p_other']),
+      landsPlayedThisTurn: { p_ai: 1 },
+      manaPool: {
+        p_ai: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+        p_other: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      turnDirection: 1,
+    };
+
+    const ctx = buildCtx(state, 'ai_exhausted_main_phase_actions');
+    const result = passPriority(ctx, 'p_ai', true, {
+      allowActiveMainPhaseAutoAdvance: true,
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.advanceStep).toBe(true);
+    expect(state.priority).toBe('p_ai');
+    expect(state.priorityPassedBy.size).toBe(0);
+  });
+
   it('still advances MAIN1 when the active player manually passes with others already passed', () => {
     const state: any = {
       players: [

@@ -63,8 +63,10 @@ function shouldBlockStepAdvance(ctx: GameContext): boolean {
 function shouldProtectActiveMainPhaseFromAutoAdvance(
   ctx: GameContext,
   isAutoPass: boolean | undefined,
+  allowActiveMainPhaseAutoAdvance: boolean | undefined,
 ): boolean {
   if (!isAutoPass) return false;
+  if (allowActiveMainPhaseAutoAdvance) return false;
 
   const stateAny = ctx.state as any;
   const turnPlayer = stateAny.turnPlayer as PlayerID | undefined;
@@ -99,7 +101,12 @@ function turnPlayerHasNotDeclaredAttackers(stateAny: any, turnPlayer: PlayerID):
   return !attackersDeclaredBy.includes(turnPlayer);
 }
 
-export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: boolean): { changed: boolean; resolvedNow: boolean; advanceStep: boolean } {
+export function passPriority(
+  ctx: GameContext,
+  playerId: PlayerID,
+  isAutoPass?: boolean,
+  options?: { allowActiveMainPhaseAutoAdvance?: boolean },
+): { changed: boolean; resolvedNow: boolean; advanceStep: boolean } {
   const { state, passesInRow, bumpSeq } = ctx;
   
   // CRITICAL: During resolution (MTG Rule 608.2), priority is null
@@ -182,7 +189,7 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
         if (result.resolved) {
           // Another item was resolved from stack
           resolvedNow = true;
-        } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass)) {
+        } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass, options?.allowActiveMainPhaseAutoAdvance)) {
           denyEmptyStackAutoAdvance(ctx, 'active player still has main-phase actions after stack resolve');
         } else if (!shouldBlockStepAdvance(ctx)) {
           // Empty stack now - advance step
@@ -216,7 +223,7 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
       stateAny.priorityPassedBy = new Set<string>(); // Reset tracking
       // Priority stays with the active player (turn player) for the next step
       state.priority = turnPlayer;
-      if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass)) {
+      if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass, options?.allowActiveMainPhaseAutoAdvance)) {
         denyEmptyStackAutoAdvance(ctx, 'active player still has main-phase actions');
       } else if (!shouldBlockStepAdvance(ctx)) {
         advanceStep = true;
@@ -237,7 +244,7 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
           if (result.resolved) {
             // Stack was resolved
             resolvedNow = true;
-          } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass)) {
+          } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass, options?.allowActiveMainPhaseAutoAdvance)) {
             denyEmptyStackAutoAdvance(ctx, 'active player still has main-phase actions after auto-pass chain');
           } else if (!shouldBlockStepAdvance(ctx)) {
             // Empty stack - advance step
@@ -277,7 +284,7 @@ export function tryAutoPass(ctx: GameContext): { allPassed: boolean; resolved: b
       return { allPassed: true, resolved: true, advanceStep: false };
     } else if (shouldBlockStepAdvance(ctx)) {
       return { allPassed: false, resolved: false, advanceStep: false };
-    } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, true)) {
+    } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, true, false)) {
       denyEmptyStackAutoAdvance(ctx, 'active player still has main-phase actions (tryAutoPass)');
       return { allPassed: false, resolved: false, advanceStep: false };
     } else {

@@ -95,7 +95,11 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     participants: () => participants(ctx),
 
     // priority / turn control
-    passPriority: (playerId: PlayerID, isAutoPass?: boolean) => passPriority(ctx, playerId, isAutoPass),
+    passPriority: (
+      playerId: PlayerID,
+      isAutoPass?: boolean,
+      options?: { allowActiveMainPhaseAutoAdvance?: boolean },
+    ) => passPriority(ctx, playerId, isAutoPass, options),
     setTurnDirection: (dir: 1 | -1) => setTurnDirection(ctx, dir),
     nextTurn: () => nextTurn(ctx),
     nextStep: () => nextStep(ctx),

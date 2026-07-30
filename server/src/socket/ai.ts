@@ -9095,7 +9095,9 @@ export async function handleAIPriority(
       // This allows other players to get priority and potentially take actions
       // The step will advance automatically when all players pass priority
       debug(1, '[AI] Main phase, no more actions, passing priority');
-      await executePassPriority(io, gameId, playerId);
+      await executePassPriority(io, gameId, playerId, {
+        allowActiveMainPhaseAutoAdvance: true,
+      });
       return;
     }
     
@@ -11636,7 +11638,8 @@ async function handleAIResolutionStep(
 async function executePassPriority(
   io: Server,
   gameId: string,
-  playerId: PlayerID
+  playerId: PlayerID,
+  options?: { allowActiveMainPhaseAutoAdvance?: boolean },
 ): Promise<void> {
   const game = ensureGame(gameId);
   if (!game) return;
@@ -11650,7 +11653,7 @@ async function executePassPriority(
     // Use game's pass priority method if available
     // Mark as auto-pass so that autoPassLoop runs and checks if other players can also auto-pass
     if (typeof (game as any).passPriority === 'function') {
-      const result = (game as any).passPriority(playerId, true); // true = isAutoPass
+      const result = (game as any).passPriority(playerId, true, options); // true = isAutoPass
       resolvedNow = result?.resolvedNow ?? false;
       advanceStep = result?.advanceStep ?? false;
     } else {
