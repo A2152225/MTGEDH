@@ -1144,10 +1144,21 @@ function candidateMatchesSacrificeRequirement(
   }
 }
 
+/** Cap sacrifice-choice fan-out. Ashnod's Altar + N tokens is C(N,k) per activation. */
+const MAX_EXACT_SACRIFICE_BRANCHES = 3;
+
+/**
+ * Hard ceiling on exact-payment search nodes. Without this, repeatable sacrifice
+ * outlets (Ashnod's Altar) plus many creatures / dual lands allocate gigabytes
+ * during canAct / cast-candidate checks and freeze join/resume.
+ */
+const EXACT_MANA_SEARCH_NODE_BUDGET = 25_000;
+
 function removeSacrificeCandidates(
   candidates: ExactSacrificeCandidate[],
   requirement: NonNullable<ExactManaSourceOption['sacrificeCost']>,
   sourcePermanentId: string,
+  manaSourcePermanentIds?: Set<string>,
 ): ExactCandidateRemovalResult<ExactSacrificeCandidate>[] {
   const requiredCount = Math.max(1, Number(requirement.count || 1));
   const matchingCandidates = candidates.filter((candidate) =>
@@ -1157,6 +1168,16 @@ function removeSacrificeCandidates(
   if (matchingCandidates.length < requiredCount) {
     return [];
   }
+
+  // Prefer sacrificing non-mana-sources first (tokens over mana elves), then cap
+  // fan-out so exact search stays tractable with wide boards.
+  const ranked = matchingCandidates.slice().sort((a, b) => {
+    const aIsSource = manaSourcePermanentIds?.has(a.id) ? 1 : 0;
+    const bIsSource = manaSourcePermanentIds?.has(b.id) ? 1 : 0;
+    return aIsSource - bIsSource;
+  });
+  const branchCandidateLimit = Math.max(requiredCount, MAX_EXACT_SACRIFICE_BRANCHES);
+  const branchCandidates = ranked.slice(0, branchCandidateLimit);
 
   const results: ExactCandidateRemovalResult<ExactSacrificeCandidate>[] = [];
   const choose = (startIndex: number, chosenIds: string[]) => {
@@ -1169,8 +1190,8 @@ function removeSacrificeCandidates(
       return;
     }
 
-    for (let index = startIndex; index < matchingCandidates.length; index += 1) {
-      choose(index + 1, chosenIds.concat(matchingCandidates[index].id));
+    for (let index = startIndex; index < branchCandidates.length; index += 1) {
+      choose(index + 1, chosenIds.concat(branchCandidates[index].id));
     }
   };
 
@@ -2403,6 +2424,11 @@ export function canPayManaCostWithAvailableSources(
   const restrictedSpendPurpose = options?.restrictedSpendPurpose;
   const memo = new Map<string, boolean>();
   const visiting = new Set<string>();
+  const manaSourcePermanentIds = new Set(
+    sources.map((source) => String(source.permanentId || '')).filter(Boolean),
+  );
+  let nodesVisited = 0;
+  let budgetExceeded = false;
 
   const search = (
     pool: Record<SimpleManaKey, number>,
@@ -2411,6 +2437,15 @@ export function canPayManaCostWithAvailableSources(
     remainingBattlefieldCandidates: ExactSacrificeCandidate[],
     remainingHandCandidates: ExactHandCandidate[],
   ): boolean => {
+    if (budgetExceeded) {
+      return false;
+    }
+    nodesVisited += 1;
+    if (nodesVisited > EXACT_MANA_SEARCH_NODE_BUDGET) {
+      budgetExceeded = true;
+      return false;
+    }
+
     if (canPayManaCost(pool, parsedCost, life)) {
       return true;
     }
@@ -2419,7 +2454,11 @@ export function canPayManaCostWithAvailableSources(
       return false;
     }
 
-    const key = `${normalizePoolSignature(pool)}|${life}|${remainingSources.map((source) => source.id).join(',')}|${remainingBattlefieldCandidates.map((candidate) => candidate.id).join(',')}|${remainingHandCandidates.map((candidate) => candidate.id).join(',')}`;
+    // Candidate identity for memo: count + small fingerprint. Full id lists with
+    // dozens of tokens explode memo memory alongside the search tree.
+    const battlefieldFingerprint = `${remainingBattlefieldCandidates.length}:${remainingBattlefieldCandidates.slice(0, 4).map((c) => c.id).join(',')}`;
+    const handFingerprint = `${remainingHandCandidates.length}:${remainingHandCandidates.slice(0, 4).map((c) => c.id).join(',')}`;
+    const key = `${normalizePoolSignature(pool)}|${life}|${remainingSources.map((source) => source.id).join(',')}|${battlefieldFingerprint}|${handFingerprint}`;
     const cached = memo.get(key);
     if (typeof cached === 'boolean') {
       return cached;
@@ -2431,12 +2470,18 @@ export function canPayManaCostWithAvailableSources(
     visiting.add(key);
 
     for (let index = 0; index < remainingSources.length; index += 1) {
+      if (budgetExceeded) {
+        break;
+      }
       const source = remainingSources[index];
       const nextRemainingSources = remainingSources
         .slice(0, index)
         .concat(remainingSources.slice(index + 1));
 
       for (const option of source.options) {
+        if (budgetExceeded) {
+          break;
+        }
         let workingPool = createSimpleManaPool(pool);
         let workingLife = life;
 
@@ -2496,6 +2541,7 @@ export function canPayManaCostWithAvailableSources(
               branchState.remainingBattlefieldCandidates,
               option.sacrificeCost,
               source.permanentId,
+              manaSourcePermanentIds,
             );
             for (const sacrificeRemovalSet of sacrificeRemovalSets) {
               const removedIds = new Set(sacrificeRemovalSet.removedIds);
@@ -2567,5 +2613,15 @@ export function canPayManaCostWithAvailableSources(
     return false;
   };
 
-  return search(floatingPool, effectiveLifeAvailable, sources, battlefieldCandidates, handCandidates);
+  const exactResult = search(floatingPool, effectiveLifeAvailable, sources, battlefieldCandidates, handCandidates);
+  if (exactResult) {
+    return true;
+  }
+
+  if (budgetExceeded) {
+    debug(2, `[mana-check] exact payment search hit node budget (${EXACT_MANA_SEARCH_NODE_BUDGET}); falling back to available-mana estimate`);
+    return canPayManaCost(getAvailableMana(state, playerId), parsedCost, effectiveLifeAvailable);
+  }
+
+  return false;
 }
