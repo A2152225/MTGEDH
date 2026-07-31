@@ -16033,7 +16033,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           } else if (toZone === 'library' && card) {
             const lib = ctx.libraries.get(playerId) || [];
             if (!lib.some((entry: any) => entry && String(entry.id || '') === String(card.id || ''))) {
-              lib.unshift({ ...card, zone: 'library' });
+              const placement = String((e as any).libraryPlacement || '').trim().toLowerCase() === 'bottom'
+                ? 'bottom'
+                : 'top';
+              if (placement === 'bottom') {
+                lib.push({ ...card, zone: 'library' });
+              } else {
+                lib.unshift({ ...card, zone: 'library' });
+              }
               ctx.libraries.set(playerId, lib);
               const zones = (ctx.state as any).zones || {};
               const z = zones[playerId] = zones[playerId] || {};

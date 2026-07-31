@@ -1890,6 +1890,7 @@ export function discardCardsForPlayer(
     ...card,
     ownerId: playerId,
     owner: playerId,
+    discardedByPlayerId: playerId,
   }));
 
   const stepIndex = bridgeOptions?.stepIndex;
@@ -1916,7 +1917,19 @@ export function discardCardsForPlayer(
         halted: true,
       };
     }
-    const actualCount = commitResult.movedCards.length;
+    const actualCount = Math.max(commitResult.movedCards.length, stampedDiscarded.length);
+    // Prefer stampedDiscarded for replay identity — bridge movedCards can lose owner/id stamps.
+    const discardedCardsForReplay = stampedDiscarded.map((card: any, index: number) => {
+      const moved = commitResult.movedCards[index];
+      return {
+        ...(moved && typeof moved === 'object' ? moved : {}),
+        ...card,
+        id: String(card?.id || moved?.id || '').trim() || card?.id,
+        ownerId: playerId,
+        owner: playerId,
+        discardedByPlayerId: playerId,
+      };
+    });
     log.push(`${playerId} discards ${actualCount} card(s)`);
     return {
       state: commitResult.state,
@@ -1924,7 +1937,7 @@ export function discardCardsForPlayer(
       applied: true,
       needsChoice: false,
       discardedCount: actualCount,
-      discardedCards: commitResult.movedCards,
+      discardedCards: discardedCardsForReplay,
       ledgerRecordedViaBridge: commitResult.ledgerRecordedViaBridge,
     };
   }
@@ -1983,6 +1996,7 @@ export function discardSpecificCardsForPlayer(
     ...card,
     ownerId: playerId,
     owner: playerId,
+    discardedByPlayerId: playerId,
   }));
 
   const stepIndex = bridgeOptions?.stepIndex;
@@ -2009,13 +2023,24 @@ export function discardSpecificCardsForPlayer(
         halted: true,
       };
     }
-    log.push(`${playerId} discards ${commitResult.movedCards.length} chosen card(s)`);
+    const discardedCardsForReplay = stampedDiscarded.map((card: any, index: number) => {
+      const moved = commitResult.movedCards[index];
+      return {
+        ...(moved && typeof moved === 'object' ? moved : {}),
+        ...card,
+        id: String(card?.id || moved?.id || '').trim() || card?.id,
+        ownerId: playerId,
+        owner: playerId,
+        discardedByPlayerId: playerId,
+      };
+    });
+    log.push(`${playerId} discards ${Math.max(commitResult.movedCards.length, stampedDiscarded.length)} chosen card(s)`);
     return {
       state: commitResult.state,
       log,
       applied: true,
-      discardedCount: commitResult.movedCards.length,
-      discardedCards: commitResult.movedCards,
+      discardedCount: Math.max(commitResult.movedCards.length, stampedDiscarded.length),
+      discardedCards: discardedCardsForReplay,
       missingCardIds: [],
       ledgerRecordedViaBridge: commitResult.ledgerRecordedViaBridge,
     };

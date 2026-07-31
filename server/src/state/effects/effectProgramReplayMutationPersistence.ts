@@ -132,6 +132,7 @@ function persistReplayMutation(
         card: mutation.card,
         ...(mutation.permanentId ? { permanentId: mutation.permanentId } : {}),
         ...(mutation.fromPermanentId ? { fromPermanentId: mutation.fromPermanentId } : {}),
+        ...(mutation.libraryPlacement ? { libraryPlacement: mutation.libraryPlacement } : {}),
         ...mutationPayload,
       });
       return;

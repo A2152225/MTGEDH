@@ -1208,7 +1208,8 @@ const GAP_CASES: GapCase[] = [
   {
     name: 'The Immortal Sun (draw step additional card)',
     oracle_text: 'At the beginning of your draw step, draw an additional card.',
-    detect: () => detectDrawStepTriggers({ name: 'The Immortal Sun', oracle_text: 'At the beginning of your draw step, draw an additional card.' }, permanent).length > 0,
+    // Additional-draw draw-step effects are applied via calculateAdditionalDraws, not the stack.
+    detect: () => detectDrawStepTriggers({ name: 'The Immortal Sun', oracle_text: 'At the beginning of your draw step, draw an additional card.' }, permanent).length === 0,
   },
   {
     name: 'Harsh Mentor (opponent activates nonmana ability)',
@@ -1403,7 +1404,8 @@ const GAP_CASES: GapCase[] = [
   {
     name: 'Kami of the Crescent Moon (each player draw step)',
     oracle_text: "At the beginning of each player's draw step, that player draws an additional card.",
-    detect: () => detectDrawStepTriggers({ name: 'Kami of the Crescent Moon', oracle_text: "At the beginning of each player's draw step, that player draws an additional card." }, permanent).length > 0,
+    // Additional-draw draw-step effects are applied via calculateAdditionalDraws, not the stack.
+    detect: () => detectDrawStepTriggers({ name: 'Kami of the Crescent Moon', oracle_text: "At the beginning of each player's draw step, that player draws an additional card." }, permanent).length === 0,
   },
   {
     name: 'Agrus Kos (named target of ability that targets only it)',

@@ -1374,6 +1374,46 @@ export function detectSpellLandBonus(cardName: string, oracleText: string): numb
  * Calculate the number of additional cards to draw during draw step
  * based on battlefield permanents
  */
+function parseAdditionalDrawFromOracle(oracleText: string): {
+  draws: number;
+  affectsAll: boolean;
+  requiresUntapped: boolean;
+} | null {
+  const text = String(oracleText || '');
+  if (!/at the beginning of (?:your|each player's) draw step/i.test(text)) return null;
+
+  const additionalMatch = text.match(
+    /at the beginning of (your|each player's) draw step,\s*(?:if\s+.+?\s+is\s+untapped,\s*)?(?:that player\s+)?draws?\s+(?:(an?|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?additional\s+cards?/i,
+  );
+  if (!additionalMatch) return null;
+
+  const amountRaw = String(additionalMatch[2] || 'an').trim().toLowerCase();
+  const wordToNum: Record<string, number> = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+  const draws = /^\d+$/.test(amountRaw)
+    ? Number.parseInt(amountRaw, 10)
+    : (wordToNum[amountRaw] ?? 1);
+  if (!Number.isFinite(draws) || draws <= 0) return null;
+
+  return {
+    draws,
+    affectsAll: /^each player's$/i.test(String(additionalMatch[1] || '')),
+    requiresUntapped: /if\s+.+?\s+is\s+untapped/i.test(text),
+  };
+}
+
 export function calculateAdditionalDraws(ctx: GameContext, playerId: string): number {
   let additionalDraws = 0;
   
@@ -1381,13 +1421,15 @@ export function calculateAdditionalDraws(ctx: GameContext, playerId: string): nu
   
   for (const perm of battlefield) {
     const cardName = (perm.card?.name || "").toLowerCase();
+    let foundInKnownList = false;
     
     for (const [knownName, effect] of Object.entries(ADDITIONAL_DRAW_CARDS)) {
       if (cardName.includes(knownName) && effect.draws > 0) {
         // Check if this card requires being untapped (e.g., Howling Mine)
         // "At the beginning of each player's draw step, if Howling Mine is untapped, that player draws an additional card."
         if (effect.requiresUntapped && perm.tapped) {
-          continue; // Skip tapped permanents that require being untapped
+          foundInKnownList = true;
+          break;
         }
         
         const isController = perm.controller === playerId;
@@ -1401,7 +1443,20 @@ export function calculateAdditionalDraws(ctx: GameContext, playerId: string): nu
         } else if (effect.affectsOpponents && isOpponent) {
           additionalDraws += effect.draws;
         }
+        foundInKnownList = true;
+        break;
       }
+    }
+
+    if (foundInKnownList) continue;
+
+    const parsed = parseAdditionalDrawFromOracle(String(perm.card?.oracle_text || ''));
+    if (!parsed) continue;
+    if (parsed.requiresUntapped && perm.tapped) continue;
+
+    const isController = perm.controller === playerId;
+    if (parsed.affectsAll || isController) {
+      additionalDraws += parsed.draws;
     }
   }
   

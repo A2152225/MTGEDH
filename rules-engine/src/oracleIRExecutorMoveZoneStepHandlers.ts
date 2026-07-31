@@ -4534,18 +4534,88 @@ export function applyMoveZoneStep(
   }
 
   if (parsedTheCardsFromYourHand && step.to === 'library') {
-    const result = shuffleCardsFromHandIntoLibrary(nextState, controllerId);
-    return buildAppliedResult({
-      state: result.state,
-      log: result.log.length > 0 ? result.log : [`Shuffled hand into library: ${step.raw}`],
-    });
+    const placement = getLibraryPlacement(step) || 'bottom';
+    const handOwnerId =
+      parsedTheCardsFromYourHand.possessive === 'their'
+        ? (getTargetPlayerId(ctx) || controllerId)
+        : controllerId;
+    const player = nextState.players.find((p) => p.id === handOwnerId) as any;
+    const hand = Array.isArray(player?.hand) ? player.hand : [];
+    if (hand.length === 0) {
+      return buildAppliedResult(
+        {
+          state: nextState,
+          log: [`No hand cards to move: ${step.raw}`],
+          lastMovedCards: [],
+          lastReferenceAmount: 0,
+          fromZone: 'hand',
+          toZone: 'library',
+        },
+        ctx,
+      );
+    }
+    const result = moveCountFromHandToLibrary(
+      nextState,
+      handOwnerId,
+      hand.length,
+      placement === 'top' ? 'top' : 'bottom',
+      getChosenObjectIds(ctx),
+    );
+    if (result.kind === 'player_choice_required') {
+      // "in any order" — auto-apply current hand order when no explicit choice ids were provided.
+      const auto = moveCountFromHandToLibrary(
+        nextState,
+        handOwnerId,
+        hand.length,
+        placement === 'top' ? 'top' : 'bottom',
+        hand.map((card: any) => String(card?.id || '').trim()).filter(Boolean),
+      );
+      if (auto.kind !== 'applied') {
+        return {
+          applied: false,
+          message: `Skipped move zone (needs player card selection): ${step.raw}`,
+          reason: 'player_choice_required',
+          options: { classification: 'player_choice' },
+        };
+      }
+      return buildAppliedResult(
+        {
+          state: auto.state,
+          log: auto.log.length > 0 ? auto.log : [`Put hand on library ${placement}: ${step.raw}`],
+          lastMovedCards: auto.movedCards,
+          lastReferenceAmount: auto.movedCards.length,
+          fromZone: 'hand',
+          toZone: 'library',
+        },
+        ctx,
+      );
+    }
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (not enough hand cards): ${step.raw}`,
+        reason: 'impossible_action',
+        options: { persist: false },
+      };
+    }
+    return buildAppliedResult(
+      {
+        state: result.state,
+        log: result.log.length > 0 ? result.log : [`Put hand on library ${placement}: ${step.raw}`],
+        lastMovedCards: result.movedCards,
+        lastReferenceAmount: result.movedCards.length,
+        fromZone: 'hand',
+        toZone: 'library',
+      },
+      ctx,
+    );
   }
 
   if (
     parsedTheCardsFromTargetOpponentHand &&
-    step.to === 'library' &&
-    getLibraryPlacement(step) === 'top'
+    step.to === 'library'
   ) {
+    const placement = getLibraryPlacement(step) || 'top';
     const targetPlayerId = getTargetPlayerId(ctx);
     if (!targetPlayerId) {
       return {
@@ -4557,22 +4627,46 @@ export function applyMoveZoneStep(
     const player = nextState.players.find(p => p.id === targetPlayerId) as any;
     const hand = Array.isArray(player?.hand) ? player.hand : [];
     if (hand.length === 0) {
-      return buildAppliedResult({ state: nextState, log: [`No hand cards to move: ${step.raw}`] });
+      return buildAppliedResult({
+        state: nextState,
+        log: [`No hand cards to move: ${step.raw}`],
+        lastMovedCards: [],
+        lastReferenceAmount: 0,
+        fromZone: 'hand',
+        toZone: 'library',
+      }, ctx);
     }
     const result = moveCountFromHandToLibrary(
       nextState,
       targetPlayerId,
       hand.length,
-      'top',
+      placement === 'bottom' ? 'bottom' : 'top',
       getChosenObjectIds(ctx)
     );
     if (result.kind === 'player_choice_required') {
-      return {
-        applied: false,
-        message: `Skipped move zone (needs player card selection): ${step.raw}`,
-        reason: 'player_choice_required',
-        options: { classification: 'player_choice' },
-      };
+      const auto = moveCountFromHandToLibrary(
+        nextState,
+        targetPlayerId,
+        hand.length,
+        placement === 'bottom' ? 'bottom' : 'top',
+        hand.map((card: any) => String(card?.id || '').trim()).filter(Boolean),
+      );
+      if (auto.kind !== 'applied') {
+        return {
+          applied: false,
+          message: `Skipped move zone (needs player card selection): ${step.raw}`,
+          reason: 'player_choice_required',
+          options: { classification: 'player_choice' },
+        };
+      }
+      return buildAppliedResult({
+        state: auto.state,
+        log: auto.log.length > 0 ? auto.log : [`Moved hand to library ${placement}: ${step.raw}`],
+        lastMovedCards: auto.movedCards,
+        lastReferenceAmount: auto.movedCards.length,
+        fromZone: 'hand',
+        toZone: 'library',
+      }, ctx);
     }
     if (result.kind === 'impossible') {
       return {
@@ -4584,8 +4678,12 @@ export function applyMoveZoneStep(
     }
     return buildAppliedResult({
       state: result.state,
-      log: result.log.length > 0 ? result.log : [`Moved opponent hand to library top: ${step.raw}`],
-    });
+      log: result.log.length > 0 ? result.log : [`Moved hand to library ${placement}: ${step.raw}`],
+      lastMovedCards: result.movedCards,
+      lastReferenceAmount: result.movedCards.length,
+      fromZone: 'hand',
+      toZone: 'library',
+    }, ctx);
   }
 
   if (parsedCountFromHand?.topOrBottomBoth && step.to === 'library') {

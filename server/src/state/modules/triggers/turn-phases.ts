@@ -728,47 +728,28 @@ export function getEndStepTriggers(
 /**
  * Detect draw step triggers from a card's oracle text
  * Pattern: "At the beginning of your draw step" or "At the beginning of each player's draw step"
- * 
- * IMPORTANT: This should only detect actual TRIGGERS, not replacement effects!
- * Cards like Font of Mythos, Howling Mine, Kami of the Crescent Moon, Rites of Flourishing, Puzzlebox
- * have text like "At the beginning of each player's draw step, that player draws X additional cards."
- * These are REPLACEMENT EFFECTS that modify the draw, not triggers that go on the stack.
- * 
- * Replacement effects should NOT require passing priority - they're handled automatically
- * by the draw calculation in game-state-effects.ts (calculateAdditionalDraws).
+ *
+ * IMPORTANT: Do not put "draws additional card(s)" draw-step effects on the stack.
+ * Cards like Font of Mythos / Howling Mine / Kami of the Crescent Moon are handled by
+ * calculateAdditionalDraws in game-state-effects.ts (extra cards drawn as the turn-based
+ * draw action). Real triggers such as Teferi's Puzzle Box still go on the stack.
  */
+function isAdditionalDrawOnlyEffect(effect: string): boolean {
+  const text = String(effect || '').trim();
+  if (!text) return false;
+  // Entire remaining effect is only "… draws/draw N additional card(s)" (optional intervening-if).
+  return /^(?:if\b.+?,\s*)?(?:that player\s+)?draws?\s+(?:(?:an?|\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?additional\s+cards?\.?$/i.test(
+    text,
+  );
+}
+
 export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigger[] {
   const triggers: DrawStepTrigger[] = [];
   const oracleText = (card?.oracle_text || "");
-  const cardName = (card?.name || "Unknown").toLowerCase();
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
-  
-  // List of cards that are replacement effects, NOT triggers
-  // These modify the draw but don't use the stack
-  const replacementEffectCards = [
-    'font of mythos',
-    'howling mine',
-    'kami of the crescent moon',
-    'rites of flourishing',
-    'dictate of kruphix',
-    'temple bell', // Activated ability, not a trigger
-    'mikokoro, center of the sea', // Activated ability
-    'geier reach sanitarium', // Activated ability
-    'seizan, perverter of truth',
-    'well of ideas',
-    'minds aglow',
-    'prosperity',
-    'font of fortunes',
-    'jace beleren',
-    'anvil of bogardan',
-    'spiteful visions',
-    'nekusar',
-    'teferi\'s puzzle box', // Puzzlebox
-  ];
-  
+
   const lowerOracle = oracleText.toLowerCase();
-  const isKnownReplacementCard = replacementEffectCards.some(name => cardName.includes(name));
   const hasExplicitDrawStepTrigger = /at the beginning of (?:your|each(?: player's)?) draw step/i.test(oracleText);
   if (
     !hasExplicitDrawStepTrigger &&
@@ -777,40 +758,27 @@ export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigg
   ) {
     return triggers;
   }
-  
+
   const eachOfYourDrawMatch = oracleText.match(/at the beginning of each of your draw steps,?\s*([^.]+)/i);
   if (eachOfYourDrawMatch) {
     const effect = timingTriggerEffect(oracleText, eachOfYourDrawMatch);
-    triggers.push({
-      permanentId,
-      cardName: card?.name || 'Unknown',
-      controllerId,
-      description: effect,
-      effect,
-      mandatory: true,
-    });
+    if (!isAdditionalDrawOnlyEffect(effect)) {
+      triggers.push({
+        permanentId,
+        cardName: card?.name || 'Unknown',
+        controllerId,
+        description: effect,
+        effect,
+        mandatory: true,
+      });
+    }
   }
 
-  // "At the beginning of your draw step" - actual triggers
+  // "At the beginning of your draw step" - actual triggers (skip additional-draw-only)
   const yourDrawMatch = oracleText.match(/at the beginning of your draw step,?\s*([^.]+)/i);
   if (yourDrawMatch) {
     const effect = timingTriggerEffect(oracleText, yourDrawMatch);
-    triggers.push({
-      permanentId,
-      cardName: card?.name || "Unknown",
-      controllerId,
-      description: effect,
-      effect: effect,
-      mandatory: true,
-    });
-  }
-
-  // "At the beginning of each player's draw step" - actual triggers
-  const eachDrawMatch = oracleText.match(/at the beginning of each player's draw step,?\s*([^.]+)/i);
-  if (eachDrawMatch) {
-    const effect = timingTriggerEffect(oracleText, eachDrawMatch);
-    const isReplacementDraw = /\bdraw(?:s)? (?:\w+ )?additional cards?\b/i.test(effect);
-    if (hasExplicitDrawStepTrigger || !isKnownReplacementCard || isReplacementDraw) {
+    if (!isAdditionalDrawOnlyEffect(effect)) {
       triggers.push({
         permanentId,
         cardName: card?.name || "Unknown",
@@ -818,11 +786,26 @@ export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigg
         description: effect,
         effect: effect,
         mandatory: true,
-        triggerType: (isReplacementDraw || isKnownReplacementCard) ? ('replacement_draw' as any) : undefined,
-      } as DrawStepTrigger);
+      });
     }
   }
-  
+
+  // "At the beginning of each player's draw step" - actual triggers (skip additional-draw-only)
+  const eachDrawMatch = oracleText.match(/at the beginning of each player's draw step,?\s*([^.]+)/i);
+  if (eachDrawMatch) {
+    const effect = timingTriggerEffect(oracleText, eachDrawMatch);
+    if (!isAdditionalDrawOnlyEffect(effect)) {
+      triggers.push({
+        permanentId,
+        cardName: card?.name || "Unknown",
+        controllerId,
+        description: effect,
+        effect: effect,
+        mandatory: true,
+      });
+    }
+  }
+
   return triggers;
 }
 

@@ -9269,6 +9269,47 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     } as unknown as OracleEffectStep];
   }
 
+  // Teferi's Puzzle Box / similar: put hand on bottom in any order, then draw that many.
+  // Must run before pass40 (`^put\b`) and the late `^that player ` catch-all.
+  // Use "that player's hand" (not "their hand") so repairMoveZoneStep / normalizeBoundPlayerZoneSelectorText
+  // does not rewrite the selector into "target opponent's hand".
+  {
+    const handBottomThenDraw = raw.match(
+      /^(?:that\s+player\s+)?puts?\s+the\s+cards\s+in\s+(your|their)\s+hand\s+on\s+the\s+bottom\s+of\s+(?:your|their)\s+library\s+in\s+any\s+order(?:,?\s+then\s+draws?\s+that\s+many\s+cards)?$/i,
+    );
+    if (handBottomThenDraw) {
+      const possessive = String(handBottomThenDraw[1] || 'your').toLowerCase() === 'their' ? 'their' : 'your';
+      const usesThatPlayer = /^that\s+player\b/i.test(raw) || possessive === 'their';
+      const who = usesThatPlayer
+        ? parsePlayerSelector('that player')
+        : { kind: 'you' as const };
+      const whatText = possessive === 'their'
+        ? "the cards from that player's hand"
+        : 'the cards in your hand';
+      const steps: OracleEffectStep[] = [
+        {
+          kind: 'move_zone',
+          what: parseObjectSelector(whatText),
+          to: 'library',
+          toRaw: usesThatPlayer ? "bottom of that player's library" : 'bottom of your library',
+          libraryPlacement: 'bottom',
+          raw: String(raw).replace(/,?\s+then\s+draws?\s+that\s+many\s+cards\.?$/i, '').trim(),
+          ...sequence,
+        } as unknown as OracleEffectStep,
+      ];
+      if (/then\s+draws?\s+that\s+many\s+cards/i.test(raw)) {
+        steps.push({
+          kind: 'draw',
+          who,
+          amount: { kind: 'reference_amount', raw: 'that many' },
+          raw: `${usesThatPlayer ? 'that player draws' : 'draw'} that many cards`,
+          sequence: 'then',
+        } as unknown as OracleEffectStep);
+      }
+      return steps;
+    }
+  }
+
   if (/^(?:unleash\b|then\s+puts\s+one\s+onto\s+the\s+battlefield\s+face\s+down|(?:iv|v)\s+-\s+|jin-gitaxias\b|judge\b|jump\b|just\b|keyword\s*[→-]|kicker\b|kithkin\b|knights\b|kodama(?:'|’)s\s+reach\b|koh\b|kumena\b|land\b|landfall\b|lands\b|leave\b|legacy\b|legendary\s+partner\b|let(?:'|’)s\s+go\b|lethal\b|level\s+up\b|leviathan,\s+octopus,\s+or\s+serpent\b|life\s+and\s+limb\b|lifelink\b|lightning\s+bolt\b|liliana\b|look\b|lord\s+of\s+atlantis\b|loyalty\b|make\b|mana\b|manifest\b|mayhem\b|megalegendary\b|memory\s+lapse\b|menace\b|merchant\s+scroll\b|merfolk\b|merrow\b|mill\s+cards\s+equal\b|mobilize\b|modular-sunburst\b|monstrosity\b|moonfolk\s+offering\b|morph-|motivate\b|move\b|multicleave\b|multikicker\b|multiple\s+instances\b|myriad\b|nagas\b|name\b|negamorph\b|nice\s+try\b|ninjutsu\b|no\b|non-|noncreature\b|nonland\b|nontoken\b|note\b|offer\b|oil\b|oildying\b|oko\s+becomes\b|on\s+any\s+other\s+date\b|once\b|one\s+at\s+a\s+time\b|one\s+or\s+two\b|onionfect\b|only\b|opalescence\b|open\b|opponent\s+dredge\b|opponents\b|or\b|other\b|otherwise\b)/i.test(raw)) {
     return staticMetadata('pass39 residual', raw);
   }
@@ -10185,8 +10226,17 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return staticMetadata('it', 'enters tapped');
   }
 
-  if (/^put\s+the\s+cards\s+in\s+your\s+hand\s+on\s+the\s+bottom\s+of\s+your\s+library\s+in\s+any\s+order$/i.test(raw)) {
-    return [{ kind: 'move_zone', what: parseObjectSelector('the cards in your hand'), to: 'library', toRaw: 'bottom of your library', raw, ...sequence } as unknown as OracleEffectStep];
+  if (/^put\s+the\s+cards\s+in\s+(?:your|their)\s+hand\s+on\s+the\s+bottom\s+of\s+(?:your|their)\s+library\s+in\s+any\s+order$/i.test(raw)) {
+    const possessive = /\bin their hand\b/i.test(raw) ? 'their' : 'your';
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector(`the cards in ${possessive} hand`),
+      to: 'library',
+      toRaw: `bottom of ${possessive} library`,
+      libraryPlacement: 'bottom',
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep];
   }
 
   if (/^put\s+those\s+counters\s+on\s+up\s+to\s+one\s+target\s+creature$/i.test(raw)) {
@@ -28852,6 +28902,39 @@ export function repairMoveZoneSelectorSteps(steps: readonly OracleEffectStep[]):
   return steps.map((step) => repairMoveZoneStep(step));
 }
 
+/** After "that player puts hand on bottom…", elided "then draws that many" must keep that player. */
+export function repairThatPlayerHandBottomThenDrawSteps(
+  steps: readonly OracleEffectStep[],
+): OracleEffectStep[] {
+  if (steps.length < 2) return [...steps];
+  const out: OracleEffectStep[] = [];
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
+    const next = steps[index + 1];
+    if (
+      step?.kind === 'move_zone'
+      && next?.kind === 'draw'
+      && step.to === 'library'
+      && (step.libraryPlacement === 'bottom' || /\bbottom\b/i.test(String(step.toRaw || '')))
+      && /that player's hand|their hand/i.test(String((step.what as any)?.text || step.raw || ''))
+      && (next.amount as any)?.kind === 'reference_amount'
+      && /that many/i.test(String((next.amount as any)?.raw || ''))
+      && (next.who as any)?.kind === 'you'
+      && (/^then\b/i.test(String(next.raw || '')) || next.sequence === 'then')
+    ) {
+      out.push(step);
+      out.push({
+        ...next,
+        who: parsePlayerSelector('that player'),
+      } as OracleEffectStep);
+      index += 1;
+      continue;
+    }
+    out.push(step);
+  }
+  return out;
+}
+
 export function repairGraveyardChooseThenReturnSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
   const out: OracleEffectStep[] = [];
   let index = 0;
@@ -29301,7 +29384,9 @@ function repairAbilityExecutionSteps(steps: readonly OracleEffectStep[]): Oracle
           repairCompoundExileLookSteps(
             repairGraveyardChooseThenReturnSteps(
               repairCopyRetargetTailSteps(
-                repairMoveZoneSelectorSteps(steps),
+                repairThatPlayerHandBottomThenDrawSteps(
+                  repairMoveZoneSelectorSteps(steps),
+                ),
               ),
             ),
           ),

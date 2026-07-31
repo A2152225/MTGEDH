@@ -5,6 +5,10 @@ import { createCustomEmblem } from './emblemSupport';
 import type { OracleIRExecutionContext, OracleIRExecutionOptions } from './oracleIRExecutionTypes';
 import type { OracleIRReplayMutation } from './oracleIRReplayMutations';
 import { omitBridgedStepCarryOver, usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
+import {
+  buildDiscardEffectReplayMutationsFromCards,
+  type OracleIRReplayMutation,
+} from './oracleIRReplayMutations';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
 import { resolveOracleIrBoundTargetSpellId } from './oracleIrTargetBinding';
@@ -90,8 +94,36 @@ function buildPlayerZoneBridgeOptions(
 function withDiscardLedgerFlags<T extends Record<string, unknown>>(
   result: T,
   ledgerRecordedViaBridge?: boolean,
+  options?: { discardDestination?: 'graveyard' | 'exile' },
 ): T & { skipLedgerFlush?: boolean } {
-  return omitBridgedStepCarryOver(result, { ledgerRecordedViaBridge });
+  let next: T = result;
+  // Server-bridge discards flush the ledger themselves and omit lastDiscardedCards.
+  // Promote those cards into replayMutations first so Windfall-style wheels survive event-log replay.
+  if (ledgerRecordedViaBridge) {
+    const cards = Array.isArray((result as any).lastDiscardedCards)
+      ? ((result as any).lastDiscardedCards as any[])
+      : [];
+    if (cards.length > 0) {
+      const existing = Array.isArray((result as any).replayMutations)
+        ? ([...(result as any).replayMutations] as OracleIRReplayMutation[])
+        : [];
+      const hasDiscardMutations = existing.some((mutation) => mutation?.kind === 'discardEffect');
+      if (!hasDiscardMutations) {
+        const destination = options?.discardDestination
+          || ((result as any).discardDestination === 'exile' ? 'exile' : 'graveyard');
+        const promoted = buildDiscardEffectReplayMutationsFromCards(cards, destination);
+        // Only attach when non-empty. An empty replayMutations array would block
+        // collectReplayMutationsFromAppliedStep's discard fallback after omit strips cards.
+        if (promoted.length > 0) {
+          next = {
+            ...result,
+            replayMutations: [...existing, ...promoted],
+          } as T;
+        }
+      }
+    }
+  }
+  return omitBridgedStepCarryOver(next, { ledgerRecordedViaBridge });
 }
 
 type StepApplyResult = {
@@ -5962,6 +5994,7 @@ export function applyDiscardStep(
     const log: string[] = [];
     let totalDiscarded = 0;
     const allDiscarded: any[] = [];
+    let ledgerRecordedViaBridge = false;
     for (const playerId of players) {
       const player = nextState.players.find((entry) => entry.id === playerId) as any;
       const hand = Array.isArray(player?.hand) ? [...player.hand] : [];
@@ -5983,6 +6016,7 @@ export function applyDiscardStep(
       log.push(...result.log);
       totalDiscarded += result.discardedCount;
       allDiscarded.push(...result.discardedCards);
+      if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
     }
     return withDiscardLedgerFlags(
       {
@@ -5993,7 +6027,7 @@ export function applyDiscardStep(
         lastDiscardedCards: allDiscarded,
         lastMovedCards: allDiscarded,
       },
-      Boolean(bridgeOptions)
+      ledgerRecordedViaBridge
     );
   }
 
@@ -6002,6 +6036,7 @@ export function applyDiscardStep(
     const log: string[] = [];
     let totalDiscarded = 0;
     const allDiscarded: any[] = [];
+    let ledgerRecordedViaBridge = false;
     for (const playerId of players) {
       const player = nextState.players.find((entry) => entry.id === playerId) as any;
       const hand = Array.isArray(player?.hand) ? [...player.hand] : [];
@@ -6023,6 +6058,7 @@ export function applyDiscardStep(
       log.push(...result.log);
       totalDiscarded += result.discardedCount;
       allDiscarded.push(...result.discardedCards);
+      if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
     }
     return withDiscardLedgerFlags(
       {
@@ -6033,7 +6069,7 @@ export function applyDiscardStep(
         lastDiscardedCards: allDiscarded,
         lastMovedCards: allDiscarded,
       },
-      Boolean(bridgeOptions)
+      ledgerRecordedViaBridge
     );
   }
 

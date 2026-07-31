@@ -57,6 +57,7 @@ export type OracleIRReplayMutation =
       readonly card: unknown;
       readonly permanentId?: string;
       readonly fromPermanentId?: string;
+      readonly libraryPlacement?: 'top' | 'bottom';
     }
   | {
       readonly kind: 'exilePermanent';
@@ -89,6 +90,7 @@ function inferMoveZoneSourceFromWhat(step: Extract<OracleEffectStep, { kind: 'mo
   if (!text) return null;
   if (/\bfrom (?:your |the |their |target(?: player'?s| opponent'?s)? |an opponent'?s )?library\b/.test(text)) return 'library';
   if (/\bfrom (?:your |the |their |target(?: player'?s| opponent'?s)? |an opponent'?s )?hand\b/.test(text)) return 'hand';
+  if (/\bin (?:your |their |target(?: player'?s| opponent'?s)? )?hand\b/.test(text)) return 'hand';
   if (/\bfrom (?:your |the |their |target(?: player'?s| opponent'?s)? |an opponent'?s )?graveyard\b/.test(text)) return 'graveyard';
   if (/\bfrom (?:your |the |their |target(?: player'?s| opponent'?s)? |an opponent'?s )?exile\b/.test(text)) return 'exile';
   if (/\bfrom (?:your |the |their |target(?: player'?s| opponent'?s)? |an opponent'?s )?battlefield\b/.test(text)) return 'battlefield';
@@ -182,6 +184,22 @@ export function buildMoveZoneReplayMutations(args: {
       card,
       ...(toZone === 'battlefield' && permanentIds[index] ? { permanentId: permanentIds[index] } : {}),
       ...(fromZone === 'battlefield' && permanentIds[index] ? { fromPermanentId: permanentIds[index] } : {}),
+      ...(toZone === 'library' && step
+        ? (() => {
+            const toRaw = String(step.toRaw || '').trim().toLowerCase();
+            const raw = String(step.raw || '').trim().toLowerCase();
+            if (step.libraryPlacement === 'top' || step.libraryPlacement === 'bottom') {
+              return { libraryPlacement: step.libraryPlacement };
+            }
+            if (/\bbottom\b/i.test(toRaw) || /\bon the bottom\b/i.test(raw)) {
+              return { libraryPlacement: 'bottom' as const };
+            }
+            if (/\btop\b/i.test(toRaw) || /\bon top\b/i.test(raw)) {
+              return { libraryPlacement: 'top' as const };
+            }
+            return {};
+          })()
+        : {}),
     });
   });
 
@@ -235,16 +253,38 @@ function collectDiscardReplayMutations(
   if (cards.length === 0) return [];
 
   const destination = /\bexile\b/i.test(String(step.raw || '')) ? 'exile' : 'graveyard';
+  return buildDiscardEffectReplayMutationsFromCards(cards, destination, {
+    fallbackPlayerId: resolvePlayers(state, step.who, ctx)[0] || ctx.controllerId,
+  });
+}
+
+/**
+ * Group discarded cards into per-player discardEffect replay mutations.
+ * Prefer discardedByPlayerId, then ownerId/owner (server-bridge stamps), then fallback.
+ */
+export function buildDiscardEffectReplayMutationsFromCards(
+  cards: readonly any[],
+  destination: 'graveyard' | 'exile' = 'graveyard',
+  options?: { fallbackPlayerId?: PlayerID },
+): OracleIRReplayMutation[] {
+  if (!Array.isArray(cards) || cards.length === 0) return [];
+
   const byPlayer = new Map<PlayerID, string[]>();
+  const fallback = String(options?.fallbackPlayerId || '').trim() as PlayerID;
 
   for (const card of cards) {
     const cardId = String(card?.id || '').trim();
     if (!cardId) continue;
-    const playerId = String(card?.discardedByPlayerId || '').trim() as PlayerID;
-    const resolvedPlayerId = playerId || resolvePlayers(state, step.who, ctx)[0] || ctx.controllerId;
-    const list = byPlayer.get(resolvedPlayerId) || [];
+    const playerId = (
+      String(card?.discardedByPlayerId || '').trim()
+      || String(card?.ownerId || '').trim()
+      || String(card?.owner || '').trim()
+      || fallback
+    ) as PlayerID;
+    if (!playerId) continue;
+    const list = byPlayer.get(playerId) || [];
     list.push(cardId);
-    byPlayer.set(resolvedPlayerId, list);
+    byPlayer.set(playerId, list);
   }
 
   return [...byPlayer.entries()]

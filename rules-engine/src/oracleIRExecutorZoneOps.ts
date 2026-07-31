@@ -3009,10 +3009,22 @@ export function parseMoveZoneTheCardsFromYourHand(what: {
   readonly kind: string;
   readonly text?: string;
   readonly raw?: string;
-}): { readonly cardType: SimpleCardType } | null {
+}): { readonly cardType: SimpleCardType; readonly possessive: 'your' | 'their' } | null {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
-  if (raw === 'the cards from your hand') return { cardType: 'any' };
+  if (raw === 'the cards from your hand' || raw === 'the cards in your hand') {
+    return { cardType: 'any', possessive: 'your' };
+  }
+  if (
+    raw === 'the cards from their hand' ||
+    raw === 'the cards in their hand' ||
+    raw === "the cards from that player's hand" ||
+    raw === "the cards in that player's hand" ||
+    raw === "the cards from that players hand" ||
+    raw === "the cards in that players hand"
+  ) {
+    return { cardType: 'any', possessive: 'their' };
+  }
   return null;
 }
 
@@ -7453,7 +7465,12 @@ export function moveCountFromHandToLibrary(
   placement: 'top' | 'bottom',
   preferredIds: readonly string[] = []
 ):
-  | { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[] }
+  | {
+      readonly kind: 'applied';
+      readonly state: GameState;
+      readonly log: readonly string[];
+      readonly movedCards: readonly any[];
+    }
   | { readonly kind: 'impossible' }
   | { readonly kind: 'player_choice_required' } {
   const player = state.players.find(p => p.id === playerId) as any;
@@ -7481,7 +7498,15 @@ export function moveCountFromHandToLibrary(
 
   const movedIds = new Set(selected.slice(0, count).map((card: any) => String(card?.id || '').trim()).filter(Boolean));
   const keptHand = hand.filter((card: any) => !movedIds.has(String(card?.id || '').trim()));
-  const movedCards = hand.filter((card: any) => movedIds.has(String(card?.id || '').trim()));
+  const movedCards = hand
+    .filter((card: any) => movedIds.has(String(card?.id || '').trim()))
+    .map((card: any) => ({
+      ...card,
+      owner: card?.owner || card?.ownerId || playerId,
+      ownerId: card?.ownerId || card?.owner || playerId,
+      controller: card?.controller || card?.controllerId || playerId,
+      controllerId: card?.controllerId || card?.controller || playerId,
+    }));
   const library = Array.isArray(player.library) ? [...player.library] : [];
   const nextLibrary = placement === 'top' ? [...movedCards, ...library] : [...library, ...movedCards];
 
@@ -7493,6 +7518,7 @@ export function moveCountFromHandToLibrary(
     kind: 'applied',
     state: { ...state, players: updatedPlayers as any } as any,
     log: [`${playerId} puts ${movedCards.length} card(s) from hand on the ${placement} of their library`],
+    movedCards,
   };
 }
 
@@ -7639,21 +7665,33 @@ export function exileAnotherMatchingCardFromYourGraveyard(
 export function shuffleCardsFromHandIntoLibrary(
   state: GameState,
   playerId: PlayerID
-): { readonly state: GameState; readonly log: readonly string[] } {
+): {
+  readonly state: GameState;
+  readonly log: readonly string[];
+  readonly movedCards: readonly any[];
+} {
   const player = state.players.find(p => p.id === playerId) as any;
-  if (!player) return { state, log: [] };
+  if (!player) return { state, log: [], movedCards: [] };
 
   const hand = Array.isArray(player.hand) ? [...player.hand] : [];
-  if (hand.length === 0) return { state, log: [] };
+  if (hand.length === 0) return { state, log: [], movedCards: [] };
 
   const library = Array.isArray(player.library) ? [...player.library] : [];
+  const movedCards = hand.map((card: any) => ({
+    ...card,
+    owner: card?.owner || card?.ownerId || playerId,
+    ownerId: card?.ownerId || card?.owner || playerId,
+    controller: card?.controller || card?.controllerId || playerId,
+    controllerId: card?.controllerId || card?.controller || playerId,
+  }));
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), hand: [], library: [...library, ...hand] } as any) : p
   );
 
   return {
     state: { ...state, players: updatedPlayers as any } as any,
-    log: [`${playerId} shuffles ${hand.length} card(s) from hand into library`],
+    log: [`${playerId} puts ${hand.length} card(s) from hand on the bottom of their library`],
+    movedCards,
   };
 }
 
