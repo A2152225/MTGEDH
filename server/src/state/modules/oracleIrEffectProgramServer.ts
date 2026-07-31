@@ -60,6 +60,7 @@ const SEQUENTIAL_CHOICE_KINDS = new Set<string>([
   'sacrifice',
   'unless_pays_mana',
   'unless_pays_life',
+  'unless_discards',
   'explore',
   'proliferate',
   'populate',

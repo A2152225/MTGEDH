@@ -20578,8 +20578,12 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^you choose one of those cards$/i.test(normalizedText) ||
     /^for each (?:opponent|player),?\s+choose\b.+$/i.test(normalizedText) ||
     /^as this (?:artifact|creature|enchantment|permanent|land) enters, choose\b.+$/i.test(normalizedText) ||
-    /^choose (?:up to )?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b.+$/i.test(normalizedText) ||
-    /^then choose (?:up to )?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b.+$/i.test(normalizedText) ||
+    // Broad "choose N …" headers are platform/reminder fragments, but "choose one at random"
+    // with a shared create/mode body is executable modal IR (e.g. Outlaws' Merriment).
+    (/^choose (?:up to )?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b.+$/i.test(normalizedText)
+      && !/^choose one at random\b/i.test(normalizedText)) ||
+    (/^then choose (?:up to )?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b.+$/i.test(normalizedText)
+      && !/^then choose one at random\b/i.test(normalizedText)) ||
     /^tiered\s*\(choose one additional cost\)?$/i.test(normalizedText) ||
     /^choose one additional cost$/i.test(normalizedText) ||
     /^kicker(?:\s*[\-:]\s*.+|\s+(?:\{[^}]+\})+)(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
@@ -21094,9 +21098,6 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^triggered abilities you control can't/i.test(normalizedText) ||
     /^gift an?\s+/i.test(normalizedText) ||
     /^equipped creature has\b/i.test(normalizedText) ||
-    /^draw x cards, where x is\b/i.test(normalizedText) ||
-    /^target player draws x cards\b/i.test(normalizedText) ||
-    /^target player draws \d+ cards\b/i.test(normalizedText) ||
     /^target player gains \d+ life for each\b/i.test(normalizedText) ||
     /^target player discards\b/i.test(normalizedText) ||
     /^target opponent discards\b/i.test(normalizedText) ||
@@ -24072,6 +24073,10 @@ const DAMAGE_METADATA_ABILITY_FALLBACK_BLOCKED_KINDS = new Set<string>([
   'deal_damage',
   'modify_damage',
   'prevent_damage',
+  // A top-level choose_mode step (e.g. "choose one at random" saga/token abilities) already
+  // scopes any damage clause to the mode that mentions it; hoisting it to an unconditional
+  // top-level metadata step would apply it regardless of which mode was actually chosen.
+  'choose_mode',
 ]);
 
 function canAppendDamageMetadataDespiteBlockedKinds(ability: OracleIRAbility): boolean {
@@ -28950,6 +28955,42 @@ function parseEffectClausesToSteps(text: string): OracleEffectStep[] {
   return out;
 }
 
+/**
+ * Extracts a trailing quoted ability (e.g. `with haste and "When this token enters, ..."`)
+ * from a token characteristics fragment, returning the plain descriptor with the quoted
+ * text removed and the quoted ability text(s) separately so they can be re-attached in the
+ * canonical `with "..."` shape that {@link resolveTokenCharacteristicsFromOracleStep}
+ * recognizes regardless of what word (if any) originally preceded the quote.
+ */
+function extractBulletQuotedAbilityTail(text: string): { plain: string; quoted: string[] } {
+  const quoted: string[] = [];
+  const plain = String(text || '')
+    .replace(/\s*(?:and|or)?\s*"([^"]+)"/gi, (_match, ability: string) => {
+      const trimmed = String(ability || '').trim();
+      if (trimmed) quoted.push(trimmed);
+      return '';
+    })
+    .replace(/\s+/g, ' ')
+    .trim();
+  return { plain, quoted };
+}
+
+/**
+ * Builds a free-text token descriptor for a "choose one at random" bullet that only lists
+ * per-mode characteristics (e.g. `3/1 Human Warrior with trample and haste`), combining it
+ * with the shared color/adjective clause from the lead sentence (e.g. `red and white`) so the
+ * resulting `create_token` step carries a complete descriptor including keyword abilities.
+ */
+function buildSharedCharacteristicTokenDescriptor(bulletCharacteristics: string, colorClause: string): string {
+  const { plain, quoted } = extractBulletQuotedAbilityTail(bulletCharacteristics);
+  const ptMatch = plain.match(/^(\d+\/\d+)\s+(.*)$/);
+  const base = ptMatch
+    ? `${ptMatch[1]} ${colorClause} ${ptMatch[2]}`
+    : `${colorClause} ${plain}`;
+  const withQuoted = quoted.length > 0 ? `${base} with "${quoted.join('" and "')}"` : base;
+  return withQuoted.replace(/\s+/g, ' ').trim();
+}
+
 export function repairRandomChooseModeSagaAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -28960,6 +29001,10 @@ export function repairRandomChooseModeSagaAbilities(
     const normalized = normalizeOracleText(effectText).replace(/\s+/g, ' ');
     const bulletIndex = normalized.search(/•/);
     if (bulletIndex < 0) return ability;
+    const leadText = normalized.slice(0, bulletIndex).trim();
+    const sharedTokenLead = leadText.match(
+      /\bcreate\s+(?:a|an)\s+(.+?)\s+(?:creature\s+)?tokens?\s+with\s+those\s+characteristics\b/i
+    );
     const parts = normalized
       .slice(bulletIndex)
       .split(/\s*•\s*/)
@@ -28972,7 +29017,24 @@ export function repairRandomChooseModeSagaAbilities(
         const labeled = body.match(/^(.+?!)\s*[-–—]\s*(.+)$/);
         const label = labeled ? String(labeled[1] || '').trim() : `Mode ${index + 1}`;
         const modeBody = labeled ? String(labeled[2] || '').trim() : body;
-        const steps = parseEffectClausesToSteps(modeBody);
+        let steps: OracleEffectStep[] | null = null;
+        if (sharedTokenLead && !/^create(?:s)?\b/i.test(modeBody)) {
+          const colorClause = String(sharedTokenLead[1] || '').trim();
+          const bulletCharacteristics = modeBody.replace(/[.]+$/, '').trim();
+          if (colorClause && bulletCharacteristics) {
+            const tokenDescriptor = buildSharedCharacteristicTokenDescriptor(bulletCharacteristics, colorClause);
+            steps = [
+              {
+                kind: 'create_token',
+                who: { kind: 'you' },
+                amount: { kind: 'number', value: 1 },
+                token: tokenDescriptor,
+                raw: `Create a ${colorClause} creature token with those characteristics: ${bulletCharacteristics}`,
+              } as unknown as OracleEffectStep,
+            ];
+          }
+        }
+        if (!steps || steps.length === 0) steps = parseEffectClausesToSteps(modeBody);
         if (steps.length === 0) return null;
         return { label, raw: modeBody, steps };
       })
@@ -28990,6 +29052,56 @@ export function repairRandomChooseModeSagaAbilities(
           modes,
           raw: 'Choose one at random',
         } as unknown as OracleEffectStep,
+      ],
+    };
+  });
+}
+
+/**
+ * Folds the common "BASE. If you're the monarch, instead ALT." shape (e.g. Court of
+ * Ambition) into a single `conditional` step with `steps` = the parsed ALT effect and
+ * `elseSteps` = the preceding BASE step(s), instead of leaving the "instead" sentence as
+ * an unparsed residual/unknown tail. Only applies when the ALT clause parses into at
+ * least one executable step and the ability has base steps to use as the fallback.
+ */
+export function repairMonarchInsteadConditionalAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  const MONARCH_INSTEAD_RAW = /^if\s+you(?:'|’)?re\s+the\s+monarch,\s*instead\s+(.+?)[.\s]*$/i;
+
+  return abilities.map((ability) => {
+    const steps = ability.steps || [];
+    if (steps.length < 2) return ability;
+
+    const insteadIndex = steps.findIndex((candidate) => MONARCH_INSTEAD_RAW.test(String(candidate.raw || '')));
+    if (insteadIndex <= 0) return ability;
+
+    const insteadStep = steps[insteadIndex];
+    const match = String(insteadStep.raw || '').match(MONARCH_INSTEAD_RAW);
+    const altText = String(match?.[1] || '').trim();
+    if (!altText) return ability;
+
+    const altStep = tryParseLifeAndCombatClause({
+      clause: altText,
+      rawClause: altText,
+      withMeta: (candidate) => candidate,
+    });
+    if (!altStep) return ability;
+
+    const baseSteps = steps.slice(0, insteadIndex);
+    const trailingSteps = steps.slice(insteadIndex + 1);
+
+    return {
+      ...ability,
+      steps: [
+        {
+          kind: 'conditional',
+          condition: { kind: 'if', raw: "you're the monarch" },
+          steps: [altStep],
+          elseSteps: baseSteps,
+          raw: String(ability.effectText || ability.text || '').trim(),
+        } as unknown as OracleEffectStep,
+        ...trailingSteps,
       ],
     };
   });

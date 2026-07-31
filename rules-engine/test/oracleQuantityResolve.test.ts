@@ -152,7 +152,7 @@ describe('resolveOracleQuantity', () => {
     expect(count).toBe(2);
   });
 
-  it('resolves Venser Journal equal-to-hand-size gain_life amount', () => {
+  it("resolves Venser's Journal per-card hand-size gain_life amount", () => {
     const state = makeState({
       zones: {
         p1: { handCount: 3 },
@@ -160,7 +160,7 @@ describe('resolveOracleQuantity', () => {
     } as any);
     const amount = {
       kind: 'reference_amount',
-      raw: 'the number of cards in your hand',
+      raw: '1 for each card in your hand',
     } as const;
     const count = resolveOracleQuantity(state, 'p1' as PlayerID, amount, { controllerId: 'p1' as PlayerID });
     expect(count).toBe(3);
@@ -187,8 +187,23 @@ describe('quantity step parsing', () => {
       'Draw X cards, where X is the number of cards in your hand.',
       'Test Draw'
     );
+    expect(ir.abilities.length).toBeGreaterThan(0);
     const draw = ir.abilities.flatMap(a => a.steps).find(s => s.kind === 'draw');
     expect(draw).toBeTruthy();
+    expect((draw as any).amount).toEqual({ kind: 'x' });
+    expect((draw as any).whereX?.raw).toBe('the number of cards in your hand');
+  });
+
+  it('parses target player draw X with whereX', () => {
+    const ir = parseOracleTextToIR(
+      'Target player draws X cards, where X is the number of cards in your hand.',
+      'Test Target Draw'
+    );
+    expect(ir.abilities.length).toBeGreaterThan(0);
+    const draw = ir.abilities.flatMap(a => a.steps).find(s => s.kind === 'draw');
+    expect(draw).toBeTruthy();
+    expect((draw as any).who).toEqual({ kind: 'target_player' });
+    expect((draw as any).amount).toEqual({ kind: 'x' });
     expect((draw as any).whereX?.raw).toBe('the number of cards in your hand');
   });
 

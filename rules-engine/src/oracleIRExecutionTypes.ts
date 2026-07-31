@@ -75,6 +75,8 @@ export interface OracleIRSelectorContext {
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   /** Bound pay/decline choice for unless-pays-mana wrappers when already known. */
   readonly unlessPaysManaChoice?: 'pay' | 'decline';
+  /** Bound discard/decline choice for unless-discards wrappers when already known. */
+  readonly unlessDiscardsChoice?: 'discard' | 'decline';
   /** Whether an optional spell additional cost was paid when casting. */
   readonly optionalAdditionalCostWasPaid?: boolean;
   /** Whether a waterbend additional cost was paid when casting. */
@@ -197,6 +199,8 @@ export interface OracleIRExecutionEventHint {
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   /** Explicit pay/decline choice for unless-pays-mana wrappers when already known. */
   readonly unlessPaysManaChoice?: 'pay' | 'decline';
+  /** Explicit discard/decline choice for unless-discards wrappers when already known. */
+  readonly unlessDiscardsChoice?: 'discard' | 'decline';
   /** Explicit choice for "tap or untap" style effects when known. */
   readonly tapOrUntapChoice?: 'tap' | 'untap';
   /** Generic affected players for this event (may include non-opponents). */
@@ -310,6 +314,8 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   /** Choice for unless-pays-mana wrappers when already known. */
   readonly unlessPaysManaChoice?: 'pay' | 'decline';
+  /** Choice for unless-discards wrappers when already known. */
+  readonly unlessDiscardsChoice?: 'discard' | 'decline';
   /** Normalized reference spell types used by some deterministic unknown-amount loops. */
   readonly referenceSpellTypes?: readonly string[];
   /** Reference spell mana value used by some deterministic unknown-amount loops. */

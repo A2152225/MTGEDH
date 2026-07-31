@@ -30,6 +30,7 @@ import { extractTriggeredEffectFromTimingMatch } from '../../rules-engine/src/tr
 import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import { parseBareTriggerEffectFragmentSteps } from '../../rules-engine/src/oracleIRParserPostprocess.js';
 import type { OracleEffectStep } from '../../rules-engine/src/oracleIR.js';
+import { readOracleCardsSync, resolveOracleCardsPath } from '../src/services/oracleCardsIndex.js';
 
 type OracleCard = {
   name: string;
@@ -90,7 +91,7 @@ function isEligible(card: OracleCard): boolean {
 }
 
 const repoRoot = path.resolve(import.meta.dirname, '../..');
-const oraclePath = path.join(repoRoot, 'oracle-cards.json');
+const oraclePath = resolveOracleCardsPath(repoRoot);
 const outDir = path.join(import.meta.dirname, 'out');
 const outPath = path.join(outDir, 'trigger-effect-length-audit.json');
 
@@ -429,7 +430,11 @@ function getDetectorEffects(card: OracleCard): string[] {
   return effects;
 }
 
-const cards = JSON.parse(fs.readFileSync(oraclePath, 'utf8')) as OracleCard[];
+if (!fs.existsSync(oraclePath)) {
+  console.error(`Oracle cards file not found at ${oraclePath}`);
+  process.exit(1);
+}
+const cards = readOracleCardsSync(repoRoot) as OracleCard[];
 
 const rows: EffectLengthRow[] = [];
 const byEvent = new Map<string, {

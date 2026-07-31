@@ -155,7 +155,7 @@ describe('Stack / zone regression effects', () => {
         controller: p1,
         source: 'journal_1',
         sourceName: "Venser's Journal",
-        description: 'You gain life equal to the number of cards in your hand.',
+        description: 'You gain 1 life for each card in your hand.',
         triggerType: 'upkeep',
       },
     ];

@@ -72,7 +72,7 @@ Server integration fixes from live G1 play (not a parser-gap audit batch). See `
 4. **Kynaios land ETB:** `runPostResolutionPermanentPromptChecks` after land gift.
 5. **Growing Rites:** skip `art_series` in local card lookup (`schemaVersion` 2).
 6. **Cryptoplasm:** `revertCopyPermanentToOriginal` on bounce to hand.
-7. **Eldrazi Monument:** skip duplicate generic upkeep sacrifice detection when `KNOWN_UPKEEP_CARDS` matched.
+7. **Eldrazi Monument:** ~~skip duplicate generic upkeep sacrifice detection when `KNOWN_UPKEEP_CARDS` matched~~ — obsolete; `KNOWN_UPKEEP_CARDS` retired. Dedupe is via `sacrifice_creature_or_self` typing + normalized oracle-clause matching in `upkeep-triggers.ts`.
 8. **White Lotus Tile:** tribal mana common-type counting via `chosenCreatureType`.
 9. **Tests:** `roaming-throne-chosen-type.unit.test.ts`, `g1-card-fixes.unit.test.ts`, Thassa parser test in `oracleIRParser.test.ts`.
 

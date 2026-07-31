@@ -16914,4 +16914,15 @@ This creature has protection from each of the exiled card's card types. (Artifac
     }
   });
 
+  it('does not treat actionable draw-X where clauses as externally handled', () => {
+    const samples = [
+      'Draw X cards, where X is the number of cards in your hand.',
+      'Target player draws X cards, where X is the number of creatures you control.',
+      'Target player draws 2 cards.',
+    ];
+    for (const text of samples) {
+      expect(isExternallyHandledOracleFragmentText(text), text).toBe(false);
+    }
+  });
+
 });

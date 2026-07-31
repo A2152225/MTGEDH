@@ -17,7 +17,7 @@ import {
   permanentIsCreature,
   readPermanentPower,
 } from './oracleIRExecutorCreatureStepUtils';
-import { getCounterCountOnObject } from './oracleIRExecutorModifyPtWhereUtils';
+import { getCounterCountOnObject, normalizeCounterName } from './oracleIRExecutorModifyPtWhereUtils';
 import { tryResolveForEachReferenceAmount } from './oracleIRExecutorForEachQuantity';
 import { tryEvaluateCombatDamageReferenceCount } from './oracleIRExecutorCombatDamageCounts';
 
@@ -222,6 +222,20 @@ export function resolveOracleQuantity(
 
     const combatDamageAmount = tryEvaluateCombatDamageReferenceCount(state, controllerId, normalized, ctx);
     if (combatDamageAmount !== null) return combatDamageAmount;
+
+    // Generic "the number of <counter> counters on this <noun>" / "... on it" (e.g. Tangle Wire's
+    // fade counters), not tied to any specific counter type.
+    const genericCounterOnThisMatch = normalized.match(
+      /^the number of ([a-z][a-z '-]*?) counters? on (?:this\s+[a-z]+|it)$/i
+    );
+    if (genericCounterOnThisMatch) {
+      const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
+      if (sourcePermanent) {
+        const counterName = normalizeCounterName(String(genericCounterOnThisMatch[1] || '').trim());
+        const count = getCounterCountOnObject(sourcePermanent, counterName);
+        if (count !== null) return count;
+      }
+    }
 
     const spellsCastMatch = normalized.match(
       /^(?:(\d+)\s+(?:life\s+)?)?for each spells? (?:you(?:'ve| have)?|you) cast this turn$|^the number of spells? (?:you(?:'ve| have)?|you) cast this turn$/i

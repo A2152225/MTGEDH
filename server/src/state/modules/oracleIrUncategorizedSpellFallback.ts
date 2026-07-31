@@ -28,6 +28,7 @@ import { isCelestialReunionOracle } from './chosen-creature-type.js';
 const UNLESS_PAY_KINDS = new Set<string>([
   'unless_pays_mana',
   'unless_pays_life',
+  'unless_discards',
 ]);
 
 function isOptionalStep(step: OracleEffectStep): boolean {

@@ -551,6 +551,18 @@ type UnlessPaysManaResult =
   | { readonly applied: true; readonly shouldApplyNestedSteps: boolean; readonly state?: GameState; readonly log: readonly string[] }
   | StepSkipResult;
 
+type UnlessDiscardsResult =
+  | { readonly applied: true; readonly shouldApplyNestedSteps: boolean; readonly state?: GameState; readonly log: readonly string[] }
+  | (StepSkipResult & {
+      /**
+       * When set, the caller should record this inner step (rather than the outer
+       * `unless_discards` wrapper) as the skipped step, so the existing "discard"
+       * automation-gap plumbing (and its server-side card-selection prompt) fires
+       * for the actual discard choice instead of a bespoke prompt.
+       */
+      readonly innerStep?: OracleEffectStep;
+    });
+
 export type PlayerStepHandlerResult = StepApplyResult | StepSkipResult;
 
 function shuffleArray<T>(items: readonly T[]): T[] {
@@ -7907,6 +7919,108 @@ export function evaluateUnlessPaysLifeStep(
     applied: true,
     shouldApplyNestedSteps: true,
     log: [`Resolved unless-pays-life step (payer cannot pay ${step.amount} life): ${step.raw}`],
+  };
+}
+
+export function evaluateUnlessDiscardsStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'unless_discards' }>,
+  ctx: OracleIRExecutionContext
+): UnlessDiscardsResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped unless-discards step (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: {
+          selectorKind: step.who.kind,
+          candidateCount: players.length,
+          discardAmount: step.amount,
+        },
+      },
+    };
+  }
+
+  const discarderId = players[0];
+  const discarder = (state.players || []).find(player => String(player?.id || '').trim() === String(discarderId || '').trim()) as any;
+  if (!discarder) {
+    return {
+      applied: false,
+      message: `Skipped unless-discards step (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const handSize = Array.isArray(discarder.hand) ? discarder.hand.length : 0;
+  const discardAmount = Math.max(0, step.amount | 0);
+  const canDiscard = handSize >= discardAmount;
+  const explicitChoice =
+    ctx.unlessDiscardsChoice === 'discard' || ctx.unlessDiscardsChoice === 'decline'
+      ? ctx.unlessDiscardsChoice
+      : (ctx.selectorContext?.unlessDiscardsChoice === 'discard' || ctx.selectorContext?.unlessDiscardsChoice === 'decline'
+          ? ctx.selectorContext.unlessDiscardsChoice
+          : undefined);
+
+  if (canDiscard) {
+    if (explicitChoice === 'discard') {
+      const discardStep = {
+        kind: 'discard',
+        who: step.who,
+        amount: { kind: 'number', value: discardAmount },
+        raw: step.raw,
+      } as Extract<OracleEffectStep, { kind: 'discard' }>;
+      const discardResult = applyDiscardStep(state, discardStep, ctx);
+      if (discardResult.applied === false) {
+        return {
+          applied: false,
+          message: discardResult.message,
+          reason: discardResult.reason,
+          state: discardResult.state,
+          options: discardResult.options,
+          innerStep: discardStep,
+        };
+      }
+      return {
+        applied: true,
+        shouldApplyNestedSteps: false,
+        state: discardResult.state,
+        log: [
+          ...discardResult.log,
+          `Resolved unless-discards step (${discarderId} discarded ${discardAmount} card(s)): ${step.raw}`,
+        ],
+      };
+    }
+
+    if (explicitChoice === 'decline') {
+      return {
+        applied: true,
+        shouldApplyNestedSteps: true,
+        log: [`Resolved unless-discards step (${discarderId} declined to discard): ${step.raw}`],
+      };
+    }
+
+    return {
+      applied: false,
+      message: `Skipped unless-discards step (opponent choice required): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: {
+          discarderId,
+          handSize,
+          discardAmount,
+        },
+      },
+    };
+  }
+
+  return {
+    applied: true,
+    shouldApplyNestedSteps: true,
+    log: [`Resolved unless-discards step (${discarderId} cannot discard ${discardAmount} card(s)): ${step.raw}`],
   };
 }
 

@@ -963,6 +963,7 @@ function appendOracleStepToEffectProgram(args: {
     || kind === 'discard'
     || kind === 'unless_pays_mana'
     || kind === 'unless_pays_life'
+    || kind === 'unless_discards'
     || (kind === 'add_mana' && (step as any).requiresChosenMana === true);
   }
 
@@ -972,9 +973,10 @@ function oracleStepOptionalRequiresChoice(step: OracleEffectStep): boolean {
   if (isPerPlayerOptionalOracleStep(step)) return false;
 
   const kind = String((step as any).kind || '');
-  // unless_pays already queues its own pay/decline choice; a preceding may-choice
-  // duplicates Rhystic Study-style "you may … unless … pays" as two Always Yes prompts.
-  if (kind === 'unless_pays_mana' || kind === 'unless_pays_life') {
+  // unless_pays/unless_discards already queue their own pay-or-decline choice; a
+  // preceding may-choice duplicates Rhystic Study-style "you may … unless … pays" as
+  // two Always Yes prompts.
+  if (kind === 'unless_pays_mana' || kind === 'unless_pays_life' || kind === 'unless_discards') {
     return false;
   }
 
@@ -1051,7 +1053,7 @@ function oracleStepNeedsChoice(
     return true;
   }
 
-  if (kind === 'unless_pays_mana' || kind === 'unless_pays_life') {
+  if (kind === 'unless_pays_mana' || kind === 'unless_pays_life' || kind === 'unless_discards') {
     return true;
   }
 
@@ -1184,6 +1186,15 @@ function buildChoiceRequestPayloadForOracleStep(
       ...basePayload,
       lifeAmount: Number((step as any).amount || 0),
       payChoiceId: 'pay',
+      declineChoiceId: 'decline',
+    };
+  }
+
+  if (kind === 'unless_discards') {
+    return {
+      ...basePayload,
+      discardAmount: Number((step as any).amount || 0),
+      payChoiceId: 'discard',
       declineChoiceId: 'decline',
     };
   }
@@ -1475,6 +1486,7 @@ function mapOracleStepKindToChoiceType(kind: string): ChoiceEventType {
       return ChoiceEventType.DISCARD_SELECTION;
     case 'unless_pays_mana':
     case 'unless_pays_life':
+    case 'unless_discards':
       return ChoiceEventType.OPTION_CHOICE;
     case 'fateseal':
       return ChoiceEventType.FATESEAL;

@@ -1661,6 +1661,8 @@ export type OracleEffectStep =
       readonly kind: 'conditional';
       readonly condition: OracleClauseCondition;
       readonly steps: readonly OracleEffectStep[];
+      /** Steps that resolve when the condition is false, e.g. "instead" clauses folded into one conditional. */
+      readonly elseSteps?: readonly OracleEffectStep[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -1671,6 +1673,20 @@ export type OracleEffectStep =
        * can't pay a fixed life amount.
        */
       readonly kind: 'unless_pays_life';
+      readonly who: OraclePlayerSelector;
+      readonly amount: number;
+      readonly steps: readonly OracleEffectStep[];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * Wrapper for effects that only happen if a referenced player doesn't or
+       * can't discard a fixed number of cards, e.g. "each opponent loses 3 life
+       * unless they discard a card." (Court of Ambition).
+       */
+      readonly kind: 'unless_discards';
       readonly who: OraclePlayerSelector;
       readonly amount: number;
       readonly steps: readonly OracleEffectStep[];

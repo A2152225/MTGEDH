@@ -40,6 +40,9 @@ function getPlayerHandCount(state: GameState, playerId: PlayerID): number {
   if (typeof zoneHandCount === 'number' && Number.isFinite(zoneHandCount) && zoneHandCount >= 0) {
     return zoneHandCount;
   }
+  if (Array.isArray(zones?.[playerId]?.hand)) {
+    return zones[playerId].hand.length;
+  }
 
   const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === String(playerId || '').trim()) as any;
   if (typeof player?.handCount === 'number' && Number.isFinite(player.handCount) && player.handCount >= 0) {
@@ -128,6 +131,14 @@ export function tryResolveForEachReferenceAmount(
 
   if (/^(?:equal to )?the number of cards? in your hand$/i.test(normalized)) {
     return getPlayerHandCount(state, handSizePlayerId);
+  }
+
+  const perCardInYourHand = normalized.match(
+    /^(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:life\s+)?for\s+each\s+card\s+in\s+your\s+hand$/i,
+  );
+  if (perCardInYourHand) {
+    const multiplier = parseCountWord(String(perCardInYourHand[1] || '').toLowerCase());
+    return multiplier === null ? null : multiplier * getPlayerHandCount(state, handSizePlayerId);
   }
 
   const cardForEach = normalized.match(/^(?:a\s+)?cards?\s+for\s+each\s+(.+)$/i);

@@ -128,6 +128,10 @@ export function buildOracleIRExecutionContext(
     hint?.unlessPaysManaChoice === 'pay' || hint?.unlessPaysManaChoice === 'decline'
       ? hint.unlessPaysManaChoice
       : undefined;
+  const hintUnlessDiscardsChoice =
+    hint?.unlessDiscardsChoice === 'discard' || hint?.unlessDiscardsChoice === 'decline'
+      ? hint.unlessDiscardsChoice
+      : undefined;
   const hintSpellCastCountThisTurn = Number(hint?.spellCastCountThisTurn);
   const hintNoncreatureSpellCastCountThisTurn = Number(hint?.noncreatureSpellCastCountThisTurn);
   const baseTargetOpponentId = normalizeId(baseSel?.targetOpponentId);
@@ -152,6 +156,10 @@ export function buildOracleIRExecutionContext(
   const baseUnlessPaysManaChoice =
     baseSel?.unlessPaysManaChoice === 'pay' || baseSel?.unlessPaysManaChoice === 'decline'
       ? baseSel.unlessPaysManaChoice
+      : undefined;
+  const baseUnlessDiscardsChoice =
+    baseSel?.unlessDiscardsChoice === 'discard' || baseSel?.unlessDiscardsChoice === 'decline'
+      ? baseSel.unlessDiscardsChoice
       : undefined;
   const hintMoveZoneDestination =
     typeof hint?.moveZoneDestination === 'string' ? hint.moveZoneDestination.trim() || undefined : undefined;
@@ -254,6 +262,9 @@ export function buildOracleIRExecutionContext(
       : {}),
     ...(hintUnlessPaysManaChoice || baseUnlessPaysManaChoice
       ? { unlessPaysManaChoice: hintUnlessPaysManaChoice ?? baseUnlessPaysManaChoice }
+      : {}),
+    ...(hintUnlessDiscardsChoice || baseUnlessDiscardsChoice
+      ? { unlessDiscardsChoice: hintUnlessDiscardsChoice ?? baseUnlessDiscardsChoice }
       : {}),
   };
 

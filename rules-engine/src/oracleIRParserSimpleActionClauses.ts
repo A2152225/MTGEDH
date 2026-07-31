@@ -250,6 +250,32 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    // "That player taps an untapped artifact, creature, or land they control for each
+    // fade counter on this artifact." (Tangle Wire). The leading "a"/"an" before "untapped"
+    // is grammatical (one permanent per counter), not the tap amount — the real amount comes
+    // from the trailing "for each <counter> counter on this <noun>" clause.
+    const tapForEachCounterOnThis = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}taps?\\s+(?:a|an)\\s+untapped\\s+(.+?)\\s+(?:you|they)\\s+control\\s+for\\s+each\\s+([a-z][a-z '-]*?)\\s+counters?\\s+on\\s+this\\s+([a-z]+)\\.?$`,
+        'i'
+      )
+    );
+    if (tapForEachCounterOnThis) {
+      const subject = String(tapForEachCounterOnThis[1] || '').trim();
+      const filter = String(tapForEachCounterOnThis[2] || '').trim();
+      const counterName = normalizeCounterName(String(tapForEachCounterOnThis[3] || '').trim());
+      const sourceNoun = String(tapForEachCounterOnThis[4] || 'permanent').trim();
+      return withMeta({
+        kind: 'tap_matching_permanents',
+        who: subject ? parsePlayerSelector(subject) : { kind: 'you' },
+        amount: { kind: 'reference_amount', raw: `the number of ${counterName} counters on this ${sourceNoun}` },
+        filter,
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
+  {
     const oppositionAgentSearchExile = clause.match(
       /^while an opponent is searching their library, they exile each card they find\.?$/i
     );

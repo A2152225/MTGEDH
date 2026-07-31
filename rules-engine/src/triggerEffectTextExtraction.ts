@@ -12,7 +12,7 @@ const ABILITY_LINE_BOUNDARY =
 const NEW_TRIGGER_TIMING_SENTENCE = /^(?:when|whenever|at the beginning of)\b/i;
 
 const CONTINUATION_SENTENCE =
-  /^(?:then|each|if you (?:do|win)|otherwise|you may|that player|those|they|it|choose|target|otherwise)\b/i;
+  /^(?:then|each|if you (?:do|win)|otherwise|you may|that player|those|they|it|choose|target|create|otherwise)\b/i;
 
 function splitSentences(text: string): string[] {
   const source = String(text || '').trim();
@@ -70,7 +70,10 @@ export function truncateAtAbilityBoundary(text: string): string {
     const rest = source.slice(newlineIdx + 1).trim();
     if (firstLine.endsWith('.') && rest) {
       const restIsContinuation =
-        CONTINUATION_SENTENCE.test(rest) || NEW_TRIGGER_TIMING_SENTENCE.test(rest);
+        CONTINUATION_SENTENCE.test(rest)
+        || NEW_TRIGGER_TIMING_SENTENCE.test(rest)
+        // Modal / random-choice modes continue on bullet lines after the lead sentence.
+        || /^[\u2022•]/.test(rest);
       if (!restIsContinuation) {
         return firstLine;
       }
@@ -85,6 +88,8 @@ function shouldIncludeContinuationSentence(sentence: string, fullTail: string): 
   if (!trimmed) return false;
   if (NEW_TRIGGER_TIMING_SENTENCE.test(trimmed)) return false;
   if (CONTINUATION_SENTENCE.test(trimmed)) return true;
+  // Modal / random-choice modes continue on bullet lines.
+  if (/^[\u2022•]/.test(trimmed)) return true;
 
   const sentenceStart = fullTail.indexOf(trimmed);
   if (sentenceStart > 0) {

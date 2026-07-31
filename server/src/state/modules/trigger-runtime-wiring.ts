@@ -60,6 +60,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'connive',
   'unless_pays_mana',
   'unless_pays_life',
+  'unless_discards',
   'conditional',
   'search_library',
   'shuffle_library',

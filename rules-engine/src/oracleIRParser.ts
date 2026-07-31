@@ -216,6 +216,7 @@ import {
   repairGapClosureAbilitySteps,
   pruneIgnorableEffectReminderUnknownSteps,
   repairRandomChooseModeSagaAbilities,
+  repairMonarchInsteadConditionalAbilities,
   mergeLookSelectTopFollowupAbilities,
   pruneRedundantSurveilReminderSteps,
   pruneThassaOracleWinGrantAbilities,
@@ -555,7 +556,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
   }
 
   const eldraziManaReminderMatch = normalizeOracleText(effectText).match(
-    /^(create(?:s)?\s+.+?\btokens?)\.\s+(?:it has|they have)\s+"sacrifice this (?:token|creature): add \{c\}\."$/i,
+    /^((?:you may\s+)?create(?:s)?\s+.+?\btokens?)\.\s+(?:it has|they have)\s+"sacrifice this (?:token|creature): add \{c\}\."$/i,
   );
   if (eldraziManaReminderMatch) {
     return {
@@ -1824,6 +1825,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = repairGapClosureAbilitySteps(abilities);
   abilities = mergeSearchLibraryShuffleFollowupAbilities(abilities);
   abilities = repairRandomChooseModeSagaAbilities(abilities);
+  abilities = repairMonarchInsteadConditionalAbilities(abilities);
   abilities = abilities.map((ability) => {
     if ((ability.steps || []).length > 0) return ability;
     const fragment = parseBareTriggerEffectFragmentSteps(
@@ -2002,7 +2004,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = abilities.map((ability) => {
     if (ability.steps.length !== 1 || ability.steps[0]?.kind !== 'grant_static_ability') return ability;
     const malformedTarget = String((ability.steps[0].target as any)?.text || '').trim();
-    const tokenLead = malformedTarget.match(/^(create(?:s)?\s+.+?\btokens?)\.\s+(?:it has|they have)$/i);
+    const tokenLead = malformedTarget.match(/^((?:you may\s+)?create(?:s)?\s+.+?\btokens?)\.\s+(?:it has|they have)$/i);
     if (!tokenLead || !/^sacrifice this (?:token|creature): add \{c\}/i.test(String(ability.steps[0].raw || '').trim())) {
       return ability;
     }

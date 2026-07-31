@@ -20,6 +20,7 @@ import { queueCounterRemovedTriggers } from "./triggers/counters.js";
 import { queueSacrificeTriggers } from "./triggers/sacrifice.js";
 import { movePermanentToGraveyard } from "./counters_tokens.js";
 import { isControllerOptionalTriggeredAbilityEffect } from "./trigger-runtime-wiring.js";
+import { getActivePermanentCardFace } from "./cardFaceOracle.js";
 
 // ============================================================================
 // DYNAMIC PATTERN DETECTION REGEXES
@@ -50,42 +51,37 @@ const SACRIFICE_CREATURE_OR_SELF_PATTERN = /at the beginning of your upkeep,?\s*
  */
 const SACRIFICE_OR_PATTERN = /at the beginning of your upkeep,?\s*sacrifice a creature\s+or\s+sacrifice/i;
 
-function extendUpkeepEffectText(
-  oracleText: string,
-  matchedText: string,
+function normalizeUpkeepEffectText(effectText: string): string {
+  return String(effectText || '')
+    .replace(/\s+/g, ' ')
+    .replace(/[.\s]+$/g, '')
+    .trim();
+}
+
+function normalizeUpkeepEffectKey(effectText: string): string {
+  return normalizeUpkeepEffectText(effectText)
+    .toLowerCase()
+    .replace(/[\u2019']/g, "'")
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isSacrificeCreatureOrSelfOracle(oracleText: string): boolean {
+  return SACRIFICE_CREATURE_OR_SELF_PATTERN.test(oracleText) || SACRIFICE_OR_PATTERN.test(oracleText);
+}
+
+function hasMatchingUpkeepEffect(
+  triggers: readonly UpkeepTrigger[],
   effectText: string,
-  matchIndex: number,
-): string {
-  let extended = String(effectText || '').trim().replace(/\s+/g, ' ');
-  if (!extended || !/\byou may pay\b/i.test(extended)) {
-    return extended;
-  }
-
-  let remaining = String(oracleText || '').slice(matchIndex + matchedText.length);
-  const followUpPatterns = [
-    /^\.\s*if you do,?\s*[^.]+/i,
-    /^\.\s*(?:it|that card|that creature|those creatures|those permanents?)\s+gains?\s+[^.]+/i,
-    /^\.\s*exile\s+(?:that card|that creature|those cards|those creatures|it|them)\s+at the beginning of\s+[^.]+/i,
-    /^\.\s*if\s+(?:it|that card|that creature|they|those cards|those creatures|those permanents?)\s+would leave the battlefield,\s*[^.]+/i,
-  ];
-
-  let appended = true;
-  while (appended) {
-    appended = false;
-    for (const pattern of followUpPatterns) {
-      const match = remaining.match(pattern);
-      if (!match) {
-        continue;
-      }
-
-      extended += match[0].replace(/^\.\s*/, '. ').replace(/\s+/g, ' ');
-      remaining = remaining.slice(match[0].length);
-      appended = true;
-      break;
-    }
-  }
-
-  return extended.trim();
+  triggerTypes: readonly UpkeepTrigger['triggerType'][] = ['upkeep_effect'],
+): boolean {
+  const key = normalizeUpkeepEffectKey(effectText);
+  if (!key) return false;
+  return triggers.some((trigger) => {
+    if (!triggerTypes.includes(trigger.triggerType)) return false;
+    return normalizeUpkeepEffectKey(String(trigger.effect || trigger.description || '')) === key;
+  });
 }
 
 export interface UpkeepTrigger {
@@ -201,147 +197,18 @@ function shouldTriggerEcho(state: any, permanent: any): boolean {
 }
 
 /**
- * Common upkeep trigger patterns and their effects
- */
-const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; requiresChoice?: boolean; requiresSacrifice?: boolean; anyPlayerTrigger?: boolean; endStepTrigger?: boolean; modalChoices?: string[] }> = {
-  // Draw/Life effects
-  "phyrexian arena": { effect: "Draw a card, you lose 1 life", mandatory: true },
-  "dark confidant": { effect: "Reveal top card, put in hand, lose life equal to its mana value", mandatory: true },
-  "bob": { effect: "Reveal top card, put in hand, lose life equal to its mana value", mandatory: true },
-  "sheoldred, the apocalypse": { effect: "Opponents lose 2 life when they draw", mandatory: true },
-  "greed": { effect: "You may pay {B} and 2 life to draw a card", mandatory: false, requiresChoice: true },
-  "necropotence": { effect: "Skip draw step (passive)", mandatory: true },
-  "sylvan library": { effect: "Draw 2 extra cards, then put 2 back or pay 4 life each", mandatory: true, requiresChoice: true },
-  "venser's journal": { effect: "Gain life equal to cards in hand", mandatory: true },
-  "ivory tower": { effect: "Gain 1 life for each card in hand above 4", mandatory: true },
-  "well of lost dreams": { effect: "Whenever you gain life, you may pay {X} to draw X cards", mandatory: false, requiresChoice: true },
-  
-  // Modal choice upkeep triggers
-  "black market connections": { 
-    effect: "Choose any number: Sell Contraband (create Treasure, lose 1 life), Buy Information (draw a card, lose 2 life), Hire a Mercenary (create 3/2 Shapeshifter with changeling, lose 3 life)", 
-    mandatory: false, 
-    requiresChoice: true,
-    modalChoices: [
-      "Sell Contraband: Create a Treasure token, lose 1 life",
-      "Buy Information: Draw a card, lose 2 life", 
-      "Hire a Mercenary: Create a 3/2 Shapeshifter with changeling, lose 3 life"
-    ]
-  },
-  "court of grace": { effect: "Create a 1/1 Spirit or 4/4 Angel (if Monarch)", mandatory: true, requiresChoice: true },
-  "court of cunning": { effect: "Mill 2 or 10 (if Monarch)", mandatory: true },
-  "court of ambition": { effect: "Each opponent loses 3 life or discards (if Monarch)", mandatory: true },
-  "court of bounty": { effect: "Put land or creature from hand (if Monarch)", mandatory: false, requiresChoice: true },
-  "court of ire": { effect: "Deal 2 or 7 damage (if Monarch)", mandatory: true, requiresChoice: true },
-  
-  // Resource generation
-  "smothering tithe": { effect: "When opponent draws, they pay {2} or you create Treasure", mandatory: true },
-  "rhystic study": { effect: "When opponent casts, they pay {1} or you draw", mandatory: true },
-  "mystic remora": { effect: "When opponent casts noncreature, they pay {4} or you draw", mandatory: true },
-  "black market": { effect: "Add {B} for each charge counter", mandatory: true },
-  "bitterblossom": { effect: "You lose 1 life, create a 1/1 black Faerie Rogue creature token with flying", mandatory: true },
-  
-  // Mana production at upkeep
-  "shizuko, caller of autumn": { effect: "That player adds {G}{G}{G}. This mana doesn't empty until end of turn.", mandatory: true, anyPlayerTrigger: true },
-  "citanul hierophants": { effect: "Creatures you control have tap for {G}", mandatory: true },
-  
-  // Counter manipulation
-  "atraxa, praetors' voice": { effect: "Proliferate (at end step, not upkeep)", mandatory: true },
-  "ezuri, claw of progress": { effect: "Put +1/+1 counters equal to experience", mandatory: true },
-  "meren of clan nel toth": { effect: "Return creature from graveyard (end step)", mandatory: true },
-  
-  // Damage/Life loss
-  "sulfuric vortex": { effect: "Each player loses 2 life", mandatory: true },
-  "havoc festival": { effect: "Each player loses half their life", mandatory: true },
-  "wound reflection": { effect: "Opponents lose life equal to life lost this turn (end step)", mandatory: true },
-  "deadpool, trading card": { effect: "You lose 3 life", mandatory: true },
-  
-  // Token creation - Creatures that create tokens at upkeep
-  "master of the wild hunt": { effect: "Create a 2/2 green Wolf creature token", mandatory: true },
-  "verdant force": { effect: "Create a 1/1 green Saproling creature token", mandatory: true },
-  "tendershoot dryad": { effect: "Create a 1/1 green Saproling creature token", mandatory: true },
-  "awakening zone": { effect: "Create a 0/1 colorless Eldrazi Spawn creature token with sacrifice for mana", mandatory: true },
-  "from beyond": { effect: "Create a 1/1 colorless Eldrazi Scion creature token with sacrifice for mana", mandatory: true },
-  "assemble the legion": { effect: "Put a muster counter, create that many 1/1 red and white Soldier creature tokens with haste", mandatory: true },
-  "progenitor mimic": { effect: "If this creature isn't a token, create a token that's a copy of this creature", mandatory: true },
-  "ghoulcaller gisa": { effect: "Create 2/2 black Zombie creature tokens", mandatory: false, requiresChoice: true },
-  "sliver queen": { effect: "Create a 1/1 colorless Sliver creature token (activated)", mandatory: false, requiresChoice: true },
-  "krenko, mob boss": { effect: "Create 1/1 red Goblin creature tokens (activated)", mandatory: false, requiresChoice: true },
-  "avenger of zendikar": { effect: "Landfall: Put +1/+1 counter on each Plant", mandatory: true },
-  "chasm skulker": { effect: "Draw trigger: Put +1/+1 counter", mandatory: true },
-  "najeela, the blade-blossom": { effect: "Whenever a Warrior attacks, create 1/1 white Warrior creature token", mandatory: true },
-  "ophiomancer": { effect: "If you control no Snakes, create a 1/1 black Snake creature token with deathtouch", mandatory: true },
-  "dragonmaster outcast": { effect: "If you control 6+ lands, create a 5/5 red Dragon creature token with flying", mandatory: true },
-  "outlaws' merriment": { effect: "Create a 1/2 Human Cleric, 3/1 Human Rogue, or 2/3 Human Warrior token", mandatory: true },
-  "dragon broodmother": { effect: "Create a 1/1 red and green Dragon creature token with flying and devour 2", mandatory: true },
-  "scute swarm": { effect: "Landfall: Create 1/1 Insect or copy", mandatory: true },
-  "dockside extortionist": { effect: "Create Treasure tokens (ETB only)", mandatory: true },
-  "pest infestation": { effect: "Create 1/1 Pest tokens (sorcery)", mandatory: true },
-  // NOTE: Token doublers (Anointed Procession, Parallel Lives, Doubling Season) are REPLACEMENT EFFECTS, not triggers
-  // They are handled in getTokenDoublerMultiplier() in stack.ts and should NOT appear in upkeep triggers
-  
-  // Sheoldred variants
-  "sheoldred, whispering one": { effect: "Return creature from your graveyard to the battlefield; each opponent sacrifices a creature", mandatory: true, requiresSacrifice: true },
-  
-  // End step triggers (tracked here for completeness)
-  "the second doctor": { effect: "Draw a card for each different mana value among nonland permanents you control", mandatory: true, endStepTrigger: true },
-  
-  // Tutoring/Library manipulation
-  "search for azcanta": { effect: "Surveil 1, may transform if 7+ cards in graveyard", mandatory: true, requiresChoice: true },
-  "sensei's divining top": { effect: "Look at top 3, rearrange (activated ability)", mandatory: false },
-  
-  // Restrictions/Stax
-  "winter orb": { effect: "Lands don't untap (passive)", mandatory: true },
-  "static orb": { effect: "Only untap 2 permanents (passive)", mandatory: true },
-  "stasis": { effect: "Players skip untap step", mandatory: true },
-  "tangle wire": { effect: "Remove fade counter, tap that many permanents", mandatory: true },
-  
-  // Sacrifice triggers
-  "eldrazi monument": { effect: "Sacrifice a creature or sacrifice Eldrazi Monument", mandatory: true, requiresChoice: true, requiresSacrifice: true },
-  "smokestack": { effect: "Each player sacrifices permanents equal to soot counters", mandatory: true, requiresSacrifice: true },
-  "pox": { effect: "Sacrifice 1/3 of creatures, lands; lose 1/3 life", mandatory: true, requiresSacrifice: true },
-  
-  // Other common ones
-  "luminarch ascension": { effect: "If no damage taken, add quest counter", mandatory: true },
-  "the gitrog monster": { effect: "Sacrifice a land", mandatory: true, requiresSacrifice: true },
-  "luminous broodmoth": { effect: "When creature without flying dies, return with flying counter", mandatory: true },
-  "hullbreacher": { effect: "If opponent would draw, they don't, you create Treasure instead", mandatory: true },
-  "notion thief": { effect: "If opponent would draw, they don't, you draw instead", mandatory: true },
-  "consecrated sphinx": { effect: "Whenever opponent draws, you may draw 2", mandatory: false, requiresChoice: true },
-  "jin-gitaxias, core augur": { effect: "Draw 7 at end step; opponents max hand size 0", mandatory: true },
-  "jin-gitaxias, progress tyrant": { effect: "Copy first artifact/instant/sorcery; counter first opponent spell", mandatory: true },
-};
-
-/**
  * Detect upkeep triggers from a card's oracle text
  */
 export function detectUpkeepTriggers(card: any, permanent: any, state?: any): UpkeepTrigger[] {
   const triggers: UpkeepTrigger[] = [];
-  const oracleText = (card?.oracle_text || "");
+  const activeFace = getActivePermanentCardFace(card, permanent);
+  const oracleText = activeFace.oracleText;
   const lowerOracle = oracleText.toLowerCase();
-  const cardName = card?.name || "Unknown";
-  const lowerName = cardName.toLowerCase();
+  const cardName = activeFace.cardName;
   const permanentId = permanent?.id || "";
   const counters = permanent?.counters || {};
   
-  // Check known cards first for accurate descriptions
-  let matchedKnownUpkeep = false;
-  for (const [knownName, info] of Object.entries(KNOWN_UPKEEP_CARDS)) {
-    if (lowerName.includes(knownName)) {
-      matchedKnownUpkeep = true;
-      triggers.push({
-        permanentId,
-        cardName,
-        triggerType: 'upkeep_effect',
-        description: info.effect,
-        effect: info.effect,
-        mandatory: info.mandatory,
-        requiresChoice: info.requiresChoice,
-        controllerTrigger: true,
-        anyPlayerTrigger: false,
-      });
-      // Don't return early - card might have multiple triggers
-    }
-  }
+  const sacrificeCreatureOrSelf = isSacrificeCreatureOrSelfOracle(oracleText);
   
   // Cumulative upkeep - adds age counter, pay cost for each
   const cumulativeMatch = oracleText.match(/cumulative upkeep[—\-\s]*(\{[^}]+\}(?:\s*\{[^}]+\})*|[^(.\n]+)/i);
@@ -559,31 +426,34 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     yourUpkeepMatch = oracleText.match(pattern);
     if (yourUpkeepMatch) break;
   }
-  if (yourUpkeepMatch) {
-    const effectText = extendUpkeepEffectText(
-      oracleText,
-      yourUpkeepMatch[0],
-      yourUpkeepMatch[1],
-      yourUpkeepMatch.index ?? 0,
+  // Sacrifice-or-self is typed separately; avoid truncated/paraphrase duplicates.
+  if (yourUpkeepMatch && !sacrificeCreatureOrSelf) {
+    const effectText = normalizeUpkeepEffectText(timingTriggerEffect(oracleText, yourUpkeepMatch));
+    // Fading/vanishing keyword paths already own the remove-counter/sacrifice reminder.
+    const isFadingOrVanishingReminder =
+      /^(?:remove a (?:fade|time) counter from (?:it|this(?:\s+\w+)?)\.?\s*)(?:if you can'?t,?\s*sacrifice (?:it|this(?:\s+\w+)?)(?:\.|$))?/i.test(
+        effectText,
+      );
+    const hasKeywordCounterUpkeep = triggers.some((t) =>
+      t.triggerType === 'fading' || t.triggerType === 'vanishing',
     );
-    const hasCost = effectText.toLowerCase().includes("pay") || effectText.toLowerCase().includes("sacrifice");
-    const isOptional = isControllerOptionalTriggeredAbilityEffect(effectText);
-    const alreadyHasEffect = triggers.some((trigger) =>
-      trigger.triggerType === 'upkeep_effect' &&
-      String(trigger.effect || trigger.description || '').trim().toLowerCase() === effectText.trim().toLowerCase()
-    );
-
-    if (!alreadyHasEffect) triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'upkeep_effect',
-      description: effectText,
-      effect: effectText,
-      mandatory: !isOptional,
-      requiresChoice: isOptional || hasCost || /\beach player may\b/i.test(effectText),
-      controllerTrigger: true,
-      anyPlayerTrigger: false,
-    });
+    if (!(isFadingOrVanishingReminder && hasKeywordCounterUpkeep)) {
+      const hasCost = effectText.toLowerCase().includes("pay") || effectText.toLowerCase().includes("sacrifice");
+      const isOptional = isControllerOptionalTriggeredAbilityEffect(effectText);
+      if (!hasMatchingUpkeepEffect(triggers, effectText, ['upkeep_effect'])) {
+        triggers.push({
+          permanentId,
+          cardName,
+          triggerType: 'upkeep_effect',
+          description: effectText,
+          effect: effectText,
+          mandatory: !isOptional,
+          requiresChoice: isOptional || hasCost || /\beach player may\b/i.test(effectText),
+          controllerTrigger: true,
+          anyPlayerTrigger: false,
+        });
+      }
+    }
   }
   
   const enchantedPlayerFirstUpkeepMatch = oracleText.match(
@@ -669,33 +539,37 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
   // "At the beginning of each player's upkeep"
   const eachPlayerUpkeepMatch = oracleText.match(/at the beginning of each player's upkeep,?\s*([^.]+)/i);
   if (eachPlayerUpkeepMatch) {
-    const effectText = timingTriggerEffect(oracleText, eachPlayerUpkeepMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'each_player_upkeep',
-      description: effectText,
-      effect: effectText,
-      mandatory: true,
-      controllerTrigger: true,
-      anyPlayerTrigger: true,
-    });
+    const effectText = normalizeUpkeepEffectText(timingTriggerEffect(oracleText, eachPlayerUpkeepMatch));
+    if (!hasMatchingUpkeepEffect(triggers, effectText, ['each_player_upkeep', 'upkeep_effect'])) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'each_player_upkeep',
+        description: effectText,
+        effect: effectText,
+        mandatory: true,
+        controllerTrigger: true,
+        anyPlayerTrigger: true,
+      });
+    }
   }
   
   // "At the beginning of each upkeep"
   const eachUpkeepMatch = oracleText.match(/at the beginning of each upkeep,?\s*([^.]+)/i);
   if (eachUpkeepMatch) {
-    const effectText = timingTriggerEffect(oracleText, eachUpkeepMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'each_upkeep',
-      description: effectText,
-      effect: effectText,
-      mandatory: true,
-      controllerTrigger: true,
-      anyPlayerTrigger: true,
-    });
+    const effectText = normalizeUpkeepEffectText(timingTriggerEffect(oracleText, eachUpkeepMatch));
+    if (!hasMatchingUpkeepEffect(triggers, effectText, ['each_upkeep', 'upkeep_effect', 'each_player_upkeep'])) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'each_upkeep',
+        description: effectText,
+        effect: effectText,
+        mandatory: true,
+        controllerTrigger: true,
+        anyPlayerTrigger: true,
+      });
+    }
   }
   
   const eachParticipantUpkeepMatch = oracleText.match(
@@ -770,17 +644,19 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
   // "At the beginning of each opponent's upkeep"
   const opponentUpkeepMatch = oracleText.match(/at the beginning of each opponent's upkeep,?\s*([^.]+)/i);
   if (opponentUpkeepMatch) {
-    const effectText = timingTriggerEffect(oracleText, opponentUpkeepMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'opponent_upkeep',
-      description: effectText,
-      effect: effectText,
-      mandatory: true,
-      controllerTrigger: false,
-      anyPlayerTrigger: false, // Only on opponent's turns
-    });
+    const effectText = normalizeUpkeepEffectText(timingTriggerEffect(oracleText, opponentUpkeepMatch));
+    if (!hasMatchingUpkeepEffect(triggers, effectText, ['opponent_upkeep', 'upkeep_effect'])) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'opponent_upkeep',
+        description: effectText,
+        effect: effectText,
+        mandatory: true,
+        controllerTrigger: false,
+        anyPlayerTrigger: false, // Only on opponent's turns
+      });
+    }
   }
   
   // ============================================================================
@@ -792,11 +668,11 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
   // 
   // Use module-level constants for these patterns (defined at top of file)
   if (
-    !matchedKnownUpkeep
-    && (SACRIFICE_CREATURE_OR_SELF_PATTERN.test(oracleText) || SACRIFICE_OR_PATTERN.test(oracleText))
+    sacrificeCreatureOrSelf
+    && !triggers.some((trigger) => trigger.triggerType === 'sacrifice_creature_or_self')
   ) {
     // Determine what type of permanent this is for the alternative sacrifice
-    const permTypeLine = (card?.type_line || '').toLowerCase();
+    const permTypeLine = (activeFace.typeLine || card?.type_line || '').toLowerCase();
     let sacrificeAlternativeType = 'this permanent';
     if (permTypeLine.includes('artifact')) {
       sacrificeAlternativeType = 'this artifact';

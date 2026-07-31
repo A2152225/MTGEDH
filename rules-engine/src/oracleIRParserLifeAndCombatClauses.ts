@@ -5,6 +5,7 @@ import {
   buildQuantityStepFromClauseParts,
 } from './oracleIRParserQuantityHelpers';
 import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
+import { parseNumberFromText } from '../../shared/src/textUtils';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
@@ -377,6 +378,32 @@ export function tryParseLifeAndCombatClause(args: {
         amount: parseLifeChangeAmount(loseEqualDefault[1]),
         raw: rawClause,
       });
+    }
+
+    const loseUnlessDiscard = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}loses?\\s+(\\d+|x|[a-z]+)\\s+life\\s+unless\\s+(?:they|that player|you)\\s+discards?\\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\\d+)\\s+cards?\\.?$`,
+        'i'
+      )
+    );
+    if (loseUnlessDiscard) {
+      const who = parsePlayerSelector(String(loseUnlessDiscard[1] || 'you').trim());
+      const lifeAmount = parseQuantity(String(loseUnlessDiscard[2] || '').trim());
+      const discardAmount = parseNumberFromText(String(loseUnlessDiscard[3] || '').trim(), 1);
+      return withMeta({
+        kind: 'unless_discards',
+        who,
+        amount: discardAmount,
+        steps: [
+          {
+            kind: 'lose_life',
+            who,
+            amount: lifeAmount,
+            raw: rawClause,
+          } as OracleEffectStep,
+        ],
+        raw: rawClause,
+      } as OracleEffectStep);
     }
 
     const loseTail = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}loses?\\s+(.+)$`, 'i'));

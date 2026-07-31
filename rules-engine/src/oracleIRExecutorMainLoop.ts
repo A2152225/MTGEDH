@@ -129,6 +129,7 @@ import {
   applyModifyTokenCreationStep,
   evaluateUnlessPaysLifeStep,
   evaluateUnlessPaysManaStep,
+  evaluateUnlessDiscardsStep,
   applyRegisterLoseGameReplacementStep,
   applyGainLifeStep,
   applyLoseLifeStep,
@@ -3500,6 +3501,19 @@ export function applyOracleIRStepsToGameStateImpl(
 
         if (conditionEvaluation === false) {
           lastConditionalEvaluation = false;
+          if (step.elseSteps && step.elseSteps.length > 0) {
+            const elseResult = recurse(nextState, step.elseSteps, currentCtx, options);
+            nextState = elseResult.state;
+            log.push(...elseResult.log);
+            appliedSteps.push(...elseResult.appliedSteps);
+            skippedSteps.push(...elseResult.skippedSteps);
+            automationGaps.push(...elseResult.automationGaps);
+            pendingOptionalSteps.push(...elseResult.pendingOptionalSteps);
+            absorbExecutionReplayMutations(elseResult);
+            mergeNestedExecutionOutcome(elseResult);
+            appliedSteps.push(step);
+            break;
+          }
           appliedSteps.push(step);
           log.push(`Skipped conditional step (condition false): ${step.raw}`);
           break;
@@ -3652,6 +3666,37 @@ export function applyOracleIRStepsToGameStateImpl(
         pendingOptionalSteps.push(...nestedResult.pendingOptionalSteps);
         absorbExecutionReplayMutations(nestedResult);
         mergeNestedExecutionOutcome(nestedResult);
+        appliedSteps.push(step);
+        break;
+      }
+      case 'unless_discards': {
+        const result = evaluateUnlessDiscardsStep(nextState, step, currentCtx);
+        if (!('shouldApplyNestedSteps' in result)) {
+          recordSkippedStep(result.innerStep ?? step, result.message, result.reason, {
+            ...result.options,
+            metadata: normalizeSkipMetadata(result.options?.metadata),
+          });
+          break;
+        }
+
+        if (result.state) {
+          nextState = result.state;
+        }
+        log.push(...result.log);
+        if (!result.shouldApplyNestedSteps) {
+          appliedSteps.push(step);
+          break;
+        }
+
+        const unlessDiscardsNestedResult = recurse(nextState, step.steps, currentCtx, options);
+        nextState = unlessDiscardsNestedResult.state;
+        log.push(...unlessDiscardsNestedResult.log);
+        appliedSteps.push(...unlessDiscardsNestedResult.appliedSteps);
+        skippedSteps.push(...unlessDiscardsNestedResult.skippedSteps);
+        automationGaps.push(...unlessDiscardsNestedResult.automationGaps);
+        pendingOptionalSteps.push(...unlessDiscardsNestedResult.pendingOptionalSteps);
+        absorbExecutionReplayMutations(unlessDiscardsNestedResult);
+        mergeNestedExecutionOutcome(unlessDiscardsNestedResult);
         appliedSteps.push(step);
         break;
       }

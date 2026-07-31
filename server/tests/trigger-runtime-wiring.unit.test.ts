@@ -40,6 +40,38 @@ describe('trigger runtime wiring assessment', () => {
     expect(getTriggerRuntimeWiringGaps(effect, 'Sample Card')).toEqual([]);
   });
 
+  it('parses Draw X where-X trigger fragments with preserved whereX', () => {
+    const effect = 'Draw X cards, where X is the number of cards in your hand.';
+    const steps = parseTriggerEffectSteps(effect, 'Draw WhereX Probe');
+    expect(steps).toEqual([
+      expect.objectContaining({
+        kind: 'draw',
+        amount: { kind: 'x' },
+        whereX: { kind: 'where', raw: 'the number of cards in your hand' },
+      }),
+    ]);
+    expect(collectOracleEffectSteps(effect, 'Draw WhereX Probe')).toEqual(steps);
+    expect(getTriggerRuntimeWiringGaps(effect, 'Draw WhereX Probe')).toEqual([]);
+  });
+
+  it("parses Outlaws' Merriment random choose_mode from a trigger fragment", () => {
+    const effect =
+      'choose one at random. Create a red and white creature token with those characteristics.\n' +
+      '\u2022 3/1 Human Warrior with trample and haste.\n' +
+      '\u2022 2/1 Human Cleric with lifelink and haste.\n' +
+      '\u2022 1/2 Human Rogue with haste and "When this token enters, it deals 1 damage to any target."';
+    const steps = parseTriggerEffectSteps(effect, "Outlaws' Merriment");
+    expect(steps).toEqual([
+      expect.objectContaining({
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 1,
+      }),
+    ]);
+    expect((steps[0] as any).modes).toHaveLength(3);
+    expect(getTriggerRuntimeWiringGaps(effect, "Outlaws' Merriment")).toEqual([]);
+  });
+
   it('does not flag effects outside the oracle IR fallback surface area', () => {
     const effect = "put the cards exiled with it into their owner's hand";
     expect(getTriggerRuntimeWiringGaps(effect, 'Solemn Simulacrum')).toEqual([]);

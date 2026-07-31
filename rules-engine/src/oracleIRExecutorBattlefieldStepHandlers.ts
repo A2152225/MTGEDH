@@ -4585,6 +4585,26 @@ function permanentMatchesTappedFilter(perm: any, filterText: string): boolean {
     return permanentMatchesType(perm, 'artifact') || permanentMatchesType(perm, 'creature');
   }
 
+  // Generic comma/or-separated type lists, e.g. "artifact, creature, or land" (Tangle Wire).
+  // Checked before the single-type parse below, since that parse matches on substrings and
+  // would otherwise resolve a list like this to just "creature".
+  const listedTypeParts = normalizedFilter
+    .split(/\s*,\s*|\s+and\/or\s+|\s+or\s+|\s+and\s+/i)
+    .map(part => part.trim())
+    .filter(Boolean);
+  if (listedTypeParts.length > 1) {
+    const listedTypes = listedTypeParts
+      .map(part => parseSimplePermanentTypeFromText(part))
+      .filter((type): type is NonNullable<typeof type> => Boolean(type));
+    if (listedTypes.length === listedTypeParts.length && listedTypes.length > 0) {
+      return listedTypes.some(type => {
+        if (type === 'permanent') return true;
+        if (type === 'nonland_permanent') return permanentMatchesType(perm, 'permanent') && !permanentMatchesType(perm, 'land');
+        return permanentMatchesType(perm, type);
+      });
+    }
+  }
+
   const simpleType = parseSimplePermanentTypeFromText(normalizedFilter);
   if (simpleType) {
     if (simpleType === 'permanent') return true;
@@ -4630,8 +4650,13 @@ export function applyTapMatchingPermanentsStep(
   } else if (step.amount.kind === 'x') {
     selectedIds = eligible.map((perm: any) => String(perm?.id || '').trim()).filter(Boolean);
   } else {
-    const requested = parseQuantity(step.amount.kind === 'unknown' ? step.amount.raw || '' : String((step.amount as any).value || ''));
-    const exactCount = requested.kind === 'number' ? Math.max(0, requested.value | 0) : null;
+    const exactCount =
+      step.amount.kind === 'number'
+        ? Math.max(0, step.amount.value | 0)
+        : (() => {
+            const resolved = resolveOracleQuantity(state, controllerId as PlayerID, step.amount, ctx, { step });
+            return resolved === null ? null : Math.max(0, resolved | 0);
+          })();
     if (exactCount === null) {
       return {
         applied: false,
