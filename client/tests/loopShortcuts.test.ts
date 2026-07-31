@@ -25,11 +25,20 @@ function makeView(): ClientGameView {
       { id: 'p2', name: 'P2' } as any,
     ],
     battlefield: [
-      { id: 'merfolk-a', controller: 'p1', isToken: false, type_line: 'Creature — Merfolk Wizard' },
-      { id: 'merfolk-b', controller: 'p1', isToken: false, type_line: 'Creature — Merfolk Wizard' },
-      { id: 'token-1', controller: 'p1', isToken: true, type_line: 'Creature — Merfolk Wizard' },
-      { id: 'token-2', controller: 'p1', isToken: true, type_line: 'Creature — Merfolk Wizard' },
-      { id: 'token-3', controller: 'p1', isToken: true, type_line: 'Creature — Merfolk Wizard' },
+      { id: 'merfolk-a', controller: 'p1', isToken: false, tapped: false, type_line: 'Creature — Merfolk Wizard', card: { name: 'Svyelun of Sea and Sky' } },
+      { id: 'merfolk-b', controller: 'p1', isToken: false, tapped: false, type_line: 'Creature — Merfolk Wizard', card: { name: 'Merfolk Sovereign' } },
+      { id: 'token-1', controller: 'p1', isToken: true, tapped: true, type_line: 'Creature — Merfolk', card: { name: 'Merfolk' } },
+      { id: 'token-2', controller: 'p1', isToken: true, tapped: true, type_line: 'Creature — Merfolk', card: { name: 'Merfolk' } },
+      { id: 'token-3', controller: 'p1', isToken: true, tapped: false, type_line: 'Creature — Merfolk', card: { name: 'Merfolk' } },
+      {
+        id: 'commander-1',
+        controller: 'p1',
+        isToken: false,
+        tapped: false,
+        isCommander: true,
+        type_line: 'Legendary Creature — Merfolk Noble',
+        card: { name: 'Emperor Mihail II', isCommander: true },
+      },
     ] as any,
     zones: {},
     stack: [],
@@ -263,6 +272,129 @@ describe('loopShortcuts', () => {
     );
 
     expect(payload).toEqual({ selections: ['token-1', 'token-2'] });
+  });
+
+  it('records and replays sacrifice choices against matching tapped tokens, not the commander', () => {
+    const view = makeView();
+    const step = {
+      type: 'target_selection',
+      sourceName: "Ashnod's Altar",
+      description: "Ashnod's Altar: Sacrifice 1 creatures to activate: add {c}{c}.",
+      requiredCount: 1,
+      validTargets: [
+        { id: 'commander-1', label: 'Emperor Mihail II', typeLine: 'Legendary Creature — Merfolk Noble', tapped: false, isToken: false, isCommander: true },
+        { id: 'merfolk-a', label: 'Svyelun of Sea and Sky', typeLine: 'Creature — Merfolk Wizard', tapped: false, isToken: false, isCommander: false },
+        { id: 'token-1', label: 'Merfolk', typeLine: 'Creature — Merfolk', tapped: true, isToken: true, isCommander: false },
+        { id: 'token-3', label: 'Merfolk', typeLine: 'Creature — Merfolk', tapped: false, isToken: true, isCommander: false },
+      ],
+    };
+
+    const item = createRecordedResolutionResponseItem(step, ['token-1'], view, 'p1');
+    expect(item?.kind).toBe('resolution_response');
+    if (!item || item.kind !== 'resolution_response' || item.template.kind !== 'select_valid_targets') {
+      throw new Error('Expected dynamic sacrifice template');
+    }
+
+    expect(item.template).toMatchObject({
+      count: 1,
+      preferTokens: true,
+      preferTapped: true,
+      avoidCommanders: true,
+      requireSelfControlled: true,
+      matchProfiles: [
+        {
+          name: 'Merfolk',
+          typeLine: 'Creature — Merfolk',
+          isToken: true,
+          tapped: true,
+          isCommander: false,
+        },
+      ],
+    });
+
+    const replayView: ClientGameView = {
+      ...view,
+      battlefield: [
+        {
+          id: 'commander-1',
+          controller: 'p1',
+          isToken: false,
+          tapped: false,
+          isCommander: true,
+          type_line: 'Legendary Creature — Merfolk Noble',
+          card: { name: 'Emperor Mihail II', isCommander: true },
+        },
+        {
+          id: 'fresh-token-a',
+          controller: 'p1',
+          isToken: true,
+          tapped: true,
+          type_line: 'Creature — Merfolk',
+          card: { name: 'Merfolk' },
+        },
+        {
+          id: 'fresh-token-b',
+          controller: 'p1',
+          isToken: true,
+          tapped: false,
+          type_line: 'Creature — Merfolk',
+          card: { name: 'Merfolk' },
+        },
+      ] as any,
+    };
+    const replayStep = {
+      ...step,
+      validTargets: [
+        { id: 'commander-1', label: 'Emperor Mihail II', typeLine: 'Legendary Creature — Merfolk Noble', tapped: false, isToken: false, isCommander: true },
+        { id: 'fresh-token-b', label: 'Merfolk', typeLine: 'Creature — Merfolk', tapped: false, isToken: true, isCommander: false },
+        { id: 'fresh-token-a', label: 'Merfolk', typeLine: 'Creature — Merfolk', tapped: true, isToken: true, isCommander: false },
+      ],
+    };
+
+    const payload = buildResolutionResponsePayload(item.template, replayStep, replayView, 'p1');
+    expect(payload).toEqual({ selections: ['fresh-token-a'] });
+  });
+
+  it('can rebind sacrifice choices from validTarget metadata when battlefield lookup is sparse', () => {
+    const sparseView: ClientGameView = {
+      ...makeView(),
+      battlefield: [] as any,
+    };
+    const step = {
+      type: 'target_selection',
+      sourceName: "Ashnod's Altar",
+      description: 'Sacrifice 1 creatures to activate',
+      requiredCount: 1,
+      validTargets: [
+        { id: 'commander-1', label: 'Emperor Mihail II', typeLine: 'Legendary Creature — Merfolk Noble', tapped: false, isToken: false, isCommander: true, controller: 'p1' },
+        { id: 'token-tapped', label: 'Merfolk', typeLine: 'Creature — Merfolk', tapped: true, isToken: true, isCommander: false, controller: 'p1' },
+      ],
+    };
+
+    const payload = buildResolutionResponsePayload(
+      {
+        kind: 'select_valid_targets',
+        count: 1,
+        preferTokens: true,
+        preferTapped: true,
+        avoidCommanders: true,
+        requireSelfControlled: true,
+        matchProfiles: [
+          {
+            name: 'Merfolk',
+            typeLine: 'Creature — Merfolk',
+            isToken: true,
+            tapped: true,
+            isCommander: false,
+          },
+        ],
+      },
+      step,
+      sparseView,
+      'p1'
+    );
+
+    expect(payload).toEqual({ selections: ['token-tapped'] });
   });
 
   it('keeps specific player target responses stable', () => {

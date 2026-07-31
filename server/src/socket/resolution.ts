@@ -13566,8 +13566,14 @@ async function handleStepResponse(
           validTargets: eligiblePermanents.map((entry: any) => ({
             id: entry.id,
             label: entry.card?.name || 'Unknown',
+            name: entry.card?.name || 'Unknown',
             description: entry.card?.type_line || 'Permanent',
             imageUrl: entry.card?.image_uris?.small || entry.card?.image_uris?.normal,
+            typeLine: entry.card?.type_line || '',
+            tapped: entry?.tapped === true,
+            isToken: entry?.isToken === true || entry?.card?.isToken === true,
+            isCommander: entry?.isCommander === true || entry?.card?.isCommander === true,
+            controller: entry?.controller,
           })),
           minTargets: sacrificeCount,
           maxTargets: sacrificeCount,
@@ -17197,8 +17203,14 @@ async function handleDiscardResponse(
       const sacrificeTargets = eligiblePermanents.map((p: any) => ({
         id: p.id,
         label: p.card?.name || 'Unknown',
+        name: p.card?.name || 'Unknown',
         description: p.card?.type_line || 'Permanent',
         imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+        typeLine: p.card?.type_line || '',
+        tapped: p?.tapped === true,
+        isToken: p?.isToken === true || p?.card?.isToken === true,
+        isCommander: p?.isCommander === true || p?.card?.isCommander === true,
+        controller: p?.controller,
       }));
 
       const existingSacrificeStep = ResolutionQueueManager

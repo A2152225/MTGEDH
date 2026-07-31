@@ -10989,6 +10989,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return {
           id: p.id,
           label: p.card?.name || 'Unknown',
+          name: p.card?.name || 'Unknown',
           description: p.card?.type_line || 'Permanent',
           imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
           type: 'permanent',
@@ -11000,6 +11001,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           owner: ownerId || undefined,
           ownerName: ownerId ? (playerNameById.get(ownerId) || ownerId) : undefined,
           tapped: p?.tapped === true,
+          isToken: p?.isToken === true || p?.card?.isToken === true,
+          isCommander: p?.isCommander === true || p?.card?.isCommander === true,
         };
       });
 

@@ -10,6 +10,15 @@ type JsonValue =
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
+/** Characteristics of a recorded permanent choice, used to rebind to a live target. */
+export type LoopShortcutTargetMatchProfile = {
+  name?: string;
+  typeLine?: string;
+  isToken?: boolean;
+  tapped?: boolean;
+  isCommander?: boolean;
+};
+
 type LoopShortcutIdTemplate =
   | {
       kind: 'specific_ids';
@@ -21,6 +30,10 @@ type LoopShortcutIdTemplate =
       preferTokens?: boolean;
       preferNonTokens?: boolean;
       requireSelfControlled?: boolean;
+      preferTapped?: boolean;
+      preferUntapped?: boolean;
+      avoidCommanders?: boolean;
+      matchProfiles?: LoopShortcutTargetMatchProfile[];
     };
 
 const LOOP_SHORTCUT_DRAFTS_STORAGE_KEY = 'mtgedh:loopShortcutDrafts';
@@ -177,15 +190,152 @@ function getBattlefieldPermanent(view: ClientGameView | null | undefined, id: st
   return battlefield.find((permanent: any) => String(permanent?.id || '') === String(id || ''));
 }
 
-function isTokenPermanent(view: ClientGameView | null | undefined, id: string): boolean {
-  const permanent = getBattlefieldPermanent(view, id);
-  return Boolean(permanent?.isToken);
+function getValidTargetEntry(step: any, id: string): any | undefined {
+  const validTargets = Array.isArray(step?.validTargets) ? step.validTargets : [];
+  return validTargets.find((entry: any) => String(entry?.id || '') === String(id || ''));
 }
 
-function isControlledBy(view: ClientGameView | null | undefined, id: string, playerId: string | null | undefined): boolean {
+function resolveOptionalBoolean(...values: unknown[]): boolean | undefined {
+  for (const value of values) {
+    if (value === true) return true;
+    if (value === false) return false;
+  }
+  return undefined;
+}
+
+function getPermanentDisplayName(permanent: any, validTarget?: any): string {
+  return String(
+    permanent?.card?.name
+    || permanent?.name
+    || validTarget?.label
+    || validTarget?.name
+    || ''
+  ).trim();
+}
+
+function getPermanentTypeLineValue(permanent: any, validTarget?: any): string {
+  return String(
+    permanent?.type_line
+    || permanent?.card?.type_line
+    || validTarget?.typeLine
+    || validTarget?.description
+    || ''
+  ).trim();
+}
+
+function buildTargetMatchProfile(
+  step: any,
+  view: ClientGameView | null | undefined,
+  id: string
+): LoopShortcutTargetMatchProfile {
+  const permanent = getBattlefieldPermanent(view, id);
+  const validTarget = getValidTargetEntry(step, id);
+  const name = getPermanentDisplayName(permanent, validTarget);
+  const typeLine = getPermanentTypeLineValue(permanent, validTarget);
+  const isToken = resolveOptionalBoolean(
+    permanent?.isToken,
+    permanent?.card?.isToken,
+    validTarget?.isToken
+  );
+  const tapped = resolveOptionalBoolean(permanent?.tapped, validTarget?.tapped);
+  const isCommander = resolveOptionalBoolean(
+    permanent?.isCommander,
+    permanent?.card?.isCommander,
+    validTarget?.isCommander
+  );
+
+  return {
+    ...(name ? { name } : {}),
+    ...(typeLine ? { typeLine } : {}),
+    ...(typeof isToken === 'boolean' ? { isToken } : {}),
+    ...(typeof tapped === 'boolean' ? { tapped } : {}),
+    ...(typeof isCommander === 'boolean' ? { isCommander } : {}),
+  };
+}
+
+function isTokenPermanent(
+  view: ClientGameView | null | undefined,
+  id: string,
+  step?: any
+): boolean {
+  const profile = buildTargetMatchProfile(step, view, id);
+  return profile.isToken === true;
+}
+
+function isControlledBy(
+  view: ClientGameView | null | undefined,
+  id: string,
+  playerId: string | null | undefined,
+  step?: any
+): boolean {
   if (!playerId) return false;
   const permanent = getBattlefieldPermanent(view, id);
-  return String(permanent?.controller || '') === String(playerId || '');
+  if (permanent) {
+    return String(permanent?.controller || '') === String(playerId || '');
+  }
+  const validTarget = getValidTargetEntry(step, id);
+  if (validTarget?.controller) {
+    return String(validTarget.controller) === String(playerId || '');
+  }
+  return false;
+}
+
+function typeLineOverlapScore(left: string, right: string): number {
+  const leftNorm = normalizeText(left);
+  const rightNorm = normalizeText(right);
+  if (!leftNorm || !rightNorm) return 0;
+  if (leftNorm === rightNorm) return 60;
+
+  const ignore = new Set(['creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle', 'kindred', 'tribal']);
+  const leftParts = leftNorm.split(/[^a-z0-9]+/).filter((part) => part && !ignore.has(part));
+  const rightParts = new Set(rightNorm.split(/[^a-z0-9]+/).filter((part) => part && !ignore.has(part)));
+  let overlap = 0;
+  for (const part of leftParts) {
+    if (rightParts.has(part)) overlap += 1;
+  }
+  return overlap * 20;
+}
+
+function scoreCandidateAgainstProfile(
+  candidate: LoopShortcutTargetMatchProfile & { controllerMatched: boolean },
+  profile: LoopShortcutTargetMatchProfile | undefined,
+  template: Extract<LoopShortcutIdTemplate, { kind: 'select_valid_targets' }>
+): number {
+  let score = 0;
+
+  if (template.preferTokens && candidate.isToken === true) score += 100;
+  if (template.preferNonTokens && candidate.isToken !== true) score += 100;
+  if (template.requireSelfControlled && candidate.controllerMatched) score += 50;
+  if (template.preferTapped && candidate.tapped === true) score += 80;
+  if (template.preferUntapped && candidate.tapped === false) score += 80;
+  if (template.avoidCommanders && candidate.isCommander === true) score -= 500;
+
+  if (!profile) return score;
+
+  if (profile.name && candidate.name && normalizeText(profile.name) === normalizeText(candidate.name)) {
+    score += 200;
+  }
+
+  if (typeof profile.isToken === 'boolean') {
+    if (candidate.isToken === profile.isToken) score += 100;
+    else score -= 80;
+  }
+
+  if (typeof profile.tapped === 'boolean') {
+    if (candidate.tapped === profile.tapped) score += 120;
+    else score -= 60;
+  }
+
+  if (typeof profile.isCommander === 'boolean') {
+    if (candidate.isCommander === profile.isCommander) score += 40;
+    else if (profile.isCommander === false && candidate.isCommander === true) score -= 500;
+  }
+
+  if (profile.typeLine && candidate.typeLine) {
+    score += typeLineOverlapScore(profile.typeLine, candidate.typeLine);
+  }
+
+  return score;
 }
 
 function describePrompt(step: any): string {
@@ -305,9 +455,16 @@ function buildIdTemplate(
   playerId: string | null | undefined
 ): LoopShortcutIdTemplate {
   if (shouldUseDynamicTargetSelection(step)) {
-    const selectedTokens = selectedIds.filter(id => isTokenPermanent(view, id));
-    const selectedNonTokens = selectedIds.filter(id => !isTokenPermanent(view, id));
-    const allSelfControlled = selectedIds.every(id => isControlledBy(view, id, playerId));
+    const matchProfiles = selectedIds.map((id) => buildTargetMatchProfile(step, view, id));
+    const selectedTokens = selectedIds.filter((id) => isTokenPermanent(view, id, step));
+    const selectedNonTokens = selectedIds.filter((id) => !isTokenPermanent(view, id, step));
+    const allSelfControlled = selectedIds.every((id) => isControlledBy(view, id, playerId, step));
+    const tappedFlags = matchProfiles
+      .map((profile) => profile.tapped)
+      .filter((value): value is boolean => typeof value === 'boolean');
+    const allTapped = tappedFlags.length === selectedIds.length && tappedFlags.every(Boolean);
+    const allUntapped = tappedFlags.length === selectedIds.length && tappedFlags.every((value) => value === false);
+    const allNonCommanders = matchProfiles.every((profile) => profile.isCommander !== true);
 
     return {
       kind: 'select_valid_targets',
@@ -315,6 +472,10 @@ function buildIdTemplate(
       preferTokens: selectedTokens.length === selectedIds.length && selectedIds.length > 0,
       preferNonTokens: selectedNonTokens.length === selectedIds.length && selectedIds.length > 0,
       requireSelfControlled: allSelfControlled,
+      preferTapped: allTapped,
+      preferUntapped: allUntapped,
+      avoidCommanders: allNonCommanders && selectedIds.length > 0,
+      matchProfiles,
     };
   }
 
@@ -344,29 +505,50 @@ function buildIdSelectionsPayload(
   const validTargetIds = getPromptValidTargetIds(step, view, playerId);
   if (validTargetIds.length === 0) return null;
 
-  const rankedTargets: RankedTarget[] = validTargetIds
-    .map((id: string, index: number) => {
-      const permanent = getBattlefieldPermanent(view, id);
-      const isToken = Boolean(permanent?.isToken);
-      const isSelfControlled = String(permanent?.controller || '') === String(playerId || '');
-      let score = 0;
+  const profiles =
+    Array.isArray(template.matchProfiles) && template.matchProfiles.length > 0
+      ? template.matchProfiles.slice(0, Math.max(0, template.count))
+      : Array.from({ length: Math.max(0, template.count) }, () => undefined);
 
-      if (template.preferTokens && isToken) score += 100;
-      if (template.preferNonTokens && !isToken) score += 100;
-      if (template.requireSelfControlled && isSelfControlled) score += 50;
+  // Pad profiles when an older saved loop only stored aggregate preferences.
+  while (profiles.length < Math.max(0, template.count)) {
+    profiles.push(undefined);
+  }
 
-      return {
-        id,
-        index,
-        score,
-      };
-    })
-    .sort((left: RankedTarget, right: RankedTarget) => {
-      if (right.score !== left.score) return right.score - left.score;
-      return left.index - right.index;
-    });
+  const usedIds = new Set<string>();
+  const selected: string[] = [];
 
-  const selected = rankedTargets.slice(0, Math.max(0, template.count)).map((target: RankedTarget) => target.id);
+  for (const profile of profiles) {
+    const rankedTargets: RankedTarget[] = validTargetIds
+      .filter((id: string) => !usedIds.has(id))
+      .map((id: string, index: number) => {
+        const candidateProfile = buildTargetMatchProfile(step, view, id);
+        const score = scoreCandidateAgainstProfile(
+          {
+            ...candidateProfile,
+            controllerMatched: isControlledBy(view, id, playerId, step),
+          },
+          profile,
+          template
+        );
+
+        return {
+          id,
+          index,
+          score,
+        };
+      })
+      .sort((left: RankedTarget, right: RankedTarget) => {
+        if (right.score !== left.score) return right.score - left.score;
+        return left.index - right.index;
+      });
+
+    const best = rankedTargets[0];
+    if (!best) return null;
+    usedIds.add(best.id);
+    selected.push(best.id);
+  }
+
   if (selected.length !== Math.max(0, template.count)) {
     return null;
   }
