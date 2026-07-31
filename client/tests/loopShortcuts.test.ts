@@ -397,6 +397,66 @@ describe('loopShortcuts', () => {
     expect(payload).toEqual({ selections: ['token-tapped'] });
   });
 
+  it('resolves grouped battlefield tokens when recording and replaying sacrifice choices', () => {
+    const groupedView: ClientGameView = {
+      ...makeView(),
+      battlefield: [
+        {
+          id: 'commander-1',
+          controller: 'p1',
+          isToken: false,
+          tapped: false,
+          isCommander: true,
+          type_line: 'Legendary Creature — Merfolk Noble',
+          card: { name: 'Emperor Mihail II', isCommander: true },
+        },
+        {
+          // Broadcast optimization: many identical tokens collapse to one group entry.
+          id: 'group_tok_aaa',
+          controller: 'p1',
+          isToken: true,
+          isGroupedTokens: true,
+          tokenCount: 3,
+          tapped: true,
+          groupedTokenIds: ['tok_aaa', 'tok_bbb', 'tok_ccc'],
+          type_line: 'Creature — Merfolk',
+          card: { name: 'Merfolk' },
+        },
+      ] as any,
+    };
+    const step = {
+      type: 'target_selection',
+      sourceName: "Ashnod's Altar",
+      description: "Ashnod's Altar: Sacrifice 1 creatures to activate: add {c}{c}.",
+      requiredCount: 1,
+      validTargets: [
+        { id: 'commander-1', label: 'Emperor Mihail II', tapped: false, isToken: false, isCommander: true },
+        { id: 'tok_aaa', label: 'Merfolk', tapped: true, isToken: true, isCommander: false },
+        { id: 'tok_bbb', label: 'Merfolk', tapped: true, isToken: true, isCommander: false },
+        { id: 'tok_ccc', label: 'Merfolk', tapped: true, isToken: true, isCommander: false },
+      ],
+    };
+
+    const item = createRecordedResolutionResponseItem(step, ['tok_bbb'], groupedView, 'p1');
+    expect(item?.kind).toBe('resolution_response');
+    if (!item || item.kind !== 'resolution_response' || item.template.kind !== 'select_valid_targets') {
+      throw new Error('Expected dynamic sacrifice template from grouped tokens');
+    }
+
+    expect(item.template.preferTokens).toBe(true);
+    expect(item.template.preferNonTokens).toBe(false);
+    expect(item.template.avoidCommanders).toBe(true);
+    expect(item.template.matchProfiles?.[0]).toMatchObject({
+      name: 'Merfolk',
+      isToken: true,
+      tapped: true,
+      isCommander: false,
+    });
+
+    const payload = buildResolutionResponsePayload(item.template, step, groupedView, 'p1');
+    expect(payload?.selections).toEqual(['tok_aaa']);
+  });
+
   it('keeps specific player target responses stable', () => {
     const view = makeView();
     const step = {

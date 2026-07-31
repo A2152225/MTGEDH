@@ -230,14 +230,14 @@ function creatureHasManaColor(creature: BattlefieldPermanent, colorName: string)
 
 /**
  * Check if a creature has a specific creature type (e.g., "Soldier", "Goblin")
- * Handles both main types and subtypes in the type line
+ * Handles changeling / "every creature type" via shared helper.
  */
 function hasCreatureType(permanent: BattlefieldPermanent, creatureType: string): boolean {
-  const tl = ((permanent.card as any)?.type_line || '').toLowerCase();
-  // Check if the creature type exists as a word in the type line
-  // Use word boundary to avoid false positives (e.g., "soldier" shouldn't match "soldiers")
-  const typePattern = new RegExp(`\\b${creatureType.toLowerCase()}s?\\b`, 'i');
-  return typePattern.test(tl);
+  return cardHasCreatureType(
+    (permanent.card as any)?.type_line,
+    (permanent.card as any)?.oracle_text || (permanent.card as any)?.oracleText,
+    creatureType,
+  );
 }
 
 function getCreatureSubtypeWords(permanent: BattlefieldPermanent): string[] {

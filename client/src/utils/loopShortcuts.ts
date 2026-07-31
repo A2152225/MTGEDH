@@ -187,7 +187,30 @@ function getObjectTargetIds(selections: unknown): string[] {
 
 function getBattlefieldPermanent(view: ClientGameView | null | undefined, id: string): any | undefined {
   const battlefield = Array.isArray(view?.battlefield) ? view?.battlefield : [];
-  return battlefield.find((permanent: any) => String(permanent?.id || '') === String(id || ''));
+  const targetId = String(id || '');
+  if (!targetId) return undefined;
+
+  const direct = battlefield.find((permanent: any) => String(permanent?.id || '') === targetId);
+  if (direct) return direct;
+
+  // Server broadcast collapses identical tokens into one group entry (`group_<id>`).
+  // Sacrifice / target prompts still use the real member IDs in groupedTokenIds.
+  for (const permanent of battlefield) {
+    if (permanent?.isGroupedTokens !== true) continue;
+    const groupedIds = Array.isArray(permanent?.groupedTokenIds) ? permanent.groupedTokenIds : [];
+    if (!groupedIds.some((entry: unknown) => String(entry || '') === targetId)) continue;
+
+    return {
+      ...permanent,
+      id: targetId,
+      isToken: true,
+      isGroupedTokens: false,
+      tokenCount: 1,
+      groupedTokenIds: undefined,
+    };
+  }
+
+  return undefined;
 }
 
 function getValidTargetEntry(step: any, id: string): any | undefined {
@@ -201,6 +224,10 @@ function resolveOptionalBoolean(...values: unknown[]): boolean | undefined {
     if (value === false) return false;
   }
   return undefined;
+}
+
+function looksLikeTokenId(id: string): boolean {
+  return /^(tok|token|copytok|group_)/i.test(String(id || '').trim());
 }
 
 function getPermanentDisplayName(permanent: any, validTarget?: any): string {
@@ -234,8 +261,11 @@ function buildTargetMatchProfile(
   const typeLine = getPermanentTypeLineValue(permanent, validTarget);
   const isToken = resolveOptionalBoolean(
     permanent?.isToken,
+    permanent?.isCopyToken,
     permanent?.card?.isToken,
-    validTarget?.isToken
+    validTarget?.isToken,
+    // Fallback: token ids from createToken / grouped members.
+    looksLikeTokenId(id) || looksLikeTokenId(String(permanent?.id || '')) ? true : undefined,
   );
   const tapped = resolveOptionalBoolean(permanent?.tapped, validTarget?.tapped);
   const isCommander = resolveOptionalBoolean(
@@ -260,6 +290,23 @@ function isTokenPermanent(
 ): boolean {
   const profile = buildTargetMatchProfile(step, view, id);
   return profile.isToken === true;
+}
+
+function isExplicitNonTokenPermanent(
+  view: ClientGameView | null | undefined,
+  id: string,
+  step?: any
+): boolean {
+  const profile = buildTargetMatchProfile(step, view, id);
+  return profile.isToken === false;
+}
+
+function isCommanderPermanent(
+  view: ClientGameView | null | undefined,
+  id: string,
+  step?: any
+): boolean {
+  return buildTargetMatchProfile(step, view, id).isCommander === true;
 }
 
 function isControlledBy(
@@ -304,7 +351,7 @@ function scoreCandidateAgainstProfile(
   let score = 0;
 
   if (template.preferTokens && candidate.isToken === true) score += 100;
-  if (template.preferNonTokens && candidate.isToken !== true) score += 100;
+  if (template.preferNonTokens && candidate.isToken === false) score += 100;
   if (template.requireSelfControlled && candidate.controllerMatched) score += 50;
   if (template.preferTapped && candidate.tapped === true) score += 80;
   if (template.preferUntapped && candidate.tapped === false) score += 80;
@@ -457,7 +504,7 @@ function buildIdTemplate(
   if (shouldUseDynamicTargetSelection(step)) {
     const matchProfiles = selectedIds.map((id) => buildTargetMatchProfile(step, view, id));
     const selectedTokens = selectedIds.filter((id) => isTokenPermanent(view, id, step));
-    const selectedNonTokens = selectedIds.filter((id) => !isTokenPermanent(view, id, step));
+    const selectedExplicitNonTokens = selectedIds.filter((id) => isExplicitNonTokenPermanent(view, id, step));
     const allSelfControlled = selectedIds.every((id) => isControlledBy(view, id, playerId, step));
     const tappedFlags = matchProfiles
       .map((profile) => profile.tapped)
@@ -470,7 +517,9 @@ function buildIdTemplate(
       kind: 'select_valid_targets',
       count: selectedIds.length,
       preferTokens: selectedTokens.length === selectedIds.length && selectedIds.length > 0,
-      preferNonTokens: selectedNonTokens.length === selectedIds.length && selectedIds.length > 0,
+      // Only when every selected permanent is known nontoken — never when token status is unknown
+      // (unknown used to falsely set preferNonTokens and steer Ashnod's Altar onto the commander).
+      preferNonTokens: selectedExplicitNonTokens.length === selectedIds.length && selectedIds.length > 0,
       requireSelfControlled: allSelfControlled,
       preferTapped: allTapped,
       preferUntapped: allUntapped,
@@ -483,6 +532,50 @@ function buildIdTemplate(
     kind: 'specific_ids',
     ids: selectedIds,
   };
+}
+
+function filterDynamicCandidateIds(
+  validTargetIds: string[],
+  template: Extract<LoopShortcutIdTemplate, { kind: 'select_valid_targets' }>,
+  profile: LoopShortcutTargetMatchProfile | undefined,
+  step: any,
+  view: ClientGameView | null | undefined
+): string[] {
+  let candidates = [...validTargetIds];
+
+  const wantsTokens =
+    template.preferTokens === true
+    || profile?.isToken === true;
+  if (wantsTokens) {
+    const tokenIds = candidates.filter((id) => isTokenPermanent(view, id, step));
+    if (tokenIds.length > 0) {
+      candidates = tokenIds;
+    }
+  }
+
+  const avoidCommanders =
+    template.avoidCommanders === true
+    || profile?.isCommander === false;
+  if (avoidCommanders) {
+    const nonCommanders = candidates.filter((id) => !isCommanderPermanent(view, id, step));
+    if (nonCommanders.length > 0) {
+      candidates = nonCommanders;
+    }
+  }
+
+  if (template.preferTapped === true || profile?.tapped === true) {
+    const tappedIds = candidates.filter((id) => buildTargetMatchProfile(step, view, id).tapped === true);
+    if (tappedIds.length > 0) {
+      candidates = tappedIds;
+    }
+  } else if (template.preferUntapped === true || profile?.tapped === false) {
+    const untappedIds = candidates.filter((id) => buildTargetMatchProfile(step, view, id).tapped === false);
+    if (untappedIds.length > 0) {
+      candidates = untappedIds;
+    }
+  }
+
+  return candidates;
 }
 
 function buildIdSelectionsPayload(
@@ -519,8 +612,15 @@ function buildIdSelectionsPayload(
   const selected: string[] = [];
 
   for (const profile of profiles) {
-    const rankedTargets: RankedTarget[] = validTargetIds
-      .filter((id: string) => !usedIds.has(id))
+    const candidateIds = filterDynamicCandidateIds(
+      validTargetIds.filter((id: string) => !usedIds.has(id)),
+      template,
+      profile,
+      step,
+      view
+    );
+
+    const rankedTargets: RankedTarget[] = candidateIds
       .map((id: string, index: number) => {
         const candidateProfile = buildTargetMatchProfile(step, view, id);
         const score = scoreCandidateAgainstProfile(

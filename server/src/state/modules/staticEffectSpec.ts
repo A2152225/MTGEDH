@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent, PlayerID } from '../../../../shared/src/index.js';
+import { permanentHasCreatureType } from '../../../../shared/src/creatureTypes.js';
 import { computeContinuousEffects, type ContinuousEffectResult } from '../../rules-engine/staticEffects.js';
 import {
   extractOracleCardLookupKeys,
@@ -95,9 +96,8 @@ function isPlaneswalkerPermanent(permanent: BattlefieldPermanent): boolean {
 }
 
 function hasCreatureType(permanent: BattlefieldPermanent, creatureType: string): boolean {
-  const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
-  const typePattern = new RegExp(`\\b${String(creatureType || '').trim().toLowerCase()}s?\\b`, 'i');
-  return typePattern.test(typeLine);
+  // Use shared helper so changeling / "every creature type" / granted types count.
+  return permanentHasCreatureType(permanent as any, creatureType);
 }
 
 function getCreatureSubtypeWords(permanent: BattlefieldPermanent): string[] {
@@ -308,6 +308,7 @@ function creatureHasManaColor(permanent: BattlefieldPermanent, colorName: string
 export function collectStaticEffectSpecsFromState(state: unknown): StaticEffectSpec[] {
   const specs: StaticEffectSpec[] = [];
   const battlefield = Array.isArray((state as any)?.battlefield) ? (state as any).battlefield : [];
+  const morophonChosenType = ((state as any)?.morophonChosenType || {}) as Record<string, string>;
 
   for (const perm of battlefield) {
     if (!perm?.card || perm?.phasedOut === true) continue;
@@ -334,7 +335,17 @@ export function collectStaticEffectSpecsFromState(state: unknown): StaticEffectS
     }
 
     if (!permanentHasOverlayStaticSpecs(perm)) {
-      specs.push(...parseStaticEffectSpecsFromOraclePermanent(perm));
+      const resolvedChosenType = String(
+        perm.chosenCreatureType
+        || perm.card?.chosenCreatureType
+        || morophonChosenType[sourcePermanentId]
+        || '',
+      ).trim();
+      const permForParse =
+        resolvedChosenType && !String(perm.chosenCreatureType || '').trim()
+          ? { ...perm, chosenCreatureType: resolvedChosenType }
+          : perm;
+      specs.push(...parseStaticEffectSpecsFromOraclePermanent(permForParse));
     }
   }
 

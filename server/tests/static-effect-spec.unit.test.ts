@@ -1166,6 +1166,88 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
     expect(merged.perPermanent.get('morophon')?.pDelta || 0).toBe(0);
   });
 
+  it('stacks Morophon copy lords and buffs changeling Morphons as Merfolk', () => {
+    const morophonOracle =
+      'Changeling (This card is every creature type.)\n' +
+      'As Morophon enters, choose a creature type.\n' +
+      'Other creatures you control of the chosen type get +1/+1.';
+
+    const state = {
+      morophonChosenType: {
+        morophon_original: 'Merfolk',
+        morophon_copy: 'Merfolk',
+      },
+      battlefield: [
+        {
+          id: 'morophon_original',
+          controller: 'p1',
+          chosenCreatureType: 'Merfolk',
+          card: {
+            name: 'Morophon, the Boundless',
+            type_line: 'Legendary Creature — Shapeshifter',
+            oracle_text: morophonOracle,
+            keywords: ['Changeling'],
+          },
+        },
+        {
+          id: 'morophon_copy',
+          controller: 'p1',
+          isToken: true,
+          isCopyToken: true,
+          // Copy may only keep the choice on the card shell / state map.
+          card: {
+            name: 'Morophon, the Boundless',
+            type_line: 'Creature — Shapeshifter',
+            oracle_text: morophonOracle,
+            keywords: ['Changeling'],
+            chosenCreatureType: 'Merfolk',
+          },
+        },
+        {
+          id: 'merfolk_ally',
+          controller: 'p1',
+          card: { name: 'Merfolk', type_line: 'Creature — Merfolk', oracle_text: '' },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    // Each Morophon buffs the other (+1) and both buff the Merfolk (+2).
+    expect(merged.perPermanent.get('merfolk_ally')).toMatchObject({ pDelta: 2, tDelta: 2 });
+    expect(merged.perPermanent.get('morophon_original')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('morophon_copy')).toMatchObject({ pDelta: 1, tDelta: 1 });
+
+    const specs = collectStaticEffectSpecsFromState(state);
+    expect(specs.filter((spec) => String(spec.id).includes('chosen-type-other-lord'))).toHaveLength(2);
+  });
+
+  it('applies Morophon lord when chosen type is only on the state map', () => {
+    const state = {
+      morophonChosenType: { morophon_copy: 'Merfolk' },
+      battlefield: [
+        {
+          id: 'morophon_copy',
+          controller: 'p1',
+          isToken: true,
+          card: {
+            name: 'Morophon, the Boundless',
+            type_line: 'Creature — Shapeshifter',
+            oracle_text:
+              'Changeling\nAs Morophon enters, choose a creature type.\nOther creatures you control of the chosen type get +1/+1.',
+          },
+        },
+        {
+          id: 'merfolk_ally',
+          controller: 'p1',
+          card: { name: 'Merfolk', type_line: 'Creature — Merfolk', oracle_text: '' },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('merfolk_ally')).toMatchObject({ pDelta: 1, tDelta: 1 });
+  });
+
   it('applies Sliver Legion per-other-sliver counting through declarative specs without legacy double-count', () => {
     const state = {
       battlefield: [

@@ -361,7 +361,11 @@ export function parseStaticEffectSpecsFromOraclePermanent(
 
   const source = { sourcePermanentId, sourceController, sourceName };
   const specs: StaticEffectSpec[] = [];
-  const chosenCreatureType = String((perm as any)?.chosenCreatureType || '').trim().toLowerCase();
+  const chosenCreatureType = String(
+    (perm as any)?.chosenCreatureType
+    || (perm as any)?.card?.chosenCreatureType
+    || '',
+  ).trim().toLowerCase();
   const chosenColor = String(
     (perm as any)?.chosenColor || (perm as any)?.card?.chosenColor || '',
   ).trim().toLowerCase();
