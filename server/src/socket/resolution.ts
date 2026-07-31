@@ -4794,7 +4794,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     }
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
-      socket.emit("noResolutionStep", { gameId });
+      // Do not emit noResolutionStep here — clients treat that as "dismiss choice UI",
+      // which races reconnect and closes pending payment/choice modals.
       return;
     }
 
@@ -5951,6 +5952,86 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             return;
           }
         }
+      }
+
+      // Spell-cast payment: refuse to consume the step if the pending cast was already lost
+      // (reconnect / prior cancel race). Otherwise completeStep leaves the player with no
+      // prompt and a card still in hand.
+      if (
+        !cancelled &&
+        stepAny.spellPaymentRequired === true &&
+        stepAny.graveyardSpellCastManaPayment !== true
+      ) {
+        const effectId = String(stepAny.effectId || '').trim();
+        const pendingCast = effectId ? (game.state as any)?.pendingSpellCasts?.[effectId] : undefined;
+        if (!pendingCast) {
+          socket.emit('error', {
+            code: 'PENDING_CAST_MISSING',
+            message: 'Cast payment expired — request the cast again.',
+          });
+          return;
+        }
+      }
+    }
+
+    // Tap-creatures-as-cost (Summon the School style): validate before consuming the step.
+    if (
+      step.type === ResolutionStepType.TARGET_SELECTION &&
+      (step as any)?.tapCreaturesCost === true &&
+      !cancelled
+    ) {
+      const stepAny = step as any;
+      const cardId = String(stepAny?.cardId || step.sourceId || '').trim();
+      const requiredCount = Number(stepAny?.requiredCount || 0);
+      const selectionsRaw = response.selections as any;
+      const selections: string[] = Array.isArray(selectionsRaw)
+        ? selectionsRaw.map((x: any) => String(x)).filter(Boolean)
+        : [];
+
+      if (!cardId) {
+        socket.emit('error', { code: 'INVALID_STEP', message: 'Graveyard return step is missing its card.' });
+        return;
+      }
+      if (!Number.isFinite(requiredCount) || requiredCount <= 0) {
+        socket.emit('error', { code: 'INVALID_STEP', message: 'Invalid tap-cost requirement.' });
+        return;
+      }
+      if (selections.length !== requiredCount) {
+        socket.emit('error', {
+          code: 'INVALID_SELECTION',
+          message: `Select exactly ${requiredCount} creature(s) to tap.`,
+        });
+        return;
+      }
+
+      const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+      for (const permanentId of selections) {
+        const permanent = battlefield.find((p: any) => p && p.id === permanentId);
+        if (!permanent || String(permanent.controller) !== String(pid)) {
+          socket.emit('error', {
+            code: 'INVALID_SELECTION',
+            message: 'One of the selected permanents is no longer a legal tap cost.',
+          });
+          return;
+        }
+        if ((permanent as any).tapped) {
+          socket.emit('error', {
+            code: 'ALREADY_TAPPED',
+            message: `${permanent.card?.name || 'Creature'} is already tapped.`,
+          });
+          return;
+        }
+      }
+
+      const zones = (game.state as any)?.zones?.[pid];
+      const inGraveyard = Array.isArray(zones?.graveyard)
+        && zones.graveyard.some((c: any) => String(c?.id) === cardId);
+      if (!inGraveyard) {
+        socket.emit('error', {
+          code: 'CARD_NOT_IN_GRAVEYARD',
+          message: 'That card is no longer in your graveyard.',
+        });
+        return;
       }
     }
 
@@ -13199,7 +13280,67 @@ async function handleStepResponse(
         if (castCompleted) {
           debug(2, `[Resolution] Spell payment complete for ${cardName}; completed cast server-side (effectId='${effectId}')`);
         } else {
-          debugWarn(1, `[Resolution] Spell payment applied for ${cardName} but cast did not complete (effectId='${effectId}')`);
+          // Alternate-cost / additional prompts may still be pending for this cast — not a failure.
+          const stillPendingCast = Boolean(effectId && (game.state as any)?.pendingSpellCasts?.[effectId]);
+          const relatedPendingSteps = ResolutionQueueManager
+            .getStepsForPlayer(gameId, pid as any)
+            .filter((queued: any) => {
+              const queuedEffectId = String(queued?.effectId || '');
+              const queuedCardId = String(queued?.cardId || queued?.sourceId || '');
+              return (
+                (effectId && queuedEffectId === String(effectId)) ||
+                (cardId && queuedCardId === String(cardId))
+              );
+            });
+
+          if (relatedPendingSteps.length > 0) {
+            debug(2, `[Resolution] Spell payment for ${cardName} deferred to follow-up prompt(s) (effectId='${effectId}')`);
+          } else if (stillPendingCast) {
+            // Payment step was consumed but cast did not finish and no follow-up prompt exists.
+            // Re-queue so the player can pay again instead of being stuck.
+            debugWarn(1, `[Resolution] Spell payment for ${cardName} did not complete; re-queuing payment step (effectId='${effectId}')`);
+            const pendingCast = (game.state as any).pendingSpellCasts[effectId];
+            const requeued = ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+              playerId: pid as any,
+              sourceId: cardId,
+              sourceName: cardName,
+              sourceImage: stepData.imageUrl || step.sourceImage,
+              description: `Pay costs to cast ${cardName}.`,
+              mandatory: true,
+              spellPaymentRequired: true,
+              cardId,
+              cardName,
+              manaCost: stepData.manaCost,
+              xValue: stepData.xValue,
+              effectId,
+              targets: stepData.targets,
+              imageUrl: stepData.imageUrl || step.sourceImage,
+              costAdjustment: stepData.costAdjustment,
+              costReduction: stepData.costReduction,
+              convokeOptions: stepData.convokeOptions,
+              harmonizeOptions: stepData.harmonizeOptions,
+              sneakOptions: stepData.sneakOptions,
+              forcedAlternateCostId: stepData.forcedAlternateCostId,
+              preferredAlternateCostId: stepData.preferredAlternateCostId,
+              oracleText: stepData.oracleText,
+              extraAlternateCosts: stepData.extraAlternateCosts,
+              fromZone: stepData.fromZone,
+              ...buildSpellPaymentPresentationFields(pendingCast, { game, playerId: String(pid) }),
+            } as any);
+            debug(2, `[Resolution] Re-queued spell payment step ${String((requeued as any)?.id || '')} for ${cardName}`);
+            emitToPlayer(io, pid as any, 'error', {
+              code: 'CAST_PAYMENT_RETRY',
+              message: `Payment for ${cardName} did not finish casting — please pay again.`,
+            });
+            emitNextPendingResolutionStep(io, gameId, String(pid));
+          } else {
+            debugWarn(1, `[Resolution] Spell payment applied for ${cardName} but cast did not complete (effectId='${effectId}')`);
+            emitToPlayer(io, pid as any, 'error', {
+              code: 'CAST_DID_NOT_COMPLETE',
+              message: `Payment for ${cardName} did not finish casting — try casting again.`,
+            });
+          }
         }
         break;
       }
@@ -20165,49 +20306,60 @@ async function handleTargetSelectionResponse(
     const requiredCount = Number(stepAny?.requiredCount || 0);
     const creatureType = String(stepAny?.creatureType || '').trim();
 
+    const fail = (code: string, message: string) => {
+      debugWarn(1, `[Resolution] tapCreaturesCost ${code}: ${message}`);
+      emitToPlayer(io, pid as any, 'error', { code, message });
+    };
+
     if (!cardId) {
-      debugWarn(1, `[Resolution] tapCreaturesCost step missing cardId/sourceId`);
+      fail('INVALID_STEP', 'Graveyard return step is missing its card.');
       return;
     }
 
     if (!Number.isFinite(requiredCount) || requiredCount <= 0) {
-      debugWarn(1, `[Resolution] tapCreaturesCost invalid requiredCount: ${String(stepAny?.requiredCount)}`);
+      fail('INVALID_STEP', 'Invalid tap-cost requirement.');
       return;
     }
 
     // Enforce exact count for cost payment
     if (selections.length !== requiredCount) {
-      debugWarn(1, `[Resolution] tapCreaturesCost wrong selection count: got ${selections.length}, required ${requiredCount}`);
+      fail('INVALID_SELECTION', `Select exactly ${requiredCount} creature(s) to tap.`);
       return;
     }
 
     const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-    const tappedCreatureNames: string[] = [];
+    const selectedPermanents: any[] = [];
 
     for (const permanentId of selections) {
       const permanent = battlefield.find((p: any) => p && p.id === permanentId);
       if (!permanent || String(permanent.controller) !== String(pid)) {
-        debugWarn(1, `[Resolution] tapCreaturesCost invalid permanent/controller: ${permanentId}`);
+        fail('INVALID_SELECTION', 'One of the selected permanents is no longer a legal tap cost.');
         return;
       }
       if ((permanent as any).tapped) {
-        debugWarn(1, `[Resolution] tapCreaturesCost selected already tapped permanent: ${permanentId}`);
+        fail('ALREADY_TAPPED', `${permanent.card?.name || 'Creature'} is already tapped.`);
         return;
       }
-      (permanent as any).tapped = true;
-      tappedCreatureNames.push(permanent.card?.name || 'Creature');
+      selectedPermanents.push(permanent);
     }
 
     const zones = (game.state as any)?.zones?.[pid];
     if (!zones || !Array.isArray(zones.graveyard)) {
-      debugWarn(1, `[Resolution] tapCreaturesCost zones/graveyard missing for ${pid}`);
+      fail('NO_ZONES', 'Graveyard not found.');
       return;
     }
 
     const cardIndex = zones.graveyard.findIndex((c: any) => String(c?.id) === cardId);
     if (cardIndex === -1) {
-      debugWarn(1, `[Resolution] tapCreaturesCost card not in graveyard: ${cardId}`);
+      fail('CARD_NOT_IN_GRAVEYARD', 'That card is no longer in your graveyard.');
       return;
+    }
+
+    // Mutate only after all validation succeeds (avoid tapping without returning the card).
+    const tappedCreatureNames: string[] = [];
+    for (const permanent of selectedPermanents) {
+      (permanent as any).tapped = true;
+      tappedCreatureNames.push(permanent.card?.name || 'Creature');
     }
 
     const card = zones.graveyard[cardIndex];

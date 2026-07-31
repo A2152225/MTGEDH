@@ -1,6 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import { randomBytes } from "crypto";
-import { ensureGame, broadcastGame, schedulePriorityTimeout } from "./util";
+import { ensureGame, broadcastGame, schedulePriorityTimeout, getOrInitManaPool, getTotalManaInPool } from "./util";
 import {
   emitIgnoredCardsUpdatedToSocket,
   getPlayerIgnoredCards,
@@ -1077,6 +1077,34 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               });
             } catch (e) {
               debugWarn(1, "joinGame: emit state failed", e);
+            }
+
+            // Rejoining sockets miss manaPoolUpdate events while disconnected; push a snapshot.
+            if (!spectator && playerId) {
+              try {
+                const pool = getOrInitManaPool(game.state, playerId) as any;
+                const totalMana = getTotalManaInPool({ manaPool: { [playerId]: pool } }, playerId);
+                socket.emit("manaPoolUpdate", {
+                  gameId,
+                  playerId,
+                  manaPool: {
+                    white: pool.white || 0,
+                    blue: pool.blue || 0,
+                    black: pool.black || 0,
+                    red: pool.red || 0,
+                    green: pool.green || 0,
+                    colorless: pool.colorless || 0,
+                    restricted: pool.restricted,
+                    doesNotEmpty: pool.doesNotEmpty,
+                    convertsToColorless: pool.convertsToColorless,
+                    noEmptySourceIds: pool.noEmptySourceIds,
+                  },
+                  totalMana,
+                  reason: "Reconnect sync",
+                });
+              } catch (e) {
+                debugWarn(1, "joinGame: emit manaPoolUpdate failed", e);
+              }
             }
 
             // Sync ignored-cards panel with server state (in-memory only; lost on restart).

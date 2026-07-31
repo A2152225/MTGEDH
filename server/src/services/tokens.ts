@@ -9,7 +9,11 @@ import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { debug, debugWarn, debugError } from "../utils/debug.js";
-import { searchScryfallTokenImage, type ScryfallTokenImageSpec } from './scryfall.js';
+import {
+  searchScryfallTokenImage,
+  stripColorAdjectiveFromTokenName,
+  type ScryfallTokenImageSpec,
+} from './scryfall.js';
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -682,8 +686,23 @@ function tokenMatchesImageSpecExactly(token: TokenCard, spec: TokenImageSpec): b
 
 function findExactTokenImageInCache(spec: TokenImageSpec): TokenCard | undefined {
   loadTokens();
-  const candidates = tokensByName.get(spec.name.toLowerCase()) || [];
-  return candidates.find((token) => tokenMatchesImageSpecExactly(token, spec));
+  const namesToTry = Array.from(
+    new Set(
+      [spec.name, stripColorAdjectiveFromTokenName(spec.name)]
+        .map((n) => String(n || '').toLowerCase().trim())
+        .filter(Boolean),
+    ),
+  );
+  for (const nameLower of namesToTry) {
+    const candidates = tokensByName.get(nameLower) || [];
+    // Match against a spec whose name matches the candidate bucket (color-stripped names).
+    const matchSpec = nameLower === spec.name.toLowerCase()
+      ? spec
+      : { ...spec, name: stripColorAdjectiveFromTokenName(spec.name) };
+    const hit = candidates.find((token) => tokenMatchesImageSpecExactly(token, matchSpec));
+    if (hit) return hit;
+  }
+  return undefined;
 }
 
 function findFuzzyTokenImageInCache(spec: TokenImageSpec): TokenCard | undefined {
@@ -694,9 +713,13 @@ function findFuzzyTokenImageInCache(spec: TokenImageSpec): TokenCard | undefined
   const abilitiesSet = new Set(abilitiesLower);
   const requestedColors = spec.colors !== undefined ? normalizeTokenImageColors(spec.colors) : undefined;
 
+  const strippedName = stripColorAdjectiveFromTokenName(spec.name).toLowerCase();
   let searchTokens = tokensByName.get(nameLower) || [];
+  if (searchTokens.length === 0 && strippedName && strippedName !== nameLower) {
+    searchTokens = tokensByName.get(strippedName) || [];
+  }
   if (searchTokens.length === 0) {
-    searchTokens = tokensByType.get(nameLower) || [];
+    searchTokens = tokensByType.get(nameLower) || tokensByType.get(strippedName) || [];
   }
 
   const NO_MATCH_SCORE = -1;

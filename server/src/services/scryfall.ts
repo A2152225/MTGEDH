@@ -526,6 +526,25 @@ export type ScryfallTokenImageSpec = {
   isEnchantment?: boolean;
 };
 
+type ScryfallTokenImageResult = { small?: string; normal?: string; large?: string; art_crop?: string };
+
+/** Negative + positive results for token image searches (avoids replay/enrich storms). */
+const tokenImageSearchCache = new Map<string, ScryfallTokenImageResult | null>();
+/** Coalesce concurrent identical token image lookups. */
+const tokenImageSearchInFlight = new Map<string, Promise<ScryfallTokenImageResult | undefined>>();
+
+/**
+ * Strip leading color adjectives from informal token names ("Blue Merfolk" → "Merfolk")
+ * so Scryfall name:"..." queries match real token printings.
+ */
+export function stripColorAdjectiveFromTokenName(name: string): string {
+  const raw = String(name || '').trim();
+  const stripped = raw
+    .replace(/^(white|blue|black|red|green|colorless|gold|multicolored)\s+/i, '')
+    .trim();
+  return stripped || raw;
+}
+
 function normalizeScryfallTokenColors(colors?: string[]): string[] {
   return (colors || [])
     .map((color) => String(color || '').trim().toUpperCase())
@@ -533,8 +552,27 @@ function normalizeScryfallTokenColors(colors?: string[]): string[] {
     .sort();
 }
 
+function buildScryfallTokenImageCacheKey(spec: ScryfallTokenImageSpec, searchName: string): string {
+  const abilities = (spec.abilities || []).map((a) => String(a).toLowerCase()).sort().join(',');
+  return [
+    searchName.toLowerCase(),
+    String(spec.power ?? ''),
+    String(spec.toughness ?? ''),
+    normalizeScryfallTokenColors(spec.colors).join(''),
+    abilities,
+    spec.isArtifact === true ? 'A' : spec.isArtifact === false ? 'a' : '',
+    spec.isEnchantment === true ? 'E' : '',
+  ].join('|');
+}
+
 function scryfallCardMatchesTokenSpec(card: any, spec: ScryfallTokenImageSpec): boolean {
-  if (String(card?.name || '').toLowerCase() !== spec.name.toLowerCase()) return false;
+  const cardName = String(card?.name || '').toLowerCase();
+  const acceptedNames = new Set(
+    [spec.name, stripColorAdjectiveFromTokenName(spec.name)]
+      .map((n) => String(n || '').toLowerCase().trim())
+      .filter(Boolean),
+  );
+  if (!acceptedNames.has(cardName)) return false;
   if (spec.power !== undefined && String(card?.power ?? '') !== String(spec.power)) return false;
   if (spec.toughness !== undefined && String(card?.toughness ?? '') !== String(spec.toughness)) return false;
 
@@ -565,11 +603,23 @@ function scryfallCardMatchesTokenSpec(card: any, spec: ScryfallTokenImageSpec): 
 
 /**
  * Search Scryfall for a token printing that exactly matches the requested characteristics.
+ * Caches hits and definitive misses; coalesces in-flight identical queries.
+ * Transient rate-limit failures are not cached.
  */
 export async function searchScryfallTokenImage(
   spec: ScryfallTokenImageSpec,
-): Promise<{ small?: string; normal?: string; large?: string; art_crop?: string } | undefined> {
-  const queryParts = ['is:token', `name:"${normalizeName(spec.name)}"`];
+): Promise<ScryfallTokenImageResult | undefined> {
+  const searchName = stripColorAdjectiveFromTokenName(spec.name);
+  const cacheKey = buildScryfallTokenImageCacheKey(spec, searchName);
+  if (tokenImageSearchCache.has(cacheKey)) {
+    const cached = tokenImageSearchCache.get(cacheKey);
+    return cached ?? undefined;
+  }
+
+  const inFlight = tokenImageSearchInFlight.get(cacheKey);
+  if (inFlight) return inFlight;
+
+  const queryParts = ['is:token', `name:"${normalizeName(searchName)}"`];
   if (spec.power !== undefined) queryParts.push(`pow=${spec.power}`);
   if (spec.toughness !== undefined) queryParts.push(`tou=${spec.toughness}`);
   if (spec.isArtifact) queryParts.push('t:artifact');
@@ -581,21 +631,44 @@ export async function searchScryfallTokenImage(
     if (color) queryParts.push(`c:${color}`);
   }
 
-  try {
-    const url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(queryParts.join(' '))}`;
-    const data = await doFetchJSON(url);
-    const cards = Array.isArray(data?.data) ? data.data : [];
-    for (const card of cards) {
-      if (!scryfallCardMatchesTokenSpec(card, spec)) continue;
-      const images = card.image_uris ?? card.card_faces?.[0]?.image_uris;
-      if (images?.normal || images?.small) {
-        return images;
+  const lookup = (async (): Promise<ScryfallTokenImageResult | undefined> => {
+    try {
+      const url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(queryParts.join(' '))}`;
+      const data = await doFetchJSON(url);
+      const cards = Array.isArray(data?.data) ? data.data : [];
+      for (const card of cards) {
+        if (!scryfallCardMatchesTokenSpec(card, spec)) continue;
+        const images = card.image_uris ?? card.card_faces?.[0]?.image_uris;
+        if (images?.normal || images?.small) {
+          tokenImageSearchCache.set(cacheKey, images);
+          return images;
+        }
       }
+      // Definitive miss (empty / no matching printing) — cache so enrich storms stop.
+      tokenImageSearchCache.set(cacheKey, null);
+      return undefined;
+    } catch (err) {
+      const message = String((err as any)?.message || err || '');
+      const isRateLimited = /\b429\b/.test(message);
+      // Cache non-transient failures (404, empty search errors). Skip caching 429 so we can retry.
+      if (!isRateLimited) {
+        tokenImageSearchCache.set(cacheKey, null);
+      }
+      debugWarn(1, '[scryfall] searchScryfallTokenImage failed (non-fatal):', spec.name, err);
+      return undefined;
+    } finally {
+      tokenImageSearchInFlight.delete(cacheKey);
     }
-  } catch (err) {
-    debugWarn(1, '[scryfall] searchScryfallTokenImage failed (non-fatal):', spec.name, err);
-  }
-  return undefined;
+  })();
+
+  tokenImageSearchInFlight.set(cacheKey, lookup);
+  return lookup;
+}
+
+/** Test helper: clear token-image search caches. */
+export function clearScryfallTokenImageSearchCache(): void {
+  tokenImageSearchCache.clear();
+  tokenImageSearchInFlight.clear();
 }
 
 //

@@ -4146,6 +4146,9 @@ export function App() {
 
     const handleNoResolutionStep = (payload: { gameId?: string }) => {
       if (payload.gameId !== safeView?.id) return;
+      // During reconnect / before join completes, the server may emit noResolutionStep
+      // with NOT_IN_GAME. Dismissing here closes choice/payment UI that is still pending.
+      if (!socket.connected) return;
       setMyPendingResolutionCount(0);
       setActiveResolutionPrompt(null);
       dismissResolutionStepUi();
@@ -4160,6 +4163,8 @@ export function App() {
       const pendingForMe = Number(payload.myPendingCount ?? 0);
       setMyPendingResolutionCount(pendingForMe);
       if (pendingForMe === 0) {
+        // Same reconnect race: an empty count while disconnected is not authoritative.
+        if (!socket.connected) return;
         setActiveResolutionPrompt(null);
         dismissResolutionStepUi();
       }
