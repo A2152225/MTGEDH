@@ -71,6 +71,10 @@ import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { BatchExploreModal, type ExploreResult } from "./components/BatchExploreModal";
 import { CascadeModal } from "./components/CascadeModal";
 import { OpponentMayPayModal, type OpponentMayPayPrompt } from "./components/OpponentMayPayModal";
+import {
+  LoopShortcutConsentModal,
+  type LoopShortcutConsentPrompt,
+} from "./components/LoopShortcutConsentModal";
 import { MayAbilityModal, type MayAbilityModalData } from "./components/MayAbilityModal";
 import { ResolutionMinimizedChip, ResolutionPromptMinimizeButton } from "./components/ResolutionMinimizedChip";
 import { isResolutionStepMandatory } from "./utils/resolutionStepUtils";
@@ -126,6 +130,7 @@ import { buildAvailableManaSourcesForPlayer } from "./utils/manaSourceBuilder";
 import {
   buildResolutionResponsePayload,
   clearLoopShortcutDraft,
+  clampLoopShortcutIterations,
   createRecordedEmitItem,
   createRecordedResolutionResponseItem,
   deleteSavedLoopShortcut,
@@ -1441,6 +1446,9 @@ export function App() {
   const [loopShortcutStatusText, setLoopShortcutStatusText] = useState('Idle.');
   const [isLoopShortcutRecording, setIsLoopShortcutRecording] = useState(false);
   const [isLoopShortcutRunning, setIsLoopShortcutRunning] = useState(false);
+  const [loopShortcutConsentPrompt, setLoopShortcutConsentPrompt] = useState<LoopShortcutConsentPrompt | null>(null);
+  const [loopShortcutAwaitingConsent, setLoopShortcutAwaitingConsent] = useState(false);
+  const loopShortcutProposerAwaitingRef = useRef(false);
 
   const safeViewRef = useRef<ClientGameView | null>(safeView);
   const youRef = useRef<PlayerID | null>(you);
@@ -1518,7 +1526,7 @@ export function App() {
     if (draft) {
       setLoopShortcutName(draft.name);
       setLoopShortcutItems(draft.items);
-      setLoopShortcutIterations(Math.max(1, Math.min(50, Number(draft.iterationCount) || 1)));
+      setLoopShortcutIterations(clampLoopShortcutIterations(draft.iterationCount));
       setLoopShortcutStatusText(`Restored loop shortcut draft "${draft.name}".`);
     } else {
       setLoopShortcutName('Loop Shortcut');
@@ -1542,7 +1550,7 @@ export function App() {
     saveLoopShortcutDraft(localStorage, activeGameId, {
       name: loopShortcutName.trim() || 'Loop Shortcut',
       items: loopShortcutItems,
-      iterationCount: Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1)),
+      iterationCount: clampLoopShortcutIterations(loopShortcutIterations),
       updatedAt: Date.now(),
     });
   }, [safeView?.id, loopShortcutItems, loopShortcutIterations, loopShortcutName]);
@@ -1705,7 +1713,7 @@ export function App() {
       id: existing?.id || `loop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name: normalizedName,
       items: sanitized.items,
-      iterationCount: Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1)),
+      iterationCount: clampLoopShortcutIterations(loopShortcutIterations),
       updatedAt: Date.now(),
     });
 
@@ -1736,7 +1744,7 @@ export function App() {
     setLoopShortcutName(shortcut.name);
     const sanitized = sanitizeLoopShortcutItems(shortcut.items);
     setLoopShortcutItems(sanitized.items);
-    setLoopShortcutIterations(Math.max(1, Math.min(50, Number(shortcut.iterationCount) || 1)));
+    setLoopShortcutIterations(clampLoopShortcutIterations(shortcut.iterationCount));
     setLoopShortcutStatusText(
       sanitized.removedPassPriorityCount > 0
         ? `Loaded "${shortcut.name}" (removed ${sanitized.removedPassPriorityCount} passPriority).`
@@ -1753,7 +1761,7 @@ export function App() {
     setLoopShortcutStatusText('Deleted saved shortcut.');
   }, []);
 
-  const handleRunLoopShortcut = React.useCallback(() => {
+  const startLoopShortcutReplay = React.useCallback((totalIterations: number) => {
     if (!safeViewRef.current?.id || loopShortcutItemsRef.current.length === 0) return;
 
     const sanitized = sanitizeLoopShortcutItems(loopShortcutItemsRef.current);
@@ -1765,31 +1773,150 @@ export function App() {
       return;
     }
 
-    loopAutoAnsweredStepIdsRef.current.clear();
-    loopShortcutStackPassKeyRef.current = null;
-    loopShortcutStackPassAtRef.current = 0;
-    loopShortcutReplayRef.current = {
-      running: true,
-      index: 0,
-      iteration: 0,
-      totalIterations: Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1)),
-      waitingForState: false,
-      waitingForCastCardId: null,
-      castSettle: null,
-      waitingPrompt: null,
-    };
-    setIsLoopShortcutRunning(true);
-    if (safeViewRef.current?.id) {
-      // Server-side: bypass idle checks while stack is non-empty (survives cast clearing autoPassForTurn).
-      socket.emit('setLoopShortcutStackDrain', { gameId: safeViewRef.current.id, enabled: true });
-    }
-    setLoopShortcutStatusText(
-      `Running iteration 1 of ${Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1))}...`
-    );
-    // Use sanitized list immediately even before React state flush.
+    const iterations = clampLoopShortcutIterations(totalIterations);
     loopShortcutItemsRef.current = sanitized.items;
-    advanceLoopShortcutReplay();
-  }, [advanceLoopShortcutReplay, loopShortcutIterations]);
+    setIsLoopShortcutRunning(true);
+    setLoopShortcutAwaitingConsent(false);
+    setLoopShortcutStatusText(`Batching ${iterations} iteration(s) on server...`);
+
+    socket.emit('executeLoopShortcutBatch', {
+      gameId: safeViewRef.current.id,
+      name: loopShortcutName.trim() || 'Loop Shortcut',
+      items: sanitized.items,
+      iterationCount: iterations,
+    });
+  }, [loopShortcutName]);
+
+  const handleRunLoopShortcut = React.useCallback(() => {
+    if (!safeViewRef.current?.id || loopShortcutItemsRef.current.length === 0) return;
+    if (loopShortcutAwaitingConsent || isLoopShortcutRunning) return;
+
+    const sanitized = sanitizeLoopShortcutItems(loopShortcutItemsRef.current);
+    if (sanitized.removedPassPriorityCount > 0) {
+      setLoopShortcutItems(sanitized.items);
+    }
+    if (sanitized.items.length === 0) {
+      setLoopShortcutStatusText('Loop has no runnable steps after removing passPriority.');
+      return;
+    }
+    loopShortcutItemsRef.current = sanitized.items;
+
+    const requested = clampLoopShortcutIterations(loopShortcutIterations);
+    const players = Array.isArray((safeViewRef.current as any)?.players)
+      ? ((safeViewRef.current as any).players as any[])
+      : [];
+    const humanOpponents = players.filter((p: any) => {
+      const id = String(p?.id || '').trim();
+      if (!id || id === String(youRef.current || '')) return false;
+      if (p?.spectator === true || p?.isSpectator === true) return false;
+      if (p?.isAI === true || p?.ai === true) return false;
+      return true;
+    });
+
+    // Solo / all-AI tables: batch immediately.
+    if (humanOpponents.length === 0) {
+      startLoopShortcutReplay(requested);
+      return;
+    }
+
+    setLoopShortcutAwaitingConsent(true);
+    loopShortcutProposerAwaitingRef.current = true;
+    setLoopShortcutStatusText(
+      `Waiting for ${humanOpponents.length} opponent${humanOpponents.length === 1 ? '' : 's'} to allow or interrupt the loop...`,
+    );
+    socket.emit('proposeLoopShortcut', {
+      gameId: safeViewRef.current.id,
+      name: loopShortcutName.trim() || 'Loop Shortcut',
+      summary: `${sanitized.items.length} step(s) × up to ${requested} iteration(s)`,
+      iterationCount: requested,
+    });
+  }, [
+    isLoopShortcutRunning,
+    loopShortcutAwaitingConsent,
+    loopShortcutIterations,
+    loopShortcutName,
+    startLoopShortcutReplay,
+  ]);
+
+  React.useEffect(() => {
+    const onConsentPrompt = (payload: any) => {
+      if (!payload || String(payload.gameId || '') !== String(safeViewRef.current?.id || '')) return;
+      if (String(payload.proposerId || '') === String(youRef.current || '')) return;
+      setLoopShortcutConsentPrompt({
+        gameId: String(payload.gameId),
+        proposalId: String(payload.proposalId),
+        proposerId: String(payload.proposerId),
+        proposerName: String(payload.proposerName || 'Opponent'),
+        name: String(payload.name || 'Loop Shortcut'),
+        summary: String(payload.summary || ''),
+        requestedIterations: clampLoopShortcutIterations(payload.requestedIterations),
+      });
+    };
+
+    const onConsentWaiting = (payload: any) => {
+      if (!payload || String(payload.gameId || '') !== String(safeViewRef.current?.id || '')) return;
+      setLoopShortcutAwaitingConsent(true);
+      setLoopShortcutStatusText('Waiting for opponents to allow or interrupt the loop...');
+    };
+
+    const onConsentResult = (payload: any) => {
+      if (!payload || String(payload.gameId || '') !== String(safeViewRef.current?.id || '')) return;
+      setLoopShortcutConsentPrompt(null);
+      setLoopShortcutAwaitingConsent(false);
+
+      if (payload.cancelled || payload.approved === false) {
+        loopShortcutProposerAwaitingRef.current = false;
+        setLoopShortcutStatusText('Loop shortcut cancelled.');
+        return;
+      }
+
+      const effective = clampLoopShortcutIterations(payload.effectiveIterations);
+      const interrupted = payload.interrupted === true;
+      if (loopShortcutProposerAwaitingRef.current) {
+        loopShortcutProposerAwaitingRef.current = false;
+        setLoopShortcutStatusText(
+          interrupted
+            ? `Opponents capped the loop at ${effective} iteration(s). Batching...`
+            : `Opponents allowed the full loop (${effective}). Batching...`,
+        );
+        startLoopShortcutReplay(effective);
+      }
+    };
+
+    const onBatchProgress = (payload: any) => {
+      if (!payload || String(payload.gameId || '') !== String(safeViewRef.current?.id || '')) return;
+      setIsLoopShortcutRunning(true);
+      setLoopShortcutStatusText(String(payload.message || 'Batching loop...'));
+    };
+
+    const onBatchResult = (payload: any) => {
+      if (!payload || String(payload.gameId || '') !== String(safeViewRef.current?.id || '')) return;
+      // Observers get a status ping; only the runner clears the running flag.
+      if (payload.observer === true) {
+        setLoopShortcutStatusText(String(payload.message || 'Opponent finished a loop shortcut.'));
+        return;
+      }
+      setIsLoopShortcutRunning(false);
+      loopShortcutReplayRef.current.running = false;
+      if (safeViewRef.current?.id) {
+        socket.emit('setLoopShortcutStackDrain', { gameId: safeViewRef.current.id, enabled: false });
+      }
+      setLoopShortcutStatusText(String(payload.message || (payload.ok ? 'Loop batch complete.' : 'Loop batch stopped.')));
+    };
+
+    socket.on('loopShortcutConsentPrompt', onConsentPrompt);
+    socket.on('loopShortcutConsentWaiting', onConsentWaiting);
+    socket.on('loopShortcutConsentResult', onConsentResult);
+    socket.on('loopShortcutBatchProgress', onBatchProgress);
+    socket.on('loopShortcutBatchResult', onBatchResult);
+    return () => {
+      socket.off('loopShortcutConsentPrompt', onConsentPrompt);
+      socket.off('loopShortcutConsentWaiting', onConsentWaiting);
+      socket.off('loopShortcutConsentResult', onConsentResult);
+      socket.off('loopShortcutBatchProgress', onBatchProgress);
+      socket.off('loopShortcutBatchResult', onBatchResult);
+    };
+  }, [startLoopShortcutReplay]);
 
   React.useEffect(() => {
     const originalEmit = socket.emit.bind(socket);
@@ -6820,7 +6947,7 @@ export function App() {
                     savedShortcuts={savedLoopShortcuts}
                     iterationCount={loopShortcutIterations}
                     onShortcutNameChange={setLoopShortcutName}
-                    onIterationCountChange={(count) => setLoopShortcutIterations(Math.max(1, Math.min(50, count || 1)))}
+                    onIterationCountChange={(count) => setLoopShortcutIterations(clampLoopShortcutIterations(count))}
                     onStartRecording={handleStartLoopShortcutRecording}
                     onStopRecording={handleStopLoopShortcutRecording}
                     onRun={handleRunLoopShortcut}
@@ -7433,6 +7560,29 @@ export function App() {
           }}
         />
       )}
+
+      <LoopShortcutConsentModal
+        prompt={loopShortcutConsentPrompt}
+        onAllow={() => {
+          if (!loopShortcutConsentPrompt) return;
+          socket.emit('respondLoopShortcut', {
+            gameId: loopShortcutConsentPrompt.gameId,
+            proposalId: loopShortcutConsentPrompt.proposalId,
+            interrupt: false,
+          });
+          setLoopShortcutConsentPrompt(null);
+        }}
+        onInterrupt={(afterIterations) => {
+          if (!loopShortcutConsentPrompt) return;
+          socket.emit('respondLoopShortcut', {
+            gameId: loopShortcutConsentPrompt.gameId,
+            proposalId: loopShortcutConsentPrompt.proposalId,
+            interrupt: true,
+            afterIterations,
+          });
+          setLoopShortcutConsentPrompt(null);
+        }}
+      />
 
       {/* Tap/Untap Target Modal - for abilities that tap/untap targets */}
       <TapUntapTargetModal
@@ -9341,7 +9491,7 @@ export function App() {
             savedShortcuts={savedLoopShortcuts}
             iterationCount={loopShortcutIterations}
             onShortcutNameChange={setLoopShortcutName}
-            onIterationCountChange={(count) => setLoopShortcutIterations(Math.max(1, Math.min(50, count || 1)))}
+            onIterationCountChange={(count) => setLoopShortcutIterations(clampLoopShortcutIterations(count))}
             onStartRecording={handleStartLoopShortcutRecording}
             onStopRecording={handleStopLoopShortcutRecording}
             onRun={handleRunLoopShortcut}

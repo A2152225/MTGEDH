@@ -179,4 +179,100 @@ describe('Altar of Dementia activation', () => {
     expect((playerTargetStep as any).lastSacrificedPermanents?.[0]?.id).toBe('merfolk_tapped');
     expect(((game.state as any).stack || []).length).toBe(0);
   });
+
+  it('sacrifice snapshot power includes Morophon lord buff', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId)!;
+    (game.state as any).players = [
+      { id: playerId, name: 'You', spectator: false, life: 40 },
+      { id: opponentId, name: 'Opp', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], library: Array.from({ length: 20 }, (_, i) => ({ id: `lib1_${i}` })), graveyard: [] },
+      [opponentId]: { hand: [], library: Array.from({ length: 20 }, (_, i) => ({ id: `lib2_${i}` })), graveyard: [] },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'altar_1',
+        controller: playerId,
+        owner: playerId,
+        card: {
+          id: 'altar_card',
+          name: 'Altar of Dementia',
+          type_line: 'Artifact',
+          oracle_text: "Sacrifice a creature: Target player mills cards equal to the sacrificed creature's power.",
+        },
+      },
+      {
+        id: 'morophon_1',
+        controller: playerId,
+        owner: playerId,
+        chosenCreatureType: 'Merfolk',
+        card: {
+          id: 'morophon_card',
+          name: 'Morophon, the Boundless',
+          type_line: 'Legendary Creature — Shapeshifter',
+          power: '6',
+          toughness: '6',
+          oracle_text:
+            'Changeling As Morophon, the Boundless enters, choose a creature type. Spells you cast of the chosen type cost {W}{U}{B}{R}{G} less to cast. This effect reduces only the amount of colored mana you pay. Other creatures you control of the chosen type get +1/+1.',
+        },
+      },
+      {
+        id: 'merfolk_1',
+        controller: playerId,
+        owner: playerId,
+        isToken: true,
+        card: {
+          id: 'm1',
+          name: 'Merfolk Token',
+          type_line: 'Creature — Merfolk',
+          power: '1',
+          toughness: '1',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms = new Set([gameId]);
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket);
+    registerResolutionHandlers(io as any, socket);
+
+    await handlers.activateBattlefieldAbility({
+      gameId,
+      permanentId: 'altar_1',
+      abilityId: 'altar-ability-0',
+    });
+
+    const sacrificeStep = ResolutionQueueManager.getQueue(gameId).steps.find(
+      (s: any) => s.sacrificeAbilityAsCost === true,
+    );
+    expect(sacrificeStep).toBeDefined();
+    const merfolkTarget = ((sacrificeStep as any).validTargets || []).find((t: any) => t.id === 'merfolk_1');
+    expect(merfolkTarget?.power).toBe(2);
+    expect(merfolkTarget?.label).toContain('(2/2)');
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: sacrificeStep!.id,
+      selections: ['merfolk_1'],
+      cancelled: false,
+    });
+
+    const playerTargetStep = ResolutionQueueManager.getQueue(gameId).steps.find(
+      (s: any) => s.battlefieldAbilityTargetSelection === true && s.status !== 'completed',
+    );
+    expect(playerTargetStep).toBeDefined();
+    expect((playerTargetStep as any).lastSacrificedPermanents?.[0]?.power).toBe(2);
+    expect((playerTargetStep as any).lastSacrificedPermanents?.[0]?.effectivePower).toBe(2);
+  });
 });

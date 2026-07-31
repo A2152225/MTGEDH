@@ -31,6 +31,14 @@ export type OracleIRReplayMutation =
         readonly colors: readonly string[];
         readonly abilities: readonly string[];
         readonly hasHaste: boolean;
+        /** CR 707.2 as-enters choices (Morophon type, etc.) */
+        readonly chosenCreatureType?: string;
+        readonly chosenColor?: string;
+        readonly chosenCardName?: string;
+        readonly chosenPlayer?: string;
+        readonly copiedFromPermanentId?: string;
+        readonly isCopyToken?: boolean;
+        readonly oracleText?: string;
       };
     }
   | {
@@ -224,6 +232,14 @@ export function buildCreateTokenReplayMutations(
 
     const card = (permanent as any).card || permanent;
     const keywords = Array.isArray(card?.keywords) ? card.keywords : [];
+    const chosenCreatureType = String(
+      (permanent as any).chosenCreatureType || card?.chosenCreatureType || '',
+    ).trim();
+    const chosenColor = String((permanent as any).chosenColor || card?.chosenColor || '').trim();
+    const chosenCardName = String((permanent as any).chosenCardName || card?.chosenCardName || '').trim();
+    const chosenPlayer = String((permanent as any).chosenPlayer || card?.chosenPlayer || '').trim();
+    const copiedFromPermanentId = String((permanent as any).copiedFromPermanentId || '').trim();
+    const oracleText = String(card?.oracle_text || '').trim();
     mutations.push({
       kind: 'createToken',
       controllerId: String((permanent as any).controller || '').trim() as PlayerID,
@@ -236,6 +252,15 @@ export function buildCreateTokenReplayMutations(
         colors: Array.isArray(card?.colors) ? [...card.colors] : [],
         abilities: keywords.map((keyword: unknown) => String(keyword || '')),
         hasHaste: keywords.some((keyword: unknown) => String(keyword || '').toLowerCase() === 'haste'),
+        ...(chosenCreatureType ? { chosenCreatureType } : {}),
+        ...(chosenColor ? { chosenColor } : {}),
+        ...(chosenCardName ? { chosenCardName } : {}),
+        ...(chosenPlayer ? { chosenPlayer } : {}),
+        ...(copiedFromPermanentId ? { copiedFromPermanentId } : {}),
+        ...((permanent as any).isCopyToken || (permanent as any).isCopyOfPrintedCard || copiedFromPermanentId
+          ? { isCopyToken: true }
+          : {}),
+        ...(oracleText ? { oracleText } : {}),
       },
     });
   }

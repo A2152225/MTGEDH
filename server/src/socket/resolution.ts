@@ -43,6 +43,7 @@ import {
   refundGenericManaPayment,
   getFloatingPaymentPoolColorKey,
 } from "./util.js";
+import { syncDerivedContinuousEffects } from "../state/modules/staticEffectSpec.js";
 import { validateGroupedTargetSelections, validatePerOpponentTargetSelections } from "./perOpponentTargetValidation.js";
 import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
@@ -19377,10 +19378,21 @@ async function handleTargetSelectionResponse(
       }
     }
 
+    // Refresh continuous effects so sacrificed power includes lords (Morophon, etc.)
+    try {
+      delete (game.state as any)._derivedContinuousEffects;
+      syncDerivedContinuousEffects(game.state);
+    } catch {
+      // best-effort
+    }
+
     for (const chosenId of selections) {
       const chosenPerm = battlefield.find((p: any) => p && String(p.id) === String(chosenId));
       if (!chosenPerm) continue;
-      const power = getEffectivePower(chosenPerm);
+      // Pass game.state so lords/anthems (e.g. Morophon) are included — raw BF
+      // permanents do not carry view.ts effectivePower.
+      const power = getEffectivePower(chosenPerm, game.state);
+      const toughness = getEffectiveToughness(chosenPerm, game.state);
       sacrificedPermanentSnapshots.push({
         id: String(chosenPerm.id || ''),
         name: String(chosenPerm?.card?.name || 'permanent'),
@@ -19389,7 +19401,7 @@ async function handleTargetSelectionResponse(
         typeLine: String(chosenPerm?.card?.type_line || '').toLowerCase(),
         power: Number.isFinite(power) ? power : null,
         effectivePower: Number.isFinite(power) ? power : undefined,
-        toughness: null,
+        toughness: Number.isFinite(toughness) ? toughness : null,
         manaValue: null,
         colors: Array.isArray(chosenPerm?.card?.colors) ? [...chosenPerm.card.colors] : [],
         card: chosenPerm.card ? { ...chosenPerm.card } : undefined,

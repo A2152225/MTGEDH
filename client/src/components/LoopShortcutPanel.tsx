@@ -1,5 +1,6 @@
 import React from 'react';
 import type { LoopShortcutSequenceItem, SavedLoopShortcut } from '../utils/loopShortcuts';
+import { LOOP_SHORTCUT_MAX_SUSTAINED_ITERATIONS } from '../utils/loopShortcuts';
 
 interface LoopShortcutPanelProps {
   open: boolean;
@@ -74,7 +75,12 @@ export function LoopShortcutPanel({
       </div>
 
       <div style={{ fontSize: 12, color: '#bbb', marginBottom: 10 }}>
-        Record a manual line once, then replay it with current legal targets. Drafts restore automatically for the current game, and saved shortcuts stay available after reconnect.
+        Record a manual line once, then Run batches it on the server (e.g. 40× or up to{' '}
+        {LOOP_SHORTCUT_MAX_SUSTAINED_ITERATIONS}× when self-sustaining) without waiting one-by-one.
+        Above 50 requires the loop not to shrink your resources (creatures, mana, library, etc.);
+        those runs are written as one compressed replay event. With other humans, they can allow
+        the full loop or interrupt after N iterations. Solo/AI tables start immediately. Drafts
+        restore for the current game; saved shortcuts persist across reconnects.
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -164,7 +170,7 @@ export function LoopShortcutPanel({
         <input
           type="number"
           min={1}
-          max={50}
+          max={LOOP_SHORTCUT_MAX_SUSTAINED_ITERATIONS}
           value={iterationCount}
           onChange={(event) => onIterationCountChange(Number(event.target.value) || 1)}
           disabled={isRecording || isRunning}

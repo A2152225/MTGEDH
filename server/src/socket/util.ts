@@ -11,13 +11,14 @@
 
 import type { Server } from "socket.io";
 import { sumActiveTemporaryPTMods } from "../state/modules/temporaryPtMods.js";
+import { syncDerivedContinuousEffects } from "../state/modules/staticEffectSpec.js";
 import { games, priorityTimers, PRIORITY_TIMEOUT_MS } from "./socket.js";
 import { appendEvent, createGameIfNotExists, getEvents, gameExistsInDb } from "../db/index.js";
 import { createInitialGameState } from "../state/index.js";
 import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
 import type { CardCostAdjustment, GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
-import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
+import { getActualPowerToughness, calculateAllPTBonuses, uid, cardManaValue } from "../state/utils.js";
 import { registerTokenGroupMembers } from "./tokenGroupResolve.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource, resolvePermanentChosenColorSymbol, parseManaSpendRestrictionFromOracle } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, hasSacrificePrefixActivatedAbility, isPlayerIdleForAutoPass, isTransformBackFace, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
@@ -1718,6 +1719,11 @@ export function broadcastGame(
   gameId: string,
   options: { forceStateReplace?: boolean } = {},
 ) {
+  // Loop-shortcut batch runs suppress mid-batch broadcasts; caller emits once at end.
+  if (Number((game.state as any)?._suppressBroadcastCount || 0) > 0) {
+    return;
+  }
+
   repairMissingPriorityIfStuck(game, gameId, '[broadcastGame]');
 
   let participants:
@@ -5961,13 +5967,16 @@ export function calculateManaProduction(
  * - +1/+1 and -1/-1 counters
  * - Other P/T modifying counters (+1/+0, +2/+2, etc.)
  * - Equipment, auras, anthem effects, and other modifiers
+ * - When gameState is provided: continuous lord/anthem effects (Morophon, etc.)
  * 
  * @param permanent - The creature permanent to calculate power for
+ * @param gameState - Optional game state for continuous effects (lords via calculateAllPTBonuses)
  * @returns The effective power value
  */
-export function getEffectivePower(permanent: any): number {
-  // Use pre-calculated effectivePower if available (from view.ts)
-  if (typeof permanent.effectivePower === 'number') {
+export function getEffectivePower(permanent: any, gameState?: any): number {
+  // Prefer pre-calculated view values only when we are not recomputing with state
+  // (raw BF may have a stale effectivePower that omits lords).
+  if (!gameState && typeof permanent.effectivePower === 'number') {
     return permanent.effectivePower;
   }
   
@@ -6002,6 +6011,33 @@ export function getEffectivePower(permanent: any): number {
       }
     }
   }
+
+  // State-aware path: include continuous lords/anthems/equipment (same as SBA/combat).
+  // Prefer an already-synced derived cache; otherwise sync once so subsequent
+  // getEffectiveToughness/Power calls on the same state stay cheap.
+  // calculateAllPTBonuses already folds temporaryPowerBoost / powerBoost / pump modifiers.
+  if (gameState) {
+    if (!(gameState as any)._derivedContinuousEffects) {
+      try {
+        syncDerivedContinuousEffects(gameState);
+      } catch {
+        // best-effort; fall through to calculateAllPTBonuses
+      }
+    }
+    let modifierPower = 0;
+    if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+      for (const mod of permanent.modifiers) {
+        if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
+          modifierPower += mod.power || 0;
+        }
+      }
+    }
+    const allBonuses = calculateAllPTBonuses(permanent, gameState);
+    return Math.max(
+      0,
+      basePower + counterDelta + otherCounterPower + allBonuses.power + modifierPower + sumActiveTemporaryPTMods(permanent).power,
+    );
+  }
   
   // Add modifiers from equipment, auras, anthems, lords, etc.
   let modifierPower = 0;
@@ -6025,11 +6061,13 @@ export function getEffectivePower(permanent: any): number {
  * Calculate a creature's effective toughness including counters and modifiers
  * 
  * @param permanent - The creature permanent to calculate toughness for
+ * @param gameState - Optional game state for continuous effects (lords, equipment via calculateAllPTBonuses)
  * @returns The effective toughness value
  */
-export function getEffectiveToughness(permanent: any): number {
-  // Use pre-calculated effectiveToughness if available (from view.ts)
-  if (typeof permanent.effectiveToughness === 'number') {
+export function getEffectiveToughness(permanent: any, gameState?: any): number {
+  // Prefer pre-calculated view values only when we are not recomputing with state
+  // (raw BF may have a stale effectiveToughness that omits lords).
+  if (!gameState && typeof permanent.effectiveToughness === 'number') {
     return permanent.effectiveToughness;
   }
   
@@ -6059,6 +6097,29 @@ export function getEffectiveToughness(permanent: any): number {
         otherCounterToughness += tMod * (count as number);
       }
     }
+  }
+
+  if (gameState) {
+    if (!(gameState as any)._derivedContinuousEffects) {
+      try {
+        syncDerivedContinuousEffects(gameState);
+      } catch {
+        // best-effort
+      }
+    }
+    let modifierToughness = 0;
+    if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+      for (const mod of permanent.modifiers) {
+        if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
+          modifierToughness += mod.toughness || 0;
+        }
+      }
+    }
+    const allBonuses = calculateAllPTBonuses(permanent, gameState);
+    return Math.max(
+      0,
+      baseToughness + counterDelta + otherCounterToughness + allBonuses.toughness + modifierToughness + sumActiveTemporaryPTMods(permanent).toughness,
+    );
   }
   
   // Add modifiers

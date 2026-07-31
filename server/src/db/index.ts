@@ -273,6 +273,24 @@ export function getEvents(gameId: string): PersistedEvent[] {
 export function appendEvent(gameId: string, seq: number, type: string, payload: unknown): number {
   ensureDB();
 
+  // Loop Shortcut compressed batches suppress per-action event spam; allowlist
+  // markers / the final state patch still persist for replay.
+  try {
+    const liveGame = games.get(gameId) as any;
+    const suppressCount = Number(liveGame?.state?._suppressEventAppendCount || 0);
+    if (suppressCount > 0) {
+      const allowed =
+        type === 'loopShortcutBatchStart' ||
+        type === 'loopShortcutBatchApply' ||
+        type === 'loopShortcutBatchEnd';
+      if (!allowed) {
+        return -1;
+      }
+    }
+  } catch {
+    // best-effort; fall through to normal append
+  }
+
   const boundary = getLiveEventBoundaryMetadata(gameId, seq);
 
   const stmt = db!.prepare(

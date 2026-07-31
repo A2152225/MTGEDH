@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
 import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, validateAndConsumeManaCostFromPool, clearHumanAutoPassPauseOnAction, resolveClientStyleManaAbilityById, addRestrictedManaToPool } from "./util";
+import { syncDerivedContinuousEffects } from "../state/modules/staticEffectSpec.js";
 import { appendEvent } from "../db";
 import { games } from "./socket.js";
 import { 
@@ -10983,17 +10984,32 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           ] as [string, string])
           .filter(([id]) => Boolean(id)),
       );
+      // Refresh continuous effects so sacrifice labels include lords (Morophon, etc.)
+      try {
+        delete (game.state as any)._derivedContinuousEffects;
+        syncDerivedContinuousEffects(game.state);
+      } catch {
+        // best-effort
+      }
       const sacrificeTargets = eligiblePermanents.map((p: any) => {
         const controllerId = String(p?.controller || '').trim();
         const ownerId = String(p?.owner || p?.ownerId || controllerId).trim();
+        const power = getEffectivePower(p, game.state);
+        const toughness = getEffectiveToughness(p, game.state);
+        const name = p.card?.name || 'Unknown';
+        const ptLabel = Number.isFinite(power) && Number.isFinite(toughness) ? ` (${power}/${toughness})` : '';
         return {
           id: p.id,
-          label: p.card?.name || 'Unknown',
-          name: p.card?.name || 'Unknown',
+          label: `${name}${ptLabel}`,
+          name,
           description: p.card?.type_line || 'Permanent',
           imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
           type: 'permanent',
           typeLine: p.card?.type_line || '',
+          power: Number.isFinite(power) ? power : undefined,
+          toughness: Number.isFinite(toughness) ? toughness : undefined,
+          effectivePower: Number.isFinite(power) ? power : undefined,
+          effectiveToughness: Number.isFinite(toughness) ? toughness : undefined,
           controller: controllerId || undefined,
           controllerName: controllerId
             ? (playerNameById.get(controllerId) || controllerId)

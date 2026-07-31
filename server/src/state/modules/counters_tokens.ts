@@ -909,6 +909,14 @@ function buildCreateTokenReplayPayload(controllerId: PlayerID, tokenPermanent: a
   const rawToughness = tokenPermanent?.baseToughness ?? tokenPermanent?.card?.toughness;
   const power = Number.isFinite(Number(rawPower)) ? Number(rawPower) : undefined;
   const toughness = Number.isFinite(Number(rawToughness)) ? Number(rawToughness) : undefined;
+  const chosenCreatureType = String(
+    tokenPermanent?.chosenCreatureType || tokenPermanent?.card?.chosenCreatureType || '',
+  ).trim();
+  const chosenColor = String(tokenPermanent?.chosenColor || tokenPermanent?.card?.chosenColor || '').trim();
+  const chosenCardName = String(tokenPermanent?.chosenCardName || tokenPermanent?.card?.chosenCardName || '').trim();
+  const chosenPlayer = String(tokenPermanent?.chosenPlayer || tokenPermanent?.card?.chosenPlayer || '').trim();
+  const copiedFromPermanentId = String(tokenPermanent?.copiedFromPermanentId || '').trim();
+  const oracleText = String(tokenPermanent?.card?.oracle_text || '').trim();
 
   return {
     effectType: 'createToken',
@@ -922,6 +930,15 @@ function buildCreateTokenReplayPayload(controllerId: PlayerID, tokenPermanent: a
       colors: Array.isArray(tokenPermanent?.card?.colors) ? [...tokenPermanent.card.colors] : [],
       abilities: keywords.map((keyword: unknown) => String(keyword || '')),
       hasHaste: keywords.some((keyword: unknown) => String(keyword || '').toLowerCase() === 'haste'),
+      ...(chosenCreatureType ? { chosenCreatureType } : {}),
+      ...(chosenColor ? { chosenColor } : {}),
+      ...(chosenCardName ? { chosenCardName } : {}),
+      ...(chosenPlayer ? { chosenPlayer } : {}),
+      ...(copiedFromPermanentId ? { copiedFromPermanentId } : {}),
+      ...(tokenPermanent?.isCopyToken || tokenPermanent?.isCopyOfPrintedCard || copiedFromPermanentId
+        ? { isCopyToken: true }
+        : {}),
+      ...(oracleText ? { oracleText } : {}),
     },
   };
 }

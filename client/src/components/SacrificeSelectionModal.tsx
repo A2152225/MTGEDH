@@ -39,9 +39,11 @@ function getCardInfo(perm: BattlefieldPermanent): {
   const typeLine = card?.type_line || '';
   
   let pt: string | undefined;
-  if (perm.basePower !== undefined && perm.baseToughness !== undefined) {
-    const power = perm.basePower + (perm.counters?.['+1/+1'] || 0) - (perm.counters?.['-1/-1'] || 0);
-    const toughness = perm.baseToughness + (perm.counters?.['+1/+1'] || 0) - (perm.counters?.['-1/-1'] || 0);
+  if (typeof (perm as any).effectivePower === 'number' && typeof (perm as any).effectiveToughness === 'number') {
+    pt = `${(perm as any).effectivePower}/${(perm as any).effectiveToughness}`;
+  } else if (perm.basePower !== undefined && perm.baseToughness !== undefined) {
+    const power = Number(perm.basePower) + (perm.counters?.['+1/+1'] || 0) - (perm.counters?.['-1/-1'] || 0);
+    const toughness = Number(perm.baseToughness) + (perm.counters?.['+1/+1'] || 0) - (perm.counters?.['-1/-1'] || 0);
     pt = `${power}/${toughness}`;
   } else if (card?.power && card?.toughness) {
     pt = `${card.power}/${card.toughness}`;

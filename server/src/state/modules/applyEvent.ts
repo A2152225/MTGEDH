@@ -48,6 +48,7 @@ import { applyPermanentBecomeCopyOfTargetPermanent } from "./permanent-copy.js";
 import { pushTriggerDoublerCopies } from "./triggers/combat.js";
 import { calculateAllPTBonuses, calculateVariablePT, exchangePermanentOracleText, parsePT } from "../utils";
 import { filterLibraryCardsForSearch } from "../../socket/library-search.js";
+import { applyLoopShortcutStatePatch } from "../../socket/loopShortcutSustain.js";
 import {
   updateCounters,
   applyUpdateCountersBulk,
@@ -361,6 +362,7 @@ import { resolveSpell } from "../../rules-engine/targeting";
 import { evaluateAction } from "../../rules-engine/index";
 import { mulberry32 } from "../../utils/rng";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { hydratePermanentCardOracleInPlace } from "./cardOracleHydration.js";
 import { checkGraveyardTrigger, parsePlaneswalkerAbilities } from "./triggered-abilities.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { processLifeChange, resolveOpponentDirectedDamage } from "./game-state-effects";
@@ -2096,6 +2098,25 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
           };
         })(ctx.rngSeed);
+        try {
+          if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
+        } catch {}
+        break;
+      }
+
+      case "loopShortcutBatchStart":
+      case "loopShortcutBatchEnd": {
+        // Markers only — real mutations are either per-action events or loopShortcutBatchApply.
+        break;
+      }
+
+      case "loopShortcutBatchApply": {
+        // Compressed end-state from a self-sustaining (or large) Loop Shortcut batch.
+        try {
+          applyLoopShortcutStatePatch(ctx.state as any, (e as any).statePatch);
+        } catch (err) {
+          debugWarn(1, "[applyEvent] loopShortcutBatchApply failed", err);
+        }
         try {
           if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
         } catch {}
@@ -14153,6 +14174,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   ...(toughness != null ? { baseToughness: toughness } : {}),
                   summoningSickness: isCreature && !tokenData.hasHaste,
                   isToken: true,
+                  ...(tokenData.isCopyToken || tokenData.copiedFromPermanentId
+                    ? { isCopyToken: true, isCopyOfPrintedCard: true }
+                    : {}),
+                  ...(tokenData.copiedFromPermanentId
+                    ? { copiedFromPermanentId: String(tokenData.copiedFromPermanentId) }
+                    : {}),
+                  ...(tokenData.chosenCreatureType
+                    ? { chosenCreatureType: String(tokenData.chosenCreatureType) }
+                    : {}),
+                  ...(tokenData.chosenColor ? { chosenColor: String(tokenData.chosenColor) } : {}),
+                  ...(tokenData.chosenCardName ? { chosenCardName: String(tokenData.chosenCardName) } : {}),
+                  ...(tokenData.chosenPlayer ? { chosenPlayer: String(tokenData.chosenPlayer) } : {}),
                   card: {
                     id: tokenId,
                     name: tokenData.name,
@@ -14160,11 +14193,37 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     ...(power != null ? { power: String(power) } : {}),
                     ...(toughness != null ? { toughness: String(toughness) } : {}),
                     colors: tokenData.colors || [],
-                    oracle_text: tokenData.abilities?.join(', ') || '',
+                    oracle_text: String(tokenData.oracleText || tokenData.abilities?.join(', ') || ''),
                     keywords: tokenData.abilities || [],
                     zone: 'battlefield',
+                    ...(tokenData.chosenCreatureType
+                      ? { chosenCreatureType: String(tokenData.chosenCreatureType) }
+                      : {}),
+                    ...(tokenData.chosenColor ? { chosenColor: String(tokenData.chosenColor) } : {}),
+                    ...(tokenData.chosenCardName ? { chosenCardName: String(tokenData.chosenCardName) } : {}),
+                    ...(tokenData.chosenPlayer ? { chosenPlayer: String(tokenData.chosenPlayer) } : {}),
                   },
                 } as any);
+                const createdToken = ctx.state.battlefield[ctx.state.battlefield.length - 1];
+                try {
+                  hydratePermanentCardOracleInPlace(createdToken);
+                } catch {
+                  // best-effort — printed oracle helps Morophon/Helm copies keep lords
+                }
+                // Restore Morophon / as-enters type map so lord effects survive restart.
+                const restoredType = String(
+                  tokenData.chosenCreatureType
+                  || (createdToken as any)?.chosenCreatureType
+                  || '',
+                ).trim();
+                if (
+                  restoredType
+                  && String(tokenData.name || (createdToken as any)?.card?.name || '').toLowerCase().includes('morophon')
+                ) {
+                  const morophonChosenType = ((ctx.state as any).morophonChosenType || {}) as Record<string, string>;
+                  morophonChosenType[tokenId] = restoredType;
+                  (ctx.state as any).morophonChosenType = morophonChosenType;
+                }
                 debug(2, `[applyEvent] Created token: ${tokenData.name} for ${controllerId}`);
               }
               break;

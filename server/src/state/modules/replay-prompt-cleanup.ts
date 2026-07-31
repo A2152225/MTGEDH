@@ -283,11 +283,38 @@ function hydrateAsEntersChoicesOnBattlefield(state: any): void {
       || (copySourceId ? morophonChosenType[copySourceId] : '')
       || '',
     ).trim();
-    if (creatureType) {
-      permanent.chosenCreatureType = creatureType;
-      if (card) card.chosenCreatureType = creatureType;
+    // Legacy replay payloads omitted chosenCreatureType / copiedFromPermanentId for Helm
+    // copies. Fall back to another same-controller Morophon that still has a type.
+    let resolvedCreatureType = creatureType;
+    if (
+      !resolvedCreatureType
+      && String(card?.name || permanent.name || '').toLowerCase().includes('morophon')
+      && (permanent.isToken === true || permanent.isCopyToken === true)
+    ) {
+      const controllerId = String(permanent.controller || '').trim();
+      for (const other of battlefield) {
+        if (!other || other === permanent) continue;
+        if (String(other.controller || '').trim() !== controllerId) continue;
+        const otherName = String(other.card?.name || other.name || '').toLowerCase();
+        if (!otherName.includes('morophon')) continue;
+        const otherId = String(other.id || '').trim();
+        const otherType = String(
+          other.chosenCreatureType
+          || other.card?.chosenCreatureType
+          || (otherId ? morophonChosenType[otherId] : '')
+          || '',
+        ).trim();
+        if (otherType) {
+          resolvedCreatureType = otherType;
+          break;
+        }
+      }
+    }
+    if (resolvedCreatureType) {
+      permanent.chosenCreatureType = resolvedCreatureType;
+      if (card) card.chosenCreatureType = resolvedCreatureType;
       if (permanentId && String(card?.name || permanent.name || '').toLowerCase().includes('morophon')) {
-        morophonChosenType[permanentId] = creatureType;
+        morophonChosenType[permanentId] = resolvedCreatureType;
         state.morophonChosenType = morophonChosenType;
       }
     }

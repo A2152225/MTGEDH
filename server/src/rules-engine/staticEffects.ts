@@ -981,7 +981,13 @@ export function computeContinuousEffects(
     // Handle "chosen type" effects (Morophon, Reflections of Littjara, etc.)
     // Pattern: "Other creatures you control of the chosen type get +X/+Y"
     // The chosen type is stored on the permanent as chosenCreatureType
-    const chosenType = (source as any).chosenCreatureType;
+    // Also read map / card field so Helm copies keep the lord after restart.
+    const chosenType = String(
+      (source as any).chosenCreatureType
+      || (source as any).card?.chosenCreatureType
+      || ((state as any).morophonChosenType || {})[String(source.id || '')]
+      || '',
+    ).trim();
     if (chosenType) {
       const oracle = ((source.card as any)?.oracle_text || '').toLowerCase();
       

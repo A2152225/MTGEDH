@@ -7,6 +7,8 @@ import {
   emitIgnoredCardsUpdatedToSocket,
   getPlayerIgnoredCards,
 } from "./ignored-cards.js";
+import { registerLoopShortcutHandlers } from "./loopShortcut.js";
+import { registerLoopShortcutBatchHandler } from "./loopShortcutBatch.js";
 
 export function registerPriorityHandlers(io: Server, socket: Socket) {
   function ensureInRoomAndSeated(gameId: string) {
@@ -558,4 +560,7 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
       }
     }
   });
+
+  registerLoopShortcutHandlers(io, socket, { ensureInRoomAndSeated });
+  registerLoopShortcutBatchHandler(io, socket, { ensureInRoomAndSeated });
 }

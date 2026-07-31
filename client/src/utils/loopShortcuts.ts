@@ -39,6 +39,17 @@ type LoopShortcutIdTemplate =
 const LOOP_SHORTCUT_DRAFTS_STORAGE_KEY = 'mtgedh:loopShortcutDrafts';
 const LOOP_SHORTCUT_SAVED_STORAGE_KEY = 'mtgedh:loopShortcutSaved';
 
+/** Soft cap — always allowed. Above this requires a self-sustaining loop. */
+export const LOOP_SHORTCUT_MAX_ITERATIONS = 50;
+/** Hard cap for self-sustaining loops (net resources do not decrease). */
+export const LOOP_SHORTCUT_MAX_SUSTAINED_ITERATIONS = 1000;
+
+export function clampLoopShortcutIterations(raw: unknown): number {
+  const n = Math.floor(Number(raw) || 1);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(LOOP_SHORTCUT_MAX_SUSTAINED_ITERATIONS, n));
+}
+
 export type LoopShortcutPromptFingerprint = {
   stepType: string;
   sourceName?: string;
@@ -131,7 +142,7 @@ function parseLoopShortcutDraft(raw: unknown): LoopShortcutDraft | null {
   return {
     name: String(raw.name || 'Loop Shortcut').trim() || 'Loop Shortcut',
     items: clonePayload(raw.items) as LoopShortcutSequenceItem[],
-    iterationCount: Math.max(1, Math.min(50, Number(raw.iterationCount) || 1)),
+    iterationCount: clampLoopShortcutIterations(raw.iterationCount),
     updatedAt: Number(raw.updatedAt || Date.now()),
   };
 }
