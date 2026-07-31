@@ -405,8 +405,6 @@ export function useGameSocket(): UseGameSocketState {
       try {
         if (!payload) {
           setView(null);
-          // eslint-disable-next-line no-console
-          console.debug("[socket] state (raw) null payload");
           return;
         }
 
@@ -445,9 +443,6 @@ export function useGameSocket(): UseGameSocketState {
         } else {
           setView(null);
         }
-
-        // eslint-disable-next-line no-console
-        console.debug("[socket] state (raw)", { incomingGameId, newView });
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn("state handler failed:", e);

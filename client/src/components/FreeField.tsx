@@ -425,22 +425,6 @@ export function FreeField(props: {
       const baseLoyalty = p.baseLoyalty ?? parsePT((kc as any)?.loyalty);
       const loyalty = p.loyalty ?? p.counters?.['loyalty'];
 
-      // Debug logging for planeswalkers
-      if (isPlaneswalker) {
-        console.log('[PLANESWALKER DEBUG]', {
-          name: kc?.name,
-          isPlaneswalker,
-          loyalty,
-          baseLoyalty,
-          'p.loyalty': p.loyalty,
-          'p.baseLoyalty': p.baseLoyalty,
-          'p.counters.loyalty': p.counters?.['loyalty'],
-          'kc.loyalty': (kc as any)?.loyalty,
-          hasOracleText: !!kc?.oracle_text,
-          oracleTextPreview: kc?.oracle_text?.substring(0, 100),
-        });
-      }
-
       // Targeting
       const targetedBy = p.targetedBy;
 

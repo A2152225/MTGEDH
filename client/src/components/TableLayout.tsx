@@ -371,20 +371,6 @@ export function TableLayout(props: {
     playAreaBottomInset = 0,
   } = props;
 
-  // Snapshot debug
-  useEffect(() => {
-    try {
-      console.debug("[TableLayout] snapshot", {
-        gameId,
-        you,
-        playersCount: Array.isArray(players) ? players.length : undefined,
-        importedCandidatesCount: (importedCandidates || []).length,
-        hasImportHandler: typeof onImportDeckText === "function",
-        hasUseSavedHandler: typeof onUseSavedDeck === "function",
-      });
-    } catch { /* ignore */ }
-  }, [gameId, you, players, importedCandidates, onImportDeckText, onUseSavedDeck]);
-
   const ordered = useMemo<PlayerBoard[]>(() => {
     const ps = [...players].sort((a, b) => a.seat - b.seat);
     const idxYou = you ? ps.findIndex(p => p.id === you) : -1;
