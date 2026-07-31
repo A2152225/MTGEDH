@@ -206,7 +206,7 @@ import {
   applyDungeonTargetPlayerEffect,
   buildDungeonRoomPromptSteps,
 } from "../state/modules/dungeon-effects.js";
-import { getValidMutateTargets, parseMadnessCost, parseMutateCost, buildCommanderFreeCastPaymentExtras } from "../state/modules/alternate-costs.js";
+import { getValidMutateTargets, parseMadnessCost, parseMutateCost, buildCommanderFreeCastPaymentExtras, cardIsBlueForPitchCost } from "../state/modules/alternate-costs.js";
 import {
   applyPowerUpDiscountsToActivationManaCost,
   maybeMarkPowerUpAbilityUsedFromActivationContext,
@@ -30999,8 +30999,7 @@ async function handleOptionChoiceResponse(
     }
 
     const chosenCard = (playerZones.hand as any[])[handIndex];
-    const isBlue = Array.isArray((chosenCard as any)?.colors) && (chosenCard as any).colors.includes('U');
-    if (!isBlue) {
+    if (!cardIsBlueForPitchCost(chosenCard)) {
       emitToPlayer(io, playerId, 'error', { code: 'CANNOT_PAY_COST', message: 'Selected card is not blue.' });
       return;
     }

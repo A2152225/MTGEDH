@@ -123,6 +123,60 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
     expect(queuedCastEvent?.payload?.queuedResolutionStep?.forceOfWillExileChoice).toBe(true);
   });
 
+  it('queues Force of Negation exile choice when pitch card lacks colors but has {U} mana cost', async () => {
+    const testGameId = `${gameId}_force_negation_missing_colors`;
+    derivedGameIds.push(testGameId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
+    (game.state as any).turnPlayer = opponentId;
+    (game.state as any).priority = playerId;
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'fon_1',
+            name: 'Force of Negation',
+            type_line: 'Instant',
+            mana_cost: '{1}{U}{U}',
+            oracle_text:
+              "If it's not your turn, you may exile a blue card from your hand rather than pay this spell's mana cost.\nCounter target noncreature spell.",
+            image_uris: { small: 'https://example.com/fon.jpg' },
+          },
+          {
+            id: 'ponder_1',
+            name: 'Ponder',
+            type_line: 'Sorcery',
+            mana_cost: '{U}',
+            // colors intentionally omitted (matches live pendingCast / hand card shape)
+            image_uris: { small: 'https://example.com/ponder.jpg' },
+          },
+        ],
+        handCount: 2,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+    registerGameActions(createNoopIo() as any, socket as any);
+
+    await handlers.castSpellFromHand({
+      gameId: testGameId,
+      cardId: 'fon_1',
+      alternateCostId: 'force_of_will',
+      targets: ['stack_opp_1'],
+      skipInteractivePrompts: true,
+    });
+
+    const queue = ResolutionQueueManager.getQueue(testGameId);
+    const step = queue.steps.find((entry: any) => entry.type === 'option_choice') as any;
+    expect(step?.forceOfWillExileChoice).toBe(true);
+    expect(step?.options?.map((option: any) => option.id)).toEqual(['ponder_1']);
+    expect(emitted.find((event) => event.event === 'error')).toBeUndefined();
+  });
+
   it('persists direct Abundant Harvest choice prompts', async () => {
     const testGameId = `${gameId}_abundant`;
     const game = await setupBaseGame(testGameId, playerId, opponentId);

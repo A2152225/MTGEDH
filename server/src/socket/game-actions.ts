@@ -59,7 +59,7 @@ import { isSpellEffectOwnedByOracleIrPrimary } from "../state/modules/oracleIrSp
 import { queueOptionalPaymentStep, queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { tryQueueMoxDiamondBeforeStackResolve } from "../state/modules/mox-diamond-choice.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
-import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, parseWarpCost, parseKeywordAlternateManaCost, getValidMutateTargets, hasSelfWUBRGAlternateCost, getExternalWUBRGSource, buildCommanderFreeCastPaymentExtras, getForceOfWillAlternateCost } from "../state/modules/alternate-costs.js";
+import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, parseWarpCost, parseKeywordAlternateManaCost, getValidMutateTargets, hasSelfWUBRGAlternateCost, getExternalWUBRGSource, buildCommanderFreeCastPaymentExtras, getForceOfWillAlternateCost, cardIsBlueForPitchCost } from "../state/modules/alternate-costs.js";
 import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
 import { calculateSneakOptions, canCastWithSneakAtCurrentTiming, validateSneakReturnedCreature, applySneakReturnedCreatureCost, parseSneakCost } from "../state/modules/sneakCastUtils.js";
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
@@ -9048,7 +9048,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         const handCards = Array.isArray((zones as any).hand) ? ((zones as any).hand as any[]) : [];
         const blueCards = handCards
           .filter((c: any) => c && c.id !== cardId)
-          .filter((c: any) => Array.isArray(c.colors) && c.colors.includes('U'))
+          .filter((c: any) => cardIsBlueForPitchCost(c))
           .map((c: any) => ({
             id: String(c.id),
             label: `Exile ${c.name || 'Blue card'}`,

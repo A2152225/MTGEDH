@@ -98,6 +98,82 @@ export interface AlternateCostOption {
   additionalEffects?: string[];
 }
 
+const COLOR_NAME_TO_SYMBOL: Record<string, string> = {
+  w: 'W',
+  white: 'W',
+  u: 'U',
+  blue: 'U',
+  b: 'B',
+  black: 'B',
+  r: 'R',
+  red: 'R',
+  g: 'G',
+  green: 'G',
+};
+
+/**
+ * Normalize color tokens from Scryfall/MTGJSON (`U`, `blue`, `Blue`) to WUBRG symbols.
+ */
+export function normalizeCardColorSymbols(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const out = new Set<string>();
+  for (const raw of values) {
+    const key = String(raw || '').trim().toLowerCase();
+    const symbol = COLOR_NAME_TO_SYMBOL[key] || (/^[wubrg]$/i.test(key) ? key.toUpperCase() : '');
+    if (symbol) out.add(symbol);
+  }
+  return ['W', 'U', 'B', 'R', 'G'].filter((color) => out.has(color));
+}
+
+function deriveColorSymbolsFromManaCost(manaCost: unknown): string[] {
+  const out = new Set<string>();
+  const normalized = String(manaCost || '');
+  for (const match of normalized.matchAll(/\{([^}]+)\}/g)) {
+    for (const part of String(match[1] || '').split('/')) {
+      const symbol = COLOR_NAME_TO_SYMBOL[part.trim().toLowerCase()];
+      if (symbol) out.add(symbol);
+    }
+  }
+  return ['W', 'U', 'B', 'R', 'G'].filter((color) => out.has(color));
+}
+
+/**
+ * Card colors for pitch costs ("exile a blue card").
+ * Prefer explicit `colors` (including empty = colorless). When missing, derive from
+ * mana cost / color indicator — never color identity (Islands are not blue cards).
+ */
+export function getCardColorSymbolsForPitchCost(card: any): string[] {
+  if (!card || typeof card !== 'object') return [];
+
+  if (Array.isArray(card.colors)) {
+    return normalizeCardColorSymbols(card.colors);
+  }
+
+  const oracleText = String(card.oracle_text || card.oracleText || '');
+  if (/\bdevoid\b/i.test(oracleText)) {
+    return [];
+  }
+
+  const indicator = card.color_indicator ?? card.colorIndicator;
+  const fromIndicator = normalizeCardColorSymbols(indicator);
+  if (fromIndicator.length > 0) return fromIndicator;
+
+  const faces = Array.isArray(card.card_faces) ? card.card_faces : [];
+  const frontFace = faces[0];
+  if (frontFace && Array.isArray(frontFace.colors)) {
+    return normalizeCardColorSymbols(frontFace.colors);
+  }
+
+  return deriveColorSymbolsFromManaCost(
+    card.mana_cost ?? card.manaCost ?? frontFace?.mana_cost ?? frontFace?.manaCost,
+  );
+}
+
+/** True when the card is blue for effects like Force of Will / Force of Negation. */
+export function cardIsBlueForPitchCost(card: any): boolean {
+  return getCardColorSymbolsForPitchCost(card).includes('U');
+}
+
 /**
  * Pattern matcher for Force of Will style alternate costs
  * - Force of Will: "You may pay 1 life and exile a blue card from your hand rather than pay this spell's mana cost"
@@ -142,9 +218,8 @@ export function getForceOfWillAlternateCost(
   if (!zones || !Array.isArray(zones.hand)) return null;
   
   // Check if player has a blue card in hand (other than this card)
-  const hasBlueCard = (zones.hand as any[]).some((c: any) => 
-    c && c.id !== card.id && 
-    Array.isArray(c.colors) && c.colors.includes("U")
+  const hasBlueCard = (zones.hand as any[]).some((c: any) =>
+    c && c.id !== card.id && cardIsBlueForPitchCost(c)
   );
   
   if (!hasBlueCard) return null;
