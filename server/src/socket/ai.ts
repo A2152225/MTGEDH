@@ -1270,6 +1270,34 @@ export async function handleAIGameFlow(
   // Per MTG Rule 514.1, cleanup step does not grant priority, but the turn player
   // must still perform mandatory actions (discard to hand size, etc.)
   const isCleanupStep = stepStr.toUpperCase() === 'CLEANUP';
+
+  // Resume/reconnect: resolve this AI's pending prompts even when another player has priority.
+  // Those steps block global priority passing and are not re-fired as STEP_ADDED after load.
+  if (!hasPriority && !isCleanupStep) {
+    try {
+      if (ResolutionQueueManager.playerHasPendingSteps(gameId, playerId)) {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        const aiStep = queue?.steps?.find((s: any) =>
+          s?.playerId === playerId
+          && String(s?.status || '').toLowerCase() !== 'completed'
+          && String(s?.status || '').toLowerCase() !== 'cancelled'
+        );
+        if (aiStep) {
+          debug(1, '[AI] handleAIGameFlow: resolving pending resolution step without priority:', {
+            gameId,
+            playerId,
+            stepType: aiStep.type,
+            stepId: aiStep.id,
+          });
+          await handleAIResolutionStep(io, gameId, playerId, aiStep);
+          scheduleAIGameFlow(io, gameId, playerId, AI_REACTION_DELAY_MS);
+          return;
+        }
+      }
+    } catch (err) {
+      debugWarn(1, '[AI] handleAIGameFlow: failed pending-step resolve without priority:', err);
+    }
+  }
   
   if (hasPriority || (isCleanupStep && isAITurn)) {
     // Small delay before AI takes action
@@ -8761,14 +8789,31 @@ export async function handleAIPriority(
     return;
   }
   
-  // CRITICAL FIX: Check if THIS AI player has pending resolution steps
-  // This is a player-specific check using playerHasPendingSteps(), which only looks at
-  // steps assigned to this particular AI. This prevents the AI from acting while it's
-  // waiting for its own modal responses (bounce land choice, Join Forces, etc.).
-  // Note: The priority module (priority.ts) uses getPendingSummary() to check for ANY
-  // pending steps across ALL players, which enforces MTG Rule 608.2 more broadly.
+  // If THIS AI has pending resolution steps, resolve them before priority actions.
+  // Returning early here left AI stuck after reconnect/replay (STEP_ADDED does not re-fire).
   if (ResolutionQueueManager.playerHasPendingSteps(gameId, playerId)) {
-    debug(1, '[AI] AI player has pending resolution steps, skipping priority handling:', { gameId, playerId });
+    try {
+      const queue = ResolutionQueueManager.getQueue(gameId);
+      const aiStep = queue?.steps?.find((s: any) =>
+        s?.playerId === playerId
+        && String(s?.status || '').toLowerCase() !== 'completed'
+        && String(s?.status || '').toLowerCase() !== 'cancelled'
+      );
+      if (aiStep) {
+        debug(1, '[AI] AI player has pending resolution steps, resolving before priority:', {
+          gameId,
+          playerId,
+          stepType: aiStep.type,
+          stepId: aiStep.id,
+        });
+        await handleAIResolutionStep(io, gameId, playerId, aiStep);
+        scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
+        return;
+      }
+    } catch (err) {
+      debugWarn(1, '[AI] Failed to resolve pending resolution step before priority:', err);
+    }
+    debug(1, '[AI] AI player has pending resolution steps but none found to resolve:', { gameId, playerId });
     return;
   }
 

@@ -15,6 +15,7 @@ import {
   parseCopyTokenOverridesFromEffect,
   type CopyTokenOverrides,
 } from '../../../../shared/src/copyTokenOverrides.js';
+import { copyAsEntersCopiableChoicesFromSource } from '../../../../shared/src/copyTokenUtils.js';
 
 export function createEquippedCreatureCopyTokenFromEquipment(
   ctx: GameContext,
@@ -94,6 +95,17 @@ export function createEquippedCreatureCopyTokenFromEquipment(
 
   hydratePermanentCardOracleInPlace(tokenCopy);
   applyCopyTokenOverrides(tokenCopy.card, copyOverrides, tokenCopy);
+  // CR 707.2 — as-enters choices (Morophon creature type, etc.) are copiable values.
+  copyAsEntersCopiableChoicesFromSource(equippedCreature, tokenCopy);
+  const inheritedType = String(tokenCopy.chosenCreatureType || '').trim();
+  if (
+    inheritedType
+    && String(tokenCopy.card?.name || tokenCopy.name || '').toLowerCase().includes('morophon')
+  ) {
+    const morophonChosenType = ((state as any).morophonChosenType || {}) as Record<string, string>;
+    morophonChosenType[tokenId] = inheritedType;
+    (state as any).morophonChosenType = morophonChosenType;
+  }
 
   state.battlefield = state.battlefield || [];
   state.battlefield.push(tokenCopy);

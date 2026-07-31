@@ -337,4 +337,75 @@ describe('Helm of the Host beginning-of-combat trigger', () => {
     expect((g.state.life as any)[activePlayer]).toBe(41);
     expect((g.state.life as any)[opponent]).toBe(39);
   });
+
+  it('copies Morophon chosen creature type onto the Helm token (CR 707.2)', () => {
+    const g = createInitialGameState('helm_of_the_host_morophon_chosen_type');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    setupToMain1(g, p1, p2);
+
+    const activePlayer = g.state.turnPlayer as PlayerID;
+    const equippedCreatureId = 'morophon_1';
+
+    (g.state.battlefield as any[]).push(
+      {
+        id: equippedCreatureId,
+        controller: activePlayer,
+        owner: activePlayer,
+        tapped: false,
+        summoningSickness: false,
+        chosenCreatureType: 'Dragon',
+        attachedEquipment: ['helm_morophon'],
+        isEquipped: true,
+        basePower: 6,
+        baseToughness: 6,
+        card: {
+          id: 'morophon_card',
+          name: 'Morophon, the Boundless',
+          type_line: 'Legendary Creature — Shapeshifter',
+          oracle_text:
+            'Changeling\nAs Morophon, the Boundless enters, choose a creature type.\nSpells you cast of the chosen type cost {W}{U}{B}{R}{G} less to cast. This effect reduces only the amount of colored mana you pay.\nOther creatures you control of the chosen type get +1/+1.',
+          power: '6',
+          toughness: '6',
+          chosenCreatureType: 'Dragon',
+        },
+      },
+      {
+        id: 'helm_morophon',
+        controller: activePlayer,
+        owner: activePlayer,
+        tapped: false,
+        attachedTo: equippedCreatureId,
+        card: {
+          id: 'helm_card_morophon',
+          name: 'Helm of the Host',
+          type_line: 'Legendary Artifact — Equipment',
+          oracle_text:
+            "At the beginning of combat on your turn, create a token that's a copy of equipped creature, except the token isn't legendary. That token gains haste.\nEquip {5}",
+        },
+      },
+    );
+
+    (g.state as any).morophonChosenType = { [equippedCreatureId]: 'Dragon' };
+
+    g.applyEvent({ type: 'nextStep' });
+    resolveTopOfStack(g as any);
+
+    const tokenCopy = ((g.state.battlefield as any[]) || []).find(
+      (permanent: any) =>
+        permanent?.isToken === true
+        && String(permanent?.card?.name || '').includes('Morophon'),
+    ) as any;
+
+    expect(tokenCopy).toBeDefined();
+    expect(String(tokenCopy.chosenCreatureType || '')).toBe('Dragon');
+    expect(String(tokenCopy.card?.chosenCreatureType || '')).toBe('Dragon');
+    expect(String(tokenCopy.card?.type_line || '').toLowerCase()).not.toContain('legendary');
+    expect(tokenCopy.copiedFromPermanentId).toBe(equippedCreatureId);
+  });
+
 });

@@ -255,45 +255,74 @@ const STACK_PUSH_REPLAY_EVENT_TYPES = new Set([
   'pushStack',
 ]);
 
-/** Copy as-enters choices from card / Morophon mirror onto the permanent after replay. */
+/** Copy as-enters choices from card / Morophon mirror / copy source onto the permanent after replay. */
 function hydrateAsEntersChoicesOnBattlefield(state: any): void {
   if (!state || typeof state !== 'object') return;
   const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
   const morophonChosenType = (state.morophonChosenType || {}) as Record<string, string>;
+  const byId = new Map<string, any>();
+  for (const permanent of battlefield) {
+    const id = String(permanent?.id || '').trim();
+    if (id) byId.set(id, permanent);
+  }
 
   for (const permanent of battlefield) {
     if (!permanent || typeof permanent !== 'object') continue;
     const card = permanent.card && typeof permanent.card === 'object' ? permanent.card : null;
     const permanentId = String(permanent.id || '').trim();
+    const copySourceId = String(permanent.copiedFromPermanentId || '').trim();
+    const copySource = copySourceId ? byId.get(copySourceId) : null;
 
     const creatureType = String(
       permanent.chosenCreatureType
       || card?.chosenCreatureType
       || (permanentId ? morophonChosenType[permanentId] : '')
+      // CR 707.2: token copies inherit as-enters choices from the copied permanent.
+      || copySource?.chosenCreatureType
+      || copySource?.card?.chosenCreatureType
+      || (copySourceId ? morophonChosenType[copySourceId] : '')
       || '',
     ).trim();
     if (creatureType) {
       permanent.chosenCreatureType = creatureType;
       if (card) card.chosenCreatureType = creatureType;
-      if (permanentId && String(card?.name || '').toLowerCase().includes('morophon')) {
+      if (permanentId && String(card?.name || permanent.name || '').toLowerCase().includes('morophon')) {
         morophonChosenType[permanentId] = creatureType;
         state.morophonChosenType = morophonChosenType;
       }
     }
 
-    const color = String(permanent.chosenColor || card?.chosenColor || '').trim();
+    const color = String(
+      permanent.chosenColor
+      || card?.chosenColor
+      || copySource?.chosenColor
+      || copySource?.card?.chosenColor
+      || '',
+    ).trim();
     if (color) {
       permanent.chosenColor = color;
       if (card) card.chosenColor = color;
     }
 
-    const cardName = String(permanent.chosenCardName || card?.chosenCardName || '').trim();
+    const cardName = String(
+      permanent.chosenCardName
+      || card?.chosenCardName
+      || copySource?.chosenCardName
+      || copySource?.card?.chosenCardName
+      || '',
+    ).trim();
     if (cardName) {
       permanent.chosenCardName = cardName;
       if (card) card.chosenCardName = cardName;
     }
 
-    const chosenPlayer = String(permanent.chosenPlayer || card?.chosenPlayer || '').trim();
+    const chosenPlayer = String(
+      permanent.chosenPlayer
+      || card?.chosenPlayer
+      || copySource?.chosenPlayer
+      || copySource?.card?.chosenPlayer
+      || '',
+    ).trim();
     if (chosenPlayer) {
       permanent.chosenPlayer = chosenPlayer;
       if (card) card.chosenPlayer = chosenPlayer;

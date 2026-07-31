@@ -2012,10 +2012,13 @@ function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: s
 }
 
 /**
- * Check if the current priority holder is an AI and trigger their turn
- * This is called after broadcasting to ensure AI reacts to state changes
+ * Check if the current priority holder is an AI and trigger their turn.
+ * Also kicks AI players who have pending resolution prompts after reconnect/replay
+ * (those prompts are not re-emitted as STEP_ADDED, so the normal AI handler never runs).
+ *
+ * Called after broadcasting and after join/resume state sync.
  */
-function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void {
+export function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void {
   try {
     const stateAny = game.state as any;
     const paymentResumeLock = stateAny?._paymentResumeCastLock;
@@ -2028,9 +2031,37 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
     }
 
     const priority = stateAny?.priority;
-    const currentStep = stateAny?.step;
-    const turnPlayer = stateAny?.turnPlayer;
     const players = stateAny?.players || [];
+
+    // Resume/reconnect: AI-owned resolution prompts must be kicked explicitly.
+    try {
+      const queue = ResolutionQueueManager.getQueue(gameId);
+      const pendingAiPlayerIds = new Set<string>();
+      for (const step of queue?.steps || []) {
+        if (!step || String(step.status || '').toLowerCase() === 'completed' || String(step.status || '').toLowerCase() === 'cancelled') {
+          continue;
+        }
+        const stepPlayerId = String(step.playerId || '').trim();
+        if (!stepPlayerId) continue;
+        const owner = players.find((p: any) => p?.id === stepPlayerId);
+        if (owner?.isAI === true) {
+          pendingAiPlayerIds.add(stepPlayerId);
+        }
+      }
+      for (const aiPlayerId of pendingAiPlayerIds) {
+        void import('./ai.js').then((aiModule) => {
+          if (typeof aiModule.scheduleAIGameFlow === 'function') {
+            aiModule.scheduleAIGameFlow(io, gameId, aiPlayerId, AI_REACTION_DELAY_MS);
+          } else if (typeof aiModule.scheduleAIPriority === 'function') {
+            aiModule.scheduleAIPriority(io, gameId, aiPlayerId, AI_REACTION_DELAY_MS);
+          }
+        }).catch((e) => {
+          debugError(1, '[util] Failed to trigger AI for pending resolution step:', { gameId, playerId: aiPlayerId, error: e });
+        });
+      }
+    } catch (e) {
+      debugWarn(2, '[util] checkAndTriggerAI pending-resolution scan failed:', e);
+    }
     
     // Special case: Kynaios and Tiro style choices
     // These can affect any player (not just the one with priority)

@@ -75,6 +75,7 @@ import {
   applyCopyTokenOverrides,
   type CopyTokenOverrides,
 } from '../../../../shared/src/copyTokenOverrides.js';
+import { copyAsEntersCopiableChoicesFromSource } from '../../../../shared/src/copyTokenUtils.js';
 
 type DeathTriggerStackMetadata = {
   requiresTarget?: true;
@@ -1255,6 +1256,17 @@ export function createCopyTokensOfCard(
     hydrateCardOracleInPlace(tokenPerm.card, { isToken: true, isCopyToken: true });
     if (Object.keys(overrides).length > 0) {
       applyCopyTokenOverrides(tokenPerm.card, overrides, tokenPerm);
+    }
+    // CR 707.2 — inherit as-enters choices when present on the copied card/permanent shell.
+    copyAsEntersCopiableChoicesFromSource(sourceCard, tokenPerm);
+    const inheritedType = String(tokenPerm.chosenCreatureType || '').trim();
+    if (
+      inheritedType
+      && String(tokenPerm.card?.name || tokenPerm.name || '').toLowerCase().includes('morophon')
+    ) {
+      const morophonChosenType = ((state as any).morophonChosenType || {}) as Record<string, string>;
+      morophonChosenType[permanentId] = inheritedType;
+      (state as any).morophonChosenType = morophonChosenType;
     }
 
     const resolvedTypeLine = String(tokenPerm.card?.type_line || typeLine).toLowerCase();

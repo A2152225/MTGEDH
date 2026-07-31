@@ -166,6 +166,22 @@ function permanentAlreadyHasAsEntersChoice(permanent: any, stepType: string, sta
   return false;
 }
 
+function isAsEntersPlayerChoiceStep(step: any): boolean {
+  const effectType = String(step?.effectData?.type || step?.effectType || '').trim();
+  if (effectType === 'set_chosen_player') return true;
+  if (effectType === 'control_change') return false;
+  if (effectType) return false;
+  const description = String(step?.description || '').toLowerCase();
+  return /\bas\b/.test(description) && /\benters\b/.test(description) && /\bplayer\b/.test(description);
+}
+
+function isControlChangePlayerChoiceStep(step: any): boolean {
+  const effectType = String(step?.effectData?.type || step?.effectType || '').trim();
+  if (effectType === 'control_change') return true;
+  const description = String(step?.description || '').toLowerCase();
+  return description.includes('gains control') && description.includes('draw');
+}
+
 /**
  * After rebuilding in-memory state from persisted events, drop resolution prompts that
  * were already resolved in the event log but would otherwise be re-queued on replay.
@@ -201,6 +217,8 @@ export function pruneObsoleteResolutionQueueAfterReplay(
     ? new Set(Object.keys(pendingSpellCasts))
     : new Set<string>();
 
+  const seenControlChangeKeys = new Set<string>();
+
   for (const step of [...queue.steps]) {
     if (step.status !== ResolutionStepStatus.PENDING) continue;
 
@@ -213,13 +231,38 @@ export function pruneObsoleteResolutionQueueAfterReplay(
       continue;
     }
 
+    // Humble Defector / similar: activation queues PLAYER_CHOICE, then playerSelection
+    // resolves it. Orphaned historical prompts must not survive reconnect.
+    if (stepType === ResolutionStepType.PLAYER_CHOICE && isControlChangePlayerChoiceStep(step)) {
+      const permanent = findBattlefieldPermanentForChoiceStep(state, step);
+      const stepPlayerId = String((step as any).playerId || '').trim();
+      const permanentId = String((step as any).permanentId || (step as any).sourceId || '').trim();
+      const stillPendingActivation = Boolean(
+        permanent
+        && stepPlayerId
+        && String(permanent.controller || '').trim() === stepPlayerId
+        && Boolean(permanent.tapped),
+      );
+      if (!stillPendingActivation) {
+        ResolutionQueueManager.cancelStep(gameId, String(step.id || ''));
+        continue;
+      }
+      const dedupeKey = `${permanentId}:${stepPlayerId}`;
+      if (seenControlChangeKeys.has(dedupeKey)) {
+        ResolutionQueueManager.cancelStep(gameId, String(step.id || ''));
+        continue;
+      }
+      seenControlChangeKeys.add(dedupeKey);
+      continue;
+    }
+
     // As-enters choose-X prompts restored from resolveTopOfStackPrompt must not
     // survive when the choice event already hydrated the permanent.
     if (
       stepType === ResolutionStepType.CREATURE_TYPE_CHOICE
       || stepType === ResolutionStepType.COLOR_CHOICE
       || stepType === ResolutionStepType.CARD_NAME_CHOICE
-      || stepType === ResolutionStepType.PLAYER_CHOICE
+      || (stepType === ResolutionStepType.PLAYER_CHOICE && isAsEntersPlayerChoiceStep(step))
     ) {
       const choiceStep = step as ResolutionStep & {
         permanentId?: string;

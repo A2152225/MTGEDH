@@ -15503,6 +15503,29 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const effectData = ((e as any).effectData || {}) as any;
           const battlefield = ctx.state.battlefield || [];
           const permanent = battlefield.find((p: any) => p.id === permanentId);
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+
+          // Clear the matching resolution prompt(s). Without this, reconnect/replay leaves
+          // orphaned PLAYER_CHOICE steps (Humble Defector / control-change activations) that
+          // stall AI priority and can pile up into pathological queues.
+          if (replayGameId) {
+            if (resolvedStepId) {
+              clearReplayQueuedStepById(replayGameId, resolvedStepId);
+            }
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              if (String(step.type || '') !== String(ResolutionStepType.PLAYER_CHOICE)) return false;
+              const stepPermanentId = String(step.permanentId || step.sourceId || step.effectData?.permanentId || '').trim();
+              if (permanentId && stepPermanentId && stepPermanentId !== permanentId) return false;
+              const stepEffectType = String(step.effectData?.type || step.effectType || '').trim();
+              if (effectType && stepEffectType && stepEffectType !== effectType) return false;
+              if (choosingPlayerId && String(step.playerId || '').trim() && String(step.playerId || '').trim() !== choosingPlayerId) {
+                return false;
+              }
+              return true;
+            });
+          }
 
           if (effectType === 'set_chosen_player') {
             if (permanent) {

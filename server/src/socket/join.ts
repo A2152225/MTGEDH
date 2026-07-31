@@ -1,6 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import { randomBytes } from "crypto";
-import { ensureGame, broadcastGame, schedulePriorityTimeout, getOrInitManaPool, getTotalManaInPool } from "./util";
+import { ensureGame, broadcastGame, schedulePriorityTimeout, getOrInitManaPool, getTotalManaInPool, checkAndTriggerAI } from "./util";
 import {
   emitIgnoredCardsUpdatedToSocket,
   getPlayerIgnoredCards,
@@ -1131,6 +1131,14 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               }
             } catch (e) {
               debugWarn(1, "joinGame: emit pending resolution step failed", e);
+            }
+
+            // join emits state directly (not via broadcastGame), so AI never gets kicked
+            // after reconnect/server restart unless we do it here.
+            try {
+              checkAndTriggerAI(io, game as any, gameId);
+            } catch (e) {
+              debugWarn(1, "joinGame: checkAndTriggerAI failed", e);
             }
 
             // Persist join event if new

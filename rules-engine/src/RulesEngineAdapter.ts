@@ -21,6 +21,7 @@ import {
   applyCopyTokenOverrides,
   parseCopyTokenOverridesFromEffect,
 } from '../../shared/src/copyTokenOverrides.js';
+import { copyAsEntersCopiableChoicesFromSource } from '../../shared/src/copyTokenUtils.js';
 import { lookupLocalCardByNameSync } from '../../server/src/services/localCardLookup.js';
 import type { EngineResult } from './index';
 import {
@@ -3971,6 +3972,8 @@ export class RulesEngineAdapter {
     tokenPermanent.oracle_text = tokenCard.oracle_text;
     tokenPermanent.type_line = tokenCard.type_line;
     tokenPermanent.cardType = tokenCard.type_line;
+    // CR 707.2 — Morophon / similar as-enters choices are copiable values.
+    copyAsEntersCopiableChoicesFromSource(equippedCreature, tokenPermanent);
 
     return {
       handled: true,

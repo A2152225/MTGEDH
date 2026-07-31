@@ -3,6 +3,7 @@ import {
   parseCopyTokenOverrides,
   type CopyTokenOverrides,
 } from '../../shared/src/copyTokenOverrides.js';
+import { copyAsEntersCopiableChoicesFromSource } from '../../shared/src/copyTokenUtils.js';
 import { createTokens, resolveTokenCharacteristicsFromOracleStep } from './tokenCreation';
 import {
   DelayedTriggerTiming,
@@ -766,7 +767,7 @@ function createCopiedTokenPermanent(params: {
   );
   const isCreatureType = cardTypes.some((type) => String(type).toLowerCase() === 'creature');
 
-  return {
+  const tokenPermanent = {
     id: tokenId,
     controller: params.controllerId,
     owner: params.controllerId,
@@ -796,6 +797,11 @@ function createCopiedTokenPermanent(params: {
     ...(params.sourceId ? { createdBySourceId: String(params.sourceId).trim() } : {}),
     ...(params.sourceName ? { createdBySourceName: String(params.sourceName).trim() } : {}),
   } as BattlefieldPermanent;
+
+  // CR 707.2 — inherit as-enters choices (e.g. Morophon creature type) from the copied object.
+  copyAsEntersCopiableChoicesFromSource(sourceObject, tokenPermanent);
+
+  return tokenPermanent;
 }
 
 type CopySourceResolution =
@@ -1563,12 +1569,31 @@ function addTokensToBattlefield(
           : token;
       copiedTokens.push(applyTemporaryGrantedAbilitiesToToken(tokenWithPermanentAbilities, temporaryGrantedAbilities));
     }
+    const nextState: any = {
+      ...state,
+      battlefield: [...(state.battlefield || []), ...copiedTokens],
+    };
+    const morophonChosenType = { ...(((state as any).morophonChosenType || {}) as Record<string, string>) };
+    let morophonMapChanged = false;
+    for (const token of copiedTokens) {
+      const creatureType = String((token as any)?.chosenCreatureType || '').trim();
+      const tokenId = String((token as any)?.id || '').trim();
+      if (
+        !creatureType
+        || !tokenId
+        || !String((token as any)?.card?.name || (token as any)?.name || '').toLowerCase().includes('morophon')
+      ) {
+        continue;
+      }
+      morophonChosenType[tokenId] = creatureType;
+      morophonMapChanged = true;
+    }
+    if (morophonMapChanged) {
+      nextState.morophonChosenType = morophonChosenType;
+    }
     return {
       applied: true,
-      state: {
-        ...state,
-        battlefield: [...(state.battlefield || []), ...copiedTokens],
-      },
+      state: nextState,
       log: [`Created ${count} token copy/copies of ${String((copySource.sourceObject as any)?.name || (copySource.sourceObject as any)?.card?.name || 'object')}`],
       createdTokenIds: copiedTokens.map(token => String((token as any)?.id || '').trim()).filter(Boolean),
     };

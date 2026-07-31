@@ -1,4 +1,5 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
+import { copyAsEntersCopiableChoicesFromSource } from '../../../../shared/src/copyTokenUtils.js';
 import type { OracleEffectStep, OracleQuantity } from '../../../../rules-engine/src/oracleIR.js';
 import {
   applyOracleIRStepsToGameState,
@@ -5761,6 +5762,18 @@ function syncIrCopyTokenProvenanceFromOracleIRResult(
   for (const perm of state.battlefield || []) {
     if (!perm?.isToken || perm.copiedFromPermanentId) continue;
     perm.copiedFromPermanentId = sourceId;
+    const sourcePermanent = (state.battlefield || []).find(
+      (entry: any) => String(entry?.id || '').trim() === sourceId,
+    );
+    if (sourcePermanent) {
+      copyAsEntersCopiableChoicesFromSource(sourcePermanent, perm);
+      const creatureType = String(perm.chosenCreatureType || '').trim();
+      if (creatureType && String(perm?.card?.name || perm?.name || '').toLowerCase().includes('morophon')) {
+        const morophonChosenType = (state.morophonChosenType || {}) as Record<string, string>;
+        morophonChosenType[String(perm.id || '')] = creatureType;
+        state.morophonChosenType = morophonChosenType;
+      }
+    }
     break;
   }
 }
