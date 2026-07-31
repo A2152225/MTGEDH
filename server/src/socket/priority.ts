@@ -231,7 +231,8 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
   /**
    * Loop shortcuts need to drain Summon / Reflections / Aura Shards without
    * clearing on cast (unlike autoPassForTurn). While enabled, auto-pass bypasses
-   * the "has floating mana / can activate" idle check whenever the stack is non-empty.
+   * the "has floating mana / can activate" idle check only when the stack is
+   * non-empty — never force empty-stack main-phase passes (that ping-pongs).
    */
   socket.on("setLoopShortcutStackDrain", (payload?: { gameId?: unknown; enabled?: unknown }) => {
     const gameId = payload?.gameId;

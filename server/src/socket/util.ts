@@ -77,8 +77,10 @@ function topStackObjectControlledByPlayer(state: any, playerId: string): boolean
 
 /**
  * Whether Smart Pass / loop-drain may bypass idle checks for a nonempty stack.
- * Explicit rest-of-turn and loop-drain always bypass; ordinary Smart Pass only
- * bypasses for the player's own top stack object.
+ * Explicit rest-of-turn and loop-drain bypass idle only while the stack is
+ * non-empty; ordinary Smart Pass only bypasses for the player's own top stack
+ * object. Loop drain must not force empty-stack passes on the active player's
+ * main phase (that ping-pongs with opponents who report canRespond).
  */
 function shouldBypassIdleForNonEmptyStack(options: {
   stackLen: number;
@@ -93,6 +95,11 @@ function shouldBypassIdleForNonEmptyStack(options: {
   if (loopStackDrain || autoPassForTurn) return true;
   if (!autoPassEnabled) return false;
   return topStackObjectControlledByPlayer(state, playerId);
+}
+
+/** Loop drain may skip idle checks only while there is something to resolve. */
+function isLoopStackDrainActive(loopStackDrain: boolean, stackLen: number): boolean {
+  return loopStackDrain && stackLen > 0;
 }
 
 const LAND_PLAY_AUTOMATION_SUPPRESSION_MS = 600;
@@ -2214,18 +2221,20 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
       return;
     }
     
-    // Idle players auto-pass; autoPassForTurn, loop stack-drain, and top-stack trigger
-    // shortcuts bypass the idle check. With a non-empty stack, enabled auto-pass
-    // ("Smart Pass") may also bypass — but only for the player's own top stack
-    // object — otherwise floating mana / activatable abilities leave them stuck
-    // clicking Pass Priority to resolve their own spells. Opponent spells still
-    // require a real canRespond check (e.g. Cyclonic Rift vs Murder).
+    // Idle players auto-pass; autoPassForTurn, loop stack-drain (non-empty stack
+    // only), and top-stack trigger shortcuts bypass the idle check. With a
+    // non-empty stack, enabled auto-pass ("Smart Pass") may also bypass — but
+    // only for the player's own top stack object — otherwise floating mana /
+    // activatable abilities leave them stuck clicking Pass Priority to resolve
+    // their own spells. Opponent spells still require a real canRespond check
+    // (e.g. Cyclonic Rift vs Murder).
     const autoPassForTurn = stateAny.autoPassForTurn?.[priority] || false;
     const loopStackDrain = stateAny.loopShortcutStackDrain?.[priority] === true;
     const autoPassEnabled = stateAny.autoPassPlayers instanceof Set
       ? stateAny.autoPassPlayers.has(priority)
       : false;
     const stackLen = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+    const loopDrainActive = isLoopStackDrainActive(loopStackDrain, stackLen);
     const autoPassEmptyStackOnOpponentsTurn =
       (
         stateAny.autoPassEmptyStackOnOpponentsTurn?.[priority] === true
@@ -2233,7 +2242,7 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
       )
       && stackLen === 0
       && String(stateAny.turnPlayer || '') !== String(priority);
-    let triggerAutoPassReason = (autoPassForTurn || loopStackDrain)
+    let triggerAutoPassReason = (autoPassForTurn || loopDrainActive)
       ? undefined
       : getTopTriggeredAbilityAutoPassReason(game.state, priority);
     const bypassIdleForStack = shouldBypassIdleForNonEmptyStack({
@@ -2270,7 +2279,8 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
     }
     
     // CRITICAL: Forced pass preferences skip the normal legal-action idle check.
-    if (!autoPassForTurn && !loopStackDrain && !autoPassEmptyStackOnOpponentsTurn && !triggerAutoPassReason && !bypassIdleForStack) {
+    // Loop drain only skips idle while the stack is non-empty.
+    if (!autoPassForTurn && !loopDrainActive && !autoPassEmptyStackOnOpponentsTurn && !triggerAutoPassReason && !bypassIdleForStack) {
       const ctx: any = {
         gameId,
         state: game.state,
@@ -2360,6 +2370,7 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
         ? currentState.autoPassPlayers.has(priority)
         : false;
       const currentStackLen = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+      const currentLoopDrainActive = isLoopStackDrainActive(currentLoopDrain, currentStackLen);
       const currentAutoPassEmptyStackOnOpponentsTurn =
         (
           currentState.autoPassEmptyStackOnOpponentsTurn?.[priority] === true
@@ -2375,10 +2386,10 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
         state: game.state,
         playerId: String(priority),
       });
-      triggerAutoPassReason = (currentAutoPassForTurn || currentLoopDrain)
+      triggerAutoPassReason = (currentAutoPassForTurn || currentLoopDrainActive)
         ? undefined
         : getTopTriggeredAbilityAutoPassReason(game.state, priority);
-      if (!currentAutoPassForTurn && !currentLoopDrain && !currentAutoPassEmptyStackOnOpponentsTurn && !triggerAutoPassReason && !currentBypassIdleForStack) {
+      if (!currentAutoPassForTurn && !currentLoopDrainActive && !currentAutoPassEmptyStackOnOpponentsTurn && !triggerAutoPassReason && !currentBypassIdleForStack) {
         // Recreate context for re-check
         // CRITICAL: Use actual game data (libraries, mana pool) for accurate checks
         const recheckCtx: any = {
@@ -2519,7 +2530,7 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
     
     // For human players without forced stack-drain, add a small delay
     // This allows them to evaluate and claim priority if needed
-    if (isHumanPlayer && !autoPassForTurn && !loopStackDrain && !autoPassEmptyStackOnOpponentsTurn && !bypassIdleForStack && !triggerAutoPassReason) {
+    if (isHumanPlayer && !autoPassForTurn && !loopDrainActive && !autoPassEmptyStackOnOpponentsTurn && !bypassIdleForStack && !triggerAutoPassReason) {
       if (existingHumanAutoPass?.playerId === priorityPlayerId) {
         debug(2, `${ts()} [checkAndTriggerAutoPass] Auto-pass already scheduled for ${priority} (ID: ${debugCallId})`);
         return;

@@ -211,6 +211,7 @@ import {
   applyPowerUpDiscountsToActivationManaCost,
   maybeMarkPowerUpAbilityUsedFromActivationContext,
 } from "../state/modules/marvelMechanicsHelpers.js";
+import { isActivatedManaAbilityText } from "../state/modules/ability-cost-adjustments.js";
 import { applyGraveyardPermissionEffectsFromText } from "../state/modules/graveyard-permissions.js";
 import { createEffectProgramChoiceResponse, readEffectProgramQueueMetadata, restoreAllPendingEffectProgramRuntimes, restoreEffectProgramRuntimeForPendingStep, resumeEffectProgramResolution, persistEffectProgramChoiceResolutionEvent, drainPendingOptionalAutoChoices } from "../state/effects/index.js";
 
@@ -19537,32 +19538,9 @@ async function handleTargetSelectionResponse(
       return;
     }
 
-    // Put the ability on the stack (no further targets required).
-    const stackItem = {
-      id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      type: 'ability' as const,
-      controller: controllerId,
-      source: permanentId,
-      sourceName: cardName,
-      description: abilityText,
-      activatedAbilityText: activatedAbilityText || undefined,
-      sacrificedPermanents: sacrificedIds,
-      lastSacrificedPermanents: sacrificedPermanentSnapshots,
-    } as any;
-
-    game.state.stack = game.state.stack || [];
-    game.state.stack.push(stackItem);
-    const exertedPermanentIdForCost = finalizeBattlefieldAbilitySelfExertCost(
-      game,
-      gameId,
-      controllerId,
-      permanentId,
-      stepAny?.requiresSelfExertForCost === true,
-    );
-    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+    const persistSacrificeActivationEvent = (extras: Record<string, unknown> = {}) => {
       try {
         appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-          ...battlefieldAbilityStackReplayEvidence(stackItem.id),
           playerId: controllerId,
           permanentId,
           abilityId: abilityId || undefined,
@@ -19587,10 +19565,184 @@ async function handleTargetSelectionResponse(
                 manaFromTreasureSpent: stepAny.manaFromTreasureSpent,
               }
             : {}),
+          ...extras,
         });
       } catch {
         // ignore persistence failures
       }
+    };
+
+    // Mana abilities never use the stack (CR 605). Sacrifice-as-cost used to always
+    // push onto the stack, forcing a pass-priority drain for Ashnod's Altar et al.
+    if (isActivatedManaAbilityText(activatedAbilityText || abilityText)) {
+      finalizeBattlefieldAbilitySelfExertCost(
+        game,
+        gameId,
+        controllerId,
+        permanentId,
+        stepAny?.requiresSelfExertForCost === true,
+      );
+
+      game.state.manaPool = game.state.manaPool || {};
+      game.state.manaPool[controllerId] = game.state.manaPool[controllerId] || {
+        white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0,
+      };
+
+      const colorToPoolKey: Record<string, string> = {
+        W: 'white',
+        U: 'blue',
+        B: 'black',
+        R: 'red',
+        G: 'green',
+        C: 'colorless',
+      };
+
+      const manaMultiplier = getManaMultiplier(game.state, sourcePerm, controllerId);
+      const effectiveMultiplier = Number.isFinite(manaMultiplier) && manaMultiplier > 0 ? manaMultiplier : 1;
+      const {
+        produces,
+        baseAmount,
+        producesAllAtOnce,
+      } = resolveManaAbilityActivationShape(
+        game.state,
+        sourcePerm,
+        controllerId,
+        abilityId,
+        activatedAbilityText,
+        abilityText,
+        manaCost,
+      );
+
+      try {
+        const triggeredAbilities = triggerAbilityActivatedTriggers(game as any, {
+          activatedBy: controllerId as any,
+          sourcePermanentId: permanentId as any,
+          isManaAbility: true,
+          abilityText,
+        });
+        for (const triggeredAbility of triggeredAbilities) {
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', serializeAbilityActivatedTriggeredStackItem(triggeredAbility));
+          } catch (err) {
+            debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility mana sac-cost) failed:', err);
+          }
+        }
+      } catch {}
+
+      if (producesAllAtOnce && produces.length > 1) {
+        const amountPerColor = produces.length > 0
+          ? Math.max(1, Math.floor(baseAmount / produces.length))
+          : 1;
+        for (const manaColor of produces) {
+          const poolKey = colorToPoolKey[manaColor] || 'colorless';
+          (game.state.manaPool[controllerId] as any)[poolKey] += amountPerColor * effectiveMultiplier;
+        }
+        broadcastManaPoolUpdate(io, gameId, controllerId, game.state.manaPool[controllerId] as any, `Activated ${cardName}`, game);
+      } else if (produces.length > 1) {
+        const extraMana = getExtraManaProduction(game.state, sourcePerm, controllerId, produces[0]);
+        const totalExtra = extraMana.reduce((acc, entry) => acc + Number(entry.amount || 0), 0);
+        const finalTotal = (baseAmount * effectiveMultiplier) + totalExtra;
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MANA_COLOR_SELECTION,
+          playerId: controllerId as any,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: (sourcePerm as any)?.card?.image_uris?.small || (sourcePerm as any)?.card?.image_uris?.normal,
+          description: `Choose a color for ${cardName}'s mana.`,
+          mandatory: true,
+          selectionKind: 'any_color',
+          permanentId,
+          abilityId,
+          cardName,
+          amount: finalTotal,
+          tappedPermanentsForCost: allTappedPermanentsForCost,
+          sacrificedPermanentsForCost: sacrificedIds,
+        } as any);
+        persistSacrificeActivationEvent({ usesStack: false });
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName} (sacrificed ${sacrificedNames.join(', ') || 'permanents'}) — choose a color`,
+          ts: Date.now(),
+        });
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+        return;
+      } else if (produces.length === 1) {
+        const manaColor = produces[0];
+        const poolKey = colorToPoolKey[manaColor] || 'colorless';
+        const extraMana = getExtraManaProduction(game.state, sourcePerm, controllerId, manaColor);
+        for (const extra of extraMana) {
+          const extraPoolKey = colorToPoolKey[extra.color] || poolKey;
+          (game.state.manaPool[controllerId] as any)[extraPoolKey] += extra.amount;
+        }
+        (game.state.manaPool[controllerId] as any)[poolKey] += baseAmount * effectiveMultiplier;
+        broadcastManaPoolUpdate(io, gameId, controllerId, game.state.manaPool[controllerId] as any, `Activated ${cardName}`, game);
+      }
+
+      try {
+        const stateAny = game.state as any;
+        stateAny.addedManaWithThisAbilityThisTurn = stateAny.addedManaWithThisAbilityThisTurn || {};
+        stateAny.addedManaWithThisAbilityThisTurn[String(controllerId)] =
+          stateAny.addedManaWithThisAbilityThisTurn[String(controllerId)] || {};
+        const permKey = String(permanentId);
+        const k = abilityId ? `${permKey}:${abilityId}` : permKey;
+        (stateAny.addedManaWithThisAbilityThisTurn[String(controllerId)] as any)[k] = true;
+      } catch {}
+
+      persistSacrificeActivationEvent({ usesStack: false });
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}'s mana ability (sacrificed ${sacrificedNames.join(', ') || 'permanents'})`,
+        ts: Date.now(),
+      });
+
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+
+      if (Array.isArray((stepAny as any)?.queuedMadnessStepsForCost) && (stepAny as any).queuedMadnessStepsForCost.length > 0) {
+        try {
+          appendQueuedResolutionPromptEvent(game, gameId, {
+            playerId: controllerId,
+            sourceId: permanentId,
+            queuedResolutionSteps: (stepAny as any).queuedMadnessStepsForCost.map((queuedStep: any) => ({ ...(queuedStep as any) })),
+          });
+        } catch {
+          // ignore persistence failures
+        }
+      }
+
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    // Put the ability on the stack (no further targets required).
+    const stackItem = {
+      id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'ability' as const,
+      controller: controllerId,
+      source: permanentId,
+      sourceName: cardName,
+      description: abilityText,
+      activatedAbilityText: activatedAbilityText || undefined,
+      sacrificedPermanents: sacrificedIds,
+      lastSacrificedPermanents: sacrificedPermanentSnapshots,
+    } as any;
+
+    game.state.stack = game.state.stack || [];
+    game.state.stack.push(stackItem);
+    const exertedPermanentIdForCost = finalizeBattlefieldAbilitySelfExertCost(
+      game,
+      gameId,
+      controllerId,
+      permanentId,
+      stepAny?.requiresSelfExertForCost === true,
+    );
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+      persistSacrificeActivationEvent(battlefieldAbilityStackReplayEvidence(stackItem.id));
     });
 
     io.to(gameId).emit('chat', {

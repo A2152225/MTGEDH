@@ -131,6 +131,8 @@ describe('Smart Pass own-stack bypass', () => {
       'smart_pass_empty_stack_opp_turn',
       'smart_pass_empty_stack_for_turn',
       'smart_pass_empty_pref_opp_spell',
+      'loop_drain_empty_main',
+      'loop_drain_own_spell',
     ]) {
       clearPriorityTimer(id);
       games.delete(id);
@@ -252,6 +254,72 @@ describe('Smart Pass own-stack bypass', () => {
 
     checkAndTriggerAutoPass(io, game, game.gameId);
     // Rest-of-turn skips the human delay.
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(resolveTopOfStack).toHaveBeenCalled();
+    expect(ctx.state.stack).toHaveLength(0);
+  });
+
+  it('loop stack-drain does not empty-stack auto-pass on the active main phase', async () => {
+    const { ctx, game, io, passPrioritySpy } = createHarness('loop_drain_empty_main', {
+      turnPlayer: 'p_human',
+      priority: 'p_human',
+      phase: 'postcombatMain',
+      step: 'MAIN2',
+      stack: [],
+      priorityPassedBy: new Set<string>(),
+      autoPassPlayers: new Set<string>(),
+      loopShortcutStackDrain: { p_human: true },
+      landsPlayedThisTurn: { p_human: 0 },
+      zones: {
+        p_opp: { hand: [], graveyard: [], library: [] },
+        p_human: {
+          hand: [
+            {
+              id: 'island_1',
+              name: 'Island',
+              type_line: 'Basic Land — Island',
+              oracle_text: '{T}: Add {U}.',
+            },
+          ],
+          graveyard: [],
+          library: [],
+        },
+      },
+    });
+    games.set(game.gameId, game);
+
+    checkAndTriggerAutoPass(io, game, game.gameId);
+    await vi.advanceTimersByTimeAsync(AUTO_PASS_DELAY_MS + 50);
+
+    expect(passPrioritySpy).not.toHaveBeenCalled();
+    expect(ctx.state.priority).toBe('p_human');
+  });
+
+  it('loop stack-drain still drains a non-empty stack', async () => {
+    const { ctx, game, io, resolveTopOfStack } = createHarness('loop_drain_own_spell', {
+      turnPlayer: 'p_human',
+      autoPassPlayers: new Set<string>(),
+      loopShortcutStackDrain: { p_human: true },
+      priorityPassedBy: new Set<string>(),
+      stack: [
+        {
+          id: 'bolt_own',
+          type: 'spell',
+          controller: 'p_human',
+          card: {
+            id: 'bolt_card',
+            name: 'Lightning Bolt',
+            type_line: 'Instant',
+            mana_cost: '{R}',
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          },
+        },
+      ],
+    });
+    games.set(game.gameId, game);
+
+    checkAndTriggerAutoPass(io, game, game.gameId);
     await vi.advanceTimersByTimeAsync(50);
 
     expect(resolveTopOfStack).toHaveBeenCalled();
