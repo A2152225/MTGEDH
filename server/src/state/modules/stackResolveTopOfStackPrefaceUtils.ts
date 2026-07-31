@@ -9,6 +9,7 @@ import {
   shouldFizzleStackSpellForMissingTargets,
 } from './stackTargetLegalityUtils.js';
 import type { ResolveTopOfStackPrefaceResult } from './stackResolveSharedTypes.js';
+import { resolveTriggeredAbilityControllerId } from './triggerSourceUtils.js';
 
 export type { ResolveTopOfStackContinuation, ResolveTopOfStackPrefaceResult } from './stackResolveSharedTypes.js';
 
@@ -30,7 +31,11 @@ export function tryPrepareResolveTopOfStackContext(ctx: GameContext): ResolveTop
 
   const { state, bumpSeq } = ctx;
   const card = item.card;
-  const controller = item.controller as PlayerID;
+  const resolvedController = resolveTriggeredAbilityControllerId(state, item, (item as any).controller);
+  if (resolvedController && String((item as any).controller || '').trim() !== resolvedController) {
+    (item as any).controller = resolvedController;
+  }
+  const controller = (resolvedController || (item as any).controller) as PlayerID;
   const targets = (item as any).targets || [];
   const spellXValue = (item as any).xValue;
 

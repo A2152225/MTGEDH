@@ -1,10 +1,11 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
-import { debug } from '../../utils/debug.js';
+import { debug, debugWarn } from '../../utils/debug.js';
 import { tryDeferTriggeredAbilityBeforeExecution } from './stackResolveTriggeredAbilityDeferralUtils.js';
 import type { TriggeredAbilityStackResolveOptions } from './stackResolveSharedTypes.js';
 import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
 import { maybeSacrificeSagaAfterChapterResolve } from './triggerSagaLoreUtils.js';
+import { resolveTriggeredAbilityControllerId } from './triggerSourceUtils.js';
 
 export { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
 
@@ -26,7 +27,11 @@ export function resolveTriggeredAbilityStackItem(
 
   const sourceName = (item as any).sourceName || 'Unknown';
   const description = (item as any).description || '';
-  const triggerController = (item as any).controller || controller;
+  const resolvedController = resolveTriggeredAbilityControllerId(state, item, controller);
+  if (resolvedController && String((item as any).controller || '').trim() !== resolvedController) {
+    (item as any).controller = resolvedController;
+  }
+  const triggerController = resolvedController || (item as any).controller || controller;
   const triggerType = (item as any).triggerType;
   const sourceId = (item as any).id;
   const effectText = resolveTriggerStackItemEffectText(item, { state: (ctx as any).state });
@@ -34,8 +39,18 @@ export function resolveTriggeredAbilityStackItem(
 
   debug(2, `[resolveTopOfStack] Triggered ability from ${sourceName} resolved: ${description}`);
 
+  if (!String(triggerController || '').trim()) {
+    debugWarn(
+      1,
+      `[resolveTopOfStack] Skipping triggered ability from ${sourceName}: missing controller ` +
+      `(source=${String((item as any).source || (item as any).sourceId || '')}, triggerType=${triggerType})`,
+    );
+    bumpSeq();
+    return true;
+  }
+
   if (tryDeferTriggeredAbilityBeforeExecution(ctx, item, {
-    controller,
+    controller: triggerController as PlayerID,
     triggerController: triggerController as PlayerID,
     sourceName,
     description,
@@ -51,7 +66,7 @@ export function resolveTriggeredAbilityStackItem(
   }
 
   debug(2, `[resolveTopOfStack] Executing trigger effect: controller=${triggerController}, sourceName=${sourceName}, triggerType=${triggerType}`);
-  executeTriggerEffect(ctx, triggerController, sourceName, effectText, item);
+  executeTriggerEffect(ctx, triggerController as PlayerID, sourceName, effectText, item);
   maybeSacrificeSagaAfterChapterResolve(ctx, triggerController as PlayerID, item);
   bumpSeq();
   return true;

@@ -498,7 +498,18 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
   const stackItem = {
     id: triggerId,
     type: 'triggered_ability',
-    controller: trigger.source.controllerId,
+    controller: (() => {
+      const fromSource = String(trigger?.source?.controllerId || '').trim();
+      if (fromSource) return fromSource;
+      const fromSnapshot = String(sourcePermanentSnapshot?.controller || '').trim();
+      if (fromSnapshot) return fromSnapshot;
+      const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+      const sourceId = String(trigger?.source?.permanentId || '').trim();
+      const live = sourceId
+        ? battlefield.find((permanent: any) => String(permanent?.id || '') === sourceId)
+        : null;
+      return String(live?.controller || '').trim() || undefined;
+    })(),
     source: trigger.source.permanentId,
     sourceName: trigger.source.cardName,
     description: effectText,
@@ -552,7 +563,7 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
       sourceId: trigger.source.permanentId,
       permanentId: trigger.source.permanentId,
       sourceName: trigger.source.cardName,
-      controllerId: trigger.source.controllerId,
+      controllerId: stackItem.controller || trigger.source.controllerId,
       description: effectText,
       triggerType: 'creature_dies',
       effect: effectText,

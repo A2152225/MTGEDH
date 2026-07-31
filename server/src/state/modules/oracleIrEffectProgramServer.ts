@@ -21,6 +21,7 @@ import {
 } from './oracleIrServerZoneSync.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { isOracleIrOptionalStepBridgedToDedicatedResolutionPrompt } from '../../../../rules-engine/src/oracleIRPerPlayerOptional.js';
+import { resolveTriggeredAbilityControllerId } from './triggerSourceUtils.js';
 
 const EFFECT_PROGRAM_ORCHESTRATION_KINDS = new Set<string>([
   'choose_mode',
@@ -298,16 +299,32 @@ export function startOracleEffectProgramOnServer(
   const state = (ctx as any).state;
   hydrateOracleIRPlayerZonesFromContext(ctx, state);
   const graveyardBefore = snapshotGraveyardCardIds(state);
+  const triggerItem = (params.metadata as any)?.triggerItem;
+  const resolvedController = resolveTriggeredAbilityControllerId(
+    state,
+    triggerItem,
+    params.controller,
+  ) || String(params.controller || '').trim();
+
+  if (!resolvedController) {
+    debugWarn(
+      1,
+      `[oracleIR] Refusing Effect Program for ${params.sourceName}: missing controller ` +
+      `(would orphan option_choice with null priority)`,
+    );
+    return { handled: false, waitingForChoice: false, completed: false };
+  }
 
   try {
     const serverIrCtx = {
       ...params.irCtx,
       deferStackSpellCopiesToServer: true,
+      controllerId: resolvedController,
     };
 
     const program = buildEffectProgramFromOracleIR({
       id: `${params.programIdPrefix}:effect-program`,
-      controllerId: params.controller,
+      controllerId: resolvedController as any,
       sourceId: params.sourceId,
       sourceName: params.sourceName,
       sourceImage: params.sourceImage,
@@ -320,8 +337,6 @@ export function startOracleEffectProgramOnServer(
       serverIrCtx,
       params.executionOptions || { allowOptional: true },
     );
-
-    const triggerItem = (params.metadata as any)?.triggerItem;
 
     const result = startEffectProgramResolution({
       game: ctx,
@@ -337,7 +352,7 @@ export function startOracleEffectProgramOnServer(
       },
       oracleIrBridge: {
         irCtx: serverIrCtx,
-        controller: params.controller,
+        controller: resolvedController as any,
         sourceName: params.sourceName,
         sourceId: params.sourceId,
         triggerItem,
@@ -345,7 +360,7 @@ export function startOracleEffectProgramOnServer(
     });
 
     if (result.status === 'completed') {
-      syncCompletedEffectProgramState(ctx, params.controller, graveyardBefore);
+      syncCompletedEffectProgramState(ctx, resolvedController as any, graveyardBefore);
     }
 
     const handled = result.status === 'waiting_for_choice' || result.status === 'completed';

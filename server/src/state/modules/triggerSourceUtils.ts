@@ -56,6 +56,39 @@ export function getTriggerSourcePermanent(state: any, triggerItem: any, sourcePe
   return triggerItem?.sourcePermanentSnapshot || null;
 }
 
+/**
+ * Resolve who controls a triggered-ability stack item.
+ * Missing controller used to orphan Effect Program option_choice steps (priority stays null forever).
+ */
+export function resolveTriggeredAbilityControllerId(
+  state: any,
+  triggerItem: any,
+  fallbackController?: string | null,
+): string {
+  const players = Array.isArray(state?.players) ? state.players : [];
+  const playerIds = new Set(players.map((player: any) => String(player?.id || '').trim()).filter(Boolean));
+
+  const candidates = [
+    triggerItem?.controller,
+    triggerItem?.controllerId,
+    fallbackController,
+    triggerItem?.sourcePermanentSnapshot?.controller,
+    triggerItem?.source?.controllerId,
+    triggerItem?.source?.controller,
+    getTriggerSourcePermanent(state, triggerItem)?.controller,
+  ];
+
+  for (const candidate of candidates) {
+    const id = String(candidate || '').trim();
+    if (!id) continue;
+    if (playerIds.size === 0 || playerIds.has(id)) {
+      return id;
+    }
+  }
+
+  return '';
+}
+
 export function resolveTriggeredAbilityTargetPlayerId(state: any, triggerItem: any): string {
   const players = Array.isArray(state?.players) ? state.players : [];
   const playerIds = new Set(players.map((player: any) => String(player?.id || '')).filter(Boolean));

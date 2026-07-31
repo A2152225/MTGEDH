@@ -11580,7 +11580,7 @@ export function getDeathTriggers(
     const cardName = (card.name || '').toLowerCase();
     const oracleText = getPermanentRulesTextFragments(permanent).join('\n');
     const lowerOracleText = oracleText.toLowerCase();
-    const permanentController = permanent.controller;
+    const permanentController = String(permanent.controller || '').trim();
     const attachedTo = String((permanent as any)?.attachedTo || '').trim();
     
     // ===== DYNAMIC DETECTION (Primary) =====
