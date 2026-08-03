@@ -55,6 +55,22 @@ export type LoopShortcutPromptFingerprint = {
   sourceName?: string;
 };
 
+/** Recorded mana payment line item (cast / activation), with optional permanent rebind profile. */
+export type LoopShortcutPaymentItemTemplate = {
+  mana: string;
+  abilityId?: string;
+  count?: number;
+  producedColors?: string[];
+  fromRestrictedPool?: boolean;
+  restrictedIndex?: number;
+  paymentSourceId?: string;
+  /** Sticky id fallback when no battlefield match profile is available. */
+  permanentId?: string;
+  permanentProfile?: LoopShortcutTargetMatchProfile;
+  sacrificedProfiles?: LoopShortcutTargetMatchProfile[];
+  sacrificedPermanentIds?: string[];
+};
+
 export type LoopShortcutPromptTemplate =
   | {
       kind: 'option_choice';
@@ -70,7 +86,38 @@ export type LoopShortcutPromptTemplate =
   | {
       kind: 'literal_selection';
       selection: JsonValue;
+    }
+  | {
+      kind: 'payment_selection';
+      alternateCostId?: string;
+      xValue?: number;
+      payment: LoopShortcutPaymentItemTemplate[];
+      convokeCreatureProfiles?: LoopShortcutTargetMatchProfile[];
+      sneakCreatureProfile?: LoopShortcutTargetMatchProfile;
+      otherLiteralFields?: Record<string, JsonValue>;
     };
+
+/** Step types whose string/number/boolean selections are values, not permanent target ids. */
+const LITERAL_PRIMITIVE_STEP_TYPES = new Set([
+  'mana_color_selection',
+  'color_choice',
+  'card_name_choice',
+  'creature_type_choice',
+  'life_payment',
+  'number_choice',
+  'x_value_selection',
+  'explore_decision',
+]);
+
+const MANA_COLOR_NAME_RE = /^(white|blue|black|red|green|colorless)$/i;
+
+const PAYMENT_OBJECT_KNOWN_KEYS = new Set([
+  'payment',
+  'alternateCostId',
+  'xValue',
+  'convokeTappedCreatures',
+  'sneakReturnedCreatureId',
+]);
 
 export type LoopShortcutDraft = {
   name: string;
@@ -403,6 +450,134 @@ function describePrompt(step: any): string {
   return `${sourceName}: ${description}`;
 }
 
+function formatManaColorLabel(color: string): string {
+  const key = normalizeText(color);
+  const labels: Record<string, string> = {
+    white: 'White',
+    blue: 'Blue',
+    black: 'Black',
+    red: 'Red',
+    green: 'Green',
+    colorless: 'Colorless',
+    w: 'White',
+    u: 'Blue',
+    b: 'Black',
+    r: 'Red',
+    g: 'Green',
+    c: 'Colorless',
+  };
+  return labels[key] || color;
+}
+
+function formatAlternateCostLabel(alternateCostId: string | undefined): string | null {
+  const id = normalizeText(alternateCostId);
+  if (!id || id === 'normal') return null;
+  const labels: Record<string, string> = {
+    wubrg_external: 'WUBRG (Fist of the Suns / Jodah)',
+    wubrg_self: 'WUBRG (self)',
+    free: 'Free',
+    sneak: 'Sneak',
+    warp: 'Warp',
+    blitz: 'Blitz',
+    prototype: 'Prototype',
+    disturb: 'Disturb',
+    kicker: 'Kicker',
+    multikicker: 'Multikicker',
+    buyback: 'Buyback',
+    overload: 'Overload',
+    flashback: 'Flashback',
+    madness: 'Madness',
+    miracle: 'Miracle',
+    mutate: 'Mutate',
+    force_of_will: 'Force of Will',
+  };
+  return labels[id] || alternateCostId || null;
+}
+
+function describePaymentSelectionLabel(
+  step: any,
+  payment: LoopShortcutPaymentItemTemplate[],
+  alternateCostId?: string,
+): string {
+  const base = describePrompt(step);
+  const parts: string[] = [];
+  const altLabel = formatAlternateCostLabel(alternateCostId);
+  if (altLabel) parts.push(altLabel);
+
+  if (payment.length === 0) {
+    parts.push(altLabel ? 'free / no mana paid' : 'no mana paid');
+  } else {
+    const summary = payment
+      .map((item) => {
+        const color = formatManaColorLabel(String(item.mana || ''));
+        const name = item.permanentProfile?.name || item.permanentId || 'source';
+        const count = Math.max(1, Number(item.count || 1));
+        return count > 1 ? `${count}× ${color} from ${name}` : `${color} from ${name}`;
+      })
+      .join(', ');
+    parts.push(summary);
+  }
+
+  return `${base} → ${parts.join('; ')}`;
+}
+
+function describeSelectionLabel(step: any, selections: unknown): string {
+  const base = describePrompt(step);
+  const stepType = normalizeText(step?.type);
+
+  if (typeof selections === 'string' && selections.trim()) {
+    if (stepType === 'mana_color_selection' || stepType === 'color_choice' || MANA_COLOR_NAME_RE.test(selections)) {
+      return `${base} → ${formatManaColorLabel(selections.trim())}`;
+    }
+    if (stepType === 'card_name_choice' || stepType === 'creature_type_choice') {
+      return `${base} → ${selections.trim()}`;
+    }
+  }
+
+  if (typeof selections === 'number' && Number.isFinite(selections)) {
+    return `${base} → ${selections}`;
+  }
+
+  if (typeof selections === 'boolean') {
+    return `${base} → ${selections ? 'yes' : 'no'}`;
+  }
+
+  return base;
+}
+
+function isLiteralPrimitiveSelection(step: any, selections: unknown): boolean {
+  const stepType = normalizeText(step?.type);
+  if (LITERAL_PRIMITIVE_STEP_TYPES.has(stepType)) {
+    return (
+      typeof selections === 'string'
+      || typeof selections === 'number'
+      || typeof selections === 'boolean'
+    );
+  }
+
+  if (typeof selections === 'number' || typeof selections === 'boolean') {
+    return true;
+  }
+
+  if (typeof selections === 'string' && MANA_COLOR_NAME_RE.test(selections.trim())) {
+    return true;
+  }
+
+  return false;
+}
+
+function isManaPaymentSelectionObject(step: any, selections: unknown): boolean {
+  if (!isPlainObject(selections)) return false;
+  const stepType = normalizeText(step?.type);
+  if (stepType === 'mana_payment_choice' || stepType === 'extort_payment' || stepType === 'additional_cost_payment') {
+    return true;
+  }
+  // Payment-shaped objects from cast confirm even if step type is missing in older drafts.
+  return Array.isArray((selections as any).payment)
+    || typeof (selections as any).alternateCostId === 'string'
+    || Array.isArray((selections as any).convokeTappedCreatures);
+}
+
 function getPermanentTypeLine(permanent: any): string {
   return normalizeText(permanent?.type_line || permanent?.cardType || permanent?.card?.type_line);
 }
@@ -667,6 +842,206 @@ function buildIdSelectionsPayload(
   return selected;
 }
 
+function buildPaymentItemTemplate(
+  step: any,
+  view: ClientGameView | null | undefined,
+  playerId: string | null | undefined,
+  raw: unknown
+): LoopShortcutPaymentItemTemplate | null {
+  if (!isPlainObject(raw)) return null;
+  const mana = String(raw.mana || '').trim();
+  if (!mana) return null;
+
+  const permanentId = String(raw.permanentId || '').trim();
+  const permanentProfile = permanentId
+    ? buildTargetMatchProfile(step, view, permanentId)
+    : undefined;
+
+  const sacrificedIds = Array.isArray(raw.sacrificedPermanentIds)
+    ? raw.sacrificedPermanentIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const sacrificedProfiles = sacrificedIds.map((id) => buildTargetMatchProfile(step, view, id));
+
+  const item: LoopShortcutPaymentItemTemplate = {
+    mana,
+    ...(permanentId ? { permanentId } : {}),
+    ...(permanentProfile && Object.keys(permanentProfile).length > 0 ? { permanentProfile } : {}),
+  };
+
+  if (typeof raw.abilityId === 'string' && raw.abilityId.trim()) {
+    item.abilityId = raw.abilityId.trim();
+  }
+  if (typeof raw.paymentSourceId === 'string' && raw.paymentSourceId.trim()) {
+    item.paymentSourceId = raw.paymentSourceId.trim();
+  }
+  if (Number.isFinite(Number(raw.count)) && Number(raw.count) > 0) {
+    item.count = Number(raw.count);
+  }
+  if (Array.isArray(raw.producedColors) && raw.producedColors.length > 0) {
+    item.producedColors = raw.producedColors.map((c: unknown) => String(c));
+  }
+  if (raw.fromRestrictedPool === true) {
+    item.fromRestrictedPool = true;
+  }
+  if (Number.isFinite(Number(raw.restrictedIndex))) {
+    item.restrictedIndex = Number(raw.restrictedIndex);
+  }
+  if (sacrificedProfiles.length > 0) {
+    item.sacrificedProfiles = sacrificedProfiles;
+  } else if (sacrificedIds.length > 0) {
+    item.sacrificedPermanentIds = sacrificedIds;
+  }
+
+  return item;
+}
+
+function createPaymentSelectionTemplate(
+  step: any,
+  selections: Record<string, unknown>,
+  view: ClientGameView | null | undefined,
+  playerId: string | null | undefined
+): Extract<LoopShortcutPromptTemplate, { kind: 'payment_selection' }> {
+  const paymentRaw = Array.isArray(selections.payment) ? selections.payment : [];
+  const payment = paymentRaw
+    .map((entry) => buildPaymentItemTemplate(step, view, playerId, entry))
+    .filter((entry): entry is LoopShortcutPaymentItemTemplate => Boolean(entry));
+
+  const alternateCostId = typeof selections.alternateCostId === 'string'
+    && selections.alternateCostId.trim()
+    && normalizeText(selections.alternateCostId) !== 'normal'
+    ? selections.alternateCostId.trim()
+    : undefined;
+
+  const xValue = Number.isFinite(Number(selections.xValue))
+    ? Number(selections.xValue)
+    : undefined;
+
+  const convokeIds = Array.isArray(selections.convokeTappedCreatures)
+    ? selections.convokeTappedCreatures.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const convokeCreatureProfiles = convokeIds.length > 0
+    ? convokeIds.map((id) => buildTargetMatchProfile(step, view, id))
+    : undefined;
+
+  const sneakId = typeof selections.sneakReturnedCreatureId === 'string'
+    ? selections.sneakReturnedCreatureId.trim()
+    : '';
+  const sneakCreatureProfile = sneakId
+    ? buildTargetMatchProfile(step, view, sneakId)
+    : undefined;
+
+  const otherLiteralFields: Record<string, JsonValue> = {};
+  for (const [key, value] of Object.entries(selections)) {
+    if (PAYMENT_OBJECT_KNOWN_KEYS.has(key)) continue;
+    otherLiteralFields[key] = clonePayload(value) as JsonValue;
+  }
+
+  return {
+    kind: 'payment_selection',
+    ...(alternateCostId ? { alternateCostId } : {}),
+    ...(typeof xValue === 'number' ? { xValue } : {}),
+    payment,
+    ...(convokeCreatureProfiles ? { convokeCreatureProfiles } : {}),
+    ...(sneakCreatureProfile ? { sneakCreatureProfile } : {}),
+    ...(Object.keys(otherLiteralFields).length > 0 ? { otherLiteralFields } : {}),
+  };
+}
+
+function scorePaymentPermanentCandidate(
+  candidate: LoopShortcutTargetMatchProfile & { controllerMatched: boolean; id: string },
+  profile: LoopShortcutTargetMatchProfile | undefined
+): number {
+  let score = 0;
+  if (candidate.controllerMatched) score += 50;
+  if (!profile) return score;
+
+  if (profile.name && candidate.name && normalizeText(profile.name) === normalizeText(candidate.name)) {
+    score += 200;
+  }
+  if (typeof profile.isToken === 'boolean') {
+    if (candidate.isToken === profile.isToken) score += 100;
+    else score -= 80;
+  }
+  if (typeof profile.tapped === 'boolean') {
+    // Prefer matching tapped state, but do not hard-require it — payment sources are usually untapped.
+    if (candidate.tapped === profile.tapped) score += 40;
+  } else if (candidate.tapped === false) {
+    score += 30;
+  }
+  if (typeof profile.isCommander === 'boolean') {
+    if (candidate.isCommander === profile.isCommander) score += 40;
+    else if (profile.isCommander === false && candidate.isCommander === true) score -= 500;
+  }
+  if (profile.typeLine && candidate.typeLine) {
+    score += typeLineOverlapScore(profile.typeLine, candidate.typeLine);
+  }
+  return score;
+}
+
+function rebindPaymentPermanentId(
+  profile: LoopShortcutTargetMatchProfile | undefined,
+  stickyId: string | undefined,
+  view: ClientGameView | null | undefined,
+  playerId: string | null | undefined,
+  usedIds: Set<string>
+): string | null {
+  if (stickyId && !usedIds.has(stickyId) && getBattlefieldPermanent(view, stickyId)) {
+    usedIds.add(stickyId);
+    return stickyId;
+  }
+
+  const battlefield = Array.isArray(view?.battlefield) ? view!.battlefield : [];
+  const ranked = battlefield
+    .map((permanent: any, index: number) => {
+      const id = String(permanent?.id || '');
+      if (!id || usedIds.has(id)) return null;
+      const candidateProfile = buildTargetMatchProfile(null, view, id);
+      const score = scorePaymentPermanentCandidate(
+        {
+          ...candidateProfile,
+          id,
+          controllerMatched: isControlledBy(view, id, playerId),
+        },
+        profile
+      );
+      return { id, index, score };
+    })
+    .filter((entry): entry is RankedTarget => Boolean(entry))
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return left.index - right.index;
+    });
+
+  const best = ranked[0];
+  // Require a name/type match signal so we do not grab an arbitrary permanent.
+  if (!best || best.score < 150) return null;
+  usedIds.add(best.id);
+  return best.id;
+}
+
+function rebindProfileIds(
+  profiles: LoopShortcutTargetMatchProfile[] | undefined,
+  stickyIds: string[] | undefined,
+  view: ClientGameView | null | undefined,
+  playerId: string | null | undefined,
+  usedIds: Set<string>
+): string[] {
+  const count = Math.max(profiles?.length || 0, stickyIds?.length || 0);
+  const selected: string[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const rebound = rebindPaymentPermanentId(
+      profiles?.[i],
+      stickyIds?.[i],
+      view,
+      playerId,
+      usedIds
+    );
+    if (!rebound) continue;
+    selected.push(rebound);
+  }
+  return selected;
+}
+
 export function createRecordedEmitItem(
   event: string,
   payload: Record<string, unknown>,
@@ -711,7 +1086,18 @@ export function createRecordedResolutionResponseItem(
   playerId: string | null | undefined
 ): LoopShortcutSequenceItem | null {
   const fingerprint = buildPromptFingerprint(step);
-  const selectedIds = extractTargetIds(step, selections);
+
+  if (isLiteralPrimitiveSelection(step, selections)) {
+    return {
+      kind: 'resolution_response',
+      fingerprint,
+      template: {
+        kind: 'literal_selection',
+        selection: clonePayload(selections) as JsonValue,
+      },
+      label: describeSelectionLabel(step, selections),
+    };
+  }
 
   if (step?.type === 'option_choice' || step?.type === 'modal_choice') {
     const optionIds = getSelectionIds(selections);
@@ -725,6 +1111,16 @@ export function createRecordedResolutionResponseItem(
         optionIds,
       },
       label: describePrompt(step),
+    };
+  }
+
+  if (isManaPaymentSelectionObject(step, selections) && isPlainObject(selections)) {
+    const template = createPaymentSelectionTemplate(step, selections, view, playerId);
+    return {
+      kind: 'resolution_response',
+      fingerprint,
+      template,
+      label: describePaymentSelectionLabel(step, template.payment, template.alternateCostId),
     };
   }
 
@@ -758,10 +1154,11 @@ export function createRecordedResolutionResponseItem(
         kind: 'literal_selection',
         selection: clonePayload(selections) as JsonValue,
       },
-      label: describePrompt(step),
+      label: describeSelectionLabel(step, selections),
     };
   }
 
+  const selectedIds = extractTargetIds(step, selections);
   if (selectedIds.length === 0) {
     return null;
   }
@@ -923,6 +1320,87 @@ export function buildResolutionResponsePayload(
 
   if (template.kind === 'literal_selection') {
     return { selections: clonePayload(template.selection) };
+  }
+
+  if (template.kind === 'payment_selection') {
+    const usedIds = new Set<string>();
+    const payment: Record<string, unknown>[] = [];
+
+    for (const item of template.payment || []) {
+      const needsPermanent = Boolean(item.permanentProfile || item.permanentId);
+      let permanentId: string | undefined;
+      if (needsPermanent) {
+        const rebound = rebindPaymentPermanentId(
+          item.permanentProfile,
+          item.permanentId,
+          view,
+          playerId,
+          usedIds
+        );
+        if (!rebound) return null;
+        permanentId = rebound;
+      }
+
+      const sacrificedPermanentIds = item.sacrificedProfiles
+        ? rebindProfileIds(item.sacrificedProfiles, item.sacrificedPermanentIds, view, playerId, usedIds)
+        : (item.sacrificedPermanentIds || []);
+      if (item.sacrificedProfiles && sacrificedPermanentIds.length !== item.sacrificedProfiles.length) {
+        return null;
+      }
+
+      const entry: Record<string, unknown> = {
+        mana: item.mana,
+        ...(permanentId ? { permanentId } : {}),
+      };
+      if (item.abilityId) entry.abilityId = item.abilityId;
+      if (item.paymentSourceId) entry.paymentSourceId = item.paymentSourceId;
+      if (typeof item.count === 'number') entry.count = item.count;
+      if (item.producedColors) entry.producedColors = [...item.producedColors];
+      if (item.fromRestrictedPool === true) entry.fromRestrictedPool = true;
+      if (typeof item.restrictedIndex === 'number') entry.restrictedIndex = item.restrictedIndex;
+      if (sacrificedPermanentIds.length > 0) entry.sacrificedPermanentIds = sacrificedPermanentIds;
+      payment.push(entry);
+    }
+
+    const selections: Record<string, unknown> = {
+      ...(clonePayload(template.otherLiteralFields || {}) as Record<string, unknown>),
+    };
+
+    if (payment.length > 0) {
+      selections.payment = payment;
+    }
+    if (template.alternateCostId) {
+      selections.alternateCostId = template.alternateCostId;
+    }
+    if (typeof template.xValue === 'number') {
+      selections.xValue = template.xValue;
+    }
+
+    if (template.convokeCreatureProfiles && template.convokeCreatureProfiles.length > 0) {
+      const convokeIds = rebindProfileIds(
+        template.convokeCreatureProfiles,
+        undefined,
+        view,
+        playerId,
+        usedIds
+      );
+      if (convokeIds.length !== template.convokeCreatureProfiles.length) return null;
+      selections.convokeTappedCreatures = convokeIds;
+    }
+
+    if (template.sneakCreatureProfile) {
+      const sneakIds = rebindProfileIds(
+        [template.sneakCreatureProfile],
+        undefined,
+        view,
+        playerId,
+        usedIds
+      );
+      if (sneakIds.length !== 1) return null;
+      selections.sneakReturnedCreatureId = sneakIds[0];
+    }
+
+    return { selections };
   }
 
   if (template.kind === 'selection_object') {

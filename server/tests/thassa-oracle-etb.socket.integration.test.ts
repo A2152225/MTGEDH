@@ -27,7 +27,7 @@ const thassaLookStep = {
   destination: 'library_top',
   restDestination: 'library',
   restRandomOrder: true,
-  optional: true,
+  optional: false,
   raw:
     'look at the top X cards of your library, where X is your devotion to blue. Put up to one of them on top of your library and the rest on the bottom of your library in a random order',
 } as const;
@@ -151,7 +151,7 @@ describe("Thassa's Oracle ETB library search socket integration", () => {
     await resetGame(gameId);
   });
 
-  it('queues effect-program may-choice on ETB and applies devotion library look after socket yes', async () => {
+  it('queues LIBRARY_SEARCH on ETB and applies devotion library look after selection', async () => {
     const { game, library } = seedThassaBoard(gameId);
     const libraryBefore = library.map((card) => card.id);
 
@@ -170,10 +170,14 @@ describe("Thassa's Oracle ETB library search socket integration", () => {
       },
     );
 
-    const optionStep = ResolutionQueueManager
+    const searchStep = ResolutionQueueManager
       .getStepsForPlayer(gameId, playerId)
-      .find((step) => step.type === ResolutionStepType.OPTION_CHOICE && (step as any)?.effectProgramPrompt === true);
-    expect(optionStep).toBeTruthy();
+      .find((step) => step.type === ResolutionStepType.LIBRARY_SEARCH);
+    expect(searchStep).toBeTruthy();
+    expect((searchStep as any)?.mandatory).toBe(true);
+    expect((searchStep as any)?.minSelections).toBe(0);
+    expect((searchStep as any)?.maxSelections).toBe(1);
+    expect(String((searchStep as any)?.oracleIrChoiceStepJson || '')).toContain('look_select_top');
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(playerId, emitted);
@@ -184,19 +188,73 @@ describe("Thassa's Oracle ETB library search socket integration", () => {
 
     await handlers.submitResolutionResponse?.({
       gameId,
-      stepId: String(optionStep!.id),
-      selections: ['yes'],
+      stepId: String(searchStep!.id),
+      selections: ['mid_card'],
       cancelled: false,
     });
 
     const refreshed = games.get(gameId)!;
     const libraryAfter = ((refreshed as any).libraries.get(playerId) || []).map((card: any) => card.id);
     expect(libraryAfter).toHaveLength(libraryBefore.length);
-    expect(libraryAfter).not.toEqual(libraryBefore);
+    expect(libraryAfter[0]).toBe('mid_card');
     expect((refreshed.state as any).winCondition).toBeUndefined();
     expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(0);
   });
 
+  it('applies bottom-random reorder and win check when selecting zero cards', async () => {
+    const { game } = seedThassaBoard(gameId);
+    // Devotion 4 (Oracle {U}{U} + Lord {U}{U}); shrink library to 4 so X >= library size.
+    const shortLibrary = [
+      { id: 'top_card', name: 'Top Card', type_line: 'Instant', oracle_text: '' },
+      { id: 'mid_card', name: 'Mid Card', type_line: 'Creature — Merfolk', oracle_text: '' },
+      { id: 'bottom_card', name: 'Bottom Card', type_line: 'Land', oracle_text: '' },
+      { id: 'deep_card', name: 'Deep Card', type_line: 'Sorcery', oracle_text: '' },
+    ];
+    const player = (game.state as any).players.find((entry: any) => entry.id === playerId);
+    player.library = shortLibrary.map((card) => ({ ...card, zone: 'library' }));
+    (game as any).libraries = new Map([[playerId, shortLibrary.map((card) => ({ ...card }))]]);
+    (game.state as any).zones[playerId].libraryCount = shortLibrary.length;
+
+    executeTriggerEffect(
+      game as any,
+      playerId,
+      "Thassa's Oracle",
+      thassaEtbEffect,
+      {
+        type: 'triggered_ability',
+        controller: playerId,
+        source: 'oracle_1',
+        permanentId: 'oracle_1',
+        id: 'thassa_etb_empty',
+        triggerType: 'etb',
+      },
+    );
+
+    const searchStep = ResolutionQueueManager
+      .getStepsForPlayer(gameId, playerId)
+      .find((step) => step.type === ResolutionStepType.LIBRARY_SEARCH);
+    expect(searchStep).toBeTruthy();
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io, socket);
+    registerInteractionHandlers(io, socket);
+
+    await handlers.submitResolutionResponse?.({
+      gameId,
+      stepId: String(searchStep!.id),
+      selections: [],
+      cancelled: false,
+    });
+
+    const refreshed = games.get(gameId)!;
+    const libraryAfter = ((refreshed as any).libraries.get(playerId) || []).map((card: any) => card.id);
+    expect(libraryAfter).toHaveLength(shortLibrary.length);
+    expect((refreshed.state as any).gameOver).toBe(true);
+    expect(String((refreshed.state as any).winner || '')).toBe(playerId);
+  });
   it('queues LIBRARY_SEARCH for look_select_top and applies top selection via socket', async () => {
     const { game } = seedThassaBoard(gameId);
 

@@ -391,8 +391,17 @@ function normalizeInlinePaymentAbilityId(ability: InlineSelectedPaymentAbility):
 }
 
 function buildExplicitInlineManaAbilities(card: NonNullable<BattlefieldPermanent['card']> & { id?: string; name: string }): InlineSelectedPaymentAbility[] {
-  const oracleText = String((card as any).oracle_text || '').replace(/\([^)]*\)/g, '').trim();
-  if (!oracleText) return [];
+  const rawOracleText = String((card as any).oracle_text || '');
+  // Shock lands print tap-mana in parentheses: "({T}: Add {G} or {U}.)".
+  // Keep those lines (same as activatedAbilityParser) so duals appear in the cast payment UI.
+  const parentheticalManaLines = Array.from(
+    rawOracleText.matchAll(/\(\s*(\{T\}:\s*Add\s+[^)]+?)\.?\s*\)/gi),
+  ).map((match) => String(match[1] || '').trim()).filter(Boolean);
+  const oracleText = [
+    rawOracleText.replace(/\([^)]*\)/g, '').trim(),
+    ...parentheticalManaLines,
+  ].filter(Boolean).join('\n');
+  if (!oracleText.trim()) return [];
 
   const activatedAbilityPattern = /^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:Sacrifice[^:]*|Pay[^:]*|Discard[^:]*|Exile[^:]*|Remove[^:]*|Tap[^:]*|Untap[^:]*))?)\s*:\s*(.+)$/i;
   const textOnlyActivatedAbilityPattern = /^((?:Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)[^:]*?)\s*:\s*(.+)$/i;
@@ -465,8 +474,16 @@ function getInlineSelectedPaymentAbilities(perm: BattlefieldPermanent): InlineSe
   if (!isKnownBattlefieldCard(perm.card)) return [];
 
   const explicitAbilities = buildExplicitInlineManaAbilities(perm.card);
+  // parseActivatedAbilities uses "-ability-N" ids for printed tap-mana lines (including
+  // shock-land parentheticals). When explicit parsing already found mana abilities, skip
+  // those ids to avoid duplicates. When explicit is empty (historically stripped
+  // parentheticals, or missing oracle with only basic land types), keep them.
   const fallbackAbilities: InlineSelectedPaymentAbility[] = parseActivatedAbilities(perm.card, (perm as any).grantedAbilities)
-    .filter((ability) => ability.isManaAbility && !/-ability-\d+$/i.test(String(ability.id || '')));
+    .filter((ability) => ability.isManaAbility)
+    .filter((ability) => {
+      if (explicitAbilities.length === 0) return true;
+      return !/-ability-\d+$/i.test(String(ability.id || ''));
+    });
 
   return [...explicitAbilities, ...fallbackAbilities];
 }

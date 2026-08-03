@@ -15207,7 +15207,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         destination: 'library_top',
         restDestination: 'library',
         restRandomOrder: true,
-        optional: true,
+        optional: false,
       }),
     ]);
   });

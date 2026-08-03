@@ -547,8 +547,109 @@ describe('loopShortcuts', () => {
     });
   });
 
-  it('keeps structured payment responses intact for replay', () => {
+  it('records mana color strings as literal selections (Command Tower)', () => {
     const view = makeView();
+    view.battlefield = [
+      ...((view.battlefield as any[]) || []),
+      {
+        id: 'tower-1',
+        controller: 'p1',
+        isToken: false,
+        tapped: false,
+        type_line: 'Land',
+        card: { name: 'Command Tower' },
+      },
+    ] as any;
+
+    const step = {
+      type: 'mana_color_selection',
+      sourceName: 'Command Tower',
+      description: "Choose a color for Command Tower's mana.",
+      selectionKind: 'any_color',
+    };
+
+    const item = createRecordedResolutionResponseItem(step, 'white', view, 'p1');
+    expect(item?.kind).toBe('resolution_response');
+    if (!item || item.kind !== 'resolution_response') {
+      throw new Error('Expected recorded color response');
+    }
+
+    expect(item.template).toEqual({
+      kind: 'literal_selection',
+      selection: 'white',
+    });
+    expect(item.label).toContain('White');
+
+    const payload = buildResolutionResponsePayload(item.template, step, view, 'p1');
+    expect(payload).toEqual({ selections: 'white' });
+  });
+
+  it('records free WUBRG alternate-cost payments for Fist of the Suns / Morophon casts', () => {
+    const view = makeView();
+    const step = {
+      type: 'mana_payment_choice',
+      sourceName: 'Summon the School',
+      description: 'Pay costs to cast Summon the School.',
+      spellPaymentRequired: true,
+    };
+
+    const item = createRecordedResolutionResponseItem(
+      step,
+      {
+        payment: undefined,
+        xValue: 0,
+        alternateCostId: 'wubrg_external',
+      },
+      view,
+      'p1'
+    );
+
+    expect(item?.kind).toBe('resolution_response');
+    if (!item || item.kind !== 'resolution_response' || item.template.kind !== 'payment_selection') {
+      throw new Error('Expected recorded payment_selection template');
+    }
+
+    expect(item.template.alternateCostId).toBe('wubrg_external');
+    expect(item.template.payment).toEqual([]);
+    expect(item.label.toLowerCase()).toContain('wubrg');
+    expect(item.label.toLowerCase()).toMatch(/free|no mana/);
+
+    const payload = buildResolutionResponsePayload(item.template, step, view, 'p1');
+    expect(payload).toEqual({
+      selections: {
+        alternateCostId: 'wubrg_external',
+        xValue: 0,
+      },
+    });
+  });
+
+  it('keeps structured payment responses intact for replay and rebinds sources by name', () => {
+    const originalView = makeView();
+    originalView.battlefield = [
+      ...((originalView.battlefield as any[]) || []),
+      {
+        id: 'tower-old',
+        controller: 'p1',
+        isToken: false,
+        tapped: false,
+        type_line: 'Land',
+        card: { name: 'Command Tower' },
+      },
+    ] as any;
+
+    const replayView = makeView();
+    replayView.battlefield = [
+      ...((replayView.battlefield as any[]) || []),
+      {
+        id: 'tower-new',
+        controller: 'p1',
+        isToken: false,
+        tapped: false,
+        type_line: 'Land',
+        card: { name: 'Command Tower' },
+      },
+    ] as any;
+
     const step = {
       type: 'mana_payment_choice',
       sourceName: 'Summon the School',
@@ -558,25 +659,28 @@ describe('loopShortcuts', () => {
     const item = createRecordedResolutionResponseItem(
       step,
       {
-        payment: [{ permanentId: 'plains-1', mana: 'W' }],
+        payment: [{ permanentId: 'tower-old', mana: 'W' }],
         xValue: 0,
         alternateCostId: 'normal',
       },
-      view,
+      originalView,
       'p1'
     );
 
     expect(item?.kind).toBe('resolution_response');
-    if (!item || item.kind !== 'resolution_response') {
+    if (!item || item.kind !== 'resolution_response' || item.template.kind !== 'payment_selection') {
       throw new Error('Expected recorded payment response');
     }
 
-    const payload = buildResolutionResponsePayload(item.template, step, view, 'p1');
+    expect(item.template.payment[0]?.permanentProfile?.name).toBe('Command Tower');
+    expect(item.template.alternateCostId).toBeUndefined();
+    expect(item.label).toContain('White from Command Tower');
+
+    const payload = buildResolutionResponsePayload(item.template, step, replayView, 'p1');
     expect(payload).toEqual({
       selections: {
-        payment: [{ permanentId: 'plains-1', mana: 'W' }],
+        payment: [{ permanentId: 'tower-new', mana: 'W' }],
         xValue: 0,
-        alternateCostId: 'normal',
       },
     });
   });

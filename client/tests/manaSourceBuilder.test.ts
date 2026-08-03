@@ -169,7 +169,64 @@ describe('buildSuggestedPaymentItems', () => {
       { excludePermanentIds: ['nykthos_1'] },
     );
 
-    expect(sources.some((source) => String(source.sourcePermanentId || source.id).startsWith('nykthos_1'))).toBe(false);
-    expect(sources.some((source) => String(source.sourcePermanentId || source.id).startsWith('forest_1'))).toBe(true);
+    expect(sources.every((source) => source.sourcePermanentId !== 'nykthos_1')).toBe(true);
+    expect(sources.some((source) => source.name === 'Forest')).toBe(true);
+  });
+
+  it('includes Breeding Pool parenthetical tap-mana as a payment source', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [
+      {
+        id: 'breeding_pool_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'breeding_pool_card',
+          name: 'Breeding Pool',
+          type_line: 'Land — Forest Island',
+          oracle_text:
+            "({T}: Add {G} or {U}.)\nAs this land enters, you may pay 2 life. If you don't, it enters tapped.",
+        },
+      },
+      {
+        id: 'mox_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'mox_card',
+          name: 'Mox Amber',
+          type_line: 'Legendary Artifact',
+          oracle_text: '{T}: Add one mana of any color among legendary creatures and planeswalkers you control.',
+        },
+      },
+    ] as any);
+
+    const breedingPool = sources.filter((source) => source.name === 'Breeding Pool');
+    expect(breedingPool.length).toBeGreaterThanOrEqual(1);
+    expect(breedingPool.some((source) => source.options.includes('U') && source.options.includes('G'))).toBe(true);
+  });
+
+  it('includes Forest Island duals with missing oracle via basic land types', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [
+      {
+        id: 'ghost_dual_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'ghost_dual_card',
+          name: 'Breeding Pool',
+          type_line: 'Land — Forest Island',
+          oracle_text: '',
+        },
+      },
+    ] as any);
+
+    expect(sources.some((source) =>
+      source.name === 'Breeding Pool'
+      && source.options.includes('U')
+      && source.options.includes('G'),
+    )).toBe(true);
   });
 });

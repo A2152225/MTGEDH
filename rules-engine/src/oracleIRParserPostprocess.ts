@@ -748,7 +748,9 @@ function parseLookTopPutOneOnTopRestBottomPair(
     destination: 'library_top',
     restDestination: 'library',
     restRandomOrder: true,
-    optional: true,
+    // Looking at top X and putting the rest on the bottom is mandatory.
+    // Only the "up to one on top" selection is optional (chooseMin: 0).
+    optional: false,
     ...(current.sequence ? { sequence: current.sequence } : {}),
     raw: `${normalizedLook}. ${normalizedNext}`.trim(),
   };
