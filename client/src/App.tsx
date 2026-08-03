@@ -1901,6 +1901,12 @@ export function App() {
       // Observers get a status ping; only the runner clears the running flag.
       if (payload.observer === true) {
         setLoopShortcutStatusText(String(payload.message || 'Opponent finished a loop shortcut.'));
+        // Still resync — opponent loops also mutate the shared board.
+        try {
+          socket.emit('requestState', { gameId: payload.gameId });
+        } catch {
+          // best-effort
+        }
         return;
       }
       setIsLoopShortcutRunning(false);
@@ -1910,6 +1916,13 @@ export function App() {
         socket.emit('setLoopShortcutStackDrain', { gameId: safeViewRef.current.id, enabled: false });
       }
       setLoopShortcutStatusText(String(payload.message || (payload.ok ? 'Loop batch complete.' : 'Loop batch stopped.')));
+      // Final batch broadcast can be dropped/oversized after huge token deltas;
+      // explicitly resync so the board updates without a manual refresh.
+      try {
+        socket.emit('requestState', { gameId: payload.gameId });
+      } catch {
+        // best-effort
+      }
     };
 
     socket.on('loopShortcutConsentPrompt', onConsentPrompt);

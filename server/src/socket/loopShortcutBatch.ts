@@ -56,6 +56,8 @@ export type LoopShortcutBatchResult = {
   selfSustaining?: boolean;
   compressed?: boolean;
   cappedForSustainability?: boolean;
+  usedDeltaMultiply?: boolean;
+  deltaMultipliedBy?: number;
 };
 
 function beginSuppressBroadcast(game: any): void {
@@ -598,6 +600,7 @@ export async function executeLoopShortcutBatch(args: {
     endSuppressEventAppend(game);
     endSuppressBroadcast(game);
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    // Force a full client replace — mid-batch broadcasts were suppressed.
     broadcastGame(args.io, game, args.gameId, { forceStateReplace: true });
   }
 
@@ -614,6 +617,7 @@ export async function executeLoopShortcutBatch(args: {
     ...(selfSustaining != null ? { selfSustaining } : {}),
     ...(compressed ? { compressed: true } : {}),
     ...(cappedForSustainability ? { cappedForSustainability: true } : {}),
+    ...(usedDeltaMultiply ? { usedDeltaMultiply: true, deltaMultipliedBy } : {}),
   };
 
   debug(1, '[LoopShortcutBatch] complete', {

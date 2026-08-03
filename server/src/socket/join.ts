@@ -1287,7 +1287,12 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
       // Debug log
       logStateDebug("EMIT_REQUESTED_STATE", gameId, view);
 
-      socket.emit("state", { gameId, view, seq: (game as any).seq || 0 });
+      socket.emit("state", {
+        gameId,
+        view,
+        seq: (game as any).seq || 0,
+        forceStateReplace: true,
+      });
       schedulePriorityTimeout(io, game, gameId);
     } catch (e) {
       debugWarn(1, "requestState handler failed:", e);

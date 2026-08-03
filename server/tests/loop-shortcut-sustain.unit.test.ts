@@ -326,7 +326,14 @@ describe('loopShortcutSustain', () => {
     });
     expect(applied.ok).toBe(true);
     expect(live.state.manaPool.p1.white).toBe(5); // 2 + 1*3
-    expect(live.state.battlefield.filter((p: any) => p.isToken).length).toBe(6 + 4 * 3);
+    // Tokens coalesce into one grouped entry per fingerprint (untapped + tapped).
+    const tokens = live.state.battlefield.filter((p: any) => p.isToken || p.isGroupedTokens);
+    expect(tokens.length).toBe(2);
+    const totalTokenCount = tokens.reduce(
+      (sum: number, p: any) => sum + (p.isGroupedTokens ? Number(p.tokenCount) || 0 : 1),
+      0,
+    );
+    expect(totalTokenCount).toBe(6 + 4 * 3);
     expect(live.libraries.get('p2').length).toBe(92 - 8 * 3);
     expect(live.state.zones.p2.graveyard.length).toBe(8 * 3);
     expect(applied.milledTotal).toBe(24);

@@ -604,24 +604,82 @@ function removeMatchingTokenInstances(state: any, fingerprint: string, count: nu
   return removed;
 }
 
-function cloneTokenOntoBattlefield(state: any, prototype: any): void {
-  if (!prototype || typeof prototype !== 'object') return;
-  const clone = deepClone(prototype);
-  clone.id = uid('tok');
-  clone.isToken = true;
-  delete clone.isGroupedTokens;
-  delete clone.tokenCount;
-  delete clone.groupedTokenIds;
-  if (clone.card && typeof clone.card === 'object') {
-    clone.card = { ...clone.card, id: uid('card'), zone: 'battlefield' };
-  }
+/**
+ * Coalesce all matching token instances into one grouped permanent and add `addCount`.
+ * Avoids cloning hundreds of individuals (keeps broadcasts / SBAs tractable).
+ */
+function coalesceAndAddTokenInstances(
+  state: any,
+  fingerprint: string,
+  addCount: number,
+  prototype: any,
+): void {
+  const add = Math.max(0, Math.floor(Number(addCount) || 0));
+  if (add <= 0 && !prototype) return;
   if (!Array.isArray(state.battlefield)) state.battlefield = [];
-  state.battlefield.push(clone);
+
+  const matching: any[] = [];
+  const rest: any[] = [];
+  for (const perm of state.battlefield) {
+    if (isTokenLikePermanent(perm) && loopShortcutTokenFingerprint(perm) === fingerprint) {
+      matching.push(perm);
+    } else {
+      rest.push(perm);
+    }
+  }
+
+  let total = add;
+  const ids: string[] = [];
+  let protoSource: any = prototype;
+  for (const perm of matching) {
+    total += tokenInstanceCount(perm);
+    if (Array.isArray(perm.groupedTokenIds) && perm.groupedTokenIds.length > 0) {
+      for (const id of perm.groupedTokenIds) {
+        const s = String(id || '').trim();
+        if (s) ids.push(s);
+      }
+    } else {
+      const id = String(perm.originalId || perm.id || '').trim();
+      if (id) ids.push(id);
+    }
+    if (!protoSource) protoSource = perm;
+  }
+
+  if (total <= 0 || !protoSource) {
+    state.battlefield = rest;
+    return;
+  }
+
+  while (ids.length < total) ids.push(uid('tok'));
+  const finalIds = ids.slice(0, total);
+  const base = stripTokenGroupFields(protoSource);
+  if (base.card && typeof base.card === 'object') {
+    base.card = { ...base.card, id: uid('card'), zone: 'battlefield' };
+  }
+
+  if (total === 1) {
+    base.id = finalIds[0];
+    delete base.isGroupedTokens;
+    delete base.tokenCount;
+    delete base.groupedTokenIds;
+    delete base.originalId;
+  } else {
+    base.id = `group_${finalIds[0]}`;
+    base.originalId = finalIds[0];
+    base.isGroupedTokens = true;
+    base.isToken = true;
+    base.tokenCount = total;
+    base.groupedTokenIds = finalIds;
+  }
+
+  rest.push(base);
+  state.battlefield = rest;
 }
 
 /**
  * Apply mana / life / token inventory deltas once at `× multiplier`.
  * Does **not** call createToken (no ETB / Altar / Aura Shards storms).
+ * Tokens are coalesced into grouped battlefield entries (not N individual clones).
  */
 export function applyMultipliedSafeDelta(
   state: any,
@@ -648,9 +706,7 @@ export function applyMultipliedSafeDelta(
     if (perIter === 0) continue;
     const total = perIter * mult;
     if (total > 0) {
-      for (let i = 0; i < total; i += 1) {
-        cloneTokenOntoBattlefield(state, entry.prototype);
-      }
+      coalesceAndAddTokenInstances(state, fp, total, entry.prototype);
     } else if (total < 0) {
       removeMatchingTokenInstances(state, fp, Math.abs(total));
     }
