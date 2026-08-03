@@ -3018,6 +3018,178 @@ export function parseManaCost(
   };
 }
 
+/**
+ * True when an activation cost includes costs spell-payment cannot currently pay
+ * (discard, exile, pay life text residue, remove-from-other, etc.). Shared by cast
+ * payment and AI payment planning so the AI never selects sources the caster rejects.
+ * Self remove-counter clauses are supported and stripped before the residue check.
+ */
+export function paymentActivationCostHasUnsupportedAdditionalCosts(
+  activationCost?: string | null,
+  sourceCardName?: string,
+): boolean {
+  const normalizedCost = String(activationCost || '').trim();
+  if (!normalizedCost) return false;
+
+  let residue = normalizedCost;
+  residue = residue.replace(/\{(?:[tq]|\d+|[wubrgc])\}/gi, ' ');
+  residue = residue.replace(/sacrifice\s+[^,;:]*/gi, ' ');
+  // Self remove-counter costs are paid during spell payment; strip only those.
+  const parsedRemove = parseRemoveCounterActivationCost(normalizedCost, sourceCardName);
+  if (parsedRemove?.refersToSource) {
+    residue = residue.replace(parsedRemove.matchPattern, ' ');
+  }
+  residue = residue.replace(/[().]/g, ' ');
+  residue = residue.replace(/,/g, ' ');
+  residue = residue.replace(/\s+/g, ' ').trim();
+
+  return residue.length > 0;
+}
+
+const REMOVE_COUNTER_COUNT_WORDS = 'a|an|one|two|three|four|five|six|seven|eight|nine|ten|\\d+|x';
+const REMOVE_COUNTER_COST_PATTERN = new RegExp(
+  `\\bremove\\s+(${REMOVE_COUNTER_COUNT_WORDS})\\s+([^,;:]+?)\\s+counters?(?:\\s+from\\s+([^,;:]+))?\\b`,
+  'i',
+);
+
+export type ParsedRemoveCounterActivationCost = {
+  count: number;
+  counterType: string;
+  refersToSource: boolean;
+  matchText: string;
+  matchPattern: RegExp;
+};
+
+function normalizeRemoveCounterTypePhrase(rawTypePhrase: string): string | null {
+  let counterType = String(rawTypePhrase || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\s*(?:a|an)\s+/i, '')
+    .replace(/\s+from\b.*$/i, '')
+    .replace(/\s+/g, ' ');
+  if (!counterType) return null;
+  if (/\+\s*1\s*\/\s*\+\s*1/i.test(counterType) || /\bplus\s*one\b/.test(counterType)) return '+1/+1';
+  if (/-\s*1\s*\/\s*-\s*1/i.test(counterType) || /\bminus\s*one\b/.test(counterType)) return '-1/-1';
+  if (/^\d+\s*\/\s*\d+$/i.test(counterType)) return null;
+  const first = counterType.split(/\s+/)[0];
+  return String(first || '').toLowerCase() || null;
+}
+
+function parseRemoveCounterCountToken(rawCount: string): number {
+  const normalized = String(rawCount || '').trim().toLowerCase();
+  if (!normalized || normalized === 'x') return 0;
+  const wordMap: Record<string, number> = {
+    a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  };
+  if (Object.prototype.hasOwnProperty.call(wordMap, normalized)) {
+    return wordMap[normalized];
+  }
+  const asNumber = Number.parseInt(normalized, 10);
+  return Number.isFinite(asNumber) && asNumber > 0 ? asNumber : 0;
+}
+
+/**
+ * Parse "Remove N <counter> counter(s) [from <source>]" activation costs.
+ * Missing "from ..." is treated as removing from the source permanent.
+ */
+export function parseRemoveCounterActivationCost(
+  costText: string,
+  sourceCardName?: string,
+): ParsedRemoveCounterActivationCost | null {
+  const match = String(costText || '').match(REMOVE_COUNTER_COST_PATTERN);
+  if (!match) return null;
+
+  const count = parseRemoveCounterCountToken(String(match[1] || ''));
+  const counterType = normalizeRemoveCounterTypePhrase(String(match[2] || ''));
+  if (count <= 0 || !counterType) return null;
+
+  const sourceRef = String(match[3] || '').trim().toLowerCase();
+  const nameLower = String(sourceCardName || '').trim().toLowerCase();
+  const refersToSource = !sourceRef
+    || /\b(this|this permanent|this artifact|this creature|this land|this enchantment|it|~|source)\b/i.test(sourceRef)
+    || (nameLower.length > 0 && sourceRef.includes(nameLower));
+
+  return {
+    count,
+    counterType,
+    refersToSource,
+    matchText: String(match[0] || ''),
+    matchPattern: new RegExp(REMOVE_COUNTER_COST_PATTERN.source, 'i'),
+  };
+}
+
+export function getPermanentCounterKeyCandidates(counterType: string): string[] {
+  const ct = String(counterType || '');
+  if (ct === '+1/+1') return ['+1/+1', 'p1p1', 'plus_one', 'plusone', 'plus1plus1', '+1+1'];
+  if (ct === '-1/-1') return ['-1/-1', 'm1m1', 'minus_one', 'minusone', 'minus1minus1', '-1-1'];
+  return [ct];
+}
+
+export function getPermanentCounterAmount(permanent: any, counterType: string): number {
+  const counters = permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : {};
+  for (const key of getPermanentCounterKeyCandidates(counterType)) {
+    const amount = Number(counters[key] || 0);
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+  return 0;
+}
+
+export function resolvePermanentCounterKey(permanent: any, counterType: string, requiredCount: number = 1): string | null {
+  const counters = permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : {};
+  const needed = Math.max(1, Number(requiredCount || 1));
+  return getPermanentCounterKeyCandidates(counterType).find((key) => Number(counters[key] || 0) >= needed) || null;
+}
+
+function resolveRemoveCounterCostFromActivation(
+  activationCost: string,
+  sourceCardName?: string,
+): ParsedRemoveCounterActivationCost | null {
+  return parseRemoveCounterActivationCost(activationCost, sourceCardName);
+}
+
+/**
+ * True when a permanent both invests counters via a paid activated ability and can
+ * later remove those counters for mana (Gemstone Array, Trigon charge lines, etc.).
+ */
+export function permanentHasManaBatteryCounterLoop(permanent: any): {
+  invests: boolean;
+  paysOut: boolean;
+  counterTypes: string[];
+} {
+  const oracleText = String(permanent?.card?.oracle_text || '');
+  const lines = oracleText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const investTypes = new Set<string>();
+  const payoutTypes = new Set<string>();
+
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    const putMatch = lower.match(
+      /(?:^|:\s*)(?:\{[^}]+\}(?:,\s*\{[^}]+\})*\s*,?\s*)?put\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+([^\s]+(?:\s+[^\s]+)?)\s+counters?\s+on\b/i,
+    );
+    if (putMatch && /\{[^}]+\}/.test(line.split(':')[0] || '')) {
+      const counterType = normalizeRemoveCounterTypePhrase(String(putMatch[1] || ''));
+      if (counterType) investTypes.add(counterType);
+    }
+
+    const colonSplit = line.split(':');
+    if (colonSplit.length < 2) continue;
+    const costPart = colonSplit[0] || '';
+    const effectPart = colonSplit.slice(1).join(':');
+    const remove = parseRemoveCounterActivationCost(costPart, String(permanent?.card?.name || ''));
+    if (remove?.refersToSource && /\badd\b/i.test(effectPart) && /\bmana\b|\{[wubrgc]\}/i.test(effectPart)) {
+      payoutTypes.add(remove.counterType);
+    }
+  }
+
+  const shared = [...investTypes].filter((type) => payoutTypes.has(type));
+  return {
+    invests: investTypes.size > 0,
+    paysOut: payoutTypes.size > 0,
+    counterTypes: shared.length > 0 ? shared : [...payoutTypes],
+  };
+}
+
 
 /**
  * Consumes mana from a player's mana pool to pay for a spell cost.
@@ -5431,6 +5603,10 @@ export function calculateManaProduction(
       result.dynamicDescription = `Remove charge counter for mana (${chargeCounters} available)`;
       result.colors = ['W', 'U', 'B', 'R', 'G'];
       if (chosenColor) result.colors = [chosenColor];
+    } else {
+      result.baseAmount = 0;
+      result.colors = [];
+      result.requiresColorChoice = false;
     }
   }
   
@@ -5732,15 +5908,21 @@ export function calculateManaProduction(
   // "Remove a +1/+1 counter from Crystalline Crawler: Add one mana of any color"
   if (cardName.includes('crystalline crawler')) {
     const p1p1Counters = (permanent?.counters?.['+1/+1'] || 0) + (permanent?.counters?.p1p1 || 0);
-    result.isDynamic = true;
-    result.baseAmount = 1; // Removes one at a time
-    result.dynamicDescription = `Any color mana (${p1p1Counters} +1/+1 counters available)`;
-    result.colors = ['W', 'U', 'B', 'R', 'G'];
-    if (chosenColor) result.colors = [chosenColor];
+    if (p1p1Counters > 0) {
+      result.isDynamic = true;
+      result.baseAmount = 1; // Removes one at a time
+      result.dynamicDescription = `Any color mana (${p1p1Counters} +1/+1 counters available)`;
+      result.colors = ['W', 'U', 'B', 'R', 'G'];
+      if (chosenColor) result.colors = [chosenColor];
+    } else {
+      result.baseAmount = 0;
+      result.colors = [];
+      result.requiresColorChoice = false;
+    }
   }
   
   // Gemstone Array - Based on charge counters
-  // "{2}, Remove a charge counter: Add one mana of any color"
+  // "Remove a charge counter from this artifact: Add one mana of any color"
   if (cardName.includes('gemstone array')) {
     const chargeCounters = permanent?.counters?.charge || 0;
     if (chargeCounters > 0) {
@@ -5749,6 +5931,11 @@ export function calculateManaProduction(
       result.dynamicDescription = `Any color (${chargeCounters} charge counters available)`;
       result.colors = ['W', 'U', 'B', 'R', 'G'];
       if (chosenColor) result.colors = [chosenColor];
+    } else {
+      // Generic "any color" matching above can otherwise claim 1 mana with 0 counters.
+      result.baseAmount = 0;
+      result.colors = [];
+      result.requiresColorChoice = false;
     }
   }
   
@@ -5773,6 +5960,10 @@ export function calculateManaProduction(
       result.dynamicDescription = `Any color (${chargeCounters} charge counters remain)`;
       result.colors = ['W', 'U', 'B', 'R', 'G'];
       if (chosenColor) result.colors = [chosenColor];
+    } else {
+      result.baseAmount = 0;
+      result.colors = [];
+      result.requiresColorChoice = false;
     }
   }
   
@@ -5780,19 +5971,78 @@ export function calculateManaProduction(
   // "Remove a charge counter: Add one mana of any color"
   if (cardName.includes('pentad prism')) {
     const chargeCounters = permanent?.counters?.charge || 0;
-    result.baseAmount = 1;
-    result.dynamicDescription = `Any color (${chargeCounters} charge counters available)`;
-    result.colors = ['W', 'U', 'B', 'R', 'G'];
-    if (chosenColor) result.colors = [chosenColor];
+    if (chargeCounters > 0) {
+      result.baseAmount = 1;
+      result.dynamicDescription = `Any color (${chargeCounters} charge counters available)`;
+      result.colors = ['W', 'U', 'B', 'R', 'G'];
+      if (chosenColor) result.colors = [chosenColor];
+    } else {
+      result.baseAmount = 0;
+      result.colors = [];
+      result.requiresColorChoice = false;
+    }
   }
   
   // Sphere of the Suns - Uses charge counters
   if (cardName.includes('sphere of the suns')) {
     const chargeCounters = permanent?.counters?.charge || 0;
-    result.baseAmount = 1;
-    result.dynamicDescription = `Any color (${chargeCounters} charge counters remain)`;
-    result.colors = ['W', 'U', 'B', 'R', 'G'];
-    if (chosenColor) result.colors = [chosenColor];
+    if (chargeCounters > 0) {
+      result.baseAmount = 1;
+      result.dynamicDescription = `Any color (${chargeCounters} charge counters remain)`;
+      result.colors = ['W', 'U', 'B', 'R', 'G'];
+      if (chosenColor) result.colors = [chosenColor];
+    } else {
+      result.baseAmount = 0;
+      result.colors = [];
+      result.requiresColorChoice = false;
+    }
+  }
+
+  // Generic gate: selected ability cost requires removing counters the permanent lacks
+  // (or removing from another permanent — not usable as a self mana source).
+  // When no ability is selected, also gate cards whose only mana abilities spend self counters.
+  const removeCounterCost = resolveRemoveCounterCostFromActivation(
+    String(result.activationCost || selectedAbilityCostText || ''),
+    String(permanent?.card?.name || ''),
+  );
+  if (
+    removeCounterCost &&
+    (
+      !removeCounterCost.refersToSource
+      || getPermanentCounterAmount(permanent, removeCounterCost.counterType) < removeCounterCost.count
+    )
+  ) {
+    result.baseAmount = 0;
+    result.colors = [];
+    result.bonusMana = [];
+    result.requiresColorChoice = false;
+  } else if (!removeCounterCost && !selectedAbilityCostText && !hasSelectedLegacyManaAbility) {
+    const selfRemoveManaCosts: ParsedRemoveCounterActivationCost[] = [];
+    let hasIndependentManaAbility = false;
+    for (const line of String(permanent?.card?.oracle_text || '').split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed.includes(':')) continue;
+      const costPart = trimmed.split(':')[0] || '';
+      const effectPart = trimmed.split(':').slice(1).join(':');
+      if (!/\badd\b/i.test(effectPart)) continue;
+      if (!(/\bmana\b/i.test(effectPart) || /\{[wubrgc]\}/i.test(effectPart))) continue;
+      const removeCost = parseRemoveCounterActivationCost(costPart, String(permanent?.card?.name || ''));
+      if (removeCost?.refersToSource) {
+        selfRemoveManaCosts.push(removeCost);
+      } else {
+        hasIndependentManaAbility = true;
+      }
+    }
+
+    const canPayAnyRemove = selfRemoveManaCosts.some(
+      (cost) => getPermanentCounterAmount(permanent, cost.counterType) >= cost.count,
+    );
+    if (selfRemoveManaCosts.length > 0 && !hasIndependentManaAbility && !canPayAnyRemove) {
+      result.baseAmount = 0;
+      result.colors = [];
+      result.bonusMana = [];
+      result.requiresColorChoice = false;
+    }
   }
 
   // ===== STEP 3: Check for aura enchantments on this permanent (Wild Growth, etc.) =====

@@ -556,6 +556,13 @@ type ExactManaSourceOption = {
     type: string;
     mustBeOther?: boolean;
   };
+  /** Self remove-counter activation cost (Gemstone Array, Pentad Prism, etc.). */
+  removeCounterCost?: {
+    counterType: string;
+    count: number;
+  };
+  /** True when this option models charge-then-remove color fixing on a mana battery. */
+  batteryColorFix?: boolean;
   repeatable?: boolean;
   produced: Record<SimpleManaKey, number>;
   spendRestriction?: { restriction: string; restrictedTo?: string };
@@ -565,6 +572,8 @@ type ExactManaSource = {
   id: string;
   permanentId: string;
   options: ExactManaSourceOption[];
+  /** Remaining self counters available for remove-counter mana options. */
+  counterBudgets?: Record<string, number>;
 };
 
 type ExactSacrificeCandidate = {
@@ -896,12 +905,14 @@ export function parseReturnToHandCostFromManaAbilityCost(
 
 function buildSupportedNonTapManaSourceCost(
   costText: string,
+  permanent?: any,
 ): Omit<ExactManaSourceOption, 'produced'> | null {
   const normalizedCost = String(costText || '').trim();
   if (!normalizedCost) {
     return null;
   }
 
+  const option: Omit<ExactManaSourceOption, 'produced'> = {};
   let unsupportedResidue = normalizedCost;
   unsupportedResidue = unsupportedResidue.replace(/\{[^}]+\}/g, ' ');
   unsupportedResidue = unsupportedResidue.replace(/pay\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+life/gi, ' ');
@@ -918,6 +929,19 @@ function buildSupportedNonTapManaSourceCost(
     /\breturn\s+(?:(?:another|other)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent)|(?:a|an|one|1)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent))\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/gi,
     ' ',
   );
+
+  const removeCounterCost = parseSelfRemoveCounterCost(normalizedCost, permanent);
+  if (removeCounterCost) {
+    if (!removeCounterCost.refersToSource) {
+      return null;
+    }
+    unsupportedResidue = unsupportedResidue.replace(removeCounterCost.matchPattern, ' ');
+    option.removeCounterCost = {
+      counterType: removeCounterCost.counterType,
+      count: removeCounterCost.count,
+    };
+  }
+
   unsupportedResidue = unsupportedResidue.replace(/,/g, ' ');
   unsupportedResidue = unsupportedResidue.replace(/\band\b/gi, ' ');
   unsupportedResidue = unsupportedResidue.replace(/\s+/g, ' ').trim();
@@ -925,7 +949,6 @@ function buildSupportedNonTapManaSourceCost(
     return null;
   }
 
-  const option: Omit<ExactManaSourceOption, 'produced'> = {};
   const manaCostTokens = normalizedCost.match(/\{[^}]+\}/g) || [];
   if (manaCostTokens.length > 0) {
     const activationCost = parseManaCost(manaCostTokens.join(''));
@@ -962,6 +985,160 @@ function buildSupportedNonTapManaSourceCost(
   return option;
 }
 
+const REMOVE_COUNTER_COUNT_WORDS = 'a|an|one|two|three|four|five|six|seven|eight|nine|ten|\\d+|x';
+const REMOVE_COUNTER_COST_PATTERN = new RegExp(
+  `\\bremove\\s+(${REMOVE_COUNTER_COUNT_WORDS})\\s+([^,;:]+?)\\s+counters?(?:\\s+from\\s+([^,;:]+))?\\b`,
+  'i',
+);
+
+function normalizeManaCheckCounterType(rawTypePhrase: string): string | null {
+  let counterType = String(rawTypePhrase || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\s*(?:a|an)\s+/i, '')
+    .replace(/\s+from\b.*$/i, '')
+    .replace(/\s+/g, ' ');
+  if (!counterType) return null;
+  if (/\+\s*1\s*\/\s*\+\s*1/i.test(counterType) || /\bplus\s*one\b/.test(counterType)) return '+1/+1';
+  if (/-\s*1\s*\/\s*-\s*1/i.test(counterType) || /\bminus\s*one\b/.test(counterType)) return '-1/-1';
+  if (/^\d+\s*\/\s*\d+$/i.test(counterType)) return null;
+  const first = counterType.split(/\s+/)[0];
+  return String(first || '').toLowerCase() || null;
+}
+
+function parseRemoveCounterCountToken(rawCount: string): number {
+  const normalized = String(rawCount || '').trim().toLowerCase();
+  if (!normalized || normalized === 'x') return 0;
+  const wordMap: Record<string, number> = {
+    a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  };
+  if (Object.prototype.hasOwnProperty.call(wordMap, normalized)) {
+    return wordMap[normalized];
+  }
+  const asNumber = Number.parseInt(normalized, 10);
+  return Number.isFinite(asNumber) && asNumber > 0 ? asNumber : 0;
+}
+
+function parseSelfRemoveCounterCost(
+  costText: string,
+  permanent?: any,
+): { count: number; counterType: string; refersToSource: boolean; matchPattern: RegExp } | null {
+  const match = String(costText || '').match(REMOVE_COUNTER_COST_PATTERN);
+  if (!match) return null;
+
+  const count = parseRemoveCounterCountToken(String(match[1] || ''));
+  const counterType = normalizeManaCheckCounterType(String(match[2] || ''));
+  if (count <= 0 || !counterType) return null;
+
+  const sourceRef = String(match[3] || '').trim().toLowerCase();
+  const nameLower = String(permanent?.card?.name || '').trim().toLowerCase();
+  const refersToSource = !sourceRef
+    || /\b(this|this permanent|this artifact|this creature|this land|this enchantment|it|~|source)\b/i.test(sourceRef)
+    || (nameLower.length > 0 && sourceRef.includes(nameLower));
+
+  return {
+    count,
+    counterType,
+    refersToSource,
+    matchPattern: new RegExp(REMOVE_COUNTER_COST_PATTERN.source, 'i'),
+  };
+}
+
+function getPermanentCounterAmountForManaCheck(permanent: any, counterType: string): number {
+  const counters = permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : {};
+  const candidates = counterType === '+1/+1'
+    ? ['+1/+1', 'p1p1', 'plus_one', 'plusone', 'plus1plus1', '+1+1']
+    : counterType === '-1/-1'
+      ? ['-1/-1', 'm1m1', 'minus_one', 'minusone', 'minus1minus1', '-1-1']
+      : [counterType];
+  for (const key of candidates) {
+    const amount = Number(counters[key] || 0);
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+  return 0;
+}
+
+function abilityCostRequiresTap(costText: string): boolean {
+  return /\{[^}]*\bt\b[^}]*\}/i.test(String(costText || ''));
+}
+
+function detectManaBatteryColorFixOptions(permanent: any): ExactManaSourceOption[] {
+  const oracleText = String(permanent?.card?.oracle_text || '');
+  const lines = oracleText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  let chargeCostText: string | null = null;
+  let chargeRequiresTap = false;
+  let chargeCounterType: string | null = null;
+  let payoutCostText: string | null = null;
+  let payoutRequiresTap = false;
+  let payoutEffectText: string | null = null;
+
+  for (const line of lines) {
+    const colon = line.indexOf(':');
+    if (colon < 0) continue;
+    const costText = line.slice(0, colon).trim();
+    const effectText = line.slice(colon + 1).trim();
+    const lowerEffect = effectText.toLowerCase();
+
+    const putMatch = lowerEffect.match(
+      /\bput\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+([^\s]+(?:\s+[^\s]+)?)\s+counters?\s+on\b/i,
+    );
+    if (putMatch && /\{[^}]+\}/.test(costText) && !/\badd\b/i.test(effectText)) {
+      const counterType = normalizeManaCheckCounterType(String(putMatch[1] || ''));
+      if (counterType) {
+        chargeCostText = costText;
+        chargeRequiresTap = abilityCostRequiresTap(costText);
+        chargeCounterType = counterType;
+      }
+    }
+
+    const removeCost = parseSelfRemoveCounterCost(costText, permanent);
+    if (
+      removeCost?.refersToSource
+      && /\badd\b/i.test(effectText)
+      && (/\bmana\b/i.test(effectText) || /\{[wubrgc]\}/i.test(effectText))
+    ) {
+      payoutCostText = costText;
+      payoutRequiresTap = abilityCostRequiresTap(costText);
+      payoutEffectText = effectText;
+    }
+  }
+
+  if (!chargeCostText || !chargeCounterType || !payoutCostText || !payoutEffectText) {
+    return [];
+  }
+  // Same-turn charge+remove cannot both require tapping the same permanent.
+  if (chargeRequiresTap && payoutRequiresTap) {
+    return [];
+  }
+
+  const manaSymbolText = (chargeCostText.match(/\{[^}]+\}/g) || [])
+    .filter((symbol) => !/^\{[tq]\}$/i.test(symbol))
+    .join('');
+  if (!manaSymbolText) {
+    return [];
+  }
+
+  const activationCost = parseManaCost(manaSymbolText);
+  if (!parsedManaCostHasValue(activationCost)) {
+    return [];
+  }
+
+  const producedOptions = buildProducedManaOptions(
+    { battlefield: [permanent] },
+    String(permanent?.controller || ''),
+    permanent,
+    payoutEffectText,
+  );
+
+  return producedOptions.map((produced) => ({
+    activationCost,
+    batteryColorFix: true,
+    repeatable: true,
+    produced,
+  }));
+}
+
 function normalizeSelfReferenceText(value: string): string {
   return String(value || '')
     .toLowerCase()
@@ -989,6 +1166,11 @@ function shouldRepeatNonTapManaSource(
     || costTextReferencesSourcePermanent(costText, permanent);
 
   if (sacrificesSource) {
+    return false;
+  }
+
+  // Remove-counter mana is limited by counters; callers expand one-shot sources per counter.
+  if (option.removeCounterCost) {
     return false;
   }
 
@@ -1513,25 +1695,58 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
     for (const match of costMatches) {
       const activationCost = parseManaCost(`{${match[1]}}`);
       const producedText = String(match[2] || '');
+      const costText = String(match[0] || '').split(':')[0] || '';
+      const removeCost = parseSelfRemoveCounterCost(costText, permanent);
+      if (removeCost) {
+        if (!removeCost.refersToSource) continue;
+        if (getPermanentCounterAmountForManaCheck(permanent, removeCost.counterType) < removeCost.count) {
+          continue;
+        }
+      }
       const producedOptions = buildProducedManaOptions(state, playerId, permanent, producedText);
       for (const produced of producedOptions) {
-        options.push(attachChosenTypeSpendRestrictionIfNeeded(permanent, producedText, { activationCost, produced }));
+        options.push(attachChosenTypeSpendRestrictionIfNeeded(permanent, producedText, {
+          activationCost,
+          produced,
+          ...(removeCost ? { removeCounterCost: { counterType: removeCost.counterType, count: removeCost.count } } : {}),
+        }));
       }
     }
 
     for (const match of noCostMatches) {
       const producedText = String(match[1] || '');
+      const costText = String(match[0] || '').split(':')[0] || '';
+      const removeCost = parseSelfRemoveCounterCost(costText, permanent);
+      if (removeCost) {
+        if (!removeCost.refersToSource) continue;
+        if (getPermanentCounterAmountForManaCheck(permanent, removeCost.counterType) < removeCost.count) {
+          continue;
+        }
+      }
       const producedOptions = buildProducedManaOptions(state, playerId, permanent, producedText);
       for (const produced of producedOptions) {
-        options.push(attachChosenTypeSpendRestrictionIfNeeded(permanent, producedText, { produced }));
+        options.push(attachChosenTypeSpendRestrictionIfNeeded(permanent, producedText, {
+          produced,
+          ...(removeCost ? { removeCounterCost: { counterType: removeCost.counterType, count: removeCost.count } } : {}),
+        }));
       }
     }
 
     for (const match of nonTapCostMatches) {
       const costText = String(match[1] || '').trim();
       const producedText = String(match[2] || '');
-      const supportedCost = buildSupportedNonTapManaSourceCost(costText);
+      const supportedCost = buildSupportedNonTapManaSourceCost(costText, permanent);
       if (!supportedCost) continue;
+
+      if (supportedCost.removeCounterCost) {
+        const available = getPermanentCounterAmountForManaCheck(
+          permanent,
+          supportedCost.removeCounterCost.counterType,
+        );
+        if (available < supportedCost.removeCounterCost.count) {
+          continue;
+        }
+      }
 
       const inferredSupportedCost = { ...supportedCost };
       if (!inferredSupportedCost.sacrificeCost && /^sacrifice\b/i.test(costText) && costTextReferencesSourcePermanent(costText, permanent)) {
@@ -1553,6 +1768,14 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
       }
     }
 
+    for (const colorFixOption of detectManaBatteryColorFixOptions(permanent)) {
+      options.push(attachChosenTypeSpendRestrictionIfNeeded(
+        permanent,
+        'one mana of any color',
+        colorFixOption,
+      ));
+    }
+
     if (options.length > 0) {
       const dedupedOptions = new Map<string, ExactManaSourceOption>();
       for (const option of options) {
@@ -1571,19 +1794,39 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
         const returnToHandSignature = option.returnToHandCost
           ? JSON.stringify(option.returnToHandCost)
           : 'none';
+        const removeCounterSignature = option.removeCounterCost
+          ? JSON.stringify(option.removeCounterCost)
+          : 'none';
+        const colorFixSignature = option.batteryColorFix ? 'colorfix' : 'none';
         const repeatableSignature = option.repeatable ? 'repeatable' : 'single';
         const productionSignature = normalizePoolSignature(option.produced);
         dedupedOptions.set(
-          `${activationSignature}|${lifeSignature}|${handSignature}|${sacrificeSignature}|${returnToHandSignature}|${repeatableSignature}|${productionSignature}`,
+          `${activationSignature}|${lifeSignature}|${handSignature}|${sacrificeSignature}|${returnToHandSignature}|${removeCounterSignature}|${colorFixSignature}|${repeatableSignature}|${productionSignature}`,
           option,
         );
       }
 
       const sourceIdBase = String(permanent.id || `${cardName}_${sources.length}`);
+      const counterBudgets: Record<string, number> = {};
+      for (const option of dedupedOptions.values()) {
+        if (!option.removeCounterCost) continue;
+        const key = option.removeCounterCost.counterType;
+        counterBudgets[key] = getPermanentCounterAmountForManaCheck(permanent, key);
+      }
+
+      const finalizedOptions = Array.from(dedupedOptions.values()).map((option) => {
+        // Non-tap remove-counter mana can be used once per available counter batch.
+        if (option.removeCounterCost && !option.activationCost && !option.batteryColorFix) {
+          return { ...option, repeatable: true };
+        }
+        return option;
+      });
+
       sources.push({
         id: sourceIdBase,
         permanentId: sourceIdBase,
-        options: Array.from(dedupedOptions.values()),
+        options: finalizedOptions,
+        ...(Object.keys(counterBudgets).length > 0 ? { counterBudgets } : {}),
       });
     }
   }
@@ -2082,7 +2325,14 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     
     // Now check for abilities WITHOUT activation costs (basic lands, Sol Ring, etc.)
     // Filter out the ones we already processed with costs
-    const noCostMatches = filterOutCostedTapMatches([...oracleText.matchAll(manaAbilityNoCostPattern)], costMatches);
+    const noCostMatches = filterOutCostedTapMatches([...oracleText.matchAll(manaAbilityNoCostPattern)], costMatches)
+      .filter((match) => {
+        const costText = String(match[0] || '').split(':')[0] || '';
+        const removeCost = parseSelfRemoveCounterCost(costText, permanent);
+        if (!removeCost) return true;
+        if (!removeCost.refersToSource) return false;
+        return getPermanentCounterAmountForManaCheck(permanent, removeCost.counterType) >= removeCost.count;
+      });
 
     // IMPORTANT: A single permanent can have multiple distinct tap-for-mana abilities (multiple lines).
     // These are alternatives, not additive. We must avoid counting them as multiple mana sources.
@@ -2358,6 +2608,47 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
         }
       }
     }
+
+    // Non-tap self remove-counter mana (Gemstone Array, Pentad Prism, etc.).
+    const nonTapManaMatches = [...oracleText.matchAll(/([^:.\n]+):\s*add\s+([^.\n]+)/gi)]
+      .filter((match) => {
+        const costText = String(match[1] || '').trim();
+        return Boolean(costText) && !/\{[^}]*\bt\b[^}]*\}/i.test(costText);
+      });
+    for (const match of nonTapManaMatches) {
+      const costText = String(match[1] || '').trim();
+      const producedText = String(match[2] || '').trim();
+      const removeCost = parseSelfRemoveCounterCost(costText, permanent);
+      if (!removeCost?.refersToSource) continue;
+      const available = getPermanentCounterAmountForManaCheck(permanent, removeCost.counterType);
+      if (available < removeCost.count) continue;
+
+      const uses = Math.max(1, Math.floor(available / Math.max(1, removeCost.count)));
+      const isUnconditionalAnyColor = /one mana of any color|add.*any color/i.test(producedText)
+        && !/that (?:a |an )?(?:land|permanent)|among (?:lands|permanents)/i.test(producedText);
+      if (isUnconditionalAnyColor) {
+        for (let useIndex = 0; useIndex < uses; useIndex += 1) {
+          pool.white = (pool.white || 0) + 1;
+          pool.blue = (pool.blue || 0) + 1;
+          pool.black = (pool.black || 0) + 1;
+          pool.red = (pool.red || 0) + 1;
+          pool.green = (pool.green || 0) + 1;
+          pool.anyColor = (pool.anyColor || 0) + 1;
+        }
+        continue;
+      }
+
+      const producedTokens = producedText.match(/\{([wubrgc])\}/gi) || [];
+      for (let useIndex = 0; useIndex < uses; useIndex += 1) {
+        for (const token of producedTokens) {
+          const color = token.replace(/[{}]/g, '').toUpperCase();
+          const colorKey = {
+            W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless',
+          }[color];
+          if (colorKey) pool[colorKey] = (pool[colorKey] || 0) + 1;
+        }
+      }
+    }
   }
   
   return pool;
@@ -2408,6 +2699,9 @@ export function canPayManaCostWithAvailableSources(
   const hasReturnToHandCostSource = sources.some((source) =>
     source.options.some((option) => option.returnToHandCost),
   );
+  const hasRemoveCounterOrBatteryFixSource = sources.some((source) =>
+    source.options.some((option) => option.removeCounterCost || option.batteryColorFix),
+  );
   const hasBranchingSource = sources.some((source) => source.options.length > 1);
 
   if (
@@ -2416,6 +2710,7 @@ export function canPayManaCostWithAvailableSources(
     !hasHandCostSource &&
     !hasSacrificeCostSource &&
     !hasReturnToHandCostSource &&
+    !hasRemoveCounterOrBatteryFixSource &&
     !hasBranchingSource
   ) {
     return canPayManaCost(getAvailableMana(state, playerId), parsedCost, effectiveLifeAvailable);
@@ -2484,6 +2779,22 @@ export function canPayManaCostWithAvailableSources(
         }
         let workingPool = createSimpleManaPool(pool);
         let workingLife = life;
+        let workingCounterBudgets = source.counterBudgets
+          ? { ...source.counterBudgets }
+          : undefined;
+
+        if (option.removeCounterCost) {
+          const counterType = option.removeCounterCost.counterType;
+          const needed = Math.max(1, Number(option.removeCounterCost.count || 1));
+          const available = Number(workingCounterBudgets?.[counterType] || 0);
+          if (available < needed) {
+            continue;
+          }
+          workingCounterBudgets = {
+            ...(workingCounterBudgets || {}),
+            [counterType]: available - needed,
+          };
+        }
 
         if (option.activationCost) {
           const spent = spendManaCostFromExactPool(workingPool, option.activationCost, workingLife);
@@ -2508,7 +2819,21 @@ export function canPayManaCostWithAvailableSources(
           remainingHandCandidates: ExactHandCandidate[];
         };
 
-        const baseRemainingSources = option.repeatable ? remainingSources : nextRemainingSources;
+        const sourceAfterUse: ExactManaSource = {
+          ...source,
+          ...(workingCounterBudgets ? { counterBudgets: workingCounterBudgets } : {}),
+        };
+        const canRepeat = Boolean(option.repeatable);
+        const stillHasRemoveCounters = option.removeCounterCost
+          ? Number(workingCounterBudgets?.[option.removeCounterCost.counterType] || 0)
+            >= Math.max(1, Number(option.removeCounterCost.count || 1))
+          : true;
+        const keepSource = canRepeat && (!option.removeCounterCost || stillHasRemoveCounters);
+        const baseRemainingSources = keepSource
+          ? remainingSources.map((entry, entryIndex) => (
+            entryIndex === index ? sourceAfterUse : entry
+          ))
+          : nextRemainingSources;
         let branchStates: ExactSearchBranchState[] = [{
           remainingSources: baseRemainingSources,
           remainingBattlefieldCandidates,

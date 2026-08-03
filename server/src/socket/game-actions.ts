@@ -1,6 +1,6 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, addCastSpellPaymentProducedMana, buildManaTotalsIncludingEligibleRestricted, consumeManaFromPool, consumeManaFromPoolForPurpose, deriveCreatureSpellHasteFromManaSpent, deriveCastUsedManaFromPermanentSource, getFloatingPaymentPoolColorKey, getOrInitManaPool, calculateTotalAvailableMana, parseFloatingPaymentPermanentId, payManaCostWithAvailableSources, validateManaPayment, validateSelectedFloatingPoolMana, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, snapshotManaProducedByPermanentLowerBound, applyManaSpendToManaProducedByPermanentLowerBound, resolveActivatedAbilityLineById, resolvePaymentManaAbilitySpendRestriction, restrictedManaSpendRestrictionAllowsPurpose, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower, type RestrictedManaSpendPurpose } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, addCastSpellPaymentProducedMana, buildManaTotalsIncludingEligibleRestricted, consumeManaFromPool, consumeManaFromPoolForPurpose, deriveCreatureSpellHasteFromManaSpent, deriveCastUsedManaFromPermanentSource, getFloatingPaymentPoolColorKey, getOrInitManaPool, calculateTotalAvailableMana, parseFloatingPaymentPermanentId, payManaCostWithAvailableSources, validateManaPayment, validateSelectedFloatingPoolMana, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, snapshotManaProducedByPermanentLowerBound, applyManaSpendToManaProducedByPermanentLowerBound, resolveActivatedAbilityLineById, resolvePaymentManaAbilitySpendRestriction, restrictedManaSpendRestrictionAllowsPurpose, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower, paymentActivationCostHasUnsupportedAdditionalCosts, parseRemoveCounterActivationCost, resolvePermanentCounterKey, type RestrictedManaSpendPurpose } from "./util";
 import { emitResolutionStepPrompt, completeDanceWithCalamityDeferredAdvance, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingOracleIrCompoundResume, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
@@ -975,19 +975,6 @@ function getPaymentActivationCostInfo(permanent: any, activationCost?: string | 
   };
 }
 
-function paymentActivationCostHasUnsupportedAdditionalCosts(activationCost?: string | null): boolean {
-  const normalizedCost = String(activationCost || '').trim();
-  if (!normalizedCost) return false;
-
-  let residue = normalizedCost;
-  residue = residue.replace(/\{(?:[tq]|\d+|[wubrgc])\}/gi, ' ');
-  residue = residue.replace(/sacrifice\s+[^,;:]*/gi, ' ');
-  residue = residue.replace(/[().]/g, ' ');
-  residue = residue.replace(/,/g, ' ');
-  residue = residue.replace(/\s+/g, ' ').trim();
-
-  return residue.length > 0;
-}
 
 function getSupportedPaymentActivationManaCost(activationCost?: string | null): ReturnType<typeof parseManaCost> | undefined {
   const normalizedCost = String(activationCost || '').trim();
@@ -1165,6 +1152,7 @@ function restorePlayerCastSpellPaymentCheckpoint(
     pool: Record<string, number>;
     tappedPermanentIds: Iterable<string>;
     harmonizePermanentId?: string;
+    removedCounters?: Array<{ permanentId: string; counterType: string; previousAmount: number }>;
   },
 ): void {
   const pool = getOrInitManaPool(game.state, playerId) as any;
@@ -1184,6 +1172,18 @@ function restorePlayerCastSpellPaymentCheckpoint(
     const harmonizePermanent = battlefield.find((entry: any) => entry?.id === checkpoint.harmonizePermanentId);
     if (harmonizePermanent) {
       (harmonizePermanent as any).tapped = false;
+    }
+  }
+
+  for (const removed of Array.isArray(checkpoint.removedCounters) ? checkpoint.removedCounters : []) {
+    const permanent = battlefield.find((entry: any) => entry?.id === removed.permanentId);
+    if (!permanent) continue;
+    (permanent as any).counters = (permanent as any).counters || {};
+    const previousAmount = Number(removed.previousAmount || 0);
+    if (previousAmount > 0) {
+      (permanent as any).counters[removed.counterType] = previousAmount;
+    } else {
+      delete (permanent as any).counters[removed.counterType];
     }
   }
 }
@@ -11140,12 +11140,14 @@ export function registerGameActions(io: Server, socket: Socket) {
         pool: poolBeforePayment,
         tappedPermanentIds: new Set<string>(),
         harmonizePermanentId: undefined as string | undefined,
+        removedCounters: [] as Array<{ permanentId: string; counterType: string; previousAmount: number }>,
       };
       const abortCastSpellPayment = (payload: { code: string; message: string }): void => {
         restorePlayerCastSpellPaymentCheckpoint(game, playerId, {
           pool: castSpellPaymentCheckpoint.pool,
           tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
           harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
+          removedCounters: castSpellPaymentCheckpoint.removedCounters,
         });
         socket.emit('error', payload);
       };
@@ -11335,12 +11337,46 @@ export function registerGameActions(io: Server, socket: Socket) {
           const activationManaCost = getSupportedPaymentActivationManaCost(activationCostText);
           const manaGrantsCreatureSpellHasteUntilEndOfTurn = paymentManaAbilityGrantsCreatureSpellHasteUntilEndOfTurn(permanent, abilityId);
 
-          if (paymentActivationCostHasUnsupportedAdditionalCosts(activationCostText)) {
+          if (paymentActivationCostHasUnsupportedAdditionalCosts(activationCostText, String(permCard.name || ''))) {
             abortCastSpellPayment({
               code: 'UNSUPPORTED_PAYMENT_SOURCE_COST',
               message: `${permCard.name || 'Permanent'} requires an unsupported additional activation cost for spell payment.`,
             });
             return;
+          }
+
+          const removeCounterCost = parseRemoveCounterActivationCost(
+            activationCostText,
+            String(permCard.name || ''),
+          );
+          if (removeCounterCost) {
+            if (!removeCounterCost.refersToSource) {
+              abortCastSpellPayment({
+                code: 'UNSUPPORTED_PAYMENT_SOURCE_COST',
+                message: `${permCard.name || 'Permanent'} requires removing counters from another permanent for mana payment.`,
+              });
+              return;
+            }
+
+            const counterKey = resolvePermanentCounterKey(permanent, removeCounterCost.counterType, removeCounterCost.count);
+            const available = counterKey ? Number((permanent as any).counters?.[counterKey] || 0) : 0;
+            if (!counterKey || available < removeCounterCost.count) {
+              abortCastSpellPayment({
+                code: 'INSUFFICIENT_COUNTERS',
+                message: `${permCard.name || 'Permanent'} doesn't have enough ${removeCounterCost.counterType} counter(s) for mana payment.`,
+              });
+              return;
+            }
+
+            castSpellPaymentCheckpoint.removedCounters.push({
+              permanentId: String(permanentId),
+              counterType: counterKey,
+              previousAmount: available,
+            });
+            (permanent as any).counters = (permanent as any).counters || {};
+            const next = available - removeCounterCost.count;
+            if (next > 0) (permanent as any).counters[counterKey] = next;
+            else delete (permanent as any).counters[counterKey];
           }
 
           if (activationCostInfo.taps) {
@@ -11655,6 +11691,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           pool: castSpellPaymentCheckpoint.pool,
           tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
           harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
+          removedCounters: castSpellPaymentCheckpoint.removedCounters,
         });
         debugWarn(
           1,
@@ -12047,6 +12084,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 pool: castSpellPaymentCheckpoint.pool,
                 tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
                 harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
+                removedCounters: castSpellPaymentCheckpoint.removedCounters,
               });
               debugWarn(
                 1,
@@ -12287,6 +12325,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 pool: castSpellPaymentCheckpoint.pool,
                 tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
                 harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
+                removedCounters: castSpellPaymentCheckpoint.removedCounters,
               });
               debugWarn(
                 1,
@@ -12470,6 +12509,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                   pool: castSpellPaymentCheckpoint.pool,
                   tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
                   harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
+                  removedCounters: castSpellPaymentCheckpoint.removedCounters,
                 });
                 debugWarn(
                   1,

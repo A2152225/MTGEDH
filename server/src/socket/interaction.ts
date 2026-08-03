@@ -11441,7 +11441,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // no-op
       } else if (costLower.includes('remove') && costLower.includes('counter')) {
         const removeMatch = costStr.match(
-          /\bremove\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+([^,]+?)\s+counters?\s+from\s+([^,]+)\b/i
+          /\bremove\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+([^,]+?)\s+counters?(?:\s+from\s+([^,]+))?\b/i
         );
 
         if (removeMatch) {
@@ -11458,12 +11458,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             return;
           }
 
-          // Only support removing from the source permanent (card name / this / it).
+          // Missing "from ..." means remove from the source permanent (Pentad Prism, Sphere of the Suns, etc.).
           const srcRefLower = rawSourceRef.toLowerCase();
           const nameLower = String(cardName || '').toLowerCase();
           const refersToSource =
+            !srcRefLower ||
             (nameLower && srcRefLower.includes(nameLower)) ||
-            /\b(this|this permanent|it|source)\b/i.test(srcRefLower);
+            /\b(this|this permanent|this artifact|this creature|this land|this enchantment|it|source)\b/i.test(srcRefLower);
           if (!refersToSource) {
             // Support "Remove N <counter> counters from (another/other)? (permanent type) you control".
             if (!/\byou control\b/i.test(srcRefLower)) {
@@ -11504,7 +11505,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             // Ensure no other non-mana cost components besides this remove-counters clause.
             const remainingNonManaCostText = costStr
               .replace(/\{[^}]+\}/g, ' ')
-              .replace(/\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?\s+from\s+[^,]+\b/gi, ' ')
+              .replace(/\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?(?:\s+from\s+[^,]+)?\b/gi, ' ')
               .replace(/[\s,]+/g, ' ')
               .trim();
             if (remainingNonManaCostText.length > 0) {
@@ -11633,7 +11634,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           // Ensure no other non-mana cost components besides this remove-counters clause.
           const remainingNonManaCostText = costStr
             .replace(/\{[^}]+\}/g, ' ')
-            .replace(/\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?\s+from\s+[^,]+\b/gi, ' ')
+            .replace(/\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?(?:\s+from\s+[^,]+)?\b/gi, ' ')
             .replace(/[\s,]+/g, ' ')
             .trim();
           if (remainingNonManaCostText.length > 0) {
@@ -11669,7 +11670,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           try {
             manaCost = String(manaCost || '')
               .replace(
-                /\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?\s+from\s+[^,]+\b/gi,
+                /\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?(?:\s+from\s+[^,]+)?\b/gi,
                 ' '
               )
               .replace(/^[\s,]+|[\s,]+$/g, '')

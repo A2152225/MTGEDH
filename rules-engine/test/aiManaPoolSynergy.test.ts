@@ -304,4 +304,114 @@ describe('mana pool synergy activated abilities', () => {
     expect(attachAbilityValue).toBeGreaterThan(35);
     expect(unattachAbilityValue).toBe(0);
   });
+
+  it('scores pay-now charge-up abilities on mana-battery permanents when floating mana is available', () => {
+    const gameState = {
+      turnPlayer: 'p1',
+      phase: 'main1',
+      step: 'precombat_main',
+      players: [{ id: 'p1' }],
+      manaPool: { p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 3 } },
+      battlefield: [
+        perm({
+          id: 'battery',
+          controller: 'p1',
+          counters: {},
+          card: {
+            name: 'Gemstone Array',
+            type_line: 'Artifact',
+            oracle_text:
+              '{2}: Put a charge counter on this artifact.\nRemove a charge counter from this artifact: Add one mana of any color.',
+          },
+        }),
+      ],
+      stack: [],
+    } as any;
+
+    const chargeValue = evaluateActivatedAbilityValue(
+      gameState.battlefield[0],
+      '{2}: Put a charge counter on this artifact.',
+      gameState,
+      'p1',
+      { strategy: AIStrategy.AGGRESSIVE, deckProfile: null } as AIPlayerConfig,
+      {
+        ...deps,
+        getProcessedBattlefield: () => gameState.battlefield,
+      },
+    );
+
+    const emptyPoolState = {
+      ...gameState,
+      manaPool: { p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } },
+    };
+    const chargeValueNoMana = evaluateActivatedAbilityValue(
+      gameState.battlefield[0],
+      '{2}: Put a charge counter on this artifact.',
+      emptyPoolState,
+      'p1',
+      { strategy: AIStrategy.AGGRESSIVE, deckProfile: null } as AIPlayerConfig,
+      {
+        ...deps,
+        getProcessedBattlefield: () => gameState.battlefield,
+      },
+    );
+
+    expect(chargeValue).toBeGreaterThan(10);
+    expect(chargeValue).toBeGreaterThan(chargeValueNoMana);
+  });
+
+  it('scores mana-battery charge higher when spare colored mana can fix another color', () => {
+    const batteryPerm = perm({
+      id: 'battery',
+      controller: 'p1',
+      counters: {},
+      card: {
+        name: 'Gemstone Array',
+        type_line: 'Artifact',
+        oracle_text:
+          '{2}: Put a charge counter on this artifact.\nRemove a charge counter from this artifact: Add one mana of any color.',
+      },
+    });
+
+    const withGreen = {
+      turnPlayer: 'p1',
+      phase: 'main1',
+      step: 'precombat_main',
+      players: [{ id: 'p1' }],
+      manaPool: { p1: { white: 0, blue: 0, black: 0, red: 0, green: 2, colorless: 0 } },
+      battlefield: [batteryPerm],
+      stack: [],
+    } as any;
+
+    const withColorless = {
+      ...withGreen,
+      manaPool: { p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 } },
+    };
+
+    const greenFixValue = evaluateActivatedAbilityValue(
+      batteryPerm,
+      '{2}: Put a charge counter on this artifact.',
+      withGreen,
+      'p1',
+      { strategy: AIStrategy.AGGRESSIVE, deckProfile: null } as AIPlayerConfig,
+      {
+        ...deps,
+        getProcessedBattlefield: () => withGreen.battlefield,
+      },
+    );
+
+    const colorlessValue = evaluateActivatedAbilityValue(
+      batteryPerm,
+      '{2}: Put a charge counter on this artifact.',
+      withColorless,
+      'p1',
+      { strategy: AIStrategy.AGGRESSIVE, deckProfile: null } as AIPlayerConfig,
+      {
+        ...deps,
+        getProcessedBattlefield: () => withColorless.battlefield,
+      },
+    );
+
+    expect(greenFixValue).toBeGreaterThan(colorlessValue);
+  });
 });

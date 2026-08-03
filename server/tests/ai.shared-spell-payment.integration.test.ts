@@ -1,9 +1,10 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
-import { chooseAISpellPaymentSelections } from '../src/socket/ai.js';
+import { chooseAISpellPaymentSelections, canAIAssembleSpellPaymentPlan } from '../src/socket/ai.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
+import { parseManaCost } from '../src/state/modules/mana-check.js';
 
 async function cleanupTrackedGame(gameId: string) {
   games.delete(gameId as any);
@@ -856,4 +857,327 @@ describe('AI shared spell-payment integration', () => {
     expect(((game.state as any).battlefield || []).some((perm: any) => perm?.id === 'izzet_signet_1')).toBe(true);
     expect(getEvents(gameId)).toEqual([]);
   });
+
+  it('refuses Gemstone Array spell payment plans that require removing unsupported charge counters', async () => {
+    const gameId = createTestGameId('gemstone_array_unsupported_spell_payment');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'mountain_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'mountain_card_1',
+          name: 'Mountain',
+          type_line: 'Basic Land — Mountain',
+          oracle_text: '{T}: Add {R}.',
+        },
+      },
+      {
+        id: 'mountain_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'mountain_card_2',
+          name: 'Mountain',
+          type_line: 'Basic Land — Mountain',
+          oracle_text: '{T}: Add {R}.',
+        },
+      },
+      {
+        id: 'mountain_3',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'mountain_card_3',
+          name: 'Mountain',
+          type_line: 'Basic Land — Mountain',
+          oracle_text: '{T}: Add {R}.',
+        },
+      },
+      {
+        id: 'stack_gemstone_array',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: '19ef37a3-4538-47b2-8f88-3fa0a4e32329_gemstone',
+          name: 'Gemstone Array',
+          type_line: 'Artifact',
+          oracle_text:
+            '{2}: Put a charge counter on this artifact.\nRemove a charge counter from this artifact: Add one mana of any color.',
+        },
+      },
+    ];
+
+    // {4} needs 4 mana. Three mountains + Gemstone Array would only be enough if the
+    // remove-counter ability were treated as a free tap-for-mana source.
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{4}',
+      totalManaCost: '{4}',
+    });
+
+    expect(plan).toBeNull();
+    expect(getEvents(gameId)).toEqual([]);
+  });
+
+  it('pays {4} from four real lands without selecting Gemstone Array remove-counter mana', async () => {
+    const gameId = createTestGameId('gemstone_array_ignored_when_lands_cover');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      ...[1, 2, 3, 4].map((n) => ({
+        id: `mountain_${n}`,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: `mountain_card_${n}`,
+          name: 'Mountain',
+          type_line: 'Basic Land — Mountain',
+          oracle_text: '{T}: Add {R}.',
+        },
+      })),
+      {
+        id: 'stack_gemstone_array',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: { charge: 2 },
+        card: {
+          id: '19ef37a3-4538-47b2-8f88-3fa0a4e32329_gemstone',
+          name: 'Gemstone Array',
+          type_line: 'Artifact',
+          oracle_text:
+            '{2}: Put a charge counter on this artifact.\nRemove a charge counter from this artifact: Add one mana of any color.',
+        },
+      },
+    ];
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{4}',
+      totalManaCost: '{4}',
+    });
+
+    expect(plan).not.toBeNull();
+    expect(plan!.payment).toHaveLength(4);
+    expect(plan!.payment.every((entry) => String(entry.permanentId).startsWith('mountain_'))).toBe(true);
+    expect(plan!.payment.some((entry) => String(entry.permanentId).includes('gemstone'))).toBe(false);
+  });
+
+  it('pays {4} using three lands plus a charged mana-battery remove-counter source', async () => {
+    const gameId = createTestGameId('charged_mana_battery_spell_payment');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      ...[1, 2, 3].map((n) => ({
+        id: `mountain_${n}`,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: `mountain_card_${n}`,
+          name: 'Mountain',
+          type_line: 'Basic Land — Mountain',
+          oracle_text: '{T}: Add {R}.',
+        },
+      })),
+      {
+        id: 'stack_mana_battery',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: { charge: 2 },
+        card: {
+          id: 'mana_battery_card',
+          name: 'Custom Mana Battery',
+          type_line: 'Artifact',
+          oracle_text:
+            '{1}: Put a charge counter on this artifact.\nRemove a charge counter from this artifact: Add one mana of any color.',
+        },
+      },
+    ];
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{4}',
+      totalManaCost: '{4}',
+    });
+
+    expect(plan).not.toBeNull();
+    expect(plan!.payment).toHaveLength(4);
+    expect(plan!.payment.filter((entry) => String(entry.permanentId).startsWith('mountain_'))).toHaveLength(3);
+    expect(plan!.payment.some((entry) => String(entry.permanentId) === 'stack_mana_battery')).toBe(true);
+    expect(getEvents(gameId)).toEqual([]);
+  });
+
+  it('assembles {R} payment by charging a mana battery with spare green as a color fix', async () => {
+    const gameId = createTestGameId('mana_battery_color_fix');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 2, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'stack_gemstone_array',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'gemstone_array_card',
+          name: 'Gemstone Array',
+          type_line: 'Artifact',
+          oracle_text:
+            '{2}: Put a charge counter on this artifact.\nRemove a charge counter from this artifact: Add one mana of any color.',
+        },
+      },
+    ];
+
+    const parsedCost = parseManaCost('{R}');
+    expect(canAIAssembleSpellPaymentPlan(game, playerId as any, parsedCost)).toBe(true);
+
+    // Assemblability is simulated on a clone; the live board should remain unchanged.
+    const gemstone = ((game.state as any).battlefield || []).find((perm: any) => perm?.id === 'stack_gemstone_array');
+    expect(Number(gemstone?.counters?.charge || 0)).toBe(0);
+    expect(Number((game.state as any).manaPool[playerId].green || 0)).toBe(2);
+    expect(getEvents(gameId)).toEqual([]);
+  });
 });
+

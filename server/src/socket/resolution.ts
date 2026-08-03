@@ -68,6 +68,8 @@ import {
   chooseAIXValueSelection,
   chooseAISpellPaymentSelections,
   chooseAITargetSelectionsForChoiceStep,
+  isAIPlayer,
+  rememberAIFailedSpellCast,
 } from "./ai.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import {
@@ -13338,6 +13340,9 @@ async function handleStepResponse(
             emitNextPendingResolutionStep(io, gameId, String(pid));
           } else {
             debugWarn(1, `[Resolution] Spell payment applied for ${cardName} but cast did not complete (effectId='${effectId}')`);
+            if (isAIPlayer(gameId, pid as any)) {
+              rememberAIFailedSpellCast(game, String(pid), String(cardId || ''));
+            }
             emitToPlayer(io, pid as any, 'error', {
               code: 'CAST_DID_NOT_COMPLETE',
               message: `Payment for ${cardName} did not finish casting — try casting again.`,

@@ -230,6 +230,66 @@ export function detectActivatedAbility(perm: BattlefieldPermanent): string | nul
   return null;
 }
 
+function normalizeBatteryCounterType(rawTypePhrase: string): string | null {
+  let counterType = String(rawTypePhrase || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\s*(?:a|an)\s+/i, '')
+    .replace(/\s+from\b.*$/i, '')
+    .replace(/\s+/g, ' ');
+  if (!counterType) return null;
+  if (/\+\s*1\s*\/\s*\+\s*1/i.test(counterType) || /\bplus\s*one\b/.test(counterType)) return '+1/+1';
+  if (/-\s*1\s*\/\s*-\s*1/i.test(counterType) || /\bminus\s*one\b/.test(counterType)) return '-1/-1';
+  const first = counterType.split(/\s+/)[0];
+  return String(first || '').toLowerCase() || null;
+}
+
+function detectManaBatteryCounterLoop(oracleText: string, cardName?: string): {
+  paysOut: boolean;
+  counterTypes: string[];
+} {
+  const lines = String(oracleText || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const investTypes = new Set<string>();
+  const payoutTypes = new Set<string>();
+  const nameLower = String(cardName || '').trim().toLowerCase();
+
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    const costPart = line.split(':')[0] || '';
+    const effectPart = line.split(':').slice(1).join(':');
+
+    const putMatch = lower.match(
+      /\bput\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+([^\s]+(?:\s+[^\s]+)?)\s+counters?\s+on\b/i,
+    );
+    if (putMatch && /\{[^}]+\}/.test(costPart)) {
+      const counterType = normalizeBatteryCounterType(String(putMatch[1] || ''));
+      if (counterType) investTypes.add(counterType);
+    }
+
+    const removeMatch = costPart.match(
+      /\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+([^,;:]+?)\s+counters?(?:\s+from\s+([^,;:]+))?\b/i,
+    );
+    if (removeMatch && /\badd\b/i.test(effectPart) && (/\bmana\b/i.test(effectPart) || /\{[wubrgc]\}/i.test(effectPart))) {
+      const sourceRef = String(removeMatch[2] || '').toLowerCase();
+      const refersToSource = !sourceRef
+        || /\b(this|this permanent|this artifact|this creature|this land|this enchantment|it|~|source)\b/i.test(sourceRef)
+        || (nameLower.length > 0 && sourceRef.includes(nameLower));
+      if (!refersToSource) continue;
+      const counterType = normalizeBatteryCounterType(String(removeMatch[1] || ''));
+      if (counterType) payoutTypes.add(counterType);
+    }
+  }
+
+  const shared = [...investTypes].filter((type) => payoutTypes.has(type));
+  return {
+    paysOut: payoutTypes.size > 0,
+    counterTypes: shared.length > 0 ? shared : [...payoutTypes],
+  };
+}
+
 export function evaluateActivatedAbilityValue(
   perm: BattlefieldPermanent,
   abilityText: string,
@@ -351,6 +411,65 @@ export function evaluateActivatedAbilityValue(
 
   if (lowerText.includes('+1/+1') || lowerText.includes('+2/+2')) {
     value += 4;
+  }
+
+  // Mana-battery investment: pay mana now to put counters that later unlock remove-for-mana.
+  // Covers Gemstone Array, Trigon charge lines, and similar pay-now / payout-later designs.
+  const battery = detectManaBatteryCounterLoop(String(card?.oracle_text || ''), String(card?.name || ''));
+  const putCounterMatch = lowerText.match(
+    /\bput\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+([^\s]+(?:\s+[^\s]+)?)\s+counters?\s+on\b/i,
+  );
+  if (putCounterMatch && battery.paysOut) {
+    const putCountWord = String(putCounterMatch[1] || 'one').toLowerCase();
+    const putCountMap: Record<string, number> = {
+      a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
+      six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+    };
+    const putCount = putCountMap[putCountWord] || Number.parseInt(putCountWord, 10) || 1;
+    const putType = String(putCounterMatch[2] || '').toLowerCase().split(/\s+/)[0];
+    const relevantTypes = battery.counterTypes.length > 0
+      ? battery.counterTypes
+      : ['charge', 'storage', '+1/+1'];
+    const investsRelevantType = relevantTypes.some((type) => {
+      if (type === '+1/+1') return /\+1/.test(putType) || putType.includes('plus');
+      return putType.includes(type) || type.includes(putType);
+    });
+
+    if (investsRelevantType) {
+      const currentCounters = relevantTypes.reduce((sum, type) => {
+        const counters = (perm as any)?.counters || {};
+        if (type === '+1/+1') return sum + Number(counters['+1/+1'] || counters.p1p1 || 0);
+        return sum + Number(counters[type] || 0);
+      }, 0);
+      value += 7;
+      if (currentCounters <= 0) value += 6;
+      else if (currentCounters < 3) value += 3;
+      if (isOwnTurn && isMainPhase) value += 2;
+      const manaPool = (gameState as any)?.manaPool?.[playerId] || {};
+      const floatingByColor = {
+        white: Number(manaPool.white || 0),
+        blue: Number(manaPool.blue || 0),
+        black: Number(manaPool.black || 0),
+        red: Number(manaPool.red || 0),
+        green: Number(manaPool.green || 0),
+        colorless: Number(manaPool.colorless || 0),
+      };
+      const floating = Object.values(floatingByColor).reduce((sum, amount) => sum + amount, 0);
+      if (floating >= 2) value += 4;
+      // Costly same-turn fixer: e.g. two green in pool → charge → remove for needed red.
+      const coloredAmounts = [
+        floatingByColor.white,
+        floatingByColor.blue,
+        floatingByColor.black,
+        floatingByColor.red,
+        floatingByColor.green,
+      ];
+      const maxColored = Math.max(0, ...coloredAmounts);
+      const coloredTotal = coloredAmounts.reduce((sum, amount) => sum + amount, 0);
+      if (maxColored >= 2) value += 8;
+      else if (coloredTotal >= 2) value += 5;
+      value += Math.min(4, putCount);
+    }
   }
 
   if (lowerText.includes('untap')) {
