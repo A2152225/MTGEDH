@@ -178,6 +178,27 @@ function maybeQueueOpponentMayPaySpellCastTrigger(
     });
     persistOutcome(willPay, auto);
     if (io) {
+      try {
+        const decidingName = String(
+          (((ctx as any).state?.players || []).find((p: any) => String(p?.id || '') === String(decidingPlayer))?.name)
+          || decidingPlayer,
+        );
+        const controllerName = String(
+          (((ctx as any).state?.players || []).find((p: any) => String(p?.id || '') === String(triggerController))?.name)
+          || triggerController,
+        );
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: willPay
+            ? `${decidingName} pays ${manaCost} for ${sourceName}.`
+            : `${decidingName} declines to pay ${manaCost} for ${sourceName}; ${controllerName} ${declineEffect || 'gets the effect'}.`,
+          ts: Date.now(),
+        });
+      } catch {
+        // best-effort chat
+      }
       broadcastGame(io as any, ctx as any, gameId);
     }
   };

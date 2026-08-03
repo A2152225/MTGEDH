@@ -31833,6 +31833,17 @@ async function handleOptionChoiceResponse(
       return;
     }
 
+    // Drop any duplicate discard-land prompts for the same stack object (e.g. from
+    // Smart Pass re-resolving while the first choice was still open).
+    try {
+      const { cancelSiblingWouldEnterDiscardLandSteps } = await import(
+        '../state/modules/land-would-enter-replacement.js'
+      );
+      cancelSiblingWouldEnterDiscardLandSteps(gameId, stackItemId, String((step as any).id || ''));
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to cancel sibling moxDiamondChoice steps:', err);
+    }
+
     const { cardName, discardedLandName, discardLandId } = resolved;
 
     if (discardedLandName) {

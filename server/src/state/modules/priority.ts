@@ -532,6 +532,31 @@ export function enterResolutionMode(ctx: GameContext): void {
 export function exitResolutionMode(ctx: GameContext): void {
   const { state } = ctx;
   const stateAny = state as any;
+
+  // Defense-in-depth: never restore priority while a would-enter / replacement
+  // choice (or other non-payment resolution prompt) is still open. Mana payment
+  // prompts intentionally allow priority so players can activate mana abilities.
+  const gameId = String((ctx as any).gameId || stateAny?.id || '').trim();
+  if (gameId) {
+    try {
+      const blocking = ResolutionQueueManager.getQueue(gameId).steps.filter((step: any) => {
+        if (!step) return false;
+        if (step.status !== 'pending' && step.status !== 'active') return false;
+        if (String(step.type || '') === 'mana_payment_choice') return false;
+        return true;
+      });
+      if (blocking.length > 0) {
+        debugWarn(
+          1,
+          `[priority] Refusing to exit resolution mode — ${blocking.length} blocking step(s) still pending ` +
+            `(${blocking.map((s: any) => s.type).join(', ')})`,
+        );
+        return;
+      }
+    } catch {
+      // best-effort guard
+    }
+  }
   
   // Restore priority to the saved player, or turn player as fallback
   const priorityPlayer = stateAny._priorityAfterResolution || state.turnPlayer;

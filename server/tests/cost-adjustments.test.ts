@@ -127,6 +127,27 @@ describe('cost adjustment engine', () => {
     expect(buildCostAdjustmentPlan(state, 'p2', artifactSpell).genericAdjustment).toBe(2);
   });
 
+  it('taxes both artifact and enchantment spells for Aura of Silence', () => {
+    const state = {
+      battlefield: [permanent({
+        id: 'aura',
+        controller: 'p1',
+        name: 'Aura of Silence',
+        oracleText: 'Artifact and enchantment spells your opponents cast cost {2} more to cast.',
+      })],
+    };
+    const enchantmentSpell = {
+      name: 'Rhystic Study',
+      type_line: 'Enchantment',
+      mana_cost: '{2}{U}',
+      colors: ['U'],
+    };
+
+    expect(buildCostAdjustmentPlan(state, 'p2', artifactSpell).genericAdjustment).toBe(2);
+    expect(buildCostAdjustmentPlan(state, 'p2', enchantmentSpell).genericAdjustment).toBe(2);
+    expect(buildCostAdjustmentPlan(state, 'p2', blueSpell).genericAdjustment).toBe(0);
+  });
+
   it('ignores phased-out battlefield sources', () => {
     const state = {
       battlefield: [permanent({

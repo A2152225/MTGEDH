@@ -18,6 +18,12 @@ export function tryPrepareResolveTopOfStackContext(ctx: GameContext): ResolveTop
   const pendingTop =
     Array.isArray(stack) && stack.length > 0 ? stack[stack.length - 1] : null;
   if (pendingTop && hasWouldEnterDiscardLandReplacement(pendingTop.card)) {
+    // Spell already waiting on discard-land replacement — never pop/resolve again.
+    if ((pendingTop as any).wouldEnterDiscardLandDeferred === true) {
+      queueWouldEnterDiscardLandChoiceForStackItem(ctx, pendingTop);
+      ctx.bumpSeq();
+      return { handled: true };
+    }
     if (queueWouldEnterDiscardLandChoiceForStackItem(ctx, pendingTop)) {
       ctx.bumpSeq();
       return { handled: true };

@@ -8,4 +8,5 @@ export {
   buildWouldEnterDiscardLandHandOptions as buildMoxDiamondLandOptions,
   queueWouldEnterDiscardLandChoiceForStackItem as queueMoxDiamondChoiceForStackItem,
   tryQueueWouldEnterDiscardLandBeforeStackResolve as tryQueueMoxDiamondBeforeStackResolve,
+  cancelSiblingWouldEnterDiscardLandSteps as cancelSiblingMoxDiamondChoiceSteps,
 } from './land-would-enter-replacement.js';

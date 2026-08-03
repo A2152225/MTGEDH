@@ -5655,6 +5655,298 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.cancelled).toBe(false);
   });
 
+  it('pays opponent-may-pay from untapped lands when no competing hand spell needs the mana', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'island_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'island_card',
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '{T}: Add {U}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], library: [], graveyard: [], exile: [] },
+      opp1: { hand: [], library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      description: 'Rhystic Study: Pay {1} or its controller draws a card.',
+      mandatory: true,
+      sourceId: 'rhystic_1',
+      sourceName: 'Rhystic Study',
+      options: [
+        { id: 'pay', label: 'Pay {1}' },
+        { id: 'decline', label: 'Decline', description: 'Draw a card' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      opponentMayPayChoice: true,
+      optionalPaymentPrompt: true,
+      optionalPaymentValidationKind: 'mana',
+      optionalPaymentManaCost: '{1}',
+      optionalPaymentPayChoiceId: 'pay',
+      optionalPaymentDeclineChoiceId: 'decline',
+      promptId: 'prompt_land_only',
+      sourceController: 'opp1',
+      decidingPlayer: playerId,
+      manaCost: '{1}',
+      declineEffect: 'Draw a card',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['pay']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('declines opponent-may-pay when paying would lock out the best affordable hand spell', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'island_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'island_card_1',
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '{T}: Add {U}.',
+        },
+      },
+      {
+        id: 'island_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'island_card_2',
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '{T}: Add {U}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'counterspell_1',
+            name: 'Counterspell',
+            type_line: 'Instant',
+            mana_cost: '{U}{U}',
+            cmc: 2,
+            oracle_text: 'Counter target spell.',
+          },
+        ],
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      description: 'Rhystic Study: Pay {1} or its controller draws a card.',
+      mandatory: true,
+      sourceId: 'rhystic_1',
+      sourceName: 'Rhystic Study',
+      options: [
+        { id: 'pay', label: 'Pay {1}' },
+        { id: 'decline', label: 'Decline', description: 'Draw a card' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      opponentMayPayChoice: true,
+      optionalPaymentPrompt: true,
+      optionalPaymentValidationKind: 'mana',
+      optionalPaymentManaCost: '{1}',
+      optionalPaymentPayChoiceId: 'pay',
+      optionalPaymentDeclineChoiceId: 'decline',
+      promptId: 'prompt_keep_up_spell',
+      sourceController: 'opp1',
+      decidingPlayer: playerId,
+      manaCost: '{1}',
+      declineEffect: 'Draw a card',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['decline']);
+    expect(completed?.response?.cancelled).toBe(true);
+  });
+
+  it('pays Smothering Tithe tax when surplus mana still covers the best hand spell', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'plains_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'plains_card_1',
+          name: 'Plains',
+          type_line: 'Basic Land — Plains',
+          oracle_text: '{T}: Add {W}.',
+        },
+      },
+      {
+        id: 'plains_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'plains_card_2',
+          name: 'Plains',
+          type_line: 'Basic Land — Plains',
+          oracle_text: '{T}: Add {W}.',
+        },
+      },
+      {
+        id: 'plains_3',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'plains_card_3',
+          name: 'Plains',
+          type_line: 'Basic Land — Plains',
+          oracle_text: '{T}: Add {W}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'sol_ring_1',
+            name: 'Sol Ring',
+            type_line: 'Artifact',
+            mana_cost: '{1}',
+            cmc: 1,
+            oracle_text: '{T}: Add {C}{C}.',
+          },
+        ],
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      description: 'Smothering Tithe: Pay {2} or its controller creates a Treasure token.',
+      mandatory: true,
+      sourceId: 'tithe_1',
+      sourceName: 'Smothering Tithe',
+      options: [
+        { id: 'pay', label: 'Pay {2}' },
+        { id: 'decline', label: 'Decline', description: 'Create a Treasure token' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      opponentMayPayChoice: true,
+      optionalPaymentPrompt: true,
+      optionalPaymentValidationKind: 'mana',
+      optionalPaymentManaCost: '{2}',
+      optionalPaymentPayChoiceId: 'pay',
+      optionalPaymentDeclineChoiceId: 'decline',
+      promptId: 'prompt_tithe_surplus',
+      sourceController: 'opp1',
+      decidingPlayer: playerId,
+      manaCost: '{2}',
+      declineEffect: 'Create a Treasure token',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['pay']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
   it('declines opponent-may-pay prompts through AI priority handling when the cost is illegal', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

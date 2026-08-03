@@ -4,7 +4,7 @@
 
 import type { PlayerID } from '../../../../shared/src/types.js';
 import type { GameContext } from '../context.js';
-import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
+import { ResolutionQueueManager, ResolutionStepStatus, ResolutionStepType } from '../resolution/index.js';
 import { debug } from '../../utils/debug.js';
 import { sacrificePermanent } from './upkeep-triggers.js';
 import { finishPlayLandBattlefieldEntry, type PlayLandEntryOptions } from './stackPlayLandUtils.js';
@@ -263,6 +263,18 @@ export function buildWouldEnterDiscardLandHandOptions(
     }));
 }
 
+function findUnresolvedWouldEnterDiscardLandStep(gameId: string, stackItemId: string): any | undefined {
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  return (queue?.steps || []).find((step: any) => {
+    if (!step) return false;
+    if (step.status !== ResolutionStepStatus.PENDING && step.status !== ResolutionStepStatus.ACTIVE) {
+      return false;
+    }
+    if (step.moxDiamondChoice !== true) return false;
+    return String(step.stackItemId || step.sourceId || '') === stackItemId;
+  });
+}
+
 /**
  * Queue discard-land replacement while the spell remains on the stack.
  * Returns true when ETB should be deferred.
@@ -279,10 +291,14 @@ export function queueWouldEnterDiscardLandChoiceForStackItem(ctx: GameContext, s
   const gameId = String(ctx.gameId || (ctx.state as any)?.id || '').trim();
   if (!gameId) return false;
 
-  const existing = ResolutionQueueManager.getStepsForPlayer(gameId, controller).find(
-    (step: any) => (step as any)?.moxDiamondChoice === true && String((step as any)?.stackItemId || '') === stackItemId,
-  );
-  if (existing) return true;
+  // Mark deferred even when a choice is already queued so later auto-pass / stack
+  // resolve attempts treat the spell as waiting on the replacement, not unresolved.
+  (stackItem as any).wouldEnterDiscardLandDeferred = true;
+
+  // Dedup must see ACTIVE steps too — getStepsForPlayer only returns PENDING.
+  if (findUnresolvedWouldEnterDiscardLandStep(gameId, stackItemId)) {
+    return true;
+  }
 
   const zones = (ctx.state as any)?.zones?.[controller];
   const hand = Array.isArray(zones?.hand) ? zones.hand : [];
@@ -320,8 +336,16 @@ export function tryQueueWouldEnterDiscardLandBeforeStackResolve(game: any): bool
   const topItem = stack[stack.length - 1];
   if (!topItem?.card || !topItem?.controller) return false;
 
+  // Already deferred waiting on a discard-land choice — do not re-resolve.
+  if ((topItem as any).wouldEnterDiscardLandDeferred === true) {
+    const gameId = String(game.gameId || game.id || (game.state as any)?.id || '').trim();
+    if (gameId && findUnresolvedWouldEnterDiscardLandStep(gameId, String(topItem.id || ''))) {
+      return true;
+    }
+  }
+
   const ctx: GameContext = {
-    gameId: String(game.id || (game.state as any)?.id || ''),
+    gameId: String(game.gameId || game.id || (game.state as any)?.id || ''),
     state: game.state,
     bumpSeq: () => {
       if (typeof game.bumpSeq === 'function') game.bumpSeq();
@@ -329,6 +353,32 @@ export function tryQueueWouldEnterDiscardLandBeforeStackResolve(game: any): bool
   } as GameContext;
 
   return queueWouldEnterDiscardLandChoiceForStackItem(ctx, topItem);
+}
+
+/** Cancel leftover duplicate discard-land prompts for the same stack object. */
+export function cancelSiblingWouldEnterDiscardLandSteps(
+  gameId: string,
+  stackItemId: string,
+  exceptStepId?: string,
+): void {
+  const normalizedGameId = String(gameId || '').trim();
+  const normalizedStackId = String(stackItemId || '').trim();
+  if (!normalizedGameId || !normalizedStackId) return;
+
+  const exceptId = String(exceptStepId || '').trim();
+  const queue = ResolutionQueueManager.getQueue(normalizedGameId);
+  const siblingIds = (queue?.steps || [])
+    .filter((step: any) => {
+      if (!step || step.moxDiamondChoice !== true) return false;
+      if (exceptId && String(step.id || '') === exceptId) return false;
+      return String(step.stackItemId || step.sourceId || '') === normalizedStackId;
+    })
+    .map((step: any) => String(step.id || ''))
+    .filter(Boolean);
+
+  for (const stepId of siblingIds) {
+    ResolutionQueueManager.cancelStep(normalizedGameId, stepId);
+  }
 }
 
 export type WouldEnterDiscardLandResolveResult =

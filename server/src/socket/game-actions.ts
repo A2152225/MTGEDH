@@ -4391,7 +4391,7 @@ export function processOpponentSpellCastTriggersForCast(
         id: `m_${Date.now()}`,
         gameId,
         from: 'system',
-        message: `ΓÜí ${trigger.cardName}'s triggered ability: ${trigger.description}`,
+        message: `${trigger.cardName} triggers (${trigger.description}).`,
         ts: Date.now(),
       });
     }
@@ -13540,7 +13540,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             id: `m_${Date.now()}`,
             gameId,
             from: "system",
-            message: `ΓÜí ${trigger.cardName}'s triggered ability: ${trigger.description}`,
+            message: `${trigger.cardName} triggers (${trigger.description}).`,
             ts: Date.now(),
           });
         }

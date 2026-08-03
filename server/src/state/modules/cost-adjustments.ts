@@ -232,17 +232,34 @@ export function buildCostAdjustmentPlan(
     }
 
     if (sourceAppliesTaxToPlayer && permOracle.includes('spells') && permOracle.includes('cost') && permOracle.includes('more')) {
-      const taxMatch = permOracle.match(/(?:(artifact|enchantment|noncreature|nonartifact)\s+(?:and\s+\w+\s+)?)?spells(?: you cast| your opponents cast| opponents cast)? cost \{(\d+)\} more/i);
+      // Capture compound types like "artifact and enchantment" — a single-type capture
+      // wrongly treated Aura of Silence as artifact-only and skipped enchantment spells.
+      const taxMatch = permOracle.match(
+        /(?:((?:artifact|enchantment|noncreature|nonartifact)(?:\s+and\s+(?:artifact|enchantment|noncreature|nonartifact))*)\s+)?spells(?: you cast| your opponents cast| opponents cast)? cost \{(\d+)\} more/i,
+      );
       if (taxMatch) {
-        const typeRestriction = String(taxMatch[1] || '').toLowerCase();
+        const typeRestrictionRaw = String(taxMatch[1] || '').toLowerCase();
         const taxAmount = parseInt(taxMatch[2], 10) || 1;
+        const restrictsArtifact = /\bartifact\b/.test(typeRestrictionRaw);
+        const restrictsEnchantment = /\benchantment\b/.test(typeRestrictionRaw);
+        const restrictsNoncreature = /\bnoncreature\b/.test(typeRestrictionRaw);
+        const restrictsNonartifact = /\bnonartifact\b/.test(typeRestrictionRaw);
+        const compoundArtifactAndEnchantment =
+          (restrictsArtifact && restrictsEnchantment)
+          || /\bartifact and enchantment\b/.test(permOracle);
 
         let applies = true;
-        if (typeRestriction === 'artifact' && !traits.isArtifactSpell) applies = false;
-        if (typeRestriction === 'enchantment' && !traits.isEnchantmentSpell) applies = false;
-        if (typeRestriction === 'noncreature' && traits.isCreatureSpell) applies = false;
-        if (typeRestriction === 'nonartifact' && traits.isArtifactSpell) applies = false;
-        if (permOracle.includes('artifact and enchantment') && !traits.isArtifactOrEnchantment) applies = false;
+        if (compoundArtifactAndEnchantment) {
+          applies = traits.isArtifactOrEnchantment;
+        } else if (restrictsArtifact && !traits.isArtifactSpell) {
+          applies = false;
+        } else if (restrictsEnchantment && !traits.isEnchantmentSpell) {
+          applies = false;
+        } else if (restrictsNoncreature && traits.isCreatureSpell) {
+          applies = false;
+        } else if (restrictsNonartifact && traits.isArtifactSpell) {
+          applies = false;
+        }
 
         if (applies) {
           addGenericAdjustment(sourceName, taxAmount);

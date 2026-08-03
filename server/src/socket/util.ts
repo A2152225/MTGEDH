@@ -2267,6 +2267,26 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
       return;
     }
 
+    // Never Smart-Pass / stack-drain while a non-payment resolution prompt is open.
+    // Mox Diamond stays on the stack during its discard-land choice; without this
+    // guard, bypassIdleForStack re-resolves the spell and queues a second prompt.
+    {
+      const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
+      if (pendingSummary.hasPending) {
+        const blockingTypes = pendingSummary.pendingTypes.filter(
+          (type) => String(type) !== 'mana_payment_choice',
+        );
+        if (blockingTypes.length > 0) {
+          clearScheduledHumanAutoPass(gameId, priorityPlayerId);
+          debug(
+            2,
+            `${ts()} [checkAndTriggerAutoPass] Blocking auto-pass — pending resolution steps: ${blockingTypes.join(', ')} (ID: ${debugCallId})`,
+          );
+          return;
+        }
+      }
+    }
+
     const players = stateAny?.players || [];
     const priorityPlayer = players.find((p: any) => p?.id === priority);
     if (priorityPlayer && priorityPlayer.isAI) {

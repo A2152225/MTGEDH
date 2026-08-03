@@ -2388,6 +2388,98 @@ function chooseAIOptionalDiscardThenDrawSelection(
   return { selections: [discardId], cancelled: false };
 }
 
+function getAIParsedManaCostAmount(parsed: ParsedManaCost): number {
+  const colors = parsed?.colors || ({} as ParsedManaCost['colors']);
+  const colored =
+    Number(colors.W || 0)
+    + Number(colors.U || 0)
+    + Number(colors.B || 0)
+    + Number(colors.R || 0)
+    + Number(colors.G || 0)
+    + Number(colors.C || 0);
+  const hybrid = Array.isArray(parsed?.hybrid) ? parsed.hybrid.length : 0;
+  return Math.max(0, Number(parsed?.generic || 0) + colored + hybrid);
+}
+
+function getAIHandSpellCmcCandidates(game: any, playerId: PlayerID): number[] {
+  return getAIHand(game, playerId)
+    .map((card: any) => {
+      const typeLine = String(card?.type_line || '').toLowerCase();
+      if (!typeLine || /\bland\b/.test(typeLine)) {
+        return 0;
+      }
+      return Math.max(0, Number(card?.cmc ?? card?.mana_value ?? 0) || 0);
+    })
+    .filter((cmc) => cmc > 0);
+}
+
+/**
+ * Decide whether paying an opponent tax (Rhystic / Tithe / Remora / etc.) is worth it.
+ * Uses opportunity cost: keep mana when paying would lock out our best currently affordable
+ * hand spell; otherwise deny opponent value when the tax is surplus / unused elsewhere.
+ */
+function shouldAIPayOpponentTax(
+  game: any,
+  playerId: PlayerID,
+  manaCost: string,
+  declineText: string,
+): boolean {
+  const parsedCost = parseManaCost(manaCost);
+  const taxAmount = getAIParsedManaCostAmount(parsedCost);
+  if (taxAmount <= 0) {
+    return false;
+  }
+
+  let canPay = false;
+  try {
+    canPay = canPayManaCostWithAvailableSources(game.state, playerId, parsedCost);
+  } catch {
+    canPay = false;
+  }
+  if (!canPay) {
+    return false;
+  }
+
+  let availableTotal = 0;
+  try {
+    availableTotal = getTotalManaFromPool(getAvailableMana(game.state, playerId));
+  } catch {
+    availableTotal = getMaxGenericManaAvailable(game.state, String(playerId));
+  }
+  const surplusAfterPay = availableTotal - taxAmount;
+  if (surplusAfterPay < 0) {
+    return false;
+  }
+
+  const spellCmcs = getAIHandSpellCmcCandidates(game, playerId);
+  const bestAffordableNow = spellCmcs
+    .filter((cmc) => cmc <= availableTotal)
+    .reduce((best, cmc) => Math.max(best, cmc), 0);
+  const canStillCastBest = bestAffordableNow === 0 || bestAffordableNow <= surplusAfterPay;
+
+  // Paying would make our best currently castable spell unaffordable — keep the mana.
+  if (bestAffordableNow > 0 && !canStillCastBest) {
+    return false;
+  }
+
+  const declineIsDraw = /\bdraws?\b/i.test(declineText);
+  const declineIsTreasure = /\btreasure\b/i.test(declineText);
+
+  // No competing hand plays — mana isn't needed for a cast this window, so deny value.
+  if (bestAffordableNow === 0) {
+    if (declineIsDraw || declineIsTreasure) {
+      return true;
+    }
+    return surplusAfterPay > 0;
+  }
+
+  // Still able to cast our best play after paying — deny the opposing benefit.
+  if (declineIsDraw || declineIsTreasure) {
+    return true;
+  }
+  return surplusAfterPay >= bestAffordableNow;
+}
+
 function chooseAIOpponentMayPaySelection(
   game: any,
   playerId: PlayerID,
@@ -2403,20 +2495,9 @@ function chooseAIOpponentMayPaySelection(
     return { selections: [declineId], cancelled: true };
   }
 
-  if (step?.optionalPaymentPrompt !== true) {
-    const manaCost = String(step?.manaCost || '').trim();
-    if (!manaCost) {
-      return { selections: [declineId], cancelled: true };
-    }
-
-    try {
-      const pool = getOrInitManaPool(game.state, String(playerId)) as any;
-      if (!canPayManaCost(pool, parseManaCost(manaCost))) {
-        return { selections: [declineId], cancelled: true };
-      }
-    } catch {
-      return { selections: [declineId], cancelled: true };
-    }
+  const manaCost = String(step?.manaCost || step?.optionalPaymentManaCost || '').trim();
+  if (!manaCost) {
+    return { selections: [declineId], cancelled: true };
   }
 
   const sourceController = String(step?.sourceController || '').trim();
@@ -2425,6 +2506,10 @@ function chooseAIOpponentMayPaySelection(
     && /(draw|treasure|create|token|gain life|search|return .*battlefield|put .*counter|copy)/i.test(declineText);
 
   if (!declineBenefitsOpponent) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  if (!shouldAIPayOpponentTax(game, playerId, manaCost, declineText)) {
     return { selections: [declineId], cancelled: true };
   }
 
