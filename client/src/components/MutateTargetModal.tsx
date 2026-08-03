@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { getCardPreviewHandlers } from './CardPreviewLayer';
 
 export interface MutateTarget {
   id: string;
@@ -184,6 +184,11 @@ export function MutateTargetModal({
                   <div
                     key={target.id}
                     onClick={() => setSelectedTargetId(target.id)}
+                    {...getCardPreviewHandlers({
+                      imageUrl: target.imageUrl,
+                      name: target.name,
+                      type_line: target.typeLine,
+                    })}
                     style={{
                       position: 'relative',
                       borderRadius: 8,
@@ -232,6 +237,11 @@ export function MutateTargetModal({
                       >
                         {target.name}
                       </div>
+                      {(target.controllerName || target.controller) && (
+                        <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>
+                          {target.controllerName || target.controller}
+                        </div>
+                      )}
                       {target.power && target.toughness && (
                         <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
                           {target.power}/{target.toughness}
@@ -239,7 +249,7 @@ export function MutateTargetModal({
                       )}
                       {target.isAlreadyMutated && (
                         <div style={{ fontSize: 10, color: '#8b5cf6', marginTop: 2 }}>
-                          🧬 Already mutated ({target.mutationCount})
+                          Already mutated ({target.mutationCount})
                         </div>
                       )}
                     </div>

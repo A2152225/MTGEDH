@@ -9,6 +9,7 @@
 import React, { useState, useMemo } from 'react';
 import type { BattlefieldPermanent, KnownCardRef, PlayerID } from '../../../shared/src';
 import type { SacrificeType } from '../../../shared/src/textUtils';
+import { getCardPreviewHandlers } from './CardPreviewLayer';
 
 export interface SacrificeSelectionProps {
   open: boolean;
@@ -222,6 +223,7 @@ export function SacrificeSelectionModal({
                 <button
                   key={perm.id}
                   onClick={() => handleToggle(perm.id)}
+                  {...getCardPreviewHandlers({ imageUrl, name, type_line: typeLine })}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',

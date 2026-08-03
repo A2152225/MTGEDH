@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { getCardPreviewHandlers } from './CardPreviewLayer';
 
 export interface SelectionOption {
   id: string;
@@ -188,6 +189,7 @@ export function CardSelectionModal({
               <div
                 key={option.id}
                 onClick={() => toggleSelection(option.id)}
+                {...(!isDisabled ? getCardPreviewHandlers({ imageUrl: option.imageUrl, name: option.name }) : {})}
                 title={isDisabled ? option.disabledReason : option.name}
                 style={{
                   cursor: isDisabled ? 'not-allowed' : 'pointer',

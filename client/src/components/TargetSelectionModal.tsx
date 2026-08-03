@@ -14,7 +14,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import type { KnownCardRef, BattlefieldPermanent } from '../../../shared/src';
-import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { getCardPreviewHandlers } from './CardPreviewLayer';
 
 export type TargetType = 'permanent' | 'player' | 'card' | 'stack';
 
@@ -61,7 +61,83 @@ export function isGroupedTargetSelectionComplete(
   return true;
 }
 
-function PermanentTargetCaption({ target }: { target: TargetOption }) {
+function formatControllerGroupLabel(
+  controllerId: string | undefined,
+  controllerName: string | undefined,
+  _viewerPlayerId?: string,
+): string {
+  const name = String(controllerName || controllerId || 'Unknown').trim() || 'Unknown';
+  return `${name}'s permanents`;
+}
+
+function ownershipStyle(isYours: boolean): {
+  border: string;
+  tint: string;
+  badgeBg: string;
+  badgeText: string;
+} {
+  if (isYours) {
+    return {
+      border: 'rgba(56, 189, 248, 0.85)',
+      tint: 'rgba(14, 116, 144, 0.18)',
+      badgeBg: 'rgba(8, 145, 178, 0.95)',
+      badgeText: '#ecfeff',
+    };
+  }
+  return {
+    border: 'rgba(251, 146, 60, 0.8)',
+    tint: 'rgba(154, 52, 18, 0.16)',
+    badgeBg: 'rgba(234, 88, 12, 0.95)',
+    badgeText: '#fff7ed',
+  };
+}
+
+function PermanentOwnershipBadge({
+  isYours,
+  controllerLabel,
+}: {
+  isYours: boolean;
+  controllerLabel?: string;
+}) {
+  const style = ownershipStyle(isYours);
+  const label = String(controllerLabel || 'Unknown').trim() || 'Unknown';
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 4,
+        left: 4,
+        zIndex: 2,
+        padding: '2px 6px',
+        borderRadius: 4,
+        fontSize: 9,
+        fontWeight: 800,
+        letterSpacing: '0.03em',
+        color: style.badgeText,
+        backgroundColor: style.badgeBg,
+        boxShadow: '0 1px 4px rgba(0,0,0,0.45)',
+        maxWidth: '78%',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        pointerEvents: 'none',
+      }}
+      title={label}
+    >
+      {label}
+    </div>
+  );
+}
+
+function PermanentTargetCaption({
+  target,
+  viewerPlayerId,
+}: {
+  target: TargetOption;
+  viewerPlayerId?: string;
+}) {
+  const isYours = Boolean(viewerPlayerId && target.controller && target.controller === viewerPlayerId);
+  // Prefer real table names for politics ("tap King's Command Tower").
   const controllerLabel = target.controllerName || target.controller;
   const ownerLabel = target.ownerName || target.owner;
   const showOwner = Boolean(ownerLabel && ownerLabel !== controllerLabel);
@@ -107,8 +183,12 @@ function PermanentTargetCaption({ target }: { target: TargetOption }) {
             {target.tapped ? 'Tapped' : 'Untapped'}
           </span>
         )}
-        {controllerLabel ? <span>{controllerLabel}</span> : null}
-        {showOwner ? <span style={{ opacity: 0.85 }}>(owned {ownerLabel})</span> : null}
+        {controllerLabel ? (
+          <span style={{ color: isYours ? '#67e8f9' : '#fdba74', fontWeight: 700 }}>
+            {controllerLabel}
+          </span>
+        ) : null}
+        {showOwner ? <span style={{ opacity: 0.85 }}>(owned by {ownerLabel})</span> : null}
       </div>
     </div>
   );
@@ -347,22 +427,43 @@ export function TargetSelectionModal({
     });
   }, [isModePreferredTarget, selectedMode, selectedIds]);
 
-  // Group targets by type or controller
+  // Group targets by controller when ownership differs (Merrow Reejerey / any-permanent cases),
+  // otherwise fall back to type grouping.
   const groupedTargets = useMemo(() => {
-    if (!groupByType && !groupByController) {
+    const permanentControllers = new Set(
+      targets
+        .filter((target) => target.type === 'permanent' && target.controller)
+        .map((target) => String(target.controller)),
+    );
+    const autoGroupByController = permanentControllers.size > 1;
+    const useControllerGroups = groupByController || autoGroupByController;
+
+    if (!groupByType && !useControllerGroups) {
       return { 'All Targets': targets };
     }
 
     const groups: Record<string, TargetOption[]> = {};
+    const groupOrder: string[] = [];
+
+    const pushGroup = (groupKey: string, target: TargetOption) => {
+      if (!groups[groupKey]) {
+        groups[groupKey] = [];
+        groupOrder.push(groupKey);
+      }
+      groups[groupKey].push(target);
+    };
 
     for (const target of targets) {
       let groupKey: string;
-      
-      if (groupByController && target.controller) {
+
+      if (useControllerGroups && target.controller && target.type === 'permanent') {
+        groupKey = formatControllerGroupLabel(target.controller, target.controllerName, viewerPlayerId);
+      } else if (useControllerGroups && target.controller) {
         if (target.type === 'stack') {
           groupKey = 'Spells & abilities on the stack';
         } else {
-          groupKey = `${target.controller}'s ${target.type === 'permanent' ? 'Permanents' : 'Cards'}`;
+          groupKey = formatControllerGroupLabel(target.controller, target.controllerName, viewerPlayerId)
+            .replace('permanents', target.type === 'card' ? 'cards' : 'targets');
         }
       } else if (groupByType) {
         switch (target.type) {
@@ -389,14 +490,25 @@ export function TargetSelectionModal({
         groupKey = 'All Targets';
       }
 
-      if (!groups[groupKey]) {
-        groups[groupKey] = [];
-      }
-      groups[groupKey].push(target);
+      pushGroup(groupKey, target);
     }
 
-    return groups;
-  }, [targets, groupByType, groupByController]);
+    // Keep the viewer's group first when controller-grouped.
+    const ordered: Record<string, TargetOption[]> = {};
+    const yoursKey = viewerPlayerId
+      ? formatControllerGroupLabel(
+          viewerPlayerId,
+          targets.find((t) => t.controller === viewerPlayerId)?.controllerName,
+          viewerPlayerId,
+        )
+      : null;
+    if (yoursKey && groups[yoursKey]) ordered[yoursKey] = groups[yoursKey];
+    for (const key of groupOrder) {
+      if (yoursKey && key === yoursKey) continue;
+      ordered[key] = groups[key];
+    }
+    return ordered;
+  }, [targets, groupByType, groupByController, viewerPlayerId]);
 
   const canConfirm = useMemo(() => {
     return isGroupedTargetSelectionComplete(selectedIds, effectiveTargetGroups, minTargets, maxTargets);
@@ -577,30 +689,35 @@ export function TargetSelectionModal({
                     const isModePreferred = isModePreferredTarget(target);
                     const opponentAtMax =
                       opponentTargets.filter((entry) => selectedIds.has(entry.id)).length >= sectionMax;
+                    const isYours = Boolean(viewerPlayerId && target.controller && target.controller === viewerPlayerId);
+                    const ownership = !isPlayer && target.controller ? ownershipStyle(isYours) : null;
+                    const controllerLabel = target.controllerName || target.controller;
 
                     return (
                       <div
                         key={target.id}
                         onClick={() => toggleSelect(target.id)}
-                        onMouseEnter={(e) => {
-                          if (target.card && 'name' in target.card) {
-                            showCardPreview(e.currentTarget as HTMLElement, target.card as any, { prefer: 'right' });
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          hideCardPreview(e.currentTarget as HTMLElement);
-                        }}
+                        {...getCardPreviewHandlers({
+                          card: target.card as any,
+                          imageUrl: target.imageUrl,
+                          name: target.displayName || target.name,
+                          type_line: target.typeLine,
+                        })}
                         style={{
                           position: 'relative',
                           borderRadius: 6,
                           overflow: 'hidden',
                           border: isSelected
                             ? '3px solid #f59e0b'
+                            : ownership
+                            ? `2px solid ${ownership.border}`
                             : isModePreferred
                             ? '1px solid rgba(245, 158, 11, 0.28)'
                             : '1px solid rgba(255,255,255,0.10)',
                           backgroundColor: isSelected
                             ? 'rgba(245, 158, 11, 0.2)'
+                            : ownership
+                            ? ownership.tint
                             : isModePreferred
                             ? 'rgba(245, 158, 11, 0.05)'
                             : 'transparent',
@@ -667,6 +784,9 @@ export function TargetSelectionModal({
                                   {target.name}
                                 </div>
                               )}
+                              {target.controller ? (
+                                <PermanentOwnershipBadge isYours={isYours} controllerLabel={controllerLabel} />
+                              ) : null}
                               {typeof target.tapped === 'boolean' && (
                                 <div
                                   style={{
@@ -685,7 +805,7 @@ export function TargetSelectionModal({
                                 </div>
                               )}
                             </div>
-                            <PermanentTargetCaption target={target} />
+                            <PermanentTargetCaption target={target} viewerPlayerId={viewerPlayerId} />
                           </>
                         )}
                         {isSelected && (
@@ -716,16 +836,35 @@ export function TargetSelectionModal({
                 </div>
               </div>
             ))
-            : Object.entries(groupedTargets).map(([groupName, groupTargets]) => (
+            : Object.entries(groupedTargets).map(([groupName, groupTargets]) => {
+              const isViewerGroup = Boolean(
+                viewerPlayerId
+                && groupTargets.some((target) => target.controller === viewerPlayerId),
+              );
+              const isControllerGroup = groupName.endsWith("'s permanents");
+              return (
             <div key={groupName} style={{ marginBottom: 8 }}>
               {Object.keys(groupedTargets).length > 1 && (
                 <div
                   style={{
                     padding: '8px 12px',
-                    backgroundColor: '#1a1a2e',
-                    fontWeight: 600,
+                    backgroundColor: isViewerGroup
+                      ? 'rgba(8, 145, 178, 0.22)'
+                      : isControllerGroup
+                        ? 'rgba(154, 52, 18, 0.22)'
+                        : '#1a1a2e',
+                    borderBottom: isViewerGroup
+                      ? '1px solid rgba(56, 189, 248, 0.45)'
+                      : isControllerGroup
+                        ? '1px solid rgba(251, 146, 60, 0.45)'
+                        : undefined,
+                    fontWeight: 700,
                     fontSize: 13,
-                    color: '#a0aec0',
+                    color: isViewerGroup
+                      ? '#a5f3fc'
+                      : isControllerGroup
+                        ? '#fdba74'
+                        : '#a0aec0',
                     position: 'sticky',
                     top: 0,
                     zIndex: 1,
@@ -746,30 +885,35 @@ export function TargetSelectionModal({
                   const isSelected = selectedIds.has(target.id);
                   const isPlayer = target.type === 'player';
                   const isModePreferred = isModePreferredTarget(target);
+                  const isYours = Boolean(viewerPlayerId && target.controller && target.controller === viewerPlayerId);
+                  const ownership = !isPlayer && target.controller ? ownershipStyle(isYours) : null;
+                  const controllerLabel = target.controllerName || target.controller;
 
                   return (
                     <div
                       key={target.id}
                       onClick={() => toggleSelect(target.id)}
-                      onMouseEnter={(e) => {
-                        if (target.card && 'name' in target.card) {
-                          showCardPreview(e.currentTarget as HTMLElement, target.card as any, { prefer: 'right' });
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        hideCardPreview(e.currentTarget as HTMLElement);
-                      }}
+                      {...getCardPreviewHandlers({
+                        card: target.card as any,
+                        imageUrl: target.imageUrl,
+                        name: target.displayName || target.name,
+                        type_line: target.typeLine,
+                      })}
                       style={{
                         position: 'relative',
                         borderRadius: 6,
                         overflow: 'hidden',
                         border: isSelected
                           ? '3px solid #f59e0b'
+                          : ownership
+                          ? `2px solid ${ownership.border}`
                           : isModePreferred
                           ? '1px solid rgba(245, 158, 11, 0.28)'
                           : '1px solid rgba(255,255,255,0.10)',
                         backgroundColor: isSelected
                           ? 'rgba(245, 158, 11, 0.2)'
+                          : ownership
+                          ? ownership.tint
                           : isModePreferred
                           ? 'rgba(245, 158, 11, 0.05)'
                           : 'transparent',
@@ -844,6 +988,9 @@ export function TargetSelectionModal({
                                 {target.name}
                               </div>
                             )}
+                            {target.controller ? (
+                              <PermanentOwnershipBadge isYours={isYours} controllerLabel={controllerLabel} />
+                            ) : null}
                             {typeof target.tapped === 'boolean' && (
                               <div
                                 style={{
@@ -862,7 +1009,7 @@ export function TargetSelectionModal({
                               </div>
                             )}
                           </div>
-                          <PermanentTargetCaption target={target} />
+                          <PermanentTargetCaption target={target} viewerPlayerId={viewerPlayerId} />
 
                           {selectedMode?.name && (
                             <div
@@ -905,7 +1052,8 @@ export function TargetSelectionModal({
                 })}
               </div>
             </div>
-          ))}
+              );
+            })}
 
           {targets.length === 0 && (
             <div style={{ padding: 40, textAlign: 'center', color: '#666' }}>
@@ -936,6 +1084,9 @@ export function TargetSelectionModal({
                   >
                     {target.type === 'player' ? '👤 ' : ''}
                     {target.displayName || target.name}
+                    {target.controllerName || target.controller
+                      ? ` (${target.controllerName || target.controller})`
+                      : ''}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

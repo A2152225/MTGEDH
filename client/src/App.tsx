@@ -4137,45 +4137,49 @@ export function App() {
           : step.type === 'exploit_choice'
             ? ((step as any).creatures || [])
           : (step.validTargets || []);
-        const validTargets: TargetOption[] = rawTargets.map((t: any) => ({
-          id: t.id,
-          type: (t.type as any)
-            || (t.description === 'stack' || t.kind === 'stack' ? 'stack'
-              : (t.description === 'player' || t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent')),
-          name: t.label || t.name || 'Unknown',
-          displayName: t.displayName,
-          imageUrl: t.imageUrl,
-          controller: t.controller,
-          controllerName: t.controllerName,
-          typeLine: t.typeLine,
-          tapped: typeof t.tapped === 'boolean' ? t.tapped : undefined,
-          life: t.life,
-          zone: t.zone || (t.type === 'stack' || t.description === 'stack' || t.kind === 'stack' ? 'stack' : undefined),
-          owner: t.owner,
-          ownerName: t.ownerName,
-          card: t.card,
-        }));
+        const battlefieldById = new Map(
+          (safeView?.battlefield || []).map((perm: any) => [String(perm.id), perm]),
+        );
+        const mapTargetOption = (t: any): TargetOption => {
+          const perm = battlefieldById.get(String(t?.id || ''));
+          const card = t.card || perm?.card;
+          const controllerId = t.controller || perm?.controller;
+          const ownerId = t.owner || perm?.owner;
+          const imageUrl = t.imageUrl
+            || t.image
+            || card?.image_uris?.small
+            || card?.image_uris?.normal
+            || card?.card_faces?.[0]?.image_uris?.small
+            || card?.card_faces?.[0]?.image_uris?.normal;
+          const controllerName = t.controllerName
+            || (controllerId ? resolutionPlayerNames[controllerId] : undefined)
+            || controllerId;
+          const ownerName = t.ownerName
+            || (ownerId ? resolutionPlayerNames[ownerId] : undefined)
+            || ownerId;
+          return {
+            id: t.id,
+            type: (t.type as any)
+              || (t.description === 'stack' || t.kind === 'stack' ? 'stack'
+                : (t.description === 'player' || t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent')),
+            name: t.label || t.name || card?.name || 'Unknown',
+            displayName: t.displayName,
+            imageUrl,
+            controller: controllerId,
+            controllerName,
+            typeLine: t.typeLine || card?.type_line,
+            tapped: typeof t.tapped === 'boolean' ? t.tapped : (typeof perm?.tapped === 'boolean' ? perm.tapped : undefined),
+            life: t.life,
+            zone: t.zone || (t.type === 'stack' || t.description === 'stack' || t.kind === 'stack' ? 'stack' : undefined),
+            owner: ownerId,
+            ownerName,
+            card,
+          };
+        };
+        const validTargets: TargetOption[] = rawTargets.map(mapTargetOption);
 
         const perOpponent = (step as any).perOpponent === true;
         const targetsPerOpponentRaw = (step as any).targetsPerOpponent as Record<string, any[]> | undefined;
-        const mapTargetOption = (t: any): TargetOption => ({
-          id: t.id,
-          type: (t.type as any)
-            || (t.description === 'stack' || t.kind === 'stack' ? 'stack'
-              : (t.description === 'player' || t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent')),
-          name: t.label || t.name || 'Unknown',
-          displayName: t.displayName,
-          imageUrl: t.imageUrl,
-          controller: t.controller,
-          controllerName: t.controllerName,
-          typeLine: t.typeLine,
-          tapped: typeof t.tapped === 'boolean' ? t.tapped : undefined,
-          life: t.life,
-          zone: t.zone || (t.type === 'stack' || t.description === 'stack' || t.kind === 'stack' ? 'stack' : undefined),
-          owner: t.owner,
-          ownerName: t.ownerName,
-          card: t.card,
-        });
         const targetsPerOpponent = targetsPerOpponentRaw
           ? Object.fromEntries(
               Object.entries(targetsPerOpponentRaw).map(([opponentId, opponentTargets]) => [

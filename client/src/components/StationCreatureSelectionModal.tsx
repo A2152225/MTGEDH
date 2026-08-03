@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { getCardPreviewHandlers } from './CardPreviewLayer';
 
 export interface StationCreature {
   id: string;
@@ -171,6 +172,7 @@ export function StationCreatureSelectionModal({
             }}>
               {creatures.map((creature) => {
                 const isSelected = creature.id === selectedId;
+                const previewHandlers = getCardPreviewHandlers({ imageUrl: creature.imageUrl, name: creature.name });
                 return (
                   <div
                     key={creature.id}
@@ -191,12 +193,14 @@ export function StationCreatureSelectionModal({
                       alignItems: 'center',
                     }}
                     onMouseEnter={(e) => {
+                      previewHandlers.onMouseEnter?.(e);
                       if (!isSelected) {
                         e.currentTarget.style.borderColor = 'rgba(59,130,246,0.5)';
                         e.currentTarget.style.background = 'rgba(59,130,246,0.1)';
                       }
                     }}
                     onMouseLeave={(e) => {
+                      previewHandlers.onMouseLeave?.(e);
                       if (!isSelected) {
                         e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
                         e.currentTarget.style.background = 'rgba(0,0,0,0.3)';

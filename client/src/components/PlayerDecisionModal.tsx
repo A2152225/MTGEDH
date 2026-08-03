@@ -15,6 +15,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import type { BattlefieldPermanent, KnownCardRef, PlayerID } from '../../../shared/src';
+import { getCardPreviewHandlers } from './CardPreviewLayer';
 
 // ============================================================================
 // Types
@@ -278,6 +279,7 @@ export function PlayerDecisionModal({
                 key={option.id}
                 onClick={() => handleToggleSelection(option.id)}
                 disabled={isDisabled}
+                {...(!isDisabled ? getCardPreviewHandlers({ imageUrl: option.imageUrl, name: option.label }) : {})}
                 style={{
                   display: 'flex',
                   flexDirection: option.imageUrl ? 'column' : 'row',

@@ -7,6 +7,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { ResolutionPromptMinimizeButton } from './ResolutionMinimizedChip';
+import { getCardPreviewHandlers } from './CardPreviewLayer';
 
 export interface OptionChoiceOption {
   id: string;
@@ -129,6 +130,9 @@ export function OptionChoiceModal({
           {options.map((option) => {
             const isSelected = selectedOptions.has(option.id);
             const isDisabled = option.disabled || false;
+            const previewHandlers = !isDisabled
+              ? getCardPreviewHandlers({ imageUrl: option.imageUrl, name: option.label })
+              : {};
             
             return (
               <button
@@ -152,12 +156,14 @@ export function OptionChoiceModal({
                   textAlign: 'left',
                 }}
                 onMouseEnter={(e) => {
+                  previewHandlers.onMouseEnter?.(e);
                   if (!isDisabled && !isSelected) {
                     e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)';
                     e.currentTarget.style.borderColor = '#888';
                   }
                 }}
                 onMouseLeave={(e) => {
+                  previewHandlers.onMouseLeave?.(e);
                   if (!isDisabled && !isSelected) {
                     e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)';
                     e.currentTarget.style.borderColor = '#666';

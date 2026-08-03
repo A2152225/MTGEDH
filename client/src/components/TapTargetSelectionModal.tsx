@@ -12,7 +12,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
-import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { getCardPreviewHandlers, getCardThumbnailUrl } from './CardPreviewLayer';
 import type { TapOtherPermanentsCost } from '../utils/activatedAbilityParser';
 
 export interface TapTargetSelectionModalProps {
@@ -23,6 +23,10 @@ export interface TapTargetSelectionModalProps {
   cost: TapOtherPermanentsCost;
   // Available permanents that could potentially be tapped
   availablePermanents: BattlefieldPermanent[];
+  /** Current player ID (viewer / activator). */
+  playerId?: string;
+  /** Map of player id → display name (from game view). */
+  playerNames?: Record<string, string>;
   // Callback when selection is confirmed
   onConfirm: (selectedPermanentIds: string[]) => void;
   onCancel: () => void;
@@ -57,6 +61,46 @@ function matchesFilter(
   return true;
 }
 
+function formatPlayerLabel(
+  id: string | undefined,
+  _viewerId: string | undefined,
+  playerNames?: Record<string, string>,
+): string {
+  if (!id) return 'Unknown';
+  return playerNames?.[id] || id;
+}
+
+function groupTargetsByController(
+  targets: BattlefieldPermanent[],
+  viewerId: string | undefined,
+): { controllerId: string; targets: BattlefieldPermanent[] }[] {
+  const groups = new Map<string, BattlefieldPermanent[]>();
+  for (const perm of targets) {
+    const controllerId = String(perm.controller || 'unknown');
+    const bucket = groups.get(controllerId) || [];
+    bucket.push(perm);
+    groups.set(controllerId, bucket);
+  }
+
+  return Array.from(groups.entries())
+    .map(([controllerId, controllerTargets]) => ({
+      controllerId,
+      targets: controllerTargets.sort((a, b) => {
+        const nameA = String((a.card as KnownCardRef)?.name || '').toLowerCase();
+        const nameB = String((b.card as KnownCardRef)?.name || '').toLowerCase();
+        if (nameA !== nameB) return nameA.localeCompare(nameB);
+        return String(a.id).localeCompare(String(b.id));
+      }),
+    }))
+    .sort((a, b) => {
+      if (viewerId) {
+        if (a.controllerId === viewerId && b.controllerId !== viewerId) return -1;
+        if (b.controllerId === viewerId && a.controllerId !== viewerId) return 1;
+      }
+      return a.controllerId.localeCompare(b.controllerId);
+    });
+}
+
 export function TapTargetSelectionModal({
   open,
   title,
@@ -64,6 +108,8 @@ export function TapTargetSelectionModal({
   source,
   cost,
   availablePermanents,
+  playerId,
+  playerNames,
   onConfirm,
   onCancel,
 }: TapTargetSelectionModalProps) {
@@ -82,6 +128,11 @@ export function TapTargetSelectionModal({
       matchesFilter(perm, cost, source.id)
     );
   }, [availablePermanents, cost, source.id]);
+
+  const groupedTargets = useMemo(
+    () => groupTargetsByController(validTargets, playerId),
+    [validTargets, playerId],
+  );
 
   const toggleSelect = useCallback((permanentId: string) => {
     setSelectedIds(prev => {
@@ -141,6 +192,7 @@ export function TapTargetSelectionModal({
         <div style={{ marginBottom: 16, display: 'flex', gap: 16, alignItems: 'flex-start' }}>
           {source.imageUrl && (
             <div
+              {...getCardPreviewHandlers({ imageUrl: source.imageUrl, name: source.name })}
               style={{
                 width: 60,
                 height: 84,
@@ -159,7 +211,7 @@ export function TapTargetSelectionModal({
           )}
           <div style={{ flex: 1 }}>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#f59e0b' }}>
-              👆 {title}
+              {title}
             </h2>
             <div style={{ marginTop: 4, fontSize: 13, color: '#888' }}>
               {source.name}
@@ -188,102 +240,144 @@ export function TapTargetSelectionModal({
           }}
         >
           {validTargets.length > 0 ? (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
-                gap: 8,
-              }}
-            >
-              {validTargets.map(perm => {
-                const card = perm.card as KnownCardRef;
-                const isSelected = selectedIds.has(perm.id);
-                const canSelect = isSelected || selectedIds.size < cost.count;
-
-                return (
+            groupedTargets.map(({ controllerId, targets }) => {
+              const controllerLabel = formatPlayerLabel(controllerId, playerId, playerNames);
+              return (
+                <div key={controllerId} style={{ marginBottom: groupedTargets.length > 1 ? 12 : 0 }}>
                   <div
-                    key={perm.id}
-                    onClick={() => canSelect && toggleSelect(perm.id)}
-                    onMouseEnter={(e) => {
-                      if (card && 'name' in card) {
-                        showCardPreview(e.currentTarget as HTMLElement, card, { prefer: 'right' });
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      hideCardPreview(e.currentTarget as HTMLElement);
-                    }}
                     style={{
-                      position: 'relative',
+                      marginBottom: 8,
+                      padding: '6px 10px',
                       borderRadius: 6,
-                      overflow: 'hidden',
-                      border: isSelected ? '3px solid #f59e0b' : '1px solid rgba(255,255,255,0.1)',
-                      backgroundColor: isSelected ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
-                      cursor: canSelect ? 'pointer' : 'not-allowed',
-                      opacity: canSelect ? 1 : 0.5,
-                      transition: 'all 0.15s',
+                      backgroundColor: '#1a1a2e',
+                      color: '#a0aec0',
+                      fontSize: 12,
+                      fontWeight: 600,
                     }}
                   >
-                    <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden' }}>
-                      {card?.image_uris?.small || card?.image_uris?.normal ? (
-                        <img
-                          src={card.image_uris.small || card.image_uris.normal}
-                          alt={card.name}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        />
-                      ) : (
+                    {controllerLabel}'s permanents ({targets.length})
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                      gap: 8,
+                    }}
+                  >
+                    {targets.map(perm => {
+                      const card = perm.card as KnownCardRef;
+                      const isSelected = selectedIds.has(perm.id);
+                      const canSelect = isSelected || selectedIds.size < cost.count;
+                      const imageUrl = getCardThumbnailUrl(card);
+                      const typeLine = String(card?.type_line || '').trim();
+
+                      return (
                         <div
+                          key={perm.id}
+                          onClick={() => canSelect && toggleSelect(perm.id)}
+                          {...getCardPreviewHandlers({ card, imageUrl, name: card?.name, type_line: typeLine })}
                           style={{
-                            width: '100%',
-                            height: '100%',
-                            background: '#333',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: 10,
-                            textAlign: 'center',
-                            padding: 4,
+                            position: 'relative',
+                            borderRadius: 6,
+                            overflow: 'hidden',
+                            border: isSelected ? '3px solid #f59e0b' : '1px solid rgba(255,255,255,0.1)',
+                            backgroundColor: isSelected ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
+                            cursor: canSelect ? 'pointer' : 'not-allowed',
+                            opacity: canSelect ? 1 : 0.5,
+                            transition: 'all 0.15s',
                           }}
                         >
-                          {card?.name || 'Unknown'}
+                          <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden', position: 'relative' }}>
+                            {imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt={card?.name || 'Permanent'}
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  background: '#333',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: 10,
+                                  textAlign: 'center',
+                                  padding: 4,
+                                }}
+                              >
+                                {card?.name || 'Unknown'}
+                              </div>
+                            )}
+                            <div
+                              style={{
+                                position: 'absolute',
+                                left: 4,
+                                bottom: 4,
+                                padding: '1px 5px',
+                                borderRadius: 4,
+                                fontSize: 9,
+                                fontWeight: 700,
+                                background: 'rgba(22, 163, 74, 0.9)',
+                                color: '#fff',
+                              }}
+                            >
+                              UNTAPPED
+                            </div>
+                          </div>
+                          <div
+                            style={{
+                              padding: '4px 6px',
+                              fontSize: 10,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 2,
+                            }}
+                          >
+                            <div
+                              style={{
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {card?.name || 'Unknown'}
+                            </div>
+                            <div style={{ color: '#9ca3af' }}>
+                              {controllerLabel}
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: 4,
+                                right: 4,
+                                width: 22,
+                                height: 22,
+                                borderRadius: '50%',
+                                backgroundColor: '#f59e0b',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#000',
+                                fontSize: 12,
+                                fontWeight: 600,
+                              }}
+                            >
+                              ✓
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    <div
-                      style={{
-                        padding: '4px 6px',
-                        fontSize: 10,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {card?.name || 'Unknown'}
-                    </div>
-                    {isSelected && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: 4,
-                          right: 4,
-                          width: 22,
-                          height: 22,
-                          borderRadius: '50%',
-                          backgroundColor: '#f59e0b',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: '#000',
-                          fontSize: 12,
-                          fontWeight: 600,
-                        }}
-                      >
-                        ✓
-                      </div>
-                    )}
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })
           ) : (
             <div style={{ padding: 40, textAlign: 'center', color: '#666' }}>
               No valid targets available. You need untapped {cost.filter.types?.join(' or ') || 'permanents'} you control.

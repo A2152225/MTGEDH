@@ -334,14 +334,33 @@ export function tryDeferTriggeredAbilitySpecialPrompts(
 
   if (description.toLowerCase().includes('tap or untap target permanent')) {
     const battlefield = state.battlefield || [];
+    const players = Array.isArray(state.players) ? state.players : [];
+    const playerNameById = new Map<string, string>(
+      players.map((player: any) => [String(player?.id || ''), String(player?.name || player?.id || '')]),
+    );
     const isReplaying = !!(ctx as any).isReplaying;
     if (!isReplaying) {
-      const validTargets = battlefield.map((p: any) => ({
-        id: p.id,
-        label: p.card?.name || 'Permanent',
-        description: p.card?.type_line,
-        image: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-      }));
+      const validTargets = battlefield.map((p: any) => {
+        const controllerId = String(p?.controller || '');
+        const ownerId = String(p?.owner || controllerId || '');
+        const card = p?.card;
+        return {
+          id: p.id,
+          label: card?.name || 'Permanent',
+          name: card?.name || 'Permanent',
+          description: 'permanent',
+          type: 'permanent',
+          typeLine: card?.type_line,
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+          image: card?.image_uris?.small || card?.image_uris?.normal,
+          controller: controllerId || undefined,
+          controllerName: controllerId ? (playerNameById.get(controllerId) || controllerId) : undefined,
+          owner: ownerId || undefined,
+          ownerName: ownerId ? (playerNameById.get(ownerId) || ownerId) : undefined,
+          tapped: p?.tapped === true,
+          card,
+        };
+      });
       if (validTargets.length > 0) {
         queueResolveTopOfStackPrompt(ctx, {
           type: ResolutionStepType.TARGET_SELECTION,

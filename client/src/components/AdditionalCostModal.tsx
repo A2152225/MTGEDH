@@ -13,6 +13,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { getCardPreviewHandlers } from './CardPreviewLayer';
 
 export interface AdditionalCostCard {
   id: string;
@@ -220,6 +221,7 @@ export function AdditionalCostModal({
                 key={option.id}
                 onClick={() => canSelect && handleToggleSelection(option.id)}
                 disabled={!canSelect}
+                {...(canSelect ? getCardPreviewHandlers({ imageUrl: option.imageUrl, name: option.name }) : {})}
                 style={{
                   padding: 0,
                   borderRadius: 8,

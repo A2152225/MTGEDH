@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { getCardPreviewHandlers } from './CardPreviewLayer';
 
 export interface GraveyardCard {
   id: string;
@@ -199,6 +200,7 @@ export function GraveyardSelectionModal({
                   <div
                     key={card.id}
                     onClick={() => canSelect && toggleSelect(card.id)}
+                    {...(canSelect ? getCardPreviewHandlers({ imageUrl: card.imageUrl, name: card.name, type_line: card.typeLine }) : {})}
                     style={{
                       position: 'relative',
                       borderRadius: 8,

@@ -95,6 +95,77 @@ export function hideCardPreview(element?: HTMLElement) {
   window.dispatchEvent(evt);
 }
 
+export type CardPreviewSource =
+  | CardLike
+  | string
+  | {
+      card?: CardLike | null;
+      imageUrl?: string | null;
+      name?: string | null;
+      type_line?: string | null;
+    }
+  | null
+  | undefined;
+
+/** Resolve a hover-preview card from a KnownCardRef, raw image URL, or { card, imageUrl }. */
+export function resolveCardPreviewSource(source: CardPreviewSource): CardLike | null {
+  if (!source) return null;
+  if (typeof source === 'string') {
+    const imageUrl = source.trim();
+    if (!imageUrl) return null;
+    return { image_uris: { normal: imageUrl, small: imageUrl } };
+  }
+
+  const nestedCard = 'card' in source ? source.card : undefined;
+  if (nestedCard && (nestedCard.image_uris || nestedCard.card_faces)) {
+    return nestedCard;
+  }
+
+  if ('image_uris' in source || 'card_faces' in source) {
+    const card = source as CardLike;
+    if (card.image_uris || card.card_faces) return card;
+  }
+
+  const imageUrl = typeof (source as { imageUrl?: string }).imageUrl === 'string'
+    ? String((source as { imageUrl?: string }).imageUrl).trim()
+    : '';
+  if (!imageUrl) return null;
+
+  return {
+    name: (source as { name?: string }).name || nestedCard?.name,
+    type_line: (source as { type_line?: string }).type_line || nestedCard?.type_line,
+    image_uris: { normal: imageUrl, small: imageUrl },
+  };
+}
+
+/** Mouse handlers for modal/list thumbnails that should open the shared card preview. */
+export function getCardPreviewHandlers(
+  source: CardPreviewSource,
+  opts?: { prefer?: 'left' | 'right' | 'above' | 'below' | 'auto'; anchorPadding?: number },
+): Pick<React.HTMLAttributes<HTMLElement>, 'onMouseEnter' | 'onMouseLeave'> {
+  const card = resolveCardPreviewSource(source);
+  if (!card) return {};
+  const prefer = opts?.prefer ?? 'right';
+  const anchorPadding = opts?.anchorPadding ?? 8;
+  return {
+    onMouseEnter: (e) => {
+      showCardPreview(e.currentTarget as HTMLElement, card, { prefer, anchorPadding });
+    },
+    onMouseLeave: (e) => {
+      hideCardPreview(e.currentTarget as HTMLElement);
+    },
+  };
+}
+
+/** Best available small/normal image URL from a card (including DFC faces). */
+export function getCardThumbnailUrl(card: CardLike | null | undefined): string | undefined {
+  if (!card) return undefined;
+  const main = card.image_uris?.small || card.image_uris?.normal || card.image_uris?.art_crop;
+  if (main) return main;
+  const face = card.card_faces?.find((f) => f.image_uris?.small || f.image_uris?.normal || f.image_uris?.art_crop);
+  return face?.image_uris?.small || face?.image_uris?.normal || face?.image_uris?.art_crop;
+}
+
 export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' }) {
   const { controlMode = 'floating' } = props;
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);

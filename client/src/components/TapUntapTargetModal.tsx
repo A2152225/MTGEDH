@@ -18,7 +18,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
-import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { getCardPreviewHandlers, getCardThumbnailUrl } from './CardPreviewLayer';
 
 export interface TapUntapTargetModalProps {
   open: boolean;
@@ -125,16 +125,17 @@ function matchesFilter(
 
 function formatPlayerLabel(
   id: string | undefined,
-  viewerId: string,
+  _viewerId: string,
   playerNames?: Record<string, string>,
 ): string {
   if (!id) return 'Unknown';
-  if (id === viewerId) return 'You';
+  // Always prefer the table display name for politics ("tap King's Command Tower").
   return playerNames?.[id] || id;
 }
 
 function groupTargetsByController(
   targets: BattlefieldPermanent[],
+  viewerId: string,
 ): { controllerId: string; targets: BattlefieldPermanent[] }[] {
   const groups = new Map<string, BattlefieldPermanent[]>();
   for (const perm of targets) {
@@ -156,9 +157,42 @@ function groupTargetsByController(
       }),
     }))
     .sort((a, b) => {
-      if (a.controllerId === b.controllerId) return 0;
+      if (a.controllerId === viewerId && b.controllerId !== viewerId) return -1;
+      if (b.controllerId === viewerId && a.controllerId !== viewerId) return 1;
       return a.controllerId.localeCompare(b.controllerId);
     });
+}
+
+function formatPermanentState(perm: BattlefieldPermanent): string[] {
+  const badges: string[] = [];
+  badges.push(perm.tapped ? 'Tapped' : 'Untapped');
+  if (perm.summoningSickness) badges.push('Sick');
+  if ((perm.card as KnownCardRef | undefined)?.faceDown || (perm as any).faceDown) badges.push('Face-down');
+  if (perm.phasedOut) badges.push('Phased out');
+  const counters = perm.counters || {};
+  const counterParts = Object.entries(counters)
+    .filter(([, count]) => Number(count) > 0)
+    .map(([type, count]) => `${count} ${type}`)
+    .slice(0, 3);
+  if (counterParts.length > 0) badges.push(counterParts.join(', '));
+  return badges;
+}
+
+function formatPowerToughness(perm: BattlefieldPermanent, card: KnownCardRef | undefined): string | null {
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  if (!typeLine.includes('creature') && !typeLine.includes('vehicle')) return null;
+  if (typeof (perm as any).effectivePower === 'number' && typeof (perm as any).effectiveToughness === 'number') {
+    return `${(perm as any).effectivePower}/${(perm as any).effectiveToughness}`;
+  }
+  if (perm.basePower !== undefined && perm.baseToughness !== undefined) {
+    const plus = Number(perm.counters?.['+1/+1'] || 0);
+    const minus = Number(perm.counters?.['-1/-1'] || 0);
+    return `${Number(perm.basePower) + plus - minus}/${Number(perm.baseToughness) + plus - minus}`;
+  }
+  if (card?.power != null && card?.toughness != null) {
+    return `${card.power}/${card.toughness}`;
+  }
+  return null;
 }
 
 export function TapUntapTargetModal({
@@ -215,8 +249,8 @@ export function TapUntapTargetModal({
   }, [availablePermanents, targetFilter, source.id, playerId, action, chosenAction, enforceActionAvailability]);
 
   const groupedTargets = useMemo(
-    () => groupTargetsByController(validTargets),
-    [validTargets],
+    () => groupTargetsByController(validTargets, playerId),
+    [validTargets, playerId],
   );
 
   const toggleSelect = useCallback((permanentId: string) => {
@@ -360,68 +394,75 @@ export function TapUntapTargetModal({
           ) : (
             groupedTargets.map(({ controllerId, targets }) => {
               const controllerLabel = formatPlayerLabel(controllerId, playerId, playerNames);
+              const isYours = controllerId === playerId;
               return (
-                <div key={controllerId} style={{ marginBottom: groupedTargets.length > 1 ? '16px' : 0 }}>
-                  {groupedTargets.length > 1 && (
-                    <div
-                      style={{
-                        marginBottom: '8px',
-                        padding: '6px 10px',
-                        borderRadius: '6px',
-                        backgroundColor: '#252525',
-                        color: '#bbb',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {controllerLabel === 'You' ? 'Your permanents' : `${controllerLabel}'s permanents`} ({targets.length})
-                    </div>
-                  )}
+                <div key={controllerId} style={{ marginBottom: '16px' }}>
+                  <div
+                    style={{
+                      marginBottom: '8px',
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      backgroundColor: isYours ? 'rgba(8, 145, 178, 0.22)' : 'rgba(154, 52, 18, 0.22)',
+                      border: `1px solid ${isYours ? 'rgba(56, 189, 248, 0.55)' : 'rgba(251, 146, 60, 0.55)'}`,
+                      color: isYours ? '#a5f3fc' : '#fdba74',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {controllerLabel}'s permanents ({targets.length})
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px' }}>
                     {targets.map(perm => {
                       const card = perm.card as KnownCardRef;
                       const isSelected = selectedIds.has(perm.id);
-                      const imageUrl = card?.image_uris?.small || card?.image_uris?.normal;
+                      const imageUrl = getCardThumbnailUrl(card);
                       const isTapped = Boolean(perm.tapped);
-                      const controllerLabel = formatPlayerLabel(perm.controller, playerId, playerNames);
                       const ownerDiffers = Boolean(perm.owner) && perm.owner !== perm.controller;
                       const ownerLabel = ownerDiffers
                         ? formatPlayerLabel(perm.owner, playerId, playerNames)
                         : null;
                       const typeLine = String(card?.type_line || '').trim();
+                      const pt = formatPowerToughness(perm, card);
+                      const stateBadges = formatPermanentState(perm);
 
                       return (
                         <div
                           key={perm.id}
                           onClick={() => toggleSelect(perm.id)}
-                          onMouseEnter={(e) =>
-                            imageUrl &&
-                            showCardPreview(e.currentTarget, {
-                              image_uris: { normal: imageUrl },
-                              name: card?.name,
-                            } as any)
-                          }
-                          onMouseLeave={(e) => hideCardPreview(e.currentTarget)}
+                          {...getCardPreviewHandlers({ card, imageUrl, name: card?.name, type_line: typeLine })}
                           style={{
                             padding: '8px',
-                            backgroundColor: isSelected ? '#2a4a3a' : '#2a2a2a',
-                            border: `2px solid ${isSelected ? '#5a9c69' : isTapped ? '#8a6a2a' : '#444'}`,
+                            backgroundColor: isSelected
+                              ? '#2a4a3a'
+                              : isYours
+                                ? 'rgba(14, 116, 144, 0.18)'
+                                : 'rgba(154, 52, 18, 0.14)',
+                            border: `2px solid ${
+                              isSelected
+                                ? '#5a9c69'
+                                : isYours
+                                  ? 'rgba(56, 189, 248, 0.85)'
+                                  : 'rgba(251, 146, 60, 0.8)'
+                            }`,
                             borderRadius: '8px',
                             cursor: 'pointer',
                             transition: 'all 0.2s',
                             transform: isSelected ? 'scale(1.02)' : 'scale(1)',
                           }}
                         >
-                          <div style={{ position: 'relative', marginBottom: '6px' }}>
+                          <div style={{ position: 'relative', marginBottom: '6px', overflow: 'hidden', borderRadius: '4px' }}>
                             {imageUrl ? (
                               <img
                                 src={imageUrl}
-                                alt={card.name}
+                                alt={card?.name || 'Permanent'}
                                 style={{
                                   width: '100%',
+                                  aspectRatio: '0.72',
+                                  objectFit: 'cover',
                                   borderRadius: '4px',
-                                  opacity: isTapped ? 0.75 : 1,
-                                  transform: isTapped ? 'rotate(90deg)' : 'none',
+                                  display: 'block',
+                                  opacity: isTapped ? 0.78 : 1,
+                                  filter: isTapped ? 'grayscale(0.15) brightness(0.88)' : undefined,
                                 }}
                               />
                             ) : (
@@ -451,6 +492,27 @@ export function TapUntapTargetModal({
                                 padding: '2px 6px',
                                 borderRadius: '4px',
                                 fontSize: '10px',
+                                fontWeight: 800,
+                                letterSpacing: '0.03em',
+                                color: isYours ? '#ecfeff' : '#fff7ed',
+                                backgroundColor: isYours ? 'rgba(8, 145, 178, 0.95)' : 'rgba(234, 88, 12, 0.95)',
+                                boxShadow: '0 1px 4px rgba(0,0,0,0.45)',
+                                maxWidth: '70%',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {controllerLabel}
+                            </div>
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: 6,
+                                right: 6,
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                fontSize: '10px',
                                 fontWeight: 700,
                                 letterSpacing: '0.02em',
                                 color: '#fff',
@@ -460,6 +522,23 @@ export function TapUntapTargetModal({
                             >
                               {isTapped ? 'TAPPED' : 'UNTAPPED'}
                             </div>
+                            {pt && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  right: 6,
+                                  bottom: 6,
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  color: '#fff',
+                                  backgroundColor: 'rgba(0,0,0,0.75)',
+                                }}
+                              >
+                                {pt}
+                              </div>
+                            )}
                           </div>
                           <div style={{ fontSize: '12px', color: '#fff', fontWeight: isSelected ? 'bold' : 'normal' }}>
                             {card?.name || 'Unknown'}
@@ -469,14 +548,41 @@ export function TapUntapTargetModal({
                               {typeLine}
                             </div>
                           )}
-                          <div style={{ fontSize: '11px', color: '#9ab', marginTop: '4px' }}>
-                            Controller: {controllerLabel}
+                          <div style={{ fontSize: '11px', color: isYours ? '#67e8f9' : '#fdba74', marginTop: '4px', fontWeight: 700 }}>
+                            Controlled by {controllerLabel}
                           </div>
                           {ownerLabel && (
                             <div style={{ fontSize: '11px', color: '#b9a' }}>
                               Owner: {ownerLabel}
                             </div>
                           )}
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 4,
+                              marginTop: 6,
+                            }}
+                          >
+                            {stateBadges.map((badge) => (
+                              <span
+                                key={badge}
+                                style={{
+                                  fontSize: 10,
+                                  padding: '1px 5px',
+                                  borderRadius: 4,
+                                  backgroundColor: badge === 'Tapped'
+                                    ? 'rgba(180, 120, 40, 0.25)'
+                                    : badge === 'Untapped'
+                                      ? 'rgba(40, 120, 70, 0.25)'
+                                      : 'rgba(255,255,255,0.08)',
+                                  color: badge === 'Tapped' ? '#fbbf24' : badge === 'Untapped' ? '#86efac' : '#bbb',
+                                }}
+                              >
+                                {badge}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                       );
                     })}
