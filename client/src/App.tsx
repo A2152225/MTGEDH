@@ -24,6 +24,7 @@ import { FatesealModal } from "./components/FatesealModal";
 import { ClashModal } from "./components/ClashModal";
 import { VoteModal } from "./components/VoteModal";
 import { CastSpellModal, type AlternateCost } from "./components/CastSpellModal";
+import { buildBattlefieldSpellAlternateCosts } from "./utils/battlefieldSpellAlternateCosts";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
 import { CombatControlModal, type CombatControlDeclarations } from "./components/CombatControlModal";
 import { ReturnControlledPermanentChoiceModal } from "./components/ReturnControlledPermanentChoiceModal";
@@ -317,82 +318,12 @@ export function App() {
   } | null>(null);
     const battlefieldAlternateCosts = useMemo(() => {
       if (!safeView || !you || !spellToCast) return [] as AlternateCost[];
-      if (spellToCast.fromZone && spellToCast.fromZone !== 'hand') return [] as AlternateCost[];
-
-      const battlefield = Array.isArray(safeView.battlefield) ? safeView.battlefield : [];
-      const emblems = Array.isArray((safeView as any).emblems) ? (safeView as any).emblems : [];
-      const extraCosts: AlternateCost[] = [];
-
-      const grantsFreeHandCasts = (text: string): boolean => {
-        const oracleText = String(text || '').toLowerCase();
-        if (!oracleText.includes('without paying')) return false;
-        if (!oracleText.includes('from your hand')) return false;
-        if (!oracleText.includes('you may cast')) return false;
-        return oracleText.includes('cast spells from your hand')
-          || oracleText.includes('cast nonland cards from your hand')
-          || oracleText.includes('cast cards from your hand');
-      };
-
-      const grantsExternalWubrgAlternateCost = (text: string): boolean => {
-        const oracleText = String(text || '').toLowerCase();
-        return oracleText.includes('{w}{u}{b}{r}{g}')
-          && oracleText.includes('rather than pay')
-          && !oracleText.includes('this spell');
-      };
-
-      const addExternalWubrgOption = (sourceName: string) => {
-        if (extraCosts.some((cost) => cost.id === 'wubrg_external')) return;
-        extraCosts.push({
-          id: 'wubrg_external',
-          label: `WUBRG Alternative (${sourceName})`,
-          description: `Pay {W}{U}{B}{R}{G} via ${sourceName}`,
-          manaCost: '{W}{U}{B}{R}{G}',
-        });
-      };
-
-      const addFreeCastOption = (sourceName: string) => {
-        if (extraCosts.some((cost) => cost.id === 'free')) return;
-        extraCosts.push({
-          id: 'free',
-          label: `Free Cast (${sourceName})`,
-          description: `Cast from hand without paying mana costs via ${sourceName}`,
-          manaCost: '',
-        });
-      };
-
-      for (const permanent of battlefield) {
-        if (!permanent || permanent.controller !== you) continue;
-
-        const sourceName = String((permanent as any).card?.name || '').trim();
-        const oracleText = String((permanent as any).card?.oracle_text || '').toLowerCase();
-        if (!sourceName || !oracleText) continue;
-
-        if (grantsExternalWubrgAlternateCost(oracleText)) {
-          addExternalWubrgOption(sourceName);
-        }
-
-        if (grantsFreeHandCasts(oracleText)) {
-          addFreeCastOption(sourceName);
-        }
-      }
-
-      for (const emblem of emblems) {
-        if (!emblem || String((emblem as any).controller || '') !== String(you)) continue;
-
-        const sourceName = String((emblem as any).sourceName || (emblem as any).name || 'Emblem').trim();
-        const emblemText = String((emblem as any).effect || (emblem as any).text || (emblem as any).oracle_text || '');
-        if (!sourceName) continue;
-
-        if (grantsExternalWubrgAlternateCost(emblemText)) {
-          addExternalWubrgOption(sourceName);
-        }
-
-        if (!grantsFreeHandCasts(emblemText)) continue;
-
-        addFreeCastOption(sourceName);
-      }
-
-      return extraCosts;
+      return buildBattlefieldSpellAlternateCosts({
+        spellToCast,
+        controllerId: you,
+        battlefield: safeView.battlefield,
+        emblems: (safeView as any).emblems,
+      }) as AlternateCost[];
     }, [safeView, spellToCast, you]);
 
   const [pendingSpellXSelection, setPendingSpellXSelection] = useState<{
@@ -3418,7 +3349,7 @@ export function App() {
             ? String(step.description || '')
             : String((step as any).oracleText || ''),
           extraAlternateCosts: isWardPayment
-            ? undefined
+            ? []
             : (Array.isArray((step as any).extraAlternateCosts) ? (step as any).extraAlternateCosts : undefined),
           targets: Array.isArray((step as any).targets) ? (step as any).targets : undefined,
           effectId: isWardPayment ? undefined : String((step as any).effectId || ''),
@@ -3445,6 +3376,8 @@ export function App() {
           cardName: String((step as any).cardName || step.sourceName || 'Ability'),
           manaCost: String((step as any).manaCost || ''),
           oracleText: String((step as any).abilityText || step.description || ''),
+          // Explicit empty — do not fall back to Fist of Suns / Omniscience spell alts.
+          extraAlternateCosts: [],
           paymentStepId: String(step.id),
           activatingPermanentId: String((step as any).permanentId || step.sourceId || ''),
           excludeActivatingPermanentFromPayment: (step as any).requiresTap === true,
@@ -3461,6 +3394,7 @@ export function App() {
           cardName: String((step as any).cardName || step.sourceName || 'Extort'),
           manaCost: String((step as any).manaCost || '{W/B}'),
           oracleText: String((step as any).effectText || step.description || ''),
+          extraAlternateCosts: [],
           paymentStepId: String(step.id),
           title: `Pay Extort for ${String((step as any).cardName || step.sourceName || 'Extort')}`,
           confirmLabel: String((step as any).confirmLabel || 'Pay Extort'),
@@ -7902,7 +7836,7 @@ export function App() {
         oracleText={spellToCast?.oracleText}
         forcedAlternateCostId={spellToCast?.forcedAlternateCostId}
         preferredAlternateCostId={(spellToCast as any)?.preferredAlternateCostId}
-        extraAlternateCosts={spellToCast?.extraAlternateCosts || battlefieldAlternateCosts}
+        extraAlternateCosts={spellToCast?.extraAlternateCosts ?? battlefieldAlternateCosts}
         availableSources={castSpellPaymentSources}
         battlefieldPermanents={you ? ((safeView?.battlefield || []).filter((perm: any) => perm.controller === you) as BattlefieldPermanent[]) : []}
         otherCardsInHand={useMemo(() => {
