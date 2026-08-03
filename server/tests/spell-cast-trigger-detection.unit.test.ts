@@ -98,6 +98,23 @@ describe('spell cast trigger detection gaps', () => {
     expect(triggers.length).toBeGreaterThan(0);
   });
 
+  it('detects Deeproot Waters token details without baking color into the name', () => {
+    const triggers = detectSpellCastTriggers({
+      name: 'Deeproot Waters',
+      oracle_text:
+        "Whenever you cast a Merfolk spell, create a 1/1 blue Merfolk creature token with hexproof.",
+    }, permanent);
+    const tokenTrigger = triggers.find((t) => t.createsToken && t.tokenDetails);
+    expect(tokenTrigger?.tokenDetails).toMatchObject({
+      name: 'Merfolk',
+      power: 1,
+      toughness: 1,
+      colors: ['blue'],
+      types: 'Creature — Merfolk',
+    });
+    expect(String(tokenTrigger?.tokenDetails?.name || '')).not.toMatch(/blue/i);
+  });
+
   it('detects cast from exile triggers', () => {
     const triggers = detectSpellCastTriggers({
       name: 'Pia Nalaar, Consul of Revival',

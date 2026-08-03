@@ -12150,7 +12150,7 @@ async function handleStepResponse(
           gameId,
           from: 'system',
           message: amount > 0
-            ? `${getPlayerName(game, pid)} added {${chosenCode.repeat(amount)}} to their mana pool from ${cardName || 'an ability'}${manaRestriction ? ' (restricted)' : ''}.`
+            ? `${getPlayerName(game, pid)} added ${amount > 8 ? `${amount}{${chosenCode}}` : `{${chosenCode.repeat(amount)}}`} to their mana pool from ${cardName || 'an ability'}${manaRestriction ? ' (restricted)' : ''}.`
             : `${getPlayerName(game, pid)} added no mana from ${cardName || 'an ability'} (devotion was 0).`,
           ts: Date.now(),
         });

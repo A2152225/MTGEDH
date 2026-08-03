@@ -238,7 +238,9 @@ function expandProducedColorsToAmount(producedColors: ManaColor[] | undefined, a
   }
 
   if (normalized.length === 1) {
-    return Array.from({ length: normalizedAmount }, () => normalized[0]);
+    // Keep a single color entry — callers already have `amount` / manaAmount separately.
+    // Expanding to thousands of identical colors hangs payment UI for Cradle/Three Tree.
+    return [normalized[0]];
   }
 
   if (normalizedAmount % normalized.length !== 0) {
@@ -655,14 +657,15 @@ function buildExplicitPoolPaymentItems(
     let remaining = needed;
     const regularAvailable = Number((floatingMana as any)[poolKey] || 0);
     const fromRegular = Math.min(regularAvailable, remaining);
-    for (let index = 0; index < fromRegular; index += 1) {
+    if (fromRegular > 0) {
+      // One payment row with count — never expand thousands of __pool__ items.
       items.push({
-        permanentId: `__pool__:${poolKey}:${index}`,
+        permanentId: `__pool__:${poolKey}`,
         mana,
-        count: 1,
+        count: fromRegular,
       });
+      remaining -= fromRegular;
     }
-    remaining -= fromRegular;
 
     if (remaining <= 0 || !floatingMana.restricted) continue;
 
@@ -672,14 +675,15 @@ function buildExplicitPoolPaymentItems(
       if (entryPoolKey !== poolKey) continue;
 
       const entryAmount = Number(entry?.amount || 0);
-      for (let unit = 0; unit < entryAmount && remaining > 0; unit += 1) {
-        items.push({
-          permanentId: `__pool__:restricted:${restrictedIndex}:${unit}`,
-          mana,
-          count: 1,
-        });
-        remaining -= 1;
-      }
+      const take = Math.min(Math.max(0, entryAmount), remaining);
+      if (take <= 0) continue;
+      items.push({
+        permanentId: `__pool__:restricted:${restrictedIndex}`,
+        mana,
+        count: take,
+      });
+      remaining -= take;
+      if (remaining <= 0) break;
     }
   }
 

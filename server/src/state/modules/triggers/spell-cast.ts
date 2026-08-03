@@ -232,6 +232,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           const typeMatch = effectText.match(/(\d+\/\d+)\s+(?:(white|blue|black|red|green|colorless)\s+)?([A-Z][a-z]+(?: [A-Z][a-z]+)*)?\s*(?:artifact\s+)?creature\s+token/i);
           const tokenColor = typeMatch?.[2] || '';
           const tokenType = typeMatch?.[3] || tribalType || 'Token';
+          const tokenTypeDisplay = tokenType.charAt(0).toUpperCase() + tokenType.slice(1);
           
           // Extract abilities: "token with vigilance" or "token with flying and haste"
           const abilityMatch = effectText.match(/token\s+with\s+([^.]+)/i);
@@ -245,10 +246,12 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           const isArtifact = effectText.toLowerCase().includes('artifact creature token');
           
           tokenDetails = {
-            name: `${tokenColor ? tokenColor.charAt(0).toUpperCase() + tokenColor.slice(1) + ' ' : ''}${tokenType.charAt(0).toUpperCase() + tokenType.slice(1)}`,
+            // Color belongs on `colors`, not the display name ("Blue Merfolk" → "Merfolk").
+            name: tokenTypeDisplay,
             power: parseInt(tokenPowerMatch[1]),
             toughness: parseInt(tokenPowerMatch[2]),
-            types: `${isArtifact ? 'Artifact ' : ''}Creature — ${tokenType.charAt(0).toUpperCase() + tokenType.slice(1)}`,
+            types: `${isArtifact ? 'Artifact ' : ''}Creature — ${tokenTypeDisplay}`,
+            ...(tokenColor ? { colors: [tokenColor.toLowerCase()] } : {}),
             abilities,
           };
         }

@@ -33,7 +33,7 @@
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getActualPowerToughness } from "../../state/utils.js";
 import { libraryTopCardHasType } from "./game-state-effects.js";
-import { countControlledCreaturesOfChosenType, getChosenTypeManaSpendRestriction } from "./chosen-creature-type.js";
+import { battlefieldPermanentInstanceCount, countControlledCreaturesOfChosenType, getChosenTypeManaSpendRestriction } from "./chosen-creature-type.js";
 import { extractCreatureTypes } from "../../../../shared/src/creatureTypes.js";
 import { deriveCardColorIdentity } from "./commander.js";
 import { lookupLocalCardByNameSync } from "../../services/localCardLookup.js";
@@ -1969,18 +1969,9 @@ export function getCreatureCountManaAmount(
 
   if (cardName.includes('three tree city')) {
     const chosenType = permanent?.chosenCreatureType;
-    let amount = 0;
-    if (chosenType) {
-      const chosenTypeLower = chosenType.toLowerCase();
-      const battlefield = gameState?.battlefield || [];
-      amount = battlefield.filter((p: any) => {
-        if (!p || p.controller !== playerId) return false;
-        const typeLine = (p.card?.type_line || "").toLowerCase();
-        if (!typeLine.includes("creature")) return false;
-        const subTypes = (typeLine.split(/\s*[—–-]\s*/)[1] || "").toLowerCase();
-        return subTypes.includes(chosenTypeLower);
-      }).length;
-    }
+    const amount = chosenType
+      ? countControlledCreaturesOfChosenType(gameState, playerId, chosenType)
+      : 0;
     // Oracle: "{2}, {T}: Choose a color. Add an amount of mana of that color equal to
     // the number of creatures you control of the chosen type." — one color, not a distribution.
     return {
@@ -2023,11 +2014,12 @@ export function getCreatureCountManaAmount(
   // Gaea's Cradle: Add {G} for each creature you control
   if (cardName.includes("gaea's cradle") || cardName.includes("cradle of growth")) {
     const battlefield = gameState?.battlefield || [];
-    const creatureCount = battlefield.filter((p: any) => {
-      if (!p || p.controller !== playerId) return false;
-      const typeLine = (p.card?.type_line || "").toLowerCase();
-      return typeLine.includes("creature");
-    }).length;
+    const creatureCount = battlefield.reduce((sum: number, p: any) => {
+      if (!p || p.controller !== playerId) return sum;
+      const typeLine = (p.card?.type_line || p.type_line || "").toLowerCase();
+      if (!typeLine.includes("creature")) return sum;
+      return sum + battlefieldPermanentInstanceCount(p);
+    }, 0);
     
     return { color: 'G', amount: creatureCount };
   }
@@ -2198,30 +2190,17 @@ export function getCreatureCountManaAmount(
     }
     // "creatures you control of the chosen type" (Three Tree City)
     else if (condition.includes('of the chosen type') || condition.includes('chosen type')) {
-      // Get the chosen creature type from the permanent (e.g., "Merfolk")
       const chosenType = permanent?.chosenCreatureType;
-      
       if (chosenType) {
-        // Count creatures you control that match the chosen type
-        const chosenTypeLower = chosenType.toLowerCase();
-        amount = battlefield.filter((p: any) => {
-          if (!p || p.controller !== playerId) return false;
-          const typeLine = (p.card?.type_line || "").toLowerCase();
-          if (!typeLine.includes("creature")) return false;
-          
-          // Check if creature has the chosen type
-          // Type line format: "Creature — Merfolk Wizard" or "Legendary Creature — Human"
-          // Split on em dash (—), en dash (–), or hyphen (-) surrounded by spaces
-          const subTypes = (typeLine.split(/\s*[—–-]\s*/)[1] || "").toLowerCase();
-          return subTypes.includes(chosenTypeLower);
-        }).length;
+        amount = countControlledCreaturesOfChosenType(gameState, playerId, chosenType);
       } else {
         // Fallback: if no type chosen yet, estimate by counting all creatures
-        amount = battlefield.filter((p: any) => {
-          if (!p || p.controller !== playerId) return false;
-          const typeLine = (p.card?.type_line || "").toLowerCase();
-          return typeLine.includes("creature");
-        }).length;
+        amount = battlefield.reduce((sum: number, p: any) => {
+          if (!p || p.controller !== playerId) return sum;
+          const typeLine = (p.card?.type_line || p.type_line || "").toLowerCase();
+          if (!typeLine.includes("creature")) return sum;
+          return sum + battlefieldPermanentInstanceCount(p);
+        }, 0);
       }
     }
     
@@ -2229,11 +2208,12 @@ export function getCreatureCountManaAmount(
     
     // "the number of creatures you control"
     else if (condition.includes('creatures you control') || condition.includes('number of creatures')) {
-      amount = battlefield.filter((p: any) => {
-        if (!p || p.controller !== playerId) return false;
-        const typeLine = (p.card?.type_line || "").toLowerCase();
-        return typeLine.includes("creature");
-      }).length;
+      amount = battlefield.reduce((sum: number, p: any) => {
+        if (!p || p.controller !== playerId) return sum;
+        const typeLine = (p.card?.type_line || p.type_line || "").toLowerCase();
+        if (!typeLine.includes("creature")) return sum;
+        return sum + battlefieldPermanentInstanceCount(p);
+      }, 0);
     }
     // "the number of Elves you control"
     else if (condition.includes('elf') || condition.includes('elves')) {

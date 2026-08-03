@@ -153,14 +153,13 @@ export function PaymentPicker(props: PaymentPickerProps) {
 
     for (const [poolKey, symbol] of poolEntries) {
       const amount = Number(floatingMana[poolKey] || 0);
-      for (let index = 0; index < amount; index++) {
-        entries.push({
-          id: `__pool__:${String(poolKey)}:${index}`,
-          name: `Floating {${symbol}}`,
-          options: [symbol],
-          amount: 1,
-        });
-      }
+      if (amount <= 0) continue;
+      entries.push({
+        id: `__pool__:${String(poolKey)}`,
+        name: `Floating {${symbol}} ×${amount.toLocaleString()}`,
+        options: [symbol],
+        amount,
+      });
     }
 
     const manaSymbols: Record<string, ManaColor> = {
@@ -176,14 +175,13 @@ export function PaymentPicker(props: PaymentPickerProps) {
         const poolKey = String(entry.type || 'colorless');
         const symbol = manaSymbols[poolKey] || 'C';
         const amount = Number(entry.amount || 0);
-        for (let unit = 0; unit < amount; unit += 1) {
-          entries.push({
-            id: `__pool__:restricted:${restrictedIndex}:${unit}`,
-            name: `Restricted {${symbol}}`,
-            options: [symbol],
-            amount: 1,
-          });
-        }
+        if (amount <= 0) return;
+        entries.push({
+          id: `__pool__:restricted:${restrictedIndex}`,
+          name: `Restricted {${symbol}} ×${amount.toLocaleString()}`,
+          options: [symbol],
+          amount,
+        });
       });
     }
 

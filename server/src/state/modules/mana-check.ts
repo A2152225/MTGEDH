@@ -356,27 +356,33 @@ export function canPayManaCost(
     }
   }
 
-  // Build list of individual mana sources
-  const sources: Array<{ allowed: Set<string> }> = [];
-  
+  // Count-grouped sources (NOT one entry per mana — large Cradle/Three Tree pools must stay O(groups)).
+  type ManaSourceGroup = { allowed: Set<string>; remaining: number };
+  const groups: ManaSourceGroup[] = [];
+
   for (const [colorKey, count] of Object.entries(specific)) {
-    for (let i = 0; i < count; i++) {
-      sources.push({ allowed: new Set([colorKey]) });
+    const n = Math.max(0, Math.floor(Number(count) || 0));
+    if (n > 0) {
+      groups.push({ allowed: new Set([colorKey]), remaining: n });
     }
   }
-  
-  for (let i = 0; i < anyColorCount; i++) {
-    sources.push({ allowed: new Set(['white', 'blue', 'black', 'red', 'green']) });
+
+  if (anyColorCount > 0) {
+    groups.push({
+      allowed: new Set(['white', 'blue', 'black', 'red', 'green']),
+      remaining: Math.max(0, Math.floor(Number(anyColorCount) || 0)),
+    });
   }
-  
+
   for (const cs of choiceSources) {
     const allowedSet = new Set<string>();
     for (const letter of cs.colors) {
       const xKey = letterToManaKey[letter];
       if (xKey) allowedSet.add(xKey);
     }
-    for (let i = 0; i < cs.count; i++) {
-      sources.push({ allowed: allowedSet });
+    const n = Math.max(0, Math.floor(Number(cs.count) || 0));
+    if (n > 0 && allowedSet.size > 0) {
+      groups.push({ allowed: allowedSet, remaining: n });
     }
   }
 
@@ -393,21 +399,23 @@ export function canPayManaCost(
 
   const hybrids = parsedCost.hybrid || [];
 
+  const leftoverMana = (): number =>
+    groups.reduce((sum, group) => sum + Math.max(0, group.remaining), 0);
+
   function dfs(
     reqIdx: number,
     hybridIdx: number,
     life: number,
-    usedSources: boolean[]
   ): boolean {
     if (reqIdx < reqColors.length) {
       const neededColor = reqColors[reqIdx];
-      for (let i = 0; i < sources.length; i++) {
-        if (!usedSources[i] && sources[i].allowed.has(neededColor)) {
-          usedSources[i] = true;
-          if (dfs(reqIdx + 1, hybridIdx, life, usedSources)) {
+      for (const group of groups) {
+        if (group.remaining > 0 && group.allowed.has(neededColor)) {
+          group.remaining -= 1;
+          if (dfs(reqIdx + 1, hybridIdx, life)) {
             return true;
           }
-          usedSources[i] = false;
+          group.remaining += 1;
         }
       }
       return false;
@@ -419,44 +427,40 @@ export function canPayManaCost(
         if (option.startsWith('LIFE:')) {
           const lCost = parseInt(option.split(':')[1], 10) || 2;
           if (life >= lCost) {
-            if (dfs(reqIdx, hybridIdx + 1, life - lCost, usedSources)) {
+            if (dfs(reqIdx, hybridIdx + 1, life - lCost)) {
               return true;
             }
           }
         } else if (option.startsWith('GENERIC:')) {
           const gCost = parseInt(option.split(':')[1], 10) || 2;
-          let unusedCount = 0;
-          for (let i = 0; i < sources.length; i++) {
-            if (!usedSources[i]) unusedCount++;
-          }
-          if (unusedCount >= gCost) {
-            const markedIndices: number[] = [];
+          if (leftoverMana() >= gCost) {
+            const spent: ManaSourceGroup[] = [];
             let needed = gCost;
-            for (let i = 0; i < sources.length; i++) {
-              if (!usedSources[i]) {
-                usedSources[i] = true;
-                markedIndices.push(i);
-                needed--;
-                if (needed === 0) break;
+            for (const group of groups) {
+              while (needed > 0 && group.remaining > 0) {
+                group.remaining -= 1;
+                spent.push(group);
+                needed -= 1;
               }
+              if (needed === 0) break;
             }
-            if (dfs(reqIdx, hybridIdx + 1, life, usedSources)) {
+            if (dfs(reqIdx, hybridIdx + 1, life)) {
               return true;
             }
-            for (const idx of markedIndices) {
-              usedSources[idx] = false;
+            for (const group of spent) {
+              group.remaining += 1;
             }
           }
         } else {
           const colorKey = manaColorMap[option];
           if (colorKey) {
-            for (let i = 0; i < sources.length; i++) {
-              if (!usedSources[i] && sources[i].allowed.has(colorKey)) {
-                usedSources[i] = true;
-                if (dfs(reqIdx, hybridIdx + 1, life, usedSources)) {
+            for (const group of groups) {
+              if (group.remaining > 0 && group.allowed.has(colorKey)) {
+                group.remaining -= 1;
+                if (dfs(reqIdx, hybridIdx + 1, life)) {
                   return true;
                 }
-                usedSources[i] = false;
+                group.remaining += 1;
               }
             }
           }
@@ -465,17 +469,10 @@ export function canPayManaCost(
       return false;
     }
 
-    let leftoverCount = 0;
-    for (let i = 0; i < sources.length; i++) {
-      if (!usedSources[i]) {
-        leftoverCount++;
-      }
-    }
-    return leftoverCount >= parsedCost.generic;
+    return leftoverMana() >= parsedCost.generic;
   }
 
-  const used = new Array(sources.length).fill(false);
-  return dfs(0, 0, lifeAvailable, used);
+  return dfs(0, 0, lifeAvailable);
 }
 
 /**

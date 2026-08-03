@@ -21,8 +21,8 @@ describe('buildSuggestedPaymentItems', () => {
     );
 
     expect(items).toEqual([
-      { permanentId: '__pool__:blue:0', mana: 'U', count: 1 },
-      { permanentId: '__pool__:green:0', mana: 'G', count: 1 },
+      { permanentId: '__pool__:blue', mana: 'U', count: 1 },
+      { permanentId: '__pool__:green', mana: 'G', count: 1 },
     ]);
   });
 
@@ -40,20 +40,15 @@ describe('buildSuggestedPaymentItems', () => {
     );
 
     expect(items).toEqual([
-      { permanentId: '__pool__:blue:0', mana: 'U', count: 1 },
-      { permanentId: '__pool__:green:0', mana: 'G', count: 1 },
+      { permanentId: '__pool__:blue', mana: 'U', count: 1 },
+      { permanentId: '__pool__:green', mana: 'G', count: 1 },
     ]);
   });
 
   it('uses restricted floating mana for auto-pay without duplicating regular pool slots', () => {
     const floatingSources: ManaPaymentSource[] = [
-      { id: '__pool__:green:0', name: 'Floating {G}', options: ['G'], amount: 1 },
-      { id: '__pool__:green:1', name: 'Floating {G}', options: ['G'], amount: 1 },
-      { id: '__pool__:restricted:0:0', name: 'Restricted {G}', options: ['G'], amount: 1 },
-      { id: '__pool__:restricted:0:1', name: 'Restricted {G}', options: ['G'], amount: 1 },
-      { id: '__pool__:restricted:0:2', name: 'Restricted {G}', options: ['G'], amount: 1 },
-      { id: '__pool__:restricted:0:3', name: 'Restricted {G}', options: ['G'], amount: 1 },
-      { id: '__pool__:restricted:0:4', name: 'Restricted {G}', options: ['G'], amount: 1 },
+      { id: '__pool__:green', name: 'Floating {G}', options: ['G'], amount: 2 },
+      { id: '__pool__:restricted:0', name: 'Restricted {G}', options: ['G'], amount: 5 },
     ];
     const landSources: ManaPaymentSource[] = [
       { id: 'forest_1', name: 'Forest', options: ['G'] },
@@ -81,10 +76,8 @@ describe('buildSuggestedPaymentItems', () => {
     );
 
     expect(items).toEqual([
-      { permanentId: '__pool__:green:0', mana: 'G', count: 1 },
-      { permanentId: '__pool__:green:1', mana: 'G', count: 1 },
-      { permanentId: '__pool__:restricted:0:0', mana: 'G', count: 1 },
-      { permanentId: '__pool__:restricted:0:1', mana: 'G', count: 1 },
+      { permanentId: '__pool__:green', mana: 'G', count: 2 },
+      { permanentId: '__pool__:restricted:0', mana: 'G', count: 2 },
     ]);
     expect(items.some((item) => item.permanentId === 'forest_1')).toBe(false);
   });

@@ -50,6 +50,45 @@ describe('Three Tree City mana production', () => {
     });
   });
 
+  it('counts grouped Merfolk token stacks for Three Tree City', () => {
+    const city: any = {
+      id: 'city_1',
+      controller: 'p1',
+      chosenCreatureType: 'Merfolk',
+      card: {
+        name: 'Three Tree City',
+        type_line: 'Legendary Land',
+        oracle_text: THREE_TREE_ORACLE,
+      },
+    };
+    const state: any = {
+      battlefield: [
+        city,
+        {
+          id: 'group_1',
+          controller: 'p1',
+          isToken: true,
+          isGroupedTokens: true,
+          tokenCount: 2500,
+          groupedTokenIds: Array.from({ length: 2500 }, (_, i) => `m_${i}`),
+          card: { name: 'Merfolk Wizard', type_line: 'Token Creature — Merfolk Wizard' },
+        },
+        {
+          id: 'm_solo',
+          controller: 'p1',
+          isToken: true,
+          card: { name: 'Merfolk', type_line: 'Token Creature — Merfolk' },
+        },
+      ],
+    };
+
+    expect(getCreatureCountManaAmount(state, city, 'p1')).toEqual({
+      color: 'any_one_color',
+      amount: 2501,
+      activationCost: '{2}',
+    });
+  });
+
   it('reports amount 0 when no creatures of the chosen type are controlled', () => {
     const city: any = {
       id: 'city_1',

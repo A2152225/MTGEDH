@@ -48,7 +48,7 @@ import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-na
 import { getTopTriggeredAbilityAutoPassReason } from "./trigger-shortcuts.js";
 import { advanceStepPersistingEvent } from "./step-advance.js";
 import { evaluateLibrarySearchReplacementEvent } from "../state/modules/replacement-effects.js";
-import { countControlledCreaturesOfChosenType } from "../state/modules/chosen-creature-type.js";
+import { battlefieldPermanentInstanceCount, countControlledCreaturesOfChosenType } from "../state/modules/chosen-creature-type.js";
 import { repairNonPermanentBattlefieldGhosts, isImpossibleFaceUpNonPermanentBattlefieldCard } from "../state/modules/stackReplayUtils.js";
 
 // ============================================================================
@@ -5537,10 +5537,11 @@ export function calculateManaProduction(
   // Gaea's Cradle - "Add {G} for each creature you control"
   if (cardName.includes("gaea's cradle") || 
       (oracleText.includes('add {g}') && oracleText.includes('for each creature'))) {
-    const creatureCount = battlefield.filter((p: any) => 
-      p && p.controller === playerId && 
-      (p.card?.type_line || '').toLowerCase().includes('creature')
-    ).length;
+    const creatureCount = battlefield.reduce((sum: number, p: any) => {
+      if (!p || p.controller !== playerId) return sum;
+      if (!(p.card?.type_line || p.type_line || '').toLowerCase().includes('creature')) return sum;
+      return sum + battlefieldPermanentInstanceCount(p);
+    }, 0);
     result.isDynamic = true;
     result.baseAmount = creatureCount;
     result.dynamicDescription = `{G} for each creature you control (${creatureCount})`;

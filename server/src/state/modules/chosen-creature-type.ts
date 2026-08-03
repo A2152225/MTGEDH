@@ -323,12 +323,8 @@ export function countControlledPermanentsOfChosenType(
   let count = 0;
   for (const perm of battlefield) {
     if (!perm || perm.controller !== playerId) continue;
-    if (permanentHasCreatureTypeNow(perm, chosenType)) {
-      count += 1;
-      continue;
-    }
-    if (cardHasCreatureType(perm?.card, chosenType)) {
-      count += 1;
+    if (permanentHasCreatureTypeNow(perm, chosenType) || cardHasCreatureType(perm?.card, chosenType)) {
+      count += battlefieldPermanentInstanceCount(perm);
     }
   }
   return count;
@@ -430,11 +426,20 @@ export function countControlledCreaturesOfChosenType(
   let count = 0;
   for (const perm of battlefield) {
     if (!perm || perm.controller !== playerId) continue;
-    const typeLine = String(perm.card?.type_line || '').toLowerCase();
+    const typeLine = String(perm.card?.type_line || perm.type_line || '').toLowerCase();
     if (!typeLine.includes('creature')) continue;
-    if (permanentHasCreatureTypeNow(perm, chosenType)) {
-      count += 1;
-    }
+    if (!permanentHasCreatureTypeNow(perm, chosenType)) continue;
+    count += battlefieldPermanentInstanceCount(perm);
   }
   return count;
+}
+
+/** Count how many game objects a battlefield entry represents (grouped tokens expand). */
+export function battlefieldPermanentInstanceCount(perm: any): number {
+  if (perm?.isGroupedTokens) {
+    const groupedLen = Array.isArray(perm?.groupedTokenIds) ? perm.groupedTokenIds.length : 0;
+    const explicit = Math.floor(Number(perm?.tokenCount) || 0);
+    return Math.max(1, explicit || groupedLen || 1);
+  }
+  return 1;
 }

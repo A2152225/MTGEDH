@@ -12125,6 +12125,7 @@ export interface SpellCastTrigger {
     power: number;
     toughness: number;
     types: string;
+    colors?: string[];
     abilities?: string[];
   };
   oncePerTurn?: boolean;
@@ -12399,9 +12400,6 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           .filter(Boolean)
           .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
           .join(' ') || 'Token';
-        const tokenColorDisplay = tokenColor
-          ? `${tokenColor.charAt(0).toUpperCase() + tokenColor.slice(1)} `
-          : '';
         const abilityMatch = effectText.match(/token\s+with\s+([^.]+)/i);
         const abilities = abilityMatch
           ? abilityMatch[1]
@@ -12412,10 +12410,12 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         const isArtifact = effectText.toLowerCase().includes('artifact creature token');
 
         tokenDetails = {
-          name: `${tokenColorDisplay}${tokenTypeDisplay}`.trim(),
+          // Color belongs on `colors`, not the display name ("Blue Merfolk" → "Merfolk").
+          name: tokenTypeDisplay,
           power: parseInt(tokenPowerMatch[1]),
           toughness: parseInt(tokenPowerMatch[2]),
           types: `${isArtifact ? 'Artifact ' : ''}Creature — ${tokenTypeDisplay}`,
+          ...(tokenColor ? { colors: [tokenColor] } : {}),
           abilities,
         };
       }

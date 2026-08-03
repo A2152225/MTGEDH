@@ -675,6 +675,34 @@ describe('chosen creature type infrastructure', () => {
     expect(cardHasCreatureType({ type_line: 'Creature — Elf Druid' }, 'Elf')).toBe(true);
   });
 
+  it('expands grouped token stacks when counting creatures of the chosen type', () => {
+    const gameState = {
+      battlefield: [
+        {
+          id: 'group_1',
+          controller: 'p1',
+          isToken: true,
+          isGroupedTokens: true,
+          tokenCount: 3000,
+          groupedTokenIds: Array.from({ length: 3000 }, (_, i) => `tok_${i}`),
+          card: { name: 'Merfolk Wizard', type_line: 'Token Creature — Merfolk Wizard' },
+        },
+        {
+          id: 'solo_1',
+          controller: 'p1',
+          isToken: true,
+          card: { name: 'Merfolk', type_line: 'Token Creature — Merfolk' },
+        },
+        {
+          id: 'bear_1',
+          controller: 'p1',
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+        },
+      ],
+    };
+    expect(countControlledCreaturesOfChosenType(gameState, 'p1', 'Merfolk')).toBe(3001);
+  });
+
   it('marks creature spells uncounterable when paid with matching Cavern of Souls mana', () => {
     const gameState = {
       battlefield: [
