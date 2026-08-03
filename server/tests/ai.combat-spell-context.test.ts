@@ -36,12 +36,20 @@ function buildGame(battlefield: any[] = []) {
   } as any;
 }
 
+const selflessSquire = {
+  name: 'Selfless Squire',
+  type_line: 'Creature — Human Soldier',
+  oracle_text:
+    'Flash\nWhen this creature enters, prevent all damage that would be dealt to you this turn.\nWhenever damage that would be dealt to you is prevented, put that many +1/+1 counters on this creature.',
+};
+
 describe('AI combat-dependent spell context', () => {
   it('does not consider Fog or attacking-creature edicts useful without attackers', () => {
     const game = buildGame();
 
     expect(isAISpellContextuallyUseful(game, 'ai' as any, fog)).toBe(false);
     expect(isAISpellContextuallyUseful(game, 'ai' as any, entrapmentManeuver)).toBe(false);
+    expect(isAISpellContextuallyUseful(game, 'ai' as any, selflessSquire)).toBe(false);
   });
 
   it('allows Fog only for a hostile attack involving the AI', () => {
@@ -60,6 +68,8 @@ describe('AI combat-dependent spell context', () => {
 
     expect(isAISpellContextuallyUseful(attackingAI, 'ai' as any, fog)).toBe(true);
     expect(isAISpellContextuallyUseful(attackingBystander, 'ai' as any, fog)).toBe(false);
+    expect(isAISpellContextuallyUseful(attackingAI, 'ai' as any, selflessSquire)).toBe(true);
+    expect(isAISpellContextuallyUseful(attackingBystander, 'ai' as any, selflessSquire)).toBe(false);
   });
 
   it('targets a player who controls an attacker for an attacking-creature edict', () => {

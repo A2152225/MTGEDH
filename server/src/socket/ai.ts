@@ -5052,25 +5052,46 @@ function getAIAttackingPermanents(game: any): any[] {
 
 export function isAISpellContextuallyUseful(game: any, playerId: PlayerID, card: any): boolean {
   const oracleText = String(card?.oracle_text || card?.oracleText || '').toLowerCase();
+  const typeLine = String(card?.type_line || card?.typeLine || '').toLowerCase();
   const attackingPermanents = getAIAttackingPermanents(game);
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+
+  const isHostileAttackAgainstAI = (attacker: any): boolean => {
+    if (String(attacker?.controller || '') === String(playerId)) return false;
+    if (attacker?.attacking === true || attacker?.isAttacking === true) return true;
+
+    const attackedId = String(attacker?.attacking || attacker?.defendingPlayerId || '').trim();
+    if (!attackedId) return true;
+    if (attackedId === String(playerId)) return true;
+    return battlefield.some(
+      (permanent: any) =>
+        String(permanent?.id || '') === attackedId
+        && String(permanent?.controller || '') === String(playerId),
+    );
+  };
+
+  const hasHostileAttackAgainstAI = attackingPermanents.some(isHostileAttackAgainstAI);
 
   const isCombatDamageFog =
     /\bprevent all combat damage\b/.test(oracleText)
     || /\bcreatures? (?:deal|deals) no combat damage\b/.test(oracleText);
   if (isCombatDamageFog) {
-    const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
-    return attackingPermanents.some((attacker: any) => {
-      if (String(attacker?.controller || '') === String(playerId)) return false;
-      if (attacker?.attacking === true || attacker?.isAttacking === true) return true;
+    return hasHostileAttackAgainstAI;
+  }
 
-      const attackedId = String(attacker?.attacking || attacker?.defendingPlayerId || '').trim();
-      if (!attackedId) return true;
-      if (attackedId === String(playerId)) return true;
-      return battlefield.some(
-        (permanent: any) =>
-          String(permanent?.id || '') === attackedId
-          && String(permanent?.controller || '') === String(playerId),
-      );
+  // Selfless Squire et al.: flash ETB that prevents damage to you — hold outside real threats.
+  const isPersonalDamagePreventionFlash =
+    typeLine.includes('creature')
+    && /\bflash\b/.test(oracleText)
+    && /\bprevent all damage that would be dealt to you\b/.test(oracleText);
+  if (isPersonalDamagePreventionFlash) {
+    if (hasHostileAttackAgainstAI) return true;
+    const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
+    return stack.some((entry: any) => {
+      const text = String(entry?.oracle_text || entry?.card?.oracle_text || entry?.effectText || '').toLowerCase();
+      if (!/\bdamage\b/.test(text)) return false;
+      // Rough: damage effects that mention "you" / target player while AI is a plausible target.
+      return /\byou\b|\btarget (?:player|opponent|creature or player|any target)\b/.test(text);
     });
   }
 
@@ -5204,6 +5225,7 @@ function canAIAssembleManaPaymentPlan(
   game: any,
   playerId: PlayerID,
   parsedCost: ParsedManaCost,
+  excludePermanentIds: string[] = [],
 ): boolean {
   const pool = getOrInitManaPool(game.state, String(playerId)) as any;
   const totalAvailable: Record<string, number> = {
@@ -5219,6 +5241,7 @@ function canAIAssembleManaPaymentPlan(
     return true;
   }
 
+  const excluded = new Set(excludePermanentIds.map((id) => String(id || '')).filter(Boolean));
   const paymentSources = getPaymentSources(game, playerId, {
     colors: { ...(parsedCost.colors || {}) },
     generic: Number(parsedCost.generic || 0),
@@ -5226,6 +5249,7 @@ function canAIAssembleManaPaymentPlan(
   const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
 
   for (const source of paymentSources) {
+    if (excluded.has(String(source.sourceId || ''))) continue;
     const permanent = battlefield.find((entry: any) =>
       entry &&
       String(entry.id || '') === String(source.sourceId || '') &&
@@ -5272,13 +5296,10 @@ function canAIActivateBattlefieldAbilityNow(
 
   // Mana-battery "put a charge counter" lines are main-phase value plays, not responses.
   // Charging Gemstone Array (etc.) during every combat priority window dumps the AI's mana.
-  if (mode === 'response') {
-    const battery = permanentHasManaBatteryCounterLoop(permanent);
-    const abilityText = String(action?.abilityText || '').toLowerCase();
-    const isChargeInvest =
-      battery.invests === true
-      && /\bput\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+\S+\s+counters?\s+on\b/i.test(abilityText);
-    if (isChargeInvest) {
+  const isChargeInvest = isAIManaBatteryChargeInvestAction(permanent, action);
+
+  if (isChargeInvest) {
+    if (mode === 'response') {
       return false;
     }
   }
@@ -5293,6 +5314,11 @@ function canAIActivateBattlefieldAbilityNow(
     || Object.values(parsedCost.colors || {}).some((value) => Number(value || 0) > 0);
   if (!needsMana) {
     return true;
+  }
+
+  // Never treat this permanent's own remove-counter mana as payment for putting more counters on it.
+  if (isChargeInvest) {
+    return canAIAssembleManaPaymentPlan(game, playerId, parsedCost, [String(permanent.id || '')]);
   }
 
   return canAIAssembleManaPaymentPlan(game, playerId, parsedCost);
@@ -5374,9 +5400,20 @@ async function enumerateAIActionCandidates(
     );
     if (abilityCandidate) {
       const confidenceBonus = Math.round(Number(abilityCandidate.confidence || 0) * 10);
+      const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+      const abilityPermanent = battlefield.find(
+        (entry: any) => String(entry?.id || '') === String(abilityCandidate.action?.permanentId || ''),
+      );
+      const isBatteryChargeInvest = abilityPermanent
+        ? isAIManaBatteryChargeInvestAction(abilityPermanent, abilityCandidate.action)
+        : false;
+      // Battery charge is spare-mana / color-fixing — sit below real casts (base 320+)
+      // and commanders (650+), but above "nothing" so leftover mana still stocks the battery.
       const basePriority = query.mode === 'response'
         ? 820
-        : (willNeedToDiscard ? 220 : 720);
+        : (willNeedToDiscard
+          ? 220
+          : (isBatteryChargeInvest ? 250 : 720));
 
       candidates.push({
         kind: 'activate_ability',
@@ -10516,6 +10553,30 @@ async function executeAICastCommander(
   });
 }
 
+function isAIManaBatteryChargeInvestAction(permanent: any, action: any): boolean {
+  const battery = permanentHasManaBatteryCounterLoop(permanent);
+  if (!battery.invests) return false;
+
+  const texts: string[] = [
+    String(action?.abilityText || ''),
+  ];
+  const abilityId = String(action?.abilityId || '').trim();
+  if (abilityId) {
+    for (const candidate of buildAIActivatedAbilityResolverCandidates(permanent)) {
+      if (String(candidate?.id || '') === abilityId || String(candidate?.id || '').endsWith(abilityId)) {
+        texts.push(String(candidate?.text || ''), String(candidate?.effect || ''));
+      }
+    }
+  } else {
+    for (const candidate of buildAIActivatedAbilityResolverCandidates(permanent)) {
+      texts.push(String(candidate?.text || ''), String(candidate?.effect || ''));
+    }
+  }
+
+  const joined = texts.join('\n').toLowerCase();
+  return /\bput\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+\S+\s+counters?\s+on\b/i.test(joined);
+}
+
 /**
  * Execute AI activated ability activation
  * Handles tapping permanents and putting abilities on the stack
@@ -10544,6 +10605,8 @@ async function executeAIActivateAbility(
     return false;
   }
 
+  const battery = permanentHasManaBatteryCounterLoop(permanent);
+
   const resolvedAbilityId = resolveAIActivatedAbilityId(action, permanent);
   if (resolvedAbilityId) {
     const progressed = await requestAISharedBattlefieldAbilityActivation(io, gameId, playerId, {
@@ -10568,6 +10631,18 @@ async function executeAIActivateAbility(
       permanentId: action?.permanentId,
       abilityId: resolvedAbilityId,
       cardName: action?.cardName,
+    });
+    return false;
+  }
+
+  // Mana-battery cards must never hit legacy (free mana / unpaid charge loops).
+  if (battery.invests && battery.paysOut) {
+    debugWarn(1, '[AI] Refusing legacy fallback for mana-battery permanent:', {
+      gameId,
+      playerId,
+      permanentId: action?.permanentId,
+      cardName: action?.cardName,
+      abilityText: action?.abilityText,
     });
     return false;
   }

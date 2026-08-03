@@ -441,9 +441,10 @@ export function evaluateActivatedAbilityValue(
         if (type === '+1/+1') return sum + Number(counters['+1/+1'] || counters.p1p1 || 0);
         return sum + Number(counters[type] || 0);
       }, 0);
-      value += 7;
-      if (currentCounters <= 0) value += 6;
-      else if (currentCounters < 3) value += 3;
+      // Keep charging with spare mana while waiting on plays; slight early-boost only.
+      value += 5;
+      if (currentCounters <= 0) value += 4;
+      else if (currentCounters < 3) value += 2;
       if (isOwnTurn && isMainPhase) value += 2;
       const manaPool = (gameState as any)?.manaPool?.[playerId] || {};
       const floatingByColor = {
@@ -455,8 +456,8 @@ export function evaluateActivatedAbilityValue(
         colorless: Number(manaPool.colorless || 0),
       };
       const floating = Object.values(floatingByColor).reduce((sum, amount) => sum + amount, 0);
-      if (floating >= 2) value += 4;
-      // Costly same-turn fixer: e.g. two green in pool → charge → remove for needed red.
+      // Spare floating mana / off-color mana should prefer stocking the battery.
+      if (floating >= 2) value += 8;
       const coloredAmounts = [
         floatingByColor.white,
         floatingByColor.blue,

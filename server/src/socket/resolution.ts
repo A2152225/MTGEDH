@@ -12144,6 +12144,44 @@ async function handleStepResponse(
           ? stepData.sacrificedPermanentsForCost.map((x: any) => String(x))
           : [];
 
+        // Deferred remove-counter activation costs (e.g. Gemstone Array any-color mana).
+        // activateBattlefieldAbility queues color choice and returns before applying these.
+        const deferredCounterRemovals = Array.isArray(stepData.pendingCounterRemovals)
+          ? stepData.pendingCounterRemovals
+          : [];
+        if (deferredCounterRemovals.length > 0) {
+          const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+          const perm = battlefield.find((entry: any) => entry && String(entry.id || '') === String(permanentId));
+          for (const entry of deferredCounterRemovals) {
+            const counterType = String(entry?.counterType || '').trim();
+            const count = Number(entry?.count || 0);
+            if (!counterType || !Number.isFinite(count) || count <= 0) continue;
+            if (perm) {
+              try {
+                const ctx = {
+                  state: game.state,
+                  libraries: (game as any).libraries,
+                  bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+                  rng: (game as any).rng,
+                  gameId,
+                } as any;
+                const { updateCounters } = await import('../state/modules/counters_tokens.js');
+                updateCounters(ctx, String(permanentId), { [counterType]: -count });
+              } catch {
+                (perm as any).counters = (perm as any).counters || {};
+                const next = Math.max(0, Number((perm as any).counters[counterType] || 0) - count);
+                if (next > 0) (perm as any).counters[counterType] = next;
+                else delete (perm as any).counters[counterType];
+              }
+            }
+            removedCountersForCost.push({
+              permanentId: String(permanentId),
+              counterType,
+              count,
+            });
+          }
+        }
+
         const needsActivationEvidence =
           (lifeToPay > 0) ||
           tappedPermanentsForCost.length > 0 ||

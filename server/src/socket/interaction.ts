@@ -13577,6 +13577,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             lifeToPayForCost: pendingLifePaymentForCost || undefined,
             tappedPermanentsForCost: tappedPermanentsForCost,
             sacrificedPermanentsForCost: sacrificedPermanentsForCost,
+            ...(pendingCounterRemovals.length > 0
+              ? { pendingCounterRemovals: pendingCounterRemovals.map((entry) => ({ ...entry })) }
+              : null),
             ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
           } as any);
 
@@ -13668,6 +13671,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             lifeToPayForCost: pendingLifePaymentForCost || undefined,
             tappedPermanentsForCost: tappedPermanentsForCost,
             sacrificedPermanentsForCost: sacrificedPermanentsForCost,
+            ...(pendingCounterRemovals.length > 0
+              ? { pendingCounterRemovals: pendingCounterRemovals.map((entry) => ({ ...entry })) }
+              : null),
             ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
           } as any);
 
@@ -13785,6 +13791,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               lifeToPayForCost: pendingLifePaymentForCost || undefined,
               tappedPermanentsForCost: tappedPermanentsForCost,
               sacrificedPermanentsForCost: sacrificedPermanentsForCost,
+              ...(pendingCounterRemovals.length > 0
+                ? { pendingCounterRemovals: pendingCounterRemovals.map((entry) => ({ ...entry })) }
+                : null),
               manaLifeLossAmount: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossAmount : undefined,
               manaLifeLossIsDamage: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossIsDamage : undefined,
               ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
