@@ -16,17 +16,21 @@ export type DeckResolvePreviewCard = {
 export function DeckResolvePreviewPanel({
   cards,
   compact,
+  fillHeight,
 }: {
   cards: DeckResolvePreviewCard[];
   compact?: boolean;
+  /** Stretch to parent row height (decklist editor). */
+  fillHeight?: boolean;
 }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
+    // Keep the latest decklist position in view when the list grows from the bottom.
     el.scrollTop = el.scrollHeight;
-  }, [cards.length, cards[cards.length - 1]?.name]);
+  }, [cards.length]);
 
   if (cards.length === 0) return null;
 
@@ -38,9 +42,11 @@ export function DeckResolvePreviewPanel({
         background: '#16181a',
         display: 'flex',
         flexDirection: 'column',
-        minHeight: compact ? 120 : 180,
-        maxHeight: compact ? 220 : 320,
+        minHeight: fillHeight ? 0 : (compact ? 120 : 180),
+        height: fillHeight ? '100%' : undefined,
+        maxHeight: fillHeight ? '100%' : (compact ? 220 : 320),
         overflow: 'hidden',
+        alignSelf: fillHeight ? 'stretch' : undefined,
       }}
     >
       <div
@@ -71,7 +77,7 @@ export function DeckResolvePreviewPanel({
                 alignItems: 'flex-start',
                 padding: 4,
                 borderRadius: 4,
-                background: index === cards.length - 1 ? 'rgba(74, 222, 128, 0.08)' : 'transparent',
+                background: 'transparent',
               }}
             >
               {thumb ? (

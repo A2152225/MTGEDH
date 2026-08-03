@@ -21,12 +21,41 @@ function toPreviewCard(result: DeckCardLookupResult): DeckResolvePreviewCard | n
   };
 }
 
-function presentNameKeys(text: string): Set<string> {
-  return new Set(extractCardNamesFromDeckText(text).map((name) => name.toLowerCase()));
+function cardsEqual(a: DeckResolvePreviewCard[], b: DeckResolvePreviewCard[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i].name.toLowerCase() !== b[i].name.toLowerCase()) return false;
+  }
+  return true;
 }
 
-function cardStillPresent(card: DeckResolvePreviewCard, present: Set<string>): boolean {
-  return present.has(card.name.toLowerCase()) || present.has(card.query.toLowerCase());
+/** Build gallery rows in decklist order from known/cached cards only. */
+function orderCardsForText(
+  text: string,
+  known: Iterable<DeckResolvePreviewCard>,
+  cache: Map<string, DeckResolvePreviewCard | null>,
+): DeckResolvePreviewCard[] {
+  const names = extractCardNamesFromDeckText(text);
+  if (names.length === 0) return [];
+
+  const byKey = new Map<string, DeckResolvePreviewCard>();
+  for (const card of known) {
+    byKey.set(card.name.toLowerCase(), card);
+    byKey.set(card.query.toLowerCase(), card);
+  }
+
+  const next: DeckResolvePreviewCard[] = [];
+  const seen = new Set<string>();
+  for (const name of names) {
+    const key = name.toLowerCase();
+    const card = byKey.get(key) || cache.get(key) || null;
+    if (!card) continue;
+    const id = card.name.toLowerCase();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    next.push(card);
+  }
+  return next;
 }
 
 export function useDeckResolvePreview() {
@@ -40,16 +69,15 @@ export function useDeckResolvePreview() {
     setCards([]);
   }, []);
 
-  /** Drop gallery entries whose names no longer appear in the deck text. */
+  /** Keep gallery in decklist order; drop names no longer present. */
   const syncPreviewToText = useCallback((text: string) => {
     if (!text.trim()) {
       clearPreview();
       return;
     }
-    const present = presentNameKeys(text);
     setCards((prev) => {
-      const next = prev.filter((card) => cardStillPresent(card, present));
-      return next.length === prev.length ? prev : next;
+      const next = orderCardsForText(text, prev, cacheRef.current);
+      return cardsEqual(prev, next) ? prev : next;
     });
   }, [clearPreview]);
 
@@ -77,25 +105,6 @@ export function useDeckResolvePreview() {
     return promise;
   }, []);
 
-  const appendCard = useCallback((card: DeckResolvePreviewCard, text?: string) => {
-    setCards((prev) => {
-      if (text !== undefined) {
-        const present = presentNameKeys(text);
-        if (!cardStillPresent(card, present)) {
-          return prev.filter((c) => cardStillPresent(c, present));
-        }
-        const key = card.name.toLowerCase();
-        const without = prev
-          .filter((c) => c.name.toLowerCase() !== key)
-          .filter((c) => cardStillPresent(c, present));
-        return [...without, card];
-      }
-      const key = card.name.toLowerCase();
-      const without = prev.filter((c) => c.name.toLowerCase() !== key);
-      return [...without, card];
-    });
-  }, []);
-
   const resolveLine = useCallback(
     async (line: string, textAfter?: string) => {
       const name = parseCardNameFromDeckLine(line);
@@ -103,9 +112,13 @@ export function useDeckResolvePreview() {
       const gen = generationRef.current;
       const card = await fetchOne(name);
       if (!card || gen !== generationRef.current) return;
-      appendCard(card, textAfter);
+      const text = textAfter ?? name;
+      setCards((prev) => {
+        const next = orderCardsForText(text, [...prev, card], cacheRef.current);
+        return cardsEqual(prev, next) ? prev : next;
+      });
     },
-    [appendCard, fetchOne],
+    [fetchOne],
   );
 
   const resolveAllFromText = useCallback(
@@ -141,12 +154,10 @@ export function useDeckResolvePreview() {
 
       if (gen !== generationRef.current) return;
 
-      const next: DeckResolvePreviewCard[] = [];
-      for (const name of names) {
-        const card = cacheRef.current.get(name.toLowerCase());
-        if (card) next.push(card);
-      }
-      setCards(next);
+      setCards((prev) => {
+        const next = orderCardsForText(text, prev, cacheRef.current);
+        return cardsEqual(prev, next) ? prev : next;
+      });
     },
     [clearPreview],
   );
@@ -156,7 +167,7 @@ export function useDeckResolvePreview() {
       if (e.key !== 'Enter' || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
       const caret = e.currentTarget.selectionStart ?? text.length;
       const line = getLineAtCaret(text, caret);
-      // Enter inserts a newline after this handler; include it for presence checks.
+      // Enter inserts a newline after this handler; include it for ordering/presence.
       const textAfter = `${text.slice(0, caret)}\n${text.slice(caret)}`;
       void resolveLine(line, textAfter);
     },
@@ -171,7 +182,6 @@ export function useDeckResolvePreview() {
       const start = ta.selectionStart ?? 0;
       const end = ta.selectionEnd ?? start;
       const next = `${currentText.slice(0, start)}${pasted}${currentText.slice(end)}`;
-      // Defer so controlled value can update; resolve against the post-paste text.
       window.setTimeout(() => {
         void resolveAllFromText(next);
       }, 0);

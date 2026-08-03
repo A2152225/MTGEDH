@@ -281,6 +281,8 @@ export function DeckManagerModal({
   }, [open, anchorEl, modalWidth, useSheet]);
 
   const stackColumns = useSheet ? '1fr' : '1fr 1fr';
+  // Match the saved-decks list height so the paste editor fills the left column.
+  const deckEditorHeight = useSheet ? 220 : 320;
 
   const tabButtonStyle = (active: boolean, accent?: string): React.CSSProperties => ({
     flex: useSheet ? 1 : undefined,
@@ -803,6 +805,8 @@ export function DeckManagerModal({
                       : (resolvedPreviewCards.length > 0 ? 'minmax(0, 1fr) 200px' : '1fr'),
                     gap: 10,
                     alignItems: 'stretch',
+                    height: useSheet ? undefined : deckEditorHeight,
+                    minHeight: useSheet ? undefined : deckEditorHeight,
                   }}
                 >
                   <textarea
@@ -815,9 +819,16 @@ export function DeckManagerModal({
                     onKeyDown={e => onTextareaKeyDown(e, localText)}
                     onPaste={e => onTextareaPaste(e, localText)}
                     placeholder="e.g. 1 Sol Ring"
-                    style={{ width: '100%', height: 180, resize: 'vertical', fontSize: 12 }}
+                    style={{
+                      width: '100%',
+                      height: useSheet ? 180 : '100%',
+                      minHeight: useSheet ? 180 : 0,
+                      resize: useSheet ? 'vertical' : 'none',
+                      fontSize: 12,
+                      boxSizing: 'border-box',
+                    }}
                   />
-                  <DeckResolvePreviewPanel cards={resolvedPreviewCards} compact={useSheet} />
+                  <DeckResolvePreviewPanel cards={resolvedPreviewCards} compact={useSheet} fillHeight={!useSheet} />
                 </div>
                 <input
                   value={localName}
@@ -988,6 +999,8 @@ export function DeckManagerModal({
                       : (resolvedPreviewCards.length > 0 ? 'minmax(0, 1fr) 200px' : '1fr'),
                     gap: 10,
                     alignItems: 'stretch',
+                    height: useSheet ? undefined : deckEditorHeight,
+                    minHeight: useSheet ? undefined : deckEditorHeight,
                   }}
                 >
                   <textarea
@@ -1000,9 +1013,16 @@ export function DeckManagerModal({
                     onKeyDown={e => onTextareaKeyDown(e, localText)}
                     onPaste={e => onTextareaPaste(e, localText)}
                     placeholder="Paste list, switch name below"
-                    style={{ width: '100%', height: 180, resize: 'vertical', fontSize: 12 }}
+                    style={{
+                      width: '100%',
+                      height: useSheet ? 180 : '100%',
+                      minHeight: useSheet ? 180 : 0,
+                      resize: useSheet ? 'vertical' : 'none',
+                      fontSize: 12,
+                      boxSizing: 'border-box',
+                    }}
                   />
-                  <DeckResolvePreviewPanel cards={resolvedPreviewCards} compact={useSheet} />
+                  <DeckResolvePreviewPanel cards={resolvedPreviewCards} compact={useSheet} fillHeight={!useSheet} />
                 </div>
                 <input
                   value={localName}
