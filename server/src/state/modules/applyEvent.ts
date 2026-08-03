@@ -16327,12 +16327,16 @@ export function replay(
       const e = events[i];
       if (!e || typeof e.type !== "string") continue;
 
-      // Provide a small amount of lookahead context for replay-only behaviors.
-      // This is used to avoid double-applying implicit state transitions when
-      // an explicit event follows (e.g., nextStep calling nextTurn vs a nextTurn event).
+      // Provide lookahead/lookbehind for replay-only behaviors.
+      // Lookahead: avoid double-applying when an explicit event follows
+      // (e.g., nextStep calling nextTurn vs a nextTurn event; nextStep then pushTriggeredAbility).
+      // Lookbehind: live sockets historically appended nextStep *after* nextStep() ran,
+      // so persisted pushTriggeredAbility events land immediately before the nextStep event.
       try {
         (ctx as any)._replayCurrentEventType = e.type;
         (ctx as any)._replayNextEventType = (events[i + 1] as any)?.type;
+        (ctx as any)._replayPreviousEvent = i > 0 ? events[i - 1] : null;
+        (ctx as any)._replayPreviousEventType = (events[i - 1] as any)?.type;
       } catch {
         // ignore
       }
@@ -16400,10 +16404,13 @@ export function replay(
     try {
       delete (ctx as any)._replayCurrentEventType;
       delete (ctx as any)._replayNextEventType;
+      delete (ctx as any)._replayPreviousEvent;
+      delete (ctx as any)._replayPreviousEventType;
       (ctx as any)._replayLastEvent = events.length > 0 ? events[events.length - 1] : undefined;
       (ctx as any)._replayLastEventType = events.length > 0
         ? String((events[events.length - 1] as any)?.type || '').trim()
         : '';
+      (ctx as any)._replayPenultimateEvent = events.length > 1 ? events[events.length - 2] : undefined;
     } catch {
       // ignore
     }

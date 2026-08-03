@@ -363,14 +363,52 @@ const STACK_PRESERVING_REPLAY_END_EVENT_TYPES = new Set([
   'castSpellContinuation',
 ]);
 
-function shouldPreservePendingTriggeredStackAfterReplay(ctx: GameContext): boolean {
-  const lastReplayEventType = String((ctx as any)._replayLastEventType || '').trim();
-  if (!STACK_PRESERVING_REPLAY_END_EVENT_TYPES.has(lastReplayEventType)) return false;
+/** Turn-step triggerTypes persisted by nextStep (must match turn.ts TURN_STEP_TRIGGER_TYPES). */
+const TURN_STEP_TRIGGER_TYPES_FOR_STACK_PRESERVE = new Set([
+  'upkeep',
+  'draw_step',
+  'precombat_main',
+  'postcombat_main',
+  'begin_combat',
+  'end_combat',
+  'end_step',
+  'rebound',
+  'paradigm',
+  'saga_chapter',
+]);
 
+function isTurnStepPersistedTriggerEvent(event: any): boolean {
+  if (!event || String(event.type || '') !== 'pushTriggeredAbility') return false;
+  const triggerType = String(event.triggerType || '').trim().toLowerCase();
+  return TURN_STEP_TRIGGER_TYPES_FOR_STACK_PRESERVE.has(triggerType);
+}
+
+function stackHasTriggeredAbility(ctx: GameContext): boolean {
   const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
   if (stack.length === 0) return false;
-
   return stack.some((item: any) => String(item?.type || '').toLowerCase() === 'triggered_ability');
+}
+
+function shouldPreservePendingTriggeredStackAfterReplay(ctx: GameContext): boolean {
+  const lastReplayEventType = String((ctx as any)._replayLastEventType || '').trim();
+  if (STACK_PRESERVING_REPLAY_END_EVENT_TYPES.has(lastReplayEventType)) {
+    return stackHasTriggeredAbility(ctx);
+  }
+
+  // Live sockets historically appended nextStep *after* nextStep() persisted
+  // pushTriggeredAbility, so a restart mid-step can end on nextStep with a
+  // legitimate pending turn-step trigger from the preceding push event.
+  if (lastReplayEventType === 'nextStep') {
+    const penultimate = (ctx as any)._replayPenultimateEvent;
+    if (
+      isTurnStepPersistedTriggerEvent(penultimate)
+      || String(penultimate?.type || '') === 'queueTriggerOrderStep'
+    ) {
+      return stackHasTriggeredAbility(ctx);
+    }
+  }
+
+  return false;
 }
 
 /** keywordPromptResolve keywords that intentionally leave pending stack triggers after replay. */

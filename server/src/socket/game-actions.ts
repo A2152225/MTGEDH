@@ -51,7 +51,7 @@ import {
 import { spellOracleUsesTeamworkChooseBoth } from "../state/modules/marvelMechanicsHelpers.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
 import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
-import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
+import { advanceStepPersistingEvent, flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { shouldPerformDrawStepTurnAction } from "../state/modules/turn.js";
 import { tryAutoStartGameFromPreGame } from "./pregame-auto-start.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
@@ -6087,34 +6087,46 @@ export async function requestCastSpellForSocket(
     let cardName = cardForCast.name || "Card";
     let faceTypeLine = effectiveTypeLine;
 
-    if (castSourceZone === 'command' && commanderCandidate && !commanderCandidate.grantsFlash) {
-      const stepStr = String(game.state?.step || '').toUpperCase().trim();
-      const isMainPhase = phaseStr.includes('MAIN') || stepStr.includes('MAIN');
-      const isYourTurn = game.state.turnPlayer === playerId;
-      const stackEmpty = !game.state.stack || game.state.stack.length === 0;
+    // Sorcery-speed gate for requestCastSpell (hand/command/etc). Without this, payment can be
+    // queued while the stack is non-empty and completeCastSpell then fails with SORCERY_TIMING
+    // after the player already paid (see Anointed Procession / deferred-finalize races).
+    {
+      const typeForTiming = String(faceTypeLine || effectiveTypeLine || typeLine || '').toLowerCase();
+      const oracleForTiming = String(cardForCast?.oracle_text || cardInHand?.oracle_text || '').toLowerCase();
+      const grantsFlash =
+        (castSourceZone === 'command' && commanderCandidate?.grantsFlash === true)
+        || ignoreTimingRestrictions
+        || typeForTiming.includes('instant')
+        || /\bflash\b/i.test(oracleForTiming);
+      if (!grantsFlash) {
+        const stepStr = String(game.state?.step || '').toUpperCase().trim();
+        const isMainPhase = phaseStr.includes('MAIN') || stepStr.includes('MAIN');
+        const isYourTurn = game.state.turnPlayer === playerId;
+        const stackEmpty = !game.state.stack || game.state.stack.length === 0;
 
-      if (!isMainPhase) {
-        socket.emit('error', {
-          code: 'SORCERY_TIMING',
-          message: "This spell can only be cast during a main phase (it doesn't have flash).",
-        });
-        return;
-      }
+        if (!isMainPhase) {
+          socket.emit('error', {
+            code: 'SORCERY_TIMING',
+            message: "This spell can only be cast during a main phase (it doesn't have flash).",
+          });
+          return;
+        }
 
-      if (!isYourTurn) {
-        socket.emit('error', {
-          code: 'SORCERY_TIMING',
-          message: "This spell can only be cast during your turn (it doesn't have flash).",
-        });
-        return;
-      }
+        if (!isYourTurn) {
+          socket.emit('error', {
+            code: 'SORCERY_TIMING',
+            message: "This spell can only be cast during your turn (it doesn't have flash).",
+          });
+          return;
+        }
 
-      if (!stackEmpty) {
-        socket.emit('error', {
-          code: 'SORCERY_TIMING',
-          message: "This spell can only be cast when the stack is empty (it doesn't have flash).",
-        });
-        return;
+        if (!stackEmpty) {
+          socket.emit('error', {
+            code: 'SORCERY_TIMING',
+            message: "This spell can only be cast when the stack is empty (it doesn't have flash).",
+          });
+          return;
+        }
       }
     }
 
@@ -13902,8 +13914,15 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       } finally {
         clearPlayerCompletingSpellCast(game, playerId, cardId);
+        // Keep pendingSpellCasts on failure so the payment-resume path can re-queue payment
+        // instead of reporting "cast did not complete" with a cleared pending cast.
         if (effectIdStr && (game.state as any).pendingSpellCasts?.[effectIdStr]) {
-          delete (game.state as any).pendingSpellCasts[effectIdStr];
+          const castFinished = isSpellAlreadyOnStackForPlayer(game, playerId, cardId)
+            || !(Array.isArray(game.state?.zones?.[playerId]?.hand)
+              && game.state.zones[playerId].hand.some((card: any) => String(card?.id || '') === String(cardId)));
+          if (castFinished) {
+            delete (game.state as any).pendingSpellCasts[effectIdStr];
+          }
         }
       }
 
@@ -14173,12 +14192,8 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // If all players passed priority with empty stack, advance to next step
       if (advanceStep && !suppressAdvanceStepAfterPhaseSkip) {
-        if (typeof (game as any).nextStep === 'function') {
-          (game as any).nextStep();
-          flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
+        if (advanceStepPersistingEvent(io, game as any, gameId, { reason: 'allPlayersPassed' })) {
           debug(2, `[passPriority] All players passed priority - advanced to next step for game ${gameId}`);
-          
-          appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'allPlayersPassed' });
           
           const newStep = (game.state as any)?.step || 'unknown';
           io.to(gameId).emit("chat", {
@@ -14865,22 +14880,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
         
         try {
-          if (typeof (game as any).nextStep === "function") {
-            await (game as any).nextStep();
-            flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
-            debug(2, 
-              `[nextStep] Single-player: advanced step for game ${gameId}`
-            );
+          if (!advanceStepPersistingEvent(io, game as any, gameId, { by: playerId })) {
+            return;
           }
+          debug(2, 
+            `[nextStep] Single-player: advanced step for game ${gameId}`
+          );
         } catch (e) {
           debugError(1, "nextStep: game.nextStep invocation failed:", e);
           return;
-        }
-        
-        try {
-          appendEvent(gameId, (game as any).seq || 0, "nextStep", { by: playerId });
-        } catch (e) {
-          debugWarn(1, "appendEvent(nextStep) failed", e);
         }
         
         broadcastGame(io, game, gameId);
@@ -14962,12 +14970,8 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // If all players passed priority with empty stack, advance to next step
       if (advanceStep) {
-        if (typeof (game as any).nextStep === 'function') {
-          (game as any).nextStep();
-          flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
+        if (advanceStepPersistingEvent(io, game as any, gameId, { reason: 'allPlayersPassed' })) {
           debug(2, `[nextStep] All players passed priority - advanced to next step for game ${gameId}`);
-
-          appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'allPlayersPassed' });
 
           const newStep = (game.state as any)?.step || 'unknown';
           io.to(gameId).emit("chat", {

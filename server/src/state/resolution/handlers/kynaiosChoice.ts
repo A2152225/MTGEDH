@@ -57,6 +57,25 @@ function emitChat(io: any, gameId: string, message: string): void {
   }
 }
 
+function emitToPlayerSafe(io: any, playerId: PlayerID, event: string, payload: unknown): void {
+  try {
+    const sockets = io?.sockets?.sockets;
+    if (sockets && typeof sockets.values === 'function') {
+      for (const socket of sockets.values()) {
+        if (String(socket?.data?.playerId || '') === String(playerId)) {
+          socket.emit(event, payload);
+        }
+      }
+      return;
+    }
+    if (typeof io?.to === 'function') {
+      io.to(String(playerId)).emit(event, payload);
+    }
+  } catch {
+    // best-effort
+  }
+}
+
 function ensureFinalizedMap(state: any): Record<string, true> {
   state.kynaiosFinalizedBatches = state.kynaiosFinalizedBatches || {};
   return state.kynaiosFinalizedBatches as Record<string, true>;
@@ -219,26 +238,41 @@ export function handleKynaiosChoiceResponse(
   }
 
   if (choice === 'play_land') {
-    if (!landCardId) {
+    const normalizedLandCardId = String(landCardId || '').trim();
+    if (!normalizedLandCardId) {
       debugWarn(1, `[Resolution] Kynaios: missing landCardId for play_land`);
+      emitToPlayerSafe(io, pid, 'error', { code: 'INVALID_SELECTION', message: 'Missing land selection' });
       return;
     }
     if (!canPlayLand) {
       debugWarn(1, `[Resolution] Kynaios: player ${pid} cannot play land`);
+      emitToPlayerSafe(io, pid, 'error', { code: 'INVALID_SELECTION', message: 'You cannot play a land' });
       return;
     }
-    const isValidLand = landsInHand.some((land: any) => land.id === landCardId);
-    if (!isValidLand) {
-      debugWarn(1, `[Resolution] Invalid Kynaios land choice: ${landCardId} not in hand`);
+    const liveHandLands = Array.isArray(game?.state?.zones?.[pid]?.hand)
+      ? (game.state.zones[pid].hand as any[]).filter((card: any) =>
+        card && String(card?.type_line || '').toLowerCase().includes('land'))
+      : [];
+    const allowedIds = new Set([
+      ...landsInHand.map((land: any) => String(land?.id || '').trim()).filter(Boolean),
+      ...liveHandLands.map((land: any) => String(land?.id || '').trim()).filter(Boolean),
+    ]);
+    if (!allowedIds.has(normalizedLandCardId)) {
+      debugWarn(1, `[Resolution] Invalid Kynaios land choice: ${normalizedLandCardId} not in hand`);
+      emitToPlayerSafe(io, pid, 'error', { code: 'INVALID_SELECTION', message: 'Selected land is not a valid choice' });
       return;
     }
 
-    const moveResult = moveKynaiosLandFromHandToBattlefield(game, pid, String(landCardId), undefined, {
+    const moveResult = moveKynaiosLandFromHandToBattlefield(game, pid, normalizedLandCardId, undefined, {
       triggerEtb: true,
       gameId,
     });
     if (!moveResult.moved) {
-      debugWarn(1, `[Resolution] Failed to move Kynaios land choice ${landCardId} for ${pid}`);
+      debugWarn(1, `[Resolution] Failed to move Kynaios land choice ${normalizedLandCardId} for ${pid}`);
+      emitToPlayerSafe(io, pid, 'error', {
+        code: 'LAND_MOVE_FAILED',
+        message: 'Could not put that land onto the battlefield — it may no longer be in your hand.',
+      });
       return;
     }
     createdPermanentId = moveResult.permanentId;

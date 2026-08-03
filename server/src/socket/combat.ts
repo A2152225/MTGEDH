@@ -28,7 +28,7 @@ import { creatureHasHaste, permanentHasKeyword, permanentHasSummoningSickness } 
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
-import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
+import { advanceStepPersistingEvent } from "./step-advance.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { getEnergyCount, spendEnergyCounters } from "../state/utils.js";
 import { processEquippedAttackRevealUntilLandPumps, emitEquippedAttackRevealPumpMessages } from "../state/modules/equippedAttackRevealPump.js";
@@ -3126,13 +3126,11 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       // Advance to next step after the empty declaration is recorded.
-      if (typeof (game as any).nextStep === "function") {
-        await (game as any).nextStep();
-        flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
-        await appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
-          playerId,
-          reason: 'skipDeclareAttackers',
-        });
+      if (advanceStepPersistingEvent(io, game as any, gameId, {
+        playerId,
+        reason: 'skipDeclareAttackers',
+      })) {
+        // advanced
       }
 
       io.to(gameId).emit("chat", {

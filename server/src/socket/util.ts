@@ -46,7 +46,7 @@ import { tryQueueMoxDiamondBeforeStackResolve } from "../state/modules/mox-diamo
 import { pruneObsoleteResolutionQueueAfterReplay } from "../state/resolution/replayCleanup.js";
 import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
 import { getTopTriggeredAbilityAutoPassReason } from "./trigger-shortcuts.js";
-import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
+import { advanceStepPersistingEvent } from "./step-advance.js";
 import { evaluateLibrarySearchReplacementEvent } from "../state/modules/replacement-effects.js";
 import { countControlledCreaturesOfChosenType } from "../state/modules/chosen-creature-type.js";
 import { repairNonPermanentBattlefieldGhosts, isImpossibleFaceUpNonPermanentBattlefieldCard } from "../state/modules/stackReplayUtils.js";
@@ -2516,15 +2516,11 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
             
             if (result.advanceStep) {
               debug(2, `${ts()} [executeAutoPass] Advancing step after auto-pass for ${priority} (ID: ${debugCallId})`);
-              if (typeof (game as any).nextStep === 'function') {
-                (game as any).nextStep();
-                flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
-                appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
-                  reason: 'autoPassAdvance',
-                  by: priority,
-                  auto: true,
-                });
-              }
+              advanceStepPersistingEvent(io, game as any, gameId, {
+                reason: 'autoPassAdvance',
+                by: priority,
+                auto: true,
+              });
             }
             
             // Clear the in-progress flag before broadcasting
@@ -2682,10 +2678,7 @@ export function schedulePriorityTimeout(
         gameId,
         setTimeout(() => {
           // Auto-advance to next step
-          if (typeof (game as any).nextStep === 'function') {
-            (game as any).nextStep();
-            flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
-            appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'noPriority' });
+          if (advanceStepPersistingEvent(io, game as any, gameId, { reason: 'noPriority' })) {
             suppressAutomationOnNextBroadcast(game);
             broadcastGame(io, game, gameId);
             debug(2, `[schedulePriorityTimeout] Auto-advanced step (no priority) for game ${gameId}`,

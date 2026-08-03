@@ -65,6 +65,20 @@ export function tryResolveInstantSorceryLegacyResolution(
   }
 
   if ((item as any)?.oracleIrDeferredFinalize === true) {
+    const gameIdForDeferred = String((ctx as any).gameId || 'unknown');
+    const pendingForDeferred = gameIdForDeferred !== 'unknown'
+      ? ResolutionQueueManager.getQueue(gameIdForDeferred).steps?.length ?? 0
+      : 0;
+    // Auto-pass / stack drain can re-enter resolve while a library_search (etc.) is still
+    // open. Re-push and wait instead of finalizing early and leaving sorcery casts blocked
+    // or completing the spell before its instructions finish.
+    if (pendingForDeferred > 0) {
+      const state = (ctx as any).state;
+      state.stack = state.stack || [];
+      state.stack.push({ ...item, oracleIrDeferredFinalize: true });
+      resyncPreparedExileCopiesWithControllers(state);
+      return true;
+    }
     if (finalizeResolvedInstantOrSorceryResolution(ctx, {
       controller,
       card,

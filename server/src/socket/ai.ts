@@ -63,7 +63,7 @@ import { getDominantCreatureType } from "./creature-type.js";
 import { handlePlayLandRequest, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks, getEffectiveAdditionalCost, isPlayerCompletingSpellCast } from "./game-actions.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
 import { type AdditionalCostResult } from "./land-helpers.js";
-import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
+import { advanceStepPersistingEvent } from "./step-advance.js";
 import { tryAutoStartGameFromPreGame } from "./pregame-auto-start.js";
 import { syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getOptionalPaymentValidationFailure } from "./optional-payment-prompts.js";
@@ -11355,11 +11355,8 @@ async function executeAdvanceStep(
   debug(1, '[AI] Advancing step:', { gameId, playerId, currentPhase, currentStep });
   
   try {
-    // Use game's nextStep method if available
-    if (typeof (game as any).nextStep === 'function') {
-      (game as any).nextStep();
-      flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
-    } else {
+    // Persist nextStep before applying so turn-step trigger pushes follow it in the log.
+    if (!advanceStepPersistingEvent(io, game as any, gameId, { playerId, isAI: true })) {
       debugWarn(2, '[AI] game.nextStep not available');
       return;
     }
@@ -11378,13 +11375,6 @@ async function executeAdvanceStep(
         debug(1, '[AI] Clearing cleanup processing flags after advancing from cleanup');
         delete (game.state as any)._aiProcessingCleanup;
       }
-    }
-    
-    // Persist event
-    try {
-      await appendEvent(gameId, (game as any).seq || 0, 'nextStep', { playerId, isAI: true });
-    } catch (e) {
-      debugWarn(1, '[AI] Failed to persist nextStep event:', e);
     }
     
     // Broadcast
@@ -12466,21 +12456,12 @@ async function executePassPriority(
         debug(1, `[AI] Cannot advance step - ${pendingCheck.reason}`);
       } else {
         debug(1, '[AI] All players passed priority with empty stack, advancing step');
-        if (typeof (game as any).nextStep === 'function') {
-          (game as any).nextStep();
-          flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
+        if (advanceStepPersistingEvent(io, game as any, gameId, { playerId, reason: 'allPlayersPassed' })) {
           debug(2, `[AI] Advanced to next step for game ${gameId}`);
 
           // Let the normal broadcast-driven AI/auto-pass flow handle any
           // later progression after this step settles.
           delete (game.state as any)._autoPassResult;
-        }
-        
-        // Persist the step advance event
-        try {
-          await appendEvent(gameId, (game as any).seq || 0, 'nextStep', { playerId, reason: 'allPlayersPassed' });
-        } catch (e) {
-          debugWarn(1, '[AI] Failed to persist nextStep event:', e);
         }
       }
     }

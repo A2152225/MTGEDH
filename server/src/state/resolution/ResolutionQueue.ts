@@ -218,6 +218,7 @@ function isUnresolvedStep(step: ResolutionStep | undefined): step is ResolutionS
  * Check if the queue has any pending steps
  */
 export function hasPendingSteps(queue: ResolutionQueue): boolean {
+  if (isUnresolvedStep(queue.activeStep)) return true;
   return queue.steps.some(isUnresolvedStep);
 }
 
@@ -225,6 +226,7 @@ export function hasPendingSteps(queue: ResolutionQueue): boolean {
  * Check if a specific player has any pending steps
  */
 export function playerHasPendingSteps(queue: ResolutionQueue, playerId: PlayerID): boolean {
+  if (isUnresolvedStep(queue.activeStep) && queue.activeStep.playerId === playerId) return true;
   return queue.steps.some(s => s.playerId === playerId && isUnresolvedStep(s));
 }
 
@@ -238,6 +240,9 @@ export function getPendingSummary(queue: ResolutionQueue): {
   pendingByPlayer: Record<PlayerID, number>;
 } {
   const pendingSteps = queue.steps.filter(isUnresolvedStep);
+  if (isUnresolvedStep(queue.activeStep) && !pendingSteps.some((step) => step.id === queue.activeStep!.id)) {
+    pendingSteps.push(queue.activeStep);
+  }
   
   const pendingByPlayer: Record<PlayerID, number> = {};
   const pendingTypes = new Set<ResolutionStepType>();

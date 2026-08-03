@@ -105,14 +105,57 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function shouldUsePersistedCombatDamageTriggersDuringReplay(ctx: GameContext): boolean {
-  if (!(ctx as any).isReplaying) return false;
-  return String((ctx as any)._replayNextEventType || '') === 'pushTriggeredAbility';
+/** Turn-step triggerTypes persisted by nextStep (see pushTriggersToStack / initiative / rebound / etc.). */
+const TURN_STEP_TRIGGER_TYPES = new Set([
+  'upkeep',
+  'draw_step',
+  'precombat_main',
+  'postcombat_main',
+  'begin_combat',
+  'end_combat',
+  'end_step',
+  'rebound',
+  'paradigm',
+  'saga_chapter',
+]);
+
+function isTurnStepPersistedTriggerEvent(event: any): boolean {
+  if (!event || String(event.type || '') !== 'pushTriggeredAbility') return false;
+  const triggerType = String(event.triggerType || '').trim().toLowerCase();
+  return TURN_STEP_TRIGGER_TYPES.has(triggerType);
 }
 
+/**
+ * During replay, nextStep must not live-push turn-step triggers when those pushes
+ * already exist as persisted events.
+ *
+ * Two event orderings appear in the wild:
+ * - Correct / test style: nextStep, then pushTriggeredAbility (lookahead)
+ * - Live socket style (historical): nextStep() runs and persists pushes, THEN
+ *   appendEvent(nextStep) — so pushTriggeredAbility lands *before* the nextStep
+ *   event (lookbehind). Without lookbehind, replay double-pushes and orphans leak
+ *   across turns (blocks sorcery-speed casts after restart).
+ */
 function shouldUsePersistedTurnStepTriggersDuringReplay(ctx: GameContext): boolean {
   if (!(ctx as any).isReplaying) return false;
-  return String((ctx as any)._replayNextEventType || '') === 'pushTriggeredAbility';
+  const nextType = String((ctx as any)._replayNextEventType || '').trim();
+  if (nextType === 'pushTriggeredAbility' || nextType === 'queueTriggerOrderStep') {
+    return true;
+  }
+  const prev = (ctx as any)._replayPreviousEvent;
+  if (isTurnStepPersistedTriggerEvent(prev)) return true;
+  if (prev && String(prev.type || '') === 'queueTriggerOrderStep') return true;
+  return false;
+}
+
+function shouldUsePersistedCombatDamageTriggersDuringReplay(ctx: GameContext): boolean {
+  if (!(ctx as any).isReplaying) return false;
+  const nextType = String((ctx as any)._replayNextEventType || '').trim();
+  if (nextType === 'pushTriggeredAbility') return true;
+  const prev = (ctx as any)._replayPreviousEvent;
+  if (!prev || String(prev.type || '') !== 'pushTriggeredAbility') return false;
+  const triggerType = String(prev.triggerType || '').trim().toLowerCase();
+  return triggerType === 'combat_damage' || triggerType === 'dealt_damage' || triggerType === 'you_are_dealt_damage';
 }
 
 function persistTurnStepTriggeredAbility(ctx: GameContext, stackItem: any, reason: string): void {

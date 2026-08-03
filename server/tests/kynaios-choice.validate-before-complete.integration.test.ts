@@ -129,4 +129,66 @@ describe('KYNAIOS_CHOICE validate-before-complete (integration)', () => {
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
   });
+
+  it('moves the selected land from hand onto the battlefield on play_land', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).zones = {
+      [p1]: {
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        hand: [{
+          id: 'stomping_ground_1',
+          name: 'Stomping Ground',
+          type_line: 'Land — Mountain Forest',
+          oracle_text: 'As Stomping Ground enters, you may pay 2 life. If you don\'t, it enters tapped.',
+          zone: 'hand',
+        }],
+        handCount: 1,
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [];
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.KYNAIOS_CHOICE,
+      playerId: p1 as any,
+      description: 'Kynaios choice',
+      mandatory: false,
+      landPlayOrFallbackIsController: false,
+      landPlayOrFallbackSourceController: 'p2',
+      landPlayOrFallbackCanPlayLand: true,
+      landPlayOrFallbackLandsInHand: [{ id: 'stomping_ground_1', name: 'Stomping Ground' }],
+      landPlayOrFallbackOptions: ['play_land', 'draw_card'],
+      landsInHand: [{ id: 'stomping_ground_1', name: 'Stomping Ground' }],
+      options: ['play_land', 'draw_card'],
+      kynaiosBatchId: 'batch_live_land',
+      sourceName: 'Kynaios and Tiro of Meletis',
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const stepId = String(ResolutionQueueManager.getQueue(gameId).steps[0].id);
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId,
+      selections: { choice: 'play_land', landCardId: 'stomping_ground_1' },
+    });
+
+    expect(emitted.some((e) => e.event === 'error')).toBe(false);
+    expect((game.state as any).zones[p1].hand).toHaveLength(0);
+    expect((game.state as any).battlefield.some((p: any) => p?.card?.name === 'Stomping Ground')).toBe(true);
+  });
 });

@@ -179,7 +179,7 @@ import { readOracleIrLedgerPersistFields, readOracleIrCompoundResumePersistField
 import { maybeResumeDeferredOracleIrStackSpellOnGame } from '../state/modules/oracleIrDeferredStackFinalize.js';
 import { applyJoinForcesPaidManaPowerPump } from '../state/modules/joinForcesResolutionQueue.js';
 import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
-import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
+import { advanceStepPersistingEvent } from "./step-advance.js";
 import { tryAutoStartGameFromPreGame } from "./pregame-auto-start.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
 import { getDominantCreatureType } from "./creature-type.js";
@@ -7699,13 +7699,29 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             return;
           }
 
+          const liveHand = Array.isArray((game as any)?.state?.zones?.[pid]?.hand)
+            ? ((game as any).state.zones[pid].hand as any[])
+            : [];
+          const liveLandIds = new Set(
+            liveHand
+              .filter((card: any) => card && String(card?.type_line || '').toLowerCase().includes('land'))
+              .map((card: any) => String(card?.id || '').trim())
+              .filter(Boolean),
+          );
+          if (!liveLandIds.has(String(landCardId).trim())) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected land is not in your hand' });
+            return;
+          }
           const landsInHand: any[] = Array.isArray(stepAny?.landPlayOrFallbackLandsInHand)
             ? stepAny.landPlayOrFallbackLandsInHand
             : Array.isArray(stepAny?.landsInHand)
               ? stepAny.landsInHand
               : [];
-          const allowed = new Set(landsInHand.map((l: any) => String(l?.id)).filter(Boolean));
-          if (!allowed.has(String(landCardId))) {
+          const allowed = new Set([
+            ...landsInHand.map((l: any) => String(l?.id || '').trim()).filter(Boolean),
+            ...liveLandIds,
+          ]);
+          if (!allowed.has(String(landCardId).trim())) {
             socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected land is not a valid choice' });
             return;
           }
@@ -17889,13 +17905,11 @@ async function handleDiscardResponse(
           playerId: String(pid),
           queuedResolutionSteps: queuedMadnessSteps.map((queuedStep: any) => ({ ...(queuedStep as any) })),
         });
-      } else if (typeof (game as any).nextStep === 'function') {
-        (game as any).nextStep();
-        flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
-        appendEvent(gameId, (game as any).seq ?? 0, 'nextStep', {
-          playerId: pid,
-          reason: 'cleanupDiscardResolved',
-        });
+      } else if (advanceStepPersistingEvent(io, game as any, gameId, {
+        playerId: pid,
+        reason: 'cleanupDiscardResolved',
+      })) {
+        // advanced
       }
     } catch (err) {
       debugWarn(1, `[Resolution] Failed to advance after cleanup discard:`, err);
@@ -33219,9 +33233,7 @@ async function handleOptionChoiceResponse(
       const stackLengthAfterPrompt = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
       if (!hasRemainingCleanupPrompt && !hasPendingCast && stackLengthAfterPrompt === 0) {
         try {
-          (game as any).nextStep();
-          flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
-          appendEvent(gameId, (game as any).seq ?? 0, 'nextStep', {
+          advanceStepPersistingEvent(io, game as any, gameId, {
             playerId,
             reason: 'cleanupMadnessPromptResolved',
           });

@@ -3199,14 +3199,20 @@ export function App() {
       // Handle Kynaios choice resolution step
       else if (step.type === 'kynaios_choice') {
         // Convert resolution step to KynaiosChoiceRequest format
+        const landsInHand = Array.isArray((step as any).landPlayOrFallbackLandsInHand)
+          ? (step as any).landPlayOrFallbackLandsInHand
+          : (step.landsInHand || []);
+        const options = Array.isArray((step as any).landPlayOrFallbackOptions)
+          ? (step as any).landPlayOrFallbackOptions
+          : (step.options || []);
         const request: KynaiosChoiceRequest = {
           gameId: payload.gameId,
-          sourceController: step.sourceController,
+          sourceController: (step as any).landPlayOrFallbackSourceController || step.sourceController,
           sourceName: step.sourceName || 'Kynaios and Tiro of Meletis',
-          isController: step.isController,
-          canPlayLand: step.canPlayLand,
-          landsInHand: step.landsInHand || [],
-          options: step.options || [],
+          isController: (step as any).landPlayOrFallbackIsController ?? step.isController,
+          canPlayLand: (step as any).landPlayOrFallbackCanPlayLand ?? step.canPlayLand,
+          landsInHand,
+          options,
           stepId: step.id,  // Store the step ID for the response
         };
         
