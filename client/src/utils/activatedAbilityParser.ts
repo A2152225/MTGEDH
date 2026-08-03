@@ -686,14 +686,24 @@ function appendGrantedActivatedAbilities(
  */
 export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: readonly string[]): ParsedActivatedAbility[] {
   const abilities: ParsedActivatedAbility[] = [];
-  const oracleText = (card.oracle_text || '').replace(/\([^)]*\)/g, '');
+  const rawOracleText = card.oracle_text || '';
+  // Shock lands print the tap-mana line in parentheses: "({T}: Add {G} or {U}.)".
+  // Keep those intrinsic mana lines so duals use the same color-picker UI as Botanical Sanctum
+  // instead of falling through to separate "Tap for {G}" / "Tap for {U}" basic-type buttons.
+  const parentheticalManaLines = Array.from(
+    rawOracleText.matchAll(/\(\s*(\{T\}:\s*Add\s+[^)]+?)\.?\s*\)/gi),
+  ).map((match) => String(match[1] || '').trim()).filter(Boolean);
+  const oracleText = rawOracleText.replace(/\([^)]*\)/g, '');
   const typeLine = (card.type_line || '').toLowerCase();
   const name = card.name || '';
   const lowerOracle = oracleText.toLowerCase();
-  const nativeOracleText = oracleText
-    .replace(/(?:other\s+)?(?:nontoken\s+)?creatures you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
-    .replace(/(?:other\s+)?lands you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
-    .replace(/(?:other\s+)?permanents you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '');
+  const nativeOracleText = [
+    oracleText
+      .replace(/(?:other\s+)?(?:nontoken\s+)?creatures you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
+      .replace(/(?:other\s+)?lands you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
+      .replace(/(?:other\s+)?permanents you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, ''),
+    ...parentheticalManaLines,
+  ].filter(Boolean).join('\n');
   const lowerNativeOracle = nativeOracleText.toLowerCase();
   const hasExplicitTapManaAbility = /\{t\}\s*:\s*add\b/i.test(nativeOracleText);
   
@@ -702,80 +712,50 @@ export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: r
   // ======== BASIC LAND MANA ABILITIES ========
   // Lands with basic land types have intrinsic mana abilities, but prefer
   // the printed tap-mana line when the oracle text already provides one.
-  if (!hasExplicitTapManaAbility && typeLine.includes('plains')) {
-    abilities.push({
-      id: `${card.id}-mana-w-${abilityIndex++}`,
-      label: 'Tap for {W}',
-      description: 'Add one white mana to your mana pool',
-      cost: '{T}',
-      effect: 'Add {W}',
-      requiresTap: true,
-      requiresUntap: false,
-      requiresSacrifice: false,
-      isManaAbility: true,
-      isLoyaltyAbility: false,
-      isFetchAbility: false,
-    });
-  }
-  if (!hasExplicitTapManaAbility && typeLine.includes('island')) {
-    abilities.push({
-      id: `${card.id}-mana-u-${abilityIndex++}`,
-      label: 'Tap for {U}',
-      description: 'Add one blue mana to your mana pool',
-      cost: '{T}',
-      effect: 'Add {U}',
-      requiresTap: true,
-      requiresUntap: false,
-      requiresSacrifice: false,
-      isManaAbility: true,
-      isLoyaltyAbility: false,
-      isFetchAbility: false,
-    });
-  }
-  if (!hasExplicitTapManaAbility && typeLine.includes('swamp')) {
-    abilities.push({
-      id: `${card.id}-mana-b-${abilityIndex++}`,
-      label: 'Tap for {B}',
-      description: 'Add one black mana to your mana pool',
-      cost: '{T}',
-      effect: 'Add {B}',
-      requiresTap: true,
-      requiresUntap: false,
-      requiresSacrifice: false,
-      isManaAbility: true,
-      isLoyaltyAbility: false,
-      isFetchAbility: false,
-    });
-  }
-  if (!hasExplicitTapManaAbility && typeLine.includes('mountain')) {
-    abilities.push({
-      id: `${card.id}-mana-r-${abilityIndex++}`,
-      label: 'Tap for {R}',
-      description: 'Add one red mana to your mana pool',
-      cost: '{T}',
-      effect: 'Add {R}',
-      requiresTap: true,
-      requiresUntap: false,
-      requiresSacrifice: false,
-      isManaAbility: true,
-      isLoyaltyAbility: false,
-      isFetchAbility: false,
-    });
-  }
-  if (!hasExplicitTapManaAbility && typeLine.includes('forest')) {
-    abilities.push({
-      id: `${card.id}-mana-g-${abilityIndex++}`,
-      label: 'Tap for {G}',
-      description: 'Add one green mana to your mana pool',
-      cost: '{T}',
-      effect: 'Add {G}',
-      requiresTap: true,
-      requiresUntap: false,
-      requiresSacrifice: false,
-      isManaAbility: true,
-      isLoyaltyAbility: false,
-      isFetchAbility: false,
-    });
+  // Multiple basic types without an explicit printed line still get one choice ability
+  // (Sanctum-style) rather than separate single-color buttons.
+  if (!hasExplicitTapManaAbility) {
+    const basicTypeColors: string[] = [];
+    if (typeLine.includes('plains')) basicTypeColors.push('W');
+    if (typeLine.includes('island')) basicTypeColors.push('U');
+    if (typeLine.includes('swamp')) basicTypeColors.push('B');
+    if (typeLine.includes('mountain')) basicTypeColors.push('R');
+    if (typeLine.includes('forest')) basicTypeColors.push('G');
+
+    if (basicTypeColors.length >= 2) {
+      const produced = basicTypeColors.map((color) => `{${color}}`).join(' or ');
+      abilities.push({
+        id: `${card.id}-ability-${abilityIndex++}`,
+        label: `Add ${produced}`,
+        description: `Add ${produced}`,
+        cost: '{T}',
+        effect: `Add ${produced}`,
+        requiresTap: true,
+        requiresUntap: false,
+        requiresSacrifice: false,
+        isManaAbility: true,
+        isLoyaltyAbility: false,
+        isFetchAbility: false,
+      });
+    } else if (basicTypeColors.length === 1) {
+      const color = basicTypeColors[0];
+      const colorNames: Record<string, string> = {
+        W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green',
+      };
+      abilities.push({
+        id: `${card.id}-mana-${color.toLowerCase()}-${abilityIndex++}`,
+        label: `Tap for {${color}}`,
+        description: `Add one ${colorNames[color] || color} mana to your mana pool`,
+        cost: '{T}',
+        effect: `Add {${color}}`,
+        requiresTap: true,
+        requiresUntap: false,
+        requiresSacrifice: false,
+        isManaAbility: true,
+        isLoyaltyAbility: false,
+        isFetchAbility: false,
+      });
+    }
   }
   
   // ======== PLANESWALKER LOYALTY ABILITIES ========

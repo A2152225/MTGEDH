@@ -410,6 +410,32 @@ describe('parseActivatedAbilities station parsing', () => {
     );
   });
 
+  it('parses Breeding Pool parenthetical mana like Botanical Sanctum (single choice ability)', () => {
+    const breedingPool: KnownCardRef = {
+      id: 'breeding-pool-1',
+      name: 'Breeding Pool',
+      type_line: 'Land — Forest Island',
+      oracle_text:
+        "({T}: Add {G} or {U}.)\nAs Breeding Pool enters, you may pay 2 life. If you don't, it enters tapped.",
+    };
+    const sanctum: KnownCardRef = {
+      id: 'botanical-sanctum-1',
+      name: 'Botanical Sanctum',
+      type_line: 'Land',
+      oracle_text:
+        '{T}: Add {G} or {U}.\nBotanical Sanctum enters tapped unless you control two or fewer other lands.',
+    };
+
+    const poolAbilities = parseActivatedAbilities(breedingPool).filter((a) => a.isManaAbility);
+    const sanctumAbilities = parseActivatedAbilities(sanctum).filter((a) => a.isManaAbility);
+
+    expect(poolAbilities).toHaveLength(1);
+    expect(sanctumAbilities).toHaveLength(1);
+    expect(poolAbilities[0]?.effect).toMatch(/\{G\}.*or.*\{U\}|\{U\}.*or.*\{G\}/i);
+    expect(sanctumAbilities[0]?.effect).toMatch(/\{G\}.*or.*\{U\}|\{U\}.*or.*\{G\}/i);
+    expect(poolAbilities.some((a) => /-mana-[gu]-\d+$/i.test(a.id))).toBe(false);
+  });
+
   it('keeps ordinary braced battlefield activations on generic -ability- ids', () => {
     const cards: KnownCardRef[] = [
       {

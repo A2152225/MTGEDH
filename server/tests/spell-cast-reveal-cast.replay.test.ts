@@ -16,13 +16,13 @@ describe('spell-cast reveal/cast replay semantics', () => {
   beforeEach(() => {
     for (const gameId of [
       't_spell_bottom_reveal_choice_replay',
-      't_revealed_cast_choice_replay',
+      't_revealed_cast_from_exile_decline_replay',
     ]) {
       resetGame(gameId);
     }
   });
 
-  it('replays the bottom-reveal choice by clearing the initial prompt and queueing the cast choice', () => {
+  it('replays the bottom-reveal choice by clearing the initial prompt and queueing cast-from-exile', () => {
     const gameId = 't_spell_bottom_reveal_choice_replay';
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -38,6 +38,8 @@ describe('spell-cast reveal/cast replay semantics', () => {
       { id: 'hit_1', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: 'Lightning Bolt deals 3 damage to any target.', zone: 'library' },
     ];
     (game.state as any).zones[p1].libraryCount = 2;
+    (game.state as any).zones[p1].exile = [];
+    (game.state as any).zones[p1].exileCount = 0;
     (game.state as any).stack = [
       {
         id: 'spell_1',
@@ -85,7 +87,17 @@ describe('spell-cast reveal/cast replay semantics', () => {
         { id: 'cast_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1. Draw a card.' },
       ],
       revealLibraryAfter: [
+        { id: 'land_1', name: 'Mountain', type_line: 'Basic Land — Mountain' },
         { id: 'cast_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1. Draw a card.' },
+      ],
+      revealExileAfter: [
+        {
+          id: 'hit_1',
+          name: 'Lightning Bolt',
+          type_line: 'Instant',
+          oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          zone: 'exile',
+        },
       ],
       queuedResolutionStep: {
         id: 'queued_reveal_cast_choice_1',
@@ -101,17 +113,19 @@ describe('spell-cast reveal/cast replay semantics', () => {
         ],
         minSelections: 1,
         maxSelections: 1,
-        castRevealedFromLibraryChoice: true,
-        castRevealedFromLibraryCard: {
+        castFromExileCardId: 'hit_1',
+        castFromExileCard: {
           id: 'hit_1',
           name: 'Lightning Bolt',
           type_line: 'Instant',
           oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          zone: 'exile',
         },
-        castRevealedFromLibraryOtherCards: [
-          { id: 'land_1', name: 'Mountain', type_line: 'Basic Land — Mountain' },
-        ],
-        castRevealedFromLibraryPlayerId: p1,
+        castFromExileCastWithoutPayingManaCost: true,
+        castFromExileForcedAlternateCostId: 'free',
+        castFromExileBypassExilePermissionCheck: true,
+        castFromExileIgnoreTimingRestrictions: true,
+        castFromExileDeclineDestination: 'library_bottom_random',
       },
     } as any);
 
@@ -119,24 +133,37 @@ describe('spell-cast reveal/cast replay semantics', () => {
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps).toHaveLength(1);
     expect(String((queue.steps[0] as any)?.id || '')).toBe('queued_reveal_cast_choice_1');
-    expect((queue.steps[0] as any)?.castRevealedFromLibraryChoice).toBe(true);
-    expect((((game as any).libraries.get(p1) || []) as any[]).map((card: any) => card.id)).toEqual(['cast_1']);
+    expect((queue.steps[0] as any)?.castFromExileCardId).toBe('hit_1');
+    expect((((game as any).libraries.get(p1) || []) as any[]).map((card: any) => card.id)).toEqual(['land_1', 'cast_1']);
+    expect((((game.state as any).zones[p1].exile || []) as any[]).map((card: any) => card.id)).toEqual(['hit_1']);
   });
 
-  it('replays the revealed-card cast choice by clearing the prompt and restoring the stack item', () => {
-    const gameId = 't_revealed_cast_choice_replay';
+  it('replays declining the free cast by moving the staged card to library bottom', () => {
+    const gameId = 't_revealed_cast_from_exile_decline_replay';
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
 
     (game as any).libraries = new Map();
     (game as any).libraries.set(p1, [
+      { id: 'land_1', name: 'Mountain', type_line: 'Basic Land — Mountain', zone: 'library' },
       { id: 'cast_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1. Draw a card.', zone: 'library' },
     ]);
     (game.state as any).zones[p1].library = [
+      { id: 'land_1', name: 'Mountain', type_line: 'Basic Land — Mountain', zone: 'library' },
       { id: 'cast_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1. Draw a card.', zone: 'library' },
     ];
-    (game.state as any).zones[p1].libraryCount = 1;
+    (game.state as any).zones[p1].libraryCount = 2;
+    (game.state as any).zones[p1].exile = [
+      {
+        id: 'hit_1',
+        name: 'Lightning Bolt',
+        type_line: 'Instant',
+        oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+        zone: 'exile',
+      },
+    ];
+    (game.state as any).zones[p1].exileCount = 1;
 
     ResolutionQueueManager.addStep(gameId, {
       id: 'queued_reveal_cast_choice_1',
@@ -152,50 +179,35 @@ describe('spell-cast reveal/cast replay semantics', () => {
       ],
       minSelections: 1,
       maxSelections: 1,
-      castRevealedFromLibraryChoice: true,
-      castRevealedFromLibraryCard: {
+      castFromExileCardId: 'hit_1',
+      castFromExileCard: {
         id: 'hit_1',
         name: 'Lightning Bolt',
         type_line: 'Instant',
         oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+        zone: 'exile',
       },
-      castRevealedFromLibraryOtherCards: [
-        { id: 'land_1', name: 'Mountain', type_line: 'Basic Land — Mountain' },
-      ],
-      castRevealedFromLibraryPlayerId: p1,
+      castFromExileCastWithoutPayingManaCost: true,
+      castFromExileDeclineDestination: 'library_bottom_random',
     } as any);
 
     game.applyEvent({
-      type: 'castRevealedFromLibraryResolve',
+      type: 'castFromExilePromptResolve',
       playerId: p1,
+      sourceId: 'neera_perm',
       resolvedStepId: 'queued_reveal_cast_choice_1',
-      choice: 'cast',
       cardId: 'hit_1',
-      remainingLibraryIds: ['cast_1'],
-      bottomCardIds: ['land_1'],
-      bottomCards: [
-        { id: 'land_1', name: 'Mountain', type_line: 'Basic Land — Mountain', zone: 'library' },
-      ],
-      stackItem: {
-        id: 'reveal_cast_spell_1',
-        type: 'spell',
-        controller: p1,
-        targets: [],
-        castFromHand: false,
-        castWithoutPayingManaCost: true,
-        card: {
-          id: 'hit_1',
-          name: 'Lightning Bolt',
-          type_line: 'Instant',
-          oracle_text: 'Lightning Bolt deals 3 damage to any target.',
-          zone: 'stack',
-        },
-      },
+      choice: 'decline',
+      declineDestination: 'library_bottom_random',
     } as any);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps).toHaveLength(0);
-    expect((((game as any).libraries.get(p1) || []) as any[]).map((card: any) => card.id)).toEqual(['cast_1', 'land_1']);
-    expect(((game.state as any).stack || []).map((item: any) => item.card?.name)).toEqual(['Lightning Bolt']);
+    expect((((game.state as any).zones[p1].exile || []) as any[]).map((card: any) => card.id)).toEqual([]);
+    expect((((game as any).libraries.get(p1) || []) as any[]).map((card: any) => card.id)).toEqual([
+      'land_1',
+      'cast_1',
+      'hit_1',
+    ]);
   });
 });

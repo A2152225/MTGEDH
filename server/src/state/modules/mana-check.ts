@@ -12,7 +12,15 @@ import { cardHasCreatureType } from "../creatureTypeNow.js";
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions.js";
 import { getChosenTypeManaSpendRestriction } from "./chosen-creature-type.js";
 import { getActiveAbilityConditions } from "./game-state-effects.js";
-import { getMoxAmberAvailableColors, isMoxAmberConditionalManaSource, getCreatureCountManaAmount, getDevotionManaAmount, resolvePowerThresholdInsteadManaAbility, parseManaSpendRestrictionFromOracle } from "./mana-abilities.js";
+import {
+  getCommanderColorIdentity,
+  getMoxAmberAvailableColors,
+  isMoxAmberConditionalManaSource,
+  getCreatureCountManaAmount,
+  getDevotionManaAmount,
+  resolvePowerThresholdInsteadManaAbility,
+  parseManaSpendRestrictionFromOracle,
+} from "./mana-abilities.js";
 import { debug } from "../../utils/debug.js";
 
 /**
@@ -1832,48 +1840,6 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
   }
 
   return sources;
-}
-
-/**
- * Helper function to get commander color identity for a player
- * Returns set of color keys that the player's commander(s) can produce
- * 
- * @param state Game state
- * @param playerId The player whose commander color identity to check
- * @returns Set of color keys in commander's color identity
- */
-function getCommanderColorIdentity(state: any, playerId: PlayerID): Set<string> {
-  const commanderColors = new Set<string>();
-  const commandZone = state?.commandZone?.[playerId];
-  
-  if (!commandZone) return commanderColors;
-  
-  const commanderCards = commandZone.commanderCards || commandZone.commanders || [];
-  
-  for (const commander of commanderCards) {
-    if (!commander) continue;
-    
-    // color_identity is an array like ['W', 'U', 'B', 'R', 'G']
-    const colorIdentity = commander.color_identity || commander.colorIdentity || [];
-    
-    for (const color of colorIdentity) {
-      const colorUpper = color.toUpperCase();
-      const colorKey = {
-        'W': 'white',
-        'U': 'blue',
-        'B': 'black',
-        'R': 'red',
-        'G': 'green',
-        'C': 'colorless',
-      }[colorUpper];
-      
-      if (colorKey) {
-        commanderColors.add(colorKey);
-      }
-    }
-  }
-  
-  return commanderColors;
 }
 
 /**

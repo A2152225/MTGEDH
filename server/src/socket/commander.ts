@@ -19,7 +19,8 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, emitStateToSocket, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, clearHumanAutoPassPauseOnAction } from "./util";
 import { requestCastSpellForSocket } from "./game-actions.js";
 import { emitResolutionStepPrompt } from "./resolution.js";
-import { getCommanderImageUris } from "../state/modules/commander.js";
+import { getCommanderImageUris, deriveCardColorIdentity } from "../state/modules/commander.js";
+import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
 import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
@@ -448,13 +449,40 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             : 0;
           const doingOpeningDraw = willDoOpeningDraw && handCountBefore === 0;
           
-          (game as any).setCommander(pid, names, idsToApply);
+          const colorIdentity = new Set<string>();
+          const libraries = (game as any).libraries;
+          const libCards: any[] =
+            libraries && typeof libraries.get === 'function'
+              ? (libraries.get(pid) || [])
+              : [];
+          const importBuf =
+            ((game as any)._lastImportedDecks as Map<string, any[]> | undefined)?.get(pid) || [];
+
+          for (let i = 0; i < names.length; i++) {
+            const id = idsToApply[i];
+            const name = names[i];
+            const src =
+              (id && libCards.find((c: any) => c?.id === id)) ||
+              (name && libCards.find((c: any) => String(c?.name || '').toLowerCase() === String(name).toLowerCase())) ||
+              (id && importBuf.find((c: any) => c?.id === id)) ||
+              (name && importBuf.find((c: any) => String(c?.name || '').toLowerCase() === String(name).toLowerCase())) ||
+              (name ? lookupLocalCardByNameSync(String(name)) : null) ||
+              { name };
+            for (const color of deriveCardColorIdentity(src)) {
+              colorIdentity.add(color);
+            }
+          }
+
+          const colorIdentityArr = ['W', 'U', 'B', 'R', 'G'].filter((c) => colorIdentity.has(c)) as ('W'|'U'|'B'|'R'|'G')[];
+
+          (game as any).setCommander(pid, names, idsToApply, colorIdentityArr);
           
           try {
             appendEvent(gameId, game.seq, "setCommander", {
               playerId: pid,
               commanderNames: names,
               commanderIds: idsToApply,
+              colorIdentity: colorIdentityArr,
             });
             
             // If we did the opening draw (shuffle + draw 7), persist those events for replay

@@ -30152,7 +30152,16 @@ async function handleOptionChoiceResponse(
       return;
     }
 
+    // Cards not cast this way bottom now. Stage the hit in exile and reuse the
+    // generic free-cast-from-exile prompt (targets / modes / payment pipeline).
     const nonHitCards = revealedCards.filter((card: any) => String(card?.id || '') !== String(hitCard?.id || ''));
+    bottomRandom(nonHitCards);
+
+    const revealZonesExile = Array.isArray(revealZones.exile) ? revealZones.exile : (revealZones.exile = []);
+    const stagedHit = { ...hitCard, zone: 'exile' };
+    revealZonesExile.push(stagedHit);
+    revealZones.exileCount = revealZonesExile.length;
+
     const queuedRevealCastChoiceStep = createResolutionStep({
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: controllerId as any,
@@ -30166,10 +30175,13 @@ async function handleOptionChoiceResponse(
       ],
       minSelections: 1,
       maxSelections: 1,
-      castRevealedFromLibraryChoice: true,
-      castRevealedFromLibraryCard: hitCard,
-      castRevealedFromLibraryOtherCards: nonHitCards,
-      castRevealedFromLibraryPlayerId: controllerId,
+      castFromExileCardId: String(hitCard.id || ''),
+      castFromExileCard: stagedHit,
+      castFromExileCastWithoutPayingManaCost: true,
+      castFromExileForcedAlternateCostId: 'free',
+      castFromExileBypassExilePermissionCheck: true,
+      castFromExileIgnoreTimingRestrictions: true,
+      castFromExileDeclineDestination: 'library_bottom_random',
     } as any);
 
     appendEvent(gameId, (game as any).seq ?? 0, 'spellBottomRevealUntilNonlandResolve', {
@@ -30181,6 +30193,7 @@ async function handleOptionChoiceResponse(
       revealFromLibraryPlayerId: controllerId,
       ownerLibraryAfter: snapshotLibraryCards(ownerLibrary),
       revealLibraryAfter: snapshotLibraryCards(revealLibrary),
+      revealExileAfter: revealZonesExile.map((card: any) => ({ ...card })),
       queuedResolutionStep: queuedRevealCastChoiceStep,
     });
 
@@ -33035,9 +33048,17 @@ async function handleOptionChoiceResponse(
 
         cleanupCardLeavingExile(game.state as any, exiledCard);
 
+        const bottomed = { ...exiledCard, zone: 'library' };
         zones.library = Array.isArray(zones.library) ? zones.library : [];
-        zones.library.push({ ...exiledCard, zone: 'library' });
+        zones.library.push(bottomed);
         zones.libraryCount = zones.library.length;
+        const lib = (game as any).libraries?.get?.(playerId);
+        if (Array.isArray(lib)) {
+          lib.push({ ...bottomed });
+          (game as any).libraries?.set?.(playerId, lib);
+        } else if ((game as any).libraries?.set) {
+          (game as any).libraries.set(playerId, [{ ...bottomed }]);
+        }
       } else if (declineDestination === 'exile') {
         cleanupCardLeavingExile(game.state as any, exiledCard);
       }

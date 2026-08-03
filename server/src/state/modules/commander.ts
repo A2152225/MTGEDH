@@ -46,6 +46,16 @@ function deriveColorIdentityFromManaCost(manaCost: string | undefined): string[]
   return COLOR_SYMBOLS.filter((color) => symbols.has(color));
 }
 
+function deriveColorIdentityFromOracleText(oracleText: string | undefined): string[] {
+  const symbols = new Set<string>();
+  const normalized = String(oracleText || '');
+  // Color identity includes mana symbols in rules text (e.g. Morophon cost reduction).
+  for (const match of normalized.matchAll(/\{([wubrg])\}/gi)) {
+    symbols.add(String(match[1] || '').toUpperCase());
+  }
+  return COLOR_SYMBOLS.filter((color) => symbols.has(color));
+}
+
 /** Resolve WUBRG color identity from card fields commonly present on imported commanders. */
 export function deriveCardColorIdentity(src: any): string[] {
   const explicit = normalizeColorIdentitySymbols(
@@ -57,7 +67,11 @@ export function deriveCardColorIdentity(src: any): string[] {
   if (fromColors.length > 0) return fromColors;
 
   const manaCost = getFrontFaceValue<string>(src, 'mana_cost') ?? src?.mana_cost;
-  return deriveColorIdentityFromManaCost(manaCost);
+  const fromManaCost = deriveColorIdentityFromManaCost(manaCost);
+  if (fromManaCost.length > 0) return fromManaCost;
+
+  const oracleText = getFrontFaceValue<string>(src, 'oracle_text') ?? src?.oracle_text ?? src?.text;
+  return deriveColorIdentityFromOracleText(oracleText);
 }
 
 function getFrontFaceValue<T = unknown>(src: any, key: string): T | undefined {

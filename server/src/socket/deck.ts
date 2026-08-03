@@ -150,6 +150,25 @@ type PendingConfirm = {
   applyImporterOnly?: boolean;
 };
 
+function toImportBufferCard(c: any) {
+  return {
+    id: c.id,
+    name: c.name,
+    type_line: c.type_line,
+    oracle_text: c.oracle_text,
+    image_uris: c.image_uris,
+    mana_cost: (c as any).mana_cost,
+    cmc: (c as any).cmc,
+    power: (c as any).power,
+    toughness: (c as any).toughness,
+    loyalty: (c as any).loyalty,
+    card_faces: (c as any).card_faces,
+    layout: (c as any).layout,
+    colors: (c as any).colors,
+    color_identity: (c as any).color_identity,
+  };
+}
+
 const pendingImportConfirmations: Map<string, PendingConfirm> = new Map();
 
 function makeImportConfirmId(gameId: string): string {
@@ -833,19 +852,7 @@ async function applyConfirmedImport(
           (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
         (game as any)._lastImportedDecks.set(
           p.initiator,
-          (p.resolvedCards || []).map((c) => ({
-            id: c.id,
-            name: c.name,
-            type_line: c.type_line,
-            oracle_text: c.oracle_text,
-            image_uris: c.image_uris,
-            mana_cost: (c as any).mana_cost,
-            power: (c as any).power,
-            toughness: (c as any).toughness,
-            loyalty: (c as any).loyalty,
-            card_faces: (c as any).card_faces,
-            layout: (c as any).layout,
-          }))
+          (p.resolvedCards || []).map(toImportBufferCard)
         );
         (game as any)._lastImportedDecksNames =
           (game as any)._lastImportedDecksNames ||
@@ -1414,19 +1421,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
         (game as any)._lastImportedDecks.set(
           pid,
-          resolvedCards.map((c) => ({
-            id: c.id,
-            name: c.name,
-            type_line: c.type_line,
-            oracle_text: c.oracle_text,
-            image_uris: c.image_uris,
-            mana_cost: (c as any).mana_cost,
-            power: (c as any).power,
-            toughness: (c as any).toughness,
-            loyalty: (c as any).loyalty,
-            card_faces: (c as any).card_faces,
-            layout: (c as any).layout,
-          }))
+          resolvedCards.map(toImportBufferCard)
         );
       } catch (e) {
         debugWarn(1, 
@@ -1971,19 +1966,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
           (game as any)._lastImportedDecks.set(
             pid,
-            resolvedCards.map((c) => ({
-              id: c.id,
-              name: c.name,
-              type_line: c.type_line,
-              oracle_text: c.oracle_text,
-              image_uris: c.image_uris,
-              mana_cost: (c as any).mana_cost,
-              power: (c as any).power,
-              toughness: (c as any).toughness,
-              loyalty: (c as any).loyalty,
-              card_faces: (c as any).card_faces,
-              layout: (c as any).layout,
-            }))
+            resolvedCards.map(toImportBufferCard)
           );
         } catch (e) {
           debugWarn(1, 
@@ -3545,19 +3528,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
           (game as any)._lastImportedDecks.set(
             pid,
-            resolvedCards.map((c) => ({
-              id: c.id,
-              name: c.name,
-              type_line: c.type_line,
-              oracle_text: c.oracle_text,
-              image_uris: c.image_uris,
-              mana_cost: (c as any).mana_cost,
-              power: (c as any).power,
-              toughness: (c as any).toughness,
-              loyalty: (c as any).loyalty,
-              card_faces: (c as any).card_faces,
-              layout: (c as any).layout,
-            }))
+            resolvedCards.map(toImportBufferCard)
           );
         } catch (e) {
           debugWarn(1, 

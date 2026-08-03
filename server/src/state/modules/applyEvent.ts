@@ -4671,9 +4671,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, exiledCard, zones.graveyard);
             zones.graveyardCount = zones.graveyard.length;
           } else if (declineDestination === 'library_bottom_random') {
+            const bottomed = { ...exiledCard, zone: 'library' };
             zones.library = Array.isArray(zones.library) ? zones.library : [];
-            zones.library.push({ ...exiledCard, zone: 'library' });
+            zones.library.push(bottomed);
             zones.libraryCount = zones.library.length;
+            const lib = ctx.libraries?.get?.(playerId as any);
+            if (Array.isArray(lib)) {
+              lib.push({ ...bottomed });
+              ctx.libraries.set(playerId as any, lib);
+            } else if (ctx.libraries?.set) {
+              ctx.libraries.set(playerId as any, [{ ...bottomed }]);
+            }
           }
 
           if (Number.isFinite(declineDamageEachOpponent) && declineDamageEachOpponent > 0) {
@@ -8309,6 +8317,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const revealLibraryAfter = Array.isArray((e as any).revealLibraryAfter)
           ? cloneLibraryCards((e as any).revealLibraryAfter as any[])
           : undefined;
+        const revealExileAfter = Array.isArray((e as any).revealExileAfter)
+          ? ((e as any).revealExileAfter as any[]).map((card: any) => ({ ...card, zone: 'exile' }))
+          : undefined;
         const rawQueuedStep = (e as any).queuedResolutionStep;
 
         try {
@@ -8351,6 +8362,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               revealZones.library = cloneLibraryCards(revealLibraryAfter);
               revealZones.libraryCount = revealLibraryAfter.length;
               ctx.libraries.set(revealPlayerId as any, cloneLibraryCards(revealLibraryAfter));
+            }
+
+            if (revealPlayerId && revealExileAfter) {
+              const revealZones = ensureReplayPlayerZones(ctx.state as any, revealPlayerId);
+              revealZones.exile = revealExileAfter.map((card: any) => ({ ...card, zone: 'exile' }));
+              revealZones.exileCount = revealExileAfter.length;
             }
 
             const replayGameId = String((ctx as any).gameId || '').trim();

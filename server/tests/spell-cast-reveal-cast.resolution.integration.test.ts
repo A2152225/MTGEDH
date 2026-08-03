@@ -3,6 +3,7 @@ import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
+import { registerGameActions } from '../src/socket/game-actions.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
 
@@ -31,10 +32,10 @@ function createMockIo(emitted: Array<{ room?: string; event: string; payload: an
   } as any;
 }
 
-function createMockSocket(playerId: string, emitted: Array<{ room?: string; event: string; payload: any }>) {
+function createMockSocket(playerId: string, emitted: Array<{ room?: string; event: string; payload: any }>, gameId?: string) {
   const handlers: Record<string, Function> = {};
   const socket = {
-    data: { playerId, spectator: false },
+    data: { playerId, spectator: false, gameId },
     rooms: new Set<string>(),
     on: (ev: string, fn: Function) => {
       handlers[ev] = fn;
@@ -43,11 +44,14 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
       emitted.push({ event, payload });
     },
   } as any;
+  if (gameId) socket.rooms.add(gameId);
   return { socket, handlers };
 }
 
 describe('spell-cast reveal/cast queue flow (integration)', () => {
   const gameId = 'test_spell_cast_reveal_cast_resolution';
+  const playerId = 'p1';
+  const opponentId = 'p2';
 
   async function resetGame(gameId: string) {
     ResolutionQueueManager.removeQueue(gameId);
@@ -69,21 +73,36 @@ describe('spell-cast reveal/cast queue flow (integration)', () => {
     await resetGame(gameId);
   });
 
-  it('moves the triggering spell to the bottom, reveals until a nonland, and offers a free cast', async () => {
+  it('bottoms the spell, stages the revealed nonland in exile, and free-casts via cast-from-exile', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
 
-    const p1 = 'p1';
-    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
     (game.state as any).turnNumber = 3;
     (game as any).libraries = new Map();
-    (game as any).libraries.set(p1, [
+    (game as any).libraries.set(playerId, [
       { id: 'land_1', name: 'Mountain', type_line: 'Basic Land — Mountain', zone: 'library' },
-      { id: 'hit_1', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: 'Lightning Bolt deals 3 damage to any target.', zone: 'library' },
+      {
+        id: 'hit_1',
+        name: 'Lightning Bolt',
+        mana_cost: '{R}',
+        manaCost: '{R}',
+        type_line: 'Instant',
+        oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+        zone: 'library',
+      },
     ]);
     (game.state as any).zones = {
-      [p1]: {
+      [playerId]: {
         graveyard: [],
         graveyardCount: 0,
         exile: [],
@@ -92,19 +111,28 @@ describe('spell-cast reveal/cast queue flow (integration)', () => {
         handCount: 0,
         libraryCount: 2,
       },
+      [opponentId]: {
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        hand: [],
+        handCount: 0,
+        libraryCount: 0,
+      },
     };
     (game.state as any).stack = [
       {
         id: 'spell_1',
         type: 'spell',
-        controller: p1,
-        card: { id: 'cast_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1. Draw a card.', owner: p1, zone: 'stack' },
+        controller: playerId,
+        card: { id: 'cast_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1. Draw a card.', owner: playerId, zone: 'stack' },
       },
     ];
 
     ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.OPTION_CHOICE,
-      playerId: p1 as any,
+      playerId: playerId as any,
       description: 'Neera, Wild Mage: Put Opt on the bottom and reveal until a nonland?',
       mandatory: false,
       sourceName: 'Neera, Wild Mage',
@@ -116,17 +144,17 @@ describe('spell-cast reveal/cast queue flow (integration)', () => {
       maxSelections: 1,
       spellBottomRevealUntilNonlandChoice: true,
       triggeringStackItemId: 'spell_1',
-      triggeringSpellCard: { id: 'cast_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1. Draw a card.', owner: p1 },
-      revealFromLibraryPlayerId: p1,
+      triggeringSpellCard: { id: 'cast_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1. Draw a card.', owner: playerId },
+      revealFromLibraryPlayerId: playerId,
       revealSourcePermanentId: 'neera_perm',
     } as any);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const { socket, handlers } = createMockSocket(p1, emitted);
-    socket.rooms.add(gameId);
+    const { socket, handlers } = createMockSocket(playerId, emitted, gameId);
 
     const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
     const firstStep = queue.steps.find((s: any) => s.type === 'option_choice');
@@ -135,33 +163,144 @@ describe('spell-cast reveal/cast queue flow (integration)', () => {
     await handlers['submitResolutionResponse']({ gameId, stepId: String((firstStep as any).id), selections: 'yes' });
 
     expect(((game.state as any).stack || []).some((item: any) => item.id === 'spell_1')).toBe(false);
-    expect(((game as any).libraries.get(p1) || []).some((card: any) => card.id === 'cast_1')).toBe(true);
+    expect(((game as any).libraries.get(playerId) || []).some((card: any) => card.id === 'cast_1')).toBe(true);
+    expect(((game as any).libraries.get(playerId) || []).some((card: any) => card.id === 'land_1')).toBe(true);
+    expect(((game as any).libraries.get(playerId) || []).some((card: any) => card.id === 'hit_1')).toBe(false);
+    expect((((game.state as any).zones?.[playerId]?.exile) || []).map((card: any) => card.id)).toContain('hit_1');
 
     const queueAfterFirst = ResolutionQueueManager.getQueue(gameId);
-    const secondStep = queueAfterFirst.steps.find((s: any) => (s as any).castRevealedFromLibraryChoice === true);
+    const secondStep = queueAfterFirst.steps.find((s: any) => String((s as any).castFromExileCardId || '') === 'hit_1');
     expect(secondStep).toBeDefined();
+    expect((secondStep as any).castFromExileCastWithoutPayingManaCost).toBe(true);
+    expect((secondStep as any).castFromExileDeclineDestination).toBe('library_bottom_random');
 
     const revealResolveEvent = [...getEvents(gameId)].reverse().find(
       (event: any) => event.type === 'spellBottomRevealUntilNonlandResolve'
     ) as any;
     expect(revealResolveEvent?.payload?.choice).toBe('yes');
-    expect(revealResolveEvent?.payload?.queuedResolutionStep?.castRevealedFromLibraryChoice).toBe(true);
-    expect(revealResolveEvent?.payload?.queuedResolutionStep?.castRevealedFromLibraryCard?.id).toBe('hit_1');
+    expect(revealResolveEvent?.payload?.queuedResolutionStep?.castFromExileCardId).toBe('hit_1');
     expect(String(revealResolveEvent?.payload?.queuedResolutionStep?.id || '')).toBe(String((secondStep as any)?.id || ''));
+    expect((revealResolveEvent?.payload?.revealExileAfter || []).some((card: any) => card.id === 'hit_1')).toBe(true);
 
     await handlers['submitResolutionResponse']({ gameId, stepId: String((secondStep as any).id), selections: 'cast' });
 
-    const stackNames = ((game.state as any).stack || []).map((item: any) => item.card?.name);
-    expect(stackNames).toContain('Lightning Bolt');
+    const targetStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps
+      .find((entry: any) => entry.type === 'target_selection') as any;
+    expect(targetStep).toBeDefined();
+    expect((targetStep?.validTargets || []).some((target: any) => String(target.id) === opponentId)).toBe(true);
 
-    const castResolveEvent = [...getEvents(gameId)].reverse().find(
-      (event: any) => event.type === 'castRevealedFromLibraryResolve'
-    ) as any;
-    expect(castResolveEvent?.payload?.choice).toBe('cast');
-    expect(castResolveEvent?.payload?.stackItem?.card?.name).toBe('Lightning Bolt');
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(targetStep.id),
+      selections: [opponentId],
+      cancelled: false,
+    });
 
-    const libraryIds = new Set(((game as any).libraries.get(p1) || []).map((card: any) => card.id));
+    const paymentStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(String(paymentStep.manaCost || '{0}')).toContain('0');
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(paymentStep.id),
+      selections: { payment: [] },
+      cancelled: false,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const exileIds = ((((game.state as any).zones?.[playerId]?.exile) || []) as any[]).map((card: any) => card.id);
+    expect(exileIds).not.toContain('hit_1');
+
+    const stackItem = (((game.state as any).stack || []) as any[]).find((entry: any) => entry.card?.id === 'hit_1');
+    expect(stackItem).toBeDefined();
+    expect(stackItem?.castFromExile).toBe(true);
+    expect(stackItem?.castWithoutPayingManaCost).toBe(true);
+    const normalizedTargets = (Array.isArray(stackItem?.targets) ? stackItem.targets : [])
+      .map((target: any) => (typeof target === 'string' ? target : target?.id));
+    expect(normalizedTargets).toContain(opponentId);
+
+    const libraryIds = new Set(((game as any).libraries.get(playerId) || []).map((card: any) => card.id));
     expect(libraryIds.has('land_1')).toBe(true);
     expect(libraryIds.has('cast_1')).toBe(true);
+    expect(libraryIds.has('hit_1')).toBe(false);
+  });
+
+  it('puts the revealed nonland on the library bottom when the free cast is declined', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game as any).libraries = new Map();
+    (game as any).libraries.set(playerId, [
+      { id: 'land_1', name: 'Mountain', type_line: 'Basic Land — Mountain', zone: 'library' },
+    ]);
+    (game.state as any).zones = {
+      [playerId]: {
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [
+          {
+            id: 'hit_1',
+            name: 'Shock',
+            type_line: 'Instant',
+            oracle_text: 'Shock deals 2 damage to any target.',
+            zone: 'exile',
+          },
+        ],
+        exileCount: 1,
+        hand: [],
+        handCount: 0,
+        library: [{ id: 'land_1', name: 'Mountain', type_line: 'Basic Land — Mountain', zone: 'library' }],
+        libraryCount: 1,
+      },
+    };
+    (game.state as any).stack = [];
+
+    const castStep = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      description: 'Neera, Wild Mage: Cast Shock without paying its mana cost?',
+      mandatory: false,
+      sourceName: 'Neera, Wild Mage',
+      sourceId: 'neera_perm',
+      options: [
+        { id: 'cast', label: 'Cast Shock' },
+        { id: 'decline', label: 'Decline' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      castFromExileCardId: 'hit_1',
+      castFromExileCard: {
+        id: 'hit_1',
+        name: 'Shock',
+        type_line: 'Instant',
+        oracle_text: 'Shock deals 2 damage to any target.',
+        zone: 'exile',
+      },
+      castFromExileCastWithoutPayingManaCost: true,
+      castFromExileForcedAlternateCostId: 'free',
+      castFromExileBypassExilePermissionCheck: true,
+      castFromExileIgnoreTimingRestrictions: true,
+      castFromExileDeclineDestination: 'library_bottom_random',
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId, stepId: String(castStep.id), selections: 'decline' });
+
+    const exileIds = ((((game.state as any).zones?.[playerId]?.exile) || []) as any[]).map((card: any) => card.id);
+    expect(exileIds).not.toContain('hit_1');
+    expect((((game as any).libraries.get(playerId) || []) as any[]).map((card: any) => card.id)).toContain('hit_1');
+    expect((((game.state as any).zones?.[playerId]?.library) || []).map((card: any) => card.id)).toContain('hit_1');
   });
 });

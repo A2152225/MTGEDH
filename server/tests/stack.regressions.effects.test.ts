@@ -276,7 +276,7 @@ describe('Stack / zone regression effects', () => {
         name: 'Neera, Wild Mage',
         type_line: 'Legendary Creature — Human Elf Shaman',
         oracle_text:
-          "Whenever you cast a spell, you may put it on the bottom of its owner's library. If you do, reveal cards from the top of your library until you reveal a nonland card. You may cast it without paying its mana cost. Put the rest on the bottom of your library in a random order. This ability triggers only once each turn.",
+          "Whenever you cast a spell, you may put it on the bottom of its owner's library. If you do, reveal cards from the top of your library until you reveal a nonland card. You may cast that card without paying its mana cost. Then put all revealed cards not cast this way on the bottom of your library in a random order. This ability triggers only once each turn.",
       },
       { id: 'neera_perm', controller: 'p1' }
     );
@@ -285,6 +285,23 @@ describe('Stack / zone regression effects', () => {
     expect(trigger).toBeDefined();
     expect(trigger?.spellCondition).toBe('any');
     expect(trigger?.mandatory).toBe(false);
+    expect(trigger?.oncePerTurn).toBe(true);
+  });
+
+  it('also parses the older cast-it / put-the-rest oracle phrasing for the same pattern', () => {
+    const triggers = detectSpellCastTriggers(
+      {
+        id: 'neera_card_legacy',
+        name: 'Neera, Wild Mage',
+        type_line: 'Legendary Creature — Human Elf Shaman',
+        oracle_text:
+          "Whenever you cast a spell, you may put it on the bottom of its owner's library. If you do, reveal cards from the top of your library until you reveal a nonland card. You may cast it without paying its mana cost. Put the rest on the bottom of your library in a random order. This ability triggers only once each turn.",
+      },
+      { id: 'neera_perm', controller: 'p1' }
+    );
+
+    const trigger = triggers.find((entry) => entry.replacementEffect?.kind === 'bottom_spell_reveal_until_nonland');
+    expect(trigger).toBeDefined();
     expect(trigger?.oncePerTurn).toBe(true);
   });
 

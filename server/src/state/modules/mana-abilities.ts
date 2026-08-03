@@ -277,6 +277,89 @@ export function getMoxAmberAvailableColors(gameState: any, playerId: string): st
   return COLOR_SYMBOL_ORDER.filter((color) => colors.has(color));
 }
 
+const COLOR_KEY_TO_SYMBOL: Record<string, string> = {
+  white: 'W',
+  blue: 'U',
+  black: 'B',
+  red: 'R',
+  green: 'G',
+};
+
+/**
+ * Colors opponent lands could produce (Rule 106.7), as WUBRG symbols.
+ * Used by Fellwar Stone / Exotic Orchard-style mana abilities.
+ */
+export function getOpponentLandProducibleColorSymbols(gameState: any, playerId: string): string[] {
+  const colors = new Set<string>();
+  const battlefield = Array.isArray(gameState?.battlefield) ? gameState.battlefield : [];
+
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller === playerId) continue;
+    const card = permanent.card;
+    if (!card) continue;
+
+    const typeLine = String(card.type_line || '').toLowerCase();
+    if (!typeLine.includes('land')) continue;
+
+    const cardName = String(card.name || '').toLowerCase();
+    const oracleText = String(card.oracle_text || '').toLowerCase();
+
+    if (/plains/i.test(cardName) || typeLine.includes('plains')) colors.add('W');
+    if (/island/i.test(cardName) || typeLine.includes('island')) colors.add('U');
+    if (/swamp/i.test(cardName) || typeLine.includes('swamp')) colors.add('B');
+    if (/mountain/i.test(cardName) || typeLine.includes('mountain')) colors.add('R');
+    if (/forest/i.test(cardName) || typeLine.includes('forest')) colors.add('G');
+
+    if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)
+      || /^snow-covered\s+(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
+      continue;
+    }
+
+    // Explicit mana symbols in land abilities.
+    for (const match of oracleText.matchAll(/\{([wubrgc])\}/gi)) {
+      const sym = String(match[1] || '').toUpperCase();
+      if (sym === 'C') continue;
+      if ((COLOR_SYMBOL_ORDER as readonly string[]).includes(sym as any)) {
+        colors.add(sym);
+      }
+    }
+
+    // Command Tower / Arcane Signet style on opponent lands.
+    if (/commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(oracleText)) {
+      const controllerId = String(permanent.controller || '');
+      if (controllerId) {
+        for (const colorKey of getCommanderColorIdentity(gameState, controllerId)) {
+          const sym = COLOR_KEY_TO_SYMBOL[colorKey];
+          if (sym) colors.add(sym);
+        }
+      }
+    } else if (/one mana of any color/i.test(oracleText)
+      && !/that (?:a |an )?(?:land|permanent)|among (?:lands|permanents)/i.test(oracleText)) {
+      for (const sym of COLOR_SYMBOL_ORDER) colors.add(sym);
+    }
+  }
+
+  return COLOR_SYMBOL_ORDER.filter((color) => colors.has(color));
+}
+
+function resolveConditionalAnyColorProduces(gameState: any, playerId: string, abilityText: string): string[] | null {
+  const text = String(abilityText || '');
+  const isOpponentLandOrPermanent =
+    /that (?:a |an )?(?:land|permanent) an opponent controls could produce/i.test(text)
+    || /that (?:a |an )?land.*could produce/i.test(text);
+  const isControlledLandOrPermanent =
+    /that (?:a |an )?(?:land|permanent) you control could produce|among (?:lands|permanents) you control/i.test(text);
+
+  if (isControlledLandOrPermanent) {
+    // Reflecting Pool-style: not handled here yet; avoid falsely offering WUBRG.
+    return [];
+  }
+  if (isOpponentLandOrPermanent) {
+    return getOpponentLandProducibleColorSymbols(gameState, playerId);
+  }
+  return null;
+}
+
 /**
  * Get commander color identity for a player
  * Returns set of color keys (white, blue, black, red, green) in commander's color identity
@@ -1129,8 +1212,15 @@ export function getManaAbilitiesForPermanent(
       }
       // If no commander, this source produces nothing
     } else {
-      // Unrestricted "any color" source (City of Brass, Mana Confluence, etc.)
-      abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+      const conditionalProduces = resolveConditionalAnyColorProduces(gameState, playerId, landOracleText);
+      if (conditionalProduces) {
+        if (conditionalProduces.length > 0) {
+          abilities.push({ id: 'native_conditional_any', cost: '{T}', produces: conditionalProduces });
+        }
+      } else {
+        // Unrestricted "any color" source (City of Brass, Mana Confluence, etc.)
+        abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+      }
     }
   }
   
@@ -1467,6 +1557,20 @@ export function getManaAbilitiesForPermanent(
           continue;
         }
 
+        const conditionalProduces = resolveConditionalAnyColorProduces(gameState, playerId, line);
+        if (conditionalProduces) {
+          if (conditionalProduces.length > 0) {
+            abilities.push({
+              id: `native_conditional_any_${abilities.length}`,
+              cost,
+              produces: conditionalProduces,
+              ...(amount > 1 ? { amount } : null),
+            });
+            handledExplicitAnyColorChoice = true;
+          }
+          continue;
+        }
+
         abilities.push({
           id: `native_any_${abilities.length}`,
           cost,
@@ -1512,8 +1616,15 @@ export function getManaAbilitiesForPermanent(
           }
           // If no commander, this source produces nothing
         } else {
-          // Unrestricted "any color" source (Birds of Paradise, Chromatic Lantern, etc.)
-          abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+          const conditionalProduces = resolveConditionalAnyColorProduces(gameState, playerId, nativeOracleText);
+          if (conditionalProduces) {
+            if (conditionalProduces.length > 0) {
+              abilities.push({ id: 'native_conditional_any', cost: '{T}', produces: conditionalProduces });
+            }
+          } else {
+            // Unrestricted "any color" source (Birds of Paradise, Chromatic Lantern, etc.)
+            abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+          }
         }
         }
       }

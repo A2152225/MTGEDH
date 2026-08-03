@@ -20,7 +20,7 @@ import { GameManager } from "../GameManager.js";
 import type { CardCostAdjustment, GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, calculateAllPTBonuses, uid, cardManaValue } from "../state/utils.js";
 import { registerTokenGroupMembers } from "./tokenGroupResolve.js";
-import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource, resolvePermanentChosenColorSymbol, parseManaSpendRestrictionFromOracle } from "../state/modules/mana-abilities.js";
+import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource, resolvePermanentChosenColorSymbol, parseManaSpendRestrictionFromOracle, getCommanderColorIdentity, getOpponentLandProducibleColorSymbols } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, hasSacrificePrefixActivatedAbility, isPlayerIdleForAutoPass, isTransformBackFace, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool, stripReminderTextFromOracle } from "../state/modules/mana-check.js";
@@ -5194,9 +5194,49 @@ export function calculateManaProduction(
   // This avoids matching triggered abilities or reminder text like "firebending" which mentions adding mana
   // Pattern: \{t\}(?:[,\s]*[^:]*)?:\s*add\s+((?:\{[wubrgc]\})+)
   // This matches: {T}: Add {R}, or {1}, {T}: Add {R}{R}, etc.
+  // Prefer full-card oracle for land tap lines so parenthetical shock-land reminders
+  // ("({T}: Add {G} or {U}.)") are not lost when reminder text is stripped elsewhere.
+  const landTapOracleText = typeLine.includes('land')
+    ? String(card.oracle_text || '').toLowerCase()
+    : manaOracleText;
+
+  // Dual/tri "or" choice lands — one mana of a chosen color (not consecutive multi-mana).
+  if (!hasSelectedLegacyManaAbility) {
+    const dualOrMatch = landTapOracleText.match(
+      /\{t\}(?:[,\s]*[^:]*)?:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i,
+    );
+    const triOrMatch = landTapOracleText.match(
+      /\{t\}(?:[,\s]*[^:]*)?:\s*add\s+\{([wubrgc])\},\s*\{([wubrgc])\},\s*or\s+\{([wubrgc])\}/i,
+    );
+    if (triOrMatch) {
+      result.baseAmount = 1;
+      result.requiresColorChoice = true;
+      for (const idx of [1, 2, 3]) {
+        const color = String(triOrMatch[idx] || '').toUpperCase();
+        if (color && !result.colors.includes(color)) result.colors.push(color);
+      }
+    } else if (dualOrMatch) {
+      result.baseAmount = 1;
+      result.requiresColorChoice = true;
+      for (const idx of [1, 2]) {
+        const color = String(dualOrMatch[idx] || '').toUpperCase();
+        if (color && !result.colors.includes(color)) result.colors.push(color);
+      }
+    }
+
+    if (
+      normalizedChosenColor
+      && result.requiresColorChoice === true
+      && result.colors.map((c) => String(c).toUpperCase()).includes(normalizedChosenColor)
+    ) {
+      result.colors = [normalizedChosenColor];
+      result.requiresColorChoice = false;
+    }
+  }
+
   const manaAbilityMatch = manaOracleText.match(/\{t\}(?:[,\s]*[^:]*)?:\s*add\s+((?:\{[wubrgc]\})+)/gi);
   
-  if (manaAbilityMatch && manaAbilityMatch.length > 0) {
+  if (result.colors.length === 0 && manaAbilityMatch && manaAbilityMatch.length > 0) {
     // Use ONLY the first mana ability found (the basic tap-for-mana ability)
     const firstManaAbility = manaAbilityMatch[0];
     const symbols = firstManaAbility.match(/\{[wubrgc]\}/gi) || [];
@@ -5210,7 +5250,7 @@ export function calculateManaProduction(
         }
       }
     }
-  } else {
+  } else if (result.colors.length === 0) {
     // Fallback: Check for simpler fixed mana patterns without tap requirement
     // (for special cases like artifacts that have different activation patterns)
     const fixedManaMatch = manaOracleText.match(/add\s+((?:\{[wubrgc]\})+)/gi);
@@ -5280,6 +5320,59 @@ export function calculateManaProduction(
       result.requiresColorChoice = true;
     }
   }
+
+  const isCommanderColorIdentitySource =
+    !isMoxAmberConditionalSource
+    && /commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(manaOracleText);
+  const isOpponentLandConditionalSource =
+    !isMoxAmberConditionalSource
+    && !isCommanderColorIdentitySource
+    && /that (?:a |an )?(?:land|permanent) an opponent controls could produce|that (?:a |an )?land.*could produce/i.test(manaOracleText);
+
+  if (!hasSelectedLegacyManaAbility && isCommanderColorIdentitySource) {
+    const commanderColors = Array.from(getCommanderColorIdentity(gameState, playerId))
+      .map((key) => ({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' }[key]))
+      .filter((sym): sym is string => Boolean(sym));
+    if (typeof spelledAnyColorAmount === 'number' && spelledAnyColorAmount > 0) {
+      result.baseAmount = spelledAnyColorAmount;
+    }
+    if (commanderColors.length === 0) {
+      result.colors = [];
+      result.baseAmount = 0;
+      result.totalAmount = 0;
+      result.requiresColorChoice = false;
+    } else if (normalizedChosenColor && commanderColors.includes(normalizedChosenColor)) {
+      result.colors = [normalizedChosenColor];
+      result.requiresColorChoice = false;
+    } else if (commanderColors.length === 1) {
+      result.colors = commanderColors;
+      result.requiresColorChoice = false;
+    } else {
+      result.colors = commanderColors;
+      result.requiresColorChoice = true;
+    }
+  } else if (!hasSelectedLegacyManaAbility && isOpponentLandConditionalSource) {
+    const opponentColors = getOpponentLandProducibleColorSymbols(gameState, playerId);
+    if (typeof spelledAnyColorAmount === 'number' && spelledAnyColorAmount > 0) {
+      result.baseAmount = spelledAnyColorAmount;
+    }
+    if (opponentColors.length === 0) {
+      result.colors = [];
+      result.baseAmount = 0;
+      result.totalAmount = 0;
+      result.requiresColorChoice = false;
+    } else if (normalizedChosenColor && opponentColors.includes(normalizedChosenColor)) {
+      result.colors = [normalizedChosenColor];
+      result.requiresColorChoice = false;
+    } else if (opponentColors.length === 1) {
+      result.colors = opponentColors;
+      result.requiresColorChoice = false;
+    } else {
+      result.colors = opponentColors;
+      result.requiresColorChoice = true;
+    }
+  }
+
   const spelledChosenColorAmount = (() => {
     const match = manaOracleText.match(/\badd\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+the\s+chosen\s+colou?r\b/i);
     return match ? parseSpelledOutAmount(String(match[1] || '')) : undefined;
@@ -5298,7 +5391,13 @@ export function calculateManaProduction(
     }
   }
   // Check for "any color" patterns
-  else if (!hasSelectedLegacyManaAbility && (manaOracleText.includes('any color') || manaOracleText.includes('mana of any color'))) {
+  else if (
+    !hasSelectedLegacyManaAbility
+    && !isMoxAmberConditionalSource
+    && !isCommanderColorIdentitySource
+    && !isOpponentLandConditionalSource
+    && (manaOracleText.includes('any color') || manaOracleText.includes('mana of any color'))
+  ) {
     if (typeof spelledAnyColorAmount === 'number' && spelledAnyColorAmount > 0) {
       result.baseAmount = spelledAnyColorAmount;
     }
@@ -5318,6 +5417,38 @@ export function calculateManaProduction(
     if (typeLine.includes('swamp') && !result.colors.includes('B')) result.colors.push('B');
     if (typeLine.includes('mountain') && !result.colors.includes('R')) result.colors.push('R');
     if (typeLine.includes('forest') && !result.colors.includes('G')) result.colors.push('G');
+  }
+
+  // Dual/tri lands (and shock lands with parenthetical "{T}: Add {G} or {U}") produce ONE mana
+  // of a chosen color — never all listed colors at once. Without this, auto-tap payment for {2}
+  // can treat Breeding Pool as 2 mana from a single tap.
+  if (
+    !hasSelectedLegacyManaAbility
+    && result.requiresColorChoice !== true
+    && !result.colors.some((color) => String(color || '').toUpperCase() === 'ANY')
+  ) {
+    const fixedColors = result.colors
+      .map((color) => String(color || '').toUpperCase())
+      .filter((color) => ['W', 'U', 'B', 'R', 'G', 'C'].includes(color));
+    if (fixedColors.length > 1) {
+      const fullOracleLower = String(card.oracle_text || '').toLowerCase();
+      const hasExplicitOrChoice =
+        /add\s+\{[wubrgc]\}\s+or\s+\{[wubrgc]\}/i.test(fullOracleLower)
+        || /add\s+\{[wubrgc]\},\s*\{[wubrgc]\},\s*or\s+\{[wubrgc]\}/i.test(fullOracleLower);
+      const hasConsecutiveMultiMana = /add\s+(?:\{[wubrgc]\}){2,}/i.test(fullOracleLower);
+      const looksLikeAllAtOnce =
+        hasConsecutiveMultiMana
+        && Number(result.baseAmount || 0) >= fixedColors.length
+        && !hasExplicitOrChoice;
+      if (!looksLikeAllAtOnce) {
+        result.requiresColorChoice = true;
+        result.baseAmount = 1;
+        if (normalizedChosenColor && fixedColors.includes(normalizedChosenColor)) {
+          result.colors = [normalizedChosenColor];
+          result.requiresColorChoice = false;
+        }
+      }
+    }
   }
 
   if (hasSelectedLegacyManaAbility) {

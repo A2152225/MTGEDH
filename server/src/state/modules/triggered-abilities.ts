@@ -12731,12 +12731,18 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     }
   }
 
+  const mayCastRevealedWithoutPaying =
+    /you may cast (?:it|that card) without paying its mana cost/i.test(lowerOracle);
+  const bottomRevealedRemainder =
+    /put the rest on the bottom of your library in a random order/i.test(lowerOracle)
+    || /put all revealed cards not cast this way on the bottom of your library in a random order/i.test(lowerOracle);
+
   const hasBottomRevealNonlandPattern =
     lowerOracle.includes('whenever you cast a spell') &&
     lowerOracle.includes('you may put it on the bottom of its owner') &&
     lowerOracle.includes('reveal cards from the top of your library until you reveal a nonland card') &&
-    lowerOracle.includes('you may cast it without paying its mana cost') &&
-    lowerOracle.includes('put the rest on the bottom of your library in a random order');
+    mayCastRevealedWithoutPaying &&
+    bottomRevealedRemainder;
 
   if (hasBottomRevealNonlandPattern) {
     const oncePerTurn = lowerOracle.includes('this ability triggers only once each turn');
@@ -12751,9 +12757,9 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
       cardName,
       controllerId,
       description:
-        'Whenever you cast a spell, you may put it on the bottom of its owner\'s library. If you do, reveal cards from the top of your library until you reveal a nonland card. You may cast it without paying its mana cost. Put the rest on the bottom of your library in a random order.',
+        'Whenever you cast a spell, you may put it on the bottom of its owner\'s library. If you do, reveal cards from the top of your library until you reveal a nonland card. You may cast that card without paying its mana cost. Then put all revealed cards not cast this way on the bottom of your library in a random order.',
       effect:
-        'you may put it on the bottom of its owner\'s library. If you do, reveal cards from the top of your library until you reveal a nonland card. You may cast it without paying its mana cost. Put the rest on the bottom of your library in a random order.',
+        'you may put it on the bottom of its owner\'s library. If you do, reveal cards from the top of your library until you reveal a nonland card. You may cast that card without paying its mana cost. Then put all revealed cards not cast this way on the bottom of your library in a random order.',
       spellCondition: 'any',
       oncePerTurn,
       replacementEffect: {

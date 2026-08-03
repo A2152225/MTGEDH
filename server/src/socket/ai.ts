@@ -5270,6 +5270,19 @@ function canAIActivateBattlefieldAbilityNow(
     }
   }
 
+  // Mana-battery "put a charge counter" lines are main-phase value plays, not responses.
+  // Charging Gemstone Array (etc.) during every combat priority window dumps the AI's mana.
+  if (mode === 'response') {
+    const battery = permanentHasManaBatteryCounterLoop(permanent);
+    const abilityText = String(action?.abilityText || '').toLowerCase();
+    const isChargeInvest =
+      battery.invests === true
+      && /\bput\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+\S+\s+counters?\s+on\b/i.test(abilityText);
+    if (isChargeInvest) {
+      return false;
+    }
+  }
+
   const manaCostText = resolveAIActivatedAbilityManaCostText(action, permanent);
   if (!manaCostText) {
     return true;
@@ -10546,22 +10559,26 @@ async function executeAIActivateAbility(
       return true;
     }
 
-    debugWarn(1, '[AI] Shared battlefield activation did not progress; falling back to legacy AI handler', {
+    // Do NOT fall back to the legacy activator when the shared path already ran.
+    // Legacy uses full-card oracle text for "is mana ability?" and can grant free mana
+    // (or otherwise progress) after INSUFFICIENT_MANA — e.g. Gemstone Array charge spam.
+    debugWarn(1, '[AI] Shared battlefield activation did not progress; not falling back to legacy AI handler', {
       gameId,
       playerId,
       permanentId: action?.permanentId,
       abilityId: resolvedAbilityId,
       cardName: action?.cardName,
     });
-  } else {
-    debugWarn(1, '[AI] Could not resolve battlefield ability id for AI action; falling back to legacy AI handler', {
-      gameId,
-      playerId,
-      permanentId: action?.permanentId,
-      cardName: action?.cardName,
-      abilityText: action?.abilityText,
-    });
+    return false;
   }
+
+  debugWarn(1, '[AI] Could not resolve battlefield ability id for AI action; falling back to legacy AI handler', {
+    gameId,
+    playerId,
+    permanentId: action?.permanentId,
+    cardName: action?.cardName,
+    abilityText: action?.abilityText,
+  });
 
   const before = snapshotAIAbilityActivationState(game, gameId, playerId, String(action?.permanentId || ''));
   await executeAILegacyActivateAbility(io, gameId, playerId, action, continueAfterResolution);
@@ -10600,8 +10617,10 @@ async function executeAILegacyActivateAbility(
     }
     
     const card = permanent.card;
-    const abilityText = (card?.oracle_text || '').toLowerCase();
+    // Prefer the specific ability being activated — full-card oracle falsely treats
+    // Gemstone Array's charge line as a mana ability because the card also has a remove-counter mana line.
     const activatedAbilityText = String(action?.abilityText || card?.oracle_text || '').trim();
+    const abilityText = activatedAbilityText.toLowerCase() || String(card?.oracle_text || '').toLowerCase();
     const tappedPermanents: string[] = [];
     let persistedAbilityType = 'generic';
     let persistedUsesStack = false;
@@ -10611,8 +10630,8 @@ async function executeAILegacyActivateAbility(
     let persistedSearchParams: any = undefined;
     let persistedChosenOpponentId = '';
     
-    // Check if this is a tap or mana ability
-    const isTapAbility = abilityText.includes('{t}:') || abilityText.includes('{t},');
+    // Check if this is a tap or mana ability (scoped to the activated line when available)
+    const isTapAbility = /\{t\}(?:[:,]|$)/i.test(abilityText.split(':')[0] || '') || /\{t\}:/i.test(abilityText);
     const hasTargets = /target/i.test(abilityText);
     const isManaAbility = AI_MANA_ABILITY_PATTERN.test(abilityText) && !hasTargets;
     

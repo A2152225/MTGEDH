@@ -490,6 +490,9 @@ function toAtomicRecord(name: string, rawPrinting: any): LocalCardLookupRecord |
     loyalty: rawPrinting?.loyalty,
     layout: rawPrinting?.layout,
     colors: Array.isArray(rawPrinting?.colors) ? rawPrinting.colors : undefined,
+    color_identity: Array.isArray(rawPrinting?.colorIdentity)
+      ? rawPrinting.colorIdentity
+      : (Array.isArray(rawPrinting?.color_identity) ? rawPrinting.color_identity : undefined),
     source: 'AtomicCards',
   };
 }
