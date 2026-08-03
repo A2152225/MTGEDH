@@ -60,6 +60,8 @@ function orderCardsForText(
 
 export function useDeckResolvePreview() {
   const [cards, setCards] = useState<DeckResolvePreviewCard[]>([]);
+  const [focusCardKey, setFocusCardKey] = useState<string | null>(null);
+  const [focusToken, setFocusToken] = useState(0);
   const cacheRef = useRef(new Map<string, DeckResolvePreviewCard | null>());
   const inflightRef = useRef(new Map<string, Promise<DeckResolvePreviewCard | null>>());
   const generationRef = useRef(0);
@@ -67,6 +69,12 @@ export function useDeckResolvePreview() {
   const clearPreview = useCallback(() => {
     generationRef.current += 1;
     setCards([]);
+    setFocusCardKey(null);
+  }, []);
+
+  const focusResolvedCard = useCallback((name: string) => {
+    setFocusCardKey(name.toLowerCase());
+    setFocusToken((token) => token + 1);
   }, []);
 
   /** Keep gallery in decklist order; drop names no longer present. */
@@ -117,8 +125,9 @@ export function useDeckResolvePreview() {
         const next = orderCardsForText(text, [...prev, card], cacheRef.current);
         return cardsEqual(prev, next) ? prev : next;
       });
+      focusResolvedCard(card.name);
     },
-    [fetchOne],
+    [fetchOne, focusResolvedCard],
   );
 
   const resolveAllFromText = useCallback(
@@ -130,6 +139,11 @@ export function useDeckResolvePreview() {
       }
 
       const gen = generationRef.current;
+      const previouslyKnown = new Set(
+        [...cacheRef.current.entries()]
+          .filter(([, card]) => !!card)
+          .map(([key]) => key),
+      );
       const missing: string[] = [];
       for (const name of names) {
         if (!cacheRef.current.has(name.toLowerCase())) {
@@ -154,12 +168,26 @@ export function useDeckResolvePreview() {
 
       if (gen !== generationRef.current) return;
 
-      setCards((prev) => {
-        const next = orderCardsForText(text, prev, cacheRef.current);
-        return cardsEqual(prev, next) ? prev : next;
-      });
+      const next = orderCardsForText(text, [], cacheRef.current);
+      setCards((prev) => (cardsEqual(prev, next) ? prev : next));
+
+      // Prefer the last newly resolved card; otherwise the last card in list order.
+      let focusName: string | null = null;
+      for (let i = next.length - 1; i >= 0; i -= 1) {
+        const card = next[i];
+        const wasNew = !previouslyKnown.has(card.name.toLowerCase())
+          && !previouslyKnown.has(card.query.toLowerCase());
+        if (wasNew || missing.some((m) => m.toLowerCase() === card.query.toLowerCase() || m.toLowerCase() === card.name.toLowerCase())) {
+          focusName = card.name;
+          break;
+        }
+      }
+      if (!focusName && next.length > 0) {
+        focusName = next[next.length - 1].name;
+      }
+      if (focusName) focusResolvedCard(focusName);
     },
-    [clearPreview],
+    [clearPreview, focusResolvedCard],
   );
 
   const onTextareaKeyDown = useCallback(
@@ -191,6 +219,8 @@ export function useDeckResolvePreview() {
 
   return {
     cards,
+    focusCardKey,
+    focusToken,
     clearPreview,
     syncPreviewToText,
     resolveAllFromText,

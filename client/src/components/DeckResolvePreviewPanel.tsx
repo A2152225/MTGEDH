@@ -17,20 +17,28 @@ export function DeckResolvePreviewPanel({
   cards,
   compact,
   fillHeight,
+  focusCardKey,
+  focusToken,
 }: {
   cards: DeckResolvePreviewCard[];
   compact?: boolean;
   /** Stretch to parent row height (decklist editor). */
   fillHeight?: boolean;
+  /** Lowercase card name to scroll into view. */
+  focusCardKey?: string | null;
+  /** Bumps whenever the same card is resolved again. */
+  focusToken?: number;
 }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    // Keep the latest decklist position in view when the list grows from the bottom.
-    el.scrollTop = el.scrollHeight;
-  }, [cards.length]);
+    if (!focusCardKey) return;
+    const root = scrollerRef.current;
+    if (!root) return;
+    const target = root.querySelector<HTMLElement>(`[data-card-key="${CSS.escape(focusCardKey)}"]`);
+    if (!target) return;
+    target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [focusCardKey, focusToken, cards.length]);
 
   if (cards.length === 0) return null;
 
@@ -67,9 +75,12 @@ export function DeckResolvePreviewPanel({
         {cards.map((card, index) => {
           const thumb = getPrimaryCardImageUrl(card, 'small');
           const tip = [card.type_line, card.oracle_text].filter(Boolean).join('\n\n');
+          const key = card.name.toLowerCase();
+          const focused = !!focusCardKey && key === focusCardKey;
           return (
             <div
-              key={`${card.name.toLowerCase()}-${index}`}
+              key={`${key}-${index}`}
+              data-card-key={key}
               title={tip || card.name}
               style={{
                 display: 'flex',
@@ -77,7 +88,8 @@ export function DeckResolvePreviewPanel({
                 alignItems: 'flex-start',
                 padding: 4,
                 borderRadius: 4,
-                background: 'transparent',
+                background: focused ? 'rgba(74, 222, 128, 0.12)' : 'transparent',
+                outline: focused ? '1px solid rgba(74, 222, 128, 0.35)' : 'none',
               }}
             >
               {thumb ? (

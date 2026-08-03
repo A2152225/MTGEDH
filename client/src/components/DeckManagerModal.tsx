@@ -80,6 +80,8 @@ export function DeckManagerModal({
 
   const {
     cards: resolvedPreviewCards,
+    focusCardKey: resolvedFocusCardKey,
+    focusToken: resolvedFocusToken,
     clearPreview,
     syncPreviewToText,
     resolveAllFromText,
@@ -828,7 +830,13 @@ export function DeckManagerModal({
                       boxSizing: 'border-box',
                     }}
                   />
-                  <DeckResolvePreviewPanel cards={resolvedPreviewCards} compact={useSheet} fillHeight={!useSheet} />
+                  <DeckResolvePreviewPanel
+                    cards={resolvedPreviewCards}
+                    compact={useSheet}
+                    fillHeight={!useSheet}
+                    focusCardKey={resolvedFocusCardKey}
+                    focusToken={resolvedFocusToken}
+                  />
                 </div>
                 <input
                   value={localName}
@@ -1022,7 +1030,13 @@ export function DeckManagerModal({
                       boxSizing: 'border-box',
                     }}
                   />
-                  <DeckResolvePreviewPanel cards={resolvedPreviewCards} compact={useSheet} fillHeight={!useSheet} />
+                  <DeckResolvePreviewPanel
+                    cards={resolvedPreviewCards}
+                    compact={useSheet}
+                    fillHeight={!useSheet}
+                    focusCardKey={resolvedFocusCardKey}
+                    focusToken={resolvedFocusToken}
+                  />
                 </div>
                 <input
                   value={localName}
