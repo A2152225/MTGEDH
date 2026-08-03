@@ -24,7 +24,22 @@ import {
 } from './triggerEtbEntryEffects.js';
 import { matchesColorRestriction } from './stackResolvePermanentEtbTriggerUtils.js';
 import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
+import { wouldAutoDeclineOptionalTriggeredAbility } from './stackResolveTriggeredAbilityOptionalUtils.js';
 
+function pushPendingEtbTriggerIfNotAutoDeclined(
+  state: any,
+  pending: any[],
+  stackItem: any,
+): void {
+  if (wouldAutoDeclineOptionalTriggeredAbility(state, stackItem)) {
+    debug(
+      2,
+      `[triggerETBEffectsForPermanent] Skipping auto-decline optional trigger: ${stackItem?.sourceName || 'Unknown'}`,
+    );
+    return;
+  }
+  pending.push(stackItem);
+}
 export function queueSupportedETBKeywordChoices(
   ctx: GameContext,
   permanent: any,
@@ -321,7 +336,7 @@ export function triggerETBEffectsForPermanent(
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
-        pendingExternalEtbTriggers.push(stackItem);
+        pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
         
         debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
@@ -349,7 +364,7 @@ export function triggerETBEffectsForPermanent(
           interveningIfSubjectPermanentId: permanent.id,
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
         } as any;
-        pendingExternalEtbTriggers.push(stackItem);
+        pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
         debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s chosen-type ETB trigger: ${trigger.description}`);
       }
 
@@ -376,7 +391,7 @@ export function triggerETBEffectsForPermanent(
           interveningIfSubjectPermanentId: permanent.id,
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
         } as any;
-        pendingExternalEtbTriggers.push(stackItem);
+        pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
         debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s chosen-type enters-or-attacks trigger: ${trigger.description}`);
       }
       
@@ -446,7 +461,7 @@ export function triggerETBEffectsForPermanent(
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
-        pendingExternalEtbTriggers.push(stackItem);
+        pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
         
         debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
@@ -505,7 +520,7 @@ export function triggerETBEffectsForPermanent(
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
-        pendingExternalEtbTriggers.push(stackItem);
+        pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
         
         debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
@@ -566,7 +581,7 @@ export function triggerETBEffectsForPermanent(
             interveningIfSubjectPermanentId: permanent.id,
             interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           } as any;
-          pendingExternalEtbTriggers.push(stackItem);
+          pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
           
           debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
         }

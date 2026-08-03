@@ -76,11 +76,12 @@ export function LoopShortcutPanel({
 
       <div style={{ fontSize: 12, color: '#bbb', marginBottom: 10 }}>
         Record a manual line once, then Run batches it on the server (e.g. 40× or up to{' '}
-        {LOOP_SHORTCUT_MAX_SUSTAINED_ITERATIONS}× when self-sustaining) without waiting one-by-one.
-        Above 50 requires the loop not to shrink your resources (creatures, mana, library, etc.);
-        those runs are written as one compressed replay event. With other humans, they can allow
-        the full loop or interrupt after N iterations. Solo/AI tables start immediately. Drafts
-        restore for the current game; saved shortcuts persist across reconnects.
+        {LOOP_SHORTCUT_MAX_SUSTAINED_ITERATIONS}× when self-sustaining) in one shot — the board
+        updates when the batch finishes, not one iteration at a time. Above 50 requires the loop
+        not to shrink your resources (creatures, mana, library, etc.); those runs are written as
+        one compressed replay event. With other humans, they can allow the full loop or interrupt
+        after N iterations. Solo/AI tables start immediately. Drafts restore for the current game;
+        saved shortcuts persist across reconnects.
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>

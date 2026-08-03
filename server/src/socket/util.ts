@@ -7017,6 +7017,21 @@ export function broadcastManaPoolUpdate(
   game?: any
 ): void {
   try {
+    // Loop-shortcut batches suppress mid-batch UI updates; final forceStateReplace carries mana.
+    if (game && Number((game.state as any)?._suppressBroadcastCount || 0) > 0) {
+      return;
+    }
+    if (!game) {
+      try {
+        const live = ensureGame(gameId);
+        if (live && Number((live.state as any)?._suppressBroadcastCount || 0) > 0) {
+          return;
+        }
+      } catch {
+        // continue
+      }
+    }
+
     const totalMana = getTotalManaInPool({ manaPool: { [playerId]: manaPool } }, playerId);
     
     io.to(gameId).emit('manaPoolUpdate', {

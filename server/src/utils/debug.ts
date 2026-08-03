@@ -20,6 +20,20 @@
  */
 let cachedDebugLevel: number | null = null;
 const cachedDebugFlags = new Map<string, boolean>();
+/** When > 0, suppress verbose (level 2+) debug I/O — used by loop-shortcut batches. */
+let loopShortcutQuietDepth = 0;
+
+export function beginLoopShortcutQuietLogs(): void {
+  loopShortcutQuietDepth += 1;
+}
+
+export function endLoopShortcutQuietLogs(): void {
+  loopShortcutQuietDepth = Math.max(0, loopShortcutQuietDepth - 1);
+}
+
+export function isLoopShortcutQuietLogs(): boolean {
+  return loopShortcutQuietDepth > 0;
+}
 
 import { inspect } from 'node:util';
 import {
@@ -80,6 +94,8 @@ function readBooleanDebugFlag(flagName: string): boolean {
  * @param args - Arguments to pass to console.log
  */
 export function debug(requiredLevel: number, ...args: any[]): void {
+  // Loop batches emit thousands of lines (casts, ETBs, token images); quiet them.
+  if (loopShortcutQuietDepth > 0) return;
   const currentLevel = getDebugLevel();
   if (currentLevel >= requiredLevel) {
     try {
@@ -101,6 +117,7 @@ export function debug(requiredLevel: number, ...args: any[]): void {
  * @param args - Arguments to pass to console.warn
  */
 export function debugWarn(requiredLevel: number, ...args: any[]): void {
+  if (loopShortcutQuietDepth > 0 && requiredLevel >= 2) return;
   const currentLevel = getDebugLevel();
   if (currentLevel >= requiredLevel) {
     try {

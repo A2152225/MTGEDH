@@ -4,16 +4,49 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyLoopShortcutStatePatch,
+  applyMultipliedSafeDelta,
+  canApplyMultipliedSafeDelta,
   captureLoopShortcutStatePatch,
   clampLoopShortcutIterations,
+  diffLoopShortcutIterationDelta,
+  fastReplayLoopShortcutMills,
   isLoopShortcutSelfSustaining,
   LOOP_SHORTCUT_MAX_ITERATIONS,
   LOOP_SHORTCUT_MAX_SUSTAINED_ITERATIONS,
   resolveLoopShortcutIterationBudget,
+  snapshotLoopShortcutBoard,
   snapshotLoopShortcutResources,
+  tryApplyLoopShortcutDeltaMultiply,
+  loopShortcutTokenFingerprint,
 } from '../src/socket/loopShortcutSustain.js';
 import { applyEvent } from '../src/state/modules/applyEvent.js';
 import { createContext } from '../src/state/context.js';
+import { hasGraveyardMassShuffleIntoLibraryTrigger } from '../src/state/modules/zone-manipulation.js';
+
+function merfolkToken(args: {
+  id: string;
+  controller?: string;
+  tapped?: boolean;
+  name?: string;
+}): any {
+  return {
+    id: args.id,
+    controller: args.controller || 'p1',
+    owner: args.controller || 'p1',
+    tapped: !!args.tapped,
+    isToken: true,
+    basePower: 1,
+    baseToughness: 1,
+    card: {
+      id: `${args.id}_card`,
+      name: args.name || 'Merfolk',
+      type_line: 'Creature — Merfolk',
+      power: '1',
+      toughness: '1',
+      keywords: [],
+    },
+  };
+}
 
 describe('loopShortcutSustain', () => {
   it('clamps iterations to the sustained hard cap', () => {
@@ -198,5 +231,180 @@ describe('loopShortcutSustain', () => {
     applyLoopShortcutStatePatch(target, patch);
     expect(target.battlefield[0].id).toBe('mutated');
     expect(target.stack).toEqual([]);
+  });
+
+  it('diffs and multiplies mana/tokens without ETB, and fast-replays mills', () => {
+    const beforeState: any = {
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      life: { p1: 40, p2: 40 },
+      manaPool: { p1: { white: 1 }, p2: {} },
+      zones: {
+        p1: { hand: [], library: [], graveyard: [], exile: [], libraryCount: 0 },
+        p2: {
+          hand: [],
+          library: [],
+          graveyard: [],
+          exile: [],
+          libraryCount: 100,
+        },
+      },
+      battlefield: [
+        merfolkToken({ id: 't1', tapped: false }),
+        merfolkToken({ id: 't2', tapped: true }),
+      ],
+    };
+    const afterState: any = {
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      life: { p1: 40, p2: 40 },
+      manaPool: { p1: { white: 2 }, p2: {} },
+      zones: {
+        p1: { hand: [], library: [], graveyard: [], exile: [], libraryCount: 0 },
+        p2: {
+          hand: [],
+          library: [],
+          graveyard: [],
+          exile: [],
+          libraryCount: 92,
+        },
+      },
+      battlefield: [
+        merfolkToken({ id: 't1', tapped: false }),
+        merfolkToken({ id: 't2', tapped: true }),
+        merfolkToken({ id: 't3', tapped: false }),
+        merfolkToken({ id: 't4', tapped: false }),
+        merfolkToken({ id: 't5', tapped: true }),
+        merfolkToken({ id: 't6', tapped: true }),
+      ],
+    };
+
+    const before = snapshotLoopShortcutBoard(beforeState);
+    const after = snapshotLoopShortcutBoard(afterState);
+    const delta = diffLoopShortcutIterationDelta(before, after);
+
+    expect(delta.floatingManaByPlayer.p1?.white).toBe(1);
+    expect(delta.millsByPlayer.p2).toBe(8);
+    const tokenDeltas = Object.values(delta.tokensByFingerprint).map((e) => e.count).sort();
+    expect(tokenDeltas).toEqual([2, 2]); // +2 untapped, +2 tapped
+
+    const live: any = {
+      state: {
+        players: [{ id: 'p1' }, { id: 'p2' }],
+        life: { p1: 40, p2: 40 },
+        manaPool: { p1: { white: 2 }, p2: {} },
+        zones: {
+          p1: { hand: [], library: [], graveyard: [], exile: [], libraryCount: 0 },
+          p2: { hand: [], library: [], graveyard: [], exile: [], libraryCount: 92 },
+        },
+        battlefield: [
+          merfolkToken({ id: 't1', tapped: false }),
+          merfolkToken({ id: 't2', tapped: true }),
+          merfolkToken({ id: 't3', tapped: false }),
+          merfolkToken({ id: 't4', tapped: false }),
+          merfolkToken({ id: 't5', tapped: true }),
+          merfolkToken({ id: 't6', tapped: true }),
+        ],
+      },
+      libraries: new Map<string, any[]>([
+        ['p1', []],
+        [
+          'p2',
+          Array.from({ length: 92 }, (_, i) => ({
+            id: `lib_${i}`,
+            name: `Card ${i}`,
+            zone: 'library',
+          })),
+        ],
+      ]),
+      bumpSeq: () => {},
+    };
+
+    expect(canApplyMultipliedSafeDelta(live.state, delta, 3).ok).toBe(true);
+    const applied = tryApplyLoopShortcutDeltaMultiply({
+      game: live,
+      delta,
+      remainingIterations: 3,
+    });
+    expect(applied.ok).toBe(true);
+    expect(live.state.manaPool.p1.white).toBe(5); // 2 + 1*3
+    expect(live.state.battlefield.filter((p: any) => p.isToken).length).toBe(6 + 4 * 3);
+    expect(live.libraries.get('p2').length).toBe(92 - 8 * 3);
+    expect(live.state.zones.p2.graveyard.length).toBe(8 * 3);
+    expect(applied.milledTotal).toBe(24);
+  });
+
+  it('falls back when multiply would remove more tokens than exist', () => {
+    const proto = merfolkToken({ id: 'proto', tapped: false });
+    const fp = loopShortcutTokenFingerprint(proto);
+    const delta = {
+      floatingManaByPlayer: {},
+      lifeByPlayer: {},
+      millsByPlayer: {},
+      tokensByFingerprint: {
+        [fp]: { count: -1, prototype: proto },
+      },
+    };
+    const state: any = {
+      battlefield: [merfolkToken({ id: 'only', tapped: false })],
+      manaPool: {},
+      life: {},
+    };
+    expect(canApplyMultipliedSafeDelta(state, delta, 3).ok).toBe(false);
+    applyMultipliedSafeDelta(state, delta, 1);
+    expect(state.battlefield.length).toBe(0);
+  });
+
+  it('fast-replays mills through Eldrazi graveyard shuffle', () => {
+    const titanOracle =
+      'When you cast this spell, destroy target permanent.\nWhen Ulamog, the Infinite Gyre is put into a graveyard from anywhere, its owner shuffles their graveyard into their library.';
+    expect(
+      hasGraveyardMassShuffleIntoLibraryTrigger({
+        name: 'Ulamog, the Infinite Gyre',
+        oracle_text: titanOracle,
+      }),
+    ).toBe(true);
+
+    const libraries = new Map<string, any[]>([
+      [
+        'p2',
+        [
+          { id: 'c1', name: 'Island', zone: 'library' },
+          {
+            id: 'ulamog',
+            name: 'Ulamog, the Infinite Gyre',
+            oracle_text: titanOracle,
+            zone: 'library',
+          },
+          { id: 'c2', name: 'Plains', zone: 'library' },
+        ],
+      ],
+    ]);
+    const game: any = {
+      state: {
+        players: [{ id: 'p2' }],
+        zones: {
+          p2: {
+            hand: [],
+            library: [],
+            graveyard: [{ id: 'old', name: 'Old Card', zone: 'graveyard' }],
+            exile: [],
+            libraryCount: 3,
+            graveyardCount: 1,
+          },
+        },
+      },
+      libraries,
+      bumpSeq: () => {},
+      rng: () => 0.5,
+    };
+
+    const result = fastReplayLoopShortcutMills({
+      game,
+      millsByPlayer: { p2: 2 },
+      remainingIterations: 1,
+    });
+    expect(result.milledTotal).toBe(2);
+    // Titan milled → GY shuffle into library; library should be non-empty again.
+    expect(game.libraries.get('p2').length).toBeGreaterThan(0);
+    expect(game.state.zones.p2.graveyard.length).toBe(0);
   });
 });

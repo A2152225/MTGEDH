@@ -472,8 +472,12 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       continue;
     }
 
+    // Loop-shortcut batch drain: keep passing even when players have activatable
+    // mana / instants so the stack can clear without AI/human reaction delays.
+    const loopStackDrain = stateAny.loopShortcutStackDrain?.[currentPlayer] === true;
+
     // Idle auto-pass: no legal actions means pass without requiring the auto-pass preference.
-    if (!isPlayerIdleForAutoPass(ctx, currentPlayer)) {
+    if (!loopStackDrain && !isPlayerIdleForAutoPass(ctx, currentPlayer)) {
       debug(2, `[priority] autoPassLoop - stopping at ${currentPlayer}: player has available actions`);
       return { allPassed: false, resolved: false };
     }

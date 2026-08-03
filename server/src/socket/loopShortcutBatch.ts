@@ -20,11 +20,17 @@ import {
   beginSuppressEventAppend,
   captureLoopShortcutStatePatch,
   clampLoopShortcutIterations,
+  diffLoopShortcutIterationDelta,
   endSuppressEventAppend,
   isLoopShortcutSelfSustaining,
   resolveLoopShortcutIterationBudget,
+  snapshotLoopShortcutBoard,
   snapshotLoopShortcutResources,
+  tryApplyLoopShortcutDeltaMultiply,
+  type LoopShortcutBoardSnapshot,
+  type LoopShortcutIterationDelta,
 } from './loopShortcutSustain.js';
+import { beginLoopShortcutQuietLogs, endLoopShortcutQuietLogs } from '../utils/debug.js';
 
 const BATCHABLE_EVENTS = new Set([
   'activateBattlefieldAbility',
@@ -66,14 +72,19 @@ function endSuppressBroadcast(game: any): void {
   else state._suppressBroadcastCount = next;
 }
 
-function setStackDrain(game: any, playerId: string, enabled: boolean): void {
+function setStackDrain(game: any, playerIds: string | string[], enabled: boolean): void {
   const stateAny = game?.state as any;
   if (!stateAny || typeof stateAny !== 'object') return;
   if (!stateAny.loopShortcutStackDrain || typeof stateAny.loopShortcutStackDrain !== 'object') {
     stateAny.loopShortcutStackDrain = {};
   }
-  if (enabled) stateAny.loopShortcutStackDrain[playerId] = true;
-  else delete stateAny.loopShortcutStackDrain[playerId];
+  const ids = Array.isArray(playerIds) ? playerIds : [playerIds];
+  for (const playerId of ids) {
+    const id = String(playerId || '').trim();
+    if (!id) continue;
+    if (enabled) stateAny.loopShortcutStackDrain[id] = true;
+    else delete stateAny.loopShortcutStackDrain[id];
+  }
 }
 
 function buildViewForPlayer(game: any, playerId: string): any {
@@ -100,47 +111,81 @@ function getNextPendingStep(gameId: string, playerId: string): any | null {
   return steps.find((step: any) => String(step?.status || '') !== 'completed') || null;
 }
 
-async function drainNonEmptyStack(
-  handlers: HandlerMap,
+function getAllPlayerIds(game: any): string[] {
+  const players = Array.isArray(game?.state?.players) ? game.state.players : [];
+  return players
+    .map((player: any) => String(player?.id || '').trim())
+    .filter(Boolean);
+}
+
+/**
+ * Drain a non-empty stack synchronously for loop batches.
+ * Passes for whoever holds priority (including AI/opponents) via game.passPriority —
+ * never waits on AI reaction timers or the heavy socket passPriority handler.
+ */
+function drainNonEmptyStack(
   game: any,
   gameId: string,
   playerId: string,
-  maxPasses = 200,
-): Promise<void> {
+  maxPasses = 400,
+): void {
   for (let i = 0; i < maxPasses; i += 1) {
     const state = game.state as any;
     const stackLen = Array.isArray(state?.stack) ? state.stack.length : 0;
     if (stackLen <= 0) return;
-    if (String(state?.priority || '') !== String(playerId)) return;
+
+    // Stop so the batch can answer the looping player's next recorded prompt.
     if (getPendingStepsForPlayer(gameId, playerId).some((s: any) => String(s?.status || '') !== 'completed')) {
       return;
     }
 
-    const pass = handlers.passPriority;
-    if (typeof pass !== 'function') {
-      if (typeof game.passPriority === 'function') {
-        game.passPriority(playerId, true);
+    const priorityHolder = String(state?.priority || '').trim();
+    if (!priorityHolder) {
+      if (typeof game.resolveTopOfStack === 'function') {
+        try {
+          game.resolveTopOfStack();
+        } catch {
+          return;
+        }
+      } else {
+        return;
       }
       continue;
     }
-    await Promise.resolve(
-      pass({
-        gameId,
-        isAutoPass: true,
-      }),
-    );
+
+    if (typeof game.passPriority !== 'function') return;
+
+    let result: any = null;
+    try {
+      result = game.passPriority(priorityHolder, true);
+    } catch {
+      return;
+    }
+
+    const resolvedNow = Boolean(result && (result.resolvedNow ?? false));
+    if (resolvedNow && typeof game.resolveTopOfStack === 'function') {
+      try {
+        game.resolveTopOfStack();
+      } catch {
+        // continue draining
+      }
+    }
+
+    // If nothing changed, avoid a tight infinite loop.
+    if (result && result.changed === false && !resolvedNow) {
+      return;
+    }
   }
 }
 
-async function settleQuietBoard(
-  handlers: HandlerMap,
+function settleQuietBoard(
   game: any,
   gameId: string,
   playerId: string,
-  maxRounds = 100,
-): Promise<void> {
+  maxRounds = 200,
+): void {
   for (let round = 0; round < maxRounds; round += 1) {
-    await drainNonEmptyStack(handlers, game, gameId, playerId);
+    drainNonEmptyStack(game, gameId, playerId);
 
     const pending = getPendingStepsForPlayer(gameId, playerId).filter(
       (s: any) => String(s?.status || '') !== 'completed',
@@ -148,18 +193,18 @@ async function settleQuietBoard(
     const stackLen = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack.length : 0;
     if (pending.length === 0 && stackLen === 0) return;
 
-    // If prompts remain that we didn't plan for, stop settling — caller handles.
+    // Prompts for the looping player — caller answers from the recorded sequence.
     if (pending.length > 0) return;
 
-    // Stack non-empty but we don't have priority — wait one tick of resolves via pass cycle.
+    // Stack remains but priority is missing/stuck — try one forced resolve.
     if (stackLen > 0 && typeof game.resolveTopOfStack === 'function') {
       try {
         game.resolveTopOfStack();
       } catch {
-        // ignore
+        return;
       }
     } else {
-      break;
+      return;
     }
   }
 }
@@ -315,17 +360,22 @@ export async function executeLoopShortcutBatch(args: {
   let cappedForSustainability = false;
   let compressed = false;
 
+  const allPlayerIds = getAllPlayerIds(game);
   beginSuppressBroadcast(game);
-  setStackDrain(game, args.playerId, true);
-  if (compressEvents) {
-    beginSuppressEventAppend(game);
-    compressed = true;
-  }
+  // Always skip per-action event spam during batch — write start/apply/end only.
+  beginSuppressEventAppend(game);
+  beginLoopShortcutQuietLogs();
+  compressed = true;
+  setStackDrain(game, allPlayerIds.length > 0 ? allPlayerIds : [args.playerId], true);
 
   let iterationsCompleted = 0;
   let stoppedAt: LoopShortcutBatchResult['stoppedAt'];
   let error: string | undefined;
   let afterFirstSnapshot: ReturnType<typeof snapshotLoopShortcutResources> | null = null;
+  let afterFirstBoard: LoopShortcutBoardSnapshot | null = null;
+  let iterationDelta: LoopShortcutIterationDelta | null = null;
+  let deltaMultipliedBy = 0;
+  let usedDeltaMultiply = false;
 
   try {
     try {
@@ -346,12 +396,12 @@ export async function executeLoopShortcutBatch(args: {
         if (!item) continue;
 
         if (isLoopShortcutPhaseAdvanceEmit(item)) {
-          await settleQuietBoard(handlers, game, args.gameId, args.playerId);
+          settleQuietBoard(game, args.gameId, args.playerId);
           continue;
         }
 
         if (item.kind === 'resolution_response') {
-          await settleQuietBoard(handlers, game, args.gameId, args.playerId);
+          settleQuietBoard(game, args.gameId, args.playerId);
           const answered = await answerMatchingPrompt({
             handlers,
             game,
@@ -361,12 +411,12 @@ export async function executeLoopShortcutBatch(args: {
             clearError,
             getLastError,
           });
-          if (!answered.ok) {
+          if (answered.ok === false) {
             error = answered.error;
             stoppedAt = { iteration, stepIndex, label: item.label };
             break;
           }
-          await settleQuietBoard(handlers, game, args.gameId, args.playerId);
+          settleQuietBoard(game, args.gameId, args.playerId);
           continue;
         }
 
@@ -394,24 +444,26 @@ export async function executeLoopShortcutBatch(args: {
           break;
         }
 
-        await settleQuietBoard(handlers, game, args.gameId, args.playerId);
+        settleQuietBoard(game, args.gameId, args.playerId);
       }
 
       if (error) break;
       iterationsCompleted = iteration + 1;
 
-      // Sustain probe: compare steady-state (end of iter 1 → end of iter 2) so
-      // kickstart spend (lands / floating mana) on the first cycle does not fail.
-      if (compressEvents && iterationsCompleted === 1) {
+      // Sustain + delta probe: compare steady-state (end of iter 1 → end of iter 2)
+      // so kickstart spend on the first cycle does not fail sustain / skew deltas.
+      if (iterationsCompleted === 1 && maxIterations >= 2) {
         afterFirstSnapshot = snapshotLoopShortcutResources(game.state, args.playerId);
+        afterFirstBoard = snapshotLoopShortcutBoard(game.state, (game as any).libraries);
         args.onProgress?.({
           iteration: iterationsCompleted,
           maxIterations,
           selfSustaining: null,
           message: `Iteration 1 done — probing whether the loop is self-sustaining...`,
         });
-      } else if (compressEvents && iterationsCompleted === 2 && afterFirstSnapshot) {
+      } else if (iterationsCompleted === 2 && afterFirstSnapshot && afterFirstBoard) {
         const afterSecond = snapshotLoopShortcutResources(game.state, args.playerId);
+        const afterSecondBoard = snapshotLoopShortcutBoard(game.state, (game as any).libraries);
         selfSustaining = isLoopShortcutSelfSustaining(afterFirstSnapshot, afterSecond);
         const budget = resolveLoopShortcutIterationBudget({
           requested: requestedIterations,
@@ -427,14 +479,52 @@ export async function executeLoopShortcutBatch(args: {
             message: `Loop is not self-sustaining between iterations (resources decreased). Capping at ${LOOP_SHORTCUT_MAX_ITERATIONS}.`,
           });
         } else if (selfSustaining) {
-          args.onProgress?.({
-            iteration: iterationsCompleted,
-            maxIterations,
-            selfSustaining,
-            message: `Self-sustaining loop confirmed. Batching up to ${maxIterations} iteration(s)...`,
-          });
+          iterationDelta = diffLoopShortcutIterationDelta(afterFirstBoard, afterSecondBoard);
+          const remaining = Math.max(0, maxIterations - iterationsCompleted);
+          if (remaining > 0) {
+            args.onProgress?.({
+              iteration: iterationsCompleted,
+              maxIterations,
+              selfSustaining,
+              message: `Self-sustaining loop confirmed. Applying ×${remaining} delta (mana/tokens) + fast mills...`,
+            });
+            const applied = tryApplyLoopShortcutDeltaMultiply({
+              game,
+              delta: iterationDelta,
+              remainingIterations: remaining,
+            });
+            if (applied.ok) {
+              usedDeltaMultiply = true;
+              deltaMultipliedBy = remaining;
+              iterationsCompleted = maxIterations;
+              args.onProgress?.({
+                iteration: iterationsCompleted,
+                maxIterations,
+                selfSustaining,
+                message: `Applied ${remaining} remaining iteration(s) via delta multiply` +
+                  (applied.milledTotal ? ` (${applied.milledTotal} card(s) milled).` : '.'),
+              });
+              break;
+            }
+            debugWarn(1, '[LoopShortcutBatch] delta multiply unsafe; falling back to physical', {
+              reason: applied.reason,
+            });
+            args.onProgress?.({
+              iteration: iterationsCompleted,
+              maxIterations,
+              selfSustaining,
+              message: `Delta multiply unavailable (${applied.reason || 'unsafe'}). Continuing physical iterations...`,
+            });
+          } else {
+            args.onProgress?.({
+              iteration: iterationsCompleted,
+              maxIterations,
+              selfSustaining,
+              message: `Self-sustaining loop confirmed. Batch complete.`,
+            });
+          }
         }
-      } else if (iterationsCompleted % 10 === 0 || iterationsCompleted === maxIterations) {
+      } else if (iterationsCompleted % 5 === 0 || iterationsCompleted === maxIterations) {
         args.onProgress?.({
           iteration: iterationsCompleted,
           maxIterations,
@@ -446,6 +536,22 @@ export async function executeLoopShortcutBatch(args: {
 
     if (compressed) {
       try {
+        const debugDelta = iterationDelta
+          ? {
+              floatingManaByPlayer: iterationDelta.floatingManaByPlayer,
+              lifeByPlayer: iterationDelta.lifeByPlayer,
+              millsByPlayer: iterationDelta.millsByPlayer,
+              tokensByFingerprint: Object.fromEntries(
+                Object.entries(iterationDelta.tokensByFingerprint || {}).map(([fp, entry]) => [
+                  fp,
+                  {
+                    count: entry.count,
+                    name: String(entry.prototype?.card?.name || entry.prototype?.name || ''),
+                  },
+                ]),
+              ),
+            }
+          : undefined;
         appendEvent(args.gameId, (game as any).seq ?? 0, 'loopShortcutBatchApply', {
           playerId: args.playerId,
           name: args.name || 'Loop Shortcut',
@@ -453,6 +559,13 @@ export async function executeLoopShortcutBatch(args: {
           iterationsCompleted,
           selfSustaining: selfSustaining === true,
           cappedForSustainability,
+          usedDeltaMultiply,
+          ...(usedDeltaMultiply && debugDelta
+            ? {
+                delta: debugDelta,
+                multipliedBy: deltaMultipliedBy,
+              }
+            : {}),
           statePatch: captureLoopShortcutStatePatch(game.state),
         });
       } catch (err) {
@@ -480,8 +593,9 @@ export async function executeLoopShortcutBatch(args: {
     error = String(err?.message || err || 'Batch failed');
     debugError(1, '[LoopShortcutBatch] failed', err);
   } finally {
-    setStackDrain(game, args.playerId, false);
-    if (compressed) endSuppressEventAppend(game);
+    setStackDrain(game, allPlayerIds.length > 0 ? allPlayerIds : [args.playerId], false);
+    endLoopShortcutQuietLogs();
+    endSuppressEventAppend(game);
     endSuppressBroadcast(game);
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(args.io, game, args.gameId, { forceStateReplace: true });

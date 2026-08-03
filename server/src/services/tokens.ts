@@ -8,7 +8,7 @@
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { debug, debugWarn, debugError, isLoopShortcutQuietLogs } from "../utils/debug.js";
 import {
   searchScryfallTokenImage,
   stripColorAdjectiveFromTokenName,
@@ -706,6 +706,8 @@ function findExactTokenImageInCache(spec: TokenImageSpec): TokenCard | undefined
 }
 
 function findFuzzyTokenImageInCache(spec: TokenImageSpec): TokenCard | undefined {
+  // Loop batches create hundreds of identical tokens — skip fuzzy scan.
+  if (isLoopShortcutQuietLogs()) return undefined;
   loadTokens();
 
   const nameLower = spec.name.toLowerCase();

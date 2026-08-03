@@ -34,11 +34,28 @@ export function millCardsFromLibrary(
   ctx?: GameContext,
 ): number {
   const zones = getOrCreatePlayerZones(stateAny, playerId);
+  const libraries =
+    ctx && (ctx as any).libraries && typeof (ctx as any).libraries.get === 'function'
+      ? ((ctx as any).libraries as Map<string, any[]>)
+      : undefined;
   let milled = 0;
 
   for (let idx = 0; idx < Math.max(0, count | 0); idx += 1) {
-    if (zones.library.length === 0) break;
-    const card = zones.library.shift();
+    // Prefer the authoritative libraries Map when present; re-fetch each card so
+    // Eldrazi (and similar) GY→library shuffles mid-mill are respected.
+    let card: any = null;
+    if (libraries) {
+      const lib = libraries.get(String(playerId)) || [];
+      if (!Array.isArray(lib) || lib.length === 0) break;
+      card = lib.shift();
+      libraries.set(String(playerId), lib);
+      zones.library = lib;
+      zones.libraryCount = lib.length;
+    } else {
+      if (zones.library.length === 0) break;
+      card = zones.library.shift();
+      zones.libraryCount = zones.library.length;
+    }
     if (!card) break;
     if (ctx) {
       pushCardToPlayerGraveyardWithReplacements(ctx, playerId, card, zones.graveyard);
@@ -48,7 +65,13 @@ export function millCardsFromLibrary(
     milled += 1;
   }
 
-  zones.libraryCount = zones.library.length;
+  if (libraries) {
+    const lib = libraries.get(String(playerId)) || [];
+    zones.library = lib;
+    zones.libraryCount = Array.isArray(lib) ? lib.length : 0;
+  } else {
+    zones.libraryCount = zones.library.length;
+  }
   zones.graveyardCount = zones.graveyard.length;
   return milled;
 }
