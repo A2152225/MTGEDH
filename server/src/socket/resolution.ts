@@ -12555,6 +12555,18 @@ async function handleStepResponse(
 
         const payment = extractResolutionPaymentItems(response.selections as any);
         const manaCost = String(stepData.manaCost || '').trim();
+        const activatingPermanentId = String(stepData?.permanentId || step.sourceId || '').trim();
+        if (
+          activatingPermanentId &&
+          Array.isArray(payment) &&
+          payment.some((item) => String(item?.permanentId || '').trim() === activatingPermanentId)
+        ) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_PAYMENT_SOURCE',
+            message: `Cannot use ${String(stepData.cardName || step.sourceName || 'this permanent')} to pay for its own activation cost.`,
+          });
+          break;
+        }
         const applied = applySelectedManaPaymentForResolutionCost(game, pid, manaCost, payment);
         if (!applied.ok) {
           const appliedError = applied as { ok: false; code: string; message: string };

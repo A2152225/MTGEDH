@@ -1035,6 +1035,115 @@ export function checkEmptyLibraryDraw(
   return { loses: true, wins: false, reason: "Drew from empty library" };
 }
 
+function permanentHasAscend(permanent: any): boolean {
+  const keywords = Array.isArray(permanent?.card?.keywords) ? permanent.card.keywords : [];
+  if (keywords.some((k: unknown) => String(k || '').toLowerCase() === 'ascend')) return true;
+  const oracle = String(permanent?.card?.oracle_text || '').toLowerCase();
+  return /(?:^|\n)\s*ascend\b/m.test(oracle);
+}
+
+/**
+ * Rule 702.131b: Ascend on a permanent is a static ability — any time you control
+ * 10+ permanents and lack the city's blessing, you get it for the rest of the game.
+ */
+export function applyAscendCitysBlessing(ctx: GameContext): string[] {
+  const state = ctx.state as any;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const players = Array.isArray(state?.players) ? state.players : [];
+  state.cityBlessing = state.cityBlessing || {};
+  const newlyGranted: string[] = [];
+
+  for (const player of players) {
+    const playerId = String(player?.id || '').trim();
+    if (!playerId || state.cityBlessing[playerId]) continue;
+    if (player.hasLost || player.eliminated || player.conceded) continue;
+
+    const controlled = battlefield.filter((perm: any) => perm && String(perm.controller || '') === playerId);
+    const hasAscend = controlled.some((perm: any) => permanentHasAscend(perm));
+    if (!hasAscend) continue;
+
+    // Server battlefield stores individual tokens (emit grouping is client-view only).
+    if (controlled.length < 10) continue;
+
+    state.cityBlessing[playerId] = true;
+    newlyGranted.push(playerId);
+  }
+
+  return newlyGranted;
+}
+
+/**
+ * Apply Rule 704.5b consequences for players who attempted a mandatory draw
+ * from an empty library. Safe to call from drawCards (any forced draw) and from SBAs.
+ * Optional/"may" draws only reach here if the player chose to draw.
+ */
+export function applyEmptyLibraryDrawConsequences(
+  ctx: GameContext,
+  playerIds: readonly string[],
+): { applied: string[]; wins: string[]; ignored: string[] } {
+  const applied: string[] = [];
+  const wins: string[] = [];
+  const ignored: string[] = [];
+  const state = ctx.state as any;
+  const players = Array.isArray(state?.players) ? state.players : [];
+
+  for (const rawId of playerIds) {
+    const playerId = String(rawId || '').trim();
+    if (!playerId) continue;
+    const player = players.find((p: any) => p && String(p.id || '') === playerId);
+    if (!player || player.hasLost || player.eliminated || player.conceded) {
+      ignored.push(playerId);
+      continue;
+    }
+
+    const result = checkEmptyLibraryDraw(ctx, playerId);
+    if (result.wins) {
+      state.gameOver = true;
+      state.winner = playerId;
+      state.winReason = result.reason || 'Drew from empty library (win replacement)';
+      wins.push(playerId);
+      continue;
+    }
+    if (!result.loses) {
+      ignored.push(playerId);
+      continue;
+    }
+
+    player.hasLost = true;
+    player.lostReason = result.reason || 'Attempted to draw from an empty library';
+    player.lossReason = player.lostReason;
+    applied.push(playerId);
+    try {
+      if (!(ctx as any).inactive || !((ctx as any).inactive instanceof Set)) {
+        (ctx as any).inactive = new Set<string>();
+      }
+      (ctx as any).inactive.add(playerId);
+    } catch {
+      // best-effort
+    }
+  }
+
+  return { applied, wins, ignored };
+}
+
+/**
+ * Drain and apply any pending `attemptedEmptyLibraryDraw` flags (SBA path).
+ */
+export function processPendingEmptyLibraryDrawAttempts(ctx: GameContext): {
+  applied: string[];
+  wins: string[];
+  ignored: string[];
+} {
+  const state = ctx.state as any;
+  const attempted = state?.attemptedEmptyLibraryDraw;
+  if (!attempted || typeof attempted !== 'object') {
+    return { applied: [], wins: [], ignored: [] };
+  }
+  const playerIds = Object.keys(attempted).filter((pid) => attempted[pid]);
+  state.attemptedEmptyLibraryDraw = {};
+  return applyEmptyLibraryDrawConsequences(ctx, playerIds);
+}
+
 /**
  * Cards that grant additional land plays per turn
  * Key: lowercase card name (partial match), Value: number of additional land drops

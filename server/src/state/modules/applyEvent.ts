@@ -7805,11 +7805,29 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
           stateAny.attackedOrBlockedThisCombatByPermanentId = stateAny.attackedOrBlockedThisCombatByPermanentId || {};
 
-          // Clear previous blockers
-          for (const perm of battlefield) {
-            if (perm) {
-              (perm as any).blocking = undefined;
-              (perm as any).blockedBy = undefined;
+          // Clear only THIS player's prior blocker assignments so multiplayer
+          // declareBlockers / replay cannot wipe other defenders' blocks.
+          if (playerId) {
+            for (const perm of battlefield) {
+              if (!perm) continue;
+              if (String(perm.controller || '') === playerId) {
+                (perm as any).blocking = undefined;
+              }
+            }
+            for (const attacker of battlefield) {
+              if (!attacker || !Array.isArray((attacker as any).blockedBy)) continue;
+              const remaining = ((attacker as any).blockedBy as string[]).filter((blockerId) => {
+                const blocker = battlefield.find((p: any) => p && String(p.id || '') === String(blockerId || ''));
+                return blocker && String(blocker.controller || '') !== playerId;
+              });
+              (attacker as any).blockedBy = remaining.length > 0 ? remaining : undefined;
+            }
+          } else {
+            for (const perm of battlefield) {
+              if (perm) {
+                (perm as any).blocking = undefined;
+                (perm as any).blockedBy = undefined;
+              }
             }
           }
           // Set new blockers

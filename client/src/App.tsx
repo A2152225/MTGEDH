@@ -3380,7 +3380,9 @@ export function App() {
           extraAlternateCosts: [],
           paymentStepId: String(step.id),
           activatingPermanentId: String((step as any).permanentId || step.sourceId || ''),
-          excludeActivatingPermanentFromPayment: (step as any).requiresTap === true,
+          // Always exclude the permanent being activated — its {T} (or other cost)
+          // cannot also pay the activation's mana cost (e.g. Three Tree City {2}{T}).
+          excludeActivatingPermanentFromPayment: true,
           title: `Pay for ${String((step as any).cardName || step.sourceName || 'Ability')}`,
           confirmLabel: String((step as any).confirmLabel || 'Pay and Continue'),
           manualFloatingManaSelection: true,
@@ -4859,8 +4861,8 @@ export function App() {
 
   const castSpellPaymentSources = useMemo(() => {
     if (!you) return [];
-    const excludePermanentIds = spellToCast?.excludeActivatingPermanentFromPayment === true
-      && spellToCast.activatingPermanentId
+    const excludePermanentIds = spellToCast?.activatingPermanentId
+      && (spellToCast?.excludeActivatingPermanentFromPayment !== false)
       ? [spellToCast.activatingPermanentId]
       : undefined;
     return getAvailableManaSourcesForPlayer(you, excludePermanentIds ? { excludePermanentIds } : undefined);
@@ -5777,10 +5779,13 @@ export function App() {
 
   const attackingCreatures = useMemo(() => {
     if (!safeView) return [];
-    return (safeView.battlefield || []).filter((p: any) => 
-      p.attacking && 
+    const filtered = (safeView.battlefield || []).filter((p: any) =>
+      p.attacking &&
       isCurrentlyCreature(p)
     );
+    // Safety net: if emit still grouped attacking tokens as group_*, expand so
+    // blocker declarations send real permanent ids the server can validate.
+    return expandGroupedTokens(filtered);
   }, [safeView]);
 
   const defenders = useMemo(() => {
@@ -6610,6 +6615,7 @@ export function App() {
               onIgnoreTriggerSource={handleIgnoreTriggerSourceFromStack}
               onStopIgnoringSource={handleStopIgnoringSource}
               manaPool={manaPool}
+              manaPools={(safeView as any).manaPool || null}
               // Mulligan UI props
               showMulliganUI={showTableMulliganUI}
               hasKeptHand={hasKeptHand}

@@ -164,6 +164,70 @@ export function resolveGroupedPermanentRef(
   return null;
 }
 
+/**
+ * Resolve a client attacker ref that may still be a emit-time `group_*` / `_virtual_` id.
+ * Attackers are controlled by the attacking player, so this does not filter by the
+ * declaring (defending) player id.
+ */
+export function resolveGroupedAttackerRef(
+  game: any,
+  refId: string,
+  options?: {
+    usedIds?: Set<string>;
+  },
+): string | null {
+  const battlefield = game?.state?.battlefield || [];
+  const normalizedRef = String(refId || '').trim();
+  if (!normalizedRef) return null;
+
+  const isAttackingPerm = (perm: any): boolean =>
+    typeof perm?.attacking === 'string' && perm.attacking.length > 0;
+
+  const direct = battlefield.find(
+    (perm: any) => String(perm?.id || '') === normalizedRef && isAttackingPerm(perm),
+  );
+  if (direct) {
+    if (options?.usedIds?.has(normalizedRef)) return null;
+    return normalizedRef;
+  }
+
+  const parsed = parseGroupedPermanentRef(normalizedRef);
+  if (!parsed) return null;
+
+  const members = getTokenGroupMembers(game, parsed.groupId);
+  const prototype = getGroupPrototype(game, parsed.groupId);
+
+  const tryMember = (memberId: string): string | null => {
+    if (!memberId || options?.usedIds?.has(memberId)) return null;
+    const perm = battlefield.find((entry: any) => String(entry?.id || '') === memberId);
+    if (!perm || !isAttackingPerm(perm)) return null;
+    return memberId;
+  };
+
+  if (parsed.index !== undefined && Number.isFinite(parsed.index) && parsed.index >= 0) {
+    const indexedMember = members[parsed.index];
+    if (indexedMember) {
+      const indexed = tryMember(indexedMember);
+      if (indexed) return indexed;
+    }
+  }
+
+  for (const memberId of members) {
+    const resolved = tryMember(memberId);
+    if (resolved) return resolved;
+  }
+
+  if (!prototype) return null;
+  for (const perm of battlefield) {
+    if (!isAttackingPerm(perm)) continue;
+    if (!matchesGroupPrototype(perm, prototype, { ignoreTapState: true })) continue;
+    const resolved = tryMember(String(perm.id));
+    if (resolved) return resolved;
+  }
+
+  return null;
+}
+
 export type RawAttackerSelection = {
   creatureId?: string;
   groupId?: string;

@@ -4,6 +4,7 @@ import {
   normalizeAttackerSelections,
   parseGroupedPermanentRef,
   registerTokenGroupMembers,
+  resolveGroupedAttackerRef,
   resolveGroupedPermanentRef,
 } from '../src/socket/tokenGroupResolve.js';
 
@@ -78,5 +79,27 @@ describe('tokenGroupResolve', () => {
     ]);
 
     expect(getTokenGroupMembers(game, 'group_perm_a')).toEqual(['perm_a', 'perm_b']);
+  });
+
+  it('resolves grouped attacker refs for defenders declaring blockers', () => {
+    const game = makeGame([
+      { id: 'atk_a', controller: 'p1', isToken: true, card: { name: 'Goblin' }, attacking: 'p2', tapped: true },
+      { id: 'atk_b', controller: 'p1', isToken: true, card: { name: 'Goblin' }, attacking: 'p2', tapped: true },
+      { id: 'blk_a', controller: 'p2', isToken: true, card: { name: 'Soldier' }, tapped: false },
+    ]);
+    registerTokenGroupMembers(game, 'group_atk_a', ['atk_a', 'atk_b']);
+
+    // Defender (p2) can still resolve the opponent's grouped attacker id.
+    expect(resolveGroupedAttackerRef(game, 'group_atk_a')).toBe('atk_a');
+    expect(resolveGroupedAttackerRef(game, 'group_atk_a_virtual_1')).toBe('atk_b');
+    expect(resolveGroupedAttackerRef(game, 'atk_a')).toBe('atk_a');
+
+    // Non-attacking member must not be chosen.
+    const idleGame = makeGame([
+      { id: 'atk_a', controller: 'p1', isToken: true, card: { name: 'Goblin' }, tapped: false },
+      { id: 'atk_b', controller: 'p1', isToken: true, card: { name: 'Goblin' }, attacking: 'p2', tapped: true },
+    ]);
+    registerTokenGroupMembers(idleGame, 'group_atk_a', ['atk_a', 'atk_b']);
+    expect(resolveGroupedAttackerRef(idleGame, 'group_atk_a')).toBe('atk_b');
   });
 });

@@ -566,16 +566,27 @@ export function CombatSelectionModal({
   const isReadOnlyAttackerView = readOnly && mode === 'attackers';
   const isReadOnlyBlockerView = readOnly && mode === 'blockers';
   
-  // Reset selections when modal opens
+  // Reset selections when the modal opens or switches mode — not when defender
+  // list identity churns from game-state broadcasts (that wiped in-progress
+  // token-group +/- assignments during declare blockers).
   React.useEffect(() => {
-    if (open) {
-      setSelectedAttackers(new Map());
-      setSelectedBlockers(new Map());
-      setBulkAttackTarget(defenders[0]?.id || '');
-      setBulkAttackCount(0);
-      setGroupTargets(new Map());
-    }
-  }, [open, mode, defenders, initialAttackTargets]);
+    if (!open) return;
+    setSelectedAttackers(new Map());
+    setSelectedBlockers(new Map());
+    setBulkAttackTarget(defenders[0]?.id || '');
+    setBulkAttackCount(0);
+    setGroupTargets(new Map());
+    // intentionally omit defenders / initialAttackTargets — see below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mode]);
+
+  // Seed bulk attack target once defenders are available without clearing selections.
+  React.useEffect(() => {
+    if (!open || mode !== 'attackers') return;
+    const firstDefenderId = defenders[0]?.id;
+    if (!firstDefenderId) return;
+    setBulkAttackTarget((prev) => prev || firstDefenderId);
+  }, [open, mode, defenders]);
 
   // In read-only attackers mode, keep selections synced to the provided targets (live preview).
   React.useEffect(() => {
@@ -1821,20 +1832,20 @@ export function CombatSelectionModal({
                                   </span>
                                   <button
                                     onClick={() => {
-                                      // Remove one blocker from this attacker
-                                      const blockerToRemove = group.creatures.find(c => selectedBlockers.get(c.id)?.has(attacker.id));
-                                      if (blockerToRemove) {
-                                        setSelectedBlockers(prev => {
-                                          const next = cloneSelectedBlockers(prev);
-                                          const assignments = next.get(blockerToRemove.id);
-                                          if (assignments) {
-                                            assignments.delete(attacker.id);
-                                            if (assignments.size === 0) next.delete(blockerToRemove.id);
-                                            else next.set(blockerToRemove.id, assignments);
-                                          }
-                                          return next;
-                                        });
-                                      }
+                                      // Remove one blocker from this attacker using functional
+                                      // state so rapid clicks don't read a stale Map.
+                                      setSelectedBlockers(prev => {
+                                        const blockerToRemove = group.creatures.find(c => prev.get(c.id)?.has(attacker.id));
+                                        if (!blockerToRemove) return prev;
+                                        const next = cloneSelectedBlockers(prev);
+                                        const assignments = next.get(blockerToRemove.id);
+                                        if (assignments) {
+                                          assignments.delete(attacker.id);
+                                          if (assignments.size === 0) next.delete(blockerToRemove.id);
+                                          else next.set(blockerToRemove.id, assignments);
+                                        }
+                                        return next;
+                                      });
                                     }}
                                     disabled={currentCount === 0}
                                     style={{
@@ -1854,12 +1865,22 @@ export function CombatSelectionModal({
                                   </span>
                                   <button
                                     onClick={() => {
-                                      const assignableBlocker = group.creatures.find(c => {
-                                        if (!canBlockAttacker(c, attacker, battlefieldForBlocking).canBlock) return false;
-                                        const assignments = selectedBlockers.get(c.id) || new Set<string>();
-                                        return !assignments.has(attacker.id) && assignments.size < getBlockerCapacity(c);
+                                      // Assign via functional update so consecutive + clicks
+                                      // pick the next free token instead of toggling the same one off.
+                                      setSelectedBlockers(prev => {
+                                        const assignableBlocker = group.creatures.find(c => {
+                                          if (!canBlockAttacker(c, attacker, battlefieldForBlocking).canBlock) return false;
+                                          const assignments = prev.get(c.id) || new Set<string>();
+                                          return !assignments.has(attacker.id) && assignments.size < getBlockerCapacity(c);
+                                        });
+                                        if (!assignableBlocker) return prev;
+                                        const next = cloneSelectedBlockers(prev);
+                                        const assignments = next.get(assignableBlocker.id) || new Set<string>();
+                                        if (assignments.size >= getBlockerCapacity(assignableBlocker)) return prev;
+                                        assignments.add(attacker.id);
+                                        next.set(assignableBlocker.id, assignments);
+                                        return next;
                                       });
-                                      if (assignableBlocker) handleToggleBlocker(assignableBlocker, attacker.id);
                                     }}
                                     disabled={availableInGroup === 0 || !groupCanBlock}
                                     style={{

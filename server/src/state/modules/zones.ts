@@ -8,7 +8,7 @@ import type { PlayerID, KnownCardRef } from "../../../../shared/src/types.js";
 import { buildZoneObjectWithRetainedCounters } from "../../../../shared/src/zoneRetainedCounters.js";
 import type { GameContext } from "../context.js";
 import { uid } from "../utils.js";
-import { checkEmptyLibraryDraw, hasDrawWinReplacement, hasCantLoseEffect } from "./game-state-effects.js";
+import { applyEmptyLibraryDrawConsequences } from "./game-state-effects.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { appendEvent } from '../../db/index.js';
 import { ResolutionQueueManager } from "../resolution/index.js";
@@ -806,28 +806,29 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
     }
   }
   
-  // Handle empty library draw (Rule 704.5b)
-  for (const pid of Object.keys(emptyDrawByPlayer)) {
-    // Check for win/lose replacement effects
-    const result = checkEmptyLibraryDraw(ctx, pid as PlayerID);
-    
-    if (result.wins) {
-      debug(2, `[drawCards] Player ${pid} WINS: ${result.reason}`);
-      
-      // Mark the game as won
-      (ctx.state as any).gameOver = true;
-      (ctx.state as any).winner = pid;
-      (ctx.state as any).winReason = result.reason;
-    } else if (result.loses) {
-      debug(2, `[drawCards] Player ${pid} LOSES: ${result.reason}`);
-      
-      // Track that this player attempted to draw from empty library
-      // State-based actions will check this
-      (ctx.state as any).attemptedEmptyLibraryDraw = (ctx.state as any).attemptedEmptyLibraryDraw || {};
+  // Handle empty library draw (Rule 704.5b) for ANY mandatory draw attempt —
+  // draw step, spell/ability resolution, combat damage triggers, etc.
+  // Optional "may draw" effects only call drawCards when the player chooses to draw.
+  const emptyAttemptPlayerIds = Object.keys(emptyDrawByPlayer);
+  if (emptyAttemptPlayerIds.length > 0) {
+    // Keep the flag so a later SBA pass can still reconcile if needed.
+    (ctx.state as any).attemptedEmptyLibraryDraw = (ctx.state as any).attemptedEmptyLibraryDraw || {};
+    for (const pid of emptyAttemptPlayerIds) {
       (ctx.state as any).attemptedEmptyLibraryDraw[pid] = true;
-    } else {
-      // Can't lose the game (Platinum Angel, etc.)
-      debug(2, `[drawCards] Player ${pid} attempted empty library draw but can't lose: ${result.reason}`);
+    }
+
+    const outcome = applyEmptyLibraryDrawConsequences(ctx, emptyAttemptPlayerIds);
+    for (const pid of outcome.wins) {
+      debug(2, `[drawCards] Player ${pid} WINS from empty-library draw replacement`);
+      delete (ctx.state as any).attemptedEmptyLibraryDraw[pid];
+    }
+    for (const pid of outcome.applied) {
+      debug(2, `[drawCards] Player ${pid} LOSES from empty-library draw`);
+      delete (ctx.state as any).attemptedEmptyLibraryDraw[pid];
+    }
+    for (const pid of outcome.ignored) {
+      debug(2, `[drawCards] Player ${pid} empty-library draw ignored (can't lose / already out)`);
+      delete (ctx.state as any).attemptedEmptyLibraryDraw[pid];
     }
   }
   

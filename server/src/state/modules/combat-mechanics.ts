@@ -101,6 +101,40 @@ export interface CombatState {
 }
 
 /**
+ * True when oracle text grants the keyword to THIS permanent (keyword line or
+ * "this creature has X"). False for anthem text like "Other creatures have trample".
+ */
+export function oracleTextGrantsOwnKeyword(oracleText: string, keyword: string): boolean {
+  const text = String(oracleText || '').toLowerCase();
+  const kw = String(keyword || '').toLowerCase().trim();
+  if (!text || !kw) return false;
+
+  const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+
+  // Explicit self grant anywhere
+  if (new RegExp(`\\bthis\\s+(?:creature|permanent)\\b[^\\n.]*\\b(?:has|gains?)\\b[^\\n.]*\\b${escaped}\\b`, 'i').test(text)) {
+    return true;
+  }
+
+  // Keyword ability lines / lists on this card (not triggered/activated prose, not anthems).
+  for (const rawLine of text.split(/\n+/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^(when|whenever|at\s+the\b|as\s+|if\s+)/.test(line)) continue;
+    if (/[{][^}]*[}].*:/.test(line) || /^[^:\n]+:/.test(line)) continue; // activated
+    if (/^(other\s+creatures?|creatures?\s+you\s+control|enchanted\s+|equipped\s+|all\s+creatures?)/.test(line)) {
+      continue;
+    }
+    // "Trample" / "Flying, trample" / "Trample (reminder)"
+    if (new RegExp(`(?:^|,)\\s*${escaped}\\b`).test(line)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Parse creature keywords from card data
  */
 export function parseCreatureKeywords(card: any, permanent?: any, gameState?: any): CreatureKeywords {
@@ -126,9 +160,11 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
     debug(1, `[KEYWORDS] Normalized keywords array: [${keywords.join(', ')}]`);
     
     const hasKeyword = (kw: string) => {
-      const inKeywords = keywords.includes(kw.toLowerCase());
-      const inOracle = oracleText.includes(kw.toLowerCase());
-      return inKeywords || inOracle;
+      const needle = kw.toLowerCase();
+      if (keywords.includes(needle)) return true;
+      // Prefer keyword ability lines on THIS permanent. Do not treat
+      // "Other creatures you control have trample" as granting trample to the source.
+      return oracleTextGrantsOwnKeyword(oracleText, needle);
     };
 
     // Keywords can also be applied dynamically at runtime.

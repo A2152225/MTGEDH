@@ -33,7 +33,12 @@ import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTrigg
 import { getEnergyCount, spendEnergyCounters } from "../state/utils.js";
 import { processEquippedAttackRevealUntilLandPumps, emitEquippedAttackRevealPumpMessages } from "../state/modules/equippedAttackRevealPump.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
-import { normalizeAttackerSelections, parseGroupedPermanentRef, resolveGroupedPermanentRef } from "./tokenGroupResolve.js";
+import {
+  normalizeAttackerSelections,
+  parseGroupedPermanentRef,
+  resolveGroupedAttackerRef,
+  resolveGroupedPermanentRef,
+} from "./tokenGroupResolve.js";
 import { sanitizeOracleTextForStaticEffectScan } from "../../../rules-engine/src/staticEffectOracleSanitize.js";
 import {
   formatDeclareAttackersMessage,
@@ -2665,12 +2670,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       
       // IMPORTANT: Resolve grouped token IDs to actual token IDs
       // When the client sends a grouped token ID (e.g., "group_perm_xxx"),
-      // we need to find an available token from that group to use as the blocker
+      // we need to find an available token from that group to use as the blocker.
+      // Attacker refs can also be stale group_* ids if emit still grouped attacking tokens.
       const resolvedBlockers: Array<{ blockerId: string; attackerId: string }> = [];
       const usedTokenIds = new Set<string>(); // Track which tokens have been assigned
       
       for (const blocker of blockers as Array<{ blockerId: string; attackerId: string }>) {
         let actualBlockerId = blocker.blockerId;
+        let actualAttackerId = String(blocker.attackerId || '').trim();
 
         const resolvedBlockerId = resolveGroupedPermanentRef(game, playerId, blocker.blockerId, {
           usedIds: usedTokenIds,
@@ -2694,8 +2701,25 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           });
           return;
         }
+
+        // Stale clients may still send emit-time group_* attacker ids. Map those onto a
+        // real attacking permanent. Multiple blockers on the same group ref multi-block
+        // the same resolved attacker (matches the single grouped attacker card in the UI).
+        const resolvedAttackerId = resolveGroupedAttackerRef(game, actualAttackerId);
+        if (resolvedAttackerId) {
+          if (resolvedAttackerId !== actualAttackerId) {
+            debug(2, `[combat] Resolved grouped attacker ${actualAttackerId} to ${resolvedAttackerId}`);
+          }
+          actualAttackerId = resolvedAttackerId;
+        } else if (parseGroupedPermanentRef(actualAttackerId)) {
+          socket.emit("error", {
+            code: "INVALID_ATTACKER",
+            message: `Attacker ${actualAttackerId} not found or is not attacking`,
+          });
+          return;
+        }
         
-        resolvedBlockers.push({ blockerId: actualBlockerId, attackerId: blocker.attackerId });
+        resolvedBlockers.push({ blockerId: actualBlockerId, attackerId: actualAttackerId });
       }
       
       // Now process the resolved blockers

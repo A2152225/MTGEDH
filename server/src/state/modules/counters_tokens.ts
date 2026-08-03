@@ -3,7 +3,7 @@ import { buildZoneObjectWithRetainedCounters } from "../../../../shared/src/zone
 import type { GameContext } from "../context";
 import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
 import { uid, parsePT, parseWordNumber, triggerLifeGainEffects } from "../utils";
-import { processLifeChange, recalculatePlayerEffects } from "./game-state-effects.js";
+import { processLifeChange, recalculatePlayerEffects, processPendingEmptyLibraryDrawAttempts, applyAscendCitysBlessing } from "./game-state-effects.js";
 import { evaluateCounterPlacementReplacementEvent, evaluateTokenCreationReplacementEvent } from "./replacement-effects.js";
 import { getDeathTriggers, processLinkedExileReturns } from "./triggered-abilities.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
@@ -2137,6 +2137,16 @@ export function runSBA(ctx: GameContext) {
     syncDerivedContinuousEffects(state);
   } catch {}
 
+  // Ascend (702.131b): grant City's Blessing when a player with Ascend controls 10+ permanents.
+  try {
+    const ascended = applyAscendCitysBlessing(ctx);
+    if (ascended.length > 0) {
+      for (const playerId of ascended) {
+        debug(1, `[runSBA] Player ${playerId} got the City's Blessing (Ascend)`);
+      }
+    }
+  } catch {}
+
   // Day/Night: if a daybound/nightbound permanent exists while the game is neither day nor night, it gains the appropriate designation.
   try {
     ensureInitialDayNightDesignationFromBattlefield(state as any);
@@ -2198,6 +2208,19 @@ export function runSBA(ctx: GameContext) {
         debug(1, `[runSBA] Player ${playerId} has lost the game (life <= 0)`);
         changed = true;
       }
+    }
+  }
+
+  // Rule 704.5b: pending empty-library draw attempts (also applied immediately in drawCards).
+  {
+    const outcome = processPendingEmptyLibraryDrawAttempts(ctx);
+    for (const playerId of outcome.wins) {
+      debug(1, `[runSBA] Player ${playerId} WINS from empty-library draw replacement`);
+      changed = true;
+    }
+    for (const playerId of outcome.applied) {
+      debug(1, `[runSBA] Player ${playerId} has lost the game (empty library draw)`);
+      changed = true;
     }
   }
   

@@ -5421,6 +5421,12 @@ export function nextStep(ctx: GameContext) {
             debug(2,
               `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step (base: 1, additional: ${additionalDraws})`
             );
+            // SBAs after the draw turn-based action (Rule 704.5b empty-library loss).
+            try {
+              runSBA(ctx);
+            } catch (sbaErr) {
+              debugWarn(1, `${ts()} [nextStep] SBA after draw failed:`, sbaErr);
+            }
           } else {
             debug(2, `${ts()} [nextStep] Skipped draw step turn action for ${turnPlayer} (Rule 103.8a first-turn two-player)`);
           }

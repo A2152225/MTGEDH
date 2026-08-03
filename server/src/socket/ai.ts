@@ -8911,7 +8911,9 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
     game: any,
     playerId: PlayerID,
     parsedCost: ReturnType<typeof parseManaCost>,
+    excludePermanentIds: string[] = [],
   ): { payment: Array<{ permanentId: string; mana: string; count?: number; abilityId?: string }> } | null {
+    const excluded = new Set(excludePermanentIds.map((id) => String(id || '').trim()).filter(Boolean));
     if (canAIPaySpellCostWithPaymentSources(game, playerId, parsedCost, [])) {
       return { payment: [] };
     }
@@ -8919,7 +8921,7 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
     const paymentSources = getPaymentSources(game, playerId, {
       colors: { ...(parsedCost.colors || {}) },
       generic: Number(parsedCost.generic || 0),
-    });
+    }).filter((source) => !excluded.has(String(source.sourceId || '')));
     if (!canAIPaySpellCostWithPaymentSources(game, playerId, parsedCost, paymentSources)) {
       return null;
     }
@@ -9063,8 +9065,12 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
         .map((id) => id.trim())
         .filter(Boolean),
     ));
+    const activatingPermanentId = step?.activationPaymentChoice === true
+      ? String(step?.permanentId || step?.sourceId || '').trim()
+      : '';
+    const excludePermanentIds = activatingPermanentId ? [activatingPermanentId] : [];
 
-    const buildPlan = () => buildAISpellPaymentPlan(game, playerId, parsedCost);
+    const buildPlan = () => buildAISpellPaymentPlan(game, playerId, parsedCost, excludePermanentIds);
 
     let plan = buildPlan();
     if (plan) return plan;

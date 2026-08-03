@@ -297,8 +297,9 @@ export function TableLayout(props: {
   ignoredTriggerSources?: Map<string, { sourceName: string; count: number; effect: string; imageUrl?: string }>;
   onIgnoreTriggerSource?: (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => void;
   onStopIgnoringSource?: (sourceKey: string) => void;
-  // Mana pool for displaying floating mana
+  // Mana pool for displaying floating mana (local player convenience + all seats)
   manaPool?: ManaPool | null;
+  manaPools?: Record<PlayerID, ManaPool> | null;
   // Mulligan UI props - moved from App.tsx control bar
   showMulliganUI?: boolean;
   hasKeptHand?: boolean;
@@ -354,6 +355,7 @@ export function TableLayout(props: {
     onViewGraveyard, onViewExile,
     ignoredTriggerSources, onIgnoreTriggerSource, onStopIgnoringSource,
     manaPool,
+    manaPools,
     // Mulligan UI props
     showMulliganUI, hasKeptHand, mulligansTaken = 0, pendingBottomCount = 0,
     canKeepHand, canMulligan, isPreGame, allPlayersKeptHands,
@@ -389,6 +391,16 @@ export function TableLayout(props: {
   }, [phase]);
   const stackEmpty = useMemo(() => !stackItems || stackItems.length === 0, [stackItems]);
   const totalFloatingMana = useMemo(() => getTotalFloatingMana(manaPool), [manaPool]);
+  const anyPlayerHasCityBlessing = useMemo(() => {
+    if (!cityBlessing) return false;
+    return Object.values(cityBlessing).some(Boolean);
+  }, [cityBlessing]);
+  const getSeatManaPool = useCallback((playerId: string, isYouSeat: boolean): ManaPool | null => {
+    const fromMap = manaPools?.[playerId as PlayerID];
+    if (fromMap) return fromMap;
+    if (isYouSeat && manaPool) return manaPool;
+    return null;
+  }, [manaPools, manaPool]);
   const mobilePlayLayout = useMobilePlayLayout();
 
   // Layout constants — desktop defaults; compact sizing on touch when viewport < desktop breakpoint.
@@ -1409,10 +1421,13 @@ export function TableLayout(props: {
                                 ⚡ {energyVal}
                               </span>
                             </div>
-                            {/* Floating Mana Pool - Show next to counters for current player */}
-                            {isYouThis && manaPool && (
-                              <FloatingManaPool manaPool={manaPool} compact />
-                            )}
+                            {/* Floating Mana Pool - all seats when they have floating mana */}
+                            {(() => {
+                              const seatPool = getSeatManaPool(pb.player.id, isYouThis);
+                              return seatPool && getTotalFloatingMana(seatPool) > 0 ? (
+                                <FloatingManaPool manaPool={seatPool} compact />
+                              ) : null;
+                            })()}
                             {isYouThis && !externalDeckMgrAnchorEl && (
                               <button
                                 ref={decksBtnRef}
@@ -1491,9 +1506,10 @@ export function TableLayout(props: {
                                 🗡️ Initiative
                               </span>
                             )}
-                            {cityBlessing?.[pb.player.id] && (
+                            {cityBlessing?.[pb.player.id] ? (
                               <span
                                 aria-label="This player has the City's Blessing"
+                                title="City's Blessing (Ascend)"
                                 style={{
                                   display: 'inline-flex',
                                   alignItems: 'center',
@@ -1509,7 +1525,26 @@ export function TableLayout(props: {
                               >
                                 🏛️ Ascended
                               </span>
-                            )}
+                            ) : anyPlayerHasCityBlessing ? (
+                              <span
+                                aria-label="This player does not have the City's Blessing"
+                                title="No City's Blessing"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '2px 8px',
+                                  borderRadius: 4,
+                                  background: 'rgba(100,116,139,0.15)',
+                                  border: '1px solid rgba(148,163,184,0.25)',
+                                  color: 'rgba(148,163,184,0.85)',
+                                  fontSize: 11,
+                                  fontWeight: 500
+                                }}
+                              >
+                                🏛️ —
+                              </span>
+                            ) : null}
                           </div>
                           {onPlayerClick && (
                             <button

@@ -15,6 +15,7 @@ import { randomUUID } from "crypto";
 import { createInitialGameState } from "./state/index.js";
 import { buildCommanderCardSnapshot } from "./state/modules/commander.js";
 import { processDrawTriggers } from "./state/modules/zones.js";
+import { applyEmptyLibraryDrawConsequences } from "./state/modules/game-state-effects.js";
 import { createGameIfNotExists, getEvents, gameExistsInDb } from "./db"; // NEW: import getEvents for replay, gameExistsInDb for deleted game check
 import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
@@ -357,6 +358,7 @@ export class MinimalGameAdapter {
       if (!z) return;
       z.hand = z.hand || [];
       let actualDrawn = 0;
+      const requested = Math.max(0, Math.floor(Number(count || 0)));
       
       // Try to get library from multiple sources:
       // 1. Primary: libraries Map (authoritative source)
@@ -369,15 +371,19 @@ export class MinimalGameAdapter {
         lib = this._fallbackLibraries?.[playerId];
       }
       
-      if (!lib) return;
-      
-      while (count-- > 0 && lib && lib.length > 0) {
+      if (!lib) {
+        lib = [];
+      }
+
+      let remaining = requested;
+      while (remaining > 0 && lib.length > 0) {
         const c = lib.shift();
         z.hand.push(c);
         actualDrawn += 1;
+        remaining -= 1;
       }
       z.handCount = z.hand.length;
-      z.libraryCount = lib ? lib.length : 0;
+      z.libraryCount = lib.length;
       
       // Update the library in both sources
       if (this.libraries && typeof this.libraries.set === 'function') {
@@ -389,6 +395,14 @@ export class MinimalGameAdapter {
 
       if (actualDrawn > 0) {
         processDrawTriggers(this as any, playerId as any, actualDrawn);
+      }
+
+      // Mandatory draw from empty library (Rule 704.5b) — any forced draw, not just draw step.
+      if (requested > 0 && remaining > 0) {
+        (this.state as any).attemptedEmptyLibraryDraw = (this.state as any).attemptedEmptyLibraryDraw || {};
+        (this.state as any).attemptedEmptyLibraryDraw[playerId] = true;
+        applyEmptyLibraryDrawConsequences(this as any, [playerId]);
+        delete (this.state as any).attemptedEmptyLibraryDraw[playerId];
       }
       
       this.bumpSeq();
