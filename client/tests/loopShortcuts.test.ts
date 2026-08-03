@@ -611,8 +611,8 @@ describe('loopShortcuts', () => {
 
     expect(item.template.alternateCostId).toBe('wubrg_external');
     expect(item.template.payment).toEqual([]);
-    expect(item.label.toLowerCase()).toContain('wubrg');
-    expect(item.label.toLowerCase()).toMatch(/free|no mana/);
+    expect(item.label).toContain('alternateCostId=wubrg_external');
+    expect(item.label).toContain('no mana paid');
 
     const payload = buildResolutionResponsePayload(item.template, step, view, 'p1');
     expect(payload).toEqual({
@@ -620,6 +620,38 @@ describe('loopShortcuts', () => {
         alternateCostId: 'wubrg_external',
         xValue: 0,
       },
+    });
+  });
+
+  it('does not invent an alternate cost when the recorded response omitted one', () => {
+    const view = makeView();
+    const step = {
+      type: 'mana_payment_choice',
+      sourceName: 'Summon the School',
+      description: 'Pay costs to cast Summon the School.',
+      spellPaymentRequired: true,
+      preferredAlternateCostId: 'wubrg_external',
+      extraAlternateCosts: [
+        { id: 'wubrg_external', label: 'WUBRG Alternative', manaCost: '{W}{U}{B}{R}{G}' },
+      ],
+    };
+
+    const item = createRecordedResolutionResponseItem(
+      step,
+      { payment: undefined, xValue: 0 },
+      view,
+      'p1'
+    );
+
+    expect(item?.kind).toBe('resolution_response');
+    if (!item || item.kind !== 'resolution_response' || item.template.kind !== 'payment_selection') {
+      throw new Error('Expected payment_selection');
+    }
+    expect(item.template.alternateCostId).toBeUndefined();
+
+    const payload = buildResolutionResponsePayload(item.template, step, view, 'p1');
+    expect(payload).toEqual({
+      selections: { xValue: 0 },
     });
   });
 

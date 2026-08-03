@@ -4103,6 +4103,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             (ctx.state as any).turnPlayer = prevTurnPlayer || '';
           }
 
+          // Full event-log replay must not live-resolve the deferred trigger.
+          // Live resolveTopOfStack re-runs ETB/cast side effects (Altar of the Brood,
+          // Aura Shards, token factories, etc.) which push *new* triggers that are
+          // not balanced by later resolveTopOfStack events — leaving 10–20+ orphans
+          // after restart even though the player's yes/no was already persisted.
+          // Outcomes for the accepted ability live in subsequent mutation events.
+          if ((ctx as any).isReplaying) {
+            ctx.bumpSeq();
+            break;
+          }
+
           ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
           (ctx.state.stack as any[]).push({
             ...(deferredTriggeredAbilityItem as any),
@@ -16323,6 +16334,11 @@ export function replay(
     }
     
     // Second pass: apply events
+    try {
+      (ctx as any)._replayEvents = events;
+    } catch {
+      // ignore
+    }
     for (let i = 0; i < events.length; i++) {
       const e = events[i];
       if (!e || typeof e.type !== "string") continue;
@@ -16333,6 +16349,7 @@ export function replay(
       // Lookbehind: live sockets historically appended nextStep *after* nextStep() ran,
       // so persisted pushTriggeredAbility events land immediately before the nextStep event.
       try {
+        (ctx as any)._replayEventIndex = i;
         (ctx as any)._replayCurrentEventType = e.type;
         (ctx as any)._replayNextEventType = (events[i + 1] as any)?.type;
         (ctx as any)._replayPreviousEvent = i > 0 ? events[i - 1] : null;
@@ -16406,6 +16423,8 @@ export function replay(
       delete (ctx as any)._replayNextEventType;
       delete (ctx as any)._replayPreviousEvent;
       delete (ctx as any)._replayPreviousEventType;
+      delete (ctx as any)._replayEvents;
+      delete (ctx as any)._replayEventIndex;
       (ctx as any)._replayLastEvent = events.length > 0 ? events[events.length - 1] : undefined;
       (ctx as any)._replayLastEventType = events.length > 0
         ? String((events[events.length - 1] as any)?.type || '').trim()

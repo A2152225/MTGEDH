@@ -44,6 +44,7 @@ import {
   getFloatingPaymentPoolColorKey,
 } from "./util.js";
 import { syncDerivedContinuousEffects } from "../state/modules/staticEffectSpec.js";
+import { isLoopShortcutBroadcastSuppressed } from "./loopShortcutSustain.js";
 import { validateGroupedTargetSelections, validatePerOpponentTargetSelections } from "./perOpponentTargetValidation.js";
 import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
@@ -971,6 +972,13 @@ function buildPendingCastPaymentManaCost(pendingCast: any): string {
 function emitNextPendingResolutionStep(io: Server, gameId: string, playerId: string): void {
   const remainingSteps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as PlayerID);
   if (remainingSteps.length === 0) return;
+
+  try {
+    const game = ensureGame(gameId);
+    if (isLoopShortcutBroadcastSuppressed(game)) return;
+  } catch {
+    // best-effort; still emit if game lookup fails
+  }
 
   emitToPlayer(io, playerId, 'resolutionStepPrompt', {
     gameId,
@@ -8866,6 +8874,14 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         if (step && step.playerId === socket.data.playerId) {
           // Only prompt if this is the player's next pending step.
           // (Avoid prompting multiple steps when a flow enqueues MODE_SELECTION + TARGET_SELECTION, etc.)
+          try {
+            const game = ensureGame(eventGameId);
+            if (isLoopShortcutBroadcastSuppressed(game)) {
+              break;
+            }
+          } catch {
+            // continue to emit if lookup fails
+          }
           const pid = socket.data.playerId as any;
           const steps = ResolutionQueueManager.getStepsForPlayer(eventGameId, pid);
           const nextStep = steps.length > 0 ? steps[0] : undefined;
@@ -9031,6 +9047,12 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
  * Removes internal data and formats for client consumption
  */
 export function emitResolutionStepPrompt(socket: Socket, gameId: string, step: ResolutionStep): void {
+  try {
+    const game = ensureGame(gameId);
+    if (isLoopShortcutBroadcastSuppressed(game)) return;
+  } catch {
+    // continue
+  }
   socket.emit("resolutionStepPrompt", {
     gameId,
     step: sanitizeStepForClient(gameId, step),

@@ -470,28 +470,9 @@ function formatManaColorLabel(color: string): string {
 }
 
 function formatAlternateCostLabel(alternateCostId: string | undefined): string | null {
-  const id = normalizeText(alternateCostId);
-  if (!id || id === 'normal') return null;
-  const labels: Record<string, string> = {
-    wubrg_external: 'WUBRG (Fist of the Suns / Jodah)',
-    wubrg_self: 'WUBRG (self)',
-    free: 'Free',
-    sneak: 'Sneak',
-    warp: 'Warp',
-    blitz: 'Blitz',
-    prototype: 'Prototype',
-    disturb: 'Disturb',
-    kicker: 'Kicker',
-    multikicker: 'Multikicker',
-    buyback: 'Buyback',
-    overload: 'Overload',
-    flashback: 'Flashback',
-    madness: 'Madness',
-    miracle: 'Miracle',
-    mutate: 'Mutate',
-    force_of_will: 'Force of Will',
-  };
-  return labels[id] || alternateCostId || null;
+  const id = String(alternateCostId || '').trim();
+  if (!id || normalizeText(id) === 'normal') return null;
+  return id;
 }
 
 function describePaymentSelectionLabel(
@@ -502,10 +483,10 @@ function describePaymentSelectionLabel(
   const base = describePrompt(step);
   const parts: string[] = [];
   const altLabel = formatAlternateCostLabel(alternateCostId);
-  if (altLabel) parts.push(altLabel);
+  if (altLabel) parts.push(`alternateCostId=${altLabel}`);
 
   if (payment.length === 0) {
-    parts.push(altLabel ? 'free / no mana paid' : 'no mana paid');
+    parts.push('no mana paid');
   } else {
     const summary = payment
       .map((item) => {

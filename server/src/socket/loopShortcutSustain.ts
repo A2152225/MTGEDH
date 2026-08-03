@@ -197,6 +197,13 @@ export function applyLoopShortcutStatePatch(state: any, patch: Record<string, un
   }
 }
 
+export function isLoopShortcutBroadcastSuppressed(gameOrState: any): boolean {
+  const state = gameOrState?.state && typeof gameOrState.state === 'object'
+    ? gameOrState.state
+    : gameOrState;
+  return Number(state?._suppressBroadcastCount || 0) > 0;
+}
+
 export function beginSuppressEventAppend(game: any): void {
   const state = game?.state as any;
   if (!state || typeof state !== 'object') return;

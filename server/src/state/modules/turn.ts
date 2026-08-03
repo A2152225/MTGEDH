@@ -142,6 +142,26 @@ function shouldUsePersistedTurnStepTriggersDuringReplay(ctx: GameContext): boole
   if (nextType === 'pushTriggeredAbility' || nextType === 'queueTriggerOrderStep') {
     return true;
   }
+
+  // Historical live sockets appended nextStep *after* nextStep() had already
+  // persisted a burst of pushTriggeredAbility events. Other sync events (mills,
+  // optional choices, etc.) can sit between the last turn-step push and the
+  // nextStep marker — scan a short window, not only the immediate predecessor.
+  const events = (ctx as any)._replayEvents;
+  const index = Number((ctx as any)._replayEventIndex);
+  if (Array.isArray(events) && Number.isFinite(index) && index > 0) {
+    const start = Math.max(0, index - 48);
+    for (let i = index - 1; i >= start; i--) {
+      const ev = events[i];
+      const type = String((ev as any)?.type || '').trim();
+      if (type === 'nextStep' || type === 'nextTurn') break;
+      if (isTurnStepPersistedTriggerEvent(ev) || type === 'queueTriggerOrderStep') {
+        return true;
+      }
+    }
+    return false;
+  }
+
   const prev = (ctx as any)._replayPreviousEvent;
   if (isTurnStepPersistedTriggerEvent(prev)) return true;
   if (prev && String(prev.type || '') === 'queueTriggerOrderStep') return true;

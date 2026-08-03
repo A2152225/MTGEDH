@@ -1454,6 +1454,7 @@ export function App() {
   const youRef = useRef<PlayerID | null>(you);
   const loopShortcutItemsRef = useRef<LoopShortcutSequenceItem[]>([]);
   const isLoopShortcutRecordingRef = useRef(false);
+  const isLoopShortcutRunningRef = useRef(false);
   const lastResolutionStepsRef = useRef<Map<string, any>>(new Map());
   const originalSocketEmitRef = useRef<((event: string, ...args: any[]) => any) | null>(null);
   const loopShortcutReplayRef = useRef<{
@@ -1503,6 +1504,10 @@ export function App() {
   React.useEffect(() => {
     isLoopShortcutRecordingRef.current = isLoopShortcutRecording;
   }, [isLoopShortcutRecording]);
+
+  React.useEffect(() => {
+    isLoopShortcutRunningRef.current = isLoopShortcutRunning;
+  }, [isLoopShortcutRunning]);
 
   React.useEffect(() => {
     const activeGameId = safeView?.id || null;
@@ -1587,6 +1592,7 @@ export function App() {
     loopAutoAnsweredStepIdsRef.current.clear();
     loopShortcutStackPassKeyRef.current = null;
     loopShortcutStackPassAtRef.current = 0;
+    isLoopShortcutRunningRef.current = false;
     setIsLoopShortcutRunning(false);
     setLoopShortcutStatusText(message);
   }, []);
@@ -1775,6 +1781,7 @@ export function App() {
 
     const iterations = clampLoopShortcutIterations(totalIterations);
     loopShortcutItemsRef.current = sanitized.items;
+    isLoopShortcutRunningRef.current = true;
     setIsLoopShortcutRunning(true);
     setLoopShortcutAwaitingConsent(false);
     setLoopShortcutStatusText(`Batching ${iterations} iteration(s) on server...`);
@@ -1897,6 +1904,7 @@ export function App() {
         return;
       }
       setIsLoopShortcutRunning(false);
+      isLoopShortcutRunningRef.current = false;
       loopShortcutReplayRef.current.running = false;
       if (safeViewRef.current?.id) {
         socket.emit('setLoopShortcutStackDrain', { gameId: safeViewRef.current.id, enabled: false });
@@ -3052,6 +3060,15 @@ export function App() {
         && stepId
         && loopAutoAnsweredStepIdsRef.current.has(stepId)
       ) {
+        return;
+      }
+
+      // Server batch still used to leak resolutionStepPrompt while answering
+      // payment/triggers. Never open cast-cost / choice UI mid-batch.
+      if (isLoopShortcutRunningRef.current) {
+        if (stepId) {
+          lastResolutionStepsRef.current.set(stepId, step);
+        }
         return;
       }
 

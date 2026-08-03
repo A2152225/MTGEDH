@@ -439,21 +439,19 @@ function shouldPreserveStackAfterKeywordPromptResolve(ctx: GameContext): boolean
 }
 
 /**
- * After a full replay, drop triggered abilities that were resolved earlier in the
- * game but left on the stack because resolveTopOfStack replay used to no-op.
- * Preserves a legitimately pending trigger when the event log ends on a push.
+ * After a full replay, drop stack orphans left because replay restored pushes
+ * (or live-re-executed optional choices) without a balancing pop.
+ *
+ * Pending resolution-queue prompts must NOT block this — they are separate from
+ * the MTG stack, and G1-style restarts left Aura Shards / Altar floods precisely
+ * because scrub bailed on leftover prompts + typeless activation shells.
+ *
+ * Preserves a legitimately pending trigger when the event log ends on a push /
+ * keyword prompt / cast continuation.
  */
 export function scrubStaleReplayedStackAfterFullReplay(ctx: GameContext): void {
   const gameId = String(ctx?.gameId || '').trim();
   if (!gameId) return;
-
-  let hasPendingResolutionSteps = false;
-  try {
-    hasPendingResolutionSteps = ResolutionQueueManager.getPendingSummary(gameId).hasPending;
-  } catch {
-    // best-effort only
-  }
-  if (hasPendingResolutionSteps) return;
 
   const lastReplayEventType = String((ctx as any)._replayLastEventType || '').trim();
   if (STACK_PUSH_REPLAY_EVENT_TYPES.has(lastReplayEventType)) {
@@ -469,21 +467,26 @@ export function scrubStaleReplayedStackAfterFullReplay(ctx: GameContext): void {
   const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
   if (stack.length === 0) return;
 
-  const hasDeferredOrSpellStackItem = stack.some((item: any) => {
+  const keepItem = (item: any): boolean => {
     if (!item || typeof item !== 'object') return false;
     if (item.oracleIrDeferredFinalize === true) return true;
-    if (String(item.type || '').toLowerCase() === 'spell') return true;
-    if (String(item.type || '').toLowerCase() !== 'triggered_ability') return true;
-    return false;
-  });
-  if (hasDeferredOrSpellStackItem) return;
 
-  const allTriggeredAbilities = stack.every(
-    (item: any) => String(item?.type || '').toLowerCase() === 'triggered_ability',
-  );
-  if (!allTriggeredAbilities) return;
+    const type = String(item.type || '').toLowerCase().trim();
+    // Real in-progress spells / activated abilities stay; typeless stack shells
+    // (common after compressed loop / ability replay) and triggered abilities
+    // whose outcomes already live in mutation events are dropped.
+    if (type === 'spell' || type === 'ability') return true;
+    if (type === 'triggered_ability') return false;
+    if (!type) return false;
+    return true;
+  };
 
-  (ctx.state as any).stack = [];
+  const nextStack = stack.filter(keepItem);
+  if (nextStack.length === stack.length) return;
+
+  (ctx.state as any).stack = nextStack;
+
+  if (nextStack.length > 0) return;
 
   try {
     const state = ctx.state as any;
