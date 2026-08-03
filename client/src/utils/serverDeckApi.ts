@@ -76,3 +76,30 @@ export async function deleteServerDeckViaApi(deckId: string, playerId?: string):
     body: JSON.stringify({ playerId }),
   }));
 }
+
+export type DeckCardLookupResult = {
+  query: string;
+  found: boolean;
+  name?: string;
+  type_line?: string;
+  oracle_text?: string;
+  mana_cost?: string;
+  image_uris?: {
+    small?: string;
+    normal?: string;
+    art_crop?: string;
+  };
+};
+
+/** Local-first card preview lookup (no Scryfall). Caps at 200 names server-side. */
+export async function lookupDeckCardsViaApi(names: string[]): Promise<DeckCardLookupResult[]> {
+  if (names.length === 0) return [];
+  const data = await readJson<{ cards?: DeckCardLookupResult[] }>(
+    await fetch('/api/cards/lookup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names }),
+    }),
+  );
+  return data.cards || [];
+}

@@ -25,6 +25,8 @@ import {
   loadLocalSavedDecks,
   saveLocalSavedDecks,
 } from '../utils/localDeckStorage';
+import { DeckResolvePreviewPanel } from './DeckResolvePreviewPanel';
+import { useDeckResolvePreview } from '../hooks/useDeckResolvePreview';
 
 type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };
 
@@ -75,6 +77,15 @@ export function DeckManagerModal({
   const [cachingDeckId, setCachingDeckId] = useState<string | null>(null);
   const [randomDeckMessage, setRandomDeckMessage] = useState<string | null>(null);
   const [pickingRandomDeck, setPickingRandomDeck] = useState(false);
+
+  const {
+    cards: resolvedPreviewCards,
+    clearPreview,
+    syncPreviewToText,
+    resolveAllFromText,
+    onTextareaKeyDown,
+    onTextareaPaste,
+  } = useDeckResolvePreview();
 
   // Server decks
   const [serverDecks, setServerDecks] = useState<SavedDeckSummary[]>([]);
@@ -129,6 +140,7 @@ export function DeckManagerModal({
     if (pendingEditId && deck.id === pendingEditId) {
       setLocalName(deck.name);
       setLocalText(deck.text);
+      void resolveAllFromText(deck.text);
       setEditingServerDeckId(deck.id);
       setEditingLocalId(null);
       setPendingServerEditId(null);
@@ -144,12 +156,15 @@ export function DeckManagerModal({
 
   // Init
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      clearPreview();
+      return;
+    }
     setRandomDeckMessage(null);
     setLocalList(loadLocalSavedDecks());
     if (canServer && gameId) socket.emit('listSavedDecks', { gameId });
     if (useRestServer) void refreshRestServerDecks();
-  }, [open, canServer, gameId, useRestServer, refreshRestServerDecks]);
+  }, [open, canServer, gameId, useRestServer, refreshRestServerDecks, clearPreview]);
 
   // Socket listeners
   useEffect(() => {
@@ -167,6 +182,7 @@ export function DeckManagerModal({
       clearEditMode();
       setLocalName('');
       setLocalText('');
+      clearPreview();
       gameId && socket.emit('listSavedDecks', { gameId });
     };
     const onRenamed = ({ deck }: { deck: SavedDeckSummary }) =>
@@ -215,7 +231,9 @@ export function DeckManagerModal({
 
   // compute modal width clamped to viewport with a min width to avoid "skinny" layout
   const calcWidth = () => {
-    const desired = wide ? 960 : 880;
+    const desired = wide
+      ? (resolvedPreviewCards.length > 0 ? 1100 : 960)
+      : (resolvedPreviewCards.length > 0 ? 1040 : 880);
     const max = Math.max(480, window.innerWidth - 32);
     return Math.min(desired, max);
   };
@@ -422,6 +440,7 @@ export function DeckManagerModal({
       clearEditMode();
       setLocalName('');
       setLocalText('');
+      clearPreview();
       setLocalErr(null);
       return;
     }
@@ -431,12 +450,14 @@ export function DeckManagerModal({
     setLocalList(next);
     setLocalName('');
     setLocalText('');
+    clearPreview();
     setLocalErr(null);
   };
 
   const beginEditLocal = (deck: SavedLocalDeck) => {
     setLocalName(deck.name);
     setLocalText(deck.text);
+    void resolveAllFromText(deck.text);
     setEditingLocalId(deck.id);
     setEditingServerDeckId(null);
     setPendingServerEditId(null);
@@ -561,6 +582,7 @@ export function DeckManagerModal({
         clearEditMode();
         setLocalName('');
         setLocalText('');
+        clearPreview();
         await refreshRestServerDecks();
         setServerErr(null);
       } catch (err) {
@@ -761,6 +783,7 @@ export function DeckManagerModal({
                         clearEditMode();
                         setLocalName('');
                         setLocalText('');
+                        clearPreview();
                       }}
                       style={{ ...actionButtonStyle, marginLeft: 8 }}
                     >
@@ -768,13 +791,34 @@ export function DeckManagerModal({
                     </button>
                   </div>
                 )}
-                <div style={{ fontSize: 12, marginBottom: 6 }}>Paste decklist</div>
-                <textarea
-                  value={localText}
-                  onChange={e => setLocalText(e.target.value)}
-                  placeholder="e.g. 4 Lightning Bolt"
-                  style={{ width: '100%', height: 180, resize: 'vertical', fontSize: 12 }}
-                />
+                <div style={{ fontSize: 12, marginBottom: 6 }}>
+                  Paste decklist
+                  <span style={{ opacity: 0.65, marginLeft: 6 }}>(Enter resolves the finished line)</span>
+                </div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: useSheet
+                      ? '1fr'
+                      : (resolvedPreviewCards.length > 0 ? 'minmax(0, 1fr) 200px' : '1fr'),
+                    gap: 10,
+                    alignItems: 'stretch',
+                  }}
+                >
+                  <textarea
+                    value={localText}
+                    onChange={e => {
+                      const next = e.target.value;
+                      setLocalText(next);
+                      syncPreviewToText(next);
+                    }}
+                    onKeyDown={e => onTextareaKeyDown(e, localText)}
+                    onPaste={e => onTextareaPaste(e, localText)}
+                    placeholder="e.g. 1 Sol Ring"
+                    style={{ width: '100%', height: 180, resize: 'vertical', fontSize: 12 }}
+                  />
+                  <DeckResolvePreviewPanel cards={resolvedPreviewCards} compact={useSheet} />
+                </div>
                 <input
                   value={localName}
                   onChange={e => setLocalName(e.target.value)}
@@ -794,6 +838,7 @@ export function DeckManagerModal({
                       if (!file) return;
                       const content = await file.text();
                       setLocalText(content);
+                      void resolveAllFromText(content);
                     }}
                   />
                   <button type="button" onClick={importPastedText} disabled={!localText.trim()} style={actionButtonStyle}>
@@ -935,12 +980,30 @@ export function DeckManagerModal({
               </div>
               <div>
                 <div style={{ fontSize: 12, marginBottom: 6 }}>Save current pasted deck (from Local tab)</div>
-                <textarea
-                  value={localText}
-                  onChange={e => setLocalText(e.target.value)}
-                  placeholder="Paste list, switch name below"
-                  style={{ width: '100%', height: 180, resize: 'vertical', fontSize: 12 }}
-                />
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: useSheet
+                      ? '1fr'
+                      : (resolvedPreviewCards.length > 0 ? 'minmax(0, 1fr) 200px' : '1fr'),
+                    gap: 10,
+                    alignItems: 'stretch',
+                  }}
+                >
+                  <textarea
+                    value={localText}
+                    onChange={e => {
+                      const next = e.target.value;
+                      setLocalText(next);
+                      syncPreviewToText(next);
+                    }}
+                    onKeyDown={e => onTextareaKeyDown(e, localText)}
+                    onPaste={e => onTextareaPaste(e, localText)}
+                    placeholder="Paste list, switch name below"
+                    style={{ width: '100%', height: 180, resize: 'vertical', fontSize: 12 }}
+                  />
+                  <DeckResolvePreviewPanel cards={resolvedPreviewCards} compact={useSheet} />
+                </div>
                 <input
                   value={localName}
                   onChange={e => setLocalName(e.target.value)}

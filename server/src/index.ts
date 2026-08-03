@@ -21,8 +21,8 @@ import {
 } from "./db/decks.js";
 import { resolveDeckList } from "./services/deckImport.js";
 import { addSuggestion, loadSuggestions } from "./db/houseRuleSuggestions.js";
-import { ensureLocalCardLookupIndex } from "./services/localCardLookup.js";
-import { parseDecklist, clearPlaneswalkerCache, shouldSkipDeckLine } from "./services/scryfall";
+import { ensureLocalCardLookupIndex, lookupLocalCards } from "./services/localCardLookup.js";
+import { parseDecklist, clearPlaneswalkerCache, shouldSkipDeckLine, normalizeName } from "./services/scryfall";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -335,6 +335,64 @@ app.get("/api/decks", (req, res) => {
   } catch (err) {
     debugError(1, "GET /api/decks failed:", err);
     res.status(500).json({ error: "Failed to list decks" });
+  }
+});
+
+/** Local-first card preview for deck builder (oracle text + image URIs). No Scryfall. */
+app.post("/api/cards/lookup", (req, res) => {
+  try {
+    const rawNames = Array.isArray(req.body?.names) ? req.body.names : [];
+    const names = [...new Set(
+      rawNames
+        .map((n: unknown) => (typeof n === 'string' ? n.trim() : ''))
+        .filter(Boolean),
+    )].slice(0, 200) as string[];
+
+    if (names.length === 0) {
+      res.json({ cards: [] });
+      return;
+    }
+
+    void (async () => {
+      try {
+        const found = await lookupLocalCards(names);
+        const cards = names.map((query) => {
+          const card = found.get(normalizeName(query).toLowerCase());
+          if (!card) {
+            return { query, found: false as const };
+          }
+          const faceOracle = Array.isArray(card.card_faces)
+            ? card.card_faces.map((f) => String(f?.oracle_text || '').trim()).filter(Boolean).join('\n\n')
+            : '';
+          const oracleText = String(card.oracle_text || '').trim() || faceOracle || undefined;
+          const imageUris = card.image_uris || card.card_faces?.[0]?.image_uris;
+          return {
+            query,
+            found: true as const,
+            name: card.name,
+            type_line: card.type_line,
+            oracle_text: oracleText,
+            mana_cost: card.mana_cost,
+            image_uris: imageUris
+              ? {
+                  small: imageUris.small,
+                  normal: imageUris.normal,
+                  art_crop: imageUris.art_crop,
+                }
+              : undefined,
+          };
+        });
+        res.json({ cards });
+      } catch (err) {
+        debugError(1, "POST /api/cards/lookup failed:", err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Failed to look up cards" });
+        }
+      }
+    })();
+  } catch (err) {
+    debugError(1, "POST /api/cards/lookup failed:", err);
+    res.status(500).json({ error: "Failed to look up cards" });
   }
 });
 
