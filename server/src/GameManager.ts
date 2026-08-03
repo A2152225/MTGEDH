@@ -456,6 +456,13 @@ export type CreateGameOptions = { id?: string; startingState?: any };
 class GameManagerClass {
   private games: Map<string, any> = new Map();
   private restoringGames: Set<string> = new Set();
+  /** In-flight async restores so concurrent joiners await the same promise. */
+  private resumeInFlight: Map<string, Promise<any>> = new Map();
+  /** Live resume progress for the game browser (event index during replay). */
+  private resumeProgress: Map<
+    string,
+    { current: number; total: number; percent: number }
+  > = new Map();
   private rulesBridges: Map<string, RulesBridge> = new Map();
   private ioServer: any = null;
 
@@ -673,6 +680,83 @@ class GameManagerClass {
     return this.games.get(gameId);
   }
 
+  /** True while persisted events are being replayed into a cold game. */
+  isRestoring(gameId: string): boolean {
+    return this.restoringGames.has(gameId);
+  }
+
+  /** Current resume progress, or null when the game is not restoring. */
+  getResumeProgress(
+    gameId: string,
+  ): { current: number; total: number; percent: number } | null {
+    return this.resumeProgress.get(gameId) ?? null;
+  }
+
+  private publishResumeProgress(
+    gameId: string,
+    current: number,
+    total: number,
+    done = false,
+  ): void {
+    const percent =
+      done || total <= 0
+        ? 100
+        : Math.min(100, Math.round((current / total) * 100));
+    const progress = { current, total, percent };
+    if (done) {
+      this.resumeProgress.delete(gameId);
+    } else {
+      this.resumeProgress.set(gameId, progress);
+    }
+    try {
+      this.ioServer?.emit("gameResumeProgress", {
+        gameId,
+        ...progress,
+        isRestoring: !done,
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  private createFreshGameInstance(gameId: string): any {
+    let game: any = null;
+    try {
+      game = createInitialGameState(gameId);
+      debug(2, 
+        `[GameManager] Ensured game ${gameId} using full rules engine (createInitialGameState)`
+      );
+    } catch (e) {
+      debugWarn(1, 
+        `[GameManager] createInitialGameState failed for ${gameId}, falling back to MinimalGameAdapter:`,
+        e
+      );
+      game = new MinimalGameAdapter(gameId);
+    }
+    this.initBasicShapes(game);
+    return game;
+  }
+
+  private mapPersistedEventsForReplay(events: any[]): any[] {
+    return events.map((e: any) =>
+      e && e.type
+        ? e.payload && typeof e.payload === "object"
+          ? { type: e.type, ...(e.payload as any) }
+          : { type: e.type }
+        : e
+    );
+  }
+
+  private finishEnsureGame(gameId: string, game: any): any {
+    if (this.ioServer) {
+      const bridge = this.syncRulesBridge(gameId, game.state);
+      if (bridge) {
+        debug(2, `[GameManager] RulesBridge initialized for game ${gameId}`);
+      }
+    }
+    return game;
+  }
+
   ensureGame(gameId: string): any | undefined {
     let g = this.games.get(gameId);
     if (g) return g;
@@ -691,23 +775,7 @@ class GameManagerClass {
       return undefined;
     }
 
-    let game: any = null;
-
-    // Always use createInitialGameState for commander games to get full engine support
-    try {
-      game = createInitialGameState(gameId);
-      debug(2, 
-        `[GameManager] Ensured game ${gameId} using full rules engine (createInitialGameState)`
-      );
-    } catch (e) {
-      debugWarn(1, 
-        `[GameManager] createInitialGameState failed for ${gameId}, falling back to MinimalGameAdapter:`,
-        e
-      );
-      game = new MinimalGameAdapter(gameId);
-    }
-
-    this.initBasicShapes(game);
+    const game = this.createFreshGameInstance(gameId);
 
     // Publish the partially-restored instance before replay so any re-entrant
     // ensureGame calls during event replay reuse this object instead of
@@ -720,16 +788,9 @@ class GameManagerClass {
       const events = getEvents(gameId);
       if (Array.isArray(events) && events.length > 0) {
         if (typeof game.replay === "function") {
-          // getEvents returns { type, payload }, but replay expects full GameEvent objects.
-          // If payload exists, spread it into the event object.
-          const replayEvents = events.map((e: any) =>
-            e && e.type
-              ? e.payload && typeof e.payload === "object"
-                ? { type: e.type, ...(e.payload as any) }
-                : { type: e.type }
-          : e
-          );
+          const replayEvents = this.mapPersistedEventsForReplay(events);
           try {
+            this.publishResumeProgress(gameId, 0, replayEvents.length);
             game.replay(replayEvents as any);
             debug(1, 
               "[GameManager] ensureGame: replayed persisted events",
@@ -761,20 +822,131 @@ class GameManagerClass {
       );
     } finally {
       this.restoringGames.delete(gameId);
+      this.publishResumeProgress(gameId, 0, 0, true);
     }
 
-    // Initialize RulesBridge for rules engine integration
-    if (this.ioServer) {
-      const bridge = this.syncRulesBridge(gameId, game.state);
-      if (bridge) {
-        debug(2, `[GameManager] RulesBridge initialized for game ${gameId}`);
+    return this.finishEnsureGame(gameId, game);
+  }
+
+  /**
+   * Async restore used by join paths so resume progress can flush to clients
+   * while persisted events are replayed after a server restart.
+   */
+  async ensureGameAsync(gameId: string): Promise<any | undefined> {
+    const existing = this.games.get(gameId);
+    if (existing && !this.restoringGames.has(gameId)) {
+      return existing;
+    }
+
+    const inFlight = this.resumeInFlight.get(gameId);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    // Sync restore already mid-flight: wait briefly for restoringGames to clear.
+    if (this.restoringGames.has(gameId) && !inFlight) {
+      const waited = await new Promise<any | undefined>((resolve) => {
+        const started = Date.now();
+        const tick = () => {
+          if (!this.restoringGames.has(gameId)) {
+            resolve(this.games.get(gameId));
+            return;
+          }
+          if (Date.now() - started > 120_000) {
+            resolve(this.games.get(gameId));
+            return;
+          }
+          setImmediate(tick);
+        };
+        tick();
+      });
+      return waited;
+    }
+
+    const promise = this.restoreGameAsync(gameId);
+    this.resumeInFlight.set(gameId, promise);
+    try {
+      return await promise;
+    } finally {
+      this.resumeInFlight.delete(gameId);
+    }
+  }
+
+  private async restoreGameAsync(gameId: string): Promise<any | undefined> {
+    const existing = this.games.get(gameId);
+    if (existing && !this.restoringGames.has(gameId)) {
+      return existing;
+    }
+
+    if (!gameExistsInDb(gameId)) {
+      debug(1, 
+        `[GameManager] ensureGameAsync: game ${gameId} does not exist in database, not recreating (may have been deleted)`
+      );
+      return undefined;
+    }
+
+    const game = this.createFreshGameInstance(gameId);
+    this.games.set(gameId, game);
+    this.restoringGames.add(gameId);
+
+    try {
+      const events = getEvents(gameId);
+      if (Array.isArray(events) && events.length > 0) {
+        const replayEvents = this.mapPersistedEventsForReplay(events);
+        this.publishResumeProgress(gameId, 0, replayEvents.length);
+
+        if (typeof game.replayAsync === "function") {
+          try {
+            await game.replayAsync(replayEvents as any, {
+              yieldEvery: 50,
+              onProgress: (current: number, total: number) => {
+                this.publishResumeProgress(gameId, current, total);
+              },
+            });
+            debug(1, 
+              "[GameManager] ensureGameAsync: replayed persisted events",
+              {
+                bootId: BOOT_ID,
+                gameId,
+                count: replayEvents.length,
+              }
+            );
+          } catch (replayErr) {
+            debugWarn(1, 
+              "[GameManager] ensureGameAsync: replayAsync failed (non-fatal)",
+              { bootId: BOOT_ID, gameId },
+              replayErr
+            );
+          }
+        } else if (typeof game.replay === "function") {
+          try {
+            game.replay(replayEvents as any);
+          } catch (replayErr) {
+            debugWarn(1, 
+              "[GameManager] ensureGameAsync: sync replay fallback failed (non-fatal)",
+              { bootId: BOOT_ID, gameId },
+              replayErr
+            );
+          }
+        } else {
+          debugWarn(1, 
+            "[GameManager] ensureGameAsync: game has no replay; skipping event replay",
+            { bootId: BOOT_ID, gameId }
+          );
+        }
       }
+    } catch (e) {
+      debugWarn(1, 
+        "[GameManager] ensureGameAsync: getEvents/replay failed (non-fatal)",
+        { bootId: BOOT_ID, gameId },
+        e
+      );
+    } finally {
+      this.restoringGames.delete(gameId);
+      this.publishResumeProgress(gameId, 0, 0, true);
     }
 
-    // No need to call createGameIfNotExists since we already verified the game exists in DB
-    // The game data is already persisted, we're just restoring the in-memory state
-
-    return game;
+    return this.finishEnsureGame(gameId, game);
   }
 
   resetGame(gameId: string, preservePlayers = true): any {

@@ -1,5 +1,10 @@
 import { parseOracleTextToIR } from '../../../../rules-engine/src/oracleIRParser.js';
-import { collectOracleEffectStepsWithOverlay } from '../../../../rules-engine/src/oracleIRCompilerEnvelope.js';
+import {
+  collectOracleEffectStepsWithOverlay,
+  collectSpellResolutionEffectStepsWithOverlay,
+  isOracleIRSpellResolutionAbility,
+  resolveOracleIRWithOverlay,
+} from '../../../../rules-engine/src/oracleIRCompilerEnvelope.js';
 import type { OracleEffectStep, OracleObjectSelector } from '../../../../rules-engine/src/oracleIR.js';
 import {
   resolveCompiledOverlayForCard,
@@ -357,6 +362,43 @@ export function collectOracleEffectSteps(
   }
 
   return [];
+}
+
+/**
+ * Steps for resolving a spell on the stack only.
+ * Excludes activated/triggered/static abilities printed on the same card
+ * (e.g. Summon the School's "Tap four Merfolk: return this from your graveyard").
+ */
+export function collectSpellResolutionEffectSteps(
+  oracleText: string,
+  sourceName: string,
+  options?: CollectOracleEffectStepsOptions,
+): OracleEffectStep[] {
+  const mergedOptions: CollectOracleEffectStepsOptions = {
+    ...options,
+    cardName: options?.cardName || sourceName,
+  };
+  const overlay = resolveCompiledOverlayForCard(mergedOptions);
+  const text = String(oracleText || '').trim();
+  if (!text) return [];
+
+  if (overlay) {
+    return collectSpellResolutionEffectStepsWithOverlay(
+      text,
+      sourceName,
+      overlay,
+      options?.overlayOptions,
+    );
+  }
+
+  const resolved = resolveOracleIRWithOverlay(text, sourceName, null, options?.overlayOptions);
+  const spellSteps = (resolved.abilities || [])
+    .filter((ability) => isOracleIRSpellResolutionAbility(ability))
+    .flatMap((ability) => [...(ability.steps || [])]) as OracleEffectStep[];
+  if (spellSteps.length > 0) return spellSteps;
+
+  // Fragment-only text (no ability framing) — keep trigger-fragment fallback.
+  return parseTriggerEffectSteps(text, sourceName);
 }
 
 function collectUnwiredTriggerStepGaps(steps: readonly OracleEffectStep[]): string[] {

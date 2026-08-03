@@ -1,6 +1,6 @@
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import {
-  collectOracleEffectSteps,
+  collectSpellResolutionEffectSteps,
   isTriggerStepRuntimeWired,
   ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS,
   ORACLE_IR_FALLBACK_STEP_KINDS,
@@ -90,7 +90,7 @@ export const ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS = new Set<string>([
 ]);
 
 function collectSpellEffectSteps(oracleText: string, spellName: string): OracleEffectStep[] {
-  return collectOracleEffectSteps(
+  return collectSpellResolutionEffectSteps(
     oracleText,
     spellName,
     buildOracleOverlayCollectOptions({ cardName: spellName, sourceName: spellName }),

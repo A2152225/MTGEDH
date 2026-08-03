@@ -764,3 +764,27 @@ export function collectOracleEffectStepsWithOverlay(
   const resolved = resolveOracleIRWithOverlay(oracleText, sourceName, overlay, options);
   return (resolved.abilities || []).flatMap((ability) => [...(ability.steps || [])]);
 }
+
+/** True for spell-resolution abilities (excludes activated / triggered / static / etc.). */
+export function isOracleIRSpellResolutionAbility(ability: {
+  readonly type?: string | AbilityType;
+}): boolean {
+  return String(ability?.type || '').toLowerCase() === String(AbilityType.SPELL);
+}
+
+/**
+ * Collect executable steps for resolving a spell on the stack.
+ * Activated / triggered / static abilities on the same card (e.g. Summon the School's
+ * graveyard recursion) must not be treated as mandatory spell-resolution steps.
+ */
+export function collectSpellResolutionEffectStepsWithOverlay(
+  oracleText: string,
+  sourceName: string,
+  overlay?: OracleIRCompilerEnvelope | null,
+  options?: ResolveOracleIRWithOverlayOptions
+): OracleEffectStep[] {
+  const resolved = resolveOracleIRWithOverlay(oracleText, sourceName, overlay, options);
+  return (resolved.abilities || [])
+    .filter((ability) => isOracleIRSpellResolutionAbility(ability))
+    .flatMap((ability) => [...(ability.steps || [])]);
+}

@@ -514,6 +514,15 @@ export interface ServerToClientEvents {
     attackerPlayerId: PlayerID;
     targets: Record<string, string>;
   }) => void;
+
+  // Post-restart game restore progress (event replay into cold games)
+  gameResumeProgress: (payload: {
+    gameId: GameID;
+    current: number;
+    total: number;
+    percent: number;
+    isRestoring: boolean;
+  }) => void;
   
   // Game log / action feed
   gameAction: (payload: {

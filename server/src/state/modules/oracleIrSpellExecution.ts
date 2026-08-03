@@ -30,7 +30,7 @@ import {
   startOracleEffectProgramOnServer,
 } from './oracleIrEffectProgramServer.js';
 import {
-  collectOracleEffectSteps,
+  collectSpellResolutionEffectSteps,
   type CollectOracleEffectStepsOptions,
 } from './trigger-runtime-wiring.js';
 import { extractOracleCardLookupKeys } from './oracleIrCompiledOverlayLookup.js';
@@ -78,7 +78,7 @@ function collectSpellSteps(
   sourceName: string,
   options?: CollectOracleEffectStepsOptions,
 ): OracleEffectStep[] {
-  return collectOracleEffectSteps(oracleText, sourceName, options);
+  return collectSpellResolutionEffectSteps(oracleText, sourceName, options);
 }
 
 function buildSpellIrContext(

@@ -9,7 +9,7 @@ import {
   ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS,
   ORACLE_IR_FALLBACK_STEP_KINDS,
   TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS,
-  collectOracleEffectSteps,
+  collectSpellResolutionEffectSteps,
   wouldOracleIRFallbackPrefilterMatch,
 } from './trigger-runtime-wiring.js';
 import { buildOracleOverlayCollectOptions } from './oracleIrCompiledOverlayLookup.js';
@@ -75,12 +75,13 @@ function collectSpellSteps(oracleText: string, spellName: string, sourceItem?: a
     card: sourceItem?.card,
     effectiveCard: sourceItem?.card,
   });
-  const fromShared = collectOracleEffectSteps(oracleText, spellName, overlayOptions);
+  const fromShared = collectSpellResolutionEffectSteps(oracleText, spellName, overlayOptions);
   if (fromShared.length > 0) return fromShared;
 
   const ir = parseOracleTextToIR(oracleText, spellName);
   const steps: OracleEffectStep[] = [];
   for (const ability of ir.abilities || []) {
+    if (String(ability?.type || '').toLowerCase() !== 'spell') continue;
     for (const step of ability.steps || []) {
       if (step) steps.push(step as OracleEffectStep);
     }

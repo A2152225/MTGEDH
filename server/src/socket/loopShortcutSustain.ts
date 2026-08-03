@@ -334,6 +334,113 @@ export function loopShortcutTokenFingerprint(perm: any): string {
   return [controller, name, typeLine, tapped, power, toughness, keywords].join('|');
 }
 
+/** Identity without tap bit — used to collapse tap-cost churn in delta multiply. */
+export function loopShortcutTokenIdentityFingerprint(perm: any): string {
+  const controller = String(perm?.controller || '').trim();
+  const name = String(perm?.card?.name || perm?.name || '').trim().toLowerCase();
+  const typeLine = String(perm?.type_line || perm?.card?.type_line || '').trim().toLowerCase();
+  const { power, toughness } = tokenPowerToughness(perm);
+  const keywords = tokenKeywordsKey(perm);
+  return [controller, name, typeLine, power, toughness, keywords].join('|');
+}
+
+function fingerprintTapBit(fingerprint: string): '0' | '1' | null {
+  const parts = String(fingerprint || '').split('|');
+  // controller|name|typeLine|tapped|power|toughness|keywords
+  if (parts.length < 7) return null;
+  const bit = parts[3];
+  if (bit === '0' || bit === '1') return bit;
+  return null;
+}
+
+function preferUntappedPrototype(
+  current: any | undefined,
+  candidate: any | undefined,
+  preferUntapped: boolean,
+): any | undefined {
+  if (!candidate) return current;
+  if (!current) return candidate;
+  if (!preferUntapped) return current;
+  const curTapped = Boolean(current?.tapped);
+  const nextTapped = Boolean(candidate?.tapped);
+  if (curTapped && !nextTapped) return candidate;
+  return current;
+}
+
+/**
+ * Collapse tap-only inventory churn (untapped −N / tapped +N from paying tap costs)
+ * into net births/deaths. Multiplying tap redistribution invents a tapped-majority
+ * board (Summon the School without a full untap engine) and drains available mana.
+ *
+ * Net-positive tokens are applied as untapped ETB-like births; existing tapped
+ * permanents on the board are left alone.
+ */
+export function normalizeLoopShortcutTokenDeltaForMultiply(
+  delta: LoopShortcutIterationDelta,
+): LoopShortcutIterationDelta {
+  const byIdentity = new Map<
+    string,
+    { net: number; untappedProto?: any; tappedProto?: any; anyProto?: any }
+  >();
+
+  for (const [fp, entry] of Object.entries(delta.tokensByFingerprint || {})) {
+    const perIter = Math.floor(Number(entry?.count) || 0);
+    if (perIter === 0 || !entry?.prototype) continue;
+    const identity = loopShortcutTokenIdentityFingerprint(entry.prototype);
+    if (!identity || identity.startsWith('|')) continue;
+    const existing = byIdentity.get(identity) || { net: 0 };
+    existing.net += perIter;
+    existing.anyProto = preferUntappedPrototype(existing.anyProto, entry.prototype, false);
+    const tapBit = fingerprintTapBit(fp) ?? (entry.prototype?.tapped ? '1' : '0');
+    if (tapBit === '0') {
+      existing.untappedProto = preferUntappedPrototype(
+        existing.untappedProto,
+        entry.prototype,
+        true,
+      );
+    } else {
+      existing.tappedProto = existing.tappedProto || entry.prototype;
+    }
+    byIdentity.set(identity, existing);
+  }
+
+  const tokensByFingerprint: Record<string, LoopShortcutTokenFingerprintEntry> = {};
+  for (const grouped of byIdentity.values()) {
+    if (grouped.net === 0) continue;
+    if (grouped.net > 0) {
+      const protoSource =
+        grouped.untappedProto || grouped.anyProto || grouped.tappedProto;
+      if (!protoSource) continue;
+      const proto = stripTokenGroupFields(protoSource);
+      proto.tapped = false;
+      const fp = loopShortcutTokenFingerprint(proto);
+      tokensByFingerprint[fp] = { count: grouped.net, prototype: proto };
+    } else {
+      // Removals: prefer untapped first, then tapped, same net amount.
+      let remaining = Math.abs(grouped.net);
+      for (const protoSource of [grouped.untappedProto, grouped.tappedProto, grouped.anyProto]) {
+        if (!protoSource || remaining <= 0) continue;
+        const proto = stripTokenGroupFields(protoSource);
+        const fp = loopShortcutTokenFingerprint(proto);
+        const existing = tokensByFingerprint[fp];
+        const add = remaining;
+        if (existing) {
+          existing.count -= add;
+          if (existing.count === 0) delete tokensByFingerprint[fp];
+        } else {
+          tokensByFingerprint[fp] = { count: -add, prototype: proto };
+        }
+        remaining = 0;
+      }
+    }
+  }
+
+  return {
+    ...delta,
+    tokensByFingerprint,
+  };
+}
+
 function isTokenLikePermanent(perm: any): boolean {
   return Boolean(perm?.isToken || perm?.isGroupedTokens);
 }
@@ -775,14 +882,16 @@ export function tryApplyLoopShortcutDeltaMultiply(args: {
   const state = args.game?.state;
   if (!state) return { ok: false, reason: 'Missing game state' };
 
-  const gate = canApplyMultipliedSafeDelta(state, args.delta, remaining);
+  const normalizedDelta = normalizeLoopShortcutTokenDeltaForMultiply(args.delta);
+
+  const gate = canApplyMultipliedSafeDelta(state, normalizedDelta, remaining);
   if (!gate.ok) return { ok: false, reason: gate.reason };
 
   try {
-    applyMultipliedSafeDelta(state, args.delta, remaining);
+    applyMultipliedSafeDelta(state, normalizedDelta, remaining);
     const millResult = fastReplayLoopShortcutMills({
       game: args.game,
-      millsByPlayer: args.delta.millsByPlayer || {},
+      millsByPlayer: normalizedDelta.millsByPlayer || {},
       remainingIterations: remaining,
     });
     return { ok: true, milledTotal: millResult.milledTotal };

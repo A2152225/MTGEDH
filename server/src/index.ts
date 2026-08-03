@@ -266,6 +266,8 @@ app.get("/api/games", (req, res) => {
       // Get count of active socket connections for this game
       // This allows the client to show delete button when no players are connected
       const activeConnectionsCount = GameManager.getActiveConnectionsCount(id);
+      const resume = GameManager.getResumeProgress(id);
+      const isRestoring = GameManager.isRestoring(id);
       return {
         id,
         format: row.format,
@@ -277,6 +279,14 @@ app.get("/api/games", (req, res) => {
         turn,
         phase,
         status,
+        isRestoring,
+        resumeProgress: resume
+          ? {
+              current: resume.current,
+              total: resume.total,
+              percent: resume.percent,
+            }
+          : null,
       };
     });
     res.json({ games: enriched });

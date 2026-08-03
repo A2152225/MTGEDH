@@ -49,7 +49,7 @@ import { resolveTopOfStack } from "./modules/stackResolveTopOfStackUtils.js";
 import { playLand } from "./modules/stackPlayLandUtils.js";
 import { exileEntireStack } from "./modules/stackExileUtils.js";
 import { viewFor } from "./modules/view";
-import { applyEvent, replay, reset, skip, unskip, remove } from "./modules/applyEvent";
+import { applyEvent, replay, replayAsync, reset, skip, unskip, remove } from "./modules/applyEvent";
 import { mulberry32 } from "../utils/rng";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
@@ -228,6 +228,8 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     // event lifecycle / apply/replay/reset/skip/unskip/remove delegated to module
     applyEvent: (e: GameEvent) => applyEvent(ctx, e),
     replay: (events: GameEvent[]) => replay(ctx, events),
+    replayAsync: (events: GameEvent[], options?: Parameters<typeof replayAsync>[2]) =>
+      replayAsync(ctx, events, options),
     reset: (preservePlayers?: boolean) => reset(ctx, preservePlayers ?? false),
     skip: (playerId: PlayerID) => skip(ctx, playerId),
     unskip: (playerId: PlayerID) => unskip(ctx, playerId),

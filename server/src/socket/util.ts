@@ -1654,6 +1654,49 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
 }
 
 /**
+ * Async variant of {@link ensureGame} that yields during event replay so
+ * resume progress can be broadcast to the game browser.
+ */
+export async function ensureGameAsync(
+  gameId: string,
+  options?: EnsureGameOptions,
+): Promise<InMemoryGame | undefined> {
+  if (!gameId || typeof gameId !== "string" || gameId.trim() === "") {
+    const msg = `ensureGameAsync called with invalid gameId: ${String(gameId)}`;
+    debugError(1, "[ensureGameAsync] " + msg, { bootId: BOOT_ID });
+    throw new Error(msg);
+  }
+
+  try {
+    if (GameManager && typeof (GameManager as any).ensureGameAsync === "function") {
+      const gmGame = await (GameManager as any).ensureGameAsync(gameId);
+      if (gmGame) {
+        try {
+          games.set(gameId, gmGame);
+        } catch {
+          /* best-effort */
+        }
+        try {
+          ensureStateZonesForPlayers(gmGame);
+        } catch {
+          /* ignore */
+        }
+        return gmGame as InMemoryGame;
+      }
+      return undefined;
+    }
+  } catch (err) {
+    debugWarn(2,
+      "ensureGameAsync: GameManager.ensureGameAsync failed, falling back to sync ensureGame:",
+      { bootId: BOOT_ID, gameId },
+      err
+    );
+  }
+
+  return ensureGame(gameId, options);
+}
+
+/**
  * Emit a full, normalized state snapshot directly to a specific socketId for a given game,
  * using the same normalization semantics as other emitters.
  */

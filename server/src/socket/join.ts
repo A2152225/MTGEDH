@@ -1,6 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import { randomBytes } from "crypto";
-import { ensureGame, broadcastGame, schedulePriorityTimeout, getOrInitManaPool, getTotalManaInPool, checkAndTriggerAI } from "./util";
+import { ensureGameAsync, broadcastGame, schedulePriorityTimeout, getOrInitManaPool, getTotalManaInPool, checkAndTriggerAI } from "./util";
 import {
   emitIgnoredCardsUpdatedToSocket,
   getPlayerIgnoredCards,
@@ -576,7 +576,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
       const myTask = tail
         .then(async () => {
           try {
-            const game = ensureGame(gameId);
+            const game = await ensureGameAsync(gameId);
             if (!game) {
               try {
                 socket.emit("error", {

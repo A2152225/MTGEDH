@@ -284,7 +284,7 @@ describe('loopShortcutSustain', () => {
     expect(delta.floatingManaByPlayer.p1?.white).toBe(1);
     expect(delta.millsByPlayer.p2).toBe(8);
     const tokenDeltas = Object.values(delta.tokensByFingerprint).map((e) => e.count).sort();
-    expect(tokenDeltas).toEqual([2, 2]); // +2 untapped, +2 tapped
+    expect(tokenDeltas).toEqual([2, 2]); // +2 untapped, +2 tapped (raw probe delta)
 
     const live: any = {
       state: {
@@ -326,17 +326,77 @@ describe('loopShortcutSustain', () => {
     });
     expect(applied.ok).toBe(true);
     expect(live.state.manaPool.p1.white).toBe(5); // 2 + 1*3
-    // Tokens coalesce into one grouped entry per fingerprint (untapped + tapped).
+    // Tap churn is collapsed: net +4 tokens/iter applied as untapped births.
+    // Existing tapped tokens stay; new tokens coalesce into the untapped group.
     const tokens = live.state.battlefield.filter((p: any) => p.isToken || p.isGroupedTokens);
-    expect(tokens.length).toBe(2);
     const totalTokenCount = tokens.reduce(
       (sum: number, p: any) => sum + (p.isGroupedTokens ? Number(p.tokenCount) || 0 : 1),
       0,
     );
     expect(totalTokenCount).toBe(6 + 4 * 3);
+    const tappedCount = tokens.reduce((sum: number, p: any) => {
+      if (!p.tapped) return sum;
+      return sum + (p.isGroupedTokens ? Number(p.tokenCount) || 0 : 1);
+    }, 0);
+    // Probe ended with 3 tapped; multiply must not invent more tapped copies.
+    expect(tappedCount).toBe(3);
     expect(live.libraries.get('p2').length).toBe(92 - 8 * 3);
     expect(live.state.zones.p2.graveyard.length).toBe(8 * 3);
     expect(applied.milledTotal).toBe(24);
+  });
+
+  it('collapses Summon-style tap-cost churn so multiply adds untapped births only', () => {
+    const beforeState: any = {
+      players: [{ id: 'p1' }],
+      life: { p1: 40 },
+      manaPool: { p1: {} },
+      zones: { p1: { hand: [], library: [], graveyard: [], exile: [], libraryCount: 0 } },
+      battlefield: [
+        ...Array.from({ length: 10 }, (_, i) => merfolkToken({ id: `u${i}`, tapped: false })),
+        ...Array.from({ length: 4 }, (_, i) => merfolkToken({ id: `t${i}`, tapped: true })),
+      ],
+    };
+    // One iteration without Intruder Alarm: +2 tokens, tap 4 → net -2 untapped / +4 tapped.
+    const afterState: any = {
+      players: [{ id: 'p1' }],
+      life: { p1: 40 },
+      manaPool: { p1: {} },
+      zones: { p1: { hand: [], library: [], graveyard: [], exile: [], libraryCount: 0 } },
+      battlefield: [
+        ...Array.from({ length: 8 }, (_, i) => merfolkToken({ id: `u${i}`, tapped: false })),
+        ...Array.from({ length: 8 }, (_, i) => merfolkToken({ id: `t${i}`, tapped: true })),
+      ],
+    };
+
+    const delta = diffLoopShortcutIterationDelta(
+      snapshotLoopShortcutBoard(beforeState),
+      snapshotLoopShortcutBoard(afterState),
+    );
+    const raw = Object.values(delta.tokensByFingerprint).map((e) => e.count).sort((a, b) => a - b);
+    expect(raw).toEqual([-2, 4]);
+
+    const live: any = {
+      state: structuredClone(afterState),
+      libraries: new Map(),
+      bumpSeq: () => {},
+    };
+    const applied = tryApplyLoopShortcutDeltaMultiply({
+      game: live,
+      delta,
+      remainingIterations: 50,
+    });
+    expect(applied.ok).toBe(true);
+    const tokens = live.state.battlefield.filter((p: any) => p.isToken || p.isGroupedTokens);
+    const total = tokens.reduce(
+      (sum: number, p: any) => sum + (p.isGroupedTokens ? Number(p.tokenCount) || 0 : 1),
+      0,
+    );
+    const tapped = tokens.reduce((sum: number, p: any) => {
+      if (!p.tapped) return sum;
+      return sum + (p.isGroupedTokens ? Number(p.tokenCount) || 0 : 1);
+    }, 0);
+    expect(total).toBe(16 + 2 * 50);
+    expect(tapped).toBe(8);
   });
 
   it('falls back when multiply would remove more tokens than exist', () => {

@@ -18,7 +18,7 @@ import {
 } from './oracleIrSpellLegacyKindredRevealUtils.js';
 import { queueChosenTypeTopLibraryRevealPrompt } from './oracleIrSpellLegacyLibrarySelectionUtils.js';
 import { requiresEffectProgramOrchestration } from './oracleIrEffectProgramServer.js';
-import { collectOracleEffectSteps } from './trigger-runtime-wiring.js';
+import { collectSpellResolutionEffectSteps } from './trigger-runtime-wiring.js';
 import { buildOracleOverlayCollectOptions } from './oracleIrCompiledOverlayLookup.js';
 import { isSpellEffectOwnedByOracleIrPrimary } from './oracleIrSpellLegacyRouting.js';
 
@@ -214,7 +214,7 @@ export function tryResolveInstantSorceryPreResolutionChoices(
   const existingChosenCreatureType = String(card?.chosenCreatureType || item?.chosenCreatureType || '').trim();
 
   if (hasCreatureTypeChoiceSpell && !existingChosenCreatureType && !isReplaying) {
-    const spellSteps = collectOracleEffectSteps(
+    const spellSteps = collectSpellResolutionEffectSteps(
       oracleText,
       String(effectiveCard.name || 'Spell'),
       buildOracleOverlayCollectOptions({
