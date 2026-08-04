@@ -2562,7 +2562,7 @@ function checkColorChoiceForNewPermanents(
     }
     
     // Check if this card requires color choice
-    const { required, reason } = requiresColorChoice(permanent.card);
+    const { required, reason, colors } = requiresColorChoice(permanent.card);
     
     if (required) {
       const controller = permanent.controller;
@@ -2575,6 +2575,10 @@ function checkColorChoiceForNewPermanents(
       );
       if (alreadyQueued) continue;
 
+      const availableColors = Array.isArray(colors) && colors.length > 0
+        ? colors
+        : ['white', 'blue', 'black', 'red', 'green'];
+
       ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.COLOR_CHOICE,
         playerId: controller as any,
@@ -2586,7 +2590,7 @@ function checkColorChoiceForNewPermanents(
         permanentId,
         cardName,
         reason,
-        colors: ['white', 'blue', 'black', 'red', 'green'],
+        colors: availableColors,
       });
       
       debug(2, `[game-actions] Requesting color choice for ${cardName} (${permanentId}) from ${controller}`);
@@ -6487,12 +6491,20 @@ export async function requestCastSpellForSocket(
     }) : null;
     const preferParsedTargetReqs = shouldPreferParsedTargetReqs(targetReqs);
 
-    const requiredMinTargets = spellSpec && !preferParsedTargetReqs
-      ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, chosenXValue)
-      : resolveTargetCount(targetReqs?.minTargets, (targetReqs as any)?.minTargetsIsX === true, chosenXValue);
-    const requiredMaxTargets = spellSpec && !preferParsedTargetReqs
-      ? resolveTargetCount(spellSpec.maxTargets, (spellSpec as any).maxTargetsIsX === true, chosenXValue)
-      : resolveTargetCount(targetReqs?.maxTargets, (targetReqs as any)?.maxTargetsIsX === true, chosenXValue);
+    // Auras always choose exactly one host when cast (CR 303.4). Do not derive
+    // counts from instant/sorcery targetReqs — those are null for Auras and would
+    // emit minTargets/maxTargets 0, which makes the client show not-allowed on every
+    // host and blocks selection (Fertile Ground / Enchant land, etc.).
+    const requiredMinTargets = isAura
+      ? 1
+      : spellSpec && !preferParsedTargetReqs
+        ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, chosenXValue)
+        : resolveTargetCount(targetReqs?.minTargets, (targetReqs as any)?.minTargetsIsX === true, chosenXValue);
+    const requiredMaxTargets = isAura
+      ? 1
+      : spellSpec && !preferParsedTargetReqs
+        ? resolveTargetCount(spellSpec.maxTargets, (spellSpec as any).maxTargetsIsX === true, chosenXValue)
+        : resolveTargetCount(targetReqs?.maxTargets, (targetReqs as any)?.maxTargetsIsX === true, chosenXValue);
 
     const needsTargets = isAura || requiredMaxTargets > 0;
 
@@ -6616,7 +6628,7 @@ export async function requestCastSpellForSocket(
           .flatMap((clause) => clause.validTargetList)
           .filter((target, index, all) => all.findIndex((candidate) => String(candidate.id) === String(target.id)) === index);
       } else if (isAura) {
-        const auraMatch = oracleText.match(/enchant\s+(creature|permanent|player|artifact|land|opponent)/i);
+        const auraMatch = oracleText.match(/enchant\s+(creature|permanent|player|artifact|land|opponent|enchantment)/i);
         const auraTargetType = auraMatch ? auraMatch[1].toLowerCase() : 'creature';
 
         if (auraTargetType === 'player' || auraTargetType === 'opponent') {
@@ -6642,6 +6654,7 @@ export async function requestCastSpellForSocket(
               controller: p.controller,
               isOpponent: p.controller !== playerId,
               imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+              typeLine: p.card?.type_line,
             }));
         }
       } else if (spellSpec && !preferParsedTargetReqs) {
@@ -7189,9 +7202,17 @@ export async function requestCastSpellForSocket(
 
           debug(2, `[requestCastSpell] Added ${multiTargetClauses.length} TARGET_SELECTION steps to Resolution Queue for ${cardName} (effectId: ${effectId})`);
         } else {
-          const targetDescription = preferParsedTargetReqs
-            ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
-            : spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
+          const auraMatchForDescription = isAura
+            ? oracleText.match(/enchant\s+(creature|permanent|player|artifact|land|opponent|enchantment)/i)
+            : null;
+          const auraTargetTypeForDescription = auraMatchForDescription
+            ? String(auraMatchForDescription[1] || 'creature').toLowerCase()
+            : null;
+          const targetDescription = isAura && auraTargetTypeForDescription
+            ? `Enchant ${auraTargetTypeForDescription}`
+            : preferParsedTargetReqs
+              ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
+              : spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
 
           const targetStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.TARGET_SELECTION,

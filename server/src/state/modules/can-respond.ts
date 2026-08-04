@@ -3505,18 +3505,30 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
         return true;
       }
       
-      const floatingMana = getTotalManaFromPool(getManaPoolFromState(ctx.state as any, playerId));
-      if (isTurnPlayer && floatingMana > 0) {
-        const relaxedCandidates = getCastableSpellCandidates(ctx, playerId, {
-          mode: 'sorcery',
-          skipIgnoredCards: false,
-          allowAlternateCosts: true,
-          allowUnknownCostFallback: true,
-          conservativeTargets: false,
-        });
-        if (relaxedCandidates.length > 0 || canActivateAnyAbility(ctx, playerId)) {
-          debug(2, `[canAct] ${playerId}: Floating mana with affordable main-phase action - returning TRUE`);
+      // Active player with untapped mana sources must keep main-phase priority.
+      // Idle auto-pass + opponent "pass empty stack" previously rocket-advanced
+      // MAIN→CLEANUP while Sol Ring / lands were still untapped — mana abilities
+      // alone do not count as canActivate. Floating-only mana still requires an
+      // affordable action (otherwise empty-hand leftover mana would block forever).
+      if (isTurnPlayer) {
+        const floatingMana = getTotalManaFromPool(getManaPoolFromState(ctx.state as any, playerId));
+        const availableMana = getTotalManaFromPool(getAvailableMana(ctx.state as any, playerId));
+        if (availableMana > floatingMana) {
+          debug(2, `[canAct] ${playerId}: Untapped mana sources in main phase (available=${availableMana}, floating=${floatingMana}) - returning TRUE`);
           return true;
+        }
+        if (floatingMana > 0) {
+          const relaxedCandidates = getCastableSpellCandidates(ctx, playerId, {
+            mode: 'sorcery',
+            skipIgnoredCards: false,
+            allowAlternateCosts: true,
+            allowUnknownCostFallback: true,
+            conservativeTargets: false,
+          });
+          if (relaxedCandidates.length > 0 || canActivateAnyAbility(ctx, playerId)) {
+            debug(2, `[canAct] ${playerId}: Floating mana with affordable main-phase action - returning TRUE`);
+            return true;
+          }
         }
       }
 

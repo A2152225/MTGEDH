@@ -22,6 +22,8 @@ export const ORACLE_IR_ACTIVATED_ONLY_STEP_KINDS = new Set<string>([
   'fight',
   'open_attraction',
   'roll_visit_attractions',
+  // Class enchantment level abilities: "{W}: Level 2" / "{3}{W}: Level 3"
+  'gain_class_level',
 ]);
 
 /** Union used by tryApplyOracleIRToActivatedAbility — must be fully wired before IR runs. */

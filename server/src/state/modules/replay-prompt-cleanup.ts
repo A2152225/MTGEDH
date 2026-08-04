@@ -253,6 +253,8 @@ export function replayResolveAllTriggersDuringEventReplay(
 const STACK_PUSH_REPLAY_EVENT_TYPES = new Set([
   'pushTriggeredAbility',
   'pushStack',
+  'castSpell',
+  'castCommander',
 ]);
 
 /** Copy as-enters choices from card / Morophon mirror / copy source onto the permanent after replay. */
@@ -475,6 +477,8 @@ export function scrubStaleReplayedStackAfterFullReplay(ctx: GameContext): void {
     // Real in-progress spells / activated abilities stay; typeless stack shells
     // (common after compressed loop / ability replay) and triggered abilities
     // whose outcomes already live in mutation events are dropped.
+    // Note: castSpell/castCommander are in STACK_PUSH_REPLAY_EVENT_TYPES so a
+    // replay that ends mid-cast preserves the stack before this filter runs.
     if (type === 'spell' || type === 'ability') return true;
     if (type === 'triggered_ability') return false;
     if (!type) return false;

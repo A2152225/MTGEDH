@@ -321,4 +321,96 @@ describe('main-phase auto step-advance guard', () => {
     expect(opponentAutoPass.advanceStep).toBe(true);
     expect(state.priority).toBe('p_ap');
   });
+
+  it('does not advance MAIN1 when the active player still has available mana and only an opponent auto-passes', () => {
+    // G2: Ajax had Sol Ring / lands (availableMana>0), Smart Pass off, idle auto-pass
+    // marked them idle because mana abilities are excluded from canActivate — then an
+    // opponent's "pass empty stack on opponents' turn" forced MAIN1→CLEANUP.
+    const state: any = {
+      players: [
+        { id: 'p_ap', name: 'Ajax', seat: 0 },
+        { id: 'p_opp', name: 'Opponent', seat: 1 },
+      ],
+      battlefield: [
+        {
+          id: 'sol_1',
+          controller: 'p_ap',
+          tapped: false,
+          card: {
+            id: 'sol_card',
+            name: 'Sol Ring',
+            type_line: 'Artifact',
+            oracle_text: '{T}: Add {C}{C}.',
+            mana_cost: '{1}',
+          },
+        },
+        {
+          id: 'shrine_1',
+          controller: 'p_ap',
+          tapped: false,
+          card: {
+            id: 'shrine_card',
+            name: 'Jungle Shrine',
+            type_line: 'Land',
+            oracle_text: '{T}: Add {R}, {G}, or {W}.',
+          },
+        },
+      ],
+      stack: [],
+      zones: {
+        p_ap: {
+          hand: [{
+            id: 'expensive_1',
+            name: 'Blasphemous Act',
+            type_line: 'Sorcery',
+            oracle_text: 'This spell costs {1} less to cast for each creature on the battlefield.',
+            mana_cost: '{8}{R}',
+          }],
+          handCount: 1,
+          library: [],
+          libraryCount: 0,
+          graveyard: [],
+        },
+        p_opp: {
+          hand: [{
+            id: 'opt_1',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1. Draw a card.',
+            mana_cost: '{U}',
+          }],
+          handCount: 1,
+          library: [],
+          libraryCount: 0,
+          graveyard: [],
+        },
+      },
+      priority: 'p_ap',
+      turnPlayer: 'p_ap',
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      priorityPassedBy: new Set<string>(),
+      autoPassPlayers: new Set(), // Smart Pass off for active player
+      landsPlayedThisTurn: { p_ap: 1 },
+      manaPool: {
+        p_ap: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p_opp: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      turnDirection: 1,
+    };
+
+    const ctx = buildCtx(state, 'active_mana_blocks_empty_stack_advance');
+
+    // Idle auto-pass for active (would previously fire with mana abilities ignored)
+    const activeIdlePass = passPriority(ctx, 'p_ap', true);
+    expect(activeIdlePass.advanceStep).toBe(false);
+    expect(state.priority).toBe('p_opp');
+
+    // Opponent empty-stack auto-pass must not rocket the turn forward
+    const opponentEmptyStackPass = passPriority(ctx, 'p_opp', true);
+    expect(opponentEmptyStackPass.advanceStep).toBe(false);
+    expect(state.priority).toBe('p_ap');
+    expect(state.step).toBe('MAIN1');
+    expect(state.priorityPassedBy.size).toBe(0);
+  });
 });

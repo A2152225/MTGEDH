@@ -4166,8 +4166,14 @@ export function App() {
           contextSteps: (step.oracleContext?.steps || step.spellCastContext?.oracleContext?.steps || undefined) as any,
           selectedMode: selectedModeUi,
           targets: validTargets,
-          minTargets: step.minTargets ?? 1,
-          maxTargets: step.maxTargets ?? 1,
+          // Auras must always require exactly one host. Treat 0 as missing so a bad
+          // server payload cannot lock the modal into not-allowed / unselectable hosts.
+          minTargets: Array.isArray((step as any).targetTypes) && (step as any).targetTypes.includes('aura_target')
+            ? Math.max(1, Number(step.minTargets ?? 1))
+            : (step.minTargets ?? 1),
+          maxTargets: Array.isArray((step as any).targetTypes) && (step as any).targetTypes.includes('aura_target')
+            ? Math.max(1, Number(step.maxTargets ?? 1))
+            : (step.maxTargets ?? 1),
           targetGroups,
           perOpponent,
           opponents: Array.isArray((step as any).opponents) ? (step as any).opponents : undefined,

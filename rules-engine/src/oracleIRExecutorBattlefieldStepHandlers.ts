@@ -7818,14 +7818,8 @@ export function applyGainClassLevelStep(
   step: Extract<OracleEffectStep, { kind: 'gain_class_level' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
-  if (/^level\s+\d+\.?$/i.test(String(step.raw || '').trim())) {
-    return {
-      applied: true,
-      state,
-      log: [`Ignored class level header: ${step.raw}`],
-    };
-  }
-
+  // Bare "Level N" is the printed effect of Class level abilities (e.g. "{W}: Level 2").
+  // Apply it — do not treat it as a section header no-op.
   const sourceId = String(ctx.sourceId || '').trim();
   if (!sourceId) {
     return {

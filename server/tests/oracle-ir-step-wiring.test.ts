@@ -65,6 +65,13 @@ describe('oracle IR step wiring guardrails', () => {
     }
   });
 
+  it('wires Class gain_class_level for activated abilities', () => {
+    expect(ORACLE_IR_ACTIVATED_STEP_KINDS.has('gain_class_level')).toBe(true);
+    const steps = collectActivatedAbilitySteps('{W}: Level 2', "Caretaker's Talent");
+    expect(steps.map((step) => step.kind)).toEqual(['gain_class_level']);
+    expect(isActivatedAbilityEffectFullyWired(steps)).toBe(true);
+  });
+
   it('parses Whip activated effect into fully wired steps', () => {
     const steps = collectActivatedAbilitySteps(WHIP_EFFECT, 'Whip of Erebos');
     expect(steps.length).toBeGreaterThanOrEqual(4);

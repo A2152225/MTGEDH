@@ -69,7 +69,8 @@ describe('stack replay accumulation', () => {
         sourceName: 'Stale Source',
         controllerId: p1,
         description: 'do something',
-        triggerType: 'upkeep',
+        // Non-turn-step type so ending on nextStep does not preserve a pending upkeep trigger.
+        triggerType: 'etb',
         effect: 'do something',
       },
       { type: 'nextStep' },

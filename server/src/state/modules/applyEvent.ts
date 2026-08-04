@@ -2507,6 +2507,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         if (playerId && commanderCard) {
           pushStack(ctx as any, {
             id: generateDeterministicId(ctx as any, 'stack', commanderId),
+            type: 'spell',
             controller: playerId,
             source: 'command',
             fromZone: 'command',
@@ -15444,6 +15445,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Player chose a color for a permanent or spell (e.g., Brave the Elements)
         try {
           const { permanentId, spellId, color, playerId } = e as any;
+          const permanentIdStr = String(permanentId || '').trim();
+          const spellIdStr = String(spellId || '').trim();
           const replayGameId = String((ctx as any).gameId || '').trim();
           const resolvedStepId = String((e as any).resolvedStepId || '').trim();
           const resolvedStepType = String((e as any).resolvedStepType || ResolutionStepType.COLOR_CHOICE).trim();
@@ -15455,44 +15458,52 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               return (
                 String((step as any)?.type || '').trim() === resolvedStepType &&
                 (!playerId || String((step as any)?.playerId || '').trim() === String(playerId || '').trim()) &&
-                (!permanentId || String((step as any)?.permanentId || (step as any)?.sourceId || '').trim() === String(permanentId || '').trim()) &&
-                (!spellId || String((step as any)?.spellId || '').trim() === String(spellId || '').trim())
+                (!permanentIdStr || String((step as any)?.permanentId || (step as any)?.sourceId || '').trim() === permanentIdStr) &&
+                (!spellIdStr || String((step as any)?.spellId || '').trim() === spellIdStr)
               );
             });
           }
 
-          const stack = Array.isArray(ctx.state?.stack) ? ctx.state.stack : [];
-          const stackItem = stack.find((item: any) =>
-            item && (
-              String(item.id || '') === String(spellId || '')
-              || String(item.cardId || '') === String(spellId || '')
-              || String(item.card?.id || '') === String(spellId || '')
-            )
-          );
+          // Permanent ETB color choices (Thriving lands, Caged Sun, etc.) must win over any
+          // stale stack item. Matching `spellId || ''` against empty card ids previously
+          // applied Thriving Grove's color onto orphaned commander spells during undo replay.
+          if (permanentIdStr) {
+            const permanent = resolveReplayPermanentByEvent(ctx, {
+              permanentId: permanentIdStr,
+              playerId,
+              cardName: (e as any).cardName,
+            });
 
-          if (stackItem && color) {
-            (stackItem as any).chosenColor = color;
-            debug(2, `[applyEvent] Applied spell color choice: ${stackItem.card?.name || stackItem.sourceName || spellId} -> ${color}`);
-            ctx.bumpSeq();
-            break;
-          }
-
-          const permanent = resolveReplayPermanentByEvent(ctx, {
-            permanentId,
-            playerId,
-            cardName: (e as any).cardName,
-          });
-          
-          if (permanent && color) {
-            (permanent as any).chosenColor = color;
-            if (permanent.card && typeof permanent.card === 'object') {
-              (permanent.card as any).chosenColor = color;
+            if (permanent && color) {
+              (permanent as any).chosenColor = color;
+              if (permanent.card && typeof permanent.card === 'object') {
+                (permanent.card as any).chosenColor = color;
+              }
+              debug(2, `[applyEvent] Applied color choice: ${permanent.card?.name} -> ${color}`);
+              ctx.bumpSeq();
+              break;
             }
-            debug(2, `[applyEvent] Applied color choice: ${permanent.card?.name} -> ${color}`);
-          } else {
-            debugWarn(2, `[applyEvent] colorChoice: target not found (permanent=${permanentId}, spell=${spellId})`);
           }
-          
+
+          if (spellIdStr) {
+            const stack = Array.isArray(ctx.state?.stack) ? ctx.state.stack : [];
+            const stackItem = stack.find((item: any) =>
+              item && (
+                String(item.id || '') === spellIdStr
+                || String(item.cardId || '') === spellIdStr
+                || String(item.card?.id || '') === spellIdStr
+              )
+            );
+
+            if (stackItem && color) {
+              (stackItem as any).chosenColor = color;
+              debug(2, `[applyEvent] Applied spell color choice: ${stackItem.card?.name || stackItem.sourceName || spellIdStr} -> ${color}`);
+              ctx.bumpSeq();
+              break;
+            }
+          }
+
+          debugWarn(2, `[applyEvent] colorChoice: target not found (permanent=${permanentIdStr}, spell=${spellIdStr})`);
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(colorChoice): failed", err);
