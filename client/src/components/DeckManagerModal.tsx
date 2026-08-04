@@ -26,6 +26,7 @@ import {
   saveLocalSavedDecks,
 } from '../utils/localDeckStorage';
 import { DeckResolvePreviewPanel } from './DeckResolvePreviewPanel';
+import { DeckListTextarea } from './DeckListTextarea';
 import { useDeckResolvePreview } from '../hooks/useDeckResolvePreview';
 
 type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };
@@ -80,6 +81,10 @@ export function DeckManagerModal({
 
   const {
     cards: resolvedPreviewCards,
+    unresolvedLines: unresolvedPreviewLines,
+    unresolvedLineNumbers: unresolvedPreviewLineNumbers,
+    resolvedCopies: resolvedPreviewCopies,
+    totalCopies: totalPreviewCopies,
     focusCardKey: resolvedFocusCardKey,
     focusToken: resolvedFocusToken,
     clearPreview,
@@ -233,9 +238,10 @@ export function DeckManagerModal({
 
   // compute modal width clamped to viewport with a min width to avoid "skinny" layout
   const calcWidth = () => {
+    const hasPreview = resolvedPreviewCards.length > 0 || totalPreviewCopies > 0;
     const desired = wide
-      ? (resolvedPreviewCards.length > 0 ? 1100 : 960)
-      : (resolvedPreviewCards.length > 0 ? 1040 : 880);
+      ? (hasPreview ? 1100 : 960)
+      : (hasPreview ? 1040 : 880);
     const max = Math.max(480, window.innerWidth - 32);
     return Math.min(desired, max);
   };
@@ -804,30 +810,29 @@ export function DeckManagerModal({
                     display: 'grid',
                     gridTemplateColumns: useSheet
                       ? '1fr'
-                      : (resolvedPreviewCards.length > 0 ? 'minmax(0, 1fr) 200px' : '1fr'),
+                      : (resolvedPreviewCards.length > 0 || totalPreviewCopies > 0
+                        ? 'minmax(0, 1fr) 200px'
+                        : '1fr'),
                     gap: 10,
                     alignItems: 'stretch',
                     height: useSheet ? undefined : deckEditorHeight,
                     minHeight: useSheet ? undefined : deckEditorHeight,
                   }}
                 >
-                  <textarea
+                  <DeckListTextarea
                     value={localText}
-                    onChange={e => {
-                      const next = e.target.value;
+                    onChange={(next) => {
                       setLocalText(next);
                       syncPreviewToText(next);
                     }}
-                    onKeyDown={e => onTextareaKeyDown(e, localText)}
-                    onPaste={e => onTextareaPaste(e, localText)}
+                    onKeyDown={(e) => onTextareaKeyDown(e, localText)}
+                    onPaste={(e) => onTextareaPaste(e, localText)}
                     placeholder="e.g. 1 Sol Ring"
+                    unresolvedLineNumbers={unresolvedPreviewLineNumbers}
                     style={{
-                      width: '100%',
                       height: useSheet ? 180 : '100%',
                       minHeight: useSheet ? 180 : 0,
                       resize: useSheet ? 'vertical' : 'none',
-                      fontSize: 12,
-                      boxSizing: 'border-box',
                     }}
                   />
                   <DeckResolvePreviewPanel
@@ -836,8 +841,39 @@ export function DeckManagerModal({
                     fillHeight={!useSheet}
                     focusCardKey={resolvedFocusCardKey}
                     focusToken={resolvedFocusToken}
+                    resolvedCopies={resolvedPreviewCopies}
+                    totalCopies={totalPreviewCopies}
                   />
                 </div>
+                {unresolvedPreviewLines.length > 0 && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      border: '1px solid rgba(248, 113, 113, 0.45)',
+                      background: 'rgba(127, 29, 29, 0.25)',
+                      color: '#fecaca',
+                      fontSize: 12,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                      Could not resolve {unresolvedPreviewLines.length} line
+                      {unresolvedPreviewLines.length === 1 ? '' : 's'}
+                    </div>
+                    <div style={{ maxHeight: 72, overflowY: 'auto' }}>
+                      {unresolvedPreviewLines.slice(0, 12).map((line) => (
+                        <div key={`${line.lineNumber}-${line.name}`}>
+                          Line {line.lineNumber}: {line.name}
+                        </div>
+                      ))}
+                      {unresolvedPreviewLines.length > 12 && (
+                        <div>…and {unresolvedPreviewLines.length - 12} more</div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <input
                   value={localName}
                   onChange={e => setLocalName(e.target.value)}
@@ -1004,30 +1040,29 @@ export function DeckManagerModal({
                     display: 'grid',
                     gridTemplateColumns: useSheet
                       ? '1fr'
-                      : (resolvedPreviewCards.length > 0 ? 'minmax(0, 1fr) 200px' : '1fr'),
+                      : (resolvedPreviewCards.length > 0 || totalPreviewCopies > 0
+                        ? 'minmax(0, 1fr) 200px'
+                        : '1fr'),
                     gap: 10,
                     alignItems: 'stretch',
                     height: useSheet ? undefined : deckEditorHeight,
                     minHeight: useSheet ? undefined : deckEditorHeight,
                   }}
                 >
-                  <textarea
+                  <DeckListTextarea
                     value={localText}
-                    onChange={e => {
-                      const next = e.target.value;
+                    onChange={(next) => {
                       setLocalText(next);
                       syncPreviewToText(next);
                     }}
-                    onKeyDown={e => onTextareaKeyDown(e, localText)}
-                    onPaste={e => onTextareaPaste(e, localText)}
+                    onKeyDown={(e) => onTextareaKeyDown(e, localText)}
+                    onPaste={(e) => onTextareaPaste(e, localText)}
                     placeholder="Paste list, switch name below"
+                    unresolvedLineNumbers={unresolvedPreviewLineNumbers}
                     style={{
-                      width: '100%',
                       height: useSheet ? 180 : '100%',
                       minHeight: useSheet ? 180 : 0,
                       resize: useSheet ? 'vertical' : 'none',
-                      fontSize: 12,
-                      boxSizing: 'border-box',
                     }}
                   />
                   <DeckResolvePreviewPanel
@@ -1036,8 +1071,39 @@ export function DeckManagerModal({
                     fillHeight={!useSheet}
                     focusCardKey={resolvedFocusCardKey}
                     focusToken={resolvedFocusToken}
+                    resolvedCopies={resolvedPreviewCopies}
+                    totalCopies={totalPreviewCopies}
                   />
                 </div>
+                {unresolvedPreviewLines.length > 0 && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      border: '1px solid rgba(248, 113, 113, 0.45)',
+                      background: 'rgba(127, 29, 29, 0.25)',
+                      color: '#fecaca',
+                      fontSize: 12,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                      Could not resolve {unresolvedPreviewLines.length} line
+                      {unresolvedPreviewLines.length === 1 ? '' : 's'}
+                    </div>
+                    <div style={{ maxHeight: 72, overflowY: 'auto' }}>
+                      {unresolvedPreviewLines.slice(0, 12).map((line) => (
+                        <div key={`${line.lineNumber}-${line.name}`}>
+                          Line {line.lineNumber}: {line.name}
+                        </div>
+                      ))}
+                      {unresolvedPreviewLines.length > 12 && (
+                        <div>…and {unresolvedPreviewLines.length - 12} more</div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <input
                   value={localName}
                   onChange={e => setLocalName(e.target.value)}

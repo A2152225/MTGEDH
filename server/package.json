@@ -28,6 +28,7 @@
     "card-lookup:refresh": "node --enable-source-maps --import tsx/esm scripts/refresh-card-oracle-index.ts",
     "precon:bake": "node --enable-source-maps --import tsx/esm scripts/bake-precon-decklists.ts",
     "precon:bake:json": "node --enable-source-maps --import tsx/esm scripts/bake-precon-decklists.ts --json-only",
+    "precon:bake:mtgjson": "node --enable-source-maps --import tsx/esm scripts/bake-precon-decklists.ts --mtgjson-only",
     "oracle-ir:overlay:upsert": "node --enable-source-maps --import tsx/esm scripts/upsert-compiled-oracle-ir-overlay.ts",
     "oracle-ir:overlay:import": "node --enable-source-maps --import tsx/esm scripts/import-compiled-oracle-ir-overlays.ts",
     "oracle-ir:overlay:validate": "node --enable-source-maps --import tsx/esm scripts/validate-compiled-oracle-ir-overlay.ts",

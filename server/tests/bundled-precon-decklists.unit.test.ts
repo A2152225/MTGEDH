@@ -53,4 +53,37 @@ describe('bundled precon decklists', () => {
     expect((lines || []).some((line) => line.name === 'Zada, Hedron Grinder')).toBe(true);
     expect((lines || []).reduce((sum, line) => sum + (line.count || 1), 0)).toBe(100);
   });
+
+  it('loads TMNT Turtle Power! from SQLite', () => {
+    const lines = getPreconDecklistLines('TMC', 'Turtle Power!');
+    expect(lines).toBeTruthy();
+    expect((lines || []).some((line) => line.name === 'Leonardo, the Balance')).toBe(true);
+    expect((lines || []).some((line) => line.name === "April O'Neil, Live on the Scene")).toBe(true);
+    expect((lines || []).some((line) => line.name === 'Sol Ring')).toBe(true);
+    expect((lines || []).reduce((sum, line) => sum + (line.count || 1), 0)).toBe(100);
+  });
+
+  it('loads Lorwyn Eclipsed Blight Curse from SQLite', () => {
+    const lines = getPreconDecklistLines('ECC', 'Blight Curse');
+    expect(lines).toBeTruthy();
+    expect((lines || []).some((line) => line.name === 'Auntie Ool, Cursewretch')).toBe(true);
+    expect((lines || []).some((line) => line.name === 'Sol Ring')).toBe(true);
+    expect((lines || []).reduce((sum, line) => sum + (line.count || 1), 0)).toBe(100);
+  });
+
+  it('loads Ikoria Timeless Wisdom from SQLite', () => {
+    const lines = getPreconDecklistLines('C20', 'Timeless Wisdom');
+    expect(lines).toBeTruthy();
+    expect((lines || []).some((line) => line.name === 'Gavi, Nest Warden')).toBe(true);
+    expect((lines || []).some((line) => line.name === 'Sol Ring')).toBe(true);
+    expect((lines || []).reduce((sum, line) => sum + (line.count || 1), 0)).toBe(100);
+  });
+
+  it('loads Commander 2013 Mind Seize from SQLite', () => {
+    const lines = getPreconDecklistLines('C13', 'Mind Seize');
+    expect(lines).toBeTruthy();
+    expect((lines || []).some((line) => line.name === "Jeleva, Nephalia's Scourge")).toBe(true);
+    expect((lines || []).some((line) => line.name === 'Sol Ring')).toBe(true);
+    expect((lines || []).reduce((sum, line) => sum + (line.count || 1), 0)).toBe(100);
+  });
 });

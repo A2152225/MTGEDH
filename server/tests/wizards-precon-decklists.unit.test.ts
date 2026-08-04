@@ -89,13 +89,47 @@ Secret Lair Commander Deck: Goblin Storm was designed by Studio X
     expect(lines.find((line) => line.name === 'Mountain')?.count).toBe(7);
   });
 
-  it('strips crossover theme labels from Marvel-style card names', () => {
+  it('strips crossover theme labels from Marvel-style and Lorwyn-style card names', () => {
     expect(stripParentheticalFromCardName('Arcane Signet (Avengers)')).toBe('Arcane Signet');
     expect(normalizeWizardsPreconCardName('Arcane Signet (Avengers)')).toBe('Arcane Signet');
     expect(normalizeWizardsPreconCardName('Arcane Signet Avengers')).toBe('Arcane Signet');
     expect(normalizeWizardsPreconCardName('Sol Ring Avengers')).toBe('Sol Ring');
     expect(normalizeWizardsPreconCardName('Command Tower (Villains)')).toBe('Command Tower');
     expect(normalizeWizardsPreconCardName('Command Tower (The Fantastic Four)')).toBe('Command Tower');
+    expect(normalizeWizardsPreconCardName('Sol Ring Lorwyn')).toBe('Sol Ring');
+    expect(normalizeWizardsPreconCardName('Arcane Signet Shadowmoor')).toBe('Arcane Signet');
+    expect(normalizeWizardsPreconCardName('Command Tower Shadowmoor')).toBe('Command Tower');
+  });
+
+  it('parses TMNT-style line lists without gluing unbracketed names', () => {
+    const content = `
+Turtle Power! Commander Decklist
+Leonardo, the Balance [557rQiosGA3JCpWv2VwZff]
+April O'Neil, Live on the Scene [2GSBkjgLSsCv5pJCYknUKI]
+Baxter, Fly in the Ointment
+Here Comes a New Hero!
+Ray Fillet, Wave Warrior
+Bebop, Skull and Crossbones [7tWKBkw4RCpI2ZO0n7km4r]
+Tokka and Rahzar, Unsupervised [1hPxG6gsd2LU8ldqZ80qOO]
+Sol Ring
+Command Tower
+${Array.from({ length: 50 }, (_, i) => `Filler Card ${i}`).join('\n')}
+2 Plains [WuoQks0cWOKXBo1wHOKRv]
+Cowabunga!
+Tokens:
+`;
+    const parsed = parseWizardsDecklistFromAnnouncement(content, 'Turtle Power!');
+    expect(parsed).toBeTruthy();
+    expect(parsed!.some((line) => line.name === "April O'Neil, Live on the Scene")).toBe(true);
+    expect(parsed!.some((line) => line.name === 'Baxter, Fly in the Ointment')).toBe(true);
+    expect(parsed!.some((line) => line.name === 'Here Comes a New Hero!')).toBe(true);
+    expect(parsed!.some((line) => line.name === 'Ray Fillet, Wave Warrior')).toBe(true);
+    expect(parsed!.some((line) => line.name === 'Bebop, Skull and Crossbones')).toBe(true);
+    expect(parsed!.some((line) => line.name === 'Tokka and Rahzar, Unsupervised')).toBe(true);
+    expect(parsed!.some((line) => line.name === 'Sol Ring')).toBe(true);
+    expect(parsed!.find((line) => line.name === 'Plains')?.count).toBe(2);
+    expect(parsed!.some((line) => line.name === 'April')).toBe(false);
+    expect(parsed!.some((line) => line.name === 'T')).toBe(false);
   });
 
   it('tokenizes run-on card name blocks', () => {

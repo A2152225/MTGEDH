@@ -11,6 +11,8 @@ export type DeckResolvePreviewCard = {
   oracle_text?: string;
   mana_cost?: string;
   image_uris?: DeckCardLookupResult['image_uris'];
+  /** Total copies across the decklist (lands / duplicate lines included). */
+  quantity?: number;
 };
 
 export function DeckResolvePreviewPanel({
@@ -19,6 +21,8 @@ export function DeckResolvePreviewPanel({
   fillHeight,
   focusCardKey,
   focusToken,
+  resolvedCopies,
+  totalCopies,
 }: {
   cards: DeckResolvePreviewCard[];
   compact?: boolean;
@@ -28,6 +32,8 @@ export function DeckResolvePreviewPanel({
   focusCardKey?: string | null;
   /** Bumps whenever the same card is resolved again. */
   focusToken?: number;
+  resolvedCopies?: number;
+  totalCopies?: number;
 }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
@@ -41,6 +47,10 @@ export function DeckResolvePreviewPanel({
   }, [focusCardKey, focusToken, cards.length]);
 
   if (cards.length === 0) return null;
+
+  const copiesLabel = typeof resolvedCopies === 'number' && typeof totalCopies === 'number' && totalCopies > 0
+    ? `${resolvedCopies}/${totalCopies}`
+    : String(cards.length);
 
   return (
     <div
@@ -66,7 +76,7 @@ export function DeckResolvePreviewPanel({
           flexShrink: 0,
         }}
       >
-        Resolved ({cards.length})
+        Resolved {copiesLabel} cards
       </div>
       <div
         ref={scrollerRef}
@@ -77,6 +87,7 @@ export function DeckResolvePreviewPanel({
           const tip = [card.type_line, card.oracle_text].filter(Boolean).join('\n\n');
           const key = card.name.toLowerCase();
           const focused = !!focusCardKey && key === focusCardKey;
+          const qty = card.quantity && card.quantity > 1 ? card.quantity : null;
           return (
             <div
               key={`${key}-${index}`}
@@ -92,34 +103,57 @@ export function DeckResolvePreviewPanel({
                 outline: focused ? '1px solid rgba(74, 222, 128, 0.35)' : 'none',
               }}
             >
-              {thumb ? (
-                <img
-                  src={thumb}
-                  alt=""
-                  width={40}
-                  height={56}
-                  loading="lazy"
-                  style={{
-                    width: 40,
-                    height: 56,
-                    objectFit: 'cover',
-                    borderRadius: 3,
-                    flexShrink: 0,
-                    background: '#111',
-                  }}
-                />
-              ) : (
-                <div
-                  style={{
-                    width: 40,
-                    height: 56,
-                    borderRadius: 3,
-                    background: '#222',
-                    flexShrink: 0,
-                    border: '1px solid #333',
-                  }}
-                />
-              )}
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                {thumb ? (
+                  <img
+                    src={thumb}
+                    alt=""
+                    width={40}
+                    height={56}
+                    loading="lazy"
+                    style={{
+                      width: 40,
+                      height: 56,
+                      objectFit: 'cover',
+                      borderRadius: 3,
+                      background: '#111',
+                      display: 'block',
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: 40,
+                      height: 56,
+                      borderRadius: 3,
+                      background: '#222',
+                      border: '1px solid #333',
+                    }}
+                  />
+                )}
+                {qty != null && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      right: -4,
+                      bottom: -4,
+                      minWidth: 18,
+                      height: 18,
+                      padding: '0 4px',
+                      borderRadius: 9,
+                      background: '#111',
+                      border: '1px solid #4ade80',
+                      color: '#bbf7d0',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      lineHeight: '16px',
+                      textAlign: 'center',
+                    }}
+                  >
+                    ×{qty}
+                  </div>
+                )}
+              </div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.25, wordBreak: 'break-word' }}>
                   {card.name}

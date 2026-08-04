@@ -15,7 +15,7 @@ const defaultDbFile = path.join(repoRoot, 'server', 'data', 'precon-decklists.sq
 let db: Database.Database | null = null;
 let dbFilePath: string | null = null;
 
-export type PreconDeckSource = 'wizards' | 'json-import' | 'manual';
+export type PreconDeckSource = 'wizards' | 'moxfield' | 'mtgjson' | 'json-import' | 'manual';
 
 export type PreconDeckMeta = {
   setCode: string;

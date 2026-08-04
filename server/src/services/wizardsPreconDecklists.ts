@@ -16,6 +16,9 @@ const CROSSOVER_THEME_SUFFIXES = [
   'Avengers',
   'Villains',
   'Wakanda',
+  // Lorwyn Eclipsed precon reprints use plane-name suffixes (not parentheticals).
+  'Shadowmoor',
+  'Lorwyn',
 ] as const;
 
 /** Strip parenthetical theme labels, e.g. `Sol Ring (Avengers)` → `Sol Ring`. */
@@ -446,6 +449,12 @@ export function extractWizardsRunOnDeckBlock(content: string, deckName: string):
 }
 
 export function parseWizardsDecklistFromAnnouncement(content: string, deckName: string): ParsedLine[] | null {
+  const singleDeckLines = extractWizardsSingleDeckCommanderLines(content, deckName);
+  if (singleDeckLines && singleDeckLines.length >= 50) {
+    const parsed = filterDeckNameBleed(parseWizardsDecklistSection(singleDeckLines), deckName);
+    if (parsed.length >= 50) return parsed;
+  }
+
   const singleDeckPage = extractWizardsSingleDeckCommanderPage(content, deckName);
   if (singleDeckPage) {
     const parsed = filterDeckNameBleed(singleDeckPage, deckName);
@@ -489,13 +498,13 @@ export function parseWizardsDecklistSection(lines: string[]): ParsedLine[] {
     const countMatch = line.match(/^(\d+)\s+(.+)$/);
     if (countMatch) {
       parsed.push({
-        name: countMatch[2].trim(),
+        name: normalizeWizardsPreconCardName(countMatch[2].trim()),
         count: Math.max(1, Number.parseInt(countMatch[1], 10) || 1),
       });
       continue;
     }
     if (line) {
-      parsed.push({ name: line, count: 1 });
+      parsed.push({ name: normalizeWizardsPreconCardName(line), count: 1 });
     }
   }
   return mergeParsedLines(parsed);
@@ -524,22 +533,71 @@ function filterDeckNameBleed(textOrLines: string | ParsedLine[], deckName: strin
   return textOrLines.filter((line) => String(line.name || '').trim().toLowerCase() !== bleedLower);
 }
 
-export function extractWizardsSingleDeckCommanderPage(content: string, deckName: string): string | null {
+/** Prefer explicit end-of-deck markers; ignore early blank lines that would truncate too soon. */
+function findSingleDeckCommanderSectionEnd(afterHeading: string): number {
+  const endPatterns = [
+    /Cowabunga!/i,
+    /_Secret Lair/i,
+    /Secret Lair Commander Deck:/i,
+    /This deck's strategy/i,
+    /\*\*Tokens\*\*/i,
+    /\bTokens\b:/i,
+    /You can view all the cards/i,
+    /This deck's face commander/i,
+    /\*\*Contents\*\*/i,
+    /Card Name\s+Set Code/i,
+    /\bContents\b:/i,
+    /Price:/i,
+    /was designed by/i,
+  ];
+  for (const pattern of endPatterns) {
+    const match = pattern.exec(afterHeading);
+    if (match?.index !== undefined && match.index > 80) return match.index;
+  }
+  return Math.min(afterHeading.length, 8000);
+}
+
+function getSingleDeckCommanderAfterHeading(content: string, deckName: string): string | null {
   const escapedName = escapeRegex(deckName.trim());
   const headingRe = new RegExp(`${escapedName}\\s+Commander Decklist`, 'i');
   const match = headingRe.exec(content);
   if (!match?.index && match?.index !== 0) return null;
+  return content.slice(match.index + match[0].length).trim();
+}
 
-  const afterHeading = content.slice(match.index + match[0].length).trim();
-  const endMatch = afterHeading.match(
-    /(?:\n\n|Cowabunga!|_Secret Lair|Secret Lair Commander Deck:|This deck's strategy|\*\*Tokens\*\*|\bTokens\b:|This deck's face commander|\*\*Contents\*\*|##\s|Card Name\s+Set Code|\bContents\b:|Price:|was designed by)/i,
-  );
-  const section =
-    endMatch?.index && endMatch.index > 80
-      ? afterHeading.slice(0, endMatch.index)
-      : afterHeading.slice(0, 8000);
+/**
+ * Line-oriented extraction for single-deck Wizards pages (e.g. TMNT).
+ * Keeps cards that lack Scryfall bracket ids from being glued into neighboring names.
+ */
+export function extractWizardsSingleDeckCommanderLines(
+  content: string,
+  deckName: string,
+): string[] | null {
+  const afterHeading = getSingleDeckCommanderAfterHeading(content, deckName);
+  if (!afterHeading) return null;
+
+  const section = afterHeading.slice(0, findSingleDeckCommanderSectionEnd(afterHeading));
+  const lines = section
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    // Drop showcase image rows (0001_MTGTMT_CmdrFace: …) entirely.
+    .filter((line) => !/^\d{3,4}_MTG[A-Za-z0-9_]+:/i.test(line))
+    .map((line) => line.replace(/\s*\[[^\]]+\]\s*$/, '').trim())
+    .filter(isDeckCardLine);
+
+  if (lines.length < 50 || !lines.some((line) => /\bSol Ring\b/i.test(line))) return null;
+  return lines;
+}
+
+export function extractWizardsSingleDeckCommanderPage(content: string, deckName: string): string | null {
+  const afterHeading = getSingleDeckCommanderAfterHeading(content, deckName);
+  if (!afterHeading) return null;
+
+  const section = afterHeading.slice(0, findSingleDeckCommanderSectionEnd(afterHeading));
 
   const trimmed = section
+    .replace(/^\d{3,4}_MTG[A-Za-z0-9_]+:\s*.*$/gim, ' ')
     .replace(/\d{3,4}_MTG[A-Za-z0-9_]+:\s*/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -601,11 +659,11 @@ export async function fetchWizardsPreconDecklist(
         Accept: 'text/html,application/xhtml+xml,text/plain,*/*',
       },
     });
+    const html = await response.text();
     if (!response.ok) {
       debugWarn(1, `[wizardsPreconDecklists] page error ${response.status}: ${url}`);
       return null;
     }
-    const html = await response.text();
     const embedded = extractGathererEmbeddedFromHtml(html);
     content = `${htmlToText(html)}\n${embedded}`;
     announcementPageCache.set(url, content);

@@ -7,6 +7,7 @@ export const PRECON_WIZARDS_ANNOUNCEMENT_URLS: Record<string, string> = {
   SOC: 'https://magic.wizards.com/en/news/announcements/secrets-of-strixhaven-commander-decklists',
   MSC: 'https://magic.wizards.com/en/news/announcements/marvel-super-heroes-commander-decklists',
   TMC: 'https://magic.wizards.com/en/news/announcements/teenage-mutant-ninja-turtles-commander-decklist',
+  ECC: 'https://magic.wizards.com/en/news/announcements/lorwyn-eclipsed-commander-decklists',
   TDC: 'https://magic.wizards.com/en/news/announcements/tarkir-dragonstorm-commander-decklists',
   DRC: 'https://magic.wizards.com/en/news/announcements/aetherdrift-commander-decklists',
   EOE: 'https://magic.wizards.com/en/news/announcements/edge-of-eternities-commander-decklists',
@@ -35,7 +36,7 @@ export const PRECON_WIZARDS_ANNOUNCEMENT_URLS: Record<string, string> = {
   C21: 'https://magic.wizards.com/en/news/announcements/commander-2021-edition-decklists-2021-04-05',
   KHC: 'https://magic.wizards.com/en/news/card-preview/kaldheim-commander-decklists-2021-01-20',
   CMR: 'https://magic.wizards.com/en/news/feature/commander-legends-commander-decklists-2020-11-05',
-  ZNC: 'https://magic.wizards.com/en/news/feature/zendikar-rising-commander-decklists-2020-09-15',
+  ZNC: 'https://magic.wizards.com/en/news/card-preview/zendikar-rising-commander-decklists-2020-09-09',
   C20: 'https://magic.wizards.com/en/news/feature/ikoria-commander-decklists-2020-04-02',
   C19: 'https://magic.wizards.com/en/news/feature/commander-2019-edition-decklists-2019-08-05',
   C18: 'https://magic.wizards.com/en/news/announcements/2018-commander-decklists',
@@ -52,6 +53,9 @@ export const PRECON_WIZARDS_DECK_URLS: Record<string, Record<string, string>> = 
   SLD: {
     'Goblin Storm':
       'https://magic.wizards.com/en/news/announcements/secret-lair-commander-deck-goblin-storm-decklist',
+  },
+  C20: {
+    'Timeless Wisdom': 'https://magic.wizards.com/en/news/announcements/timeless-wisdom-2020-04-06',
   },
 };
 
