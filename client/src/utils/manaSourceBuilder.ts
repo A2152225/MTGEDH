@@ -91,6 +91,29 @@ function parseChosenColorManaEffect(
   chosenColor?: string,
 ): RepresentableManaEffect | null {
   const effect = String(effectText || '').trim();
+
+  // Thriving lands: "Add {G} or one mana of the chosen color"
+  const thrivingOrMatch = effect.match(
+    /add\s+\{([WUBRGC])\}\s+or\s+(?:one\s+)?mana\s+of\s+the\s+chosen\s+colou?r/i,
+  );
+  if (thrivingOrMatch) {
+    const colorMap: Record<string, ManaColor> = {
+      white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G',
+      w: 'W', u: 'U', b: 'B', r: 'R', g: 'G',
+    };
+    const fixed = String(thrivingOrMatch[1] || '').toUpperCase() as ManaColor;
+    const normalizedChosen = String(chosenColor || '').trim().toLowerCase();
+    const chosenSymbol = colorMap[normalizedChosen]
+      || (['W', 'U', 'B', 'R', 'G'].includes(normalizedChosen.toUpperCase())
+        ? normalizedChosen.toUpperCase() as ManaColor
+        : null);
+    const options: ManaColor[] = [fixed];
+    if (chosenSymbol && chosenSymbol !== fixed) {
+      options.push(chosenSymbol);
+    }
+    return { options, amount: 1 };
+  }
+
   const match = effect.match(/add\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+the\s+chosen\s+colou?r/i);
   if (!match) return null;
 
@@ -387,6 +410,13 @@ function normalizeInlinePaymentAbilityId(ability: InlineSelectedPaymentAbility):
   if (ability.cost === '{T}' && normalizedEffect === 'add {c}') return 'native_c';
   if (ability.cost === '{T}' && /add\s+one\s+mana\s+of\s+any\s+color/i.test(ability.effect)) return 'native_any';
   if (ability.cost === '{T}' && /add\s+one\s+mana\s+of\s+any\s+type/i.test(ability.effect)) return 'native_any';
+  // Thriving lands keep their printed ability id so both fixed + chosen colors remain available.
+  if (
+    ability.cost === '{T}'
+    && /add\s+\{[wubrgc]\}\s+or\s+(?:one\s+)?mana\s+of\s+the\s+chosen\s+colou?r/i.test(ability.effect)
+  ) {
+    return String(ability.id);
+  }
   if (ability.cost === '{T}' && /add\s+.+mana\s+of\s+the\s+chosen\s+colou?r/i.test(ability.effect)) return 'native_chosen_color';
 
   return String(ability.id);

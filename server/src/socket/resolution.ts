@@ -27,6 +27,7 @@ import {
   getEffectivePower,
   getEffectiveToughness,
   appendGameEvent,
+  persistAndResolveTopOfStack,
   parseManaCost,
   getOrInitManaPool,
   calculateTotalAvailableMana,
@@ -300,22 +301,6 @@ function finalizeBattlefieldAbilitySelfExertCost(
   }
 
   return String(permanentId);
-}
-
-function persistAndResolveTopOfStack(
-  game: any,
-  gameId: string,
-  payload: Record<string, unknown> = {},
-): boolean {
-  if (
-    typeof (game as any).resolveTopOfStack !== 'function'
-    && typeof (game as any).applyEvent !== 'function'
-  ) {
-    return false;
-  }
-
-  appendGameEvent(game, gameId, 'resolveTopOfStack', payload);
-  return true;
 }
 
 function appendQueuedResolutionPromptEvent(

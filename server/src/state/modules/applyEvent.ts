@@ -377,6 +377,8 @@ import {
   finalizeGameStateAfterReplay,
   replayPopTopOfStackDuringEventReplay,
   replayResolveAllTriggersDuringEventReplay,
+  replayEnsureAsEntersPermanentFromPromptSteps,
+  replayEnsureInterveningIfSubjectOnBattlefield,
 } from "./replay-prompt-cleanup.js";
 import { applyKeywordPromptResolveOutcome } from "./keywordPromptReplayOutcomes.js";
 import { applyBattlefieldPermanentReplayPatch } from "../effects/battlefieldPermanentReplayPersistence.js";
@@ -3957,6 +3959,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
 
           if (replayGameId && queuedStepsToReplay.length > 0) {
+            if ((ctx as any).isReplaying) {
+              replayEnsureAsEntersPermanentFromPromptSteps(
+                ctx as any,
+                queuedStepsToReplay,
+                deferredSourceId,
+              );
+            }
             const queue = ResolutionQueueManager.getQueue(replayGameId) as any;
             for (const queuedStep of queuedStepsToReplay) {
               const queuedStepId = String((queuedStep as any)?.id || '').trim();
@@ -13154,6 +13163,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           if (existingTrigger) {
             debug(1, `applyEvent(pushTriggeredAbility): trigger ${triggerId} already on stack, skipping (replay idempotency)`);
             break;
+          }
+
+          // Legacy inverted logs pushed ETBs before resolveTopOfStack; ensure the
+          // subject permanent is on the battlefield before restoring the trigger.
+          if ((ctx as any).isReplaying) {
+            replayEnsureInterveningIfSubjectOnBattlefield(ctx as any, e as any);
           }
           
           ctx.state.stack = ctx.state.stack || [];

@@ -766,7 +766,7 @@ export function parseKeywordActions(text: string): ParsedKeywordAction[] {
 }
 
 const SPELL_INSTRUCTION_LEAD_PATTERN =
-  /^(?:look|draw|mill|deal|destroy|exile|return|search|scry|surveil|create|put|target|counter|gain|lose|shuffle|reveal|choose|sacrifice|discard|tap|untap|fight|copy|cast|animate|goad|proliferate|distribute|pay|add|remove|prevent|attach|detach|unattach|the\s+owner\s+of\s+target|each\s+(?:player|opponent|creature|permanent|land|artifact|enchantment|planeswalker|battle|opponents?\s+and\s+you))\b/i;
+  /^(?:look|draw|mill|deal|destroy|exile|return|search|scry|surveil|create|put|target|counter|gain|lose|shuffle|reveal|choose|sacrifice|discard|tap|untap|fight|copy|cast|animate|goad|proliferate|distribute|pay|add|remove|prevent|attach|detach|unattach|the\s+owner\s+of\s+target|each\s+(?:player|opponent|creature|permanent|land|artifact|enchantment|planeswalker|battle|opponents?\s+and\s+you)|this\s+(?:spell|permanent|creature|card)\s+deals?)\b/i;
 
 function isSpellInstructionLine(text: string): boolean {
   const trimmed = String(text || '').trim();

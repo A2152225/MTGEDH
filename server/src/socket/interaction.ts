@@ -3413,6 +3413,22 @@ function applyPermanentChosenColorManaOverride(
     return;
   }
 
+  // Thriving lands: "Add {G} or one mana of the chosen color" — offer both options.
+  const thrivingOrMatch = effectText.match(
+    /\badd\s+\{([wubrgc])\}\s+or\s+(?:one\s+)?mana\s+of\s+the\s+chosen\s+colou?r/i,
+  );
+  if (thrivingOrMatch) {
+    const fixedColor = String(thrivingOrMatch[1] || '').toUpperCase();
+    const colors = [fixedColor];
+    if (chosenSymbol !== fixedColor) {
+      colors.push(chosenSymbol);
+    }
+    shape.produces = colors;
+    shape.baseAmount = 1;
+    shape.producesAllAtOnce = false;
+    return;
+  }
+
   const amountMatch = effectText.match(/\badd\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+the\s+chosen\s+colou?r/i);
   if (amountMatch) {
     const parsedAmount = parseWordNumber(String(amountMatch[1] || ''), 1);
@@ -3423,6 +3439,44 @@ function applyPermanentChosenColorManaOverride(
 
   shape.produces = [chosenSymbol];
   shape.producesAllAtOnce = false;
+}
+
+function getAnyColorBonusManaAmount(manaProduction: { bonusMana?: Array<{ color?: string; amount?: number }>; requiresBonusColorChoice?: boolean } | null | undefined): number {
+  if (!manaProduction?.requiresBonusColorChoice) return 0;
+  return (Array.isArray(manaProduction.bonusMana) ? manaProduction.bonusMana : [])
+    .filter((bonus) => String(bonus?.color || '').toUpperCase() === 'ANY')
+    .reduce((sum, bonus) => sum + Math.max(0, Number(bonus?.amount || 0)), 0);
+}
+
+function queueAnyColorBonusManaSelection(params: {
+  gameId: string;
+  playerId: PlayerID;
+  permanentId: string;
+  cardName: string;
+  permanent: any;
+  amount: number;
+  abilityId?: string;
+}): void {
+  const { gameId, playerId, permanentId, cardName, permanent, amount, abilityId } = params;
+  if (!Number.isFinite(amount) || amount <= 0) return;
+
+  ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.MANA_COLOR_SELECTION,
+    playerId,
+    sourceId: permanentId,
+    sourceName: cardName,
+    sourceImage: (permanent?.card as any)?.image_uris?.small || (permanent?.card as any)?.image_uris?.normal,
+    description: `Choose a color for additional mana when tapping ${cardName}.`,
+    mandatory: true,
+    selectionKind: 'any_color',
+    permanentId,
+    cardName,
+    amount,
+    allowedColors: ['W', 'U', 'B', 'R', 'G'],
+    singleColor: true,
+    ...(abilityId ? { abilityId } : null),
+    bonusAnyColorMana: true,
+  } as any);
 }
 
 function normalizeManaAbilityProducedColors(rawColors: unknown): string[] {
@@ -5437,6 +5491,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             const extraMana = getExtraManaProduction(game.state, permanent, pid, produces[0]);
             const totalExtra = extraMana.reduce((acc, e) => acc + e.amount, 0);
             const finalTotal = totalAmount + totalExtra;
+            const tapManaProduction = calculateManaProduction(game.state, permanent, pid);
+            const bonusAnyAmount = getAnyColorBonusManaAmount(tapManaProduction);
             
             // Resolution Queue: request a color choice from player
             ResolutionQueueManager.addStep(gameId, {
@@ -5454,6 +5510,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               allowedColors: produces.filter((color) => ['W', 'U', 'B', 'R', 'G'].includes(String(color || '').toUpperCase())),
               ...getChosenTypeManaSelectionFields(ability),
             } as any);
+
+            if (bonusAnyAmount > 0) {
+              queueAnyColorBonusManaSelection({
+                gameId,
+                playerId: pid as PlayerID,
+                permanentId,
+                cardName,
+                permanent,
+                amount: bonusAnyAmount,
+              });
+            }
             
             io.to(gameId).emit("chat", {
               id: `m_${Date.now()}`,
@@ -5529,6 +5596,21 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             
             // Broadcast mana pool update
             broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
+
+            const tapManaProduction = calculateManaProduction(game.state, permanent, pid, manaColor);
+            const bonusAnyAmount = getAnyColorBonusManaAmount(tapManaProduction);
+            if (bonusAnyAmount > 0) {
+              queueAnyColorBonusManaSelection({
+                gameId,
+                playerId: pid as PlayerID,
+                permanentId,
+                cardName,
+                permanent,
+                amount: bonusAnyAmount,
+              });
+              broadcastGame(io, game, gameId);
+              return;
+            }
           }
         }
       }
@@ -8961,6 +9043,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
 
         ResolutionQueueManager.addStep(gameId, queuedManaChoiceStep as any);
+
+        const bonusAnyAmount = getAnyColorBonusManaAmount(manaProduction);
+        if (bonusAnyAmount > 0) {
+          queueAnyColorBonusManaSelection({
+            gameId,
+            playerId: pid as PlayerID,
+            permanentId,
+            cardName,
+            permanent,
+            amount: bonusAnyAmount,
+            abilityId,
+          });
+        }
         
         broadcastGame(io, game, gameId);
         return;
@@ -9105,6 +9200,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
+      }
+
+      const bonusAnyAmount = getAnyColorBonusManaAmount(manaProduction);
+      if (bonusAnyAmount > 0) {
+        queueAnyColorBonusManaSelection({
+          gameId,
+          playerId: pid as PlayerID,
+          permanentId,
+          cardName,
+          permanent,
+          amount: bonusAnyAmount,
+          abilityId,
+        });
       }
       
       // Broadcast mana pool update to ensure client sees the new floating mana
@@ -13815,6 +13923,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               debugWarn(1, '[activateBattlefieldAbility] appendEvent(exert mana shape queued step) failed:', err);
             }
 
+            const bonusAnyAmount = getAnyColorBonusManaAmount(scopedManaProduction);
+            if (bonusAnyAmount > 0) {
+              queueAnyColorBonusManaSelection({
+                gameId,
+                playerId: pid as PlayerID,
+                permanentId,
+                cardName,
+                permanent,
+                amount: bonusAnyAmount,
+                abilityId: String(abilityId || ''),
+              });
+            }
+
             io.to(gameId).emit("chat", {
               id: `m_${Date.now()}`,
               gameId,
@@ -13869,6 +13990,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             });
 
             broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
+
+            const bonusAnyAmount = getAnyColorBonusManaAmount(scopedManaProduction);
+            if (bonusAnyAmount > 0) {
+              queueAnyColorBonusManaSelection({
+                gameId,
+                playerId: pid as PlayerID,
+                permanentId,
+                cardName,
+                permanent,
+                amount: bonusAnyAmount,
+                abilityId: String(abilityId || ''),
+              });
+            }
           }
         } else {
           io.to(gameId).emit("chat", {

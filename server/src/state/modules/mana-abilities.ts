@@ -1164,6 +1164,28 @@ export function getManaAbilitiesForPermanent(
         hasExplicitChoicePattern = true;
       }
     }
+
+    // Thriving lands: "{T}: Add {G} or one mana of the chosen color."
+    const thrivingOrChosenMatch = landOracleText.match(
+      /\{t\}:\s*add\s+\{([wubrgc])\}\s+or\s+(?:one\s+)?mana\s+of\s+the\s+chosen\s+colou?r/i,
+    );
+    if (thrivingOrChosenMatch && !hasExplicitChoicePattern) {
+      const fixedColor = String(thrivingOrChosenMatch[1] || '').toUpperCase();
+      const chosenSymbol = resolvePermanentChosenColorSymbol(permanent);
+      const colors = [fixedColor];
+      if (chosenSymbol && chosenSymbol !== fixedColor) {
+        colors.push(chosenSymbol);
+      }
+      if (colors.length > 0) {
+        abilities.push({
+          id: colors.length > 1 ? 'native_choice_2' : `native_${fixedColor.toLowerCase()}`,
+          cost: '{T}',
+          produces: colors,
+          producesAllAtOnce: false,
+        });
+        hasExplicitChoicePattern = true;
+      }
+    }
   }
   
   // ========================================================================

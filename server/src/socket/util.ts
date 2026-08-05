@@ -2555,12 +2555,8 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
             if (result.resolvedNow) {
               debug(2, `[checkAndTriggerAutoPass] Stack resolved after auto-pass for ${priority}`);
               const deferredMox = tryQueueMoxDiamondBeforeStackResolve(game);
-              if (!deferredMox && typeof (game as any).resolveTopOfStack === 'function') {
-                (game as any).resolveTopOfStack();
+              if (!deferredMox && persistAndResolveTopOfStack(game, gameId, { auto: true })) {
                 runPostResolutionPermanentPromptChecks(io, game, gameId);
-              }
-              if (!deferredMox) {
-                appendGameEvent(game, gameId, "resolveTopOfStack", { auto: true });
               }
             }
             
@@ -2656,6 +2652,48 @@ export function appendGameEvent(
   } catch (err) {
     debugWarn(1, "appendGameEvent: DB appendEvent failed:", err);
   }
+}
+
+/**
+ * Persist-first stack resolve: write `resolveTopOfStack` to the event log *before*
+ * applying the resolve, so as-enters prompts / ETB `pushTriggeredAbility` events
+ * appended during live resolve appear *after* it. Replay needs that order to put
+ * permanent spells onto the battlefield while they are still on top of the stack.
+ *
+ * Do not call `game.resolveTopOfStack()` or `appendGameEvent(resolveTopOfStack)`
+ * around this — this helper owns both the DB row and the in-memory apply.
+ */
+export function persistAndResolveTopOfStack(
+  game: InMemoryGame,
+  gameId: string,
+  payload: Record<string, unknown> = {},
+): boolean {
+  if (
+    typeof (game as any).resolveTopOfStack !== "function"
+    && typeof (game as any).applyEvent !== "function"
+  ) {
+    return false;
+  }
+
+  // DB first — side effects during apply append after this row.
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, "resolveTopOfStack", payload);
+  } catch (err) {
+    debugWarn(1, "persistAndResolveTopOfStack: DB appendEvent failed:", err);
+  }
+
+  try {
+    if (typeof (game as any).applyEvent === "function") {
+      (game as any).applyEvent({ type: "resolveTopOfStack", ...payload });
+    } else if (typeof (game as any).resolveTopOfStack === "function") {
+      (game as any).resolveTopOfStack();
+    }
+  } catch (err) {
+    debugWarn(1, "persistAndResolveTopOfStack: in-memory apply failed:", err);
+    return false;
+  }
+
+  return true;
 }
 
 /**
@@ -2885,13 +2923,9 @@ function doAutoPass(
 
     if (resolvedNow) {
       const deferredMox = tryQueueMoxDiamondBeforeStackResolve(game);
-      if (!deferredMox && typeof (game as any).resolveTopOfStack === "function") {
-        (game as any).resolveTopOfStack();
+      if (!deferredMox && persistAndResolveTopOfStack(game, gameId)) {
         runPostResolutionPermanentPromptChecks(io, game, gameId);
         debug(2, `[doAutoPass] Stack resolved for game ${gameId}`);
-      }
-      if (!deferredMox) {
-        appendGameEvent(game, gameId, "resolveTopOfStack");
       }
       try {
         io.to(gameId).emit("chat", {
@@ -4929,6 +4963,8 @@ export interface ManaProductionInfo {
   activationCost?: string;
   /** Whether this ability requires a color choice prompt */
   requiresColorChoice?: boolean;
+  /** Whether bonus mana (e.g. Fertile Ground) still needs an any-color choice */
+  requiresBonusColorChoice?: boolean;
   /** Dynamic amount source when requiresColorChoice (e.g. devotion) */
   dynamicAmountSource?: string;
 }
@@ -5443,8 +5479,33 @@ export function calculateManaProduction(
   const permanentChosenColor = resolvePermanentChosenColorSymbol(permanent);
   const effectiveChosenColor = normalizedChosenColor || permanentChosenColor || undefined;
 
+  // Thriving lands: "Add {G} or one mana of the chosen color" — one mana, choose fixed or ETB color.
+  const thrivingOrChosenMatch = !hasSelectedLegacyManaAbility
+    ? manaOracleText.match(/\badd\s+\{([wubrgc])\}\s+or\s+(?:one\s+)?mana\s+of\s+the\s+chosen\s+colou?r\b/i)
+    : null;
+  if (thrivingOrChosenMatch) {
+    const fixedColor = String(thrivingOrChosenMatch[1] || '').toUpperCase();
+    const choiceColors: string[] = [fixedColor];
+    if (permanentChosenColor && permanentChosenColor !== fixedColor) {
+      choiceColors.push(permanentChosenColor);
+    }
+    result.baseAmount = 1;
+    if (
+      normalizedChosenColor
+      && choiceColors.includes(normalizedChosenColor)
+    ) {
+      result.colors = [normalizedChosenColor];
+      result.requiresColorChoice = false;
+    } else if (choiceColors.length === 1) {
+      result.colors = choiceColors;
+      result.requiresColorChoice = false;
+    } else {
+      result.colors = choiceColors;
+      result.requiresColorChoice = true;
+    }
+  }
   // "Add N mana of the chosen color" — reuse ETB color choice (Throne of Eldraine, etc.)
-  if (!hasSelectedLegacyManaAbility && /\bmana\s+of\s+the\s+chosen\s+colou?r\b/i.test(manaOracleText)) {
+  else if (!hasSelectedLegacyManaAbility && /\bmana\s+of\s+the\s+chosen\s+colou?r\b/i.test(manaOracleText)) {
     if (typeof spelledChosenColorAmount === 'number' && spelledChosenColorAmount > 0) {
       result.baseAmount = spelledChosenColorAmount;
     }
@@ -6264,8 +6325,9 @@ export function calculateManaProduction(
       
       // Fertile Ground - "Whenever enchanted land is tapped for mana, add an additional mana of any color"
       if (permName.includes('fertile ground') ||
-          (permOracleText.includes('additional') && permOracleText.includes('any color'))) {
-        result.bonusMana.push({ color: chosenColor || 'C', amount: 1 });
+          (permOracleText.includes('additional') && permOracleText.includes('any color') && permOracleText.includes('tapped for mana'))) {
+        result.bonusMana.push({ color: 'ANY', amount: 1 });
+        result.requiresBonusColorChoice = true;
       }
       
       // Overgrowth - "Whenever enchanted land is tapped for mana, add {G}{G}"
@@ -6282,27 +6344,32 @@ export function calculateManaProduction(
       
       // Dawn's Reflection - "Whenever enchanted land is tapped for mana, add two mana of any one color"
       if (permName.includes("dawn's reflection")) {
-        result.bonusMana.push({ color: chosenColor || 'G', amount: 2 });
+        result.bonusMana.push({ color: 'ANY', amount: 2 });
+        result.requiresBonusColorChoice = true;
       }
       
       // Market Festival - "Whenever enchanted land is tapped for mana, add two mana of any one color"
       if (permName.includes('market festival')) {
-        result.bonusMana.push({ color: chosenColor || 'G', amount: 2 });
+        result.bonusMana.push({ color: 'ANY', amount: 2 });
+        result.requiresBonusColorChoice = true;
       }
       
       // Weirding Wood - "Whenever enchanted land is tapped for mana, add an additional mana of any color"
       if (permName.includes('weirding wood')) {
-        result.bonusMana.push({ color: chosenColor || 'G', amount: 1 });
+        result.bonusMana.push({ color: 'ANY', amount: 1 });
+        result.requiresBonusColorChoice = true;
       }
       
       // Trace of Abundance - "Whenever enchanted land is tapped for mana, add one mana of any color"
       if (permName.includes('trace of abundance')) {
-        result.bonusMana.push({ color: chosenColor || 'G', amount: 1 });
+        result.bonusMana.push({ color: 'ANY', amount: 1 });
+        result.requiresBonusColorChoice = true;
       }
       
       // Sheltered Aerie - "Whenever enchanted land is tapped for mana, add one mana of any color"
       if (permName.includes('sheltered aerie')) {
-        result.bonusMana.push({ color: chosenColor || 'G', amount: 1 });
+        result.bonusMana.push({ color: 'ANY', amount: 1 });
+        result.requiresBonusColorChoice = true;
       }
     }
   }
@@ -6391,8 +6458,10 @@ export function calculateManaProduction(
   // Base amount * multiplier
   let total = result.baseAmount * result.multiplier;
   
-  // Add bonus mana (bonuses are NOT multiplied in most cases, but for simplicity we add them after)
+  // Add bonus mana (bonuses are NOT multiplied in most cases, but for simplicity we add them after).
+  // ANY-color bonuses are chosen via a follow-up prompt and are excluded until resolved.
   for (const bonus of result.bonusMana) {
+    if (String(bonus.color || '').toUpperCase() === 'ANY') continue;
     total += bonus.amount;
   }
   

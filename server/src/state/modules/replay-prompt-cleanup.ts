@@ -152,6 +152,186 @@ function resolveReplaySpellCard(stackItem: any): any | null {
   return rawCard;
 }
 
+const AS_ENTERS_CHOICE_STEP_TYPES = new Set([
+  'creature_type_choice',
+  'color_choice',
+  'card_name_choice',
+  'player_choice',
+  'option_choice',
+]);
+
+function isPermanentAlreadyOnBattlefield(
+  ctx: GameContext,
+  options: { stackItemId?: string; controller?: string; cardId?: string },
+): boolean {
+  const battlefield = Array.isArray((ctx.state as any).battlefield)
+    ? (ctx.state as any).battlefield
+    : [];
+  const stackItemId = String(options.stackItemId || '').trim();
+  const controller = String(options.controller || '').trim();
+  const cardId = String(options.cardId || '').trim();
+  return battlefield.some((perm: any) => {
+    if (!perm) return false;
+    if (stackItemId && String(perm.id || '') === stackItemId) return true;
+    if (controller && cardId) {
+      return String(perm.controller || '') === controller
+        && String(perm.card?.id || '') === cardId;
+    }
+    return false;
+  });
+}
+
+function findPermanentSpellStackItem(
+  ctx: GameContext,
+  permanentId: string,
+): { index: number; item: any } | null {
+  const wanted = String(permanentId || '').trim();
+  if (!wanted) return null;
+  const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const item = stack[i];
+    if (!isReplayableSpellStackItem(item)) continue;
+    if (String(item?.id || '').trim() !== wanted) continue;
+    const effectiveCard = resolveReplaySpellCard(item);
+    const effectiveTypeLine = String(
+      effectiveCard?.type_line || item?.card?.type_line || '',
+    );
+    if (!effectiveCard || !isPermanentTypeLine(effectiveTypeLine)) continue;
+    return { index: i, item };
+  }
+  return null;
+}
+
+function removeStackItemAtIndex(ctx: GameContext, index: number): void {
+  const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
+  if (index < 0 || index >= stack.length) return;
+  const next = stack.slice();
+  next.splice(index, 1);
+  (ctx.state as any).stack = next;
+}
+
+/**
+ * Materialize a permanent spell still on the stack onto the battlefield during
+ * replay. Used when legacy logs recorded as-enters prompts / ETB pushes *before*
+ * resolveTopOfStack, so the permanent is no longer on top when resolve replays.
+ *
+ * Returns true when the permanent is on the battlefield afterward.
+ */
+export function replayEnsurePermanentSpellBattlefieldEntryById(
+  ctx: GameContext,
+  permanentId: string,
+  options?: { removeFromStack?: boolean },
+): boolean {
+  if (!(ctx as any).isReplaying) return false;
+
+  const wanted = String(permanentId || '').trim();
+  if (!wanted) return false;
+
+  if (isPermanentAlreadyOnBattlefield(ctx, { stackItemId: wanted })) {
+    return true;
+  }
+
+  const found = findPermanentSpellStackItem(ctx, wanted);
+  if (!found) return false;
+
+  const { index, item } = found;
+  const effectiveCard = resolveReplaySpellCard(item);
+  if (!effectiveCard || typeof effectiveCard !== 'object') return false;
+
+  const effectiveTypeLine = String(
+    effectiveCard.type_line || item?.card?.type_line || '',
+  );
+  if (!isPermanentTypeLine(effectiveTypeLine)) return false;
+
+  const controller = String(item.controller || '').trim() as PlayerID;
+  const cardId = String(effectiveCard.id || '').trim();
+  if (!controller || !cardId) return false;
+
+  if (isPermanentAlreadyOnBattlefield(ctx, { stackItemId: wanted, controller, cardId })) {
+    if (options?.removeFromStack !== false) {
+      removeStackItemAtIndex(ctx, index);
+    }
+    return true;
+  }
+
+  try {
+    resolvePermanentSpellBattlefieldEntry(ctx, {
+      controller,
+      card: item.card,
+      effectiveCard,
+      effectiveTypeLine,
+      item,
+      targets: item.targets,
+      fallbackOracleText: String(effectiveCard.oracle_text || ''),
+      preferredPermanentId: wanted || undefined,
+    });
+  } catch (err) {
+    debugWarn(1, '[replay] permanent spell battlefield entry by id failed:', err);
+    return false;
+  }
+
+  if (options?.removeFromStack !== false) {
+    // Entry may have shifted indexes if resolvePermanentSpellBattlefieldEntry
+    // touched the stack; re-find by id.
+    const stillThere = findPermanentSpellStackItem(ctx, wanted);
+    if (stillThere) {
+      removeStackItemAtIndex(ctx, stillThere.index);
+    }
+  }
+
+  return isPermanentAlreadyOnBattlefield(ctx, { stackItemId: wanted, controller, cardId });
+}
+
+/**
+ * When replaying an as-enters resolveTopOfStackPrompt, ensure the permanent that
+ * the choice targets is on the battlefield (legacy inverted event order).
+ */
+export function replayEnsureAsEntersPermanentFromPromptSteps(
+  ctx: GameContext,
+  queuedSteps: readonly any[],
+  fallbackSourceId?: string,
+): void {
+  if (!(ctx as any).isReplaying) return;
+
+  const candidateIds = new Set<string>();
+  const fallback = String(fallbackSourceId || '').trim();
+  if (fallback) candidateIds.add(fallback);
+
+  for (const step of queuedSteps || []) {
+    if (!step || typeof step !== 'object') continue;
+    const stepType = String((step as any).type || '').trim().toLowerCase();
+    if (!AS_ENTERS_CHOICE_STEP_TYPES.has(stepType)) continue;
+    const permanentId = String((step as any).permanentId || '').trim();
+    const sourceId = String((step as any).sourceId || '').trim();
+    if (permanentId) candidateIds.add(permanentId);
+    if (sourceId) candidateIds.add(sourceId);
+  }
+
+  for (const id of candidateIds) {
+    replayEnsurePermanentSpellBattlefieldEntryById(ctx, id);
+  }
+}
+
+/**
+ * When replaying an ETB trigger whose subject is still a permanent spell on the
+ * stack (legacy inverted logs), enter that permanent before pushing the trigger.
+ */
+export function replayEnsureInterveningIfSubjectOnBattlefield(
+  ctx: GameContext,
+  event: Record<string, unknown>,
+): void {
+  if (!(ctx as any).isReplaying) return;
+
+  const subjectId = String(
+    event.interveningIfSubjectPermanentId
+    || (event.interveningIfSubjectSnapshot as any)?.id
+    || '',
+  ).trim();
+  if (!subjectId) return;
+
+  replayEnsurePermanentSpellBattlefieldEntryById(ctx, subjectId);
+}
+
 /**
  * Permanent spells do not yet persist a dedicated battlefield-entry mutation event.
  * During undo/replay, rebuild the resolved permanent from the stack item snapshot
@@ -166,6 +346,13 @@ export function replayApplyResolvedPermanentSpellBattlefieldEntry(ctx: GameConte
   const item = stack[stack.length - 1];
   if (!isReplayableSpellStackItem(item)) return;
 
+  const stackItemId = String(item.id || '').trim();
+  if (stackItemId) {
+    // Top-of-stack path: enter but leave popping to replayPopTopOfStackDuringEventReplay.
+    replayEnsurePermanentSpellBattlefieldEntryById(ctx, stackItemId, { removeFromStack: false });
+    return;
+  }
+
   const effectiveCard = resolveReplaySpellCard(item);
   if (!effectiveCard || typeof effectiveCard !== 'object') return;
 
@@ -178,17 +365,7 @@ export function replayApplyResolvedPermanentSpellBattlefieldEntry(ctx: GameConte
   const cardId = String(effectiveCard.id || '').trim();
   if (!controller || !cardId) return;
 
-  const battlefield = Array.isArray((ctx.state as any).battlefield)
-    ? (ctx.state as any).battlefield
-    : [];
-  const stackItemId = String(item.id || '').trim();
-  const alreadyPresent = battlefield.some((perm: any) => {
-    if (!perm) return false;
-    if (stackItemId && String(perm.id || '') === stackItemId) return true;
-    return String(perm.controller || '') === controller
-      && String(perm.card?.id || '') === cardId;
-  });
-  if (alreadyPresent) return;
+  if (isPermanentAlreadyOnBattlefield(ctx, { controller, cardId })) return;
 
   try {
     resolvePermanentSpellBattlefieldEntry(ctx, {

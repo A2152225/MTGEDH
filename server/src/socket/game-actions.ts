@@ -1,6 +1,6 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, addCastSpellPaymentProducedMana, buildManaTotalsIncludingEligibleRestricted, consumeManaFromPool, consumeManaFromPoolForPurpose, deriveCreatureSpellHasteFromManaSpent, deriveCastUsedManaFromPermanentSource, getFloatingPaymentPoolColorKey, getOrInitManaPool, calculateTotalAvailableMana, parseFloatingPaymentPermanentId, payManaCostWithAvailableSources, validateManaPayment, validateSelectedFloatingPoolMana, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, snapshotManaProducedByPermanentLowerBound, applyManaSpendToManaProducedByPermanentLowerBound, resolveActivatedAbilityLineById, resolvePaymentManaAbilitySpendRestriction, restrictedManaSpendRestrictionAllowsPurpose, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower, paymentActivationCostHasUnsupportedAdditionalCosts, parseRemoveCounterActivationCost, resolvePermanentCounterKey, type RestrictedManaSpendPurpose } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, persistAndResolveTopOfStack, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, addCastSpellPaymentProducedMana, buildManaTotalsIncludingEligibleRestricted, consumeManaFromPool, consumeManaFromPoolForPurpose, deriveCreatureSpellHasteFromManaSpent, deriveCastUsedManaFromPermanentSource, getFloatingPaymentPoolColorKey, getOrInitManaPool, calculateTotalAvailableMana, parseFloatingPaymentPermanentId, payManaCostWithAvailableSources, validateManaPayment, validateSelectedFloatingPoolMana, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, snapshotManaProducedByPermanentLowerBound, applyManaSpendToManaProducedByPermanentLowerBound, resolveActivatedAbilityLineById, resolvePaymentManaAbilitySpendRestriction, restrictedManaSpendRestrictionAllowsPurpose, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower, paymentActivationCostHasUnsupportedAdditionalCosts, parseRemoveCounterActivationCost, resolvePermanentCounterKey, type RestrictedManaSpendPurpose } from "./util";
 import { emitResolutionStepPrompt, completeDanceWithCalamityDeferredAdvance, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingOracleIrCompoundResume, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
@@ -11675,7 +11675,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
 
             const bonusPoolKey = manaColorMap[bonus.color];
-            if (!bonusPoolKey || bonus.amount <= 0 || ((count !== undefined && count !== null) && bonusPoolKey === poolKey)) {
+            if (!bonusPoolKey || bonus.amount <= 0 || String(bonus.color || '').toUpperCase() === 'ANY' || ((count !== undefined && count !== null) && bonusPoolKey === poolKey)) {
               continue;
             }
 
@@ -14082,10 +14082,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
         
         
-        // Directly call resolveTopOfStack to ensure the spell resolves
-        // (appendGameEvent may fail silently if applyEvent has issues)
-        if (typeof (game as any).resolveTopOfStack === 'function') {
-          (game as any).resolveTopOfStack();
+        // Append-first so as-enters prompts / ETB pushes are logged after resolveTopOfStack.
+        if (persistAndResolveTopOfStack(game, gameId)) {
           debug(2, `[passPriority] Stack resolved for game ${gameId}`);
 
           // Queue prompts for any "you may" oracle IR effects on the resolved spell
@@ -14170,7 +14168,6 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
           }
         }
-        appendGameEvent(game, gameId, "resolveTopOfStack");
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
@@ -14942,8 +14939,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         const stackBefore = game.state?.stack || [];
         const topItem = stackBefore.length > 0 ? stackBefore[stackBefore.length - 1] : null;
 
-        if (typeof (game as any).resolveTopOfStack === 'function') {
-          (game as any).resolveTopOfStack();
+        if (persistAndResolveTopOfStack(game, gameId)) {
           debug(2, `[nextStep] Stack resolved for game ${gameId}`);
 
           // Queue prompts for any "you may" oracle IR effects on the resolved spell
@@ -14954,7 +14950,6 @@ export function registerGameActions(io: Server, socket: Socket) {
           checkPlayerSelectionForNewPermanents(io, game, gameId);
           checkEnchantmentETBTriggers(io, game, gameId);
         }
-        appendGameEvent(game, gameId, "resolveTopOfStack");
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,

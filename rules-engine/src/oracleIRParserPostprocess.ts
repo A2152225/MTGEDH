@@ -20561,6 +20561,7 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^this spell costs \{1\} less to cast for each instant and sorcery card in your graveyard\.?$/i.test(normalizedText) ||
     /^this spell costs \{1\} less to cast for each creature card in your graveyard\.?$/i.test(normalizedText) ||
     /^this spell costs \{1\} less to cast for each creature in your party\.?\s*(?:\(|$)/i.test(normalizedText) ||
+    /^this spell costs \{1\} less to cast for each creature on the battlefield\.?$/i.test(normalizedText) ||
     /^enchant land you control$/i.test(normalizedText) ||
     /^gift a\b/i.test(normalizedText) ||
     /^casualty \d+\b/i.test(normalizedText) ||

@@ -28,7 +28,7 @@ import {
   readStationChargeCreatureThresholdFromOracleText,
 } from "../../../rules-engine/src/stationPermanentUtils.js";
 import { cardAnalyzer, CardCategory, SynergyArchetype, type DeckArchetypeProfile } from "../../../rules-engine/src/CardAnalyzer.js";
-import { calculateManaProduction, ensureGame, broadcastGame, getEffectivePower, getEffectiveToughness, getPlayerName, getOrInitManaPool, validateManaPayment, getMaxGenericManaAvailable, paymentActivationCostHasUnsupportedAdditionalCosts, parseRemoveCounterActivationCost, getPermanentCounterAmount, permanentHasManaBatteryCounterLoop, consumeManaFromPool } from "./util.js";
+import { calculateManaProduction, ensureGame, broadcastGame, getEffectivePower, getEffectiveToughness, getPlayerName, getOrInitManaPool, validateManaPayment, getMaxGenericManaAvailable, paymentActivationCostHasUnsupportedAdditionalCosts, parseRemoveCounterActivationCost, getPermanentCounterAmount, permanentHasManaBatteryCounterLoop, consumeManaFromPool, persistAndResolveTopOfStack } from "./util.js";
 import { executeDeclareAttackers as executeCombatDeclareAttackers } from "./combat.js";
 import { appendEvent, gameExistsInDb, isGameCreator } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
@@ -12439,17 +12439,9 @@ async function executePassPriority(
     // If all players passed priority in succession, resolve the top of the stack
     if (resolvedNow) {
       debug(1, '[AI] All players passed priority, resolving top of stack');
-      if (typeof (game as any).resolveTopOfStack === 'function') {
-        (game as any).resolveTopOfStack();
+      if (persistAndResolveTopOfStack(game, gameId, { playerId })) {
         runPostResolutionPermanentPromptChecks(io, game, gameId);
         debug(2, `[AI] Stack resolved for game ${gameId}`);
-      }
-      
-      // Persist the resolution event
-      try {
-        await appendEvent(gameId, (game as any).seq || 0, 'resolveTopOfStack', { playerId });
-      } catch (e) {
-        debugWarn(1, '[AI] Failed to persist resolveTopOfStack event:', e);
       }
     }
     
