@@ -16,7 +16,11 @@ interface CounterModifier {
   addsBonusCounter: number;
 }
 
-function detectCounterModifiers(gameState: any, targetPermanentController: PlayerID): CounterModifier[] {
+/**
+ * Residual card-name / heuristic modifiers not yet covered by oracle-pattern templates
+ * in replacementEffectSpec (Doubling Season / Hardened Scales / Branching / Vorinclex).
+ */
+function detectCounterModifiers(gameState: any, _targetPermanentController: PlayerID): CounterModifier[] {
   const modifiers: CounterModifier[] = [];
   const battlefield = gameState?.battlefield || [];
 
@@ -26,56 +30,7 @@ function detectCounterModifiers(gameState: any, targetPermanentController: Playe
     const oracleText = (perm.card.oracle_text || '').toLowerCase();
     const controller = perm.controller;
 
-    if (cardName.includes('vorinclex') && (cardName.includes('monstrous raider') || oracleText.includes('put twice that many'))) {
-      modifiers.push({
-        permanentId: perm.id,
-        cardName: perm.card.name,
-        controller,
-        doublesYourCounters: controller === targetPermanentController,
-        halvesOpponentCounters: controller !== targetPermanentController,
-        addsBonusCounter: 0,
-      });
-    }
-
-    if (cardName.includes('doubling season') || (oracleText.includes('twice that many') && oracleText.includes('counter') && oracleText.includes('permanent you control'))) {
-      if (controller === targetPermanentController) {
-        modifiers.push({
-          permanentId: perm.id,
-          cardName: perm.card.name,
-          controller,
-          doublesYourCounters: true,
-          halvesOpponentCounters: false,
-          addsBonusCounter: 0,
-        });
-      }
-    }
-
-    if (cardName.includes('hardened scales') || (oracleText.includes('that many plus one') && oracleText.includes('+1/+1 counter'))) {
-      if (controller === targetPermanentController) {
-        modifiers.push({
-          permanentId: perm.id,
-          cardName: perm.card.name,
-          controller,
-          doublesYourCounters: false,
-          halvesOpponentCounters: false,
-          addsBonusCounter: 1,
-        });
-      }
-    }
-
-    if (cardName.includes('branching evolution') || (oracleText.includes('double that amount') && oracleText.includes('+1/+1 counter'))) {
-      if (controller === targetPermanentController) {
-        modifiers.push({
-          permanentId: perm.id,
-          cardName: perm.card.name,
-          controller,
-          doublesYourCounters: true,
-          halvesOpponentCounters: false,
-          addsBonusCounter: 0,
-        });
-      }
-    }
-
+    // Primal Vigor: doubles +1/+1 on any creature (no "you control" — not in oracle templates).
     if (cardName.includes('primal vigor') && oracleText.includes('twice that many')) {
       modifiers.push({
         permanentId: perm.id,

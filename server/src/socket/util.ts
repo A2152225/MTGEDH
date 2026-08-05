@@ -18,6 +18,7 @@ import { createInitialGameState } from "../state/index.js";
 import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
 import type { CardCostAdjustment, GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
+import { getEffectiveBasicLandTypes, manaColorForBasicLandType } from "../../../shared/src/landTypes.js";
 import { getActualPowerToughness, calculateAllPTBonuses, uid, cardManaValue } from "../state/utils.js";
 import { registerTokenGroupMembers } from "./tokenGroupResolve.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource, resolvePermanentChosenColorSymbol, parseManaSpendRestrictionFromOracle, getCommanderColorIdentity, getOpponentLandProducibleColorSymbols } from "../state/modules/mana-abilities.js";
@@ -5534,13 +5535,21 @@ export function calculateManaProduction(
     }
   }
   
-  // Handle basic land types
+  // Handle basic land types (printed + chosen-type grants like Thran Portal)
   if (!hasSelectedLegacyManaAbility) {
-    if (typeLine.includes('plains') && !result.colors.includes('W')) result.colors.push('W');
-    if (typeLine.includes('island') && !result.colors.includes('U')) result.colors.push('U');
-    if (typeLine.includes('swamp') && !result.colors.includes('B')) result.colors.push('B');
-    if (typeLine.includes('mountain') && !result.colors.includes('R')) result.colors.push('R');
-    if (typeLine.includes('forest') && !result.colors.includes('G')) result.colors.push('G');
+    const effectiveBasicTypes = getEffectiveBasicLandTypes(permanent as any);
+    if (effectiveBasicTypes.length > 0) {
+      for (const landType of effectiveBasicTypes) {
+        const mana = manaColorForBasicLandType(landType);
+        if (mana && !result.colors.includes(mana)) result.colors.push(mana);
+      }
+    } else {
+      if (typeLine.includes('plains') && !result.colors.includes('W')) result.colors.push('W');
+      if (typeLine.includes('island') && !result.colors.includes('U')) result.colors.push('U');
+      if (typeLine.includes('swamp') && !result.colors.includes('B')) result.colors.push('B');
+      if (typeLine.includes('mountain') && !result.colors.includes('R')) result.colors.push('R');
+      if (typeLine.includes('forest') && !result.colors.includes('G')) result.colors.push('G');
+    }
   }
 
   // Dual/tri lands (and shock lands with parenthetical "{T}: Add {G} or {U}") produce ONE mana
@@ -6336,9 +6345,12 @@ export function calculateManaProduction(
         result.bonusMana.push({ color: 'G', amount: 2 });
       }
       
-      // Utopia Sprawl - "Whenever enchanted Forest is tapped for mana, add one mana of the chosen color"
-      if (permName.includes('utopia sprawl')) {
-        const chosenAuraColor = (perm as any).chosenColor || chosenColor || 'G';
+      // Aura: tapped for mana -> add one mana of the chosen color (Utopia Sprawl template)
+      if (
+        /tapped for mana/i.test(permOracleText)
+        && /add (?:one mana|an additional mana|a mana) of the chosen colou?r/i.test(permOracleText)
+      ) {
+        const chosenAuraColor = resolvePermanentChosenColorSymbol(perm) || chosenColor || 'G';
         result.bonusMana.push({ color: chosenAuraColor, amount: 1 });
       }
       
@@ -6389,19 +6401,28 @@ export function calculateManaProduction(
     // Only apply effects from our own permanents or global effects
     const isOurs = permController === playerId;
     
-    // Caged Sun - "Whenever a land you control is tapped for mana of the chosen color, add one additional mana of that color"
-    if (permName.includes('caged sun') && isOurs && isLand) {
-      const chosenSunColor = (perm as any).chosenColor || 'C';
-      if (result.colors.includes(chosenSunColor) || (chosenColor && chosenSunColor === chosenColor)) {
-        result.bonusMana.push({ color: chosenSunColor, amount: 1 });
-      }
-    }
-    
-    // Gauntlet of Power - "Whenever a basic land is tapped for mana of the chosen color, add one additional mana of that color"
-    if (permName.includes('gauntlet of power') && isOurs && typeLine.includes('basic')) {
-      const chosenGauntletColor = (perm as any).chosenColor || 'C';
-      if (result.colors.includes(chosenGauntletColor) || (chosenColor && chosenGauntletColor === chosenColor)) {
-        result.bonusMana.push({ color: chosenGauntletColor, amount: 1 });
+    // Chosen-color land mana doublers (Caged Sun / Gauntlet of Power templates)
+    if (
+      isLand
+      && /tapped for mana of the chosen colou?r/i.test(permOracleText)
+      && /add (?:one )?additional mana of that colou?r/i.test(permOracleText)
+    ) {
+      const requiresBasic = /\bbasic land\b/i.test(permOracleText);
+      const requiresYouControl = /land you control/i.test(permOracleText);
+      const hasBasicType =
+        typeLine.includes('basic') || getEffectiveBasicLandTypes(permanent as any).length > 0;
+      if (requiresBasic && !hasBasicType) {
+        // skip
+      } else if (requiresYouControl && !isOurs) {
+        // skip opponents' lands for controller-limited effects
+      } else {
+        const chosenDoublerColor = resolvePermanentChosenColorSymbol(perm) || 'C';
+        const producedMatches =
+          result.colors.map((c) => String(c).toUpperCase()).includes(String(chosenDoublerColor).toUpperCase())
+          || (chosenColor && String(chosenDoublerColor).toUpperCase() === String(chosenColor).toUpperCase());
+        if (producedMatches && chosenDoublerColor !== 'C') {
+          result.bonusMana.push({ color: chosenDoublerColor, amount: 1 });
+        }
       }
     }
     

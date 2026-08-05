@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, TargetRef } from '../../shared/src';
-import { categorizeSpell, evaluateTargeting, type SpellSpec } from '../src/rules-engine/targeting';
+import { categorizeSpell, evaluateTargeting, resolveSpell, type SpellSpec } from '../src/rules-engine/targeting';
 
 describe('Oracle templates: surveil + multiword creature tokens', () => {
   it('categorizeSpell: "Surveil 2." -> SURVEIL', () => {
@@ -45,33 +45,24 @@ describe('Oracle templates: surveil + multiword creature tokens', () => {
 });
 
 describe('Execution via applyEvent(resolveSpell) for QueueSurveil', () => {
-  it('SURVEIL sets pendingSurveil for caster (test/replay path)', () => {
-    const g = createInitialGameState('t_surv_pending');
-    const p1 = 'p1' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-
-    const spec: SpellSpec = { op: 'SURVEIL', filter: 'ANY', minTargets: 0, maxTargets: 0, surveilCount: 2 };
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'surveil2', spec, chosen: [] });
-
-    expect((g.state as any).pendingSurveil?.[p1]).toBe(2);
-  });
-
-  it('SURVEIL_TARGET_PLAYER sets pendingSurveil for chosen player', () => {
-    const g = createInitialGameState('t_surv_pending_target');
+  it('SURVEIL_* resolveSpell ops are deleted (P1a; categorize patterns kept for cast)', () => {
+    const g = createInitialGameState('t_surv_resolve_deleted');
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;
     g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
     g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
 
-    const spec: SpellSpec = { op: 'SURVEIL_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, surveilCount: 1 };
-    g.applyEvent!({
-      type: 'resolveSpell',
-      caster: p1,
-      cardId: 'surveil_target',
-      spec,
-      chosen: [{ kind: 'player', id: p2 } as TargetRef],
-    });
-
-    expect((g.state as any).pendingSurveil?.[p2]).toBe(1);
+    expect(resolveSpell(
+      { op: 'SURVEIL', filter: 'ANY', minTargets: 0, maxTargets: 0, surveilCount: 2 } as SpellSpec,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'SURVEIL_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, surveilCount: 1 } as SpellSpec,
+      [{ kind: 'player', id: p2 } as TargetRef],
+      g.state as any,
+      p1,
+    )).toEqual([]);
   });
 });

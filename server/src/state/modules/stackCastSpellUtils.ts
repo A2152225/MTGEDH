@@ -300,6 +300,7 @@ export function castSpell(
 
   const stackItem: any = {
     id: uid('stack'),
+    type: 'spell',
     controller: playerId,
     card: { ...card, zone: 'stack' },
     targets: targets || [],

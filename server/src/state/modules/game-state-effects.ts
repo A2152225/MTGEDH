@@ -53,6 +53,11 @@ import { isStationPermanentTypeLine } from "../../../../rules-engine/src/station
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { cardHasCreatureType } from "../creatureTypeNow.js";
 import { getActiveStationAbilities, parseStationAbilities } from "../../utils/stationParser.js";
+import {
+  collectOraclePatternDamageReplacementSpecsFromState,
+  overlayReplacementSpecToEffect,
+  overlaySpecsMatchDamage,
+} from "./replacementEffectSpec.js";
 
 /**
  * Check if a permanent is an actual Treasure token/artifact (not just a card that creates treasures)
@@ -2312,33 +2317,6 @@ export function recalculatePlayerEffects(ctx: GameContext, playerId?: string): v
 
 
 /**
- * Damage modifiers for creatures like Gisela, Blade of Goldnight
- * Key: lowercase card name, Value: modifier configuration
- */
-const DAMAGE_MODIFIERS: Record<string, { 
-  doubleDamageToOpponents?: boolean; 
-  halveDamageToController?: boolean;
-  doubleDamageFromSource?: boolean;
-}> = {
-  "gisela, blade of goldnight": {
-    doubleDamageToOpponents: true,
-    halveDamageToController: true,
-  },
-  "furnace of rath": {
-    doubleDamageToOpponents: true,
-    doubleDamageFromSource: true, // Doubles ALL damage
-  },
-  "dictate of the twin gods": {
-    doubleDamageToOpponents: true,
-    doubleDamageFromSource: true, // Doubles ALL damage
-  },
-  "fiery emancipation": {
-    // Triples damage dealt by sources you control
-    doubleDamageToOpponents: false, // Special handling needed for triple
-  },
-};
-
-/**
  * Calculate modified damage amount based on battlefield effects
  * Handles Gisela, Furnace of Rath, etc.
  * 
@@ -2353,7 +2331,8 @@ export function calculateModifiedDamage(
   damageAmount: number,
   damageDealer: string,
   damageReceiver: string,
-  damageSourcePermanentId?: string
+  damageSourcePermanentId?: string,
+  isCombatDamage?: boolean
 ): { amount: number; modifiers: string[] } {
   const isToOpponent = damageDealer !== damageReceiver;
   
@@ -2363,7 +2342,8 @@ export function calculateModifiedDamage(
     damageDealer,
     damageReceiver,
     isToOpponent,
-    damageSourcePermanentId
+    damageSourcePermanentId,
+    isCombatDamage
   );
   
   if (effects.length === 0) {
@@ -2831,7 +2811,8 @@ export function resolveCombatDamageToOpponent(
     Math.max(0, Number(args.damageAmount) || 0),
     String(args.attackerController || ''),
     String(args.defendingPlayerId || ''),
-    String(args.attackerPermanent?.id || '')
+    String(args.attackerPermanent?.id || ''),
+    true
   );
 
   const replacement = applyCombatDamageReplacement(
@@ -3279,106 +3260,25 @@ export function detectDamageReplacementEffects(
   damageDealer: string,
   damageReceiver: string,
   isToOpponent: boolean,
-  damageSourcePermanentId?: string
+  damageSourcePermanentId?: string,
+  isCombatDamage?: boolean
 ): ReplacementEffect[] {
   const effects: ReplacementEffect[] = [];
-  const battlefield = getActivePermanents(ctx);
-  
-  for (const perm of battlefield) {
-    const cardName = (perm.card?.name || "").toLowerCase();
-    const controller = perm.controller;
-    
-    // Gisela, Blade of Goldnight
-    if (cardName.includes("gisela, blade of goldnight")) {
-      if (controller === damageDealer && isToOpponent) {
-        // Double damage to opponents
-        effects.push({
-          type: 'double',
-          source: "Gisela, Blade of Goldnight (double)",
-          controllerId: controller,
-        });
-      }
-      if (controller === damageReceiver && !isToOpponent) {
-        // Halve damage to self (rounded up = damage rounded down)
-        effects.push({
-          type: 'halve',
-          source: "Gisela, Blade of Goldnight (halve)",
-          controllerId: controller,
-        });
-      }
-    }
-    
-    // Furnace of Rath / Dictate of the Twin Gods - doubles ALL damage
-    if (cardName.includes("furnace of rath") || cardName.includes("dictate of the twin gods")) {
-      effects.push({
-        type: 'double',
-        source: perm.card?.name || "Damage Doubler",
-        controllerId: controller,
-      });
-    }
-    
-    // Fiery Emancipation - triples damage dealt by sources you control
-    if (cardName.includes("fiery emancipation") && controller === damageDealer) {
-      effects.push({
-        type: 'triple',
-        source: "Fiery Emancipation",
-        controllerId: controller,
-      });
-    }
-    
-    // Torbran, Thane of Red Fell - +2 damage from red sources you control
-    if (cardName.includes("torbran, thane of red fell") && controller === damageDealer) {
-      effects.push({
-        type: 'add_flat',
-        value: 2,
-        source: "Torbran, Thane of Red Fell",
-        controllerId: controller,
-      });
-    }
-    
-    // City on Fire - triples damage from sources you control
-    if (cardName.includes("city on fire") && controller === damageDealer) {
-      effects.push({
-        type: 'triple',
-        source: "City on Fire",
-        controllerId: controller,
-      });
-    }
-    
-    // Embermaw Hellion - +1 damage from red sources you control
-    if (cardName.includes("embermaw hellion") && controller === damageDealer) {
-      effects.push({
-        type: 'add_flat',
-        value: 1,
-        source: "Embermaw Hellion",
-        controllerId: controller,
-      });
-    }
-    
-    // Angrath's Marauders - double damage from sources you control
-    if (cardName.includes("angrath's marauders") && controller === damageDealer) {
-      effects.push({
-        type: 'double',
-        source: "Angrath's Marauders",
-        controllerId: controller,
-      });
-    }
-    
-    // The Sound of Drums - double combat damage from enchanted creature
-    // Oracle text: "If enchanted creature would deal combat damage to a permanent or player, it deals double that damage instead."
-    const sourcePermanentId = String(damageSourcePermanentId || '').trim();
-    if (
-      cardName.includes("sound of drums") &&
-      (perm.attachedTo === damageDealer || (sourcePermanentId && String(perm.attachedTo || '') === sourcePermanentId))
-    ) {
-      effects.push({
-        type: 'double',
-        source: "The Sound of Drums",
-        controllerId: controller,
-      });
-    }
+
+  // Oracle-pattern amount modifiers (Furnace / Dictate / Gisela / Angrath's / Emancipation / Torbran / Sound of Drums).
+  const state = (ctx as any)?.state || ctx;
+  const oracleSpecs = collectOraclePatternDamageReplacementSpecsFromState(state);
+  for (const spec of oracleSpecs) {
+    if (!spec.instead?.modify) continue;
+    if (!overlaySpecsMatchDamage(
+      spec,
+      { damageDealer, damageReceiver, damageSourcePermanentId, isCombatDamage },
+      state,
+    )) continue;
+    effects.push(overlayReplacementSpecToEffect(spec));
   }
-  
+
+  void isToOpponent;
   return effects;
 }
 

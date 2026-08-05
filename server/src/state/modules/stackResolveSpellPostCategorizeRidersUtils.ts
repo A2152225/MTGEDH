@@ -11,8 +11,11 @@ import { parseNumberWord } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { buildResolvedSpellCopySnapshot, wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
 import { buildOracleOverlayCollectOptions } from './oracleIrCompiledOverlayLookup.js';
 import { collectSpellResolutionEffectSteps } from './trigger-runtime-wiring.js';
+import { categorizeSpell } from '../../rules-engine/targeting.js';
 import {
+  isCategorizeOpcodeDeletedFromResolveSpell,
   isSpellEffectOwnedByOracleIrPrimary,
+  shouldSkipLegacySpellBodyHandlers,
   skipRetiredSpellLegacyHandler,
 } from './oracleIrSpellLegacyRouting.js';
 
@@ -187,6 +190,10 @@ export function applyInstantSorceryFracturedIdentityAndFallbackRiders(
   if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
     return;
   }
+  // P1c: IR primary owns Fractured Identity / generic token create riders.
+  if (shouldSkipLegacySpellBodyHandlers(options.oracleText, spellName)) {
+    return;
+  }
 
   const state = (ctx as any).state;
   const controller = options.controller;
@@ -256,7 +263,18 @@ export function applyInstantSorceryFracturedIdentityAndFallbackRiders(
     }
   }
 
-  if (options.uncategorizedSpellFallbackApplied <= 0 && !options.oracleIrSpellHandled) {
+  // P1a: CREATE_TOKEN/INVESTIGATE resolve deleted — skip dual-apply legacy creature-token rider
+  // (including under ORACLE_IR_SPELL_LEGACY). Treasure/Clue already no-op via deleted categorize.
+  const categorizeOp = String(categorizeSpell(String(effectiveCard?.name || ''), options.oracleText)?.op || '');
+  const skipDeletedTokenCategorizeRider =
+    (categorizeOp === 'CREATE_TOKEN' || categorizeOp === 'INVESTIGATE')
+    && isCategorizeOpcodeDeletedFromResolveSpell(categorizeOp);
+
+  if (
+    !skipDeletedTokenCategorizeRider
+    && options.uncategorizedSpellFallbackApplied <= 0
+    && !options.oracleIrSpellHandled
+  ) {
     let tokenCreationResult = parseSpellLegacyTokenCreation(effectiveCard.name, oracleTextLower, controller, state, spellXValue);
     const graveyardTokenInsteadMatch = oracleTextLower.match(/if this spell was cast from a graveyard,\s*create (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) of those tokens instead/i);
     if (tokenCreationResult && wasSpellCastFromGraveyard(item) && graveyardTokenInsteadMatch) {
@@ -267,7 +285,7 @@ export function applyInstantSorceryFracturedIdentityAndFallbackRiders(
       createSpellLegacyTokenFromSpec(ctx, controller, tokenCreationResult);
       debug(2, `[resolveTopOfStack] ${effectiveCard.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
     }
-  } else if (wasSpellCastFromGraveyard(item)) {
+  } else if (!skipDeletedTokenCategorizeRider && wasSpellCastFromGraveyard(item)) {
     applyInstantSorceryGraveyardConditionalTokenRider(ctx, options);
   }
 

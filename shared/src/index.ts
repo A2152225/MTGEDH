@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./creatureTypes.js";
+export * from "./landTypes.js";
 export * from "./textUtils.js";
 export * from "./optionalEffectKey.js";
 export * from "./mayAutoPreference.js";

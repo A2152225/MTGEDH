@@ -8223,9 +8223,11 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        const validColors = ['white', 'blue', 'black', 'red', 'green'];
+        const stepColors = Array.isArray(stepAny.colors) && stepAny.colors.length > 0
+          ? stepAny.colors.map((c: any) => String(c).toLowerCase())
+          : ['white', 'blue', 'black', 'red', 'green'];
         const colorLower = String(selection).toLowerCase();
-        if (!validColors.includes(colorLower)) {
+        if (!stepColors.includes(colorLower)) {
           socket.emit('error', { code: 'INVALID_COLOR', message: `Invalid color selection (${selection})` });
           return;
         }
@@ -15628,6 +15630,10 @@ async function handleStepResponse(
     
     case ResolutionStepType.CARD_NAME_CHOICE:
       await handleCardNameChoiceResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.BASIC_LAND_TYPE_CHOICE:
+      await handleBasicLandTypeChoiceResponse(io, game, gameId, step, response);
       break;
 
     case ResolutionStepType.RIOT_CHOICE:
@@ -26192,6 +26198,78 @@ async function handleLibrarySearchResponse(
       const compoundResumeResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
       game.state = ctx.state;
       syncAllOracleIRPlayerZonesAfterResolution(ctx);
+
+      // Celestial / behold: IR search_library resumes to hand; promote when additional cost + type match.
+      const chosenTypeBattlefieldIfPaidIr = (searchStep as any).chosenTypeBattlefieldIfPaid as
+        | { chosenType?: string; additionalCostPaid?: boolean }
+        | undefined;
+      const selectedIdsForBehold = Array.isArray(selections) ? selections : [];
+      const selectedCardForBehold = selectedIdsForBehold.length === 1
+        ? [...availableCards, ...nonSelectableCards].find(
+          (card: any) => String(card?.id || '') === String(selectedIdsForBehold[0] || ''),
+        )
+        : undefined;
+      if (
+        chosenTypeBattlefieldIfPaidIr?.additionalCostPaid === true
+        && String(chosenTypeBattlefieldIfPaidIr.chosenType || '').trim()
+        && selectedCardForBehold
+        && cardHasCreatureType(selectedCardForBehold, String(chosenTypeBattlefieldIfPaidIr.chosenType))
+      ) {
+        const zonesRef = (game.state as any).zones || {};
+        const ownerZone = zonesRef[searchOwnerId] = zonesRef[searchOwnerId] || {
+          hand: [],
+          handCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+        };
+        const handCards: any[] = Array.isArray(ownerZone.hand) ? ownerZone.hand : [];
+        const handIdx = handCards.findIndex(
+          (card: any) => String(card?.id || '') === String(selectedIdsForBehold[0] || ''),
+        );
+        const cardFromHand = handIdx >= 0 ? handCards.splice(handIdx, 1)[0] : selectedCardForBehold;
+        ownerZone.hand = handCards;
+        ownerZone.handCount = handCards.length;
+        const playerRef = ((game.state as any).players || []).find(
+          (entry: any) => String(entry?.id || '') === searchOwnerId,
+        );
+        if (playerRef && Array.isArray(playerRef.hand)) {
+          playerRef.hand = playerRef.hand.filter(
+            (card: any) => String(card?.id || '') !== String(selectedIdsForBehold[0] || ''),
+          );
+        }
+        const { uid: uidFn, parsePT: parsePtFn, cardManaValue: cmcFn } = await import('../state/utils.js');
+        const { applyCounterModifications: applyCountersFn } = await import('../state/modules/counters_tokens.js');
+        const { getETBTriggersForPermanent: getEtbFn } = await import('../state/modules/triggered-abilities.js');
+        const { triggerETBEffectsForPermanent: triggerEtbFn } = await import('../state/modules/triggerEtbPermanentEffects.js');
+        const { detectEntersWithCounters: detectEtbCountersFn } = await import('../state/modules/detectEntersWithCounters.js');
+        const { creatureWillHaveHaste: hasteFn } = await import('../state/modules/creatureEntryHasteUtils.js');
+        const { checkPermanentEntersTapped: entersTappedFn } = await import('../state/modules/triggerPermanentEntersTapped.js');
+        const battlefieldArr = (game.state as any).battlefield = (game.state as any).battlefield || [];
+        await putCardOntoBattlefield(
+          cardFromHand,
+          searchOwnerId,
+          entersTapped,
+          game.state,
+          battlefieldArr,
+          uidFn,
+          parsePtFn,
+          cmcFn,
+          applyCountersFn,
+          getEtbFn,
+          triggerEtbFn,
+          detectEtbCountersFn,
+          hasteFn,
+          entersTappedFn,
+          game,
+          io,
+          gameId,
+        );
+        destination = 'battlefield';
+        debug(2, `[Resolution] ${sourceName}: IR behold paid + type match; moved ${String(cardFromHand?.name || '')} to battlefield`);
+      }
+
       const shuffledLibraryIdsFromMutations = readShuffledLibraryIdsFromReplayMutations(
         compoundResumeResult,
         searchOwnerId,
@@ -27273,6 +27351,17 @@ async function handleColorChoiceResponse(
   
   // Store the chosen color on the permanent
   permanent.chosenColor = colorLower;
+  const reason = String((step as any).reason || (step as any).description || '').toLowerCase();
+  const oracleLower = String(permanent.card?.oracle_text || '').toLowerCase();
+  if (reason.includes('color word') || /choose a colou?r word/i.test(oracleLower)) {
+    permanent.chosenColorWord = colorLower;
+    if (permanent.card && typeof permanent.card === 'object') {
+      permanent.card.chosenColorWord = colorLower;
+    }
+  }
+  if (permanent.card && typeof permanent.card === 'object') {
+    permanent.card.chosenColor = colorLower;
+  }
   
   // Append event for replay
   try {
@@ -27283,6 +27372,7 @@ async function handleColorChoiceResponse(
       permanentId: permanentId,
       cardName: cardName,
       color: colorLower,
+      ...(permanent.chosenColorWord ? { colorWord: permanent.chosenColorWord } : {}),
     });
   } catch (e) {
     debugWarn(1, "[Resolution] Failed to persist color choice event:", e);
@@ -27303,6 +27393,70 @@ async function handleColorChoiceResponse(
   });
   
   debug(2, `[Resolution] Color choice completed: ${cardName} -> ${selection}`);
+}
+
+async function handleBasicLandTypeChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId;
+  const rawSelection = response.selections as any;
+  const selectionRaw = Array.isArray(rawSelection) ? rawSelection[0] : rawSelection;
+  const selection = typeof selectionRaw === 'string'
+    ? selectionRaw
+    : String((selectionRaw as any)?.value || (selectionRaw as any)?.label || (selectionRaw as any)?.id || '').trim();
+
+  const validTypes = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'];
+  const normalized = validTypes.find((landType) => landType.toLowerCase() === selection.toLowerCase())
+    || validTypes.find((landType) => selection.toLowerCase().includes(landType.toLowerCase()));
+  if (!normalized) {
+    debugWarn(2, `[Resolution] Invalid basic land type choice: ${selection}`);
+    return;
+  }
+
+  const permanentId = (step as any).permanentId || (step as any).sourceId;
+  const cardName = (step as any).cardName || (step as any).sourceName || 'Permanent';
+  const battlefield = game.state?.battlefield || [];
+  const permanent = battlefield.find((p: any) => p.id === permanentId);
+  if (!permanent) {
+    debugWarn(2, `[Resolution] Basic land type choice: permanent ${permanentId} not found`);
+    return;
+  }
+
+  permanent.chosenBasicLandType = normalized;
+  if (permanent.card && typeof permanent.card === 'object') {
+    permanent.card.chosenBasicLandType = normalized;
+  }
+
+  try {
+    await appendEvent(gameId, (game as any).seq || 0, 'basicLandTypeChoice', {
+      playerId: pid,
+      resolvedStepId: String(step.id || '').trim(),
+      resolvedStepType: String(step.type || '').trim(),
+      permanentId,
+      cardName,
+      basicLandType: normalized,
+    });
+  } catch (e) {
+    debugWarn(1, '[Resolution] Failed to persist basic land type choice event:', e);
+  }
+
+  if (typeof (game as any).bumpSeq === 'function') {
+    (game as any).bumpSeq();
+  }
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${getPlayerName(game, pid)} chose ${normalized} for ${cardName}.`,
+    ts: Date.now(),
+  });
+
+  debug(2, `[Resolution] Basic land type choice completed: ${cardName} -> ${normalized}`);
 }
 
 async function handleCreatureTypeChoiceResponse(

@@ -10,10 +10,12 @@ import {
   collectDeclarativeStaticSourcePermanentIds,
   parseStaticEffectSpecsFromOraclePermanent,
 } from './staticEffectSpecOracleParsing.js';
+import { getEffectiveOracleText } from './effectiveOracleText.js';
 import { scanBattlefieldContinuousEffectOverlayGaps } from './oracleIrContinuousEffectGapTelemetry.js';
 
 /** Declarative static spec (Phase 5.3). See docs/oracle-ir-phase5-continuous-effects-design.md */
 export type StaticEffectScopeKind =
+  | 'self'
   | 'creatures_you_control'
   | 'other_creatures_you_control'
   | 'planeswalkers_you_control'
@@ -22,6 +24,7 @@ export type StaticEffectScopeKind =
   | 'other_all_creatures_of_type'
   | 'creature_type'
   | 'opponent_creatures_of_type'
+  | 'all_permanents'
   | 'player_you';
 
 export interface StaticEffectScope {
@@ -35,6 +38,8 @@ export interface StaticEffectGrant {
   abilities?: readonly string[];
   playerHexproof?: boolean;
   playerShroud?: boolean;
+  /** Color words/symbols added in addition to printed colors (layer 5). */
+  colorAdditions?: readonly string[];
   /** Multiply power/toughness by a battlefield count (Coat of Arms, Sliver Legion). */
   countBasis?: StaticEffectCountBasis;
 }
@@ -290,17 +295,30 @@ function permanentHasOverlayStaticSpecs(perm: BattlefieldPermanent): boolean {
   return false;
 }
 
-function creatureHasManaColor(permanent: BattlefieldPermanent, colorName: string): boolean {
+function colorNameToSymbol(colorName: string): string | null {
   const colorMap: Record<string, string> = {
     white: 'W',
     blue: 'U',
     black: 'B',
     red: 'R',
     green: 'G',
+    w: 'W',
+    u: 'U',
+    b: 'B',
+    r: 'R',
+    g: 'G',
   };
-  const symbol = colorMap[String(colorName || '').trim().toLowerCase()];
+  return colorMap[String(colorName || '').trim().toLowerCase()] || null;
+}
+
+function creatureHasManaColor(permanent: BattlefieldPermanent, colorName: string): boolean {
+  const symbol = colorNameToSymbol(colorName);
   const colors = ((permanent.card as any)?.colors || []).map((entry: string) => String(entry).toUpperCase());
-  if (symbol && colors.includes(symbol)) return true;
+  const added = Array.isArray((permanent as any).colorAdditions)
+    ? ((permanent as any).colorAdditions as string[]).map((entry) => String(entry).toUpperCase())
+    : [];
+  const effective = [...new Set([...colors, ...added])];
+  if (symbol && effective.includes(symbol)) return true;
   const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
   return typeLine.includes(String(colorName || '').trim().toLowerCase());
 }
@@ -341,11 +359,21 @@ export function collectStaticEffectSpecsFromState(state: unknown): StaticEffectS
         || morophonChosenType[sourcePermanentId]
         || '',
       ).trim();
-      const permForParse =
+      const effectiveOracle = getEffectiveOracleText(perm, state);
+      const permForParseBase =
         resolvedChosenType && !String(perm.chosenCreatureType || '').trim()
           ? { ...perm, chosenCreatureType: resolvedChosenType }
           : perm;
-      specs.push(...parseStaticEffectSpecsFromOraclePermanent(permForParse));
+      const permForParse = effectiveOracle && effectiveOracle !== String(perm.card?.oracle_text || '')
+        ? {
+            ...permForParseBase,
+            card: {
+              ...(permForParseBase as any).card,
+              oracle_text: effectiveOracle,
+            },
+          }
+        : permForParseBase;
+      specs.push(...parseStaticEffectSpecsFromOraclePermanent(permForParse as BattlefieldPermanent));
     }
   }
 
@@ -378,6 +406,10 @@ function permanentMatchesScope(
   switch (spec.scope.kind) {
     case 'player_you':
       return false;
+    case 'self':
+      return String(permanent.id || '') === String(spec.sourcePermanentId || '');
+    case 'all_permanents':
+      return true;
     case 'all_creatures':
       return isCreaturePermanent(permanent);
     case 'creatures_you_control':
@@ -495,6 +527,9 @@ export function applyDeclarativeStaticSpecs(
     permanentAbilities: new Map(
       [...base.permanentAbilities.entries()].map(([id, abilities]) => [id, new Set(abilities)]),
     ),
+    colorAdditions: new Map(
+      [...(base.colorAdditions || new Map()).entries()].map(([id, colors]) => [id, [...colors]]),
+    ),
   };
 
   const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
@@ -536,6 +571,17 @@ export function applyDeclarativeStaticSpecs(
           const normalized = String(ability || '').trim().toLowerCase();
           if (normalized) abilitySet.add(normalized);
         }
+      }
+
+      const colorAdds = Array.isArray(spec.grant.colorAdditions) ? spec.grant.colorAdditions : [];
+      if (colorAdds.length > 0) {
+        const existing = result.colorAdditions.get(permanentId) || [];
+        const merged = [...existing];
+        for (const color of colorAdds) {
+          const symbol = String(color || '').trim().toUpperCase();
+          if (symbol && !merged.includes(symbol)) merged.push(symbol);
+        }
+        result.colorAdditions.set(permanentId, merged);
       }
     }
   }
@@ -712,6 +758,17 @@ export function syncDerivedContinuousEffects(state: unknown): ContinuousEffectRe
       configurable: true,
       enumerable: false,
     });
+    const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
+    for (const permanent of battlefield) {
+      if (!permanent) continue;
+      const id = String(permanent.id || '');
+      const fromDerived = derived.colorAdditions?.get(id) || [];
+      if (fromDerived.length > 0) {
+        (permanent as any).colorAdditions = [...fromDerived];
+      } else if ((permanent as any).colorAdditions) {
+        delete (permanent as any).colorAdditions;
+      }
+    }
   }
   return derived;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import {
   collectOracleEffectStepsWithOverlay,
+  collectSpellResolutionEffectStepsWithOverlay,
   envelopeHasDeclarativeOverlaySpecs,
   lowerCompilerEnvelopeToSteps,
   resolveOracleIRWithOverlay,
@@ -54,6 +55,12 @@ describe('oracleIRCompilerEnvelope', () => {
     const resolved = resolveOracleIRWithOverlay(oracleText, 'Moon Banders', overlay);
     const kinds = resolved.abilities.flatMap((ability) => ability.steps.map((step) => step.kind));
     expect(kinds).toEqual(['draw']);
+    // Overlay SPELL_EFFECT must win over parser STATIC-on-unknown so stack collectors keep steps.
+    expect(resolved.abilities.map((ability) => ability.type)).toEqual(['spell']);
+    expect(
+      collectSpellResolutionEffectStepsWithOverlay(oracleText, 'Moon Banders', overlay)
+        .map((step) => step.kind),
+    ).toEqual(['draw']);
   });
 
   it('lowers reveal-land DSL into look_select_top', () => {

@@ -607,15 +607,61 @@ function applyCounterSpellStep(
   }
 
   const movedCard = (targetStackItem as any)?.card || targetStackItem;
+  const targetName = String((targetStackItem as any)?.card?.name || (targetStackItem as any)?.name || targetStackItemId).trim() || targetStackItemId;
+
+  // Copied spells can cease instead of changing zones (ceaseOnCounter).
+  if ((movedCard as any)?.ceaseOnCounter === true || (targetStackItem as any)?.ceaseOnCounter === true) {
+    return {
+      applied: true,
+      state: {
+        ...state,
+        stack: updatedStack,
+      },
+      log: [`Countered copied spell ${targetName} (ceased to exist)`],
+      lastMovedCards: [],
+    };
+  }
+
+  // Mirror stack→GY replacements (flashback / jump-start / escape / disturb / harmonize,
+  // castFromGraveyard, exileAfterResolution). Full overlay replacement stays server-side;
+  // this covers the builtin exile-after-resolution family so IR primary matches counterStackItem.
+  const castWithAbility = String(
+    (targetStackItem as any)?.card?.castWithAbility
+      || (targetStackItem as any)?.castWithAbility
+      || (movedCard as any)?.castWithAbility
+      || '',
+  ).trim().toLowerCase();
+  const STACK_GY_EXILE_ABILITIES = new Set(['flashback', 'jump-start', 'escape', 'disturb', 'harmonize']);
+  const exileAfterResolution = Boolean(
+    (targetStackItem as any)?.exileAfterResolution
+      || (targetStackItem as any)?.card?.exileAfterResolution
+      || (movedCard as any)?.exileAfterResolution,
+  );
+  const castFromGraveyard = Boolean(
+    (targetStackItem as any)?.castFromGraveyard
+      || (targetStackItem as any)?.card?.castFromGraveyard
+      || (movedCard as any)?.castFromGraveyard,
+  );
+  const shouldExile = exileAfterResolution
+    || castFromGraveyard
+    || STACK_GY_EXILE_ABILITIES.has(castWithAbility);
+
   const updatedPlayers = (state.players || []).map((player: any) => {
     if (String(player?.id || '').trim() !== ownerId) return player;
+    if (shouldExile) {
+      const exile = Array.isArray(player?.exile) ? [...player.exile] : [];
+      const stamped = { ...(movedCard as any), zone: 'exile' };
+      return {
+        ...player,
+        exile: [...exile, stamped],
+      };
+    }
     const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
     return {
       ...player,
       graveyard: [...graveyard, ...stampCardsPutIntoGraveyardThisTurn(state, [movedCard])],
     };
   });
-  const targetName = String((targetStackItem as any)?.card?.name || (targetStackItem as any)?.name || targetStackItemId).trim() || targetStackItemId;
 
   return {
     applied: true,
@@ -624,7 +670,11 @@ function applyCounterSpellStep(
       stack: updatedStack,
       players: updatedPlayers as any,
     },
-    log: [`Countered spell ${targetName}`],
+    log: [
+      shouldExile
+        ? `Countered spell ${targetName} (exiled)`
+        : `Countered spell ${targetName}`,
+    ],
     lastMovedCards: [movedCard],
   };
 }

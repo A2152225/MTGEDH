@@ -725,13 +725,26 @@ describe('replacement effect evaluator', () => {
         id: 'doubling_season_1',
         controller: 'p1',
         owner: 'p1',
-        card: { id: 'doubling_season_card_1', name: 'Doubling Season', type_line: 'Enchantment', oracle_text: '' },
+        card: {
+          id: 'doubling_season_card_1',
+          name: 'Doubling Season',
+          type_line: 'Enchantment',
+          oracle_text:
+            'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.\n'
+            + 'If an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead.',
+        },
       },
       {
         id: 'hardened_scales_1',
         controller: 'p1',
         owner: 'p1',
-        card: { id: 'hardened_scales_card_1', name: 'Hardened Scales', type_line: 'Enchantment', oracle_text: '' },
+        card: {
+          id: 'hardened_scales_card_1',
+          name: 'Hardened Scales',
+          type_line: 'Enchantment',
+          oracle_text:
+            'If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead.',
+        },
       },
     ];
 

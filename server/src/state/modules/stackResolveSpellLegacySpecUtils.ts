@@ -8,7 +8,13 @@ import { executeSpellEffect } from './executeSpellEffect.js';
 import { wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
 import { applySupplementalOracleIRForResolvedSpell } from './oracleIrSpellLegacySupplemental.js';
 import { applyInstantSorceryItsControllerCreatesToken } from './stackResolveSpellTargetMetadataUtils.js';
-import { shouldSkipLegacySpellCategorizeExecution, skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
+import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
+import {
+  isCategorizeOpcodeDeletedFromResolveSpell,
+  isCategorizeOpcodeRetiredUnderOracleIrPrimary,
+  shouldSkipLegacySpellCategorizeExecution,
+  skipRetiredSpellLegacyHandler,
+} from './oracleIrSpellLegacyRouting.js';
 import { parseNumberWord } from './oracleIrSpellLegacySpellShapeUtils.js';
 
 export function executeInstantSorceryLegacyCategorizedSpell(
@@ -32,6 +38,24 @@ export function executeInstantSorceryLegacyCategorizedSpell(
     return;
   }
   if (shouldSkipLegacySpellCategorizeExecution(options.oracleText, spellName)) {
+    return;
+  }
+  const spellOp = String(options.spellSpec?.op || '');
+  // P1a: resolveSpell cases deleted — always skip (including SPELL_LEGACY).
+  if (isCategorizeOpcodeDeletedFromResolveSpell(spellOp)) {
+    debug(1, `[spell] skip deleted resolve categorize op: ${spellOp} (${spellName})`);
+    return;
+  }
+  // Defense-in-depth: retired categorize ops never execute opcodes under IR primary,
+  // even if ownership helpers miss a variant of the oracle text (P1a / end-state roadmap).
+  if (
+    isOracleIrSpellPrimaryEnabled()
+    && isCategorizeOpcodeRetiredUnderOracleIrPrimary(spellOp)
+  ) {
+    debug(
+      1,
+      `[spell] skip retired categorize op under IR primary: ${spellOp} (${spellName})`,
+    );
     return;
   }
 

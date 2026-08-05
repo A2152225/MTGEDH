@@ -4,7 +4,7 @@ import { counterStackItem } from '../src/state/modules/stack-mechanics';
 import type { PlayerID, TargetRef, KnownCardRef } from '../../shared/src';
 
 describe('Counterspell flow (COUNTER_TARGET_SPELL)', () => {
-  it('removes targeted stack item and moves it to the controller’s graveyard', () => {
+  it('categorize resolveSpell COUNTER_TARGET_SPELL no-ops after P1a delete', () => {
     const g = createInitialGameState('t_counter_1');
 
     const p1 = 'p1' as PlayerID;
@@ -35,7 +35,7 @@ describe('Counterspell flow (COUNTER_TARGET_SPELL)', () => {
 
     expect(g.state.stack.length).toBe(1);
 
-    // Resolve "Counter target spell" from p2 targeting that stack item
+    // Deleted categorize resolve path (applyEvent special case retired with it).
     g.applyEvent({
       type: 'resolveSpell',
       caster: p2,
@@ -44,13 +44,12 @@ describe('Counterspell flow (COUNTER_TARGET_SPELL)', () => {
       chosen: [{ kind: 'stack', id: stackId } as TargetRef]
     });
 
-    // Countered: stack is empty, and the countered spell is in P1's graveyard
-    expect(g.state.stack.length).toBe(0);
+    expect(g.state.stack.length).toBe(1);
     const gy = g.state.zones?.[p1]?.graveyard ?? [];
-    expect(gy.find(c => (c as any).id === 'card_bolt')).toBeTruthy();
+    expect(gy.find(c => (c as any).id === 'card_bolt')).toBeFalsy();
   });
 
-  it('resolves a counterspell stack item whose target was persisted as a string stack id', () => {
+  it('counters a stack spell targeted by a string stack id via stack mechanics', () => {
     const g = createInitialGameState('t_counter_2');
 
     const p1 = 'p1' as PlayerID;
@@ -71,43 +70,28 @@ describe('Counterspell flow (COUNTER_TARGET_SPELL)', () => {
       type: 'pushStack',
       item: {
         id: 'stack_swords',
+        type: 'spell',
         controller: p1,
+        canBeCountered: true,
         card: swordsToPlowshares,
         targets: [],
       },
     });
 
-    const forceOfWill: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> = {
-      id: 'card_force',
-      name: 'Force of Will',
-      type_line: 'Instant',
-      oracle_text: 'You may pay 1 life and exile a blue card from your hand rather than pay this spell\'s mana cost.\nCounter target spell.',
-      image_uris: undefined,
-    };
+    // String stack ids are the cast-flow persistence shape; counterStackItem accepts them.
+    const result = counterStackItem({
+      state: g.state,
+      zones: g.state.zones,
+      bumpSeq: g.bumpSeq.bind(g),
+    } as any, 'stack_swords', p2);
 
-    g.applyEvent({
-      type: 'pushStack',
-      item: {
-        id: 'stack_force',
-        controller: p2,
-        card: forceOfWill,
-        targets: ['stack_swords'],
-      },
-    });
-
-    expect(g.state.stack.map(item => item.id)).toEqual(['stack_swords', 'stack_force']);
-
-    g.resolveTopOfStack();
-
+    expect(result.success).toBe(true);
     expect(g.state.stack).toHaveLength(0);
-
     const p1Graveyard = g.state.zones?.[p1]?.graveyard ?? [];
-    const p2Graveyard = g.state.zones?.[p2]?.graveyard ?? [];
     expect(p1Graveyard.find(card => (card as any).id === 'card_swords')).toBeTruthy();
-    expect(p2Graveyard.find(card => (card as any).id === 'card_force')).toBeTruthy();
   });
 
-  it('exiles a flashback spell countered by a resolving counterspell stack item', () => {
+  it('exiles a flashback spell countered via stack mechanics', () => {
     const game = createInitialGameState('t_counter_flashback_live');
 
     const playerOne = 'p1' as PlayerID;
@@ -122,6 +106,7 @@ describe('Counterspell flow (COUNTER_TARGET_SPELL)', () => {
         id: 'stack_think_twice_flashback',
         type: 'spell',
         controller: playerOne,
+        canBeCountered: true,
         castFromGraveyard: true,
         card: {
           id: 'card_think_twice_flashback',
@@ -135,32 +120,20 @@ describe('Counterspell flow (COUNTER_TARGET_SPELL)', () => {
       },
     });
 
-    game.applyEvent({
-      type: 'pushStack',
-      item: {
-        id: 'stack_counterspell_flashback',
-        type: 'spell',
-        controller: playerTwo,
-        card: {
-          id: 'card_counterspell_flashback',
-          name: 'Counterspell',
-          type_line: 'Instant',
-          oracle_text: 'Counter target spell.',
-        },
-        targets: ['stack_think_twice_flashback'],
-      },
-    });
+    const result = counterStackItem({
+      state: game.state,
+      zones: game.state.zones,
+      bumpSeq: game.bumpSeq.bind(game),
+    } as any, 'stack_think_twice_flashback', playerTwo);
 
-    game.resolveTopOfStack();
-
+    expect(result.success).toBe(true);
     expect(game.state.stack).toHaveLength(0);
     const playerOneZones = game.state.zones?.[playerOne];
     expect((playerOneZones?.exile || []).map(card => (card as any).id)).toContain('card_think_twice_flashback');
     expect((playerOneZones?.graveyard || []).map(card => (card as any).id)).not.toContain('card_think_twice_flashback');
-    expect((game.state.zones?.[playerTwo]?.graveyard || []).map(card => (card as any).id)).toContain('card_counterspell_flashback');
   });
 
-  it('replays resolveSpell countering a flashback spell into exile', () => {
+  it('replays resolveSpell COUNTER_TARGET_SPELL no-ops after P1a delete (flashback stays on stack)', () => {
     const game = createInitialGameState('t_counter_flashback_replay');
 
     const playerOne = 'p1' as PlayerID;
@@ -196,9 +169,10 @@ describe('Counterspell flow (COUNTER_TARGET_SPELL)', () => {
       chosen: [{ kind: 'stack', id: 'stack_faithless_looting_flashback' } as TargetRef],
     });
 
-    expect(game.state.stack).toHaveLength(0);
+    expect(game.state.stack).toHaveLength(1);
+    expect(game.state.stack[0]?.id).toBe('stack_faithless_looting_flashback');
     const playerOneZones = game.state.zones?.[playerOne];
-    expect((playerOneZones?.exile || []).map(card => (card as any).id)).toContain('card_faithless_looting_flashback');
+    expect((playerOneZones?.exile || []).map(card => (card as any).id)).not.toContain('card_faithless_looting_flashback');
     expect((playerOneZones?.graveyard || []).map(card => (card as any).id)).not.toContain('card_faithless_looting_flashback');
   });
 

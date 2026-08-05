@@ -20,6 +20,8 @@ describe('resolutionChoicePrimitives', () => {
 
   it('recognizes named generic option step types', () => {
     expect(isNamedGenericOptionChoiceStep({ type: 'modal_choice' })).toBe(true);
+    expect(isNamedGenericOptionChoiceStep({ type: 'choose_replacement' })).toBe(true);
+    expect(isNamedGenericOptionChoiceStep({ type: 'order_triggers' })).toBe(true);
     expect(isNamedGenericOptionChoiceStep({ type: 'discard_selection' })).toBe(false);
   });
 

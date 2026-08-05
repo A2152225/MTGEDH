@@ -10,14 +10,15 @@ const handlersSource = readFileSync(
   join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyRegexHandlers.ts'),
   'utf8',
 );
-const searchHandlersSource = readFileSync(
-  join(serverRoot, 'src/state/modules/oracleIrTriggerLegacySearchHandlers.ts'),
-  'utf8',
+const searchHandlersPath = join(serverRoot, 'src/state/modules/oracleIrTriggerLegacySearchHandlers.ts');
+const resolutionHandlersPath = join(
+  serverRoot,
+  'src/state/modules/oracleIrTriggerLegacyResolutionHandlers.ts',
 );
-const resolutionHandlersSource = readFileSync(
-  join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyResolutionHandlers.ts'),
-  'utf8',
-);
+const searchHandlersSource = existsSync(searchHandlersPath) ? readFileSync(searchHandlersPath, 'utf8') : '';
+const resolutionHandlersSource = existsSync(resolutionHandlersPath)
+  ? readFileSync(resolutionHandlersPath, 'utf8')
+  : '';
 const tokenHandlersSource = readFileSync(
   join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyTokenHandlers.ts'),
   'utf8',
@@ -62,10 +63,10 @@ const delayedCleanupUtilsSource = readFileSync(
   join(serverRoot, 'src/state/modules/triggerDelayedCleanupUtils.ts'),
   'utf8',
 );
-const libraryHandlersSource = readFileSync(
-  join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyLibraryHandlers.ts'),
-  'utf8',
-);
+const libraryHandlersPath = join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyLibraryHandlers.ts');
+const libraryHandlersSource = existsSync(libraryHandlersPath)
+  ? readFileSync(libraryHandlersPath, 'utf8')
+  : '';
 const upkeepSacrificeUtilsSource = readFileSync(
   join(serverRoot, 'src/state/modules/triggerUpkeepSacrificeUtils.ts'),
   'utf8',
@@ -779,7 +780,11 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(triggerLibrarySearchUtilsSource.includes('export function enqueueLibrarySearchStep')).toBe(true);
     expect(libraryHandlersSource.includes("from './triggerLibraryMillUtils.js'")).toBe(false);
     expect(libraryHandlersSource.includes("from '../../socket/may-ability-prompts.js'")).toBe(false);
-    expect(searchHandlersSource.includes("from './triggerLibrarySearchUtils.js'")).toBe(true);
+    // Empty Search/Resolution/Library handler stubs deleted (P0); type lives in triggerLibrarySearchUtils.
+    expect(existsSync(searchHandlersPath)).toBe(false);
+    expect(existsSync(resolutionHandlersPath)).toBe(false);
+    expect(existsSync(libraryHandlersPath)).toBe(false);
+    expect(triggerLibrarySearchUtilsSource.includes('export type EnqueueLibrarySearchStepFn')).toBe(true);
     expect(combinedHandlersSource.includes("from './triggers/life-loss.js'")).toBe(false);
     expect(stackSpecialTriggerHandlersSource.includes("from '../../socket/may-ability-prompts.js'")).toBe(true);
     expect(stackSource.includes('function millCardsFromLibrary')).toBe(false);

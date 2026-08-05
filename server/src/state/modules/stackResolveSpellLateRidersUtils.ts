@@ -2,7 +2,10 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { applySpellLegacyRemovalRiders } from './oracleIrSpellLegacyRemovalRiderUtils.js';
 import { applySpellLegacySpecialSpellRiders } from './oracleIrSpellLegacySpecialSpellRiderUtils.js';
-import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
+import {
+  shouldSkipLegacySpellBodyHandlers,
+  skipRetiredSpellLegacyHandler,
+} from './oracleIrSpellLegacyRouting.js';
 
 export function applyInstantSorcerySpecialAndRemovalRiders(
   ctx: GameContext,
@@ -21,6 +24,10 @@ export function applyInstantSorcerySpecialAndRemovalRiders(
   const spellName = String(effectiveCard?.name || 'spell');
 
   if (skipRetiredSpellLegacyHandler(options.oracleTextLower, spellName)) {
+    return { shouldEarlyReturn: false };
+  }
+  // P1c: IR primary owns removal+rider compounds — skip legacy rider modules.
+  if (shouldSkipLegacySpellBodyHandlers(options.oracleTextLower, spellName)) {
     return { shouldEarlyReturn: false };
   }
 

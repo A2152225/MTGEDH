@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, TargetRef } from '../../shared/src';
-import { categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from '../src/rules-engine/targeting';
+import { categorizeSpell, evaluateTargeting, parseTargetRequirements, resolveSpell, type SpellSpec } from '../src/rules-engine/targeting';
 
 describe('Oracle templates: gain / lose life', () => {
   it('categorizeSpell: "Gain 3 life." -> GAIN_LIFE', () => {
@@ -104,127 +104,60 @@ describe('Target evaluation: gain/lose life target player', () => {
 });
 
 describe('Execution via applyEvent(resolveSpell) for gain / lose life', () => {
-  it('GAIN_LIFE increases caster life', () => {
-    const g = createInitialGameState('t_gain_life');
-    const p1 = 'p1' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-
-    const before = g.state.players.find(p => (p as any).id === p1) as any;
-    const beforeLife = before?.life ?? 40;
-
-    const spec: SpellSpec = { op: 'GAIN_LIFE', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 3 } as any;
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'heal', spec, chosen: [] });
-
-    const after = g.state.players.find(p => (p as any).id === p1) as any;
-    expect(after.life).toBe(beforeLife + 3);
-  });
-
-  it('GAIN_LIFE_EACH_OPPONENT increases each opponent (not caster)', () => {
-    const g = createInitialGameState('t_gain_each_opponent');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    const p3 = 'p3' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
-    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
-
-    const lifeBefore = new Map<string, number>();
-    for (const pl of g.state.players as any[]) lifeBefore.set(pl.id, pl.life ?? 40);
-
-    const spec: SpellSpec = { op: 'GAIN_LIFE_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 2 } as any;
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'gain_each_opponent', spec, chosen: [] });
-
-    const after1 = (g.state.players.find(p => (p as any).id === p1) as any).life;
-    const after2 = (g.state.players.find(p => (p as any).id === p2) as any).life;
-    const after3 = (g.state.players.find(p => (p as any).id === p3) as any).life;
-    expect(after1).toBe(lifeBefore.get(p1));
-    expect(after2).toBe((lifeBefore.get(p2) ?? 40) + 2);
-    expect(after3).toBe((lifeBefore.get(p3) ?? 40) + 2);
-  });
-
-  it('GAIN_LIFE_EACH_PLAYER increases all players', () => {
-    const g = createInitialGameState('t_gain_each_player');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    const p3 = 'p3' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
-    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
-
-    const lifeBefore = new Map<string, number>();
-    for (const pl of g.state.players as any[]) lifeBefore.set(pl.id, pl.life ?? 40);
-
-    const spec: SpellSpec = { op: 'GAIN_LIFE_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 1 } as any;
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'gain_each_player', spec, chosen: [] });
-
-    for (const pl of g.state.players as any[]) {
-      expect(pl.life).toBe((lifeBefore.get(pl.id) ?? 40) + 1);
-    }
-  });
-
-  it('LOSE_LIFE_TARGET_PLAYER decreases chosen player life', () => {
-    const g = createInitialGameState('t_lose_life_target');
+  it('GAIN_LIFE* / LOSE_LIFE* resolveSpell ops are deleted (P1a; categorize patterns kept for cast)', () => {
+    const g = createInitialGameState('t_life_resolve_deleted');
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;
     g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
     g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
 
-    const before = g.state.players.find(p => (p as any).id === p2) as any;
-    const beforeLife = before?.life ?? 40;
-
-    const spec: SpellSpec = { op: 'LOSE_LIFE_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amount: 2 } as any;
-    g.applyEvent!({
-      type: 'resolveSpell',
-      caster: p1,
-      cardId: 'drain',
-      spec,
-      chosen: [{ kind: 'player', id: p2 } as TargetRef],
-    });
-
-    const after = g.state.players.find(p => (p as any).id === p2) as any;
-    expect(after.life).toBe(beforeLife - 2);
-  });
-
-  it('LOSE_LIFE_EACH_OPPONENT decreases each opponent (not caster)', () => {
-    const g = createInitialGameState('t_lose_each_opponent');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    const p3 = 'p3' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
-    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
-
-    const lifeBefore = new Map<string, number>();
-    for (const pl of g.state.players as any[]) lifeBefore.set(pl.id, pl.life ?? 40);
-
-    const spec: SpellSpec = { op: 'LOSE_LIFE_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 2 } as any;
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'lose_each_opponent', spec, chosen: [] });
-
-    const after1 = (g.state.players.find(p => (p as any).id === p1) as any).life;
-    const after2 = (g.state.players.find(p => (p as any).id === p2) as any).life;
-    const after3 = (g.state.players.find(p => (p as any).id === p3) as any).life;
-    expect(after1).toBe(lifeBefore.get(p1));
-    expect(after2).toBe((lifeBefore.get(p2) ?? 40) - 2);
-    expect(after3).toBe((lifeBefore.get(p3) ?? 40) - 2);
-  });
-
-  it('LOSE_LIFE_EACH_PLAYER decreases all players', () => {
-    const g = createInitialGameState('t_lose_each_player');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    const p3 = 'p3' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
-    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
-
-    const lifeBefore = new Map<string, number>();
-    for (const pl of g.state.players as any[]) lifeBefore.set(pl.id, pl.life ?? 40);
-
-    const spec: SpellSpec = { op: 'LOSE_LIFE_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 1 } as any;
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'lose_each_player', spec, chosen: [] });
-
-    for (const pl of g.state.players as any[]) {
-      expect(pl.life).toBe((lifeBefore.get(pl.id) ?? 40) - 1);
-    }
+    expect(resolveSpell(
+      { op: 'GAIN_LIFE', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 3 } as any,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'GAIN_LIFE_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amount: 2 } as any,
+      [{ kind: 'player', id: p2 } as TargetRef],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'GAIN_LIFE_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 2 } as any,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'GAIN_LIFE_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 1 } as any,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'LOSE_LIFE', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 2 } as any,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'LOSE_LIFE_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amount: 2 } as any,
+      [{ kind: 'player', id: p2 } as TargetRef],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'LOSE_LIFE_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 2 } as any,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'LOSE_LIFE_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 1 } as any,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
   });
 });

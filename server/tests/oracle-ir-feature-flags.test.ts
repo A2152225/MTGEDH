@@ -53,15 +53,14 @@ describe('oracleIrFeatureFlags', () => {
     expect(isOracleIrTriggerLegacyForced()).toBe(false);
   });
 
-  it('opts out via explicit primary disable or legacy override', () => {
-    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
-
-    process.env.ORACLE_IR_TRIGGER_PRIMARY = '0';
-    expect(isOracleIrTriggerPrimaryEnabled()).toBe(false);
-    expect(isOracleIrTriggerLegacyForced()).toBe(true);
-
+  it('opts out trigger primary via PRIMARY=0 only (P4e — LEGACY ignored)', () => {
     delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
     process.env.ORACLE_IR_TRIGGER_LEGACY = '1';
+    expect(isOracleIrTriggerPrimaryEnabled()).toBe(true);
+    expect(isOracleIrTriggerLegacyForced()).toBe(false);
+
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '0';
     expect(isOracleIrTriggerPrimaryEnabled()).toBe(false);
     expect(isOracleIrTriggerLegacyForced()).toBe(true);
   });
@@ -73,15 +72,14 @@ describe('oracleIrFeatureFlags', () => {
     expect(isOracleIrSpellLegacyForced()).toBe(false);
   });
 
-  it('opts spell primary out via explicit disable or legacy override', () => {
-    delete process.env.ORACLE_IR_SPELL_LEGACY;
-
-    process.env.ORACLE_IR_SPELL_PRIMARY = '0';
-    expect(isOracleIrSpellPrimaryEnabled()).toBe(false);
-    expect(isOracleIrSpellLegacyForced()).toBe(true);
-
+  it('opts spell primary out via PRIMARY=0 only (P4e — LEGACY ignored)', () => {
     delete process.env.ORACLE_IR_SPELL_PRIMARY;
     process.env.ORACLE_IR_SPELL_LEGACY = '1';
+    expect(isOracleIrSpellPrimaryEnabled()).toBe(true);
+    expect(isOracleIrSpellLegacyForced()).toBe(false);
+
+    delete process.env.ORACLE_IR_SPELL_LEGACY;
+    process.env.ORACLE_IR_SPELL_PRIMARY = '0';
     expect(isOracleIrSpellPrimaryEnabled()).toBe(false);
     expect(isOracleIrSpellLegacyForced()).toBe(true);
   });

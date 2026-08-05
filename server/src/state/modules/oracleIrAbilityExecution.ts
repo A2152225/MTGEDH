@@ -13,6 +13,11 @@ import { parseStationKeywordActivatedAbility } from '../../../../rules-engine/sr
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync.js';
+import {
+  requiresSpellEffectProgramOrchestration,
+  startOracleEffectProgramOnServer,
+} from './oracleIrEffectProgramServer.js';
+import { normalizeOracleIrSelectedModeIds } from './oracleIrModeSelection.js';
 import { resolvePermanentChosenColorSymbol } from './mana-abilities.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import {
@@ -370,10 +375,49 @@ export function tryApplyOracleIRToActivatedAbility(
       ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
       : 0;
 
-    const result = applyOracleIRStepsOnServer(ctx, state, steps, irCtx, {
+    const normalizedSelectedModeIds = normalizeOracleIrSelectedModeIds(steps, params.selectedModeIds);
+    const executionOptions = {
       allowOptional: params.allowOptional ?? true,
-      selectedModeIds: params.selectedModeIds,
-    }, {
+      selectedModeIds: normalizedSelectedModeIds,
+    };
+
+    // Pattern B — same core EP gate as spells/triggers (modal / fateseal / clash / optional / prefixed).
+    // Do not short-circuit on isReplaying here: activated abilities historically re-apply IR on
+    // replay; EP resume/restore covers choice pauses via effectProgramReplayRestore.
+    if (
+      !(ctx as any).isReplaying
+      && requiresSpellEffectProgramOrchestration(steps, normalizedSelectedModeIds)
+    ) {
+      const effectProgramResult = startOracleEffectProgramOnServer(ctx, {
+        controller: params.controller,
+        sourceName: params.sourceName,
+        sourceId: params.sourcePermanentId || params.stackItemId,
+        steps,
+        irCtx,
+        executionOptions,
+        programIdPrefix: `activated:${params.sourcePermanentId || params.stackItemId || params.sourceName}`,
+        metadata: {
+          family: 'activated_ability_resolution',
+          ...(params.sourceItem ? { triggerItem: params.sourceItem } : {}),
+        },
+      });
+      if (effectProgramResult.handled) {
+        const pendingOptional = Boolean(
+          effectProgramResult.waitingForChoice && !effectProgramResult.completed,
+        );
+        debug(
+          2,
+          `[oracleIR] Effect Program ${pendingOptional ? 'queued choice for' : 'resolved'} activated ability from ${params.sourceName}`,
+        );
+        return {
+          handled: true,
+          applied: effectProgramResult.completed ? 1 : 0,
+          pendingOptional,
+        };
+      }
+    }
+
+    const result = applyOracleIRStepsOnServer(ctx, state, steps, irCtx, executionOptions, {
       controller: params.controller,
       targetPlayerId: targetBinding.targetPlayerId,
       applyMillReplacements: true,

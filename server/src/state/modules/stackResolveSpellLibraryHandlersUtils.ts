@@ -19,7 +19,10 @@ import {
   detectRevealUntilHandSpell,
   summarizeLibraryCard,
 } from './oracleIrSpellLegacyKindredRevealUtils.js';
-import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
+import {
+  shouldSkipLegacySpellBodyHandlers,
+  skipRetiredSpellLegacyHandler,
+} from './oracleIrSpellLegacyRouting.js';
 
 function hasIrBridgedLibrarySearchForSpell(ctx: GameContext, spellName: string): boolean {
   const gameId = String((ctx as any).gameId || '').trim();
@@ -97,6 +100,10 @@ export function applyInstantSorceryTokenForEachCreatureHandler(
 ): void {
   const spellName = String(options.effectiveCard?.name || 'spell');
   if (skipRetiredSpellLegacyHandler(options.oracleTextLower, spellName)) {
+    return;
+  }
+  // P1c: IR primary owns token-for-each compounds — skip legacy token rider.
+  if (shouldSkipLegacySpellBodyHandlers(options.oracleTextLower, spellName)) {
     return;
   }
 
@@ -191,6 +198,10 @@ export function applyInstantSorceryLibrarySearchSpellHandlers(
   if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
     return;
   }
+  // P1c: IR primary owns tutor / library-search compounds — skip legacy library riders.
+  if (shouldSkipLegacySpellBodyHandlers(options.oracleText, spellName)) {
+    return;
+  }
 
   const state = (ctx as any).state;
   const controller = options.controller;
@@ -200,8 +211,16 @@ export function applyInstantSorceryLibrarySearchSpellHandlers(
   const oracleText = options.oracleText;
   const oracleTextLower = options.oracleTextLower;
 
+  // Celestial: skip legacy tutor when IR already queued LIBRARY_SEARCH (primary or uncategorized fallback).
   if (isCelestialReunionOracle(oracleText)) {
-    resolveCelestialReunionLibrarySearch(ctx, controller, item, card, effectiveCard);
+    if (hasOracleIrQueuedLibrarySearch(ctx, spellName)) {
+      debug(
+        2,
+        `[resolveTopOfStack] ${spellName}: skipping legacy Celestial library search (Oracle IR choice already queued)`,
+      );
+    } else {
+      resolveCelestialReunionLibrarySearch(ctx, controller, item, card, effectiveCard);
+    }
   }
 
   const tutorInfo = isCelestialReunionOracle(oracleText) ? { isTutor: false } : detectTutorSpell(oracleText);

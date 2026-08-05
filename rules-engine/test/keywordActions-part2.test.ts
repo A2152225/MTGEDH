@@ -375,6 +375,13 @@ describe('Rule 701: Keyword Actions - Part 2', () => {
       expect(result?.requiresTarget).toBe(false);
     });
     
+    it('should parse "each opponent mills a card" pattern', () => {
+      const result = parseMillFromOracleText('Each opponent mills a card.');
+      expect(result).not.toBeNull();
+      expect(result?.count).toBe(1);
+      expect(result?.targetType).toBe('each-opponent');
+    });
+
     it('should parse "each opponent mills X cards" pattern', () => {
       const result = parseMillFromOracleText('Each opponent mills five cards.');
       

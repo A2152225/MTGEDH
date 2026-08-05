@@ -590,6 +590,96 @@ export function parseStaticEffectSpecsFromOraclePermanent(
           { kind: 'target_has_mana_color', color: chosenColor },
         ));
       }
+    } else {
+      // Gauntlet of Power: "Creatures of the chosen color get +1/+1" (global)
+      const globalChosenColorBuffMatch = oracle.match(
+        /creatures of the chosen color get\s+(\+\d+\s*\/\s*\+\d+)/i,
+      );
+      if (globalChosenColorBuffMatch) {
+        const buff = parseBuffSegment(globalChosenColorBuffMatch[1]);
+        if (buff) {
+          specs.push(buildSpec(
+            source,
+            'chosen-color-global-anthem',
+            { kind: 'all_creatures' },
+            { power: buff.power, toughness: buff.toughness },
+            { kind: 'target_has_mana_color', color: chosenColor },
+          ));
+        }
+      }
+    }
+
+    const colorSymbol = ({
+      white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G',
+    } as Record<string, string>)[String(chosenColor).toLowerCase()] || String(chosenColor).toUpperCase();
+
+    // Voice of All / Order of the Stars: "This creature has protection from the chosen color."
+    if (/\b(?:this (?:creature|permanent)|it) has protection from the chosen colou?r\b/i.test(oracle)
+      || /\bprotection from the chosen colou?r\b/i.test(oracle)
+        && !/\ball\s+\w+s?\s+have protection from the chosen colou?r\b/i.test(oracle)
+        && !/\bcreatures?\s+you\s+control\b.*\bprotection from the chosen colou?r\b/i.test(oracle)) {
+      specs.push(buildSpec(
+        source,
+        'chosen-color-protection-self',
+        { kind: 'self' },
+        { abilities: [`protection from ${String(chosenColor).toLowerCase()}`] },
+      ));
+    }
+
+    // Ward Sliver-style: "All Slivers have protection from the chosen color."
+    const allTypeProtection = oracle.match(
+      /all\s+([a-z]+)s?\s+have\s+protection from the chosen colou?r/i,
+    );
+    if (allTypeProtection) {
+      const creatureType = String(allTypeProtection[1] || '').trim();
+      if (creatureType) {
+        specs.push(buildSpec(
+          source,
+          'chosen-color-protection-type',
+          { kind: 'all_creatures_of_type', creatureType },
+          { abilities: [`protection from ${String(chosenColor).toLowerCase()}`] },
+        ));
+      }
+    }
+
+    // Alloy Golem: "This creature is the chosen color."
+    if (/\b(?:this (?:creature|permanent|artifact)|it) is the chosen colou?r\b/i.test(oracle)) {
+      specs.push(buildSpec(
+        source,
+        'chosen-color-characteristic-self',
+        { kind: 'self' },
+        { colorAdditions: [colorSymbol] },
+      ));
+    }
+
+    // Painter's Servant: "... are the chosen color in addition to their other colors."
+    if (/are the chosen colou?r in addition to their other colors/i.test(oracle)) {
+      specs.push(buildSpec(
+        source,
+        'chosen-color-addition-global',
+        { kind: 'all_permanents' },
+        { colorAdditions: [colorSymbol] },
+      ));
+    }
+
+    // Enchanted permanent is the chosen color (Shimmerwilds Growth, etc.)
+    if (/enchanted (?:land|creature|permanent) is the chosen colou?r/i.test(oracle)) {
+      const attachedTo = String((perm as any).attachedTo || '').trim();
+      if (attachedTo) {
+        specs.push({
+          ...buildSpec(
+            source,
+            'chosen-color-characteristic-enchanted',
+            { kind: 'all_permanents' },
+            { colorAdditions: [colorSymbol] },
+          ),
+          // Narrow via sourcePermanentId match in apply — use condition-less self-like filter:
+          // override scope matching by storing enchanted id in sourceName metadata is messy;
+          // instead grant via a synthetic self scope against attached permanent id.
+          sourcePermanentId: attachedTo,
+          scope: { kind: 'self' },
+        });
+      }
     }
   }
 

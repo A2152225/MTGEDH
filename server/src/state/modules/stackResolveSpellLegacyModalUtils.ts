@@ -8,6 +8,7 @@ import {
 } from '../../utils/oraclePromptContext.js';
 import { spellOracleUsesTeamworkChooseBoth } from './marvelMechanicsHelpers.js';
 import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
+import { isCategorizeOpcodeDeletedFromResolveSpell } from './oracleIrSpellLegacyRouting.js';
 import { applyOracleIRUncategorizedSpellFallback } from './oracleIrUncategorizedSpellFallback.js';
 import { executeInstantSorceryLegacyCategorizedSpell } from './stackResolveSpellLegacySpecUtils.js';
 import { wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
@@ -140,7 +141,8 @@ export function tryQueueInstantSorceryLegacyModalModeSelection(
 /**
  * When spell IR primary is off, pre-selected modal modes (mode_1, mode_2, …) do not
  * route through Effect Program. Resolve each selected mode's oracle fragment via
- * legacy categorizeSpell or uncategorized IR fallback.
+ * IR fallback first (P1a: deleted categorize resolve ops no-op), then remaining
+ * categorizeSpell opcodes that still have resolveSpell cases.
  */
 export function tryApplyInstantSorceryLegacySelectedModalEffects(
   ctx: GameContext,
@@ -173,25 +175,8 @@ export function tryApplyInstantSorceryLegacySelectedModalEffects(
     const modeText = String(option.raw || option.description || '').trim();
     if (!modeText) continue;
 
-    const spellSpec = categorizeSpell(spellName, modeText);
-    if (spellSpec) {
-      executeInstantSorceryLegacyCategorizedSpell(ctx, {
-        controller: options.controller,
-        card: options.card,
-        effectiveCard: options.effectiveCard,
-        item: options.item,
-        oracleText: modeText,
-        targets: options.targets,
-        spellSpec,
-        spellXValue: options.spellXValue,
-        targetSpellControllerForSupplemental: null,
-        targetSpellNameForSupplemental: '',
-        targetControllerForTokenCreation: null,
-      });
-      applied += 1;
-      continue;
-    }
-
+    // Prefer IR for mode fragments so P1a resolve deletion does not silence charms
+    // under ORACLE_IR_SPELL_LEGACY (GAIN_LIFE*/DRAW_* and other deleted ops).
     const fallbackApplied = applyOracleIRUncategorizedSpellFallback(
       ctx,
       modeText,
@@ -205,6 +190,25 @@ export function tryApplyInstantSorceryLegacySelectedModalEffects(
       wasSpellCastFromGraveyard(options.item),
     );
     if (fallbackApplied > 0) {
+      applied += 1;
+      continue;
+    }
+
+    const spellSpec = categorizeSpell(spellName, modeText);
+    if (spellSpec && !isCategorizeOpcodeDeletedFromResolveSpell(String(spellSpec.op || ''))) {
+      executeInstantSorceryLegacyCategorizedSpell(ctx, {
+        controller: options.controller,
+        card: options.card,
+        effectiveCard: options.effectiveCard,
+        item: options.item,
+        oracleText: modeText,
+        targets: options.targets,
+        spellSpec,
+        spellXValue: options.spellXValue,
+        targetSpellControllerForSupplemental: null,
+        targetSpellNameForSupplemental: '',
+        targetControllerForTokenCreation: null,
+      });
       applied += 1;
     }
   }

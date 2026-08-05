@@ -183,6 +183,7 @@ const ORACLE_CHOICE_STEP_KINDS = new Set<string>([
   'choose_opponent',
   'choose_color',
   'choose_creature_type',
+  'choose_basic_land_type',
   'choose_card_name',
   'choose_mode',
   'choose_target_creature',
@@ -191,6 +192,8 @@ const ORACLE_CHOICE_STEP_KINDS = new Set<string>([
   'scry',
   'surveil',
 ]);
+
+const BASIC_LAND_TYPE_OPTIONS = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'] as const;
 
 export function createEffectProgramRuntime<S>(args: {
   readonly program: EffectProgram;
@@ -264,6 +267,19 @@ export function createChoiceEventFromEffectProgramChoiceRequest(
         type: ChoiceEventType.CARD_NAME_CHOICE,
         options: asChoiceOptions(payload.options) || [],
         allowCustom: asBoolean(payload.allowCustom, true),
+      } as unknown as ChoiceEvent;
+
+    case ChoiceEventType.BASIC_LAND_TYPE_CHOICE:
+      return {
+        ...base,
+        type: ChoiceEventType.BASIC_LAND_TYPE_CHOICE,
+        options: asChoiceOptions(payload.options) || BASIC_LAND_TYPE_OPTIONS.map((landType, idx) => ({
+          id: `basic_land_${idx}`,
+          label: landType,
+          value: landType,
+        })),
+        minSelections: asNumber(payload.minSelections, 1),
+        maxSelections: asNumber(payload.maxSelections, 1),
       } as unknown as ChoiceEvent;
 
     case ChoiceEventType.NUMBER_CHOICE:
@@ -1131,6 +1147,19 @@ function buildChoiceRequestPayloadForOracleStep(
     };
   }
 
+  if (kind === 'choose_basic_land_type') {
+    return {
+      ...basePayload,
+      options: BASIC_LAND_TYPE_OPTIONS.map((landType, idx) => ({
+        id: `basic_land_${idx}`,
+        label: landType,
+        value: landType,
+      })),
+      minSelections: 1,
+      maxSelections: 1,
+    };
+  }
+
   if (kind === 'scry') {
     return {
       ...basePayload,
@@ -1460,6 +1489,8 @@ function mapOracleStepKindToChoiceType(kind: string): ChoiceEventType {
       return ChoiceEventType.COLOR_CHOICE;
     case 'choose_creature_type':
       return ChoiceEventType.CREATURE_TYPE_CHOICE;
+    case 'choose_basic_land_type':
+      return ChoiceEventType.BASIC_LAND_TYPE_CHOICE;
     case 'choose_card_name':
       return ChoiceEventType.CARD_NAME_CHOICE;
     case 'choose_mode':

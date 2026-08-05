@@ -386,7 +386,7 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
 /**
  * Parse protection abilities from card
  */
-export function parseProtections(card: any): string[] {
+export function parseProtections(card: any, permanent?: any): string[] {
   const protections: string[] = [];
   const oracleText = (card?.oracle_text || "");
   
@@ -396,6 +396,19 @@ export function parseProtections(card: any): string[] {
   if (colorProtections) {
     for (const match of colorProtections) {
       protections.push(match.toLowerCase().replace("protection from ", ""));
+    }
+  }
+
+  // Resolve "protection from the chosen color" using stored ETB choice.
+  if (/protection from the chosen colou?r/i.test(oracleText)) {
+    const chosen = String(
+      permanent?.chosenColor
+      || permanent?.card?.chosenColor
+      || card?.chosenColor
+      || '',
+    ).trim().toLowerCase();
+    if (chosen && ['white', 'blue', 'black', 'red', 'green'].includes(chosen) && !protections.includes(chosen)) {
+      protections.push(chosen);
     }
   }
   

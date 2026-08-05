@@ -18,7 +18,10 @@ import {
   queueTopLibraryExileSelectionPrompt,
   queueTopLibraryToHandSelectionPrompt,
 } from './oracleIrSpellLegacyLibrarySelectionUtils.js';
-import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
+import {
+  shouldSkipLegacySpellBodyHandlers,
+  skipRetiredSpellLegacyHandler,
+} from './oracleIrSpellLegacyRouting.js';
 
 function getRecordedManaSpentTotal(stackItem: any): number | null {
   const direct = Number(stackItem?.manaSpentTotal);
@@ -58,6 +61,10 @@ export function applyInstantSorceryLibraryTopCardPromptHandlers(
 ): void {
   const spellName = String(options.effectiveCard?.name || 'spell');
   if (skipRetiredSpellLegacyHandler(options.oracleTextLower, spellName)) {
+    return;
+  }
+  // P1c: IR primary owns look-top / Ponder-style compounds — skip legacy library prompts.
+  if (shouldSkipLegacySpellBodyHandlers(options.oracleTextLower, spellName)) {
     return;
   }
 

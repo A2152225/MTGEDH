@@ -1511,6 +1511,36 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     });
   });
 
+  it('parses choose a color other than green with restricted manaOptions', () => {
+    const ir = parseOracleTextToIR(
+      'This land enters tapped. As it enters, choose a color other than green.\n{T}: Add {G} or one mana of the chosen color.',
+      'Thriving Grove',
+    );
+    const chooseColorStep = ir.abilities.flatMap((ability) => ability.steps).find((step) => step.kind === 'choose_color');
+    expect(chooseColorStep).toMatchObject({
+      kind: 'choose_color',
+      manaOptions: ['{W}', '{U}', '{B}', '{R}'],
+    });
+  });
+
+  it('parses compound color and creature type as sequential choose steps', () => {
+    const ir = parseOracleTextToIR(
+      'As this artifact enters, choose a color and a creature type.',
+      "Volrath's Laboratory",
+    );
+    const steps = ir.abilities.flatMap((ability) => ability.steps);
+    expect(steps.map((step) => step.kind)).toEqual(['choose_color', 'choose_creature_type']);
+  });
+
+  it('parses as-enters choose a basic land type', () => {
+    const ir = parseOracleTextToIR(
+      'As this land enters, choose a basic land type.',
+      'Thran Portal',
+    );
+    const step = ir.abilities.flatMap((ability) => ability.steps).find((s) => s.kind === 'choose_basic_land_type');
+    expect(step?.kind).toBe('choose_basic_land_type');
+  });
+
   it('expands chosen-color protection grants into choose_color plus a temporary ability grant', () => {
     const ir = parseOracleTextToIR(
       'Target creature you control gains protection from the color of your choice until end of turn.',

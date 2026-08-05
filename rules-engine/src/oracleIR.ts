@@ -585,6 +585,8 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'choose_creature_type';
+      /** Creature types excluded from the choice, e.g. "other than Wall". */
+      readonly excludedTypes?: readonly string[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

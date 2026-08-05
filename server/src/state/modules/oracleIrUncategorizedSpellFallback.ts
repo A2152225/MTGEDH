@@ -14,16 +14,15 @@ import {
 } from './trigger-runtime-wiring.js';
 import { buildOracleOverlayCollectOptions } from './oracleIrCompiledOverlayLookup.js';
 import { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync.js';
+import { startOracleEffectProgramOnServer } from './oracleIrEffectProgramServer.js';
 import {
   describeMissingMandatoryOracleIrSteps,
-  describeOracleIrExecutionHandledIncomplete,
   isOptionalOracleEffectStep,
   logOracleIrAllOrNothingFailure,
 } from './oracleIrStepWiring.js';
 import { isOracleIrExecutionHandled } from './oracleIrSpellExecution.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
-import { isCelestialReunionOracle } from './chosen-creature-type.js';
 
 const UNLESS_PAY_KINDS = new Set<string>([
   'unless_pays_mana',
@@ -39,21 +38,10 @@ function mandatoryStepsFrom(allSteps: readonly OracleEffectStep[]): OracleEffect
   return allSteps.filter((step) => step && step.kind !== 'unknown' && !isOptionalStep(step));
 }
 
-function hasTapAntecedentScalerDependency(steps: readonly OracleEffectStep[]): boolean {
-  const hasTapScaler = steps.some(
-    (step) =>
-      step.kind === 'modify_pt'
-      && (step as { scaler?: { kind?: string } }).scaler?.kind === 'per_creature_tapped_this_way',
-  );
-  if (!hasTapScaler) return false;
-  return steps.some(
-    (step) => step.kind === 'tap_or_untap' || step.kind === 'tap_matching_permanents',
-  );
-}
-
 function shouldIncludeUncategorizedSpellFallbackStep(step: OracleEffectStep): boolean {
   if (!step || step.kind === 'unknown') return false;
-  if (ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS.has(String(step.kind))) return false;
+  // EP kinds stay in the step list so core-gate orchestration can own them (P1b).
+  if (ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS.has(String(step.kind))) return true;
 
   if (isOptionalStep(step)) {
     if (UNLESS_PAY_KINDS.has(String(step.kind))) return true;
@@ -65,6 +53,51 @@ function shouldIncludeUncategorizedSpellFallbackStep(step: OracleEffectStep): bo
   if (step.kind === 'conditional') return true;
   if (UNLESS_PAY_KINDS.has(String(step.kind))) return true;
   return ORACLE_IR_FALLBACK_STEP_KINDS.has(String(step.kind));
+}
+
+function normalizeSelectedModeIdsFromSource(sourceItem: any): string[] | undefined {
+  const raw = sourceItem?.selectedModeIds ?? sourceItem?.chosenModes ?? sourceItem?.modeIds;
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  return raw.map((id: unknown) => String(id || '').trim()).filter(Boolean);
+}
+
+const PREFIXED_CHOICE_STEP_KINDS = [
+  'choose_creature_type',
+  'choose_color',
+  'choose_card_name',
+  'choose_opponent',
+] as const;
+
+/**
+ * Fallback EP gate: modal / fateseal / clash / prefixed choose-* only.
+ * Optional "you may" steps stay on Pattern A (`allowOptional`) so pre-bound
+ * targets (e.g. tap-any-number → per-tapped pump) keep applying without a
+ * may-choice pause that the primary path owns separately.
+ */
+function requiresUncategorizedFallbackEffectProgram(
+  steps: readonly OracleEffectStep[],
+  selectedModeIds?: readonly string[],
+): boolean {
+  if (!Array.isArray(steps) || steps.length === 0) return false;
+
+  const hasUnresolvedChooseMode = steps.some((step) => step.kind === 'choose_mode')
+    && (!Array.isArray(selectedModeIds) || selectedModeIds.length === 0);
+  if (hasUnresolvedChooseMode) return true;
+
+  if (steps.some((step) => step.kind === 'fateseal' || step.kind === 'clash')) {
+    return true;
+  }
+
+  for (const prefixKind of PREFIXED_CHOICE_STEP_KINDS) {
+    const prefixIndex = steps.findIndex((step) => step.kind === prefixKind);
+    if (
+      prefixIndex >= 0
+      && steps.slice(prefixIndex + 1).some((step) => step.kind !== 'unknown')
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function collectSpellSteps(oracleText: string, spellName: string, sourceItem?: any): OracleEffectStep[] {
@@ -87,19 +120,6 @@ function collectSpellSteps(oracleText: string, spellName: string, sourceItem?: a
     }
   }
   return steps;
-}
-
-/** Celestial X-search + shuffle stay on legacy tutor bridge until IR queue parity is complete. */
-function isCelestialLegacyLibrarySearchStep(step: OracleEffectStep): boolean {
-  return step.kind === 'search_library' || step.kind === 'shuffle_library';
-}
-
-function excludeCelestialLegacyOwnedSteps(
-  steps: readonly OracleEffectStep[],
-  oracleText: string,
-): OracleEffectStep[] {
-  if (!isCelestialReunionOracle(oracleText)) return [...steps];
-  return steps.filter((step) => !isCelestialLegacyLibrarySearchStep(step));
 }
 
 /**
@@ -147,7 +167,6 @@ export function applyOracleIRUncategorizedSpellFallback(
         return true;
       });
     }
-    fallbackSteps = excludeCelestialLegacyOwnedSteps(fallbackSteps, text);
     if (fallbackSteps.length === 0) return 0;
 
     const sourcePermanent = sourcePermanentId
@@ -168,7 +187,7 @@ export function applyOracleIRUncategorizedSpellFallback(
       : allSteps;
     const mandatorySourceSteps = allStepsForMandatory;
 
-    const mandatoryAll = mandatoryStepsFrom(excludeCelestialLegacyOwnedSteps(mandatorySourceSteps, text));
+    const mandatoryAll = mandatoryStepsFrom(mandatorySourceSteps);
     const mandatoryIncluded = mandatoryStepsFrom(fallbackSteps);
     if (mandatoryAll.length > 0 && mandatoryIncluded.length < mandatoryAll.length) {
       logOracleIrAllOrNothingFailure(
@@ -251,10 +270,6 @@ export function applyOracleIRUncategorizedSpellFallback(
       ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
       : 0;
 
-    const optionalSteps = fallbackSteps.filter(isOptionalStep);
-    const mandatorySteps = fallbackSteps.filter((step) => !isOptionalStep(step));
-    const preserveTapScalerOrder = hasTapAntecedentScalerDependency(fallbackSteps);
-
     let applied = 0;
 
     const countHandled = (result: ReturnType<typeof applyOracleIRStepsOnServer>, queueStart: number, parsedSteps: readonly OracleEffectStep[]) => {
@@ -279,72 +294,54 @@ export function applyOracleIRUncategorizedSpellFallback(
       oracleText: text,
     };
 
-    const baseExecutionOptions: OracleIRExecutionOptions = {
+    const selectedModeIds = normalizeSelectedModeIdsFromSource(sourceItem);
+    const mergedExecutionOptions: OracleIRExecutionOptions = {
       ...(executionOptions || {}),
+      allowOptional: true,
+      ...(selectedModeIds ? { selectedModeIds } : {}),
     };
-    const mandatoryExecutionOptions: OracleIRExecutionOptions = {
-      ...baseExecutionOptions,
-      allowOptional: false,
+    const resolvedExecutionCtx = {
+      ...executionCtx,
+      controllerId: caster,
+      sourceName: spellName,
+      sourceId: sourcePermanentId || sourceId,
     };
 
-    if (preserveTapScalerOrder) {
+    // Pattern B: modal / fateseal / clash / prefixed choose-* (optional stays on Pattern A).
+    if (requiresUncategorizedFallbackEffectProgram(fallbackSteps, selectedModeIds)) {
+      const effectProgramResult = startOracleEffectProgramOnServer(ctx, {
+        controller: caster,
+        sourceName: spellName,
+        sourceId: sourcePermanentId || sourceId,
+        steps: fallbackSteps,
+        irCtx: resolvedExecutionCtx,
+        executionOptions: mergedExecutionOptions,
+        programIdPrefix: `fallback:${sourceId || sourcePermanentId || spellName}`,
+        metadata: {
+          family: sourceObjectType === 'ability' ? 'trigger_resolution' : 'spell_resolution',
+          ...(sourceItem ? { triggerItem: sourceItem } : {}),
+        },
+      });
+      if (effectProgramResult.handled) {
+        if (effectProgramResult.waitingForChoice && !effectProgramResult.completed) {
+          applied = 1;
+        } else if (effectProgramResult.completed) {
+          applied = Math.max(1, fallbackSteps.length);
+        }
+      }
+    }
+
+    // Pattern A: single-pass apply (preserves tap→scaler order; optional steps via allowOptional).
+    if (applied === 0) {
       const result = applyOracleIRStepsOnServer(
         ctx,
         (ctx as any).state,
         fallbackSteps,
-        {
-          ...executionCtx,
-          controllerId: caster,
-          sourceName: spellName,
-          sourceId: sourcePermanentId || sourceId,
-        },
-        {
-          ...baseExecutionOptions,
-          allowOptional: true,
-        },
+        resolvedExecutionCtx,
+        mergedExecutionOptions,
         serverParams,
       );
       countHandled(result, queueBefore, fallbackSteps);
-    } else {
-      if (mandatorySteps.length > 0) {
-        const result = applyOracleIRStepsOnServer(
-          ctx,
-          (ctx as any).state,
-          mandatorySteps,
-          {
-            ...executionCtx,
-            controllerId: caster,
-            sourceName: spellName,
-            sourceId: sourcePermanentId || sourceId,
-          },
-          mandatoryExecutionOptions,
-          serverParams,
-        );
-        countHandled(result, queueBefore, mandatorySteps);
-      }
-
-      for (const step of optionalSteps) {
-        const queueStart = gameId !== 'unknown'
-          ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
-          : 0;
-        const result = applyOracleIRStepsOnServer(
-          ctx,
-          (ctx as any).state,
-          [step],
-          {
-            ...executionCtx,
-            controllerId: caster,
-            sourceName: spellName,
-            sourceId: sourcePermanentId || sourceId,
-          },
-          {
-            ...baseExecutionOptions,
-            allowOptional: true,
-          },
-          serverParams,
-        );
-        countHandled(result, queueStart, [step]);
-      }
     }
 
     if (applied > 0) {

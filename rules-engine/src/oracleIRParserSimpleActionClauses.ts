@@ -1345,23 +1345,109 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const chooseColor = clause.match(/^(?:as\s+.+?\s+enters,\s+)?choose\s+a\s+color\s*$/i);
+    const COLOR_WORD_TO_MANA: Record<string, string> = {
+      white: '{W}',
+      blue: '{U}',
+      black: '{B}',
+      red: '{R}',
+      green: '{G}',
+    };
+    const ALL_COLOR_MANA = ['{W}', '{U}', '{B}', '{R}', '{G}'] as const;
+    const asEntersPrefix = '(?:as\\s+.+?\\s+enters(?:\\s+the\\s+battlefield)?,\\s+)?';
+
+    // Compound as-enters choices — return the first step here; postprocess expands the rest.
+    // "choose a color and a creature type"
+    const chooseColorAndCreatureType = clause.match(
+      new RegExp(`^${asEntersPrefix}choose\\s+a\\s+colou?r\\s+and\\s+a\\s+creature\\s+type\\s*$`, 'i'),
+    );
+    if (chooseColorAndCreatureType) {
+      return withMeta({
+        kind: 'choose_color',
+        manaOptions: [...ALL_COLOR_MANA],
+        raw: rawClause,
+      });
+    }
+
+    // "choose a color and an opponent" / "choose a color and a player"
+    const chooseColorAndPlayer = clause.match(
+      new RegExp(`^${asEntersPrefix}choose\\s+a\\s+colou?r\\s+and\\s+(an\\s+opponent|a\\s+player)\\s*$`, 'i'),
+    );
+    if (chooseColorAndPlayer) {
+      return withMeta({
+        kind: 'choose_color',
+        manaOptions: [...ALL_COLOR_MANA],
+        raw: rawClause,
+      });
+    }
+
+    // "choose a color word" (Swirl the Mists)
+    const chooseColorWord = clause.match(
+      new RegExp(`^${asEntersPrefix}choose\\s+a\\s+colou?r\\s+word\\s*$`, 'i'),
+    );
+    if (chooseColorWord) {
+      return withMeta({
+        kind: 'choose_color',
+        manaOptions: [...ALL_COLOR_MANA],
+        raw: rawClause,
+      });
+    }
+
+    // "choose a color other than green"
+    const chooseColorOtherThan = clause.match(
+      new RegExp(
+        `^${asEntersPrefix}(?:you\\s+may\\s+)?choose\\s+a\\s+colou?r\\s+other\\s+than\\s+(white|blue|black|red|green)\\s*$`,
+        'i',
+      ),
+    );
+    if (chooseColorOtherThan) {
+      const excluded = COLOR_WORD_TO_MANA[String(chooseColorOtherThan[1] || '').toLowerCase()];
+      const manaOptions = ALL_COLOR_MANA.filter((symbol) => symbol !== excluded);
+      return withMeta({
+        kind: 'choose_color',
+        manaOptions,
+        optional: /you\s+may\s+choose/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+
+    const chooseColor = clause.match(
+      new RegExp(`^${asEntersPrefix}(?:you\\s+may\\s+)?choose\\s+a\\s+colou?r\\s*$`, 'i'),
+    );
     if (chooseColor) {
       return withMeta({
         kind: 'choose_color',
-        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        manaOptions: [...ALL_COLOR_MANA],
+        optional: /you\s+may\s+choose/i.test(clause) || undefined,
         raw: rawClause,
-        });
+      });
     }
   }
 
   {
-    const chooseCreatureType = clause.match(/^(?:as\s+.+?\s+enters,\s+)?choose\s+a\s+creature\s+type\s*$/i);
+    const asEntersPrefix = '(?:as\\s+.+?\\s+enters(?:\\s+the\\s+battlefield)?,\\s+)?';
+    const chooseCreatureTypeOtherThan = clause.match(
+      new RegExp(`^${asEntersPrefix}choose\\s+a\\s+creature\\s+type\\s+other\\s+than\\s+(.+?)\\s*$`, 'i'),
+    );
+    if (chooseCreatureTypeOtherThan) {
+      const excludedRaw = String(chooseCreatureTypeOtherThan[1] || '').trim();
+      const excludedTypes = excludedRaw
+        ? excludedRaw.split(/\s*,\s*|\s+or\s+/i).map((part) => part.trim()).filter(Boolean)
+        : [];
+      return withMeta({
+        kind: 'choose_creature_type',
+        ...(excludedTypes.length > 0 ? { excludedTypes } : {}),
+        raw: rawClause,
+      });
+    }
+
+    const chooseCreatureType = clause.match(
+      new RegExp(`^${asEntersPrefix}choose\\s+a\\s+creature\\s+type\\s*$`, 'i'),
+    );
     if (chooseCreatureType) {
       return withMeta({
         kind: 'choose_creature_type',
         raw: rawClause,
-        });
+      });
     }
 
     if (/^(?:then\s+)?choose\s+(?:any\s+|a\s+|an\s+)?(?:creature\s+)?card\s+name$/i.test(clause)) {
@@ -1391,12 +1477,14 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const chooseBasicLandType = clause.match(/^choose\s+a\s+basic\s+land\s+type\s*$/i);
+    const chooseBasicLandType = clause.match(
+      /^(?:as\s+.+?\s+enters(?:\s+the\s+battlefield)?,?\s+)?choose\s+a\s+basic\s+land\s+type\s*$/i,
+    );
     if (chooseBasicLandType) {
       return withMeta({
         kind: 'choose_basic_land_type',
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -4789,9 +4877,18 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
-    const chooseCreatureTypeOtherThan = clause.match(/^choose\s+a\s+creature\s+type\s+other\s+than\s+.+$/i);
-    if (chooseCreatureTypeOtherThan) {
-      return withMeta({ kind: 'choose_creature_type', raw: rawClause });
+    // Covered earlier with excludedTypes population; keep a late fallback for safety.
+    const chooseCreatureTypeOtherThanFallback = clause.match(/^choose\s+a\s+creature\s+type\s+other\s+than\s+(.+)$/i);
+    if (chooseCreatureTypeOtherThanFallback) {
+      const excludedRaw = String(chooseCreatureTypeOtherThanFallback[1] || '').trim();
+      const excludedTypes = excludedRaw
+        ? excludedRaw.split(/\s*,\s*|\s+or\s+/i).map((part) => part.trim()).filter(Boolean)
+        : [];
+      return withMeta({
+        kind: 'choose_creature_type',
+        ...(excludedTypes.length > 0 ? { excludedTypes } : {}),
+        raw: rawClause,
+      });
     }
 
     const chooseAnyNumberTargetCreatures = clause.match(/^choose\s+any\s+number\s+of\s+target\s+creatures$/i);

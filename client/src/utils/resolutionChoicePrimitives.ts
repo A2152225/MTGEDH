@@ -15,6 +15,11 @@ export const GENERIC_OPTION_CHOICE_STEP_TYPES = new Set([
   'unleash_choice',
   'fabricate_choice',
   'tribute_choice',
+  'basic_land_type_choice',
+  // Replacement / trigger-order style choices that already ship options[].
+  'choose_replacement',
+  'replacement_choice',
+  'order_triggers',
 ]);
 
 /** Step types with dedicated UI — do not route via generic option fallback. */

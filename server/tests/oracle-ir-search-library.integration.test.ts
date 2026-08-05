@@ -149,8 +149,8 @@ describe('oracle IR search_library queue adapter', () => {
     expect(libraryIds).not.toContain('creature-b');
   });
 
-  it('auto-applies when only one card matches without queueing a prompt', () => {
-    const { ctx, p1 } = setupSearchGame('oracle_ir_search_library_auto', [
+  it('queues LIBRARY_SEARCH even when only one card matches (interactive tutors)', () => {
+    const { ctx, p1 } = setupSearchGame('oracle_ir_search_library_single_match', [
       { id: 'creature-a', name: 'Elves', type_line: 'Creature — Elf' },
       { id: 'bolt', name: 'Lightning Bolt', type_line: 'Instant' },
     ]);
@@ -170,12 +170,15 @@ describe('oracle IR search_library queue adapter', () => {
       { controller: p1 },
     );
 
-    expect(result.appliedSteps.map((step) => step.kind)).toEqual(['search_library']);
+    expect(result.appliedSteps.map((step) => step.kind)).toEqual([]);
+    expect(result.automationGaps?.some((gap: any) => gap.stepKind === 'search_library')).toBe(true);
     const steps = ResolutionQueueManager.getStepsForPlayer((ctx as any).gameId, p1);
-    expect(steps.some((step) => step.type === ResolutionStepType.LIBRARY_SEARCH)).toBe(false);
+    const searchStep = steps.find((step) => step.type === ResolutionStepType.LIBRARY_SEARCH) as any;
+    expect(searchStep).toBeTruthy();
+    expect((searchStep.availableCards || []).map((card: any) => card.id)).toEqual(['creature-a']);
 
     const playerAfter = (ctx as any).state.players.find((entry: any) => entry.id === p1);
-    expect((playerAfter?.hand || []).map((card: any) => card.id)).toEqual(['creature-a']);
+    expect((playerAfter?.hand || []).map((card: any) => card.id)).toEqual([]);
   });
 });
 

@@ -184,7 +184,7 @@ File: `server/src/state/modules/oracleIrFeatureFlags.ts`
 | Flag | Production default | Meaning |
 |------|-------------------|---------|
 | `ORACLE_IR_TRIGGER_PRIMARY` | **ON** | Try IR before trigger regex |
-| `ORACLE_IR_SPELL_PRIMARY` | **ON** | Try IR before `categorizeSpell` |
+| `ORACLE_IR_SPELL_PRIMARY` | **ON** | Try IR before `categorizeSpell`. Opt-out: `=0` only (P4e — `ORACLE_IR_*_LEGACY` ignored) |
 | `ORACLE_IR_*_LEGACY=1` | off | Force legacy path |
 
 Vitest defaults primary **OFF** (`server/tests/vitest.setup.ts`). Migration suite (`npm run test:oracle-ir-migration`) tests production defaults.
@@ -295,7 +295,7 @@ For multi-choice chains (optional triggers, modals, fateseal/clash):
 - Server start: `startOracleEffectProgramOnServer` (`oracleIrEffectProgramServer.ts`)
 - Resume: `resumeEffectProgramResolution` (`effectProgramResolutionService.ts`)
 
-**Production today:** optional trigger yes/no, fateseal/clash. **Not yet default** for modal spells (`choose_mode`).
+**Production today (core EP gate):** unresolved `choose_mode` (modal), `fateseal`/`clash`, optional yes/no (`stepOptionalRequiresChoice`), and prefixed `choose_color` / `choose_creature_type` / `choose_card_name` / `choose_opponent` compounds. Broader sequential≥2 orchestration exists as `requiresEffectProgramOrchestration` but is **not** the live spell/trigger gate yet — expand by kind family (end-state roadmap P2).
 
 ### Phase F — Legacy fallback (migration debt)
 
@@ -496,10 +496,12 @@ New-set support cost is now proportional to the **delta**, not the corpus.
 
 ### 15.4 Legacy retirement ratchet (Phase 4 / D3)
 
-The dual execution path (IR primary + 86 `applyRetiredTriggerLegacy*` exports) is the main correctness risk for all-or-nothing and undo/replay. Two mechanisms make it shrink-only:
+**D3 export retirement is complete:** `TRIGGER_LEGACY_EXPORT_CEILING = 0` and `SPELL_LEGACY_EXPORT_CEILING = 0` — no `applyRetiredTriggerLegacy*` / spell-legacy export handlers remain. Remaining Phase 4 risk is **infrastructure dual-path** (`categorizeSpell` + `executeSpellEffect`, uncategorized fallbacks, spell riders), gated by IR primary + ownership helpers.
 
-- `server/tests/oracle-ir-legacy-handler-ratchet.unit.test.ts` — fails if legacy handler export counts rise; slack check keeps ceilings honest after deletions.
-- `legacy_handled` telemetry — after a soak, handlers whose families never fire are dead code; delete them evidence-driven instead of auditing 86 handlers speculatively.
+Shrink-only mechanisms still apply:
+
+- `server/tests/oracle-ir-legacy-handler-ratchet.unit.test.ts` — fails if legacy handler export counts rise above 0.
+- `legacy_handled` telemetry — soak evidence for deleting categorize/rider paths, not speculative mass deletes.
 
 ### 15.5 Undo/replay divergence guardrail
 
@@ -526,7 +528,7 @@ Server-side IR queues novel resolution steps faster than the client grows bespok
 
 ### 15.7 Phase 5 ceiling
 
-Continuous and replacement effects are the one class the step IR cannot express; they remain in scattered event-specific hooks. Design (declarative `StaticEffectSpec` / `ReplacementEffectSpec`, single replacement registry, derived-view statics): [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md).
+Continuous and replacement effects are the class step IR alone cannot fully express. **5.1–5.5 are landed** (declarative `StaticEffectSpec` / `ReplacementEffectSpec`, registry hooks, overlay ability types, gap telemetry). Remaining work is **depth**: more event families through the replacement choke point, layer/conditional static coverage, and driving `static:`/`replacement:owned_but_unhandled` toward zero. Design: [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md).
 
 ---
 

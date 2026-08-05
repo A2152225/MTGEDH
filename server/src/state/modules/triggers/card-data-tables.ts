@@ -504,60 +504,11 @@ export const KNOWN_ETB_TRIGGERS: Record<string, {
   searchDestination?: 'hand' | 'battlefield' | 'top';
   searchEntersTapped?: boolean;
 }> = {
-  "altar of the brood": { 
-    effect: "Each opponent mills 1 card", 
-    triggerOn: 'another_permanent',
-    millAmount: 1,
-  },
-  "impact tremors": { 
-    effect: "Each opponent loses 1 life", 
-    triggerOn: 'creature',
-  },
-  "purphoros, god of the forge": { 
-    effect: "Each opponent loses 2 life", 
-    triggerOn: 'creature',
-  },
-  "soul warden": { 
-    effect: "You gain 1 life", 
-    triggerOn: 'creature',
-  },
-  "soul's attendant": { 
-    effect: "You may gain 1 life", 
-    triggerOn: 'creature',
-  },
-  "essence warden": { 
-    effect: "You gain 1 life", 
-    triggerOn: 'creature',
-  },
-  "ajani's welcome": { 
-    effect: "You gain 1 life", 
-    triggerOn: 'creature',
-  },
-  "corpse knight": { 
-    effect: "Each opponent loses 1 life", 
-    triggerOn: 'creature',
-  },
-  "blood seeker": { 
-    effect: "Creature's controller loses 1 life", 
-    triggerOn: 'creature',
-  },
-  "suture priest": { 
-    effect: "You gain 1 life; if opponent's creature, they lose 1 life", 
-    triggerOn: 'creature',
-  },
-  "impassioned orator": { 
-    effect: "You gain 1 life", 
-    triggerOn: 'creature',
-  },
-  "dina, soul steeper": { 
-    effect: "Each opponent loses 1 life when you gain life", 
-    triggerOn: 'self', // Actually triggers on life gain, but she's an ETB-related card
-  },
-  "cathar's crusade": { 
-    effect: "+1/+1 counter on each creature you control", 
-    triggerOn: 'creature',
-  },
-  // Tutor creatures
+  // P4b: Altar of the Brood millAmount retired — generic another_permanent_etb +
+  // effect-text mill parse (see known-etb-table-redundancy.unit.test.ts).
+  // P4b: creature_etb life/damage pack retired — generic detectETBTriggers covers
+  // Impact Tremors / Purphoros / Soul Warden family (see known-etb-table-redundancy.unit.test.ts).
+  // Tutor creatures (keep searchFilter metadata rows — generic regex does not fully extract them)
   "imperial recruiter": {
     effect: "Search your library for a creature with power 2 or less, reveal it, and put it into your hand",
     triggerOn: 'self',

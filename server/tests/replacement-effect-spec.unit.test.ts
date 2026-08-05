@@ -7,7 +7,15 @@ import {
   evaluateReplacementEffectSpec,
 } from '../src/state/modules/replacementEffectSpec.js';
 import { upsertCompiledOracleIROverlaySync } from '../src/services/oracleIrCompiledOverlayStore.js';
-import { evaluateMillReplacementEvent } from '../src/state/modules/replacement-effects.js';
+import {
+  evaluateCounterPlacementReplacementEvent,
+  evaluateMillReplacementEvent,
+} from '../src/state/modules/replacement-effects.js';
+import { applyCounterModifications } from '../src/state/modules/counters_tokens.js';
+import {
+  calculateModifiedDamage,
+  detectDamageReplacementEffects,
+} from '../src/state/modules/game-state-effects.js';
 
 describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
   it('exposes builtin stack-to-exile, commander-zone, token, leave-battlefield, and finality specs', () => {
@@ -397,6 +405,343 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
         additionalDraws: [{ playerId: 'p2', count: 1 }],
       },
     });
+  });
+
+  it('collects oracle-pattern counter replacement specs without card-name routing', () => {
+    const specs = collectReplacementEffectSpecsFromState({
+      battlefield: [
+        {
+          id: 'fake_doubler_1',
+          controller: 'p1',
+          card: {
+            name: 'Not A Real Card Name',
+            oracle_text:
+              'If an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead.',
+          },
+        },
+        {
+          id: 'fake_scales_1',
+          controller: 'p1',
+          card: {
+            name: 'Also Fake',
+            oracle_text:
+              'If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead.',
+          },
+        },
+        {
+          id: 'fake_branching_1',
+          controller: 'p1',
+          card: {
+            name: 'Still Fake',
+            oracle_text:
+              'If one or more +1/+1 counters would be put on a creature you control, twice that many +1/+1 counters are put on that creature instead.',
+          },
+        },
+      ],
+    });
+
+    expect(specs.some((spec) => spec.effectId === 'permanent-counters-double')).toBe(true);
+    expect(specs.some((spec) => spec.effectId === 'p1p1-counters-plus-one')).toBe(true);
+    expect(specs.some((spec) => spec.effectId === 'p1p1-counters-double')).toBe(true);
+  });
+
+  it('applies Doubling Season + Hardened Scales via oracle-pattern counter specs', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'counter_target_1',
+          controller: 'p1',
+          card: { name: 'Bear', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+        {
+          id: 'doubling_season_1',
+          controller: 'p1',
+          card: {
+            name: 'Wrong Name Season',
+            oracle_text:
+              'If an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead.',
+          },
+        },
+        {
+          id: 'hardened_scales_1',
+          controller: 'p1',
+          card: {
+            name: 'Wrong Name Scales',
+            oracle_text:
+              'If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead.',
+          },
+        },
+      ],
+    };
+
+    const modifiedDeltas = applyCounterModifications(state, 'counter_target_1', { '+1/+1': 2 });
+    expect(modifiedDeltas).toEqual({ '+1/+1': 6 });
+
+    const result = evaluateCounterPlacementReplacementEvent({
+      state,
+      targetPermanentId: 'counter_target_1',
+      controllerId: 'p1',
+      deltas: { '+1/+1': 2 },
+      modifiedDeltas,
+    });
+    expect(result).toMatchObject({
+      applied: true,
+      effectId: 'counter-placement-modified',
+      originalAmount: 2,
+      replacementAmount: 6,
+    });
+  });
+
+  it('collects oracle-pattern damage replacement specs without card-name routing', () => {
+    const furnaceOracle =
+      'If a source would deal damage to a permanent or player, it deals double that damage to that permanent or player instead.';
+    const giselaOracle =
+      'Flying, first strike\n'
+      + 'If a source would deal damage to an opponent or a permanent an opponent controls, that source deals double that damage to that player or permanent instead.\n'
+      + 'If a source would deal damage to you or a permanent you control, prevent half that damage, rounded up.';
+    const angrathOracle =
+      'If a source you control would deal damage to a permanent or player, it deals double that damage to that permanent or player instead.';
+    const emancipationOracle =
+      'If a source you control would deal damage to a permanent or player, it deals triple that damage to that permanent or player instead.';
+    const torbranOracle =
+      'If a red source you control would deal damage to an opponent or a permanent an opponent controls, it deals that much damage plus 2 instead.';
+    const embermawOracle =
+      'Trample\n'
+      + 'If another red source you control would deal damage to a permanent or player, it deals that much damage plus 1 to that permanent or player instead.';
+
+    const specs = collectReplacementEffectSpecsFromState({
+      battlefield: [
+        {
+          id: 'fake_furnace_1',
+          controller: 'p1',
+          card: { name: 'Not Furnace', oracle_text: furnaceOracle },
+        },
+        {
+          id: 'fake_gisela_1',
+          controller: 'p1',
+          card: { name: 'Not Gisela', oracle_text: giselaOracle },
+        },
+        {
+          id: 'fake_angrath_1',
+          controller: 'p1',
+          card: { name: 'Not Angrath', oracle_text: angrathOracle },
+        },
+        {
+          id: 'fake_emancipation_1',
+          controller: 'p1',
+          card: { name: 'Not Emancipation', oracle_text: emancipationOracle },
+        },
+        {
+          id: 'fake_torbran_1',
+          controller: 'p1',
+          card: { name: 'Not Torbran', oracle_text: torbranOracle },
+        },
+        {
+          id: 'fake_embermaw_1',
+          controller: 'p1',
+          card: { name: 'Not Embermaw', oracle_text: embermawOracle },
+        },
+      ],
+    });
+
+    expect(specs.some((spec) => spec.effectId === 'all-source-damage-double')).toBe(true);
+    expect(specs.some((spec) => spec.effectId === 'damage-to-opponent-double')).toBe(true);
+    expect(specs.some((spec) => spec.effectId === 'damage-to-you-prevent-half')).toBe(true);
+    expect(specs.some((spec) => spec.effectId === 'source-you-control-damage-double')).toBe(true);
+    expect(specs.some((spec) => spec.effectId === 'source-you-control-damage-triple')).toBe(true);
+    expect(specs.some((spec) => spec.effectId === 'red-source-you-control-damage-plus-2')).toBe(true);
+    expect(specs.some((spec) => spec.effectId === 'another-red-source-you-control-damage-plus-1')).toBe(true);
+  });
+
+  it('applies enchanted-creature combat double from oracle text + attachedTo (Sound of Drums shape)', () => {
+    const soundOfDrumsOracle =
+      'Enchant creature\n'
+      + 'Enchanted creature is goaded.\n'
+      + 'If enchanted creature would deal combat damage to a permanent or player, it deals double that damage instead.\n'
+      + '{2}{R}: Return this card from your graveyard to your hand.';
+
+    const specs = collectReplacementEffectSpecsFromState({
+      battlefield: [
+        {
+          id: 'attacker_1',
+          controller: 'p1',
+          card: { name: 'Goaded Bear', type_line: 'Creature — Bear' },
+        },
+        {
+          id: 'aura_1',
+          controller: 'p1',
+          attachedTo: 'attacker_1',
+          card: { name: 'Anonymous Aura', oracle_text: soundOfDrumsOracle },
+        },
+      ],
+    });
+    expect(specs.some((spec) => spec.effectId === 'enchanted-creature-combat-damage-double')).toBe(true);
+
+    const ctx = {
+      state: {
+        players: [{ id: 'p1' }, { id: 'p2' }],
+        battlefield: [
+          {
+            id: 'attacker_1',
+            controller: 'p1',
+            card: { name: 'Goaded Bear', type_line: 'Creature — Bear' },
+          },
+          {
+            id: 'aura_1',
+            controller: 'p1',
+            attachedTo: 'attacker_1',
+            card: { name: 'Anonymous Aura', oracle_text: soundOfDrumsOracle },
+          },
+        ],
+      },
+    } as any;
+
+    expect(calculateModifiedDamage(ctx, 3, 'p1', 'p2', 'attacker_1', true).amount).toBe(6);
+    expect(calculateModifiedDamage(ctx, 3, 'p1', 'p2', 'other_creature', true).amount).toBe(3);
+    // Non-combat damage from the enchanted creature must not double.
+    expect(calculateModifiedDamage(ctx, 3, 'p1', 'p2', 'attacker_1', false).amount).toBe(3);
+    // Permanent combat path uses the target permanent's controller as damageReceiver.
+    expect(calculateModifiedDamage(ctx, 2, 'p1', 'p2', 'attacker_1', true).amount).toBe(4);
+  });
+
+  it('applies Furnace-style all-damage double via oracle-pattern detect path', () => {
+    const furnaceOracle =
+      'If a source would deal damage to a permanent or player, it deals double that damage to that permanent or player instead.';
+    const ctx = {
+      state: {
+        players: [{ id: 'p1' }, { id: 'p2' }],
+        battlefield: [
+          {
+            id: 'fake_furnace_1',
+            controller: 'p1',
+            card: { name: 'Anonymous Furnace', oracle_text: furnaceOracle },
+          },
+        ],
+      },
+    } as any;
+
+    const effects = detectDamageReplacementEffects(ctx, 'p2', 'p1', true);
+    expect(effects.some((effect) => effect.type === 'double')).toBe(true);
+
+    const modified = calculateModifiedDamage(ctx, 3, 'p2', 'p1');
+    expect(modified.amount).toBe(6);
+  });
+
+  it('applies Gisela-style opponent-double / self-halve from oracle text alone', () => {
+    const giselaOracle =
+      'Flying, first strike\n'
+      + 'If a source would deal damage to an opponent or a permanent an opponent controls, that source deals double that damage to that player or permanent instead.\n'
+      + 'If a source would deal damage to you or a permanent you control, prevent half that damage, rounded up.';
+    const ctx = {
+      state: {
+        players: [{ id: 'p1' }, { id: 'p2' }],
+        battlefield: [
+          {
+            id: 'fake_gisela_1',
+            controller: 'p1',
+            card: { name: 'Anonymous Angel', oracle_text: giselaOracle },
+          },
+        ],
+      },
+    } as any;
+
+    // Damage to opponent of Gisela's controller doubles (any source).
+    expect(calculateModifiedDamage(ctx, 4, 'p2', 'p2').amount).toBe(8);
+    // Damage to Gisela's controller: prevent half rounded up ⇒ remaining floor half.
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1').amount).toBe(2);
+  });
+
+  it('applies Emancipation-style triple and Torbran-style plus-2 from oracle text alone', () => {
+    const emancipationOracle =
+      'If a source you control would deal damage to a permanent or player, it deals triple that damage to that permanent or player instead.';
+    const cityOracle =
+      'Convoke\n'
+      + 'If a source you control would deal damage to a permanent or player, it deals triple that damage instead.';
+    const torbranOracle =
+      'If a red source you control would deal damage to an opponent or a permanent an opponent controls, it deals that much damage plus 2 instead.';
+
+    const tripleCtx = {
+      state: {
+        players: [{ id: 'p1' }, { id: 'p2' }],
+        battlefield: [
+          {
+            id: 'fake_emancipation_1',
+            controller: 'p1',
+            card: { name: 'Anonymous Emancipation', oracle_text: emancipationOracle },
+          },
+        ],
+      },
+    } as any;
+    expect(calculateModifiedDamage(tripleCtx, 3, 'p1', 'p2').amount).toBe(9);
+    expect(calculateModifiedDamage(tripleCtx, 3, 'p2', 'p1').amount).toBe(3);
+
+    const cityCtx = {
+      state: {
+        players: [{ id: 'p1' }, { id: 'p2' }],
+        battlefield: [
+          {
+            id: 'fake_city_1',
+            controller: 'p1',
+            card: { name: 'Anonymous City', oracle_text: cityOracle },
+          },
+        ],
+      },
+    } as any;
+    expect(calculateModifiedDamage(cityCtx, 2, 'p1', 'p2').amount).toBe(6);
+
+    const torbranCtx = {
+      state: {
+        players: [{ id: 'p1' }, { id: 'p2' }],
+        battlefield: [
+          {
+            id: 'fake_torbran_1',
+            controller: 'p1',
+            card: { name: 'Anonymous Torbran', oracle_text: torbranOracle },
+          },
+        ],
+      },
+    } as any;
+    expect(calculateModifiedDamage(torbranCtx, 3, 'p1', 'p2').amount).toBe(5);
+    expect(calculateModifiedDamage(torbranCtx, 3, 'p1', 'p1').amount).toBe(3);
+  });
+
+  it('applies Vorinclex-style you-double / opponent-halve from oracle text alone', () => {
+    const vorinclexOracle =
+      'Trample, haste\n'
+      + 'If you would put one or more counters on a permanent or player, put twice that many of each of those kinds of counters on that permanent or player instead.\n'
+      + 'If an opponent would put one or more counters on a permanent or player, they put half that many of each of those kinds of counters on that permanent or player instead, rounded down.';
+
+    const yourCreatureState = {
+      battlefield: [
+        {
+          id: 'your_bear',
+          controller: 'p1',
+          card: { name: 'Bear', type_line: 'Creature — Bear' },
+        },
+        {
+          id: 'praetor_1',
+          controller: 'p1',
+          card: { name: 'Anonymous Praetor', oracle_text: vorinclexOracle },
+        },
+      ],
+    };
+    expect(applyCounterModifications(yourCreatureState, 'your_bear', { '+1/+1': 3 })).toEqual({ '+1/+1': 6 });
+
+    const oppCreatureState = {
+      battlefield: [
+        {
+          id: 'opp_bear',
+          controller: 'p2',
+          card: { name: 'Bear', type_line: 'Creature — Bear' },
+        },
+        {
+          id: 'praetor_1',
+          controller: 'p1',
+          card: { name: 'Anonymous Praetor', oracle_text: vorinclexOracle },
+        },
+      ],
+    };
+    expect(applyCounterModifications(oppCreatureState, 'opp_bear', { '+1/+1': 3 })).toEqual({ '+1/+1': 1 });
   });
 
   it('routes dredge draw replacement through declarative registry before opponent effects', () => {

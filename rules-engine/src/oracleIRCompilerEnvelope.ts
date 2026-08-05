@@ -687,12 +687,28 @@ function mergeUnknownStepsFromOverlay(
 ): OracleIRResult {
   if (overlayAbilities.length === 0) return parsed;
 
+  // Unparsed novel text often yields zero abilities; take the overlay wholesale.
+  if (!parsed.abilities || parsed.abilities.length === 0) {
+    return { ...parsed, abilities: [...overlayAbilities] };
+  }
+
   const abilities = parsed.abilities.map((ability, index) => {
     if (!abilityHasUnknownSteps(ability)) return ability;
     const overlay = overlayAbilities[index] || overlayAbilities[0];
     if (!overlay || overlay.steps.length === 0) return ability;
+    // Parser classifies bare unknown clauses as STATIC; overlays that replace those
+    // steps must also supply the ability type (SPELL_EFFECT → spell) so spell-stack
+    // collectors that filter to SPELL do not drop the merged steps.
+    const onlyUnknown = ability.steps.every((step) => step.kind === 'unknown');
+    if (onlyUnknown) {
+      return {
+        ...overlay,
+        text: ability.text || overlay.text,
+      };
+    }
     return {
       ...ability,
+      type: overlay.type || ability.type,
       steps: overlay.steps,
       effectText: overlay.effectText || ability.effectText,
     };

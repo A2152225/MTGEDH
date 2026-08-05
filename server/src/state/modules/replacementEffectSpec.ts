@@ -15,7 +15,7 @@ import type {
 /** Declarative replacement spec (Phase 5.1). See docs/oracle-ir-phase5-continuous-effects-design.md */
 export type ReplacementEffectSpecEvent = ReplacementEvent['type'];
 
-export type ReplacementModifyMode = 'double' | 'add_flat' | 'halve';
+export type ReplacementModifyMode = 'double' | 'triple' | 'add_flat' | 'halve';
 
 export interface ReplacementZoneChangeMatch {
   sourceZone?: ReplacementZone;
@@ -64,10 +64,23 @@ export interface ReplacementLifeGainMatch {
   gainingPlayerIsOpponentOfSource?: boolean;
 }
 
+export interface ReplacementDamageMatch {
+  /** Damage dealer must be the spec source controller (Angrath's Marauders). */
+  dealingPlayerIsSourceController?: boolean;
+  /** Receiving player must be an opponent of the spec source controller (Gisela double). */
+  receivingPlayerIsOpponentOfSource?: boolean;
+  /** Receiving player must be the spec source controller (Gisela prevent-half). */
+  receivingPlayerIsSourceController?: boolean;
+  /** Damage source permanent must be the creature this aura (spec source) is attached to. */
+  damageSourceIsEnchantedBySource?: boolean;
+  /** Only apply when the damage event is combat damage. */
+  combatDamageOnly?: boolean;
+}
+
 export interface ReplacementEffectSpec {
   id: string;
   event: ReplacementEffectSpecEvent;
-  match?: ReplacementZoneChangeMatch & ReplacementMillMatch & ReplacementCounterMatch & ReplacementDrawMatch & ReplacementLifeGainMatch;
+  match?: ReplacementZoneChangeMatch & ReplacementMillMatch & ReplacementCounterMatch & ReplacementDrawMatch & ReplacementLifeGainMatch & ReplacementDamageMatch;
   instead: {
     redirectZone?: ReplacementZone;
     choiceRequired?: boolean;
@@ -350,6 +363,346 @@ export function collectOraclePatternLifeGainReplacementSpecsFromState(state: unk
   }
 
   return specs;
+}
+
+interface OracleCounterReplacementTemplate {
+  templateId: string;
+  oracleMustIncludeAll: readonly string[];
+  spec: Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
+}
+
+/** Oracle-pattern counter-placement replacements (no card-name routing). */
+const ORACLE_COUNTER_REPLACEMENT_TEMPLATES: readonly OracleCounterReplacementTemplate[] = [
+  {
+    templateId: 'permanent-counters-double-you-control',
+    oracleMustIncludeAll: [
+      'counters on a permanent you control',
+      'twice that many of those counters',
+    ],
+    spec: {
+      event: 'counter-placement',
+      match: { targetControllerIsSourceController: true },
+      instead: { modify: 'double' },
+      effectId: 'permanent-counters-double',
+      reason: 'permanent_counters_double',
+    },
+  },
+  {
+    templateId: 'p1p1-counters-plus-one-you-control',
+    oracleMustIncludeAll: [
+      '+1/+1 counters would be put',
+      'that many plus one',
+    ],
+    spec: {
+      event: 'counter-placement',
+      match: {
+        counterTypeIncludes: '+1/+1',
+        targetControllerIsSourceController: true,
+      },
+      instead: { modify: 'add_flat', value: 1 },
+      effectId: 'p1p1-counters-plus-one',
+      reason: 'p1p1_counters_plus_one',
+    },
+  },
+  {
+    templateId: 'p1p1-counters-double-creature-you-control',
+    oracleMustIncludeAll: [
+      '+1/+1 counters would be put',
+      'twice that many',
+      'creature you control',
+    ],
+    spec: {
+      event: 'counter-placement',
+      match: {
+        counterTypeIncludes: '+1/+1',
+        targetControllerIsSourceController: true,
+      },
+      instead: { modify: 'double' },
+      effectId: 'p1p1-counters-double',
+      reason: 'p1p1_counters_double',
+    },
+  },
+  {
+    templateId: 'you-put-counters-double',
+    oracleMustIncludeAll: [
+      'if you would put one or more counters',
+      'twice that many of each of those kinds',
+    ],
+    spec: {
+      event: 'counter-placement',
+      match: { targetControllerIsSourceController: true },
+      instead: { modify: 'double' },
+      effectId: 'you-put-counters-double',
+      reason: 'you_put_counters_double',
+    },
+  },
+  {
+    templateId: 'opponent-put-counters-halve',
+    oracleMustIncludeAll: [
+      'if an opponent would put one or more counters',
+      'half that many of each of those kinds',
+    ],
+    spec: {
+      event: 'counter-placement',
+      match: { targetControllerIsSourceController: false },
+      instead: { modify: 'halve' },
+      effectId: 'opponent-put-counters-halve',
+      reason: 'opponent_put_counters_halve',
+    },
+  },
+];
+
+export function collectOraclePatternCounterReplacementSpecsFromState(state: unknown): ReplacementEffectSpec[] {
+  const specs: ReplacementEffectSpec[] = [];
+  const battlefield = Array.isArray((state as { battlefield?: unknown })?.battlefield)
+    ? (state as { battlefield: unknown[] }).battlefield
+    : [];
+
+  for (const perm of battlefield) {
+    if (!perm || typeof perm !== 'object' || !(perm as { card?: unknown }).card) continue;
+    const permRecord = perm as {
+      id?: string;
+      controller?: string;
+      card?: { name?: string; oracle_text?: string; oracleText?: string };
+    };
+    const oracle = normalizeOraclePatternText(readCardOracleText(permRecord.card)).toLowerCase();
+    if (!oracle) continue;
+
+    const sourcePermanentId = String(permRecord.id || '').trim();
+    const sourceController = String(permRecord.controller || '').trim();
+    const sourceName = String(permRecord.card?.name || 'Unknown').trim();
+    if (!sourcePermanentId) continue;
+
+    for (const template of ORACLE_COUNTER_REPLACEMENT_TEMPLATES) {
+      if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
+      specs.push({
+        ...template.spec,
+        id: `${sourcePermanentId}:${template.templateId}`,
+        sourcePermanentId,
+        sourceController,
+        sourceName,
+      });
+    }
+  }
+
+  return specs;
+}
+
+interface OracleDamageReplacementTemplate {
+  templateId: string;
+  oracleMustIncludeAll: readonly string[];
+  spec: Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
+}
+
+/** Oracle-pattern damage amount replacements (Furnace of Rath family; no card-name routing). */
+const ORACLE_DAMAGE_REPLACEMENT_TEMPLATES: readonly OracleDamageReplacementTemplate[] = [
+  {
+    // Furnace of Rath / Dictate of the Twin Gods
+    templateId: 'all-source-damage-double',
+    oracleMustIncludeAll: [
+      'if a source would deal damage to a permanent or player',
+      'it deals double that damage',
+    ],
+    spec: {
+      event: 'damage',
+      instead: { modify: 'double' },
+      effectId: 'all-source-damage-double',
+      reason: 'all_source_damage_double',
+    },
+  },
+  {
+    // Angrath's Marauders family
+    templateId: 'source-you-control-damage-double',
+    oracleMustIncludeAll: [
+      'if a source you control would deal damage',
+      'deals double that damage',
+    ],
+    spec: {
+      event: 'damage',
+      match: { dealingPlayerIsSourceController: true },
+      instead: { modify: 'double' },
+      effectId: 'source-you-control-damage-double',
+      reason: 'source_you_control_damage_double',
+    },
+  },
+  {
+    // Gisela, Blade of Goldnight (double half)
+    templateId: 'damage-to-opponent-double',
+    oracleMustIncludeAll: [
+      'deal damage to an opponent or a permanent an opponent controls',
+      'deals double that damage',
+    ],
+    spec: {
+      event: 'damage',
+      match: { receivingPlayerIsOpponentOfSource: true },
+      instead: { modify: 'double' },
+      effectId: 'damage-to-opponent-double',
+      reason: 'damage_to_opponent_double',
+    },
+  },
+  {
+    // Gisela, Blade of Goldnight (prevent half)
+    templateId: 'damage-to-you-prevent-half',
+    oracleMustIncludeAll: [
+      'deal damage to you or a permanent you control',
+      'prevent half that damage',
+    ],
+    spec: {
+      event: 'damage',
+      match: { receivingPlayerIsSourceController: true },
+      instead: { modify: 'halve' },
+      effectId: 'damage-to-you-prevent-half',
+      reason: 'damage_to_you_prevent_half',
+    },
+  },
+  {
+    // Fiery Emancipation / City on Fire
+    templateId: 'source-you-control-damage-triple',
+    oracleMustIncludeAll: [
+      'if a source you control would deal damage',
+      'deals triple that damage',
+    ],
+    spec: {
+      event: 'damage',
+      match: { dealingPlayerIsSourceController: true },
+      instead: { modify: 'triple' },
+      effectId: 'source-you-control-damage-triple',
+      reason: 'source_you_control_damage_triple',
+    },
+  },
+  {
+    // Torbran, Thane of Red Fell
+    templateId: 'red-source-you-control-damage-plus-2',
+    oracleMustIncludeAll: [
+      'red source you control would deal damage to an opponent',
+      'that much damage plus 2',
+    ],
+    spec: {
+      event: 'damage',
+      match: {
+        dealingPlayerIsSourceController: true,
+        receivingPlayerIsOpponentOfSource: true,
+      },
+      instead: { modify: 'add_flat', value: 2 },
+      effectId: 'red-source-you-control-damage-plus-2',
+      reason: 'red_source_you_control_damage_plus_2',
+    },
+  },
+  {
+    // Embermaw Hellion
+    templateId: 'another-red-source-you-control-damage-plus-1',
+    oracleMustIncludeAll: [
+      'another red source you control would deal damage',
+      'that much damage plus 1',
+    ],
+    spec: {
+      event: 'damage',
+      match: { dealingPlayerIsSourceController: true },
+      instead: { modify: 'add_flat', value: 1 },
+      effectId: 'another-red-source-you-control-damage-plus-1',
+      reason: 'another_red_source_you_control_damage_plus_1',
+    },
+  },
+  {
+    // The Sound of Drums / attachment-scoped combat double
+    templateId: 'enchanted-creature-combat-damage-double',
+    oracleMustIncludeAll: [
+      'if enchanted creature would deal combat damage to a permanent or player',
+      'deals double that damage',
+    ],
+    spec: {
+      event: 'damage',
+      match: {
+        damageSourceIsEnchantedBySource: true,
+        combatDamageOnly: true,
+      },
+      instead: { modify: 'double' },
+      effectId: 'enchanted-creature-combat-damage-double',
+      reason: 'enchanted_creature_combat_damage_double',
+    },
+  },
+];
+
+export function collectOraclePatternDamageReplacementSpecsFromState(state: unknown): ReplacementEffectSpec[] {
+  const specs: ReplacementEffectSpec[] = [];
+  const battlefield = Array.isArray((state as { battlefield?: unknown })?.battlefield)
+    ? (state as { battlefield: unknown[] }).battlefield
+    : [];
+
+  for (const perm of battlefield) {
+    if (!perm || typeof perm !== 'object' || !(perm as { card?: unknown }).card) continue;
+    const permRecord = perm as {
+      id?: string;
+      controller?: string;
+      card?: { name?: string; oracle_text?: string; oracleText?: string };
+    };
+    const oracle = normalizeOraclePatternText(readCardOracleText(permRecord.card)).toLowerCase();
+    if (!oracle) continue;
+
+    const sourcePermanentId = String(permRecord.id || '').trim();
+    const sourceController = String(permRecord.controller || '').trim();
+    const sourceName = String(permRecord.card?.name || 'Unknown').trim();
+    if (!sourcePermanentId) continue;
+
+    for (const template of ORACLE_DAMAGE_REPLACEMENT_TEMPLATES) {
+      if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
+      specs.push({
+        ...template.spec,
+        id: `${sourcePermanentId}:${template.templateId}`,
+        sourcePermanentId,
+        sourceController,
+        sourceName,
+      });
+    }
+  }
+
+  return specs;
+}
+
+export function overlaySpecsMatchDamage(
+  spec: ReplacementEffectSpec,
+  input: {
+    damageDealer: string;
+    damageReceiver: string;
+    damageSourcePermanentId?: string;
+    isCombatDamage?: boolean;
+  },
+  state?: unknown,
+): boolean {
+  if (spec.event !== 'damage') return false;
+  const match = spec.match || {};
+  const sourceController = String(spec.sourceController || '');
+  const dealer = String(input.damageDealer || '');
+  const receiver = String(input.damageReceiver || '');
+
+  if (typeof match.dealingPlayerIsSourceController === 'boolean') {
+    if ((dealer === sourceController) !== match.dealingPlayerIsSourceController) return false;
+  }
+  if (typeof match.receivingPlayerIsOpponentOfSource === 'boolean') {
+    const isOpponent = Boolean(sourceController) && Boolean(receiver) && receiver !== sourceController;
+    if (isOpponent !== match.receivingPlayerIsOpponentOfSource) return false;
+  }
+  if (typeof match.receivingPlayerIsSourceController === 'boolean') {
+    if ((receiver === sourceController) !== match.receivingPlayerIsSourceController) return false;
+  }
+  if (match.combatDamageOnly === true && !input.isCombatDamage) {
+    return false;
+  }
+  if (match.damageSourceIsEnchantedBySource === true) {
+    const damageSourceId = String(input.damageSourcePermanentId || '').trim();
+    const auraId = String(spec.sourcePermanentId || '').trim();
+    if (!damageSourceId || !auraId || !state) return false;
+    const battlefield = Array.isArray((state as { battlefield?: unknown })?.battlefield)
+      ? (state as { battlefield: unknown[] }).battlefield
+      : [];
+    const aura = battlefield.find((perm) => {
+      if (!perm || typeof perm !== 'object') return false;
+      return String((perm as { id?: string }).id || '').trim() === auraId;
+    }) as { attachedTo?: string } | undefined;
+    if (!aura) return false;
+    if (String(aura.attachedTo || '').trim() !== damageSourceId) return false;
+  }
+  return true;
 }
 
 export function matchesSelfShuffleIntoLibraryReplacementOracle(oracleText: string): boolean {
@@ -674,9 +1027,9 @@ export function overlaySpecsMatchCounterPlacement(
     && !String(input.counterType || '').includes(String(match.counterTypeIncludes))) {
     return false;
   }
-  if (match.targetControllerIsSourceController === true
-    && String(input.targetController) !== String(spec.sourceController || '')) {
-    return false;
+  if (typeof match.targetControllerIsSourceController === 'boolean') {
+    const sameController = String(input.targetController) === String(spec.sourceController || '');
+    if (match.targetControllerIsSourceController !== sameController) return false;
   }
   return true;
 }
@@ -696,6 +1049,9 @@ export function overlayReplacementSpecToEffect(spec: ReplacementEffectSpec): Rep
   }
   if (modify === 'halve') {
     return { type: 'halve', source, controllerId };
+  }
+  if (modify === 'triple') {
+    return { type: 'triple', source, controllerId };
   }
   return { type: 'double', source, controllerId };
 }
@@ -776,6 +1132,8 @@ export function collectReplacementEffectSpecsFromState(state: unknown): Replacem
   specs.push(...collectOraclePatternDrawReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternLifeGainReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternZoneChangeReplacementSpecsFromState(state));
+  specs.push(...collectOraclePatternCounterReplacementSpecsFromState(state));
+  specs.push(...collectOraclePatternDamageReplacementSpecsFromState(state));
   return specs;
 }
 
@@ -884,6 +1242,49 @@ export function evaluateReplacementEffectSpec(
       sourceName: spec.sourceName,
       originalAmount: Object.values(event.deltas || {}).reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0),
       reason: spec.reason || 'overlay_counter_replacement',
+      metadata: {
+        overlaySpecId: spec.id,
+        replacementEffect: overlayReplacementSpecToEffect(spec),
+      },
+    };
+  }
+
+  if (event.type === 'damage' && spec.instead.modify) {
+    const meta = event.metadata as {
+      damageDealer?: string;
+      damageSourcePermanentId?: string;
+      isCombatDamage?: boolean;
+    } | undefined;
+    const damageDealer = String(
+      meta?.damageDealer
+      || (event.source as { controller?: string } | undefined)?.controller
+      || '',
+    );
+    const damageReceiver = String(event.targetPlayerId || event.targetId || '');
+    const damageSourcePermanentId = String(
+      meta?.damageSourcePermanentId
+      || (event.source as { id?: string } | undefined)?.id
+      || '',
+    );
+    // Amount-modify damage matching needs battlefield attachedTo; that path uses
+    // detectDamageReplacementEffects. This branch remains for non-modify callers.
+    if (!overlaySpecsMatchDamage(
+      spec,
+      {
+        damageDealer,
+        damageReceiver,
+        damageSourcePermanentId: damageSourcePermanentId || undefined,
+        isCombatDamage: meta?.isCombatDamage,
+      },
+    )) return null;
+    const originalAmount = Math.max(0, Number(event.amount || 0));
+    return {
+      applied: true,
+      eventType: event.type,
+      effectId: spec.effectId || spec.id,
+      sourceName: spec.sourceName,
+      originalAmount,
+      reason: spec.reason || 'overlay_damage_replacement',
       metadata: {
         overlaySpecId: spec.id,
         replacementEffect: overlayReplacementSpecToEffect(spec),
@@ -1073,7 +1474,11 @@ export function evaluateDeclarativeReplacementEvent(
     ? collectIntrinsicZoneChangeReplacementSpecsFromObject((event as ZoneChangeReplacementEvent).object)
     : [];
   for (const spec of [...intrinsicSpecs, ...dynamicSpecs, ...BUILTIN_REPLACEMENT_EFFECT_SPECS]) {
-    if ((event.type === 'mill' || event.type === 'counter-placement') && spec.instead.modify) {
+    // Amount-modify families aggregate via detect*/apply* helpers (616.1 ordering).
+    if (
+      (event.type === 'mill' || event.type === 'counter-placement' || event.type === 'damage')
+      && spec.instead.modify
+    ) {
       continue;
     }
     const result = evaluateReplacementEffectSpec(spec, event);

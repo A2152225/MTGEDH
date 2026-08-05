@@ -106,7 +106,11 @@ export function restoreEffectProgramRuntimeForPendingStep(
   let executionOptions: OracleIRExecutionOptions = { allowOptional: true };
   let sourceObjectType: 'spell' | 'ability' = 'ability';
 
-  if (stackItem?.type === 'spell' || family.includes('spell')) {
+  if (
+    stackItem?.type === 'spell'
+    || family.includes('spell')
+    || family === 'spell_resolution'
+  ) {
     sourceObjectType = 'spell';
     const oracleText = String(stackItem?.card?.oracle_text || (step as any)?.oracleText || '').trim();
     if (!oracleText) return false;
@@ -114,6 +118,26 @@ export function restoreEffectProgramRuntimeForPendingStep(
       cardName: sourceName,
       sourceName,
       triggerItem: stackItem,
+    });
+    steps = collectOracleEffectSteps(oracleText, sourceName, cardKeys);
+  } else if (family === 'activated_ability_resolution') {
+    // P2c: restore activated-ability Effect Programs after reconnect/replay.
+    sourceObjectType = 'ability';
+    const oracleText = String(
+      stackItem?.activatedOracleText
+      || stackItem?.abilityText
+      || stackItem?.description
+      || stackItem?.card?.oracle_text
+      || (step as any)?.oracleText
+      || (step as any)?.effectText
+      || '',
+    ).trim();
+    if (!oracleText) return false;
+    const cardKeys = extractOracleCardLookupKeys({
+      cardName: sourceName,
+      sourceName,
+      triggerItem: stackItem,
+      card: stackItem?.card,
     });
     steps = collectOracleEffectSteps(oracleText, sourceName, cardKeys);
   } else {

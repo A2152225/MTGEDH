@@ -2717,37 +2717,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const chosen = normalizeChosenTargetRefs(ctx.state, spec, (e as any).chosen || []);
         const caster = (e as any).caster as PlayerID;
         
-        // Handle COUNTER_TARGET_SPELL specially since it's not in the targeting module
-        if (spec?.op === 'COUNTER_TARGET_SPELL') {
-          for (const target of chosen) {
-            if (target.kind === 'stack') {
-              const stackIdx = ctx.state.stack.findIndex((s: any) => s.id === target.id);
-              if (stackIdx >= 0) {
-                const countered = ctx.state.stack.splice(stackIdx, 1)[0];
-                // Move the countered spell to its replacement destination
-                const controller = (countered as any).controller as PlayerID;
-                const zones = ctx.state.zones = ctx.state.zones || {};
-                zones[controller] = zones[controller] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-                if ((countered as any).card) {
-                  if ((countered as any).card?.ceaseOnCounter === true) {
-                    // Copied spells cease to exist instead of changing zones.
-                  } else if (shouldExileStackCardInsteadOfGraveyard(countered)) {
-                    const exile = (zones[controller] as any).exile = (zones[controller] as any).exile || [];
-                    exile.push({ ...(countered as any).card, zone: 'exile' });
-                    (zones[controller] as any).exileCount = exile.length;
-                  } else {
-                    const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
-                    gy.push({ ...(countered as any).card, zone: 'graveyard' });
-                    (zones[controller] as any).graveyardCount = gy.length;
-                  }
-                }
-              }
-            }
-          }
-          ctx.bumpSeq();
-          break;
-        }
-        
+        // P1a: COUNTER_TARGET_* categorize resolve + former special-case path deleted.
+        // Countering goes through Oracle IR → executeSpellEffect CounterSpell/CounterAbility
+        // (or counterStackItem / applyEvent effect switch when those effects are emitted).
         if (spec && typeof resolveSpell === 'function') {
           try {
             const effects = resolveSpell(spec, chosen, ctx.state, caster);
@@ -15494,6 +15466,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               if (permanent.card && typeof permanent.card === 'object') {
                 (permanent.card as any).chosenColor = color;
               }
+              const colorWord = String((e as any).colorWord || '').trim().toLowerCase();
+              if (colorWord) {
+                (permanent as any).chosenColorWord = colorWord;
+                if (permanent.card && typeof permanent.card === 'object') {
+                  (permanent.card as any).chosenColorWord = colorWord;
+                }
+              }
               debug(2, `[applyEvent] Applied color choice: ${permanent.card?.name} -> ${color}`);
               ctx.bumpSeq();
               break;
@@ -15526,6 +15505,50 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
       
+      case "basicLandTypeChoice": {
+        try {
+          const { permanentId, playerId, basicLandType, cardName } = e as any;
+          const permanentIdStr = String(permanentId || '').trim();
+          const landType = String(basicLandType || '').trim();
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const resolvedStepType = String((e as any).resolvedStepType || ResolutionStepType.BASIC_LAND_TYPE_CHOICE).trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String((step as any)?.type || '').trim() === resolvedStepType &&
+                (!playerId || String((step as any)?.playerId || '').trim() === String(playerId || '').trim()) &&
+                (!permanentIdStr || String((step as any)?.permanentId || (step as any)?.sourceId || '').trim() === permanentIdStr)
+              );
+            });
+          }
+
+          if (permanentIdStr && landType) {
+            const permanent = resolveReplayPermanentByEvent(ctx, {
+              permanentId: permanentIdStr,
+              playerId,
+              cardName,
+            });
+            if (permanent) {
+              (permanent as any).chosenBasicLandType = landType;
+              if (permanent.card && typeof permanent.card === 'object') {
+                (permanent.card as any).chosenBasicLandType = landType;
+              }
+              debug(2, `[applyEvent] Applied basic land type choice: ${permanent.card?.name} -> ${landType}`);
+            } else {
+              debugWarn(2, `[applyEvent] basicLandTypeChoice: permanent ${permanentIdStr} not found`);
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(basicLandTypeChoice): failed", err);
+        }
+        break;
+      }
+
       case "cardNameChoice": {
         // Player chose a card name for a permanent or spell.
         try {

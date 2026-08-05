@@ -1,13 +1,12 @@
 /**
  * Oracle IR rollout flags. Trigger and spell primary default ON in production.
  *
- * Trigger primary opt-out:
+ * Opt-out (P4e — LEGACY aliases removed):
  * - ORACLE_IR_TRIGGER_PRIMARY=0|false|no|off
- * - ORACLE_IR_TRIGGER_LEGACY=1|true|yes|on
- *
- * Spell primary opt-out:
  * - ORACLE_IR_SPELL_PRIMARY=0|false|no|off
- * - ORACLE_IR_SPELL_LEGACY=1|true|yes|on
+ *
+ * ORACLE_IR_*_LEGACY is ignored. Vitest harness forces PRIMARY=0 by default;
+ * production omits the vars (primary ON).
  */
 export function parseOracleIrFeatureFlag(raw: string | undefined): boolean | undefined {
   const value = String(raw ?? '').trim().toLowerCase();
@@ -17,34 +16,24 @@ export function parseOracleIrFeatureFlag(raw: string | undefined): boolean | und
   return undefined;
 }
 
+/** True when trigger IR primary is explicitly disabled (PRIMARY=0). */
 export function isOracleIrTriggerLegacyForced(): boolean {
-  if (parseOracleIrFeatureFlag(process.env.ORACLE_IR_TRIGGER_LEGACY) === true) {
-    return true;
-  }
   return parseOracleIrFeatureFlag(process.env.ORACLE_IR_TRIGGER_PRIMARY) === false;
 }
 
 export function isOracleIrTriggerPrimaryEnabled(): boolean {
-  if (isOracleIrTriggerLegacyForced()) {
-    return false;
-  }
   const primaryOverride = parseOracleIrFeatureFlag(process.env.ORACLE_IR_TRIGGER_PRIMARY);
   if (primaryOverride === true) return true;
   if (primaryOverride === false) return false;
   return true;
 }
 
+/** True when spell IR primary is explicitly disabled (PRIMARY=0). */
 export function isOracleIrSpellLegacyForced(): boolean {
-  if (parseOracleIrFeatureFlag(process.env.ORACLE_IR_SPELL_LEGACY) === true) {
-    return true;
-  }
   return parseOracleIrFeatureFlag(process.env.ORACLE_IR_SPELL_PRIMARY) === false;
 }
 
 export function isOracleIrSpellPrimaryEnabled(): boolean {
-  if (isOracleIrSpellLegacyForced()) {
-    return false;
-  }
   const primaryOverride = parseOracleIrFeatureFlag(process.env.ORACLE_IR_SPELL_PRIMARY);
   if (primaryOverride === true) return true;
   if (primaryOverride === false) return false;

@@ -17,7 +17,8 @@ import {
 import { formatCastSpellMessage } from "../../../shared/src/gameLogFormat.js";
 
 import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection, getOfferedCreatureTypesForSelection } from "./creature-type";
-import { requiresColorChoice } from "./color-choice";
+import { getAsEntersChoiceRequirements } from "../state/modules/asEntersChoiceRequirements.js";
+import { getEffectiveColors } from "../state/modules/effectiveColors.js";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
 import { checkAndPromptOpeningHandActions, isOpeningHandBattlefieldCard } from "./opening-hand";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
@@ -2558,42 +2559,113 @@ function checkColorChoiceForNewPermanents(
       if (permanent.card && typeof permanent.card === 'object' && !permanent.card.chosenColor) {
         permanent.card.chosenColor = existingColor;
       }
-      continue;
     }
-    
-    // Check if this card requires color choice
-    const { required, reason, colors } = requiresColorChoice(permanent.card);
-    
-    if (required) {
+
+    const existingBasicLandType = String(
+      permanent.chosenBasicLandType || permanent.card?.chosenBasicLandType || '',
+    ).trim();
+    if (existingBasicLandType) {
+      if (!permanent.chosenBasicLandType) {
+        permanent.chosenBasicLandType = existingBasicLandType;
+      }
+      if (permanent.card && typeof permanent.card === 'object' && !permanent.card.chosenBasicLandType) {
+        permanent.card.chosenBasicLandType = existingBasicLandType;
+      }
+    }
+
+    const asEntersChoices = getAsEntersChoiceRequirements(permanent.card);
+    for (const requirement of asEntersChoices) {
       const controller = permanent.controller;
       const cardName = permanent.card.name || "Unknown";
       const permanentId = permanent.id;
 
-      // Avoid queueing duplicate steps if this scan runs multiple times
-      const alreadyQueued = queue.steps.some(
-        (s: any) => s.type === ResolutionStepType.COLOR_CHOICE && s.permanentId === permanentId
-      );
-      if (alreadyQueued) continue;
+      if (requirement.kind === 'color') {
+        if (existingColor) continue;
+        const alreadyQueued = queue.steps.some(
+          (s: any) => s.type === ResolutionStepType.COLOR_CHOICE && s.permanentId === permanentId
+        );
+        if (alreadyQueued) continue;
 
-      const availableColors = Array.isArray(colors) && colors.length > 0
-        ? colors
-        : ['white', 'blue', 'black', 'red', 'green'];
+        const availableColors = Array.isArray(requirement.colors) && requirement.colors.length > 0
+          ? requirement.colors
+          : ['white', 'blue', 'black', 'red', 'green'];
 
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.COLOR_CHOICE,
-        playerId: controller as any,
-        description: reason || `Choose a color for ${cardName}`,
-        mandatory: true,
-        sourceId: permanentId,
-        sourceName: cardName,
-        sourceImage: permanent.card?.image_uris?.normal,
-        permanentId,
-        cardName,
-        reason,
-        colors: availableColors,
-      });
-      
-      debug(2, `[game-actions] Requesting color choice for ${cardName} (${permanentId}) from ${controller}`);
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.COLOR_CHOICE,
+          playerId: controller as any,
+          description: requirement.reason || `Choose a color for ${cardName}`,
+          mandatory: requirement.mandatory,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: permanent.card?.image_uris?.normal,
+          permanentId,
+          cardName,
+          reason: requirement.reason,
+          colors: availableColors,
+        });
+        debug(2, `[game-actions] Requesting color choice for ${cardName} (${permanentId}) from ${controller}`);
+        continue;
+      }
+
+      if (requirement.kind === 'basic_land_type') {
+        if (existingBasicLandType) continue;
+        const alreadyQueued = queue.steps.some(
+          (s: any) =>
+            (s.type === ResolutionStepType.BASIC_LAND_TYPE_CHOICE || s.choiceKind === 'basic_land_type')
+            && s.permanentId === permanentId
+        );
+        if (alreadyQueued) continue;
+
+        const basicLandOptions = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'];
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.BASIC_LAND_TYPE_CHOICE,
+          playerId: controller as any,
+          description: requirement.reason || `Choose a basic land type for ${cardName}`,
+          mandatory: requirement.mandatory,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: permanent.card?.image_uris?.normal,
+          permanentId,
+          cardName,
+          reason: requirement.reason,
+          choiceKind: 'basic_land_type',
+          options: basicLandOptions.map((landType, idx) => ({
+            id: `basic_land_${idx}`,
+            label: landType,
+            value: landType,
+          })),
+          minSelections: 1,
+          maxSelections: 1,
+        });
+        debug(2, `[game-actions] Requesting basic land type choice for ${cardName} (${permanentId}) from ${controller}`);
+        continue;
+      }
+
+      if (requirement.kind === 'creature_type') {
+        const existingType = String(permanent.chosenCreatureType || permanent.card?.chosenCreatureType || '').trim();
+        if (existingType) continue;
+        const alreadyQueued = queue.steps.some(
+          (s: any) => s.type === ResolutionStepType.CREATURE_TYPE_CHOICE && s.permanentId === permanentId
+        );
+        if (alreadyQueued) continue;
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+          playerId: controller as any,
+          description: requirement.reason || `Choose a creature type for ${cardName}`,
+          mandatory: requirement.mandatory,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: permanent.card?.image_uris?.normal,
+          permanentId,
+          cardName,
+          reason: requirement.reason,
+          ...(requirement.excludedCreatureTypes
+            ? { excludedCreatureTypes: requirement.excludedCreatureTypes }
+            : {}),
+        });
+        debug(2, `[game-actions] Requesting creature type choice for ${cardName} (${permanentId}) from ${controller}`);
+      }
     }
   }
 }
@@ -3517,7 +3589,12 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
   const triggers: SpellCastTrigger[] = [];
   const battlefield = game.state?.battlefield || [];
 
-  const matchesSpellCastTriggerCondition = (card: any, trigger: SpellCastTrigger, spellSourceZone = castSourceZone): boolean => {
+  const matchesSpellCastTriggerCondition = (
+    card: any,
+    trigger: SpellCastTrigger,
+    sourcePermanent?: any,
+    spellSourceZone = castSourceZone,
+  ): boolean => {
     if (trigger.sourceZoneRequirement === 'library' && spellSourceZone !== 'library') {
       return false;
     }
@@ -3570,6 +3647,21 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
         if (!trigger.tribalType) return false;
         return spellColors.map((color) => String(color).toLowerCase()).includes(trigger.tribalType.toLowerCase());
       }
+      case 'chosen_color': {
+        const chosen = String(
+          sourcePermanent?.chosenColor
+          || sourcePermanent?.card?.chosenColor
+          || '',
+        ).trim().toLowerCase();
+        if (!chosen) return false;
+        const colorWordToSymbol: Record<string, string> = {
+          white: 'w', blue: 'u', black: 'b', red: 'r', green: 'g',
+          w: 'w', u: 'u', b: 'b', r: 'r', g: 'g',
+        };
+        const chosenSymbol = colorWordToSymbol[chosen] || chosen;
+        const effectiveSpellColors = getEffectiveColors(card, game.state).map((c) => c.toLowerCase());
+        return effectiveSpellColors.includes(chosen) || effectiveSpellColors.includes(chosenSymbol);
+      }
       default:
         return false;
     }
@@ -3579,10 +3671,10 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
     if (!permanent || !permanent.card) continue;
     if (permanent.controller !== casterId) continue; // Only controller's permanents trigger
     
-    const permTriggers = detectSpellCastTriggers(permanent.card, permanent);
+    const permTriggers = detectSpellCastTriggers(permanent.card, permanent, game.state);
     
     for (const trigger of permTriggers) {
-      let shouldTrigger = matchesSpellCastTriggerCondition(spellCard, trigger);
+      let shouldTrigger = matchesSpellCastTriggerCondition(spellCard, trigger, permanent);
 
       if (shouldTrigger && trigger.firstSpellThisTurn === true) {
         const matchingSpellsCastThisTurn = (Array.isArray(game.state?.spellsCastThisTurn) ? game.state.spellsCastThisTurn : [])
@@ -3592,7 +3684,7 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
             const castEntrySourceZone = normalizeSpellCastSourceZone(
               castEntry?.castSourceZone ?? castEntry?.fromZone ?? castCard?.castSourceZone ?? castCard?.fromZone
             );
-            return matchesSpellCastTriggerCondition(castCard, trigger, castEntrySourceZone);
+            return matchesSpellCastTriggerCondition(castCard, trigger, permanent, castEntrySourceZone);
           })
           .length;
         shouldTrigger = matchingSpellsCastThisTurn === 1;

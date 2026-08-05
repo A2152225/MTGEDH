@@ -3,7 +3,8 @@
   See scripts/oracle-ir-legacy-triage.ts for output format.
 
   Optional: pass --legacy to run forced-legacy integration subset with
-  ORACLE_IR_TRIGGER_LEGACY=1 (richer legacy_handled signal) instead of full migration.
+  ORACLE_IR_*_PRIMARY=0 + ORACLE_IR_GAP_TELEMETRY_LEGACY_SOAK=1 (richer legacy_handled
+  signal) instead of full migration. P4e: ORACLE_IR_*_LEGACY aliases are ignored.
 */
 
 import fs from 'node:fs';
@@ -58,8 +59,8 @@ const migration = legacyOnly
         env: {
           ...process.env,
           ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT: snapshotPath,
-          ORACLE_IR_TRIGGER_LEGACY: '1',
-          ORACLE_IR_SPELL_LEGACY: '1',
+          ORACLE_IR_TRIGGER_PRIMARY: '0',
+          ORACLE_IR_SPELL_PRIMARY: '0',
           ORACLE_IR_GAP_TELEMETRY_LEGACY_SOAK: '1',
         },
       },

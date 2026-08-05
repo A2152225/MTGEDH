@@ -91,7 +91,8 @@ export class RulesBridge {
     // Win/loss events - DISABLED until rules engine properly validates win conditions
     // The rules engine currently fires spurious PLAYER_WON events on routine actions
     // like land plays. We disable these handlers to prevent "X wins the game!" spam.
-    // TODO: Re-enable when rules engine properly checks win conditions (life <= 0, poison >= 10, etc.)
+    // TODO: Re-enable when rules engine properly checks win conditions (life <= 0, poison >= 10, etc.).
+    // Destiny (end-state P4d): RulesBridge stays validate/AI/sim facade; live win/loss remains applyEvent/SBA.
     
     // rulesEngine.on(RulesEngineEvent.PLAYER_LOST, (event) => {
     //   this.io.to(this.gameId).emit('playerLost', {

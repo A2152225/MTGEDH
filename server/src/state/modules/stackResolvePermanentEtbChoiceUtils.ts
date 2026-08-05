@@ -9,6 +9,7 @@ import {
   mustAttackEachCombat,
   cantAttackOwner,
 } from './triggered-abilities.js';
+import { getAsEntersChoiceRequirements } from './asEntersChoiceRequirements.js';
 
 export function queuePermanentAsEntersBattlefieldChoiceSteps(
   ctx: GameContext,
@@ -29,38 +30,99 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
   const oracleText = (effectiveCard.oracle_text || '').toLowerCase();
   const isReplaying = !!(ctx as any).isReplaying;
 
-  const colorChoicePattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?choose a colou?r/i;
-  if (colorChoicePattern.test(oracleText) && !isReplaying) {
-    if (!newPermanent.chosenColor) {
-      queueResolveTopOfStackPrompt(ctx, {
-        type: ResolutionStepType.COLOR_CHOICE,
-        playerId: controller,
-        description: `Choose a color for ${effectiveCard.name}`,
-        mandatory: !oracleText.includes('you may'),
-        sourceId: newPermId,
-        sourceName: effectiveCard.name || 'Permanent',
-        sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
-        colors: ['white', 'blue', 'black', 'red', 'green'],
-        permanentId: newPermId,
-      } as any);
-      debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires color choice, added resolution step`);
-    }
-  }
+  if (!isReplaying) {
+    const asEntersChoices = getAsEntersChoiceRequirements(effectiveCard);
+    for (const requirement of asEntersChoices) {
+      if (requirement.kind === 'color') {
+        if (newPermanent.chosenColor) continue;
+        queueResolveTopOfStackPrompt(ctx, {
+          type: ResolutionStepType.COLOR_CHOICE,
+          playerId: controller,
+          description: requirement.reason || `Choose a color for ${effectiveCard.name}`,
+          mandatory: requirement.mandatory,
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Permanent',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          colors: requirement.colors || ['white', 'blue', 'black', 'red', 'green'],
+          reason: requirement.reason,
+          permanentId: newPermId,
+        } as any);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires color choice, added resolution step`);
+        continue;
+      }
 
-  const creatureTypePattern = /as .+? enters(?: the battlefield)?,?\s+choose a creature type/i;
-  if (creatureTypePattern.test(oracleText) && !isReplaying) {
-    if (!newPermanent.chosenCreatureType) {
-      queueResolveTopOfStackPrompt(ctx, {
-        type: ResolutionStepType.CREATURE_TYPE_CHOICE,
-        playerId: controller,
-        description: `Choose a creature type for ${effectiveCard.name}`,
-        mandatory: true,
-        sourceId: newPermId,
-        sourceName: effectiveCard.name || 'Permanent',
-        sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
-        permanentId: newPermId,
-      } as any);
-      debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires creature type choice, added resolution step`);
+      if (requirement.kind === 'creature_type') {
+        if (newPermanent.chosenCreatureType) continue;
+        queueResolveTopOfStackPrompt(ctx, {
+          type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+          playerId: controller,
+          description: requirement.reason || `Choose a creature type for ${effectiveCard.name}`,
+          mandatory: requirement.mandatory,
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Permanent',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          reason: requirement.reason,
+          ...(requirement.excludedCreatureTypes
+            ? { excludedCreatureTypes: requirement.excludedCreatureTypes }
+            : {}),
+          permanentId: newPermId,
+        } as any);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires creature type choice, added resolution step`);
+        continue;
+      }
+
+      if (requirement.kind === 'basic_land_type') {
+        if (newPermanent.chosenBasicLandType) continue;
+        const basicLandOptions = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'];
+        queueResolveTopOfStackPrompt(ctx, {
+          type: ResolutionStepType.BASIC_LAND_TYPE_CHOICE,
+          playerId: controller,
+          description: requirement.reason || `Choose a basic land type for ${effectiveCard.name}`,
+          mandatory: requirement.mandatory,
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Permanent',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          permanentId: newPermId,
+          reason: requirement.reason,
+          choiceKind: 'basic_land_type',
+          options: basicLandOptions.map((landType, idx) => ({
+            id: `basic_land_${idx}`,
+            label: landType,
+            value: landType,
+          })),
+          minSelections: 1,
+          maxSelections: 1,
+        } as any);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires basic land type choice, added resolution step`);
+        continue;
+      }
+
+      if (requirement.kind === 'opponent' || requirement.kind === 'player') {
+        if (newPermanent.chosenPlayer) continue;
+        const opponentOnly = requirement.kind === 'opponent';
+        const allPlayers = state.players || [];
+        const validPlayers = opponentOnly
+          ? allPlayers.filter((p: any) => p.id !== controller)
+          : allPlayers;
+        queueResolveTopOfStackPrompt(ctx, {
+          type: ResolutionStepType.PLAYER_CHOICE,
+          playerId: controller,
+          description: requirement.reason || (opponentOnly
+            ? `Choose an opponent for ${effectiveCard.name}`
+            : `Choose a player for ${effectiveCard.name}`),
+          mandatory: requirement.mandatory,
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Permanent',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          permanentId: newPermId,
+          players: validPlayers.map((p: any) => ({
+            id: p.id,
+            name: p.name || `Player ${p.seat}`,
+          })),
+          opponentOnly,
+        } as any);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires ${opponentOnly ? 'opponent' : 'player'} choice, added resolution step`);
+      }
     }
   }
 
@@ -95,35 +157,7 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
     }
   }
 
-  const opponentPattern = /as .+? enters(?: the battlefield)?,?\s+choose (?:an opponent|a player)/i;
-  if (opponentPattern.test(oracleText) && !isReplaying) {
-    if (!newPermanent.chosenPlayer) {
-      const opponentOnly = oracleText.includes('choose an opponent');
-      const allPlayers = state.players || [];
-      const validPlayers = opponentOnly
-        ? allPlayers.filter((p: any) => p.id !== controller)
-        : allPlayers;
-
-      queueResolveTopOfStackPrompt(ctx, {
-        type: ResolutionStepType.PLAYER_CHOICE,
-        playerId: controller,
-        description: opponentOnly
-          ? `Choose an opponent for ${effectiveCard.name}`
-          : `Choose a player for ${effectiveCard.name}`,
-        mandatory: true,
-        sourceId: newPermId,
-        sourceName: effectiveCard.name || 'Permanent',
-        sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
-        permanentId: newPermId,
-        players: validPlayers.map((p: any) => ({
-          id: p.id,
-          name: p.name || `Player ${p.seat}`,
-        })),
-        opponentOnly,
-      } as any);
-      debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires ${opponentOnly ? 'opponent' : 'player'} choice, added resolution step`);
-    }
-  }
+  // Opponent/player as-enters choices are queued via getAsEntersChoiceRequirements above.
 
   const optionPattern = /as .+? enters(?: the battlefield)?,?\s+choose (.+?)(?:\.|$)/i;
   const optionMatch = oracleText.match(optionPattern);
@@ -132,6 +166,7 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
     const isSpecificPattern =
       /a colou?r/.test(choiceText) ||
       /a creature type/.test(choiceText) ||
+      /a basic land type/.test(choiceText) ||
       /a (?:card|nonland card)(?: name)?/.test(choiceText) ||
       /(?:an opponent|a player)/.test(choiceText);
 

@@ -23,6 +23,12 @@ describe('oracle IR activated ability guardrail', () => {
     expect(abilityExecutionSource.includes('isOracleIrActivatedAbilityHandled(steps, result')).toBe(true);
   });
 
+  it('routes activated abilities through the shared Effect Program core gate', () => {
+    expect(abilityExecutionSource.includes('requiresSpellEffectProgramOrchestration')).toBe(true);
+    expect(abilityExecutionSource.includes('startOracleEffectProgramOnServer')).toBe(true);
+    expect(abilityExecutionSource.includes("family: 'activated_ability_resolution'")).toBe(true);
+  });
+
   it('centralizes wiring completeness in oracleIrStepWiring', () => {
     expect(stepWiringSource.includes('isOracleIrMandatoryExecutionComplete')).toBe(true);
     expect(stepWiringSource.includes('isOracleIrActivatedAbilityHandled')).toBe(true);

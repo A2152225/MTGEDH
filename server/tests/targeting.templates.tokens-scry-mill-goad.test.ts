@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, TargetRef } from '../../shared/src';
-import { categorizeSpell, evaluateTargeting, type SpellSpec } from '../src/rules-engine/targeting';
+import { categorizeSpell, evaluateTargeting, resolveSpell, type SpellSpec } from '../src/rules-engine/targeting';
 
 describe('Oracle templates: tokens / scry / mill / goad', () => {
   it('categorizeSpell: "Investigate." -> INVESITGATE (Clue token)', () => {
@@ -108,291 +108,108 @@ describe('Oracle templates: tokens / scry / mill / goad', () => {
 });
 
 describe('Execution via applyEvent(resolveSpell) for tokens / scry / mill / goad', () => {
-  it('CREATE_TOKEN creates a Treasure token on battlefield', () => {
-    const g = createInitialGameState('t_create_treasure');
-    const p1 = 'p1' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-
-    const before = g.state.battlefield.length;
-
-    const spec: SpellSpec = {
-      op: 'CREATE_TOKEN',
-      filter: 'ANY',
-      minTargets: 0,
-      maxTargets: 0,
-      tokenKind: 'TREASURE',
-      tokenCount: 1,
-    };
-
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'strike_it_rich', spec, chosen: [] });
-
-    expect(g.state.battlefield.length).toBe(before + 1);
-    expect(g.state.battlefield.some(p => (p as any)?.card?.name === 'Treasure')).toBe(true);
-  });
-
-  it('INVESTIGATE creates a Clue token on battlefield', () => {
-    const g = createInitialGameState('t_investigate');
-    const p1 = 'p1' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-
-    const before = g.state.battlefield.length;
-
-    const spec: SpellSpec = {
-      op: 'INVESTIGATE',
-      filter: 'ANY',
-      minTargets: 0,
-      maxTargets: 0,
-      tokenKind: 'CLUE',
-      tokenCount: 1,
-    };
-
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'hard_evidence', spec, chosen: [] });
-
-    expect(g.state.battlefield.length).toBe(before + 1);
-    expect(g.state.battlefield.some(p => (p as any)?.card?.name === 'Clue')).toBe(true);
-  });
-
-  it('SCRY sets pendingScry for caster during replay/test path', () => {
-    const g = createInitialGameState('t_scry_pending');
-    const p1 = 'p1' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-
-    const spec: SpellSpec = { op: 'SCRY', filter: 'ANY', minTargets: 0, maxTargets: 0, scryCount: 2 };
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'scry2', spec, chosen: [] });
-
-    expect((g.state as any).pendingScry?.[p1]).toBe(2);
-  });
-
-  it('SCRY_EACH_OPPONENT sets pendingScry for each opponent (not caster)', () => {
-    const g = createInitialGameState('t_scry_each_opponent_pending');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    const p3 = 'p3' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
-    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
-
-    const spec: SpellSpec = { op: 'SCRY_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, scryCount: 2 } as any;
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'scry_each_opponent', spec, chosen: [] });
-
-    expect((g.state as any).pendingScry).toEqual({
-      [p2]: 2,
-      [p3]: 2,
-    });
-  });
-
-  it('SCRY_EACH_PLAYER sets pendingScry for all players', () => {
-    const g = createInitialGameState('t_scry_each_player_pending');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    const p3 = 'p3' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
-    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
-
-    const spec: SpellSpec = { op: 'SCRY_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, scryCount: 1 } as any;
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'scry_each_player', spec, chosen: [] });
-
-    expect((g.state as any).pendingScry).toEqual({
-      [p1]: 1,
-      [p2]: 1,
-      [p3]: 1,
-    });
-  });
-
-  it('SURVEIL_EACH_OPPONENT sets pendingSurveil for each opponent (not caster)', () => {
-    const g = createInitialGameState('t_surveil_each_opponent_pending');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    const p3 = 'p3' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
-    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
-
-    const spec: SpellSpec = { op: 'SURVEIL_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, surveilCount: 2 } as any;
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'surveil_each_opponent', spec, chosen: [] });
-
-    expect((g.state as any).pendingSurveil).toEqual({
-      [p2]: 2,
-      [p3]: 2,
-    });
-  });
-
-  it('SURVEIL_EACH_PLAYER sets pendingSurveil for all players', () => {
-    const g = createInitialGameState('t_surveil_each_player_pending');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    const p3 = 'p3' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
-    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
-
-    const spec: SpellSpec = { op: 'SURVEIL_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, surveilCount: 1 } as any;
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'surveil_each_player', spec, chosen: [] });
-
-    expect((g.state as any).pendingSurveil).toEqual({
-      [p1]: 1,
-      [p2]: 1,
-      [p3]: 1,
-    });
-  });
-
-  it('MILL_SELF mills from library into graveyard for caster', () => {
-    const g = createInitialGameState('t_mill_self');
-    const p1 = 'p1' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-
-    g.importDeckResolved(p1, [
-      { id: 'c1', name: 'Card 1', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'c2', name: 'Card 2', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'c3', name: 'Card 3', type_line: 'Instant', oracle_text: '' } as any,
-    ]);
-
-    const beforeLib = g.state.zones?.[p1]?.libraryCount ?? 0;
-    const beforeGy = g.state.zones?.[p1]?.graveyardCount ?? 0;
-
-    const spec: SpellSpec = { op: 'MILL_SELF', filter: 'ANY', minTargets: 0, maxTargets: 0, millCount: 2 };
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'mental_note', spec, chosen: [] });
-
-    const afterLib = g.state.zones?.[p1]?.libraryCount ?? 0;
-    const afterGy = g.state.zones?.[p1]?.graveyardCount ?? 0;
-
-    expect(afterLib).toBe(beforeLib - 2);
-    expect(afterGy).toBe(beforeGy + 2);
-  });
-
-  it('MILL_TARGET_PLAYER mills for chosen player', () => {
-    const g = createInitialGameState('t_mill_target_player');
+  it('CREATE_TOKEN / INVESTIGATE / GOAD_TARGET resolveSpell ops are deleted (P1a; categorize patterns kept for cast)', () => {
+    const g = createInitialGameState('t_token_goad_resolve_deleted');
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;
     g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
     g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
-
-    g.importDeckResolved(p2, [
-      { id: 'c1', name: 'Card 1', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'c2', name: 'Card 2', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'c3', name: 'Card 3', type_line: 'Instant', oracle_text: '' } as any,
-    ]);
-
-    const beforeLib = g.state.zones?.[p2]?.libraryCount ?? 0;
-    const beforeGy = g.state.zones?.[p2]?.graveyardCount ?? 0;
-
-    const spec: SpellSpec = { op: 'MILL_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, millCount: 2 };
-    g.applyEvent!({
-      type: 'resolveSpell',
-      caster: p1,
-      cardId: 'thought_scour',
-      spec,
-      chosen: [{ kind: 'player', id: p2 } as TargetRef],
-    });
-
-    const afterLib = g.state.zones?.[p2]?.libraryCount ?? 0;
-    const afterGy = g.state.zones?.[p2]?.graveyardCount ?? 0;
-
-    expect(afterLib).toBe(beforeLib - 2);
-    expect(afterGy).toBe(beforeGy + 2);
-  });
-
-  it('MILL_EACH_OPPONENT mills for each opponent (not caster)', () => {
-    const g = createInitialGameState('t_mill_each_opponent');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    const p3 = 'p3' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
-    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
-
-    g.importDeckResolved(p2, [
-      { id: 'b1', name: 'B1', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'b2', name: 'B2', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'b3', name: 'B3', type_line: 'Instant', oracle_text: '' } as any,
-    ]);
-    g.importDeckResolved(p3, [
-      { id: 'c1', name: 'C1', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'c2', name: 'C2', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'c3', name: 'C3', type_line: 'Instant', oracle_text: '' } as any,
-    ]);
-
-    const beforeLib1 = g.state.zones?.[p1]?.libraryCount ?? 0;
-    const beforeGy1 = g.state.zones?.[p1]?.graveyardCount ?? 0;
-    const beforeLib2 = g.state.zones?.[p2]?.libraryCount ?? 0;
-    const beforeGy2 = g.state.zones?.[p2]?.graveyardCount ?? 0;
-    const beforeLib3 = g.state.zones?.[p3]?.libraryCount ?? 0;
-    const beforeGy3 = g.state.zones?.[p3]?.graveyardCount ?? 0;
-
-    const spec: SpellSpec = { op: 'MILL_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, millCount: 2 } as any;
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'mill_each_opponent', spec, chosen: [] });
-
-    expect(g.state.zones?.[p1]?.libraryCount ?? 0).toBe(beforeLib1);
-    expect(g.state.zones?.[p1]?.graveyardCount ?? 0).toBe(beforeGy1);
-    expect(g.state.zones?.[p2]?.libraryCount ?? 0).toBe(beforeLib2 - 2);
-    expect(g.state.zones?.[p2]?.graveyardCount ?? 0).toBe(beforeGy2 + 2);
-    expect(g.state.zones?.[p3]?.libraryCount ?? 0).toBe(beforeLib3 - 2);
-    expect(g.state.zones?.[p3]?.graveyardCount ?? 0).toBe(beforeGy3 + 2);
-  });
-
-  it('MILL_EACH_PLAYER mills for all players', () => {
-    const g = createInitialGameState('t_mill_each_player');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    const p3 = 'p3' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
-    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
-
-    g.importDeckResolved(p1, [
-      { id: 'a1', name: 'A1', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'a2', name: 'A2', type_line: 'Instant', oracle_text: '' } as any,
-    ]);
-    g.importDeckResolved(p2, [
-      { id: 'b1', name: 'B1', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'b2', name: 'B2', type_line: 'Instant', oracle_text: '' } as any,
-    ]);
-    g.importDeckResolved(p3, [
-      { id: 'c1', name: 'C1', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'c2', name: 'C2', type_line: 'Instant', oracle_text: '' } as any,
-    ]);
-
-    const beforeLib1 = g.state.zones?.[p1]?.libraryCount ?? 0;
-    const beforeGy1 = g.state.zones?.[p1]?.graveyardCount ?? 0;
-    const beforeLib2 = g.state.zones?.[p2]?.libraryCount ?? 0;
-    const beforeGy2 = g.state.zones?.[p2]?.graveyardCount ?? 0;
-    const beforeLib3 = g.state.zones?.[p3]?.libraryCount ?? 0;
-    const beforeGy3 = g.state.zones?.[p3]?.graveyardCount ?? 0;
-
-    const spec: SpellSpec = { op: 'MILL_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, millCount: 1 } as any;
-    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'mill_each_player', spec, chosen: [] });
-
-    expect(g.state.zones?.[p1]?.libraryCount ?? 0).toBe(beforeLib1 - 1);
-    expect(g.state.zones?.[p1]?.graveyardCount ?? 0).toBe(beforeGy1 + 1);
-    expect(g.state.zones?.[p2]?.libraryCount ?? 0).toBe(beforeLib2 - 1);
-    expect(g.state.zones?.[p2]?.graveyardCount ?? 0).toBe(beforeGy2 + 1);
-    expect(g.state.zones?.[p3]?.libraryCount ?? 0).toBe(beforeLib3 - 1);
-    expect(g.state.zones?.[p3]?.graveyardCount ?? 0).toBe(beforeGy3 + 1);
-  });
-
-  it('GOAD_TARGET applies goad metadata to the chosen creature', () => {
-    const g = createInitialGameState('t_goad_target');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
-    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
-
     g.createToken!(p2, 'P2 Creature', 1, 2, 2);
     const creatureId = g.state.battlefield.find(p => (p as any).controller === p2)!.id;
 
-    const spec: SpellSpec = { op: 'GOAD_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1 };
-    g.applyEvent!({
-      type: 'resolveSpell',
-      caster: p1,
-      cardId: 'goad_spell',
-      spec,
-      chosen: [{ kind: 'permanent', id: creatureId } as TargetRef],
-    });
+    expect(resolveSpell(
+      { op: 'CREATE_TOKEN', filter: 'ANY', minTargets: 0, maxTargets: 0, tokenKind: 'TREASURE', tokenCount: 1 } as SpellSpec,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'INVESTIGATE', filter: 'ANY', minTargets: 0, maxTargets: 0, tokenKind: 'CLUE', tokenCount: 1 } as SpellSpec,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'GOAD_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1 } as SpellSpec,
+      [{ kind: 'permanent', id: creatureId } as TargetRef],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+  });
 
-    const perm = g.state.battlefield.find(p => p.id === creatureId) as any;
-    expect(Array.isArray(perm?.goadedBy) ? perm.goadedBy.includes(p1) : false).toBe(true);
-    expect(perm?.goadedUntil?.[p1]).toBeDefined();
+  it('SCRY_*/SURVEIL_*/MILL_* resolveSpell ops are deleted (P1a; categorize patterns kept for cast)', () => {
+    const g = createInitialGameState('t_scry_surveil_mill_resolve_deleted');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+
+    expect(resolveSpell(
+      { op: 'SCRY', filter: 'ANY', minTargets: 0, maxTargets: 0, scryCount: 2 } as SpellSpec,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'SCRY_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, scryCount: 2 } as any,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'SCRY_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, scryCount: 1 } as any,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'SURVEIL', filter: 'ANY', minTargets: 0, maxTargets: 0, surveilCount: 2 } as SpellSpec,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'SURVEIL_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, surveilCount: 2 } as any,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'SURVEIL_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, surveilCount: 1 } as any,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'SURVEIL_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, surveilCount: 1 } as SpellSpec,
+      [{ kind: 'player', id: p2 } as TargetRef],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'MILL_SELF', filter: 'ANY', minTargets: 0, maxTargets: 0, millCount: 2 } as SpellSpec,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'MILL_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, millCount: 2 } as SpellSpec,
+      [{ kind: 'player', id: p2 } as TargetRef],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'MILL_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, millCount: 2 } as any,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
+    expect(resolveSpell(
+      { op: 'MILL_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, millCount: 1 } as any,
+      [],
+      g.state as any,
+      p1,
+    )).toEqual([]);
   });
 
   it('evaluateTargeting respects opponentOnly for goad', () => {

@@ -1423,6 +1423,11 @@ function deriveOracleIRContextFromEffectProgramBindings(
       continue;
     }
 
+    if (choiceType === ChoiceEventType.BASIC_LAND_TYPE_CHOICE) {
+      selectorContext.chosenBasicLandType = firstSelection;
+      continue;
+    }
+
     if (choiceType === ChoiceEventType.CARD_NAME_CHOICE) {
       selectorContext.chosenCardName = firstSelection;
       continue;

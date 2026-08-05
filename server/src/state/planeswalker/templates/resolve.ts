@@ -751,6 +751,9 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
 
   switch (match.id) {
     case "FALLBACK_MANUAL_RESOLUTION": {
+      // P4a: Under ORACLE_IR_TRIGGER_PRIMARY, orchestrators skip templates when IR owns
+      // the loyalty text (tryResolveTriggerViaOracleIR / activated IR+EP). This case remains
+      // only for true unknowns / joke / external-website loyalty effects.
       const gameId = getGameId(ctx);
       const sourceId = String((triggerItem as any)?.source || "");
       const description = `[Manual planeswalker resolution] ${sourceName}: ${text}`;

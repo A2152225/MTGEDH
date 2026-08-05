@@ -10,6 +10,7 @@ Server Principles
 - Minimal state diffs over Socket.IO
 - SQLite for persistence; simple schemas
 - Scryfall via official API; add caching later
+- **Live mutator:** `applyEvent` + Oracle IR / Effect Program + Resolution Queue remain the authoritative gameplay path. `RulesBridge` is a validate / AI / sim facade — do not grow a third parallel combat/spell stack until dual-path categorize/legacy infrastructure is fully retired (end-state roadmap P4d).
 
 Client Principles
 - Read-only spectator mode

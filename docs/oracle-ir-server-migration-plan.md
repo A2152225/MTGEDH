@@ -27,7 +27,7 @@ The project has **three distinct layers**. Layers 1–2 are **complete** for com
 |-------|------------|--------|
 | **1 — Parse** | `parseOracleTextToIR` → `OracleEffectStep[]` (+ compiled overlay merge for gaps) | **Complete** for corpus; **overlay path** for new/custom cards |
 | **2 — Execute** | `applyOracleIRStepsToGameState` in rules-engine | **Complete** — `full_card`: **100%** assisted (47,514/47,514); parse→execute **0**; `ir_gap` **0** |
-| **3 — Integrate** | Server routes live gameplay through IR + resolution UI | **Beta-ready** — **797/797** migration tests; IR primary on; legacy shims gated (Phase 4 deletion in progress) |
+| **3 — Integrate** | Server routes live gameplay through IR + resolution UI | **Beta-ready** — migration ~**889/889**; IR primary on; D3 export ratchet **0**; Phase 4 = infrastructure dual-path collapse |
 
 **Goal:** Make Layer 3 match Layer 2 for every effect that decomposes into wired atomic steps — including **new-set cards** via overlays or parser batches. See [oracle-ir-track-e-remaining-work.md § Goal: Semantic atomic parsing](./oracle-ir-track-e-remaining-work.md#goal-semantic-atomic-parsing--seamless-effect-automation-new-cards).
 
@@ -1156,8 +1156,8 @@ oracle text
 |-------|-------------------|---------------------|
 | **Activated ability** | `tryApplyOracleIRToActivatedAbility` | **Primary** — `applyOracleIRStepsOnServer` |
 | **Optional may (game-actions)** | `queueMayAbilityStep` callback | Partial — single optional step via `applyOracleIRStepsOnServer` |
-| **Spell resolves** | `categorizeSpell` → spec hydration → `executeSpellEffect` | **Fallback only** — `applyOracleIRFallbackForUncategorizedSpell` after spec miss |
-| **Triggered ability** | `executeTriggerEffect` (~26k lines of matchers) | **Primary when `ORACLE_IR_TRIGGER_PRIMARY` ON** (production default); else **tail fallback** — `applyOracleIRFallbackForTriggeredEffect` → uncategorized fallback |
+| **Spell resolves** | `tryResolveSpellViaOracleIR` (IR primary / EP core gate) | **Primary when `ORACLE_IR_SPELL_PRIMARY` ON** (production default). `categorizeSpell` → `executeSpellEffect` suppressed for retired ops under primary; uncategorized fallback only when IR does not own/apply |
+| **Triggered ability** | `tryResolveTriggerViaOracleIR` then legacy tail | **Primary when `ORACLE_IR_TRIGGER_PRIMARY` ON** (production default); else **tail fallback** — `applyOracleIRFallbackForTriggeredEffect` → uncategorized fallback |
 | **Optional trigger deferral** | Custom 2-step Effect Program (`stackResolveTriggeredAbilityOptionalUtils.ts`) | Effect Program for yes/no only; defers to stack re-push |
 | **Planeswalker loyalty** | `tryResolvePlaneswalkerLoyaltyTemplate` (~100 template cases) | Separate system; not IR |
 | **Supplemental spell riders** | `applySupplementalOracleIRForResolvedSpell` | Ad-hoc unknown-step handlers |
@@ -1272,17 +1272,10 @@ Location: `server/src/state/modules/oracleIrUncategorizedSpellFallback.ts`
 Entry: `stackResolveSpellUncategorizedUtils.ts` → `tryApplyInstantSorceryUncategorizedSpellFallback`
 
 Called when:
-- Spell has no `spellSpec` from `categorizeSpell`
+- Spell has no `spellSpec` from `categorizeSpell` (or categorize suppressed under IR primary)
 - Trigger reaches tail of `executeTriggerEffect` without a handwritten match
 
-**Design flaws relative to target architecture:**
-1. **Re-implements executor** — per-step `switch` calling `executeSpellEffect` opcodes instead of one `applyOracleIRStepsOnServer` call
-2. **Skips optional steps** — `if (step.optional) continue` (line ~6002) — blocks may-effects unless Effect Program handles them elsewhere
-3. **Incomplete step coverage** — `default: break` for most IR step kinds not listed in the switch (~20 kinds handled vs 80+ in executor)
-4. **Inconsistent choice handling** — scry/surveil queue via `executeSpellEffect({ kind: 'QueueScry' })` instead of IR halt/resume; duplicates resolution paths
-5. **Only partial IR** — `unless_pays_*` / `conditional` delegate to `applyOracleIRStepsOnServer`; everything else is shim
-
-**Handled in fallback switch today:** `tap_or_untap`, `exile_top`, `impulse_exile_top`, `add_mana`, `draw`, `scry`, `surveil`, `gain_life`, `lose_life`, `sacrifice`, `add_counter`, `deal_damage`, `prevent_damage`, `discard`, `mill`, `create_token`, `destroy`, `conditional`, `unless_pays_mana`, `unless_pays_life`.
+**Status (end-state P1b):** The per-step opcode `switch` is **gone**. Fallback is a thin Pattern A wrapper around `applyOracleIRStepsOnServer` (`allowOptional: true` on the full step list), plus a narrow Pattern B EP gate for modal / fateseal / clash / prefixed choose-*. Optional “you may” steps stay on Pattern A so pre-bound targets (tap-any-number → per-tapped pump) keep applying. Remaining thickness: step allowlist, all-or-nothing refuse, Celestial/GY exclusions, GY token rider post-hook.
 
 ### `executeTriggerEffect`
 
@@ -1327,18 +1320,20 @@ Location: `server/src/state/planeswalker/templates/resolve.ts`
 | Use case | Status |
 |----------|--------|
 | Optional triggered ability yes/no deferral | **Production** — custom 2-step program in `stackResolveTriggeredAbilityOptionalUtils.ts` |
-| Full card / trigger / spell resolution | **Not production** — handlers exist but are not the primary resolver |
+| Core multi-choice (modal `choose_mode`, fateseal/clash, optional yes/no, prefixed choose-*) | **Production** — `requiresCoreEffectProgramOrchestration` on spell/trigger IR primary paths |
+| Broader sequential≥2 / always-`player_choice` | **Not production gate** — `requiresEffectProgramOrchestration` exists; expand by family (roadmap P2) |
+| Activated ability EP | **Not wired** — activated always uses direct `applyOracleIRStepsOnServer` today |
 | Resolution resume | **Production** — `resumeEffectProgramResolution` in `resolution.ts` when `effectProgramPrompt: true` |
 
 ### Recommended unification
 
 Use **Effect Program as the default orchestrator** for any ability with:
-- Optional (`You may`) prefix
-- Multiple sequential player choices
+- Optional (`You may`) prefix (when not already bridged to a dedicated LIBRARY_SEARCH / may prompt)
+- Multiple sequential player choices that need binding carry-over
 - Modal (`Choose one —`)
 - Fateseal / clash subflows
 
-Use **direct IR** for deterministic single-pass abilities (ETB draw, simple activated tap-draw, etc.).
+Use **direct IR** for deterministic single-pass abilities (ETB draw, simple activated tap-draw, single-pause scry, etc.).
 
 ---
 
@@ -1501,10 +1496,13 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
 
 **Objective:** Migrate remaining non-IR systems.
 
-- Planeswalker loyalty → IR + Effect Program (`buildEffectProgramsFromOracleText` per loyalty ability)
+- Planeswalker loyalty → IR + Effect Program (`buildEffectProgramsFromOracleText` per loyalty ability); keep `FALLBACK_MANUAL_RESOLUTION` only for true unknowns (`planeswalker/templates/resolve.ts`)
 - Supplemental oracle (`applySupplementalOracleIRForResolvedSpell`) → parser postprocess
 - Card-specific stack branches (Rite of Harmony, Divine Reckoning, Summons of Saruman) → IR or explicit `unknown` + manual ack
-- **Continuous & replacement effects** — declarative `StaticEffectSpec` / `ReplacementEffectSpec` + single replacement registry; design: [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md)
+- **Continuous & replacement effects** — **5.1–5.5 landed** (declarative specs + overlays + telemetry); remaining **depth** work (more event families, layer/conditional coverage). Design: [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md)
+- **`KNOWN_*` detectors** — parallel track in `triggers/card-data-tables.ts`: no new card-name rows; replace with generic detectors before deleting rows (not Phase 4 effect retirement)
+- **RulesBridge destiny** — validate/AI/sim facade; live mutator stays `applyEvent` + IR/EP ([architecture.md](./architecture.md))
+- **Feature-flag endgame (P4e)** — **done (2026-08-05):** `ORACLE_IR_*_LEGACY` aliases ignored; opt-out is `ORACLE_IR_*_PRIMARY=0` only. Categorize resolve matrix empty (`resolveSpell` → `[]`).
 
 ---
 

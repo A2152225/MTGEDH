@@ -38,6 +38,7 @@ import {
   hydratePermanentCardOracleInPlace,
 } from "./cardOracleHydration.js";
 import { getActivePermanentCardFace } from "./cardFaceOracle.js";
+import { getEffectiveColors } from "./effectiveColors.js";
 import { handleEldraziShuffle, hasGraveyardMassShuffleIntoLibraryTrigger } from "./zone-manipulation.js";
 
 // Import card data tables from modularized submodule
@@ -64,6 +65,7 @@ import { cardHasCreatureType, permanentHasCreatureTypeNow } from "../creatureTyp
 import { isEtbCreatureTypeChoiceOracle, parseChosenTypeCreatureEtbTrigger } from "./chosen-creature-type.js";
 import { detectCastTrigger } from "../../../../rules-engine/src/cards/castTriggers.js";
 import { hasTrainingKeyword } from "../../../../rules-engine/src/keywordAbilities/training.js";
+import { parseMillFromOracleText } from "../../../../rules-engine/src/keywordActions/mill.js";
 import { timingTriggerEffect, findFirstRegexMatchAcrossOracleLines } from './triggers/timing-effect-extraction.js';
 import {
   buildRoomUnlockDoorRegisteredTrigger,
@@ -10249,17 +10251,21 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
   // Also handles plural forms
   // First check if there's a control restriction, then match the pattern
-  const hasPermanentControlRestriction = /whenever (?:another|one or more(?: other)?) [\w\s]*permanents? (?:you control|under your control)/.test(oracleText) ||
-                                         /whenever (?:another|one or more(?: other)?) [\w\s]*permanents? (?:you control )?enters?(?: the battlefield)? under your control/.test(oracleText);
+  const hasPermanentControlRestriction = /whenever (?:another|one or more(?: other)?) [\w\s]*permanents? (?:you control|under your control)/i.test(oracleText) ||
+                                         /whenever (?:another|one or more(?: other)?) [\w\s]*permanents? (?:you control )?enters?(?: the battlefield)? under your control/i.test(oracleText);
   if (hasPermanentControlRestriction) {
     const anotherPermanentControlledETBMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) (?:[\w\s]+)?permanents? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
     if (anotherPermanentControlledETBMatch && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
+      const effectClause = timingTriggerEffect(oracleText, anotherPermanentControlledETBMatch);
+      const parsedMill = parseMillFromOracleText(effectClause);
+      const millAmount = parsedMill && parsedMill.count > 0 ? parsedMill.count : undefined;
       triggers.push({
         permanentId,
         cardName,
         triggerType: 'another_permanent_etb', // Triggers only on permanents you control
-        description: timingTriggerEffect(oracleText, anotherPermanentControlledETBMatch),
-        effect: timingTriggerEffect(oracleText, anotherPermanentControlledETBMatch),
+        description: effectClause,
+        effect: effectClause,
+        ...(millAmount != null ? { millAmount } : {}),
         mandatory: true,
       } as any);
     }
@@ -12109,7 +12115,7 @@ export interface SpellCastTrigger {
   controllerId: string;
   description: string;
   effect: string;
-  spellCondition: 'any' | 'creature' | 'noncreature' | 'instant_sorcery' | 'colorless' | 'historic' | 'tribal_type' | 'color' | 'artifact_or_creature';
+  spellCondition: 'any' | 'creature' | 'noncreature' | 'instant_sorcery' | 'colorless' | 'historic' | 'tribal_type' | 'color' | 'chosen_color' | 'artifact_or_creature';
   tribalType?: string; // For tribal triggers like "Merfolk spell" or color like "green"
   /** When set, the cast must have used mana produced by this permanent (Barracks-style). */
   requiresManaFromPermanentId?: string;
@@ -12151,9 +12157,9 @@ export interface SpellCastTrigger {
  * - Archmage Emeritus: "Magecraft — Whenever you cast or copy an instant or sorcery spell, draw a card"
  * - Harmonic Prodigy: "If an ability of a Shaman or Wizard you control triggers, that ability triggers an additional time"
  */
-export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTrigger[] {
+export function detectSpellCastTriggers(card: any, permanent: any, state?: unknown): SpellCastTrigger[] {
   const triggers: SpellCastTrigger[] = [];
-  const { cardName, oracleText } = getActivePermanentCardFace(card, permanent);
+  const { cardName, oracleText } = getActivePermanentCardFace(card, permanent, state);
   const lowerOracle = oracleText.toLowerCase();
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
@@ -12843,6 +12849,28 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     }
   }
 
+  // "Whenever you cast a spell of the chosen color, ..."
+  {
+    const chosenColorSpellPattern = /whenever you cast a spell of the chosen colou?r,?\s*([^.]+)/gi;
+    let chosenMatch: RegExpExecArray | null;
+    chosenColorSpellPattern.lastIndex = 0;
+    while ((chosenMatch = chosenColorSpellPattern.exec(oracleText)) !== null) {
+      const effectText = String(chosenMatch[1] || '').trim();
+      if (!effectText) continue;
+      if (!triggers.some((trigger) => trigger.spellCondition === 'chosen_color' && trigger.effect === effectText)) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: `Whenever you cast a spell of the chosen color, ${effectText}`,
+          effect: effectText,
+          spellCondition: 'chosen_color',
+          mandatory: true,
+        });
+      }
+    }
+  }
+
   const coloredSpellOrLandfallPatterns = [
     /whenever you cast a (green|blue|red|white|black) spell(?:\s+or\b)/gi,
   ];
@@ -13442,7 +13470,7 @@ export function getSpellCastTriggers(
     if (!permanent || !permanent.card) continue;
     if (permanent.controller !== casterId) continue; // Only controller's permanents trigger
     
-    const permTriggers = detectSpellCastTriggers(permanent.card, permanent);
+    const permTriggers = detectSpellCastTriggers(permanent.card, permanent, ctx.state);
     
     for (const trigger of permTriggers) {
       let shouldTrigger = false;
@@ -13489,6 +13517,24 @@ export function getSpellCastTriggers(
             shouldTrigger = spellColors.includes(trigger.tribalType.toLowerCase());
           }
           break;
+        case 'chosen_color': {
+          const chosen = String(
+            (permanent as any).chosenColor
+            || (permanent as any).card?.chosenColor
+            || '',
+          ).trim().toLowerCase();
+          const colorWordToSymbol: Record<string, string> = {
+            white: 'w', blue: 'u', black: 'b', red: 'r', green: 'g',
+            w: 'w', u: 'u', b: 'b', r: 'r', g: 'g',
+          };
+          const chosenSymbol = colorWordToSymbol[chosen] || chosen;
+          const effectiveSpellColors = getEffectiveColors(spellCard, ctx.state).map((c) => c.toLowerCase());
+          shouldTrigger = Boolean(chosenSymbol) && (
+            effectiveSpellColors.includes(chosen)
+            || effectiveSpellColors.includes(chosenSymbol)
+          );
+          break;
+        }
       }
 
       if (shouldTrigger && trigger.firstSpellDuringOpponentTurn === true) {

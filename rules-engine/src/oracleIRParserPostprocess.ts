@@ -20630,7 +20630,7 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^then choose one of them$/i.test(normalizedText) ||
     /^you choose one of those cards$/i.test(normalizedText) ||
     /^for each (?:opponent|player),?\s+choose\b.+$/i.test(normalizedText) ||
-    /^as this (?:artifact|creature|enchantment|permanent|land) enters, choose\b.+$/i.test(normalizedText) ||
+    // As-enters choose color/type/name/basic-land are executable IR steps — do not drop them.
     // Broad "choose N …" headers are platform/reminder fragments, but "choose one at random"
     // with a shared create/mode body is executable modal IR (e.g. Outlaws' Merriment).
     (/^choose (?:up to )?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b.+$/i.test(normalizedText)
@@ -24685,6 +24685,139 @@ export function expandCompoundMoveZoneAbilities(
   });
 }
 
+const ALL_COLOR_MANA_OPTIONS = ['{W}', '{U}', '{B}', '{R}', '{G}'] as const;
+const COLOR_WORD_TO_MANA_SYMBOL: Record<string, string> = {
+  white: '{W}',
+  blue: '{U}',
+  black: '{B}',
+  red: '{R}',
+  green: '{G}',
+};
+
+function parseAsEntersChooseStepsFromText(rawText: string, sequence?: 'then'): OracleEffectStep[] | null {
+  const normalized = normalizeOracleText(String(rawText || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return null;
+
+  const asEntersChoose = normalized.match(
+    /^(?:as\s+.+?\s+enters(?:\s+the\s+battlefield)?,?\s+)?(?:you\s+may\s+)?choose\s+(.+)$/i,
+  );
+  if (!asEntersChoose) return null;
+  const choiceBody = String(asEntersChoose[1] || '').trim();
+  if (!choiceBody) return null;
+
+  const optional = /you\s+may\s+choose/i.test(normalized) || undefined;
+  const seq = sequence ? { sequence } : {};
+  const steps: OracleEffectStep[] = [];
+
+  const otherThanColor = choiceBody.match(/^a\s+colou?r\s+other\s+than\s+(white|blue|black|red|green)$/i);
+  if (otherThanColor) {
+    const excluded = COLOR_WORD_TO_MANA_SYMBOL[String(otherThanColor[1] || '').toLowerCase()];
+    steps.push({
+      kind: 'choose_color',
+      manaOptions: ALL_COLOR_MANA_OPTIONS.filter((symbol) => symbol !== excluded),
+      ...(optional ? { optional: true } : {}),
+      ...seq,
+      raw: normalized,
+    });
+    return steps;
+  }
+
+  if (/^a\s+colou?r\s+word$/i.test(choiceBody)) {
+    steps.push({
+      kind: 'choose_color',
+      manaOptions: [...ALL_COLOR_MANA_OPTIONS],
+      ...(optional ? { optional: true } : {}),
+      ...seq,
+      raw: normalized,
+    });
+    return steps;
+  }
+
+  if (/^a\s+colou?r\s+and\s+a\s+creature\s+type$/i.test(choiceBody)) {
+    steps.push({
+      kind: 'choose_color',
+      manaOptions: [...ALL_COLOR_MANA_OPTIONS],
+      ...seq,
+      raw: normalized,
+    });
+    steps.push({
+      kind: 'choose_creature_type',
+      sequence: 'then',
+      raw: 'Choose a creature type',
+    });
+    return steps;
+  }
+
+  const colorAndPlayer = choiceBody.match(/^a\s+colou?r\s+and\s+(an\s+opponent|a\s+player)$/i);
+  if (colorAndPlayer) {
+    const opponentOnly = /opponent/i.test(String(colorAndPlayer[1] || ''));
+    steps.push({
+      kind: 'choose_color',
+      manaOptions: [...ALL_COLOR_MANA_OPTIONS],
+      ...seq,
+      raw: normalized,
+    });
+    steps.push({
+      kind: opponentOnly ? 'choose_opponent' : 'player_choice',
+      ...(opponentOnly ? {} : { choice: 'generic' as const, choiceText: 'Choose a player' }),
+      sequence: 'then',
+      raw: opponentOnly ? 'Choose an opponent' : 'Choose a player',
+    } as OracleEffectStep);
+    return steps;
+  }
+
+  if (/^a\s+basic\s+land\s+type$/i.test(choiceBody)) {
+    steps.push({
+      kind: 'choose_basic_land_type',
+      ...(optional ? { optional: true } : {}),
+      ...seq,
+      raw: normalized,
+    });
+    return steps;
+  }
+
+  if (/^a\s+creature\s+type$/i.test(choiceBody)) {
+    steps.push({
+      kind: 'choose_creature_type',
+      ...(optional ? { optional: true } : {}),
+      ...seq,
+      raw: normalized,
+    });
+    return steps;
+  }
+
+  const creatureTypeOtherThan = choiceBody.match(/^a\s+creature\s+type\s+other\s+than\s+(.+)$/i);
+  if (creatureTypeOtherThan) {
+    const excludedTypes = String(creatureTypeOtherThan[1] || '')
+      .split(/\s*,\s*|\s+or\s+/i)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    steps.push({
+      kind: 'choose_creature_type',
+      ...(excludedTypes.length > 0 ? { excludedTypes } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...seq,
+      raw: normalized,
+    });
+    return steps;
+  }
+
+  if (/^a\s+colou?r$/i.test(choiceBody)) {
+    steps.push({
+      kind: 'choose_color',
+      manaOptions: [...ALL_COLOR_MANA_OPTIONS],
+      ...(optional ? { optional: true } : {}),
+      ...seq,
+      raw: normalized,
+    });
+    return steps;
+  }
+
+  return null;
+}
+
 function parseChoiceUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -24719,6 +24852,60 @@ function parseChoiceUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown
     };
   }
 
+  const asEnters = parseAsEntersChooseStepsFromText(normalized, step.sequence);
+  if (asEnters && asEnters.length === 1) return asEnters[0]!;
+
+  return null;
+}
+
+function expandCompoundOrMisparsedChooseStep(step: OracleEffectStep): OracleEffectStep[] | null {
+  const raw = String((step as any).raw || '');
+  const effectText = Array.isArray((step as any).effectText)
+    ? String((step as any).effectText[0] || '')
+    : '';
+  const candidate = raw || effectText;
+  if (!candidate) return null;
+
+  // Expand compound choose_color that only captured the color half.
+  if (step.kind === 'choose_color' && /choose\s+a\s+colou?r\s+and\s+a\s+creature\s+type/i.test(candidate)) {
+    return [
+      step,
+      {
+        kind: 'choose_creature_type',
+        sequence: 'then',
+        raw: 'Choose a creature type',
+      },
+    ];
+  }
+  if (step.kind === 'choose_color' && /choose\s+a\s+colou?r\s+and\s+an\s+opponent/i.test(candidate)) {
+    return [
+      step,
+      {
+        kind: 'choose_opponent',
+        sequence: 'then',
+        raw: 'Choose an opponent',
+      },
+    ];
+  }
+  if (step.kind === 'choose_color' && /choose\s+a\s+colou?r\s+and\s+a\s+player/i.test(candidate)) {
+    return [
+      step,
+      {
+        kind: 'player_choice',
+        choice: 'generic',
+        choiceText: 'Choose a player',
+        sequence: 'then',
+        raw: 'Choose a player',
+      } as OracleEffectStep,
+    ];
+  }
+
+  // Recover residual grant_static_ability / unknown choose clauses.
+  if (step.kind === 'unknown' || step.kind === 'grant_static_ability') {
+    const recovered = parseAsEntersChooseStepsFromText(candidate, (step as any).sequence);
+    if (recovered && recovered.length > 0) return recovered;
+  }
+
   return null;
 }
 
@@ -24727,13 +24914,27 @@ export function expandChoiceUnknownAbilities(
 ): OracleIRAbility[] {
   return abilities.map((ability) => {
     let changed = false;
-    const expandedSteps = ability.steps.map((step) => {
-      if (step.kind !== 'unknown') return step;
-      const expanded = parseChoiceUnknownStep(step);
-      if (!expanded) return step;
-      changed = true;
-      return expanded;
-    });
+    const expandedSteps: OracleEffectStep[] = [];
+
+    for (const step of ability.steps) {
+      const multi = expandCompoundOrMisparsedChooseStep(step);
+      if (multi) {
+        changed = true;
+        expandedSteps.push(...multi);
+        continue;
+      }
+
+      if (step.kind === 'unknown') {
+        const expanded = parseChoiceUnknownStep(step);
+        if (expanded) {
+          changed = true;
+          expandedSteps.push(expanded);
+          continue;
+        }
+      }
+
+      expandedSteps.push(step);
+    }
 
     return changed ? { ...ability, steps: expandedSteps } : ability;
   });

@@ -37,6 +37,7 @@ function seedTestCardLookupFromCanonical(): void {
 
 beforeEach(() => {
   // Default-off in tests so legacy-path suites stay stable; IR-primary tests opt in with =1.
+  // P4e: ORACLE_IR_*_LEGACY is ignored — PRIMARY=0 is the only opt-out.
   process.env.ORACLE_IR_TRIGGER_PRIMARY = '0';
   delete process.env.ORACLE_IR_TRIGGER_LEGACY;
   process.env.ORACLE_IR_SPELL_PRIMARY = '0';

@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  isCategorizeOpcodeDeletedFromResolveSpell,
   isCategorizeOpcodeRetiredUnderOracleIrPrimary,
   isSpellEffectFullyIrWired,
   isSpellEffectOwnedByOracleIrPrimary,
   isSpellStepKindRetiredUnderOracleIrPrimary,
+  ORACLE_IR_SPELL_DELETED_RESOLVE_CATEGORIZE_OPS,
   ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS,
   ORACLE_IR_SPELL_RETIRED_STEP_KINDS,
   shouldSkipLegacySpellCategorizeExecution,
@@ -166,12 +168,78 @@ describe('oracleIrSpellLegacyRouting', () => {
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('DRAW_CARDS_EACH_OPPONENT')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('DRAW_CARDS_EACH_PLAYER')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('DRAW_TARGET_PLAYER')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('GAIN_LIFE')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('GAIN_LIFE_TARGET_PLAYER')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('GAIN_LIFE_EACH_OPPONENT')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('GAIN_LIFE_EACH_PLAYER')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('LOSE_LIFE')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('LOSE_LIFE_TARGET_PLAYER')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('LOSE_LIFE_EACH_OPPONENT')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('LOSE_LIFE_EACH_PLAYER')).toBe(true);
+    for (const op of [
+      'DRAW_CARDS',
+      'DRAW_CARDS_EACH_OPPONENT',
+      'DRAW_CARDS_EACH_PLAYER',
+      'DRAW_TARGET_PLAYER',
+      'GAIN_LIFE',
+      'GAIN_LIFE_TARGET_PLAYER',
+      'GAIN_LIFE_EACH_OPPONENT',
+      'GAIN_LIFE_EACH_PLAYER',
+      'LOSE_LIFE',
+      'LOSE_LIFE_TARGET_PLAYER',
+      'LOSE_LIFE_EACH_OPPONENT',
+      'LOSE_LIFE_EACH_PLAYER',
+      'DESTROY_TARGET',
+      'DESTROY_EACH',
+      'DESTROY_ALL',
+      'DESTROY_ALL_TARGET_PLAYER',
+      'EXILE_TARGET',
+      'EXILE_ALL',
+      'EXILE_ALL_TARGET_PLAYER',
+      'DAMAGE_TARGET',
+      'DAMAGE_TARGET_PLAYER',
+      'DAMAGE_EACH',
+      'DAMAGE_EACH_OPPONENT',
+      'DAMAGE_EACH_PLAYER',
+      'ANY_TARGET_DAMAGE',
+      'SCRY',
+      'SCRY_EACH_OPPONENT',
+      'SCRY_EACH_PLAYER',
+      'SURVEIL',
+      'SURVEIL_EACH_OPPONENT',
+      'SURVEIL_EACH_PLAYER',
+      'SURVEIL_TARGET_PLAYER',
+      'MILL_SELF',
+      'MILL_TARGET_PLAYER',
+      'MILL_EACH_OPPONENT',
+      'MILL_EACH_PLAYER',
+      'DISCARD_TARGET_PLAYER',
+      'DISCARD_EACH_OPPONENT',
+      'DISCARD_EACH_PLAYER',
+      'BLIGHT_SELF',
+      'BLIGHT_EACH_OPPONENT',
+      'BLIGHT_EACH_PLAYER',
+      'BLIGHT_TARGET_OPPONENT',
+      'BLIGHT_TARGET_PLAYER',
+      'CREATE_TOKEN',
+      'INVESTIGATE',
+      'GOAD_TARGET',
+      'ADD_COUNTERS_TARGET',
+      'ADD_COUNTERS_EACH',
+      'BOUNCE_TARGET',
+      'TAP_TARGET',
+      'UNTAP_TARGET',
+      'TAP_ALL',
+      'UNTAP_ALL',
+      'TAP_ALL_TARGET_PLAYER',
+      'UNTAP_ALL_TARGET_PLAYER',
+      'FLICKER_TARGET',
+      'COUNTER_TARGET_SPELL',
+      'COUNTER_TARGET_ABILITY',
+    ]) {
+      expect(ORACLE_IR_SPELL_DELETED_RESOLVE_CATEGORIZE_OPS.has(op)).toBe(true);
+      expect(isCategorizeOpcodeDeletedFromResolveSpell(op)).toBe(true);
+    }
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('SCRY')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('SCRY_EACH_OPPONENT')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('SCRY_EACH_PLAYER')).toBe(true);

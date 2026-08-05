@@ -432,6 +432,9 @@ const STACK_PUSH_REPLAY_EVENT_TYPES = new Set([
   'pushStack',
   'castSpell',
   'castCommander',
+  // Mid-copy restarts: keep original + copy on stack (copy events are not castSpell).
+  'copyTriggeredSpellResolve',
+  'copyTriggeredAbilityResolve',
 ]);
 
 /** Copy as-enters choices from card / Morophon mirror / copy source onto the permanent after replay. */
@@ -508,6 +511,30 @@ function hydrateAsEntersChoicesOnBattlefield(state: any): void {
     if (color) {
       permanent.chosenColor = color;
       if (card) card.chosenColor = color;
+    }
+
+    const colorWord = String(
+      permanent.chosenColorWord
+      || card?.chosenColorWord
+      || copySource?.chosenColorWord
+      || copySource?.card?.chosenColorWord
+      || '',
+    ).trim();
+    if (colorWord) {
+      permanent.chosenColorWord = colorWord;
+      if (card) card.chosenColorWord = colorWord;
+    }
+
+    const basicLandType = String(
+      permanent.chosenBasicLandType
+      || card?.chosenBasicLandType
+      || copySource?.chosenBasicLandType
+      || copySource?.card?.chosenBasicLandType
+      || '',
+    ).trim();
+    if (basicLandType) {
+      permanent.chosenBasicLandType = basicLandType;
+      if (card) card.chosenBasicLandType = basicLandType;
     }
 
     const cardName = String(

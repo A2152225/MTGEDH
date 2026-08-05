@@ -143,11 +143,61 @@ export function requiresEffectProgramOrchestration(
   return countSequentialChoiceSteps(steps) >= 2;
 }
 
+const REVEAL_LIBRARY_BRIDGE_KINDS = new Set<string>([
+  'reveal_top',
+  'look_top',
+  'look_choose_from_top',
+  'look_select_top',
+  'search_library',
+  'exile_top',
+  'impulse_exile_top',
+]);
+
+/** player_choice.choice values with dedicated Pattern A queue bridges. */
+const DIRECT_IR_PLAYER_CHOICE_KINDS = new Set<string>([
+  'odd_even',
+  'card_type',
+  'letter',
+  'text_change',
+  'number_of_lands',
+]);
+
 /**
- * Core Effect Program gate for multi-step effects. Reveal → player_choice → move_zone
- * and similar compounds use applyOracleIRStepsOnServer (queue bridge + resume metadata).
- * Effect Program remains for modal, prefixed choice compounds (Kindred/color/name/opponent),
- * fateseal/clash, optional yes/no steps, etc.
+ * player_choice + follow-up that is NOT a reveal/library bridge compound
+ * and NOT a specialized choice kind already bridged by applyOracleIRStepsOnServer
+ * (e.g. Thanos odd_even → OPTION_CHOICE with oracleIrPlayerChoiceKind).
+ */
+function hasNonLibraryPlayerChoiceCompound(steps: readonly OracleEffectStep[]): boolean {
+  const choiceIndex = steps.findIndex((step) => step.kind === 'player_choice');
+  if (choiceIndex < 0) return false;
+  if (!steps.slice(choiceIndex + 1).some((step) => step.kind !== 'unknown')) return false;
+  const choiceKind = String((steps[choiceIndex] as { choice?: string }).choice || '').trim();
+  if (choiceKind && DIRECT_IR_PLAYER_CHOICE_KINDS.has(choiceKind)) {
+    return false;
+  }
+  const hasRevealLibraryBridge = steps
+    .slice(0, choiceIndex + 1)
+    .some((step) => REVEAL_LIBRARY_BRIDGE_KINDS.has(String(step.kind)));
+  return !hasRevealLibraryBridge;
+}
+
+/**
+ * Optional create_token is excluded from stepOptionalRequiresChoice (dedicated bridges),
+ * but "you may create … . If you do / Then …" needs EP binding carry-over (P2a).
+ */
+function hasOptionalCreateTokenWithFollowUp(steps: readonly OracleEffectStep[]): boolean {
+  const idx = steps.findIndex(
+    (step) => step.kind === 'create_token' && (step as { optional?: boolean }).optional === true,
+  );
+  if (idx < 0) return false;
+  return steps.slice(idx + 1).some((step) => step.kind !== 'unknown');
+}
+
+/**
+ * Core Effect Program gate for multi-step effects.
+ * Effect Program owns: modal, prefixed choose-* compounds, non-library player_choice
+ * compounds, fateseal/clash, optional yes/no steps, optional create_token + follow-up.
+ * Reveal → player_choice → move/library compounds stay on direct IR (queue bridge).
  */
 export function requiresCoreEffectProgramOrchestration(
   steps: readonly OracleEffectStep[],
@@ -167,7 +217,16 @@ export function requiresCoreEffectProgramOrchestration(
     return true;
   }
 
-  return hasPrefixedChoiceWithFollowUpSteps(steps);
+  if (hasOptionalCreateTokenWithFollowUp(steps)) {
+    return true;
+  }
+
+  if (hasPrefixedChoiceWithFollowUpSteps(steps)) {
+    return true;
+  }
+
+  // P2a: player_choice → command compounds that need EP bindings (not library bridges).
+  return hasNonLibraryPlayerChoiceCompound(steps);
 }
 
 /** Spell stack/trigger routing — see {@link requiresCoreEffectProgramOrchestration}. */

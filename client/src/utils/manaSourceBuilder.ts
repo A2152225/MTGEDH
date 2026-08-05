@@ -1,5 +1,10 @@
 import type { BattlefieldPermanent, ManaColor, PaymentItem } from '../../../shared/src';
 import { parseSacrificeCost } from '../../../shared/src/textUtils';
+import {
+  getEffectiveBasicLandTypes,
+  manaColorForBasicLandType,
+  permanentAddsChosenBasicLandTypeToSelf,
+} from '../../../shared/src/landTypes';
 import { parseActivatedAbilities, type ParsedActivatedAbility } from './activatedAbilityParser';
 import { canCreatureUseTapAbilityNow } from './creatureUtils';
 import {
@@ -517,7 +522,31 @@ function getInlineSelectedPaymentAbilities(perm: BattlefieldPermanent): InlineSe
       return !/-ability-\d+$/i.test(String(ability.id || ''));
     });
 
-  return [...explicitAbilities, ...fallbackAbilities];
+  const combined = [...explicitAbilities, ...fallbackAbilities];
+  if (combined.length > 0 || !permanentAddsChosenBasicLandTypeToSelf(perm as any)) {
+    return combined;
+  }
+
+  const chosenTypes = getEffectiveBasicLandTypes(perm as any);
+  const manaColors = chosenTypes
+    .map((landType) => manaColorForBasicLandType(landType))
+    .filter((color): color is ManaColor => Boolean(color));
+  if (manaColors.length === 0) return combined;
+
+  const symbols = manaColors.map((color) => `{${color}}`).join(' or ');
+  return [{
+    id: `${String((perm.card as any).id || perm.card.name || 'card')}-chosen-basic-land`,
+    label: `Add ${symbols}`,
+    description: `{T}: Add ${symbols}.`,
+    effect: `Add ${symbols}.`,
+    cost: '{T}',
+    requiresTap: true,
+    requiresUntap: false,
+    requiresSacrifice: false,
+    isManaAbility: true,
+    isLoyaltyAbility: false,
+    isFetchAbility: false,
+  }];
 }
 
 function buildInlineManaSourcesForPermanent(

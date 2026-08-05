@@ -372,6 +372,11 @@ export function tryResolveStackActivatedAbilityLateHandlers(
       card: sourcePermanent?.card || item?.card,
       effectiveCard: sourcePermanent?.card || item?.card,
     });
+    const selectedModeIds = Array.isArray(item?.selectedModeIds)
+      ? item.selectedModeIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : Array.isArray(item?.chosenModes)
+        ? item.chosenModes.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+        : undefined;
     const irResult = tryApplyOracleIRToActivatedAbility(ctx, {
       controller: controller as PlayerID,
       sourceName,
@@ -385,6 +390,7 @@ export function tryResolveStackActivatedAbilityLateHandlers(
       cardId: cardKeys.cardId,
       sourceItem: item,
       card: sourcePermanent?.card || item?.card,
+      ...(selectedModeIds && selectedModeIds.length > 0 ? { selectedModeIds } : {}),
     });
     if (irResult.handled) {
       debug(2, `[tryResolveStackActivatedAbilityLateHandlers] Oracle IR resolved activated ability from ${sourceName} (${irResult.applied} step(s))`);

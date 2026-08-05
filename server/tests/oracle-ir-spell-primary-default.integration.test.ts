@@ -1736,6 +1736,73 @@ describe('oracle IR spell primary production default', () => {
     expect(gy2.some((card: any) => card?.id === 'bolt_card')).toBe(true);
   });
 
+  it('exiles a flashback spell when countered through IR primary under production default', () => {
+    const oracleText = 'Counter target spell.';
+    const gameId = 'oracle_ir_default_primary_counter_flashback';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const stackFlashbackId = 'stack_flashback_primary';
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    ensureZonesForPlayer(g, p1);
+    ensureZonesForPlayer(g, p2);
+
+    g.applyEvent!({
+      type: 'pushStack',
+      item: {
+        id: stackFlashbackId,
+        type: 'spell',
+        controller: p2,
+        castFromGraveyard: true,
+        card: {
+          id: 'think_twice_card',
+          name: 'Think Twice',
+          type_line: 'Instant',
+          oracle_text: 'Draw a card.\nFlashback {2}{U}',
+          castFromGraveyard: true,
+          castWithAbility: 'flashback',
+        },
+        targets: [],
+      },
+    });
+
+    const ctx = g as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    g.importDeckResolved(p1, [{
+      id: 'counter_flashback_primary',
+      name: 'Test Counterspell',
+      type_line: 'Instant',
+      oracle_text: oracleText,
+      mana_cost: '{U}{U}',
+    }] as any);
+    g.drawCards(p1, 1);
+    setupPlayerLibrary(g, p1, ['lib-1']);
+    ensureZonesForPlayer(g, p1);
+
+    (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+
+    g.applyEvent!({
+      type: 'castSpell',
+      playerId: p1,
+      cardId: 'counter_flashback_primary',
+      targets: [stackFlashbackId],
+    });
+
+    expect((g.state as any).stack?.length || 0).toBe(2);
+    g.resolveTopOfStack();
+
+    expect((g.state as any).stack?.length || 0).toBe(0);
+    const zones2 = (g.state as any).zones?.[p2] || {};
+    expect((zones2.exile || []).some((card: any) => card?.id === 'think_twice_card')).toBe(true);
+    expect((zones2.graveyard || []).some((card: any) => card?.id === 'think_twice_card')).toBe(false);
+  });
+
   it('resolves counter-target-ability through IR primary under production default', () => {
     const oracleText = 'Counter target activated ability.';
     expect(categorizeSpellWithoutPrimaryRetirement('Test Stifle', oracleText)?.op).toBe('COUNTER_TARGET_ABILITY');

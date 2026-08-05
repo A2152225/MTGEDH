@@ -2258,8 +2258,9 @@ export function buildSearchLibrarySelectionOptions(
     ? matches.length
     : resolveSearchLibraryMaxResults(state, step, ctx);
   const isOptional = isOptionalSearchLibraryStep(step);
-  const splitPlan = inferSplitLibrarySearchPlan(String(step.raw || ''));
-  if (!isAnyNumber && matches.length <= maxResults && !isOptional && !splitPlan) return null;
+  // Always surface a LIBRARY_SEARCH choice for mandatory tutors — even when only one
+  // card matches — so server queue bridges (Celestial X-search, etc.) stay on the IR path
+  // instead of auto-applying and skipping the resolution UI.
 
   return {
     playerId,
@@ -4048,7 +4049,16 @@ export function applySearchLibraryStep(
       selected = chosenIds
         .map((id) => matchById.get(String(id || '').trim()))
         .filter(Boolean) as any[];
-    } else if (matches.length > maxResults || step.maxResults === 'any_number') {
+    } else if (
+      matches.length > 0
+      && (
+        matches.length > maxResults
+        || step.maxResults === 'any_number'
+        // Live / interactive: always pause for LIBRARY_SEARCH UI even when only one card matches
+        // (Celestial X-search, tutors). Non-interactive dry-run may still auto-pick unique matches.
+        || (ctx.interactivePlayerChoices !== false && !isOptionalSearchLibraryStep(step))
+      )
+    ) {
       return {
         applied: false,
         message: `Skipped library search (requires card choice): ${step.raw}`,

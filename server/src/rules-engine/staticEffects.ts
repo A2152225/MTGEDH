@@ -72,6 +72,8 @@ export interface ContinuousEffectResult {
   typeAdditions: Map<string, string[]>;
   /** Abilities granted to ALL permanents (not just creatures) - for Avacyn, etc. */
   permanentAbilities: Map<string, Set<string>>;
+  /** Color additions (WUBRG) from continuous effects like Painter's Servant / Alloy Golem. */
+  colorAdditions: Map<string, string[]>;
 }
 
 // ============================================================================
@@ -1150,5 +1152,12 @@ export function computeContinuousEffects(
     }
   }
 
-  return { perPermanent, playerHexproof, playerShroud, typeAdditions, permanentAbilities };
+  return {
+    perPermanent,
+    playerHexproof,
+    playerShroud,
+    typeAdditions,
+    permanentAbilities,
+    colorAdditions: new Map<string, string[]>(),
+  };
 }

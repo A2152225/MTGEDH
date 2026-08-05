@@ -44,6 +44,7 @@ export enum ChoiceEventType {
   COLOR_CHOICE = 'color_choice',
   CREATURE_TYPE_CHOICE = 'creature_type_choice',
   CARD_NAME_CHOICE = 'card_name_choice',
+  BASIC_LAND_TYPE_CHOICE = 'basic_land_type_choice',
   NUMBER_CHOICE = 'number_choice',
   PLAYER_CHOICE = 'player_choice',
   OPTION_CHOICE = 'option_choice',
@@ -257,6 +258,13 @@ export interface OptionChoiceEvent extends BaseChoiceEvent {
   readonly maxSelections: number;
 }
 
+export interface BasicLandTypeChoiceEvent extends BaseChoiceEvent {
+  readonly type: ChoiceEventType.BASIC_LAND_TYPE_CHOICE;
+  readonly options: readonly ChoiceOption[];
+  readonly minSelections: number;
+  readonly maxSelections: number;
+}
+
 export interface ExploreDecisionEvent extends BaseChoiceEvent {
   readonly type: ChoiceEventType.EXPLORE_DECISION;
   readonly permanentId: string;
@@ -325,6 +333,7 @@ export type ChoiceEvent =
   | NumberChoiceEvent
   | PlayerChoiceEvent
   | OptionChoiceEvent
+  | BasicLandTypeChoiceEvent
   | ExploreDecisionEvent
   | ProliferateEvent
   | ClashEvent

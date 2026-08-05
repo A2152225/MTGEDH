@@ -162,49 +162,17 @@ describe('Targeting artifacts and enchantments', () => {
     expect(targets.some(t => t.id === 'enchantment1')).toBe(true);
   });
 
-  it('resolves destroy all artifacts', () => {
+  it('DESTROY_ALL resolveSpell op is deleted (P1a; categorize pattern kept for cast)', () => {
     const g = createInitialGameState('destroy_all_artifacts');
     const pid = 'p1' as PlayerID;
-    
-    g.state.battlefield = [
-      {
-        id: 'artifact1',
-        controller: pid,
-        card: {
-          name: 'Sol Ring',
-          type_line: 'Artifact',
-        } as any,
-      } as any,
-      {
-        id: 'artifact2',
-        controller: pid,
-        card: {
-          name: 'Mana Vault',
-          type_line: 'Artifact',
-        } as any,
-      } as any,
-      {
-        id: 'enchantment1',
-        controller: pid,
-        card: {
-          name: 'Rhystic Study',
-          type_line: 'Enchantment',
-        } as any,
-      } as any,
-    ];
-    
+
     const spec: SpellSpec = {
       op: 'DESTROY_ALL',
       filter: 'ARTIFACT',
       minTargets: 0,
       maxTargets: 0,
     };
-    
-    const effects = resolveSpell(spec, [], g.state, pid);
-    
-    // Should destroy both artifacts but not the enchantment
-    expect(effects.length).toBe(2);
-    expect(effects.some(e => e.kind === 'DestroyPermanent' && e.id === 'artifact1')).toBe(true);
-    expect(effects.some(e => e.kind === 'DestroyPermanent' && e.id === 'artifact2')).toBe(true);
+
+    expect(resolveSpell(spec, [], g.state, pid)).toEqual([]);
   });
 });

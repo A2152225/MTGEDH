@@ -45,40 +45,17 @@ describe('Increasing Confusion', () => {
     expect(hydrateIncreasingConfusionMillCount(spec, 2, true)).toBe(4);
   });
 
-  it('mills X for the chosen target when resolved with spell X', () => {
+  it('MILL_TARGET_PLAYER resolveSpell is deleted (P1a; hydration still computes mill count for IR/cast)', () => {
     const g = createInitialGameState('increasing_confusion_mill_x');
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;
     g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
     g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
 
-    g.importDeckResolved(p2, [
-      { id: 'c1', name: 'Card 1', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'c2', name: 'Card 2', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'c3', name: 'Card 3', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'c4', name: 'Card 4', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'c5', name: 'Card 5', type_line: 'Instant', oracle_text: '' } as any,
-      { id: 'c6', name: 'Card 6', type_line: 'Instant', oracle_text: '' } as any,
-    ]);
-
     const spec = categorizeSpell('Increasing Confusion', INCREASING_CONFUSION_ORACLE);
     const millFromHand = hydrateIncreasingConfusionMillCount(spec, 3, false);
     const hydrated = { ...(spec as any), millCount: millFromHand };
-    const effects = resolveSpell(hydrated as any, [{ kind: 'player', id: p2 } as TargetRef], g.state as any, p1);
-    expect(effects).toEqual([{ kind: 'MillCards', playerId: p2, count: 3 }]);
-
-    const beforeLib = g.state.zones?.[p2]?.libraryCount ?? 0;
-    const beforeGy = g.state.zones?.[p2]?.graveyardCount ?? 0;
-
-    g.applyEvent!({
-      type: 'resolveSpell',
-      caster: p1,
-      cardId: 'increasing_confusion',
-      spec: hydrated,
-      chosen: [{ kind: 'player', id: p2 } as TargetRef],
-    });
-
-    expect(g.state.zones?.[p2]?.libraryCount).toBe(beforeLib - 3);
-    expect(g.state.zones?.[p2]?.graveyardCount).toBe(beforeGy + 3);
+    expect(millFromHand).toBe(3);
+    expect(resolveSpell(hydrated as any, [{ kind: 'player', id: p2 } as TargetRef], g.state as any, p1)).toEqual([]);
   });
 });

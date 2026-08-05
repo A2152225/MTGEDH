@@ -1,50 +1,31 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-07-07 (dynamic lords declarative; delta→probe workflow; migration 889/889)
+Last updated: 2026-08-05 (end-state — P4e LEGACY aliases removed; IR counter flashback exile; live telemetry still empty)
 
 > **Cost reducers / alternate costs** (separate workstream): see [`docs/cost-reduction-handoff.md`](cost-reduction-handoff.md).
 
 ## Next session prompt (copy-paste)
 
 ```
-Oracle IR — Phase 5 complete; graveyard-permission IR stable
+Migration end-state — continuous depth + live soak
 
 Done recently:
-- Dynamic lords declarative: Coat of Arms / Sliver Legion via StaticEffectGrant.countBasis (29/29 static-effect-spec)
-- Delta→overlay probe workflow: npm run oracle-ir:delta:probe batches overlay probes from overlayWorkQueue
-- Anti-double-count: skipDeclarativeStaticForSourceIds gates legacy regex when declarative specs own a source
-- Leave-BF declarative path: tryApplyDeclarativeLeaveBattlefieldDestinationReplacement + hint preview
-- Continuous-effect gap telemetry: owned_but_unhandled for incomplete STATIC/REPLACEMENT overlays (SBA scan)
-- Graveyard-permission integration fixes (32/32): Horde of Notions defer, Magus exile replacement, Mishra's Research Desk impulse choose-one, Ignite the Future / Lidless Gaze exile flashback
-- Kethis activated-ability grant: full oracle parse for grant_graveyard_permission cost context
-- D3 complete: TRIGGER_LEGACY_EXPORT_CEILING = 0; legacy triage soak 0 exports
+- P4e: ORACLE_IR_*_LEGACY ignored; opt-out is ORACLE_IR_*_PRIMARY=0 only
+- P1a: resolveSpell empty (all categorize resolve ops deleted; cast targeting kept)
+- IR counter_spell exiles flashback/jump-start/escape/disturb/harmonize (+ castFromGraveyard)
+- Live GET /api/oracle-ir/telemetry still 0 events (no real EDH soak yet)
+  Snapshot: server/scripts/out/telemetry-snapshot-live-soak.json
 
 Verify at session start:
 cd server
-npx vitest run tests/graveyard-self-shuffle-replacement.unit.test.ts tests/replacement-effect-spec.unit.test.ts tests/god-pharaohs-gift.begin-combat.integration.test.ts tests/stack.generic-library-and-untap.regression.test.ts tests/copy-token-ir-primary.integration.test.ts tests/oracle-ir-continuous-effect-gap-telemetry.unit.test.ts
-npx vitest run tests/request-cast.graveyard-permission.integration.test.ts tests/play-land.graveyard-permission.integration.test.ts tests/static-effect-spec.unit.test.ts
-cd ../client
-npx vitest run tests/resolutionChoicePrimitives.test.ts
-cd ../server
-npm run test:oracle-ir-migration
-npm run oracle-ir:legacy-triage:soak
-
-Expect: migration 889/889; request-cast.graveyard-permission 32/32; static-effect-spec 29/29; delta 0 cards
-
-Key files:
-- server/scripts/oracle-delta-probe-gaps.ts — delta overlayWorkQueue → batch probe summary
-- server/scripts/probeCompiledOracleIrOverlayCore.ts — shared single-card probe logic
-- server/src/state/modules/staticEffectSpec.ts — declarative static registry + derived view
-- server/src/state/modules/staticEffectSpecOracleParsing.ts — anthem/lord oracle → StaticEffectSpec
-- server/src/state/modules/oracleIrServerZoneSync.ts — graveyard/exile permission queue bridges
-- rules-engine/src/oracleIRParserPostprocess.ts — Magus exile-instead replacement folding
-- server/src/state/modules/replacementEffectSpec.ts — replacement registry (5.2)
-
-Architecture: docs/oracle-ir-phase5-continuous-effects-design.md §4 (5.1–5.5 done)
+npx vitest run tests/oracle-ir-feature-flags.test.ts tests/oracle-ir-legacy-forced.integration.test.ts
+cd ../rules-engine ; npx vitest run test/oracleIRCounterSpellExile.test.ts
+cd ../server ; npm run test:oracle-ir-migration
 
 Next work (priority):
-1. Live EDH soak + telemetry watch (static:owned_but_unhandled, replacement:owned_but_unhandled)
-2. Windows migration stability — default 8 shards on win32 via run-oracle-ir-migration.ts (ORACLE_IR_MIGRATION_SHARDS=1 for single run)
+1. Live EDH telemetry soak after real games; triage owned_but_unhandled
+2. Continuous-effect depth / remaining IR gaps from telemetry
+3. Optional: delete redundant P1a spell no-op matrix from legacy-forced once PRIMARY=0 suites cover it
 ```
 
 ## Session 2026-07-07 (PM) — Delta→probe workflow + dynamic lords

@@ -1,6 +1,6 @@
 # Phase 5 Design — Continuous & Replacement Effects in Oracle IR
 
-**Status:** Design draft (2026-07-02, from architecture review). No implementation scheduled yet — this documents the target so Phase 5 work starts from a shared plan instead of ad-hoc patches.
+**Status:** Design + **5.1–5.5 implemented** (2026-07-06/07). Declarative `StaticEffectSpec` / `ReplacementEffectSpec`, graveyard/leave-BF replacements, anthem/lord derived statics, overlay STATIC/REPLACEMENT types, and continuous-effect gap telemetry are live. Remaining work is **depth** (more event families, layer/conditional coverage, telemetry soak) — not a greenfield rewrite.
 
 **Why this doc exists:** The step-based `OracleEffectStep[]` pipeline is complete for **one-shot** effects (Layers 1–3 green). The one class it structurally cannot express is **continuous effects** ("creatures you control get +1/+1", "players can't draw more than one card each turn") and **replacement effects** ("if a card would be put into a graveyard, exile it instead"). Today these live in scattered bespoke systems; that scattering is the last architectural ceiling for seamless new-card automation.
 

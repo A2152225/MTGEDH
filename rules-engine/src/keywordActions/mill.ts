@@ -171,18 +171,18 @@ export function parseMillFromOracleText(oracleText: string): ParsedMillEffect | 
     return { type: 'mill', count, targetType: 'opponent', requiresTarget: true };
   }
   
-  // Pattern: "each opponent mills X cards"
+  // Pattern: "each opponent mills X cards" / "each opponent mills a card"
   const eachOpponentMillMatch = lower.match(
-    /each\s+opponent\s+mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)/i
+    /each\s+opponent\s+mills?\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)/i
   );
   if (eachOpponentMillMatch) {
     const count = parseNumber(eachOpponentMillMatch[1]);
     return { type: 'mill', count, targetType: 'each-opponent', requiresTarget: false };
   }
   
-  // Pattern: "each player mills X cards"
+  // Pattern: "each player mills X cards" / "each player mills a card"
   const eachPlayerMillMatch = lower.match(
-    /each\s+player\s+mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)/i
+    /each\s+player\s+mills?\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)/i
   );
   if (eachPlayerMillMatch) {
     const count = parseNumber(eachPlayerMillMatch[1]);

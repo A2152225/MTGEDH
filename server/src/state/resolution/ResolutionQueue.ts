@@ -393,6 +393,7 @@ function mapChoiceEventType(choiceType: string): ResolutionStepType {
     color_choice: ResolutionStepType.COLOR_CHOICE,
     creature_type_choice: ResolutionStepType.CREATURE_TYPE_CHOICE,
     card_name_choice: ResolutionStepType.CARD_NAME_CHOICE,
+    basic_land_type_choice: ResolutionStepType.BASIC_LAND_TYPE_CHOICE,
     number_choice: ResolutionStepType.NUMBER_CHOICE,
     player_choice: ResolutionStepType.PLAYER_CHOICE,
     option_choice: ResolutionStepType.OPTION_CHOICE,

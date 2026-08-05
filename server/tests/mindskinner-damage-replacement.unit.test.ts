@@ -133,12 +133,12 @@ describe('Mindskinner non-combat damage replacement', () => {
     const ctx = makeCtx({
       battlefield: [
         {
-          id: 'gisela',
+          id: 'doubler',
           controller: 'p1',
           card: {
-            name: 'Gisela, Blade of Goldnight',
+            name: 'Anonymous Marauders',
             oracle_text:
-              'If a source you control would deal damage to an opponent, that source deals double that damage to that player or planeswalker instead.',
+              'If a source you control would deal damage to a permanent or player, it deals double that damage to that permanent or player instead.',
           },
         },
         {
@@ -166,12 +166,12 @@ describe('Mindskinner non-combat damage replacement', () => {
     const ctx = makeCtx({
       battlefield: [
         {
-          id: 'gisela',
+          id: 'doubler',
           controller: 'p1',
           card: {
-            name: 'Gisela, Blade of Goldnight',
+            name: 'Anonymous Marauders',
             oracle_text:
-              'If a source you control would deal damage to an opponent, that source deals double that damage to that player or planeswalker instead.',
+              'If a source you control would deal damage to a permanent or player, it deals double that damage to that permanent or player instead.',
           },
         },
         {

@@ -19,7 +19,7 @@ import type { PlayerID } from "../../../../shared/src/types.js";
 import { appendEvent } from '../../db/index.js';
 import { drawCards } from "./zones.js";
 import { resetConvokeGrantsForNewTurn } from "./casting-modifiers.js";
-import { recalculatePlayerEffects, canDamageBePrevented, clearTemporaryLandBonuses, processLifeChange, resolveCombatDamageToOpponent } from "./game-state-effects.js";
+import { recalculatePlayerEffects, canDamageBePrevented, clearTemporaryLandBonuses, calculateModifiedDamage, processLifeChange, resolveCombatDamageToOpponent } from "./game-state-effects.js";
 import { clearTemporaryEtbTriggers } from './triggerEtbEntryEffects.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { detectEntersWithCounters } from './detectEntersWithCounters.js';
@@ -316,12 +316,31 @@ function isCombatDamagePreventedForPermanent(permanent: any): boolean {
   return abilityTexts.some((entry) => /prevent all combat damage that would be dealt to (?:it|this creature) this turn/.test(entry));
 }
 
-function applyCombatDamageToPlaneswalker(ctx: GameContext, permanent: any, amount: number, sourceCard: any, sourceId: string): {
+/** Apply 616.1 amount modifiers (Furnace / Sound of Drums / Gisela / …) to combat damage to a permanent. */
+function modifyCombatDamageToPermanentAmount(
+  ctx: GameContext,
+  amount: number,
+  sourcePermanent: any,
+  targetPermanent: any,
+): number {
+  const { amount: modified } = calculateModifiedDamage(
+    ctx,
+    Math.max(0, Number(amount) || 0),
+    String(sourcePermanent?.controller || ''),
+    String(targetPermanent?.controller || ''),
+    String(sourcePermanent?.id || ''),
+    true,
+  );
+  return modified;
+}
+
+function applyCombatDamageToPlaneswalker(ctx: GameContext, permanent: any, amount: number, sourceCard: any, sourcePermanent: any): {
   prevented: boolean;
   appliedAmount: number;
   remainingLoyalty: number;
 } {
-  const normalizedAmount = Math.max(0, Number(amount || 0));
+  const sourceId = String(sourcePermanent?.id || '');
+  const normalizedAmount = modifyCombatDamageToPermanentAmount(ctx, amount, sourcePermanent, permanent);
   const currentLoyalty = Number((permanent as any)?.counters?.loyalty ?? (permanent as any)?.loyalty ?? (permanent as any)?.card?.loyalty ?? 0) || 0;
 
   if (!permanent || normalizedAmount <= 0) {
@@ -2166,7 +2185,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
         }
 
         if (isPlaneswalkerTarget && defendingPermanent) {
-          const damageResult = applyCombatDamageToPlaneswalker(ctx, defendingPermanent, attackerPower, card, String(attacker.id || ''));
+          const damageResult = applyCombatDamageToPlaneswalker(ctx, defendingPermanent, attackerPower, card, attacker);
 
           if (damageResult.appliedAmount > 0) {
             debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageResult.appliedAmount} combat damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} (${damageResult.remainingLoyalty} loyalty remaining)`);
@@ -2375,7 +2394,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 debug(2, `${ts()} [dealCombatDamage] Combat damage to blocker ${blockerCard.name || blockerId} was prevented`);
                 continue;
               }
-              const preventionResult = applyCombatDamagePreventionEffects(ctx, damageToBlocker, String(attacker.id || ''), card, { targetPermanentId: String(blocker.id || '') });
+              // Assignment uses power; replacements apply when the assigned amount would be dealt.
+              const modifiedDamageToBlocker = modifyCombatDamageToPermanentAmount(ctx, damageToBlocker, attacker, blocker);
+              const preventionResult = applyCombatDamagePreventionEffects(ctx, modifiedDamageToBlocker, String(attacker.id || ''), card, { targetPermanentId: String(blocker.id || '') });
               const damageToBlockerAfterPrevention = preventionResult.remainingDamage;
               if (preventionResult.prevented > 0 && damageToBlockerAfterPrevention <= 0) {
                 remainingDamage -= damageToBlocker;
@@ -2452,7 +2473,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           // Trample: Excess damage goes to defending player or planeswalker
           if (keywords.trample && remainingDamage > 0) {
             if (isPlaneswalkerTarget && defendingPermanent) {
-              const damageResult = applyCombatDamageToPlaneswalker(ctx, defendingPermanent, remainingDamage, card, String(attacker.id || ''));
+              const damageResult = applyCombatDamageToPlaneswalker(ctx, defendingPermanent, remainingDamage, card, attacker);
 
               if (damageResult.appliedAmount > 0) {
                 debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${damageResult.appliedAmount} excess damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} (${damageResult.remainingLoyalty} loyalty remaining)`);
@@ -2617,7 +2638,8 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           }
           
           if (blockerPower > 0) {
-            const preventionResult = applyCombatDamagePreventionEffects(ctx, blockerPower, String(blocker.id || ''), blockerCard, { targetPermanentId: String(attacker.id || '') });
+            const modifiedBlockerDamage = modifyCombatDamageToPermanentAmount(ctx, blockerPower, blocker, attacker);
+            const preventionResult = applyCombatDamagePreventionEffects(ctx, modifiedBlockerDamage, String(blocker.id || ''), blockerCard, { targetPermanentId: String(attacker.id || '') });
             const blockerDamageAfterPrevention = preventionResult.remainingDamage;
             if (preventionResult.prevented > 0 && blockerDamageAfterPrevention <= 0) {
               debug(2, `${ts()} [COMBAT_DAMAGE] Combat damage to attacker ${card.name || attacker.id} was prevented`);
