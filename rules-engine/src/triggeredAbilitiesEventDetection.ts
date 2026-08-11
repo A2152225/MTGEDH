@@ -15,7 +15,9 @@ export function detectTriggeredAbilityEvent<T extends string>(
 
   if (
     /\bspell\b.*\b(?:is|was)\s+countered\b/.test(text) ||
-    /\b(?:is|was)\s+countered\b.*\bspell\b/.test(text)
+    /\b(?:is|was)\s+countered\b.*\bspell\b/.test(text) ||
+    /\bcounters a spell\b/.test(text) ||
+    /\byou counter a spell\b/.test(text)
   ) {
     return { event: triggerEventValues.SPELL_COUNTERED, filter: text };
   }

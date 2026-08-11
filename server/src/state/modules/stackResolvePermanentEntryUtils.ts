@@ -93,7 +93,7 @@ function buildFullTriggeredAbilityText(trigger: any): string {
   return `${keyword} ${condition}, ${effect}`.trim();
 }
 
-function queueMutateTriggeredAbilities(
+export function queueMutateTriggeredAbilities(
   ctx: GameContext,
   permanent: any,
   controller: PlayerID,

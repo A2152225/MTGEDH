@@ -1,4 +1,7 @@
 import { debugWarn } from "../../utils/debug.js";
+import type { GameContext } from "../context.js";
+import { processTransformTriggers } from "./triggerEmissionFamilyUtils.js";
+import { uid } from "../utils.js";
 
 export type DayNight = 'day' | 'night';
 
@@ -6,7 +9,42 @@ function isDayNight(value: unknown): value is DayNight {
   return value === 'day' || value === 'night';
 }
 
-export function transformPermanentToFace(permanent: any, faceIndex: 0 | 1): void {
+/**
+ * "As this creature transforms into NAME, you get an emblem with \"…\"."
+ * Applies when transforming onto the face that prints that replacement text.
+ */
+function createEmblemFromTransformIntoFace(
+  ctx: GameContext | undefined,
+  permanent: any,
+  newFace: any,
+): void {
+  if (!ctx?.state || !newFace) return;
+  const oracle = String(newFace.oracle_text || '');
+  const match = oracle.match(
+    /as this creature transforms into .+?,\s*you get an emblem with\s*["\u201C]([^"\u201D]+)["\u201D]/i,
+  );
+  if (!match) return;
+
+  const effect = String(match[1] || '').trim();
+  if (!effect) return;
+
+  const stateAny = ctx.state as any;
+  stateAny.emblems = Array.isArray(stateAny.emblems) ? stateAny.emblems : [];
+  const controller = String(permanent?.controller || '').trim();
+  const sourceName = String(newFace.name || permanent?.card?.name || 'Emblem').trim() || 'Emblem';
+  stateAny.emblems.push({
+    id: uid('emblem'),
+    controller,
+    sourceName,
+    effect,
+  });
+}
+
+export function transformPermanentToFace(
+  permanent: any,
+  faceIndex: 0 | 1,
+  ctx?: GameContext,
+): void {
   if (!permanent?.card) return;
   const card: any = permanent.card;
   const faces: any[] = Array.isArray(card.card_faces) ? card.card_faces : [];
@@ -14,7 +52,9 @@ export function transformPermanentToFace(permanent: any, faceIndex: 0 | 1): void
   const newFace = faces[faceIndex];
   if (!newFace) return;
 
-  (permanent as any).transformed = faceIndex === 1;
+  const previousTransformed = (permanent as any).transformed === true;
+  const nextTransformed = faceIndex === 1;
+  (permanent as any).transformed = nextTransformed;
 
   card.name = newFace.name || card.name;
   if ('power' in newFace) card.power = newFace.power;
@@ -23,6 +63,20 @@ export function transformPermanentToFace(permanent: any, faceIndex: 0 | 1): void
   if (newFace.oracle_text) card.oracle_text = newFace.oracle_text;
   if (newFace.image_uris) card.image_uris = newFace.image_uris;
   if ('loyalty' in newFace) card.loyalty = newFace.loyalty;
+
+  if (ctx && previousTransformed !== nextTransformed) {
+    try {
+      // Super Nova / similar: emblem is created as the permanent transforms into that face.
+      createEmblemFromTransformIntoFace(ctx, permanent, newFace);
+    } catch (err) {
+      debugWarn(1, '[day-night] createEmblemFromTransformIntoFace failed:', err);
+    }
+    try {
+      processTransformTriggers(ctx, permanent);
+    } catch (err) {
+      debugWarn(1, '[day-night] processTransformTriggers failed:', err);
+    }
+  }
 }
 
 export function applyDayNightTransforms(state: any): void {

@@ -272,8 +272,11 @@ export function FreeField(props: {
     const kc = perm.card as KnownCardRef;
     if (!kc) return;
 
-    // Parse abilities from the card
-    const abilities = parseActivatedAbilities(kc, perm.grantedAbilities);
+    // Parse abilities from the card (include quoted grants from attachments)
+    const abilities = parseActivatedAbilities(kc, perm.grantedAbilities, {
+      permanent: perm,
+      battlefield: allBattlefieldPerms || perms,
+    });
     if (abilities.length === 0) return;
 
     // Build activation context

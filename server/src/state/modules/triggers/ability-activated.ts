@@ -4,6 +4,7 @@ import { uid } from "../../utils.js";
 import { debug } from "../../../utils/debug.js";
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
+import { processDetectedAbilityActivatedTriggers } from '../triggerEmissionFamilyUtils.js';
 
 export type AbilityActivatedEvent = {
   activatedBy: PlayerID;
@@ -11,6 +12,8 @@ export type AbilityActivatedEvent = {
   isManaAbility: boolean;
   abilityText?: string;
   stackItemId?: string;
+  /** Total life paid as part of activating the ability (activation cost). */
+  lifePaidForCost?: number;
   manaFromTreasureSpentKnown?: boolean;
   manaFromTreasureSpent?: boolean;
 };
@@ -292,6 +295,22 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
       );
       continue;
     }
+  }
+
+  // Generic detector path (oracle-text activation watchers beyond the whitelist above).
+  try {
+    processDetectedAbilityActivatedTriggers(ctx, {
+      activatedBy: String(e.activatedBy),
+      sourcePermanentId: String(e.sourcePermanentId),
+      isManaAbility: e.isManaAbility === true,
+      ...(e.abilityText ? { abilityText: e.abilityText } : null),
+      ...(e.stackItemId ? { stackItemId: String(e.stackItemId) } : null),
+      ...(typeof e.lifePaidForCost === 'number' && e.lifePaidForCost > 0
+        ? { lifePaidForCost: e.lifePaidForCost }
+        : null),
+    });
+  } catch {
+    // best-effort
   }
 
   const orderedTriggers = orderAbilityActivatedTriggersByAPNAP(ctx, createdTriggers);

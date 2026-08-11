@@ -10,6 +10,8 @@ import {
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
+import { parseEquipAbilitiesFromOracle, permanentMatchesEquipQualifier } from "../../../shared/src/equipAbilities.js";
+import { getAttachmentGrantedActivatedAbilityTexts } from "../../../shared/src/attachmentAbilityGrants.js";
 import { isSacrificeCreatureOfChosenTypeCost } from "../state/modules/chosen-creature-type.js";
 import { adjustActivationManaCostForPayment, isActivatedManaAbilityText } from "../state/modules/ability-cost-adjustments.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
@@ -6141,10 +6143,35 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const oracleText = (card?.oracle_text || "").toLowerCase();
     const typeLine = (card?.type_line || "").toLowerCase();
     clearHumanAutoPassPauseOnAction(game as any, pid, 'activateBattlefieldAbility', true);
-    const scopedActivatedAbility = getActivatedAbilityScopeText(oracleText, abilityId);
-    const scopedAbilityText = String(scopedActivatedAbility.abilityText || '').trim();
-    const scopedAbilityFullText = String(scopedActivatedAbility.fullAbilityText || scopedAbilityText || oracleText || '').trim();
-    const isGenericActivatedAbilityId = /-ability-(\d+)$/i.test(abilityId);
+    const grantedAbilityMatch = String(abilityId || '').match(/-granted-(\d+)$/i);
+    let scopedAbilityText = '';
+    let scopedAbilityFullText = '';
+    if (grantedAbilityMatch) {
+      const grantedIndex = Number.parseInt(grantedAbilityMatch[1] || '0', 10) || 0;
+      const grantedTexts = getAttachmentGrantedActivatedAbilityTexts(permanent, battlefield);
+      // Also allow persisted granted activated lines
+      const persisted = Array.isArray((permanent as any).grantedAbilities)
+        ? (permanent as any).grantedAbilities
+            .map((entry: unknown) => String(entry || '').trim())
+            .filter((entry: string) => entry.includes(':'))
+        : [];
+      const allGranted = [...grantedTexts];
+      for (const entry of persisted) {
+        if (!allGranted.some((g) => g.toLowerCase() === entry.toLowerCase())) {
+          allGranted.push(entry);
+        }
+      }
+      const grantedLine = String(allGranted[grantedIndex] || '').trim();
+      scopedAbilityText = grantedLine.includes(':')
+        ? grantedLine.slice(grantedLine.indexOf(':') + 1).trim()
+        : grantedLine;
+      scopedAbilityFullText = grantedLine || scopedAbilityText;
+    } else {
+      const scopedActivatedAbility = getActivatedAbilityScopeText(oracleText, abilityId);
+      scopedAbilityText = String(scopedActivatedAbility.abilityText || '').trim();
+      scopedAbilityFullText = String(scopedActivatedAbility.fullAbilityText || scopedAbilityText || oracleText || '').trim();
+    }
+    const isGenericActivatedAbilityId = /-ability-(\d+)$/i.test(abilityId) || /-granted-(\d+)$/i.test(abilityId);
 
     const { isAbilityActivationProhibitedByChosenName } = await import('../state/modules/chosen-name-restrictions.js');
     
@@ -7094,18 +7121,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const equipAbilityText = hasExplicitEquipAbilityId ? oracleText : scopedAbilityFullText;
     const isEquipAbility = hasExplicitEquipAbilityId || (isEquipment && /\bequip\b/i.test(equipAbilityText));
     if (isEquipAbility) {
-      // Parse all equip abilities from oracle text to match the one being activated
-      // Format: "Equip [type] [creature] {cost}" e.g., "Equip legendary creature {3}" or "Equip {7}"
-      // Note: Use [a-zA-Z] to match both upper and lower case creature types (Knight, Legendary, etc.)
-      const equipRegex = /equip(?:\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?))?(?:\s+creature)?\s*(\{[^}]+\}(?:\{[^}]+\})*)/gi;
-      const equipAbilities: { type: string | null; cost: string; index: number }[] = [];
-      let equipMatch;
-      let index = 0;
-      while ((equipMatch = equipRegex.exec(equipAbilityText)) !== null) {
-        const conditionalType = equipMatch[1]?.trim() || null; // "legendary", "Knight", etc.
-        const cost = equipMatch[2];
-        equipAbilities.push({ type: conditionalType, cost, index: index++ });
-      }
+      // Parse all equip abilities (shared qualifier parser): legendary / tribal / compound / commander / token / …
+      const equipAbilities = parseEquipAbilitiesFromOracle(equipAbilityText);
       
       // Extract which equip ability was selected from abilityId
       // Format: "{cardId}-equip-{index}" e.g., "card123-equip-0" or "card123-equip-1"
@@ -7115,43 +7132,29 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         selectedAbilityIndex = parseInt(abilityIndexMatch[1], 10);
       }
       
-      // Get the selected equip ability or default to the first one
-      const selectedEquip = equipAbilities[selectedAbilityIndex] || equipAbilities[0] || { type: null, cost: "{0}", index: 0 };
-      const equipCost = selectedEquip.cost;
-      const equipType = selectedEquip.type; // "legendary", "Knight", etc. or null for generic equip
+      const selectedEquip = equipAbilities[selectedAbilityIndex] || equipAbilities[0] || null;
+      const equipCost = selectedEquip?.cost || "{0}";
+      const equipQualifier = selectedEquip?.qualifier || { kind: 'any' as const, raw: null };
+      const equipType = equipQualifier.raw; // human-readable restriction, or null for generic equip
+      const equipTargetDescription = selectedEquip?.targetDescription || 'creature you control';
       
-      // Get valid target creatures based on equip type restriction
+      // Get valid targets based on equip qualifier
       const validTargets = battlefield.filter((p: any) => {
         if (p.controller !== pid) return false;
-        const pTypeLine = (p.card?.type_line || "").toLowerCase();
-        if (!pTypeLine.includes("creature")) return false;
-        
-        // If there's a type restriction (e.g., "legendary"), filter by it
-        if (equipType) {
-          // Handle common patterns:
-          // "legendary" -> must have "legendary" in type_line
-          // "legendary creature" -> same as "legendary"
-          // "Knight", "Soldier" -> must have that creature type
-          const typeRestriction = equipType.toLowerCase().replace(/\s+creature$/, '');
-          if (!pTypeLine.includes(typeRestriction)) {
-            return false;
-          }
-        }
-        
-        return true;
+        return permanentMatchesEquipQualifier(p, equipQualifier);
       });
 
       if (validTargets.length === 0) {
         socket.emit("error", {
           code: "NO_VALID_TARGETS",
           message: equipType 
-            ? `You have no ${equipType} creatures to equip`
+            ? `You have no legal targets for Equip ${equipType}`
             : "You have no creatures to equip",
         });
         return;
       }
 
-      const activatedAbilityText = `Equip ${equipCost}`;
+      const activatedAbilityText = selectedEquip?.label || `Equip ${equipCost}`;
 
       // Unified Resolution Queue prompt
       const existing = ResolutionQueueManager
@@ -7165,18 +7168,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           sourceId: permanentId,
           sourceName: cardName,
           sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-          description: `Choose a creature to equip ${cardName} to (${equipType ? `equip ${equipType} creature ` : ''}${equipCost}).`,
+          description: `Choose a permanent to equip ${cardName} to (${equipTargetDescription}, ${equipCost}).`,
           mandatory: false,
           validTargets: validTargets.map((c: any) => ({
             id: c.id,
-            label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
-            description: c.card?.type_line || 'Creature',
+            label: `${c.card?.name || 'Permanent'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+            description: c.card?.type_line || 'Permanent',
             imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
           })),
-          targetTypes: ['creature'],
+          targetTypes: equipQualifier.kind === 'planeswalker'
+            ? ['planeswalker']
+            : equipQualifier.kind === 'creature_or_planeswalker'
+              ? ['creature', 'planeswalker']
+              : ['creature'],
           minTargets: 1,
           maxTargets: 1,
-          targetDescription: equipType ? `${equipType} creature you control` : 'creature you control',
+          targetDescription: equipTargetDescription,
           battlefieldAbilityTargetSelection: true,
           equipmentId: permanentId,
           permanentId,
@@ -7188,6 +7195,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           abilityType: 'equip',
           equipCost,
           equipType,
+          equipQualifierKind: equipQualifier.kind,
           targetsOpponentCreatures: false,
         } as any);
 
@@ -7211,18 +7219,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             sourceId: permanentId,
             sourceName: cardName,
             sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-            description: `Choose a creature to equip ${cardName} to (${equipType ? `equip ${equipType} creature ` : ''}${equipCost}).`,
+            description: `Choose a permanent to equip ${cardName} to (${equipTargetDescription}, ${equipCost}).`,
             mandatory: false,
             validTargets: validTargets.map((c: any) => ({
               id: c.id,
-              label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
-              description: c.card?.type_line || 'Creature',
+              label: `${c.card?.name || 'Permanent'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+              description: c.card?.type_line || 'Permanent',
               imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
             })),
-            targetTypes: ['creature'],
+            targetTypes: equipQualifier.kind === 'planeswalker'
+              ? ['planeswalker']
+              : equipQualifier.kind === 'creature_or_planeswalker'
+                ? ['creature', 'planeswalker']
+                : ['creature'],
             minTargets: 1,
             maxTargets: 1,
-            targetDescription: equipType ? `${equipType} creature you control` : 'creature you control',
+            targetDescription: equipTargetDescription,
             battlefieldAbilityTargetSelection: true,
             equipmentId: permanentId,
             permanentId,
@@ -7234,12 +7246,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             abilityType: 'equip',
             equipCost,
             equipType,
+            equipQualifierKind: equipQualifier.kind,
             targetsOpponentCreatures: false,
           },
         });
       }
 
-      debug(2, `[activateBattlefieldAbility] Equip ability on ${cardName}: queued TARGET_SELECTION (cost=${equipCost}, type=${equipType || 'any'})`);
+      debug(2, `[activateBattlefieldAbility] Equip ability on ${cardName}: queued TARGET_SELECTION (cost=${equipCost}, qualifier=${equipQualifier.kind})`);
       broadcastGame(io, game, gameId);
       return;
     }

@@ -44,6 +44,7 @@
 import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "./staticEffectSpec.js";
+import { parseAttachmentGrantedKeywordsFromOracle } from '../../../../shared/src/attachmentKeywordGrants.js';
 
 export interface CombatCreature {
   permanentId: string;
@@ -225,18 +226,10 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
           }
         }
         
-        // Generic parsing for "equipped creature has [keyword]" or "enchanted creature has [keyword]"
-        const keywordPatterns = [
-          /equipped creature has (flying|trample|lifelink|deathtouch|vigilance|haste|hexproof|indestructible)/gi,
-          /enchanted creature has (flying|trample|lifelink|deathtouch|vigilance|haste|hexproof|indestructible)/gi,
-        ];
-        
-        for (const pattern of keywordPatterns) {
-          const matches = attachmentOracle.matchAll(pattern);
-          for (const match of matches) {
-            if (match[1]) {
-              grantedKeywords.push(match[1].toLowerCase());
-            }
+        // Generic parsing for "equipped/enchanted creature has [keywords]"
+        for (const kw of parseAttachmentGrantedKeywordsFromOracle(attachmentOracle)) {
+          if (kw && !grantedKeywords.includes(kw)) {
+            grantedKeywords.push(kw);
           }
         }
       }

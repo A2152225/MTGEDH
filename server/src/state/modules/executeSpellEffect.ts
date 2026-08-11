@@ -18,6 +18,7 @@ import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 import { queueDealsDamageToPlayerTriggersFromPermanent } from './triggerLifeDamageUtils.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { detectEntersWithCounters } from './detectEntersWithCounters.js';
+import { processSpellCounteredTriggers } from './spellCounteredTriggerUtils.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 /**
  * Execute a single spell effect
@@ -806,6 +807,19 @@ export function executeSpellEffect(
             gy.push({ ...(countered as any).card, zone: 'graveyard' });
             (zones[controller] as any).graveyardCount = gy.length;
           }
+        }
+
+        try {
+          processSpellCounteredTriggers(ctx, {
+            counteringControllerId: String(caster || ''),
+            counteredControllerId: String(controller || ''),
+            counteredStackItemId: String((countered as any)?.id || effect.stackItemId || ''),
+            counteredCardName: String(counteredCardName),
+            counteringSourceName: spellName,
+            counteredWasSpell: true,
+          });
+        } catch (err) {
+          debugWarn(1, '[executeSpellEffect] processSpellCounteredTriggers failed:', err);
         }
         
         debug(2, `[resolveSpell] ${spellName} countered ${counteredCardName}`);

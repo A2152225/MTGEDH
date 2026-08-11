@@ -340,30 +340,12 @@ export function applyCostAdjustmentToParsedCost(
     result.colors[color] = Math.max(0, available - Math.max(0, Number(count) || 0));
   }
 
+  // Generic cost reduction only reduces the generic portion of the cost.
+  // Leftover reduction after generic is exhausted does NOT remove colored pips
+  // (CR 601.2f / cost-reduction: {1} less cannot make {U} free).
   let remainingReduction = Math.abs(Math.min(genericAdjustment, 0));
   const genericReduction = Math.min(result.generic, remainingReduction);
   result.generic -= genericReduction;
-  remainingReduction -= genericReduction;
-
-  if (remainingReduction > 0) {
-    const colorReductionOrder = Object.entries(result.colors)
-      .filter(([, count]) => Number(count) > 0)
-      .sort((left, right) => {
-        const countDelta = Number(right[1]) - Number(left[1]);
-        if (countDelta !== 0) return countDelta;
-        return String(left[0]).localeCompare(String(right[0]));
-      })
-      .map(([color]) => color);
-
-    for (const color of colorReductionOrder) {
-      if (remainingReduction <= 0) break;
-      const available = result.colors[color] || 0;
-      if (available <= 0) continue;
-      const colorReduction = Math.min(available, remainingReduction);
-      result.colors[color] = available - colorReduction;
-      remainingReduction -= colorReduction;
-    }
-  }
 
   return result;
 }

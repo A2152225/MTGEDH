@@ -515,7 +515,9 @@ function getInlineSelectedPaymentAbilities(perm: BattlefieldPermanent): InlineSe
   // shock-land parentheticals). When explicit parsing already found mana abilities, skip
   // those ids to avoid duplicates. When explicit is empty (historically stripped
   // parentheticals, or missing oracle with only basic land types), keep them.
-  const fallbackAbilities: InlineSelectedPaymentAbility[] = parseActivatedAbilities(perm.card, (perm as any).grantedAbilities)
+  const fallbackAbilities: InlineSelectedPaymentAbility[] = parseActivatedAbilities(perm.card, (perm as any).grantedAbilities, {
+    permanent: perm,
+  })
     .filter((ability) => ability.isManaAbility)
     .filter((ability) => {
       if (explicitAbilities.length === 0) return true;

@@ -443,11 +443,14 @@ export function ActivatedAbilityButtons({
   const rawScale = tileWidth / 110;
   const scale = Math.max(0.7, rawScale);
   
-  // Parse abilities from the card
+  // Parse abilities from the card (include quoted grants from attached Equipment/Auras)
   const abilities = useMemo(() => {
     if (!kc) return [];
-    return parseActivatedAbilities(kc, perm.grantedAbilities);
-  }, [kc, perm.grantedAbilities]);
+    return parseActivatedAbilities(kc, perm.grantedAbilities, {
+      permanent: perm,
+      battlefield: battlefield || null,
+    });
+  }, [kc, perm, battlefield]);
   
   // Build activation context
   const context: ActivationContext = useMemo(() => ({

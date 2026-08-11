@@ -17,6 +17,8 @@ import {
   buildDungeonRoomPromptSteps,
 } from './dungeon-effects.js';
 import { appendQueuedResolutionPromptEvent, queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
+import { playerHasDungeonRoomAbilityDoubler } from './triggers/combat.js';
+import type { DungeonProgressState } from './dungeons.js';
 
 function appendDungeonRoomExecuteEffectEvents(
   ctx: GameContext,
@@ -42,6 +44,32 @@ function appendDungeonRoomExecuteEffectEvents(
     } catch (err) {
       debugWarn(1, '[resolveTopOfStack] appendEvent(executeEffect/createToken) failed for dungeon room:', err);
     }
+  }
+}
+
+function applyDungeonRoomEffectsOnce(
+  ctx: GameContext,
+  playerId: PlayerID,
+  progress: DungeonProgressState,
+  sourceId: string,
+): void {
+  applyAutomaticDungeonRoomEffect(ctx, playerId, progress);
+  const tokenEffectPayloads = applyAutomaticDungeonRoomTokenEffects(ctx, playerId, progress);
+  const promptSteps = buildDungeonRoomPromptSteps(ctx, playerId, progress, sourceId);
+  queueDungeonRoomPromptSteps(ctx, promptSteps, playerId, sourceId);
+  appendDungeonRoomExecuteEffectEvents(ctx, tokenEffectPayloads);
+}
+
+/** Apply room abilities, then again if Hama Pashar / Dungeon Delver is active. */
+function applyDungeonRoomEffectsWithDoubler(
+  ctx: GameContext,
+  playerId: PlayerID,
+  progress: DungeonProgressState,
+  sourceId: string,
+): void {
+  applyDungeonRoomEffectsOnce(ctx, playerId, progress, sourceId);
+  if (playerHasDungeonRoomAbilityDoubler((ctx as any).state, playerId)) {
+    applyDungeonRoomEffectsOnce(ctx, playerId, progress, sourceId);
   }
 }
 
@@ -113,11 +141,7 @@ export function resolveVentureProgress(
       const undercityProgress = createDungeonProgress('undercity');
       if (undercityProgress) {
         stateAny.dungeonProgress[playerId] = undercityProgress;
-        applyAutomaticDungeonRoomEffect(ctx, playerId, undercityProgress);
-        const tokenEffectPayloads = applyAutomaticDungeonRoomTokenEffects(ctx, playerId, undercityProgress);
-        const promptSteps = buildDungeonRoomPromptSteps(ctx, playerId, undercityProgress, sourceId);
-        queueDungeonRoomPromptSteps(ctx, promptSteps, playerId, sourceId);
-        appendDungeonRoomExecuteEffectEvents(ctx, tokenEffectPayloads);
+        applyDungeonRoomEffectsWithDoubler(ctx, playerId, undercityProgress, sourceId);
       }
       return;
     }
@@ -170,11 +194,7 @@ export function resolveVentureProgress(
     return;
   }
 
-  applyAutomaticDungeonRoomEffect(ctx, playerId, advancement.progress);
-  const tokenEffectPayloads = applyAutomaticDungeonRoomTokenEffects(ctx, playerId, advancement.progress);
-  const promptSteps = buildDungeonRoomPromptSteps(ctx, playerId, advancement.progress, sourceId);
-  queueDungeonRoomPromptSteps(ctx, promptSteps, playerId, sourceId);
-  appendDungeonRoomExecuteEffectEvents(ctx, tokenEffectPayloads);
+  applyDungeonRoomEffectsWithDoubler(ctx, playerId, advancement.progress, sourceId);
 
   if (advancement.completed) {
     markDungeonCompleted(stateAny, String(playerId), String(advancement.progress.dungeonName || getDungeonNameById(progress.dungeonId)).trim());

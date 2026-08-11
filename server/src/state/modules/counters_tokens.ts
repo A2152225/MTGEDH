@@ -6,6 +6,7 @@ import { uid, parsePT, parseWordNumber, triggerLifeGainEffects } from "../utils"
 import { processLifeChange, recalculatePlayerEffects, processPendingEmptyLibraryDrawAttempts, applyAscendCitysBlessing } from "./game-state-effects.js";
 import { evaluateCounterPlacementReplacementEvent, evaluateTokenCreationReplacementEvent } from "./replacement-effects.js";
 import { getDeathTriggers, processLinkedExileReturns } from "./triggered-abilities.js";
+import { pushTriggerDoublerCopies } from "./triggers/combat.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { getTokenImageUrls, buildTokenImageSpec, resolveTokenPrinting, applyTokenPrintingToCard, lookupExactTokenPrinting } from "../../services/tokens.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
@@ -67,6 +68,7 @@ function persistUpdateCountersEvent(
 }
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
+import { processLTBTriggers } from "./triggerEmissionFamilyUtils.js";
 import { buildWarpedExileCardMarkers, permanentShouldExileAsWarped } from "./warpDelayedEffects.js";
 import { queueTokenCreatedTriggers } from "./triggers/tokens.js";
 import { syncDerivedContinuousEffects } from "./staticEffectSpec.js";
@@ -491,7 +493,24 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
     if (String(dyingPermanent?.id || '').trim() === sourceId) {
       return dyingPermanent;
     }
-    return battlefield.find((permanent: any) => String(permanent?.id || '') === sourceId) || null;
+    const fromBattlefield = battlefield.find((permanent: any) => String(permanent?.id || '') === sourceId);
+    if (fromBattlefield) return fromBattlefield;
+    if (trigger?.source?.isEmblem === true) {
+      const emblems = Array.isArray(state?.emblems) ? state.emblems : [];
+      const emblem = emblems.find((entry: any) => String(entry?.id || '') === sourceId);
+      if (!emblem) return null;
+      return {
+        id: sourceId,
+        controller: String(emblem.controller || trigger.source.controllerId || ''),
+        isEmblem: true,
+        card: {
+          name: String(trigger.source.cardName || emblem.sourceName || 'Emblem'),
+          type_line: 'Emblem',
+          oracle_text: String(emblem.effect || effectText || ''),
+        },
+      };
+    }
+    return null;
   })();
   const sourceCard = sourcePermanentSnapshot?.card || null;
 
@@ -511,11 +530,13 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
       return String(live?.controller || '').trim() || undefined;
     })(),
     source: trigger.source.permanentId,
+    permanentId: trigger.source.permanentId,
     sourceName: trigger.source.cardName,
     description: effectText,
     triggerType: 'creature_dies',
     effect: effectText,
     mandatory: true,
+    ...(trigger?.source?.isEmblem === true ? { isEmblemSource: true } : null),
     ...(typeof trigger?.value !== 'undefined' ? { value: trigger.value } : null),
     ...(sourceCard ? { card: sourceCard } : null),
     ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
@@ -551,6 +572,12 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
 
   state.stack = state.stack || [];
   state.stack.push(stackItem);
+  // Live path: death pushes do not go through applyEvent before priority, so double here.
+  try {
+    pushTriggerDoublerCopies(state, stackItem);
+  } catch (err) {
+    debugWarn(1, '[movePermanentToGraveyard] pushTriggerDoublerCopies failed:', err);
+  }
 
   const gameId = String((ctx as any)?.gameId || '').trim();
   if (!gameId) {
@@ -568,6 +595,7 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
       triggerType: 'creature_dies',
       effect: effectText,
       mandatory: true,
+      ...(trigger?.source?.isEmblem === true ? { isEmblemSource: true } : null),
       ...(typeof trigger?.value !== 'undefined' ? { value: trigger.value } : null),
       ...(sourceCard ? { card: sourceCard } : null),
       ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
@@ -1381,6 +1409,12 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     // best-effort tracking only
   }
 
+  try {
+    processLTBTriggers(ctx, perm, { cause: 'graveyard' });
+  } catch (err) {
+    debugWarn(1, '[movePermanentToGraveyard] processLTBTriggers failed:', err);
+  }
+
   const graveyardReplacement = tryApplyDeclarativeGraveyardDestinationReplacement(
     ctx,
     perm,
@@ -1900,6 +1934,15 @@ export function movePermanentToExile(
     }
   } catch {
     // best-effort tracking only
+  }
+
+  // LTB triggers must fire for exile leaves too (self-LTB text, "whenever a permanent
+  // leaves", and Oblivion Ring–style cards that get exiled themselves). Fire before
+  // linked-exile returns so watchers see the leave without the returned permanent yet.
+  try {
+    processLTBTriggers(ctx, perm, { cause: 'exile' });
+  } catch (err) {
+    debugWarn(1, '[movePermanentToExile] processLTBTriggers failed:', err);
   }
 
   // Defensive: If we can't determine an owner/controller, don't write to zones[undefined].

@@ -4626,6 +4626,8 @@ export function nextTurn(ctx: GameContext) {
 
     // Reset life gain/loss tracking for this turn.
     (ctx as any).state.lifeGainedThisTurn = {};
+    (ctx as any).state.lifegainTriggersFiredThisTurn = {};
+    (ctx as any).state.discoverTriggersFiredThisTurn = {};
     (ctx as any).state.lifeLostThisTurn = {};
     for (const pid of players) {
       (ctx as any).state.lifeGainedThisTurn[String(pid)] = 0;

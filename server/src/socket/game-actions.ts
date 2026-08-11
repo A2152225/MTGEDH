@@ -15,6 +15,7 @@ import {
   isTriggerShortcutPreferenceAllowed,
 } from "../../../shared/src/index.js";
 import { formatCastSpellMessage } from "../../../shared/src/gameLogFormat.js";
+import { attachmentOracleGrantsKeyword } from "../../../shared/src/attachmentKeywordGrants.js";
 
 import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection, getOfferedCreatureTypesForSelection } from "./creature-type";
 import { getAsEntersChoiceRequirements } from "../state/modules/asEntersChoiceRequirements.js";
@@ -5530,6 +5531,10 @@ export function permanentHasKeyword(permanent: any, battlefield: any[], controll
       if (!attachmentOracle.includes('equipped creature') && !attachmentOracle.includes('enchanted creature')) {
         return false;
       }
+      if (attachmentOracleGrantsKeyword(attachmentOracle, lowerKeyword)) {
+        return true;
+      }
+      // Fallback for uncommon grant phrasing the shared parser may miss.
       return equipmentKeywordRegex.test(attachmentOracle);
     };
     

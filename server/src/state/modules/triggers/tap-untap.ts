@@ -44,7 +44,7 @@ export interface TapTrigger {
   description: string;
   effect: string;
   triggerCondition: 'becomes_tapped' | 'becomes_untapped' | 'taps_for_mana';
-  affectedType: 'any' | 'creature' | 'tribal_type' | 'self';
+  affectedType: 'any' | 'creature' | 'tribal_type' | 'self' | 'equipped_creature' | 'enchanted_creature';
   tribalType?: string;
   nontokenOnly?: boolean;
   /** "Whenever one or more … become tapped" fires once per tap event, not per permanent. */
@@ -577,6 +577,36 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
       });
     }
   }
+
+  // "Whenever equipped/enchanted creature becomes tapped" (Hawkeye's Bow, etc.)
+  const equippedTapMatch = oracleText.match(/whenever equipped creature becomes tapped,?\s*([^.]+)/i);
+  if (equippedTapMatch && !triggers.some((t) => t.affectedType === 'equipped_creature')) {
+    const effectText = timingTriggerEffect(oracleText, equippedTapMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever equipped creature becomes tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'equipped_creature',
+      mandatory: !isOptionalTapTriggerEffect(effectText),
+    });
+  }
+  const enchantedTapMatch = oracleText.match(/whenever enchanted creature becomes tapped,?\s*([^.]+)/i);
+  if (enchantedTapMatch && !triggers.some((t) => t.affectedType === 'enchanted_creature')) {
+    const effectText = timingTriggerEffect(oracleText, enchantedTapMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever enchanted creature becomes tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'enchanted_creature',
+      mandatory: !isOptionalTapTriggerEffect(effectText),
+    });
+  }
   
   // "Whenever you tap a [TYPE] for mana" pattern
   const tapForManaMatch = oracleText.match(/whenever you tap (?:a |an )?(\w+) for mana,?\s*([^.]+)/i);
@@ -674,6 +704,11 @@ export function getTapTriggers(
         case 'self':
           // Self-referential triggers only fire when this specific permanent is tapped
           shouldTrigger = permanent.id === tappedPermanent.id;
+          break;
+        case 'equipped_creature':
+        case 'enchanted_creature':
+          shouldTrigger = isCreature
+            && String((permanent as any).attachedTo || '') === String(tappedPermanent.id || '');
           break;
       }
       

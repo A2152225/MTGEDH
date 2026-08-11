@@ -84,6 +84,34 @@ describe('draw-step additional draws vs Puzzle Box', () => {
     expect(calculateAdditionalDraws(ctx, 'p1')).toBe(0);
   });
 
+  it('applies Font of Mythos as +2 additional draws for every player (not a stack trigger)', () => {
+    const fontOracle =
+      "At the beginning of each player's draw step, that player draws two additional cards.";
+    const ctx = {
+      state: {
+        battlefield: [
+          {
+            id: 'font',
+            controller: 'p1',
+            tapped: false,
+            card: {
+              name: 'Font of Mythos',
+              type_line: 'Artifact',
+              oracle_text: fontOracle,
+            },
+          },
+        ],
+        players: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }],
+      },
+    } as any;
+
+    // Coverage audit previously flagged this as not_detected; the live path is additional draws.
+    expect(detectDrawStepTriggers({ name: 'Font of Mythos', oracle_text: fontOracle }, permanent)).toHaveLength(0);
+    expect(calculateAdditionalDraws(ctx, 'p1')).toBe(2);
+    expect(calculateAdditionalDraws(ctx, 'p2')).toBe(2);
+    expect(calculateAdditionalDraws(ctx, 'p3')).toBe(2);
+  });
+
   it('parses Puzzle Box effect into hand→library bottom + draw that many', () => {
     const ir = parseOracleTextToIR(
       "that player puts the cards in their hand on the bottom of their library in any order, then draws that many cards.",

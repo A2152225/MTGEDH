@@ -549,6 +549,8 @@ export function parseTriggeredAbility(text: string): ParsedAbility | null {
  * If [condition] would [event], [replacement] instead.
  */
 const INSTEAD_PATTERN = /^If\s+([^()]+?)\s+would\s+(.+?),\s+(.+?)\s+instead\.?$/i;
+/** "If … would …, instead …" (instead before the replacement event). */
+const INSTEAD_BEFORE_EFFECT_PATTERN = /^If\s+([^()]+?)\s+would\s+(.+?),\s+instead\s+(.+?)\.?$/i;
 
 /**
  * "Would" replacement without an explicit "instead" clause.
@@ -581,6 +583,16 @@ export function parseReplacementEffect(text: string): ParsedAbility | null {
       text,
       triggerCondition: insteadMatch[1].trim(),
       effect: insteadMatch[3].trim(),
+    };
+  }
+
+  const insteadBeforeMatch = text.match(INSTEAD_BEFORE_EFFECT_PATTERN);
+  if (insteadBeforeMatch) {
+    return {
+      type: AbilityType.REPLACEMENT,
+      text,
+      triggerCondition: insteadBeforeMatch[1].trim(),
+      effect: insteadBeforeMatch[3].trim(),
     };
   }
 

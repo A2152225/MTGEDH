@@ -458,6 +458,24 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
   return costs;
 }
 
+const GRAVEYARD_ONLY_ALTERNATE_COST_IDS = new Set(['flashback', 'disturb', 'escape', 'unearth']);
+
+/** Filter alternate costs by the zone the spell is being cast from. */
+export function filterAlternateCostsForCastZone(
+  costs: AlternateCost[],
+  castFromZone?: string | null,
+): AlternateCost[] {
+  const zone = String(castFromZone || 'hand').toLowerCase();
+  if (zone === 'graveyard') {
+    const graveyardCosts = costs.filter((cost) => GRAVEYARD_ONLY_ALTERNATE_COST_IDS.has(cost.id));
+    if (graveyardCosts.length === 0) {
+      return [{ id: 'normal', label: 'Cast from Graveyard', manaCost: costs[0]?.manaCost || '', isDefault: true }];
+    }
+    return graveyardCosts;
+  }
+  return costs.filter((cost) => !GRAVEYARD_ONLY_ALTERNATE_COST_IDS.has(cost.id));
+}
+
 function applyDisplayedCostAdjustment(
   manaCost: string,
   costAdjustment?: DisplayedCostAdjustment,
@@ -654,22 +672,8 @@ export function CastSpellModal({
     } else if (sneakOptions && sneakOptions.availableCreatures.length === 0) {
       costs = costs.filter((cost) => cost.id !== 'sneak');
     }
-    
-    // If casting from graveyard, filter to only graveyard-castable costs
-    if (castFromZone === 'graveyard') {
-      costs = costs.filter(c => 
-        c.id === 'flashback' || 
-        c.id === 'disturb' || 
-        c.id === 'escape' ||
-        c.id === 'unearth'
-      );
-      // If no graveyard costs found, show nothing (shouldn't happen if we got here)
-      if (costs.length === 0) {
-        costs = [{ id: 'normal', label: 'Cast from Graveyard', manaCost: manaCost || '', isDefault: true }];
-      }
-    }
-    
-    return costs;
+
+    return filterAlternateCostsForCastZone(costs, castFromZone);
   }, [oracleText, manaCost, cardName, castFromZone, extraAlternateCosts, currentStep, sneakOptions]);
 
   // Get the currently selected cost

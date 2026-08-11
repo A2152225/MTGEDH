@@ -61,7 +61,10 @@ export function getBattlefieldTapActionDecision(
     return { kind: 'tap' };
   }
 
-  const abilities = parseActivatedAbilities(card, permanent.grantedAbilities);
+  const abilities = parseActivatedAbilities(card, permanent.grantedAbilities, {
+    permanent,
+    battlefield,
+  });
   const battlefieldList = Array.isArray(battlefield) ? [...battlefield] : [];
   const activationContext: ActivationContext = {
     ...context,

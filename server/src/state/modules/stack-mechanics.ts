@@ -30,9 +30,10 @@
  */
 
 import type { GameContext } from "../context.js";
-import { debug } from "../../utils/debug.js";
+import { debug, debugWarn } from "../../utils/debug.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
+import { processSpellCounteredTriggers } from "./spellCounteredTriggerUtils.js";
 
 export interface StackItem {
   id: string;
@@ -334,7 +335,7 @@ export function counterStackItem(
   
   // Move spell card to its replacement destination if it was a spell
   if (item.type === 'spell' && item.card) {
-    const zones = (ctx as any).zones?.[item.controller];
+    const zones = (ctx as any).zones?.[item.controller] || (ctx as any).state?.zones?.[item.controller];
     if (zones) {
       if ((item.card as any)?.ceaseOnCounter === true) {
         debug(2, `[counterSpell] Countered copied spell ${item.card?.name || 'spell'} ceased to exist`);
@@ -347,6 +348,21 @@ export function counterStackItem(
         pushCardToPlayerGraveyardWithReplacements(ctx, String(item.controller), item.card, zones.graveyard);
         zones.graveyardCount = zones.graveyard.length;
       }
+    }
+  }
+
+  if (item.type === 'spell') {
+    try {
+      processSpellCounteredTriggers(ctx, {
+        counteringControllerId: String(counteringPlayerId || ''),
+        counteredControllerId: String(item.controller || ''),
+        counteredStackItemId: String(item.id || stackItemId),
+        counteredCardName: String(item.card?.name || 'spell'),
+        counteringSourceName: 'Counter',
+        counteredWasSpell: true,
+      });
+    } catch (err) {
+      debugWarn(1, '[counterStackItem] processSpellCounteredTriggers failed:', err);
     }
   }
   

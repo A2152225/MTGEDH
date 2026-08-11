@@ -8,6 +8,7 @@ import { isExecutorCreature } from './oracleIRExecutorPermanentUtils';
 import { quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import { createTokensByName } from './tokenCreation';
+import { getProliferateActionCount } from './keywordActionRepetition';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -774,25 +775,48 @@ export function applyProliferateStep(
     };
   }
 
+  const skipReplacement = (step as any).skipProliferateReplacement === true;
+  const actionCount = getProliferateActionCount(
+    state.battlefield,
+    String(ctx.controllerId || ''),
+    { skipReplacement },
+  );
+
   if (eligiblePermanents.length === 1) {
     const targetId = String((eligiblePermanents[0] as any)?.id || '').trim();
-    return {
-      applied: true,
-      state: {
-        ...state,
-        battlefield: (state.battlefield || []).map((permanent) =>
+    let nextState = state;
+    for (let i = 0; i < actionCount; i += 1) {
+      nextState = {
+        ...nextState,
+        battlefield: (nextState.battlefield || []).map((permanent) =>
           String((permanent as any)?.id || '').trim() === targetId ? proliferatePermanent(permanent) : permanent
         ),
-      },
-      log: [`Proliferated ${targetId || 'a permanent'} (${ctx.sourceName || 'Oracle IR'})`],
+      };
+    }
+    return {
+      applied: true,
+      state: nextState,
+      log: [
+        actionCount > 1
+          ? `Proliferated ${targetId || 'a permanent'} ${actionCount} times (${ctx.sourceName || 'Oracle IR'})`
+          : `Proliferated ${targetId || 'a permanent'} (${ctx.sourceName || 'Oracle IR'})`,
+      ],
     };
   }
 
   const playerId = String(eligiblePlayers[0]?.id || '').trim() as PlayerID;
+  let nextState = state;
+  for (let i = 0; i < actionCount; i += 1) {
+    nextState = proliferatePlayerState(nextState, playerId);
+  }
   return {
     applied: true,
-    state: proliferatePlayerState(state, playerId),
-    log: [`Proliferated player ${playerId} (${ctx.sourceName || 'Oracle IR'})`],
+    state: nextState,
+    log: [
+      actionCount > 1
+        ? `Proliferated player ${playerId} ${actionCount} times (${ctx.sourceName || 'Oracle IR'})`
+        : `Proliferated player ${playerId} (${ctx.sourceName || 'Oracle IR'})`,
+    ],
   };
 }
 

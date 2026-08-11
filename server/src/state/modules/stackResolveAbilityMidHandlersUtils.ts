@@ -13,6 +13,7 @@ import { applyFightDamageBetweenCreatures } from './combat-damage-processing.js'
 import { runSBA, updateCounters } from './counters_tokens.js';
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from './triggers/damage-received.js';
 import { attachEquipmentToCreature } from './triggerEquipmentUtils.js';
+import { processMonstrousTriggers } from './triggerEmissionFamilyUtils.js';
 import { drawCards } from './zones.js';
 
 function resolveCreatureUpgradeAbility(ctx: GameContext, item: any, controller: PlayerID): void {
@@ -309,6 +310,11 @@ function resolveMonstrosityAbility(ctx: GameContext, item: any, controller: Play
   (sourcePerm as any).counters['+1/+1'] = Number((sourcePerm as any).counters['+1/+1'] || 0) + Math.max(0, countersToAdd);
   (sourcePerm as any).isMonstrous = true;
   (sourcePerm as any).monstrous = true;
+  try {
+    processMonstrousTriggers(ctx, sourcePerm);
+  } catch (err) {
+    debugWarn(1, '[resolveMonstrosityAbility] processMonstrousTriggers failed:', err);
+  }
   runSBA(ctx);
 }
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parseAlternateCosts, resolveEffectiveManaCostForCastStep } from '../src/components/CastSpellModal';
+import {
+  filterAlternateCostsForCastZone,
+  parseAlternateCosts,
+  resolveEffectiveManaCostForCastStep,
+} from '../src/components/CastSpellModal';
 
 describe('resolveEffectiveManaCostForCastStep', () => {
   it('parses warp alternate cost from oracle text', () => {
@@ -166,6 +170,17 @@ describe('resolveEffectiveManaCostForCastStep', () => {
     ]) {
       expect(ids).toContain(id);
     }
+  });
+
+  it('hides flashback when casting from hand and keeps it for graveyard casts', () => {
+    const costs = parseAlternateCosts(
+      'Draw a card.\nFlashback {2}{U}',
+      '{1}{U}',
+      'Think Twice',
+    );
+    expect(costs.some((cost) => cost.id === 'flashback')).toBe(true);
+    expect(filterAlternateCostsForCastZone(costs, 'hand').some((cost) => cost.id === 'flashback')).toBe(false);
+    expect(filterAlternateCostsForCastZone(costs, 'graveyard').map((cost) => cost.id)).toEqual(['flashback']);
   });
 
   it('offers Free Cast for commander-gated free spells with a clear description', () => {

@@ -12,6 +12,11 @@
  */
 
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
+import {
+  collectEffectiveGrantedAbilityTexts,
+  isGrantedActivatedAbilityText,
+} from '../../../shared/src/attachmentAbilityGrants';
+import { parseEquipAbilitiesFromOracle } from '../../../shared/src/equipAbilities';
 import { parseSacrificeCost, parseNumberFromText, type SacrificeType } from '../../../shared/src/textUtils';
 
 const COLOR_SYMBOL_ORDER = ['W', 'U', 'B', 'R', 'G'] as const;
@@ -645,12 +650,64 @@ function normalizeGrantedActivatedAbilityText(entry: string): string | null {
   return null;
 }
 
+function buildParsedAbilityFromGrantedLine(
+  cardId: string,
+  grantedIndex: number,
+  grantedText: string,
+): ParsedActivatedAbility | null {
+  const text = String(grantedText || '').trim();
+  if (!text || !isGrantedActivatedAbilityText(text)) return null;
+
+  const colon = text.indexOf(':');
+  if (colon < 0) return null;
+  const costPart = text.slice(0, colon).trim();
+  const effectPart = text.slice(colon + 1).trim().replace(/\.$/, '');
+  if (!costPart || !effectPart) return null;
+
+  const costComponents = parseCostComponents(costPart);
+  const manaProduced = parseManaProduction(effectPart);
+  const isManaAbility = !!manaProduced && !/\btarget\b/i.test(effectPart);
+  const requiresTarget = /\btarget\b/i.test(effectPart);
+  let targetDescription: string | undefined;
+  if (requiresTarget) {
+    const targetMatch = effectPart.match(/target\s+([^.]+)/i);
+    if (targetMatch) targetDescription = targetMatch[1].trim();
+  }
+
+  let label: string;
+  if (isManaAbility) {
+    label = `Add ${manaProduced}`;
+  } else if (requiresTarget) {
+    const shortEffect = effectPart.split('.')[0];
+    label = shortEffect.length <= 36 ? shortEffect : (targetDescription ? `Target ${targetDescription.split(' ').slice(0, 3).join(' ')}` : 'Activated ability');
+  } else {
+    const shortEffect = effectPart.split('.')[0];
+    label = shortEffect.length <= 36 ? shortEffect : `${effectPart.split(' ').slice(0, 5).join(' ')}…`;
+  }
+
+  return {
+    id: `${cardId}-granted-${grantedIndex}`,
+    label,
+    description: effectPart,
+    cost: costPart,
+    effect: effectPart,
+    ...costComponents,
+    isManaAbility,
+    isLoyaltyAbility: false,
+    isFetchAbility: false,
+    requiresTarget,
+    targetDescription,
+  };
+}
+
 function appendGrantedActivatedAbilities(
   abilities: ParsedActivatedAbility[],
   grantedAbilities: readonly string[] | undefined,
+  cardId: string,
 ): void {
   if (!Array.isArray(grantedAbilities) || grantedAbilities.length === 0) return;
 
+  let grantedIndex = 0;
   for (const entry of grantedAbilities) {
     const grantedText = normalizeGrantedActivatedAbilityText(String(entry || ''));
     if (!grantedText) continue;
@@ -666,28 +723,36 @@ function appendGrantedActivatedAbilities(
           ? `native_${singleColorSymbol.toLowerCase()}`
           : null;
 
-      if (!nativeId) continue;
+      if (nativeId) {
+        const label = normalizedProduced.includes('any color')
+          ? 'Tap for any color'
+          : `Tap for {${singleColorSymbol}}`;
+        const description = normalizedProduced.includes('any color')
+          ? 'Add one mana of any color'
+          : `Add ${producedText}`;
 
-      const label = normalizedProduced.includes('any color')
-        ? 'Tap for any color'
-        : `Tap for {${singleColorSymbol}}`;
-      const description = normalizedProduced.includes('any color')
-        ? 'Add one mana of any color'
-        : `Add ${producedText}`;
+        pushUniqueParsedAbility(abilities, {
+          id: nativeId,
+          label,
+          description,
+          cost: '{T}',
+          effect: `Add ${producedText.replace(/\.$/, '')}`,
+          requiresTap: true,
+          requiresUntap: false,
+          requiresSacrifice: false,
+          isManaAbility: true,
+          isLoyaltyAbility: false,
+          isFetchAbility: false,
+        });
+        grantedIndex += 1;
+        continue;
+      }
+    }
 
-      pushUniqueParsedAbility(abilities, {
-        id: nativeId,
-        label,
-        description,
-        cost: '{T}',
-        effect: `Add ${producedText.replace(/\.$/, '')}`,
-        requiresTap: true,
-        requiresUntap: false,
-        requiresSacrifice: false,
-        isManaAbility: true,
-        isLoyaltyAbility: false,
-        isFetchAbility: false,
-      });
+    const parsed = buildParsedAbilityFromGrantedLine(cardId, grantedIndex, grantedText);
+    grantedIndex += 1;
+    if (parsed) {
+      pushUniqueParsedAbility(abilities, parsed);
     }
   }
 }
@@ -695,7 +760,11 @@ function appendGrantedActivatedAbilities(
 /**
  * Parse activated abilities from a card's oracle text
  */
-export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: readonly string[]): ParsedActivatedAbility[] {
+export function parseActivatedAbilities(
+  card: KnownCardRef,
+  grantedAbilities?: readonly string[],
+  options?: { battlefield?: readonly BattlefieldPermanent[] | null; permanent?: BattlefieldPermanent | null },
+): ParsedActivatedAbility[] {
   const abilities: ParsedActivatedAbility[] = [];
   const rawOracleText = card.oracle_text || '';
   // Shock lands print the tap-mana line in parentheses: "({T}: Add {G} or {U}.)".
@@ -1147,50 +1216,33 @@ export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: r
     }
   }
 
-  appendGrantedActivatedAbilities(abilities, grantedAbilities);
+  const effectiveGranted = options?.permanent
+    ? collectEffectiveGrantedAbilityTexts(options.permanent, options.battlefield as any[] | undefined)
+    : (Array.isArray(grantedAbilities) ? [...grantedAbilities] : []);
+  appendGrantedActivatedAbilities(abilities, effectiveGranted, String(card.id || 'card'));
   
   // ======== EQUIP ABILITIES ========
-  // Equipment can have multiple equip abilities:
-  // - "Equip {7}" - standard equip cost
-  // - "Equip legendary creature {3}" - conditional equip with cheaper cost
-  // - "Equip Knight {1}" - tribal equip
+  // Equipment can have multiple equip abilities (shared parser):
+  // - "Equip {7}", "Equip legendary creature {3}", "Equip Wizard {1}"
+  // - "Equip Shaman, Warlock, or Wizard {2}", "Equip commander {2}", etc.
   if (typeLine.includes('equipment')) {
-    // Pattern to match all equip abilities, including conditional ones
-    // Examples: "Equip {7}", "Equip legendary creature {3}", "Equip Knight {1}", "Equip Soldier {2}"
-    const equipRegex = /equip(?:\s+([a-z]+(?:\s+[a-z]+)?))?(?:\s+creature)?\s*(\{[^}]+\}(?:\{[^}]+\})*|\d+)/gi;
-    let equipMatch;
-    
-    while ((equipMatch = equipRegex.exec(oracleText)) !== null) {
-      const conditionalType = equipMatch[1]?.trim(); // "legendary", "Knight", "Soldier", etc.
-      const costRaw = equipMatch[2];
-      const equipCost = costRaw.startsWith('{') ? costRaw : `{${costRaw}}`;
-      
-      // Build label based on whether it's conditional
-      let label = `Equip ${equipCost}`;
-      let targetDescription = 'creature you control';
-      
-      if (conditionalType) {
-        // Conditional equip - cheaper cost but restricted target
-        label = `Equip ${conditionalType} ${equipCost}`;
-        targetDescription = `${conditionalType} creature you control`;
-      }
-      
+    for (const equip of parseEquipAbilitiesFromOracle(oracleText)) {
       abilities.push({
         id: `${card.id}-equip-${abilityIndex++}`,
-        label,
-        description: `Attach to target ${targetDescription}`,
-        cost: equipCost,
-        effect: `Attach to target ${targetDescription}`,
+        label: equip.label,
+        description: `Attach to target ${equip.targetDescription}`,
+        cost: equip.cost,
+        effect: `Attach to target ${equip.targetDescription}`,
         requiresTap: false,
         requiresUntap: false,
         requiresSacrifice: false,
-        manaCost: equipCost,
+        manaCost: equip.cost,
         isManaAbility: false,
         isLoyaltyAbility: false,
         isFetchAbility: false,
         timingRestriction: 'sorcery',
         requiresTarget: true,
-        targetDescription,
+        targetDescription: equip.targetDescription,
       });
     }
   }

@@ -866,8 +866,10 @@ export function TableLayout(props: {
       const perm = allBattlefieldPerms.find((entry) => entry.id === permanentId);
       const card = perm?.card as KnownCardRef | undefined;
       if (card) {
-        resolvedAbility = parseActivatedAbilities(card, (perm as any)?.grantedAbilities)
-          .find((entry) => entry.id === normalizedAbilityId);
+        resolvedAbility = parseActivatedAbilities(card, (perm as any)?.grantedAbilities, {
+          permanent: perm,
+          battlefield: allBattlefieldPerms,
+        }).find((entry) => entry.id === normalizedAbilityId);
       }
     }
     if (xValue === undefined && resolvedAbility?.hasXCost) {

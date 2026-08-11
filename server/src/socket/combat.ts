@@ -466,7 +466,7 @@ export function resolveAttackTriggerManaPaymentChoice(
       const newFace = cardFaces[newFaceIndex];
 
       if (newFace) {
-        transformPermanentToFace(permanent, newFaceIndex);
+        transformPermanentToFace(permanent, newFaceIndex, ((game as any).ctx || game) as any);
         if ('mana_cost' in newFace) {
           permanent.card.mana_cost = newFace.mana_cost;
         }

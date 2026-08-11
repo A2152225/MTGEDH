@@ -11,6 +11,7 @@ import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
 
 const OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
+const OPTIONAL_COPY_ABILITY_LIFE_PAYMENT_PATTERN = /^you may pay (\d+) life again\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 const DIRECT_COPY_ABILITY_PATTERN = /^copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 
 export function cloneStackItemForAbilityCopy(
@@ -205,6 +206,9 @@ export function tryDeferCopyTriggeredAbilityPrompts(
   const optionalCopyAbilityMatch = triggerType === 'ability_activated'
     ? trimmedDescription.match(OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN)
     : null;
+  const optionalCopyAbilityLifeMatch = triggerType === 'ability_activated'
+    ? trimmedDescription.match(OPTIONAL_COPY_ABILITY_LIFE_PAYMENT_PATTERN)
+    : null;
   const isDirectAbilityCopy = triggerType === 'ability_activated' && DIRECT_COPY_ABILITY_PATTERN.test(trimmedDescription);
   const allowsRetargetingCopy = /choose new targets for the copy\./i.test(trimmedDescription);
 
@@ -265,6 +269,83 @@ export function tryDeferCopyTriggeredAbilityPrompts(
       },
     });
     debug(2, `[resolveTopOfStack] Deferred optional payment copy trigger for ${sourceName} (${triggerController})`);
+    return true;
+  }
+
+  if (optionalCopyAbilityLifeMatch && !(ctx as any).isReplaying) {
+    const lifeAmount = Math.max(0, Math.floor(Number(optionalCopyAbilityLifeMatch[1]) || 0));
+    if (lifeAmount <= 0) return false;
+    const gameId = (ctx as any).gameId || 'unknown';
+    const persistCopyTriggeredAbilityResolve = (paid: boolean, copiedItemId?: string) => {
+      appendCopyTriggeredAbilityResolveEvent(ctx, {
+        sourceId: String((item as any).source || sourceId || '').trim() || undefined,
+        sourceName,
+        controllerId: String(triggerController || '').trim(),
+        paid,
+        triggerStackItemId: String((item as any).id || '').trim() || undefined,
+        triggeringStackItemId: String((item as any).triggeringStackItemId || '').trim(),
+        copiedStackItemId: String(copiedItemId || '').trim() || undefined,
+      });
+    };
+
+    queueOptionalPaymentStep(gameId, {
+      playerId: triggerController as PlayerID,
+      sourceName,
+      sourceId: String((item as any).source || sourceId || '').trim() || undefined,
+      description: `${sourceName}: ${trimmedDescription}`,
+      mandatory: false,
+      payChoiceId: 'pay',
+      payLabel: `Pay ${lifeAmount} life`,
+      payDescription: 'Copy that ability.',
+      declineChoiceId: 'decline',
+      declineLabel: 'Decline',
+      declineDescription: 'Do not copy that ability.',
+      validationKind: 'life',
+      lifeAmount,
+      stepData: {
+        triggeringStackItemId: String((item as any).triggeringStackItemId || '').trim(),
+        copyTriggeredAbilityChoice: true,
+        cardName: sourceName,
+        payLifeAmount: lifeAmount,
+      },
+      onPay: async () => {
+        const lifeState = (state as any).life || ((state as any).life = {});
+        const starting = Number(lifeState[triggerController] ?? 40);
+        const nextLife = starting - lifeAmount;
+        lifeState[triggerController] = nextLife;
+        const player = (Array.isArray(state.players) ? state.players : []).find(
+          (entry: any) => String(entry?.id || '') === String(triggerController),
+        );
+        if (player) (player as any).life = nextLife;
+        (state as any).lifeLostThisTurn = (state as any).lifeLostThisTurn || {};
+        (state as any).lifeLostThisTurn[triggerController] =
+          Number((state as any).lifeLostThisTurn[triggerController] || 0) + lifeAmount;
+
+        const copiedItem = cloneStackItemForAbilityCopy(
+          ctx,
+          sourceName,
+          triggerController as PlayerID,
+          (item as any).triggeringStackItemId,
+        );
+        if (copiedItem) {
+          persistCopyTriggeredAbilityResolve(true, String((copiedItem as any).id || '').trim());
+        }
+        if (copiedItem && allowsRetargetingCopy) {
+          queueAbilityCopyRetargetPrompt(ctx, sourceName, triggerController as PlayerID, copiedItem);
+        }
+      },
+      onDecline: async () => {
+        persistCopyTriggeredAbilityResolve(false);
+        if (typeof (ctx as any).bumpSeq === 'function') {
+          (ctx as any).bumpSeq();
+        }
+        const io = (ctx as any).io;
+        if (io) {
+          broadcastGame(io as any, ctx as any, gameId);
+        }
+      },
+    });
+    debug(2, `[resolveTopOfStack] Deferred optional life-payment copy trigger for ${sourceName} (${triggerController})`);
     return true;
   }
 

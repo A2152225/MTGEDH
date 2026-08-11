@@ -282,6 +282,31 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
     }
   }
 
+  // "Whenever a Forest enters" / "Whenever a Mountain enters" (any controller; Baru, etc.)
+  const anyTypedLandEnterMatch = oracleText.match(
+    /whenever a ([\w'-]+) enters(?: the battlefield)?(?!,?\s*if\s+it\s+was\s+kicked),?\s*([^.]+)/i,
+  );
+  if (
+    anyTypedLandEnterMatch
+    && !/you control enters/i.test(String(anyTypedLandEnterMatch[0] || ''))
+    && !triggers.some((t) => (t as any).triggerType === 'any_typed_land_enter')
+  ) {
+    const landType = String(anyTypedLandEnterMatch[1] || '').trim().toLowerCase();
+    const effectText = timingTriggerEffect(oracleText, anyTypedLandEnterMatch, 2);
+    if (effectText && landType !== 'land' && isKnownLandSubtype(landType)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+        requiresChoice: effectText.toLowerCase().includes('you may'),
+        triggerType: 'any_typed_land_enter' as any,
+        requiredLandType: landType,
+      } as LandfallTrigger);
+    }
+  }
+
   const enchantedPlayerLandEnterMatch = oracleText.match(
     /whenever a land enchanted player controls enters(?: the battlefield)?,?\s*([^.]+)/i,
   );
@@ -318,10 +343,11 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
   }
 
   const opponentLandEnterMatch = oracleText.match(
-    /whenever a land an opponent controls enters(?: the battlefield)?,?\s*([^.]+)/i,
+    /whenever a (?:(nonbasic|basic|snow)\s+)?land an opponent controls enters(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (opponentLandEnterMatch && !triggers.some((t) => (t as any).triggerType === 'opponent_land_enter')) {
-    const effectText = timingTriggerEffect(oracleText, opponentLandEnterMatch);
+    const effectText = timingTriggerEffect(oracleText, opponentLandEnterMatch, 2);
+    const landQualifier = String(opponentLandEnterMatch[1] || '').trim().toLowerCase();
     triggers.push({
       permanentId,
       cardName,
@@ -330,6 +356,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
       mandatory: !effectText.toLowerCase().includes('you may'),
       requiresChoice: effectText.toLowerCase().includes('you may'),
       triggerType: 'opponent_land_enter' as any,
+      ...(landQualifier ? { requiredLandType: landQualifier } : null),
     } as LandfallTrigger);
   }
 
@@ -406,6 +433,23 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
  * @param landController The player who played/controls the land that entered
  * @param enteringLand Optional entering land permanent — used to filter typed subtype landfall
  */
+function enteringLandMatchesOpponentQualifier(enteringLand: any, requiredLandType?: string): boolean {
+  const required = String(requiredLandType || '').trim().toLowerCase();
+  if (!required || required === 'land') return true;
+  if (!enteringLand) return true;
+  const typeLine = String(enteringLand?.card?.type_line || enteringLand?.type_line || '').toLowerCase();
+  if (required === 'nonbasic') {
+    return typeLine.includes('land') && !/\bbasic\b/.test(typeLine);
+  }
+  if (required === 'basic') {
+    return /\bbasic\b/.test(typeLine);
+  }
+  if (required === 'snow') {
+    return /\bsnow\b/.test(typeLine);
+  }
+  return enteringLandMatchesRequiredType(enteringLand, required);
+}
+
 export function getLandfallTriggers(
   ctx: GameContext,
   landController: string,
@@ -416,19 +460,36 @@ export function getLandfallTriggers(
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
-    
-    // Landfall triggers only fire for the controller when THEIR land enters
-    // (The effect may target opponents, but the trigger is on your own lands)
-    if (permanent.controller !== landController) continue;
-    
+
     const permTriggers = detectLandfallTriggers(permanent.card, permanent);
     for (const trigger of permTriggers) {
-      if (
-        (trigger as any).triggerType === 'typed_land_enter'
-        && !enteringLandMatchesRequiredType(enteringLand, (trigger as any).requiredLandType)
-      ) {
-        continue;
+      const triggerType = String((trigger as any).triggerType || '');
+      const isOpponentLandTrigger =
+        triggerType === 'opponent_land_enter'
+        || triggerType === 'exiled_name_opponent_land_enter';
+      const isAnyControllerTyped = triggerType === 'any_typed_land_enter';
+
+      if (isOpponentLandTrigger) {
+        // Watcher must be an opponent of the player whose land entered.
+        if (String(permanent.controller || '') === String(landController || '')) continue;
+        if (!enteringLandMatchesOpponentQualifier(enteringLand, (trigger as any).requiredLandType)) {
+          continue;
+        }
+      } else if (isAnyControllerTyped) {
+        if (!enteringLandMatchesRequiredType(enteringLand, (trigger as any).requiredLandType)) {
+          continue;
+        }
+      } else {
+        // Normal landfall: only when the land's controller owns the watcher.
+        if (permanent.controller !== landController) continue;
+        if (
+          triggerType === 'typed_land_enter'
+          && !enteringLandMatchesRequiredType(enteringLand, (trigger as any).requiredLandType)
+        ) {
+          continue;
+        }
       }
+
       triggers.push({
         ...trigger,
         sourceId: trigger.permanentId,

@@ -54,9 +54,16 @@ import { detectTapTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectUntapTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectBeginningOfCombatTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectEndOfCombatTriggers } from '../src/state/modules/triggered-abilities.js';
-import { detectLandfallTriggers } from '../src/state/modules/triggers/landfall.js';
+import { detectLandfallTriggers, isKnownLandSubtype } from '../src/state/modules/triggers/landfall.js';
 import { detectCardDrawTriggers } from '../src/state/modules/triggers/card-draw.js';
-import { detectEndStepTriggers, detectDrawStepTriggers, detectPostcombatMainTriggers, detectPrecombatMainTriggers } from '../src/state/modules/triggers/turn-phases.js';
+import {
+  detectEndStepTriggers,
+  detectDrawStepTriggers,
+  detectPostcombatMainTriggers,
+  detectPrecombatMainTriggers,
+  isAdditionalDrawOnlyDrawStepOracle,
+  isAdditionalDrawOnlyEffect,
+} from '../src/state/modules/triggers/turn-phases.js';
 import { detectUpkeepTriggers } from '../src/state/modules/upkeep-triggers.js';
 import { detectLifeLossTriggers } from '../src/state/modules/triggers/life-loss.js';
 import { detectGainedLifeTriggersFromOracle } from '../src/state/modules/triggers/lifegain.js';
@@ -252,6 +259,14 @@ function normalizeText(text: string): string {
     .trim();
 }
 
+function isKnownLandSubtypePhrase(text: string): boolean {
+  const tokens = String(text || '')
+    .toLowerCase()
+    .split(/[^a-z\'-]+/)
+    .filter(Boolean);
+  return tokens.some((token) => isKnownLandSubtype(token));
+}
+
 export function isEligible(card: OracleCard): boolean {
   const oracle = getCombinedOracleText(card).trim();
   if (!oracle) return false;
@@ -314,6 +329,8 @@ function getDetectorResultsForEvent(
       break;
     case TriggerEvent.ENTERS_BATTLEFIELD:
       detectorResults.push(...detectETBTriggers(cardObj, probePermanent));
+      // Land / land-subtype ETBs are handled by landfall detectors (Gate/Swamp/Desert/…).
+      detectorResults.push(...detectLandfallTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.LEAVES_BATTLEFIELD:
       detectorResults.push(...detectLTBTriggers(cardObj, probePermanent));
@@ -355,6 +372,10 @@ function getDetectorResultsForEvent(
       break;
     case TriggerEvent.BEGINNING_OF_DRAW_STEP:
       detectorResults.push(...detectDrawStepTriggers(cardObj, probePermanent));
+      // Font of Mythos-style additional draws are covered via calculateAdditionalDraws.
+      if (detectorResults.length === 0 && isAdditionalDrawOnlyDrawStepOracle(cardObj.oracle_text)) {
+        detectorResults.push({ coveredBy: 'calculateAdditionalDraws' });
+      }
       break;
     case TriggerEvent.BEGINNING_OF_END_STEP:
     case TriggerEvent.END_OF_TURN:
@@ -983,6 +1004,8 @@ export function serverDetectsTrigger(card: OracleCard, trigger: TriggeredAbility
       break;
     case TriggerEvent.ENTERS_BATTLEFIELD:
       detectorResults.push(...detectETBTriggers(cardObj, probePermanent));
+      // Land / land-subtype ETBs are handled by landfall detectors (Gate/Swamp/Desert/…).
+      detectorResults.push(...detectLandfallTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.LEAVES_BATTLEFIELD:
       detectorResults.push(...detectLTBTriggers(cardObj, probePermanent));
@@ -1025,6 +1048,17 @@ export function serverDetectsTrigger(card: OracleCard, trigger: TriggeredAbility
       break;
     case TriggerEvent.BEGINNING_OF_DRAW_STEP:
       detectorResults.push(...detectDrawStepTriggers(cardObj, probePermanent));
+      // Font of Mythos / Howling Mine / Kami: intentionally not stacked; covered by
+      // calculateAdditionalDraws as part of the turn-based draw action.
+      if (
+        detectorResults.length === 0
+        && (
+          isAdditionalDrawOnlyEffect(String(trigger.effect || ''))
+          || isAdditionalDrawOnlyDrawStepOracle(getCombinedOracleText(card))
+        )
+      ) {
+        return true;
+      }
       break;
     case TriggerEvent.BEGINNING_OF_END_STEP:
     case TriggerEvent.END_OF_TURN:
@@ -1362,7 +1396,11 @@ export function serverDetectsTrigger(card: OracleCard, trigger: TriggeredAbility
     return true;
   }
 
-  if (event === TriggerEvent.LANDFALL || (/\benters\b/.test(conditionText) && /\bland\b/.test(conditionText))) {
+  if (
+    event === TriggerEvent.LANDFALL
+    || event === TriggerEvent.ENTERS_BATTLEFIELD
+    || (/\benters\b/.test(conditionText) && (/\bland\b/.test(conditionText) || isKnownLandSubtypePhrase(conditionText)))
+  ) {
     if (detectLandfallTriggers(cardObj, probePermanent).length > 0) return true;
   }
 

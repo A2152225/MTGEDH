@@ -119,6 +119,6 @@ export function bridgeGameStateOracleEffectsAfterOracleIR(
   });
 
   if (permanent) {
-    transformPermanentToFace(permanent, 1);
+    transformPermanentToFace(permanent, 1, ctx);
   }
 }

@@ -1,7 +1,14 @@
 import type { GameContext } from '../../context.js';
+import { appendEvent } from '../../../db/index.js';
+import { uid } from '../../utils.js';
+import { debugWarn } from '../../../utils/debug.js';
 import { timingTriggerEffect } from './timing-effect-extraction.js';
-
 import { isInterveningIfSatisfied } from './intervening-if.js';
+import { orderTriggersByAPNAP } from './ordering.js';
+import {
+  hasUnsupportedTargetRequirement,
+  inferGenericTriggeredAbilityTargetMetadata,
+} from './target-metadata.js';
 
 export interface DiscardTrigger {
   permanentId: string;
@@ -154,4 +161,146 @@ export function getDiscardTriggers(
   }
 
   return triggers;
+}
+
+function matchesDiscardTriggerFilter(card: any, filter: string): boolean {
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  const isLand = typeLine.includes('land');
+  const isCreature = typeLine.includes('creature');
+  const isArtifact = typeLine.includes('artifact');
+  const isPermanent = ['artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker']
+    .some((type) => typeLine.includes(type));
+  switch (filter) {
+    case 'land':
+      return isLand;
+    case 'nonland':
+      return !isLand;
+    case 'creature':
+      return isCreature;
+    case 'noncreature_nonland':
+      return !isCreature && !isLand;
+    case 'artifact':
+      return isArtifact;
+    case 'permanent':
+      return isPermanent;
+    case 'any':
+    default:
+      return true;
+  }
+}
+
+/**
+ * Queue discard-triggered abilities onto the stack (Waste Not, Bone Miser, etc.).
+ * Shared by socket resolution and Oracle IR post-apply emission.
+ */
+export function queueDiscardTriggeredAbilities(
+  ctx: GameContext,
+  discardingPlayerId: string,
+  discardedCards: any[],
+): any[] {
+  if ((ctx as any)?.isReplaying) return [];
+  if (!discardingPlayerId) return [];
+
+  const cardsToTrigger = Array.isArray(discardedCards) ? discardedCards.filter((card: any) => card) : [];
+  if (cardsToTrigger.length === 0) return [];
+
+  const triggers = orderTriggersByAPNAP(ctx, getDiscardTriggers(ctx, String(discardingPlayerId)));
+  if (triggers.length === 0) return [];
+
+  const stateAny = ctx.state as any;
+  stateAny.stack = Array.isArray(stateAny.stack) ? stateAny.stack : [];
+  const gameId = String((ctx as any).gameId || '').trim();
+  const queued: any[] = [];
+
+  const pushDiscardTrigger = (trigger: any, matchingCards: any[]) => {
+    if (matchingCards.length === 0) return;
+    if (/\bcast it from your graveyard\b/i.test(String(trigger.effect || ''))) return;
+
+    const effect = String(trigger.effect || '').trim();
+    const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(effect);
+    if (!effect || hasUnsupportedTargetRequirement(targetMetadata)) return;
+
+    const primaryCard = matchingCards[0];
+    const primaryCardId = String(primaryCard?.id || '').trim();
+    const primaryCardName = String(primaryCard?.name || 'that card').trim() || 'that card';
+    const triggerId = uid('trigger');
+    const sourcePermanent = Array.isArray(stateAny.battlefield)
+      ? stateAny.battlefield.find((permanent: any) => String(permanent?.id || '') === String(trigger.permanentId || ''))
+      : undefined;
+    const sourcePermanentSnapshot = sourcePermanent
+      ? {
+          ...sourcePermanent,
+          ...(sourcePermanent.card ? { card: { ...sourcePermanent.card } } : null),
+        }
+      : undefined;
+    const stackItem = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller: String(trigger.controllerId),
+      source: String(trigger.permanentId || triggerId),
+      permanentId: String(trigger.permanentId || triggerId),
+      sourceName: trigger.cardName,
+      description: effect,
+      effect,
+      ...targetMetadata,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+      triggerType: trigger.triggerType,
+      triggeringPlayer: String(discardingPlayerId),
+      targetPlayer: String(discardingPlayerId),
+      mandatory: trigger.mandatory !== false,
+      effectData: {
+        discardingPlayerId: String(discardingPlayerId),
+        discardedCardsCount: matchingCards.length,
+        discardedCardIds: matchingCards.map((card: any) => String(card?.id || '')).filter(Boolean),
+        ...(primaryCardId ? { discardedCardId: primaryCardId } : null),
+        ...(primaryCardName ? { discardedCardName: primaryCardName } : null),
+      },
+      ...(primaryCard && typeof primaryCard === 'object' ? { discardedCard: { ...primaryCard } } : null),
+    } as any;
+
+    stateAny.stack.push(stackItem);
+    queued.push(stackItem);
+
+    if (gameId && gameId !== 'unknown') {
+      try {
+        appendEvent(gameId, Number(stateAny.seq ?? (ctx as any).seq?.value ?? 0), 'pushTriggeredAbility', {
+          triggerId,
+          sourceId: stackItem.source,
+          permanentId: stackItem.permanentId,
+          sourceName: stackItem.sourceName,
+          controllerId: stackItem.controller,
+          description: effect,
+          triggerType: trigger.triggerType,
+          effect,
+          ...targetMetadata,
+          mandatory: trigger.mandatory !== false,
+          triggeringPlayer: String(discardingPlayerId),
+          targetPlayer: String(discardingPlayerId),
+          effectData: stackItem.effectData,
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+        });
+      } catch (err) {
+        debugWarn(1, '[discard] appendEvent(pushTriggeredAbility) failed:', err);
+      }
+    }
+  };
+
+  for (const trigger of triggers) {
+    const matchingCards = cardsToTrigger.filter((card: any) =>
+      matchesDiscardTriggerFilter(card, String(trigger.cardFilter || 'any')),
+    );
+    if (matchingCards.length === 0) continue;
+
+    if (trigger.frequency === 'per_event') {
+      pushDiscardTrigger(trigger, matchingCards);
+      continue;
+    }
+    for (const matchingCard of matchingCards) {
+      pushDiscardTrigger(trigger, [matchingCard]);
+    }
+  }
+
+  return queued;
 }

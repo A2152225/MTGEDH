@@ -734,13 +734,29 @@ export function getEndStepTriggers(
  * calculateAdditionalDraws in game-state-effects.ts (extra cards drawn as the turn-based
  * draw action). Real triggers such as Teferi's Puzzle Box still go on the stack.
  */
-function isAdditionalDrawOnlyEffect(effect: string): boolean {
+/**
+ * True when a draw-step trigger's effect is only "draw N additional card(s)".
+ * Those are applied via calculateAdditionalDraws (turn-based draw), not the stack.
+ */
+export function isAdditionalDrawOnlyEffect(effect: string): boolean {
   const text = String(effect || '').trim();
   if (!text) return false;
   // Entire remaining effect is only "… draws/draw N additional card(s)" (optional intervening-if).
   return /^(?:if\b.+?,\s*)?(?:that player\s+)?draws?\s+(?:(?:an?|\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?additional\s+cards?\.?$/i.test(
     text,
   );
+}
+
+/** True when oracle text is a draw-step additional-draw effect (Font of Mythos, Howling Mine, …). */
+export function isAdditionalDrawOnlyDrawStepOracle(oracleText: string): boolean {
+  const text = String(oracleText || '');
+  if (!/at the beginning of (?:your|each(?: player's)?|each of your) draw steps?/i.test(text)) {
+    return false;
+  }
+  const match = text.match(
+    /at the beginning of (?:your|each(?: player's)?|each of your) draw steps?,?\s*([^.]+)/i,
+  );
+  return Boolean(match && isAdditionalDrawOnlyEffect(String(match[1] || '')));
 }
 
 export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigger[] {

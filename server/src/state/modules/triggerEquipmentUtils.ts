@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
 import { debug, debugWarn } from '../../utils/debug.js';
+import { processEquippedTriggers } from './triggerEmissionFamilyUtils.js';
 
 export function attachEquipmentToCreature(
   ctx: GameContext,
@@ -61,6 +62,12 @@ export function attachEquipmentToCreature(
   }
 
   targetCreature.isEquipped = true;
+
+  try {
+    processEquippedTriggers(ctx, equipment, targetCreature);
+  } catch (err) {
+    debugWarn(1, '[resolveTopOfStack] processEquippedTriggers failed:', err);
+  }
 
   try {
     const gameId = String((ctx as any).gameId || '').trim();

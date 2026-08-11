@@ -166,6 +166,8 @@ import {
   pruneRedundantSpellCantBeCounteredAbilities,
   pruneRedundantProliferateReminderUnknownAbilities,
   expandRepeatedProliferateUnknownAbilities,
+  clearKeywordActionRepetitionReplacementSteps,
+  collapseFlipCoinLifeStakesAbilities,
   pruneRedundantPhasingReminderUnknownAbilities,
   pruneRedundantClashReminderUnknownAbilities,
   expandFutureSpellEffectUnknownAbilities,
@@ -1800,6 +1802,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantFaceDownReminderUnknownAbilities(abilities);
   abilities = expandRepeatedProliferateUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
+  abilities = clearKeywordActionRepetitionReplacementSteps(abilities);
   abilities = expandStandaloneStaticKeywordAbilities(abilities);
   abilities = expandActivatedAbilityCostReductionStaticAbilities(abilities);
   abilities = pruneExternallyHandledStaticUnknownAbilities(abilities);
@@ -1814,6 +1817,9 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = repairQuotedStaticGrantAbilities(abilities);
   abilities = expandChaosZoneTemplateAbilities(abilities, normalizedOracleText);
   abilities = lowerCurrentResidualUnknownAbilities(abilities);
+  abilities = clearKeywordActionRepetitionReplacementSteps(abilities);
+  abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
+  abilities = collapseFlipCoinLifeStakesAbilities(abilities);
   abilities = pruneThassaOracleWinGrantAbilities(abilities);
   abilities = pruneCurrentBatchReminderUnknownAbilities(abilities);
   abilities = pruneBatch382MisparseExecutableSteps(abilities);

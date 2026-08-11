@@ -1314,6 +1314,22 @@ export function applyOracleIRStepsToGameStateImpl(
         appliedSteps.push(step);
         break;
       }
+      case 'flip_coin_life_stakes': {
+        // Interactive loop is owned by the server (optional flip-again prompts).
+        recordSkippedStep(
+          step,
+          `Skipped flip coin life stakes (requires player choice): ${step.raw}`,
+          'player_choice_required',
+          {
+            classification: 'player_choice',
+            metadata: {
+              initialStake: Number((step as any).initialStake || 1) || 1,
+              doubleEachFlip: (step as any).doubleEachFlip !== false,
+            },
+          },
+        );
+        break;
+      }
       case 'roll_die': {
         const players = step.who.kind === 'you' && controllerId ? [controllerId] : [];
         if (players.length !== 1) {

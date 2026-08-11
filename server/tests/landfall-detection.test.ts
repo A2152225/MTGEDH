@@ -104,4 +104,66 @@ describe('landfall detection', () => {
     expect(detectLandfallTriggers(card, permanent)).toEqual([]);
     expect(getETBTriggersForPermanent(card, permanent).some((t) => t.triggerType === 'creature_etb')).toBe(true);
   });
+
+  it('detects any-controller typed land enters (Baru)', () => {
+    const card = {
+      name: 'Baru, Fist of Krosa',
+      oracle_text:
+        'Whenever a Forest enters, green creatures you control get +1/+1 and gain trample until end of turn.',
+    };
+    const permanent = { id: 'baru', controller: 'p1', card };
+    expect(detectLandfallTriggers(card, permanent)).toEqual([
+      expect.objectContaining({
+        triggerType: 'any_typed_land_enter',
+        requiredLandType: 'forest',
+      }),
+    ]);
+
+    const forestOpp = {
+      id: 'forest_opp',
+      controller: 'p2',
+      card: { name: 'Forest', type_line: 'Basic Land — Forest' },
+    };
+    expect(
+      getLandfallTriggers({ state: { battlefield: [permanent, forestOpp] } } as any, 'p2', forestOpp),
+    ).toEqual([
+      expect.objectContaining({ cardName: 'Baru, Fist of Krosa', triggerType: 'any_typed_land_enter' }),
+    ]);
+  });
+
+  it('fires opponent nonbasic land enters for Spectrum Sentinel watchers', () => {
+    const sentinel = {
+      id: 'sentinel',
+      controller: 'p1',
+      card: {
+        name: 'Spectrum Sentinel',
+        oracle_text: 'Whenever a nonbasic land an opponent controls enters, you gain 1 life.',
+      },
+    };
+    const nonbasic = {
+      id: 'shock',
+      controller: 'p2',
+      card: { name: 'Steam Vents', type_line: 'Land — Island Mountain' },
+    };
+    const basic = {
+      id: 'island',
+      controller: 'p2',
+      card: { name: 'Island', type_line: 'Basic Land — Island' },
+    };
+
+    expect(detectLandfallTriggers(sentinel.card, sentinel)).toEqual([
+      expect.objectContaining({
+        triggerType: 'opponent_land_enter',
+        requiredLandType: 'nonbasic',
+      }),
+    ]);
+    expect(
+      getLandfallTriggers({ state: { battlefield: [sentinel, nonbasic] } } as any, 'p2', nonbasic),
+    ).toEqual([
+      expect.objectContaining({ cardName: 'Spectrum Sentinel' }),
+    ]);
+    expect(
+      getLandfallTriggers({ state: { battlefield: [sentinel, basic] } } as any, 'p2', basic),
+    ).toEqual([]);
+  });
 });

@@ -36,18 +36,24 @@ export interface TriggerCopyInfo {
 export function detectTriggerCopying(oracleText: string): TriggerCopyInfo {
   const text = oracleText.toLowerCase();
   
-  // Pattern: "triggers an additional time" (Panharmonicon, Yarok, Teysa, Isshin)
+  // Pattern: "triggers an additional time" (Panharmonicon, Yarok, Teysa, Isshin, Echoes)
   if (text.includes('triggers an additional time') || text.includes('trigger an additional time')) {
     const etbOnly = text.includes('entering the battlefield') || text.includes('enters the battlefield');
     const deathOnly = text.includes('dying') || text.includes('creature dying');
     const attackOnly = text.includes('attacking') || text.includes('creature attacking');
+    const colorlessOnly =
+      /colorless (?:spell|permanent)/i.test(text)
+      || /triggered ability of a colorless/i.test(text);
     
     // Check for creature type filter (Harmonic Prodigy - Shamans/Wizards)
     // Handle multi-word types by matching until "you control"
+    // Skip colorless Echoes phrasing so we don't treat "colorless spell" as a creature type.
     let creatureTypeFilter: string | undefined;
-    const typeMatch = text.match(/(?:of a|ability of a) ([\w\s]+?) (?:or ([\w\s]+?) )?you control/);
-    if (typeMatch) {
-      creatureTypeFilter = typeMatch[2] ? `${typeMatch[1].trim()} or ${typeMatch[2].trim()}` : typeMatch[1].trim();
+    if (!colorlessOnly) {
+      const typeMatch = text.match(/(?:of a|ability of a) ([\w\s]+?) (?:or ([\w\s]+?) )?you control/);
+      if (typeMatch) {
+        creatureTypeFilter = typeMatch[2] ? `${typeMatch[1].trim()} or ${typeMatch[2].trim()}` : typeMatch[1].trim();
+      }
     }
     
     return {
@@ -58,6 +64,7 @@ export function detectTriggerCopying(oracleText: string): TriggerCopyInfo {
         etbOnly,
         deathOnly,
         attackOnly,
+        colorlessOnly: colorlessOnly || undefined,
         creatureTypeFilter,
       },
     };

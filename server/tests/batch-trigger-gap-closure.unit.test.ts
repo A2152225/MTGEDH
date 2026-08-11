@@ -384,6 +384,11 @@ const GAP_CASES: GapCase[] = [
     detect: () => detectTapTriggers({ name: 'Lust for War', oracle_text: 'Enchant creature\nWhenever enchanted creature becomes tapped, this Aura deals 3 damage to that creature\'s controller.' }, permanent).some((t) => t.affectedType === 'enchanted_creature'),
   },
   {
+    name: "Hawkeye's Bow (equipped creature becomes tapped)",
+    oracle_text: 'Whenever equipped creature becomes tapped, it deals 1 damage to each opponent.',
+    detect: () => detectTapTriggers({ name: "Hawkeye's Bow", oracle_text: 'Whenever equipped creature becomes tapped, it deals 1 damage to each opponent.' }, permanent).some((t) => t.affectedType === 'equipped_creature'),
+  },
+  {
     name: 'Sleep Magic (enchanted creature is dealt damage)',
     oracle_text: 'Enchant creature\nWhen enchanted creature is dealt damage, sacrifice this Aura.',
     detect: () => detectDealtDamageTriggers({ name: 'Sleep Magic', oracle_text: 'Enchant creature\nWhen enchanted creature is dealt damage, sacrifice this Aura.' }, permanent).length > 0,
@@ -3026,6 +3031,13 @@ const GAP_CASES: GapCase[] = [
     name: 'The Countering Runner (opponent spell countered by you)',
     oracle_text: 'Whenever a spell an opponent controls is countered by a spell or ability you control, draw a card.',
     detect: () => detectSpellCounteredTriggers({ name: 'The Countering Runner', oracle_text: 'Whenever a spell an opponent controls is countered by a spell or ability you control, draw a card.' }, permanent).length > 0,
+  },
+  {
+    name: 'Baral counters-a-spell optional loot',
+    detect: () => detectSpellCounteredTriggers({
+      name: 'Baral, Chief of Compliance',
+      oracle_text: 'Whenever a spell or ability you control counters a spell, you may draw a card. If you do, discard a card.',
+    }, permanent).length > 0,
   },
   {
     name: 'Paired Tactician (this and Warrior attack)',

@@ -271,7 +271,6 @@ export function queueSelfETBTriggersForPermanent(
     } as any;
     state.stack.push(stackItem);
     pushTriggerDoublerCopies(state, stackItem);
-    pushTriggerDoublerCopies(state, stackItem);
 
     const gameId = String((ctx as any).gameId || '').trim();
     if (gameId && gameId !== 'unknown') {

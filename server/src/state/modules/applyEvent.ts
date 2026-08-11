@@ -66,6 +66,7 @@ import { cleanupCardLeavingExile, removePlayableFromExileForCard, stripPlayableF
 import { buildEmbalmOrEternalizeTokenPermanent } from "./graveyard-tokens.js";
 import { clearPreparedPermanent, syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { transformPermanentToFace } from "./day-night.js";
+import { processEquippedTriggers } from "./triggerEmissionFamilyUtils.js";
 import {
   applyDivineReckoningBatchResult,
   applyPrisonersDilemmaBatchResult,
@@ -87,6 +88,7 @@ import { applyRoomDoorLockOrUnlockChoice } from "./triggers/room.js";
 import { applyMyriadTokenCopies } from "./triggerMyriadTokenUtils.js";
 import { applyGraveyardPermissionEffectsFromText, applyTemporaryGraveyardKeywordGrantFromText, buildCastFromGraveyardCard, getMatchingGraveyardCastingPermission } from "./graveyard-permissions.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
+import { processSpellCounteredTriggers } from "./spellCounteredTriggerUtils.js";
 import {
   buildDurablePlayableFromExilePermission,
   getDurableCommandZonePermissionForCard,
@@ -3000,6 +3002,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                         (zones[controller] as any).graveyardCount = gy.length;
                       }
                     }
+                    try {
+                      processSpellCounteredTriggers(ctx as any, {
+                        counteringControllerId: String(caster || ''),
+                        counteredControllerId: String(controller || ''),
+                        counteredStackItemId: String((countered as any)?.id || eff.stackItemId || ''),
+                        counteredCardName: String((countered as any)?.card?.name || 'spell'),
+                        counteringSourceName: 'Counter',
+                        counteredWasSpell: true,
+                      });
+                    } catch {
+                      // best-effort
+                    }
                   }
                   break;
                 }
@@ -4516,7 +4530,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const battlefield = Array.isArray((ctx.state as any)?.battlefield) ? (ctx.state as any).battlefield : [];
             const permanent = battlefield.find((entry: any) => String(entry?.id || '') === sourceId);
             if (permanent) {
-              transformPermanentToFace(permanent, faceIndex);
+              transformPermanentToFace(permanent, faceIndex, ctx as any);
             }
           }
 
@@ -14777,6 +14791,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               (targetCreature as any).attachedEquipment.push(equipmentId);
             }
             (targetCreature as any).isEquipped = true;
+            try {
+              processEquippedTriggers(ctx as any, equipment, targetCreature);
+            } catch (equipTriggerErr) {
+              debugWarn(1, 'applyEvent(equipPermanent): processEquippedTriggers failed', equipTriggerErr);
+            }
           }
           ctx.bumpSeq();
         } catch (err) {

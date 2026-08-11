@@ -19,6 +19,10 @@ import { clearPreparedPermanent } from "./prepared.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 import { processLinkedExileReturns } from "./triggers/linked-exile.js";
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
+import {
+  processLTBTriggers,
+  processReturnedToHandTriggers,
+} from "./triggerEmissionFamilyUtils.js";
 import { getCardDrawTriggers } from "./triggers/card-draw.js";
 import { getMillTriggers } from "./triggers/mill.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
@@ -1709,6 +1713,12 @@ export function movePermanentToLibrary(
     // best-effort only
   }
 
+  try {
+    processLTBTriggers(ctx, perm, { cause: 'library' });
+  } catch (err) {
+    debugWarn(1, '[movePermanentToLibrary] processLTBTriggers failed:', err);
+  }
+
   const leaveReplacement = tryApplyDeclarativeLeaveBattlefieldDestinationReplacement(
     ctx,
     perm,
@@ -1866,6 +1876,12 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
     // best-effort only
   }
 
+  try {
+    processLTBTriggers(ctx, perm, { cause: 'bounce' });
+  } catch (err) {
+    debugWarn(1, '[movePermanentToHand] processLTBTriggers failed:', err);
+  }
+
   const leaveReplacement = tryApplyDeclarativeLeaveBattlefieldDestinationReplacement(
     ctx,
     perm,
@@ -1896,6 +1912,12 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
     debug(2, `[movePermanentToHand] Token ${card?.name || permanentId} left battlefield -> ceased to exist (not moved to hand)`);
     bumpSeq();
     return true;
+  }
+
+  try {
+    processReturnedToHandTriggers(ctx, perm);
+  } catch (err) {
+    debugWarn(1, '[movePermanentToHand] processReturnedToHandTriggers failed:', err);
   }
   
   // Commander Replacement Effect (Rule 903.9a):

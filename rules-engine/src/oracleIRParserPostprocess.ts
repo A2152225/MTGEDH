@@ -13096,7 +13096,26 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^then proliferate again$/i.test(raw)) {
-    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+    return [{
+      kind: 'proliferate',
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep];
+  }
+
+  // Contagion Engine reminder leftover after "Proliferate twice" expansion.
+  if (/^then do it again$/i.test(raw)) {
+    return [];
+  }
+
+  if (/^if you do,\s*proliferate(?:\s+(twice|two\s+times|2\s+times))?$/i.test(raw)) {
+    const twice = /\b(?:twice|two\s+times|2\s+times)\b/i.test(raw);
+    const proliferateStep = {
+      kind: 'proliferate',
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep;
+    return twice ? [proliferateStep, { ...proliferateStep }] : [proliferateStep];
   }
 
   if (/^then tap any number of creatures you control$/i.test(raw)) {
@@ -15303,6 +15322,45 @@ export function lowerCurrentResidualUnknownAbilities(
       ? ability
       : { ...ability, steps: loweredSteps };
   });
+}
+
+/**
+ * Game of Chaos: Flip a coin; exchange life by stake; winner/loser decides whether to
+ * flip again; double stakes each flip. Collapse the multi-step misparse into one step.
+ */
+export function collapseFlipCoinLifeStakesAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  const combinedText = abilities
+    .map((ability) => normalizeOracleText(String(ability.text || ability.effectText || '')))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const isLifeStakesLoop =
+    /flip a coin/i.test(combinedText)
+    && /decide whether to flip again/i.test(combinedText)
+    && /double the life stakes with each flip/i.test(combinedText)
+    && /you gain \d+ life and target opponent loses \d+ life/i.test(combinedText);
+
+  if (!isLifeStakesLoop) return [...abilities];
+
+  const stakeMatch = combinedText.match(/you gain (\d+) life and target opponent loses \1 life/i);
+  const initialStake = Math.max(1, Number(stakeMatch?.[1] || 1) || 1);
+
+  return [{
+    type: AbilityType.SPELL,
+    text: combinedText,
+    effectText: combinedText,
+    steps: [{
+      kind: 'flip_coin_life_stakes',
+      who: { kind: 'you' },
+      opponent: { kind: 'target_opponent' },
+      initialStake,
+      doubleEachFlip: true,
+      raw: combinedText,
+    } as unknown as OracleEffectStep],
+  }];
 }
 
 function parseTopLibraryInfoOwner(ownerRaw: string): OraclePlayerSelector | null {
@@ -21929,12 +21987,23 @@ function isRedundantProliferateReminderUnknownStep(step: OracleEffectStep): bool
   if (!normalized) return false;
 
   return (
+    /^then do it again$/i.test(normalized) ||
     /^choose any number of permanents and\/or players$/i.test(normalized) ||
     /^choose any number of permanents and\/or players, then give each another counter of each kind already there(?:\. then do it again)?$/i.test(normalized) ||
     /^to proliferate, choose any number of permanents and\/or players$/i.test(normalized) ||
     /^to proliferate, choose any number of permanents and\/or players, then give each another counter of each kind already there(?:\. then do it again)?$/i.test(normalized) ||
     /^(?:then\s+)?give each another counter of each kind already there(?:\. then do it again)?$/i.test(normalized)
   );
+}
+
+function isRedundantProliferateReminderStep(step: OracleEffectStep): boolean {
+  if (isRedundantProliferateReminderUnknownStep(step)) return true;
+  if (step.kind !== 'grant_static_ability') return false;
+  const normalized = normalizeOracleText(String(step.raw || (step as any).effectText?.[0] || ''))
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  return /^then do it again$/i.test(normalized) || /^do it again$/i.test(normalized);
 }
 
 export function pruneRedundantProliferateReminderUnknownAbilities(
@@ -21949,7 +22018,7 @@ export function pruneRedundantProliferateReminderUnknownAbilities(
       return ability;
     }
 
-    const nextSteps = ability.steps.filter(step => !isRedundantProliferateReminderUnknownStep(step));
+    const nextSteps = ability.steps.filter(step => !isRedundantProliferateReminderStep(step));
     return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
   });
 }
@@ -21958,7 +22027,22 @@ function parseRepeatedProliferateUnknownSteps(step: OracleEffectStep): readonly 
   const normalized = normalizeUnknownStepText(step);
   if (!normalized) return null;
 
-  const clause = normalized.replace(/^then\b\s*/i, '').trim();
+  const clause = normalized
+    .replace(/^then\b\s*/i, '')
+    .replace(/^if you do,\s*/i, '')
+    .trim();
+
+  // Roalesk: "then proliferate again" → one additional proliferate action.
+  if (/^proliferate(?:\s+again)?$/i.test(clause) && /\bagain\b/i.test(normalized)) {
+    return [
+      {
+        kind: 'proliferate',
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      },
+    ];
+  }
+
   const match = clause.match(/^proliferate\s+(twice|two\s+times|2\s+times)$/i);
   if (!match) return null;
 
@@ -21994,6 +22078,29 @@ export function expandRepeatedProliferateUnknownAbilities(
     });
 
     return changed ? { ...ability, steps } : ability;
+  });
+}
+
+/**
+ * Tekuthal / Topography Tracker style replacements are applied at keyword-action
+ * resolution time (see server keywordActionRepetition). Clear misparsed executable
+ * steps so replacement text is not treated as a static explore/proliferate effect.
+ */
+export function clearKeywordActionRepetitionReplacementSteps(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (ability.type !== AbilityType.REPLACEMENT) return ability;
+    const text = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (
+      /if you would proliferate,\s*proliferate twice instead/i.test(text) ||
+      /if a creature you control would explore,\s*instead it explores,\s*then it explores again/i.test(text)
+    ) {
+      return ability.steps.length === 0 ? ability : { ...ability, steps: [] };
+    }
+    return ability;
   });
 }
 

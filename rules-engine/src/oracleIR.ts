@@ -174,6 +174,17 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      /** Game of Chaos–shaped: flip, exchange life by stake, optional flip-again, double stakes. */
+      readonly kind: 'flip_coin_life_stakes';
+      readonly who: OraclePlayerSelector;
+      readonly opponent: OraclePlayerSelector;
+      readonly initialStake: number;
+      readonly doubleEachFlip?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'roll_die';
       readonly who: OraclePlayerSelector;
       readonly sides: number;

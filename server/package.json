@@ -15,6 +15,7 @@
     "start": "node --enable-source-maps --import tsx/esm src/index.ts",
     "targeting:coverage": "node --enable-source-maps --import tsx/esm scripts/targeting-coverage.ts",
     "trigger:coverage": "node --enable-source-maps --import tsx/esm scripts/trigger-coverage-audit.ts",
+    "trigger:emission": "node --enable-source-maps --import tsx/esm scripts/trigger-emission-audit.ts",
     "trigger:effect-length-audit": "node --enable-source-maps --import tsx/esm scripts/trigger-effect-length-audit.ts",
     "executor:coverage": "node --enable-source-maps --import tsx/esm scripts/executor-coverage-audit.ts",
     "oracle-ir:delta": "node --enable-source-maps --import tsx/esm scripts/oracle-delta-coverage-audit.ts",

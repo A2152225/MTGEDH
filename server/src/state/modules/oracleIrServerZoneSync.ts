@@ -27,9 +27,17 @@ import {
   buildSearchLibrarySelectionOptions,
 } from '../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
 import { getProliferateChoiceTargets, buildPopulateTargetSelectionOptions, collectBlightTargetSelectionConfigs } from '../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
+import { getExploreActionCount, getProliferateActionCount } from './keywordActionRepetition.js';
+import { queueFlipCoinLifeStakesLoop } from './flipCoinLifeStakes.js';
 import { ResolutionQueueManager, ResolutionStepStatus, ResolutionStepType } from '../resolution/index.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 import { isOracleIrTriggerPrimaryEnabled } from './oracleIrTriggerExecution.js';
+import { processSpellCounteredTriggers } from './spellCounteredTriggerUtils.js';
+import {
+  emitTriggersAfterOracleIRApply,
+  snapshotBattlefieldForTriggerEmission,
+} from './oracleIrPostApplyTriggerEmission.js';
+import { queuePayLifeTriggers } from './triggers/pay-life.js';
 import {
   detectTutorSpell,
   parseLibrarySearchFilter,
@@ -1176,42 +1184,53 @@ function queueProliferateChoicePromptsFromOracleIRResult(
     const choosingPlayerId =
       resolvePlayers(state, (step as any).who, params.irCtx)[0] || params.controller;
 
-    const queueKey = `proliferate:${String((step as any).raw || '')}:${choosingPlayerId}`;
-    if (queuedKeys.has(queueKey)) continue;
-    queuedKeys.add(queueKey);
+    const skipReplacement = (step as any).skipProliferateReplacement === true
+      || (gap.metadata as any)?.skipProliferateReplacement === true;
+    const actionCount = getProliferateActionCount(state?.battlefield, choosingPlayerId, { skipReplacement });
 
-    try {
-      const existing = ResolutionQueueManager
-        .getStepsForPlayer(gameId, choosingPlayerId)
-        .find(
-          (candidate) =>
-            candidate.type === ResolutionStepType.PROLIFERATE &&
-            sourceId &&
-            String((candidate as any)?.sourceId || '') === sourceId &&
-            String((candidate as any)?.description || '').includes(String((step as any).raw || ''))
-        );
-      if (existing) continue;
-    } catch {
-      // ignore
+    for (let actionIndex = 0; actionIndex < actionCount; actionIndex += 1) {
+      const queueKey = `proliferate:${String((step as any).raw || '')}:${choosingPlayerId}:${actionIndex}`;
+      if (queuedKeys.has(queueKey)) continue;
+      queuedKeys.add(queueKey);
+
+      try {
+        const proliferateId = `${sourceId || sourceName}:${String((step as any).raw || 'proliferate')}:${actionIndex}`;
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, choosingPlayerId)
+          .find(
+            (candidate) =>
+              candidate.type === ResolutionStepType.PROLIFERATE &&
+              sourceId &&
+              String((candidate as any)?.sourceId || '') === sourceId &&
+              String((candidate as any)?.proliferateId || '') === proliferateId
+          );
+        if (existing) continue;
+
+        ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+          type: ResolutionStepType.PROLIFERATE,
+          playerId: choosingPlayerId,
+          description: actionCount > 1
+            ? `${sourceName}: ${String((step as any).raw || 'Proliferate')} (${actionIndex + 1}/${actionCount})`
+            : `${sourceName}: ${String((step as any).raw || 'Proliferate')}`,
+          mandatory: (step as any).optional !== true,
+          sourceId,
+          sourceName,
+          proliferateId,
+          // Replacement-created actions do not re-apply Tekuthal (CR 614.5).
+          skipProliferateReplacement: true,
+          availableTargets: availableTargets.map((target) => ({
+            id: target.id,
+            name: target.name,
+            counters: { ...target.counters },
+            isPlayer: target.isPlayer,
+            type: target.type,
+            ...(target.controller ? { controller: target.controller } : {}),
+          })),
+        } as any, result, params) as any);
+      } catch {
+        // ignore
+      }
     }
-
-    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
-      type: ResolutionStepType.PROLIFERATE,
-      playerId: choosingPlayerId,
-      description: `${sourceName}: ${String((step as any).raw || 'Proliferate')}`,
-      mandatory: (step as any).optional !== true,
-      sourceId,
-      sourceName,
-      proliferateId: `${sourceId || sourceName}:${String((step as any).raw || 'proliferate')}`,
-      availableTargets: availableTargets.map((target) => ({
-        id: target.id,
-        name: target.name,
-        counters: { ...target.counters },
-        isPlayer: target.isPlayer,
-        type: target.type,
-        ...(target.controller ? { controller: target.controller } : {}),
-      })),
-    } as any, result, params) as any);
   }
 }
 
@@ -1310,6 +1329,51 @@ function queueRedistributeLifeTotalsPromptsFromOracleIRResult(
   }
 }
 
+function queueFlipCoinLifeStakesPromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  for (const gap of result.automationGaps || []) {
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
+    if (String(gap.stepKind || '') !== 'flip_coin_life_stakes') continue;
+
+    const step = findSkippedOracleStep(result, gap);
+    if (!step || step.kind !== 'flip_coin_life_stakes') continue;
+
+    const controllerId = resolvePlayers(state, (step as any).who, params.irCtx)[0] || params.controller;
+    let opponentId =
+      String((params.irCtx as any)?.targetOpponentId || (params.irCtx as any)?.targetPlayerId || '').trim();
+    if (!opponentId) {
+      const opponents = (Array.isArray(state?.players) ? state.players : [])
+        .map((player: any) => String(player?.id || '').trim())
+        .filter((id: string) => id && id !== String(controllerId));
+      opponentId = opponents[0] || '';
+    }
+    if (!opponentId) continue;
+
+    const stake = Math.max(1, Math.floor(Number((step as any).initialStake || 1) || 1));
+    queueFlipCoinLifeStakesLoop(ctx, {
+      controllerId: String(controllerId),
+      opponentId,
+      stake,
+      sourceName: String(params.sourceName || 'Ability'),
+      sourceId: params.sourceId,
+      flipIndex: 0,
+      doubleEachFlip: (step as any).doubleEachFlip !== false,
+    });
+  }
+}
+
 function queueExploreChoicePromptsFromOracleIRResult(
   ctx: GameContext,
   state: any,
@@ -1345,26 +1409,36 @@ function queueExploreChoicePromptsFromOracleIRResult(
           .filter((id: string) => id.length > 0)
       : [];
 
-    const queueKey = `explore:${String((step as any).raw || '')}:${built.permanentId}`;
-    if (queuedKeys.has(queueKey)) continue;
-    queuedKeys.add(queueKey);
+    const skipReplacement = (step as any).skipExploreReplacement === true
+      || (gap.metadata as any)?.skipExploreReplacement === true;
+    const exploreController = String(built.playerId || params.controller || '');
+    const actionCount = getExploreActionCount(state?.battlefield, exploreController, { skipReplacement });
 
-    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
-      type: ResolutionStepType.EXPLORE_DECISION,
-      playerId: built.playerId,
-      description: `${sourceName}: ${built.permanentName} explores`,
-      mandatory: (step as any).optional !== true,
-      sourceId: built.permanentId,
-      sourceName: built.permanentName,
-      permanentId: built.permanentId,
-      permanentName: built.permanentName,
-      revealedCard: built.revealedCard,
-      isLand: built.isLand,
-      ...(remainingPermanentIds.length > 0 ? { remainingPermanentIds } : {}),
-      oracleIrControllerId: params.controller,
-      oracleIrSourceId: sourceId,
-      oracleIrSourceName: sourceName,
-    } as any, result, params) as any);
+    for (let actionIndex = 0; actionIndex < actionCount; actionIndex += 1) {
+      const queueKey = `explore:${String((step as any).raw || '')}:${built.permanentId}:${actionIndex}`;
+      if (queuedKeys.has(queueKey)) continue;
+      queuedKeys.add(queueKey);
+
+      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+        type: ResolutionStepType.EXPLORE_DECISION,
+        playerId: built.playerId,
+        description: actionCount > 1
+          ? `${sourceName}: ${built.permanentName} explores (${actionIndex + 1}/${actionCount})`
+          : `${sourceName}: ${built.permanentName} explores`,
+        mandatory: (step as any).optional !== true,
+        sourceId: built.permanentId,
+        sourceName: built.permanentName,
+        permanentId: built.permanentId,
+        permanentName: built.permanentName,
+        revealedCard: built.revealedCard,
+        isLand: built.isLand,
+        skipExploreReplacement: true,
+        ...(remainingPermanentIds.length > 0 ? { remainingPermanentIds } : {}),
+        oracleIrControllerId: params.controller,
+        oracleIrSourceId: sourceId,
+        oracleIrSourceName: sourceName,
+      } as any, result, params) as any);
+    }
   }
 }
 
@@ -4996,6 +5070,27 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
     }
   }
 
+  if (
+    paid
+    && (
+      String(stepData.optionalPaymentValidationKind || '') === 'life'
+      || stepData.oracleIrUnlessPayKind === 'life'
+    )
+  ) {
+    const lifeAmount = Number(stepData.optionalPaymentLifeAmount || 0);
+    if (Number.isFinite(lifeAmount) && lifeAmount > 0 && !(ctx as any).isReplaying) {
+      try {
+        queuePayLifeTriggers(ctx, playerId, lifeAmount, {
+          sourceId: String(stepData.oracleIrSourceId || stepData.sourceId || '').trim() || undefined,
+          sourceName: String(stepData.oracleIrSourceName || stepData.sourceName || 'Oracle IR life payment').trim()
+            || 'Oracle IR life payment',
+        });
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
   if (paid) {
     if (stepData.oracleIrUnlessPayChoice === true) {
       let unlessSteps: OracleEffectStep[] = [];
@@ -5257,6 +5352,15 @@ export function applyOracleIRStepsOnServer(
   const controllersBefore = snapshotBattlefieldControllers(state);
   const countersBefore = snapshotBattlefieldCounters(state);
   const permanentPatchesBefore = snapshotBattlefieldPermanentReplayPatches(state);
+  const triggerEmissionBefore = snapshotBattlefieldForTriggerEmission(state);
+  const stackBeforeCounter = Array.isArray((state as any).stack)
+    ? ((state as any).stack as any[]).map((item) => ({
+        id: String(item?.id || ''),
+        type: String(item?.type || ''),
+        controller: String(item?.controller || ''),
+        cardName: String(item?.card?.name || item?.name || 'spell'),
+      }))
+    : [];
 
   const controller = (params?.controller || irCtx.controllerId) as PlayerID;
   const adjustedSteps = params?.applyMillReplacements === false
@@ -5312,6 +5416,38 @@ export function applyOracleIRStepsOnServer(
     haltOnPlayerChoiceRequired: options.haltOnPlayerChoiceRequired ?? true,
   });
   Object.assign(state, result.state);
+  try {
+    const counterSpellApplied = (result.appliedSteps || []).some((step) => step?.kind === 'counter_spell');
+    if (counterSpellApplied && !(ctx as any).isReplaying) {
+      const stackAfterIds = new Set(
+        (Array.isArray((state as any).stack) ? (state as any).stack : [])
+          .map((item: any) => String(item?.id || '').trim())
+          .filter(Boolean),
+      );
+      for (const before of stackBeforeCounter) {
+        if (!before.id || stackAfterIds.has(before.id)) continue;
+        const wasSpell = !before.type || before.type === 'spell';
+        if (!wasSpell) continue;
+        processSpellCounteredTriggers(ctx, {
+          counteringControllerId: String(controller || ''),
+          counteredControllerId: before.controller,
+          counteredStackItemId: before.id,
+          counteredCardName: before.cardName,
+          counteringSourceName: String(irCtx.sourceName || '').trim() || 'Counter',
+          counteredWasSpell: true,
+        });
+      }
+    }
+  } catch {
+    // best-effort — do not fail IR resolution for trigger emission
+  }
+  try {
+    emitTriggersAfterOracleIRApply(ctx, state, result, triggerEmissionBefore, {
+      controller: String(controller || ''),
+    });
+  } catch {
+    // best-effort — do not fail IR resolution for trigger emission
+  }
   syncGraveyardCastFreeExilePermissionsFromOracleIR(state, adjustedSteps, result, irCtx);
   mirrorGraveyardCastingPermissionsToDurable(state);
   syncCastingModifierGrantsFromOracleIRResult(
@@ -5465,6 +5601,12 @@ export function applyOracleIRStepsOnServer(
     irCtx,
   });
   queueProliferateChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueFlipCoinLifeStakesPromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,

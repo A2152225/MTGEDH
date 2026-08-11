@@ -470,4 +470,75 @@ describe('parseActivatedAbilities station parsing', () => {
       expect(abilities[0]?.id).toBe(`${card.id}-ability-0`);
     }
   });
+
+  it('parses Equip Wizard / Equip {cost} and compound type Equip modes', () => {
+    const staff: KnownCardRef = {
+      id: 'staff-1',
+      name: "Wizard's Staff",
+      type_line: 'Artifact — Equipment',
+      oracle_text:
+        'Equipped creature has prowess.\nIf a triggered ability of equipped creature triggers, that ability triggers an additional time.\nEquip Wizard {1}\nEquip {3}',
+    };
+    const staffAbilities = parseActivatedAbilities(staff);
+    const equips = staffAbilities.filter((a) => /-equip-\d+$/i.test(a.id));
+    expect(equips.map((a) => ({ label: a.label, cost: a.manaCost, target: a.targetDescription }))).toEqual([
+      {
+        label: 'Equip Wizard {1}',
+        cost: '{1}',
+        target: 'wizard creature you control',
+      },
+      {
+        label: 'Equip {3}',
+        cost: '{3}',
+        target: 'creature you control',
+      },
+    ]);
+
+    const robe: KnownCardRef = {
+      id: 'robe-1',
+      name: 'Robe of the Archmagi',
+      type_line: 'Artifact — Equipment',
+      oracle_text: 'Equipped creature has ward {4}.\nEquip Shaman, Warlock, or Wizard {2}\nEquip {4}',
+    };
+    const robeEquips = parseActivatedAbilities(robe).filter((a) => /-equip-\d+$/i.test(a.id));
+    expect(robeEquips[0]?.label).toBe('Equip Shaman, Warlock, or Wizard {2}');
+    expect(robeEquips[0]?.targetDescription).toMatch(/shaman.*warlock.*wizard/i);
+  });
+
+  it('surfaces quoted activated grants from attached Equipment on the host', () => {
+    const host = {
+      id: 'host1',
+      controller: 'p1',
+      card: {
+        id: 'host-card',
+        name: 'Grizzly Bears',
+        type_line: 'Creature — Bear',
+        oracle_text: '',
+      } as KnownCardRef,
+    };
+    const longbow = {
+      id: 'bow1',
+      controller: 'p1',
+      attachedTo: 'host1',
+      card: {
+        id: 'bow-card',
+        name: 'Viridian Longbow',
+        type_line: 'Artifact — Equipment',
+        oracle_text: 'Equipped creature has "{T}: This creature deals 1 damage to any target."\nEquip {3}',
+      } as KnownCardRef,
+    };
+
+    const abilities = parseActivatedAbilities(host.card, undefined, {
+      permanent: host as any,
+      battlefield: [host, longbow] as any,
+    });
+    const granted = abilities.find((a) => /-granted-\d+$/i.test(a.id));
+    expect(granted).toEqual(expect.objectContaining({
+      id: 'host-card-granted-0',
+      cost: '{T}',
+      effect: 'This creature deals 1 damage to any target',
+      requiresTap: true,
+      requiresTarget: true,
+    }));
+  });
 });

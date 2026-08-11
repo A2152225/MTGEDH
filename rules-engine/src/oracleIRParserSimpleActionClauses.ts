@@ -559,6 +559,7 @@ export function tryParseSimpleActionClause(args: {
     if (/^if\s+you\s+do,\s*proliferate$/i.test(clause)) {
       return withMeta({ kind: 'proliferate', raw: rawClause });
     }
+    // Leave "if you do, proliferate twice" as unknown for expandRepeatedProliferateUnknownAbilities.
   }
 
   {

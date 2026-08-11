@@ -211,6 +211,7 @@ import {
   applyDungeonTargetPlayerEffect,
   buildDungeonRoomPromptSteps,
 } from "../state/modules/dungeon-effects.js";
+import { playerHasDungeonRoomAbilityDoubler } from "../state/modules/triggers/combat.js";
 import { getValidMutateTargets, parseMadnessCost, parseMutateCost, buildCommanderFreeCastPaymentExtras, cardIsBlueForPitchCost } from "../state/modules/alternate-costs.js";
 import {
   applyPowerUpDiscountsToActivationManaCost,
@@ -467,6 +468,26 @@ function queueDungeonRoomPromptSteps(
     sourceId: String((queuedResolutionSteps[0] as any)?.sourceId || sourceId || '').trim(),
     queuedResolutionSteps: queuedResolutionSteps as any[],
   });
+}
+
+function applyDungeonRoomEffectsWithDoubler(
+  game: any,
+  gameId: string,
+  playerId: PlayerID,
+  progress: any,
+  roomSourceId: string,
+): void {
+  const applyOnce = () => {
+    applyAutomaticDungeonRoomEffect(game as any, playerId, progress);
+    const tokenEffectPayloads = applyAutomaticDungeonRoomTokenEffects(game as any, playerId, progress);
+    const promptSteps = buildDungeonRoomPromptSteps(game as any, playerId, progress, roomSourceId);
+    queueDungeonRoomPromptSteps(game, gameId, promptSteps, String(playerId || '').trim(), roomSourceId);
+    appendDungeonRoomExecuteEffectEvents(game, gameId, tokenEffectPayloads);
+  };
+  applyOnce();
+  if (playerHasDungeonRoomAbilityDoubler(game?.state, String(playerId || ''))) {
+    applyOnce();
+  }
 }
 
 function hasPendingSpellCastForPlayer(game: any, playerId: string): boolean {
@@ -2900,8 +2921,27 @@ function fireBattlefieldAbilityActivatedTriggers(
   gameId: string,
   stackItemId?: string,
   persistActivateEvent?: () => void,
+  extras?: { lifePaidForCost?: number },
 ): void {
   persistActivateEvent?.();
+
+  const stack = Array.isArray(game.state?.stack) ? game.state.stack : [];
+  const stackItem = stackItemId
+    ? stack.find((item: any) => item && String(item.id || '') === String(stackItemId))
+    : undefined;
+  const lifeFromStack = Number((stackItem as any)?.lifePaidForCost || 0);
+  const lifeFromExtras = Number(extras?.lifePaidForCost || 0);
+  const lifeFromText = (() => {
+    const text = String(abilityText || (stackItem as any)?.activatedAbilityText || '');
+    const match = text.match(/\bpay\s+(\d+)\s+life\b/i);
+    return match ? Number(match[1]) : 0;
+  })();
+  const lifePaidForCost = [lifeFromExtras, lifeFromStack, lifeFromText]
+    .find((n) => Number.isFinite(n) && n > 0) || 0;
+
+  if (stackItem && lifePaidForCost > 0 && !(Number((stackItem as any).lifePaidForCost) > 0)) {
+    (stackItem as any).lifePaidForCost = lifePaidForCost;
+  }
 
   const triggeredAbilities = triggerAbilityActivatedTriggers(game as any, {
     activatedBy: controllerId as any,
@@ -2909,6 +2949,7 @@ function fireBattlefieldAbilityActivatedTriggers(
     isManaAbility: false,
     abilityText,
     ...(stackItemId ? { stackItemId } : null),
+    ...(lifePaidForCost > 0 ? { lifePaidForCost } : null),
   });
 
   for (const triggeredAbility of triggeredAbilities) {
@@ -2919,10 +2960,8 @@ function fireBattlefieldAbilityActivatedTriggers(
     }
   }
 
-  if (!stackItemId) return;
+  if (!stackItemId || !stackItem) return;
 
-  const stack = Array.isArray(game.state?.stack) ? game.state.stack : [];
-  const stackItem = stack.find((item: any) => item && String(item.id || '') === String(stackItemId));
   const targetIds = extractStackItemTargetIds(stackItem);
   if (targetIds.length === 0) return;
 
@@ -31259,7 +31298,7 @@ async function handleOptionChoiceResponse(
     const fromFaceIndex = sourcePermanent.transformed === true ? 1 : 0;
     const faceIndex = fromFaceIndex === 1 ? 0 : 1;
     const sourceSnapshot = { ...(sourcePermanent as any), card: { ...((sourcePermanent as any).card || {}) } };
-    transformPermanentToFace(sourcePermanent, faceIndex as 0 | 1);
+    transformPermanentToFace(sourcePermanent, faceIndex as 0 | 1, ((game as any).ctx || game) as any);
 
     const effectText = materializeReflexiveSourceText(followupText, sourceName);
     const triggerId = uid('trigger');
@@ -34509,12 +34548,8 @@ async function handleOptionChoiceResponse(
       return;
     }
 
-    applyAutomaticDungeonRoomEffect(game as any, playerId as PlayerID, advancement.progress);
-    const tokenEffectPayloads = applyAutomaticDungeonRoomTokenEffects(game as any, playerId as PlayerID, advancement.progress);
     const roomSourceId = String((stepData as any)?.sourceId || step.sourceId || '').trim();
-    const promptSteps = buildDungeonRoomPromptSteps(game as any, playerId as PlayerID, advancement.progress, roomSourceId);
-    queueDungeonRoomPromptSteps(game, gameId, promptSteps, String(playerId || '').trim(), roomSourceId);
-    appendDungeonRoomExecuteEffectEvents(game, gameId, tokenEffectPayloads);
+    applyDungeonRoomEffectsWithDoubler(game, gameId, playerId as PlayerID, advancement.progress, roomSourceId);
 
     if (advancement.completed) {
       markDungeonCompleted(stateAny, String(playerId), String(advancement.progress.dungeonName || progress.dungeonName).trim());
@@ -34558,11 +34593,8 @@ async function handleOptionChoiceResponse(
     }
 
     stateAny.dungeonProgress[playerId] = dungeonProgress;
-    applyAutomaticDungeonRoomEffect(game as any, playerId as PlayerID, dungeonProgress);
-    const tokenEffectPayloads = applyAutomaticDungeonRoomTokenEffects(game as any, playerId as PlayerID, dungeonProgress);
     const roomSourceId = String(step.sourceId || '').trim();
-    const promptSteps = buildDungeonRoomPromptSteps(game as any, playerId as PlayerID, dungeonProgress, roomSourceId);
-    queueDungeonRoomPromptSteps(game, gameId, promptSteps, String(playerId || '').trim(), roomSourceId);
+    applyDungeonRoomEffectsWithDoubler(game, gameId, playerId as PlayerID, dungeonProgress, roomSourceId);
 
     try {
       appendEvent(
@@ -34584,8 +34616,6 @@ async function handleOptionChoiceResponse(
     } catch (err) {
       debugWarn(1, '[resolution] appendEvent(ventureChooseDungeonResolve) failed:', err);
     }
-
-    appendDungeonRoomExecuteEffectEvents(game, gameId, tokenEffectPayloads);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -34613,11 +34643,8 @@ async function handleOptionChoiceResponse(
       return;
     }
 
-    applyAutomaticDungeonRoomEffect(game as any, playerId as PlayerID, advancement.progress);
-    const tokenEffectPayloads = applyAutomaticDungeonRoomTokenEffects(game as any, playerId as PlayerID, advancement.progress);
     const roomSourceId = String(step.sourceId || '').trim();
-    const promptSteps = buildDungeonRoomPromptSteps(game as any, playerId as PlayerID, advancement.progress, roomSourceId);
-    queueDungeonRoomPromptSteps(game, gameId, promptSteps, String(playerId || '').trim(), roomSourceId);
+    applyDungeonRoomEffectsWithDoubler(game, gameId, playerId as PlayerID, advancement.progress, roomSourceId);
 
     const completed = advancement.completed;
     if (completed) {
@@ -34648,8 +34675,6 @@ async function handleOptionChoiceResponse(
     } catch (err) {
       debugWarn(1, '[resolution] appendEvent(ventureChooseRoomResolve) failed:', err);
     }
-
-    appendDungeonRoomExecuteEffectEvents(game, gameId, tokenEffectPayloads);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
