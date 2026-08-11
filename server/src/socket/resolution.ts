@@ -7,6 +7,7 @@
 
 import type { Server, Socket } from "socket.io";
 import { appendEvent } from "../db/index.js";
+import { attachZoneHandSnapshotToStep } from "../state/modules/promptZoneHandSnapshot.js";
 import { 
   ResolutionQueueManager, 
   ResolutionQueueEvent,
@@ -315,12 +316,20 @@ function appendQueuedResolutionPromptEvent(
     additionalPayload?: Record<string, any>;
   },
 ): void {
+  const playerId = String(options.playerId || '').trim();
+  const state = (game as any)?.state;
   const queuedResolutionSteps = Array.isArray(options.queuedResolutionSteps)
-    ? options.queuedResolutionSteps.filter((step) => step && typeof step === 'object' && !Array.isArray(step))
+    ? options.queuedResolutionSteps
+        .filter((step) => step && typeof step === 'object' && !Array.isArray(step))
+        .map((step) => attachZoneHandSnapshotToStep(state, step, playerId || String((step as any)?.playerId || '')))
     : [];
   const queuedResolutionStep =
     options.queuedResolutionStep && typeof options.queuedResolutionStep === 'object' && !Array.isArray(options.queuedResolutionStep)
-      ? options.queuedResolutionStep
+      ? attachZoneHandSnapshotToStep(
+          state,
+          options.queuedResolutionStep,
+          playerId || String((options.queuedResolutionStep as any)?.playerId || ''),
+        )
       : undefined;
   const additionalPayload =
     options.additionalPayload && typeof options.additionalPayload === 'object' && !Array.isArray(options.additionalPayload)
@@ -337,7 +346,7 @@ function appendQueuedResolutionPromptEvent(
       Number((game as any)?.seq?.value ?? (game as any)?.seq ?? (game as any)?.state?.seq ?? 0),
       'resolveTopOfStackPrompt',
       {
-        ...(options.playerId ? { playerId: String(options.playerId) } : {}),
+        ...(playerId ? { playerId } : {}),
         ...(options.sourceId ? { sourceId: String(options.sourceId) } : {}),
         ...(queuedResolutionStep ? { queuedResolutionStep } : {}),
         ...(queuedResolutionSteps.length > 0 ? { queuedResolutionSteps } : {}),

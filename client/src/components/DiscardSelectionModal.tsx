@@ -14,11 +14,28 @@ export interface DiscardSelectionModalProps {
   maxDiscardCount?: number;
   anyNumberDiscard?: boolean;
   maxHandSize: number;
+  /** Authoritative hand size from the resolution step (cleanup); falls back to hand.length */
+  currentHandSize?: number;
   reason?: 'cleanup' | 'effect';
   title?: string;
   description?: string;
   onConfirm: (cardIds: string[]) => void;
   onCancel?: () => void; // Optional - during cleanup, player must discard
+}
+
+function getDiscardCardDisplayName(card: KnownCardRef): string {
+  return String((card as any).name || (card as any).label || 'Card').trim() || 'Card';
+}
+
+function getDiscardCardImageUrl(card: KnownCardRef): string | null {
+  return (
+    card.image_uris?.small ||
+    card.image_uris?.normal ||
+    (card as any).image_uris?.art_crop ||
+    (card as any).imageUrl ||
+    (card as any).image_url ||
+    null
+  );
 }
 
 export function DiscardSelectionModal({
@@ -29,6 +46,7 @@ export function DiscardSelectionModal({
   maxDiscardCount,
   anyNumberDiscard = false,
   maxHandSize,
+  currentHandSize,
   reason = 'cleanup',
   title,
   description,
@@ -108,7 +126,7 @@ export function DiscardSelectionModal({
         <p style={{ fontSize: 14, color: '#a0aec0', marginBottom: 16 }}>
           {reason === 'cleanup' ? (
             <>
-              You have {hand.length} cards in hand. Maximum hand size is {maxHandSize}.
+              You have {Number.isFinite(Number(currentHandSize)) ? Number(currentHandSize) : hand.length} cards in hand. Maximum hand size is {maxHandSize}.
               <br />
             </>
           ) : (
@@ -136,10 +154,8 @@ export function DiscardSelectionModal({
         >
           {hand.map((card) => {
             const isSelected = selected.includes(card.id);
-            const img =
-              card.image_uris?.small ||
-              card.image_uris?.normal ||
-              (card as any).image_uris?.art_crop;
+            const displayName = getDiscardCardDisplayName(card);
+            const img = getDiscardCardImageUrl(card);
             return (
               <div
                 key={card.id}
@@ -165,12 +181,12 @@ export function DiscardSelectionModal({
                   transition: 'all 0.15s ease',
                   background: '#0a0a0a',
                 }}
-                title={card.name}
+                title={displayName}
               >
                 {img ? (
                   <img
                     src={img}
-                    alt={card.name}
+                    alt={displayName}
                     draggable={false}
                     style={{
                       position: 'absolute',
@@ -196,7 +212,7 @@ export function DiscardSelectionModal({
                       pointerEvents: 'none',
                     }}
                   >
-                    {card.name}
+                    {displayName}
                   </div>
                 )}
                 {isSelected && (

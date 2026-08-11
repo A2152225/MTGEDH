@@ -973,11 +973,14 @@ export function handleSkipToCleanupPhase(ctx: SkipToCleanupContext): SkipToClean
           .filter((c: any) => c && c.id)
           .map((c: any) => ({
             id: String(c.id),
-            label: String(c.name || 'Unknown'),
+            label: String(c.name || c.label || 'Unknown'),
             imageUrl: c.imageUrl || c.image_url || c.image_uris?.normal,
           }));
 
         if (handOptions.length > 0) {
+          const zoneHandSnapshot = hand
+            .filter((c: any) => c && typeof c === 'object' && c.id)
+            .map((c: any) => ({ ...c, zone: 'hand' }));
           ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.DISCARD_SELECTION,
             playerId: turnPlayer as any,
@@ -985,6 +988,7 @@ export function handleSkipToCleanupPhase(ctx: SkipToCleanupContext): SkipToClean
             description: `Cleanup: discard ${discardCount} card(s) to maximum hand size (${maxHandSize}).`,
             mandatory: true,
             hand: handOptions,
+            zoneHandSnapshot,
             discardCount,
             currentHandSize: handOptions.length,
             maxHandSize,

@@ -572,7 +572,13 @@ export interface SquadCostPaymentStep extends BaseResolutionStep {
  */
 export interface DiscardSelectionStep extends BaseResolutionStep {
   readonly type: ResolutionStepType.DISCARD_SELECTION;
+  /** UI options (ChoiceOption: id/label/imageUrl). Not authoritative zone cards. */
   readonly hand: readonly ChoiceOption[];
+  /**
+   * Full KnownCardRef clones of the player's zone hand at prompt time.
+   * Used by resolveTopOfStackPrompt replay/undo — never write ChoiceOption `hand` into zones.
+   */
+  readonly zoneHandSnapshot?: readonly KnownCardRef[];
   readonly discardCount: number;
   readonly currentHandSize: number;
   readonly maxHandSize: number;

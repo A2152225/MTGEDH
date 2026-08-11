@@ -480,6 +480,7 @@ export function App() {
   const [discardMaxCount, setDiscardMaxCount] = useState(0);
   const [discardAnyNumber, setDiscardAnyNumber] = useState(false);
   const [discardMaxHandSize, setDiscardMaxHandSize] = useState(7);
+  const [discardCurrentHandSize, setDiscardCurrentHandSize] = useState<number | null>(null);
   const [discardResolutionStepId, setDiscardResolutionStepId] = useState<string | null>(null);
   const [discardResolutionReason, setDiscardResolutionReason] = useState<'cleanup' | 'effect'>('cleanup');
   const [discardResolutionTitle, setDiscardResolutionTitle] = useState<string | null>(null);
@@ -2925,10 +2926,12 @@ export function App() {
     setDiscardModalOpen(false);
     setDiscardCount(0);
     setDiscardMaxHandSize(7);
+    setDiscardCurrentHandSize(null);
     setDiscardResolutionStepId(null);
     setDiscardResolutionReason('cleanup');
     setDiscardResolutionTitle(null);
     setDiscardResolutionDescription(null);
+    setDiscardResolutionHand([]);
     setOpeningHandActionsModalOpen(false);
     setOpeningHandActionsStepId(null);
     setLibrarySearchModalOpen(false);
@@ -3110,10 +3113,12 @@ export function App() {
               setDiscardMaxCount(0);
               setDiscardAnyNumber(false);
               setDiscardMaxHandSize(7);
+              setDiscardCurrentHandSize(null);
               setDiscardResolutionStepId(null);
               setDiscardResolutionReason('cleanup');
               setDiscardResolutionTitle(null);
               setDiscardResolutionDescription(null);
+              setDiscardResolutionHand([]);
               return;
             }
           }
@@ -3126,6 +3131,11 @@ export function App() {
           );
           setDiscardCount(discardCount);
           setDiscardMaxHandSize(Number(step.maxHandSize || 7));
+          setDiscardCurrentHandSize(
+            Number.isFinite(Number((step as any).currentHandSize))
+              ? Number((step as any).currentHandSize)
+              : (Array.isArray((step as any).hand) ? (step as any).hand.length : null)
+          );
           setDiscardResolutionStepId(String(step.id));
           setDiscardResolutionReason(reason);
           setDiscardResolutionTitle(
@@ -3134,9 +3144,24 @@ export function App() {
               : String(step.sourceName || 'Discard')
           );
           setDiscardResolutionDescription(String(step.description || ''));
+          // Server discard steps use ChoiceOption { id, label, imageUrl }; map to KnownCardRef-like.
           setDiscardResolutionHand(
             Array.isArray((step as any).hand)
-              ? ((step as any).hand as KnownCardRef[]).filter((card) => card && card.id && card.name)
+              ? ((step as any).hand as any[])
+                  .map((card) => {
+                    if (!card || !card.id) return null;
+                    const name = String(card.name || card.label || '').trim();
+                    const imageUrl = card.imageUrl || card.image_url || card.image_uris?.normal || card.image_uris?.small;
+                    return {
+                      ...card,
+                      id: String(card.id),
+                      name: name || 'Unknown',
+                      ...(imageUrl && !card.image_uris
+                        ? { image_uris: { normal: imageUrl, small: imageUrl } }
+                        : {}),
+                    } as KnownCardRef;
+                  })
+                  .filter((card): card is KnownCardRef => Boolean(card && card.id))
               : []
           );
           setDiscardModalOpen(true);
@@ -8236,13 +8261,29 @@ export function App() {
           if (!safeView || !you) return [];
           const zones = safeView.zones?.[you];
           const hand = zones?.hand || [];
-          return hand.filter((c: any) => c && c.name) as KnownCardRef[];
+          // Accept ChoiceOption-shaped zone cards (label/imageUrl) as well as full KnownCardRefs.
+          return hand
+            .map((c: any) => {
+              if (!c || !c.id) return null;
+              const name = String(c.name || c.label || '').trim();
+              if (!name) return null;
+              const imageUrl = c.imageUrl || c.image_url || c.image_uris?.normal || c.image_uris?.small;
+              return {
+                ...c,
+                name,
+                ...(imageUrl && !c.image_uris
+                  ? { image_uris: { normal: imageUrl, small: imageUrl } }
+                  : {}),
+              } as KnownCardRef;
+            })
+            .filter((c: KnownCardRef | null): c is KnownCardRef => Boolean(c));
         }, [discardResolutionHand, safeView, you])}
         discardCount={discardCount}
         minDiscardCount={discardMinCount}
         maxDiscardCount={discardMaxCount}
         anyNumberDiscard={discardAnyNumber}
         maxHandSize={discardMaxHandSize}
+        currentHandSize={discardCurrentHandSize ?? undefined}
         reason={discardResolutionReason}
         title={discardResolutionTitle ?? undefined}
         description={discardResolutionDescription ?? undefined}
@@ -8265,6 +8306,8 @@ export function App() {
           setDiscardMinCount(0);
           setDiscardMaxCount(0);
           setDiscardAnyNumber(false);
+          setDiscardMaxHandSize(7);
+          setDiscardCurrentHandSize(null);
           setDiscardResolutionHand([]);
           setDiscardResolutionStepId(null);
           setDiscardResolutionReason('cleanup');

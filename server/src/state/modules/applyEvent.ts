@@ -382,6 +382,7 @@ import {
   replayEnsureAsEntersPermanentFromPromptSteps,
   replayEnsureInterveningIfSubjectOnBattlefield,
 } from "./replay-prompt-cleanup.js";
+import { resolvePromptZoneHandRestore } from "./promptZoneHandSnapshot.js";
 import { applyKeywordPromptResolveOutcome } from "./keywordPromptReplayOutcomes.js";
 import { applyBattlefieldPermanentReplayPatch } from "../effects/battlefieldPermanentReplayPersistence.js";
 import { applyJoinForcesPaidManaPowerPump } from "./joinForcesResolutionQueue.js";
@@ -3841,7 +3842,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
           for (const queuedStep of queuedStepsToReplay) {
             const stepPlayerId = String((queuedStep as any)?.playerId || playerId || '').trim();
-            const handSnapshot = Array.isArray((queuedStep as any)?.hand) ? (queuedStep as any).hand : null;
+            // Prefer zoneHandSnapshot (full cards). Never restore ChoiceOption `hand` stubs.
+            const handSnapshot = resolvePromptZoneHandRestore(queuedStep);
             if (stepPlayerId && handSnapshot) {
               const stateAny = ctx.state as any;
               const zones = stateAny.zones = stateAny.zones || {};

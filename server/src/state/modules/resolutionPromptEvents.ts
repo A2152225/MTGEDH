@@ -2,6 +2,7 @@ import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debugWarn } from '../../utils/debug.js';
 import { ResolutionQueueManager, type CreateResolutionStepConfig } from '../resolution/index.js';
+import { attachZoneHandSnapshotToStep } from './promptZoneHandSnapshot.js';
 
 export function appendQueuedResolutionPromptEvent(
   ctx: GameContext,
@@ -13,12 +14,20 @@ export function appendQueuedResolutionPromptEvent(
   },
 ): void {
   const gameId = String((ctx as any).gameId || 'unknown');
+  const playerId = String(options.playerId || '').trim();
+  const state = (ctx as any)?.state;
   const queuedResolutionSteps = Array.isArray(options.queuedResolutionSteps)
-    ? options.queuedResolutionSteps.filter((step) => step && typeof step === 'object' && !Array.isArray(step))
+    ? options.queuedResolutionSteps
+        .filter((step) => step && typeof step === 'object' && !Array.isArray(step))
+        .map((step) => attachZoneHandSnapshotToStep(state, step, playerId || String((step as any)?.playerId || '')))
     : [];
   const queuedResolutionStep =
     options.queuedResolutionStep && typeof options.queuedResolutionStep === 'object' && !Array.isArray(options.queuedResolutionStep)
-      ? options.queuedResolutionStep
+      ? attachZoneHandSnapshotToStep(
+          state,
+          options.queuedResolutionStep,
+          playerId || String((options.queuedResolutionStep as any)?.playerId || ''),
+        )
       : undefined;
 
   if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) {
@@ -30,11 +39,10 @@ export function appendQueuedResolutionPromptEvent(
   }
 
   try {
-    const remainingLibraryIds = options.playerId
+    const remainingLibraryIds = playerId
       ? (() => {
-        const pid = String(options.playerId || '').trim();
-        const lib = (ctx as any).libraries?.get?.(pid)
-          ?? (ctx.state as any)?.zones?.[pid]?.library
+        const lib = (ctx as any).libraries?.get?.(playerId)
+          ?? (ctx.state as any)?.zones?.[playerId]?.library
           ?? [];
         return Array.isArray(lib)
           ? lib.map((card: any) => String(card?.id || '')).filter(Boolean)
@@ -43,7 +51,7 @@ export function appendQueuedResolutionPromptEvent(
       : undefined;
 
     appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (ctx.state as any)?.seq ?? 0), 'resolveTopOfStackPrompt', {
-      playerId: String(options.playerId || '').trim(),
+      playerId,
       sourceId: String(options.sourceId || '').trim(),
       ...(Array.isArray(remainingLibraryIds) ? { remainingLibraryIds } : {}),
       ...(queuedResolutionSteps.length > 0

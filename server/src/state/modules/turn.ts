@@ -1412,7 +1412,7 @@ function checkPendingInteractions(ctx: GameContext): {
             .filter((c: any) => c && c.id)
             .map((c: any) => ({
               id: String(c.id),
-              label: String(c.name || 'Unknown'),
+              label: String(c.name || c.label || 'Unknown'),
               imageUrl: c.imageUrl || c.image_url || c.image_uris?.normal,
             }));
 
@@ -1421,6 +1421,10 @@ function checkPendingInteractions(ctx: GameContext): {
             continue;
           }
 
+          const zoneHandSnapshot = handCards
+            .filter((c: any) => c && typeof c === 'object' && c.id)
+            .map((c: any) => ({ ...c, zone: 'hand' }));
+
           ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.DISCARD_SELECTION,
             playerId: pid as any,
@@ -1428,6 +1432,7 @@ function checkPendingInteractions(ctx: GameContext): {
             description: `Cleanup: discard ${discardCount} card(s) to maximum hand size.`,
             mandatory: true,
             hand: handOptions,
+            zoneHandSnapshot,
             discardCount,
             currentHandSize: handOptions.length,
             maxHandSize,
@@ -5110,13 +5115,19 @@ function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInterac
       .filter((c: any) => c && c.id)
       .map((c: any) => ({
         id: String(c.id),
-        label: String(c.name || 'Unknown'),
+        label: String(c.name || c.label || 'Unknown'),
         imageUrl: c.imageUrl || c.image_url || c.image_uris?.normal,
       }));
 
     if (handOptions.length === 0) {
       return { needsInteraction: false, discardCount: 0 };
     }
+
+    // Full zone cards for integrity if this step is ever persisted/replayed.
+    // `hand` stays ChoiceOptions for the discard UI (must include every hand card).
+    const zoneHandSnapshot = hand
+      .filter((c: any) => c && typeof c === 'object' && c.id)
+      .map((c: any) => ({ ...c, zone: 'hand' }));
 
     // Queue cleanup discard selection via Resolution Queue
     ResolutionQueueManager.addStep(gameId, {
@@ -5126,6 +5137,7 @@ function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInterac
       description: `Cleanup: discard ${discardCount} card(s) to maximum hand size (${maxHandSize}).`,
       mandatory: true,
       hand: handOptions,
+      zoneHandSnapshot,
       discardCount,
       currentHandSize: handOptions.length,
       maxHandSize,

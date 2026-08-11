@@ -219,8 +219,18 @@ export function HandGallery(props: HandGalleryProps) {
 
       {/* Visible cards */}
       {visibleCards.map((c, i) => {
-        const isKnown = (c as KnownCardRef).name !== undefined && !(c as any).faceDown;
-        const kc = isKnown ? c as KnownCardRef : null;
+        const raw = c as any;
+        // ChoiceOption-shaped stubs ({ label, imageUrl }) can leak into hand after bad replay;
+        // still treat them as displayable so the gallery is not blank "Card" tiles.
+        const displayName = String(raw?.name || raw?.label || '').trim();
+        const isKnown = Boolean(displayName) && !raw?.faceDown;
+        const kc = isKnown
+          ? ({
+              ...raw,
+              name: displayName,
+              image_uris: raw?.image_uris || (raw?.imageUrl ? { normal: raw.imageUrl, small: raw.imageUrl } : undefined),
+            } as KnownCardRef)
+          : null;
         const name = kc?.name || 'Card';
         const tl = kc ? getTypeLine(kc) : undefined;
         const img = kc ? getPrimaryCardImageUrl(kc, imagePref) : null;
