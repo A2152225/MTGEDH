@@ -401,7 +401,7 @@ export function AutoPassSettingsPanel({
                 </div>
               </label>
               <p style={{ fontSize: 9, color: '#666', margin: '6px 0 0', lineHeight: 1.3 }}>
-                Automatically accept free optional &quot;you may&quot; triggers (e.g. gain 1 life). Still asks for &quot;If you do&quot; follow-ups like draw-then-discard. Per-card Always Yes/No is still available on each prompt.
+                Only auto-accepts purely beneficial freebies (gain life / draw). Still asks for targeting, costs, Aura Shards, loot, etc. Skips life-gain auto-yes if gain would be prevented or reversed (e.g. Plague Drone). Skips draw auto-yes when it would exceed max hand size unless you have no maximum (Reliquary Tower, Venser&apos;s Journal, etc.). Per-card Always Yes/No remains available on each prompt.
               </p>
             </div>
           )}

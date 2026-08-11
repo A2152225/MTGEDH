@@ -3,6 +3,8 @@ import {
   type ResolutionStep,
 } from '../resolution/index.js';
 import { getSavedMayAbilityTriggerDecision } from '../../socket/trigger-shortcuts.js';
+import { checkLifeGainPrevention } from '../utils.js';
+import { getMaxHandSizeForPlayer } from '../modules/handSizeUtils.js';
 import { readEffectProgramQueueMetadata } from './effectProgramQueueAdapter.js';
 import {
   buildOptionalEffectKey as buildNormalizedOptionalEffectKey,
@@ -42,27 +44,52 @@ export function isOptionalEffectProgramChoiceStep(step: ResolutionStep): boolean
   return (step as any).optionalTriggeredAbilityPrompt === true || (step as any).mayAbilityPrompt === true;
 }
 
+function normalizeOptionalDecisionCore(text: string): string {
+  return String(text || '')
+    .replace(/\u2019/g, "'")
+    .replace(/^you may[:\s]+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.?!]+$/g, '')
+    .trim()
+    .toLowerCase();
+}
+
 /**
- * Global Auto-Yes Optional is for freebies (gain life, pure draw). Suppress it when the
- * optional text has an "If you do" follow-up, a player cost (discard/sac/pay/exile), or
- * requires choosing a target (Aura Shards — even with one legal target you may want No).
+ * Global Auto-Yes Optional is intentionally narrow: only pure freebies with no
+ * targeting, costs, or "If you do" follow-ups. Everything else stays a player choice.
  * Per-card Always Yes / Yes×N / trigger shortcuts still apply.
  */
-export function optionalEffectTextHasConsequentialFollowUp(text: string): boolean {
-  const normalized = String(text || '').replace(/\u2019/g, "'").trim();
-  if (!normalized) return false;
-  if (/\bif you do\b/i.test(normalized)) return true;
-  // Targeting mays always need a decision — sole legal target can be your own permanent.
-  if (/\btarget\b/i.test(normalized)) return true;
-  if (/\b(?:destroy|exile|sacrifice|bounce|return)\b/i.test(normalized)) return true;
-  if (/\byou may\b[\s\S]{0,120}\b(?:discard|sacrifice|pay|exile)\b/i.test(normalized)) return true;
+export function isPurelyBeneficialOptionalEffectText(text: string): boolean {
+  const full = String(text || '').replace(/\u2019/g, "'").trim();
+  if (!full) return false;
+  // Multi-clause / consequential templates never qualify.
+  if (/\bif you do\b/i.test(full)) return false;
+  if (/\btarget\b/i.test(full)) return false;
+
+  const core = normalizeOptionalDecisionCore(full);
+  if (!core || /\./.test(core)) return false; // multiple sentences after normalize
+
+  if (/^gain (?:a |an |\d+ |one |two |three |four |five |six |seven |eight |nine |ten )?life$/.test(core)) {
+    return true;
+  }
+  if (/^draw (?:a|an|\d+|one|two|three|four|five|six|seven|eight|nine|ten) cards?$/.test(core)) {
+    return true;
+  }
   return false;
+}
+
+/** @deprecated Use isPurelyBeneficialOptionalEffectText — kept for older test names. */
+export function optionalEffectTextHasConsequentialFollowUp(text: string): boolean {
+  return !isPurelyBeneficialOptionalEffectText(text);
 }
 
 function collectOptionalStepDecisionText(step: ResolutionStep): string {
   const stepData = step as any;
+  // Prefer the short effect clause; fall back to description fragments.
+  const primary = extractOptionalEffectText(step);
+  if (primary) return primary;
   return [
-    extractOptionalEffectText(step),
     String(step.description || ''),
     String(stepData?.effectText || ''),
     String(stepData?.fullAbilityText || ''),
@@ -117,11 +144,111 @@ export function optionalYesLeadsToFurtherPlayerChoice(
   return false;
 }
 
-export function shouldSuppressGlobalAutoYesOptional(
+function lifeGainIsSafeToAutoYes(state: any, playerId: string): boolean {
+  try {
+    const check = checkLifeGainPrevention(state, playerId);
+    // Plague Drone / Tainted Remedy: gain becomes loss — must ask.
+    if (check.reversedToLoss) return false;
+    // Sulfuric Vortex / Erebos: can't gain — auto-yes is a no-op; still ask.
+    if (check.prevented) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const DRAW_COUNT_WORDS: Record<string, number> = {
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
+export function parseOptionalDrawCount(text: string): number | undefined {
+  const core = normalizeOptionalDecisionCore(text);
+  const match = core.match(/^draw (a|an|\d+|one|two|three|four|five|six|seven|eight|nine|ten) cards?$/);
+  if (!match) return undefined;
+  const token = String(match[1] || '').toLowerCase();
+  if (/^\d+$/.test(token)) {
+    const n = Number(token);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }
+  return DRAW_COUNT_WORDS[token];
+}
+
+function getPlayerHandCount(state: any, playerId: string): number {
+  const zoneHand = state?.zones?.[playerId]?.hand;
+  if (Array.isArray(zoneHand)) return zoneHand.length;
+  const zoneCount = Number(state?.zones?.[playerId]?.handCount);
+  if (Number.isFinite(zoneCount) && zoneCount >= 0) return zoneCount;
+  const player = Array.isArray(state?.players)
+    ? state.players.find((entry: any) => entry?.id === playerId)
+    : undefined;
+  if (Array.isArray(player?.hand)) return player.hand.length;
+  return 0;
+}
+
+/**
+ * Optional draws are only auto-yes safe when they won't force a later hand-size
+ * discard (unless Reliquary Tower / Venser's Journal / similar removes the cap).
+ */
+export function drawIsSafeToAutoYes(state: any, playerId: string, effectText: string): boolean {
+  try {
+    const drawCount = parseOptionalDrawCount(effectText);
+    if (!drawCount) return false;
+
+    const maxHandSize = getMaxHandSizeForPlayer(state, playerId);
+    if (maxHandSize === Infinity) return true;
+
+    const handCount = getPlayerHandCount(state, playerId);
+    return handCount + drawCount <= maxHandSize;
+  } catch {
+    return false;
+  }
+}
+
+export function isGlobalAutoYesOptionalEligible(
+  state: any,
+  playerId: string,
   step: ResolutionStep,
   programSteps?: readonly { id?: string; kind?: string; guard?: { bindingKey?: string; selectionIncludes?: string }; command?: { kind?: string } }[],
 ): boolean {
-  if (optionalEffectTextHasConsequentialFollowUp(collectOptionalStepDecisionText(step))) {
+  const effectText = collectOptionalStepDecisionText(step);
+  if (!isPurelyBeneficialOptionalEffectText(effectText)) {
+    return false;
+  }
+  if (optionalYesLeadsToFurtherPlayerChoice(step, programSteps)) {
+    return false;
+  }
+  if (/\bgain\b[\s\S]*\blife\b/i.test(effectText) && !lifeGainIsSafeToAutoYes(state, playerId)) {
+    return false;
+  }
+  if (/\bdraw\b/i.test(effectText) && !drawIsSafeToAutoYes(state, playerId, effectText)) {
+    return false;
+  }
+  return true;
+}
+
+/** @deprecated Prefer isGlobalAutoYesOptionalEligible (whitelist). */
+export function shouldSuppressGlobalAutoYesOptional(
+  step: ResolutionStep,
+  programSteps?: readonly { id?: string; kind?: string; guard?: { bindingKey?: string; selectionIncludes?: string }; command?: { kind?: string } }[],
+  state?: any,
+  playerId?: string,
+): boolean {
+  if (state && playerId) {
+    return !isGlobalAutoYesOptionalEligible(state, playerId, step, programSteps);
+  }
+  // Text-only fallback used by older unit tests without game state.
+  if (!isPurelyBeneficialOptionalEffectText(collectOptionalStepDecisionText(step))) {
     return true;
   }
   return optionalYesLeadsToFurtherPlayerChoice(step, programSteps);
@@ -173,7 +300,7 @@ export function resolveOptionalAutoChoice(
   if (triggerDecision === 'no') return 'no';
 
   if (state?.autoYesOptional?.[playerId] === true) {
-    if (shouldSuppressGlobalAutoYesOptional(step, options?.programSteps)) {
+    if (!isGlobalAutoYesOptionalEligible(state, playerId, step, options?.programSteps)) {
       return undefined;
     }
     return 'yes';

@@ -6,9 +6,9 @@ import {
 } from '../../shared/src/optionalEffectKey.js';
 import {
   buildOptionalEffectKey as buildStepOptionalEffectKey,
-  optionalEffectTextHasConsequentialFollowUp,
+  isGlobalAutoYesOptionalEligible,
+  isPurelyBeneficialOptionalEffectText,
   resolveOptionalAutoChoice,
-  shouldSuppressGlobalAutoYesOptional,
 } from '../src/state/effects/effectProgramOptionalAutoResolveUtils.js';
 import { ResolutionStepType, type ResolutionStep } from '../src/state/resolution/index.js';
 
@@ -101,8 +101,8 @@ describe('optional effect key normalization', () => {
       autoYesOptional: { p1: true },
     };
 
-    expect(optionalEffectTextHasConsequentialFollowUp(step.effectText as string)).toBe(true);
-    expect(shouldSuppressGlobalAutoYesOptional(step)).toBe(true);
+    expect(isPurelyBeneficialOptionalEffectText(step.effectText as string)).toBe(false);
+    expect(isGlobalAutoYesOptionalEligible(state, 'p1', step)).toBe(false);
     expect(resolveOptionalAutoChoice(state, 'p1', step)).toBeUndefined();
   });
 
@@ -126,12 +126,12 @@ describe('optional effect key normalization', () => {
       autoYesOptional: { p1: true },
     };
 
-    expect(optionalEffectTextHasConsequentialFollowUp(step.effectText as string)).toBe(true);
-    expect(shouldSuppressGlobalAutoYesOptional(step)).toBe(true);
+    expect(isPurelyBeneficialOptionalEffectText(step.effectText as string)).toBe(false);
+    expect(isGlobalAutoYesOptionalEligible(state, 'p1', step)).toBe(false);
     expect(resolveOptionalAutoChoice(state, 'p1', step)).toBeUndefined();
   });
 
-  it('still globally auto-yeses free optional life gain', () => {
+  it('globally auto-yeses free optional life gain when safe', () => {
     const step = {
       id: 'step-life',
       type: ResolutionStepType.OPTION_CHOICE,
@@ -148,8 +148,115 @@ describe('optional effect key normalization', () => {
 
     const state: any = {
       autoYesOptional: { p1: true },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      battlefield: [],
     };
 
+    expect(isPurelyBeneficialOptionalEffectText('you may gain 1 life.')).toBe(true);
+    expect(resolveOptionalAutoChoice(state, 'p1', step)).toBe('yes');
+  });
+
+  it('does not globally auto-yes life gain under Plague Drone', () => {
+    const step = {
+      id: 'step-life-plague',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: 'p1',
+      sourceName: 'Judge of Currents',
+      description: 'Judge of Currents: you may gain 1 life.',
+      mandatory: false,
+      effectProgramPrompt: true,
+      effectProgramId: 'prog-life-plague',
+      effectProgramStepId: 'may-choice',
+      effectProgramBindingKey: 'prog-life-plague:may',
+      effectProgramCursor: 0,
+    } as ResolutionStep;
+
+    const state: any = {
+      autoYesOptional: { p1: true },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      battlefield: [
+        {
+          id: 'plague_drone_1',
+          controller: 'p2',
+          owner: 'p2',
+          card: {
+            name: 'Plague Drone',
+            type_line: 'Creature — Demon',
+            oracle_text:
+              'Flying\nRot Fly — If an opponent would gain life, that player loses that much life instead.',
+          },
+        },
+      ],
+    };
+
+    expect(isGlobalAutoYesOptionalEligible(state, 'p1', step)).toBe(false);
+    expect(resolveOptionalAutoChoice(state, 'p1', step)).toBeUndefined();
+  });
+
+  it('does not globally auto-yes draw when at max hand size', () => {
+    const step = {
+      id: 'step-draw-full',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: 'p1',
+      sourceName: 'Fallowsage',
+      description: 'Fallowsage: you may draw a card.',
+      mandatory: false,
+      effectProgramPrompt: true,
+      effectProgramId: 'prog-draw-full',
+      effectProgramStepId: 'may-choice',
+      effectProgramBindingKey: 'prog-draw-full:may',
+      effectProgramCursor: 0,
+    } as ResolutionStep;
+
+    const state: any = {
+      autoYesOptional: { p1: true },
+      players: [{ id: 'p1', hand: Array.from({ length: 7 }, (_, i) => ({ id: `h${i}` })) }],
+      zones: {
+        p1: { hand: Array.from({ length: 7 }, (_, i) => ({ id: `h${i}` })), handCount: 7 },
+      },
+      battlefield: [],
+    };
+
+    expect(isGlobalAutoYesOptionalEligible(state, 'p1', step)).toBe(false);
+    expect(resolveOptionalAutoChoice(state, 'p1', step)).toBeUndefined();
+  });
+
+  it('globally auto-yeses draw at max hand size with Reliquary Tower', () => {
+    const step = {
+      id: 'step-draw-tower',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: 'p1',
+      sourceName: 'Fallowsage',
+      description: 'Fallowsage: you may draw a card.',
+      mandatory: false,
+      effectProgramPrompt: true,
+      effectProgramId: 'prog-draw-tower',
+      effectProgramStepId: 'may-choice',
+      effectProgramBindingKey: 'prog-draw-tower:may',
+      effectProgramCursor: 0,
+    } as ResolutionStep;
+
+    const state: any = {
+      autoYesOptional: { p1: true },
+      players: [{ id: 'p1', hand: Array.from({ length: 7 }, (_, i) => ({ id: `h${i}` })) }],
+      zones: {
+        p1: { hand: Array.from({ length: 7 }, (_, i) => ({ id: `h${i}` })), handCount: 7 },
+      },
+      battlefield: [
+        {
+          id: 'tower_1',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            name: 'Reliquary Tower',
+            type_line: 'Land',
+            oracle_text: 'You have no maximum hand size.\n{T}: Add {C}.',
+          },
+        },
+      ],
+    };
+
+    expect(isGlobalAutoYesOptionalEligible(state, 'p1', step)).toBe(true);
     expect(resolveOptionalAutoChoice(state, 'p1', step)).toBe('yes');
   });
 
