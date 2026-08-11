@@ -99,8 +99,22 @@ export function cardMeetsPlayFromExileConditions(state: any, card: any, playerId
   return true;
 }
 
+/** True when a resolved Adventure is in exile waiting for its permanent half to be cast. */
+export function isCardOnAdventureForPlayer(card: any, playerId: PlayerID): boolean {
+  if (!card || typeof card !== 'object') return false;
+  const onAdventure = (card as any).onAdventure === true || (card as any).adventureUsed === true;
+  if (!onAdventure) return false;
+  const caster = String((card as any).adventureCaster || '').trim();
+  if (!caster) return true;
+  return caster === String(playerId || '');
+}
+
 export function cardAllowsPlayerToPlayFromExile(card: any, playerId: PlayerID, currentTurn: number, state?: any): boolean {
   if (!card || typeof card !== 'object') return false;
+
+  if (isCardOnAdventureForPlayer(card, playerId)) {
+    return state ? cardMeetsPlayFromExileConditions(state, card, playerId) : true;
+  }
 
   if ((card as any).isWarped === true || (card as any).exiledBecauseWarped === true) {
     return canCastWarpedCardFromExile(card, playerId, currentTurn)
@@ -207,6 +221,9 @@ export function stripPlayableFromExileTags(card: any): void {
     delete (card as any).canBePlayedBy;
     delete (card as any).playableUntilTurn;
     delete (card as any).playFromExileRequiresControllerPlaneswalkerNameIncludes;
+    delete (card as any).onAdventure;
+    delete (card as any).adventureUsed;
+    delete (card as any).adventureCaster;
   } catch {
     // ignore
   }

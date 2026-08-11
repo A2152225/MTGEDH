@@ -71,8 +71,17 @@ function parseExileAbilities(card: KnownCardRef): ExileAbility[] {
     });
   }
   
-  if ((card as any).layout === 'adventure' || oracleText.includes('adventure')) {
-    abilities.push({ id: 'adventure', label: 'Adventure', description: 'Cast adventure half from exile' });
+  // After the adventure resolves, only the permanent half is castable from exile.
+  if (
+    ((card as any).layout === 'adventure' || oracleText.includes('adventure'))
+    && ((card as any).onAdventure === true || (card as any).adventureUsed === true)
+  ) {
+    abilities.push({
+      id: 'adventure-creature',
+      label: 'Cast Creature',
+      description: 'Cast permanent half from exile',
+      cost: card.mana_cost,
+    });
   }
   
   if (oracleText.includes('plot')) {

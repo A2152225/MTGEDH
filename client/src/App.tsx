@@ -3344,7 +3344,11 @@ export function App() {
             ? String((step as any).wardPermanentName || (step as any).cardName || step.sourceName || 'Ward')
             : String((step as any).cardName || step.sourceName || 'Spell'),
           manaCost: String((step as any).wardCost || (step as any).manaCost || ''),
-          fromZone: isWardPayment ? undefined : (((step as any).fromZone != null ? String((step as any).fromZone) : undefined) as any),
+          // Default hand so CastSpellModal hides graveyard-only alts (flashback, etc.)
+          // even if a payment step omitted fromZone.
+          fromZone: isWardPayment
+            ? undefined
+            : ((String((step as any).fromZone || 'hand') as 'hand' | 'graveyard' | 'exile' | 'library' | 'command')),
           oracleText: isWardPayment
             ? String(step.description || '')
             : String((step as any).oracleText || ''),
@@ -5633,10 +5637,14 @@ export function App() {
     }
 
     // Most "cast/play from exile" permissions are handled via the normal cast request.
+    // On-adventure cards cast the permanent face (faceIndex 0).
     requestCastSpellWithPromptSync({
       gameId: safeView.id,
       cardId,
       fromZone: 'exile',
+      ...((abilityId === 'adventure-creature' || abilityId === 'adventure')
+        ? { faceIndex: 0 }
+        : {}),
     });
   };
 
@@ -7844,7 +7852,7 @@ export function App() {
         open={castSpellModalOpen}
         cardName={spellToCast?.cardName || ''}
         manaCost={spellToCast?.manaCost}
-        castFromZone={spellToCast?.fromZone}
+        castFromZone={spellToCast?.fromZone ?? 'hand'}
         oracleText={spellToCast?.oracleText}
         forcedAlternateCostId={spellToCast?.forcedAlternateCostId}
         preferredAlternateCostId={(spellToCast as any)?.preferredAlternateCostId}

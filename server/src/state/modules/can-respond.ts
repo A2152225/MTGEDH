@@ -37,7 +37,7 @@ import { getCurrentGoaders } from "./goad-effects.js";
 import { isAbilityActivationProhibitedByChosenName, isSpellCastingProhibitedByChosenName } from "./chosen-name-restrictions.js";
 import { canActivateLoyaltyAtInstantSpeed } from "./triggered-abilities.js";
 import { canPayCounterRemovalCost } from "./counter-removal-costs.js";
-import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard } from "./playable-from-exile.js";
+import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard, isCardOnAdventureForPlayer } from "./playable-from-exile.js";
 import { getDurableCommandZonePermissionForCard, playerHasDurableLandPlayPermission } from "./durable-permissions";
 
 function cardHasSplitSecond(card: any): boolean {
@@ -164,7 +164,7 @@ export function getHandCastEvaluationCards(card: any): any[] {
 export type SharedSpellSourceZone = 'hand' | 'graveyard' | 'exile' | 'library';
 export type SharedSpellCandidateMode = 'main' | 'response' | 'sorcery';
 export type SharedSpellCandidatePayability = 'normal' | 'alternate' | 'assumed';
-export type SharedSpellCastMethod = 'normal' | 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize' | 'foretell' | 'playable_from_exile' | 'graveyard_permanent';
+export type SharedSpellCastMethod = 'normal' | 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize' | 'foretell' | 'playable_from_exile' | 'adventure_creature' | 'graveyard_permanent' | 'graveyard_adventure';
 export type SharedLandSourceZone = SharedSpellSourceZone;
 
 export interface SharedSourceGrantedAdditionalCost {
@@ -194,6 +194,8 @@ export interface SharedSpellCastCandidate {
   graveyardPermissionId?: string;
   graveyardPermissionSourceName?: string;
   graveyardPermissionCostMode?: GraveyardCastingPermissionCostMode;
+  /** Mosswood-style: permission only allows casting the Adventure face. */
+  castAsAdventureOnly?: boolean;
   libraryPermissionCostMode?: string;
 }
 
@@ -1139,6 +1141,7 @@ function getSpecificSpellFromGraveyardPermission(
   graveyardPermissionId?: string;
   graveyardPermissionSourceName?: string;
   graveyardPermissionCostMode?: GraveyardCastingPermissionCostMode;
+  castAsAdventureOnly?: boolean;
 } {
   try {
     const state = ctx?.state as any;
@@ -1167,6 +1170,7 @@ function getSpecificSpellFromGraveyardPermission(
         graveyardPermissionId: firstClassPermission.id,
         ...(firstClassPermission.sourceName ? { graveyardPermissionSourceName: firstClassPermission.sourceName } : {}),
         graveyardPermissionCostMode: firstClassPermission.costMode || 'normal',
+        ...(firstClassPermission.castAsAdventureOnly === true ? { castAsAdventureOnly: true } : {}),
       };
     }
 
@@ -1487,6 +1491,7 @@ export function getCastableSpellCandidates(
         let graveyardPermissionId: string | undefined;
         let graveyardPermissionSourceName: string | undefined;
         let graveyardPermissionCostMode: GraveyardCastingPermissionCostMode | undefined;
+        let castAsAdventureOnly = false;
         let libraryPermissionCostMode: string | undefined;
         let spendManaAsThoughAnyType = false;
 
@@ -1519,7 +1524,15 @@ export function getCastableSpellCandidates(
             if (!specificPermission.allowed) {
               continue;
             }
-            castMethod = 'graveyard_permanent';
+            // Adventure-only GY permissions (Mosswood): only the Adventure face is legal.
+            if (specificPermission.castAsAdventureOnly === true) {
+              if (castCard?.castAsAdventure !== true && Number(castCard?.faceIndex) !== 1) {
+                continue;
+              }
+              castMethod = 'graveyard_adventure';
+            } else {
+              castMethod = 'graveyard_permanent';
+            }
             exileAfterResolution = specificPermission.exileAfterResolution === true;
             leaveBattlefieldReplacementDestination = specificPermission.leaveBattlefieldReplacementDestination;
             leaveBattlefieldReplacementSourceName = specificPermission.leaveBattlefieldReplacementSourceName;
@@ -1531,8 +1544,15 @@ export function getCastableSpellCandidates(
             if (graveyardPermissionCostMode === 'without_paying_mana_cost') {
               manaCost = '';
             }
+            castAsAdventureOnly = specificPermission.castAsAdventureOnly === true;
           }
         } else if (sourceZone === 'exile') {
+          const onAdventure = isCardOnAdventureForPlayer(card, playerId);
+          // On-adventure cards may only cast the permanent/creature face from exile.
+          if (onAdventure && (castCard?.castAsAdventure === true || Number(castCard?.faceIndex) === 1)) {
+            continue;
+          }
+
           const exileInfo = hasForetellOrCanCastFromExile(card);
           const exileCardId = String(card?.id || castCard?.id || castCard?.name || '');
           const playableFromExile = isCardPlayableFromExile(exilePermissions, exileCardId, currentTurn)
@@ -1549,7 +1569,10 @@ export function getCastableSpellCandidates(
             || (durablePermission?.metadata as any)?.spendManaAsThoughAnyType === true;
           grantsFlash = durableGrantsFlash;
 
-          if (exileInfo.hasIt) {
+          if (onAdventure) {
+            castMethod = 'adventure_creature';
+            manaCost = String(castCard?.mana_cost || castCard?.manaCost || '');
+          } else if (exileInfo.hasIt) {
             if (exileInfo.cost && !castWithoutPayingManaCost) {
               castMethod = 'foretell';
               manaCost = exileInfo.cost;
@@ -1641,6 +1664,7 @@ export function getCastableSpellCandidates(
             ...(graveyardPermissionId ? { graveyardPermissionId } : {}),
             ...(graveyardPermissionSourceName ? { graveyardPermissionSourceName } : {}),
             ...(graveyardPermissionCostMode ? { graveyardPermissionCostMode } : {}),
+            ...(castAsAdventureOnly ? { castAsAdventureOnly: true } : {}),
             ...(libraryPermissionCostMode ? { libraryPermissionCostMode } : {}),
           });
           continue;
@@ -1659,6 +1683,7 @@ export function getCastableSpellCandidates(
             payability: 'alternate',
             manaCost,
             grantsFlash,
+            ...(castAsAdventureOnly ? { castAsAdventureOnly: true } : {}),
             ...(libraryPermissionCostMode ? { libraryPermissionCostMode } : {}),
           });
         }
@@ -2652,7 +2677,10 @@ function hasExileActivatedAbility(ctx: GameContext, playerId: PlayerID, card: an
   }
   
   // Adventure - can cast creature from exile after adventure
-  if ((card.layout === 'adventure' || oracleText.includes('adventure')) && card.adventureUsed) {
+  if (
+    (card.layout === 'adventure' || oracleText.includes('adventure'))
+    && (card.onAdventure === true || card.adventureUsed === true)
+  ) {
     return true;
   }
   

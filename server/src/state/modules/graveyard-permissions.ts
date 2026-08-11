@@ -99,6 +99,8 @@ export interface GraveyardCastingPermission {
   additionalCost?: GraveyardCastingPermissionAdditionalCost;
   usageLimit?: GraveyardCastingPermissionUsageLimit;
   replacement?: GraveyardCastingPermissionReplacement;
+  /** Only the Adventure face may be cast (e.g. Mosswood Dreadknight dies trigger). */
+  castAsAdventureOnly?: boolean;
 }
 
 export type GraveyardGrantKeyword = 'flashback' | 'unearth' | 'jump-start' | 'retrace' | 'escape' | 'harmonize' | 'embalm';
@@ -304,6 +306,7 @@ function durablePermissionToGraveyardCastingPermission(permission: DurablePermis
         ...(permission.replacement.sourceName ? { sourceName: permission.replacement.sourceName } : {}),
       },
     } : {}),
+    ...((permission.metadata as any)?.castAsAdventureOnly === true ? { castAsAdventureOnly: true } : {}),
   };
 }
 
@@ -549,6 +552,7 @@ export function addGraveyardCastingPermission(
     ...(permission.additionalCost ? { additionalCost: { ...permission.additionalCost } } : {}),
     ...(permission.usageLimit ? { usageLimit: { ...permission.usageLimit } } : {}),
     ...(permission.replacement ? { replacement: { ...permission.replacement } } : {}),
+    ...(permission.castAsAdventureOnly === true ? { castAsAdventureOnly: true } : {}),
   };
 
   state.graveyardCastingPermissions = getGraveyardCastingPermissions(state).filter((existing) => existing?.id !== entry.id);
@@ -567,6 +571,7 @@ export function addGraveyardCastingPermission(
     additionalCost: entry.additionalCost,
     usageLimit: entry.usageLimit,
     replacement: entry.replacement,
+    castAsAdventureOnly: entry.castAsAdventureOnly === true,
   }));
   return entry;
 }
@@ -591,6 +596,7 @@ export function mirrorGraveyardCastingPermissionsToDurable(state: any): void {
       additionalCost: permission.additionalCost,
       usageLimit: permission.usageLimit,
       replacement: permission.replacement,
+      castAsAdventureOnly: permission.castAsAdventureOnly === true,
     }));
   }
 }
@@ -874,6 +880,8 @@ function markSourceCardPlayableFromGraveyardThisTurn(
     sourceText?: string;
     costMode?: GraveyardCastingPermissionCostMode;
     replacement?: GraveyardCastingPermissionReplacement;
+    duration?: GraveyardCastingPermissionDuration;
+    castAsAdventureOnly?: boolean;
   },
 ): number {
   const cardId = getCardId(sourceCard);
@@ -884,7 +892,9 @@ function markSourceCardPlayableFromGraveyardThisTurn(
     return 0;
   }
 
-  const playableUntilTurn = Number(state.turnNumber ?? state.turn ?? 0) || 0;
+  const turnApplied = Number(state.turnNumber ?? state.turn ?? 0) || 0;
+  const duration = normalizeGraveyardPermissionDuration(options?.duration || 'this_turn');
+  const playableUntilTurn = duration === 'until_end_of_next_turn' ? turnApplied + 1 : turnApplied;
   let updated = 0;
 
   for (const graveyard of getPlayerGraveyardCollections(state, playerId)) {
@@ -896,6 +906,7 @@ function markSourceCardPlayableFromGraveyardThisTurn(
       zone: 'graveyard',
       canBePlayedBy: String(playerId),
       playableUntilTurn,
+      ...(options?.castAsAdventureOnly === true ? { castAsAdventureOnly: true } : {}),
     };
     updated += 1;
   }
@@ -919,10 +930,11 @@ function markSourceCardPlayableFromGraveyardThisTurn(
       cardIds: [cardId],
     },
     costMode: options?.costMode || 'normal',
-    duration: 'this_turn',
-    turnApplied: playableUntilTurn,
+    duration,
+    turnApplied,
     usageLimit: { type: 'once', maxUses: 1 },
     ...(options?.replacement ? { replacement: { ...options.replacement } } : {}),
+    ...(options?.castAsAdventureOnly === true ? { castAsAdventureOnly: true } : {}),
   });
 
   return 1;
@@ -1424,14 +1436,18 @@ export function applyPlayableFromGraveyardPermissionFromText(
     if (!text || !/\bgraveyard\b/i.test(text)) return 0;
 
     const hasTemporaryWindow = /\bthis turn\b/i.test(text)
-      || /^\s*until end of turn\b/i.test(text)
-      || /^\s*until end of your next turn\b/i.test(text);
+      || /\buntil end of turn\b/i.test(text)
+      || /\buntil (?:the )?end of your next turn\b/i.test(text);
 
     if (/\bit'?s your turn\b/i.test(text) && !isPlayersTurn(state, playerId)) {
       return 0;
     }
 
-    const grantsCastPermission = /\byou may cast (?:it|this card) from your graveyard this turn\b/i.test(text);
+    // Mosswood Dreadknight / Hildibrand: cast from GY as an Adventure until end of next turn.
+    const grantsAdventureCastPermission = /\byou may cast (?:it|this card) from your graveyard as an Adventure until (?:the )?end of your next turn\b/i.test(text);
+    const grantsCastPermission = grantsAdventureCastPermission
+      || /\byou may cast (?:it|this card) from your graveyard this turn\b/i.test(text)
+      || /\byou may cast (?:it|this card) from your graveyard until (?:the )?end of (?:turn|your next turn)\b/i.test(text);
     const grantsPlayPermission = !grantsCastPermission
       && /\byou may play (?:it|this card) from your graveyard this turn\b/i.test(text);
     const grantsTurnLongGraveyardExileReplacement =
@@ -1518,6 +1534,11 @@ export function applyPlayableFromGraveyardPermissionFromText(
       }
       if (!sourceCard) return 0;
 
+      const duration: GraveyardCastingPermissionDuration = grantsAdventureCastPermission
+        || /\buntil (?:the )?end of your next turn\b/i.test(text)
+        ? 'until_end_of_next_turn'
+        : 'this_turn';
+
       return markSourceCardPlayableFromGraveyardThisTurn(
         state,
         playerId,
@@ -1528,6 +1549,8 @@ export function applyPlayableFromGraveyardPermissionFromText(
           ...(sourceCardName ? { sourceName: sourceCardName } : {}),
           sourceText: text,
           costMode,
+          duration,
+          ...(grantsAdventureCastPermission ? { castAsAdventureOnly: true } : {}),
           ...((grantsCastPermission && spellReplacement) ? { replacement: spellReplacement } : {}),
         },
       );

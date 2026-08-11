@@ -67,7 +67,8 @@ import { calculateSneakOptions, canCastWithSneakAtCurrentTiming, validateSneakRe
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
 import { getDeclarativeLeaveBattlefieldReplacementHint } from "../state/modules/leaveBattlefieldReplacementHint.js";
-import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, cleanupCardLeavingExile, findPlayableExileCardForPlayer, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard } from "../state/modules/playable-from-exile.js";
+import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, cleanupCardLeavingExile, findPlayableExileCardForPlayer, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard, isCardOnAdventureForPlayer } from "../state/modules/playable-from-exile.js";
+import { getMatchingGraveyardCastingPermission } from "../state/modules/graveyard-permissions.js";
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { buildCostAdjustmentPlan, buildLiveSpellCostAdjustment } from "../state/modules/cost-adjustments.js";
@@ -704,10 +705,12 @@ function buildAlternateCostPaymentExtrasForCast(
     });
   }
 
+  // Hand-cast payment extras only. Graveyard-only keywords (flashback, disturb,
+  // escape, retrace, harmonize, jump-start) must not appear here — those are
+  // offered when casting from the graveyard via the shared GY cast path.
   const genericKeywordIds = [
     'dash', 'blitz', 'mutate', 'surge', 'spectacle', 'prowl', 'bestow', 'emerge', 'evoke',
-    'overload', 'craft', 'cleave', 'ninjutsu', 'foretell', 'suspend', 'madness', 'miracle',
-    'disturb', 'escape', 'flashback', 'retrace', 'harmonize', 'jump-start',
+    'overload', 'craft', 'cleave', 'ninjutsu', 'miracle',
   ] as const;
 
   const genericLabels: Record<string, { label: string; description: string }> = {
@@ -724,16 +727,7 @@ function buildAlternateCostPaymentExtrasForCast(
     craft: { label: 'Craft', description: 'Cast for craft cost' },
     cleave: { label: 'Cleave', description: 'Cast for cleave cost' },
     ninjutsu: { label: 'Ninjutsu', description: 'Cast for ninjutsu cost' },
-    foretell: { label: 'Foretell', description: 'Cast for foretell cost' },
-    suspend: { label: 'Suspend', description: 'Cast for suspend cost' },
-    madness: { label: 'Madness', description: 'Cast for madness cost' },
     miracle: { label: 'Miracle', description: 'Cast for miracle cost' },
-    disturb: { label: 'Disturb', description: 'Cast for disturb cost' },
-    escape: { label: 'Escape', description: 'Cast for escape cost' },
-    flashback: { label: 'Flashback', description: 'Cast for flashback cost' },
-    retrace: { label: 'Retrace', description: 'Cast for retrace cost' },
-    harmonize: { label: 'Harmonize', description: 'Cast for harmonize cost' },
-    'jump-start': { label: 'Jump-start', description: 'Cast for jump-start cost' },
   };
 
   for (const keywordId of genericKeywordIds) {
@@ -5793,6 +5787,47 @@ function buildSelectedSpellFace(card: any, face: any, faceIndex: number, extras?
   };
 }
 
+/**
+ * Adventure cards: on-adventure exile casts must use the permanent face;
+ * Mosswood-style GY permissions must use the Adventure face.
+ */
+function resolveAdventureAwareFaceIndex(
+  game: any,
+  playerId: string,
+  card: any,
+  castSourceZone: SpellCastSourceZone,
+  faceIndex: number | undefined,
+): { faceIndex?: number; error?: { code: string; message: string } } {
+  if (castSourceZone === 'exile' && isCardOnAdventureForPlayer(card, playerId as PlayerID)) {
+    if (typeof faceIndex === 'number' && faceIndex !== 0) {
+      return {
+        error: {
+          code: 'INVALID_FACE_INDEX',
+          message: 'While on an adventure, only the permanent half can be cast from exile.',
+        },
+      };
+    }
+    return { faceIndex: 0 };
+  }
+
+  if (castSourceZone === 'graveyard') {
+    const permission = getMatchingGraveyardCastingPermission(game?.state, playerId as PlayerID, card, 'cast');
+    if (permission?.castAsAdventureOnly === true) {
+      if (typeof faceIndex === 'number' && faceIndex !== 1) {
+        return {
+          error: {
+            code: 'INVALID_FACE_INDEX',
+            message: 'You may only cast that card from your graveyard as an Adventure.',
+          },
+        };
+      }
+      return { faceIndex: 1 };
+    }
+  }
+
+  return { faceIndex };
+}
+
 function resolveSelectedSpellCard(card: any, faceIndex?: number): { card: any; faceIndex?: number; castAsAdventure?: boolean } {
   if (!card || typeof card === 'string') {
     return { card, faceIndex };
@@ -6071,15 +6106,28 @@ export async function requestCastSpellForSocket(
       }
     }
 
-    if (faceIndex !== undefined && (!Array.isArray(cardFaces) || faceIndex < 0 || faceIndex >= cardFaces.length)) {
+    const adventureFace = resolveAdventureAwareFaceIndex(
+      game,
+      String(playerId),
+      cardInHand,
+      castSourceZone,
+      faceIndex,
+    );
+    if (adventureFace.error) {
+      socket.emit('error', adventureFace.error);
+      return;
+    }
+    const effectiveFaceIndex = adventureFace.faceIndex;
+
+    if (effectiveFaceIndex !== undefined && (!Array.isArray(cardFaces) || effectiveFaceIndex < 0 || effectiveFaceIndex >= cardFaces.length)) {
       socket.emit("error", {
         code: "INVALID_FACE_INDEX",
-        message: `Invalid face index: ${faceIndex}`,
+        message: `Invalid face index: ${effectiveFaceIndex}`,
       });
       return;
     }
 
-    const selectedSpell = resolveSelectedSpellCard(cardInHand, faceIndex);
+    const selectedSpell = resolveSelectedSpellCard(cardInHand, effectiveFaceIndex);
     const cardForCast = selectedSpell.card;
     const selectedFaceIndex = selectedSpell.faceIndex;
     if (options?.exileAfterResolution === true) {
@@ -9038,15 +9086,27 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       const rawCardFaces = Array.isArray((cardInHand as any)?.card_faces) ? (cardInHand as any).card_faces : [];
-      if (faceIndex !== undefined && (!Array.isArray((cardInHand as any)?.card_faces) || faceIndex < 0 || faceIndex >= rawCardFaces.length)) {
+      const adventureFace = resolveAdventureAwareFaceIndex(
+        game,
+        String(playerId),
+        cardInHand,
+        castSourceZone,
+        faceIndex,
+      );
+      if (adventureFace.error) {
+        socket.emit('error', adventureFace.error);
+        return;
+      }
+      const effectiveFaceIndex = adventureFace.faceIndex;
+      if (effectiveFaceIndex !== undefined && (!Array.isArray(rawCardFaces) || effectiveFaceIndex < 0 || effectiveFaceIndex >= rawCardFaces.length)) {
         socket.emit("error", {
           code: "INVALID_FACE_INDEX",
-          message: `Invalid face index: ${faceIndex}`,
+          message: `Invalid face index: ${effectiveFaceIndex}`,
         });
         return;
       }
 
-      const selectedSpell = resolveSelectedSpellCard(cardInHand, faceIndex);
+      const selectedSpell = resolveSelectedSpellCard(cardInHand, effectiveFaceIndex);
       const selectedFaceIndex = selectedSpell.faceIndex;
       const castAsAdventure = selectedSpell.castAsAdventure;
       cardInHand = selectedSpell.card;

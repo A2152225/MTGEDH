@@ -228,22 +228,20 @@ export function moveResolvedInstantOrSorceryAfterResolution(
 
   if (layout === 'adventure' && wasAdventure) {
     playerZones.exile = playerZones.exile || [];
-    (playerZones.exile as any[]).push({
+    const exiledAdventureCard = {
       ...card,
       zone: 'exile',
       onAdventure: true,
+      // Legacy alias — some playability checks historically looked for adventureUsed.
+      adventureUsed: true,
       adventureCaster: controller,
-    });
+    };
+    (playerZones.exile as any[]).push(exiledAdventureCard);
     playerZones.exileCount = (playerZones.exile as any[]).length;
     debug(2, `[moveResolvedInstantOrSorceryAfterResolution] Adventure spell ${effectiveCard?.name || 'unnamed'} resolved and exiled for ${controller}`);
     persistMoveResolvedInstantOrSorceryEvent(ctx, {
       controller,
-      card: {
-        ...card,
-        zone: 'exile',
-        onAdventure: true,
-        adventureCaster: controller,
-      },
+      card: exiledAdventureCard,
       destination: 'exile',
     });
     return;

@@ -399,6 +399,7 @@ export function buildDurableGraveyardPermission(args: {
   };
   sourceText?: string;
   additionalCost?: DurableGraveyardPermissionAdditionalCost;
+  castAsAdventureOnly?: boolean;
 }): DurablePermission {
   const affectedCardIds = Array.isArray(args.cardFilter?.cardIds)
     ? args.cardFilter.cardIds.map((cardId) => String(cardId || '').trim()).filter(Boolean)
@@ -429,6 +430,7 @@ export function buildDurableGraveyardPermission(args: {
     metadata: {
       graveyardPermissionId: args.id,
       ...(args.additionalCost ? { additionalCost: { ...args.additionalCost } } : {}),
+      ...(args.castAsAdventureOnly === true ? { castAsAdventureOnly: true } : {}),
     },
     debug: {
       reason: `${args.permission}_from_graveyard`,

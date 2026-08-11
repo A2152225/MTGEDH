@@ -163,7 +163,10 @@ function parseZoneAbilities(card: KnownCardRef, zone: ZoneType): Array<{ id: str
       });
     }
     // Adventure (can cast creature from exile after adventure)
-    if ((card as any).layout === 'adventure' || oracleText.includes('adventure')) {
+    if (
+      ((card as any).layout === 'adventure' || oracleText.includes('adventure'))
+      && ((card as any).onAdventure === true || (card as any).adventureUsed === true)
+    ) {
       abilities.push({
         id: 'adventure-creature',
         label: 'Cast Creature',

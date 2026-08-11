@@ -180,7 +180,24 @@ describe('resolveEffectiveManaCostForCastStep', () => {
     );
     expect(costs.some((cost) => cost.id === 'flashback')).toBe(true);
     expect(filterAlternateCostsForCastZone(costs, 'hand').some((cost) => cost.id === 'flashback')).toBe(false);
+    expect(filterAlternateCostsForCastZone(costs, undefined).some((cost) => cost.id === 'flashback')).toBe(false);
     expect(filterAlternateCostsForCastZone(costs, 'graveyard').map((cost) => cost.id)).toEqual(['flashback']);
+  });
+
+  it('hides jump-start / retrace / harmonize from non-graveyard cast zones', () => {
+    const costs = [
+      { id: 'normal', label: 'Normal', manaCost: '{1}{U}', isDefault: true },
+      { id: 'jump-start', label: 'Jump-start', manaCost: '{1}{U}' },
+      { id: 'retrace', label: 'Retrace', manaCost: '{1}{U}' },
+      { id: 'harmonize', label: 'Harmonize', manaCost: '{1}{U}' },
+    ];
+    const handIds = filterAlternateCostsForCastZone(costs, 'hand').map((c) => c.id);
+    expect(handIds).toEqual(['normal']);
+    expect(filterAlternateCostsForCastZone(costs, 'graveyard').map((c) => c.id)).toEqual([
+      'jump-start',
+      'retrace',
+      'harmonize',
+    ]);
   });
 
   it('offers Free Cast for commander-gated free spells with a clear description', () => {

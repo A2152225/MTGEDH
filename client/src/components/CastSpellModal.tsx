@@ -458,7 +458,15 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
   return costs;
 }
 
-const GRAVEYARD_ONLY_ALTERNATE_COST_IDS = new Set(['flashback', 'disturb', 'escape', 'unearth']);
+const GRAVEYARD_ONLY_ALTERNATE_COST_IDS = new Set([
+  'flashback',
+  'disturb',
+  'escape',
+  'unearth',
+  'retrace',
+  'harmonize',
+  'jump-start',
+]);
 
 /** Filter alternate costs by the zone the spell is being cast from. */
 export function filterAlternateCostsForCastZone(
@@ -473,6 +481,7 @@ export function filterAlternateCostsForCastZone(
     }
     return graveyardCosts;
   }
+  // Hand / exile / library / command: never offer graveyard-only cast keywords.
   return costs.filter((cost) => !GRAVEYARD_ONLY_ALTERNATE_COST_IDS.has(cost.id));
 }
 
