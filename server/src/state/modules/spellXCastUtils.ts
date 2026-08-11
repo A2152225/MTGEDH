@@ -103,6 +103,9 @@ export function isSpellWorthCastingAtX(oracleText: string, xValue: number): bool
     /\bscry\s+X\b/i,
     /\bmill\s+X\b/i,
     /\bgets?\s+X\s+\+1\/\+1\b/i,
+    // Astral Cornucopia / similar: worthless at X=0 (no charge counters).
+    /\benters(?:\s+the\s+battlefield)?\s+with\s+X\s+charge\s+counters?\b/i,
+    /\bwith\s+X\s+charge\s+counters?\s+on\s+it\b/i,
   ];
 
   if (xOnlyEffectPatterns.some((pattern) => pattern.test(text))) {

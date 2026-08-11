@@ -1179,5 +1179,356 @@ describe('AI shared spell-payment integration', () => {
     expect(Number((game.state as any).manaPool[playerId].green || 0)).toBe(2);
     expect(getEvents(gameId)).toEqual([]);
   });
+
+  it('batches free lands before Three Tree City and prefers the multi-mana invest line', async () => {
+    const gameId = createTestGameId('three_tree_city_invest');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'forest_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'forest_card_1',
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '({T}: Add {G}.)',
+        },
+      },
+      {
+        id: 'forest_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'forest_card_2',
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '({T}: Add {G}.)',
+        },
+      },
+      {
+        id: 'three_tree_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        chosenCreatureType: 'Elf',
+        card: {
+          id: 'three_tree_card_1',
+          name: 'Three Tree City',
+          type_line: 'Legendary Land',
+          oracle_text:
+            'As Three Tree City enters, choose a creature type.\n' +
+            '{T}: Add {C}.\n' +
+            '{2}, {T}: Choose a color. Add an amount of mana of that color equal to the number of creatures you control of the chosen type.',
+        },
+      },
+      ...Array.from({ length: 4 }, (_, index) => ({
+        id: `elf_${index + 1}`,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: `elf_card_${index + 1}`,
+          name: `Elf ${index + 1}`,
+          type_line: 'Creature — Elf',
+          oracle_text: '',
+          power: '1',
+          toughness: '1',
+        },
+      })),
+    ];
+
+    // {3}{G} needs 4 mana. Two Forests float the {2} activation; Three Tree then makes 4{G}.
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{3}{G}',
+      totalManaCost: '{3}{G}',
+    });
+
+    expect(plan).not.toBeNull();
+    const payment = plan?.payment || [];
+    const threeTreePayment = payment.find((entry) => entry.permanentId === 'three_tree_1');
+    expect(threeTreePayment).toBeTruthy();
+    expect(String(threeTreePayment?.abilityId || '')).toContain('three_tree_card_1-ability-1');
+    expect(String(threeTreePayment?.mana || '').toUpperCase()).toBe('G');
+
+    const threeTreeIndex = payment.findIndex((entry) => entry.permanentId === 'three_tree_1');
+    const forestIndexes = payment
+      .map((entry, index) => (String(entry.permanentId || '').startsWith('forest_') ? index : -1))
+      .filter((index) => index >= 0);
+    expect(forestIndexes.length).toBeGreaterThanOrEqual(2);
+    expect(Math.max(...forestIndexes)).toBeLessThan(threeTreeIndex);
+  });
+
+  it('uses Nyx Lotus devotion choose-a-color mana for spell payment', async () => {
+    const gameId = createTestGameId('nyx_lotus_devotion');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'nyx_lotus_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'nyx_lotus_card_1',
+          name: 'Nyx Lotus',
+          type_line: 'Legendary Artifact',
+          mana_cost: '{4}',
+          oracle_text:
+            'Nyx Lotus enters tapped.\n{T}: Choose a color. Add an amount of mana of that color equal to your devotion to that color.',
+        },
+      },
+      ...Array.from({ length: 3 }, (_, index) => ({
+        id: `devotion_creature_${index + 1}`,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: `devotion_creature_card_${index + 1}`,
+          name: `Devoted Elf ${index + 1}`,
+          type_line: 'Creature — Elf',
+          mana_cost: '{G}{G}',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      })),
+    ];
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{3}{G}',
+      totalManaCost: '{3}{G}',
+    });
+
+    expect(plan).not.toBeNull();
+    const payment = plan?.payment || [];
+    expect(payment.some((entry) => entry.permanentId === 'nyx_lotus_1')).toBe(true);
+    const nyxPayment = payment.find((entry) => entry.permanentId === 'nyx_lotus_1');
+    expect(String(nyxPayment?.mana || '').toUpperCase()).toBe('G');
+  });
+
+  it('uses charged Astral Cornucopia choose-a-color mana for spell payment', async () => {
+    const gameId = createTestGameId('astral_cornucopia_charged');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'cornucopia_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: { charge: 3 },
+        card: {
+          id: 'cornucopia_card_1',
+          name: 'Astral Cornucopia',
+          type_line: 'Artifact',
+          mana_cost: '{X}{X}{X}',
+          oracle_text:
+            'This artifact enters with X charge counters on it.\n{T}: Choose a color. Add one mana of that color for each charge counter on this artifact.',
+        },
+      },
+    ];
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{2}{G}',
+      totalManaCost: '{2}{G}',
+    });
+
+    expect(plan).not.toBeNull();
+    expect(plan?.payment).toEqual([
+      expect.objectContaining({
+        permanentId: 'cornucopia_1',
+        mana: 'G',
+      }),
+    ]);
+  });
+
+  it('uses transformed Itlimoc multi-creature green mana for spell payment', async () => {
+    const gameId = createTestGameId('itlimoc_cradle');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'itlimoc_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'itlimoc_card_1',
+          name: 'Itlimoc, Cradle of the Sun',
+          type_line: 'Legendary Land',
+          oracle_text:
+            '(Transforms from Growing Rites of Itlimoc.)\n{T}: Add {G}.\n{T}: Add {G} for each creature you control.',
+        },
+      },
+      ...Array.from({ length: 4 }, (_, index) => ({
+        id: `beast_${index + 1}`,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: `beast_card_${index + 1}`,
+          name: `Beast ${index + 1}`,
+          type_line: 'Creature — Beast',
+          mana_cost: '{G}',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      })),
+    ];
+
+    // Four creatures → Itlimoc makes {G}{G}{G}{G}, enough for {3}{G} alone.
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{3}{G}',
+      totalManaCost: '{3}{G}',
+    });
+
+    expect(plan).not.toBeNull();
+    const payment = plan?.payment || [];
+    expect(payment.some((entry) => entry.permanentId === 'itlimoc_1')).toBe(true);
+    expect(payment.every((entry) => entry.permanentId === 'itlimoc_1')).toBe(true);
+    expect(String(payment[0]?.mana || '').toUpperCase()).toBe('G');
+  });
 });
 

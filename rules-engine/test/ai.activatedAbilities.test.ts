@@ -336,6 +336,59 @@ describe('AI Activated Abilities', () => {
       expect(decision.action?.activate).toBe(false);
     });
 
+    it('should not tap lands for mana just because the hand has cards that cost mana', async () => {
+      const swamp: BattlefieldPermanent = {
+        id: 'swamp_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          name: 'Swamp',
+          type_line: 'Basic Land — Swamp',
+          oracle_text: '({T}: Add {B}.)',
+        },
+      };
+
+      const gameState: Partial<GameState> = {
+        phase: 'BEGINNING',
+        step: 'upkeep',
+        turnPlayer: playerId,
+        priority: playerId,
+        battlefield: [swamp],
+        stack: [],
+        players: [
+          {
+            id: playerId,
+            name: 'AI',
+            life: 40,
+            hand: [
+              {
+                id: 'attrition_1',
+                name: 'Attrition',
+                type_line: 'Enchantment',
+                mana_cost: '{1}{B}{B}',
+                cmc: 3,
+              },
+            ],
+            battlefield: [],
+          } as any,
+          { id: opponentId, name: 'Opponent', life: 40, hand: [], battlefield: [] } as any,
+        ],
+      };
+
+      const context: AIDecisionContext = {
+        gameState: gameState as GameState,
+        playerId,
+        decisionType: AIDecisionType.ACTIVATE_ABILITY,
+        options: [],
+      };
+
+      const decision = await aiEngine.makeDecision(context);
+      expect(decision.action?.activate).toBe(false);
+    });
+
     it('should preserve voltron commanders from precombat tap abilities', async () => {
       const specializedEngine = new AIEngine();
       specializedEngine.registerAI({

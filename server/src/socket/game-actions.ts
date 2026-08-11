@@ -64,6 +64,11 @@ import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcu
 import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, parseWarpCost, parseKeywordAlternateManaCost, getValidMutateTargets, hasSelfWUBRGAlternateCost, getExternalWUBRGSource, buildCommanderFreeCastPaymentExtras, getForceOfWillAlternateCost, cardIsBlueForPitchCost } from "../state/modules/alternate-costs.js";
 import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
 import { calculateSneakOptions, canCastWithSneakAtCurrentTiming, validateSneakReturnedCreature, applySneakReturnedCreatureCost, parseSneakCost } from "../state/modules/sneakCastUtils.js";
+import {
+  expandManaCostWithMultikicker,
+  getMultikickerChargeEntryCounters,
+  parseMultikickerManaCost,
+} from "../state/modules/multikickerCastUtils.js";
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
 import { getDeclarativeLeaveBattlefieldReplacementHint } from "../state/modules/leaveBattlefieldReplacementHint.js";
@@ -5892,6 +5897,7 @@ export async function requestCastSpellForSocket(
     bypassExilePermissionCheck?: boolean;
     ignoreTimingRestrictions?: boolean;
     xValue?: number;
+    timesKicked?: number;
     librarySearchStepToResume?: any;
   }
 ): Promise<void> {
@@ -6370,6 +6376,29 @@ export async function requestCastSpellForSocket(
     const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
     const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested, selectedModes, selectedAdditionalCostModes, cardName).toLowerCase();
     const chosenXValue = Number.isFinite(options?.xValue) ? Math.max(0, Math.floor(Number(options?.xValue))) : undefined;
+    const multikickerCost = parseMultikickerManaCost(String(cardInHand?.oracle_text || oracleTextRaw || ''));
+    const chosenTimesKicked = Number.isFinite(options?.timesKicked)
+      ? Math.max(0, Math.floor(Number(options?.timesKicked)))
+      : (Number.isFinite((cardInHand as any)?.timesKicked)
+        ? Math.max(0, Math.floor(Number((cardInHand as any).timesKicked)))
+        : undefined);
+    if (multikickerCost && chosenTimesKicked != null && chosenTimesKicked > 0) {
+      const stampMultikickerCast = (card: any) => {
+        if (!card || typeof card !== 'object') return;
+        card.timesKicked = chosenTimesKicked;
+        card.kickerPaidCount = chosenTimesKicked;
+        card.wasKicked = true;
+        const entryCounters = getMultikickerChargeEntryCounters(String(card?.oracle_text || cardInHand?.oracle_text || ''), chosenTimesKicked);
+        if (entryCounters) {
+          card.entersBattlefieldWithCounters = {
+            ...(card.entersBattlefieldWithCounters || {}),
+            ...entryCounters,
+          };
+        }
+      };
+      stampMultikickerCast(cardInHand);
+      stampMultikickerCast(cardForCast);
+    }
 
     if (overloadCost && !overloadRequested) {
       const existing = ResolutionQueueManager
@@ -6623,7 +6652,11 @@ export async function requestCastSpellForSocket(
       return;
     }
 
-    const resolvedManaCost = expandManaCostWithChosenX(manaCost, chosenXValue);
+    const resolvedManaCost = expandManaCostWithMultikicker(
+      expandManaCostWithChosenX(manaCost, chosenXValue),
+      multikickerCost,
+      chosenTimesKicked ?? 0,
+    );
 
     // Check if this spell requires targets
     const isAura = spellTypeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
@@ -7533,6 +7566,7 @@ export async function requestCastSpellForSocket(
       playerId,
       faceIndex: selectedFaceIndex,
       xValue: chosenXValue,
+      ...(chosenTimesKicked != null ? { timesKicked: chosenTimesKicked } : {}),
       selectedModes: Array.isArray((cardForCast as any).selectedModes) ? [...((cardForCast as any).selectedModes as string[])] : undefined,
       selectedAdditionalCostModes: Array.isArray((cardForCast as any).selectedAdditionalCostModes)
         ? [...((cardForCast as any).selectedAdditionalCostModes as string[])]
@@ -8853,6 +8887,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     skipInteractivePrompts?: unknown;
       skipPriorityCheck?: unknown;
     xValue?: unknown;
+    timesKicked?: unknown;
     alternateCostId?: unknown;
     selectedCastMode?: unknown;
     convokeTappedCreatures?: unknown;
@@ -8875,6 +8910,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       const skipInteractivePrompts = payload?.skipInteractivePrompts === true;
         const skipPriorityCheck = payload?.skipPriorityCheck === true;
       const xValue = typeof payload?.xValue === 'number' && Number.isFinite(payload.xValue) ? payload.xValue : undefined;
+      const timesKickedFromPayload = typeof payload?.timesKicked === 'number' && Number.isFinite(payload.timesKicked)
+        ? Math.max(0, Math.floor(payload.timesKicked))
+        : undefined;
       const alternateCostId = typeof payload?.alternateCostId === 'string' ? payload.alternateCostId : undefined;
       const selectedCastMode = payload?.selectedCastMode === 'normal' || payload?.selectedCastMode === 'overload'
         ? payload.selectedCastMode
@@ -9110,6 +9148,26 @@ export function registerGameActions(io: Server, socket: Socket) {
       const selectedFaceIndex = selectedSpell.faceIndex;
       const castAsAdventure = selectedSpell.castAsAdventure;
       cardInHand = selectedSpell.card;
+      const resolvedTimesKicked = timesKickedFromPayload != null
+        ? timesKickedFromPayload
+        : (Number.isFinite((cardInHand as any)?.timesKicked)
+          ? Math.max(0, Math.floor(Number((cardInHand as any).timesKicked)))
+          : undefined);
+      if (resolvedTimesKicked != null && resolvedTimesKicked > 0) {
+        (cardInHand as any).timesKicked = resolvedTimesKicked;
+        (cardInHand as any).kickerPaidCount = resolvedTimesKicked;
+        (cardInHand as any).wasKicked = true;
+        const entryCounters = getMultikickerChargeEntryCounters(
+          String(cardInHand?.oracle_text || ''),
+          resolvedTimesKicked,
+        );
+        if (entryCounters) {
+          (cardInHand as any).entersBattlefieldWithCounters = {
+            ...((cardInHand as any).entersBattlefieldWithCounters || {}),
+            ...entryCounters,
+          };
+        }
+      }
       const skipsSharedGraveyardPermissionCheck = alternateCostId === 'free'
         || (cardInHand as any).castWithoutPayingManaCost === true;
       const sharedGraveyardCandidate = castSourceZone === 'graveyard' && !ignoreTimingRestrictions && !skipsSharedGraveyardPermissionCheck
@@ -11119,7 +11177,11 @@ export function registerGameActions(io: Server, socket: Socket) {
                     : (castSourceZone === 'command' ? (commandZoneManaCost || '') : (graveyardCastManaCost || cardInHand.mana_cost || "")),
         spellModeAdditionalCost,
       );
-      const manaCost = expandManaCostWithChosenX(rawManaCost, xValue);
+      const manaCost = expandManaCostWithMultikicker(
+        expandManaCostWithChosenX(rawManaCost, xValue),
+        parseMultikickerManaCost(String(cardInHand?.oracle_text || '')),
+        resolvedTimesKicked ?? 0,
+      );
       const parsedCost = parseManaCost(manaCost);
       
       // Calculate cost reduction from battlefield effects
@@ -12539,6 +12601,17 @@ export function registerGameActions(io: Server, socket: Socket) {
               },
               targets: targets || [],
               xValue,
+              ...(resolvedTimesKicked != null && resolvedTimesKicked > 0
+                ? {
+                    timesKicked: resolvedTimesKicked,
+                    kickerPaidCount: resolvedTimesKicked,
+                    wasKicked: true,
+                  }
+                : {}),
+              ...((cardInHand as any).entersBattlefieldWithCounters
+                && typeof (cardInHand as any).entersBattlefieldWithCounters === 'object'
+                ? { entersBattlefieldWithCounters: { ...(cardInHand as any).entersBattlefieldWithCounters } }
+                : {}),
               ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
               ...(typeof castAsAdventure === 'boolean' ? { castAsAdventure } : {}),
               alternateCostId,
@@ -13856,6 +13929,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       let pendingIgnoreTimingRestrictions = false;
       let pendingAlternateCostId: string | undefined;
       let pendingXValue: number | undefined;
+      let pendingTimesKicked: number | undefined;
       let pendingFaceIndex: number | undefined;
       let pendingTargetGrouping: any;
       let suspendedLibrarySearchStep: any;
@@ -13892,6 +13966,11 @@ export function registerGameActions(io: Server, socket: Socket) {
             ? pendingCast.forcedAlternateCostId
             : (typeof pendingCast?.alternateCostId === 'string' ? pendingCast.alternateCostId : undefined);
           pendingXValue = Number.isFinite(pendingCast?.xValue) ? Math.max(0, Math.floor(Number(pendingCast.xValue))) : undefined;
+          pendingTimesKicked = Number.isFinite(pendingCast?.timesKicked)
+            ? Math.max(0, Math.floor(Number(pendingCast.timesKicked)))
+            : (Number.isFinite(pendingCast?.card?.timesKicked)
+              ? Math.max(0, Math.floor(Number(pendingCast.card.timesKicked)))
+              : undefined);
           pendingFaceIndex = Number.isFinite(pendingCast?.faceIndex) ? Number(pendingCast.faceIndex) : undefined;
           pendingTargetGrouping = pendingCast?.targetGrouping;
           deferredMadnessPromptStepsAfterCast = Array.isArray(pendingCast?.queuedMadnessStepsAfterCast)
@@ -13970,6 +14049,46 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
           } catch (e) {
             debugWarn(1, '[completeCastSpell] Failed to apply gift metadata:', e);
+          }
+        }
+
+        if (pendingTimesKicked != null && pendingTimesKicked > 0) {
+          try {
+            const zones = (game.state as any)?.zones?.[playerId];
+            const fromZone = normalizeSpellCastSourceZone(pendingCast?.fromZone) || 'hand';
+            const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
+            const exile: any[] = Array.isArray((zones as any)?.exile) ? (zones as any).exile : [];
+            const graveyard: any[] = Array.isArray((zones as any)?.graveyard) ? (zones as any).graveyard : [];
+            const library: any[] = Array.isArray((game.libraries as any)?.get?.(playerId))
+              ? (game.libraries as any).get(playerId)
+              : (Array.isArray((game.libraries as any)?.[playerId]) ? (game.libraries as any)[playerId] : []);
+            const sourceArr = fromZone === 'command'
+              ? getPlayerCommandZoneCards(game, String(playerId))
+              : fromZone === 'exile'
+                ? exile
+                : fromZone === 'graveyard'
+                  ? graveyard
+                  : fromZone === 'library'
+                    ? library
+                    : hand;
+            const cardObj = sourceArr.find((c: any) => c && String(c.id) === String(cardId));
+            if (cardObj) {
+              (cardObj as any).timesKicked = pendingTimesKicked;
+              (cardObj as any).kickerPaidCount = pendingTimesKicked;
+              (cardObj as any).wasKicked = true;
+              const entryCounters = getMultikickerChargeEntryCounters(
+                String(cardObj?.oracle_text || pendingCast?.card?.oracle_text || ''),
+                pendingTimesKicked,
+              );
+              if (entryCounters) {
+                (cardObj as any).entersBattlefieldWithCounters = {
+                  ...((cardObj as any).entersBattlefieldWithCounters || {}),
+                  ...entryCounters,
+                };
+              }
+            }
+          } catch (e) {
+            debugWarn(1, '[completeCastSpell] Failed to apply multikicker metadata:', e);
           }
         }
 
@@ -14080,6 +14199,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         skipInteractivePrompts: true,
         skipPriorityCheck: true,
         xValue: (xValue as number | undefined) ?? pendingXValue,
+        timesKicked: pendingTimesKicked,
         alternateCostId: (alternateCostId as string | undefined) ?? pendingAlternateCostId,
         convokeTappedCreatures: convokeTapped,
         harmonizeTappedCreatureId: harmonizeTappedCreatureId as string | undefined,

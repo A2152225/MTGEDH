@@ -72,6 +72,12 @@ import {
   getMaxAffordableSpellX,
   isSpellWorthCastingAtX,
 } from "../state/modules/spellXCastUtils.js";
+import {
+  chooseMultikickerTimesForChargeInvest,
+  expandManaCostWithMultikicker,
+  isMultikickerChargeCounterManaInvest,
+  parseMultikickerManaCost,
+} from "../state/modules/multikickerCastUtils.js";
 
 export function chooseAIXValueSelection(game: any, playerId: PlayerID, step: any): number {
   return chooseSpellXValueFromStep(game, playerId, step);
@@ -5053,6 +5059,7 @@ type AICastableSpellCandidate = {
   faceIndex?: number;
   cost: any;
   paymentCost?: any;
+  timesKicked?: number;
   cmc: number;
   typeLine: string;
   priority: number;
@@ -5356,6 +5363,13 @@ function canAIAssembleManaPaymentPlan(
   return !validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
 }
 
+function isAIPureManaAbilityAction(action: any): boolean {
+  const abilityText = String(action?.abilityText || '').trim();
+  if (!abilityText) return false;
+  // Mana abilities that only add mana (no targets) — not useful as a free-standing priority action.
+  return AI_MANA_ABILITY_PATTERN.test(abilityText) && !/target/i.test(abilityText);
+}
+
 function canAIActivateBattlefieldAbilityNow(
   game: any,
   playerId: PlayerID,
@@ -5365,6 +5379,13 @@ function canAIActivateBattlefieldAbilityNow(
   const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
   const permanent = battlefield.find((entry: any) => String(entry?.id || '') === String(action?.permanentId || ''));
   if (!permanent) {
+    return false;
+  }
+
+  // Never treat pure mana taps as activate-ability candidates. Floating mana empties
+  // between steps/phases unless retention effects apply; those (and spell payment taps)
+  // use dedicated paths that call executeAIActivateAbility directly.
+  if (isAIPureManaAbilityAction(action)) {
     return false;
   }
 
@@ -5804,11 +5825,10 @@ function getManaProduction(card: any): string[] {
 
 function getAIManaProductionOptions(game: any, playerId: PlayerID, permanent: any): string[] {
   let producedColors = getManaProduction(permanent?.card);
+  const cardName = String(permanent?.card?.name || '').toLowerCase();
+  const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
 
   if (producedColors.length === 0) {
-    const cardName = String(permanent?.card?.name || '').toLowerCase();
-    const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
-
     if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
         oracleText.includes('land an opponent controls')) {
       const opponentColors = new Set<string>();
@@ -5825,6 +5845,29 @@ function getAIManaProductionOptions(game: any, playerId: PlayerID, permanent: an
       }
 
       producedColors = Array.from(opponentColors);
+    }
+  }
+
+  // Choose-a-color dynamic taps (Nyx Lotus / Nykthos devotion, Three Tree City invest line, etc.).
+  // getManaProduction only sees fixed {WUBRGC} symbols, so expose WUBRG when the AI can pick a color.
+  const isChooseColorAmountMana =
+    (/choose a colou?r/i.test(oracleText) || /mana of that colou?r/i.test(oracleText))
+    && (
+      /add an amount of mana/i.test(oracleText)
+      || /add one mana of that colou?r/i.test(oracleText)
+      || /devotion to that colou?r/i.test(oracleText)
+      || /for each charge counter/i.test(oracleText)
+      || /equal to the number of creatures you control of the chosen type/i.test(oracleText)
+    );
+  const isThreeTreeInvestReady =
+    cardName.includes('three tree city')
+    && String(permanent?.chosenCreatureType || '').trim()
+    && /add an amount of mana of that colou?r/i.test(oracleText);
+  if (isChooseColorAmountMana || isThreeTreeInvestReady) {
+    producedColors = [...producedColors, 'W', 'U', 'B', 'R', 'G'];
+    const isLand = String(permanent?.card?.type_line || '').toLowerCase().includes('land');
+    if (/\badd\s*\{c\}/i.test(oracleText) || isLand) {
+      producedColors = [...producedColors, 'C'];
     }
   }
 
@@ -6067,6 +6110,8 @@ function hasManaAbility(card: any): boolean {
   if (oracleText.includes('{t}') && oracleText.includes('add {')) return true;
   if (oracleText.includes('{t}') && oracleText.includes('add one mana')) return true;
   if (oracleText.includes('{t}') && oracleText.includes('add mana')) return true;
+  // Nyx Lotus / similar: "{T}: Choose a color. Add an amount of mana of that color..."
+  if (oracleText.includes('{t}') && oracleText.includes('add an amount of mana')) return true;
 
   const nativeActivatedManaAbilityPattern = /(?:^|\r?\n|\.\s+)(?:\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:sacrifice|pay|discard|exile|remove|tap|untap)[^:]*?)?|(?:sacrifice|pay|discard|exile|remove|tap|untap)[^:]*?)\s*:\s*add\s+/i;
   if (nativeActivatedManaAbilityPattern.test(nativeOracleText) && !/target/i.test(oracleText)) {
@@ -6420,17 +6465,18 @@ function findCastableSpells(
       const excludedHandCardIds = candidate.sourceZone === 'hand'
         ? [String(candidate.card?.id || '').trim()].filter(Boolean)
         : [];
+      const oracleText = String(candidate.castCard?.oracle_text || candidate.castCard?.oracleText || '');
+      const baseManaCost = String(
+        candidate.manaCost
+        || candidate.castCard?.mana_cost
+        || candidate.castCard?.manaCost
+        || '',
+      ).trim();
+
       if (candidate.cost?.hasX) {
-        const manaCost = String(
-          candidate.manaCost
-          || candidate.castCard?.mana_cost
-          || candidate.castCard?.manaCost
-          || '',
-        ).trim();
-        const maxX = getMaxAffordableSpellX(game, playerId, manaCost, {
+        const maxX = getMaxAffordableSpellX(game, playerId, baseManaCost, {
           excludedHandCardIds,
         });
-        const oracleText = String(candidate.castCard?.oracle_text || candidate.castCard?.oracleText || '');
         if (!isSpellWorthCastingAtX(oracleText, maxX)) {
           debug(
             1,
@@ -6439,12 +6485,41 @@ function findCastableSpells(
           return false;
         }
       }
-      return canAIAssembleSpellPaymentPlan(game, playerId, candidate.payableCost || candidate.cost!, excludedHandCardIds);
+
+      let paymentCost = candidate.payableCost || candidate.cost!;
+      if (isMultikickerChargeCounterManaInvest(oracleText)) {
+        const timesKicked = chooseMultikickerTimesForChargeInvest(game, playerId, candidate.castCard || candidate.card, {
+          baseManaCost: baseManaCost || '{0}',
+          excludedHandCardIds,
+        });
+        if (timesKicked <= 0) {
+          debug(
+            1,
+            `[AI] findCastableSpells: Skipping ${candidate.castCard?.name || candidate.card?.name} because multikicker charge invest would enter with 0 counters`,
+          );
+          return false;
+        }
+        const expanded = expandManaCostWithMultikicker(
+          baseManaCost || '{0}',
+          parseMultikickerManaCost(oracleText),
+          timesKicked,
+        );
+        paymentCost = parseManaCost(expanded);
+        (candidate as any).__aiTimesKicked = timesKicked;
+        (candidate as any).__aiPaymentCost = paymentCost;
+      }
+
+      return canAIAssembleSpellPaymentPlan(game, playerId, paymentCost, excludedHandCardIds);
     })
     .map((candidate) => {
       const typeLine = String(candidate.castCard?.type_line || '').toLowerCase();
-      const cmc = candidate.cost!.generic + Object.values(candidate.cost!.colors).reduce((sum, count) => sum + count, 0);
-      const paymentCost = candidate.payableCost || candidate.cost;
+      const paymentCost = (candidate as any).__aiPaymentCost || candidate.payableCost || candidate.cost;
+      const timesKicked = Number.isFinite((candidate as any).__aiTimesKicked)
+        ? Math.max(0, Math.floor(Number((candidate as any).__aiTimesKicked)))
+        : undefined;
+      const cmc = paymentCost
+        ? Number(paymentCost.generic || 0) + Object.values(paymentCost.colors || {}).reduce((sum: number, count: any) => sum + Number(count || 0), 0)
+        : candidate.cost!.generic + Object.values(candidate.cost!.colors).reduce((sum, count) => sum + count, 0);
 
       return {
         card: candidate.card,
@@ -6453,6 +6528,7 @@ function findCastableSpells(
         faceIndex: typeof candidate.castCard?.faceIndex === 'number' ? candidate.castCard.faceIndex : undefined,
         cost: candidate.cost,
         paymentCost,
+        timesKicked,
         cmc,
         typeLine,
         priority: responseOnly
@@ -6693,6 +6769,7 @@ async function requestAISharedCast(
     cardName?: string;
     sourceZone: AICastRequestSourceZone;
     faceIndex?: number;
+    timesKicked?: number;
   },
 ): Promise<boolean> {
   const game = ensureGame(gameId);
@@ -6727,6 +6804,10 @@ async function requestAISharedCast(
       cardId,
       faceIndex: request.faceIndex,
       fromZone: request.sourceZone,
+    }, {
+      ...(Number.isFinite(request.timesKicked)
+        ? { timesKicked: Math.max(0, Math.floor(Number(request.timesKicked))) }
+        : {}),
     });
 
     await waitForAISharedCastToSettle(gameId, game, playerId, cardId, request.sourceZone, castSnapshotBefore);
@@ -7187,7 +7268,12 @@ function snapshotAIAbilityActivationState(
 
   function getAIManaAbilityCandidateColors(candidate: AIActivatedAbilityResolverCandidate): string[] {
     const effectText = String(candidate?.effect || candidate?.text || '');
-    if (/one mana of any color|any color of mana|mana of any one color|one mana of any type/i.test(effectText)) {
+    // Three Tree City / similar: "Choose a color. Add an amount of mana of that color..."
+    if (
+      /one mana of any color|any color of mana|mana of any one color|one mana of any type/i.test(effectText)
+      || /choose a colou?r/i.test(effectText)
+      || /mana of that colou?r/i.test(effectText)
+    ) {
       return ['W', 'U', 'B', 'R', 'G'];
     }
 
@@ -8448,12 +8534,9 @@ function aiSpellPaymentSourceHasUnsupportedAdditionalCosts(
 ): boolean {
   const costText = getAISpellPaymentSourceCostText(game, playerId, permanent, manaColor, abilityId);
   // Keep AI payment planning in lockstep with castSpellFromHand rejection rules.
+  // Mana symbols / {T}/{Q} are supported (e.g. Three Tree City "{2}, {T}") — paid from
+  // other sources in the same batched payment plan.
   if (paymentActivationCostHasUnsupportedAdditionalCosts(costText, String(permanent?.card?.name || ''))) {
-    return true;
-  }
-
-  const manaSymbols = costText.match(/\{[^}]+\}/g) || [];
-  if (manaSymbols.some((symbol) => !/^\{[tq]\}$/i.test(symbol))) {
     return true;
   }
 
@@ -8476,7 +8559,10 @@ function aiSpellPaymentSourceProducesUnsupportedMulticolor(
     const distinctSymbols = new Set(
       manaSymbols.map((token) => token.replace(/[{}]/g, '').toUpperCase())
     );
-    const isChoiceAbility = /\bor\b/.test(effectText) || /one mana of any color|any color of mana|mana of any one color|one mana of any type/i.test(effectText);
+    const isChoiceAbility = /\bor\b/.test(effectText)
+      || /one mana of any color|any color of mana|mana of any one color|one mana of any type/i.test(effectText)
+      || /choose a colou?r/i.test(effectText)
+      || /mana of that colou?r/i.test(effectText);
     if (!isChoiceAbility && (distinctSymbols.size > 1 || /mana in any combination/i.test(effectText))) {
       return true;
     }
@@ -8568,44 +8654,10 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
       // Creatures with summoning sickness can't tap for mana
       if (hasCreatureSummoningSickness(perm)) continue;
       
-      let producedColors = getManaProduction(perm.card);
-      
-      // Special handling for cards that produce mana based on opponents' lands
-      // (Exotic Orchard, Fellwar Stone, etc.)
-      if (producedColors.length === 0) {
-        const cardName = (perm.card?.name || '').toLowerCase();
-        const oracleText = (perm.card?.oracle_text || '').toLowerCase();
-        
-        if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
-            oracleText.includes('land an opponent controls')) {
-          // Determine what colors opponents' lands can produce
-          const opponentColors = new Set<string>();
-          
-          for (const opponentPerm of battlefield) {
-            if (!opponentPerm || opponentPerm.controller === playerId) continue;
-            
-            const opponentTypeLine = (opponentPerm.card?.type_line || '').toLowerCase();
-            if (!opponentTypeLine.includes('land')) continue;
-            
-            // Get what colors this opponent land produces
-            // Note: This might return empty for other Exotic Orchards, which is correct -
-            // you can't chain Exotic Orchards together
-            const opponentLandColors = getManaProduction(opponentPerm.card);
-            
-            // Skip lands that themselves need context (other Exotic Orchards, etc.)
-            if (opponentLandColors.length === 0) continue;
-            
-            opponentLandColors.forEach(c => opponentColors.add(c));
-          }
-          
-          producedColors = Array.from(opponentColors);
-        }
-      }
-      
+      const producedColors = getAIManaProductionOptions(game, playerId, perm);
       if (producedColors.length === 0) continue;
       
       const typeLine = (perm.card?.type_line || '').toLowerCase();
-      const oracleText = (perm.card?.oracle_text || '').toLowerCase();
       const isLand = typeLine.includes('land');
 
       availableSources.push({ perm, producedColors, isLand });
@@ -8645,12 +8697,68 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
         );
         if (!supportedSource) continue;
         const manaAmount = supportedSource.manaAmount;
+        const manaInfo = calculateManaProduction(game.state, source.perm, String(playerId), color, abilityId);
+        const activationCostText = String(manaInfo?.activationCost || '').trim();
+        const parsedActivation = activationCostText ? parseManaCost(activationCostText) : null;
+        const activationManaNeeded = parsedActivation
+          ? Number(parsedActivation.generic || 0)
+            + Object.values(parsedActivation.colors || {}).reduce((sum, amount) => sum + Number(amount || 0), 0)
+          : 0;
+        if (activationManaNeeded > 0) {
+          const freeCandidates = availableSources.filter((candidate) => {
+            if (usedSourceIds.has(candidate.perm.id) || reservedSacrificeIds.has(String(candidate.perm.id || ''))) {
+              return false;
+            }
+            if (String(candidate.perm.id || '') === String(source.perm.id || '')) return false;
+            const freeAbilityId = resolveAIPaymentManaAbilityId(game, playerId, candidate.perm, candidate.producedColors[0] || 'C');
+            const freeInfo = calculateManaProduction(
+              game.state,
+              candidate.perm,
+              String(playerId),
+              candidate.producedColors[0] || 'C',
+              freeAbilityId,
+            );
+            const freeActivation = String(freeInfo?.activationCost || '').trim();
+            const freeParsed = freeActivation ? parseManaCost(freeActivation) : null;
+            const freeActivationNeeded = freeParsed
+              ? Number(freeParsed.generic || 0)
+                + Object.values(freeParsed.colors || {}).reduce((sum, amount) => sum + Number(amount || 0), 0)
+              : 0;
+            return freeActivationNeeded === 0 && Number(freeInfo?.totalAmount || 0) > 0;
+          });
+          const freeSourcesRemaining = freeCandidates.length;
+          const freeManaRemaining = freeCandidates.reduce((sum, candidate) => {
+            const freeAbilityId = resolveAIPaymentManaAbilityId(game, playerId, candidate.perm, candidate.producedColors[0] || 'C');
+            const freeInfo = calculateManaProduction(
+              game.state,
+              candidate.perm,
+              String(playerId),
+              candidate.producedColors[0] || 'C',
+              freeAbilityId,
+            );
+            return sum + Number(freeInfo?.totalAmount || 0);
+          }, 0);
+          const unpaidColoredMana = Object.entries(cost.colors || {}).reduce((sum, [costColor, amount]) => {
+            const paid = Number(colorsPaid[costColor] || 0);
+            return sum + Math.max(0, Number(amount || 0) - paid);
+          }, 0);
+          const remainingSpellMana = unpaidColoredMana + Number(cost.generic || 0);
+          // If free taps already cover the rest of the spell, don't burn them on an invest line.
+          if (freeManaRemaining >= remainingSpellMana) continue;
+          // Three Tree / Nykthos-style invest lines need spare free taps to float their activation cost.
+          if (freeSourcesRemaining < activationManaNeeded) continue;
+          // Only prefer invest lines when they clearly beat tapping the same number of basics.
+          if (manaAmount <= activationManaNeeded) continue;
+        }
         
         // Score: prefer single-color lands, then single-color artifacts, then multi
         let score = 0;
         if (source.producedColors.length === 1) score += 10; // Single color is better
         if (source.isLand) score += 5; // Lands are slightly preferred over rocks
         score += Math.min(manaAmount, needed - colorsPaid[color]) * 20;
+        if (activationManaNeeded > 0) {
+          score += (manaAmount - activationManaNeeded) * 15;
+        }
         
         if (score > bestScore) {
           bestScore = score;
@@ -8748,8 +8856,66 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
     genericNeeded -= spendCount;
     genericPaid += spendCount;
   }
-  
-  return payments;
+
+  const getPaymentEntryActivationManaNeeded = (
+    entry: { sourceId: string; produceColor: string; abilityId?: string },
+  ): number => {
+    const permanent = battlefield.find((perm: any) => String(perm?.id || '') === String(entry.sourceId || ''));
+    if (!permanent) return 0;
+    const manaInfo = calculateManaProduction(
+      game.state,
+      permanent,
+      String(playerId),
+      entry.produceColor,
+      entry.abilityId,
+    );
+    const activationCostText = String(manaInfo?.activationCost || '').trim();
+    if (!activationCostText) return 0;
+    const parsedActivation = parseManaCost(activationCostText);
+    return Number(parsedActivation.generic || 0)
+      + Object.values(parsedActivation.colors || {}).reduce((sum, amount) => sum + Number(amount || 0), 0);
+  };
+
+  // Ensure invest-cost lines (Three Tree {2}{T}, Nykthos, etc.) have enough free taps in the
+  // same batched payment to float their activation cost.
+  const totalActivationManaNeeded = payments.reduce(
+    (sum, entry) => sum + getPaymentEntryActivationManaNeeded(entry),
+    0,
+  );
+  let freeSourcesInPayment = payments.filter((entry) => getPaymentEntryActivationManaNeeded(entry) === 0).length;
+  if (totalActivationManaNeeded > freeSourcesInPayment) {
+    const freeCandidates = availableSources
+      .filter((source) => !usedSourceIds.has(source.perm.id) && !reservedSacrificeIds.has(String(source.perm.id || '')))
+      .map((source) => {
+        const color = source.producedColors[0] || 'C';
+        const abilityId = resolveAIPaymentManaAbilityId(game, playerId, source.perm, color);
+        const manaInfo = calculateManaProduction(game.state, source.perm, String(playerId), color, abilityId);
+        const activationCostText = String(manaInfo?.activationCost || '').trim();
+        const parsedActivation = activationCostText ? parseManaCost(activationCostText) : null;
+        const activationNeeded = parsedActivation
+          ? Number(parsedActivation.generic || 0)
+            + Object.values(parsedActivation.colors || {}).reduce((sum, amount) => sum + Number(amount || 0), 0)
+          : 0;
+        return { source, color, abilityId, activationNeeded, amount: Number(manaInfo?.totalAmount || 0) };
+      })
+      .filter((entry) => entry.activationNeeded === 0 && entry.amount > 0);
+
+    for (const entry of freeCandidates) {
+      if (freeSourcesInPayment >= totalActivationManaNeeded) break;
+      usedSourceIds.add(entry.source.perm.id);
+      payments.push({
+        sourceId: entry.source.perm.id,
+        produceColor: entry.color,
+        ...(entry.abilityId ? { abilityId: entry.abilityId } : {}),
+      });
+      freeSourcesInPayment += 1;
+    }
+  }
+
+  // Batch payment order: float free taps first, then invest-cost lines.
+  return payments.sort(
+    (left, right) => getPaymentEntryActivationManaNeeded(left) - getPaymentEntryActivationManaNeeded(right),
+  );
 }
 
   function scoreAISacrificePermanentForManaAbility(game: any, playerId: PlayerID, permanent: any): number {
@@ -8875,7 +9041,29 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
     };
     const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
 
-    for (const source of paymentSources) {
+    // Process free taps before invest-cost lines so activation costs can be paid from
+    // mana floated earlier in the same batched payment (Three Tree City / Nykthos).
+    const orderedSources = [...paymentSources].sort((left, right) => {
+      const leftPermanent = battlefield.find((entry: any) => String(entry?.id || '') === String(left.sourceId || ''));
+      const rightPermanent = battlefield.find((entry: any) => String(entry?.id || '') === String(right.sourceId || ''));
+      const leftCost = String(calculateManaProduction(
+        game.state,
+        leftPermanent,
+        String(playerId),
+        left.produceColor,
+        left.abilityId,
+      )?.activationCost || '').trim();
+      const rightCost = String(calculateManaProduction(
+        game.state,
+        rightPermanent,
+        String(playerId),
+        right.produceColor,
+        right.abilityId,
+      )?.activationCost || '').trim();
+      return Number(Boolean(leftCost)) - Number(Boolean(rightCost));
+    });
+
+    for (const source of orderedSources) {
       const permanent = battlefield.find((entry: any) =>
         entry &&
         String(entry.id || '') === String(source.sourceId || '') &&
@@ -8885,6 +9073,21 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
       if (!permanent) continue;
 
       const manaInfo = calculateManaProduction(game.state, permanent, String(playerId), source.produceColor, source.abilityId);
+      const activationCostText = String(manaInfo?.activationCost || '').trim();
+      if (activationCostText) {
+        const parsedActivation = parseManaCost(activationCostText);
+        if (validateManaPayment(totalAvailable, parsedActivation.colors, parsedActivation.generic)) {
+          // Cannot pay this source's activation cost from floated mana — ignore it.
+          continue;
+        }
+        consumeManaFromPool(
+          totalAvailable,
+          parsedActivation.colors,
+          parsedActivation.generic,
+          `[aiSpellPaymentActivation:${String(permanent?.card?.name || source.sourceId)}]`,
+        );
+      }
+
       const poolKey = COLOR_IDENTITY_MAP[String(source.produceColor || '').toUpperCase()] || 'colorless';
       totalAvailable[poolKey] = Number(totalAvailable[poolKey] || 0) + Number(manaInfo.totalAmount || 0);
 
@@ -10607,6 +10810,7 @@ async function executeAICastSpell(
     sourceZone,
     faceIndex,
     cost: candidate.cost,
+    timesKicked: candidate.timesKicked,
   });
 
   return requestAISharedCast(io, gameId, playerId, {
@@ -10614,6 +10818,7 @@ async function executeAICastSpell(
     cardName: candidate.castCard?.name || card?.name,
     sourceZone,
     faceIndex,
+    timesKicked: candidate.timesKicked,
   });
 }
 
@@ -10697,6 +10902,27 @@ async function executeAIActivateAbility(
   }
 
   const battery = permanentHasManaBatteryCounterLoop(permanent);
+
+  // Return-to-hand mana lines (e.g. Tidal Commons) need an interactive TARGET_SELECTION on the
+  // shared activate path, but AI completeStep does not apply that cost/effect. Legacy pays the
+  // bounce and adds mana immediately — correct for mana abilities (no stack).
+  const activatedAbilityText = String(action?.abilityText || permanent?.card?.oracle_text || '').trim();
+  const activatedCostSection = activatedAbilityText.split(':')[0] || '';
+  const isReturnToHandManaAbility =
+    AI_MANA_ABILITY_PATTERN.test(activatedAbilityText)
+    && !/target/i.test(activatedAbilityText)
+    && Boolean(parseReturnToHandCostFromManaAbilityCost(activatedCostSection));
+  if (isReturnToHandManaAbility && !(battery.invests && battery.paysOut)) {
+    const beforeReturn = snapshotAIAbilityActivationState(game, gameId, playerId, String(action?.permanentId || ''));
+    await executeAILegacyActivateAbility(io, gameId, playerId, action, continueAfterResolution);
+    await Promise.resolve();
+    const afterReturn = snapshotAIAbilityActivationState(game, gameId, playerId, String(action?.permanentId || ''));
+    const progressedReturn = didAIAbilityActivationProgress(beforeReturn, afterReturn);
+    if (progressedReturn && continueAfterResolution) {
+      scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
+    }
+    return progressedReturn;
+  }
 
   const resolvedAbilityId = resolveAIActivatedAbilityId(action, permanent);
   if (resolvedAbilityId) {

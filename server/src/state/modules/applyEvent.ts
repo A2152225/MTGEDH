@@ -3563,6 +3563,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             }
             if ((e as any).entersBattlefieldWithCounters && typeof (e as any).entersBattlefieldWithCounters === 'object') {
               applyToStackItem('entersBattlefieldWithCounters', { ...(e as any).entersBattlefieldWithCounters });
+            } else if (
+              (e as any).card?.entersBattlefieldWithCounters
+              && typeof (e as any).card.entersBattlefieldWithCounters === 'object'
+            ) {
+              applyToStackItem('entersBattlefieldWithCounters', { ...(e as any).card.entersBattlefieldWithCounters });
+            }
+            const timesKickedRaw = (e as any).timesKicked ?? (e as any).kickerPaidCount ?? (e as any).card?.timesKicked ?? (e as any).card?.kickerPaidCount;
+            const timesKicked = Number.isFinite(Number(timesKickedRaw)) ? Math.max(0, Math.floor(Number(timesKickedRaw))) : undefined;
+            if (timesKicked != null && timesKicked > 0) {
+              applyToStackItem('timesKicked', timesKicked);
+              applyToStackItem('kickerPaidCount', timesKicked);
+              applyToStackItem('wasKicked', true);
+            } else if ((e as any).wasKicked === true || (e as any).card?.wasKicked === true) {
+              applyToStackItem('wasKicked', true);
             }
             if ((e as any).gainsHasteUntilEndOfTurnFromManaSpent === true) {
               applyToStackItem('gainsHasteUntilEndOfTurnFromManaSpent', true);

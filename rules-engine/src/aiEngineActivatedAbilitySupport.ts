@@ -329,6 +329,13 @@ export function evaluateActivatedAbilityValue(
   const battlefield = readProcessedBattlefield(deps, gameState);
   const hasRetention = battlefieldHasManaRetention(battlefield, playerId);
 
+  // Standalone mana taps are never useful as an activate-ability decision. Floating mana
+  // empties between steps/phases; retention (Omnath/Upwelling/etc.) and spell payment use
+  // dedicated paths that activate mana abilities directly.
+  if (isPureManaAbility) {
+    return 0;
+  }
+
   if (lowerText.includes('draw') && !lowerText.includes('opponent draws')) {
     const drawMatch = lowerText.match(/draw (\w+) card/);
     if (drawMatch) {
@@ -504,10 +511,6 @@ export function evaluateActivatedAbilityValue(
 
   if (lowerText.includes('each opponent') && (lowerText.includes('draw') || lowerText.includes('create'))) {
     value -= 4;
-  }
-
-  if (isPureManaAbility && !deps.hasPotentialManaSink(gameState, playerId) && !hasRetention) {
-    value -= 12;
   }
 
   if (isPreCombat && isTapAbility && archetypes.includes(SynergyArchetype.VOLTRON)) {

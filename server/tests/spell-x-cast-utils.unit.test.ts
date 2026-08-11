@@ -17,4 +17,11 @@ describe('spellXCastUtils', () => {
   it('rejects draw-X-only spells at X=0', () => {
     expect(isSpellWorthCastingAtX('Draw X cards.', 0)).toBe(false);
   });
+
+  it('rejects Astral Cornucopia-style X charge counters at X=0', () => {
+    const oracle =
+      'This artifact enters with X charge counters on it.\n{T}: Choose a color. Add one mana of that color for each charge counter on this artifact.';
+    expect(isSpellWorthCastingAtX(oracle, 0)).toBe(false);
+    expect(isSpellWorthCastingAtX(oracle, 1)).toBe(true);
+  });
 });
