@@ -85,7 +85,10 @@ function tryAutoResolveOptionalEffectProgramStep(
   const playerId = String(step.playerId || '').trim() as PlayerID;
   if (!playerId) return false;
 
-  const choice = resolveOptionalAutoChoice((game as any).state, playerId, step);
+  const storedRuntime = getRuntimeForStep(gameId, String(step.id || ''));
+  const choice = resolveOptionalAutoChoice((game as any).state, playerId, step, {
+    programSteps: storedRuntime?.runtime?.program?.steps,
+  });
   if (!choice) return false;
 
   restoreEffectProgramRuntimeForPendingStep(game, gameId, step);
@@ -151,7 +154,10 @@ export function drainPendingOptionalAutoChoices(
     const pending = ResolutionQueueManager.getStepsForPlayer(gameId, normalizedPlayerId as PlayerID)
       .filter((step) => {
         if (!isOptionalEffectProgramChoiceStep(step)) return false;
-        return Boolean(resolveOptionalAutoChoice((game as any).state, normalizedPlayerId, step));
+        const storedRuntime = getRuntimeForStep(gameId, String(step.id || ''));
+        return Boolean(resolveOptionalAutoChoice((game as any).state, normalizedPlayerId, step, {
+          programSteps: storedRuntime?.runtime?.program?.steps,
+        }));
       });
 
     if (pending.length === 0) break;
