@@ -2216,6 +2216,13 @@ async function processOracleIRInteractions(
   if (!oracleText || !resolvedController) return;
 
   const cardName: string = resolvedCard?.name || 'Spell';
+  // When Oracle IR primary owns the spell/ability text, resolve already applied
+  // (or queued EP mays for) optional steps. Re-scanning here doubles "you may".
+  if (isSpellEffectOwnedByOracleIrPrimary(oracleText, cardName)) {
+    debug(2, `[OracleIR] Skipping post-resolve optional may scan for ${cardName} (IR primary owns effect)`);
+    return;
+  }
+
   const sourceImage: string | undefined = resolvedCard?.image_uris?.small || resolvedCard?.image_uris?.normal;
   const stackItemId: string = String(topItem.id || '');
   const ctx = {

@@ -126,7 +126,17 @@ export function tryParseTemporaryAbilityClause(args: {
       const targetText = String(textGrant[1] || '').trim();
       const grantedText = String(textGrant[2] || '').trim();
       if (/\bgraveyard\b/i.test(targetText) && /^(?:flashback|escape|retrace|jump-start|harmonize)\b/i.test(grantedText)) return null;
+      // Leave "color of your choice" for expandChosenColorProtectionAbilities (emits choose_color).
       if (/^protection from the color of your choice$/i.test(grantedText)) return null;
+      if (/^protection from the chosen color$/i.test(grantedText)) {
+        return withMeta({
+          kind: 'grant_temporary_ability',
+          target: parseObjectSelector(targetText),
+          duration: 'end_of_turn',
+          abilities: ['protection from the chosen color'],
+          raw: rawClause,
+        });
+      }
       if (grantedText && !/\bgets?\s+[+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)\b/i.test(targetText)) {
         return withMeta({
           kind: 'grant_temporary_ability',

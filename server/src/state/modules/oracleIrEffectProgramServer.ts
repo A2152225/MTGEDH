@@ -87,7 +87,10 @@ export function oracleIrEffectProgramWouldPresentOptionalMay(
   steps: readonly OracleEffectStep[],
 ): boolean {
   if (!Array.isArray(steps) || steps.length === 0) return false;
-  return steps.some((step) => stepOptionalRequiresChoice(step));
+  if (steps.some((step) => stepOptionalRequiresChoice(step))) return true;
+  // Lone optional create_token stays on direct IR (stepOptionalRequiresChoice false),
+  // but create_token + follow-up is EP-owned and still wraps a may-choice.
+  return hasOptionalCreateTokenWithFollowUp(steps);
 }
 
 function countSequentialChoiceSteps(steps: readonly OracleEffectStep[]): number {

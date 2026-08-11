@@ -370,7 +370,7 @@ export function mergeRevealFollowupAbilities(abilities: readonly OracleIRAbility
       current.steps.some((s) => s.kind === 'mill' && s.amount.kind === 'unknown' && /reveal a land card/i.test(String((s.amount as any).raw || '')));
 
     const nextLooksLikeRevealFollowup =
-      next?.type === 'static' &&
+      (next?.type === 'static' || next?.type === 'spell') &&
       /revealed this way/i.test(String(next.effectText || next.text || ''));
 
     if (!canMergeIntoTriggered || !nextLooksLikeRevealFollowup) {
@@ -26330,7 +26330,7 @@ export function mergeDieRollResultTableAbilities(
       (step) => step.kind === 'roll_die' && step.sides === 20
     );
     const hasSeparateRollAbility =
-      rollAbility?.type === 'static' &&
+      (rollAbility?.type === 'static' || rollAbility?.type === 'spell') &&
       /^Roll a d20\.\s*Activate only as a sorcery\.?$/i.test(String(rollAbility.text || '').trim());
     if (
       current?.type !== 'activated' ||
@@ -28821,7 +28821,7 @@ export function mergeDeterministicKeywordFollowupAbilities(
     const next = abilities[i + 1];
 
     const nextIsKeywordFollowup =
-      next?.type === 'static' &&
+      (next?.type === 'static' || next?.type === 'spell') &&
       next.steps.length === 1 &&
       (
         next.steps[0]?.kind === 'proliferate' ||
@@ -28864,7 +28864,7 @@ export function mergeDeterministicGraveyardPermissionFollowupAbilities(
       current?.steps.some((step) => step.kind === 'grant_graveyard_permission')
     );
     const nextStartsWithModifier =
-      next?.type === 'static' &&
+      (next?.type === 'static' || next?.type === 'spell') &&
       next.steps.length >= 1 &&
       next.steps[0]?.kind === 'modify_graveyard_permissions' &&
       next.steps.slice(1).every((step) => isReminderGenericGraveyardGrant(step));

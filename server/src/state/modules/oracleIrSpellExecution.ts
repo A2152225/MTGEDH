@@ -81,10 +81,27 @@ function collectSpellSteps(
   return collectSpellResolutionEffectSteps(oracleText, sourceName, options);
 }
 
+/** Map COLOR_CHOICE words / letters to EP/executor `chosenMana` symbols. */
+function chosenColorToChosenMana(raw: string | undefined): string | undefined {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return undefined;
+  if (/^\{[WUBRG]\}$/i.test(trimmed)) return trimmed.toUpperCase();
+  if (/^[WUBRG]$/i.test(trimmed)) return `{${trimmed.toUpperCase()}}`;
+  const colorNameToSymbol: Record<string, string> = {
+    white: '{W}',
+    blue: '{U}',
+    black: '{B}',
+    red: '{R}',
+    green: '{G}',
+  };
+  return colorNameToSymbol[trimmed.toLowerCase()] || undefined;
+}
+
 function buildSpellIrContext(
   params: TryResolveSpellViaOracleIRParams,
   targetBinding: ReturnType<typeof inferOracleIrTargetBinding>,
 ) {
+  const chosenMana = chosenColorToChosenMana(params.chosenColor);
   return buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
@@ -100,6 +117,7 @@ function buildSpellIrContext(
       selectorContext: {
         ...oracleIrTargetBindingToBaseContext(targetBinding).selectorContext,
         ...(params.chosenColor ? { chosenColor: params.chosenColor } : {}),
+        ...(chosenMana ? { chosenMana } : {}),
         ...(params.chosenCreatureType ? { chosenCreatureType: params.chosenCreatureType } : {}),
       },
     },

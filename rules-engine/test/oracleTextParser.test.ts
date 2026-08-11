@@ -481,7 +481,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Monstrosity 3');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Monstrosity 3.',
       });
     });
@@ -490,7 +490,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Endure 2');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Endure 2.',
       });
     });
@@ -499,7 +499,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Collect evidence 4');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Collect evidence 4.',
       });
     });
@@ -641,7 +641,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Support 2');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Put a +1/+1 counter on each of up to 2 other target creatures.',
       });
     });
@@ -650,7 +650,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Bolster 2');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Put 2 +1/+1 counters on target creature you control with the least toughness among creatures you control.',
       });
     });
@@ -659,7 +659,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Proliferate');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Proliferate.',
       });
     });
@@ -668,7 +668,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Investigate');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Investigate.',
       });
     });
@@ -677,7 +677,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Populate');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Populate.',
       });
     });
@@ -686,7 +686,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Goad target creature.');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Goad target creature.',
       });
     });
@@ -695,7 +695,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Suspect target creature.');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Suspect target creature.',
       });
     });
@@ -704,7 +704,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Incubate 2');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Create an Incubator token with 2 +1/+1 counters on it.',
       });
     });
@@ -713,7 +713,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Amass 2');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect:
           "If you don't control an Army creature, create a 0/0 black Zombie Army creature token. Choose an Army creature you control. Put 2 +1/+1 counters on that creature.",
       });
@@ -723,7 +723,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Amass Orcs 2');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect:
           "If you don't control an Army creature, create a 0/0 black Orc Army creature token. Choose an Army creature you control. Put 2 +1/+1 counters on that creature. If it isn't an Orc, it becomes an Orc in addition to its other types.",
       });
@@ -735,7 +735,7 @@ describe('Oracle Text Parser', () => {
       );
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect:
           "If you don't control an Army creature, create a 0/0 black Orc Army creature token. Choose an Army creature you control. Put 1 +1/+1 counter on that creature. If it isn't an Orc, it becomes an Orc in addition to its other types.",
       });
@@ -745,7 +745,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Scry 2');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Scry 2.',
       });
     });
@@ -754,7 +754,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Surveil 2');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Surveil 2.',
       });
     });
@@ -763,7 +763,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Fateseal 2');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Fateseal 2.',
       });
     });
@@ -772,7 +772,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Time travel');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Time travel.',
       });
     });
@@ -781,7 +781,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Time travel three times');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Time travel three times.',
       });
     });
@@ -790,7 +790,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Mill 2');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Mill 2 cards.',
       });
     });
@@ -799,7 +799,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Explore');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Explore.',
       });
     });
@@ -808,7 +808,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Connive 2');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Connive 2.',
       });
     });
@@ -817,7 +817,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Manifest the top card of your library.');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Manifest the top card of your library.',
       });
     });
@@ -826,7 +826,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText("Manifest the top card of that player's library.");
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: "Manifest the top card of that player's library.",
       });
     });
@@ -835,7 +835,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Learn');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Learn.',
       });
     });
@@ -844,7 +844,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Manifest dread');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Manifest dread.',
       });
     });
@@ -853,7 +853,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Cloak the top card of your library');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Cloak the top card of your library.',
       });
     });
@@ -862,7 +862,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText("Cloak the top card of that player's library.");
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: "Cloak the top card of that player's library.",
       });
     });
@@ -871,7 +871,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Forage');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Forage.',
       });
     });
@@ -880,7 +880,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Exert');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Exert.',
       });
     });
@@ -889,7 +889,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Open an Attraction');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Open an Attraction.',
       });
     });
@@ -898,7 +898,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Roll to visit your Attractions');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Roll to visit your Attractions.',
       });
     });
@@ -907,7 +907,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Take the initiative');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Take the initiative.',
       });
     });
@@ -916,7 +916,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Venture into the dungeon');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Venture into the dungeon.',
       });
     });
@@ -925,7 +925,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Abandon this scheme');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Abandon this scheme.',
       });
     });
@@ -934,7 +934,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Set that scheme in motion again');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Set that scheme in motion again.',
       });
     });
@@ -943,7 +943,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('Clash with an opponent');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'Clash with an opponent.',
       });
     });
@@ -952,7 +952,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText('The Ring tempts you');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
-        type: AbilityType.STATIC,
+        type: AbilityType.SPELL,
         effect: 'The Ring tempts you.',
       });
     });

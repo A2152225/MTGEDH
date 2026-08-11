@@ -1563,6 +1563,23 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('keeps Brave the Elements choose-color + white-creature protection as spell-resolution steps', () => {
+    const text =
+      'Choose a color. White creatures you control gain protection from the chosen color until end of turn.';
+    const ir = parseOracleTextToIR(text, 'Brave the Elements');
+    const steps = ir.abilities
+      .filter((ability) => ability.type === 'spell')
+      .flatMap((ability) => ability.steps);
+
+    expect(steps.map((step) => step.kind)).toEqual(['choose_color', 'grant_temporary_ability']);
+    expect(steps[1]).toMatchObject({
+      kind: 'grant_temporary_ability',
+      target: { kind: 'raw', text: 'White creatures you control' },
+      duration: 'end_of_turn',
+      abilities: ['protection from the chosen color'],
+    });
+  });
+
   it('parses choose a creature type into a choose_creature_type step', () => {
     const ir = parseOracleTextToIR('Choose a creature type.', 'Test');
     const chooseTypeStep = ir.abilities.flatMap(ability => ability.steps).find(step => step.kind === 'choose_creature_type');

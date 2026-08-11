@@ -778,18 +778,156 @@ export function parseKeywordActions(text: string): ParsedKeywordAction[] {
 }
 
 const SPELL_INSTRUCTION_LEAD_PATTERN =
-  /^(?:look|draw|mill|deal|destroy|exile|return|search|scry|surveil|create|put|target|counter|gain|lose|shuffle|reveal|choose|sacrifice|discard|tap|untap|fight|copy|cast|animate|goad|proliferate|distribute|pay|add|remove|prevent|attach|detach|unattach|the\s+owner\s+of\s+target|each\s+(?:player|opponent|creature|permanent|land|artifact|enchantment|planeswalker|battle|opponents?\s+and\s+you)|this\s+(?:spell|permanent|creature|card)\s+deals?)\b/i;
+  /^(?:look|draw|mill|deal|destroy|exile|return|search|scry|surveil|create|put|target|counter|gain|lose|shuffle|reveal|choose|sacrifice|discard|tap|untap|fight|copy|cast|animate|goad|proliferate|distribute|pay|add|remove|prevent|attach|detach|unattach|switch|take|roll|amass|bolster|clash|learn|support|investigate|manifest|cloak|forage|connive|populate|incubate|venture|time\s+travel|seek|change|exchange|move|flip|transform|monstrosity|detain|suspect|regenerate|double|turn|airbend|earthbend|waterbend|firebend|conjure|the\s+owner\s+of\s+target|the\s+next\b|the\s+ring\s+tempts\s+you|for\s+each\b|up\s+to\b|an\s+opponent\b|any\s+(?:number|opponent|player)|all\s+(?:creatures?\b|damage\b|combat\s+damage\b|lands?\b|permanents?\b)|each\s+(?:other\s+)?(?:player|opponent|creature|permanent|land|artifact|enchantment|planeswalker|battle|opponents?\s+and\s+you)|each\s+of\b|starting\s+with\s+you\b|spells?\s+you\s+control\b|(?:white|blue|black|red|green|monocolored|multicolored|nonwhite|nonblue|nonblack|nonred|nongreen)\s+creatures?\b|this\s+(?:spell|permanent|creature|card)\s+deals?)\b/i;
 
-function isSpellInstructionLine(text: string): boolean {
+const SPELL_ABILITY_WORD_LEAD_PATTERN =
+  /^(?:threshold|spell\s+mastery|addendum|raid|revolt|morbid|metalcraft|battalion|ferocious|heroic|constellation|landfall|magecraft|alliance|kinship|domain|hellbent|grandeur|chroma|imprint|delirium|eminence|council'?s\s+dilemma|will\s+of\s+the\s+(?:council|planeswalkers)|celebrate|enrage|spectacle|undergrowth|ascend|city'?s\s+blessing|pack\s+tactics|coven|bloodrush|kinfall|converge|corrupted|fateful\s+hour|join\s+forces|strive|teamwork|paradigm|bargain|vivid|tempting\s+offer)\s*[—–-]/i;
+
+/**
+ * Temporary until-EOT / until-next-turn grants are spell-resolution instructions even when
+ * the sentence leads with a mass subject ("White creatures you control…", "Creatures you
+ * control…"). Without this, Brave the Elements' protection follow-up is typed STATIC and
+ * dropped by collectSpellResolutionEffectSteps.
+ */
+function isTemporaryDurationSpellEffectLine(text: string): boolean {
   const trimmed = String(text || '').trim();
   if (!trimmed) return false;
+  if (/^(?:when|whenever|at\s+the\b|as\s+long\s+as\b|as\s+.+\s+enters\b)/i.test(trimmed)) {
+    return false;
+  }
+  if (!/\buntil\s+(?:end\s+of\s+turn|your\s+next\s+turn)\b/i.test(trimmed)) {
+    return false;
+  }
+  return /\b(?:gain|gains|get|gets|have|has|lose|loses|become|becomes|can'?t|can\s+not|don'?t|do\s+not|switch|is|are)\b/i.test(trimmed);
+}
+
+/** Mass-subject resolution lines that are not continuous statics (Falter, Exhaustion, etc.). */
+function isMassSubjectSpellEffectLine(text: string): boolean {
+  if (isTemporaryDurationSpellEffectLine(text)) return true;
+  // Temporary window (this turn / until … / next turn) → resolution instruction.
   if (
-    /^(?:when|whenever|at|as|if|only|players?\s|creatures?\s|permanents?\s|lands?\s|artifacts?\s|enchantments?\s|activated\s+abilities|legendary\s)/i.test(
+    /\b(?:this\s+turn|until\s+(?:end\s+of\s+turn|your\s+next\s+turn|\S.+?\s+next\s+turn)|during\s+(?:their|its|your)\s+next|perpetually)\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  // One-shot riders without a duration phrase.
+  return /\b(?:don'?t\s+untap|do\s+not\s+untap|destroyed\s+this\s+way|can'?t\s+be\s+regenerated|if\s+able|discard|sacrifice)\b/i.test(
+    text
+  );
+}
+
+/**
+ * "If …" riders that resolve with the spell (cast-from-hand, threshold tails, Banefire),
+ * as opposed to continuous "If you control …, ~ gets +1/+1" statics.
+ */
+function isSpellConditionalResolutionLine(text: string): boolean {
+  const trimmed = String(text || '').trim();
+  if (!/^if\b/i.test(trimmed)) return false;
+
+  if (
+    /\bif\s+(?:this\s+spell|it)\s+was\s+(?:cast|kicked|kicked|foretold|flashbacked|cast\s+from)\b/i.test(trimmed) ||
+    /\bif\s+(?:the\s+)?\{[^}]+\}(?:\{[^}]+\})*\s+cost\s+was\s+paid\b/i.test(trimmed) ||
+    /\bif\s+x\s+is\b/i.test(trimmed) ||
+    /^if\s+you\s+do\b/i.test(trimmed) ||
+    /\bcan'?t\s+be\s+(?:countered|prevented)\b/i.test(trimmed) ||
+    /\byou\s+win\s+the\s+game\b/i.test(trimmed)
+  ) {
+    return true;
+  }
+
+  // Continuous characteristic / PT boosts without a temporary window stay static.
+  if (
+    /\b(?:gets?|has|have|is|are)\s+[+-](?:\d+|x)\s*\/\s*[+-](?:\d+|x)\b/i.test(trimmed) &&
+    !/\b(?:until\s+(?:end\s+of\s+turn|your\s+next\s+turn)|this\s+turn)\b/i.test(trimmed)
+  ) {
+    return false;
+  }
+  if (
+    /\b(?:has|have|gains?|gets?)\s+(?:flying|trample|haste|vigilance|lifelink|deathtouch|menace|reach|hexproof|indestructible|defender|first\s+strike|double\s+strike|protection|ward)\b/i.test(
+      trimmed
+    ) &&
+    !/\b(?:until\s+(?:end\s+of\s+turn|your\s+next\s+turn)|this\s+turn)\b/i.test(trimmed)
+  ) {
+    return false;
+  }
+
+  return /\b(?:draw|destroy|exile|create|search|gain|lose|win|deal|deals|mill|return|put|sacrifice|discard|counter|add|scry|surveil|cast|copy|choose|tap|untap|shuffle|reveal|prevent|amass|bolster|clash|learn|seek|proliferate|investigate|populate|take\s+an\s+extra|can'?t\s+block|can'?t\s+attack|don'?t\s+untap|become|becomes|get\s+[+-]|gain\s+\w+)\b/i.test(
+    trimmed
+  );
+}
+
+/** True when a fallback oracle line is a spell-resolution instruction (not a continuous static). */
+export function isSpellInstructionLine(text: string): boolean {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return false;
+
+  if (isTemporaryDurationSpellEffectLine(trimmed)) return true;
+
+  // Duration-led restrictions / delayed grants: "Until end of turn, …"
+  if (/^until\s+(?:end\s+of\s+turn|your\s+next\s+turn)\b/i.test(trimmed)) return true;
+
+  // Ability-word spell riders (Threshold —, Converge —, Corrupted —, …).
+  // Cast-time cost riders under an ability word stay static (Strive — costs more, etc.).
+  if (SPELL_ABILITY_WORD_LEAD_PATTERN.test(trimmed)) {
+    if (
+      /\bthis\s+spell\s+costs?\b|\bas an additional cost\b|\bmore to cast\b|\bless to cast\b|\brather than pay\b/i.test(
+        trimmed
+      )
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  // Cast-time / characteristic text — keep static so collectSpellResolutionEffectSteps skips it.
+  if (
+    /^(?:this\s+spell|this\s+permanent)\s+(?:has\b|costs?\b|is\b|can'?t\s+be\s+copied|can'?t\s+be\s+countered)\b/i.test(
       trimmed
     )
   ) {
     return false;
   }
+
+  // Triggered / continuous / replacement leads that are not resolution instructions.
+  if (
+    /^(?:when|whenever|at\s+the\b|as\s+long\s+as\b|as\s+.+\s+enters\b|only\b|activated\s+abilities|legendary\s)/i.test(
+      trimmed
+    )
+  ) {
+    return false;
+  }
+
+  // "You <action>…" (Night's Whisper, Angel's Mercy) — not continuous "You control/have/can't".
+  if (
+    /^you\s+(?:may\b|gain|gains|draw|draws|lose|loses|mill|mills|create|creates|search|scry|surveil|put|puts|exile|exiles|sacrifice|sacrifices|discard|discards|tap|untap|choose|reveal|shuffle|look|add|remove|cast|copy|proliferate|goad|fight|attach|pay|take|get|gets|win|become|return|skip|do\b|each\b)/i.test(
+      trimmed
+    )
+  ) {
+    return true;
+  }
+
+  if (/^if\b/i.test(trimmed)) {
+    return isSpellConditionalResolutionLine(trimmed);
+  }
+
+  if (
+    /^(?:(?:other|white|blue|black|red|green|monocolored|multicolored|nonwhite|nonblue|nonblack|nonred|nongreen)\s+)?(?:creatures?|permanents?|lands?|artifacts?|enchantments?|planeswalkers?|players?)\b/i.test(
+      trimmed
+    )
+  ) {
+    return isMassSubjectSpellEffectLine(trimmed);
+  }
+
+  // Named source deals damage when self-ref normalization missed (A-Galvanic Discharge).
+  if (
+    !/^(?:when|whenever|if|as)\b/i.test(trimmed) &&
+    /^[A-Za-z].+?\s+deals?\b/i.test(trimmed)
+  ) {
+    return true;
+  }
+
   return SPELL_INSTRUCTION_LEAD_PATTERN.test(trimmed);
 }
 

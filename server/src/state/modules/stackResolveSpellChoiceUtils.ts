@@ -265,6 +265,22 @@ export function tryResolveInstantSorceryPreResolutionChoices(
   const existingChosenColor = card?.chosenColor || item?.chosenColor;
 
   if (hasColorChoiceSpell && !existingChosenColor && !isReplaying) {
+    const spellSteps = collectSpellResolutionEffectSteps(
+      oracleText,
+      String(effectiveCard.name || 'Spell'),
+      buildOracleOverlayCollectOptions({
+        cardName: String(effectiveCard.name || 'Spell'),
+        card,
+        effectiveCard,
+        sourceItem: item,
+      }),
+    );
+    // Effect Program owns choose_color compounds (e.g. Brave the Elements).
+    // Do not also queue a stack COLOR_CHOICE — that doubles the prompt.
+    if (requiresEffectProgramOrchestration(spellSteps)) {
+      return false;
+    }
+
     debug(2, `[tryResolveInstantSorceryPreResolutionChoices] ${effectiveCard.name} requires color choice, adding resolution step`);
 
     queueResolveTopOfStackPrompt(ctx, {

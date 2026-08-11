@@ -2,8 +2,6 @@ import type { Server } from 'socket.io';
 import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debugWarn } from '../../utils/debug.js';
-import { broadcastGame } from '../../socket/util.js';
-import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { buildTapTriggeredStackItem, collectTapTriggersForTapEvent, serializeTapTriggeredStackItem } from './triggers/tap-untap.js';
 import { orderTriggersByAPNAP } from './triggers/ordering.js';
 
@@ -125,30 +123,12 @@ export function queueTapTriggersForTappedPermanents(
     })),
   );
 
+  // Push optional tap triggers as mandatory=false stack items so the single
+  // may decision happens at resolve (stack deferral / IR Effect Program).
+  // A pre-stack may prompt previously doubled when resolve deferred again.
   let addedStackTrigger = false;
   for (const entry of orderedTapTriggerEntries) {
-    const trigger = entry.trigger;
-    const tappedPermanentId = entry.tappedPermanentId;
-
-    if (trigger.mandatory === false) {
-      queueMayAbilityStep(
-        io,
-        gameId,
-        game,
-        String(trigger.controllerId),
-        String(trigger.cardName || 'Triggered ability'),
-        String(trigger.effect || trigger.description || '').trim(),
-        String(trigger.description || trigger.effect || '').trim() || undefined,
-        async () => {
-          pushTapTriggerOntoStack(io, game, gameId, trigger, tappedPermanentId);
-          if (typeof game.bumpSeq === 'function') game.bumpSeq();
-          broadcastGame(io, game, gameId);
-        },
-      );
-      continue;
-    }
-
-    pushTapTriggerOntoStack(io, game, gameId, trigger, tappedPermanentId);
+    pushTapTriggerOntoStack(io, game, gameId, entry.trigger, entry.tappedPermanentId);
     addedStackTrigger = true;
   }
 

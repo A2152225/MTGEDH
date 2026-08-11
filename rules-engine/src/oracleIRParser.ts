@@ -5,6 +5,7 @@ import {
   type OracleTextParseResult,
   parseOracleText,
   AbilityType,
+  isSpellInstructionLine,
 } from './oracleTextParser';
 import type {
   OracleEffectStep,
@@ -1543,7 +1544,7 @@ function mergeAdditionalCombatContinuationAbilities(abilities: OracleIRAbility[]
   for (const ability of abilities) {
     const steps = [...ability.steps];
     const isAdditionalCombatContinuation =
-      ability.type === AbilityType.STATIC &&
+      (ability.type === AbilityType.STATIC || ability.type === AbilityType.SPELL) &&
       steps.length > 0 &&
       steps.every((step) => step.kind === 'add_extra_combat') &&
       /^\s*(?:after|and after)\s+(?:this\s+phase|this\s+main\s+phase|this\s+combat\s+phase|the\s+second\s+main\s+phase\s+this\s+turn)\b/i.test(ability.effectText || ability.text || '');
@@ -1921,9 +1922,33 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   ).flatMap((text) => parseOracleText(text, cardName).abilities);
   const recoveryCandidates = [...parsed.abilities, ...individuallyParsedAbilities, ...copyTailCandidates];
 
+  const normalizeAbilityCoverageText = (value: string): string =>
+    String(value || '')
+      .toLowerCase()
+      .replace(/[.!?]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const abilityTextAlreadyCovered = (text: string): boolean => {
+    const normalized = normalizeAbilityCoverageText(text);
+    if (!normalized) return true;
+    if (abilities.some((ability) => normalizeAbilityCoverageText(String(ability.text || '')) === normalized)) {
+      return true;
+    }
+    // Paragraph recovery must not re-add text already sentence-split into spell abilities.
+    const parts = normalized.split(/(?<=\.)\s+/).map((part) => part.replace(/[.!?]+$/g, '').trim()).filter(Boolean);
+    if (parts.length <= 1) return false;
+    return parts.every((part) =>
+      abilities.some((ability) => {
+        const existing = normalizeAbilityCoverageText(String(ability.text || ''));
+        return existing === part || existing.includes(part) || part.includes(existing);
+      })
+    );
+  };
+
   for (const parsedAbility of recoveryCandidates) {
     const text = String(parsedAbility.effect || parsedAbility.text || '').trim();
-    if (!text || abilities.some((ability) => ability.text === parsedAbility.text)) continue;
+    if (!text || abilityTextAlreadyCovered(String(parsedAbility.text || text))) continue;
     if (
       !/^if\b.+,\s*target\b.+\bgets?\b/i.test(text) &&
       !/^you may cast\b.+\bfrom your graveyard\b/i.test(text) &&
@@ -1948,7 +1973,12 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
     recovered = recovered
       .map((ability) => ({
         ...ability,
-        type: /^as an additional cost to cast this spell/i.test(text) ? AbilityType.SPELL : ability.type,
+        type:
+          /^as an additional cost to cast this spell/i.test(text) ||
+          parsedAbility.type === AbilityType.SPELL ||
+          isSpellInstructionLine(text)
+            ? AbilityType.SPELL
+            : ability.type,
         steps: ability.steps.filter(
           (step) => !/^as an additional cost to cast this spell\b/i.test(String(step.raw || '')),
         ),
@@ -1966,11 +1996,12 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
       /\bany player may activate\b/i.test(line) ||
       !/\bgets?\s+[+-](?:\d+|x)\s*\/\s*[+-](?:\d+|x)\b/i.test(line)
     ) continue;
-    if (abilities.some((ability) => ability.text === line)) continue;
+    if (abilityTextAlreadyCovered(line)) continue;
     const step = parseEffectClauseToStep(line);
+    const lineType = isSpellInstructionLine(line) ? AbilityType.SPELL : AbilityType.STATIC;
     if (step.kind === 'unknown') {
       abilities.push({
-        type: AbilityType.STATIC,
+        type: lineType,
         text: line,
         effectText: line,
         steps: [],
@@ -1978,7 +2009,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
       continue;
     }
     abilities.push({
-      type: AbilityType.STATIC,
+      type: lineType,
       text: line,
       effectText: line,
       steps: [step],
