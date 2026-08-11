@@ -18,6 +18,9 @@ import {
   resolveNoUntilTargetsChangePreference,
 } from '../../../../shared/src/mayAutoPreference.js';
 import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
+import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
+import { collectTriggerExecutionSteps } from './oracleIrTriggerExecutionHelpers.js';
+import { oracleIrEffectProgramWouldPresentOptionalMay } from './oracleIrEffectProgramServer.js';
 
 /** Set on ctx when an optional may is consumed via Always No / no-until / shortcut no. */
 export const OPTIONAL_MAY_AUTO_DECLINED_FLAG = '__optionalMayAutoDeclined';
@@ -340,6 +343,30 @@ export function tryDeferOptionalTriggeredAbilityMayDecision(
 
   if ((ctx as any).isReplaying) {
     return false;
+  }
+
+  // IR primary + Effect Program already owns the "you may" Yes/No during effect
+  // resolution (Baral loot, etc.). Do not also queue a stack-level deferral prompt.
+  // Always No / shortcuts above still apply; Always Yes sets decisionApplied and
+  // proceeds with optionalOfferAccepted (EP may-choice collapsed).
+  if (isOracleIrTriggerPrimaryEnabled()) {
+    try {
+      const irSteps = collectTriggerExecutionSteps(
+        effectForOptionalCheck,
+        options.sourceName,
+        item,
+      );
+      if (oracleIrEffectProgramWouldPresentOptionalMay(irSteps)) {
+        debug(
+          2,
+          `[resolveTopOfStack] Skipping stack optional deferral for ${options.sourceName}; ` +
+            `IR Effect Program will present the may choice (${options.triggerController})`,
+        );
+        return false;
+      }
+    } catch (err) {
+      debugWarn(1, `[resolveTopOfStack] IR optional-may ownership probe failed for ${options.sourceName}:`, err);
+    }
   }
 
   queueOptionalTriggeredAbilityEffectProgram(

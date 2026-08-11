@@ -82,6 +82,14 @@ function stepOptionalRequiresChoice(step: OracleEffectStep): boolean {
   return !OPTIONAL_NO_CHOICE_KINDS.has(String(step.kind || ''));
 }
 
+/** True when Effect Program would wrap an optional oracle step in a may Yes/No choice. */
+export function oracleIrEffectProgramWouldPresentOptionalMay(
+  steps: readonly OracleEffectStep[],
+): boolean {
+  if (!Array.isArray(steps) || steps.length === 0) return false;
+  return steps.some((step) => stepOptionalRequiresChoice(step));
+}
+
 function countSequentialChoiceSteps(steps: readonly OracleEffectStep[]): number {
   let count = 0;
   for (const step of steps) {
@@ -235,6 +243,40 @@ export const requiresSpellEffectProgramOrchestration = requiresCoreEffectProgram
 /** Trigger stack routing — same gate as spells (direct IR for reveal/player_choice compounds). */
 export const requiresTriggerEffectProgramOrchestration = requiresCoreEffectProgramOrchestration;
 
+function isOuterOptionalMayChoiceStep(step: EffectProgram['steps'][number]): boolean {
+  if (step.kind !== 'choice') return false;
+  const bindingKey = String(step.bindingKey || '');
+  const stepId = String(step.id || '');
+  // Effect Program wraps optional oracle steps as `${baseId}:may-choice` / binding `${baseId}:may`.
+  return bindingKey.endsWith(':may') || stepId.endsWith(':may-choice');
+}
+
+/**
+ * Used when the outer optional was already accepted without an EP may prompt
+ * (Always Yes / trigger shortcut yes → optionalOfferAccepted). Drop the EP
+ * may-choice wrapper; keep later choices (discard, targets, nested mays).
+ */
+function collapseAcceptedOuterMayChoice(program: EffectProgram): EffectProgram {
+  const mayIndex = program.steps.findIndex((step) => isOuterOptionalMayChoiceStep(step));
+  if (mayIndex < 0) return program;
+
+  const mayBindingKey = String(program.steps[mayIndex]?.bindingKey || '');
+  const steps = program.steps
+    .filter((_, index) => index !== mayIndex)
+    .map((step) => {
+      if (!step.guard || String(step.guard.bindingKey || '') !== mayBindingKey) {
+        return step;
+      }
+      const { guard: _removedGuard, ...rest } = step as typeof step & { guard?: unknown };
+      return rest as typeof step;
+    });
+
+  return {
+    ...program,
+    steps,
+  };
+}
+
 function buildPresetEffectProgramBindings(
   program: EffectProgram,
   irCtx: OracleIRExecutionContext,
@@ -323,7 +365,7 @@ export function probeOracleEffectProgramShadow(
     const shadowCtx = buildShadowProbeContext(ctx);
     const state = structuredClone((shadowCtx as any).state);
     hydrateOracleIRPlayerZonesFromContext(shadowCtx, state);
-    const program = buildEffectProgramFromOracleIR({
+    const builtProgram = buildEffectProgramFromOracleIR({
       id: `${params.programIdPrefix}:effect-program`,
       controllerId: params.controller,
       sourceId: params.sourceId,
@@ -332,6 +374,9 @@ export function probeOracleEffectProgramShadow(
       steps: params.steps,
       metadata: params.metadata,
     });
+    const program = (params.irCtx as { optionalOfferAccepted?: boolean }).optionalOfferAccepted === true
+      ? collapseAcceptedOuterMayChoice(builtProgram)
+      : builtProgram;
     const initialBindings = buildPresetEffectProgramBindings(program, params.irCtx);
     const runtime = createEffectProgramRuntime({ program, state, bindings: initialBindings });
     const runResult = runOracleEffectProgram(
@@ -381,7 +426,7 @@ export function startOracleEffectProgramOnServer(
       controllerId: resolvedController,
     };
 
-    const program = buildEffectProgramFromOracleIR({
+    const builtProgram = buildEffectProgramFromOracleIR({
       id: `${params.programIdPrefix}:effect-program`,
       controllerId: resolvedController as any,
       sourceId: params.sourceId,
@@ -390,6 +435,10 @@ export function startOracleEffectProgramOnServer(
       steps: params.steps,
       metadata: params.metadata,
     });
+    // Present optional "you may" only once: stack deferral already accepted.
+    const program = (params.irCtx as { optionalOfferAccepted?: boolean }).optionalOfferAccepted === true
+      ? collapseAcceptedOuterMayChoice(builtProgram)
+      : builtProgram;
     const initialBindings = buildPresetEffectProgramBindings(program, params.irCtx);
 
     const handlers = createOracleIREffectProgramHandlers(
