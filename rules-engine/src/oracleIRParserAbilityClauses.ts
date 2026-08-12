@@ -412,7 +412,11 @@ export function buildAbilityClauses(args: {
   for (let clauseIndex = 0; clauseIndex < rawClauses.length; clauseIndex += 1) {
     const clause = rawClauses[clauseIndex];
     const nextClause = rawClauses[clauseIndex + 1];
-    if (/^if\b/i.test(clause) && /^then\b/i.test(String(nextClause || ''))) {
+    // Ability-word labels ("Delirium —", "Threshold —") hide a leading If from ^if recombination.
+    const clauseForIfLead = String(clause || '')
+      .replace(/^[A-Z][A-Za-z' -]{1,40}\s*[-—–]\s+/u, '')
+      .trim();
+    if (/^if\b/i.test(clauseForIfLead) && /^then\b/i.test(String(nextClause || ''))) {
       const combined = `${clause}, ${nextClause}`;
       if (tryParseLeadingConditionalStep({ rawClause: combined, cardName, parseEffectClauseToStep })) {
         combinedClauses.push(combined);

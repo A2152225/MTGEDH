@@ -478,6 +478,15 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
+    // Mandate of Peace / similar: "End the combat phase." (reminder text optional)
+    if (/^end the combat phase\b/i.test(clause)) {
+      return withMeta({
+        kind: 'end_combat_phase',
+        exileStack: true,
+        raw: rawClause,
+      });
+    }
+
     const addVariableColorManaWhereX = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+x\\s+mana\\s+in\\s+any\\s+combination\\s+of\\s+colors,?\\s+where\\s+x\\s+is\\s+(.+)\\s*$`, 'i')
     );
@@ -3520,18 +3529,76 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const willVote = clause.match(/^will\s+of\s+the\s+planeswalkers\s+-\s+starting\s+with\s+(.+?),\s*(each player)\s+votes?\s+for\s+(.+)$/i);
-    if (willVote) {
-      const choices = String(willVote[3] || '')
+    const stripAbilityWord = (text: string): string =>
+      String(text || '')
+        .replace(/^(?:will\s+of\s+the\s+(?:council|planeswalkers)|secret\s+council|council'?s\s+dilemma)\s*[-—–]\s+/i, '')
+        .trim();
+
+    const parseVoteBallotTarget = (
+      targetText: string
+    ): {
+      choices: string[];
+      ballot: 'labels' | 'players' | 'permanents';
+      ballotFilter?: string;
+    } | null => {
+      const target = String(targetText || '')
+        .replace(/,?\s*then those votes are revealed\.?$/i, '')
+        .trim();
+      if (!target) return null;
+
+      if (
+        /\b(?:another\s+player|a\s+player|target\s+player|each\s+other\s+player)\b/i.test(target) &&
+        !/\bor\b/i.test(target)
+      ) {
+        return { choices: [], ballot: 'players', ballotFilter: target };
+      }
+      if (
+        /\b(?:creature|permanent|nonland\s+permanent)\b/i.test(target) &&
+        !/\bor\b/i.test(target)
+      ) {
+        return { choices: [], ballot: 'permanents', ballotFilter: target };
+      }
+
+      const choices = target
         .split(/\s*,\s*|\s+or\s+/i)
-        .map(choice => choice.trim().replace(/^(?:an?|the)\s+/i, '').trim())
+        .map((choice) => choice.trim().replace(/^(?:an?|the)\s+/i, '').trim())
         .filter(Boolean);
       if (choices.length >= 2) {
+        return { choices, ballot: 'labels' };
+      }
+      return null;
+    };
+
+    const willVote = clause.match(/^will\s+of\s+the\s+planeswalkers\s+-\s+starting\s+with\s+(.+?),\s*(each player)\s+votes?\s+for\s+(.+)$/i);
+    if (willVote) {
+      const ballot = parseVoteBallotTarget(String(willVote[3] || ''));
+      if (ballot) {
         return withMeta({
           kind: 'vote',
           voters: parsePlayerSelector(willVote[2]),
           startingWith: parsePlayerSelector(willVote[1]),
-          choices,
+          choices: ballot.choices,
+          ballot: ballot.ballot,
+          ...(ballot.ballotFilter ? { ballotFilter: ballot.ballotFilter } : {}),
+          raw: rawClause,
+        });
+      }
+    }
+
+    const councilVote = stripAbilityWord(clause).match(
+      /^(?:starting with\s+(.+?),\s*)?(each player)\s+(secretly\s+)?votes?\s+for\s+(.+)$/i
+    );
+    if (councilVote) {
+      const ballot = parseVoteBallotTarget(String(councilVote[4] || ''));
+      if (ballot) {
+        return withMeta({
+          kind: 'vote',
+          voters: parsePlayerSelector(councilVote[2]),
+          ...(councilVote[1] ? { startingWith: parsePlayerSelector(councilVote[1]) } : {}),
+          choices: ballot.choices,
+          ballot: ballot.ballot,
+          ...(ballot.ballotFilter ? { ballotFilter: ballot.ballotFilter } : {}),
+          ...(councilVote[3] || /^secret\s+council\b/i.test(clause) ? { secret: true } : {}),
           raw: rawClause,
         });
       }
@@ -3541,16 +3608,15 @@ export function tryParseSimpleActionClause(args: {
       /^starting with\s+(.+?),\s*(each player)\s+votes?\s+for\s+(.+)$/i
     );
     if (vote) {
-      const choices = String(vote[3] || '')
-        .split(/\s*,\s*|\s+or\s+/i)
-        .map(choice => choice.trim().replace(/^(?:an?|the)\s+/i, '').trim())
-        .filter(Boolean);
-      if (choices.length >= 2) {
+      const ballot = parseVoteBallotTarget(String(vote[3] || ''));
+      if (ballot) {
         return withMeta({
           kind: 'vote',
           voters: parsePlayerSelector(vote[2]),
           startingWith: parsePlayerSelector(vote[1]),
-          choices,
+          choices: ballot.choices,
+          ballot: ballot.ballot,
+          ...(ballot.ballotFilter ? { ballotFilter: ballot.ballotFilter } : {}),
           raw: rawClause,
         });
       }

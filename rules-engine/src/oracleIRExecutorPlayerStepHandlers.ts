@@ -42,6 +42,7 @@ import {
   lookSelectTopCardsForPlayer,
   collectTopLibraryObservationForPlayers,
   quantityToNumber,
+  resolveVotesReceivedQuantity,
   readPlayerZoneCards,
   resolvePlayers,
   writePlayerZoneCards,
@@ -548,6 +549,21 @@ function resolveDynamicDrawAmount(
       .map(readPermanentPower)
       .filter((value): value is number => value !== null);
     return powers.length > 0 ? Math.max(0, ...powers) : 0;
+  }
+  if (step.amount.kind === 'votes_received') {
+    return resolveVotesReceivedQuantity(state, String(ctx.controllerId || ''), step.amount);
+  }
+  if (step.amount.kind === 'votes_for_choice') {
+    const fromState = Number(
+      (state as any)?.lastVoteResults?.[String(step.amount.choice || '').toLowerCase()] ??
+        (state as any)?.voteResults?.[String(step.amount.choice || '').toLowerCase()]
+    );
+    if (Number.isFinite(fromState)) {
+      const multiplier = Number.isFinite(Number(step.amount.multiplier))
+        ? Math.max(0, Math.trunc(Number(step.amount.multiplier)))
+        : 1;
+      return Math.max(0, Math.floor(fromState * multiplier));
+    }
   }
   return quantityToNumber(step.amount, ctx);
 }
@@ -3841,6 +3857,58 @@ export function applyVoteStep(
     };
   }
 
+  const ballot = step.ballot || 'labels';
+  const hintCounts =
+    ctx.voteChoiceCounts && typeof ctx.voteChoiceCounts === 'object'
+      ? Object.fromEntries(
+          Object.entries(ctx.voteChoiceCounts).map(([key, value]) => [
+            String(key || '').trim().toLowerCase(),
+            Number(value) || 0,
+          ])
+        )
+      : null;
+
+  // Player/permanent ballots (Secret council) need tallies before follow-on effects can scale.
+  if (ballot === 'players' || ballot === 'permanents') {
+    if (!hintCounts || Object.keys(hintCounts).length === 0) {
+      return {
+        applied: false,
+        message: `Skipped vote (requires ${ballot} ballot selections): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+
+    const receivedByPlayer =
+      ballot === 'players'
+        ? { ...hintCounts }
+        : ((state as any).votesReceivedByPlayer && typeof (state as any).votesReceivedByPlayer === 'object'
+            ? { ...(state as any).votesReceivedByPlayer }
+            : {});
+    const receivedByPermanent =
+      ballot === 'permanents' ? { ...hintCounts } : ((state as any).votesReceivedByPermanent || {});
+
+    return {
+      applied: true,
+      state: {
+        ...(state as any),
+        lastVoteResults: hintCounts,
+        voteResults: hintCounts,
+        votesReceivedByPlayer: receivedByPlayer,
+        votesReceivedByPermanent: receivedByPermanent,
+        lastVoteMeta: {
+          secret: Boolean(step.secret),
+          ballot,
+          ...(step.ballotFilter ? { ballotFilter: step.ballotFilter } : {}),
+          voters,
+        },
+      } as GameState,
+      log: [
+        `${voters.length} player(s) voted${step.secret ? ' secretly' : ''} (${ballot} ballot)`,
+      ],
+    };
+  }
+
   const winningVoteChoice = deriveWinningVoteChoice(ctx);
   if (typeof winningVoteChoice === 'undefined') {
     return {
@@ -3860,17 +3928,33 @@ export function applyVoteStep(
     };
   }
 
+  const normalizedChoices = (step.choices || []).map(choice => String(choice || '').trim().toLowerCase()).filter(Boolean);
+  const nextState = {
+    ...(state as any),
+    ...(hintCounts
+      ? {
+          lastVoteResults: hintCounts,
+          voteResults: hintCounts,
+        }
+      : {}),
+    lastVoteMeta: {
+      secret: Boolean(step.secret),
+      ballot: 'labels' as const,
+      voters,
+      winningVoteChoice,
+    },
+  } as GameState;
+
   if (winningVoteChoice === null) {
     return {
       applied: true,
-      state,
+      state: nextState,
       log: [`${voters.length} player(s) voted and the vote tied`],
     };
   }
 
   const normalizedWinner = String(winningVoteChoice).toLowerCase();
-  const normalizedChoices = (step.choices || []).map(choice => String(choice || '').trim().toLowerCase()).filter(Boolean);
-  if (!normalizedChoices.includes(normalizedWinner)) {
+  if (normalizedChoices.length > 0 && !normalizedChoices.includes(normalizedWinner)) {
     return {
       applied: false,
       message: `Skipped vote (winning choice not in parsed choices): ${step.raw}`,
@@ -3881,7 +3965,7 @@ export function applyVoteStep(
 
   return {
     applied: true,
-    state,
+    state: nextState,
     log: [
       `${voters.length} player(s) voted and ${String(winningVoteChoice)} won`,
     ],

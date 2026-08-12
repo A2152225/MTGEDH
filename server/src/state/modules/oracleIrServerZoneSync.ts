@@ -3076,6 +3076,140 @@ function isOracleIrPlayerChoiceGap(gap: { reasonCode?: string }): boolean {
   return reason === 'player_choice_required' || reason === 'optional_step_requires_player_choice';
 }
 
+function buildVoteBallotChoices(
+  state: any,
+  step: Extract<OracleEffectStep, { kind: 'vote' }>,
+  controller: PlayerID,
+): string[] {
+  const ballot = String((step as any).ballot || 'labels');
+  if (ballot === 'players') {
+    const players = Array.isArray(state?.players) ? state.players : [];
+    const filter = String((step as any).ballotFilter || '').toLowerCase();
+    return players
+      .map((p: any) => String(p?.id || '').trim())
+      .filter((id: string) => {
+        if (!id) return false;
+        if (/\banother\s+player\b|\beach\s+other\s+player\b/i.test(filter) && id === controller) {
+          return false;
+        }
+        return true;
+      });
+  }
+  if (ballot === 'permanents') {
+    const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+    const filter = String((step as any).ballotFilter || '').toLowerCase();
+    return battlefield
+      .filter((perm: any) => {
+        if (!perm?.id) return false;
+        const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+        if (/\bcreature\b/.test(filter) && !typeLine.includes('creature')) return false;
+        if (/\bnonland\s+permanent\b/.test(filter) && typeLine.includes('land')) return false;
+        if (/\byou don't control\b|\byou do not control\b/.test(filter) && String(perm.controller || '') === controller) {
+          return false;
+        }
+        return true;
+      })
+      .map((perm: any) => String(perm.id));
+  }
+  return (Array.isArray((step as any).choices) ? (step as any).choices : [])
+    .map((choice: unknown) => String(choice || '').trim())
+    .filter(Boolean);
+}
+
+function buildApnapVoterOrder(
+  state: any,
+  startingWith: string | undefined,
+  controller: PlayerID,
+): string[] {
+  const players = Array.isArray(state?.players)
+    ? state.players.map((p: any) => String(p?.id || '').trim()).filter(Boolean)
+    : [];
+  if (players.length === 0) return [controller];
+  const start =
+    String(startingWith || '').trim() ||
+    String(state?.activePlayer || state?.turnPlayer || controller).trim() ||
+    controller;
+  const startIdx = Math.max(0, players.indexOf(start));
+  return [...players.slice(startIdx), ...players.slice(0, startIdx)];
+}
+
+function queueVotePromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
+    if (String(gap.stepKind || '') !== 'vote') continue;
+
+    const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'vote' }> | undefined;
+    if (!step || step.kind !== 'vote') continue;
+
+    const queueKey = `vote:${String((step as any).raw || '')}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    const choices = buildVoteBallotChoices(state, step, params.controller);
+    if (choices.length < 1) continue;
+
+    const voters = resolvePlayers(state, (step as any).voters, params.irCtx);
+    const startingWithPlayers = (step as any).startingWith
+      ? resolvePlayers(state, (step as any).startingWith, params.irCtx)
+      : [];
+    const voterOrder = buildApnapVoterOrder(
+      state,
+      startingWithPlayers[0] || params.controller,
+      params.controller,
+    ).filter((id) => voters.length === 0 || voters.includes(id));
+    if (voterOrder.length === 0) continue;
+
+    const firstVoter = voterOrder[0]!;
+    const voteId = `vote_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const resumeSteps = [
+      step,
+      ...((result.pendingContinuationSteps || []) as OracleEffectStep[]),
+    ];
+
+    const payload = attachOracleIrResumeMetadata(
+      {
+        type: ResolutionStepType.VOTE,
+        playerId: firstVoter,
+        description: `${sourceName}: ${String((step as any).raw || 'Vote')}`,
+        mandatory: true,
+        sourceId,
+        sourceName,
+        voteId,
+        choices,
+        votesSubmitted: [],
+        secret: Boolean((step as any).secret),
+        oracleIrVoterOrder: voterOrder,
+        oracleIrChoiceStepJson: JSON.stringify([step]),
+        oracleIrControllerId: params.controller,
+        oracleIrSourceId: sourceId,
+        oracleIrSourceName: sourceName,
+      } as any,
+      result,
+      { ...params, controller: params.controller },
+    );
+    // Resume must re-run the vote step itself with tallies, then continuations.
+    payload.oracleIrResumeStepsJson = JSON.stringify(resumeSteps);
+    ResolutionQueueManager.addStep(gameId, payload as any);
+  }
+}
+
 function inferTapUntapTargetFilter(
   targetText: string,
   controller: PlayerID,
@@ -4626,6 +4760,8 @@ export function resumeOracleIRRemainingStepsFromResolution(
     chosenObjectIds?: readonly string[];
     selectorContext?: Record<string, unknown>;
     xValue?: number;
+    voteChoiceCounts?: Readonly<Record<string, number>>;
+    winningVoteChoice?: string | null;
   },
 ): OracleIRExecutionResult | null {
   if (!Array.isArray(params.steps) || params.steps.length === 0) {
@@ -4652,11 +4788,19 @@ export function resumeOracleIRRemainingStepsFromResolution(
       appliedStepKinds: readAppliedStepKindsFromState(state),
       ...(Number.isFinite(xValue) ? { xValue } : {}),
       ...(selectorContext ? { selectorContext } : {}),
+      ...(params.voteChoiceCounts ? { voteChoiceCounts: params.voteChoiceCounts } : {}),
+      ...(typeof params.winningVoteChoice !== 'undefined'
+        ? { winningVoteChoice: params.winningVoteChoice }
+        : {}),
     },
     {
       targetPlayerId: params.targetPlayerId,
       targetSpellId: params.targetSpellId,
       ...(chosenObjectIds.length > 0 ? { chosenObjectIds } : {}),
+      ...(params.voteChoiceCounts ? { voteChoiceCounts: params.voteChoiceCounts } : {}),
+      ...(typeof params.winningVoteChoice !== 'undefined'
+        ? { winningVoteChoice: params.winningVoteChoice }
+        : {}),
     },
   );
 
@@ -5213,7 +5357,29 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
 function buildOracleIrResumeContextFromResolutionStep(step: any): {
   chosenObjectIds?: string[];
   selectorContext?: Record<string, unknown>;
+  voteChoiceCounts?: Record<string, number>;
+  winningVoteChoice?: string | null;
 } {
+  const voteCountsRaw = step?.oracleIrVoteChoiceCounts;
+  if (voteCountsRaw && typeof voteCountsRaw === 'object') {
+    const voteChoiceCounts = Object.fromEntries(
+      Object.entries(voteCountsRaw)
+        .map(([choice, count]) => [String(choice || '').trim().toLowerCase(), Number(count) || 0])
+        .filter(([choice]) => Boolean(choice)),
+    );
+    const winningRaw = step?.oracleIrWinningVoteChoice;
+    const winningVoteChoice =
+      winningRaw === null
+        ? null
+        : typeof winningRaw === 'string'
+          ? winningRaw
+          : undefined;
+    return {
+      voteChoiceCounts,
+      ...(typeof winningVoteChoice !== 'undefined' ? { winningVoteChoice } : {}),
+    };
+  }
+
   const selectionIds = extractOracleIrSelectionIds(step?.response?.selections);
   if (selectionIds.length === 0) {
     return {};
@@ -5263,6 +5429,10 @@ export function maybeResumeOracleIRStepsAfterResolution(
     targetSpellId: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim() || undefined,
     ...(resumeContext.chosenObjectIds ? { chosenObjectIds: resumeContext.chosenObjectIds } : {}),
     ...(resumeContext.selectorContext ? { selectorContext: resumeContext.selectorContext } : {}),
+    ...(resumeContext.voteChoiceCounts ? { voteChoiceCounts: resumeContext.voteChoiceCounts } : {}),
+    ...(typeof resumeContext.winningVoteChoice !== 'undefined'
+      ? { winningVoteChoice: resumeContext.winningVoteChoice }
+      : {}),
     ...(Number.isFinite(Number(step?.oracleIrXValue))
       ? { xValue: Number(step.oracleIrXValue) }
       : {}),
@@ -5557,6 +5727,12 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
     triggerItem: resolutionTriggerItem,
+  });
+  queueVotePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
   });
   queueMoveZoneChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,

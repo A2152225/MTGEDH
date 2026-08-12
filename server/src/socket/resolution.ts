@@ -25520,7 +25520,11 @@ function handleVoteResponse(
   const voteStep = step as any;
   const voteId = voteStep.voteId;
   const choices = voteStep.choices || [];
-  const votesSubmitted = voteStep.votesSubmitted || [];
+  const votesSubmitted = Array.isArray(voteStep.votesSubmitted) ? [...voteStep.votesSubmitted] : [];
+  const voterOrder: string[] = Array.isArray(voteStep.oracleIrVoterOrder)
+    ? voteStep.oracleIrVoterOrder.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const secret = Boolean(voteStep.secret);
   
   debug(2, `[Resolution] Vote response: player=${pid}, choice=${choice}, voteCount=${voteCount}`);
   
@@ -25535,6 +25539,7 @@ function handleVoteResponse(
     choice,
     voteCount,
   };
+  votesSubmitted.push(voteResult);
   
   // Update game state with the vote
   const voteState = (game.state as any).activeVotes = (game.state as any).activeVotes || {};
@@ -25546,9 +25551,11 @@ function handleVoteResponse(
   }
   voteState[voteId].votes.push(voteResult);
   
-  // Emit chat message
-  let message = `${getPlayerName(game, pid)} votes for "${choice}"`;
-  if (voteCount > 1) {
+  // Emit chat message (hide secret votes until the ballot closes)
+  let message = secret
+    ? `${getPlayerName(game, pid)} has voted`
+    : `${getPlayerName(game, pid)} votes for "${choice}"`;
+  if (!secret && voteCount > 1) {
     message += ` (${voteCount} votes)`;
   }
   
@@ -25568,10 +25575,95 @@ function handleVoteResponse(
       voteId,
       choices,
       choice,
-      voteCount
+      voteCount,
+      secret,
     });
   } catch {
     // Ignore persistence failures
+  }
+
+  const submittedPlayerIds = new Set(votesSubmitted.map((v: any) => String(v?.playerId || '').trim()));
+  const remainingVoters = voterOrder.filter((id) => !submittedPlayerIds.has(id));
+  if (remainingVoters.length > 0) {
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.VOTE,
+      playerId: remainingVoters[0],
+      description: String(voteStep.description || 'Vote'),
+      mandatory: true,
+      sourceId: voteStep.sourceId,
+      sourceName: voteStep.sourceName,
+      voteId,
+      choices,
+      votesSubmitted,
+      secret,
+      oracleIrVoterOrder: voterOrder,
+      oracleIrChoiceStepJson: voteStep.oracleIrChoiceStepJson,
+      oracleIrControllerId: voteStep.oracleIrControllerId,
+      oracleIrSourceId: voteStep.oracleIrSourceId,
+      oracleIrSourceName: voteStep.oracleIrSourceName,
+      oracleIrResumeStepsJson: voteStep.oracleIrResumeStepsJson,
+      oracleIrXValue: voteStep.oracleIrXValue,
+    } as any);
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    return;
+  }
+
+  // All votes in — tally and resume Oracle IR with counts.
+  const voteChoiceCounts: Record<string, number> = {};
+  for (const entry of votesSubmitted) {
+    const key = String(entry?.choice || '').trim().toLowerCase();
+    if (!key) continue;
+    voteChoiceCounts[key] = (voteChoiceCounts[key] || 0) + (Number(entry?.voteCount) || 1);
+  }
+  let winningVoteChoice: string | null | undefined = undefined;
+  {
+    let max = -1;
+    let winner: string | null = null;
+    let tie = false;
+    for (const [key, count] of Object.entries(voteChoiceCounts)) {
+      if (count > max) {
+        max = count;
+        winner = key;
+        tie = false;
+      } else if (count === max) {
+        tie = true;
+      }
+    }
+    if (max >= 0) winningVoteChoice = tie ? null : winner;
+  }
+
+  (game.state as any).lastVoteResults = voteChoiceCounts;
+  (game.state as any).voteResults = voteChoiceCounts;
+  (game.state as any).votesReceivedByPlayer = { ...voteChoiceCounts };
+  voteState[voteId].complete = true;
+  voteState[voteId].voteChoiceCounts = voteChoiceCounts;
+
+  if (secret) {
+    const revealParts = Object.entries(voteChoiceCounts)
+      .map(([key, count]) => `${key}: ${count}`)
+      .join(', ');
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `Votes revealed${revealParts ? ` (${revealParts})` : ''}`,
+      ts: Date.now(),
+    });
+  }
+
+  if (String(voteStep.oracleIrResumeStepsJson || '').trim()) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const resumeStep = {
+      ...voteStep,
+      oracleIrVoteChoiceCounts: voteChoiceCounts,
+      oracleIrWinningVoteChoice: winningVoteChoice,
+      response,
+    };
+    maybeResumeOracleIRStepsAfterResolution(ctx, resumeStep);
   }
   
   if (typeof game.bumpSeq === "function") {

@@ -16,6 +16,11 @@ export type OracleQuantity =
   | { readonly kind: 'spells_cast_before_this_turn' }
   | { readonly kind: 'votes_for_choice'; readonly choice: string; readonly multiplier?: number }
   | {
+      readonly kind: 'votes_received';
+      readonly who: 'you' | 'opponents' | 'each_player';
+      readonly multiplier?: number;
+    }
+  | {
       readonly kind: 'object_stat';
       readonly subject:
         | 'it'
@@ -367,6 +372,17 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'end_turn';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * End the combat phase (Mandate of Peace, etc.): remove attackers/blockers,
+       * exile the stack, and advance to postcombat main.
+       */
+      readonly kind: 'end_combat_phase';
+      readonly exileStack?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -783,7 +799,14 @@ export type OracleEffectStep =
       readonly kind: 'vote';
       readonly voters: OraclePlayerSelector;
       readonly startingWith?: OraclePlayerSelector;
+      /** Named ballot options (time/knowledge, truth/consequences, …). Empty for player/permanent ballots. */
       readonly choices: readonly string[];
+      /** Secret council: votes are hidden until all are cast. */
+      readonly secret?: boolean;
+      /** What each voter selects. Defaults to named `choices` labels. */
+      readonly ballot?: 'labels' | 'players' | 'permanents';
+      /** Oracle filter text for player/permanent ballots, e.g. "another player". */
+      readonly ballotFilter?: string;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -1655,12 +1678,19 @@ export type OracleEffectStep =
   readonly rememberChosenModes?: boolean;
   /** When true, max mode count becomes 2 if teamworkWasPaid is set on the execution context. */
   readonly teamworkChooseBoth?: boolean;
+  /**
+   * Season-style `{P}` budget ("Choose up to five {P} worth of modes").
+   * When set, selected modes' `pCost` values must sum to at most this budget.
+   */
+  readonly pBudget?: number;
   readonly modes: readonly {
         readonly label: string;
         /** Raw bullet text for display. */
         readonly raw: string;
         /** Steps that resolve when this mode is chosen. */
         readonly steps: readonly OracleEffectStep[];
+        /** `{P}` cost for Season-style mode budgets (1 per `{P}`). */
+        readonly pCost?: number;
       }[];
       readonly optional?: boolean;
       readonly sequence?: 'then';

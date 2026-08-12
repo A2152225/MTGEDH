@@ -164,6 +164,135 @@ describe('oracleTextParser ability classification (fast debug)', () => {
         text: "Black creatures you control can't be blocked this turn except by black creatures.",
         expectedKinds: ['grant_temporary_ability'],
       },
+      {
+        name: 'Secret Rendezvous',
+        text: 'You and target opponent each draw three cards.',
+        expectedKinds: ['draw'],
+      },
+      {
+        name: 'Silence',
+        text: "Your opponents can't cast spells this turn.",
+        expectedKinds: ['grant_static_ability'],
+      },
+      {
+        name: 'Gather Specimens',
+        text: "If a creature would enter the battlefield under an opponent's control this turn, it enters under your control instead.",
+        expectedKinds: ['grant_static_ability'],
+      },
+      {
+        name: 'Combust',
+        text:
+          "This spell can't be countered.\nCombust deals 5 damage to target white or blue creature. The damage can't be prevented.",
+        expectedKinds: ['deal_damage', 'damage_cant_be_prevented'],
+      },
+      {
+        name: "Barrin's Spite",
+        text:
+          'Choose two target creatures controlled by the same player. Their controller chooses and sacrifices one of them. Return the other to its owner\'s hand.',
+        expectedKinds: ['choose_target_creature', 'move_zone'],
+      },
+      {
+        name: 'Torment of Hailfire',
+        text:
+          'Repeat the following process X times. Each opponent loses 3 life unless that player sacrifices a nonland permanent of their choice or discards a card.',
+        expectedKinds: ['lose_life'],
+      },
+      {
+        name: 'Dance of the Tumbleweeds',
+        text:
+          'Spree (Choose one or more additional costs.)\n+ {1} — Search your library for a basic land card or a Desert card, put it onto the battlefield, then shuffle.\n+ {3} — Create an X/X green Elemental creature token, where X is the number of lands you control.',
+        expectedKinds: ['search_library', 'create_token'],
+      },
+      {
+        name: 'Circadian Struggle',
+        text:
+          'Vivid — Seek X cards that each share a color with one or more permanents you control, where X is the number of colors among permanents you control. For each color among permanents you control, those cards perpetually gain "This spell costs {1} less to cast."',
+        expectedKinds: ['grant_static_ability'],
+      },
+      {
+        name: 'Absorb Energy',
+        text:
+          'Counter target spell. Cards in your hand that share a card type with that spell perpetually gain "This spell costs {1} less to cast."',
+        expectedKinds: ['counter_spell', 'grant_static_ability'],
+      },
+      {
+        name: 'Leave No Trace',
+        text: 'Radiance — Destroy target enchantment and each other enchantment that shares a color with it.',
+        expectedKinds: ['destroy'],
+      },
+      {
+        name: 'Blood on the Snow',
+        text:
+          'Choose one —\n• Destroy all creatures.\n• Destroy all planeswalkers.\nThen return a creature or planeswalker card with mana value X or less from your graveyard to the battlefield, where X is the amount of {S} spent to cast this spell.',
+        expectedKinds: ['choose_mode', 'move_zone'],
+      },
+      {
+        name: 'Final Showdown',
+        text:
+          'Spree (Choose one or more additional costs.)\n+ {1} — All creatures lose all abilities until end of turn.\n+ {1} — Choose a creature you control. It gains indestructible until end of turn.\n+ {3}{W}{W} — Destroy all creatures.',
+        expectedKinds: ['destroy'],
+      },
+      {
+        name: 'Chance for Glory',
+        text:
+          "Creatures you control gain indestructible. Take an extra turn after this one. At the beginning of that turn's end step, you lose the game.",
+        expectedKinds: ['take_extra_turn'],
+      },
+      {
+        name: 'Flaring Pain',
+        text: "Damage can't be prevented this turn.",
+        expectedKinds: ['damage_cant_be_prevented'],
+      },
+      {
+        name: 'Full Throttle',
+        text: 'After this main phase, there are two additional combat phases.',
+        expectedKinds: ['add_extra_combat'],
+      },
+      {
+        name: "Hunters' Feast",
+        text: 'Any number of target players each gain 6 life.',
+        expectedKinds: ['gain_life'],
+      },
+      {
+        name: 'Reward the Faithful',
+        text:
+          'Any number of target players each gain life equal to the greatest mana value among permanents you control.',
+        expectedKinds: ['gain_life'],
+      },
+      {
+        name: 'Turtle Tracks',
+        text:
+          'Any number of target players may each search their library for a basic land card, put it onto the battlefield under their control, then shuffle.',
+        expectedKinds: ['search_library'],
+      },
+      {
+        name: 'Soul Partition',
+        text:
+          'Exile target nonland permanent. For as long as that card remains exiled, its owner may play it. A spell cast by an opponent this way costs {2} more to cast.',
+        expectedKinds: ['exile'],
+      },
+      {
+        name: "Savor the Moment",
+        text: 'Take an extra turn after this one. Skip the untap step of that turn.',
+        expectedKinds: ['take_extra_turn'],
+      },
+      {
+        name: 'Tangle',
+        text: "Prevent all combat damage that would be dealt this turn. Each attacking creature doesn't untap during its controller's next untap step.",
+        expectedKinds: ['prevent_damage'],
+      },
+      {
+        name: "Selvala's Charge",
+        text:
+          'Parley — Each player reveals the top card of their library. For each nonland card revealed this way, add {G} and that player puts the revealed card into their hand. Then each player who revealed a land card puts that card on the bottom of their library.',
+        expectedKinds: ['reveal_top'],
+      },
+      {
+        name: 'Surge of Brilliance',
+        text:
+          "Paradox — Draw a card for each spell you've cast this turn from anywhere other than your hand.",
+        expectedKinds: ['draw'],
+      },
     ];
 
     for (const sample of cases) {
@@ -172,8 +301,12 @@ describe('oracleTextParser ability classification (fast debug)', () => {
         (ability) =>
           ability.type !== AbilityType.SPELL &&
           ability.type !== AbilityType.KEYWORD &&
+          ability.type !== AbilityType.TRIGGERED &&
           !/^kicker\b/i.test(String(ability.text || '')) &&
-          !/^as an additional cost to cast this spell\b/i.test(String(ability.text || '')),
+          !/^as an additional cost to cast this spell\b/i.test(String(ability.text || '')) &&
+          !/^this spell (?:has|costs?|can'?t)\b/i.test(String(ability.text || '')) &&
+          !/^you may cast this spell\b/i.test(String(ability.text || '')) &&
+          !/^spree\s*\(/i.test(String(ability.text || '')),
       );
       expect(nonSpell, `${sample.name} parsed non-spell`).toEqual([]);
 

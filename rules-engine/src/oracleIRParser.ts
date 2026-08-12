@@ -1572,7 +1572,11 @@ function mergeSplitChooseModeParsedAbilities(parsed: OracleTextParseResult): Ora
   for (let index = 0; index < parsed.abilities.length; index += 1) {
     const current = parsed.abilities[index];
     const currentText = String(current.text || '').trim();
-    if (!/^choose\s+(?:one\s+or\s+both|one\s+or\s+more|one|two|three|four|up\s+to\s+\w+|any\s+number)/i.test(currentText)) {
+    const isPWorthHeader = /^choose\s+up\s+to\s+\w+\s*\{P\}\s*worth\s+of\s+modes\b/i.test(currentText);
+    if (
+      !isPWorthHeader &&
+      !/^choose\s+(?:one\s+or\s+both|one\s+or\s+more|one|two|three|four|up\s+to\s+\w+|any\s+number)/i.test(currentText)
+    ) {
       merged.push(current);
       continue;
     }
@@ -1582,9 +1586,32 @@ function mergeSplitChooseModeParsedAbilities(parsed: OracleTextParseResult): Ora
     while (nextIndex < parsed.abilities.length) {
       const next = parsed.abilities[nextIndex];
       const nextText = String(next.text || '').trim();
-      if (!/^[\u2022•\uFFFD]/.test(nextText)) break;
-      modeAbilities.push(next);
-      nextIndex += 1;
+      const isBulletMode = /^[\u2022•\uFFFD]/.test(nextText);
+      const isPMode = /^\{P\}/i.test(nextText);
+      if (isPWorthHeader ? isPMode : isBulletMode) {
+        modeAbilities.push(next);
+        nextIndex += 1;
+        continue;
+      }
+      // Season `{P}` modes are often sentence-split ("Choose artifact…. Destroy all…").
+      // Fold non-mode tails into the preceding mode line before breaking the block.
+      if (
+        isPWorthHeader &&
+        modeAbilities.length > 0 &&
+        nextText &&
+        !/^(?:choose\s+up\s+to|when|whenever|at\s+the)\b/i.test(nextText)
+      ) {
+        const previous = modeAbilities[modeAbilities.length - 1];
+        const combinedModeText = `${String(previous.text || '').trim()} ${nextText}`.trim();
+        modeAbilities[modeAbilities.length - 1] = {
+          ...previous,
+          text: combinedModeText,
+          effect: combinedModeText,
+        };
+        nextIndex += 1;
+        continue;
+      }
+      break;
     }
 
     if (modeAbilities.length === 0) {
@@ -1935,6 +1962,29 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
     if (abilities.some((ability) => normalizeAbilityCoverageText(String(ability.text || '')) === normalized)) {
       return true;
     }
+    // Modal bullets already inside choose_mode must not be recovered as top-level steps
+    // (Urza's Command PT / Construct "+1/+1" grant text).
+    const coveredByChooseMode = abilities.some((ability) =>
+      (ability.steps || []).some((step) => {
+        if (step.kind !== 'choose_mode') return false;
+        const modes = Array.isArray((step as any).modes) ? (step as any).modes : [];
+        if (
+          modes.some((mode: any) => {
+            const raw = normalizeAbilityCoverageText(String(mode?.raw || ''));
+            const label = normalizeAbilityCoverageText(String(mode?.label || ''));
+            return (
+              (raw && (raw === normalized || raw.includes(normalized) || normalized.includes(raw))) ||
+              (label && label === normalized)
+            );
+          })
+        ) {
+          return true;
+        }
+        const chooseRaw = normalizeAbilityCoverageText(String((step as any).raw || ability.text || ''));
+        return Boolean(chooseRaw && chooseRaw.includes(normalized));
+      })
+    );
+    if (coveredByChooseMode) return true;
     // Paragraph recovery must not re-add text already sentence-split into spell abilities.
     const parts = normalized.split(/(?<=\.)\s+/).map((part) => part.replace(/[.!?]+$/g, '').trim()).filter(Boolean);
     if (parts.length <= 1) return false;
@@ -1993,9 +2043,13 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   for (const line of normalizedOracleText.split(/\n+/).map((part) => part.trim()).filter(Boolean)) {
     if (
       /[()]/.test(line) ||
+      /^[•\u2022]\s+/i.test(line) ||
       /\bany player may activate\b/i.test(line) ||
       !/\bgets?\s+[+-](?:\d+|x)\s*\/\s*[+-](?:\d+|x)\b/i.test(line)
     ) continue;
+    // Ignore PT text that exists only inside quoted grants on the same line.
+    const withoutQuotes = line.replace(/"[^"]*"/g, ' ');
+    if (!/\bgets?\s+[+-](?:\d+|x)\s*\/\s*[+-](?:\d+|x)\b/i.test(withoutQuotes)) continue;
     if (abilityTextAlreadyCovered(line)) continue;
     const step = parseEffectClauseToStep(line);
     const lineType = isSpellInstructionLine(line) ? AbilityType.SPELL : AbilityType.STATIC;

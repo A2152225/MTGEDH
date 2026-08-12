@@ -82,7 +82,7 @@ export function applyChooseModeStep(
     normalizedSelectedModeIds.some((id, index) => normalizedSelectedModeIds.indexOf(id) !== index);
   const selectedModes = normalizedSelectedModeIds
     .map(id => modeById.get(id))
-    .filter((mode): mode is { label: string; steps: readonly OracleEffectStep[] } => Boolean(mode));
+    .filter((mode): mode is { label: string; steps: readonly OracleEffectStep[]; pCost?: number } => Boolean(mode));
   const minModes = Math.max(0, Number((step as any).minModes ?? 0) || 0);
   const maxModesRaw = Number((step as any).maxModes ?? -1);
   let maxModes = Number.isFinite(maxModesRaw) && maxModesRaw >= 0 ? maxModesRaw : Infinity;
@@ -90,12 +90,23 @@ export function applyChooseModeStep(
     const modeCount = Array.isArray((step as any).modes) ? (step as any).modes.length : 0;
     maxModes = Math.min(2, modeCount > 0 ? modeCount : 2);
   }
+  const pBudgetRaw = Number((step as any).pBudget ?? NaN);
+  const hasPBudget = Number.isFinite(pBudgetRaw) && pBudgetRaw > 0;
+  const selectedPCost = selectedModes.reduce(
+    (sum, mode) => sum + (Number.isFinite(Number(mode.pCost)) ? Number(mode.pCost) : 0),
+    0,
+  );
+  // For {P}-budget modes, maxModes is a soft upper bound; the budget is authoritative.
+  if (hasPBudget) {
+    maxModes = Infinity;
+  }
 
   if (
     hasDuplicateModeSelection ||
     selectedModes.length !== normalizedSelectedModeIds.length ||
     selectedModes.length < minModes ||
     selectedModes.length > maxModes ||
+    (hasPBudget && selectedPCost > pBudgetRaw) ||
     (rememberChosenModes && normalizedSelectedModeIds.some(id => priorModeChoices.has(id)))
   ) {
     return {

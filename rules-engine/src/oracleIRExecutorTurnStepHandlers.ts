@@ -2,6 +2,7 @@ import { GamePhase, GameStep, type ExtraTurnEffect, type GameState, type PlayerI
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { exileAllSpellsAndAbilitiesFromStack } from './oracleIRExecutorZoneOps';
 import { endTheTurn } from './specialGameMechanics';
 
 type ExtraCombatEffect = {
@@ -42,6 +43,57 @@ export function applyEndTurnStep(
       turnEndingEffect: effect,
     } as GameState,
     log: [`Ended the turn: ${step.raw}`],
+  };
+}
+
+function clearCombatFlagsFromBattlefield(state: GameState): GameState {
+  const battlefield = Array.isArray((state as any).battlefield)
+    ? ((state as any).battlefield as any[]).map((permanent) => {
+        if (!permanent || typeof permanent !== 'object') return permanent;
+        const next = { ...permanent };
+        delete next.attacking;
+        delete next.blocking;
+        delete next.blockedBy;
+        delete next.combatDamageThisTurn;
+        return next;
+      })
+    : (state as any).battlefield;
+
+  const nextState: any = {
+    ...(state as any),
+    battlefield,
+    combatNumber: 0,
+  };
+  delete nextState.combat;
+  return nextState as GameState;
+}
+
+export function applyEndCombatPhaseStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'end_combat_phase' }>,
+  ctx: OracleIRExecutionContext
+): TurnStepHandlerResult {
+  let nextState = clearCombatFlagsFromBattlefield(state);
+  const log: string[] = [`Ended the combat phase: ${step.raw}`];
+
+  if (step.exileStack !== false) {
+    const exileResult = exileAllSpellsAndAbilitiesFromStack(nextState, ctx);
+    nextState = exileResult.state;
+    log.push(...exileResult.log);
+  }
+
+  // Advance out of combat the same way natural END_COMBAT → postcombat main does.
+  nextState = {
+    ...(nextState as any),
+    phase: GamePhase.POSTCOMBAT_MAIN,
+    step: (GameStep as any).MAIN2 || GameStep.MAIN || 'MAIN2',
+    priorityPasses: 0,
+  } as GameState;
+
+  return {
+    applied: true,
+    state: nextState,
+    log,
   };
 }
 

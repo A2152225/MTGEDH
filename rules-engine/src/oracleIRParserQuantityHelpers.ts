@@ -140,7 +140,8 @@ export function quantityTailSupportsDynamicQuantity(quantityTail: string): boole
 
 /** True when the tail is a simple "N cards" quantity (not "for each", "equal to", etc.). */
 export function isSimpleCardQuantityTail(quantityTail: string): boolean {
-  const normalized = normalizeOracleText(quantityTail);
+  // Trailing "instead" is a conditional/replacement marker, not part of the quantity.
+  const normalized = normalizeOracleText(quantityTail).replace(/\s+instead$/i, '').trim();
   if (!normalized || !/\bcards?\b/i.test(normalized)) return false;
   if (/\bfor\s+each\b/i.test(normalized)) return false;
   if (/\bcards?\s+equal\s+to\b/i.test(normalized)) return false;
@@ -151,7 +152,6 @@ export function isSimpleCardQuantityTail(quantityTail: string): boolean {
   if (/\sand\s+reveal\b/i.test(normalized)) return false;
   if (/\sand\s+sacrifices?\b/i.test(normalized)) return false;
   if (/\sif\s+/i.test(normalized)) return false;
-  if (/\sinstead$/i.test(normalized)) return false;
   if (/^until you exile/i.test(normalized)) return false;
   if (/,/.test(normalized)) return false;
   return true;

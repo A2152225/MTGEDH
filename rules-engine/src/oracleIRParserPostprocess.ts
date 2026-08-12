@@ -2877,6 +2877,13 @@ function parseLibrarySearchUnknownStep(step: OracleEffectStep): OracleEffectStep
     .trim();
   if (!raw || /\bcan't\b[\s\S]*\bsearch\b/i.test(raw)) return null;
 
+  // Do not pull bare search_library out of ability-word / If … instead … lines —
+  // those must stay intact for conditional expansion (Traverse the Ulvenwald).
+  const withoutAbilityWord = raw.replace(/^[A-Z][A-Za-z' -]{1,40}\s*[-—–]\s+/u, '').trim();
+  if (/^if\b/i.test(withoutAbilityWord) || /\binstead\s+search\b/i.test(raw)) {
+    return null;
+  }
+
   const searchStart = raw.match(/\b((?:(?:you|its controller|that player|that opponent)\s+may\s+)?search\s+(?:your|their|that player's|that player’s|target player's|target player’s|that opponent's|that opponent’s|its controller's|its owner's)\s+library[\s\S]*)$/i);
   if (!searchStart) return null;
   const searchClause = String(searchStart[1] || '').trim();
@@ -9156,7 +9163,8 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return staticMetadata('enchanted residual', raw);
   }
 
-  if (/^(?:end\s+the\s+combat\s+phase\b|enraging\s+licid\b|entwine(?:\s|-)|equip-)/i.test(raw)) {
+  // "End the combat phase" is a real resolution step (see simpleActionClauses).
+  if (/^(?:enraging\s+licid\b|entwine(?:\s|-)|equip-)/i.test(raw)) {
     return staticMetadata('pass30 residual', raw);
   }
 
@@ -9929,7 +9937,11 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return staticMetadata('that creature', raw);
   }
 
-  if (/^(?:delirium\s*-?|democracy\b|devour\b|deworded\b|discover\b|distribute\b|divination,|do\s+this\s+x\s+times|doing\s+the\s+chosen\s+action\s+costs\b|don(?:'|’)t\s+(?:count|touch)\b|double\s+agenda\b|double\b)/i.test(raw)) {
+  // Keep "Delirium — If …" for conditional expansion; only swallow non-If residuals.
+  if (
+    /^(?:democracy\b|devour\b|deworded\b|discover\b|distribute\b|divination,|do\s+this\s+x\s+times|doing\s+the\s+chosen\s+action\s+costs\b|don(?:'|’)t\s+(?:count|touch)\b|double\s+agenda\b|double\b)/i.test(raw)
+    || (/^delirium\s*-?/i.test(raw) && !/^delirium\s*[-—–]?\s*if\b/i.test(raw))
+  ) {
     return staticMetadata('pass26 residual', raw);
   }
 
@@ -14063,6 +14075,8 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   const shouldDeferSupplementalFallback =
     /^you\s+get\s+an\s+emblem\s+with\s+"/i.test(raw) ||
     /^(?:[ivxlcdm]+|spell\s+mastery)\s+-/i.test(raw) ||
+    /^(?:will\s+of\s+the\s+(?:council|planeswalkers)|secret\s+council|council'?s\s+dilemma)\s*[-—–]/i.test(raw) ||
+    /\b(?:secretly\s+)?votes?\s+for\b/i.test(raw) ||
     /\bcopy\b/i.test(raw);
   if (!shouldDeferSupplementalFallback && /^(?:-\s+.+|-\d+:\s+.+|\.\.|\[[^\]]+\](?:\s+.+)?|(?:\{[^}]+\}(?:,\s*)?)+(?:\s*-\s*|(?:,\s*|\s+)[^:]+:\s*|:\s*).+|(?:\{P\}|\{TK\})+(?:\s*-\s*.+)|\{[WUBRG]\/P\}\s+can\s+be\s+paid\s+with\s+either\s+\{[WUBRG]\}\s+or\s+2\s+life\.?\)?|(?:â€¢|•)\s+.+|\d+\/\d+\s+.+|\d+\s*-\s+.+|[a-z][a-z0-9 '&!,.-]+\s+-\s+.+|abrupt\s+decay|an\s+opponent\s+lost\s+\d+\s+or\s+more\s+life\s+this\s+turn|planeswalk\s+to\s+.+|there\s+are\s+.+|treasure|you(?:'|\u2019)?ve\s+cast\s+.+|\+\s+(?:\{[^}]+\})+\s+-\s+.+|(?:\u221e|âˆž)\s+-\s+.+|\u2610.+|\d+(?:\s*-\s*\d+)?(?:\s+or\s+\d+)?\s*(?:\||-|point\s+each|is\b).+)$/i.test(raw)) {
     return staticMetadata('supplemental ability text', raw);
@@ -28442,8 +28456,39 @@ function expandVoteScaledStep(step: OracleEffectStep): OracleEffectStep {
     step.kind === 'gain_life' ||
     step.kind === 'draw' ||
     step.kind === 'investigate' ||
-    step.kind === 'create_token'
+    step.kind === 'create_token' ||
+    step.kind === 'deal_damage'
   ) {
+    const receivedPrefix = normalizedRaw.match(
+      /^for each vote (you|an opponent|each player|that player) received,\s*.+$/i
+    );
+    const receivedSuffix = normalizedRaw.match(
+      /^.+?\s+for each vote (you|an opponent|each player|that player) received$/i
+    );
+    const receivedWhoRaw = String(receivedPrefix?.[1] || receivedSuffix?.[1] || '').toLowerCase();
+    if (receivedWhoRaw) {
+      const who =
+        receivedWhoRaw === 'you'
+          ? 'you'
+          : receivedWhoRaw === 'an opponent'
+            ? 'opponents'
+            : 'each_player';
+      const explicitMultiplier = normalizedRaw.match(
+        /(?:gain|draw|create|investigate|deals?)\s+(\d+)\s+(?:life|cards?|tokens?|damage)?/i,
+      );
+      const multiplier = step.amount.kind === 'number'
+        ? step.amount.value
+        : Number.parseInt(String(explicitMultiplier?.[1] || '1'), 10);
+      return {
+        ...step,
+        amount: {
+          kind: 'votes_received' as const,
+          who: who as 'you' | 'opponents' | 'each_player',
+          ...(multiplier !== 1 ? { multiplier } : {}),
+        },
+      };
+    }
+
     const voteMatch = normalizedRaw.match(/\s+for each ([a-z0-9][a-z0-9' -]*) vote$/i);
     if (!voteMatch) return step;
     const explicitMultiplier = normalizedRaw.match(
@@ -29463,7 +29508,7 @@ export function repairMonarchInsteadConditionalAbilities(
 ): OracleIRAbility[] {
   const MONARCH_INSTEAD_RAW = /^if\s+you(?:'|’)?re\s+the\s+monarch,\s*instead\s+(.+?)[.\s]*$/i;
 
-  return abilities.map((ability) => {
+  const withinAbility = abilities.map((ability) => {
     const steps = ability.steps || [];
     if (steps.length < 2) return ability;
 
@@ -29499,6 +29544,64 @@ export function repairMonarchInsteadConditionalAbilities(
       ],
     };
   });
+
+  return repairAdjacentSpellInsteadConditionalAbilities(withinAbility);
+}
+
+function abilityLooksLikeSpellResolution(ability: OracleIRAbility): boolean {
+  return String(ability?.type || '').toLowerCase() === 'spell';
+}
+
+function conditionalStepHasInsteadSemantics(step: OracleEffectStep): boolean {
+  if (String(step?.kind || '') !== 'conditional') return false;
+  const raw = String((step as any).raw || '');
+  return /\binstead\b/i.test(raw);
+}
+
+/**
+ * Fold adjacent spell abilities "BASE. Threshold/Delirium — ALT instead if COND."
+ * into one conditional with elseSteps = BASE (Cabal Ritual, Traverse, Whispers).
+ */
+export function repairAdjacentSpellInsteadConditionalAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  if (abilities.length < 2) return [...abilities];
+
+  const out: OracleIRAbility[] = [];
+  for (let index = 0; index < abilities.length; index += 1) {
+    const current = abilities[index];
+    const next = abilities[index + 1];
+    if (
+      current
+      && next
+      && abilityLooksLikeSpellResolution(current)
+      && abilityLooksLikeSpellResolution(next)
+      && (current.steps || []).length > 0
+      && (next.steps || []).length === 1
+      && conditionalStepHasInsteadSemantics(next.steps[0]!)
+      && Array.isArray((next.steps[0] as any).steps)
+      && (next.steps[0] as any).steps.length > 0
+      && !Array.isArray((next.steps[0] as any).elseSteps)
+    ) {
+      const conditional = next.steps[0] as any;
+      out.push({
+        ...next,
+        text: `${String(current.text || '').trim()} ${String(next.text || '').trim()}`.trim(),
+        effectText: `${String(current.effectText || current.text || '').trim()} ${String(next.effectText || next.text || '').trim()}`.trim(),
+        steps: [
+          {
+            ...conditional,
+            elseSteps: [...(current.steps || [])],
+            raw: String(conditional.raw || next.effectText || next.text || '').trim(),
+          } as OracleEffectStep,
+        ],
+      });
+      index += 1;
+      continue;
+    }
+    out.push(current);
+  }
+  return out;
 }
 
 function repairEmblemWithNestedConditionalSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {

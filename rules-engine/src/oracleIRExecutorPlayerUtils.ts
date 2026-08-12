@@ -383,7 +383,47 @@ export function quantityToNumber(qty: OracleQuantity, ctx?: OracleIRExecutionCon
     const multiplier = Number.isFinite(Number(qty.multiplier)) ? Math.max(0, Math.trunc(Number(qty.multiplier))) : 1;
     return voteCount * multiplier;
   }
+  if (qty.kind === 'votes_received') {
+    // Resolved against state in battlefield/draw amount helpers; keep null here so
+    // callers with state can use resolveVotesReceivedQuantity.
+    return null;
+  }
   return null;
+}
+
+export function resolveVotesReceivedQuantity(
+  state: GameState,
+  controllerId: string,
+  qty: Extract<OracleQuantity, { kind: 'votes_received' }>
+): number {
+  const multiplier = Number.isFinite(Number(qty.multiplier)) ? Math.max(0, Math.trunc(Number(qty.multiplier))) : 1;
+  const received =
+    (state as any)?.votesReceivedByPlayer && typeof (state as any).votesReceivedByPlayer === 'object'
+      ? ((state as any).votesReceivedByPlayer as Record<string, number>)
+      : {};
+  const controller = String(controllerId || '').trim().toLowerCase();
+  const players = Array.isArray((state as any).players) ? ((state as any).players as any[]) : [];
+  const opponentIds = new Set(
+    players
+      .map((p) => String(p?.id || '').trim().toLowerCase())
+      .filter((id) => id && id !== controller)
+  );
+
+  let total = 0;
+  if (qty.who === 'you') {
+    total = Number(received[controller] ?? 0) || 0;
+  } else if (qty.who === 'opponents') {
+    for (const [playerId, count] of Object.entries(received)) {
+      if (opponentIds.has(String(playerId || '').trim().toLowerCase())) {
+        total += Number(count) || 0;
+      }
+    }
+  } else {
+    for (const count of Object.values(received)) {
+      total += Number(count) || 0;
+    }
+  }
+  return Math.max(0, Math.floor(total * multiplier));
 }
 
 export function normalizeOracleText(value: string): string {

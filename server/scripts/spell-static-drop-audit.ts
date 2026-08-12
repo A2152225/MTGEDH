@@ -61,21 +61,92 @@ function isCastTimeOrKeywordNoise(text: string): boolean {
   const t = String(text || '').trim();
   if (!t) return true;
 
-  if (/^(?:flashback|overload|retrace|jump-start|buyback|kicker|multikicker|splice|miracle|cascade|storm|cipher|rebound|aftermath|suspend|replicate|gravestorm|haunt|forecast|entwine|reinforce|transmute|cycling|basic landcycling|typecycling|channel|evoke|dash|exploit|bestow|conspire|madnes|spectacle|surge|emerge|improvise|delve|affinity|partner|awaken|escalate|embalm|eternalize|augment|assist|jump.?start)\b/i.test(t)) {
+  if (/^(?:flashback|flashforward|overload|retrace|jump-start|buyback|kicker|multikicker|splice|miracle|cascade|storm|cipher|rebound|aftermath|suspend|replicate|gravestorm|haunt|forecast|entwine|reinforce|transmute|cycling|basic landcycling|typecycling|channel|evoke|dash|exploit|bestow|conspire|madnes|spectacle|surge|emerge|improvise|delve|affinity|partner|awaken|escalate|embalm|eternalize|augment|assist|jump.?start|devoid|recover|dredge|mayhem|escape|convoke|freerunning|spellmorph|multicleave|forbidden|paradigm)\b/i.test(t)) {
     return true;
   }
+
+  // Bargain / Teamwork / Spree framing / intensity / Gotcha cast-time lines
+  if (/^bargain\b/i.test(t)) return true;
+  if (/^teamwork\s+\d+\b/i.test(t)) return true;
+  if (/^spree\s*\(/i.test(t)) return true;
+  if (/^starting intensity\b/i.test(t)) return true;
+  if (/^gotcha\b/i.test(t)) return true;
+
+  // Card-characteristic replacements on instants/sorceries (Nexus of Fate), not resolution follow-ups
+  if (
+    /^if\s+(?:this\s+(?:permanent|card|spell)|it)\s+would\s+be\s+put\s+into\s+(?:a\s+)?graveyard\s+from\s+anywhere\b/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  if (/^you\s+may\s+cast\s+this\s+spell\b/i.test(t)) return true;
 
   // Alternative / additional costs
   if (/\brather than pay (?:this|the) spell's mana cost\b/i.test(t)) return true;
   if (/^as an additional cost to (?:cast|play)\b/i.test(t)) return true;
   if (/^you may (?:pay|exile|discard|sacrifice|tap).+rather than pay\b/i.test(t)) return true;
   if (/\bif you (?:attacked|cast a creature|control).+you may pay .+ rather than pay\b/i.test(t)) return true;
-  if (/^(?:raid|addendum|revolt|spectacle|magecraft|landfall)\s*[—-]/i.test(t) && /\brather than pay\b|\bcost\b/i.test(t) && !/\buntil end of turn\b|\bdraw\b|\bdestroy\b|\bgain\b|\bget\b|\bcreate\b/i.test(t)) {
+  if (
+    /^(?:raid|addendum|revolt|spectacle|magecraft|landfall|corrupted|strive|delirium|threshold|metalcraft|hellbent|fateful\s+hour)\s*[—-]/i.test(t) &&
+    /\brather than pay\b|\bcost\b|\bthis spell costs\b/i.test(t) &&
+    !/\buntil end of turn\b|\bdraw\b|\bdestroy\b|\bgain\b|\bget\b|\bcreate\b|\bseek\b/i.test(t)
+  ) {
     return true;
   }
+  if (/^spell commander\b/i.test(t)) return true;
+  if (/^coststorm\b/i.test(t)) return true;
+  if (/^just a second\b/i.test(t)) return true;
+  if (/^during turns other than yours\b/i.test(t)) return true;
+  if (/^as long as this (?:permanent|spell) is on the stack\b/i.test(t)) return true;
+  if (/^as long as you control\b.+\byou may cast this card from your graveyard\b/i.test(t)) return true;
+  if (/^this permanent is colorless\b/i.test(t)) return true;
+  if (/^treat\b.+\bmana value\b/i.test(t)) return true;
+  if (/^teach\b/i.test(t)) return true;
+  if (/^reverse miracle\b/i.test(t)) return true;
+  if (/^bank\b/i.test(t)) return true;
+  if (/^cards you own named\b.+\bintensify\b/i.test(t)) return true;
+  if (/^spend only\b.+\bon x\b/i.test(t)) return true;
+  if (/^x is the number of\b.+\bas you cast\b/i.test(t)) return true;
+  if (/^this permanent has flash as long as\b/i.test(t)) return true;
+  // Ability-word cast-cost riders (Vivid/Void/Delirium cost reduction)
+  if (
+    /^(?:vivid|void|delirium|threshold|corrupted|strive|raid|addendum)\s*[—-]/i.test(t) &&
+    /\bthis spell costs?\b|\bless to cast\b|\bmore to cast\b/i.test(t)
+  ) {
+    return true;
+  }
+  // Graveyard flashback grants under ability words (Viral Spawning Corrupted)
+  if (
+    /^(?:corrupted|delirium|threshold|revolt|raid)\s*[—-]/i.test(t) &&
+    /\bflashback\b|\bit has\b.+\bcost\b/i.test(t)
+  ) {
+    return true;
+  }
+  // Alchemy spellbook draft riders
+  if (/\bdraft a card from\b.+\bspellbook\b/i.test(t)) return true;
+
+  // Cast-time spell characteristics (not resolution follow-ups)
+  if (/^this spell (?:has|costs?|can'?t)\b/i.test(t)) return true;
+  if (/^during your turn, this spell costs?\b/i.test(t)) return true;
+  if (/^this permanent costs?\b/i.test(t)) return true;
+  if (/^dci ruling\b/i.test(t)) return true;
 
   // Gift / promise-as-you-cast reminder (cast-time, not resolution follow-up)
   if (/^gift\b/i.test(t) && /\bpromise an opponent a gift as you cast\b/i.test(t)) return true;
+
+  // Reminder-only / bracketed delayed-trigger reminders
+  if (/^\([^)]*(?:can be paid|mana value|this card)[^)]*\)\s*$/i.test(t)) return true;
+  if (/^\[[^\]]+\]\s*$/.test(t)) return true;
+
+  // Un-set / silver-border framing (not Brave-class resolution drops)
+  if (
+    /\boutside the game\b|\bbooster pack\b|\bstaring contest\b|\bsubgame\b|\bun-game\b|\byell\b|\barm-wrestle\b|\bseven questions\b|\ba person outside\b/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
 
   // Standalone keywords without temporary duration
   if (
@@ -85,6 +156,34 @@ function isCastTimeOrKeywordNoise(text: string): boolean {
     return true;
   }
 
+  return false;
+}
+
+/** Un-set / silver-border / joke cards excluded from EDH readiness metric. */
+function isUnsetOrJokeCard(name: string, oracleText: string): boolean {
+  const n = String(name || '').toLowerCase();
+  const unsetNames = new Set([
+    'goblin tutor',
+    'hot fix',
+    'landfill',
+    'mark ritual',
+    'memory bank',
+    'once more with feeling',
+    'photo op',
+    'proposal',
+    'seasonal sequels',
+    'six-sided die',
+    'step right up',
+    'strategy, schmategy',
+    'sunimret',
+    'you and ooze army?',
+    "you're in command",
+    'pyromancy 101',
+  ]);
+  if (unsetNames.has(n)) return true;
+  if (/\boutside the game\b|\bun-game\b|\battraction deck\b|\bcontraption\b|\bdci ruling\b/i.test(oracleText)) {
+    return true;
+  }
   return false;
 }
 
@@ -210,6 +309,7 @@ async function main(): Promise<void> {
 
   const followUps = hits.filter((h) => h.reason === 'spell_plus_static_steps');
   const wholeEffectStatic = hits.filter((h) => h.reason === 'all_static_with_steps');
+  const edhHits = hits.filter((h) => !isUnsetOrJokeCard(h.name, h.oracleText));
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -218,6 +318,8 @@ async function main(): Promise<void> {
     instantSorcery,
     noiseSkippedAbilities: noiseSkipped,
     hitCount: hits.length,
+    edhHitCount: edhHits.length,
+    edhHitNames: edhHits.map((h) => h.name),
     reasonCounts,
     leadCounts: Object.entries(leadCounts)
       .sort((a, b) => b[1] - a[1])
@@ -246,6 +348,8 @@ async function main(): Promise<void> {
     scanned,
     instantSorcery,
     hitCount: hits.length,
+    edhHitCount: edhHits.length,
+    edhHitNames: edhHits.slice(0, 40).map((h) => h.name),
     reasonCounts,
     topLeads: report.leadCounts.slice(0, 15),
     topClusters: report.clusters.slice(0, 20),

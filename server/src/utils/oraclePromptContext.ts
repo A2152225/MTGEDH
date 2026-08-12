@@ -30,12 +30,17 @@ export interface OracleModalModeInfo {
   readonly normalMinModes: number;
   readonly normalMaxModes: number;
   readonly entwineCost?: string;
+  /** Season-style `{P}` budget ("Choose up to five {P} worth of modes"). */
+  readonly pBudget?: number;
+  readonly canRepeatModes?: boolean;
   readonly options: readonly {
     readonly id: string;
     readonly label: string;
     readonly description: string;
     /** Raw option text as it appeared in oracle. */
     readonly raw: string;
+    /** `{P}` cost for Season-style budgets. */
+    readonly pCost?: number;
   }[];
   /** True if every option appears to reference targets (heuristic). */
   readonly allOptionsHaveTargets: boolean;
@@ -192,6 +197,80 @@ function extractInlineModalOptionsFromHeader(header: string): string[] {
  * Best-effort extraction of modal "Choose one —" blocks.
  * This is intended for prompt ordering (mode selection before targets), not full rules execution.
  */
+function wordToModeCount(word: string): number | undefined {
+  const normalized = String(word || '').trim().toLowerCase();
+  const table: Record<string, number> = {
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+  if (table[normalized] != null) return table[normalized];
+  const asNumber = Number.parseInt(normalized, 10);
+  return Number.isFinite(asNumber) && asNumber > 0 ? asNumber : undefined;
+}
+
+function extractPWorthModalModes(lines: readonly string[]): OracleModalModeInfo | undefined {
+  const headerIndex = lines.findIndex((line) =>
+    /^choose\s+up\s+to\s+\w+\s*\{P\}\s*worth\s+of\s+modes\b/i.test(line)
+  );
+  if (headerIndex === -1) return undefined;
+
+  const header = lines[headerIndex];
+  const budgetMatch = header.match(/^choose\s+up\s+to\s+(\w+)\s*\{P\}\s*worth\s+of\s+modes\b/i);
+  const pBudget = wordToModeCount(String(budgetMatch?.[1] || ''));
+  if (!pBudget) return undefined;
+
+  const rawOptions: Array<{ raw: string; pCost: number }> = [];
+  for (let i = headerIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    const modeMatch = line.match(/^((?:\{P\})+)\s*-\s*(.+)$/i);
+    if (!modeMatch) {
+      if (rawOptions.length > 0 && !/^(?:choose|when|whenever|at\s+the)\b/i.test(line)) {
+        const previous = rawOptions[rawOptions.length - 1];
+        previous.raw = `${previous.raw} ${line}`.trim();
+        continue;
+      }
+      break;
+    }
+    const pCost = (modeMatch[1].match(/\{P\}/gi) || []).length || 1;
+    const effect = String(modeMatch[2] || '').trim();
+    if (effect) rawOptions.push({ raw: `${modeMatch[1]} - ${effect}`, pCost });
+  }
+
+  if (rawOptions.length < 2) return undefined;
+
+  const options = rawOptions.map((entry, idx) => {
+    const label = entry.raw.length > 60 ? `${entry.raw.slice(0, 57)}...` : entry.raw;
+    return {
+      id: `Mode ${idx + 1}`,
+      label,
+      description: entry.raw,
+      raw: entry.raw,
+      pCost: entry.pCost,
+    };
+  });
+
+  return {
+    minModes: 0,
+    maxModes: pBudget,
+    normalMinModes: 0,
+    normalMaxModes: pBudget,
+    pBudget,
+    canRepeatModes: /you may choose the same mode more than once/i.test(header),
+    options,
+    allOptionsHaveTargets: options.every(
+      (option) => /\btarget\b/i.test(option.raw) || /\bany target\b/i.test(option.raw),
+    ),
+  };
+}
+
 export function extractModalModesFromOracleText(oracleText: string): OracleModalModeInfo | undefined {
   const text = normalizeForModalParse(oracleText);
   if (!text) return undefined;
@@ -201,12 +280,16 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
     .map(l => l.trim())
     .filter(Boolean);
 
+  const pWorth = extractPWorthModalModes(lines);
+  if (pWorth) return pWorth;
+
   // Find the first modal header line.
   // Supported (best-effort):
   // - "Choose one —"
   // - "Choose one or both —"
   // - "Choose one or more —"
   // - "Choose any number —"
+  // - "Choose up to five {P} worth of modes."
   const headerIndex = lines.findIndex((line, index) => {
     if (!/^choose\s+(one(?:\s+or\s+(?:both|more))?|two|three|four|any number)\b/i.test(line)) {
       return false;
@@ -222,8 +305,6 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
 
   const header = lines[headerIndex];
   const headerLower = header.toLowerCase();
-
-  const wordToCount: Record<string, number> = { one: 1, two: 2, three: 3, four: 4 };
 
   // Defaults
   let minModes = 1;
@@ -242,7 +323,7 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
     const headerMatch = header.match(/^choose\s+(one|two|three|four)\b/i);
     if (!headerMatch) return undefined;
     const word = headerMatch[1].toLowerCase();
-    minModes = wordToCount[word] ?? 1;
+    minModes = wordToModeCount(word) ?? 1;
     maxModes = minModes;
   }
 
@@ -302,17 +383,25 @@ export function extractModalModesForSpellCast(
   spellName = '',
 ): OracleModalModeInfo | undefined {
   const legacy = extractModalModesFromOracleText(oracleText);
-  if (!legacy || !isOracleIrSpellPrimaryEnabled()) {
+  if (!isOracleIrSpellPrimaryEnabled()) {
     return legacy;
   }
 
   try {
     const ir = parseOracleTextToIR(oracleText, spellName);
-    let chooseModeStep: { modes?: readonly { label?: string; raw?: string }[] } | undefined;
+    let chooseModeStep:
+      | {
+          modes?: readonly { label?: string; raw?: string; pCost?: number }[];
+          minModes?: number;
+          maxModes?: number;
+          canRepeatModes?: boolean;
+          pBudget?: number;
+        }
+      | undefined;
     for (const ability of ir.abilities || []) {
       for (const step of ability.steps || []) {
         if (step?.kind === 'choose_mode') {
-          chooseModeStep = step as { modes?: readonly { label?: string; raw?: string }[] };
+          chooseModeStep = step as typeof chooseModeStep;
           break;
         }
       }
@@ -328,21 +417,40 @@ export function extractModalModesForSpellCast(
       const raw = String(mode.raw || mode.label || '').trim();
       const label = raw.length > 60 ? `${raw.slice(0, 57)}...` : raw;
       const id = String(mode.label || `Mode ${idx + 1}`).trim();
+      const pCost = Number(mode.pCost);
       return {
         id,
         label,
         description: raw,
         raw,
+        ...(Number.isFinite(pCost) && pCost > 0 ? { pCost } : {}),
       };
     });
 
-    return {
-      ...legacy,
+    const pBudget = Number(chooseModeStep?.pBudget);
+    const irBase: OracleModalModeInfo = {
+      minModes: Number(chooseModeStep?.minModes ?? legacy?.minModes ?? 1) || 0,
+      maxModes: Number(chooseModeStep?.maxModes ?? legacy?.maxModes ?? options.length) || options.length,
+      normalMinModes: Number(chooseModeStep?.minModes ?? legacy?.normalMinModes ?? 1) || 0,
+      normalMaxModes: Number(chooseModeStep?.maxModes ?? legacy?.normalMaxModes ?? options.length) || options.length,
+      ...(legacy?.entwineCost ? { entwineCost: legacy.entwineCost } : {}),
+      ...(Number.isFinite(pBudget) && pBudget > 0 ? { pBudget } : {}),
+      ...(chooseModeStep?.canRepeatModes || legacy?.canRepeatModes
+        ? { canRepeatModes: true }
+        : {}),
       options,
       allOptionsHaveTargets: options.every(
         (option) => /\btarget\b/i.test(option.raw) || /\bany target\b/i.test(option.raw),
       ),
     };
+
+    return legacy
+      ? {
+          ...legacy,
+          ...irBase,
+          options,
+        }
+      : irBase;
   } catch {
     return legacy;
   }

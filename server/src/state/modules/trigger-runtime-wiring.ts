@@ -95,6 +95,9 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'pay_mana',
   'add_extra_combat',
   'take_extra_turn',
+  'end_turn',
+  'end_combat_phase',
+  'vote',
   'repeated_zone_draft',
   'separate_into_piles',
   'library_chaos_exchange',
@@ -112,6 +115,8 @@ export const ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS = new Set<string>([
   'fateseal',
   'clash',
   'player_choice',
+  'vote',
+  'end_combat_phase',
 ]);
 
 export function normalizeTriggerEffectDescriptionForExecution(effectText: string): string {

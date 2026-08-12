@@ -778,10 +778,56 @@ export function parseKeywordActions(text: string): ParsedKeywordAction[] {
 }
 
 const SPELL_INSTRUCTION_LEAD_PATTERN =
-  /^(?:look|draw|mill|deal|destroy|exile|return|search|scry|surveil|create|put|target|counter|gain|lose|shuffle|reveal|choose|sacrifice|discard|tap|untap|fight|copy|cast|animate|goad|proliferate|distribute|pay|add|remove|prevent|attach|detach|unattach|switch|take|roll|amass|bolster|clash|learn|support|investigate|manifest|cloak|forage|connive|populate|incubate|venture|time\s+travel|seek|change|exchange|move|flip|transform|monstrosity|detain|suspect|regenerate|double|turn|airbend|earthbend|waterbend|firebend|conjure|the\s+owner\s+of\s+target|the\s+next\b|the\s+ring\s+tempts\s+you|for\s+each\b|up\s+to\b|an\s+opponent\b|any\s+(?:number|opponent|player)|all\s+(?:creatures?\b|damage\b|combat\s+damage\b|lands?\b|permanents?\b)|each\s+(?:other\s+)?(?:player|opponent|creature|permanent|land|artifact|enchantment|planeswalker|battle|opponents?\s+and\s+you)|each\s+of\b|starting\s+with\s+you\b|spells?\s+you\s+control\b|(?:white|blue|black|red|green|monocolored|multicolored|nonwhite|nonblue|nonblack|nonred|nongreen)\s+creatures?\b|this\s+(?:spell|permanent|creature|card)\s+deals?)\b/i;
+  /^(?:look|draw|mill|deal|destroy|exile|return|search|scry|surveil|create|put|target|counter|gain|lose|shuffle|reveal|choose|sacrifice|discard|tap|untap|fight|copy|cast|animate|goad|proliferate|distribute|pay|add|remove|prevent|attach|detach|unattach|switch|take|roll|amass|bolster|clash|learn|support|investigate|manifest|cloak|forage|connive|populate|incubate|venture|time\s+travel|seek|discover|change|exchange|move|flip|transform|monstrosity|detain|suspect|regenerate|double|turn|airbend|earthbend|waterbend|firebend|conjure|repeat|also|then|simultaneously|after|assign|separate|damage|its|it|leave|another|assemble|restart|randomly|name|using|call|place|count|give|secretly|only|redistribute|unless|reorder|draft|ignore|skip|end\s+the\s+combat|during|while\s+doing|two\s+target|for\s+any\s+number|excess\s+damage|as\s+many\s+times|attacking\s+creatures?\b|this\s+permanent\s+target|the\s+owner\s+of\s+target|the\s+owners?\b|the\s+next\b|the\s+ring\s+tempts\s+you|the\s+(?:damage|player|creature|exiled|duplicate|duplicates|high\s+bidder|winner|first|new\s+target|rest|chosen|other|owner)\b|their\s+controller\b|the\s+controller\b|for\s+each\b|up\s+to\b|an\s+opponent\b|any\s+(?:number|opponent|player)|all\s+(?:creatures?\b|damage\b|combat\s+damage\b|lands?\b|permanents?\b)|each\s+(?:other\s+)?(?:player|opponent|creature|permanent|land|artifact|enchantment|planeswalker|battle|nonland|head|opponents?\s+and\s+you)|each\s+of\b|starting\s+with\s+(?:you|the\s+next)\b|spells?\s+you\s+control\b|cards\s+(?:in|exiled)\b|(?:white|blue|black|red|green|monocolored|multicolored|nonwhite|nonblue|nonblack|nonred|nongreen)\s+creatures?\b|this\s+(?:spell|permanent|creature|card)\s+deals?)\b/i;
 
 const SPELL_ABILITY_WORD_LEAD_PATTERN =
-  /^(?:threshold|spell\s+mastery|addendum|raid|revolt|morbid|metalcraft|battalion|ferocious|heroic|constellation|landfall|magecraft|alliance|kinship|domain|hellbent|grandeur|chroma|imprint|delirium|eminence|council'?s\s+dilemma|will\s+of\s+the\s+(?:council|planeswalkers)|celebrate|enrage|spectacle|undergrowth|ascend|city'?s\s+blessing|pack\s+tactics|coven|bloodrush|kinfall|converge|corrupted|fateful\s+hour|join\s+forces|strive|teamwork|paradigm|bargain|vivid|tempting\s+offer)\s*[—–-]/i;
+  /^(?:threshold|spell\s+mastery|addendum|raid|revolt|morbid|metalcraft|battalion|ferocious|heroic|constellation|landfall|magecraft|alliance|kinship|domain|hellbent|grandeur|chroma|imprint|delirium|eminence|council'?s\s+dilemma|will\s+of\s+the\s+(?:council|planeswalkers)|celebrate|enrage|spectacle|undergrowth|ascend|city'?s\s+blessing|pack\s+tactics|coven|bloodrush|kinfall|converge|corrupted|fateful\s+hour|join\s+forces|strive|teamwork|paradigm|bargain|vivid|tempting\s+offer|radiance|sweep|fathomless\s+descent|void|infusion|excess|parley|paradox|secret\s+council)\s*[—–-]/i;
+
+/** Strip quoted oracle grants so cast-time cost checks ignore "This spell costs…" riders. */
+function stripOracleQuotedSegments(text: string): string {
+  return String(text || '')
+    .replace(/"[^"]*"/g, ' ')
+    .replace(/“[^”]*”/g, ' ')
+    .replace(/'[^']*'/g, ' ');
+}
+
+/**
+ * Spree / Tiered / modal bullets lead with markers that hide the real instruction verb.
+ * Strip one layer so "• Create…" / "+ {1} — Search…" classify like bare effect text.
+ */
+function stripSpellModeLead(text: string): string | null {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return null;
+
+  // Named tiered modes: "• Cross-Slash — {0} — Destroy…" (before bare bullet strip).
+  const namedTier = trimmed.match(
+    /^[•\u2022]\s+.+?\s*[—–-]\s*\{[^}]+\}\s*[—–-]\s*([\s\S]+)$/
+  );
+  if (namedTier?.[1]) return namedTier[1].trim();
+
+  const bullet = trimmed.match(/^[•\u2022]\s+([\s\S]+)$/);
+  if (bullet?.[1]) return bullet[1].trim();
+
+  // Spree modes may use multi-symbol costs: "+ {3}{W}{W} — Destroy…"
+  const spreeMode = trimmed.match(/^\+\s*(?:\{[^}]+\})+\s*[—–-]\s*([\s\S]+)$/);
+  if (spreeMode?.[1]) return spreeMode[1].trim();
+
+  // Season / {P}-worth modes: "{P}{P} — Draw cards…"
+  const pMode = trimmed.match(/^(?:\{[^}]+\})+\s*[—–-]\s*([\s\S]+)$/);
+  if (pMode?.[1]) return pMode[1].trim();
+
+  // Bracketed mode markers: "[1] Put a +1/+1 counter…" (Pick Your Poison).
+  const bracketMode = trimmed.match(/^\[\d+\]\s+([\s\S]+)$/);
+  if (bracketMode?.[1]) return bracketMode[1].trim();
+
+  const tieredBlock = trimmed.match(/^tiered\s*\([^)]*\)\s*([\s\S]*)$/i);
+  if (tieredBlock) {
+    const rest = String(tieredBlock[1] || '').trim();
+    return rest || trimmed;
+  }
+
+  return null;
+}
 
 /**
  * Temporary until-EOT / until-next-turn grants are spell-resolution instructions even when
@@ -812,10 +858,19 @@ function isMassSubjectSpellEffectLine(text: string): boolean {
   ) {
     return true;
   }
-  // One-shot riders without a duration phrase.
-  return /\b(?:don'?t\s+untap|do\s+not\s+untap|destroyed\s+this\s+way|can'?t\s+be\s+regenerated|if\s+able|discard|sacrifice)\b/i.test(
+  // One-shot riders without a duration phrase (Chance for Glory's indefinite indestructible grant;
+  // Hunters' Feast / Reward the Faithful / Turtle Tracks / Camouflage pile riders).
+  return /\b(?:don'?t\s+untap|doesn'?t\s+untap|do\s+not\s+untap|destroyed\s+this\s+way|can'?t\s+be\s+regenerated|if\s+able|discard|sacrifice|gains?\s+(?:flying|trample|haste|vigilance|lifelink|deathtouch|menace|reach|hexproof|indestructible|defender|first\s+strike|double\s+strike|protection|ward|all\s+creature\s+types)|(?:gains?|loses?)\s+(?:(?:\d+|x)\s+)?life|draws?\s+(?:a\s+card|(?:\d+|x)\s+cards?)|search(?:es)?|likewise|piles?|lose\s+all\s+abilities|become\s+(?:blocked|unblocked)|becomes?\s+a\s+copy)\b/i.test(
     text
   );
+}
+
+/** Gather Specimens / Blind Fury-style temporary replacements resolve with the spell. */
+function isTemporarySpellReplacementLine(text: string): boolean {
+  const trimmed = String(text || '').trim();
+  if (!/^if\b/i.test(trimmed)) return false;
+  if (!/\bwould\b/i.test(trimmed) || !/\binstead\b/i.test(trimmed)) return false;
+  return /\b(?:this\s+turn|until\s+(?:end\s+of\s+turn|your\s+next\s+turn))\b/i.test(trimmed);
 }
 
 /**
@@ -826,13 +881,16 @@ function isSpellConditionalResolutionLine(text: string): boolean {
   const trimmed = String(text || '').trim();
   if (!/^if\b/i.test(trimmed)) return false;
 
+  if (isTemporarySpellReplacementLine(trimmed)) return true;
+
   if (
     /\bif\s+(?:this\s+spell|it)\s+was\s+(?:cast|kicked|kicked|foretold|flashbacked|cast\s+from)\b/i.test(trimmed) ||
     /\bif\s+(?:the\s+)?\{[^}]+\}(?:\{[^}]+\})*\s+cost\s+was\s+paid\b/i.test(trimmed) ||
     /\bif\s+x\s+is\b/i.test(trimmed) ||
     /^if\s+you\s+do\b/i.test(trimmed) ||
     /\bcan'?t\s+be\s+(?:countered|prevented)\b/i.test(trimmed) ||
-    /\byou\s+win\s+the\s+game\b/i.test(trimmed)
+    /\byou\s+win\s+the\s+game\b/i.test(trimmed) ||
+    /\bchange\s+(?:that|its|the)\s+(?:spell'?s\s+)?target/i.test(trimmed)
   ) {
     return true;
   }
@@ -853,29 +911,47 @@ function isSpellConditionalResolutionLine(text: string): boolean {
     return false;
   }
 
-  return /\b(?:draw|destroy|exile|create|search|gain|lose|win|deal|deals|mill|return|put|sacrifice|discard|counter|add|scry|surveil|cast|copy|choose|tap|untap|shuffle|reveal|prevent|amass|bolster|clash|learn|seek|proliferate|investigate|populate|take\s+an\s+extra|can'?t\s+block|can'?t\s+attack|don'?t\s+untap|become|becomes|get\s+[+-]|gain\s+\w+)\b/i.test(
+  return /\b(?:draw|destroy|exile|create|search|gain|lose|win|deal|deals|mill|return|put|sacrifice|discard|counter|add|scry|surveil|cast|copy|choose|tap|untap|shuffle|reveal|prevent|amass|bolster|clash|learn|seek|discover|proliferate|investigate|populate|take\s+an\s+extra|can'?t\s+block|can'?t\s+attack|don'?t\s+untap|become|becomes|get\s+[+-]|gain\s+\w+|change|exchange|enters?\s+under|redistribute)\b/i.test(
     trimmed
   );
 }
 
-/** True when a fallback oracle line is a spell-resolution instruction (not a continuous static). */
-export function isSpellInstructionLine(text: string): boolean {
-  const trimmed = String(text || '').trim();
+function isSpellInstructionLineInner(trimmed: string): boolean {
   if (!trimmed) return false;
 
   if (isTemporaryDurationSpellEffectLine(trimmed)) return true;
 
-  // Duration-led restrictions / delayed grants: "Until end of turn, …"
+  // Duration-led restrictions / delayed grants: "Until end of turn, …" / "This turn, …"
   if (/^until\s+(?:end\s+of\s+turn|your\s+next\s+turn)\b/i.test(trimmed)) return true;
+  if (/^this\s+turn\b/i.test(trimmed)) return true;
+
+  // Tiered / Spree modal frameworks resolve as spell modes (headers + bullets).
+  if (/^(?:tiered|spree)\b/i.test(trimmed) && !/\bas an additional cost to cast this spell\b/i.test(trimmed)) {
+    // Bare "Spree (Choose one or more additional costs.)" is cast-time framing — keep static.
+    if (/^spree\s*\([^)]*\)\s*$/i.test(trimmed)) return false;
+    if (/^tiered\b/i.test(trimmed)) return true;
+  }
+
+  // Team-name modal modes (Aetherdrift team spells): "Team Cloudspire — Destroy…"
+  if (/^team\s+[a-z0-9][a-z0-9'’\s-]*\s*[—–-]/i.test(trimmed)) {
+    return true;
+  }
 
   // Ability-word spell riders (Threshold —, Converge —, Corrupted —, …).
   // Cast-time cost riders under an ability word stay static (Strive — costs more, etc.).
+  // Continuous permanent riders ("… as long as …") also stay static.
+  // Ignore quoted granted text ("This spell costs {1} less…") when detecting cast-time.
   if (SPELL_ABILITY_WORD_LEAD_PATTERN.test(trimmed)) {
+    const unquoted = stripOracleQuotedSegments(trimmed);
     if (
       /\bthis\s+spell\s+costs?\b|\bas an additional cost\b|\bmore to cast\b|\bless to cast\b|\brather than pay\b/i.test(
-        trimmed
+        unquoted
       )
     ) {
+      return false;
+    }
+    // Permanent continuous ability words (Grim Flayer Delirium PT, etc.).
+    if (/\bas\s+long\s+as\b/i.test(unquoted)) {
       return false;
     }
     return true;
@@ -889,19 +965,60 @@ export function isSpellInstructionLine(text: string): boolean {
   ) {
     return false;
   }
+  if (/^during\s+your\s+turn,\s*this\s+spell\s+costs?\b/i.test(trimmed)) {
+    return false;
+  }
 
   // Triggered / continuous / replacement leads that are not resolution instructions.
+  // Exception: "Only the chosen creatures can attack…" is a spell-created combat restriction.
   if (
-    /^(?:when|whenever|at\s+the\b|as\s+long\s+as\b|as\s+.+\s+enters\b|only\b|activated\s+abilities|legendary\s)/i.test(
-      trimmed
-    )
+    /^(?:when|whenever|as\s+.+\s+enters\b|activated\s+abilities|legendary\s)/i.test(trimmed) ||
+    (/^as\s+long\s+as\b/i.test(trimmed) && !/\bthis\s+turn\b|\buntil\s+end\s+of\s+turn\b/i.test(trimmed)) ||
+    (/^only\b/i.test(trimmed) && !/\b(?:chosen|target|those|that)\b/i.test(trimmed))
   ) {
     return false;
   }
 
+  // Delayed combat cleanup created by spells (Gaze of the Gorgon, Glyph of Doom).
+  if (/^at\s+this\s+turn'?s\s+next\s+end\s+of\s+combat\b/i.test(trimmed)) {
+    return true;
+  }
+  if (/^at\s+the\b/i.test(trimmed)) {
+    return false;
+  }
+
+  // Cast-timing permissions are not resolution instructions.
+  if (/^you\s+may\s+cast\s+this\s+spell\b/i.test(trimmed)) {
+    return false;
+  }
+
+  // Exile-play tax riders resolve with the spell (Soul Partition).
+  if (/^a\s+spell\s+cast\b/i.test(trimmed) && /\bcosts?\b.+\bto\s+cast\b/i.test(trimmed)) {
+    return true;
+  }
+
+  // "You and …" / temporary control / shared actions (Secret Rendezvous, Secret of Bloodbending).
+  if (/^you\s+and\b/i.test(trimmed)) return true;
+  if (
+    /^you\s+control\b/i.test(trimmed) &&
+    /\b(?:target\s+opponent|target\s+player|during|until|this\s+turn|next\s+(?:turn|combat))\b/i.test(trimmed)
+  ) {
+    return true;
+  }
+
   // "You <action>…" (Night's Whisper, Angel's Mercy) — not continuous "You control/have/can't".
   if (
-    /^you\s+(?:may\b|gain|gains|draw|draws|lose|loses|mill|mills|create|creates|search|scry|surveil|put|puts|exile|exiles|sacrifice|sacrifices|discard|discards|tap|untap|choose|reveal|shuffle|look|add|remove|cast|copy|proliferate|goad|fight|attach|pay|take|get|gets|win|become|return|skip|do\b|each\b)/i.test(
+    /^you\s+(?:may\b|gain|gains|draw|draws|lose|loses|mill|mills|create|creates|search|scry|surveil|put|puts|exile|exiles|sacrifice|sacrifices|discard|discards|tap|untap|choose|reveal|shuffle|look|add|remove|cast|copy|proliferate|goad|fight|attach|pay|take|get|gets|win|become|return|skip|exchange|secretly|own|do\b|each\b)/i.test(
+      trimmed
+    )
+  ) {
+    return true;
+  }
+
+  // "Your opponents can't… this turn", "Your life total becomes…", team instructions.
+  if (
+    /^your\s+(?:opponents?\b|life\s+total\b|team\b)/i.test(trimmed) &&
+    /\b(?:this\s+turn|until\s+(?:end\s+of\s+turn|your\s+next\s+turn)|becomes?\b|may\b|can'?t\b|add\b|sacrifice|create|draw|gain|lose|search|put|exile|destroy)\b/i.test(
       trimmed
     )
   ) {
@@ -913,11 +1030,24 @@ export function isSpellInstructionLine(text: string): boolean {
   }
 
   if (
-    /^(?:(?:other|white|blue|black|red|green|monocolored|multicolored|nonwhite|nonblue|nonblack|nonred|nongreen)\s+)?(?:creatures?|permanents?|lands?|artifacts?|enchantments?|planeswalkers?|players?)\b/i.test(
+    /^(?:(?:other|white|blue|black|red|green|monocolored|multicolored|nonwhite|nonblue|nonblack|nonred|nongreen|nonartifact|attacking|blocking|x\s+target|any\s+number\s+of\s+target)\s+)?(?:creatures?|permanents?|lands?|artifacts?|enchantments?|planeswalkers?|players?|cowards?)\b/i.test(
       trimmed
     )
   ) {
     return isMassSubjectSpellEffectLine(trimmed);
+  }
+
+  // "Each <unusual subject>…" (Each Head…, Each nonland permanent…)
+  if (/^each\b/i.test(trimmed) && isMassSubjectSpellEffectLine(trimmed)) {
+    return true;
+  }
+
+  // Self-ref normalized keyword actions: "Manifest dread" → "this permanent. (Look…)"
+  if (
+    /^this\s+permanent\.\s*\(/i.test(trimmed) &&
+    /\b(?:look at the top|manifest|dread|regenerate|cloak)\b/i.test(trimmed)
+  ) {
+    return true;
   }
 
   // Named source deals damage when self-ref normalization missed (A-Galvanic Discharge).
@@ -929,6 +1059,23 @@ export function isSpellInstructionLine(text: string): boolean {
   }
 
   return SPELL_INSTRUCTION_LEAD_PATTERN.test(trimmed);
+}
+
+/** True when a fallback oracle line is a spell-resolution instruction (not a continuous static). */
+export function isSpellInstructionLine(text: string): boolean {
+  let current = String(text || '').trim();
+  if (!current) return false;
+
+  if (isSpellInstructionLineInner(current)) return true;
+
+  for (let i = 0; i < 3; i += 1) {
+    const stripped = stripSpellModeLead(current);
+    if (!stripped || stripped === current) break;
+    current = stripped;
+    if (isSpellInstructionLineInner(current)) return true;
+  }
+
+  return false;
 }
 
 // =============================================================================
@@ -1038,11 +1185,16 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
       }
     }
     
-    // Step 2a: Check for replacement effects ("If ... would ...", "If ... instead", ETB modifiers)
+    // Step 2a: Check for replacement effects ("If ... would ...", "If ... instead", ETB modifiers).
+    // Temporary this-turn spell replacements (Gather Specimens, Blind Fury) resolve with the
+    // spell and must stay SPELL so collectSpellResolutionEffectSteps keeps them.
     if (
-      /^if\s+.+instead/i.test(trimmed) ||
-      /^if\s+.+,\s+(?:it|this\s+[^.;]+?)\s+enters\b/i.test(trimmed) ||
-      /^if\s+.+\s+would\s+.+,\s+/i.test(trimmed)
+      !isTemporarySpellReplacementLine(trimmed) &&
+      (
+        /^if\s+.+instead/i.test(trimmed) ||
+        /^if\s+.+,\s+(?:it|this\s+[^.;]+?)\s+enters\b/i.test(trimmed) ||
+        /^if\s+.+\s+would\s+.+,\s+/i.test(trimmed)
+      )
     ) {
       const replacement = parseReplacementEffect(trimmed);
       if (replacement) {

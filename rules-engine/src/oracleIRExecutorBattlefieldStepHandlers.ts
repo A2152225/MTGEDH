@@ -54,6 +54,7 @@ import {
   normalizeOracleText,
   quantityToNumber,
   resolvePlayers,
+  resolveVotesReceivedQuantity,
 } from './oracleIRExecutorPlayerUtils';
 import {
   parseReferencedPossessiveZonePhrase,
@@ -3764,6 +3765,11 @@ function resolveAddCounterAmount(
       return Math.max(0, Math.floor(voteCount * multiplier));
     }
     return multiplier;
+  }
+
+  if (step.amount.kind === 'votes_received') {
+    const controllerId = String(ctx?.controllerId || '').trim();
+    return resolveVotesReceivedQuantity(state, controllerId, step.amount as any);
   }
 
   const controllerId = String(ctx?.controllerId || '').trim() as PlayerID;

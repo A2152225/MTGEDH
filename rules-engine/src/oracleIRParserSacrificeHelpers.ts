@@ -345,11 +345,19 @@ export function tryParseLeadingConditionalStep(args: {
     return null;
   }
 
-  const match = clause.match(/^if\s+([^,]+),\s*(.+)$/i);
+  // Strip ability-word labels so "Delirium — If …, instead …" parses as a leading conditional.
+  const clauseWithoutAbilityWord = clause
+    .replace(/^[A-Z][A-Za-z' -]{1,40}\s*[-—–]\s+/u, '')
+    .trim();
+  const match = clauseWithoutAbilityWord.match(/^if\s+([^,]+),\s*(.+)$/i);
   if (!match) return null;
 
   const conditionRaw = normalizeLeadingConditionalCondition(String(match[1] || '').trim(), cardName);
-  const body = String(match[2] || '').trim();
+  // "instead <effect>" / "<effect> instead" bodies still execute the effect.
+  const body = String(match[2] || '')
+    .replace(/^instead\s+/i, '')
+    .replace(/\s+instead$/i, '')
+    .trim();
   if (!conditionRaw || !body) return null;
 
   const innerClauses = splitLeadingConditionalBody({

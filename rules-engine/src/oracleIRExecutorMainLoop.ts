@@ -159,7 +159,7 @@ import {
   applyVoteStep,
 } from './oracleIRExecutorPlayerStepHandlers';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
-import { applyAddExtraCombat, applyEndTurnStep, applySkipNextDrawStep, applySkipNextTurnStep, applyTakeExtraTurn } from './oracleIRExecutorTurnStepHandlers';
+import { applyAddExtraCombat, applyEndCombatPhaseStep, applyEndTurnStep, applySkipNextDrawStep, applySkipNextTurnStep, applyTakeExtraTurn } from './oracleIRExecutorTurnStepHandlers';
 import { stampCardsPutIntoGraveyardThisTurn, resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import { getColorsFromObject, normalizeOracleManaCostString } from './oracleIRExecutorManaUtils';
 import type {
@@ -1809,6 +1809,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'end_turn': {
         const result = applyEndTurnStep(nextState, step);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'end_combat_phase': {
+        const result = applyEndCombatPhaseStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

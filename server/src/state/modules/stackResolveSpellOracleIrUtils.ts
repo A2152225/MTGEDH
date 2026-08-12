@@ -6,6 +6,10 @@ import { isOracleIrSpellPrimaryEnabled, tryResolveSpellViaOracleIR } from './ora
 import { shouldSkipLegacySpellCategorizeExecution } from './oracleIrSpellLegacyRouting.js';
 import { legacyCategorizeSpecMissesZoneIntent } from './stackResolveSpellUncategorizedUtils.js';
 import { wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
+import {
+  getSelectedAdditionalCostOracleText,
+  resolveSelectedAdditionalCostModeIds,
+} from './additionalCostModeOracleText.js';
 import type { InstantSorceryOracleIrSpellOptions, InstantSorceryOracleIrSpellOutcome } from './stackResolveSharedTypes.js';
 
 export type { InstantSorceryOracleIrSpellOutcome } from './stackResolveSharedTypes.js';
@@ -18,9 +22,14 @@ export function tryResolveInstantSorceryOracleIrSpell(
   const card = options.card;
   const effectiveCard = options.effectiveCard;
   const item = options.item;
-  const oracleText = options.oracleText;
   const targets = Array.isArray(options.targets) ? options.targets : [];
   const selectedModes = Array.isArray(options.selectedModes) ? options.selectedModes : [];
+  const selectedAdditionalCostModes = resolveSelectedAdditionalCostModeIds(
+    (item as any)?.selectedAdditionalCostModes ?? (card as any)?.selectedAdditionalCostModes,
+    selectedModes,
+  );
+  // Spree/Tiered: scope oracle to selected mode effects so IR cannot fire every mode.
+  const oracleText = getSelectedAdditionalCostOracleText(options.oracleText, selectedAdditionalCostModes);
 
   if (options.skipLegacySpellCategorization) {
     return { oracleIrSpellHandled: false, spellSpec: null };

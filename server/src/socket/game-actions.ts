@@ -37,7 +37,7 @@ import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { processPhaseSkipTriggerStops, completePendingPhaseSkipCore, resumePendingPhaseSkip, canResumePendingPhaseSkip, handleSkipToCleanupPhase } from "../state/modules/phaseSkipUtils.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpellWithoutPrimaryRetirement, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
-import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects";
+import { recalculatePlayerEffects, hasMetalcraft, hasDelirium, countArtifacts, calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects";
 import {
   buildBeholdSelectionOptions,
   deriveCavernUncounterableForCreatureCast,
@@ -51,6 +51,10 @@ import {
   matchModalModeOptions,
 } from "../utils/oraclePromptContext.js";
 import { spellOracleUsesTeamworkChooseBoth } from "../state/modules/marvelMechanicsHelpers.js";
+import {
+  extractAdditionalCostModesFromOracleText,
+  getSelectedAdditionalCostOracleText,
+} from "../state/modules/additionalCostModeOracleText.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
 import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
 import { advanceStepPersistingEvent, flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
@@ -3374,6 +3378,97 @@ export function calculateCostReduction(
       if (distinctManaValues.size > 0) {
         reduction.generic += distinctManaValues.size;
         reduction.messages.push(`${cardName}: -{${distinctManaValues.size}} (${distinctManaValues.size} different mana value${distinctManaValues.size === 1 ? '' : 's'} in graveyard)`);
+      }
+    }
+
+    // Ability-word / as-long-as / if / for-each cast-time cost riders on the spell itself
+    // (Drag to the Roots Delirium, Temporal Intervention Void, Rime Chill Vivid).
+    {
+      const asLongAsCostLess = cardOracleText.match(
+        /this spell costs \{(\d+)\} less to cast as long as ([^.]+)/i
+      );
+      if (asLongAsCostLess) {
+        const amount = parseInt(asLongAsCostLess[1], 10);
+        const condition = String(asLongAsCostLess[2] || '').toLowerCase();
+        let active = false;
+        if (
+          /four or more card types among cards in your graveyard/i.test(condition) ||
+          /\bdelirium\b/i.test(condition)
+        ) {
+          active = hasDelirium(game as any, playerId);
+        }
+        if (active && Number.isFinite(amount) && amount > 0) {
+          reduction.generic += amount;
+          reduction.messages.push(`${cardName}: -{${amount}} (as-long-as cost rider)`);
+        }
+      }
+
+      const ifCostLess = cardOracleText.match(
+        /this spell costs \{(\d+)\} less to cast if ([^.]+)/i
+      );
+      if (ifCostLess) {
+        const amount = parseInt(ifCostLess[1], 10);
+        const condition = String(ifCostLess[2] || '').toLowerCase();
+        let active = false;
+        if (
+          /nonland permanent left the battlefield this turn/i.test(condition) ||
+          /spell was warped this turn/i.test(condition)
+        ) {
+          const leftMap = game.state?.permanentLeftBattlefieldThisTurn;
+          const warpedMap = game.state?.spellWasWarpedThisTurn;
+          const anyLeft =
+            leftMap &&
+            typeof leftMap === 'object' &&
+            Object.values(leftMap).some((v) => v === true);
+          const anyWarped =
+            warpedMap &&
+            typeof warpedMap === 'object' &&
+            Object.values(warpedMap).some((v) => v === true);
+          active = Boolean(anyLeft || anyWarped);
+        }
+        if (active && Number.isFinite(amount) && amount > 0) {
+          reduction.generic += amount;
+          reduction.messages.push(`${cardName}: -{${amount}} (conditional cast-cost rider)`);
+        }
+      }
+
+      const vividColorCostLess = cardOracleText.match(
+        /this spell costs \{(\d+)\} less to cast for each color among permanents you control/i
+      );
+      if (vividColorCostLess) {
+        const perColor = parseInt(vividColorCostLess[1], 10);
+        const colorSet = new Set<string>();
+        for (const perm of battlefield) {
+          if (!perm || perm.controller !== playerId) continue;
+          const colors = Array.isArray(perm.card?.colors)
+            ? perm.card.colors
+            : Array.isArray(perm.colors)
+              ? perm.colors
+              : [];
+          for (const c of colors) {
+            const key = String(c || '').toUpperCase();
+            if (key === 'W' || key === 'U' || key === 'B' || key === 'R' || key === 'G') {
+              colorSet.add(key);
+            } else if (/^white$/i.test(key)) colorSet.add('W');
+            else if (/^blue$/i.test(key)) colorSet.add('U');
+            else if (/^black$/i.test(key)) colorSet.add('B');
+            else if (/^red$/i.test(key)) colorSet.add('R');
+            else if (/^green$/i.test(key)) colorSet.add('G');
+          }
+          if (colors.length === 0) {
+            const manaCost = String(perm.card?.mana_cost || '').toUpperCase();
+            for (const sym of ['W', 'U', 'B', 'R', 'G'] as const) {
+              if (manaCost.includes(`{${sym}}`)) colorSet.add(sym);
+            }
+          }
+        }
+        const total = (Number.isFinite(perColor) ? perColor : 0) * colorSet.size;
+        if (total > 0) {
+          reduction.generic += total;
+          reduction.messages.push(
+            `${cardName}: -{${total}} (${colorSet.size} color${colorSet.size === 1 ? '' : 's'} among permanents)`
+          );
+        }
       }
     }
     
@@ -8230,102 +8325,6 @@ function adjustModalSpellInfoForCurrentCast(
     ...modalSpellInfo,
     maxModes: Math.min(2, modalSpellInfo.options.length),
   };
-}
-
-function extractAdditionalCostModesFromOracleText(oracleText: string): {
-  purpose: 'spree' | 'tiered';
-  minModes: number;
-  maxModes: number;
-  preservedLines: string[];
-  options: Array<{ id: string; label: string; cost: string; effect: string }>;
-} | undefined {
-  const normalizedText = String(oracleText || '')
-    .replace(/[’]/g, "'")
-    .replace(/[−–—]/g, '-')
-    .replace(/\r\n?/g, '\n');
-  const lines = normalizedText
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const headerIndex = lines.findIndex((line) => /^spree\b/i.test(line) || /^tiered\b/i.test(line));
-  if (headerIndex === -1) return undefined;
-
-  const purpose: 'spree' | 'tiered' = /^tiered\b/i.test(lines[headerIndex]) ? 'tiered' : 'spree';
-  const options: Array<{ id: string; label: string; cost: string; effect: string }> = [];
-  const preservedLines: string[] = [];
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (index === headerIndex) continue;
-
-    if (index < headerIndex) {
-      preservedLines.push(line);
-      continue;
-    }
-
-    if (purpose === 'spree') {
-      const spreeMatch = line.match(/^\+\s*((?:\{[^}]+\}\s*)+)\s*-\s*(.+)$/i);
-      if (spreeMatch) {
-        const cost = String(spreeMatch[1] || '').replace(/\s+/g, '').trim();
-        const effect = String(spreeMatch[2] || '').trim();
-        options.push({
-          id: `spree_${options.length}`,
-          label: `Pay ${cost}`,
-          cost,
-          effect,
-        });
-        continue;
-      }
-    } else {
-      const tieredMatch = line.match(/^(?:•|\*|-)\s*(.+?)\s*-\s*((?:\{[^}]+\}\s*)+)\s*-\s*(.+)$/i);
-      if (tieredMatch) {
-        const label = String(tieredMatch[1] || '').trim();
-        const cost = String(tieredMatch[2] || '').replace(/\s+/g, '').trim();
-        const effect = String(tieredMatch[3] || '').trim();
-        options.push({
-          id: `tiered_${options.length}`,
-          label,
-          cost,
-          effect,
-        });
-        continue;
-      }
-    }
-
-    preservedLines.push(line);
-  }
-
-  if (options.length === 0) return undefined;
-
-  return {
-    purpose,
-    minModes: 1,
-    maxModes: purpose === 'tiered' ? 1 : options.length,
-    preservedLines,
-    options,
-  };
-}
-
-function getSelectedAdditionalCostOracleText(oracleText: string, selectedAdditionalCostModes?: unknown): string {
-  const selectedModeIds = Array.isArray(selectedAdditionalCostModes)
-    ? selectedAdditionalCostModes.map((mode: unknown) => String(mode || '')).filter(Boolean)
-    : [];
-
-  if (selectedModeIds.length === 0) return oracleText;
-
-  const additionalCostModeInfo = extractAdditionalCostModesFromOracleText(oracleText);
-  if (!additionalCostModeInfo) return oracleText;
-
-  const selectedSet = new Set(selectedModeIds);
-  const selectedEffects = additionalCostModeInfo.options
-    .filter((mode) => selectedSet.has(mode.id))
-    .map((mode) => mode.effect);
-
-  if (selectedEffects.length === 0) return oracleText;
-
-  const scopedLines = [...additionalCostModeInfo.preservedLines, ...selectedEffects].filter(Boolean);
-  return scopedLines.length > 0 ? scopedLines.join('\n') : oracleText;
 }
 
 function getEntwineCostForSelectedModes(oracleText: string, selectedModes?: unknown, spellName = ''): string | undefined {

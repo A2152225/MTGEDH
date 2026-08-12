@@ -12,7 +12,10 @@ import { normalizeOracleText } from './oracleIRParserUtils';
  * - "Choose any number of modes -"
  */
 const CHOOSE_MODE_HEADER_RE =
-  /^Choose\s+(?:one\s+at\s+random|one\s+that\s+has(?:n't| not)\s+been\s+chosen|one\s+or\s+both|one\s+or\s+more|up\s+to\s+one|one|two|three|four|up\s+to\s+(?:one|two|three|four|\w+)|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?(?:you\s+may\s+)?choose\s+(?:both|any\s+number)\s+instead[.\u2014-]?)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014]|\.|)\s*$/i;
+  /^Choose\s+(?:one\s+at\s+random|one\s+that\s+has(?:n't| not)\s+been\s+chosen|one\s+or\s+both|one\s+or\s+more|up\s+to\s+one|one|two|three|four|up\s+to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\w+)(?:\s*\{P\}\s*worth\s+of\s+modes)?|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?(?:you\s+may\s+)?choose\s+(?:both|any\s+number)\s+instead[.\u2014-]?)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014]|\.|)\s*$/i;
+
+const P_WORTH_HEADER_RE =
+  /^Choose\s+up\s+to\s+(\w+)\s*\{P\}\s*worth\s+of\s+modes\.(?:\s*You may choose the same mode more than once\.)?\s*$/i;
 
 function splitChooseModeHeaderText(headerText: string): {
   readonly prefixText: string;
@@ -95,25 +98,95 @@ function resolveModeCount(word: string): number | null {
       return 3;
     case 'four':
       return 4;
-    default:
-      return null;
+    case 'five':
+      return 5;
+    case 'six':
+      return 6;
+    case 'seven':
+      return 7;
+    case 'eight':
+      return 8;
+    case 'nine':
+      return 9;
+    case 'ten':
+      return 10;
+    default: {
+      const asNumber = Number.parseInt(normalized, 10);
+      return Number.isFinite(asNumber) && asNumber > 0 ? asNumber : null;
+    }
   }
+}
+
+function countPSymbols(text: string): number {
+  const matches = String(text || '').match(/\{P\}/gi);
+  return matches ? matches.length : 0;
+}
+
+/**
+ * Season-style modal blocks:
+ *   Choose up to five {P} worth of modes. You may choose the same mode more than once.
+ *   {P} — Put a +1/+1 counter…
+ *   {P}{P} — Choose artifact or enchantment…
+ */
+function tryParsePWorthChooseModeBlock(
+  effectText: string,
+  parseModeEffectSteps: (effectText: string) => readonly OracleEffectStep[]
+): (OracleEffectStep & { kind: 'choose_mode' }) | null {
+  const normalized = normalizeOracleText(effectText);
+  const lines = normalized.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return null;
+
+  const headerMatch = lines[0].match(P_WORTH_HEADER_RE);
+  if (!headerMatch) return null;
+
+  const pBudget = resolveModeCount(headerMatch[1] || '') ?? 0;
+  if (pBudget <= 0) return null;
+
+  const modeLines = lines.slice(1);
+  if (!modeLines.every((line) => /^\{P\}/i.test(line))) return null;
+
+  const modes = modeLines.map((line, idx) => {
+    const modeMatch = line.match(/^((?:\{P\})+)\s*[—–-]\s*([\s\S]+)$/i);
+    const pCost = countPSymbols(modeMatch?.[1] || line) || 1;
+    const modeEffectText = String(modeMatch?.[2] || line).trim();
+    return {
+      label: `Mode ${idx + 1}`,
+      raw: line,
+      pCost,
+      steps: [...parseModeEffectSteps(modeEffectText)],
+    };
+  });
+
+  if (modes.length === 0) return null;
+
+  return {
+    kind: 'choose_mode',
+    minModes: 0,
+    maxModes: pBudget,
+    canRepeatModes: /you may choose the same mode more than once/i.test(lines[0]),
+    pBudget,
+    modes,
+    raw: normalized.slice(0, 300),
+  };
 }
 
 export function tryParseChooseModeBlock(
   effectText: string,
   parseModeEffectSteps: (effectText: string) => readonly OracleEffectStep[]
 ): (OracleEffectStep & { kind: 'choose_mode' }) | null {
+  const pWorth = tryParsePWorthChooseModeBlock(effectText, parseModeEffectSteps);
+  if (pWorth) return pWorth;
+
   const normalized = normalizeOracleText(effectText);
-  const firstBulletIndex = normalized.search(/[\u2022ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢]\s+/);
+  const firstBulletIndex = normalized.search(/[\u2022•]\s+/);
   if (firstBulletIndex < 0) return null;
 
   const rawHeaderText = normalized.slice(0, firstBulletIndex).trim();
   const bodyText = normalized.slice(firstBulletIndex).trim();
-  if (!/[\u2022ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢]/.test(bodyText)) return null;
+  if (!/[\u2022•]/.test(bodyText)) return null;
 
   const rawBullets = bodyText
-    .split(/\n?\s*[\u2022ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢]\s+/)
+    .split(/\n?\s*[\u2022•]\s+/)
     .map(b => b.trim())
     .filter(Boolean);
   if (rawBullets.length === 0) return null;
@@ -238,7 +311,7 @@ export function tryParseChooseModeBlockWithPrelude(
   parsePreludeEffectSteps: (effectText: string) => readonly OracleEffectStep[]
 ): readonly OracleEffectStep[] | null {
   const normalized = normalizeOracleText(effectText);
-  const firstBulletIndex = normalized.search(/[\u2022ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢]\s+/);
+  const firstBulletIndex = normalized.search(/[\u2022•]\s+/);
   if (firstBulletIndex < 0) return null;
 
   const headerMatch = splitChooseModeHeaderText(normalized.slice(0, firstBulletIndex).trim());

@@ -5,9 +5,11 @@ import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import {
   getCardManaValue,
+  getVoteCountForChoice,
   normalizeOracleText,
   quantityToNumber,
   resolveUnknownMillUntilAmountForPlayer,
+  resolveVotesReceivedQuantity,
 } from './oracleIRExecutorPlayerUtils';
 import {
   getControlledPermanents,
@@ -183,6 +185,23 @@ export function resolveOracleQuantity(
   }
 
   if (qty.kind === 'number') return Math.max(0, Math.floor(qty.value));
+
+  if (qty.kind === 'votes_for_choice') {
+    const fromState = Number(
+      (state as any)?.lastVoteResults?.[String(qty.choice || '').toLowerCase()] ??
+        (state as any)?.voteResults?.[String(qty.choice || '').toLowerCase()]
+    );
+    const multiplier = Number.isFinite(Number(qty.multiplier))
+      ? Math.max(0, Math.trunc(Number(qty.multiplier)))
+      : 1;
+    if (Number.isFinite(fromState)) return Math.max(0, Math.floor(fromState * multiplier));
+    const fromCtx = getVoteCountForChoice(ctx, qty.choice);
+    return fromCtx === null ? null : Math.max(0, fromCtx * multiplier);
+  }
+
+  if (qty.kind === 'votes_received') {
+    return resolveVotesReceivedQuantity(state, String(controllerId || ''), qty);
+  }
 
   if (qty.kind === 'x') {
     const xValue = Number(ctx.xValue);
