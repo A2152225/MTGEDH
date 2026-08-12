@@ -59,13 +59,14 @@ function clearCombatFlagsFromBattlefield(state: GameState): GameState {
       })
     : (state as any).battlefield;
 
-  const nextState: any = {
+  // Set combat explicitly so server Object.assign(state, result.state) clears a prior combat object
+  // (delete alone does not overwrite existing keys on the destination).
+  return {
     ...(state as any),
     battlefield,
     combatNumber: 0,
-  };
-  delete nextState.combat;
-  return nextState as GameState;
+    combat: undefined,
+  } as GameState;
 }
 
 export function applyEndCombatPhaseStep(

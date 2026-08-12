@@ -147,6 +147,18 @@ function isCastTimeOrKeywordNoise(text: string): boolean {
   ) {
     return true;
   }
+  // Physical / social Un-set resolution text (not digital EDH automation)
+  if (
+    /\bdrop those cards\b|\bfrom a height of\b|\bten seconds\b|\bif you're touching\b|\bsigned by someone\b|\bpost a picture of yourself\b|\bpitch the titles\b|\bopen two attractions\b|\battraction deck\b|\bdon't count changelings\b|\bpropose marriage\b|\b#guessthatmagiccar/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  // Die-face result lines that are not full spell instructions ("2 — An artifact")
+  if (/^\d+\s*-\s*(?:a|an|do nothing|repeat this process)\b/i.test(t) && t.length < 80) {
+    return true;
+  }
 
   // Standalone keywords without temporary duration
   if (

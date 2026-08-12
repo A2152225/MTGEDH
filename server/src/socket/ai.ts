@@ -35,6 +35,7 @@ import { getDeck, listDecks } from "../db/decks.js";
 import { parseDecklist } from "../services/scryfall.js";
 import { resolveDeckList } from '../services/deckImport.js';
 import type { PlayerID } from "../../../shared/src/types.js";
+import { choosePBudgetModeSelections } from "../../../shared/src/modeSelectionPBudget.js";
 import { parseNumberFromText, parseSacrificeCost } from "../../../shared/src/textUtils.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
 import { GameManager } from "../GameManager.js";
@@ -4195,6 +4196,22 @@ export function chooseAIModeSelectionsForStep(
   }
   if (purpose === 'overload') {
     return { selections: chooseOverloadMode(game, playerId, step, modes), cancelled: false };
+  }
+
+  const pBudgetRaw = Number(step?.pBudget);
+  if (Number.isFinite(pBudgetRaw) && pBudgetRaw > 0) {
+    const scored = modes.map((mode: any) => ({
+      id: String(mode?.id || ''),
+      pCost: Number(mode?.pCost),
+      score: scoreModeOption(game, playerId, step, mode),
+    }));
+    return {
+      selections: choosePBudgetModeSelections(scored, Math.floor(pBudgetRaw), {
+        minModes: Math.max(0, Number(step?.minModes ?? 0) || 0),
+        canRepeatModes: Boolean(step?.canRepeatModes || step?.allowDuplicates),
+      }),
+      cancelled: false,
+    };
   }
 
   const minModes = Math.max(1, Number(step?.minModes ?? 1));

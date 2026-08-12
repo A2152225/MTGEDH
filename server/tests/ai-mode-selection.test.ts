@@ -80,6 +80,37 @@ describe('AI mode selection', () => {
     expect(decision).toEqual({ selections: ['overload'], cancelled: false });
   });
 
+  it('fills Season {P} budget modes without exceeding pBudget', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        battlefield: [],
+        zones: { [playerId]: { hand: [] } },
+      },
+    } as any;
+
+    const decision = chooseAIModeSelectionsForStep(game, playerId, {
+      modeSelectionPurpose: 'modalSpell',
+      pBudget: 5,
+      canRepeatModes: true,
+      allowDuplicates: true,
+      minModes: 0,
+      maxModes: 5,
+      modes: [
+        { id: 'Mode 1', label: 'Draw', pCost: 1 },
+        { id: 'Mode 2', label: 'Token', pCost: 2 },
+        { id: 'Mode 3', label: 'Life', pCost: 3 },
+      ],
+    });
+
+    expect(decision.cancelled).toBe(false);
+    const costById: Record<string, number> = { 'Mode 1': 1, 'Mode 2': 2, 'Mode 3': 3 };
+    const spent = decision.selections.reduce((sum, id) => sum + (costById[id] || 0), 0);
+    expect(spent).toBeLessThanOrEqual(5);
+    expect(spent).toBeGreaterThan(0);
+  });
+
   it('declines ward when a Signet bundle only looks affordable in the aggregate pool', () => {
     const playerId = 'ai1' as PlayerID;
     const game = {

@@ -75,6 +75,7 @@ import {
   rememberAIFailedSpellCast,
 } from "./ai.js";
 import type { PlayerID } from "../../../shared/src/types.js";
+import { isValidPBudgetSelection } from "../../../shared/src/modeSelectionPBudget.js";
 import {
   NO_UNTIL_TARGETS_CHANGE_REQUEST,
   buildNoUntilTargetsChangeValue,
@@ -6578,7 +6579,9 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           Number.isFinite(maxModesRaw)
             ? (maxModesRaw < 0 ? Infinity : maxModesRaw)
             : Infinity;
-        const allowDuplicates = Boolean(stepAny?.allowDuplicates);
+        const allowDuplicates = Boolean(stepAny?.allowDuplicates || stepAny?.canRepeatModes);
+        const pBudgetRaw = Number(stepAny?.pBudget);
+        const pBudget = Number.isFinite(pBudgetRaw) && pBudgetRaw > 0 ? Math.floor(pBudgetRaw) : undefined;
 
         const extractModeId = (opt: any): string | null => {
           if (typeof opt === 'string') return opt;
@@ -6597,6 +6600,10 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         const rawModes = Array.isArray(stepAny?.modes) ? stepAny.modes : [];
         const modeIds = rawModes.map(extractModeId).filter(Boolean) as string[];
         const modeIdSet = new Set(modeIds.map(String));
+        const modesForBudget = rawModes.map((mode: any, idx: number) => ({
+          id: String(extractModeId(mode) || `mode_${idx + 1}`),
+          pCost: Number(mode?.pCost),
+        }));
 
         const rawSel: any = response.selections as any;
         let selectionIds: string[] | null = null;
@@ -6632,44 +6639,54 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
 
         const normalized = selectionIds.map((x) => String(x)).filter((x) => x.trim().length > 0);
 
-        const normalMinModes = Number(stepAny?.normalMinModes ?? minModes);
-        const normalMaxModesRaw = Number(stepAny?.normalMaxModes ?? maxModes);
-        const normalMaxModes =
-          Number.isFinite(normalMaxModesRaw)
-            ? (normalMaxModesRaw < 0 ? Infinity : normalMaxModesRaw)
-            : Infinity;
-        const entwineCost = typeof stepAny?.entwineCost === 'string' && stepAny.entwineCost.trim().length > 0
-          ? String(stepAny.entwineCost)
-          : undefined;
-        const allModeCount = modeIds.length;
-        const withinNormalRange =
-          (Number.isFinite(normalMinModes) ? normalized.length : 0) >= (Number.isFinite(normalMinModes) ? normalMinModes : 0) &&
-          (Number.isFinite(normalMaxModes) ? normalized.length : 0) <= (Number.isFinite(normalMaxModes) ? normalMaxModes : Infinity);
-        const isEntwinedSelection = Boolean(entwineCost) && allModeCount > 0 && normalized.length === allModeCount;
-
-        if (entwineCost) {
-          if (!withinNormalRange && !isEntwinedSelection) {
-            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Entwine requires the normal number of modes or all modes' });
+        if (pBudget) {
+          if (!isValidPBudgetSelection(normalized, modesForBudget, pBudget, {
+            minModes,
+            canRepeatModes: allowDuplicates,
+          })) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid {P} mode budget selection' });
             return;
           }
-        } else if ((Number.isFinite(minModes) ? normalized.length : 0) < (Number.isFinite(minModes) ? minModes : 0) ||
-            (Number.isFinite(maxModes) ? normalized.length : 0) > (Number.isFinite(maxModes) ? maxModes : Infinity)) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid number of modes selected' });
-          return;
-        }
+        } else {
+          const normalMinModes = Number(stepAny?.normalMinModes ?? minModes);
+          const normalMaxModesRaw = Number(stepAny?.normalMaxModes ?? maxModes);
+          const normalMaxModes =
+            Number.isFinite(normalMaxModesRaw)
+              ? (normalMaxModesRaw < 0 ? Infinity : normalMaxModesRaw)
+              : Infinity;
+          const entwineCost = typeof stepAny?.entwineCost === 'string' && stepAny.entwineCost.trim().length > 0
+            ? String(stepAny.entwineCost)
+            : undefined;
+          const allModeCount = modeIds.length;
+          const withinNormalRange =
+            (Number.isFinite(normalMinModes) ? normalized.length : 0) >= (Number.isFinite(normalMinModes) ? normalMinModes : 0) &&
+            (Number.isFinite(normalMaxModes) ? normalized.length : 0) <= (Number.isFinite(normalMaxModes) ? normalMaxModes : Infinity);
+          const isEntwinedSelection = Boolean(entwineCost) && allModeCount > 0 && normalized.length === allModeCount;
 
-        if (!allowDuplicates) {
-          const unique = Array.from(new Set(normalized));
-          if (unique.length !== normalized.length) {
-            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate mode selected' });
+          if (entwineCost) {
+            if (!withinNormalRange && !isEntwinedSelection) {
+              socket.emit('error', { code: 'INVALID_SELECTION', message: 'Entwine requires the normal number of modes or all modes' });
+              return;
+            }
+          } else if ((Number.isFinite(minModes) ? normalized.length : 0) < (Number.isFinite(minModes) ? minModes : 0) ||
+              (Number.isFinite(maxModes) ? normalized.length : 0) > (Number.isFinite(maxModes) ? maxModes : Infinity)) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid number of modes selected' });
             return;
           }
-        }
 
-        // If the step defines explicit modes, enforce membership.
-        if (modeIds.length > 0 && normalized.some((id) => !modeIdSet.has(String(id)))) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected mode is not valid' });
-          return;
+          if (!allowDuplicates) {
+            const unique = Array.from(new Set(normalized));
+            if (unique.length !== normalized.length) {
+              socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate mode selected' });
+              return;
+            }
+          }
+
+          // If the step defines explicit modes, enforce membership.
+          if (modeIds.length > 0 && normalized.some((id) => !modeIdSet.has(String(id)))) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected mode is not valid' });
+            return;
+          }
         }
       }
     }
@@ -9671,6 +9688,9 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('normalMaxModes' in step) fields.normalMaxModes = (step as any).normalMaxModes;
       if ('entwineCost' in step) fields.entwineCost = (step as any).entwineCost;
       if ('allowDuplicates' in step) fields.allowDuplicates = step.allowDuplicates;
+      if ('modeSelectionPurpose' in step) fields.modeSelectionPurpose = (step as any).modeSelectionPurpose;
+      if ('pBudget' in step) fields.pBudget = (step as any).pBudget;
+      if ('canRepeatModes' in step) fields.canRepeatModes = (step as any).canRepeatModes;
       break;
       
     case ResolutionStepType.DISCARD_SELECTION:
@@ -25585,15 +25605,37 @@ function handleVoteResponse(
   const submittedPlayerIds = new Set(votesSubmitted.map((v: any) => String(v?.playerId || '').trim()));
   const remainingVoters = voterOrder.filter((id) => !submittedPlayerIds.has(id));
   if (remainingVoters.length > 0) {
+    const nextVoter = String(remainingVoters[0] || '').trim();
+    // Rebuild voter-relative ballots (Secret council "another player" excludes the voter).
+    let nextChoices = choices;
+    try {
+      const parsed = JSON.parse(String(voteStep.oracleIrChoiceStepJson || '[]'));
+      const voteIrStep = Array.isArray(parsed) ? parsed[0] : null;
+      const ballot = String(voteIrStep?.ballot || '').trim();
+      const ballotFilter = String(voteIrStep?.ballotFilter || '').toLowerCase();
+      if (ballot === 'players' && nextVoter) {
+        const players = Array.isArray(game.state?.players)
+          ? game.state.players.map((p: any) => String(p?.id || '').trim()).filter(Boolean)
+          : [];
+        nextChoices = players.filter((id: string) => {
+          if (/\banother\s+player\b|\beach\s+other\s+player\b/i.test(ballotFilter) && id === nextVoter) {
+            return false;
+          }
+          return true;
+        });
+      }
+    } catch {
+      // keep prior choices
+    }
     ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.VOTE,
-      playerId: remainingVoters[0],
+      playerId: nextVoter,
       description: String(voteStep.description || 'Vote'),
       mandatory: true,
       sourceId: voteStep.sourceId,
       sourceName: voteStep.sourceName,
       voteId,
-      choices,
+      choices: nextChoices,
       votesSubmitted,
       secret,
       oracleIrVoterOrder: voterOrder,

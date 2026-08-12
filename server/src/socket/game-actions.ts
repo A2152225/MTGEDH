@@ -6724,13 +6724,19 @@ export async function requestCastSpellForSocket(
             id: option.id,
             label: option.label,
             description: option.description,
+            ...(Number.isFinite(Number(option.pCost)) && Number(option.pCost) > 0
+              ? { pCost: Math.floor(Number(option.pCost)) }
+              : {}),
           })),
           minModes: modalSpellInfo.minModes,
           maxModes: modalSpellInfo.maxModes,
           normalMinModes: modalSpellInfo.normalMinModes,
           normalMaxModes: modalSpellInfo.normalMaxModes,
           entwineCost: modalSpellInfo.entwineCost,
-          allowDuplicates: false,
+          allowDuplicates: Boolean(modalSpellInfo.canRepeatModes),
+          ...(Number.isFinite(Number(modalSpellInfo.pBudget)) && Number(modalSpellInfo.pBudget) > 0
+            ? { pBudget: Math.floor(Number(modalSpellInfo.pBudget)), canRepeatModes: Boolean(modalSpellInfo.canRepeatModes) }
+            : {}),
           modeSelectionPurpose: 'modalSpell',
           castSpellFromHandArgs: {
             cardId,
@@ -9635,13 +9641,19 @@ export function registerGameActions(io: Server, socket: Socket) {
               id: option.id,
               label: option.label,
               description: option.description,
+              ...(Number.isFinite(Number(option.pCost)) && Number(option.pCost) > 0
+                ? { pCost: Math.floor(Number(option.pCost)) }
+                : {}),
             })),
             minModes: modalSpellInfo.minModes,
             maxModes: modalSpellInfo.maxModes,
             normalMinModes: modalSpellInfo.normalMinModes,
             normalMaxModes: modalSpellInfo.normalMaxModes,
             entwineCost: modalSpellInfo.entwineCost,
-            allowDuplicates: false,
+            allowDuplicates: Boolean(modalSpellInfo.canRepeatModes),
+            ...(Number.isFinite(Number(modalSpellInfo.pBudget)) && Number(modalSpellInfo.pBudget) > 0
+              ? { pBudget: Math.floor(Number(modalSpellInfo.pBudget)), canRepeatModes: Boolean(modalSpellInfo.canRepeatModes) }
+              : {}),
             modeSelectionPurpose: 'modalSpell',
             castSpellFromHandArgs: {
               cardId,

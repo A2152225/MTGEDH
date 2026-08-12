@@ -1,32 +1,53 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-08-05 (end-state — P4e LEGACY aliases removed; IR counter flashback exile; live telemetry still empty)
+Last updated: 2026-08-12 (Season `{P}` client budget UX + spell-static EDH triage clean)
 
 > **Cost reducers / alternate costs** (separate workstream): see [`docs/cost-reduction-handoff.md`](cost-reduction-handoff.md).
 
 ## Next session prompt (copy-paste)
 
 ```
-Migration end-state — continuous depth + live soak
+Continue MTGEDH Oracle IR migration — post Season {P} UX + spell-static triage.
+
+Read first:
+- docs/oracle-ir-session-handoff.md (this prompt)
+- docs/oracle-ir-track-e-remaining-work.md (§ IR live-readiness Aug 2026, D6)
+- .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
 
 Done recently:
-- P4e: ORACLE_IR_*_LEGACY ignored; opt-out is ORACLE_IR_*_PRIMARY=0 only
-- P1a: resolveSpell empty (all categorize resolve ops deleted; cast targeting kept)
-- IR counter_spell exiles flashback/jump-start/escape/disturb/harmonize (+ castFromGraveyard)
-- Live GET /api/oracle-ir/telemetry still 0 events (no real EDH soak yet)
-  Snapshot: server/scripts/out/telemetry-snapshot-live-soak.json
+- Season {P}: pBudget/pCost/canRepeatModes on MODE_SELECTION → ModalSpellSelectionModal budget UX
+  shared/src/modeSelectionPBudget.ts; server validate + AI greedy fill
+- Spell-static audit: edhHitCount 0; remainder Un-set only (hitCount ~3 after noise filter)
+- Prior: vote/end_combat Layer 3; Spree/Tiered resolve scope; spell-static typing
 
-Verify at session start:
-cd server
-npx vitest run tests/oracle-ir-feature-flags.test.ts tests/oracle-ir-legacy-forced.integration.test.ts
-cd ../rules-engine ; npx vitest run test/oracleIRCounterSpellExile.test.ts
-cd ../server ; npm run test:oracle-ir-migration
+Verify:
+cd server ; npx vitest run tests/mode-selection-p-budget.unit.test.ts tests/oracle-prompt-context.test.ts tests/ai-mode-selection.test.ts --pool=threads --maxWorkers=1
+cd ../client ; npx vitest run tests/modalSpellPBudget.test.ts
 
 Next work (priority):
 1. Live EDH telemetry soak after real games; triage owned_but_unhandled
 2. Continuous-effect depth / remaining IR gaps from telemetry
-3. Optional: delete redundant P1a spell no-op matrix from legacy-forced once PRIMARY=0 suites cover it
+3. Optional: Un-set die-band IR (Goblin Tutor / Six-Sided Die) only if digital Un-set play is desired
 ```
+
+## Session 2026-08-12 (PM) — Season `{P}` UX + spell-static triage
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Season `{P}` D6** | Cast MODE_SELECTION carries `pBudget` / `pCost` / `canRepeatModes`; client modal spends budget with ± repeats; server validates; AI fills greedily | `shared/src/modeSelectionPBudget.ts`, `ModalSpellSelectionModal.tsx`, `game-actions.ts`, `resolution.ts`, `ai.ts` |
+| **Spell-static triage** | **edhHitCount 0**; audit noise skips physical Un-set + short die-face lines; remaining hits Un-set only | `spell-static-drop-audit.ts` |
+
+## Session 2026-08-12 — IR live-readiness (spell-static → vote)
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Spell-static typing** | Instant/sorcery effects typed SPELL for collection; audit EDH hits **0** | `oracleTextParser.ts`, `spell-static-drop-audit.ts` |
+| **Spree/Tiered scope** | Cast + IR resolve share `getSelectedAdditionalCostOracleText` | `additionalCostModeOracleText.ts` |
+| **Season `{P}` / Urza** | `pBudget` choose_mode; no outer mode duplication | `oracleIRChooseModeUrzaSeason.test.ts` |
+| **`end_combat_phase` + `vote`** | Parse/execute + server VOTE APNAP resume; voter-relative ballots; halt so draw/damage tails resume; `combat: undefined` for Object.assign sync | `oracleIREndCombatAndVote.test.ts`, `oracle-ir-vote-end-combat.integration.test.ts` |
+| **Docs** | Migration plan + Track E + this handoff updated | `oracle-ir-*-*.md` |
+
+**Still open (superseded PM session):** Season `{P}` client UX + EDH spell-static triage done below; live telemetry soak remains.
 
 ## Session 2026-07-07 (PM) — Delta→probe workflow + dynamic lords
 

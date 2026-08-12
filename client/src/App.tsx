@@ -766,6 +766,8 @@ export function App() {
     canChooseAny?: boolean;
     minModes?: number;
     isSpree?: boolean;
+    pBudget?: number;
+    canRepeatModes?: boolean;
     effectId?: string;
     // If present, this modal answers a Resolution Queue step.
     resolutionStepId?: string;
@@ -3997,14 +3999,27 @@ export function App() {
         const minModes = Number(step.minModes ?? 1);
         const maxModes = Number(step.maxModes ?? 1);
         const purpose = String((step as any).modeSelectionPurpose || '');
-        const isMultiSelect = maxModes < 0 || maxModes > 1 || minModes > 1 || purpose === 'modalSpell' || purpose === 'spree';
+        const pBudgetRaw = Number((step as any).pBudget);
+        const pBudget = Number.isFinite(pBudgetRaw) && pBudgetRaw > 0 ? Math.floor(pBudgetRaw) : undefined;
+        const canRepeatModes = Boolean((step as any).canRepeatModes || (step as any).allowDuplicates);
+        const isMultiSelect =
+          maxModes < 0 ||
+          maxModes > 1 ||
+          minModes > 1 ||
+          purpose === 'modalSpell' ||
+          purpose === 'spree' ||
+          Boolean(pBudget);
 
         if (isMultiSelect) {
-          const spellModes: SpellMode[] = (step.modes || []).map((m: any, idx: number) => ({
-            id: String(m.id ?? `mode_${idx + 1}`),
-            name: String(m.label ?? `Mode ${idx + 1}`),
-            description: String(m.description ?? ''),
-          }));
+          const spellModes: SpellMode[] = (step.modes || []).map((m: any, idx: number) => {
+            const modePCost = Number(m.pCost);
+            return {
+              id: String(m.id ?? `mode_${idx + 1}`),
+              name: String(m.label ?? `Mode ${idx + 1}`),
+              description: String(m.description ?? ''),
+              ...(Number.isFinite(modePCost) && modePCost > 0 ? { pCost: Math.floor(modePCost) } : {}),
+            };
+          });
 
           setModalSpellModalData({
             cardId: step.sourceId || step.id,
@@ -4013,9 +4028,10 @@ export function App() {
             imageUrl: step.sourceImage,
             modes: spellModes,
             modeCount: maxModes,
-            canChooseAny: maxModes < 0,
+            canChooseAny: maxModes < 0 || Boolean(pBudget),
             minModes: minModes,
             isSpree: purpose === 'spree',
+            ...(pBudget ? { pBudget, canRepeatModes } : {}),
             effectId: step.sourceId,
             resolutionStepId: String(step.id),
             mandatory: isResolutionStepMandatory(step),
@@ -8870,6 +8886,9 @@ export function App() {
         modes={modalSpellModalData?.modes || []}
         modeCount={modalSpellModalData?.modeCount || 1}
         canChooseAny={modalSpellModalData?.canChooseAny || modalSpellModalData?.isSpree}
+        minModes={modalSpellModalData?.minModes}
+        pBudget={modalSpellModalData?.pBudget}
+        canRepeatModes={modalSpellModalData?.canRepeatModes}
         onConfirm={(selectedModeIds) => {
           if (safeView?.id && modalSpellModalData) {
             if (modalSpellModalData.resolutionStepId) {

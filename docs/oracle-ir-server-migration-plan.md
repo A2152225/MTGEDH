@@ -2,10 +2,10 @@
 
 **Purpose:** Plan the full supersession of handwritten spell/trigger/ability resolution with Oracle IR execution and the Effect Program orchestrator.
 
-**Last updated:** 2026-07-02 (Layer 3 beta-ready — migration **797/797**; new-card overlay path documented)  
+**Last updated:** 2026-08-12 (IR live-readiness: spell-static typing, Spree/Tiered resolve scoping, Season `{P}`, `end_combat_phase`, council/`vote` queue)  
 **Owner:** Project maintainers  
 
-> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** for E9+ legacy retirement and the copy-paste starting prompt. Latest: **Phase 5.2** (declarative graveyard replacements); migration **873/873**.
+> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** for Track E live-readiness + remaining choice shapes. Latest: **Aug 2026 IR live-readiness** (Layer 1–3 gaps that do not move the legacy ratchet); D3 export ratchet **0**; Phase 5 continuous depth + live soak still open.
 
 **Rules for new work:** `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` — **no card-name routing**, **no new `KNOWN_*` table rows**; extend parser → executor → `applyOracleIRStepsOnServer` → resolution queue.
 
@@ -30,6 +30,18 @@ The project has **three distinct layers**. Layers 1–2 are **complete** for com
 | **3 — Integrate** | Server routes live gameplay through IR + resolution UI | **Beta-ready** — migration ~**889/889**; IR primary on; D3 export ratchet **0**; Phase 4 = infrastructure dual-path collapse |
 
 **Goal:** Make Layer 3 match Layer 2 for every effect that decomposes into wired atomic steps — including **new-set cards** via overlays or parser batches. See [oracle-ir-track-e-remaining-work.md § Goal: Semantic atomic parsing](./oracle-ir-track-e-remaining-work.md#goal-semantic-atomic-parsing--seamless-effect-automation-new-cards).
+
+### Aug 2026 — IR live-readiness (not a separate track)
+
+These batches keep the **IR primary live path** correct. They are Layer 1–3 work the migration assumes is green; they often do **not** move `test:oracle-ir-migration` count or the D3 legacy ratchet. Full log: [oracle-ir-track-e-remaining-work.md § IR live-readiness](./oracle-ir-track-e-remaining-work.md#ir-live-readiness-aug-2026).
+
+| Work | Layer | Role |
+|------|-------|------|
+| `isSpellInstructionLine` / STATIC→SPELL collection | L1 | Instant/sorcery effects must be typed SPELL so `collectSpellResolutionEffectSteps` sees them |
+| Instead-fold, ability-word typing, cast-cost reduction | L1–2 + cast | Threshold/Delirium “instead”, ability words, delirium/void/vivid cost gates |
+| Spree/Tiered oracle scoping at resolve | L3 | `additionalCostModeOracleText` — cast + IR resolve share selected-mode oracle |
+| Season `{P}` / Urza choose_mode | L1–2 | `pBudget` / `canRepeatModes` / mode-cost parse; no outer mode duplication |
+| `end_combat_phase` + extended `vote` + server queue | L2–3 | New step kind + ballot shapes; APNAP `VOTE` queue/resume |
 
 ---
 
@@ -1452,8 +1464,8 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
 
 **Batch order (by dry-run volume × gameplay frequency):**
 
-1. **Already done:** scry, surveil, unless-pay, discard, proliferate, populate, explore, sacrifice, look-choose, connive, player_choice, add_mana (any-color + distribution), fateseal, clash (Effect Program), search_library, choose_pile, change_target
-2. **Effect Program + server:** `choose_mode` (modal spells / PW -1 abilities)
+1. **Already done:** scry, surveil, unless-pay, discard, proliferate, populate, explore, sacrifice, look-choose, connive, player_choice, add_mana (any-color + distribution), fateseal, clash (Effect Program), search_library, choose_pile, change_target, **vote** (council / secret council APNAP queue — Aug 2026)
+2. **Effect Program + server:** `choose_mode` (modal spells / PW -1 abilities); Season `{P}` budget modes parse/execute + **client budget UX** (D6, Aug 2026)
 3. **Lower priority:** ring tempts, move_counters edge cases; choose_pile card movement via legacy split flow
 
 **Per-step checklist:**

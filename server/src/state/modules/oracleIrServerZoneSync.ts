@@ -3079,7 +3079,11 @@ function isOracleIrPlayerChoiceGap(gap: { reasonCode?: string }): boolean {
 function buildVoteBallotChoices(
   state: any,
   step: Extract<OracleEffectStep, { kind: 'vote' }>,
-  controller: PlayerID,
+  /**
+   * Player currently casting the ballot. For "another player" / "each other player"
+   * filters this must be the **voter**, not the spell controller.
+   */
+  voterId: PlayerID,
 ): string[] {
   const ballot = String((step as any).ballot || 'labels');
   if (ballot === 'players') {
@@ -3089,7 +3093,7 @@ function buildVoteBallotChoices(
       .map((p: any) => String(p?.id || '').trim())
       .filter((id: string) => {
         if (!id) return false;
-        if (/\banother\s+player\b|\beach\s+other\s+player\b/i.test(filter) && id === controller) {
+        if (/\banother\s+player\b|\beach\s+other\s+player\b/i.test(filter) && id === voterId) {
           return false;
         }
         return true;
@@ -3104,7 +3108,7 @@ function buildVoteBallotChoices(
         const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
         if (/\bcreature\b/.test(filter) && !typeLine.includes('creature')) return false;
         if (/\bnonland\s+permanent\b/.test(filter) && typeLine.includes('land')) return false;
-        if (/\byou don't control\b|\byou do not control\b/.test(filter) && String(perm.controller || '') === controller) {
+        if (/\byou don't control\b|\byou do not control\b/.test(filter) && String(perm.controller || '') === voterId) {
           return false;
         }
         return true;
@@ -3162,9 +3166,6 @@ function queueVotePromptsFromOracleIRResult(
     if (queuedKeys.has(queueKey)) continue;
     queuedKeys.add(queueKey);
 
-    const choices = buildVoteBallotChoices(state, step, params.controller);
-    if (choices.length < 1) continue;
-
     const voters = resolvePlayers(state, (step as any).voters, params.irCtx);
     const startingWithPlayers = (step as any).startingWith
       ? resolvePlayers(state, (step as any).startingWith, params.irCtx)
@@ -3177,6 +3178,10 @@ function queueVotePromptsFromOracleIRResult(
     if (voterOrder.length === 0) continue;
 
     const firstVoter = voterOrder[0]!;
+    // Ballot choices are voter-relative (e.g. "another player" excludes the voter).
+    const firstVoterChoices = buildVoteBallotChoices(state, step, firstVoter as PlayerID);
+    if (firstVoterChoices.length < 1) continue;
+
     const voteId = `vote_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const resumeSteps = [
       step,
@@ -3192,7 +3197,7 @@ function queueVotePromptsFromOracleIRResult(
         sourceId,
         sourceName,
         voteId,
-        choices,
+        choices: firstVoterChoices,
         votesSubmitted: [],
         secret: Boolean((step as any).secret),
         oracleIrVoterOrder: voterOrder,

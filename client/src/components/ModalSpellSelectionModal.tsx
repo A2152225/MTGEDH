@@ -1,19 +1,27 @@
 /**
  * ModalSpellSelectionModal.tsx
- * 
+ *
  * Modal for selecting modes on modal spells like:
  * - Austere Command (choose two)
  * - Cryptic Command (choose two)
  * - Confluence spells (choose three)
  * - Charms (choose one)
+ * - Season spells (choose up to N {P} worth of modes, optionally with repeats)
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
+import {
+  canAddModeUnderPBudget,
+  modePCost,
+  sumSelectedPCost,
+} from '../../../shared/src';
 
 export interface SpellMode {
   id: string;
   name: string;
   description: string;
+  /** Season-style `{P}` cost for this mode. */
+  pCost?: number;
 }
 
 export interface ModalSpellSelectionProps {
@@ -23,9 +31,17 @@ export interface ModalSpellSelectionProps {
   description?: string;
   modes: SpellMode[];
   modeCount: number; // How many modes to select (1 for charms, 2 for commands, etc.)
-  canChooseAny?: boolean; // "Choose any number" option
+  canChooseAny?: boolean; // "Choose any number" / Spree
+  minModes?: number;
+  /** Season-style `{P}` budget ("Choose up to five {P} worth of modes"). */
+  pBudget?: number;
+  canRepeatModes?: boolean;
   onConfirm: (selectedModeIds: string[]) => void;
   onCancel: () => void;
+}
+
+function formatPCost(cost: number): string {
+  return `{P}`.repeat(Math.max(1, cost));
 }
 
 export function ModalSpellSelectionModal({
@@ -36,37 +52,96 @@ export function ModalSpellSelectionModal({
   modes,
   modeCount,
   canChooseAny = false,
+  minModes = 0,
+  pBudget,
+  canRepeatModes = false,
   onConfirm,
   onCancel,
 }: ModalSpellSelectionProps) {
-  const [selectedModes, setSelectedModes] = useState<Set<string>>(new Set());
+  // Ordered list so Season repeats preserve multiplicity.
+  const [selectedModes, setSelectedModes] = useState<string[]>([]);
 
-  // Reset selection when modal opens
   React.useEffect(() => {
     if (open) {
-      setSelectedModes(new Set());
+      setSelectedModes([]);
     }
-  }, [open]);
+  }, [open, cardName, pBudget, modeCount]);
+
+  const hasPBudget = Number.isFinite(Number(pBudget)) && Number(pBudget) > 0;
+  const budget = hasPBudget ? Math.floor(Number(pBudget)) : 0;
+  const spent = useMemo(
+    () => (hasPBudget ? sumSelectedPCost(selectedModes, modes) : selectedModes.length),
+    [hasPBudget, selectedModes, modes],
+  );
+
+  const modeCountById = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const id of selectedModes) {
+      counts.set(id, (counts.get(id) || 0) + 1);
+    }
+    return counts;
+  }, [selectedModes]);
 
   const toggleMode = useCallback((modeId: string) => {
-    setSelectedModes(prev => {
+    setSelectedModes((prev) => {
+      if (hasPBudget) {
+        const already = prev.includes(modeId);
+        if (already && !canRepeatModes) {
+          return prev.filter((id) => id !== modeId);
+        }
+        if (canAddModeUnderPBudget(prev, modeId, modes, budget, canRepeatModes)) {
+          return [...prev, modeId];
+        }
+        return prev;
+      }
+
       const next = new Set(prev);
       if (next.has(modeId)) {
         next.delete(modeId);
       } else if (canChooseAny || next.size < modeCount) {
         next.add(modeId);
       }
-      return next;
+      return Array.from(next);
     });
-  }, [modeCount, canChooseAny]);
+  }, [hasPBudget, canRepeatModes, modes, budget, canChooseAny, modeCount]);
 
-  const canConfirm = canChooseAny 
-    ? selectedModes.size > 0 
-    : selectedModes.size === modeCount;
+  const adjustModeCount = useCallback((modeId: string, delta: number) => {
+    if (!hasPBudget || !canRepeatModes) {
+      toggleMode(modeId);
+      return;
+    }
+    setSelectedModes((prev) => {
+      if (delta > 0) {
+        if (!canAddModeUnderPBudget(prev, modeId, modes, budget, true)) return prev;
+        return [...prev, modeId];
+      }
+      const idx = prev.lastIndexOf(modeId);
+      if (idx < 0) return prev;
+      return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+    });
+  }, [hasPBudget, canRepeatModes, toggleMode, modes, budget]);
+
+  const canConfirm = (() => {
+    if (hasPBudget) {
+      return (
+        spent <= budget &&
+        selectedModes.length >= Math.max(0, minModes) &&
+        // "Up to" allows zero; non-zero min still enforced above.
+        (minModes > 0 ? selectedModes.length >= minModes : true)
+      );
+    }
+    if (canChooseAny) {
+      return selectedModes.length >= Math.max(1, minModes || 0);
+    }
+    if (minModes > 0 && modeCount !== minModes) {
+      return selectedModes.length >= minModes && selectedModes.length <= modeCount;
+    }
+    return selectedModes.length === modeCount;
+  })();
 
   const handleConfirm = () => {
     if (canConfirm) {
-      onConfirm(Array.from(selectedModes));
+      onConfirm(selectedModes);
     }
   };
 
@@ -74,6 +149,9 @@ export function ModalSpellSelectionModal({
 
   const modeWords = ['zero', 'one', 'two', 'three', 'four', 'five', 'six'];
   const modeWord = modeWords[modeCount] || `${modeCount}`;
+  const headerTitle = hasPBudget
+    ? `Choose up to ${budget} {P}`
+    : `Choose ${canChooseAny ? 'any number' : modeWord}`;
 
   return (
     <div
@@ -100,7 +178,6 @@ export function ModalSpellSelectionModal({
           color: '#fff',
         }}
       >
-        {/* Header */}
         <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
           {imageUrl && (
             <div
@@ -123,7 +200,7 @@ export function ModalSpellSelectionModal({
           )}
           <div style={{ flex: 1 }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: '#f59e0b' }}>
-              🎯 Choose {canChooseAny ? 'any number' : modeWord}
+              {headerTitle}
             </h2>
             <div style={{ marginTop: 4, fontSize: 14, color: '#888' }}>
               {cardName}
@@ -146,26 +223,41 @@ export function ModalSpellSelectionModal({
                 {description}
               </div>
             )}
-            <div style={{ marginTop: 12, fontSize: 13, color: selectedModes.size === modeCount ? '#10b981' : '#888' }}>
-              {canChooseAny 
-                ? `${selectedModes.size} mode${selectedModes.size !== 1 ? 's' : ''} selected`
-                : `${selectedModes.size} of ${modeCount} modes selected`
-              }
+            <div
+              style={{
+                marginTop: 12,
+                fontSize: 13,
+                color: hasPBudget
+                  ? (spent <= budget ? '#10b981' : '#f87171')
+                  : selectedModes.length === modeCount
+                    ? '#10b981'
+                    : '#888',
+              }}
+            >
+              {hasPBudget
+                ? `${spent} / ${budget} {P} spent${canRepeatModes ? ' · repeats allowed' : ''}`
+                : canChooseAny
+                  ? `${selectedModes.length} mode${selectedModes.length !== 1 ? 's' : ''} selected`
+                  : `${selectedModes.length} of ${modeCount} modes selected`}
             </div>
           </div>
         </div>
 
-        {/* Mode Selection */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {modes.map((mode, index) => {
-            const isSelected = selectedModes.has(mode.id);
-            const canSelect = isSelected || canChooseAny || selectedModes.size < modeCount;
+            const count = modeCountById.get(mode.id) || 0;
+            const isSelected = count > 0;
+            const cost = modePCost(mode);
+            const canAdd = hasPBudget
+              ? canAddModeUnderPBudget(selectedModes, mode.id, modes, budget, canRepeatModes)
+              : isSelected || canChooseAny || selectedModes.length < modeCount;
+            const canSelect = hasPBudget
+              ? (isSelected || canAdd)
+              : canAdd;
 
             return (
-              <button
+              <div
                 key={mode.id}
-                onClick={() => canSelect && toggleMode(mode.id)}
-                disabled={!canSelect}
                 style={{
                   display: 'flex',
                   alignItems: 'flex-start',
@@ -174,13 +266,16 @@ export function ModalSpellSelectionModal({
                   borderRadius: 8,
                   border: isSelected ? '2px solid #f59e0b' : '2px solid #4a4a6a',
                   backgroundColor: isSelected ? 'rgba(245, 158, 11, 0.15)' : 'rgba(0,0,0,0.2)',
-                  cursor: canSelect ? 'pointer' : 'not-allowed',
                   opacity: canSelect ? 1 : 0.5,
-                  transition: 'all 0.15s',
-                  textAlign: 'left',
                 }}
               >
-                <div
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (hasPBudget && canRepeatModes) return;
+                    if (canSelect) toggleMode(mode.id);
+                  }}
+                  disabled={!canSelect && !(hasPBudget && canRepeatModes)}
                   style={{
                     width: 28,
                     height: 28,
@@ -194,24 +289,67 @@ export function ModalSpellSelectionModal({
                     fontWeight: 600,
                     color: isSelected ? '#000' : '#888',
                     flexShrink: 0,
+                    cursor: canSelect ? 'pointer' : 'not-allowed',
+                    padding: 0,
                   }}
                 >
-                  {isSelected ? '✓' : index + 1}
-                </div>
+                  {isSelected ? (hasPBudget && canRepeatModes ? count : '✓') : index + 1}
+                </button>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 13, color: '#fff', marginBottom: 4 }}>
+                    {hasPBudget && (
+                      <span style={{ color: '#fbbf24', marginRight: 8, fontFamily: 'monospace' }}>
+                        {formatPCost(cost)}
+                      </span>
+                    )}
                     {mode.name}
                   </div>
                   <div style={{ fontSize: 12, color: '#a0aec0', lineHeight: 1.4 }}>
                     {mode.description}
                   </div>
                 </div>
-              </button>
+                {hasPBudget && canRepeatModes && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => adjustModeCount(mode.id, -1)}
+                      disabled={count < 1}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 6,
+                        border: '1px solid #4a4a6a',
+                        background: 'transparent',
+                        color: '#fff',
+                        cursor: count < 1 ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      −
+                    </button>
+                    <span style={{ minWidth: 16, textAlign: 'center', fontWeight: 600 }}>{count}</span>
+                    <button
+                      type="button"
+                      onClick={() => adjustModeCount(mode.id, 1)}
+                      disabled={!canAdd}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 6,
+                        border: '1px solid #4a4a6a',
+                        background: 'transparent',
+                        color: '#fff',
+                        cursor: !canAdd ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
 
-        {/* Action buttons */}
         <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
           <button
             onClick={onCancel}

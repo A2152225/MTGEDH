@@ -716,6 +716,8 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'search_library',
   'surveil',
   'tap_matching_permanents',
+  // Council / Secret council — resume must re-run vote + follow-on votes_received effects.
+  'vote',
 ]);
 
 export function applyOracleIRStepsToGameStateImpl(

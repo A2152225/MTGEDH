@@ -2,11 +2,11 @@
 
 **Purpose:** Track post–Track D executor/Layer 3 work and document the path to **seamless automation for cards not yet in the corpus** (new sets, custom cards, novel phrasing).
 
-**Last updated:** 2026-07-07 (Phase 5 complete; graveyard-permission IR stable; migration **889/889**; D3 ratchet **0**)
+**Last updated:** 2026-08-12 (Season `{P}` D6 client budget UX shipped; spell-static **edhHitCount 0**; D3 ratchet **0**)
 
 **Read first:** [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) · [oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md) · `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` · `.cursor/rules/oracle-ir-compiled-overlay.mdc`
 
-**Next session:** Copy the prompt at the top of [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) (live telemetry soak / waterbender flake if soak regresses).
+**Next session:** Copy the prompt at the top of [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) (live telemetry soak / continuous-effect depth).
 
 ## Goal: Semantic atomic parsing + seamless effect automation (new cards)
 
@@ -52,7 +52,7 @@ For **new cards**, step collection may hit the overlay **before** a parser batch
 | **L2 Execute** | Dry-run applies all wired step kinds; trigger + full_card audits | ✅ 100% assisted, 0 `ir_gap` |
 | **L2 Keywords** | Keyword semantic audit (static vs triggered shape) | ✅ 0 open clusters on corpus |
 | **L3 Integrate** | IR primary for spells/triggers/activated (`ORACLE_IR_*_PRIMARY` on) | ✅ Beta-ready |
-| **L3 Choices** | Queue + resume for scry/surveil/discard/unless-pay/library search/EP (fateseal, clash, choose_mode) | ✅ Migration **811/811** + ~26 socket tests |
+| **L3 Choices** | Queue + resume for scry/surveil/discard/unless-pay/library search/EP (fateseal, clash, choose_mode) + **VOTE** (council / secret council) | ✅ Migration suite + ~26 socket tests; vote Layer 3 in `oracle-ir-vote-end-combat.integration.test.ts` |
 | **L3 Overlays** | Probe / validate / import / upsert scripts; `@OracleIRCompiler` agent | ✅ In migration suite (batch 458) |
 | **Data refresh** | `npm run card-lookup:refresh` — oracle index + local SQLite rebuild | ✅ Script exists |
 | **Trigger detect** | `trigger:coverage` — timing phrases fire on server | ✅ 15,741/15,741 |
@@ -123,7 +123,7 @@ These are the **main engineering tasks** still open for the *overall* new-card e
 | **D3** | ✅ **Done** — `applyRetiredTriggerLegacy*` ratchet **0**; soak 0 exports | Dual-apply risk from retired export handlers closed | Remaining Phase 4 work is **infrastructure** dual-path (`categorizeSpell`, uncategorized fallbacks, spell riders, routing helpers) — not more `applyRetired*` batches |
 | **D4** | **Unwired step kinds** | Overlay must set `fallback_to_bespoke` | Extend executor + server queue; document in OracleIRCompiler “allowed kinds” |
 | **D5** | **Trigger timing not in detector tables** | Card parses but never fires | Extend `detect*Triggers` + trigger coverage for new `when/whenever/at` templates; delta audit flags these as `trigger_not_detected` |
-| **D6** | **Client UI for novel choice types** | Server queues step client cannot render | **Partial (batch 468):** `resolutionChoicePrimitives.ts` — `number_choice` → X modal; `options[]` → generic option fallback. Extend generic primitives for future shapes; avoid per-step modals |
+| **D6** | **Client UI for novel choice types** | Server queues step client cannot render | **Partial (batch 468 + Aug 2026):** VOTE queue/resume wired; Season `{P}` budget UX shipped (`ModalSpellSelectionModal` + `modeSelectionPBudget`). Prefer generic primitives over per-step modals |
 | **D7** | **Phase 5 special systems** | PW loyalty, supplemental oracle, continuous/replacement layers | Design doc: [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md); migration plan Phase 5 |
 | **D8** | **Overlay storage ops** | Overlays not in repo by default (`server/data/compiled-oracle-ir-overlays/`) | Process for committing set overlays vs per-environment SQLite; optional bulk import in deploy |
 | **D9** | **Rules txt ↔ keywordActions sync** | New CR keyword without code path | Checklist tying `docs/rules/MagicCompRules_*.txt` §702 entries to B1–B8 |
@@ -158,6 +158,30 @@ npm run test:oracle-ir-migration -- --pool=threads --maxWorkers=1
 ```
 
 Agent: `.github/agents/OracleIRCompiler.agent.md`
+
+---
+
+<a id="ir-live-readiness-aug-2026"></a>
+## IR live-readiness (Aug 2026) — Layer 1–3 gaps on the IR primary path
+
+These are **in-scope migration work** that does not always move the usual metrics (migration test count, D3 ratchet). They close holes the Layer 3 “beta-ready” story assumed were already green.
+
+| Batch | Layer | Deliverable | Key files / tests |
+|-------|-------|-------------|-------------------|
+| **Spell-static typing** | L1 | `isSpellInstructionLine` + mode/ability-word leads so instant/sorcery effects collect as SPELL (Brave-class drops ~354 → ~12; EDH hits **0**) | `oracleTextParser.ts`, `spell-static-drop-audit.ts`, `oracleTextParserAbilityType.test.ts` |
+| **Instead-fold + cast costs** | L1–2 + cast | Threshold/Delirium “instead” conditional fold; delirium/void/vivid cost reduction on cast path | `oracleIRParserPostprocess.ts`, `delirium-void-vivid-cost-reduction.unit.test.ts`, `oracleIRInsteadConditionalFold.test.ts` |
+| **Spree/Tiered resolve scope** | L3 | Shared `additionalCostModeOracleText` — cast + IR resolve use same selected-mode oracle (no over-execution) | `additionalCostModeOracleText.ts`, `stackResolveSpellOracleIrUtils.ts`, `game-actions.ts` |
+| **Season `{P}` / Urza modes** | L1–2 | `choose_mode` with `pBudget` / `canRepeatModes` / per-mode `pCost`; Urza recovery no outer mode duplication | `oracleIRParserChooseMode.ts`, `oracleIRExecutorChooseModeStepHandlers.ts`, `oracleIRChooseModeUrzaSeason.test.ts` |
+| **`end_combat_phase`** | L2–3 | Parse/execute “End the combat phase”; wired in fallback + Effect Program kinds; server apply | `oracleIRExecutorTurnStepHandlers.ts`, `trigger-runtime-wiring.ts`, `oracle-ir-vote-end-combat.integration.test.ts` |
+| **Council / Secret council `vote`** | L2–3 | Extended `vote` (`secret`, `ballot`, `ballotFilter`); `votes_received` quantity; APNAP `VOTE` queue + IR resume; voter-relative “another player” ballots; `vote` in `HALT_ON_PLAYER_CHOICE_STEP_KINDS` so follow-ons resume | `oracleIrServerZoneSync.ts`, `resolution.ts` `handleVoteResponse`, `oracleIRExecutorMainLoop.ts`, same integration test |
+| **Season `{P}` D6 UX** | L3 + client | MODE_SELECTION carries `pBudget`/`pCost`/`canRepeatModes`; modal spends budget with repeats; server validates; AI greedy fill | `shared/src/modeSelectionPBudget.ts`, `ModalSpellSelectionModal.tsx`, `game-actions.ts`, `resolution.ts`, `ai.ts` |
+
+**Operator note:** Re-run `npx tsx scripts/spell-static-drop-audit.ts` after parser lead changes. Remaining non-EDH/Un-set noise is expected; prefer overlay or targeted leads only for black-border EDH regressions.
+
+**Still open after this arc:**
+- ~~Season `{P}` client budget UX~~ ✅
+- ~~Spell-static EDH hits~~ ✅ **edhHitCount 0** (audit remainder = Un-set only: Six-Sided Die, Strategy Schmategy, You're in Command)
+- Live EDH telemetry soak (`GET /api/oracle-ir/telemetry`)
 
 ---
 
@@ -486,43 +510,45 @@ See [marvel-mechanics-handoff.md](./marvel-mechanics-handoff.md). Teamwork / pow
 
 ---
 
-## Copy-paste starting prompt (next session — Track E9)
+## Copy-paste starting prompt (next session — IR live-readiness follow-up)
 
-Use this verbatim:
+Use this verbatim (also mirrored at top of session handoff):
 
 ```
-Continue MTGEDH Oracle IR Track E9 — post batch 469 (telemetry soak gap fixes + D3 legacy retirement).
+Continue MTGEDH Oracle IR migration — post Aug 2026 IR live-readiness.
 
 Read first:
-- docs/oracle-ir-session-handoff.md (§ Next session — batches 467–469)
-- docs/oracle-ir-track-e-remaining-work.md (§ D3, D6, E9+)
+- docs/oracle-ir-session-handoff.md (top prompt)
+- docs/oracle-ir-track-e-remaining-work.md (§ IR live-readiness Aug 2026, D6)
 - .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
 
-Current status (2026-07-03):
-- Migration: 811/811 green (npm run test:oracle-ir-migration, ~13 min; do NOT pass duplicate --pool=threads)
-- Legacy ratchet: 76 wired applyRetiredTriggerLegacy* exports
-- D6: client resolutionChoicePrimitives shipped
-- Batch 469: conditional appliedSteps, scry/surveil+draw deferral, this spacecraft target, station threshold re-fetch
-- Pre-469 soak: 34 telemetry events (22 all_or_nothing_failure, 10 owned_but_unhandled, 2 legacy_handled)
-- Triage: 76 wired / 0 orphaned
+Done (2026-08-12):
+- Spell-static typing / Spree-Tiered / Season {P} parse+execute / end_combat / vote queue
+- Season {P} D6 client budget UX + server validate + AI
+- Spell-static edhHitCount 0 (Un-set remainder only)
+- Layer 3: tests/oracle-ir-vote-end-combat.integration.test.ts in migration suite
 
-Priority 1 — Re-run telemetry soak and compare:
-  cd server
-  $env:ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT='D:\Git\MTGEDH\server\scripts\out\telemetry-snapshot-post469.json'
-  npm run test:oracle-ir-migration
-  npm run oracle-ir:legacy-triage -- --snapshot scripts/out/telemetry-snapshot-post469.json
+Next (priority):
+1. Live EDH telemetry soak → owned_but_unhandled
+2. Continuous-effect depth from telemetry
+3. Optional Un-set die-band IR only if needed
 
-Priority 2 — Continue D3 evidence-driven legacy deletion (only when legacy_handled proves dead):
-  npm run oracle-ir:legacy-triage:soak
-  Lower ratchet after each deletion batch
-
-Priority 3 — Remaining owned_but_unhandled (spell/trigger tail, generic IR fixes only)
-
-Targeted regression:
-  npx vitest run tests/prepared.trigger-primary.integration.test.ts tests/oracle-ir-scry-surveil.integration.test.ts tests/oracle-ir-station-charge-counters.integration.test.ts tests/oracle-ir-broodship-graveyard-cast.socket.integration.test.ts tests/oracle-ir-legacy-handler-ratchet.unit.test.ts --pool=threads --maxWorkers=1
+Verify:
+cd server ; npx vitest run tests/mode-selection-p-budget.unit.test.ts tests/oracle-prompt-context.test.ts tests/ai-mode-selection.test.ts --pool=threads --maxWorkers=1
+cd ../client ; npx vitest run tests/modalSpellPBudget.test.ts
 
 Do not commit unless asked. Windows: chain with ; not &&.
 ```
+
+<details>
+<summary>Archived prompt — Track E9 (2026-07-03)</summary>
+
+```
+Continue MTGEDH Oracle IR Track E9 — post batch 469 …
+(see git history / prior handoff)
+```
+
+</details>
 
 ---
 
