@@ -212,7 +212,7 @@ A **clean** soak: every card `pass: true`, `telemetry_clean` actual `[]`, in-pro
 
 The smoke runner always **reads** the live endpoint. Without `--live` it does not write into that process. After a server restart you should see live `totalEvents: 0` even when the in-process soak is green.
 
-`--live` creates a commander table on that process (1 human soak driver + AI seats), imports a constructed deck (Kenrith + listed cards + Islands), skips lobby/mulligan, and free-casts each card (`castWithoutPayingManaCost` + `ignoreTimingRestrictions`) with a board setup (`main` / `combat` / `vote_board`). AI auto-play is paused on those tables (`state.oracleIrLiveSoak`) so the driver is not racing 300ms AI timers. Endpoints are **localhost-only**:
+`--live` creates a commander table on that process (1 human soak driver + AI seats), imports a constructed deck (Kenrith + listed cards + Islands), skips lobby/mulligan, and free-casts each card (`castWithoutPayingManaCost` + `ignoreTimingRestrictions`) with a board setup (`main` / `combat` / `vote_board`). Before each cast, `provisionSpellCastBoardContext` fills the same gaps the AI uses to skip no-op spells (creature/permanent/stack targets, Windfall-style empty hands, combat for fog). Battlefield creatures are always `Creature — Bear`, never a land fallback. Target and mana-payment steps are auto-completed so `seenQueueTypes` still records `target_selection`. AI auto-play is paused on those tables (`state.oracleIrLiveSoak`) so the driver is not racing 300ms AI timers. Endpoints are **localhost-only**:
 
 - `POST /api/oracle-ir/live-soak/session`
 - `POST /api/oracle-ir/live-soak/cast`

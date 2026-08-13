@@ -33,6 +33,7 @@ export type LiveCastResponse = {
     canRepeatModes?: boolean;
     status?: string;
   }>;
+  seenQueueTypes?: string[];
   stack: Array<{ name?: string; id?: string }>;
   handNames: string[];
   phase?: string;
@@ -93,7 +94,12 @@ function assertLiveCast(
     return finishCard(result);
   }
 
-  const queueTypes = (cast.queuedSteps || []).map((step) => String(step.type || ''));
+  const queueTypes = [
+    ...new Set([
+      ...(cast.queuedSteps || []).map((step) => String(step.type || '')),
+      ...(cast.seenQueueTypes || []),
+    ]),
+  ].filter(Boolean);
   const onStack = (cast.stack || []).some((item) => String(item.name || '') === name);
   const stillInHand = (cast.handNames || []).includes(name);
   const errorText = (cast.errors || []).map((entry) => entry.code || entry.message).filter(Boolean).join('; ');

@@ -413,6 +413,16 @@ function drawEffectSynced(
 ): boolean {
   const normalized = String(effectText || '').replace(/\u2019/g, "'").trim();
   const hasDeferredDraw = /draw (?:a card|\d+ cards?)/i.test(normalized);
+  const voteScaledDraw =
+    /draw (?:a card|\d+ cards?) for each \w[\w' -]* vote/i.test(normalized)
+    || (result?.pendingContinuationSteps || []).some((step) => {
+      if (step.kind !== 'draw') return false;
+      const amountKind = String((step as any)?.amount?.kind || '');
+      return amountKind === 'votes_for_choice' || amountKind === 'votes_received';
+    });
+  if (voteScaledDraw && (queueBridged || (result?.pendingContinuationSteps || []).some((step) => step.kind === 'draw'))) {
+    return true;
+  }
   if (
     queueBridged
     && /you may put a land card from your hand onto the battlefield/i.test(normalized)
@@ -666,9 +676,7 @@ export function tryResolveTriggerViaOracleIR(
         `Oracle IR reported handled but library did not decrease for draw effect: ${effectText}`,
         { applied, parsed: steps.length },
       );
-    }
-
-    if (handled) {
+    } else if (handled) {
       debug(
         2,
         `[oracleIR] Primary trigger resolution for ${params.sourceName}: ${applied} step(s) applied`,

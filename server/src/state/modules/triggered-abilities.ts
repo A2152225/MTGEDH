@@ -767,7 +767,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
   }
 
   const combatDamagePlayerMatch = oracleText.match(
-    new RegExp(`when(?:ever)?\\s+${combatDamageSubject}\\s+deals\\s+combat\\s+damage\\s+to\\s+(?:a\\s+)?(?:player|an?\\s+opponent),?\\s*([^.]+)`, 'i'),
+    new RegExp(`when(?:ever)?\\s+${combatDamageSubject}\\s+(?:enters(?: the battlefield)?\\s+or\\s+)?deals\\s+combat\\s+damage\\s+to\\s+(?:a\\s+)?(?:player|an?\\s+opponent),?\\s*([^.]+)`, 'i'),
   );
   if (combatDamagePlayerMatch && !triggers.some(t => t.triggerType === 'deals_combat_damage')) {
     triggers.push({
@@ -9825,7 +9825,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   }
 
   const etbPattern = new RegExp(
-    `when(?:ever)?\\s+(?:${etbAlternatives.join('|')})\\s+(?:enters(?: the battlefield)?|comes into play)(?:\\s+or\\s+attacks)?[,]?\\s*([^.]+)`,
+    `when(?:ever)?\\s+(?:${etbAlternatives.join('|')})\\s+(?:enters(?: the battlefield)?|comes into play)(?:\\s+or\\s+(?:attacks|deals combat damage to a player(?: or planeswalker)?))?[,]?\\s*([^.]+)`,
     'i',
   );
   const etbMatch = oracleText.match(etbPattern);

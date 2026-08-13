@@ -337,7 +337,8 @@ export function getVoteCountForChoice(ctx: OracleIRExecutionContext | undefined,
   if (!normalizedChoice) return null;
   const counts = getVoteChoiceCounts(ctx);
   if (!counts) return null;
-  return Math.max(0, Number(counts[normalizedChoice] ?? 0) || 0);
+  if (!Object.prototype.hasOwnProperty.call(counts, normalizedChoice)) return null;
+  return Math.max(0, Number(counts[normalizedChoice]) || 0);
 }
 
 export function deriveWinningVoteChoice(

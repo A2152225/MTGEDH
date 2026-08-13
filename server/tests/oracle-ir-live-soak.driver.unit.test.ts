@@ -48,6 +48,45 @@ describe('oracle IR live soak driver', () => {
     const leftHand = !cast.handNames.includes('Opt');
     expect(queueTypes.includes('scry') || onStack || leftHand).toBe(true);
     expect(cast.telemetryEvents).toEqual([]);
-    expect(cast.telemetryEvents).toEqual([]);
+  }, 30000);
+
+  it('provisions a creature and a stack spell so Path / Force Spike can actually start', async () => {
+    const session = await createLiveSoakSession({
+      playerCount: 2,
+      soakId: 'driver-board',
+      cardNames: ['Path to Exile', 'Force Spike'],
+    });
+    created.push(session.gameId);
+
+    const path = await castLiveSoakCard({
+      gameId: session.gameId,
+      cardName: 'Path to Exile',
+      setup: 'main',
+    });
+    const pathQueues = [...new Set([...(path.queuedSteps || []).map((step) => step.type), ...(path.seenQueueTypes || [])])];
+    const pathError = (path.errors || []).map((entry) => entry.code).join(';');
+    expect(path.found).toBe(true);
+    expect(pathError).not.toContain('NO_VALID_TARGETS');
+    expect(
+      pathQueues.includes('target_selection')
+      || pathQueues.includes('library_search')
+      || path.stack.some((item) => item.name === 'Path to Exile')
+      || !path.handNames.includes('Path to Exile'),
+    ).toBe(true);
+
+    const spike = await castLiveSoakCard({
+      gameId: session.gameId,
+      cardName: 'Force Spike',
+      setup: 'main',
+    });
+    const spikeQueues = [...new Set([...(spike.queuedSteps || []).map((step) => step.type), ...(spike.seenQueueTypes || [])])];
+    const spikeError = (spike.errors || []).map((entry) => entry.code).join(';');
+    expect(spike.found).toBe(true);
+    expect(spikeError).not.toContain('NO_VALID_TARGETS');
+    expect(
+      spikeQueues.includes('target_selection')
+      || spike.stack.some((item) => item.name === 'Force Spike')
+      || !spike.handNames.includes('Force Spike'),
+    ).toBe(true);
   }, 30000);
 });

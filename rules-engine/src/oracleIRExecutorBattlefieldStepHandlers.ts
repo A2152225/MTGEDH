@@ -4106,6 +4106,22 @@ export function applyTapOrUntapStep(
     }
   }
   if (targetIds.length === 0) {
+    const isUpTo = /\bup to\b/i.test(`${targetText} ${String(step.raw || '')}`);
+    if (isUpTo) {
+      const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+      const typePhrase = targetText.replace(/^up to (?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+/i, '').trim();
+      const requiredType = parseSimplePermanentTypeFromText(typePhrase) || 'creature';
+      const hasLegalCandidate = battlefield.some((perm: any) => permanentMatchesType(perm, requiredType as any));
+      if (!hasLegalCandidate) {
+        return {
+          applied: true,
+          state,
+          log: ['Chose no permanents to tap/untap (up to N)'],
+          lastTappedMatchingPermanentCount: 0,
+          lastTappedMatchingPermanentIds: [],
+        };
+      }
+    }
     return {
       applied: false,
       message: `Skipped tap/untap (no deterministic target): ${step.raw}`,

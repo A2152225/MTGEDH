@@ -21,8 +21,10 @@ import { lookupLocalCardByNameSync, type LocalCardLookupRecord } from './service
 import { registerAIPlayer, unregisterAIPlayer } from './socket/ai.js';
 import { registerGameActions, requestCastSpellForSocket } from './socket/game-actions.js';
 import { registerResolutionHandlers } from './socket/resolution.js';
+import { provisionSpellCastBoardContext } from './socket/spellCastBoardContext.js';
 import { games } from './socket/socket.js';
 import { ensureGame } from './socket/util.js';
+import { clearOracleIrPendingCompoundResumeOnState } from './state/modules/oracleIrTransitionPipeline.js';
 import {
   getOracleIrGapTelemetrySnapshot,
   type OracleIrGapTelemetryEvent,
@@ -56,6 +58,7 @@ export type LiveSoakCastResult = {
   found: boolean;
   errors: Array<{ code?: string; message?: string }>;
   queuedSteps: LiveSoakQueuedStep[];
+  seenQueueTypes: string[];
   stack: Array<{ name?: string; id?: string }>;
   handNames: string[];
   phase?: string;
@@ -152,20 +155,27 @@ function buildDeckCards(cardNames: readonly string[], ownerTag: string): any[] {
   return cards;
 }
 
-function putCreatureOnBattlefield(game: any, controller: string, id: string, name = 'Grizzly Bears') {
-  const record = lookupCard(name) || lookupCard('Forest');
-  const card = record
-    ? toImportedCard(record, id, 'battlefield')
-    : { id, name, type_line: 'Creature — Bear', oracle_text: '', zone: 'battlefield' };
-  const battlefield = Array.isArray(game.state.battlefield) ? game.state.battlefield : (game.state.battlefield = []);
-  battlefield.push({
+function makeSoakCreature(controller: string, id: string, name = 'Grizzly Bears') {
+  return {
     id,
     controller,
     owner: controller,
     tapped: false,
-    attacking: undefined,
-    card: { ...card, name: record?.name || name, type_line: record?.type_line || 'Creature — Bear' },
-  });
+    card: {
+      id: `${id}-card`,
+      name,
+      type_line: 'Creature — Bear',
+      oracle_text: '',
+      power: '2',
+      toughness: '2',
+      zone: 'battlefield',
+    },
+  };
+}
+
+function putCreatureOnBattlefield(game: any, controller: string, id: string, name = 'Grizzly Bears') {
+  const battlefield = Array.isArray(game.state.battlefield) ? game.state.battlefield : (game.state.battlefield = []);
+  battlefield.push(makeSoakCreature(controller, id, name));
 }
 
 function applySetup(game: any, humanId: string, aiIds: readonly string[], setup: LiveSoakSetup) {
@@ -241,6 +251,39 @@ function fillManaPool(game: any, playerId: string) {
   };
   state.manaPool = state.manaPool || {};
   state.manaPool[playerId] = { ...(state.manaPool[playerId] || {}), ...pool };
+}
+
+async function autoCompleteTargetSelection(
+  io: Server,
+  gameId: string,
+  playerId: string,
+  errors: LiveSoakCastResult['errors'],
+) {
+  const pending = (ResolutionQueueManager.getQueue(gameId).steps || []).filter((step: any) => {
+    const status = String(step.status || '').toLowerCase();
+    return String(step.type) === 'target_selection'
+      && status !== 'completed'
+      && status !== 'cancelled';
+  });
+  if (pending.length === 0) return false;
+  const { socket, handlers } = createDriverSocket(gameId, playerId, errors);
+  registerResolutionHandlers(io, socket);
+  const submit = handlers.get('submitResolutionResponse');
+  if (typeof submit !== 'function') return false;
+  for (const step of pending) {
+    const valid = Array.isArray(step.validTargets) ? step.validTargets : [];
+    const minTargets = Math.max(1, Number(step.minTargets || 1));
+    if (valid.length < minTargets) continue;
+    const preferred = [...valid].sort((left: any, right: any) => Number(Boolean(right.isOpponent)) - Number(Boolean(left.isOpponent)));
+    const ids = preferred.slice(0, minTargets).map((target: any) => String(target.id));
+    await submit({
+      gameId,
+      stepId: String(step.id),
+      selections: ids,
+      cancelled: false,
+    });
+  }
+  return true;
 }
 
 async function autoCompleteManaPayment(
@@ -409,6 +452,7 @@ export async function castLiveSoakCard(options: {
       found: false,
       errors: [{ code: 'GAME_NOT_FOUND', message: 'Live soak game not found' }],
       queuedSteps: [],
+      seenQueueTypes: [],
       stack: [],
       handNames: [],
       telemetryEvents: [],
@@ -424,6 +468,14 @@ export async function castLiveSoakCard(options: {
   ResolutionQueueManager.removeQueue(gameId);
   state.stack = [];
   state.battlefield = [];
+  delete state.lastVoteResults;
+  delete state.voteResults;
+  delete state.votesReceivedByPlayer;
+  delete state.votesReceivedByPermanent;
+  delete state.lastVoteMeta;
+  delete state.oracleIrAppliedStepKinds;
+  delete state.oracleIrStepLedger;
+  clearOracleIrPendingCompoundResumeOnState(state);
   applySetup(game, humanPlayerId, aiPlayerIds, setup);
 
   const record = lookupCard(cardName);
@@ -434,6 +486,7 @@ export async function castLiveSoakCard(options: {
       found: false,
       errors: [{ code: 'CARD_NOT_FOUND', message: `Local oracle lookup missed "${cardName}"` }],
       queuedSteps: snapshotQueue(gameId),
+      seenQueueTypes: [],
       stack: [],
       handNames: [],
       telemetryEvents: telemetryDelta(before).map((event) => ({ kind: event.kind, label: event.label })),
@@ -443,6 +496,10 @@ export async function castLiveSoakCard(options: {
   const cardId = `soak-cast-${slug(cardName)}-${Date.now().toString(36)}`;
   const card = toImportedCard(record, cardId, 'hand');
   putCardInHand(game, humanPlayerId, card);
+  provisionSpellCastBoardContext(game, humanPlayerId, record, {
+    opponentIds: aiPlayerIds,
+    excludeCardId: cardId,
+  });
   fillManaPool(game, humanPlayerId);
   state.priority = humanPlayerId;
   state.activePlayer = humanPlayerId;
@@ -464,11 +521,26 @@ export async function castLiveSoakCard(options: {
     });
   }
 
+  const seenQueueTypes = new Set<string>();
+  const noteQueue = () => {
+    for (const step of snapshotQueue(gameId)) {
+      if (step.type) seenQueueTypes.add(step.type);
+    }
+  };
+
+  noteQueue();
   for (let i = 0; i < 8; i += 1) {
     const paid = await autoCompleteManaPayment(io, gameId, humanPlayerId, errors);
+    noteQueue();
+    const targeted = await autoCompleteTargetSelection(io, gameId, humanPlayerId, errors);
+    noteQueue();
     await drainUntilChoiceOrEmpty(io, gameId, [humanPlayerId, ...aiPlayerIds], errors);
+    noteQueue();
     const types = snapshotQueue(gameId).map((step) => step.type);
-    if (!paid && !types.includes('mana_payment_choice')) break;
+    const waitingOnChoice = types.some((type) =>
+      type !== 'mana_payment_choice' && type !== 'target_selection',
+    );
+    if (!paid && !targeted && (waitingOnChoice || types.length === 0 || !types.includes('mana_payment_choice'))) break;
   }
 
   const hand = Array.isArray(state.zones?.[humanPlayerId]?.hand) ? state.zones[humanPlayerId].hand : [];
@@ -482,6 +554,7 @@ export async function castLiveSoakCard(options: {
     found: true,
     errors,
     queuedSteps: snapshotQueue(gameId),
+    seenQueueTypes: [...seenQueueTypes],
     stack: stack.map((item: any) => ({
       name: item?.card?.name || item?.name,
       id: item?.card?.id || item?.id,

@@ -62,6 +62,7 @@ import { movePermanentToHand } from "../state/modules/zones.js";
 import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { getDominantCreatureType } from "./creature-type.js";
 import { handlePlayLandRequest, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks, getEffectiveAdditionalCost, isPlayerCompletingSpellCast } from "./game-actions.js";
+import { isSpellCastBoardContextUseful } from "./spellCastBoardContext.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
 import { type AdditionalCostResult } from "./land-helpers.js";
 import { advanceStepPersistingEvent } from "./step-advance.js";
@@ -5160,57 +5161,9 @@ function getAIAttackingPermanents(game: any): any[] {
 }
 
 export function isAISpellContextuallyUseful(game: any, playerId: PlayerID, card: any): boolean {
-  const oracleText = String(card?.oracle_text || card?.oracleText || '').toLowerCase();
-  const typeLine = String(card?.type_line || card?.typeLine || '').toLowerCase();
-  const attackingPermanents = getAIAttackingPermanents(game);
-  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
-
-  const isHostileAttackAgainstAI = (attacker: any): boolean => {
-    if (String(attacker?.controller || '') === String(playerId)) return false;
-    if (attacker?.attacking === true || attacker?.isAttacking === true) return true;
-
-    const attackedId = String(attacker?.attacking || attacker?.defendingPlayerId || '').trim();
-    if (!attackedId) return true;
-    if (attackedId === String(playerId)) return true;
-    return battlefield.some(
-      (permanent: any) =>
-        String(permanent?.id || '') === attackedId
-        && String(permanent?.controller || '') === String(playerId),
-    );
-  };
-
-  const hasHostileAttackAgainstAI = attackingPermanents.some(isHostileAttackAgainstAI);
-
-  const isCombatDamageFog =
-    /\bprevent all combat damage\b/.test(oracleText)
-    || /\bcreatures? (?:deal|deals) no combat damage\b/.test(oracleText);
-  if (isCombatDamageFog) {
-    return hasHostileAttackAgainstAI;
-  }
-
-  // Selfless Squire et al.: flash ETB that prevents damage to you — hold outside real threats.
-  const isPersonalDamagePreventionFlash =
-    typeLine.includes('creature')
-    && /\bflash\b/.test(oracleText)
-    && /\bprevent all damage that would be dealt to you\b/.test(oracleText);
-  if (isPersonalDamagePreventionFlash) {
-    if (hasHostileAttackAgainstAI) return true;
-    const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
-    return stack.some((entry: any) => {
-      const text = String(entry?.oracle_text || entry?.card?.oracle_text || entry?.effectText || '').toLowerCase();
-      if (!/\bdamage\b/.test(text)) return false;
-      // Rough: damage effects that mention "you" / target player while AI is a plausible target.
-      return /\byou\b|\btarget (?:player|opponent|creature or player|any target)\b/.test(text);
-    });
-  }
-
-  if (/\btarget (?:player|opponent) sacrifices an? attacking creature\b/.test(oracleText)) {
-    return attackingPermanents.some(
-      (attacker: any) => String(attacker?.controller || '') !== String(playerId),
-    );
-  }
-
-  return true;
+  return isSpellCastBoardContextUseful(game, playerId, card, {
+    excludeCardId: card?.id ? String(card.id) : undefined,
+  });
 }
 
 function getAISourceCards(game: any, playerId: PlayerID, sourceZone: AISupportedCardSourceZone): any[] {
@@ -6440,7 +6393,7 @@ function findCastableSpells(
       const castCard = candidate.castCard || candidate.card;
       const useful = isAISpellContextuallyUseful(game, playerId, castCard);
       if (!useful) {
-        debug(1, `[AI] findCastableSpells: Skipping ${castCard?.name || candidate.card?.name || 'spell'} because its combat-dependent effect is not currently useful`);
+        debug(1, `[AI] findCastableSpells: Skipping ${castCard?.name || candidate.card?.name || 'spell'} because the current board has no legal context for it`);
       }
       return useful;
     })
@@ -6801,10 +6754,12 @@ async function requestAISharedCast(
     const stackLengthBefore = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
     const priorityBefore = game.state?.priority;
     const castSnapshotBefore = captureAICastControlFlowSnapshot(gameId, game, playerId);
+    let rejectCode: string | undefined;
     const aiSocket = {
       data: { playerId },
       emit: (event: string, payload: any) => {
         if (event === 'error') {
+          rejectCode = typeof payload?.code === 'string' ? payload.code : undefined;
           debugWarn(1, '[AI] requestCastSpellForSocket rejected cast:', {
             gameId,
             playerId,
@@ -6857,12 +6812,16 @@ async function requestAISharedCast(
       aiHasPendingSteps ||
       priorityChanged;
     if (!progressed) {
+      if (rejectCode === 'NO_VALID_TARGETS') {
+        rememberAIFailedSpellCast(game, String(playerId), cardId);
+      }
       debugWarn(1, '[AI] Shared cast request produced no state change:', {
         gameId,
         playerId,
         cardId,
         cardName: request.cardName,
         sourceZone: request.sourceZone,
+        rejectCode,
         stackLengthBefore,
         stackLengthAfter,
         priorityBefore,

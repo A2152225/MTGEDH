@@ -115,4 +115,66 @@ describe('end_combat_phase + council vote IR', () => {
     expect((result.state as any).votesReceivedByPlayer.p1).toBe(2);
     expect((result.state as any).players[0].hand.length).toBe(2);
   });
+
+  it('does not treat leftover vote counts from a different ballot as this vote', () => {
+    const ir = parseOracleTextToIR(
+      'Starting with you, each player votes for evidence or bribery. For each evidence vote, investigate. For each bribery vote, create a Treasure token.',
+      'Tivit, Seller of Secrets',
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+    const state: any = {
+      players: [
+        { id: 'p1', life: 40, hand: [], library: [], graveyard: [], exile: [] },
+        { id: 'p2', life: 40, hand: [], library: [], graveyard: [], exile: [] },
+      ],
+      battlefield: [],
+      stack: [],
+    };
+    const ctx = buildOracleIRExecutionContext(
+      {
+        controllerId: 'p1' as PlayerID,
+        sourceName: 'Tivit, Seller of Secrets',
+        voteChoiceCounts: { feather: 2, quill: 2 },
+      },
+      { voteChoiceCounts: { feather: 2, quill: 2 } },
+    );
+    const result = applyOracleIRStepsToGameState(state, steps, ctx, {
+      haltOnPlayerChoiceRequired: true,
+    });
+    expect(result.appliedSteps.some((step) => step.kind === 'vote')).toBe(false);
+    expect(result.skippedSteps.some((step) => step.kind === 'vote')).toBe(true);
+    expect(result.automationGaps.some((gap) => gap.stepKind === 'vote' && gap.reasonCode === 'player_choice_required')).toBe(true);
+  });
+
+  it('applies Tap up to N with no creatures as an empty choice, then draws', () => {
+    const ir = parseOracleTextToIR(
+      'Tap up to two target creatures. Put a stun counter on each of them.\nDraw a card.',
+      'Rime Chill',
+    );
+    const steps = ir.abilities.flatMap((ability) => ability.steps ?? []);
+    const state: any = {
+      players: [
+        {
+          id: 'p1',
+          life: 40,
+          hand: [],
+          library: [{ id: 'lib1', name: 'Island' }],
+          graveyard: [],
+          exile: [],
+        },
+      ],
+      battlefield: [],
+      stack: [],
+    };
+    const ctx = buildOracleIRExecutionContext({
+      controllerId: 'p1' as PlayerID,
+      sourceName: 'Rime Chill',
+    });
+    const result = applyOracleIRStepsToGameState(state, steps, ctx, { haltOnPlayerChoiceRequired: true });
+    expect(steps.map((step) => step.kind)).toEqual(expect.arrayContaining(['tap_or_untap', 'draw']));
+    expect(result.skippedSteps.some((step) => step.kind === 'tap_or_untap')).toBe(false);
+    expect(result.appliedSteps.some((step) => step.kind === 'tap_or_untap')).toBe(true);
+    expect(result.appliedSteps.some((step) => step.kind === 'draw')).toBe(true);
+    expect((result.state as any).players[0].hand.map((card: any) => card.id)).toEqual(['lib1']);
+  });
 });

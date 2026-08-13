@@ -1114,9 +1114,12 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
   
   // Use shared utility function for regex escaping
   const cardNameEscaped = escapeCardNameForRegex(cardName);
+  const legendaryShort = escapeCardNameForRegex(String(cardName.split(',')[0] || '').trim());
+  const firstWord = escapeCardNameForRegex(String(cardName.trim().split(/\s+/)[0] || '').trim());
+  const combatNameAlts = [...new Set([cardNameEscaped, legendaryShort, firstWord].filter(Boolean))].join('|');
   
   // "Whenever ~ deals combat damage to a player" detection
-  const combatDamagePattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNameEscaped})\\s+deals\\s+combat\\s+damage\\s+to\\s+(?:a\\s+)?(?:player|an?\\s+opponent),?\\s*([^.]+)`, 'i');
+  const combatDamagePattern = new RegExp(`whenever\\s+(?:~|this creature|${combatNameAlts})\\s+(?:enters(?: the battlefield)?\\s+or\\s+)?deals\\s+combat\\s+damage\\s+to\\s+(?:a\\s+)?(?:player|an?\\s+opponent),?\\s*([^.]+)`, 'i');
   const combatDamagePlayerMatch = oracleText.match(combatDamagePattern);
   if (combatDamagePlayerMatch) {
     triggers.push({

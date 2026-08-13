@@ -3909,6 +3909,7 @@ export function applyVoteStep(
     };
   }
 
+  const normalizedChoices = (step.choices || []).map(choice => String(choice || '').trim().toLowerCase()).filter(Boolean);
   const winningVoteChoice = deriveWinningVoteChoice(ctx);
   if (typeof winningVoteChoice === 'undefined') {
     return {
@@ -3917,6 +3918,18 @@ export function applyVoteStep(
       reason: 'player_choice_required',
       options: { classification: 'player_choice' },
     };
+  }
+
+  if (hintCounts && normalizedChoices.length > 0) {
+    const overlap = normalizedChoices.some((choice) => Object.prototype.hasOwnProperty.call(hintCounts, choice));
+    if (!overlap) {
+      return {
+        applied: false,
+        message: `Skipped vote (requires vote choices): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
   }
 
   if (winningVoteChoice === '') {
@@ -3928,7 +3941,6 @@ export function applyVoteStep(
     };
   }
 
-  const normalizedChoices = (step.choices || []).map(choice => String(choice || '').trim().toLowerCase()).filter(Boolean);
   const nextState = {
     ...(state as any),
     ...(hintCounts

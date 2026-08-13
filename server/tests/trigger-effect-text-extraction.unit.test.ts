@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { analyzeCardTriggers } from '../src/state/modules/triggers/registry.js';
 import { detectEndStepTriggers } from '../src/state/modules/triggers/turn-phases.js';
 import { detectAttackTriggers, detectETBTriggers } from '../src/state/modules/triggered-abilities.js';
+import { detectCombatDamageTriggers } from '../src/state/modules/triggers/combat.js';
 
 describe('trigger effect text extraction (server registration)', () => {
   it('registers full Kynaios end-step effect text from oracle', () => {
@@ -70,5 +71,32 @@ describe('trigger effect text extraction (server registration)', () => {
     expect(etb?.effect?.toLowerCase()).toContain('you may sacrifice a nontoken creature');
     expect(etb?.effect?.toLowerCase()).toContain('if you do');
     expect(etb?.effect?.toLowerCase()).toContain('mill x cards');
+  });
+
+  it('keeps the vote payoff as the ETB effect for enters-or-combat-damage council triggers', () => {
+    const oracle =
+      "Flying, ward {3}\nCouncil's dilemma — Whenever Tivit enters or deals combat damage to a player, starting with you, each player votes for evidence or bribery. For each evidence vote, investigate. For each bribery vote, create a Treasure token.";
+    const triggers = detectETBTriggers(
+      { name: 'Tivit, Seller of Secrets', oracle_text: oracle },
+      { id: 'tivit-1', controller: 'p1' },
+    );
+    const etb = triggers.find((trigger) => trigger.triggerType === 'etb' || trigger.triggerType === 'self_enters_or_attacks');
+    expect(etb?.effect?.toLowerCase()).toContain('starting with you');
+    expect(etb?.effect?.toLowerCase()).toContain('each player votes for evidence or bribery');
+    expect(etb?.effect?.toLowerCase()).not.toMatch(/^or deals combat damage/);
+    expect(etb?.effect?.toLowerCase()).toContain('for each evidence vote, investigate');
+  });
+
+  it('registers the same council payoff for combat damage on enters-or-combat-damage', () => {
+    const oracle =
+      "Flying, ward {3}\nCouncil's dilemma — Whenever Tivit enters or deals combat damage to a player, starting with you, each player votes for evidence or bribery. For each evidence vote, investigate. For each bribery vote, create a Treasure token.";
+    const triggers = detectCombatDamageTriggers(
+      { name: 'Tivit, Seller of Secrets', oracle_text: oracle },
+      { id: 'tivit-1', controller: 'p1' },
+    );
+    const combat = triggers.find((trigger) => trigger.triggerType === 'deals_combat_damage');
+    expect(combat?.effect?.toLowerCase()).toContain('starting with you');
+    expect(combat?.effect?.toLowerCase()).toContain('each player votes for evidence or bribery');
+    expect(combat?.effect?.toLowerCase()).not.toMatch(/^or deals combat damage/);
   });
 });

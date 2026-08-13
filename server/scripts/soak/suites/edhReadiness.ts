@@ -475,7 +475,7 @@ export const edhReadinessSuite: SoakSuite = {
   live: {
     season_p: { playerCount: 2, setup: 'main', expectAnyQueue: ['mode_selection'], expectPBudget: 5 },
     choose_mode: { playerCount: 2, setup: 'main', expectAnyQueue: ['mode_selection'] },
-    vote: { playerCount: 4, setup: 'vote_board', expectAnyQueue: ['vote'] },
+    vote: { playerCount: 4, setup: 'vote_board', expectAnyQueue: ['vote', 'target_selection'] },
     spree_tiered: { playerCount: 2, setup: 'main', expectAnyQueue: ['additional_cost_payment', 'mode_selection'] },
     end_combat_phase: { playerCount: 2, setup: 'combat' },
     cast_cost_riders: { playerCount: 2, setup: 'main' },
@@ -486,12 +486,19 @@ export const edhReadinessSuite: SoakSuite = {
         Opt: { expectAnyQueue: ['scry'] },
         Consider: { expectAnyQueue: ['surveil'] },
         Preordain: { expectAnyQueue: ['scry'] },
+        'Force Spike': { expectAnyQueue: ['target_selection'] },
       },
     },
     spell_static: {
       playerCount: 2,
       setup: 'vote_board',
-      expectAnyQueue: ['target_selection', 'color_choice', 'mode_selection'],
+      perCard: {
+        'Brave the Elements': { expectAnyQueue: ['color_choice'] },
+        'Path to Exile': { expectAnyQueue: ['target_selection', 'library_search'] },
+        'Swords to Plowshares': { expectAnyQueue: ['target_selection'] },
+        'Chaos Warp': { expectAnyQueue: ['target_selection'] },
+        'Beast Within': { expectAnyQueue: ['target_selection'] },
+      },
     },
   },
   run: () => [

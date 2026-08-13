@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PlayerID } from '../../shared/src/index.js';
 import { GamePhase } from '../../shared/src/index.js';
 import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutor.js';
+import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
@@ -185,6 +186,46 @@ describe('oracle IR vote queue + resume (Layer 3)', () => {
     const handIds = ((game.state as any).zones?.[p1]?.hand || []).map((c: any) => c.id);
     expect(handIds).toContain('lib1');
   }, 20000);
+
+  it('queues a VOTE step for council dilemma payoffs before investigate/draw tails', () => {
+    createGameIfNotExists(voteGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(voteGameId) ?? createInitialGameState(voteGameId);
+    games.set(voteGameId as any, game as any);
+    (game as any).gameId = voteGameId;
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, library: [{ id: 'lib1' }, { id: 'lib2' }], libraryCount: 2, graveyard: [], graveyardCount: 0 },
+      [p2]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0 },
+    };
+
+    const ir = parseOracleTextToIR(
+      'Starting with you, each player votes for feather or quill. Put a +1/+1 counter on this creature for each feather vote and draw a card for each quill vote. For each card drawn this way, discard a card.',
+      'Messenger Jays',
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+    const irCtx = buildOracleIRExecutionContext({
+      controllerId: p1,
+      sourceId: 'jays-1',
+      sourceName: 'Messenger Jays',
+      sourceObjectType: 'ability',
+    });
+    applyOracleIRStepsOnServer(
+      game as any,
+      game.state as any,
+      steps as any,
+      irCtx,
+      { allowOptional: false, haltOnPlayerChoiceRequired: true },
+      { controller: p1, sourceName: 'Messenger Jays', sourceId: 'jays-1' },
+    );
+    const voteStep = ResolutionQueueManager.getQueue(voteGameId).steps.find(
+      (step) => step.type === ResolutionStepType.VOTE,
+    );
+    expect(voteStep).toBeTruthy();
+    expect((voteStep as any).choices).toEqual(expect.arrayContaining(['feather', 'quill']));
+  });
 });
 
 describe('oracle IR end_combat_phase (Layer 3 server apply)', () => {
