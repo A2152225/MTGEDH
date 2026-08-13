@@ -666,6 +666,42 @@ describe('EffectProgram', () => {
     expect((choiceEvent as any).colors.map((color: any) => color.id)).toEqual(['W', 'U', 'B', 'R', 'G']);
   });
 
+  it('copies Season {P} budget onto MODE_SELECTION choice events', () => {
+    const program = buildEffectProgramFromOracleIR({
+      id: 'season-p-budget',
+      controllerId: 'p1',
+      sourceId: 'season-1',
+      sourceName: 'Season of Gathering',
+      steps: [
+        {
+          kind: 'choose_mode',
+          minModes: 0,
+          maxModes: 5,
+          canRepeatModes: true,
+          pBudget: 5,
+          modes: [
+            { label: 'Mode 1', raw: '{P} — Draw a card.', pCost: 1, steps: [] },
+            { label: 'Mode 2', raw: '{P}{P} — Create a token.', pCost: 2, steps: [] },
+            { label: 'Mode 3', raw: '{P}{P}{P} — Gain 5 life.', pCost: 3, steps: [] },
+          ],
+          raw: 'Choose up to five {P} worth of modes.',
+        } as any,
+      ],
+    });
+
+    const choiceStep = program.steps.find((step) => step.kind === 'choice') as any;
+    expect(choiceStep?.choiceRequest?.payload?.pBudget).toBe(5);
+    expect(choiceStep?.choiceRequest?.payload?.canRepeatModes).toBe(true);
+    expect(choiceStep?.choiceRequest?.payload?.modes?.map((mode: any) => mode.pCost)).toEqual([1, 2, 3]);
+
+    const choiceEvent = createChoiceEventFromEffectProgramChoiceRequest({
+      request: choiceStep.choiceRequest,
+    });
+    expect((choiceEvent as any).pBudget).toBe(5);
+    expect((choiceEvent as any).canRepeatModes).toBe(true);
+    expect((choiceEvent as any).allowDuplicates).toBe(true);
+  });
+
   it('uses generated choice requests as the default pause source', () => {
     const program = buildEffectProgramFromOracleIR({
       id: 'oracle-program-choice',

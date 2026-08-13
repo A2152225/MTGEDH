@@ -337,15 +337,20 @@ export function createChoiceEventFromEffectProgramChoiceRequest(
         targetDescription: String(payload.targetDescription || request.description),
       };
 
-    case ChoiceEventType.MODE_SELECTION:
+    case ChoiceEventType.MODE_SELECTION: {
+      const pBudgetRaw = Number(payload.pBudget);
+      const hasPBudget = Number.isFinite(pBudgetRaw) && pBudgetRaw > 0;
+      const canRepeatModes = asBoolean(payload.canRepeatModes, asBoolean(payload.allowDuplicates, false));
       return {
         ...base,
         type: ChoiceEventType.MODE_SELECTION,
         modes: asChoiceOptions(payload.modes) || [],
         minModes: asNumber(payload.minModes, 1),
         maxModes: asNumber(payload.maxModes, 1),
-        allowDuplicates: asBoolean(payload.allowDuplicates, false),
-      };
+        allowDuplicates: canRepeatModes,
+        ...(hasPBudget ? { pBudget: Math.floor(pBudgetRaw), canRepeatModes } : {}),
+      } as ChoiceEvent;
+    }
 
     case ChoiceEventType.X_VALUE_SELECTION:
       return {
@@ -1121,19 +1126,27 @@ function buildChoiceRequestPayloadForOracleStep(
 
   if (kind === 'choose_mode') {
     const modes = Array.isArray((step as any).modes) ? (step as any).modes : [];
+    const pBudgetRaw = Number((step as any).pBudget);
+    const hasPBudget = Number.isFinite(pBudgetRaw) && pBudgetRaw > 0;
+    const canRepeatModes = Boolean((step as any).canRepeatModes);
     return {
       ...basePayload,
       modes: modes.map((mode: any) => {
         const label = String(mode?.label || mode?.raw || '').trim();
+        const pCostRaw = Number(mode?.pCost);
         return {
           id: label,
           label,
           description: String(mode?.raw || label),
+          ...(Number.isFinite(pCostRaw) && pCostRaw > 0 ? { pCost: Math.floor(pCostRaw) } : {}),
         };
       }).filter((mode: ChoiceOption) => mode.id),
       minModes: Number((step as any).minModes ?? 1),
       maxModes: normalizeModeSelectionMaxModes((step as any).maxModes, modes.length),
-      allowDuplicates: Boolean((step as any).canRepeatModes),
+      allowDuplicates: canRepeatModes,
+      ...(hasPBudget
+        ? { pBudget: Math.floor(pBudgetRaw), canRepeatModes }
+        : (canRepeatModes ? { canRepeatModes } : {})),
     };
   }
 

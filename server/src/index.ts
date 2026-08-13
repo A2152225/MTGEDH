@@ -35,6 +35,7 @@ import { games as socketGames, priorityTimers } from "./socket/socket.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
 import { BOOT_ID } from "./utils/bootId.js";
 import { getOracleIrGapTelemetrySnapshot } from "./state/modules/oracleIrGapTelemetry.js";
+import { registerOracleIrLiveSoakRoutes } from "./oracleIrLiveSoak.js";
 
 // Get the equivalent of __dirname in ES modules
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -308,6 +309,9 @@ app.get("/api/oracle-ir/telemetry", (_req, res) => {
     res.status(500).json({ error: "Failed to read oracle IR telemetry" });
   }
 });
+
+// Localhost-only live table soak: create game + AI + decks, then free-cast listed cards.
+registerOracleIrLiveSoakRoutes(app);
 
 // API: list saved decks (for AI opponent deck selection)
 function getRequestRemoteAddress(req: express.Request): string {

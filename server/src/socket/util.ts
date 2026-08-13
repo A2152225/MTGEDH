@@ -2085,6 +2085,8 @@ function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: s
 export function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void {
   try {
     const stateAny = game.state as any;
+    // Live IR soaks drive choices themselves; AI auto-play races the driver.
+    if (stateAny?.oracleIrLiveSoak === true) return;
     const paymentResumeLock = stateAny?._paymentResumeCastLock;
     const completingCasts = stateAny?._completingSpellCastByPlayer;
     if (

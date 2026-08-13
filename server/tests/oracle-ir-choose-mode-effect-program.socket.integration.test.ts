@@ -162,4 +162,54 @@ describe('oracle IR choose_mode Effect Program socket submit resume (Layer 3)', 
     expect(handIds).toEqual(['drawn-card']);
     expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(0);
   }, 20000);
+
+  it('queues Season {P} budget on Effect Program MODE_SELECTION', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId) ?? createInitialGameState(gameId);
+    games.set(gameId as any, game as any);
+    (game as any).gameId = gameId;
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = { [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0 } };
+
+    const irCtx = buildOracleIRExecutionContext({
+      controllerId: playerId,
+      sourceId: 'season-gathering-1',
+      sourceName: 'Season of Gathering',
+      sourceObjectType: 'spell',
+    });
+
+    const started = startOracleEffectProgramOnServer(game as any, {
+      controller: playerId,
+      sourceName: 'Season of Gathering',
+      sourceId: 'season-gathering-1',
+      steps: [
+        {
+          kind: 'choose_mode',
+          minModes: 0,
+          maxModes: 5,
+          canRepeatModes: true,
+          pBudget: 5,
+          modes: [
+            { label: 'Mode 1', raw: '{P} — Draw a card.', pCost: 1, steps: [{ kind: 'draw', who: { kind: 'you' }, amount: { kind: 'number', value: 1 }, raw: 'Draw a card.' }] },
+            { label: 'Mode 2', raw: '{P}{P} — You gain 2 life.', pCost: 2, steps: [{ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'number', value: 2 }, raw: 'You gain 2 life.' }] },
+            { label: 'Mode 3', raw: '{P}{P}{P} — You gain 5 life.', pCost: 3, steps: [{ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'number', value: 5 }, raw: 'You gain 5 life.' }] },
+          ],
+          raw: 'Choose up to five {P} worth of modes.',
+        } as any,
+      ],
+      irCtx,
+      executionOptions: { allowOptional: true },
+      programIdPrefix: 'spell:season-gathering-1',
+      metadata: { family: 'spell_resolution' },
+    });
+    expect(started.handled).toBe(true);
+
+    const modeStep = ResolutionQueueManager.getStepsForPlayer(gameId, playerId)
+      .find((step) => step.type === ResolutionStepType.MODE_SELECTION) as any;
+    expect(modeStep).toBeTruthy();
+    expect(modeStep.pBudget).toBe(5);
+    expect(modeStep.canRepeatModes).toBe(true);
+    expect(modeStep.allowDuplicates).toBe(true);
+    expect(modeStep.modes.map((mode: any) => mode.pCost)).toEqual([1, 2, 3]);
+  }, 20000);
 });

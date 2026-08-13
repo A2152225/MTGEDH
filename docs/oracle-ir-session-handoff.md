@@ -12,6 +12,7 @@ Continue MTGEDH Oracle IR migration — post Season {P} UX + spell-static triage
 Read first:
 - docs/oracle-ir-session-handoff.md (this prompt)
 - docs/oracle-ir-track-e-remaining-work.md (§ IR live-readiness Aug 2026, D6)
+- docs/oracle-ir-smoke-soak.md (scripted card-list soaks + how to add a suite)
 - .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
 
 Done recently:
@@ -25,7 +26,7 @@ cd server ; npx vitest run tests/mode-selection-p-budget.unit.test.ts tests/orac
 cd ../client ; npx vitest run tests/modalSpellPBudget.test.ts
 
 Next work (priority):
-1. Live EDH telemetry soak after real games; triage owned_but_unhandled
+1. Live EDH telemetry soak after real games **or** `npm run oracle-ir:smoke:live` (server must be running); triage owned_but_unhandled
 2. Continuous-effect depth / remaining IR gaps from telemetry
 3. Optional: Un-set die-band IR (Goblin Tutor / Six-Sided Die) only if digital Un-set play is desired
 ```

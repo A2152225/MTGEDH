@@ -77,7 +77,7 @@ The delta audit (D1) now automates steps 2–3 for the changed cards only:
 | 4 | `npm run executor:keyword-audit` when the set adds keyword/reminder shapes | New keyword reminder shapes vs static/triggered IR |
 | 5 | Targeted socket/integration test if new **choice** shape | Layer 3 resume proof |
 | 6 | `npm run oracle-ir:delta -- --update-baseline` once green | Accept the set into the baseline (`scripts/oracle-delta-baseline.json`, committed) |
-| 7 | Live EDH soak; watch `GET /api/oracle-ir/telemetry` (D2) | Catches compound/stack edge cases audits miss |
+| 7 | Live EDH soak; watch `GET /api/oracle-ir/telemetry` (D2). Scripted: [oracle-ir-smoke-soak.md](./oracle-ir-smoke-soak.md) (`npm run oracle-ir:smoke` in-process, `--live` / `npm run oracle-ir:smoke:live` on the running server) | Catches compound/stack edge cases audits miss |
 
 Full-corpus audits (`executor:coverage`, `trigger:coverage`) remain for parser/executor changes; the delta path is for set releases.
 
@@ -181,7 +181,7 @@ These are **in-scope migration work** that does not always move the usual metric
 **Still open after this arc:**
 - ~~Season `{P}` client budget UX~~ ✅
 - ~~Spell-static EDH hits~~ ✅ **edhHitCount 0** (audit remainder = Un-set only: Six-Sided Die, Strategy Schmategy, You're in Command)
-- Live EDH telemetry soak (`GET /api/oracle-ir/telemetry`)
+- Live EDH telemetry soak (`GET /api/oracle-ir/telemetry`) after real tables; scripted: [oracle-ir-smoke-soak.md](./oracle-ir-smoke-soak.md) (`npm run oracle-ir:smoke` / `--live`)
 
 ---
 
