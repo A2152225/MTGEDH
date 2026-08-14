@@ -1500,6 +1500,14 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
         i += 1;
         continue;
       }
+      const fragment = parseBareTriggerEffectFragmentSteps(clauses[i]);
+      if (fragment && fragment.length > 0 && fragment.every((step) => step.kind !== 'unknown')) {
+        steps.push(...fragment);
+        lastCreateTokenStepIndexes = null;
+        pendingImpulseFromExileTop = null;
+        i += 1;
+        continue;
+      }
     }
 
     steps.push(next);
@@ -1860,17 +1868,18 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeSearchLibraryShuffleFollowupAbilities(abilities);
   abilities = repairRandomChooseModeSagaAbilities(abilities);
   abilities = repairMonarchInsteadConditionalAbilities(abilities);
+  abilities = enrichAnnihilatorGrantMetadataAbilities(abilities);
+  abilities = enrichWardGrantMetadataAbilities(abilities);
+  abilities = pruneRedundantTriggerEffectFragmentUnknownAbilities(abilities);
   abilities = abilities.map((ability) => {
-    if ((ability.steps || []).length > 0) return ability;
+    const steps = ability.steps || [];
+    if (steps.length > 0 && steps.some((step) => step.kind !== 'unknown')) return ability;
     const fragment = parseBareTriggerEffectFragmentSteps(
       String(ability.effectText || (ability as { text?: string }).text || '')
     );
     if (!fragment || fragment.length === 0) return ability;
     return { ...ability, steps: [...fragment] };
   });
-  abilities = enrichAnnihilatorGrantMetadataAbilities(abilities);
-  abilities = enrichWardGrantMetadataAbilities(abilities);
-  abilities = pruneRedundantTriggerEffectFragmentUnknownAbilities(abilities);
   if (preserveChapterRetargetUnknown) {
     abilities = abilities.map((ability) => ({
       ...ability,
@@ -2054,6 +2063,16 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
     const step = parseEffectClauseToStep(line);
     const lineType = isSpellInstructionLine(line) ? AbilityType.SPELL : AbilityType.STATIC;
     if (step.kind === 'unknown') {
+      const fragment = parseBareTriggerEffectFragmentSteps(line);
+      if (fragment && fragment.length > 0 && fragment.every((fragmentStep) => fragmentStep.kind !== 'unknown')) {
+        abilities.push({
+          type: lineType,
+          text: line,
+          effectText: line,
+          steps: [...fragment],
+        });
+        continue;
+      }
       abilities.push({
         type: lineType,
         text: line,
@@ -2158,6 +2177,16 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
       }],
     }];
   }
+
+  abilities = abilities.map((ability) => {
+    const steps = ability.steps || [];
+    if (steps.length > 0 && steps.some((step) => step.kind !== 'unknown')) return ability;
+    const fragment = parseBareTriggerEffectFragmentSteps(
+      String(ability.effectText || (ability as { text?: string }).text || '')
+    );
+    if (!fragment || fragment.length === 0 || fragment.some((step) => step.kind === 'unknown')) return ability;
+    return { ...ability, steps: [...fragment] };
+  });
 
   return {
     normalizedOracleText,

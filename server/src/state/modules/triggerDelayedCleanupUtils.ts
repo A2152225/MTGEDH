@@ -119,7 +119,7 @@ export function applyDelayedCleanupTriggersFromMetadata(
           permanent.card = { ...(permanent.card || {}), suspected: true, isSuspected: true };
         }
         if (rawEntry?.battlefieldTurnFaceUp === true) {
-          turnReturnedPermanentFaceUp(permanent);
+          turnReturnedPermanentFaceUp(permanent, params.ctx);
         }
         markPermanentEnteredFromZone(permanent, 'graveyard');
         battlefield.push(permanent);

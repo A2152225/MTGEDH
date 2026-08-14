@@ -130,6 +130,52 @@ export function tryParseTemporaryModifyPtClause(params: {
     } as OracleEffectStep);
   }
 
+  const prefixUntilNextTurnPt = workingClause.match(
+    new RegExp(
+      String.raw`^until your next turn,\s*(${MODIFY_PT_TARGET_PATTERN})\s+gets?\s+([+-]?(?:\d+|x))\s*/\s*([+-]?(?:\d+|x))\.?$`,
+      'i',
+    ),
+  );
+  if (prefixUntilNextTurnPt) {
+    const powerComponent = parseSignedPtComponent(String(prefixUntilNextTurnPt[2] || ''));
+    const toughnessComponent = parseSignedPtComponent(String(prefixUntilNextTurnPt[3] || ''));
+    if (powerComponent && toughnessComponent) {
+      return withMeta({
+        kind: 'modify_pt',
+        target: parseModifyPtTarget(String(prefixUntilNextTurnPt[1] || '')),
+        power: powerComponent.value,
+        toughness: toughnessComponent.value,
+        ...(powerComponent.usesX ? { powerUsesX: true } : {}),
+        ...(toughnessComponent.usesX ? { toughnessUsesX: true } : {}),
+        duration: 'until_next_turn',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
+  const suffixUntilNextTurnPt = workingClause.match(
+    new RegExp(
+      String.raw`^(${MODIFY_PT_TARGET_PATTERN})\s+gets?\s+([+-]?(?:\d+|x))\s*/\s*([+-]?(?:\d+|x))\s+until your next turn\.?$`,
+      'i',
+    ),
+  );
+  if (suffixUntilNextTurnPt) {
+    const powerComponent = parseSignedPtComponent(String(suffixUntilNextTurnPt[2] || ''));
+    const toughnessComponent = parseSignedPtComponent(String(suffixUntilNextTurnPt[3] || ''));
+    if (powerComponent && toughnessComponent) {
+      return withMeta({
+        kind: 'modify_pt',
+        target: parseModifyPtTarget(String(suffixUntilNextTurnPt[1] || '')),
+        power: powerComponent.value,
+        toughness: toughnessComponent.value,
+        ...(powerComponent.usesX ? { powerUsesX: true } : {}),
+        ...(toughnessComponent.usesX ? { toughnessUsesX: true } : {}),
+        duration: 'until_next_turn',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
   const additionalTemporaryPtMatch = workingClause.match(
     new RegExp(
       String.raw`^(?:then\s+)?(${MODIFY_PT_TARGET_PATTERN})\s+gets?\s+an\s+additional\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$`,
@@ -174,7 +220,10 @@ export function tryParseTemporaryModifyPtClause(params: {
   const broadTemporaryPtMatch = workingClause.match(
     new RegExp(String.raw`^(?:then\s+)?(${MODIFY_PT_TARGET_PATTERN})\s+(?:each\s+)?get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$`, 'i')
   );
-  if (broadTemporaryPtMatch) {
+  // Modal "+X/+X or -X/-X" must fall through to choiceMatch — this pattern
+  // otherwise consumes the first pair and returns null on the `or` tail.
+  const broadTemporaryPtTail = String(broadTemporaryPtMatch?.[4] || '').trim();
+  if (broadTemporaryPtMatch && !/^or\s+[+-]/i.test(broadTemporaryPtTail)) {
     const targetRaw = String(broadTemporaryPtMatch[1] || '')
       .trim()
       .toLowerCase()
@@ -282,8 +331,81 @@ export function tryParseTemporaryModifyPtClause(params: {
     } as OracleEffectStep);
   }
 
+  const perpetualPt = workingClause.match(
+    new RegExp(
+      String.raw`^(${MODIFY_PT_TARGET_PATTERN})\s+perpetually\s+gets?\s+([+-]?(?:\d+|x))\s*/\s*([+-]?(?:\d+|x))\.?$`,
+      'i',
+    ),
+  );
+  if (perpetualPt) {
+    const powerComponent = parseSignedPtComponent(String(perpetualPt[2] || ''));
+    const toughnessComponent = parseSignedPtComponent(String(perpetualPt[3] || ''));
+    if (powerComponent && toughnessComponent) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseModifyPtTarget(String(perpetualPt[1] || '')),
+        power: powerComponent.value,
+        toughness: toughnessComponent.value,
+        duration: 'static',
+        effectText: [`perpetually gets ${String(perpetualPt[2] || '').trim()}/${String(perpetualPt[3] || '').trim()}`],
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
+  const modalScaledPtMatch = workingClause.match(
+    /^(.+?)\s+gets?\s+([+-]?x)\s*\/\s*([+-]?x)\s+or\s+([+-]?x)\s*\/\s*([+-]?x)\s+until\s+end\s+of\s+turn(?:,\s+where\s+(.+))?$/i,
+  );
+  if (modalScaledPtMatch) {
+    const targetText = String(modalScaledPtMatch[1] || '').trim();
+    const target = parseModifyPtTarget(targetText);
+    const firstPower = parseSignedPtComponent(String(modalScaledPtMatch[2] || ''));
+    const firstToughness = parseSignedPtComponent(String(modalScaledPtMatch[3] || ''));
+    const secondPower = parseSignedPtComponent(String(modalScaledPtMatch[4] || ''));
+    const secondToughness = parseSignedPtComponent(String(modalScaledPtMatch[5] || ''));
+    if (firstPower && firstToughness && secondPower && secondToughness) {
+      const whereRaw = String(modalScaledPtMatch[6] || '').replace(/[.]+$/g, '').trim();
+      const whereCondition = whereRaw ? { kind: 'where' as const, raw: whereRaw } : undefined;
+      const buildScaledModeStep = (
+        power: { value: number; usesX: boolean },
+        toughness: { value: number; usesX: boolean },
+        label: string,
+      ): OracleEffectStep => ({
+        kind: 'modify_pt',
+        target,
+        power: power.value,
+        toughness: toughness.value,
+        ...(power.usesX ? { powerUsesX: true } : {}),
+        ...(toughness.usesX ? { toughnessUsesX: true } : {}),
+        duration: 'end_of_turn',
+        ...(whereCondition ? { condition: whereCondition } : {}),
+        raw: `${targetText} gets ${label} until end of turn`,
+      } as OracleEffectStep);
+      const firstLabel = `${String(modalScaledPtMatch[2] || '').trim()}/${String(modalScaledPtMatch[3] || '').trim()}`;
+      const secondLabel = `${String(modalScaledPtMatch[4] || '').trim()}/${String(modalScaledPtMatch[5] || '').trim()}`;
+      return withMeta({
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 1,
+        modes: [
+          {
+            label: firstLabel,
+            raw: `${targetText} gets ${firstLabel} until end of turn`,
+            steps: [buildScaledModeStep(firstPower, firstToughness, firstLabel)],
+          },
+          {
+            label: secondLabel,
+            raw: `${targetText} gets ${secondLabel} until end of turn`,
+            steps: [buildScaledModeStep(secondPower, secondToughness, secondLabel)],
+          },
+        ],
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
   const choiceMatch = workingClause.match(
-    new RegExp(String.raw`^(?:then\s+)?(${MODIFY_PT_TARGET_PATTERN})\s+get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+or\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+until\s+end\s+of\s+turn$`, 'i')
+    new RegExp(String.raw`^(?:then\s+)?(${MODIFY_PT_TARGET_PATTERN})\s+get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+or\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+until\s+end\s+of\s+turn(?:,\s+where\s+(.+))?$`, 'i')
   );
   if (choiceMatch) {
     const targetText = String(choiceMatch[1] || '').trim();
@@ -293,6 +415,8 @@ export function tryParseTemporaryModifyPtClause(params: {
     const secondPower = parseSignedPtComponent(String(choiceMatch[4] || ''));
     const secondToughness = parseSignedPtComponent(String(choiceMatch[5] || ''));
     if (!firstPower || !firstToughness || !secondPower || !secondToughness) return null;
+    const whereRaw = String(choiceMatch[6] || '').trim();
+    const whereCondition = whereRaw ? { kind: 'where' as const, raw: whereRaw } : undefined;
 
     const buildModeStep = (
       power: { value: number; usesX: boolean },
@@ -306,6 +430,7 @@ export function tryParseTemporaryModifyPtClause(params: {
       ...(power.usesX ? { powerUsesX: true } : {}),
       ...(toughness.usesX ? { toughnessUsesX: true } : {}),
       duration: 'end_of_turn',
+      ...(whereCondition ? { condition: whereCondition } : {}),
       raw: `${targetText} gets ${label} until end of turn`,
     } as OracleEffectStep);
 
@@ -345,9 +470,12 @@ export function tryParseTemporaryModifyPtClause(params: {
     .replace(/[,.;]\s*$/g, '')
     .trim();
 
-  if (!/\buntil\s+end\s+of\s+turn\b/i.test(tail)) return null;
+  const untilNextTurn = /\buntil\s+(?:the\s+end\s+of\s+)?your\s+next\s+turn\b/i.test(tail);
+  const untilEot = /\buntil\s+end\s+of\s+turn\b/i.test(tail);
+  if (!untilNextTurn && !untilEot) return null;
 
   tail = tail
+    .replace(/\buntil\s+(?:the\s+end\s+of\s+)?your\s+next\s+turn\b/i, '')
     .replace(/\buntil\s+end\s+of\s+turn\b/i, '')
     .replace(/^,\s*/i, '')
     .trim();
@@ -398,7 +526,7 @@ export function tryParseTemporaryModifyPtClause(params: {
     toughness: toughnessComponent.value,
     ...(powerComponent.usesX ? { powerUsesX: true } : {}),
     ...(toughnessComponent.usesX ? { toughnessUsesX: true } : {}),
-    duration: 'end_of_turn',
+    duration: untilNextTurn ? 'until_next_turn' : 'end_of_turn',
     raw: rawClause,
   };
   if (scaler) step.scaler = scaler;

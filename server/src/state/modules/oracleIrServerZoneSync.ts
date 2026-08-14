@@ -153,6 +153,62 @@ export function buildShadowProbeContext(ctx: GameContext): GameContext {
   return { ...(ctx as any), libraries: clonedLibraries } as GameContext;
 }
 
+function mapOracleIREmblemToLive(playerId: string, emblem: any): Record<string, unknown> | null {
+  if (!emblem || typeof emblem !== 'object') return null;
+  const id = String(emblem.id || '').trim();
+  if (!id) return null;
+  const abilities = Array.isArray(emblem.abilities)
+    ? emblem.abilities.map((entry: unknown) => String(entry || '').trim()).filter(Boolean)
+    : [];
+  const effect = String(emblem.effect || abilities.join(' ')).trim();
+  return {
+    ...emblem,
+    id,
+    controller: String(emblem.controller || playerId).trim() || playerId,
+    sourceName: String(emblem.createdBy || emblem.sourceName || emblem.name || 'Emblem').trim() || 'Emblem',
+    effect,
+    ...(abilities.length > 0 ? { abilities } : {}),
+  };
+}
+
+function hydrateOracleIREmblemsFromState(state: any): void {
+  const live = Array.isArray(state?.emblems) ? state.emblems : [];
+  if (live.length === 0) return;
+  for (const player of state.players || []) {
+    const playerId = String(player?.id || '').trim();
+    if (!playerId) continue;
+    const owned = live.filter((emblem: any) => String(emblem?.controller || '') === playerId);
+    if (owned.length > 0) {
+      player.emblems = owned.map((emblem: any) => ({ ...emblem }));
+    }
+  }
+}
+
+function syncOracleIREmblemsToState(state: any): boolean {
+  const existing = Array.isArray(state?.emblems) ? state.emblems : [];
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const emblem of existing) {
+    const id = String(emblem?.id || '').trim();
+    if (id) byId.set(id, emblem);
+  }
+  let changed = false;
+  for (const player of state.players || []) {
+    if (!Array.isArray(player?.emblems)) continue;
+    const playerId = String(player.id || '').trim();
+    if (!playerId) continue;
+    for (const emblem of player.emblems) {
+      const mapped = mapOracleIREmblemToLive(playerId, emblem);
+      if (!mapped) continue;
+      const id = String(mapped.id);
+      if (!byId.has(id)) changed = true;
+      byId.set(id, mapped);
+    }
+  }
+  if (!changed && byId.size === existing.length) return false;
+  state.emblems = [...byId.values()];
+  return true;
+}
+
 export function hydrateOracleIRPlayerZonesFromContext(ctx: GameContext, state: any): void {
   for (const player of state.players || []) {
     const playerId = String(player?.id || '').trim();
@@ -163,6 +219,8 @@ export function hydrateOracleIRPlayerZonesFromContext(ctx: GameContext, state: a
       player.life = lifeFromState;
     }
   }
+
+  hydrateOracleIREmblemsFromState(state);
 
   const libraries = (ctx as any).libraries as Map<string, any[]> | undefined;
   if (!libraries || typeof libraries.get !== 'function') return;
@@ -469,6 +527,10 @@ export function syncOracleIRPlayerZonesToContext(
       playerZones.libraryCount = player.library.length;
       changed = true;
     }
+  }
+
+  if (syncOracleIREmblemsToState(state)) {
+    changed = true;
   }
 
   delete (state as any).__serverLibraries;

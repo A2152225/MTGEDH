@@ -451,6 +451,8 @@ describe('replacement effect evaluator', () => {
               id: 'ashiok_card_1',
               name: 'Ashiok, Dream Render',
               type_line: 'Legendary Planeswalker',
+              oracle_text:
+                'Spells and abilities your opponents control can\'t cause their controller to search their library.\n−1: Target player mills four cards. Then exile each opponent\'s graveyard.',
             },
           },
         ],
@@ -476,10 +478,50 @@ describe('replacement effect evaluator', () => {
     const game = {
       state: {
         battlefield: [
-          { id: 'aven_1', controller: 'p2', card: { id: 'aven_card_1', name: 'Aven Mindcensor', type_line: 'Creature' } },
-          { id: 'ob_1', controller: 'p2', card: { id: 'ob_card_1', name: 'Ob Nixilis, Unshackled', type_line: 'Creature' } },
-          { id: 'opposition_agent_1', controller: 'p2', card: { id: 'opposition_agent_card_1', name: 'Opposition Agent', type_line: 'Creature' } },
-          { id: 'arbiter_1', controller: 'p1', card: { id: 'arbiter_card_1', name: 'Leonin Arbiter', type_line: 'Creature' } },
+          {
+            id: 'aven_1',
+            controller: 'p2',
+            card: {
+              id: 'aven_card_1',
+              name: 'Aven Mindcensor',
+              type_line: 'Creature',
+              oracle_text:
+                'Flash\nFlying\nIf an opponent would search a library, that player searches the top four cards of that library instead.',
+            },
+          },
+          {
+            id: 'ob_1',
+            controller: 'p2',
+            card: {
+              id: 'ob_card_1',
+              name: 'Ob Nixilis, Unshackled',
+              type_line: 'Creature',
+              oracle_text:
+                'Flying, trample\nWhenever an opponent searches their library, that player sacrifices a creature of their choice and loses 10 life.\nWhenever another creature dies, put a +1/+1 counter on Ob Nixilis.',
+            },
+          },
+          {
+            id: 'opposition_agent_1',
+            controller: 'p2',
+            card: {
+              id: 'opposition_agent_card_1',
+              name: 'Opposition Agent',
+              type_line: 'Creature',
+              oracle_text:
+                'Flash\nYou control your opponents while they\'re searching their libraries.\nWhile an opponent is searching their library, they exile each card they find. You may play those cards for as long as they remain exiled, and you may spend mana as though it were mana of any color to cast them.',
+            },
+          },
+          {
+            id: 'arbiter_1',
+            controller: 'p1',
+            card: {
+              id: 'arbiter_card_1',
+              name: 'Leonin Arbiter',
+              type_line: 'Creature',
+              oracle_text:
+                'Players can\'t search libraries. Any player may pay {2} for that player to ignore this effect until end of turn.',
+            },
+          },
         ],
       },
     } as any;
@@ -511,7 +553,7 @@ describe('replacement effect evaluator', () => {
         id: 'anointed_procession_1',
         controller: 'p1',
         owner: 'p1',
-        card: { id: 'anointed_procession_card_1', name: 'Anointed Procession', type_line: 'Enchantment', oracle_text: '' },
+        card: { id: 'anointed_procession_card_1', name: 'Anointed Procession', type_line: 'Enchantment', oracle_text: 'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.' },
       },
       {
         id: 'primal_vigor_1',
@@ -654,6 +696,61 @@ describe('replacement effect evaluator', () => {
     expect((game.state as any).zones.p2.hand.map((card: any) => card.name)).toEqual(['P2 Batch Card 1']);
     expect((game.state as any).cardsDrawnThisTurn.p1).toBe(1);
     expect((game.state as any).cardsDrawnThisTurn.p2).toBe(1);
+  });
+
+  it('applies extra-draw replacements through the live draw helper', () => {
+    const extraDrawOracle =
+      'If you would draw a card except the first one you draw in each of your draw steps, draw two cards instead.';
+    const game = createInitialGameState('replacement_effect_extra_draw');
+    game.applyEvent({ type: 'join', playerId: 'p1', name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: 'p2', name: 'P2' } as any);
+    (game.state as any).battlefield = [
+      {
+        id: 'archive_1',
+        controller: 'p1',
+        card: {
+          id: 'archive_card_1',
+          name: 'Generic Extra Draw',
+          type_line: 'Enchantment',
+          oracle_text: extraDrawOracle,
+        },
+      },
+      {
+        id: 'opponent_archive',
+        controller: 'p2',
+        card: {
+          id: 'opponent_archive_card',
+          name: 'Opponent Extra Draw',
+          type_line: 'Enchantment',
+          oracle_text: extraDrawOracle,
+        },
+      },
+    ];
+    (game.state as any).step = 'DRAW';
+    game.libraries.set('p1' as any, [
+      { id: 'p1_lib_1', name: 'P1 Card 1' } as any,
+      { id: 'p1_lib_2', name: 'P1 Card 2' } as any,
+      { id: 'p1_lib_3', name: 'P1 Card 3' } as any,
+      { id: 'p1_lib_4', name: 'P1 Card 4' } as any,
+    ]);
+    game.libraries.set('p2' as any, [
+      { id: 'p2_lib_1', name: 'P2 Card 1' } as any,
+    ]);
+
+    const firstDrawStep = drawCards(game as any, 'p1' as any, 1);
+    expect(firstDrawStep.map((card: any) => card.name)).toEqual(['P1 Card 1']);
+    expect((game.state as any).zones.p1.hand.map((card: any) => card.name)).toEqual(['P1 Card 1']);
+
+    const laterDraw = drawCards(game as any, 'p1' as any, 1);
+    expect(laterDraw.map((card: any) => card.name)).toEqual(['P1 Card 2', 'P1 Card 3']);
+    expect((game.state as any).zones.p1.hand.map((card: any) => card.name)).toEqual([
+      'P1 Card 1',
+      'P1 Card 2',
+      'P1 Card 3',
+    ]);
+
+    const opponentDraw = drawCards(game as any, 'p2' as any, 1);
+    expect(opponentDraw.map((card: any) => card.name)).toEqual(['P2 Card 1']);
   });
 
   it('replays draw replacements through the recorded drawCards event', () => {

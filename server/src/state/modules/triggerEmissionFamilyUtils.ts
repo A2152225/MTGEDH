@@ -9,6 +9,7 @@ import { debug, debugWarn } from '../../utils/debug.js';
 import { uid } from '../utils.js';
 import {
   detectAbilityActivatedTriggers,
+  detectETBTriggers,
   detectEquippedTriggers,
   detectLTBTriggers,
   detectMonstrousTriggers,
@@ -298,6 +299,110 @@ export function processTransformTriggers(ctx: GameContext, permanent: any): any[
       const item = pushGenericTriggeredAbility(ctx, enriched, 'transform', {
         transformedPermanentId: String(permanent.id || ''),
         watcherPermanentId: String(watcher.id || ''),
+      });
+      if (item) queued.push(item);
+    }
+  }
+
+  return queued;
+}
+
+/** Detector types that fire when a permanent is turned face up — not on ETB. */
+export const FACE_UP_TRIGGER_TYPES = new Set<string>([
+  'face_up',
+  'another_permanent_face_up',
+  'enchantment_or_permanent_turned_face_up',
+  'face_down_controlled_turned_face_up',
+  'named_or_another_permanent_face_up',
+  'self_or_another_permanent_face_up',
+  'controlled_permanent_face_up',
+  'any_permanent_face_up',
+]);
+
+export function isFaceUpTriggerType(triggerType: string | undefined): boolean {
+  return FACE_UP_TRIGGER_TYPES.has(String(triggerType || ''));
+}
+
+function faceUpTriggerMatchesEvent(
+  triggerType: string,
+  isSelf: boolean,
+  sameController: boolean,
+): boolean {
+  switch (triggerType) {
+    case 'face_up':
+      return isSelf;
+    case 'another_permanent_face_up':
+      return !isSelf && sameController;
+    case 'face_down_controlled_turned_face_up':
+      return sameController;
+    case 'enchantment_or_permanent_turned_face_up':
+    case 'named_or_another_permanent_face_up':
+      return isSelf || sameController;
+    case 'self_or_another_permanent_face_up':
+    case 'any_permanent_face_up':
+      return true;
+    case 'controlled_permanent_face_up':
+      return sameController;
+    default:
+      return false;
+  }
+}
+
+/**
+ * A permanent was turned face up (morph / megamorph / manifest special action).
+ * Scans the face-up permanent plus remaining battlefield watchers.
+ */
+export function processFaceUpTriggers(ctx: GameContext, faceUpPermanent: any): any[] {
+  if ((ctx as any)?.isReplaying) return [];
+  if (!faceUpPermanent?.card || !faceUpPermanent?.id) return [];
+
+  const state = (ctx as any).state;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const faceUpId = String(faceUpPermanent.id || '');
+  const faceUpController = String(faceUpPermanent.controller || faceUpPermanent.owner || '');
+  const queued: any[] = [];
+  const seenKeys = new Set<string>();
+
+  const candidates = [...battlefield];
+  if (!candidates.some((permanent: any) => String(permanent?.id || '') === faceUpId)) {
+    candidates.push(faceUpPermanent);
+  }
+
+  for (const permanent of candidates) {
+    if (!permanent?.card) continue;
+    const key = `${String(permanent.id || '')}:${String(permanent.card?.name || '')}`;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+
+    const detected = detectETBTriggers(permanent.card, permanent);
+    for (const trigger of detected) {
+      const triggerType = String(trigger.triggerType || '');
+      if (!isFaceUpTriggerType(triggerType)) continue;
+
+      const isSelf = String(permanent.id || '') === faceUpId;
+      const sameController = String(permanent.controller || '') === faceUpController;
+      if (!faceUpTriggerMatchesEvent(triggerType, isSelf, sameController)) continue;
+
+      const enriched = {
+        ...trigger,
+        controllerId: String(permanent.controller || faceUpController || ''),
+        permanentId: String(permanent.id || trigger.permanentId || ''),
+      };
+
+      if (!evaluateInterveningIf(
+        ctx,
+        enriched,
+        'Whenever a permanent is turned face up',
+        isSelf ? faceUpPermanent : permanent,
+      )) {
+        continue;
+      }
+
+      debug(2, `[triggerEmission] Face-up trigger: ${trigger.cardName} (${triggerType}) - ${trigger.description}`);
+      const item = pushGenericTriggeredAbility(ctx, enriched, triggerType, {
+        faceUpPermanentId: faceUpId,
+        faceUpPermanentName: String(faceUpPermanent?.card?.name || ''),
+        faceUpController,
       });
       if (item) queued.push(item);
     }

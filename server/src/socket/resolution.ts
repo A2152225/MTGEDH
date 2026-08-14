@@ -126,6 +126,8 @@ import { applyPermanentBecomeCopyOfTargetPermanent } from "../state/modules/perm
 import { applyTriggeredReanimationEntryRiders } from "../state/modules/triggerReanimationRiders.js";
 import { queueSelfETBTriggersForPermanent, triggerETBEffectsForToken } from "../state/modules/triggerEtbEntryEffects.js";
 import { triggerETBEffectsForPermanent } from "../state/modules/triggerEtbPermanentEffects.js";
+import { processFaceUpTriggers } from "../state/modules/triggerEmissionFamilyUtils.js";
+import { applyHauntExileToTarget } from "../state/modules/hauntKeywordUtils.js";
 import { applyMyriadTokenCopies } from "../state/modules/triggerMyriadTokenUtils.js";
 import { queueTributeChoiceOnEntry } from "../state/modules/triggerTributeChoiceUtils.js";
 import {
@@ -4709,6 +4711,31 @@ async function handleAIResolutionStep(
             timestamp: Date.now(),
           };
           debug(2, `[Resolution] AI Soulshift: no spirits in graveyard`);
+        }
+        break;
+      }
+
+      case ResolutionStepType.HAUNT_TARGET: {
+        const hauntStep = step as any;
+        const hauntTargets = hauntStep.targets || [];
+        if (hauntTargets.length > 0) {
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [hauntTargets[0].id],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Haunt: targeting ${hauntTargets[0].name}`);
+        } else {
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Haunt: no legal creature targets`);
         }
         break;
       }
@@ -10048,6 +10075,15 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('minSelections' in step) fields.minSelections = (step as any).minSelections;
       if ('maxSelections' in step) fields.maxSelections = (step as any).maxSelections;
       if ('value' in step) fields.value = (step as any).value;
+      break;
+
+    case ResolutionStepType.HAUNT_TARGET:
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('targets' in step) fields.targets = (step as any).targets;
+      if ('minSelections' in step) fields.minSelections = (step as any).minSelections;
+      if ('maxSelections' in step) fields.maxSelections = (step as any).maxSelections;
+      if ('hauntCardId' in step) fields.hauntCardId = (step as any).hauntCardId;
+      if ('ownerId' in step) fields.ownerId = (step as any).ownerId;
       break;
       
     case ResolutionStepType.CASCADE:
@@ -15739,6 +15775,10 @@ async function handleStepResponse(
     case ResolutionStepType.SOULSHIFT_TARGET:
       handleSoulshiftTargetResponse(io, game, gameId, step, response);
       break;
+
+    case ResolutionStepType.HAUNT_TARGET:
+      handleHauntTargetResponse(io, game, gameId, step, response);
+      break;
     
     case ResolutionStepType.UPKEEP_SACRIFICE:
       handleUpkeepSacrificeResponse(io, game, gameId, step, response);
@@ -16648,6 +16688,62 @@ function handleSoulshiftTargetResponse(
     gameId,
     sourceName,
     `${getPlayerName(game, response.playerId)} returned ${selectedCard?.name || 'a Spirit card'} from the graveyard to their hand with soulshift.`
+  );
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
+  broadcastGame(io, game, gameId);
+}
+
+function handleHauntTargetResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const selectedPermanentId = String(extractResolutionChoiceId(response.selections) || '').trim();
+  const hauntCardId = String((step as any)?.hauntCardId || step.sourceId || '').trim();
+  const ownerId = String((step as any)?.ownerId || response.playerId || step.playerId || '').trim();
+  appendKeywordPromptResolveEvent(gameId, game, step, response, {
+    keyword: 'haunt',
+    selectedPermanentId,
+    hauntCardId,
+    ownerId,
+  });
+  const validTargetIds = new Set(
+    (Array.isArray((step as any)?.targets) ? (step as any).targets : [])
+      .map((target: any) => String(target?.id || '').trim())
+      .filter(Boolean)
+  );
+  if (!selectedPermanentId || !validTargetIds.has(selectedPermanentId) || !hauntCardId || !ownerId) {
+    debugWarn(1, `[Resolution] Haunt target could not be applied for step ${step.id}`);
+    return;
+  }
+
+  const applied = applyHauntExileToTarget(game.state, {
+    ownerId,
+    hauntCardId,
+    targetPermanentId: selectedPermanentId,
+    sourceName: String(step.sourceName || ''),
+  });
+  if (!applied.applied) {
+    debugWarn(1, `[Resolution] Haunt exile failed for step ${step.id}`);
+    return;
+  }
+
+  const sourceName = String(step.sourceName || 'Haunt');
+  const targetName = String(
+    (Array.isArray((step as any)?.targets) ? (step as any).targets : [])
+      .find((target: any) => String(target?.id || '') === selectedPermanentId)?.name
+    || 'a creature',
+  );
+  emitKeywordChoiceChat(
+    io,
+    gameId,
+    sourceName,
+    `${getPlayerName(game, response.playerId)} exiled ${applied.card?.name || sourceName} haunting ${targetName}.`
   );
 
   if (typeof game.bumpSeq === 'function') {
@@ -28054,6 +28150,13 @@ function handleMorphTurnFaceUpResponse(
   delete creature.faceUpCard;
   delete creature.canTurnFaceUp;
 
+  // Megamorph: putting a +1/+1 counter on the permanent is part of turning it face up.
+  const faceUpOracle = String(actualCard?.oracle_text || '').toLowerCase();
+  if (/\bmegamorph\b/.test(faceUpOracle)) {
+    const counters = creature.counters = creature.counters || {};
+    counters['+1/+1'] = (Number(counters['+1/+1']) || 0) + 1;
+  }
+
   try {
     appendEvent(gameId, (game as any).seq ?? 0, 'morphTurnFaceUp', {
       playerId: pid,
@@ -28074,7 +28177,12 @@ function handleMorphTurnFaceUpResponse(
     ts: Date.now(),
   });
   
-  // TODO: Trigger any morph/megamorph abilities
+  try {
+    const ctx = ((game as any).ctx || game) as GameContext;
+    processFaceUpTriggers(ctx, creature);
+  } catch (err) {
+    debugWarn(1, '[Resolution] processFaceUpTriggers failed:', err);
+  }
   
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();

@@ -62,6 +62,26 @@ describe('Mindskinner non-combat damage replacement', () => {
     expect(detected?.effect.millAllOpponents).toBe(true);
   });
 
+  it('detects unnamed prevent-and-mill oracle without card-name routing', () => {
+    const ctx = makeCtx({
+      battlefield: [
+        {
+          id: 'ms1',
+          controller: 'p1',
+          card: { name: 'Generic Nightmare', oracle_text: mindskinnerOracle },
+        },
+      ],
+    });
+
+    const detected = detectPreventDamageMillReplacementForController(ctx, 'p1', {
+      nonCombatOnly: true,
+    });
+    expect(detected?.sourceName).toBe('Generic Nightmare');
+    expect(detected?.effect.preventsDamage).toBe(true);
+    expect(detected?.effect.millAllOpponents).toBe(true);
+    expect(detected?.effect.appliesToNonCombatDamage).toBe(true);
+  });
+
   it('prevents non-combat damage to an opponent and mills each opponent', () => {
     const ctx = makeCtx({
       battlefield: [
@@ -195,5 +215,97 @@ describe('Mindskinner non-combat damage replacement', () => {
     expect(result.prevented).toBe(true);
     expect(result.millAmount).toBe(4);
     expect(ctx.libraries.get('p2')?.length).toBe(0);
+  });
+});
+
+describe('source-self combat damage replacement (Szadek family)', () => {
+  const szadekOracle =
+    'Flying\nIf this creature would deal combat damage to a player, instead put that many +1/+1 counters on it and that player mills that many cards.';
+
+  it('replaces the source\'s combat damage with +1/+1 counters and mills only that player', () => {
+    const ctx = makeCtx({
+      players: [
+        { id: 'p1', hasLost: false },
+        { id: 'p2', hasLost: false },
+        { id: 'p3', hasLost: false },
+      ],
+      battlefield: [
+        {
+          id: 'szadek_1',
+          controller: 'p1',
+          card: { name: 'Generic Secret Lord', oracle_text: szadekOracle },
+          counters: {},
+        },
+      ],
+      libraries: new Map<string, any[]>([
+        ['p1', []],
+        ['p2', [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }, { id: 'c4' }]],
+        ['p3', [{ id: 'd1' }, { id: 'd2' }, { id: 'd3' }]],
+      ]),
+    });
+    ctx.state.zones.p3 = { library: [], graveyard: [], libraryCount: 3, graveyardCount: 0 };
+
+    const attacker = ctx.state.battlefield[0];
+    const result = resolveCombatDamageToOpponent(ctx, {
+      attackerCard: attacker.card,
+      attackerPermanent: attacker,
+      attackerController: 'p1',
+      damageAmount: 3,
+      defendingPlayerId: 'p2',
+    });
+
+    expect(result.damageDealt).toBe(0);
+    expect(result.prevented).toBe(true);
+    expect(result.plusOneCountersOnSource).toBe(3);
+    expect(result.millTargets).toEqual(['p2']);
+    expect(attacker.counters?.['+1/+1']).toBe(3);
+    expect(ctx.libraries.get('p2')?.length).toBe(1);
+    expect(ctx.libraries.get('p3')?.length).toBe(3);
+  });
+
+  it('does not replace combat damage from another creature you control', () => {
+    const ctx = makeCtx({
+      battlefield: [
+        {
+          id: 'szadek_1',
+          controller: 'p1',
+          card: { name: 'Generic Secret Lord', oracle_text: szadekOracle },
+        },
+        {
+          id: 'bear_1',
+          controller: 'p1',
+          card: { name: 'Bear', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+      ],
+    });
+
+    const bear = ctx.state.battlefield[1];
+    const result = resolveCombatDamageToOpponent(ctx, {
+      attackerCard: bear.card,
+      attackerPermanent: bear,
+      attackerController: 'p1',
+      damageAmount: 2,
+      defendingPlayerId: 'p2',
+    });
+
+    expect(result.prevented).toBe(false);
+    expect(result.damageDealt).toBe(2);
+    expect(result.plusOneCountersOnSource).toBeUndefined();
+    expect(ctx.libraries.get('p2')?.length).toBe(3);
+  });
+
+  it('is not detected as a controller-wide prevent-and-mill replacement', () => {
+    const ctx = makeCtx({
+      battlefield: [
+        {
+          id: 'szadek_1',
+          controller: 'p1',
+          card: { name: 'Generic Secret Lord', oracle_text: szadekOracle },
+        },
+      ],
+    });
+
+    expect(detectPreventDamageMillReplacementForController(ctx, 'p1', { nonCombatOnly: true })).toBeNull();
+    expect(detectPreventDamageMillReplacementForController(ctx, 'p1')).toBeNull();
   });
 });

@@ -7,64 +7,12 @@ import {
 import type { ReplacementEffectSpec } from './replacementEffectSpec.js';
 import { overlayReplacementSpecToEffect, overlaySpecsMatchCounterPlacement } from './replacementEffectSpec.js';
 
-interface CounterModifier {
-  permanentId: string;
-  cardName: string;
-  controller: PlayerID;
-  doublesYourCounters: boolean;
-  halvesOpponentCounters: boolean;
-  addsBonusCounter: number;
-}
-
-/**
- * Residual card-name / heuristic modifiers not yet covered by oracle-pattern templates
- * in replacementEffectSpec (Doubling Season / Hardened Scales / Branching / Vorinclex).
- */
-function detectCounterModifiers(gameState: any, _targetPermanentController: PlayerID): CounterModifier[] {
-  const modifiers: CounterModifier[] = [];
-  const battlefield = gameState?.battlefield || [];
-
-  for (const perm of battlefield) {
-    if (!perm?.card) continue;
-    const cardName = (perm.card.name || '').toLowerCase();
-    const oracleText = (perm.card.oracle_text || '').toLowerCase();
-    const controller = perm.controller;
-
-    // Primal Vigor: doubles +1/+1 on any creature (no "you control" — not in oracle templates).
-    if (cardName.includes('primal vigor') && oracleText.includes('twice that many')) {
-      modifiers.push({
-        permanentId: perm.id,
-        cardName: perm.card.name,
-        controller,
-        doublesYourCounters: true,
-        halvesOpponentCounters: false,
-        addsBonusCounter: 0,
-      });
-    }
-  }
-
-  return modifiers;
-}
-
 function counterEffectsForType(
-  modifiers: CounterModifier[],
   counterType: string,
   overlaySpecs: readonly ReplacementEffectSpec[],
   targetController: PlayerID,
 ): ReplacementEffect[] {
   const effects: ReplacementEffect[] = [];
-
-  for (const mod of modifiers) {
-    if (mod.halvesOpponentCounters) {
-      effects.push({ type: 'halve', source: mod.cardName, controllerId: mod.controller });
-    }
-    if (mod.doublesYourCounters) {
-      effects.push({ type: 'double', source: mod.cardName, controllerId: mod.controller });
-    }
-    if (counterType.includes('+1/+1') && mod.addsBonusCounter > 0) {
-      effects.push({ type: 'add_flat', value: mod.addsBonusCounter, source: mod.cardName, controllerId: mod.controller });
-    }
-  }
 
   for (const spec of overlaySpecs) {
     if (spec.event !== 'counter-placement' || !spec.instead.modify) continue;
@@ -111,8 +59,7 @@ export function computeCounterPlacementModifiedDeltas(
   if (!targetPermanent) return deltas;
 
   const targetController = targetPermanent.controller as PlayerID;
-  const modifiers = detectCounterModifiers(gameState, targetController);
-  if (modifiers.length === 0 && overlaySpecs.length === 0) return deltas;
+  if (overlaySpecs.length === 0) return deltas;
 
   const modified: Record<string, number> = {};
 
@@ -121,7 +68,7 @@ export function computeCounterPlacementModifiedDeltas(
     if (amount === 0) continue;
 
     if (amount > 0) {
-      const effects = counterEffectsForType(modifiers, counterType, overlaySpecs, targetController);
+      const effects = counterEffectsForType(counterType, overlaySpecs, targetController);
       if (effects.length > 0) {
         amount = applyCounterPreferenceOrdering(gameState, targetController, amount, effects);
       }

@@ -2995,7 +2995,7 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
-    const leadingTemporaryAnimation = clause.match(/^until\s+end\s+of\s+turn,\s+(.+?)\s+becomes?\s+a\s+(\d+)\/(\d+)(?:\s+(.+?))?\s+creature$/i);
+    const leadingTemporaryAnimation = clause.match(/^until\s+end\s+of\s+turn,\s+(.+?)\s+becomes?\s+a\s+(\d+)\/(\d+)(?:\s+(.+?))?\s+creature(?:\s+in\s+addition\s+to\s+its\s+other\s+types)?$/i);
     if (leadingTemporaryAnimation) {
       const typeText = String(leadingTemporaryAnimation[4] || '').trim();
       return withMeta({
@@ -3005,6 +3005,34 @@ export function tryParseSimpleActionClause(args: {
         toughness: Number.parseInt(String(leadingTemporaryAnimation[3] || '0'), 10),
         addTypes: typeText ? [...typeText.split(/\s+/).filter(Boolean), 'creature'] : ['creature'],
         duration: 'end_of_turn',
+        raw: rawClause,
+      });
+    }
+
+    const leadingUntilNextTurnAnimation = clause.match(/^until\s+your\s+next\s+turn,\s+(.+?)\s+becomes?\s+a\s+(\d+)\/(\d+)(?:\s+(.+?))?\s+creature(?:\s+in\s+addition\s+to\s+its\s+other\s+types)?$/i);
+    if (leadingUntilNextTurnAnimation) {
+      const typeText = String(leadingUntilNextTurnAnimation[4] || '').trim();
+      return withMeta({
+        kind: 'animate_permanent',
+        target: parseObjectSelector(String(leadingUntilNextTurnAnimation[1] || '').trim()),
+        power: Number.parseInt(String(leadingUntilNextTurnAnimation[2] || '0'), 10),
+        toughness: Number.parseInt(String(leadingUntilNextTurnAnimation[3] || '0'), 10),
+        addTypes: typeText ? [...typeText.split(/\s+/).filter(Boolean), 'creature'] : ['creature'],
+        duration: 'until_next_turn',
+        raw: rawClause,
+      });
+    }
+
+    const suffixUntilNextTurnAnimation = clause.match(/^(.+?)\s+becomes?\s+a\s+(\d+)\/(\d+)(?:\s+(.+?))?\s+creature(?:\s+in\s+addition\s+to\s+its\s+other\s+types)?\s+until\s+your\s+next\s+turn$/i);
+    if (suffixUntilNextTurnAnimation) {
+      const typeText = String(suffixUntilNextTurnAnimation[4] || '').trim();
+      return withMeta({
+        kind: 'animate_permanent',
+        target: parseObjectSelector(String(suffixUntilNextTurnAnimation[1] || '').trim()),
+        power: Number.parseInt(String(suffixUntilNextTurnAnimation[2] || '0'), 10),
+        toughness: Number.parseInt(String(suffixUntilNextTurnAnimation[3] || '0'), 10),
+        addTypes: typeText ? [...typeText.split(/\s+/).filter(Boolean), 'creature'] : ['creature'],
+        duration: 'until_next_turn',
         raw: rawClause,
       });
     }
@@ -4432,6 +4460,32 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
+    const prefixCantAttackOrBlockUntilNextTurn = clause.match(
+      /^until your next turn,\s*(.+?)\s+can(?:'|\u2019)?t attack or block$/i,
+    );
+    if (prefixCantAttackOrBlockUntilNextTurn) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(prefixCantAttackOrBlockUntilNextTurn[1] || '').trim()),
+        duration: 'until_next_turn',
+        effectText: ["can't attack or block"],
+        raw: rawClause,
+      });
+    }
+
+    const suffixCantAttackOrBlockUntilNextTurn = clause.match(
+      /^(.+?)\s+can(?:'|\u2019)?t attack or block until your next turn$/i,
+    );
+    if (suffixCantAttackOrBlockUntilNextTurn) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(suffixCantAttackOrBlockUntilNextTurn[1] || '').trim()),
+        duration: 'until_next_turn',
+        effectText: ["can't attack or block"],
+        raw: rawClause,
+      });
+    }
+
     const cantAttack = clause.match(/^(.+?)\s+can(?:'|\u2019)?t attack(?:\s+this\s+turn)?$/i);
     if (cantAttack) {
       return withMeta({
@@ -4655,6 +4709,20 @@ export function tryParseSimpleActionClause(args: {
         who: { kind: 'you' },
         amount: { kind: 'number', value: 1 },
         token: 'copy of the card with the chosen name',
+        raw: rawClause,
+      });
+    }
+
+    const untilNextTurnSpellCostChange = clause.match(
+      /^(?:until your next turn,\s*)?(.+?\bspells?\s+(?:you|that player)\s+casts?)\s+cost\s+(\{[^}]+\})\s+(less|more)\s+to\s+cast(?:\s+until your next turn)?$/i,
+    );
+    if (untilNextTurnSpellCostChange && /\buntil your next turn\b/i.test(clause)) {
+      const targetText = String(untilNextTurnSpellCostChange[1] || '').trim();
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(/\bthat player\b/i.test(targetText) ? 'that player' : 'you'),
+        duration: 'until_next_turn',
+        effectText: [`${targetText} cost ${String(untilNextTurnSpellCostChange[2] || '').trim()} ${String(untilNextTurnSpellCostChange[3] || '').trim()} to cast`],
         raw: rawClause,
       });
     }

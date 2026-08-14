@@ -376,6 +376,18 @@ const TRIGGERED_KEYWORD_PATTERNS: KeywordPattern[] = [
     requiresChoice: true,
     choiceType: 'target_spirit',
   },
+
+  // Haunt - When this creature dies, exile it haunting target creature
+  {
+    pattern: /\bhaunt\b/i,
+    keyword: 'haunt',
+    category: 'triggered',
+    timing: 'dies',
+    effect: () => 'Exile this card haunting target creature',
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'target_creature',
+  },
   
   // Fabricate N - When this creature enters, put N +1/+1 counters on it or create N 1/1 Servo tokens
   {
@@ -1375,6 +1387,7 @@ export function getDeathTriggerKeywords(keywords: DetectedKeyword[]): DetectedKe
     k.keyword === 'persist' ||
     k.keyword === 'afterlife' ||
     k.keyword === 'soulshift' ||
+    k.keyword === 'haunt' ||
     k.keyword === 'modular'
   );
 }

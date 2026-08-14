@@ -521,8 +521,21 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     });
   }
   
-  // "Whenever ~ becomes tapped" pattern (self-referential like Emmara)
-  const selfTapMatch = oracleText.match(/whenever (?:~|this creature) becomes tapped,?\s*([^.]+)/i);
+  // "Whenever ~ becomes tapped" (including compound "enters or becomes tapped")
+  const selfTapNameRefs = [
+    '~',
+    'this creature',
+    'this artifact',
+    'this land',
+    'this permanent',
+    escapeCardNameForRegex(cardName),
+  ].filter(Boolean);
+  const selfTapMatch = oracleText.match(
+    new RegExp(
+      `when(?:ever)? (?:${selfTapNameRefs.join('|')}) (?:enters(?: the battlefield)?\\s+or\\s+)?become(?:s)? tapped,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
   if (selfTapMatch) {
     const effectText = timingTriggerEffect(oracleText, selfTapMatch);
     const isOptional = isOptionalTapTriggerEffect(effectText);

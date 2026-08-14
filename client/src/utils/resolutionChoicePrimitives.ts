@@ -36,6 +36,7 @@ const SPECIALIZED_STEP_TYPES = new Set([
   'mutate_target_selection',
   'graveyard_selection',
   'soulshift_target',
+  'haunt_target',
   'two_pile_split',
   'tap_untap_target',
   'fight_target',

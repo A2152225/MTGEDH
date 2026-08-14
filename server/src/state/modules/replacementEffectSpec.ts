@@ -9,6 +9,7 @@ import type {
   ReplacementEffectResult,
   ReplacementEvent,
   ReplacementZone,
+  TokenCreationReplacementEvent,
   ZoneChangeReplacementEvent,
 } from './replacement-effects.js';
 
@@ -45,6 +46,13 @@ export interface ReplacementMillMatch {
   targetIsOpponent?: boolean;
 }
 
+export interface ReplacementLibrarySearchMatch {
+  /** Searching player must be an opponent of the spec source controller. */
+  searchingPlayerIsOpponentOfSource?: boolean;
+  /** Searching player must be the spec source controller. */
+  searchingPlayerIsSourceController?: boolean;
+}
+
 export interface ReplacementCounterMatch {
   counterTypeIncludes?: string;
   targetControllerIsSourceController?: boolean;
@@ -53,6 +61,8 @@ export interface ReplacementCounterMatch {
 export interface ReplacementDrawMatch {
   /** Drawing player must be an opponent of the spec source controller. */
   drawingPlayerIsOpponentOfSource?: boolean;
+  /** Drawing player must be the spec source controller (Thought Reflection family). */
+  drawingPlayerIsSourceController?: boolean;
   /** Skip when `event.metadata[key] === true`. */
   skipWhenEventMetadataTrue?: string;
   /** Minimum draw count on the event (e.g. Alms Collector). */
@@ -62,6 +72,17 @@ export interface ReplacementDrawMatch {
 export interface ReplacementLifeGainMatch {
   /** Gaining player must be an opponent of the spec source controller. */
   gainingPlayerIsOpponentOfSource?: boolean;
+  /** Gaining player must be the spec source controller (Boon Reflection family). */
+  gainingPlayerIsSourceController?: boolean;
+  /** Gaining player's current life must be at least this (Angel of Vitality). */
+  gainingPlayerLifeGte?: number;
+}
+
+export interface ReplacementTokenMatch {
+  /** Creating player must be the spec source controller (Anointed Procession family). */
+  creatingPlayerIsSourceController?: boolean;
+  /** Token being created must be a creature (Ojer Taq). */
+  tokenIsCreature?: boolean;
 }
 
 export interface ReplacementDamageMatch {
@@ -80,7 +101,7 @@ export interface ReplacementDamageMatch {
 export interface ReplacementEffectSpec {
   id: string;
   event: ReplacementEffectSpecEvent;
-  match?: ReplacementZoneChangeMatch & ReplacementMillMatch & ReplacementCounterMatch & ReplacementDrawMatch & ReplacementLifeGainMatch & ReplacementDamageMatch;
+  match?: ReplacementZoneChangeMatch & ReplacementMillMatch & ReplacementLibrarySearchMatch & ReplacementCounterMatch & ReplacementDrawMatch & ReplacementLifeGainMatch & ReplacementDamageMatch & ReplacementTokenMatch;
   instead: {
     redirectZone?: ReplacementZone;
     choiceRequired?: boolean;
@@ -93,6 +114,16 @@ export interface ReplacementEffectSpec {
     sharedDrawCount?: number;
     /** Prevent life gain (0) or replace with life loss (negative amount). */
     replaceLifeGainWith?: 'none' | 'loss';
+    /** Players matching the spec cannot search libraries. */
+    preventSearch?: boolean;
+    /** Paying this mana lets the searching player ignore the restriction (Leonin Arbiter). */
+    paymentToIgnore?: string;
+    /** Replace a full-library search with the top N cards (Aven Mindcensor). */
+    limitToTop?: number;
+    /** The spec source controller controls the searching player during the search. */
+    controlSearch?: boolean;
+    /** Triggered consequence when an opponent searches (Ob Nixilis family). */
+    triggerEffect?: string;
   };
   effectId?: string;
   reason?: string;
@@ -182,6 +213,7 @@ function normalizeOraclePatternText(value: unknown): string {
 interface OracleDrawReplacementTemplate {
   templateId: string;
   oracleMustIncludeAll: readonly string[];
+  oracleMustExcludeAny?: readonly string[];
   spec: Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
 }
 
@@ -226,6 +258,35 @@ const ORACLE_DRAW_REPLACEMENT_TEMPLATES: readonly OracleDrawReplacementTemplate[
       reason: 'draw_replaced_by_shared_draw',
     },
   },
+  {
+    templateId: 'controller-extra-draw-except-first-draw-step',
+    oracleMustIncludeAll: [
+      'if you would draw a card except the first one you draw in each of your draw steps',
+      'draw two cards instead',
+    ],
+    spec: {
+      event: 'card-draw',
+      match: {
+        drawingPlayerIsSourceController: true,
+        skipWhenEventMetadataTrue: 'isFirstDrawStepDraw',
+      },
+      instead: { modify: 'double' },
+      effectId: 'extra-draw-except-first-draw-step',
+      reason: 'extra_draw_except_first_draw_step',
+    },
+  },
+  {
+    templateId: 'controller-extra-draw',
+    oracleMustIncludeAll: ['if you would draw a card', 'draw two cards instead'],
+    oracleMustExcludeAny: ['except the first one you draw'],
+    spec: {
+      event: 'card-draw',
+      match: { drawingPlayerIsSourceController: true },
+      instead: { modify: 'double' },
+      effectId: 'extra-draw',
+      reason: 'extra_draw',
+    },
+  },
 ];
 
 function readCardOracleText(card: unknown): string {
@@ -264,6 +325,7 @@ export function collectOraclePatternDrawReplacementSpecsFromState(state: unknown
 
     for (const template of ORACLE_DRAW_REPLACEMENT_TEMPLATES) {
       if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
+      if (template.oracleMustExcludeAny?.some((phrase) => oracle.includes(phrase))) continue;
       specs.push({
         ...template.spec,
         id: `${sourcePermanentId}:${template.templateId}`,
@@ -280,6 +342,7 @@ export function collectOraclePatternDrawReplacementSpecsFromState(state: unknown
 interface OracleLifeGainReplacementTemplate {
   templateId: string;
   oracleMustIncludeAll: readonly string[];
+  oracleMustExcludeAny?: readonly string[];
   spec: Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
 }
 
@@ -327,6 +390,40 @@ const ORACLE_LIFE_GAIN_REPLACEMENT_TEMPLATES: readonly OracleLifeGainReplacement
       reason: 'life_gain_prevented',
     },
   },
+  {
+    templateId: 'controller-life-gain-double',
+    oracleMustIncludeAll: ['if you would gain life', 'twice that much life'],
+    spec: {
+      event: 'life-gain',
+      match: { gainingPlayerIsSourceController: true },
+      instead: { modify: 'double' },
+      effectId: 'life-gain-double',
+      reason: 'life_gain_double',
+    },
+  },
+  {
+    templateId: 'controller-life-gain-plus-1-if-25-life',
+    oracleMustIncludeAll: ['if you would gain life', '25 or more life', 'that much life plus 1'],
+    spec: {
+      event: 'life-gain',
+      match: { gainingPlayerIsSourceController: true, gainingPlayerLifeGte: 25 },
+      instead: { modify: 'add_flat', value: 1 },
+      effectId: 'life-gain-plus-one',
+      reason: 'life_gain_plus_one_if_25_life',
+    },
+  },
+  {
+    templateId: 'controller-life-gain-plus-1',
+    oracleMustIncludeAll: ['if you would gain life', 'that much life plus 1'],
+    oracleMustExcludeAny: ['25 or more life'],
+    spec: {
+      event: 'life-gain',
+      match: { gainingPlayerIsSourceController: true },
+      instead: { modify: 'add_flat', value: 1 },
+      effectId: 'life-gain-plus-one',
+      reason: 'life_gain_plus_one',
+    },
+  },
 ];
 
 export function collectOraclePatternLifeGainReplacementSpecsFromState(state: unknown): ReplacementEffectSpec[] {
@@ -352,6 +449,110 @@ export function collectOraclePatternLifeGainReplacementSpecsFromState(state: unk
 
     for (const template of ORACLE_LIFE_GAIN_REPLACEMENT_TEMPLATES) {
       if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
+      if (template.oracleMustExcludeAny?.some((phrase) => oracle.includes(phrase))) continue;
+      specs.push({
+        ...template.spec,
+        id: `${sourcePermanentId}:${template.templateId}`,
+        sourcePermanentId,
+        sourceController,
+        sourceName,
+      });
+    }
+  }
+
+  return specs;
+}
+
+interface OracleTokenReplacementTemplate {
+  templateId: string;
+  oracleMustIncludeAll: readonly string[];
+  oracleMustExcludeAny?: readonly string[];
+  spec: Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
+}
+
+/** Oracle-pattern token-creation replacements (no card-name routing). */
+const ORACLE_TOKEN_REPLACEMENT_TEMPLATES: readonly OracleTokenReplacementTemplate[] = [
+  {
+    templateId: 'controller-creature-token-triple',
+    oracleMustIncludeAll: [
+      'creature tokens would be created under your control',
+      'three times that many',
+    ],
+    spec: {
+      event: 'token-creation',
+      match: { creatingPlayerIsSourceController: true, tokenIsCreature: true },
+      instead: { modify: 'triple' },
+      effectId: 'controller-creature-token-triple',
+      reason: 'controller_creature_token_triple',
+    },
+  },
+  {
+    templateId: 'controller-token-double-would-be-created',
+    oracleMustIncludeAll: [
+      'tokens would be created under your control',
+      'twice that many',
+    ],
+    oracleMustExcludeAny: ['three times'],
+    spec: {
+      event: 'token-creation',
+      match: { creatingPlayerIsSourceController: true },
+      instead: { modify: 'double' },
+      effectId: 'controller-token-double',
+      reason: 'controller_token_double',
+    },
+  },
+  {
+    templateId: 'controller-token-double-create-one-or-more',
+    oracleMustIncludeAll: [
+      'create one or more tokens under your control',
+      'twice that many',
+    ],
+    oracleMustExcludeAny: ['three times'],
+    spec: {
+      event: 'token-creation',
+      match: { creatingPlayerIsSourceController: true },
+      instead: { modify: 'double' },
+      effectId: 'controller-token-double',
+      reason: 'controller_token_double',
+    },
+  },
+  {
+    templateId: 'global-token-double',
+    oracleMustIncludeAll: ['tokens would be created', 'twice that many'],
+    oracleMustExcludeAny: ['under your control', 'three times'],
+    spec: {
+      event: 'token-creation',
+      instead: { modify: 'double' },
+      effectId: 'global-token-double',
+      reason: 'global_token_double',
+    },
+  },
+];
+
+export function collectOraclePatternTokenReplacementSpecsFromState(state: unknown): ReplacementEffectSpec[] {
+  const specs: ReplacementEffectSpec[] = [];
+  const battlefield = Array.isArray((state as { battlefield?: unknown })?.battlefield)
+    ? (state as { battlefield: unknown[] }).battlefield
+    : [];
+
+  for (const perm of battlefield) {
+    if (!perm || typeof perm !== 'object' || !(perm as { card?: unknown }).card) continue;
+    const permRecord = perm as {
+      id?: string;
+      controller?: string;
+      card?: { name?: string; oracle_text?: string; oracleText?: string };
+    };
+    const oracle = normalizeOraclePatternText(readCardOracleText(permRecord.card));
+    if (!oracle) continue;
+
+    const sourcePermanentId = String(permRecord.id || '').trim();
+    const sourceController = String(permRecord.controller || '').trim();
+    const sourceName = String(permRecord.card?.name || 'Unknown').trim();
+    if (!sourcePermanentId) continue;
+
+    for (const template of ORACLE_TOKEN_REPLACEMENT_TEMPLATES) {
+      if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
+      if (template.oracleMustExcludeAny?.some((phrase) => oracle.includes(phrase))) continue;
       specs.push({
         ...template.spec,
         id: `${sourcePermanentId}:${template.templateId}`,
@@ -368,6 +569,7 @@ export function collectOraclePatternLifeGainReplacementSpecsFromState(state: unk
 interface OracleCounterReplacementTemplate {
   templateId: string;
   oracleMustIncludeAll: readonly string[];
+  oracleMustExcludeAny?: readonly string[];
   spec: Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
 }
 
@@ -405,6 +607,20 @@ const ORACLE_COUNTER_REPLACEMENT_TEMPLATES: readonly OracleCounterReplacementTem
     },
   },
   {
+    templateId: 'any-counters-plus-one-artifact-or-creature-you-control',
+    oracleMustIncludeAll: [
+      'counters would be put on an artifact or creature you control',
+      'that many plus one',
+    ],
+    spec: {
+      event: 'counter-placement',
+      match: { targetControllerIsSourceController: true },
+      instead: { modify: 'add_flat', value: 1 },
+      effectId: 'any-counters-plus-one',
+      reason: 'any_counters_plus_one',
+    },
+  },
+  {
     templateId: 'p1p1-counters-double-creature-you-control',
     oracleMustIncludeAll: [
       '+1/+1 counters would be put',
@@ -420,6 +636,21 @@ const ORACLE_COUNTER_REPLACEMENT_TEMPLATES: readonly OracleCounterReplacementTem
       instead: { modify: 'double' },
       effectId: 'p1p1-counters-double',
       reason: 'p1p1_counters_double',
+    },
+  },
+  {
+    templateId: 'p1p1-counters-double-any-creature',
+    oracleMustIncludeAll: [
+      '+1/+1 counters would be put on a creature',
+      'twice that many',
+    ],
+    oracleMustExcludeAny: ['you control'],
+    spec: {
+      event: 'counter-placement',
+      match: { counterTypeIncludes: '+1/+1' },
+      instead: { modify: 'double' },
+      effectId: 'p1p1-counters-double-global',
+      reason: 'p1p1_counters_double_global',
     },
   },
   {
@@ -475,8 +706,221 @@ export function collectOraclePatternCounterReplacementSpecsFromState(state: unkn
 
     for (const template of ORACLE_COUNTER_REPLACEMENT_TEMPLATES) {
       if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
+      if (template.oracleMustExcludeAny?.some((phrase) => oracle.includes(phrase))) continue;
       specs.push({
         ...template.spec,
+        id: `${sourcePermanentId}:${template.templateId}`,
+        sourcePermanentId,
+        sourceController,
+        sourceName,
+      });
+    }
+  }
+
+  return specs;
+}
+
+interface OracleMillReplacementTemplate {
+  templateId: string;
+  oracleMustIncludeAll: readonly string[];
+  oracleMustExcludeAny?: readonly string[];
+  spec: Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
+}
+
+/** Oracle-pattern mill replacements (Bruvac / Water Crystal family; no card-name routing). */
+const ORACLE_MILL_REPLACEMENT_TEMPLATES: readonly OracleMillReplacementTemplate[] = [
+  {
+    templateId: 'opponent-mill-double',
+    oracleMustIncludeAll: [
+      'if an opponent would mill',
+      'twice that many',
+    ],
+    spec: {
+      event: 'mill',
+      match: { millingPlayerIsSourceController: true, targetIsOpponent: true },
+      instead: { modify: 'double' },
+      effectId: 'opponent-mill-double',
+      reason: 'opponent_mill_double',
+    },
+  },
+  {
+    templateId: 'opponent-mill-plus-four',
+    oracleMustIncludeAll: [
+      'if an opponent would mill',
+      'that many cards plus four',
+    ],
+    spec: {
+      event: 'mill',
+      match: { millingPlayerIsSourceController: true, targetIsOpponent: true },
+      instead: { modify: 'add_flat', value: 4 },
+      effectId: 'opponent-mill-plus-four',
+      reason: 'opponent_mill_plus_four',
+    },
+  },
+];
+
+export function collectOraclePatternMillReplacementSpecsFromState(state: unknown): ReplacementEffectSpec[] {
+  const specs: ReplacementEffectSpec[] = [];
+  const battlefield = Array.isArray((state as { battlefield?: unknown })?.battlefield)
+    ? (state as { battlefield: unknown[] }).battlefield
+    : [];
+
+  for (const perm of battlefield) {
+    if (!perm || typeof perm !== 'object' || !(perm as { card?: unknown }).card) continue;
+    const permRecord = perm as {
+      id?: string;
+      controller?: string;
+      card?: { name?: string; oracle_text?: string; oracleText?: string };
+    };
+    const oracle = normalizeOraclePatternText(readCardOracleText(permRecord.card));
+    if (!oracle) continue;
+
+    const sourcePermanentId = String(permRecord.id || '').trim();
+    const sourceController = String(permRecord.controller || '').trim();
+    const sourceName = String(permRecord.card?.name || 'Unknown').trim();
+    if (!sourcePermanentId) continue;
+
+    for (const template of ORACLE_MILL_REPLACEMENT_TEMPLATES) {
+      if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
+      if (template.oracleMustExcludeAny?.some((phrase) => oracle.includes(phrase))) continue;
+      specs.push({
+        ...template.spec,
+        id: `${sourcePermanentId}:${template.templateId}`,
+        sourcePermanentId,
+        sourceController,
+        sourceName,
+      });
+    }
+  }
+
+  return specs;
+}
+
+interface OracleLibrarySearchReplacementTemplate {
+  templateId: string;
+  oracleMustIncludeAll: readonly string[];
+  oracleMustExcludeAny?: readonly string[];
+  spec: Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
+}
+
+/** Oracle-pattern library-search replacements (no card-name routing). */
+const ORACLE_LIBRARY_SEARCH_REPLACEMENT_TEMPLATES: readonly OracleLibrarySearchReplacementTemplate[] = [
+  {
+    templateId: 'opponent-search-prevent',
+    oracleMustIncludeAll: ['your opponents can\'t search'],
+    spec: {
+      event: 'library-search',
+      match: { searchingPlayerIsOpponentOfSource: true },
+      instead: { preventSearch: true },
+      effectId: 'library-search-prevented',
+      reason: 'opponent_search_prevented',
+    },
+  },
+  {
+    templateId: 'opponent-search-prevent-from-their-spells',
+    oracleMustIncludeAll: ['can\'t cause their controller to search'],
+    spec: {
+      event: 'library-search',
+      match: { searchingPlayerIsOpponentOfSource: true },
+      instead: { preventSearch: true },
+      effectId: 'library-search-prevented',
+      reason: 'opponent_search_prevented',
+    },
+  },
+  {
+    templateId: 'players-cant-search-payment',
+    oracleMustIncludeAll: ['players can\'t search libraries', 'may pay'],
+    spec: {
+      event: 'library-search',
+      instead: { paymentToIgnore: '{2}' },
+      effectId: 'library-search-payment-required',
+      reason: 'library_search_payment_required',
+    },
+  },
+  {
+    templateId: 'players-cant-search',
+    oracleMustIncludeAll: ['players can\'t search libraries'],
+    oracleMustExcludeAny: ['may pay'],
+    spec: {
+      event: 'library-search',
+      instead: { preventSearch: true },
+      effectId: 'library-search-prevented',
+      reason: 'players_cant_search',
+    },
+  },
+  {
+    templateId: 'opponent-search-limit-top-four',
+    oracleMustIncludeAll: [
+      'if an opponent would search a library',
+      'top four cards',
+    ],
+    spec: {
+      event: 'library-search',
+      match: { searchingPlayerIsOpponentOfSource: true },
+      instead: { limitToTop: 4 },
+      effectId: 'library-search-limited',
+      reason: 'opponent_search_limit_top',
+    },
+  },
+  {
+    templateId: 'opponent-search-control',
+    oracleMustIncludeAll: ['you control your opponents while they\'re searching their libraries'],
+    spec: {
+      event: 'library-search',
+      match: { searchingPlayerIsOpponentOfSource: true },
+      instead: { controlSearch: true },
+      effectId: 'library-search-controlled',
+      reason: 'opponent_search_controlled',
+    },
+  },
+  {
+    templateId: 'opponent-search-trigger-sacrifice-life',
+    oracleMustIncludeAll: [
+      'whenever an opponent searches their library',
+      'sacrifices a creature',
+      'loses 10 life',
+    ],
+    spec: {
+      event: 'library-search',
+      match: { searchingPlayerIsOpponentOfSource: true },
+      instead: { triggerEffect: 'Sacrifice a creature and lose 10 life' },
+      effectId: 'library-search-triggered',
+      reason: 'opponent_search_trigger',
+    },
+  },
+];
+
+export function collectOraclePatternLibrarySearchReplacementSpecsFromState(state: unknown): ReplacementEffectSpec[] {
+  const specs: ReplacementEffectSpec[] = [];
+  const battlefield = Array.isArray((state as { battlefield?: unknown })?.battlefield)
+    ? (state as { battlefield: unknown[] }).battlefield
+    : [];
+
+  for (const perm of battlefield) {
+    if (!perm || typeof perm !== 'object' || !(perm as { card?: unknown }).card) continue;
+    const permRecord = perm as {
+      id?: string;
+      controller?: string;
+      card?: { name?: string; oracle_text?: string; oracleText?: string };
+    };
+    const oracle = normalizeOraclePatternText(readCardOracleText(permRecord.card));
+    if (!oracle) continue;
+
+    const sourcePermanentId = String(permRecord.id || '').trim();
+    const sourceController = String(permRecord.controller || '').trim();
+    const sourceName = String(permRecord.card?.name || 'Unknown').trim();
+    if (!sourcePermanentId) continue;
+
+    for (const template of ORACLE_LIBRARY_SEARCH_REPLACEMENT_TEMPLATES) {
+      if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
+      if (template.oracleMustExcludeAny?.some((phrase) => oracle.includes(phrase))) continue;
+      const paymentMatch = oracle.match(/may pay \{(\d+)\}/);
+      const instead = template.spec.instead.paymentToIgnore && paymentMatch
+        ? { ...template.spec.instead, paymentToIgnore: `{${paymentMatch[1]}}` }
+        : template.spec.instead;
+      specs.push({
+        ...template.spec,
+        instead,
         id: `${sourcePermanentId}:${template.templateId}`,
         sourcePermanentId,
         sourceController,
@@ -858,6 +1302,11 @@ function matchesDrawSpec(spec: ReplacementEffectSpec, event: CardDrawReplacement
     return false;
   }
 
+  if (match.drawingPlayerIsSourceController === true
+    && String(event.playerId || '') !== String(spec.sourceController || '')) {
+    return false;
+  }
+
   if (match.minimumDrawCount !== undefined) {
     const count = Math.max(0, Math.floor(Number(event.count || 0)));
     if (count < match.minimumDrawCount) return false;
@@ -866,13 +1315,100 @@ function matchesDrawSpec(spec: ReplacementEffectSpec, event: CardDrawReplacement
   return true;
 }
 
+const NONCREATURE_TOKEN_NAMES = new Set([
+  'treasure',
+  'food',
+  'clue',
+  'blood',
+  'gold',
+  'map',
+  'junk',
+  'powerstone',
+  'shard',
+]);
+
+function tokenCreationEventLooksLikeCreature(event: TokenCreationReplacementEvent): boolean {
+  const typeLine = String(
+    event.tokenTypeLine
+    || event.metadata?.typeLine
+    || event.metadata?.type_line
+    || '',
+  ).toLowerCase();
+  if (typeLine.includes('creature')) return true;
+  if (typeLine) return false;
+  const name = String(event.tokenName || '').trim().toLowerCase();
+  if (NONCREATURE_TOKEN_NAMES.has(name)) return false;
+  return true;
+}
+
+function matchesTokenSpec(spec: ReplacementEffectSpec, event: TokenCreationReplacementEvent): boolean {
+  const match = spec.match;
+  if (!match) return true;
+
+  const controllerId = String(event.controllerId || '');
+  const sourceController = String(spec.sourceController || '');
+
+  if (match.creatingPlayerIsSourceController === true
+    && controllerId !== sourceController) {
+    return false;
+  }
+
+  if (match.tokenIsCreature === true && !tokenCreationEventLooksLikeCreature(event)) {
+    return false;
+  }
+
+  return true;
+}
+
+export function overlaySpecsMatchTokenCreation(
+  spec: ReplacementEffectSpec,
+  event: { controllerId: string; state?: unknown; tokenName?: string; tokenTypeLine?: string; count?: number },
+): boolean {
+  return matchesTokenSpec(spec, {
+    type: 'token-creation',
+    state: event.state,
+    controllerId: event.controllerId,
+    count: event.count ?? 1,
+    tokenName: event.tokenName,
+    tokenTypeLine: event.tokenTypeLine,
+  });
+}
+
+export function overlaySpecsMatchLifeGain(
+  spec: ReplacementEffectSpec,
+  event: { playerId: string; state?: unknown; amount?: number },
+): boolean {
+  return matchesLifeGainSpec(spec, {
+    type: 'life-gain',
+    state: event.state,
+    playerId: event.playerId,
+    amount: event.amount ?? 1,
+  });
+}
+
 function matchesLifeGainSpec(spec: ReplacementEffectSpec, event: LifeGainReplacementEvent): boolean {
   const match = spec.match;
   if (!match) return true;
 
+  const playerId = String(event.playerId || '');
+  const sourceController = String(spec.sourceController || '');
+
   if (match.gainingPlayerIsOpponentOfSource === true
-    && String(event.playerId || '') === String(spec.sourceController || '')) {
+    && playerId === sourceController) {
     return false;
+  }
+
+  if (match.gainingPlayerIsSourceController === true
+    && playerId !== sourceController) {
+    return false;
+  }
+
+  if (typeof match.gainingPlayerLifeGte === 'number') {
+    const state = event.state as { life?: Record<string, unknown>; startingLife?: number } | undefined;
+    const currentLife = Number(state?.life?.[playerId] ?? state?.startingLife ?? 40);
+    if (!Number.isFinite(currentLife) || currentLife < match.gainingPlayerLifeGte) {
+      return false;
+    }
   }
 
   return true;
@@ -997,6 +1533,23 @@ function matchesZoneChangeSpec(event: ZoneChangeReplacementEvent, match: Replace
     return explicitExileAfterResolution || castWithListedAbility;
   }
 
+  return true;
+}
+
+export function overlaySpecsMatchLibrarySearch(
+  spec: ReplacementEffectSpec,
+  event: { searchingPlayerId: string },
+): boolean {
+  const match = spec.match;
+  if (!match) return true;
+  const searching = String(event.searchingPlayerId || '');
+  const sourceController = String(spec.sourceController || '');
+  if (match.searchingPlayerIsOpponentOfSource === true && searching === sourceController) {
+    return false;
+  }
+  if (match.searchingPlayerIsSourceController === true && searching !== sourceController) {
+    return false;
+  }
   return true;
 }
 
@@ -1131,10 +1684,148 @@ export function collectReplacementEffectSpecsFromState(state: unknown): Replacem
 
   specs.push(...collectOraclePatternDrawReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternLifeGainReplacementSpecsFromState(state));
+  specs.push(...collectOraclePatternTokenReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternZoneChangeReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternCounterReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternDamageReplacementSpecsFromState(state));
+  specs.push(...collectOraclePatternMillReplacementSpecsFromState(state));
+  specs.push(...collectOraclePatternLibrarySearchReplacementSpecsFromState(state));
   return specs;
+}
+
+/**
+ * Aggregate amount-modify life-gain replacements (CR 616.1: +N then doublers).
+ * First-match evaluateDeclarativeReplacementEvent skips these so they can stack.
+ */
+export function summarizeLifeGainAmountReplacements(
+  state: unknown,
+  playerId: string,
+): { extraLife: number; multiplier: number; extraSources: string[]; doubleSources: string[] } {
+  const pid = String(playerId || '').trim();
+  const event: LifeGainReplacementEvent = {
+    type: 'life-gain',
+    state,
+    playerId: pid,
+    amount: 1,
+  };
+  let extraLife = 0;
+  let multiplier = 1;
+  const extraSources: string[] = [];
+  const doubleSources: string[] = [];
+
+  for (const spec of collectReplacementEffectSpecsFromState(state)) {
+    if (spec.event !== 'life-gain' || !spec.instead.modify) continue;
+    if (!matchesLifeGainSpec(spec, event)) continue;
+    const sourceName = String(spec.sourceName || '').trim();
+    if (spec.instead.modify === 'add_flat') {
+      extraLife += Math.max(0, Math.floor(Number(spec.instead.value || 0)));
+      if (sourceName) extraSources.push(sourceName);
+      continue;
+    }
+    if (spec.instead.modify === 'double') {
+      multiplier *= 2;
+      if (sourceName) doubleSources.push(sourceName);
+      continue;
+    }
+    if (spec.instead.modify === 'triple') {
+      multiplier *= 3;
+      if (sourceName) doubleSources.push(sourceName);
+    }
+  }
+
+  return { extraLife, multiplier, extraSources, doubleSources };
+}
+
+/**
+ * Aggregate amount-modify card-draw replacements (Thought Reflection / Archive).
+ * First-match evaluateDeclarativeReplacementEvent skips these so they can stack.
+ */
+export function summarizeDrawAmountReplacements(
+  state: unknown,
+  playerId: string,
+  metadata?: Record<string, unknown>,
+): { extraCards: number; multiplier: number; extraSources: string[]; doubleSources: string[] } {
+  const pid = String(playerId || '').trim();
+  const event: CardDrawReplacementEvent = {
+    type: 'card-draw',
+    state,
+    playerId: pid,
+    count: 1,
+    metadata,
+  };
+  let extraCards = 0;
+  let multiplier = 1;
+  const extraSources: string[] = [];
+  const doubleSources: string[] = [];
+
+  for (const spec of collectReplacementEffectSpecsFromState(state)) {
+    if (spec.event !== 'card-draw' || !spec.instead.modify) continue;
+    if (!matchesDrawSpec(spec, event)) continue;
+    const sourceName = String(spec.sourceName || '').trim();
+    if (spec.instead.modify === 'add_flat') {
+      extraCards += Math.max(0, Math.floor(Number(spec.instead.value || 0)));
+      if (sourceName) extraSources.push(sourceName);
+      continue;
+    }
+    if (spec.instead.modify === 'double') {
+      multiplier *= 2;
+      if (sourceName) doubleSources.push(sourceName);
+      continue;
+    }
+    if (spec.instead.modify === 'triple') {
+      multiplier *= 3;
+      if (sourceName) doubleSources.push(sourceName);
+    }
+  }
+
+  return { extraCards, multiplier, extraSources, doubleSources };
+}
+
+/**
+ * Aggregate amount-modify token-creation replacements (Anointed Procession / Primal Vigor / Ojer Taq).
+ * First-match evaluateDeclarativeReplacementEvent skips these so they can stack.
+ */
+export function summarizeTokenAmountReplacements(
+  state: unknown,
+  controllerId: string,
+  extras?: { tokenName?: string; tokenTypeLine?: string; metadata?: Record<string, unknown> },
+): { extraTokens: number; multiplier: number; extraSources: string[]; doubleSources: string[] } {
+  const pid = String(controllerId || '').trim();
+  const event: TokenCreationReplacementEvent = {
+    type: 'token-creation',
+    state,
+    controllerId: pid,
+    count: 1,
+    tokenName: extras?.tokenName,
+    tokenTypeLine: extras?.tokenTypeLine,
+    metadata: extras?.metadata,
+  };
+  let extraTokens = 0;
+  let multiplier = 1;
+  const extraSources: string[] = [];
+  const doubleSources: string[] = [];
+
+  for (const spec of collectReplacementEffectSpecsFromState(state)) {
+    if (spec.event !== 'token-creation' || !spec.instead.modify) continue;
+    if (!matchesTokenSpec(spec, event)) continue;
+    const sourceName = String(spec.sourceName || '').trim();
+    if (spec.instead.modify === 'add_flat') {
+      extraTokens += Math.max(0, Math.floor(Number(spec.instead.value || 0)));
+      if (sourceName) extraSources.push(sourceName);
+      continue;
+    }
+    if (spec.instead.modify === 'double') {
+      multiplier *= 2;
+      if (sourceName) doubleSources.push(sourceName);
+      continue;
+    }
+    if (spec.instead.modify === 'triple') {
+      multiplier *= 3;
+      if (sourceName) doubleSources.push(sourceName);
+    }
+  }
+
+  return { extraTokens, multiplier, extraSources, doubleSources };
 }
 
 export function evaluateReplacementEffectSpec(
@@ -1474,10 +2165,21 @@ export function evaluateDeclarativeReplacementEvent(
     ? collectIntrinsicZoneChangeReplacementSpecsFromObject((event as ZoneChangeReplacementEvent).object)
     : [];
   for (const spec of [...intrinsicSpecs, ...dynamicSpecs, ...BUILTIN_REPLACEMENT_EFFECT_SPECS]) {
-    // Amount-modify families aggregate via detect*/apply* helpers (616.1 ordering).
+    // Amount-modify families aggregate via detect*/apply*/summarize* helpers (616.1 ordering).
+    // Library-search restrictions also aggregate (prevent + limit + control + payment + trigger).
+    if (spec.event === 'library-search') {
+      continue;
+    }
     if (
-      (event.type === 'mill' || event.type === 'counter-placement' || event.type === 'damage')
-      && spec.instead.modify
+      spec.instead.modify
+      && (
+        event.type === 'mill'
+        || event.type === 'counter-placement'
+        || event.type === 'damage'
+        || event.type === 'life-gain'
+        || event.type === 'card-draw'
+        || event.type === 'token-creation'
+      )
     ) {
       continue;
     }

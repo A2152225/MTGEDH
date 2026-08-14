@@ -2,10 +2,10 @@
 
 **Purpose:** Plan the full supersession of handwritten spell/trigger/ability resolution with Oracle IR execution and the Effect Program orchestrator.
 
-**Last updated:** 2026-08-12 (IR live-readiness: spell-static typing, Spree/Tiered resolve scoping, Season `{P}`, `end_combat_phase`, council/`vote` queue)  
+**Last updated:** 2026-08-12 (D5 other-event fire closed; scripted live soak **51/51**, D2 **0**)  
 **Owner:** Project maintainers  
 
-> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** for Track E live-readiness + remaining choice shapes. Latest: **Aug 2026 IR live-readiness** (Layer 1–3 gaps that do not move the legacy ratchet); D3 export ratchet **0**; Phase 5 continuous depth + live soak still open.
+> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** for Track E live-readiness + remaining choice shapes. Latest: **Aug 2026 IR live-readiness**; D3 export ratchet **0**; scripted live soak **51/51** (live D2 **0**); Phase 4 dual-path + Phase 5 depth remain. Real multiplayer telemetry is still the long soak.
 
 **Rules for new work:** `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` — **no card-name routing**, **no new `KNOWN_*` table rows**; extend parser → executor → `applyOracleIRStepsOnServer` → resolution queue.
 
@@ -42,6 +42,7 @@ These batches keep the **IR primary live path** correct. They are Layer 1–3 wo
 | Spree/Tiered oracle scoping at resolve | L3 | `additionalCostModeOracleText` — cast + IR resolve share selected-mode oracle |
 | Season `{P}` / Urza choose_mode | L1–2 | `pBudget` / `canRepeatModes` / mode-cost parse; no outer mode duplication |
 | `end_combat_phase` + extended `vote` + server queue | L2–3 | New step kind + ballot shapes; APNAP `VOTE` queue/resume |
+| Live soak + shared board-context | L3 + AI | `npm run oracle-ir:smoke:live` **51/51**, live D2 **0**; AI skips no-op casts; soak provisions the same gaps |
 
 ---
 
@@ -1105,15 +1106,9 @@ npm run test:oracle-ir-migration   # broader migration suite when touching routi
 | **Spell-side retirement** | `oracleIrSpellExecution.ts`, `oracleIrSpellLegacyRouting.ts`, `stackResolveSpell*.ts`, `stackResolveInstantSorceryLegacyBodyUtils.ts` |
 | **Tests** | `exert-choice.integration.test.ts` (green), `oracle-ir-trigger-primary.integration.test.ts`, `oracle-ir-trigger-legacy-*.test.ts`, `oracle-ir-spell-*.integration.test.ts`, `oracle-ir-legacy-forced.integration.test.ts` |
 
-### Next session priorities (Phase 4 continuation)
+### Next session priorities (historical — superseded 2026-08-12)
 
-1. **Thassa socket E2E** — ETB → `LIBRARY_SEARCH` (devotion X, put 0–1 on top, rest bottom random) → `tryResolveThassasOracleWin`.
-2. **Roaming Throne tribal socket** — Kumena +1/+1 and Deeproot tap token with throne chosen Merfolk.
-3. **G1 live retest** — tap chains, White Lotus mana, Kynaios Cavern, Eldrazi indestructible after monument leaves.
-4. **Resume gap audit** — `EXECUTOR_COVERAGE_SCOPE=full_card` or `npx tsx scripts/_tmp-trigger-gap-clusters.ts` (trigger `ir_gap` already 0).
-5. **Continue regex retirement** — grep `applyRetiredTriggerLegacy*`; gut when IR + integration green. **Never** card-name `KNOWN_*` rows (`.cursor/rules/oracle-ir-no-bespoke-handlers.mdc`).
-6. **Run migration suite** after routing/sync edits: `cd server ; npm run test:oracle-ir-migration` (expect **649/649**).
-7. **Uncommitted work** — batches 264–280 local only; no commits unless explicitly requested.
+Thassa E2E, Roaming Throne, G1 live retest, and `applyRetired*` gutting from this list are **done** in later batches. Current next work: copy the prompt at the top of [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) — Phase 4 `categorizeSpell` / uncategorized-fallback collapse, Phase 5 replacement-event + PW loyalty depth, real-table D2 telemetry.
 
 ### Known invariants (do not break)
 

@@ -19,6 +19,7 @@ describe('oracle IR legacy triage helpers', () => {
       byKind: { legacy_handled: 2 },
       byScopeKind: {},
       topLabels: [],
+      processStartedAt: '2026-07-03T00:00:00.000Z',
       recentEvents: [
         {
           kind: 'legacy_handled',
@@ -52,6 +53,7 @@ describe('oracle IR legacy triage helpers', () => {
       byKind: { legacy_handled: 1 },
       byScopeKind: {},
       topLabels: [],
+      processStartedAt: '2026-07-03T00:00:00.000Z',
       recentEvents: [
         {
           kind: 'legacy_handled',

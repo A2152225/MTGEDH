@@ -5,16 +5,27 @@ import {
   collectReplacementEffectSpecsFromState,
   evaluateDeclarativeReplacementEvent,
   evaluateReplacementEffectSpec,
+  summarizeLifeGainAmountReplacements,
+  summarizeDrawAmountReplacements,
+  summarizeTokenAmountReplacements,
 } from '../src/state/modules/replacementEffectSpec.js';
+import { applyLifeGain } from '../src/state/utils.js';
 import { upsertCompiledOracleIROverlaySync } from '../src/services/oracleIrCompiledOverlayStore.js';
 import {
   evaluateCounterPlacementReplacementEvent,
   evaluateMillReplacementEvent,
+  evaluateLibrarySearchReplacementEvent,
 } from '../src/state/modules/replacement-effects.js';
 import { applyCounterModifications } from '../src/state/modules/counters_tokens.js';
 import {
   calculateModifiedDamage,
   detectDamageReplacementEffects,
+  detectLifeGainReplacementEffects,
+  detectTokenCreationReplacementEffects,
+  detectCounterReplacementEffects,
+  detectMillReplacementEffects,
+  applyMillReplacements,
+  processLifeChange,
 } from '../src/state/modules/game-state-effects.js';
 
 describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
@@ -243,6 +254,153 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
       replacementAmount: 7,
       reason: 'mill_replacement',
     });
+  });
+
+  it('applies unnamed opponent mill double and plus-four without card-name routing', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'doubler_1',
+          controller: 'p1',
+          card: {
+            name: 'Generic Mill Doubler',
+            oracle_text:
+              'If an opponent would mill one or more cards, they mill twice that many cards instead.',
+          },
+        },
+        {
+          id: 'plus_four_1',
+          controller: 'p1',
+          card: {
+            name: 'Generic Mill Plus Four',
+            oracle_text:
+              'If an opponent would mill one or more cards, they mill that many cards plus four instead.',
+          },
+        },
+      ],
+    };
+
+    expect(detectMillReplacementEffects({ state } as any, 'p1', 'p2').map((effect) => effect.source)).toEqual([
+      'Generic Mill Doubler',
+      'Generic Mill Plus Four',
+    ]);
+    expect(detectMillReplacementEffects({ state } as any, 'p1', 'p1')).toEqual([]);
+    expect(applyMillReplacements({ state } as any, 3, 'p1', 'p2')).toEqual({
+      finalCount: 14,
+      appliedEffects: expect.arrayContaining([
+        expect.stringContaining('Generic Mill Plus Four'),
+        expect.stringContaining('Generic Mill Doubler'),
+      ]),
+    });
+
+    const result = evaluateMillReplacementEvent({
+      state,
+      millingPlayerId: 'p1',
+      targetPlayerId: 'p2',
+      count: 3,
+    });
+    expect(result).toMatchObject({
+      applied: true,
+      eventType: 'mill',
+      originalAmount: 3,
+      replacementAmount: 14,
+      reason: 'mill_replacement',
+    });
+  });
+
+  it('applies unnamed library-search restrictions without card-name routing', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'prevent_1',
+          controller: 'p2',
+          card: {
+            name: 'Generic Search Lock',
+            oracle_text: 'Your opponents can\'t search libraries.',
+          },
+        },
+        {
+          id: 'named_without_oracle_1',
+          controller: 'p2',
+          card: {
+            name: 'Ashiok, Dream Render',
+            oracle_text: '',
+          },
+        },
+      ],
+    };
+
+    const prevented = evaluateLibrarySearchReplacementEvent({
+      state,
+      searchingPlayerId: 'p1',
+    });
+    expect(prevented).toMatchObject({
+      applied: true,
+      effectId: 'library-search-prevented',
+      reason: 'Generic Search Lock prevents library searching',
+    });
+
+    const selfSearch = evaluateLibrarySearchReplacementEvent({
+      state,
+      searchingPlayerId: 'p2',
+    });
+    expect(selfSearch.applied).not.toBe(true);
+
+    const stacked = evaluateLibrarySearchReplacementEvent({
+      state: {
+        battlefield: [
+          {
+            id: 'limit_1',
+            controller: 'p2',
+            card: {
+              name: 'Generic Top Four',
+              oracle_text:
+                'If an opponent would search a library, that player searches the top four cards of that library instead.',
+            },
+          },
+          {
+            id: 'pay_1',
+            controller: 'p1',
+            card: {
+              name: 'Generic Search Tax',
+              oracle_text:
+                'Players can\'t search libraries. Any player may pay {2} for that player to ignore this effect until end of turn.',
+            },
+          },
+          {
+            id: 'control_1',
+            controller: 'p2',
+            card: {
+              name: 'Generic Search Control',
+              oracle_text: 'You control your opponents while they\'re searching their libraries.',
+            },
+          },
+          {
+            id: 'trigger_1',
+            controller: 'p2',
+            card: {
+              name: 'Generic Search Punisher',
+              oracle_text:
+                'Whenever an opponent searches their library, that player sacrifices a creature of their choice and loses 10 life.',
+            },
+          },
+        ],
+      },
+      searchingPlayerId: 'p1',
+    });
+    expect(stacked).toMatchObject({
+      applied: true,
+      effectId: 'library-search-limited',
+      metadata: {
+        canSearch: true,
+        limitToTop: 4,
+        controlledBy: 'p2',
+        paymentRequired: { cardName: 'Generic Search Tax', amount: '{2}' },
+      },
+    });
+    expect((stacked.metadata as any).triggerEffects).toEqual([
+      { cardName: 'Generic Search Punisher', effect: 'Sacrifice a creature and lose 10 life', controllerId: 'p2' },
+    ]);
   });
 
   it('evaluates finality counter graveyard redirect via declarative spec', () => {
@@ -490,6 +648,43 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
       originalAmount: 2,
       replacementAmount: 6,
     });
+  });
+
+  it('applies unnamed global +1/+1 double and any-counter plus-one without card-name routing', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'bear_1',
+          controller: 'p1',
+          card: { name: 'Bear', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+        {
+          id: 'vigor_1',
+          controller: 'p2',
+          card: {
+            name: 'Generic Global Counter Doubler',
+            oracle_text:
+              'If one or more +1/+1 counters would be put on a creature, twice that many +1/+1 counters are put on that creature instead.',
+          },
+        },
+        {
+          id: 'constrictor_1',
+          controller: 'p1',
+          card: {
+            name: 'Generic Plus One',
+            oracle_text:
+              'If one or more counters would be put on an artifact or creature you control, that many plus one of each of those kinds of counters are put on that permanent instead.',
+          },
+        },
+      ],
+    };
+
+    expect(detectCounterReplacementEffects({ state } as any, 'p1', '+1/+1').map((effect) => effect.source)).toEqual([
+      'Generic Global Counter Doubler',
+      'Generic Plus One',
+    ]);
+    expect(applyCounterModifications(state, 'bear_1', { '+1/+1': 2 })).toEqual({ '+1/+1': 6 });
+    expect(applyCounterModifications(state, 'bear_1', { 'charge': 1 })).toEqual({ charge: 2 });
   });
 
   it('collects oracle-pattern damage replacement specs without card-name routing', () => {
@@ -994,5 +1189,301 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
       reason: 'graveyard_self_shuffle_into_library',
       metadata: { shuffleIntoOwnerLibrary: true },
     });
+  });
+
+  it('does not first-match amount-modify life-gain so +1 and doubles can stack', () => {
+    const state = {
+      life: { p1: 30 },
+      battlefield: [{
+        id: 'doubler_1',
+        controller: 'p1',
+        card: {
+          name: 'Generic Life Doubler',
+          oracle_text: 'If you would gain life, you gain twice that much life instead.',
+        },
+      }],
+    };
+
+    expect(evaluateDeclarativeReplacementEvent({
+      type: 'life-gain',
+      state,
+      playerId: 'p1',
+      amount: 3,
+    }, state)).toBeNull();
+
+    expect(summarizeLifeGainAmountReplacements(state, 'p1')).toEqual({
+      extraLife: 0,
+      multiplier: 2,
+      extraSources: [],
+      doubleSources: ['Generic Life Doubler'],
+    });
+  });
+
+  it('applies oracle-pattern life-gain +1 then double without card-name routing', () => {
+    const state = {
+      life: { p1: 20, p2: 40 },
+      startingLife: 40,
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      battlefield: [
+        {
+          id: 'plus_1',
+          controller: 'p1',
+          card: {
+            name: 'Generic Plus One',
+            oracle_text: 'If you would gain life, you gain that much life plus 1 instead.',
+          },
+        },
+        {
+          id: 'doubler_1',
+          controller: 'p1',
+          card: {
+            name: 'Generic Life Doubler',
+            oracle_text: 'If you would gain life, you gain twice that much life instead.',
+          },
+        },
+        {
+          id: 'opponent_doubler',
+          controller: 'p2',
+          card: {
+            name: 'Opponent Doubler',
+            oracle_text: 'If you would gain life, you gain twice that much life instead.',
+          },
+        },
+      ],
+    };
+
+    const summary = summarizeLifeGainAmountReplacements(state, 'p1');
+    expect(summary.extraLife).toBe(1);
+    expect(summary.multiplier).toBe(2);
+    expect(summary.extraSources).toEqual(['Generic Plus One']);
+    expect(summary.doubleSources).toEqual(['Generic Life Doubler']);
+
+    const result = applyLifeGain(state, 'p1', 3, 'test');
+    expect(result.actualChange).toBe(8);
+    expect(state.life.p1).toBe(28);
+  });
+
+  it('applies Angel of Vitality plus-1 only when the gaining player has 25 or more life', () => {
+    const makeState = (life: number) => ({
+      life: { p1: life },
+      startingLife: 40,
+      players: [{ id: 'p1' }],
+      battlefield: [{
+        id: 'angel_1',
+        controller: 'p1',
+        card: {
+          name: 'Angel of Vitality',
+          oracle_text: 'If you would gain life and you have 25 or more life, you gain that much life plus 1 instead.',
+        },
+      }],
+    });
+
+    const below = makeState(24);
+    expect(summarizeLifeGainAmountReplacements(below, 'p1').extraLife).toBe(0);
+    expect(applyLifeGain(below, 'p1', 2, 'test').actualChange).toBe(2);
+
+    const atThreshold = makeState(25);
+    expect(summarizeLifeGainAmountReplacements(atThreshold, 'p1').extraLife).toBe(1);
+    expect(applyLifeGain(atThreshold, 'p1', 2, 'test').actualChange).toBe(3);
+  });
+
+  it('does not first-match amount-modify extra-draw so doubles can stack', () => {
+    const state = {
+      battlefield: [{
+        id: 'archive_1',
+        controller: 'p1',
+        card: {
+          name: 'Generic Extra Draw',
+          oracle_text: 'If you would draw a card except the first one you draw in each of your draw steps, draw two cards instead.',
+        },
+      }],
+    };
+
+    expect(evaluateDeclarativeReplacementEvent({
+      type: 'card-draw',
+      state,
+      playerId: 'p1',
+      count: 1,
+    }, state)).toBeNull();
+
+    expect(summarizeDrawAmountReplacements(state, 'p1')).toEqual({
+      extraCards: 0,
+      multiplier: 2,
+      extraSources: [],
+      doubleSources: ['Generic Extra Draw'],
+    });
+  });
+
+  it('skips except-first extra-draw on the first draw-step draw and isolates opponent copies', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'archive_1',
+          controller: 'p1',
+          card: {
+            name: 'Generic Extra Draw',
+            oracle_text: 'If you would draw a card except the first one you draw in each of your draw steps, draw two cards instead.',
+          },
+        },
+        {
+          id: 'archive_2',
+          controller: 'p1',
+          card: {
+            name: 'Second Extra Draw',
+            oracle_text: 'If you would draw a card except the first one you draw in each of your draw steps, draw two cards instead.',
+          },
+        },
+        {
+          id: 'opponent_archive',
+          controller: 'p2',
+          card: {
+            name: 'Opponent Extra Draw',
+            oracle_text: 'If you would draw a card except the first one you draw in each of your draw steps, draw two cards instead.',
+          },
+        },
+      ],
+    };
+
+    expect(summarizeDrawAmountReplacements(state, 'p1', { isFirstDrawStepDraw: true }).multiplier).toBe(1);
+    expect(summarizeDrawAmountReplacements(state, 'p1').multiplier).toBe(4);
+    expect(summarizeDrawAmountReplacements(state, 'p1').doubleSources).toEqual([
+      'Generic Extra Draw',
+      'Second Extra Draw',
+    ]);
+    expect(summarizeDrawAmountReplacements(state, 'p2').multiplier).toBe(2);
+  });
+
+  it('applies unconditional extra-draw including the first draw-step draw', () => {
+    const state = {
+      battlefield: [{
+        id: 'reflection_1',
+        controller: 'p1',
+        card: {
+          name: 'Generic Unconditional Extra Draw',
+          oracle_text: 'If you would draw a card, draw two cards instead.',
+        },
+      }],
+    };
+
+    expect(summarizeDrawAmountReplacements(state, 'p1', { isFirstDrawStepDraw: true }).multiplier).toBe(2);
+    expect(summarizeDrawAmountReplacements(state, 'p1').multiplier).toBe(2);
+  });
+
+  it('matches combined life-gain and except-first extra-draw oracle on the same permanent', () => {
+    const state = {
+      battlefield: [{
+        id: 'archive_1',
+        controller: 'p1',
+        card: {
+          name: 'Generic Archive',
+          oracle_text: 'If you would gain life, you gain twice that much life instead.\nIf you would draw a card except the first one you draw in each of your draw steps, draw two cards instead.',
+        },
+      }],
+    };
+
+    expect(summarizeLifeGainAmountReplacements(state, 'p1').multiplier).toBe(2);
+    expect(summarizeDrawAmountReplacements(state, 'p1').multiplier).toBe(2);
+    expect(summarizeDrawAmountReplacements(state, 'p1', { isFirstDrawStepDraw: true }).multiplier).toBe(1);
+  });
+
+  it('applies oracle-pattern life-gain doubles through processLifeChange without card-name routing', () => {
+    const ctx = {
+      state: {
+        life: { p1: 20, p2: 40 },
+        startingLife: 40,
+        battlefield: [
+          {
+            id: 'doubler_1',
+            controller: 'p1',
+            card: {
+              name: 'Generic Life Doubler',
+              oracle_text: 'If you would gain life, you gain twice that much life instead.',
+            },
+          },
+          {
+            id: 'opponent_doubler',
+            controller: 'p2',
+            card: {
+              name: 'Opponent Doubler',
+              oracle_text: 'If you would gain life, you gain twice that much life instead.',
+            },
+          },
+        ],
+      },
+    };
+
+    expect(detectLifeGainReplacementEffects(ctx as any, 'p1').map((effect) => effect.source)).toEqual([
+      'Generic Life Doubler',
+    ]);
+    expect(processLifeChange(ctx as any, 'p1', 3, true)).toMatchObject({
+      finalAmount: 6,
+      prevented: false,
+    });
+  });
+
+  it('does not first-match amount-modify token doubles so they can stack', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'procession_1',
+          controller: 'p1',
+          card: {
+            name: 'Generic Token Doubler',
+            oracle_text: 'If one or more tokens would be created under your control, twice that many of those tokens are created instead.',
+          },
+        },
+        {
+          id: 'vigor_1',
+          controller: 'p2',
+          card: {
+            name: 'Generic Global Token Doubler',
+            oracle_text: 'If one or more tokens would be created, twice that many of those tokens are created instead.',
+          },
+        },
+        {
+          id: 'ojer_1',
+          controller: 'p1',
+          card: {
+            name: 'Generic Creature Token Tripler',
+            oracle_text: 'If one or more creature tokens would be created under your control, three times that many creature tokens are created instead.',
+          },
+        },
+      ],
+    };
+
+    expect(evaluateDeclarativeReplacementEvent({
+      type: 'token-creation',
+      state,
+      controllerId: 'p1',
+      count: 1,
+      tokenName: 'Soldier',
+      tokenTypeLine: 'Token Creature — Soldier',
+    }, state)).toBeNull();
+
+    expect(summarizeTokenAmountReplacements(state, 'p1', {
+      tokenName: 'Soldier',
+      tokenTypeLine: 'Token Creature — Soldier',
+    })).toEqual({
+      extraTokens: 0,
+      multiplier: 12,
+      extraSources: [],
+      doubleSources: ['Generic Token Doubler', 'Generic Global Token Doubler', 'Generic Creature Token Tripler'],
+    });
+
+    expect(summarizeTokenAmountReplacements(state, 'p2', {
+      tokenName: 'Soldier',
+      tokenTypeLine: 'Token Creature — Soldier',
+    }).multiplier).toBe(2);
+
+    expect(summarizeTokenAmountReplacements(state, 'p1', {
+      tokenName: 'Treasure',
+      tokenTypeLine: 'Token Artifact — Treasure',
+    }).multiplier).toBe(4);
+
+    expect(detectTokenCreationReplacementEffects({ state } as any, 'p1').map((effect) => effect.source)).toEqual([
+      'Generic Token Doubler',
+      'Generic Global Token Doubler',
+      'Generic Creature Token Tripler',
+    ]);
   });
 });

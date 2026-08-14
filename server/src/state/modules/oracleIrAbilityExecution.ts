@@ -243,6 +243,7 @@ export function tryApplyStationChargeCountersViaOracleIR(
           resolutionQueueStepsAfter: queueAfter,
         }),
         { applied: result.appliedSteps.length, parsed: steps.length },
+        { gameId: gameId !== 'unknown' ? gameId : undefined },
       );
       return { handled: false, countersAdded: 0 };
     }
@@ -444,6 +445,7 @@ export function tryApplyOracleIRToActivatedAbility(
           resolutionQueueStepsAfter: queueAfter,
         }),
         { applied, parsed: steps.length },
+        { gameId: gameId !== 'unknown' ? gameId : undefined },
       );
     } else {
       debug(

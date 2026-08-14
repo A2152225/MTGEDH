@@ -149,6 +149,7 @@ export enum ResolutionStepType {
   ENLIST_CHOICE = 'enlist_choice',         // Choose creature to tap for enlist
   EXTORT_PAYMENT = 'extort_payment',       // Choose to pay for extort
   SOULSHIFT_TARGET = 'soulshift_target',   // Choose spirit from graveyard
+  HAUNT_TARGET = 'haunt_target',           // Choose creature to haunt
 }
 
 /**

@@ -35,6 +35,10 @@ import { games as socketGames, priorityTimers } from "./socket/socket.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
 import { BOOT_ID } from "./utils/bootId.js";
 import { getOracleIrGapTelemetrySnapshot } from "./state/modules/oracleIrGapTelemetry.js";
+import {
+  renderOracleIrTelemetryHtml,
+  wantsOracleIrTelemetryHtml,
+} from "./oracleIrGapTelemetryPage.js";
 import { registerOracleIrLiveSoakRoutes } from "./oracleIrLiveSoak.js";
 
 // Get the equivalent of __dirname in ES modules
@@ -297,13 +301,37 @@ app.get("/api/games", (req, res) => {
   }
 });
 
+function telemetryGameNameFor(gameId: string): string | undefined {
+  const game = GameManager.getGame(gameId) || socketGames.get(gameId as any);
+  const names = Array.isArray(game?.state?.players)
+    ? game.state.players.map((player: any) => String(player?.name || "").trim()).filter(Boolean)
+    : [];
+  return names.length > 0 ? names.join(", ") : undefined;
+}
+
+function enrichTelemetrySnapshotGameNames<T extends { recentEvents: readonly any[] }>(snapshot: T): T {
+  return {
+    ...snapshot,
+    recentEvents: snapshot.recentEvents.map((event) => {
+      const gameId = String(event?.gameId || "").trim();
+      const gameName = String(event?.gameName || "").trim() || (gameId ? telemetryGameNameFor(gameId) : undefined);
+      return gameName ? { ...event, gameName } : event;
+    }),
+  };
+}
+
 // API: Oracle IR production gap telemetry (task D2).
-// Live soak dashboard: counts + recent events for IR primary misses and
-// legacy-handled effects. See docs/oracle-ir-track-e-remaining-work.md §D2.
-app.get("/api/oracle-ir/telemetry", (_req, res) => {
+// Browser navigation gets an HTML log (game, time, what broke). Scripts keep JSON
+// via Accept: application/json or ?format=json.
+app.get("/api/oracle-ir/telemetry", (req, res) => {
   res.set({ "Cache-Control": "no-store" });
   try {
-    res.json(getOracleIrGapTelemetrySnapshot());
+    const snapshot = enrichTelemetrySnapshotGameNames(getOracleIrGapTelemetrySnapshot());
+    if (wantsOracleIrTelemetryHtml(req)) {
+      res.type("html").send(renderOracleIrTelemetryHtml(snapshot, { gameNameFor: telemetryGameNameFor }));
+      return;
+    }
+    res.json(snapshot);
   } catch (err) {
     debugError(1, "GET /api/oracle-ir/telemetry failed:", err);
     res.status(500).json({ error: "Failed to read oracle IR telemetry" });

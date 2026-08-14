@@ -101,7 +101,13 @@ export function applyKeywordTriggerFallbackFromOracle(
   const cardNameForKeyword = sourceCard.name || params.sourceName;
 
   const detectedKeywords = detectKeywords(oracleText, cardNameForKeyword);
-  if (detectedKeywords.keywords.length === 0 || !permanent) {
+  const cardOracleKeywords = cardOracle && oracleText !== cardOracle
+    ? detectKeywords(cardOracle, cardNameForKeyword)
+    : detectedKeywords;
+  const mergedKeywords = detectedKeywords.keywords.length > 0
+    ? detectedKeywords
+    : cardOracleKeywords;
+  if (mergedKeywords.keywords.length === 0 || !permanent) {
     return false;
   }
 

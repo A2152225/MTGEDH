@@ -1,21 +1,25 @@
 /*
   Planeswalker Loyalty Coverage Report
 
-  Scans local oracle-cards.json and prints:
+  Scans local oracle-cards.jsonl (or legacy oracle-cards.json) and prints:
   - total planeswalker loyalty lines
   - how many match a known template
+  - how many are fully wired through Oracle IR activated steps
   - counts by template id
 
   Run:
-    npm run planeswalker:coverage --workspace=server
+    npm run planeswalker:coverage
 */
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { iterateOracleCards, resolveOracleCardsPath } from "../src/services/oracleCardsIndex.js";
 import { parseLoyaltyLinesFromOracleText } from "../src/state/planeswalker/oracle.js";
 import { getPlaneswalkerTemplateMatch } from "../src/state/planeswalker/templates.js";
+import { collectActivatedAbilitySteps } from "../src/state/modules/oracleIrAbilityExecution.js";
+import { getUnwiredOracleEffectStepKinds, isActivatedAbilityEffectFullyWired } from "../src/state/modules/oracleIrStepWiring.js";
 
 type OracleCard = {
   oracle_id: string;
@@ -33,23 +37,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const repoRoot = path.resolve(__dirname, "..", "..");
-const oracleCardsPath = path.join(repoRoot, "oracle-cards.json");
+const oracleCardsPath = resolveOracleCardsPath(repoRoot);
 const logsDir = path.join(repoRoot, "logs");
 
 const WRITE_FILES = String(process.env.PW_COVERAGE_WRITE_FILES ?? "1").trim() !== "0";
 const ALLOW_FALLBACK = String(process.env.PW_COVERAGE_ALLOW_FALLBACK ?? "0").trim() !== "0";
-
-const raw = fs.readFileSync(oracleCardsPath, "utf8");
-const cards = JSON.parse(raw) as OracleCard[];
+const SKIP_IR = String(process.env.PW_COVERAGE_SKIP_IR ?? "0").trim() !== "0";
 
 const isPlaneswalker = (c: OracleCard) => /\bplaneswalker\b/i.test(c.type_line || "");
 
 let totalLines = 0;
 let matchedLines = 0;
 let engineMatchedLines = 0;
+let irWiredLines = 0;
 
 const byTemplate = new Map<string, number>();
 const byEnginePattern = new Map<string, number>();
+const irUnwiredKinds = new Map<string, number>();
+const samplesIrUnwired: Array<{ name: string; effect: string; kinds: string[] }> = [];
 const samplesUnmatched: Array<{ name: string; oracleId: string; effect: string }> = [];
 const unmatchedFirstWord = new Map<string, number>();
 const unmatchedByEffect = new Map<string, number>();
@@ -229,7 +234,30 @@ function getEnginePatternId(effect: string): string | null {
   return null;
 }
 
-for (const card of cards) {
+function classifyIrWiring(effect: string, sourceName: string): { wired: boolean; kinds: string[] } {
+  try {
+    const steps = collectActivatedAbilitySteps(effect, sourceName);
+    if (steps.length === 0) return { wired: false, kinds: ["(empty)"] };
+    if (steps.some((step) => String(step.kind || "") === "unknown")) {
+      return { wired: false, kinds: ["unknown"] };
+    }
+    if (!isActivatedAbilityEffectFullyWired(steps)) {
+      const unwired = getUnwiredOracleEffectStepKinds(steps);
+      return { wired: false, kinds: unwired.length ? unwired : ["(unwired)"] };
+    }
+    return { wired: true, kinds: [] };
+  } catch {
+    return { wired: false, kinds: ["(error)"] };
+  }
+}
+
+if (!fs.existsSync(oracleCardsPath)) {
+  throw new Error(`Oracle cards file not found at ${oracleCardsPath}`);
+}
+console.log(`Scanning ${oracleCardsPath}`);
+
+for await (const rawCard of iterateOracleCards(oracleCardsPath)) {
+  const card = rawCard as OracleCard;
   if (!isPlaneswalker(card)) continue;
 
   const loyaltyLines = parseLoyaltyLinesFromOracleText(card.oracle_text || "");
@@ -237,6 +265,19 @@ for (const card of cards) {
     totalLines++;
 
     const effect = line.effect || "";
+    if (!SKIP_IR) {
+      const ir = classifyIrWiring(effect, String(card.name || ""));
+      if (ir.wired) {
+        irWiredLines++;
+      } else {
+        for (const kind of ir.kinds) {
+          irUnwiredKinds.set(kind, (irUnwiredKinds.get(kind) || 0) + 1);
+        }
+        if (samplesIrUnwired.length < SAMPLE_UNMATCHED_LIMIT) {
+          samplesIrUnwired.push({ name: String(card.name || ""), effect, kinds: ir.kinds });
+        }
+      }
+    }
     const m = getPlaneswalkerTemplateMatch(effect, { allowFallback: ALLOW_FALLBACK });
     if (m) {
       matchedLines++;
@@ -276,6 +317,7 @@ const unmatchedEffectSorted = [...unmatchedByEffect.entries()].sort((a, b) => b[
 console.log("\nPlaneswalker Loyalty Coverage Report");
 console.log("===================================");
 console.log(`Total loyalty lines: ${totalLines}`);
+console.log(`IR fully wired: ${irWiredLines} (${pct(irWiredLines, totalLines)})`);
 console.log(`Matched by template: ${matchedLines} (${pct(matchedLines, totalLines)})`);
 console.log(`Matched by engine patterns: ${engineMatchedLines} (${pct(engineMatchedLines, totalLines)})`);
 console.log(`Covered total: ${matchedLines + engineMatchedLines} (${pct(matchedLines + engineMatchedLines, totalLines)})`);
@@ -287,6 +329,18 @@ console.log(
 );
 for (const [id, count] of sorted) {
   console.log(`- ${id}: ${count}`);
+}
+
+if (!SKIP_IR) {
+  const irUnwiredSorted = [...irUnwiredKinds.entries()].sort((a, b) => b[1] - a[1]);
+  console.log("\nIR unwired step kinds:");
+  for (const [kind, count] of irUnwiredSorted.slice(0, 25)) {
+    console.log(`- ${kind}: ${count}`);
+  }
+  console.log(`\nSample IR-unwired (first ${SAMPLE_UNMATCHED_LIMIT}):`);
+  for (const s of samplesIrUnwired) {
+    console.log(`- ${s.name} [${s.kinds.join(",")}]: ${s.effect}`);
+  }
 }
 
 if (engineSorted.length) {
@@ -348,10 +402,12 @@ if (WRITE_FILES) {
     generatedAt: now.toISOString(),
     totals: {
       totalLoyaltyLines: totalLines,
+      irFullyWired: irWiredLines,
       matchedByTemplate: matchedLines,
       matchedByEnginePatterns: engineMatchedLines,
       unmatched: totalLines - matchedLines - engineMatchedLines,
     },
+    topIrUnwiredKinds: [...irUnwiredKinds.entries()].sort((a, b) => b[1] - a[1]).slice(0, 50).map(([kind, count]) => ({ kind, count })),
     topUnmatchedFirstWord: unmatchedFirstWordSorted.slice(0, 50).map(([word, count]) => ({ word, count })),
     topUnmatchedEffects: unmatchedEffectSorted.slice(0, 200).map(([effect, count]) => ({ effect, count })),
   };

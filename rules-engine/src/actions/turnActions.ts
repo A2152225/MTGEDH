@@ -150,6 +150,9 @@ export function executeUntapStep(
     const remainingTemporaryEffects = Array.isArray(perm?.temporaryEffects)
       ? perm.temporaryEffects.filter((effect: any) => String(effect?.expiresOnControllerTurn || '').trim() !== activePlayerId)
       : [];
+    const remainingModifiers = Array.isArray(perm?.modifiers)
+      ? perm.modifiers.filter((entry: any) => String(entry?.expiresOnControllerTurn || '').trim() !== activePlayerId)
+      : perm?.modifiers;
     const expiringGrantedAbilitySet = new Set(
       expiringTurnEffects
         .flatMap((effect: any) => Array.isArray(effect?.grantedAbilities) ? effect.grantedAbilities : [])
@@ -174,12 +177,18 @@ export function executeUntapStep(
         tapped: (skipUntapForStep || chooseNotToUntap) ? perm.tapped : false,
         ...(remainingTemporaryEffects.length > 0 ? { temporaryEffects: remainingTemporaryEffects } : { temporaryEffects: undefined }),
         ...(remainingGrantedAbilities.length > 0 ? { grantedAbilities: remainingGrantedAbilities } : { grantedAbilities: undefined }),
+        ...(Array.isArray(remainingModifiers) ? { modifiers: remainingModifiers.length > 0 ? remainingModifiers : undefined } : {}),
+        effectivePower: undefined,
+        effectiveToughness: undefined,
       };
     }
     return {
       ...perm,
       ...(remainingTemporaryEffects.length > 0 ? { temporaryEffects: remainingTemporaryEffects } : { temporaryEffects: undefined }),
       ...(remainingGrantedAbilities.length > 0 ? { grantedAbilities: remainingGrantedAbilities } : { grantedAbilities: undefined }),
+      ...(Array.isArray(remainingModifiers) ? { modifiers: remainingModifiers.length > 0 ? remainingModifiers : undefined } : {}),
+      effectivePower: undefined,
+      effectiveToughness: undefined,
     };
   });
   

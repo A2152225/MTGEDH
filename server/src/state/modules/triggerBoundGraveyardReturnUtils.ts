@@ -159,7 +159,7 @@ export function applyBoundGraveyardReturnFromTriggerMetadata(
       permanent.card = { ...(permanent.card || {}), suspected: true, isSuspected: true };
     }
     if ((params.triggerItem as any).battlefieldTurnFaceUp === true) {
-      turnReturnedPermanentFaceUp(permanent);
+      turnReturnedPermanentFaceUp(permanent, params.ctx);
     }
     applyBattlefieldReturnCharacteristicMetadata(permanent, params.triggerItem);
     markPermanentEnteredFromZone(permanent, 'graveyard');

@@ -1020,6 +1020,7 @@ export function createToken(
       controllerId: String(controller),
       count,
       tokenName: name,
+      tokenTypeLine: options?.typeLine,
     });
     const multiplier = Number((replacement.metadata as any)?.multiplier || 1);
     tokensToCreate = Math.floor(Number(replacement.replacementAmount ?? count));
@@ -1479,18 +1480,20 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   // Fire death triggers BEFORE the creature leaves (for both tokens and non-tokens)
   // Rule 700.4: "Dies" means "is put into a graveyard from the battlefield"
   // Tokens still "die" even though they don't end up in the graveyard
-  if (triggerDeathEffects && isCreature) {
+  if (triggerDeathEffects) {
     try {
       // Best-effort turn tracking for intervening-if templates.
       try {
-        const stateAny = state as any;
-        const id = String((perm as any)?.id || '').trim();
-        if (id) {
-          stateAny.creaturesDiedThisTurnIds = Array.isArray(stateAny.creaturesDiedThisTurnIds)
-            ? stateAny.creaturesDiedThisTurnIds
-            : [];
-          if (!stateAny.creaturesDiedThisTurnIds.includes(id)) {
-            stateAny.creaturesDiedThisTurnIds.push(id);
+        if (isCreature) {
+          const stateAny = state as any;
+          const id = String((perm as any)?.id || '').trim();
+          if (id) {
+            stateAny.creaturesDiedThisTurnIds = Array.isArray(stateAny.creaturesDiedThisTurnIds)
+              ? stateAny.creaturesDiedThisTurnIds
+              : [];
+            if (!stateAny.creaturesDiedThisTurnIds.includes(id)) {
+              stateAny.creaturesDiedThisTurnIds.push(id);
+            }
           }
         }
       } catch {

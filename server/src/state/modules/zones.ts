@@ -28,6 +28,7 @@ import { getMillTriggers } from "./triggers/mill.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./triggers/target-metadata.js";
 import { evaluateDrawReplacementEvent } from "./replacement-effects.js";
+import { summarizeDrawAmountReplacements } from "./replacementEffectSpec.js";
 import {
   applyLeaveBattlefieldReplacementLifeGain,
   tryApplyDeclarativeLeaveBattlefieldDestinationReplacement,
@@ -788,9 +789,18 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
         }
       }
 
-      if (!drawOneForPlayer(originalPlayerId, true)) {
-        break;
+      const extraDraw = summarizeDrawAmountReplacements(ctx.state, originalPlayerId, {
+        isFirstDrawStepDraw: currentStep.includes('draw') && drawNumber === 1,
+      });
+      const cardsThisEvent = Math.max(1, (1 + extraDraw.extraCards) * extraDraw.multiplier);
+      let stopDrawing = false;
+      for (let d = 0; d < cardsThisEvent; d++) {
+        if (!drawOneForPlayer(originalPlayerId, true)) {
+          stopDrawing = true;
+          break;
+        }
       }
+      if (stopDrawing) break;
     }
   }
 

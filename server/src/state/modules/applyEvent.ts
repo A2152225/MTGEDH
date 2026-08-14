@@ -14632,6 +14632,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           delete permanent.faceUpCard;
           delete permanent.canTurnFaceUp;
 
+          const faceUpOracle = String(actualCard?.oracle_text || '').toLowerCase();
+          if (/\bmegamorph\b/.test(faceUpOracle)) {
+            const counters = permanent.counters = permanent.counters || {};
+            counters['+1/+1'] = (Number(counters['+1/+1']) || 0) + 1;
+          }
+
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(morphTurnFaceUp): failed', err);

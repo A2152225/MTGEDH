@@ -6,6 +6,7 @@ import {
   isSupportedCopyPermanentTriggerPattern,
   isSupportedGainControlTriggerPattern,
   isTriggerStepRuntimeWired,
+  isUncategorizedFallbackExecutableStep,
   normalizeTriggerEffectDescriptionForExecution,
   parseTriggerEffectSteps,
 } from '../src/state/modules/trigger-runtime-wiring.js';
@@ -100,19 +101,14 @@ describe('trigger runtime wiring assessment', () => {
     expect(getTriggerRuntimeWiringGaps(effect, 'Test')).toEqual([]);
   });
 
-  it('treats attacking-player artifact gain_control as wired', () => {
-    const effect = 'the attacking player gains control of this artifact and untaps it';
-    const steps = collectOracleEffectSteps(effect, 'Test Artifact');
-    expect(steps).toEqual([
-      expect.objectContaining({
-        kind: 'gain_control',
-        what: expect.objectContaining({ text: 'this artifact' }),
-        newController: { kind: 'target_player' },
-      }),
-    ]);
-    expect(isSupportedGainControlTriggerPattern(steps[0]!)).toBe(true);
-    expect(isTriggerStepRuntimeWired(steps[0]!)).toBe(true);
-    expect(getTriggerRuntimeWiringGaps(effect, 'Test Artifact')).toEqual([]);
+  it('treats generic target-creature gain_control as wired via fallback', () => {
+    const effect = 'Gain control of target creature until end of turn.';
+    const steps = collectOracleEffectSteps(effect, 'Test');
+    const gainControl = steps.find((step) => step.kind === 'gain_control');
+    expect(gainControl).toBeTruthy();
+    expect(isSupportedGainControlTriggerPattern(gainControl!)).toBe(false);
+    expect(isTriggerStepRuntimeWired(gainControl!)).toBe(true);
+    expect(getTriggerRuntimeWiringGaps(effect, 'Test')).toEqual([]);
   });
 
   it('treats combat-damage opponent draw counts as wired', () => {
@@ -123,5 +119,18 @@ describe('trigger runtime wiring assessment', () => {
   it('treats subtype bulk untap as wired', () => {
     const effect = 'untap all elves you control';
     expect(getTriggerRuntimeWiringGaps(effect, 'Source')).toEqual([]);
+  });
+
+  it('uncategorized fallback uses the same wired-step check as primary except unknown', () => {
+    const gainControl = collectOracleEffectSteps('Each player gains control of all creatures they own.', 'Test');
+    expect(gainControl[0]?.kind).toBe('gain_control');
+    expect(isTriggerStepRuntimeWired(gainControl[0]!)).toBe(true);
+    expect(isUncategorizedFallbackExecutableStep(gainControl[0]!)).toBe(true);
+
+    const draw = parseTriggerEffectSteps('draw a card', 'Test');
+    expect(draw[0]?.kind).toBe('draw');
+    expect(isUncategorizedFallbackExecutableStep(draw[0]!)).toBe(true);
+
+    expect(isUncategorizedFallbackExecutableStep({ kind: 'unknown' } as any)).toBe(false);
   });
 });

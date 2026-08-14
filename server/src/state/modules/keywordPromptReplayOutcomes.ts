@@ -4,6 +4,8 @@ import { consumeManaFromPool, getOrInitManaPool, resolveManaCostForPoolPayment }
 import { requeueExploitRewardTriggersOnReplay } from './exploitKeywordTriggerUtils.js';
 import { createToken } from './counters_tokens.js';
 import { movePermanentToGraveyard } from './counters_tokens.js';
+import { applyHauntExileToTarget } from './hauntKeywordUtils.js';
+
 function findBattlefieldPermanent(state: any, permanentId: string): any | null {
   const id = String(permanentId || '').trim();
   if (!id) return null;
@@ -227,6 +229,19 @@ export function applyKeywordPromptResolveOutcome(
       if (!selectedPermanentId) break;
       movePermanentToGraveyard(ctx, selectedPermanentId, false);
       requeueExploitRewardTriggersOnReplay(ctx, event);
+      break;
+    }
+    case 'haunt': {
+      const selectedPermanentId = String((event as any).selectedPermanentId || '').trim();
+      const hauntCardId = String((event as any).hauntCardId || '').trim();
+      const ownerId = String((event as any).ownerId || (event as any).playerId || '').trim();
+      if (!selectedPermanentId || !hauntCardId || !ownerId) break;
+      applyHauntExileToTarget(state, {
+        ownerId,
+        hauntCardId,
+        targetPermanentId: selectedPermanentId,
+        sourceName: String((event as any).sourceName || ''),
+      });
       break;
     }
     default:

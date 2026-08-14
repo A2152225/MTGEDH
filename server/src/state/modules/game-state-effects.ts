@@ -55,8 +55,16 @@ import { cardHasCreatureType } from "../creatureTypeNow.js";
 import { getActiveStationAbilities, parseStationAbilities } from "../../utils/stationParser.js";
 import {
   collectOraclePatternDamageReplacementSpecsFromState,
+  collectOraclePatternLifeGainReplacementSpecsFromState,
+  collectOraclePatternTokenReplacementSpecsFromState,
+  collectOraclePatternCounterReplacementSpecsFromState,
+  collectReplacementEffectSpecsFromState,
   overlayReplacementSpecToEffect,
   overlaySpecsMatchDamage,
+  overlaySpecsMatchLifeGain,
+  overlaySpecsMatchTokenCreation,
+  overlaySpecsMatchCounterPlacement,
+  overlaySpecsMatchMill,
 } from "./replacementEffectSpec.js";
 
 /**
@@ -2384,6 +2392,12 @@ export interface CombatDamageReplacementEffect {
   preventsDamage: boolean;
   /** Mill effect: all opponents mill cards equal to damage amount */
   millAllOpponents?: boolean;
+  /** Mill only the player who would have been damaged */
+  millDamagedPlayer?: boolean;
+  /** Put that many +1/+1 counters on the damage source instead */
+  putPlusOneCountersOnSource?: boolean;
+  /** Only the source permanent's own combat damage is replaced (not other sources you control) */
+  sourceSelfOnly?: boolean;
   /** Controller and damaged player each draw half that many cards, rounded down */
   drawHalfForControllerAndDamagedPlayer?: boolean;
   /** Damage to player effect: deal damage to target player instead */
@@ -2402,29 +2416,12 @@ export type OpponentDamageReplacementResult = {
   millTargets?: string[];
   drawAmount?: number;
   drawTargets?: string[];
+  plusOneCountersOnSource?: number;
 };
 
 export type DetectedPreventDamageMillReplacement = {
   effect: CombatDamageReplacementEffect;
   sourceName: string;
-};
-
-const COMBAT_DAMAGE_REPLACEMENT_CARDS: Record<string, CombatDamageReplacementEffect> = {
-  "the mindskinner": {
-    description: "Prevent damage to an opponent, each opponent mills that many cards",
-    preventsDamage: true,
-    millAllOpponents: true,
-    onlyToPlayers: false,
-    appliesToNonCombatDamage: true,
-  },
-  // Szadek, Lord of Secrets - similar effect but only mills defending player
-  "szadek, lord of secrets": {
-    description: "Put +1/+1 counters instead of dealing damage, defending player mills that many",
-    preventsDamage: true, // Damage is replaced with counters
-    onlyToPlayers: true,
-  },
-  // Consuming Aberration - mills when dealing damage (but doesn't prevent)
-  // Not a true replacement, so not included here
 };
 
 function collectCombatDamageReplacementTexts(attackerCard: any, attackerPermanent: any): string[] {
@@ -2498,16 +2495,43 @@ function parsePreventDamageMillFromOracle(replacementText: string): CombatDamage
   return null;
 }
 
+function parseSourceSelfCombatDamageReplacementFromOracle(replacementText: string): CombatDamageReplacementEffect | null {
+  if (!replacementText.includes('would deal combat damage to a player')) return null;
+  if (!replacementText.includes('instead')) return null;
+  if (!replacementText.includes('+1/+1 counter')) return null;
+  if (!replacementText.includes('put that many')) return null;
+  if (!replacementText.includes('that player mills') && !replacementText.includes('that player mill')) {
+    return null;
+  }
+
+  return {
+    description: 'Instead put that many +1/+1 counters on source and that player mills that many',
+    preventsDamage: true,
+    millDamagedPlayer: true,
+    putPlusOneCountersOnSource: true,
+    sourceSelfOnly: true,
+    onlyToPlayers: true,
+    appliesToNonCombatDamage: false,
+  };
+}
+
+function detectSourceSelfCombatDamageReplacement(
+  attackerCard: any,
+  attackerPermanent: any,
+): DetectedPreventDamageMillReplacement | null {
+  const replacementTexts = collectCombatDamageReplacementTexts(attackerCard, attackerPermanent);
+  for (const replacementText of replacementTexts) {
+    const parsed = parseSourceSelfCombatDamageReplacementFromOracle(replacementText);
+    if (parsed) {
+      return { effect: parsed, sourceName: String(attackerCard?.name || attackerPermanent?.card?.name || 'Effect') };
+    }
+  }
+  return null;
+}
+
 function detectPreventDamageMillFromPermanent(
   perm: any
 ): DetectedPreventDamageMillReplacement | null {
-  const cardName = String(perm?.card?.name || '').toLowerCase();
-  for (const [knownName, effect] of Object.entries(COMBAT_DAMAGE_REPLACEMENT_CARDS)) {
-    if (cardName.includes(knownName)) {
-      return { effect, sourceName: String(perm?.card?.name || 'Effect') };
-    }
-  }
-
   const replacementTexts = collectCombatDamageReplacementTexts(perm?.card, perm);
   for (const replacementText of replacementTexts) {
     const parsed = parsePreventDamageMillFromOracle(replacementText);
@@ -2570,6 +2594,9 @@ export function detectCombatDamageReplacement(
   attackerCard: any,
   attackerPermanent: any
 ): CombatDamageReplacementEffect | null {
+  const sourceSelf = detectSourceSelfCombatDamageReplacement(attackerCard, attackerPermanent);
+  if (sourceSelf) return sourceSelf.effect;
+
   const controllerId = String(attackerPermanent?.controller || attackerCard?.controller || '').trim();
   if (controllerId) {
     const fromBattlefield = detectPreventDamageMillReplacementForController(ctx, controllerId);
@@ -2578,6 +2605,8 @@ export function detectCombatDamageReplacement(
 
   const replacementTexts = collectCombatDamageReplacementTexts(attackerCard, attackerPermanent);
   for (const replacementText of replacementTexts) {
+    const sourceSelf = parseSourceSelfCombatDamageReplacementFromOracle(replacementText);
+    if (sourceSelf) return sourceSelf;
     const parsed = parsePreventDamageMillFromOracle(replacementText);
     if (parsed) return parsed;
   }
@@ -2585,22 +2614,21 @@ export function detectCombatDamageReplacement(
   return null;
 }
 
-export function millAllOpponentsForController(
+export function millSpecifiedPlayers(
   ctx: GameContext,
-  sourceControllerId: string,
+  playerIds: readonly string[],
   count: number
 ): { opponentId: string; milled: number }[] {
   const millCount = Math.max(0, Math.floor(Number(count) || 0));
   if (millCount <= 0) return [];
 
   const results: { opponentId: string; milled: number }[] = [];
-  const players = (ctx.state?.players as any[]) || [];
-  const opponents = players.filter(
-    (p: any) => p?.id && String(p.id) !== String(sourceControllerId) && !p.hasLost
-  );
+  const seen = new Set<string>();
 
-  for (const opponent of opponents) {
-    const opponentId = String(opponent.id);
+  for (const rawId of playerIds) {
+    const opponentId = String(rawId || '').trim();
+    if (!opponentId || seen.has(opponentId)) continue;
+    seen.add(opponentId);
     let milled = 0;
 
     const lib = ctx.libraries?.get?.(opponentId);
@@ -2650,6 +2678,32 @@ export function millAllOpponentsForController(
   return results;
 }
 
+export function millAllOpponentsForController(
+  ctx: GameContext,
+  sourceControllerId: string,
+  count: number
+): { opponentId: string; milled: number }[] {
+  const players = (ctx.state?.players as any[]) || [];
+  const opponents = players
+    .filter((p: any) => p?.id && String(p.id) !== String(sourceControllerId) && !p.hasLost)
+    .map((p: any) => String(p.id));
+  return millSpecifiedPlayers(ctx, opponents, count);
+}
+
+function putPlusOneCountersOnPermanent(
+  ctx: GameContext,
+  permanent: any,
+  amount: number,
+  controllerId: string,
+): void {
+  const count = Math.max(0, Math.floor(Number(amount) || 0));
+  if (!permanent || count <= 0) return;
+  const { finalCount } = applyCounterReplacements(ctx, count, controllerId, '+1/+1');
+  if (finalCount <= 0) return;
+  permanent.counters = { ...(permanent.counters || {}) };
+  permanent.counters['+1/+1'] = Number(permanent.counters['+1/+1'] || 0) + finalCount;
+}
+
 function buildPreventDamageMillReplacementResult(
   ctx: GameContext,
   args: {
@@ -2684,6 +2738,15 @@ function buildPreventDamageMillReplacementResult(
       .filter((p: any) => p?.id && String(p.id) !== String(args.sourceControllerId) && !p.hasLost)
       .map((p: any) => String(p.id));
     result.effectsApplied.push(`Each opponent mills ${args.damageAmount} cards`);
+  } else if (args.replacement.millDamagedPlayer && args.damageAmount > 0 && args.targetPlayerId) {
+    result.millAmount = args.damageAmount;
+    result.millTargets = [String(args.targetPlayerId)];
+    result.effectsApplied.push(`${args.targetPlayerId} mills ${args.damageAmount} cards`);
+  }
+
+  if (args.replacement.putPlusOneCountersOnSource && args.damageAmount > 0) {
+    result.plusOneCountersOnSource = args.damageAmount;
+    result.effectsApplied.push(`Put ${args.damageAmount} +1/+1 counter(s) on source`);
   }
 
   if (args.replacement.drawHalfForControllerAndDamagedPlayer && args.damageAmount > 0) {
@@ -2786,7 +2849,7 @@ export function applyOpponentDamageReplacement(
   });
 
   if (args.executeMills !== false && result.millAmount && result.millTargets) {
-    millAllOpponentsForController(ctx, sourceControllerId, result.millAmount);
+    millSpecifiedPlayers(ctx, result.millTargets, result.millAmount);
   }
 
   return result;
@@ -2824,8 +2887,17 @@ export function resolveCombatDamageToOpponent(
     args.defendingPlayerId
   );
 
-  if (args.executeMills !== false && replacement.millAmount) {
-    millAllOpponentsForController(ctx, args.attackerController, replacement.millAmount);
+  if (args.executeMills !== false && replacement.millAmount && replacement.millTargets) {
+    millSpecifiedPlayers(ctx, replacement.millTargets, replacement.millAmount);
+  }
+
+  if (replacement.plusOneCountersOnSource && args.attackerPermanent) {
+    putPlusOneCountersOnPermanent(
+      ctx,
+      args.attackerPermanent,
+      replacement.plusOneCountersOnSource,
+      String(args.attackerController || ''),
+    );
   }
 
   return {
@@ -2906,7 +2978,9 @@ export function applyCombatDamageReplacement(
     effectsApplied: [],
   };
 
-  const detected = detectPreventDamageMillReplacementForController(ctx, attackerController);
+  const sourceSelf = detectSourceSelfCombatDamageReplacement(attackerCard, attackerPermanent);
+  const detected = sourceSelf
+    || detectPreventDamageMillReplacementForController(ctx, attackerController);
   if (!detected) {
     return empty;
   }
@@ -3283,13 +3357,8 @@ export function detectDamageReplacementEffects(
 }
 
 /**
- * Detect counter modification effects for "whenever you put counters" replacements.
- * Used for Doubling Season, Hardened Scales, etc.
- * 
- * @param ctx - Game context
- * @param controllerId - Player putting counters
- * @param counterType - Type of counter ('+1/+1', 'loyalty', etc.)
- * @returns Array of replacement effects
+ * Detect counter amount-modify replacements (Doubling Season / Hardened Scales / Primal Vigor).
+ * Oracle-pattern specs only — no card-name routing.
  */
 export function detectCounterReplacementEffects(
   ctx: GameContext,
@@ -3297,279 +3366,51 @@ export function detectCounterReplacementEffects(
   counterType: string
 ): ReplacementEffect[] {
   const effects: ReplacementEffect[] = [];
-  const battlefield = getActivePermanents(ctx);
-  
-  for (const perm of battlefield) {
-    const cardName = (perm.card?.name || "").toLowerCase();
-    const oracleText = (perm.card?.oracle_text || "").toLowerCase();
-    const controller = perm.controller;
-    
-    // Doubling Season - doubles counters put on permanents you control
-    if (cardName.includes("doubling season") && controller === controllerId) {
-      effects.push({
-        type: 'double',
-        source: "Doubling Season",
-        controllerId: controller,
-      });
-    }
-    
-    // Hardened Scales - +1 to +1/+1 counters
-    if (cardName.includes("hardened scales") && controller === controllerId && counterType === '+1/+1') {
-      effects.push({
-        type: 'add_flat',
-        value: 1,
-        source: "Hardened Scales",
-        controllerId: controller,
-      });
-    }
-    
-    // Branching Evolution - doubles +1/+1 counters on creatures
-    if (cardName.includes("branching evolution") && controller === controllerId && counterType === '+1/+1') {
-      effects.push({
-        type: 'double',
-        source: "Branching Evolution",
-        controllerId: controller,
-      });
-    }
-    
-    // Vorinclex, Monstrous Raider - doubles counters on your permanents
-    if (cardName.includes("vorinclex, monstrous raider") && controller === controllerId) {
-      effects.push({
-        type: 'double',
-        source: "Vorinclex, Monstrous Raider",
-        controllerId: controller,
-      });
-    }
-    
-    // Winding Constrictor - +1 to counters on permanents you control
-    if (cardName.includes("winding constrictor") && controller === controllerId) {
-      effects.push({
-        type: 'add_flat',
-        value: 1,
-        source: "Winding Constrictor",
-        controllerId: controller,
-      });
-    }
-    
-    // Corpsejack Menace - doubles +1/+1 counters
-    if (cardName.includes("corpsejack menace") && controller === controllerId && counterType === '+1/+1') {
-      effects.push({
-        type: 'double',
-        source: "Corpsejack Menace",
-        controllerId: controller,
-      });
-    }
-    
-    // The Earth Crystal - doubles +1/+1 counters on creatures you control
-    // "If one or more +1/+1 counters would be put on a creature you control, 
-    // twice that many +1/+1 counters are put on that creature instead."
-    if (cardName.includes("the earth crystal") && controller === controllerId && counterType === '+1/+1') {
-      effects.push({
-        type: 'double',
-        source: "The Earth Crystal",
-        controllerId: controller,
-      });
-    }
-    
-    // Pir, Imaginative Rascal - +1 to counters on permanents you control
-    if (cardName.includes("pir, imaginative rascal") && controller === controllerId) {
-      effects.push({
-        type: 'add_flat',
-        value: 1,
-        source: "Pir, Imaginative Rascal",
-        controllerId: controller,
-      });
-    }
+  const state = (ctx as any)?.state || ctx;
+  const specs = collectOraclePatternCounterReplacementSpecsFromState(state);
+  for (const spec of specs) {
+    if (!spec.instead?.modify) continue;
+    if (!overlaySpecsMatchCounterPlacement(spec, { counterType, targetController: controllerId })) continue;
+    effects.push(overlayReplacementSpecToEffect(spec));
   }
-  
   return effects;
 }
 
 /**
- * Detect life gain modification effects.
- * Used for Boon Reflection, Rhox Faithmender, etc.
- * 
- * @param ctx - Game context  
- * @param playerId - Player gaining life
- * @returns Array of replacement effects
+ * Detect life gain amount-modify replacements (Boon Reflection / Leyline of Hope family).
+ * Oracle-pattern specs only — no card-name routing.
  */
 export function detectLifeGainReplacementEffects(
   ctx: GameContext,
   playerId: string
 ): ReplacementEffect[] {
   const effects: ReplacementEffect[] = [];
-  const battlefield = getActivePermanents(ctx);
-  
-  for (const perm of battlefield) {
-    const cardName = (perm.card?.name || "").toLowerCase();
-    const controller = perm.controller;
-    
-    // Boon Reflection - double life gained
-    if (cardName.includes("boon reflection") && controller === playerId) {
-      effects.push({
-        type: 'double',
-        source: "Boon Reflection",
-        controllerId: controller,
-      });
-    }
-    
-    // Rhox Faithmender - double life gained  
-    if (cardName.includes("rhox faithmender") && controller === playerId) {
-      effects.push({
-        type: 'double',
-        source: "Rhox Faithmender",
-        controllerId: controller,
-      });
-    }
-    
-    // Trostani, Selesnya's Voice - (actually just has life gain trigger, not replacement)
-    
-    // Alhammarret's Archive - double life gained
-    if (cardName.includes("alhammarret's archive") && controller === playerId) {
-      effects.push({
-        type: 'double',
-        source: "Alhammarret's Archive",
-        controllerId: controller,
-      });
-    }
-    
-    // The Wind Crystal - double life gained
-    // "If you would gain life, you gain twice that much life instead."
-    if (cardName.includes("the wind crystal") && controller === playerId) {
-      effects.push({
-        type: 'double',
-        source: "The Wind Crystal",
-        controllerId: controller,
-      });
-    }
-    
-    // Leyline of Hope - +1 life gained
-    if (cardName.includes("leyline of hope") && controller === playerId) {
-      effects.push({
-        type: 'add_flat',
-        value: 1,
-        source: "Leyline of Hope",
-        controllerId: controller,
-      });
-    }
-    
-    // Angel of Vitality - +1 life gained if you have 25+ life
-    if (cardName.includes("angel of vitality") && controller === playerId) {
-      const startingLife = (ctx.state as any)?.startingLife || 40;
-      const currentLife = (ctx.state as any)?.life?.[playerId] ?? startingLife;
-      if (currentLife >= 25) {
-        effects.push({
-          type: 'add_flat',
-          value: 1,
-          source: "Angel of Vitality",
-          controllerId: controller,
-        });
-      }
-    }
+  const state = (ctx as any)?.state || ctx;
+  const specs = collectOraclePatternLifeGainReplacementSpecsFromState(state);
+  for (const spec of specs) {
+    if (!spec.instead?.modify) continue;
+    if (!overlaySpecsMatchLifeGain(spec, { playerId, state })) continue;
+    effects.push(overlayReplacementSpecToEffect(spec));
   }
-  
   return effects;
 }
 
 /**
- * Detect token creation modification effects.
- * Used for Doubling Season, Parallel Lives, etc.
- * 
- * @param ctx - Game context
- * @param controllerId - Player creating tokens
- * @returns Array of replacement effects
+ * Detect token creation amount-modify replacements (Anointed Procession / Primal Vigor / Ojer Taq).
+ * Oracle-pattern specs only — no card-name routing.
  */
 export function detectTokenCreationReplacementEffects(
   ctx: GameContext,
   controllerId: string
 ): ReplacementEffect[] {
   const effects: ReplacementEffect[] = [];
-  const battlefield = getActivePermanents(ctx);
-  
-  for (const perm of battlefield) {
-    const cardName = (perm.card?.name || "").toLowerCase();
-    const oracleText = (perm.card?.oracle_text || "").toLowerCase();
-    const controller = perm.controller;
-    
-    // Doubling Season - doubles tokens created
-    if (cardName.includes("doubling season") && controller === controllerId) {
-      effects.push({
-        type: 'double',
-        source: "Doubling Season",
-        controllerId: controller,
-      });
-    }
-    
-    // Parallel Lives - doubles tokens created
-    if (cardName.includes("parallel lives") && controller === controllerId) {
-      effects.push({
-        type: 'double',
-        source: "Parallel Lives",
-        controllerId: controller,
-      });
-    }
-    
-    // Anointed Procession - doubles tokens created
-    if (cardName.includes("anointed procession") && controller === controllerId) {
-      effects.push({
-        type: 'double',
-        source: "Anointed Procession",
-        controllerId: controller,
-      });
-    }
-    
-    // Primal Vigor - doubles tokens for ALL players (global effect)
-    // Note: This affects whoever is creating tokens, not just the controller
-    if (cardName.includes("primal vigor")) {
-      effects.push({
-        type: 'double',
-        source: "Primal Vigor (global)",
-        // No controllerId check since this affects all players
-      });
-    }
-    
-    // Mondrak, Glory Dominus - doubles tokens created
-    if (cardName.includes("mondrak, glory dominus") && controller === controllerId) {
-      effects.push({
-        type: 'double',
-        source: "Mondrak, Glory Dominus",
-        controllerId: controller,
-      });
-    }
-
-    // Adrix and Nev, Twincasters - doubles tokens created
-    if (cardName.includes('adrix and nev') && controller === controllerId) {
-      effects.push({
-        type: 'double',
-        source: "Adrix and Nev, Twincasters",
-        controllerId: controller,
-      });
-    }
-    
-    // Ojer Taq, Deepest Foundation - triples tokens created
-    if (cardName.includes("ojer taq, deepest foundation") && controller === controllerId) {
-      effects.push({
-        type: 'triple',
-        source: "Ojer Taq, Deepest Foundation",
-        controllerId: controller,
-      });
-    }
-
-    // Generic token doublers (covers many Elspeth templates and similar):
-    // "If one or more tokens would be created under your control, twice that many ... are created instead."
-    if (
-      controller === controllerId &&
-      oracleText.includes('tokens would be created under your control') &&
-      oracleText.includes('twice that many')
-    ) {
-      effects.push({
-        type: 'double',
-        source: perm.card?.name || 'Token doubler',
-        controllerId: controller,
-      });
-    }
+  const state = (ctx as any)?.state || ctx;
+  const specs = collectOraclePatternTokenReplacementSpecsFromState(state);
+  for (const spec of specs) {
+    if (!spec.instead?.modify) continue;
+    if (!overlaySpecsMatchTokenCreation(spec, { controllerId, state })) continue;
+    effects.push(overlayReplacementSpecToEffect(spec));
   }
-  
   return effects;
 }
 
@@ -3609,13 +3450,8 @@ export function applyLifeGainReplacements(
 }
 
 /**
- * Detect mill replacement effects.
- * Used for The Water Crystal, Bruvac the Grandiloquent, etc.
- * 
- * @param ctx - Game context
- * @param millingPlayerId - Player who controls the mill effect
- * @param targetPlayerId - Player being milled (opponent)
- * @returns Array of replacement effects
+ * Detect mill replacement effects (Bruvac / Water Crystal family).
+ * Oracle-pattern + overlay specs only — no card-name routing.
  */
 export function detectMillReplacementEffects(
   ctx: GameContext,
@@ -3623,34 +3459,12 @@ export function detectMillReplacementEffects(
   targetPlayerId: string
 ): ReplacementEffect[] {
   const effects: ReplacementEffect[] = [];
-  const battlefield = getActivePermanents(ctx);
-  
-  for (const perm of battlefield) {
-    const cardName = (perm.card?.name || "").toLowerCase();
-    const controller = perm.controller;
-    
-    // Bruvac the Grandiloquent - doubles mill for opponents
-    // "If an opponent would mill one or more cards, they mill twice that many cards instead."
-    if (cardName.includes("bruvac") && controller === millingPlayerId && targetPlayerId !== millingPlayerId) {
-      effects.push({
-        type: 'double',
-        source: "Bruvac the Grandiloquent",
-        controllerId: controller,
-      });
-    }
-    
-    // The Water Crystal - opponents mill +4 more
-    // "If an opponent would mill one or more cards, they mill that many cards plus four instead."
-    if (cardName.includes("the water crystal") && controller === millingPlayerId && targetPlayerId !== millingPlayerId) {
-      effects.push({
-        type: 'add_flat',
-        value: 4,
-        source: "The Water Crystal",
-        controllerId: controller,
-      });
-    }
+  const state = (ctx as any)?.state || ctx;
+  for (const spec of collectReplacementEffectSpecsFromState(state)) {
+    if (spec.event !== 'mill' || !spec.instead?.modify) continue;
+    if (!overlaySpecsMatchMill(spec, { millingPlayerId, targetPlayerId })) continue;
+    effects.push(overlayReplacementSpecToEffect(spec));
   }
-  
   return effects;
 }
 

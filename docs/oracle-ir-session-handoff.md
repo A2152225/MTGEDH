@@ -1,35 +1,148 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-08-12 (Season `{P}` client budget UX + spell-static EDH triage clean)
+Last updated: 2026-08-14 (Phase 5 Szadek-style combat replace + PW loyalty 99.9%)
 
 > **Cost reducers / alternate costs** (separate workstream): see [`docs/cost-reduction-handoff.md`](cost-reduction-handoff.md).
 
 ## Next session prompt (copy-paste)
 
 ```
-Continue MTGEDH Oracle IR migration — post Season {P} UX + spell-static triage.
+Continue MTGEDH Oracle IR migration — post Phase 5 Szadek-style combat replace + PW loyalty 99.9%.
 
 Read first:
 - docs/oracle-ir-session-handoff.md (this prompt)
-- docs/oracle-ir-track-e-remaining-work.md (§ IR live-readiness Aug 2026, D6)
-- docs/oracle-ir-smoke-soak.md (scripted card-list soaks + how to add a suite)
+- docs/oracle-ir-track-e-remaining-work.md (§ IR live-readiness Aug 2026, D4–D7)
+- docs/oracle-ir-smoke-soak.md (scripted card-list soaks; edh-readiness live is the green bar)
 - .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
 
 Done recently:
-- Season {P}: pBudget/pCost/canRepeatModes on MODE_SELECTION → ModalSpellSelectionModal budget UX
-  shared/src/modeSelectionPBudget.ts; server validate + AI greedy fill
-- Spell-static audit: edhHitCount 0; remainder Un-set only (hitCount ~3 after noise filter)
-- Prior: vote/end_combat Layer 3; Spree/Tiered resolve scope; spell-static typing
+- Szadek-style source-self combat replace: instead +1/+1 counters on source and mill that player (generic oracle; not controller-wide)
+- Library-search replacements collapsed onto oracle-pattern specs
+- Combat prevent-and-mill first-match table removed; Mindskinner-family effects parse from oracle
+- Mill replacements collapsed onto oracle-pattern specs; leftover loyalty 99.9%
 
 Verify:
-cd server ; npx vitest run tests/mode-selection-p-budget.unit.test.ts tests/oracle-prompt-context.test.ts tests/ai-mode-selection.test.ts --pool=threads --maxWorkers=1
-cd ../client ; npx vitest run tests/modalSpellPBudget.test.ts
+cd server ; npx vitest run tests/replacement-effect-spec.unit.test.ts tests/replacement-effects.test.ts tests/mindskinner-damage-replacement.unit.test.ts --pool=threads --maxWorkers=1
 
 Next work (priority):
-1. Live EDH telemetry soak after real games **or** `npm run oracle-ir:smoke:live` (server must be running); triage owned_but_unhandled
-2. Continuous-effect depth / remaining IR gaps from telemetry
-3. Optional: Un-set die-band IR (Goblin Tutor / Six-Sided Die) only if digital Un-set play is desired
+1. Last 1/887 loyalty line: Davriel, Soul Broker Alchemy "Accept one of Davriel's offers/conditions" (leave unwired unless a generic offer/condition step exists).
+2. Real EDH tables → GET /api/oracle-ir/telemetry (do not expand the soak list)
+3. Optional: `rules-engine/src/librarySearchEffects.ts` KNOWN_* table is unused by the live socket path; Vigor creature-damage still has a card-name check in `turn.ts`.
 ```
+
+## Session 2026-08-14 (latest) — Szadek-style source-self combat replace
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Source-self combat** | Generic parse for “would deal combat damage to a player, instead put that many +1/+1 counters … and that player mills”. Applies only to the source permanent (not other creatures you control). Mills `millTargets` rather than always milling all opponents. | `game-state-effects.ts`, `mindskinner-damage-replacement.unit.test.ts` |
+
+**Still open:** Davriel Alchemy offers; real multiplayer telemetry; unused `librarySearchEffects` KNOWN_* table; Vigor card-name in `turn.ts`.
+
+## Session 2026-08-14 (later) — library-search oracle-pattern + prevent-and-mill first-match
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Library-search** | Oracle-pattern specs for opponent prevent (Stranglehold / Ashiok), players-can't-search, pay-to-search (Leonin Arbiter), top-four (Aven Mindcensor), search control (Opposition Agent), and search-trigger (Ob Nixilis). `evaluateLibrarySearchReplacementEvent` no longer card-name routes. Restrictions still aggregate (not first-match). | `replacementEffectSpec.ts`, `replacement-effects.ts`, `replacement-effect-spec.unit.test.ts`, `replacement-effects.test.ts` |
+| **Prevent-and-mill** | Removed `COMBAT_DAMAGE_REPLACEMENT_CARDS` first-match. Mindskinner-family effects parse from oracle (`prevent that damage` + mill). | `game-state-effects.ts`, `mindskinner-damage-replacement.unit.test.ts` |
+
+**Still open (superseded 2026-08-14):** Szadek-style source-self combat replace closed. Remaining: Davriel Alchemy offers; real multiplayer telemetry.
+
+## Session 2026-08-13 (later) — mill oracle-pattern specs
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Mill replacements** | Oracle-pattern specs for opponent mill double (Bruvac) and plus-four (Water Crystal). `detectMillReplacementEffects` / `evaluateMillReplacementEvent` no longer card-name route. Amount-modify still skipped in first-match so +N then doublers stack (3 → 14). | `replacementEffectSpec.ts`, `game-state-effects.ts`, `replacement-effects.ts`, `replacement-effect-spec.unit.test.ts` |
+
+**Still open (superseded 2026-08-14):** library-search and prevent-and-mill first-match closed. Remaining: Szadek-style source-self combat replace; Davriel Alchemy offers; real multiplayer telemetry.
+
+## Session 2026-08-13 (later) — remaining PW loyalty residual parse
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **PW leftover lines** | Compound until-next-turn P/T+keyword, until-next-turn whenever, modal `+X/+X or -X/-X`, perpetual P/T, until-next-turn animate, GY+ward, and related residual grants now survive `parseOracleTextToIR` (bare-fragment recovery after reminder prune / empty `gets` stubs). Loyalty IR **878 (99.0%) → 886 (99.9%)** of 887. | `oracleIRParser.ts`, `oracleIRParserModifyPtClauses.ts`, `oracleIRParserPostprocess.ts`, `oracle-ir-activated-ability.test.ts`, `oracle-ir-step-wiring.test.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers/conditions (`unknown`). `cant_attack` stays out of fallback (unwired canary). | — |
+
+**Still open:** 1 Alchemy loyalty line; real multiplayer telemetry.
+
+## Session 2026-08-13 (later) — remaining PW executor kinds + counter specs
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **PW IR kinds** | `flip_coin`, `phase_out`, `venture_into_dungeon`, `exchange_control`, `add_types`, `cant_activate_abilities`, `modify_exile_permissions`, `choose_card_name` added to fallback. Until-next-turn P/T parses as `modify_pt` (`until_next_turn`) and expires on the source controller's next untap. Loyalty IR **864 (97.4%) → 878 (99.0%)** of 887. | `trigger-runtime-wiring.ts`, `oracleIRParserModifyPtClauses.ts`, `oracle-ir-activated-ability.test.ts`, `oracle-ir-step-wiring.test.ts` |
+| **Counter replacements** | Oracle-pattern specs for global +1/+1 double (Primal Vigor) and any-counter plus-one (Winding Constrictor / Pir). `detectCounterReplacementEffects` / `computeCounterPlacementModifiedDeltas` no longer card-name route. | `replacementEffectSpec.ts`, `game-state-effects.ts`, `replacementCounterPlacementUtils.ts`, `replacement-effect-spec.unit.test.ts` |
+
+**Still open (superseded later 2026-08-13):** leftover loyalty residual parse closed (886/887). Remaining: Davriel Alchemy offers; real multiplayer telemetry.
+
+## Session 2026-08-13 (later) — remaining PW IR kinds + token doubling specs
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **PW IR kinds** | `gain_control`, `grant_exile_permission`, `skip_next_untap` added to `ORACLE_IR_FALLBACK_STEP_KINDS`. Dropped the `isSupportedGainControlTriggerPattern` gate so generic “gain control of target creature” is wired. Loyalty IR **833 (93.9%) → 864 (97.4%)** of 887. | `trigger-runtime-wiring.ts`, `oracleIrStepWiring.ts`, `oracle-ir-activated-ability.test.ts`, `oracle-ir-step-wiring.test.ts` |
+| **Token doubling** | Oracle-pattern specs: controller double (`tokens would be created under your control` / `create one or more tokens under your control` + `twice that many`), global double (Primal Vigor; exclude `under your control`), creature triple (Ojer Taq). Amount-modify skipped in first-match so they stack. Live `createToken` uses `summarizeTokenAmountReplacements`. | `replacementEffectSpec.ts`, `replacement-effects.ts`, `game-state-effects.ts`, `replacement-effect-spec.unit.test.ts`, `replacement-effects.test.ts` |
+
+**Still open:** remaining PW IR (~23 lines: empty PT/cost-reduction, `flip_coin`, `phase_out`, `venture_into_dungeon`, `exchange_control`); counter detect still card-name routed; real multiplayer telemetry.
+
+## Session 2026-08-13 (later) — PW emblem IR + life-gain live path
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **PW coverage** | `npm run planeswalker:coverage` streams `oracle-cards.jsonl` and reports IR-wired vs template. 887 loyalty lines; IR fully wired **833 (93.9%)** after emblem wiring (was 758 / 85.5%). | `scripts/planeswalker-coverage.ts`, `server/package.json` |
+| **create_emblem** | Added to `ORACLE_IR_FALLBACK_STEP_KINDS`. `applyOracleIRStepsOnServer` hydrates/syncs `player.emblems` → live `state.emblems` (`id`, `controller`, `sourceName`, `effect`). | `trigger-runtime-wiring.ts`, `oracleIrServerZoneSync.ts`, `oracle-ir-activated-ability.test.ts` |
+| **Life-gain live path** | `detectLifeGainReplacementEffects` / `processLifeChange` use oracle-pattern specs (same as `applyLifeGain`). Unnamed doublers now apply on combat/token/event life gain. | `game-state-effects.ts`, `replacementEffectSpec.ts`, `replacement-effect-spec.unit.test.ts` |
+
+**Still open (superseded later 2026-08-13):** remaining PW IR kinds and token doubling closed. Remaining: leftover PW kinds (`flip_coin` / `phase_out`); counter detect card-name rows; real multiplayer telemetry.
+
+## Session 2026-08-13 (later) — Phase 5 draw extra-card replacements
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Draw extra-card replacements** | Oracle-pattern specs for controller extra-draw (`draw two cards instead`), with Archive/Teferi `except the first one you draw in each of your draw steps` skipped via `isFirstDrawStepDraw`. Amount-modify skipped in first-match so doubles stack (1 → 2 → 4). `drawCards` applies `(1 + extra) * multiplier` after redirect/choice replacements. | `replacementEffectSpec.ts`, `zones.ts`, `replacement-effect-spec.unit.test.ts`, `replacement-effects.test.ts` |
+
+**Still open (superseded later 2026-08-13):** PW emblem IR + coverage jsonl closed. Remaining: other PW IR kinds; real multiplayer telemetry.
+
+## Session 2026-08-13 (late) — Phase 5 life-gain amount-modify + delayed face-up
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Life-gain replacements** | Oracle-pattern specs for controller double (`twice that much life`) and plus-1 (`that much life plus 1`, Angel of Vitality 25-life gate). Amount-modify skipped in first-match `evaluateDeclarativeReplacementEvent` so they stack (+1 then ×2). `applyLifeGain` dropped card-name helpers. | `replacementEffectSpec.ts`, `utils.ts`, `replacement-effect-spec.unit.test.ts` |
+| **Delayed-return face-up** | `turnReturnedPermanentFaceUp(permanent, ctx)` emits `processFaceUpTriggers` and applies megamorph. | `triggerDelayedEffectUtils.ts`, `triggerBoundGraveyardReturnUtils.ts`, `triggerDelayedCleanupUtils.ts`, `enters-or-other-event-fire.unit.test.ts` |
+| **PW loyalty IR** | `+1: Draw a card.` cost-stripped activated text is IR-handled. Unwired loyalty effects still fall through to templates only when IR primary is off. | `oracle-ir-activated-ability.test.ts` |
+
+**Still open (superseded later 2026-08-13):** draw extra-card replacements closed. Remaining: PW loyalty template depth; real multiplayer telemetry.
+
+## Session 2026-08-13 — Phase 4 allowlist + morph face-up + haunt targeting
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Phase 4 fallback** | Uncategorized-spell fallback include check is `isUncategorizedFallbackExecutableStep` → `isTriggerStepRuntimeWired`, except `unknown` stays out so mixed parses still all-or-nothing refuse. No separate `ORACLE_IR_FALLBACK_STEP_KINDS` allowlist in the fallback module. `categorizeSpell` remains retired under IR primary (targeting still uses `categorizeSpellWithoutPrimaryRetirement`). | `trigger-runtime-wiring.ts`, `oracleIrUncategorizedSpellFallback.ts`, `trigger-runtime-wiring.unit.test.ts` |
+| **Morph face-up** | `handleMorphTurnFaceUpResponse` emits via `processFaceUpTriggers` (self + watchers). ETB queue skips `isFaceUpTriggerType` so `enters or is turned face up` does not double-fire on ETB. Megamorph puts a `+1/+1` counter on live turn-face-up and `applyEvent(morphTurnFaceUp)` replay. | `triggerEmissionFamilyUtils.ts`, `stackResolvePermanentEtbTriggerUtils.ts`, `resolution.ts`, `applyEvent.ts`, `enters-or-other-event-fire.unit.test.ts` |
+| **Haunt targeting** | Generic keyword path: `\bhaunt\b` dies trigger → `HAUNT_TARGET` choice → exile from GY with `hauntingPermanentId` / `hauntedCard` / `hauntingTargetId`. IR postprocess treats the exile-haunting fragment as externally handled so keyword targeting owns it. Replay + AI + client target modal wired. Haunt *leave* already fired from exile when those IDs match. | `keyword-detection.ts`, `hauntKeywordUtils.ts`, `keyword-handlers.ts`, `resolution.ts`, `haunt-keyword.unit.test.ts`, `haunt-target.integration.test.ts` |
+
+**Still open (superseded later 2026-08-13):** delayed-return face-up and life-gain amount-modify closed. Remaining: draw extra-card replacements, PW loyalty template depth, real-table telemetry.
+
+## Session 2026-08-12 (late) — D5 other-event fire paths
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Detection prefixes** | Other-event detectors consume optional `enters or` before dies/GY, leaves, monstrous, tapped, haunt | `triggered-abilities.ts`, `triggers/tap-untap.ts` |
+| **Artifact GY** | `getDeathTriggers` no longer early-returns for non-creatures; `movePermanentToGraveyard` queues GY-from-battlefield self triggers (Ichor Wellspring) | `counters_tokens.ts` |
+| **Haunt leave** | Modern `enters or the creature it haunts dies` detected; fire from exile when `hauntingPermanentId` matches the dying creature | `getDeathTriggers` |
+| **Fire-path tests** | LTB Cryogen Relic, monstrous compound, Champions tap, Stitcher's Supplier dies, Ichor GY, haunt exile | `enters-or-other-event-fire.unit.test.ts` (**15/15**) |
+
+**Still open (superseded 2026-08-13):** Phase 4 fallback allowlist, morph live emission, and generic haunt targeting closed. Remaining: Phase 5 + real-table telemetry.
+
+## Session 2026-08-12 (evening) — Live soak green + board-context
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Scripted live table** | `npm run oracle-ir:smoke:live` **51/51** cards, **407/407** in-process checks, live D2 **0→0** | `oracleIrLiveSoak.ts`, `edhReadiness.ts`, `docs/oracle-ir-smoke-soak.md` |
+| **Shared board-context** | AI skips Path/Force Spike/Windfall/Fog when the table cannot support them; soak *provisions* the same gaps (Creature — Bear, stack Bolt, hands, combat) | `spellCastBoardContext.ts`, `ai.ts`, `spell-cast-board-context.unit.test.ts` |
+| **Tivit** | ETB regex consumed `or deals combat damage…` as the effect; timing prefix now includes that clause; leftover vote counts from another ballot no longer apply | `triggered-abilities.ts`, `triggers/combat.ts`, `oracleIRExecutorPlayerStepHandlers.ts` |
+| **Messenger Jays** | Vote-scaled draw no longer fails `drawEffectSynced` while the ballot is queued | `oracleIrTriggerExecution.ts` |
+| **Rime Chill** | `Tap up to N` with no legal permanents applies as choosing 0 (then draw) | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **D5 compound ETB suffix** | Generic `enters or attacks/dies/leaves/…` consumed as timing. Commander-legal compounds **208**, ETB swallows **0**. Kindred Discovery no longer double-queues | `triggered-abilities.ts`, `chosen-creature-type.ts`, `trigger-effect-text-extraction.unit.test.ts` |
+
+**Still open:** real multiplayer telemetry; Phase 4 `categorizeSpell` / uncategorized fallback thickness; Phase 5 replacement-event + PW loyalty depth; morph face-up live emission.
 
 ## Session 2026-08-12 (PM) — Season `{P}` UX + spell-static triage
 
@@ -48,7 +161,7 @@ Next work (priority):
 | **`end_combat_phase` + `vote`** | Parse/execute + server VOTE APNAP resume; voter-relative ballots; halt so draw/damage tails resume; `combat: undefined` for Object.assign sync | `oracleIREndCombatAndVote.test.ts`, `oracle-ir-vote-end-combat.integration.test.ts` |
 | **Docs** | Migration plan + Track E + this handoff updated | `oracle-ir-*-*.md` |
 
-**Still open (superseded PM session):** Season `{P}` client UX + EDH spell-static triage done below; live telemetry soak remains.
+**Still open (superseded PM session):** Season `{P}` client UX + EDH spell-static triage done below; scripted live soak later went green (51/51). Real multiplayer telemetry remains.
 
 ## Session 2026-07-07 (PM) — Delta→probe workflow + dynamic lords
 

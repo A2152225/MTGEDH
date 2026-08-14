@@ -2,11 +2,11 @@
 
 **Purpose:** Track post–Track D executor/Layer 3 work and document the path to **seamless automation for cards not yet in the corpus** (new sets, custom cards, novel phrasing).
 
-**Last updated:** 2026-08-12 (Season `{P}` D6 client budget UX shipped; spell-static **edhHitCount 0**; D3 ratchet **0**)
+**Last updated:** 2026-08-14 (Phase 5 library-search oracle-pattern + PW loyalty 886/887)
 
 **Read first:** [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) · [oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md) · `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` · `.cursor/rules/oracle-ir-compiled-overlay.mdc`
 
-**Next session:** Copy the prompt at the top of [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) (live telemetry soak / continuous-effect depth).
+**Next session:** Copy the prompt at the top of [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) (Phase 5 depth / real-table telemetry).
 
 ## Goal: Semantic atomic parsing + seamless effect automation (new cards)
 
@@ -122,7 +122,7 @@ These are the **main engineering tasks** still open for the *overall* new-card e
 | **D2** | ✅ **Done (batch 466)** — production gap telemetry | Live misses visible without player reports | `oracleIrGapTelemetry.ts`: `all_or_nothing_failure` (from `logOracleIrAllOrNothingFailure`), `owned_but_unhandled` (trigger tail + spell categorize gates), `legacy_handled` (retirement triage). Snapshot: `GET /api/oracle-ir/telemetry`; deduped console warns independent of `DEBUG_STATE` |
 | **D3** | ✅ **Done** — `applyRetiredTriggerLegacy*` ratchet **0**; soak 0 exports | Dual-apply risk from retired export handlers closed | Remaining Phase 4 work is **infrastructure** dual-path (`categorizeSpell`, uncategorized fallbacks, spell riders, routing helpers) — not more `applyRetired*` batches |
 | **D4** | **Unwired step kinds** | Overlay must set `fallback_to_bespoke` | Extend executor + server queue; document in OracleIRCompiler “allowed kinds” |
-| **D5** | **Trigger timing not in detector tables** | Card parses but never fires | Extend `detect*Triggers` + trigger coverage for new `when/whenever/at` templates; delta audit flags these as `trigger_not_detected` |
+| **D5** | **Trigger timing not in detector tables** | Card parses but never fires, **or** ETB regex swallows `or …` as the effect (Tivit class) | ✅ ETB swallow + other-event fire closed; morph face-up live emission via `processFaceUpTriggers`. Haunt targeting stamps exile IDs. |
 | **D6** | **Client UI for novel choice types** | Server queues step client cannot render | **Partial (batch 468 + Aug 2026):** VOTE queue/resume wired; Season `{P}` budget UX shipped (`ModalSpellSelectionModal` + `modeSelectionPBudget`). Prefer generic primitives over per-step modals |
 | **D7** | **Phase 5 special systems** | PW loyalty, supplemental oracle, continuous/replacement layers | Design doc: [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md); migration plan Phase 5 |
 | **D8** | **Overlay storage ops** | Overlays not in repo by default (`server/data/compiled-oracle-ir-overlays/`) | Process for committing set overlays vs per-environment SQLite; optional bulk import in deploy |
@@ -135,8 +135,8 @@ These are the **main engineering tasks** still open for the *overall* new-card e
 | **Layers 1–2** | Parse + execute corpus | ✅ Complete |
 | **Layer 3 E6–E8** | Live IR + sockets + EP | ✅ Beta-ready |
 | **E9+ / D3** | `applyRetiredTriggerLegacy*` export retirement | ✅ **Complete** (ceiling **0**; soak 0 exports); migration **889/889** |
-| **Phase 4** | Infrastructure dual-path collapse (`categorizeSpell`, uncategorized fallbacks, riders) | **In progress** — see end-state roadmap M1–M2 |
-| **Phase 5** | PW loyalty + continuous/replacement **depth** | **5.1–5.5 landed** (declarative static/replacement + overlays); PW + event-family depth remain |
+| **Phase 4** | Infrastructure dual-path collapse (`categorizeSpell`, uncategorized fallbacks, riders) | **Partial** — uncategorized fallback include check collapsed onto `isTriggerStepRuntimeWired` (2026-08-13). Remaining: leftover `categorizeSpell` targeting dual-path / riders |
+| **Phase 5** | PW loyalty + continuous/replacement **depth** | **5.1–5.5 landed**; life-gain/draw/token/counter/mill/library-search on oracle-pattern specs; PW IR loyalty **886/887 (99.9%)** (2026-08-13). Last line: Davriel Alchemy offers |
 
 There is **no planned Track F or E15**. New-card work uses **§A workflow + B/C/D tasks** above.
 
@@ -175,13 +175,34 @@ These are **in-scope migration work** that does not always move the usual metric
 | **`end_combat_phase`** | L2–3 | Parse/execute “End the combat phase”; wired in fallback + Effect Program kinds; server apply | `oracleIRExecutorTurnStepHandlers.ts`, `trigger-runtime-wiring.ts`, `oracle-ir-vote-end-combat.integration.test.ts` |
 | **Council / Secret council `vote`** | L2–3 | Extended `vote` (`secret`, `ballot`, `ballotFilter`); `votes_received` quantity; APNAP `VOTE` queue + IR resume; voter-relative “another player” ballots; `vote` in `HALT_ON_PLAYER_CHOICE_STEP_KINDS` so follow-ons resume | `oracleIrServerZoneSync.ts`, `resolution.ts` `handleVoteResponse`, `oracleIRExecutorMainLoop.ts`, same integration test |
 | **Season `{P}` D6 UX** | L3 + client | MODE_SELECTION carries `pBudget`/`pCost`/`canRepeatModes`; modal spends budget with repeats; server validates; AI greedy fill | `shared/src/modeSelectionPBudget.ts`, `ModalSpellSelectionModal.tsx`, `game-actions.ts`, `resolution.ts`, `ai.ts` |
+| **Live soak + board-context** | L3 + AI | Scripted commander table free-cast (`npm run oracle-ir:smoke:live`) **51/51**, live D2 **0**. Shared `spellCastBoardContext` so AI skips no-op casts and soak provisions the same gaps. Tivit compound ETB timing; Jays vote-scaled draw; Rime Chill up-to tap | `oracleIrLiveSoak.ts`, `spellCastBoardContext.ts`, `triggered-abilities.ts` |
 
 **Operator note:** Re-run `npx tsx scripts/spell-static-drop-audit.ts` after parser lead changes. Remaining non-EDH/Un-set noise is expected; prefer overlay or targeted leads only for black-border EDH regressions.
 
 **Still open after this arc:**
 - ~~Season `{P}` client budget UX~~ ✅
 - ~~Spell-static EDH hits~~ ✅ **edhHitCount 0** (audit remainder = Un-set only: Six-Sided Die, Strategy Schmategy, You're in Command)
-- Live EDH telemetry soak (`GET /api/oracle-ir/telemetry`) after real tables; scripted: [oracle-ir-smoke-soak.md](./oracle-ir-smoke-soak.md) (`npm run oracle-ir:smoke` / `--live`)
+- ~~Scripted live EDH soak~~ ✅ `npm run oracle-ir:smoke:live` **51/51**, live D2 **0** (2026-08-12). Real multiplayer tables still needed for timing/mana/UX gaps.
+- Compound `enters or …` trigger-detector audit (Tivit class — D5)
+  - ~~ETB effect swallow~~ ✅ commander-legal **208** compounds, **0** swallowed ETB effects (2026-08-12)
+  - ~~Other-event fire paths~~ ✅ artifact LTB/GY, monstrous, tapped, haunt. Morph face-up live emission via `processFaceUpTriggers` (2026-08-13).
+- ~~Phase 4 uncategorized fallback allowlist~~ ✅ collapsed onto `isTriggerStepRuntimeWired` (`unknown` stays out). Leftover: `categorizeSpell` targeting dual-path / riders
+- Generic haunt targeting stamps `hauntingPermanentId` on the exiled card (2026-08-13)
+- ~~Phase 5 life-gain amount-modify~~ ✅ double / plus-1 oracle-pattern specs; `applyLifeGain` no longer card-name routes
+- ~~Delayed-return face-up emission~~ ✅ `turnReturnedPermanentFaceUp`
+- ~~Phase 5 draw extra-card replacements~~ ✅ Thought Reflection / Archive except-first-draw-step oracle-pattern specs; `drawCards` uses `summarizeDrawAmountReplacements`
+- ~~Phase 5 PW emblem IR~~ ✅ `create_emblem` in fallback; `state.emblems` sync; coverage jsonl **833/887 (93.9%)** IR-wired
+- ~~processLifeChange card-name life-gain~~ ✅ oracle-pattern specs
+- ~~Phase 5 remaining PW IR kinds~~ ✅ `gain_control` / `grant_exile_permission` / `skip_next_untap` in fallback; loyalty **864/887 (97.4%)**
+- ~~Token doubling card-name detectors~~ ✅ oracle-pattern specs (controller double / global double / creature triple)
+- ~~Phase 5 leftover PW executor kinds~~ ✅ `flip_coin` / `phase_out` / `venture_into_dungeon` / `exchange_control` / `add_types` / until-next-turn P/T; loyalty **878/887 (99.0%)**
+- ~~Counter detect card-name rows~~ ✅ oracle-pattern specs (global +1/+1 double / any-counter plus-one)
+- ~~Phase 5 leftover loyalty residual parse~~ ✅ compound until-next-turn P/T+keyword, whenever-until-next-turn, modal `+X/+X or -X/-X`, perpetual, animate, GY+ward; loyalty **886/887 (99.9%)**
+- ~~Mill detect card-name rows~~ ✅ oracle-pattern specs (opponent mill double / plus-four)
+- ~~Library-search card-name rows~~ ✅ oracle-pattern specs (prevent / pay-to-search / top-four / control / search trigger)
+- ~~Combat prevent-and-mill first-match table~~ ✅ Mindskinner-family parse from oracle
+- ~~Szadek-style source-self combat replace~~ ✅ instead +1/+1 on source + mill that player (not controller-wide)
+- Phase 5 leftover: 1 unwired loyalty line (Davriel, Soul Broker Alchemy offers/conditions)
 
 ---
 
@@ -515,27 +536,29 @@ See [marvel-mechanics-handoff.md](./marvel-mechanics-handoff.md). Teamwork / pow
 Use this verbatim (also mirrored at top of session handoff):
 
 ```
-Continue MTGEDH Oracle IR migration — post Aug 2026 IR live-readiness.
+Continue MTGEDH Oracle IR migration — post live-soak green.
 
 Read first:
 - docs/oracle-ir-session-handoff.md (top prompt)
-- docs/oracle-ir-track-e-remaining-work.md (§ IR live-readiness Aug 2026, D6)
+- docs/oracle-ir-track-e-remaining-work.md (§ IR live-readiness Aug 2026, D4–D7)
+- docs/oracle-ir-smoke-soak.md
 - .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
 
 Done (2026-08-12):
-- Spell-static typing / Spree-Tiered / Season {P} parse+execute / end_combat / vote queue
-- Season {P} D6 client budget UX + server validate + AI
-- Spell-static edhHitCount 0 (Un-set remainder only)
-- Layer 3: tests/oracle-ir-vote-end-combat.integration.test.ts in migration suite
+- Live soak: npm run oracle-ir:smoke:live → 51/51, 407/407 in-process, live D2 0
+- Shared spellCastBoardContext (AI skip + soak provision)
+- Tivit compound ETB timing; Messenger Jays vote-scaled draw; Rime Chill up-to tap
+- D5 ETB swallow closed (208 commander-legal compounds, 0 swallowed effects)
+- D5 other-event fire: artifact LTB/GY, monstrous, tapped, haunt
+- Season {P} D6 UX; spell-static edhHitCount 0; vote/end_combat Layer 3
 
 Next (priority):
-1. Live EDH telemetry soak → owned_but_unhandled
-2. Continuous-effect depth from telemetry
-3. Optional Un-set die-band IR only if needed
+1. Last 1/887 loyalty line: Davriel, Soul Broker Alchemy offers/conditions (leave unwired unless a generic offer/condition step exists).
+2. Real EDH tables → GET /api/oracle-ir/telemetry (scripted soak is not a substitute)
+3. Optional: unused `librarySearchEffects` KNOWN_* table; Vigor card-name check in `turn.ts`
 
 Verify:
-cd server ; npx vitest run tests/mode-selection-p-budget.unit.test.ts tests/oracle-prompt-context.test.ts tests/ai-mode-selection.test.ts --pool=threads --maxWorkers=1
-cd ../client ; npx vitest run tests/modalSpellPBudget.test.ts
+cd server ; npx vitest run tests/enters-or-other-event-fire.unit.test.ts tests/trigger-effect-text-extraction.unit.test.ts tests/oracle-ir-post-apply-trigger-emission.unit.test.ts --pool=threads --maxWorkers=1
 
 Do not commit unless asked. Windows: chain with ; not &&.
 ```
@@ -707,7 +730,7 @@ Continue Oracle IR Layer 3 post-beta from docs/oracle-ir-track-e-remaining-work.
 
 ### Track E9+ — incremental legacy + live soak
 
-**Current (2026-07-07+):** D3 complete (`TRIGGER_LEGACY_EXPORT_CEILING = 0`). Next work is **end-state roadmap P0–P1**: doc sync, delete empty legacy stubs, then retire categorize/uncategorized dual-path infrastructure. Full batch log: [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md).
+**Current (2026-08-14):** D3 complete. Scripted live soak **51/51**. Phase 5 PW IR **886/887 (99.9%)** + life-gain/draw/token/counter/mill/library-search oracle-pattern specs + Szadek-style source-self combat replace closed. Next work is Davriel Alchemy offers (leave unwired) and real-table telemetry. Full batch log: [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md).
 
 ```
 Migration end-state — continue from P0/P1 in the Migration End-State Roadmap.

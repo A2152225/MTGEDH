@@ -486,7 +486,7 @@ New-set support cost is now proportional to the **delta**, not the corpus.
 
 ### 15.3 Production gap telemetry (D2 — shipped)
 
-`server/src/state/modules/oracleIrGapTelemetry.ts` records three event kinds, always on (independent of `DEBUG_STATE`), with counters + a 200-event ring buffer exposed at **`GET /api/oracle-ir/telemetry`**:
+`server/src/state/modules/oracleIrGapTelemetry.ts` records three event kinds, always on (independent of `DEBUG_STATE`), with counters + a 200-event ring buffer exposed at **`GET /api/oracle-ir/telemetry`**. A browser request renders an HTML log (game, time, what broke); scripts still get JSON (`Accept: application/json` or `?format=json`). Empty means no gaps since this Node process started — restarting the server clears it.
 
 | Kind | Emitted when | Consumer |
 |------|--------------|----------|

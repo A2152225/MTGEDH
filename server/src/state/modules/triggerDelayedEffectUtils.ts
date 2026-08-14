@@ -2,6 +2,7 @@ import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debugWarn } from '../../utils/debug.js';
 import { uid, parsePT } from '../utils.js';
+import { processFaceUpTriggers } from './triggerEmissionFamilyUtils.js';
 
 const COUNT_WORD_TO_NUMBER: Record<string, number> = {
   a: 1,
@@ -181,7 +182,7 @@ export function scheduleDelayedDrawAtNextUpkeep(ctx: GameContext, options: {
   }
 }
 
-export function turnReturnedPermanentFaceUp(permanent: any): void {
+export function turnReturnedPermanentFaceUp(permanent: any, ctx?: GameContext): void {
   if (!permanent || (permanent as any).isFaceDown !== true || !(permanent as any).faceUpCard) {
     return;
   }
@@ -204,6 +205,20 @@ export function turnReturnedPermanentFaceUp(permanent: any): void {
   delete (permanent as any).faceDownType;
   delete (permanent as any).faceUpCard;
   delete (permanent as any).canTurnFaceUp;
+
+  const faceUpOracle = String(actualCard?.oracle_text || '').toLowerCase();
+  if (/\bmegamorph\b/.test(faceUpOracle)) {
+    const counters = (permanent as any).counters = (permanent as any).counters || {};
+    counters['+1/+1'] = (Number(counters['+1/+1']) || 0) + 1;
+  }
+
+  if (ctx && !(ctx as any).isReplaying) {
+    try {
+      processFaceUpTriggers(ctx, permanent);
+    } catch (err) {
+      debugWarn(1, '[turnReturnedPermanentFaceUp] processFaceUpTriggers failed:', err);
+    }
+  }
 }
 
 function typeLineHasSubtypeSeparator(typeLine: string): boolean {

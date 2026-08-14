@@ -162,6 +162,10 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('add_extra_combat')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('populate')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('create_token')).toBe(true);
+    expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('create_emblem')).toBe(true);
+    expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('gain_control')).toBe(true);
+    expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('grant_exile_permission')).toBe(true);
+    expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('skip_next_untap')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('destroy')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('exile')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('move_zone')).toBe(true);

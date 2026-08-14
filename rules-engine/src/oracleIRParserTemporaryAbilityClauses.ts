@@ -150,6 +150,21 @@ export function tryParseTemporaryAbilityClause(args: {
   }
 
   {
+    const wardGrant = workingClause.match(
+      /^(it|that creature|that permanent|that card|they)\s+gains?\s+ward\s+(\{[^}]+\}|\d+)$/i,
+    );
+    if (wardGrant) {
+      const wardCost = String(wardGrant[2] || '').trim();
+      const wardText = /^\{/.test(wardCost) ? `ward ${wardCost}` : `ward {${wardCost}}`;
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(wardGrant[1] || '').trim()),
+        abilities: [wardText],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
     const m = workingClause.match(/^(it|that creature|that permanent|that card|they)\s+gains?\s+(haste|trample|vigilance|lifelink|deathtouch|menace|reach|flying|first strike|double strike|indestructible|hexproof|infect)(?:\s+this\s+turn)?$/i);
     if (m) {
       const ability = String(m[2] || '').trim().toLowerCase();

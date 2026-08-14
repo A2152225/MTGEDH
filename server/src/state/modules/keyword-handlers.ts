@@ -15,6 +15,7 @@ import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import type { DetectedKeyword, KeywordTiming } from "./keyword-detection.js";
 import { detectKeywords, getAttackTriggerKeywords, getETBKeywords, getDeathTriggerKeywords, getCombatDamageTriggerKeywords, getSpellCastTriggerKeywords } from "./keyword-detection.js";
+import { listLegalHauntCreatureTargets } from "./hauntKeywordUtils.js";
 
 // ============================================================================
 // Types
@@ -40,6 +41,8 @@ export interface KeywordTriggerResult {
     playerId: string;
     permanentId: string;
     value?: number;
+    hauntCardId?: string;
+    ownerId?: string;
   };
   chatMessage?: string;
 }
@@ -245,6 +248,9 @@ function processKeywordTrigger(
       
     case 'soulshift':
       return handleSoulshift(ctx, keyword);
+
+    case 'haunt':
+      return handleHaunt(ctx, keyword);
       
     // ========== COMBAT DAMAGE TRIGGERS ==========
     
@@ -1202,6 +1208,46 @@ function handleSoulshift(ctx: KeywordTriggerContext, keyword: DetectedKeyword): 
       value: n,
     },
     chatMessage: `${cardName}'s Soulshift ${n} triggers - return target Spirit card with mana value ${n} or less from graveyard`,
+  };
+}
+
+/**
+ * Haunt - Exile this card haunting target creature.
+ */
+function handleHaunt(ctx: KeywordTriggerContext, _keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Creature';
+  const sourcePermanentId = String(ctx.permanent?.id || ctx.dyingCreature?.id || '').trim();
+  const hauntCardId = String(
+    ctx.permanent?.card?.id
+    || ctx.dyingCreature?.card?.id
+    || ctx.permanent?.id
+    || ctx.dyingCreature?.id
+    || '',
+  ).trim();
+  const legalTargets = listLegalHauntCreatureTargets(ctx.state, {
+    excludePermanentId: sourcePermanentId,
+  });
+
+  if (legalTargets.length === 0) {
+    return {
+      keyword: 'haunt',
+      processed: true,
+      chatMessage: `${cardName}'s Haunt triggers but there are no legal creature targets`,
+    };
+  }
+
+  return {
+    keyword: 'haunt',
+    processed: true,
+    requiresPlayerChoice: {
+      type: 'target_creature',
+      options: legalTargets,
+      playerId: ctx.controller,
+      permanentId: sourcePermanentId,
+      hauntCardId,
+      ownerId: String(ctx.permanent?.owner || ctx.dyingCreature?.owner || ctx.controller || ''),
+    },
+    chatMessage: `${cardName}'s Haunt triggers - exile it haunting target creature`,
   };
 }
 

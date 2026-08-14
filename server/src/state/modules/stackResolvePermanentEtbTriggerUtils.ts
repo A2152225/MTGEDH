@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { getETBTriggersForPermanent } from './triggered-abilities.js';
+import { isFaceUpTriggerType } from './triggerEmissionFamilyUtils.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
 import { orderTriggersByAPNAP } from './triggers/ordering.js';
 import { buildInterveningIfSubjectSnapshot } from './triggerSourceUtils.js';
@@ -89,6 +90,9 @@ export function queuePermanentEntersBattlefieldTriggerStackItems(
     ]);
 
     const etbTriggers = allTriggers.filter((trigger) => {
+      if (isFaceUpTriggerType(trigger.triggerType)) {
+        return false;
+      }
       if (selfETBTriggerTypes.has(trigger.triggerType)) {
         return true;
       }

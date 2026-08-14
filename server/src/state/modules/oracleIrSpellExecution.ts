@@ -398,6 +398,10 @@ export function tryResolveSpellViaOracleIR(
         params.spellName,
         describeOracleIrExecutionHandledIncomplete(result, queueBefore, queueAfter, steps, state),
         { applied, parsed: steps.length },
+        {
+          gameId: gameId !== 'unknown' ? gameId : undefined,
+          effectText: params.oracleText,
+        },
       );
     }
 

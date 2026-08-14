@@ -70,6 +70,7 @@ describe('oracle IR gap telemetry (D2)', () => {
     expect(snapshot.recentEvents).toHaveLength(3);
     expect(snapshot.recentEvents[0].effectText).toBe('draw a card, then discard a card.');
     expect(snapshot.recentEvents[0].gameId).toBe('g1');
+    expect(snapshot.processStartedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it('accepts a bare string for reasons and normalizes it', () => {

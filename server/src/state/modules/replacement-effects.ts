@@ -1,4 +1,4 @@
-import { evaluateDeclarativeReplacementEvent, collectReplacementEffectSpecsFromState, overlayReplacementSpecToEffect, overlaySpecsMatchMill } from './replacementEffectSpec.js';
+import { evaluateDeclarativeReplacementEvent, collectReplacementEffectSpecsFromState, overlaySpecsMatchLibrarySearch, summarizeTokenAmountReplacements } from './replacementEffectSpec.js';
 import type { GameContext } from '../context.js';
 import {
   applyBeneficialReplacements,
@@ -91,6 +91,7 @@ export interface TokenCreationReplacementEvent {
   controllerId: string;
   count: number;
   tokenName?: string;
+  tokenTypeLine?: string;
   cause?: string;
   metadata?: Record<string, unknown>;
 }
@@ -163,24 +164,6 @@ const lastingLifeGainPreventionEvaluator: ReplacementEffectEvaluator = (event) =
 
   return null;
 };
-
-const SEARCH_PREVENTION_CARDS: Record<string, { affectsOpponents: boolean; affectsSelf: boolean }> = {
-  "stranglehold": { affectsOpponents: true, affectsSelf: false },
-  "ashiok, dream render": { affectsOpponents: true, affectsSelf: false },
-  "mindlock orb": { affectsOpponents: true, affectsSelf: true },
-  "shadow of doubt": { affectsOpponents: true, affectsSelf: true },
-  "leonin arbiter": { affectsOpponents: true, affectsSelf: true },
-};
-
-const SEARCH_LIMIT_CARDS: Record<string, { limit: number; affectsOpponents: boolean }> = {
-  "aven mindcensor": { limit: 4, affectsOpponents: true },
-};
-
-const SEARCH_TRIGGER_CARDS: Record<string, { effect: string; affectsOpponents: boolean }> = {
-  "ob nixilis, unshackled": { effect: "Sacrifice a creature and lose 10 life", affectsOpponents: true },
-};
-
-const SEARCH_CONTROL_CARDS = new Set(["opposition agent"]);
 
 function normalizeDeltas(deltas: Record<string, number> | undefined): Record<string, number> {
   const normalized: Record<string, number> = {};
@@ -572,7 +555,6 @@ const librarySearchReplacementEvaluator: ReplacementEffectEvaluator = (event) =>
   if (event.type !== 'library-search') return null;
 
   const state = event.state || event.game?.state || {};
-  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const triggerEffects: { cardName: string; effect: string; controllerId: string }[] = [];
   let canSearch = true;
   let limitToTop: number | undefined;
@@ -580,46 +562,35 @@ const librarySearchReplacementEvaluator: ReplacementEffectEvaluator = (event) =>
   let reason: string | undefined;
   let paymentRequired: { cardName: string; amount: string } | undefined;
 
-  for (const permanent of battlefield) {
-    if (!permanent?.card) continue;
+  for (const spec of collectReplacementEffectSpecsFromState(state)) {
+    if (spec.event !== 'library-search') continue;
+    if (!overlaySpecsMatchLibrarySearch(spec, event)) continue;
 
-    const cardName = normalizeReplacementText(permanent.card.name || '');
-    const controllerId = String(permanent.controller || '');
-    const isOpponent = controllerId !== String(event.searchingPlayerId || '');
+    const sourceName = String(spec.sourceName || 'Replacement effect').trim();
+    const controllerId = String(spec.sourceController || '');
 
-    for (const [name, info] of Object.entries(SEARCH_PREVENTION_CARDS)) {
-      if (!cardName.includes(name)) continue;
-      const applies = (isOpponent && info.affectsOpponents) || (!isOpponent && info.affectsSelf);
-      if (!applies) continue;
-
-      if (name === 'leonin arbiter') {
-        paymentRequired = { cardName: permanent.card.name, amount: '{2}' };
-      } else {
-        canSearch = false;
-        reason = `${permanent.card.name} prevents library searching`;
+    if (spec.instead.preventSearch) {
+      canSearch = false;
+      reason = `${sourceName} prevents library searching`;
+    }
+    if (spec.instead.paymentToIgnore) {
+      paymentRequired = { cardName: sourceName, amount: String(spec.instead.paymentToIgnore) };
+    }
+    if (typeof spec.instead.limitToTop === 'number') {
+      const limit = Math.max(0, Math.floor(spec.instead.limitToTop));
+      if (limitToTop === undefined || limit < limitToTop) {
+        limitToTop = limit;
       }
     }
-
-    for (const [name, info] of Object.entries(SEARCH_LIMIT_CARDS)) {
-      if (cardName.includes(name) && isOpponent && info.affectsOpponents) {
-        if (limitToTop === undefined || info.limit < limitToTop) {
-          limitToTop = info.limit;
-        }
-      }
-    }
-
-    for (const [name, info] of Object.entries(SEARCH_TRIGGER_CARDS)) {
-      if (cardName.includes(name) && isOpponent && info.affectsOpponents) {
-        triggerEffects.push({
-          cardName: permanent.card.name,
-          effect: info.effect,
-          controllerId,
-        });
-      }
-    }
-
-    if (SEARCH_CONTROL_CARDS.has(cardName) && isOpponent) {
+    if (spec.instead.controlSearch) {
       controlledBy = controllerId;
+    }
+    if (spec.instead.triggerEffect) {
+      triggerEffects.push({
+        cardName: sourceName,
+        effect: String(spec.instead.triggerEffect),
+        controllerId,
+      });
     }
   }
 
@@ -659,54 +630,24 @@ const tokenCreationReplacementEvaluator: ReplacementEffectEvaluator = (event) =>
   const originalAmount = Math.max(0, Math.floor(Number(event.count || 0)));
   if (originalAmount <= 0) return null;
 
-  const battlefield = Array.isArray(event.state?.battlefield) ? event.state.battlefield : [];
-  let multiplier = 1;
-  const sources: string[] = [];
-
-  for (const permanent of battlefield) {
-    if (!permanent?.card) continue;
-
-    const cardName = normalizeReplacementText(permanent.card.name || '');
-    const oracleText = normalizeReplacementText(permanent.card.oracle_text || '');
-    const controller = String(permanent.controller || '');
-
-    if (cardName.includes('primal vigor')) {
-      multiplier *= 2;
-      sources.push(permanent.card.name || 'Primal Vigor');
-      continue;
-    }
-
-    if (controller !== String(event.controllerId || '')) continue;
-
-    if (cardName.includes('ojer taq') || (oracleText.includes('three times that many') && oracleText.includes('token'))) {
-      multiplier *= 3;
-      sources.push(permanent.card.name || 'Ojer Taq');
-    }
-
-    if (cardName.includes('anointed procession')
-      || cardName.includes('parallel lives')
-      || cardName.includes('doubling season')
-      || cardName.includes('mondrak, glory dominus')
-      || (cardName.includes('elspeth') && oracleText.includes('twice that many'))
-      || (oracleText.includes('twice that many') && oracleText.includes('token'))) {
-      multiplier *= 2;
-      sources.push(permanent.card.name || 'Token doubler');
-    }
-  }
-
-  if (multiplier <= 1) return null;
+  const summary = summarizeTokenAmountReplacements(event.state, String(event.controllerId || ''), {
+    tokenName: event.tokenName,
+    tokenTypeLine: event.tokenTypeLine,
+    metadata: event.metadata,
+  });
+  if (summary.multiplier <= 1 && summary.extraTokens === 0) return null;
 
   return {
     applied: true,
     eventType: event.type,
     effectId: 'token-creation-multiplied',
     originalAmount,
-    replacementAmount: originalAmount * multiplier,
+    replacementAmount: (originalAmount + summary.extraTokens) * summary.multiplier,
     reason: 'token_creation_replacement',
     metadata: {
       controllerId: String(event.controllerId || ''),
-      multiplier,
-      sources,
+      multiplier: summary.multiplier,
+      sources: [...summary.extraSources, ...summary.doubleSources],
       ...(event.tokenName ? { tokenName: event.tokenName } : {}),
     },
   };
@@ -745,24 +686,12 @@ const counterPlacementReplacementEvaluator: ReplacementEffectEvaluator = (event)
 };
 
 function collectMillReplacementEffects(event: MillReplacementEvent): ReplacementEffect[] {
-  const effects: ReplacementEffect[] = [];
-
-  if (event.ctx) {
-    effects.push(...detectMillReplacementEffects(
-      event.ctx,
-      String(event.millingPlayerId || ''),
-      String(event.targetPlayerId || ''),
-    ));
-  }
-
-  const overlaySpecs = collectReplacementEffectSpecsFromState(event.state);
-  for (const spec of overlaySpecs) {
-    if (spec.event !== 'mill' || !spec.instead.modify) continue;
-    if (!overlaySpecsMatchMill(spec, event)) continue;
-    effects.push(overlayReplacementSpecToEffect(spec));
-  }
-
-  return effects;
+  const state = event.state ?? (event.ctx as { state?: unknown } | undefined)?.state;
+  return detectMillReplacementEffects(
+    { state } as GameContext,
+    String(event.millingPlayerId || ''),
+    String(event.targetPlayerId || ''),
+  );
 }
 
 const millReplacementEvaluator: ReplacementEffectEvaluator = (event) => {

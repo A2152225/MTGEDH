@@ -48,6 +48,18 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'discard',
   'mill',
   'create_token',
+  'create_emblem',
+  'gain_control',
+  'grant_exile_permission',
+  'skip_next_untap',
+  'flip_coin',
+  'phase_out',
+  'venture_into_dungeon',
+  'exchange_control',
+  'add_types',
+  'cant_activate_abilities',
+  'modify_exile_permissions',
+  'choose_card_name',
   'register_lose_game_replacement',
   'investigate',
   'blight',
@@ -275,6 +287,16 @@ export function isSupportedGainControlTriggerPattern(
   );
 }
 
+/**
+ * Uncategorized-spell fallback include check. Same wired surface as primary
+ * ownership (`isTriggerStepRuntimeWired`) except unknown steps stay out so
+ * all-or-nothing refuse still applies to mixed parses.
+ */
+export function isUncategorizedFallbackExecutableStep(step: OracleEffectStep): boolean {
+  if (!step || step.kind === 'unknown') return false;
+  return isTriggerStepRuntimeWired(step);
+}
+
 export function isTriggerStepRuntimeWired(step: OracleEffectStep): boolean {
   if (step.kind === 'unknown') return true;
 
@@ -288,10 +310,6 @@ export function isTriggerStepRuntimeWired(step: OracleEffectStep): boolean {
 
   if (step.kind === 'copy_permanent') {
     return isSupportedCopyPermanentTriggerPattern(step);
-  }
-
-  if (step.kind === 'gain_control') {
-    return isSupportedGainControlTriggerPattern(step);
   }
 
   if (isOptionalTriggerStep(step)) {

@@ -6,10 +6,8 @@ import { parseOracleTextToIR } from '../../../../rules-engine/src/oracleIRParser
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import {
-  ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS,
-  ORACLE_IR_FALLBACK_STEP_KINDS,
-  TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS,
   collectSpellResolutionEffectSteps,
+  isUncategorizedFallbackExecutableStep,
   wouldOracleIRFallbackPrefilterMatch,
 } from './trigger-runtime-wiring.js';
 import { buildOracleOverlayCollectOptions } from './oracleIrCompiledOverlayLookup.js';
@@ -24,12 +22,6 @@ import { isOracleIrExecutionHandled } from './oracleIrSpellExecution.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
 
-const UNLESS_PAY_KINDS = new Set<string>([
-  'unless_pays_mana',
-  'unless_pays_life',
-  'unless_discards',
-]);
-
 function isOptionalStep(step: OracleEffectStep): boolean {
   return isOptionalOracleEffectStep(step);
 }
@@ -39,20 +31,7 @@ function mandatoryStepsFrom(allSteps: readonly OracleEffectStep[]): OracleEffect
 }
 
 function shouldIncludeUncategorizedSpellFallbackStep(step: OracleEffectStep): boolean {
-  if (!step || step.kind === 'unknown') return false;
-  // EP kinds stay in the step list so core-gate orchestration can own them (P1b).
-  if (ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS.has(String(step.kind))) return true;
-
-  if (isOptionalStep(step)) {
-    if (UNLESS_PAY_KINDS.has(String(step.kind))) return true;
-    if (TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS.has(String(step.kind))) return true;
-    if (ORACLE_IR_FALLBACK_STEP_KINDS.has(String(step.kind))) return true;
-    return true;
-  }
-
-  if (step.kind === 'conditional') return true;
-  if (UNLESS_PAY_KINDS.has(String(step.kind))) return true;
-  return ORACLE_IR_FALLBACK_STEP_KINDS.has(String(step.kind));
+  return isUncategorizedFallbackExecutableStep(step);
 }
 
 function normalizeSelectedModeIdsFromSource(sourceItem: any): string[] | undefined {
@@ -199,6 +178,7 @@ export function applyOracleIRUncategorizedSpellFallback(
           parsed: allSteps.length,
           mandatory: mandatoryAll.length,
         },
+        { gameId: String((ctx as any)?.gameId || '') || undefined, effectText: text },
       );
       return 0;
     }

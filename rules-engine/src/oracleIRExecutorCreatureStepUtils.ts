@@ -1065,7 +1065,8 @@ export function applyTemporaryPowerToughnessModifier(
   ctx: OracleIRExecutionContext,
   powerBonus: number,
   toughnessBonus: number,
-  markTrepanation: boolean
+  markTrepanation: boolean,
+  duration: 'end_of_turn' | 'until_next_turn' = 'end_of_turn',
 ): GameState | null {
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
   const index = battlefield.findIndex(permanent => permanent.id === creatureId);
@@ -1078,7 +1079,10 @@ export function applyTemporaryPowerToughnessModifier(
     power: powerBonus,
     toughness: toughnessBonus,
     sourceId: ctx.sourceId,
-    duration: 'end_of_turn',
+    duration,
+    ...(duration === 'until_next_turn' && ctx.controllerId
+      ? { expiresOnControllerTurn: ctx.controllerId }
+      : {}),
   } as any);
 
   const nextPermanent: any = {

@@ -4118,7 +4118,7 @@ export function App() {
         });
       }
       // Handle target selection via resolution queue (spell casting, planeswalker abilities, etc.)
-      else if (step.type === 'target_selection' || step.type === 'mentor_target' || step.type === 'modular_choice' || step.type === 'exploit_choice') {
+      else if (step.type === 'target_selection' || step.type === 'mentor_target' || step.type === 'modular_choice' || step.type === 'exploit_choice' || step.type === 'haunt_target') {
         const selectedModeRaw = (step as any).selectedMode as { label?: string; description?: string } | undefined;
         const selectedModeUi = selectedModeRaw ? {
           name: String(selectedModeRaw.label || 'Selected mode'),
@@ -4126,7 +4126,7 @@ export function App() {
         } : undefined;
 
         // Convert resolution queue step to target modal format
-        const rawTargets = (step.type === 'mentor_target' || step.type === 'modular_choice')
+        const rawTargets = (step.type === 'mentor_target' || step.type === 'modular_choice' || step.type === 'haunt_target')
           ? ((step as any).targets || [])
           : step.type === 'exploit_choice'
             ? ((step as any).creatures || [])
@@ -4207,6 +4207,8 @@ export function App() {
                 ? 'Choose an artifact creature to receive the modular counters.'
                 : step.type === 'exploit_choice'
                   ? 'Choose a creature you control to sacrifice.'
+                : step.type === 'haunt_target'
+                  ? 'Choose a creature to haunt.'
                 : ''))),
           contextSteps: (step.oracleContext?.steps || step.spellCastContext?.oracleContext?.steps || undefined) as any,
           selectedMode: selectedModeUi,

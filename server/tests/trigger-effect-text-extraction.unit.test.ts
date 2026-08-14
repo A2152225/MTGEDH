@@ -99,4 +99,52 @@ describe('trigger effect text extraction (server registration)', () => {
     expect(combat?.effect?.toLowerCase()).toContain('each player votes for evidence or bribery');
     expect(combat?.effect?.toLowerCase()).not.toMatch(/^or deals combat damage/);
   });
+
+  it('keeps the payoff as the ETB effect for enters-or-dies', () => {
+    const oracle = 'When this creature enters or dies, mill three cards.';
+    const triggers = detectETBTriggers(
+      { name: "Stitcher's Supplier", oracle_text: oracle },
+      { id: 'stitcher-1', controller: 'p1' },
+    );
+    const etb = triggers.find((trigger) => trigger.triggerType === 'etb' || trigger.triggerType === 'self_enters_or_attacks');
+    expect(etb?.effect?.toLowerCase()).toContain('mill three cards');
+    expect(etb?.effect?.toLowerCase()).not.toMatch(/^or dies/);
+  });
+
+  it('keeps the payoff as the ETB effect for enters-or-leaves', () => {
+    const oracle = 'When this artifact enters or leaves the battlefield, draw a card.';
+    const triggers = detectETBTriggers(
+      { name: 'Cryogen Relic', oracle_text: oracle },
+      { id: 'relic-1', controller: 'p1' },
+    );
+    const etb = triggers.find(
+      (trigger) => trigger.triggerType === 'etb' || trigger.triggerType === 'self_enters_or_leaves',
+    );
+    expect(etb?.effect?.toLowerCase()).toContain('draw a card');
+    expect(etb?.effect?.toLowerCase()).not.toMatch(/^or leaves/);
+  });
+
+  it('keeps the payoff as the ETB effect for enters-or-graveyard', () => {
+    const oracle = 'When this artifact enters or is put into a graveyard from the battlefield, draw a card.';
+    const triggers = detectETBTriggers(
+      { name: 'Ichor Wellspring', oracle_text: oracle },
+      { id: 'ichor-1', controller: 'p1' },
+    );
+    const etb = triggers.find((trigger) => trigger.triggerType === 'etb');
+    expect(etb?.effect?.toLowerCase()).toContain('draw a card');
+    expect(etb?.effect?.toLowerCase()).not.toMatch(/^or is put into a graveyard/);
+  });
+
+  it('does not swallow chosen-type enters-or-attacks as a generic creature_etb', () => {
+    const oracle =
+      'As this enchantment enters, choose a creature type.\nWhenever a creature you control of the chosen type enters or attacks, draw a card.';
+    const triggers = detectETBTriggers(
+      { name: 'Kindred Discovery', oracle_text: oracle },
+      { id: 'kindred-1', controller: 'p1', chosenCreatureType: 'Merfolk' },
+    );
+    const swallowed = triggers.filter((trigger) => /^or\s+/i.test(String(trigger.effect || '').trim()));
+    expect(swallowed).toEqual([]);
+    const chosen = triggers.find((trigger) => trigger.triggerType === 'chosen_type_creature_etb_or_attack');
+    expect(chosen?.effect?.toLowerCase()).toContain('draw a card');
+  });
 });

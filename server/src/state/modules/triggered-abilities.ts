@@ -2649,6 +2649,9 @@ function collectDeathTriggerEffectText(oracleText: string, match: RegExpMatchArr
   return continuation ? `${effect}. ${continuation}` : effect;
 }
 
+/** Optional "enters or" before the non-ETB event in compound templates. */
+const ENTERS_OR_OTHER_EVENT_PREFIX = '(?:enters(?: the battlefield)?\\s+or\\s+)?';
+
 /**
  * Detect death triggers from a permanent's abilities.
  * 
@@ -2837,7 +2840,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   }
 
   const putIntoGraveyardPattern = new RegExp(
-    `when(?:ever)?\\s+(?:${dieSelfAlternatives.join('|')})\\s+(?:is )?put into (?:a |your |its owner's )?graveyard from the battlefield,?\\s*([^.]+)`,
+    `when(?:ever)?\\s+(?:${dieSelfAlternatives.join('|')})\\s+${ENTERS_OR_OTHER_EVENT_PREFIX}(?:is )?put into (?:a |your |its owner's )?graveyard from the battlefield,?\\s*([^.]+)`,
     'i',
   );
   const putIntoGraveyardMatch = oracleText.match(putIntoGraveyardPattern);
@@ -4740,7 +4743,12 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     });
   }
 
-  const hauntsCreatureDiesMatch = oracleText.match(/when(?:ever)? the creature this card haunts dies,?\s*([^.]+)/i);
+  const hauntsCreatureDiesMatch = oracleText.match(
+    new RegExp(
+      `when(?:ever)? (?:(?:${dieSelfAlternatives.join('|')}) enters(?: the battlefield)? or )?the creature (?:this card|it) haunts dies,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
   if (hauntsCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'haunts_creature_dies')) {
     const effectText = timingTriggerEffect(oracleText, hauntsCreatureDiesMatch);
     triggers.push({
@@ -6198,7 +6206,7 @@ export function detectMonstrousTriggers(card: any, permanent?: any): TriggeredAb
 
   const monstrousNameVariants = buildCardNameRegexAlternatives(cardName);
   const monstrousMatch = oracleText.match(
-    new RegExp(`when(?:ever)? (?:~|this creature|(?:${monstrousNameVariants.join('|')})) becomes monstrous,?\\s*([^.]+)`, 'i'),
+    new RegExp(`when(?:ever)? (?:~|this creature|(?:${monstrousNameVariants.join('|')})) ${ENTERS_OR_OTHER_EVENT_PREFIX}becomes monstrous,?\\s*([^.]+)`, 'i'),
   );
   if (monstrousMatch && !triggers.some((t) => t.triggerType === 'became_monstrous')) {
     const effectText = timingTriggerEffect(oracleText, monstrousMatch);
@@ -6567,7 +6575,9 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     });
   }
 
-  const commanderAttacksMatch = oracleText.match(/whenever your commander attacks,?\s*([^.]+)/i);
+  const commanderAttacksMatch = oracleText.match(
+    /whenever your commander (?:enters(?: the battlefield)?\s+or\s+)?attacks,?\s*([^.]+)/i,
+  );
   if (commanderAttacksMatch && !triggers.some((t) => t.triggerType === 'commander_attacks')) {
     const effectText = timingTriggerEffect(oracleText, commanderAttacksMatch);
     triggers.push({
@@ -8986,6 +8996,18 @@ const ETB_STATIC_ALTERNATIVES = [
   'this attraction',
 ];
 
+/**
+ * Compound event after "enters or …". Must be consumed as timing, never as the effect
+ * (Tivit / Stitcher's Supplier / Experimental Synthesizer class).
+ * Longer phrases first so `dies` does not steal "a planeswalker you control dies".
+ */
+const ENTERS_OR_EVENT_SUFFIX =
+  '(?:deals combat damage to a player(?: or planeswalker)?|is put into a graveyard from the battlefield|becomes the target of a spell or ability an opponent controls|the creature it haunts dies|a planeswalker you control dies|is turned face up|becomes monstrous|becomes tapped|leaves(?: the battlefield)?|attacks|dies)';
+
+function isSwallowedCompoundEnterEffect(effectText: string): boolean {
+  return /^or\s+/i.test(String(effectText || '').trim());
+}
+
 const LTB_STATIC_ALTERNATIVES = [
   '~',
   'this creature',
@@ -9393,17 +9415,19 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     });
   }
 
-  const thisPermanentEtbMatch = oracleText.match(/when(?:ever)? this permanent enters(?: the battlefield)?,?\s*([^.]+)/i);
+  const thisPermanentEtbMatch = oracleText.match(/when(?:ever)? this permanent enters(?: the battlefield)?(?!\s+or\s+),?\s*([^.]+)/i);
   if (thisPermanentEtbMatch && !triggers.some((t) => t.triggerType === 'this_permanent_etb')) {
     const effectText = timingTriggerEffect(oracleText, thisPermanentEtbMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'this_permanent_etb',
-      description: effectText,
-      effect: effectText,
-      mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+    if (effectText && !isSwallowedCompoundEnterEffect(effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'this_permanent_etb',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
   }
 
   const entersThisWayMatch = oracleText.match(/when it enters this way,?\s*([^.]+)/i);
@@ -9825,11 +9849,11 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   }
 
   const etbPattern = new RegExp(
-    `when(?:ever)?\\s+(?:${etbAlternatives.join('|')})\\s+(?:enters(?: the battlefield)?|comes into play)(?:\\s+or\\s+(?:attacks|deals combat damage to a player(?: or planeswalker)?))?[,]?\\s*([^.]+)`,
+    `when(?:ever)?\\s+(?:${etbAlternatives.join('|')})\\s+(?:enters(?: the battlefield)?|comes into play)(?:\\s+or\\s+${ENTERS_OR_EVENT_SUFFIX})?[,]?\\s*([^.]+)`,
     'i',
   );
   const etbMatch = oracleText.match(etbPattern);
-  if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'self_enters_or_attacks' || t.triggerType === 'etb_sacrifice_unless_pay')) {
+  if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'self_enters_or_attacks' || t.triggerType === 'self_enters_or_leaves' || t.triggerType === 'etb_sacrifice_unless_pay')) {
     let effectText = timingTriggerEffect(oracleText, etbMatch);
     const fullMatchText = String(etbMatch[0] || '');
     const isSelfEntersOrAttacks = /\bor\s+attacks\b/i.test(fullMatchText);
@@ -9865,6 +9889,9 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
     const isEscapedSelfSacrificeTrigger = /sacrifice\s+(?:~|it|this\s+\w+)\s+unless\s+it\s+escaped/i.test(effectText);
     if (isEscapedSelfSacrificeTrigger && permanent?.escapedFrom) {
+      effectText = '';
+    }
+    if (isSwallowedCompoundEnterEffect(effectText)) {
       effectText = '';
     }
 
@@ -9932,7 +9959,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const etbOrAttackPattern = new RegExp(`whenever\\s+(?:${etbAlternatives.join('|')})\\s+enters(?: the battlefield)?\\s+or\\s+attacks[,]?\\s*([^.]+)`, 'i');
   const faceUpPattern = new RegExp(
-    `when(?:ever)?\\s+(?:${etbAlternatives.join('|')})\\s+is turned face up,?\\s*([^.]+)`,
+    `when(?:ever)?\\s+(?:${etbAlternatives.join('|')})\\s+(?:enters(?: the battlefield)?\\s+or\\s+)?is turned face up,?\\s*([^.]+)`,
     'i',
   );
   const regenerateMatch = oracleText.match(/when it regenerates this way,?\s*([^.]+)/i);
@@ -9948,17 +9975,24 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     });
   }
 
-  const commanderEtbMatch = oracleText.match(/when(?:ever)? your commander enters?(?: the battlefield)?,?\s*([^.]+)/i);
+  const commanderEtbMatch = oracleText.match(
+    new RegExp(
+      `when(?:ever)? your commander enters(?: the battlefield)?(?:\\s+or\\s+${ENTERS_OR_EVENT_SUFFIX})?,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
   if (commanderEtbMatch && !triggers.some((trigger) => trigger.triggerType === 'commander_etb')) {
     const effectText = timingTriggerEffect(oracleText, commanderEtbMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'commander_etb',
-      description: effectText,
-      effect: effectText,
-      mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+    if (effectText && !isSwallowedCompoundEnterEffect(effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'commander_etb',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
   }
 
   const phasesInMatch = oracleText.match(/when(?:ever)? (?:~|this creature) phases in,?\s*([^.]+)/i);
@@ -10156,7 +10190,10 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // Capture the required type phrase between the determiner (a/another/other/one or more) and "enters".
   // Examples captured: "creature", "nontoken creature", "token creature", "artifact creature", "Bear", "Assembly-Worker".
   const creatureETBMatch = oracleText.match(
-    /when(?:ever)? (?:a|an(?:other)?|one or more(?: other)?|other) ([^,]+?) (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i
+    new RegExp(
+      `when(?:ever)? (?:a|an(?:other)?|one or more(?: other)?|other) ([^,]+?) (?:you control )?enters?(?: the battlefield)?(?: under your control)?(?:\\s+or\\s+${ENTERS_OR_EVENT_SUFFIX})?,?\\s*([^.]+)`,
+      'i',
+    ),
   );
   const thatPermanentEtbMatch = oracleText.match(
     /when that permanent enters(?: the battlefield)?,?\s*([^.]+)/i
@@ -10180,6 +10217,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   const chosenTypeCreatureEtb = parseChosenTypeCreatureEtbTrigger(oracleText);
   if (
     chosenTypeCreatureEtb
+    && !isSwallowedCompoundEnterEffect(chosenTypeCreatureEtb.effect)
     && !triggers.some((t) => t.triggerType === 'chosen_type_creature_etb')
     && !triggers.some((t) => t.triggerType === 'chosen_type_creature_etb_or_attack')
   ) {
@@ -10211,15 +10249,22 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   if (creatureETBMatch && !hasOpponentCreatureRestriction && !triggers.some(t => t.triggerType === 'creature_etb')) {
     const requiredTypePhrase = creatureETBMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, creatureETBMatch, 2);
     // Land / land-subtype subjects belong to landfall detection, not creature_etb.
     // Otherwise Scute Swarm / Titania dual-classify and can double-fire on land-creatures.
-    if (!isLandfallEtbSubjectPhrase(requiredTypePhrase)) {
+    // Chosen-type "enters or attacks" is owned by chosen_type_creature_etb_or_attack.
+    if (
+      !isLandfallEtbSubjectPhrase(requiredTypePhrase)
+      && !isSwallowedCompoundEnterEffect(effectText)
+      && !/\bchosen type\b/i.test(requiredTypePhrase)
+      && !triggers.some((t) => t.triggerType === 'chosen_type_creature_etb_or_attack')
+      && !(/^\s*(?:nontoken\s+)?(?:artifact|enchantment|land|planeswalker|equipment|battle)s?\s*$/i.test(requiredTypePhrase))
+    ) {
       const isNontokenOnly = /\b(?:nontoken|non-token)\b/i.test(requiredTypePhrase);
       const isTokenOnly = !isNontokenOnly && /\btoken\b/i.test(requiredTypePhrase);
       // Check if this trigger requires the creature to be controlled by the trigger's controller
       // Pattern: "you control" or "under your control" in the trigger text
       const hasControlRestriction = /creature(?:s)?\s+you\s+control|under your control/i.test(oracleText);
-      const effectText = timingTriggerEffect(oracleText, creatureETBMatch, 2);
       const optionalTrigger = /\byou may\b/i.test(effectText);
       const t: TriggeredAbility = {
         permanentId,
@@ -10256,16 +10301,24 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   
   // "Whenever an Artifact enters the battlefield under your control"
   // Also handles plural forms and "another"/"other" variants
-  const artifactETBMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?artifacts? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
+  const artifactETBMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?artifacts? (?:you control )?enters?(?: the battlefield)?(?: under your control)?(?:\\s+or\\s+${ENTERS_OR_EVENT_SUFFIX})?,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
   if (artifactETBMatch && !triggers.some(t => t.triggerType === 'artifact_etb')) {
-    triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'artifact_etb',
-      description: timingTriggerEffect(oracleText, artifactETBMatch),
-      effect: timingTriggerEffect(oracleText, artifactETBMatch),
-      mandatory: !lowerOracle.includes('you may'),
-    });
+    const effectText = timingTriggerEffect(oracleText, artifactETBMatch);
+    if (effectText && !isSwallowedCompoundEnterEffect(effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'artifact_etb',
+        description: effectText,
+        effect: effectText,
+        mandatory: !lowerOracle.includes('you may'),
+      });
+    }
   }
   
   // "Whenever an Enchantment enters the battlefield under your control"
@@ -11544,6 +11597,107 @@ function deathTriggerClauseMatchesDyingCreature(
   return true;
 }
 
+function deathTriggerEffectKey(sourceId: string, effect: string): string {
+  return `${String(sourceId || '')}::${String(effect || '').toLowerCase().replace(/\s+/g, ' ').trim()}`;
+}
+
+function deathResultsHaveEffect(results: DeathTriggerResult[], sourceId: string, effect: string): boolean {
+  const key = deathTriggerEffectKey(sourceId, effect);
+  return results.some((result) => (
+    deathTriggerEffectKey(String(result?.source?.permanentId || ''), String(result?.effect || '')) === key
+  ));
+}
+
+function pushDetectedDeathTrigger(
+  results: DeathTriggerResult[],
+  trigger: { permanentId?: string; cardName?: string; effect?: string; description?: string },
+  controllerId: string,
+  dyingCreatureCard?: any,
+): void {
+  const effect = String(trigger.effect || trigger.description || '').trim();
+  const sourceId = String(trigger.permanentId || '');
+  if (!effect || !sourceId) return;
+  if (deathResultsHaveEffect(results, sourceId, effect)) return;
+  results.push({
+    source: {
+      permanentId: sourceId,
+      cardName: String(trigger.cardName || 'Unknown'),
+      controllerId: String(controllerId || ''),
+    },
+    effect,
+    requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
+    ...(dyingCreatureCard ? { dyingCreatureCard } : null),
+  });
+}
+
+function appendDetectedSelfDeathTriggers(
+  results: DeathTriggerResult[],
+  dyingPermanent: any,
+  dyingController: string,
+): void {
+  const card = dyingPermanent?.card;
+  if (!card) return;
+  const isCreature = String(card?.type_line || '').toLowerCase().includes('creature');
+  for (const trigger of detectDeathTriggers(card, dyingPermanent)) {
+    const triggerType = String(trigger.triggerType || '');
+    if (triggerType === 'enters_or_dies') {
+      pushDetectedDeathTrigger(results, trigger, dyingController);
+      continue;
+    }
+    // Artifact/enchantment "enters or is put into a graveyard" uses triggerType `dies`.
+    // Creature "When this creature dies" is already collected by the live self-dies scan.
+    if (triggerType === 'dies' && !isCreature) {
+      pushDetectedDeathTrigger(results, trigger, dyingController);
+    }
+  }
+}
+
+function hauntingTargetIdFromCard(cardOrPerm: any): string {
+  return String(
+    cardOrPerm?.hauntingPermanentId
+    || cardOrPerm?.hauntedCard
+    || cardOrPerm?.hauntingTargetId
+    || cardOrPerm?.card?.hauntingPermanentId
+    || cardOrPerm?.card?.hauntedCard
+    || cardOrPerm?.card?.hauntingTargetId
+    || '',
+  ).trim();
+}
+
+function appendHauntLeaveDeathTriggers(
+  ctx: GameContext,
+  results: DeathTriggerResult[],
+  dyingCreature: any,
+): void {
+  const dyingId = String(dyingCreature?.id || '').trim();
+  if (!dyingId) return;
+
+  const zones = (ctx.state as any)?.zones && typeof (ctx.state as any).zones === 'object'
+    ? Object.values((ctx.state as any).zones)
+    : [];
+  for (const zone of zones) {
+    const exile = Array.isArray((zone as any)?.exile) ? (zone as any).exile : [];
+    for (const candidate of exile) {
+      if (!candidate) continue;
+      const targetId = hauntingTargetIdFromCard(candidate);
+      if (!targetId || targetId !== dyingId) continue;
+      const card = candidate?.oracle_text ? candidate : candidate?.card;
+      if (!card?.oracle_text) continue;
+      const sourceId = String(candidate?.id || card?.id || '');
+      const controllerId = String(candidate?.owner || candidate?.controller || card?.owner || '');
+      for (const trigger of detectDeathTriggers(card, { id: sourceId, controller: controllerId, card })) {
+        if (String(trigger.triggerType || '') !== 'haunts_creature_dies') continue;
+        pushDetectedDeathTrigger(
+          results,
+          { ...trigger, permanentId: sourceId },
+          controllerId,
+          dyingCreature?.card,
+        );
+      }
+    }
+  }
+}
+
 /**
  * Find all death triggers that should fire when a creature dies.
  * 
@@ -11571,8 +11725,12 @@ export function getDeathTriggers(
   }
   const dyingTypeLine = (dyingCreature?.card?.type_line || '').toLowerCase();
   const isCreature = dyingTypeLine.includes('creature');
-  
-  if (!isCreature) return results;
+
+  appendDetectedSelfDeathTriggers(results, dyingCreature, dyingCreatureController);
+  if (!isCreature) {
+    appendHauntLeaveDeathTriggers(ctx, results, dyingCreature);
+    return results;
+  }
 
   const dyingCard = dyingCreature?.card;
   const dyingCardName = String(dyingCard?.name || 'Unknown');
@@ -11912,7 +12070,8 @@ export function getDeathTriggers(
       }
     }
   }
-  
+
+  appendHauntLeaveDeathTriggers(ctx, results, dyingCreature);
   return results;
 }
 
@@ -13949,7 +14108,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     ...buildCardNameRegexAlternatives(cardName),
   ];
   const selfTapPattern = new RegExp(
-    `whenever (?:${selfTapNameRefs.join('|')}) become(?:s)? tapped,?\\s*([^.]+)`,
+    `when(?:ever)? (?:${selfTapNameRefs.join('|')}) ${ENTERS_OR_OTHER_EVENT_PREFIX}become(?:s)? tapped,?\\s*([^.]+)`,
     'i',
   );
   const selfTapMatch = oracleText.match(selfTapPattern);

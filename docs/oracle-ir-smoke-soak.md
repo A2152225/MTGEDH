@@ -111,6 +111,8 @@ Shipped as the first suite. Eight soaks, ~51 cards, split by table setup:
 
 Do not merge B (multiplayer votes) or D (live combat board) into modal/Spree soaks.
 
+**Green baseline (2026-08-12):** `npm run oracle-ir:smoke:live` → **51/51** cards, **407/407** in-process checks, live table D2 **0→0**. Before each cast, `provisionSpellCastBoardContext` fills the same gaps the AI uses to skip no-op spells (Creature — Bear, stack Lightning Bolt, hands, combat). Do **not** expand this suite until a real multiplayer game produces a new D2 gap.
+
 ---
 
 ## 6. Adding a suite
@@ -207,7 +209,7 @@ A **clean** soak: every card `pass: true`, `telemetry_clean` actual `[]`, in-pro
 | Source | When it fills |
 |--------|----------------|
 | In-process snapshot | Any gap recorded while `soakCard` / apply / EP ran in this Node process |
-| `GET /api/oracle-ir/telemetry` | Only the **running server** (`npm run dev` / `start`). Restarting that process zeros it. |
+| `GET /api/oracle-ir/telemetry` | Only the **running server** (`npm run dev` / `start`). Restarting that process zeros it. Opening the URL in a browser shows an HTML log (game / time / what broke, up to 200 events). Scripts still get JSON (`Accept: application/json` or `?format=json`). Empty means **no gaps since this process started**, not that only the last issue is shown. |
 | `--live` table | Casts go through `requestCastSpellForSocket` **in the running process**, so D2 counters move |
 
 The smoke runner always **reads** the live endpoint. Without `--live` it does not write into that process. After a server restart you should see live `totalEvents: 0` even when the in-process soak is green.

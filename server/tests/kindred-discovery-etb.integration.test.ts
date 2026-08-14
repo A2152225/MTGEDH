@@ -95,7 +95,7 @@ describe('Kindred Discovery creature ETB', () => {
     );
 
     expect(kindredTriggers).toHaveLength(1);
-    expect(kindredTriggers[0]?.effect).toBe('draw a card');
+    expect(String(kindredTriggers[0]?.effect || '').replace(/\.$/, '')).toBe('draw a card');
     expect(kindredTriggers[0]?.triggerType).toBe('chosen_type_creature_etb_or_attack');
   });
 });

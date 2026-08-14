@@ -45,7 +45,7 @@ export function parseChosenTypeCreatureEtbTrigger(oracleText: string): {
   mandatory: boolean;
 } | null {
   const match = String(oracleText || '').match(
-    /whenever\s+(another\s+|a\s+)?(nontoken\s+)?creatures?\s+you\s+control\s+of\s+the\s+chosen\s+type\s+enters?(?:\s+the\s+battlefield)?,?\s*([^.]+)/i,
+    /whenever\s+(another\s+|a\s+)?(nontoken\s+)?creatures?\s+you\s+control\s+of\s+the\s+chosen\s+type\s+enters?(?:\s+the\s+battlefield)?(?=\s|,)(?!\s+or\s+),?\s*([^.]+)/i,
   );
   if (!match) return null;
 

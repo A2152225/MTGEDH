@@ -2,6 +2,7 @@ import type { BattlefieldPermanent } from "../../../shared/src/types.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { permanentHasCreatureTypeNow } from './creatureTypeNow.js';
 import { evaluateLifeGainReplacementEvent } from './modules/replacement-effects.js';
+import { summarizeLifeGainAmountReplacements } from './modules/replacementEffectSpec.js';
 import { getContinuousPTBonusForPermanent, getContinuousPTBonusSourcesForPermanent } from './modules/staticEffectSpec.js';
 import { getLibraryTopCardFromState } from './modules/game-state-effects.js';
 
@@ -304,20 +305,18 @@ export function applyLifeGain(
   // This maximizes life gained: (X + 1) * 2 > (X * 2) + 1
   let modifiedAmount = amount;
   const appliedReplacements: string[] = [];
-  
-  // Get +1 modifiers (Leyline of Hope, Angel of Vitality)
-  const lifeGainModifiers = checkLifeGainModifiers(gameState, playerId);
-  if (lifeGainModifiers.extraLife > 0) {
-    modifiedAmount += lifeGainModifiers.extraLife;
-    appliedReplacements.push(...lifeGainModifiers.sources.map(s => `${s}: +${lifeGainModifiers.extraLife}`));
+  const amountMods = summarizeLifeGainAmountReplacements(gameState, playerId);
+  if (amountMods.extraLife > 0) {
+    modifiedAmount += amountMods.extraLife;
+    appliedReplacements.push(
+      ...amountMods.extraSources.map((sourceName) => `${sourceName}: +${amountMods.extraLife}`),
+    );
   }
-  
-  // Check for doublers (Boon Reflection, Rhox Faithmender, Alhammarret's Archive)
-  // Apply AFTER +1 effects to maximize life gained
-  const lifeGainDoublers = checkLifeGainDoublers(gameState, playerId);
-  if (lifeGainDoublers.multiplier > 1) {
-    modifiedAmount *= lifeGainDoublers.multiplier;
-    appliedReplacements.push(...lifeGainDoublers.sources.map(s => `${s}: x${lifeGainDoublers.multiplier}`));
+  if (amountMods.multiplier > 1) {
+    modifiedAmount *= amountMods.multiplier;
+    appliedReplacements.push(
+      ...amountMods.doubleSources.map((sourceName) => `${sourceName}: x${amountMods.multiplier}`),
+    );
   }
   
   if (appliedReplacements.length > 0) {
@@ -366,113 +365,6 @@ export function applyLifeGain(
     actualChange: modifiedAmount, 
     message: source ? `Gained ${modifiedAmount} life from ${source}` : `Gained ${modifiedAmount} life` 
   };
-}
-
-/**
- * Check for life gain modifier effects on the battlefield.
- * These are replacement effects that increase the amount of life gained.
- * 
- * @param gameState - The current game state
- * @param playerId - The player who would gain life
- * @returns { extraLife: number, sources: string[] } - Extra life to gain and sources
- */
-function checkLifeGainModifiers(
-  gameState: any,
-  playerId: string
-): { extraLife: number; sources: string[] } {
-  const battlefield = gameState?.battlefield || [];
-  let extraLife = 0;
-  const sources: string[] = [];
-  
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    if (perm.controller !== playerId) continue; // Most of these only affect controller
-    
-    const cardName = (perm.card.name || '').toLowerCase();
-    const oracleText = (perm.card.oracle_text || '').toLowerCase();
-    
-    // Leyline of Hope: "If you would gain life, you gain that much life plus 1 instead."
-    if (cardName.includes('leyline of hope') || 
-        (oracleText.includes('would gain life') && oracleText.includes('that much life plus 1'))) {
-      extraLife += 1;
-      sources.push(perm.card.name || 'Leyline of Hope');
-    }
-    
-    // Rhox Faithmender: "If you would gain life, you gain twice that much life instead."
-    // (This is a doubling effect, handled differently - need separate logic)
-    // For now, skip doubling effects as they require different handling
-    
-    // Boon Reflection: "If you would gain life, you gain twice that much life instead."
-    // (Same as Rhox Faithmender - doubling effect)
-    
-    // Trostani Discordant: Doesn't modify life gain amount
-    
-    // Angel of Vitality: "If you would gain life, you gain that much life plus 1 instead."
-    // Only if you have 25 or more life
-    if (cardName.includes('angel of vitality') ||
-        (oracleText.includes('would gain life') && oracleText.includes('25 or more life'))) {
-      const currentLife = gameState?.life?.[playerId] ?? (gameState?.startingLife || 40);
-      if (currentLife >= 25) {
-        extraLife += 1;
-        sources.push(perm.card.name || 'Angel of Vitality');
-      }
-    }
-  }
-  
-  return { extraLife, sources };
-}
-
-/**
- * Check for life gain doubling effects on the battlefield.
- * These are replacement effects that double the amount of life gained.
- * Applied AFTER +1 effects to maximize life gained per MTG optimization rules.
- * 
- * @param gameState - The current game state
- * @param playerId - The player who would gain life
- * @returns { multiplier: number, sources: string[] } - Multiplier and sources
- */
-function checkLifeGainDoublers(
-  gameState: any,
-  playerId: string
-): { multiplier: number; sources: string[] } {
-  const battlefield = gameState?.battlefield || [];
-  let multiplier = 1;
-  const sources: string[] = [];
-  
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    if (perm.controller !== playerId) continue; // Most of these only affect controller
-    
-    const cardName = (perm.card.name || '').toLowerCase();
-    const oracleText = (perm.card.oracle_text || '').toLowerCase();
-    
-    // Boon Reflection: "If you would gain life, you gain twice that much life instead."
-    if (cardName.includes('boon reflection') ||
-        (oracleText.includes('would gain life') && oracleText.includes('twice that much'))) {
-      multiplier *= 2;
-      sources.push(perm.card.name || 'Boon Reflection');
-    }
-    
-    // Rhox Faithmender: "If you would gain life, you gain twice that much life instead."
-    if (cardName.includes('rhox faithmender')) {
-      multiplier *= 2;
-      sources.push(perm.card.name || 'Rhox Faithmender');
-    }
-    
-    // Alhammarret's Archive: "If you would gain life, you gain twice that much life instead."
-    if (cardName.includes("alhammarret's archive") ||
-        cardName.includes('alhammarrets archive')) {
-      multiplier *= 2;
-      sources.push(perm.card.name || "Alhammarret's Archive");
-    }
-    
-    // Nykthos Paragon: "Whenever you gain life, ... with that many +1/+1 counters" (not a doubler)
-    
-    // Celestial Mantle: "Whenever enchanted creature deals combat damage, double your life total"
-    // (This doubles your total, not the gain amount - different effect)
-  }
-  
-  return { multiplier, sources };
 }
 
 /**

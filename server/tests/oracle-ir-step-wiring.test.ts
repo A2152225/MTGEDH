@@ -65,6 +65,199 @@ describe('oracle IR step wiring guardrails', () => {
     }
   });
 
+  it('wires create_emblem for activated loyalty and trigger/spell fallback', () => {
+    expect(ORACLE_IR_FALLBACK_STEP_KINDS.has('create_emblem')).toBe(true);
+    expect(ORACLE_IR_ACTIVATED_STEP_KINDS.has('create_emblem')).toBe(true);
+    const steps = collectActivatedAbilitySteps(
+      'You get an emblem with "Creatures you control get +1/+1."',
+      'Generic Planeswalker',
+    );
+    expect(steps.some((step) => step.kind === 'create_emblem')).toBe(true);
+    expect(isActivatedAbilityEffectFullyWired(steps)).toBe(true);
+  });
+
+  it('wires gain_control, grant_exile_permission, and skip_next_untap for loyalty/fallback', () => {
+    for (const kind of ['gain_control', 'grant_exile_permission', 'skip_next_untap'] as const) {
+      expect(ORACLE_IR_FALLBACK_STEP_KINDS.has(kind)).toBe(true);
+      expect(ORACLE_IR_ACTIVATED_STEP_KINDS.has(kind)).toBe(true);
+    }
+
+    const gainControl = collectActivatedAbilitySteps(
+      'Gain control of target creature until end of turn.',
+      'Generic Planeswalker',
+    );
+    expect(gainControl.some((step) => step.kind === 'gain_control')).toBe(true);
+    expect(isActivatedAbilityEffectFullyWired(gainControl)).toBe(true);
+
+    const skipUntap = collectActivatedAbilitySteps(
+      'Target player skips their next untap step.',
+      'Generic Planeswalker',
+    );
+    expect(skipUntap.some((step) => step.kind === 'skip_next_untap')).toBe(true);
+    expect(isActivatedAbilityEffectFullyWired(skipUntap)).toBe(true);
+
+    const impulse = collectActivatedAbilitySteps(
+      'Exile the top card of your library. You may play it this turn.',
+      'Generic Planeswalker',
+    );
+    expect(impulse.some((step) => step.kind === 'impulse_exile_top' || step.kind === 'exile_top')).toBe(true);
+    expect(isActivatedAbilityEffectFullyWired(impulse)).toBe(true);
+
+    const exilePermission = collectActivatedAbilitySteps(
+      'You may play it this turn.',
+      'Generic Planeswalker',
+    );
+    expect(exilePermission.some((step) => step.kind === 'grant_exile_permission')).toBe(true);
+    expect(isActivatedAbilityEffectFullyWired(exilePermission)).toBe(true);
+  });
+
+  it('wires remaining loyalty executor kinds (flip_coin, phase_out, venture, exchange_control)', () => {
+    for (const kind of [
+      'flip_coin',
+      'phase_out',
+      'venture_into_dungeon',
+      'exchange_control',
+      'add_types',
+      'cant_activate_abilities',
+      'modify_exile_permissions',
+      'choose_card_name',
+    ] as const) {
+      expect(ORACLE_IR_FALLBACK_STEP_KINDS.has(kind)).toBe(true);
+      expect(ORACLE_IR_ACTIVATED_STEP_KINDS.has(kind)).toBe(true);
+    }
+
+    const flip = collectActivatedAbilitySteps('Flip a coin.', 'Generic Planeswalker');
+    expect(flip.some((step) => step.kind === 'flip_coin')).toBe(true);
+    expect(isActivatedAbilityEffectFullyWired(flip)).toBe(true);
+
+    const phaseOut = collectActivatedAbilitySteps(
+      'Target creature you don\'t control phases out.',
+      'Generic Planeswalker',
+    );
+    expect(phaseOut.some((step) => step.kind === 'phase_out')).toBe(true);
+    expect(isActivatedAbilityEffectFullyWired(phaseOut)).toBe(true);
+
+    const untilNextTurnPt = collectActivatedAbilitySteps(
+      'Until your next turn, up to one target creature gets -3/-0.',
+      'Generic Planeswalker',
+    );
+    expect(untilNextTurnPt).toEqual([
+      expect.objectContaining({
+        kind: 'modify_pt',
+        power: -3,
+        toughness: 0,
+        duration: 'until_next_turn',
+      }),
+    ]);
+    expect(isActivatedAbilityEffectFullyWired(untilNextTurnPt)).toBe(true);
+
+    const suffixUntilNextTurnPt = collectActivatedAbilitySteps(
+      'Up to one target creature gets -2/-1 until your next turn.',
+      'Generic Planeswalker',
+    );
+    expect(suffixUntilNextTurnPt).toEqual([
+      expect.objectContaining({
+        kind: 'modify_pt',
+        power: -2,
+        toughness: -1,
+        duration: 'until_next_turn',
+      }),
+    ]);
+    expect(isActivatedAbilityEffectFullyWired(suffixUntilNextTurnPt)).toBe(true);
+
+    const compoundUntilNextTurnPt = collectActivatedAbilitySteps(
+      'Until your next turn, up to one target creature gets -2/-0 and loses flying.',
+      'Generic Planeswalker',
+    );
+    expect(compoundUntilNextTurnPt.map((step) => step.kind)).toEqual(['modify_pt', 'grant_temporary_ability']);
+    expect(compoundUntilNextTurnPt[0]).toEqual(expect.objectContaining({
+      kind: 'modify_pt',
+      power: -2,
+      toughness: 0,
+      duration: 'until_next_turn',
+    }));
+    expect(isActivatedAbilityEffectFullyWired(compoundUntilNextTurnPt)).toBe(true);
+
+    const cantAttackOrBlockUntilNextTurn = collectActivatedAbilitySteps(
+      "Target creature without first strike, double strike, or vigilance can't attack or block until your next turn.",
+      'Generic Planeswalker',
+    );
+    expect(cantAttackOrBlockUntilNextTurn).toEqual([
+      expect.objectContaining({
+        kind: 'grant_temporary_ability',
+        duration: 'until_next_turn',
+      }),
+    ]);
+    expect(isActivatedAbilityEffectFullyWired(cantAttackOrBlockUntilNextTurn)).toBe(true);
+
+    const untilNextTurnCostReduction = collectActivatedAbilitySteps(
+      'Target player draws two cards. Until your next turn, instant, sorcery, and planeswalker spells that player casts cost {2} less to cast.',
+      'Generic Planeswalker',
+    );
+    expect(untilNextTurnCostReduction.map((step) => step.kind)).toEqual(['draw', 'grant_temporary_ability']);
+    expect(isActivatedAbilityEffectFullyWired(untilNextTurnCostReduction)).toBe(true);
+
+    const untilNextTurnWhenever = collectActivatedAbilitySteps(
+      'Until your next turn, whenever a creature an opponent controls attacks, it gets -1/-0 until end of turn.',
+      'Generic Planeswalker',
+    );
+    expect(untilNextTurnWhenever).toEqual([
+      expect.objectContaining({
+        kind: 'grant_temporary_ability',
+        duration: 'until_next_turn',
+      }),
+    ]);
+    expect(isActivatedAbilityEffectFullyWired(untilNextTurnWhenever)).toBe(true);
+
+    const perpetualPt = collectActivatedAbilitySteps(
+      'Target creature an opponent controls perpetually gets -3/-3.',
+      'Generic Planeswalker',
+    );
+    expect(perpetualPt).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        power: -3,
+        toughness: -3,
+        duration: 'static',
+      }),
+    ]);
+    expect(isActivatedAbilityEffectFullyWired(perpetualPt)).toBe(true);
+
+    const modalScaledPt = collectActivatedAbilitySteps(
+      'Target creature gets +X/+X or -X/-X until end of turn, where X is the number of Swamps you control.',
+      'Generic Planeswalker',
+    );
+    expect(modalScaledPt).toEqual([
+      expect.objectContaining({
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 1,
+      }),
+    ]);
+    expect(isActivatedAbilityEffectFullyWired(modalScaledPt)).toBe(true);
+
+    const untilNextTurnAnimate = collectActivatedAbilitySteps(
+      'Until your next turn, target artifact you control becomes a 5/5 creature in addition to its other types.',
+      'Generic Planeswalker',
+    );
+    expect(untilNextTurnAnimate).toEqual([
+      expect.objectContaining({
+        kind: 'animate_permanent',
+        power: 5,
+        toughness: 5,
+        duration: 'until_next_turn',
+      }),
+    ]);
+    expect(isActivatedAbilityEffectFullyWired(untilNextTurnAnimate)).toBe(true);
+
+    const gyReanimateWard = collectActivatedAbilitySteps(
+      'Target opponent puts a creature card of their choice from their graveyard onto the battlefield under your control. That creature gains ward {2}.',
+      'Generic Planeswalker',
+    );
+    expect(gyReanimateWard.map((step) => step.kind)).toEqual(['move_zone', 'grant_static_ability']);
+    expect(isActivatedAbilityEffectFullyWired(gyReanimateWard)).toBe(true);
+  });
+
   it('wires Class gain_class_level for activated abilities', () => {
     expect(ORACLE_IR_ACTIVATED_STEP_KINDS.has('gain_class_level')).toBe(true);
     const steps = collectActivatedAbilitySteps('{W}: Level 2', "Caretaker's Talent");
@@ -218,10 +411,10 @@ describe('oracle IR step wiring guardrails', () => {
     };
 
     const oracleText =
-      'Return target creature card from your graveyard to the battlefield. Venture into the dungeon.';
+      'Return target creature card from your graveyard to the battlefield. Target creature can\'t attack this turn.';
 
     const steps = collectActivatedAbilitySteps(oracleText, 'Test Source');
-    expect(steps.some((step) => step.kind === 'venture_into_dungeon')).toBe(true);
+    expect(steps.some((step) => step.kind === 'cant_attack')).toBe(true);
     expect(isActivatedAbilityEffectFullyWired(steps)).toBe(false);
 
     const result = tryApplyOracleIRToActivatedAbility(ctx as any, {

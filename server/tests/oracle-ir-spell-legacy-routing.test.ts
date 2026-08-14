@@ -480,6 +480,10 @@ describe('oracleIrSpellLegacyRouting', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '1';
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('draw')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('create_token')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('create_emblem')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('gain_control')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('grant_exile_permission')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('skip_next_untap')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('destroy')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('exile')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('exile_named_cards_from_zones')).toBe(true);

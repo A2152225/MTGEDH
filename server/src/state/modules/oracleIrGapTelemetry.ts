@@ -52,6 +52,8 @@ export interface OracleIrGapTelemetryEvent {
   /** Effect clause or oracle text snippet (truncated). */
   readonly effectText?: string;
   readonly gameId?: string;
+  /** Player names or other table label when known at record/serve time. */
+  readonly gameName?: string;
   readonly stats?: { applied?: number; parsed?: number; mandatory?: number };
   readonly at: string;
 }
@@ -63,10 +65,13 @@ export interface OracleIrGapTelemetrySnapshot {
   /** label → occurrence count, most frequent first (top 50). */
   readonly topLabels: Array<{ label: string; kind: string; count: number }>;
   readonly recentEvents: readonly OracleIrGapTelemetryEvent[];
+  /** ISO time this Node process loaded the telemetry module (log zeros on restart). */
+  readonly processStartedAt: string;
 }
 
 const MAX_RECENT_EVENTS = 200;
 const MAX_EFFECT_TEXT = 240;
+const PROCESS_STARTED_AT = new Date().toISOString();
 
 let totalEvents = 0;
 const byKind = new Map<string, number>();
@@ -143,6 +148,7 @@ function buildSnapshotFromEvents(events: readonly OracleIrGapTelemetryEvent[]): 
     byScopeKind: Object.fromEntries(scopeKindCounts.entries()),
     topLabels,
     recentEvents: recent,
+    processStartedAt: PROCESS_STARTED_AT,
   };
 }
 
@@ -174,6 +180,7 @@ export function recordOracleIrGapTelemetry(event: {
   reasons?: readonly string[] | string;
   effectText?: string;
   gameId?: string;
+  gameName?: string;
   stats?: { applied?: number; parsed?: number; mandatory?: number };
 }): void {
   try {
@@ -188,6 +195,7 @@ export function recordOracleIrGapTelemetry(event: {
         ? String(event.effectText).trim().slice(0, MAX_EFFECT_TEXT)
         : undefined,
       gameId: event.gameId ? String(event.gameId) : undefined,
+      gameName: event.gameName ? String(event.gameName).trim() || undefined : undefined,
       stats: event.stats,
       at: new Date().toISOString(),
     };
@@ -238,6 +246,7 @@ export function getOracleIrGapTelemetrySnapshot(): OracleIrGapTelemetrySnapshot 
     byScopeKind: Object.fromEntries(byScopeKind.entries()),
     topLabels,
     recentEvents: [...recentEvents],
+    processStartedAt: PROCESS_STARTED_AT,
   };
 }
 

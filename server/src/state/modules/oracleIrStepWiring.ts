@@ -6,7 +6,6 @@ import { isSupportedCopyPermanentTriggerPattern } from './trigger-copy-permanent
 import {
   ORACLE_IR_FALLBACK_STEP_KINDS,
   TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS,
-  isSupportedGainControlTriggerPattern,
 } from './trigger-runtime-wiring.js';
 
 /**
@@ -47,10 +46,6 @@ export function isOracleEffectStepRuntimeWired(step: OracleEffectStep): boolean 
 
   if (step.kind === 'copy_permanent') {
     return isSupportedCopyPermanentTriggerPattern(step);
-  }
-
-  if (step.kind === 'gain_control') {
-    return isSupportedGainControlTriggerPattern(step);
   }
 
   if (isOptionalOracleEffectStep(step)) {
@@ -321,6 +316,7 @@ export function logOracleIrAllOrNothingFailure(
   label: string,
   reasons: readonly string[] | string,
   stats?: { applied?: number; parsed?: number; mandatory?: number },
+  extra?: { gameId?: string; effectText?: string },
 ): void {
   const normalizedReasons: readonly string[] = Array.isArray(reasons)
     ? reasons
@@ -332,6 +328,8 @@ export function logOracleIrAllOrNothingFailure(
     label,
     reasons: normalizedReasons,
     stats,
+    gameId: extra?.gameId,
+    effectText: extra?.effectText,
   });
 }
 

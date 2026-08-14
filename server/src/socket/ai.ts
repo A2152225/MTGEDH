@@ -12552,6 +12552,14 @@ export async function handleAIResolutionStep(
         break;
       }
 
+      case 'haunt_target': {
+        const hauntTargets = Array.isArray((step as any)?.targets) ? (step as any).targets : [];
+        const selectedId = hauntTargets.map((target: any) => String(target?.id || '')).find(Boolean);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedId ? [selectedId] : []));
+        debug(1, `[AI] haunt_target: selected ${selectedId || 'none'}`);
+        break;
+      }
+
       case 'upkeep_sacrifice': {
         const selection = chooseAIUpkeepSacrificeSelection(game, playerId, step);
         ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selection));

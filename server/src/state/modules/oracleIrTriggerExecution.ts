@@ -675,6 +675,7 @@ export function tryResolveTriggerViaOracleIR(
         params.sourceName,
         `Oracle IR reported handled but library did not decrease for draw effect: ${effectText}`,
         { applied, parsed: steps.length },
+        { gameId: String((ctx as any)?.gameId || '') || undefined, effectText },
       );
     } else if (handled) {
       debug(
@@ -698,6 +699,7 @@ export function tryResolveTriggerViaOracleIR(
           },
         ),
         { applied, parsed: steps.length },
+        { gameId: String((ctx as any)?.gameId || '') || undefined, effectText },
       );
     }
 
