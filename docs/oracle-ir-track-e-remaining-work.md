@@ -730,7 +730,7 @@ Continue Oracle IR Layer 3 post-beta from docs/oracle-ir-track-e-remaining-work.
 
 ### Track E9+ — incremental legacy + live soak
 
-**Current (2026-08-14):** D3 complete. Scripted live soak **51/51**. Phase 5 PW IR **886/887 (99.9%)** + life-gain/draw/token/counter/mill/library-search oracle-pattern specs + Szadek-style source-self combat replace closed. Next work is Davriel Alchemy offers (leave unwired) and real-table telemetry. Full batch log: [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md).
+**Current (2026-08-14):** D3 complete. Scripted live soak **51/51**. Phase 5 PW IR **886/887 (99.9%)** + life-gain/draw/token/counter/mill/library-search oracle-pattern specs + Szadek source-self + Alchemist type-restricted combat mill closed. Next work is Davriel Alchemy offers (leave unwired) and real-table telemetry. Full batch log: [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md).
 
 ```
 Migration end-state — continue from P0/P1 in the Migration End-State Roadmap.

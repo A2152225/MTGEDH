@@ -36,13 +36,75 @@ export type SmokeSoakResult = {
 
 export type LiveSoakSetup = 'main' | 'combat' | 'vote_board';
 
+export type LiveSoakController = 'human' | 'ai';
+
+export type LiveSoakAction = 'cast' | 'mill' | 'combat' | 'search';
+
+export type LiveSoakInject = {
+  name?: string;
+  soakCreature?: boolean;
+  controller?: LiveSoakController;
+  attacking?: boolean;
+};
+
+export type LiveSoakExpect = {
+  millOpponentExact?: number;
+  millOpponentAtLeast?: number;
+  millOtherUnchanged?: boolean;
+  millOtherAtLeast?: number;
+  lifeUnchanged?: boolean;
+  plusOneOnAttacker?: number;
+  plusOneAtLeast?: number;
+  canSearch?: boolean;
+  limitToTop?: number;
+  paymentAmount?: string;
+  controlledBySeat?: LiveSoakController;
+  triggerCountAtLeast?: number;
+};
+
+export type LiveSoakCardConfig = {
+  expectAnyQueue?: string[];
+  expectPBudget?: number;
+  inject?: LiveSoakInject[];
+  action?: LiveSoakAction;
+  millCount?: number;
+  expect?: LiveSoakExpect;
+};
+
 export type LiveSoakConfig = {
   playerCount: number;
   setup: LiveSoakSetup;
   expectAnyQueue?: string[];
   expectPBudget?: number;
-  perCard?: Record<string, { expectAnyQueue?: string[]; expectPBudget?: number }>;
+  inject?: LiveSoakInject[];
+  action?: LiveSoakAction;
+  millCount?: number;
+  expect?: LiveSoakExpect;
+  perCard?: Record<string, LiveSoakCardConfig>;
 };
+
+export type LiveCastRequest = {
+  setup: LiveSoakSetup;
+  inject: LiveSoakInject[];
+  action: LiveSoakAction;
+  millCount?: number;
+  expect?: LiveSoakExpect;
+};
+
+export function liveCastRequestForCard(config: LiveSoakConfig, cardName: string): LiveCastRequest {
+  const card = config.perCard?.[cardName];
+  const inject = [...(config.inject || []), ...(card?.inject || [])];
+  const action = card?.action || config.action || 'cast';
+  const millCount = card?.millCount ?? config.millCount;
+  const expect = card?.expect || config.expect;
+  return {
+    setup: config.setup,
+    inject,
+    action,
+    ...(millCount != null ? { millCount } : {}),
+    ...(expect ? { expect } : {}),
+  };
+}
 
 export type SmokeCliArgs = {
   suite?: string;

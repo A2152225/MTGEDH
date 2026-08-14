@@ -51,7 +51,7 @@ import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 import { isStationPermanentTypeLine } from "../../../../rules-engine/src/stationPermanentUtils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
-import { cardHasCreatureType } from "../creatureTypeNow.js";
+import { cardHasCreatureType, permanentHasCreatureTypeNow } from "../creatureTypeNow.js";
 import { getActiveStationAbilities, parseStationAbilities } from "../../utils/stationParser.js";
 import {
   collectOraclePatternDamageReplacementSpecsFromState,
@@ -2398,6 +2398,8 @@ export interface CombatDamageReplacementEffect {
   putPlusOneCountersOnSource?: boolean;
   /** Only the source permanent's own combat damage is replaced (not other sources you control) */
   sourceSelfOnly?: boolean;
+  /** Attacking source must have this creature type (e.g. zombie). */
+  appliesToCreatureType?: string;
   /** Controller and damaged player each draw half that many cards, rounded down */
   drawHalfForControllerAndDamagedPlayer?: boolean;
   /** Damage to player effect: deal damage to target player instead */
@@ -2515,6 +2517,87 @@ function parseSourceSelfCombatDamageReplacementFromOracle(replacementText: strin
   };
 }
 
+function parseTypeRestrictedCombatMillFromOracle(replacementText: string): CombatDamageReplacementEffect | null {
+  if (!replacementText.includes('would deal combat damage to a player')) return null;
+  if (!replacementText.includes('instead')) return null;
+  if (!replacementText.includes('you control')) return null;
+  if (replacementText.includes('prevent that damage')) return null;
+  if (replacementText.includes('+1/+1 counter')) return null;
+  if (!replacementText.includes('that player mills') && !replacementText.includes('that player mill')) {
+    return null;
+  }
+
+  const match = replacementText.match(
+    /if an? ([a-z][a-z0-9'-]*) you control would deal combat damage to a player/,
+  );
+  if (!match) return null;
+  const creatureType = String(match[1] || '').trim().toLowerCase();
+  if (!creatureType || creatureType === 'source' || creatureType === 'this' || creatureType === 'card') {
+    return null;
+  }
+
+  return {
+    description: `Instead a ${creatureType} you control mills the damaged player that many`,
+    preventsDamage: true,
+    millDamagedPlayer: true,
+    appliesToCreatureType: creatureType,
+    onlyToPlayers: true,
+    appliesToNonCombatDamage: false,
+  };
+}
+
+function attackerMatchesRestrictedCreatureType(
+  attackerCard: any,
+  attackerPermanent: any,
+  creatureType: string,
+): boolean {
+  const wanted = String(creatureType || '').trim();
+  if (!wanted) return false;
+  if (attackerPermanent && permanentHasCreatureTypeNow(attackerPermanent, wanted)) return true;
+  if (cardHasCreatureType(attackerCard, wanted)) return true;
+  if (cardHasCreatureType(attackerPermanent?.card, wanted)) return true;
+  return false;
+}
+
+function detectTypeRestrictedCombatMillFromPermanent(
+  perm: any,
+): DetectedPreventDamageMillReplacement | null {
+  const replacementTexts = collectCombatDamageReplacementTexts(perm?.card, perm);
+  for (const replacementText of replacementTexts) {
+    const parsed = parseTypeRestrictedCombatMillFromOracle(replacementText);
+    if (parsed) {
+      return { effect: parsed, sourceName: String(perm?.card?.name || 'Effect') };
+    }
+  }
+  return null;
+}
+
+/**
+ * Scan the battlefield for "if a [type] you control would deal combat damage to a player, instead mill".
+ * Applies to any matching-type attacker the controller controls (not source-self only).
+ */
+export function detectTypeRestrictedCombatMillReplacement(
+  ctx: GameContext,
+  sourceControllerId: string,
+  attackerCard?: any,
+  attackerPermanent?: any,
+): DetectedPreventDamageMillReplacement | null {
+  const controllerId = String(sourceControllerId || '').trim();
+  if (!controllerId) return null;
+
+  const battlefield = getActivePermanents(ctx);
+  for (const perm of battlefield) {
+    if (String(perm?.controller || '') !== controllerId) continue;
+    const detected = detectTypeRestrictedCombatMillFromPermanent(perm);
+    const creatureType = detected?.effect.appliesToCreatureType;
+    if (!detected || !creatureType) continue;
+    if (!attackerMatchesRestrictedCreatureType(attackerCard, attackerPermanent, creatureType)) continue;
+    return detected;
+  }
+
+  return null;
+}
+
 function detectSourceSelfCombatDamageReplacement(
   attackerCard: any,
   attackerPermanent: any,
@@ -2599,6 +2682,13 @@ export function detectCombatDamageReplacement(
 
   const controllerId = String(attackerPermanent?.controller || attackerCard?.controller || '').trim();
   if (controllerId) {
+    const typeRestricted = detectTypeRestrictedCombatMillReplacement(
+      ctx,
+      controllerId,
+      attackerCard,
+      attackerPermanent,
+    );
+    if (typeRestricted) return typeRestricted.effect;
     const fromBattlefield = detectPreventDamageMillReplacementForController(ctx, controllerId);
     if (fromBattlefield) return fromBattlefield.effect;
   }
@@ -2607,6 +2697,10 @@ export function detectCombatDamageReplacement(
   for (const replacementText of replacementTexts) {
     const sourceSelf = parseSourceSelfCombatDamageReplacementFromOracle(replacementText);
     if (sourceSelf) return sourceSelf;
+    const typeRestricted = parseTypeRestrictedCombatMillFromOracle(replacementText);
+    if (typeRestricted && attackerMatchesRestrictedCreatureType(attackerCard, attackerPermanent, typeRestricted.appliesToCreatureType || '')) {
+      return typeRestricted;
+    }
     const parsed = parsePreventDamageMillFromOracle(replacementText);
     if (parsed) return parsed;
   }
@@ -2980,6 +3074,7 @@ export function applyCombatDamageReplacement(
 
   const sourceSelf = detectSourceSelfCombatDamageReplacement(attackerCard, attackerPermanent);
   const detected = sourceSelf
+    || detectTypeRestrictedCombatMillReplacement(ctx, attackerController, attackerCard, attackerPermanent)
     || detectPreventDamageMillReplacementForController(ctx, attackerController);
   if (!detected) {
     return empty;

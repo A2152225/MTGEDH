@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyOpponentDamageReplacement,
   detectPreventDamageMillReplacementForController,
+  detectTypeRestrictedCombatMillReplacement,
   millAllOpponentsForController,
   resolveCombatDamageToOpponent,
   resolveOpponentDirectedDamage,
@@ -307,5 +308,155 @@ describe('source-self combat damage replacement (Szadek family)', () => {
 
     expect(detectPreventDamageMillReplacementForController(ctx, 'p1', { nonCombatOnly: true })).toBeNull();
     expect(detectPreventDamageMillReplacementForController(ctx, 'p1')).toBeNull();
+  });
+});
+
+describe('type-restricted combat damage mill (Undead Alchemist family)', () => {
+  const alchemistOracle =
+    "If a Zombie you control would deal combat damage to a player, instead that player mills that many cards.\nWhenever a creature card is put into an opponent's graveyard from their library, exile that card and create a 2/2 black Zombie creature token.";
+
+  it('replaces matching-type combat damage with mill to that player only', () => {
+    const ctx = makeCtx({
+      players: [
+        { id: 'p1', hasLost: false },
+        { id: 'p2', hasLost: false },
+        { id: 'p3', hasLost: false },
+      ],
+      battlefield: [
+        {
+          id: 'alch_1',
+          controller: 'p1',
+          card: { name: 'Generic Necromantic Scholar', oracle_text: alchemistOracle, type_line: 'Creature — Zombie Wizard' },
+        },
+        {
+          id: 'zombie_1',
+          controller: 'p1',
+          card: { name: 'Generic Shambler', type_line: 'Creature — Zombie', oracle_text: '' },
+        },
+      ],
+      libraries: new Map<string, any[]>([
+        ['p1', []],
+        ['p2', [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }, { id: 'c4' }]],
+        ['p3', [{ id: 'd1' }, { id: 'd2' }, { id: 'd3' }]],
+      ]),
+    });
+    ctx.state.zones.p3 = { library: [], graveyard: [], libraryCount: 3, graveyardCount: 0 };
+
+    const zombie = ctx.state.battlefield[1];
+    const result = resolveCombatDamageToOpponent(ctx, {
+      attackerCard: zombie.card,
+      attackerPermanent: zombie,
+      attackerController: 'p1',
+      damageAmount: 3,
+      defendingPlayerId: 'p2',
+    });
+
+    expect(result.damageDealt).toBe(0);
+    expect(result.prevented).toBe(true);
+    expect(result.plusOneCountersOnSource).toBeUndefined();
+    expect(result.millTargets).toEqual(['p2']);
+    expect(result.millAmount).toBe(3);
+    expect(ctx.libraries.get('p2')?.length).toBe(1);
+    expect(ctx.libraries.get('p3')?.length).toBe(3);
+  });
+
+  it('does not replace combat damage from a non-matching type you control', () => {
+    const ctx = makeCtx({
+      battlefield: [
+        {
+          id: 'alch_1',
+          controller: 'p1',
+          card: { name: 'Generic Necromantic Scholar', oracle_text: alchemistOracle, type_line: 'Creature — Zombie Wizard' },
+        },
+        {
+          id: 'bear_1',
+          controller: 'p1',
+          card: { name: 'Bear', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+      ],
+    });
+
+    const bear = ctx.state.battlefield[1];
+    const result = resolveCombatDamageToOpponent(ctx, {
+      attackerCard: bear.card,
+      attackerPermanent: bear,
+      attackerController: 'p1',
+      damageAmount: 2,
+      defendingPlayerId: 'p2',
+    });
+
+    expect(result.prevented).toBe(false);
+    expect(result.damageDealt).toBe(2);
+    expect(result.millAmount).toBeUndefined();
+    expect(ctx.libraries.get('p2')?.length).toBe(3);
+  });
+
+  it('applies when the typed permanent itself is the attacker', () => {
+    const ctx = makeCtx({
+      battlefield: [
+        {
+          id: 'alch_1',
+          controller: 'p1',
+          card: { name: 'Generic Necromantic Scholar', oracle_text: alchemistOracle, type_line: 'Creature — Zombie Wizard' },
+        },
+      ],
+    });
+
+    const alchemist = ctx.state.battlefield[0];
+    const result = resolveCombatDamageToOpponent(ctx, {
+      attackerCard: alchemist.card,
+      attackerPermanent: alchemist,
+      attackerController: 'p1',
+      damageAmount: 4,
+      defendingPlayerId: 'p2',
+    });
+
+    expect(result.prevented).toBe(true);
+    expect(result.damageDealt).toBe(0);
+    expect(result.millAmount).toBe(4);
+    expect(result.millTargets).toEqual(['p2']);
+  });
+
+  it('detects unnamed type-restricted mill without card-name routing', () => {
+    const ctx = makeCtx({
+      battlefield: [
+        {
+          id: 'alch_1',
+          controller: 'p1',
+          card: { name: 'Generic Necromantic Scholar', oracle_text: alchemistOracle, type_line: 'Creature — Zombie Wizard' },
+        },
+      ],
+    });
+    const alchemist = ctx.state.battlefield[0];
+    const detected = detectTypeRestrictedCombatMillReplacement(ctx, 'p1', alchemist.card, alchemist);
+    expect(detected?.sourceName).toBe('Generic Necromantic Scholar');
+    expect(detected?.effect.appliesToCreatureType).toBe('zombie');
+    expect(detected?.effect.millDamagedPlayer).toBe(true);
+    expect(detected?.effect.sourceSelfOnly).toBeUndefined();
+    expect(detectPreventDamageMillReplacementForController(ctx, 'p1')).toBeNull();
+    expect(detectPreventDamageMillReplacementForController(ctx, 'p1', { nonCombatOnly: true })).toBeNull();
+  });
+
+  it('does not apply to non-combat damage', () => {
+    const ctx = makeCtx({
+      battlefield: [
+        {
+          id: 'alch_1',
+          controller: 'p1',
+          card: { name: 'Generic Necromantic Scholar', oracle_text: alchemistOracle, type_line: 'Creature — Zombie Wizard' },
+        },
+      ],
+    });
+
+    const result = applyOpponentDamageReplacement(ctx, {
+      sourceControllerId: 'p1',
+      targetPlayerId: 'p2',
+      damageAmount: 3,
+      sourceCard: ctx.state.battlefield[0].card,
+    });
+
+    expect(result.prevented).toBe(false);
+    expect(result.damageDealt).toBe(3);
+    expect(result.millAmount).toBeUndefined();
   });
 });

@@ -1,13 +1,13 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-08-14 (Phase 5 Szadek-style combat replace + PW loyalty 99.9%)
+Last updated: 2026-08-14 (Phase 5 type-restricted combat mill + PW loyalty 99.9%)
 
 > **Cost reducers / alternate costs** (separate workstream): see [`docs/cost-reduction-handoff.md`](cost-reduction-handoff.md).
 
 ## Next session prompt (copy-paste)
 
 ```
-Continue MTGEDH Oracle IR migration — post Phase 5 Szadek-style combat replace + PW loyalty 99.9%.
+Continue MTGEDH Oracle IR migration — post Phase 5 type-restricted combat mill (Alchemist family) + PW loyalty 99.9%.
 
 Read first:
 - docs/oracle-ir-session-handoff.md (this prompt)
@@ -16,27 +16,34 @@ Read first:
 - .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
 
 Done recently:
+- Type-restricted combat mill: "if a [type] you control would deal combat damage to a player, instead that player mills" (Undead Alchemist family; generic oracle, not card-name)
 - Szadek-style source-self combat replace: instead +1/+1 counters on source and mill that player (generic oracle; not controller-wide)
 - Library-search replacements collapsed onto oracle-pattern specs
 - Combat prevent-and-mill first-match table removed; Mindskinner-family effects parse from oracle
 - Mill replacements collapsed onto oracle-pattern specs; leftover loyalty 99.9%
 
 Verify:
-cd server ; npx vitest run tests/replacement-effect-spec.unit.test.ts tests/replacement-effects.test.ts tests/mindskinner-damage-replacement.unit.test.ts --pool=threads --maxWorkers=1
+cd server ; npx vitest run tests/mindskinner-damage-replacement.unit.test.ts --pool=threads --maxWorkers=1
 
 Next work (priority):
 1. Last 1/887 loyalty line: Davriel, Soul Broker Alchemy "Accept one of Davriel's offers/conditions" (leave unwired unless a generic offer/condition step exists).
-2. Real EDH tables → GET /api/oracle-ir/telemetry (do not expand the soak list)
+2. Real EDH tables → GET /api/oracle-ir/telemetry (do not expand edh-readiness). New `replacement-effects` suite injects mill/search/combat permanents on a live table: `npm run oracle-ir:smoke:replacements` / `:live`.
 3. Optional: `rules-engine/src/librarySearchEffects.ts` KNOWN_* table is unused by the live socket path; Vigor creature-damage still has a card-name check in `turn.ts`.
 ```
 
-## Session 2026-08-14 (latest) — Szadek-style source-self combat replace
+## Session 2026-08-14 (latest) — type-restricted combat mill (Alchemist family)
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Type-restricted combat mill** | Generic parse for “if a [type] you control would deal combat damage to a player, instead that player mills”. Matching-type attackers only (a Bear does not mill). Mills the defending player, no counters. Distinct from Szadek (source-self + counters) and Mindskinner (prevent + all opponents). | `game-state-effects.ts`, `mindskinner-damage-replacement.unit.test.ts`, `replacement-effects` soak |
+
+## Session 2026-08-14 — Szadek-style source-self combat replace
 
 | Area | Outcome | Key files / tests |
 |------|---------|-------------------|
 | **Source-self combat** | Generic parse for “would deal combat damage to a player, instead put that many +1/+1 counters … and that player mills”. Applies only to the source permanent (not other creatures you control). Mills `millTargets` rather than always milling all opponents. | `game-state-effects.ts`, `mindskinner-damage-replacement.unit.test.ts` |
 
-**Still open:** Davriel Alchemy offers; real multiplayer telemetry; unused `librarySearchEffects` KNOWN_* table; Vigor card-name in `turn.ts`.
+**Still open:** Davriel Alchemy offers; real multiplayer telemetry; unused `librarySearchEffects` KNOWN_* table; Vigor card-name in `turn.ts`. Soak harness now supports live `inject` + mill/search/combat (`replacement-effects` suite).
 
 ## Session 2026-08-14 (later) — library-search oracle-pattern + prevent-and-mill first-match
 

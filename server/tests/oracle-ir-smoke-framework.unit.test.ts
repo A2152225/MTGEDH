@@ -8,6 +8,7 @@ import {
   hasVoteTail,
   kindsOf,
   liveSoakBaseUrl,
+  liveCastRequestForCard,
   parseSmokeArgs,
   scopedOmitsOtherEffects,
   slug,
@@ -64,5 +65,28 @@ describe('oracle IR smoke framework helpers', () => {
     expect(parseSmokeArgs(['--live']).live).toBe(true);
     expect(parseSmokeArgs(['--suite', 'edh-readiness']).live).toBe(false);
     expect(liveSoakBaseUrl('http://127.0.0.1:3001/api/oracle-ir/telemetry')).toBe('http://127.0.0.1:3001');
+  });
+
+  it('merges soak-level and per-card live injection', () => {
+    const request = liveCastRequestForCard(
+      {
+        playerCount: 3,
+        setup: 'main',
+        action: 'mill',
+        millCount: 3,
+        inject: [{ name: 'Island', controller: 'human' }],
+        perCard: {
+          'Bruvac the Grandiloquent': {
+            inject: [{ name: 'Bruvac the Grandiloquent', controller: 'human' }],
+            expect: { millOpponentExact: 6 },
+          },
+        },
+      },
+      'Bruvac the Grandiloquent',
+    );
+    expect(request.action).toBe('mill');
+    expect(request.millCount).toBe(3);
+    expect(request.inject.map((entry) => entry.name)).toEqual(['Island', 'Bruvac the Grandiloquent']);
+    expect(request.expect?.millOpponentExact).toBe(6);
   });
 });

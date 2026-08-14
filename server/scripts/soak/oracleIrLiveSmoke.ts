@@ -11,8 +11,10 @@ import {
   check,
   finishCard,
   finishSoak,
+  liveCastRequestForCard,
   liveSoakBaseUrl,
   type LiveSoakConfig,
+  type LiveSoakExpect,
   type SmokeCardResult,
   type SmokeCheck,
   type SmokeSoakResult,
@@ -39,6 +41,22 @@ export type LiveCastResponse = {
   phase?: string;
   combatCleared?: boolean;
   telemetryEvents: Array<{ kind: string; label: string }>;
+  action?: string;
+  injected?: string[];
+  board?: {
+    millApplied?: number;
+    millOpponent?: number;
+    millOther?: number;
+    lifeUnchanged?: boolean;
+    attackerPlusOne?: number;
+    search?: {
+      canSearch?: boolean;
+      limitToTop?: number;
+      paymentAmount?: string;
+      controlledBySeat?: 'human' | 'ai';
+      triggerCount?: number;
+    };
+  };
 };
 
 export type LiveTableRun = {
@@ -73,6 +91,109 @@ function liveConfigFor(suite: SoakSuite, soakId: string): LiveSoakConfig {
   return suite.live?.[soakId] || DEFAULT_LIVE;
 }
 
+function assertLiveExpect(expect: LiveSoakExpect | undefined, cast: LiveCastResponse, result: SmokeCardResult): void {
+  if (!expect) return;
+  const board = cast.board || {};
+  if (expect.millOpponentExact != null) {
+    const actual = board.millOpponent ?? board.millApplied;
+    result.checks.push(
+      check('live_mill_opponent', expect.millOpponentExact, actual, actual === expect.millOpponentExact),
+    );
+  }
+  if (expect.millOpponentAtLeast != null) {
+    const actual = Number(board.millOpponent ?? board.millApplied ?? 0);
+    result.checks.push(
+      check(
+        'live_mill_opponent_at_least',
+        expect.millOpponentAtLeast,
+        actual,
+        actual >= expect.millOpponentAtLeast,
+      ),
+    );
+  }
+  if (expect.millOtherUnchanged) {
+    result.checks.push(
+      check('live_mill_other_unchanged', 0, board.millOther, Number(board.millOther || 0) === 0),
+    );
+  }
+  if (expect.millOtherAtLeast != null) {
+    result.checks.push(
+      check(
+        'live_mill_other_at_least',
+        expect.millOtherAtLeast,
+        board.millOther,
+        Number(board.millOther || 0) >= expect.millOtherAtLeast,
+      ),
+    );
+  }
+  if (expect.lifeUnchanged) {
+    result.checks.push(
+      check('live_life_unchanged', true, board.lifeUnchanged, board.lifeUnchanged === true),
+    );
+  }
+  if (expect.plusOneOnAttacker != null) {
+    result.checks.push(
+      check(
+        'live_plus_one',
+        expect.plusOneOnAttacker,
+        board.attackerPlusOne,
+        Number(board.attackerPlusOne) === expect.plusOneOnAttacker,
+      ),
+    );
+  }
+  if (expect.plusOneAtLeast != null) {
+    result.checks.push(
+      check(
+        'live_plus_one_at_least',
+        expect.plusOneAtLeast,
+        board.attackerPlusOne,
+        Number(board.attackerPlusOne || 0) >= expect.plusOneAtLeast,
+      ),
+    );
+  }
+  if (expect.canSearch != null) {
+    result.checks.push(
+      check('live_can_search', expect.canSearch, board.search?.canSearch, board.search?.canSearch === expect.canSearch),
+    );
+  }
+  if (expect.limitToTop != null) {
+    result.checks.push(
+      check('live_limit_to_top', expect.limitToTop, board.search?.limitToTop, board.search?.limitToTop === expect.limitToTop),
+    );
+  }
+  if (expect.paymentAmount) {
+    result.checks.push(
+      check(
+        'live_search_payment',
+        expect.paymentAmount,
+        board.search?.paymentAmount,
+        board.search?.paymentAmount === expect.paymentAmount,
+      ),
+    );
+  }
+  if (expect.controlledBySeat) {
+    result.checks.push(
+      check(
+        'live_search_control',
+        expect.controlledBySeat,
+        board.search?.controlledBySeat,
+        board.search?.controlledBySeat === expect.controlledBySeat,
+      ),
+    );
+  }
+  if (expect.triggerCountAtLeast != null) {
+    const actual = Number(board.search?.triggerCount || 0);
+    result.checks.push(
+      check(
+        'live_search_trigger',
+        expect.triggerCountAtLeast,
+        actual,
+        actual >= expect.triggerCountAtLeast,
+      ),
+    );
+  }
+}
+
 function assertLiveCast(
   soakId: string,
   config: LiveSoakConfig,
@@ -94,6 +215,7 @@ function assertLiveCast(
     return finishCard(result);
   }
 
+  const request = liveCastRequestForCard(config, name);
   const queueTypes = [
     ...new Set([
       ...(cast.queuedSteps || []).map((step) => String(step.type || '')),
@@ -103,15 +225,26 @@ function assertLiveCast(
   const onStack = (cast.stack || []).some((item) => String(item.name || '') === name);
   const stillInHand = (cast.handNames || []).includes(name);
   const errorText = (cast.errors || []).map((entry) => entry.code || entry.message).filter(Boolean).join('; ');
-  const started = queueTypes.length > 0 || onStack || !stillInHand;
-  result.checks.push(
-    check(
-      'live_cast',
-      'queued, on stack, or left hand',
-      { queueTypes, onStack, stillInHand, errors: cast.errors },
-      started && !errorText.includes('CARD_NOT_FOUND'),
-    ),
-  );
+  if (request.action !== 'cast') {
+    result.checks.push(
+      check(
+        'live_action',
+        request.action,
+        { action: cast.action, injected: cast.injected, errors: cast.errors },
+        cast.action === request.action && !errorText,
+      ),
+    );
+  } else {
+    const started = queueTypes.length > 0 || onStack || !stillInHand;
+    result.checks.push(
+      check(
+        'live_cast',
+        'queued, on stack, or left hand',
+        { queueTypes, onStack, stillInHand, errors: cast.errors },
+        started && !errorText.includes('CARD_NOT_FOUND'),
+      ),
+    );
+  }
 
   const cardExpect = config.perCard?.[name];
   const expectQueue = cardExpect?.expectAnyQueue || config.expectAnyQueue;
@@ -154,6 +287,8 @@ function assertLiveCast(
       ),
     );
   }
+
+  assertLiveExpect(request.expect, cast, result);
 
   result.checks.push(
     check(
@@ -202,10 +337,14 @@ export async function runLiveTableSoaks(
       });
       for (const name of names) {
         try {
+          const request = liveCastRequestForCard(config, name);
           const cast = await postJson<LiveCastResponse>(`${baseUrl}/api/oracle-ir/live-soak/cast`, {
             gameId: session.gameId,
             cardName: name,
-            setup: config.setup,
+            setup: request.setup,
+            ...(request.inject.length > 0 ? { inject: request.inject } : {}),
+            action: request.action,
+            ...(request.millCount != null ? { millCount: request.millCount } : {}),
           });
           cards.push(assertLiveCast(soak.id, config, name, cast));
         } catch (error) {

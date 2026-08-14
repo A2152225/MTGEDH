@@ -27,6 +27,8 @@
     "oracle-ir:edh-readiness:soak": "node --enable-source-maps --import tsx/esm scripts/soak/oracleIrSmokeCli.ts --suite edh-readiness",
     "oracle-ir:smoke": "node --enable-source-maps --import tsx/esm scripts/soak/oracleIrSmokeCli.ts",
     "oracle-ir:smoke:live": "node --enable-source-maps --import tsx/esm scripts/soak/oracleIrSmokeCli.ts --suite edh-readiness --live",
+    "oracle-ir:smoke:replacements": "node --enable-source-maps --import tsx/esm scripts/soak/oracleIrSmokeCli.ts --suite replacement-effects",
+    "oracle-ir:smoke:replacements:live": "node --enable-source-maps --import tsx/esm scripts/soak/oracleIrSmokeCli.ts --suite replacement-effects --live",
     "executor:keyword-audit": "node --enable-source-maps --import tsx/esm scripts/semantic-keyword-audit.ts",
     "alternate-cost:audit": "node --enable-source-maps --import tsx/esm scripts/alternate-cost-implementation-audit.ts",
     "card-lookup:rebuild": "node --enable-source-maps --import tsx/esm scripts/rebuild-card-lookup.ts",

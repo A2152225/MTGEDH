@@ -13,9 +13,11 @@
 
 import type { SoakSuite } from '../oracleIrSmokeCore.js';
 import { edhReadinessSuite } from './edhReadiness.js';
+import { replacementEffectsSuite } from './replacementEffects.js';
 
 export const SMOKE_SUITES: readonly SoakSuite[] = [
   edhReadinessSuite,
+  replacementEffectsSuite,
 ];
 
 export function getSmokeSuite(id: string): SoakSuite | undefined {

@@ -1,6 +1,6 @@
 # Oracle IR smoke / soak framework
 
-**Last updated:** 2026-08-12  
+**Last updated:** 2026-08-14  
 **Audience:** Anyone adding a targeted card soak after an IR batch (new step kind, choice UX, cost rider, etc.)
 
 **Related:** [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md) (D2 telemetry, live-readiness) · [oracle-ir-architecture-guide.md](./oracle-ir-architecture-guide.md) (parse → execute → server) · `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc`
@@ -11,7 +11,7 @@
 
 A **small-list smoke harness** for Oracle IR. You name ≤30 EDH cards per soak, the runner looks them up in local oracle, parses/collects IR, optionally applies Layer 3 (`applyOracleIRStepsOnServer` / Effect Program), records **expected vs actual**, and correlates with **gap telemetry**.
 
-With **`--live`**, it also talks to the **running game server**: create a commander table, seat AI opponents, import a soak deck, free-cast each listed card, and assert the live resolution queue + D2 telemetry.
+With **`--live`**, it also talks to the **running game server**: create a commander table, seat AI opponents, import a soak deck, then either **free-cast** each listed card or **inject named permanents** (real local oracle) and fire mill / search / combat, asserting the live resolution queue / board snapshot + D2 telemetry.
 
 The default (no `--live`) is **in-process**. It calls the same server IR modules the live process uses but does **not** join an open match. `GET /api/oracle-ir/telemetry` is still fetched before/after for correlation.
 
@@ -29,7 +29,7 @@ CLI --suite <id> [--live]
   → suite.run()                         # in-process parse / apply / EP
   → if --live:
        POST /api/oracle-ir/live-soak/session   # create game + AI + decks
-       POST /api/oracle-ir/live-soak/cast      # per card, free-cast on that table
+       POST /api/oracle-ir/live-soak/cast      # per card: free-cast and/or inject + mill/search/combat
        POST /api/oracle-ir/live-soak/end
   → GET live telemetry (after)
   → write report JSON + print PASS/FAIL
@@ -76,6 +76,10 @@ npm run oracle-ir:smoke -- --suite edh-readiness
 npm run oracle-ir:smoke -- --suite edh-readiness --url http://127.0.0.1:3001/api/oracle-ir/telemetry
 npm run oracle-ir:smoke -- --suite edh-readiness --live
 npm run oracle-ir:smoke:live
+npm run oracle-ir:smoke -- --suite replacement-effects
+npm run oracle-ir:smoke -- --suite replacement-effects --live
+npm run oracle-ir:smoke:replacements
+npm run oracle-ir:smoke:replacements:live
 npm run oracle-ir:edh-readiness:soak
 ```
 
@@ -112,6 +116,22 @@ Shipped as the first suite. Eight soaks, ~51 cards, split by table setup:
 Do not merge B (multiplayer votes) or D (live combat board) into modal/Spree soaks.
 
 **Green baseline (2026-08-12):** `npm run oracle-ir:smoke:live` → **51/51** cards, **407/407** in-process checks, live table D2 **0→0**. Before each cast, `provisionSpellCastBoardContext` fills the same gaps the AI uses to skip no-op spells (Creature — Bear, stack Lightning Bolt, hands, combat). Do **not** expand this suite until a real multiplayer game produces a new D2 gap.
+
+---
+
+## 5b. Built-in suite: `replacement-effects`
+
+Separate from edh-readiness. Eleven cards, three soaks. In-process asserts oracle-pattern replacement specs. `--live` **injects** the named permanent (full local oracle_text, not empty-text Bears) then fires the event:
+
+| Soak id | Cards | Live action | What it proves |
+|---------|-------|-------------|----------------|
+| `mill_replacements` | Bruvac the Grandiloquent, The Water Crystal | mill opponent 3 | double → 6; plus four → 7; other seats unmilled |
+| `library_search_replacements` | Leonin Arbiter, Aven Mindcensor, Ashiok, Dream Render, Stranglehold, Opposition Agent, Mindlock Orb, Ob Nixilis, Unshackled | evaluate library-search | pay `{2}`; top 4; prevent; control; Ob Nixilis trigger metadata |
+| `combat_replacements` | Szadek, Lord of Secrets; Undead Alchemist; The Mindskinner | unblocked combat to a player | Szadek: counters + mill that player; Alchemist: Zombie combat → mill that player (Bear would not); Mindskinner: Bear attacker, prevent + mill all opponents |
+
+Live config fields (optional, keyed by soak then `perCard`): `inject` (`name` and/or `soakCreature` for the empty-text 2/2 fodder, `controller: 'human' \| 'ai'`, `attacking?`), `action` (`cast` default, `mill`, `combat`, `search`), `millCount`, `expect` (mill counts, `lifeUnchanged`, `plusOneOnAttacker` / `plusOneAtLeast`, `canSearch`, `limitToTop`, `paymentAmount`, `controlledBySeat`, `triggerCountAtLeast`).
+
+Restart the game server before `--live` so it loads the injection driver.
 
 ---
 
@@ -159,7 +179,7 @@ export const mySuite: SoakSuite = {
 
 3. Run `npm run oracle-ir:smoke -- --suite my-batch` (add `--live` when the server is up).
 
-Optional `live` map (keyed by soak id): `playerCount`, `setup` (`main` / `combat` / `vote_board`), `expectAnyQueue`, `expectPBudget`, `perCard`. Without it, `--live` still creates a 2-player table and asserts the card left hand / queued / stacked plus `live_telemetry_clean`.
+Optional `live` map (keyed by soak id): `playerCount`, `setup` (`main` / `combat` / `vote_board`), `expectAnyQueue`, `expectPBudget`, `perCard`, plus injection (`inject`, `action`, `millCount`, `expect`). Without it, `--live` still creates a 2-player table and asserts the card left hand / queued / stacked plus `live_telemetry_clean`.
 
 ### Helpers to reuse
 
@@ -214,7 +234,7 @@ A **clean** soak: every card `pass: true`, `telemetry_clean` actual `[]`, in-pro
 
 The smoke runner always **reads** the live endpoint. Without `--live` it does not write into that process. After a server restart you should see live `totalEvents: 0` even when the in-process soak is green.
 
-`--live` creates a commander table on that process (1 human soak driver + AI seats), imports a constructed deck (Kenrith + listed cards + Islands), skips lobby/mulligan, and free-casts each card (`castWithoutPayingManaCost` + `ignoreTimingRestrictions`) with a board setup (`main` / `combat` / `vote_board`). Before each cast, `provisionSpellCastBoardContext` fills the same gaps the AI uses to skip no-op spells (creature/permanent/stack targets, Windfall-style empty hands, combat for fog). Battlefield creatures are always `Creature — Bear`, never a land fallback. Target and mana-payment steps are auto-completed so `seenQueueTypes` still records `target_selection`. AI auto-play is paused on those tables (`state.oracleIrLiveSoak`) so the driver is not racing 300ms AI timers. Endpoints are **localhost-only**:
+`--live` creates a commander table on that process (1 human soak driver + AI seats), imports a constructed deck (Kenrith + listed cards + Islands), skips lobby/mulligan, and either free-casts each card (`castWithoutPayingManaCost` + `ignoreTimingRestrictions`) or injects named permanents with real oracle then runs `mill` / `combat` / `search`. Default board setup is `main` / `combat` / `vote_board`. Before each **cast**, `provisionSpellCastBoardContext` fills the same gaps the AI uses to skip no-op spells. Empty-text `Creature — Bear` tokens are only the default combat/vote fodder; replacement soaks pass `inject` so the live table has the actual card text. Target and mana-payment steps are auto-completed so `seenQueueTypes` still records `target_selection`. AI auto-play is paused on those tables (`state.oracleIrLiveSoak`) so the driver is not racing 300ms AI timers. Endpoints are **localhost-only**:
 
 - `POST /api/oracle-ir/live-soak/session`
 - `POST /api/oracle-ir/live-soak/cast`
@@ -240,7 +260,7 @@ D2 event kinds (see `oracleIrGapTelemetry.ts`):
 | Legacy export ratchet / forced-legacy | `oracle-ir:legacy-triage:soak` / `:forced` |
 | Proof a **new choice UI** works in the client | Socket integration test + client unit test |
 | Real multiplayer timing / combat | Play the listed cards on a live table, then re-fetch telemetry |
-| Scripted live table for a known list | `npm run oracle-ir:smoke -- --suite edh-readiness --live` (server must be running) |
+| Scripted live table for a known list | `npm run oracle-ir:smoke -- --suite edh-readiness --live` or `--suite replacement-effects --live` (server must be running) |
 
 After a new-set workflow (track-e §A), step 7 is still “live EDH soak.” This framework is the **scripted short list** you can run in the same session; live tables remain the long soak.
 
