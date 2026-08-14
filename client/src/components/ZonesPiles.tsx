@@ -255,6 +255,7 @@ export function ZonesPiles(props: {
   const libraryTop = zones.libraryTop ?? (libArr.length > 0 ? (libArr[0] as KnownCardRef) : undefined);
   const graveTop = grArr.length > 0 ? (grArr[grArr.length - 1] as KnownCardRef) : undefined;
   const exileTop = exArr.length > 0 ? (exArr[exArr.length - 1] as KnownCardRef) : undefined;
+  const exileTopHidden = Boolean(exileTop && (exileTop as any).faceDown && (exileTop as any).known === false);
   
   // Check if zones are playable
   const libraryPlayable = !!(playerId && playableCards.includes(`library-${playerId}`));
@@ -269,7 +270,7 @@ export function ZonesPiles(props: {
       {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, true /* hideTopCard */, libraryAction, undefined, libraryPlayable, true)}
       {/* Graveyard supports both click and double-click - double-click opens the full graveyard modal */}
       {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop, false, undefined, onViewGraveyard, graveyardPlayable)}
-      {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop, false, undefined, onViewExile, exilePlayable)}
+      {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop, exileTopHidden, undefined, onViewExile, exilePlayable)}
     </div>
   );
 }

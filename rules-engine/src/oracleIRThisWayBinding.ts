@@ -81,8 +81,12 @@ const THIS_WAY_ANTECEDENT_RULES: ReadonlyArray<{
   { pattern: /\bsacrificed this way\b/i, kinds: ['sacrifice'] },
   { pattern: /\bdestroyed this way\b/i, kinds: ['destroy'] },
   { pattern: /\btapped this way\b/i, kinds: ['tap', 'untap'] },
-  { pattern: /\bput\b.+\bthis way\b/i, kinds: ['move_zone'] },
   { pattern: /\bmilled this way\b/i, kinds: ['mill'] },
+  {
+    pattern: /\bput into (?:a |your |their |the )?graveyard this way\b/i,
+    kinds: ['mill', 'discard', 'move_zone'],
+  },
+  { pattern: /\bput\b.+\bthis way\b/i, kinds: ['move_zone'] },
 ];
 
 function collectThisWayClauseTexts(step: OracleEffectStep): readonly string[] {

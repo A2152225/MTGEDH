@@ -26,6 +26,7 @@ import {
 } from './oracleIRExecutorBattlefieldEntryCommit';
 import {
   collectThisWayDestroyedObjects,
+  collectThisWayGraveyardObjects,
   resolveReferencedObjectPlayerIds,
   type ReferencedObjectRole,
   type ReferencedObjectRuntime,
@@ -53,6 +54,7 @@ export type TokenStepHandlerResult = StepApplyResult | StepSkipResult;
 type TokenStepRuntime = {
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   readonly lastMovedCards?: readonly any[];
+  readonly lastMilledCards?: readonly any[];
   readonly lastReferenceAmount?: number;
   readonly lastSacrificedPermanents?: readonly any[];
   readonly lastCreatedTokenIds?: readonly string[];
@@ -150,7 +152,8 @@ function evaluateTokenAmountExpression(
   controllerId: PlayerID,
   expression: string,
   ctx: OracleIRExecutionContext,
-  runtime?: TokenStepRuntime
+  runtime?: TokenStepRuntime,
+  step?: OracleEffectStep,
 ): number | null {
   const rawExpression = String(expression || '')
     .replace(/\.$/g, '')
@@ -168,7 +171,9 @@ function evaluateTokenAmountExpression(
       `X is the number of ${counterName} counters on it`,
       String(ctx.sourceId || ctx.targetPermanentId || '').trim() || undefined,
       ctx,
-      runtime as any
+      runtime as any,
+      0,
+      step,
     );
     if (evaluatedCounter !== null) return Math.max(0, Math.floor(evaluatedCounter));
   }
@@ -179,9 +184,32 @@ function evaluateTokenAmountExpression(
     /^x\s+is\b/i.test(rawExpression) ? rawExpression : `X is ${rawExpression}`,
     undefined,
     ctx,
-    runtime as any
+    runtime as any,
+    0,
+    step,
   );
   return evaluated === null ? null : Math.max(0, Math.floor(evaluated));
+}
+
+function resolveForEachPerTokenAmount(
+  perTokenAmountRaw: string,
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime,
+): number | null {
+  if (/^x$/i.test(perTokenAmountRaw)) {
+    return readFiniteAmount(ctx.referenceAmount ?? runtime?.lastReferenceAmount);
+  }
+  if (/^twice\s+x$/i.test(perTokenAmountRaw)) {
+    const ref = readFiniteAmount(ctx.referenceAmount ?? runtime?.lastReferenceAmount);
+    return ref === null ? null : ref * 2;
+  }
+  return parseSmallTokenQuantityText(perTokenAmountRaw);
+}
+
+function isGraveyardThisWayCountExpression(countedExpression: string): boolean {
+  return /\b(?:milled this way|put into (?:a |your |their |the )?graveyard this way)\b/i.test(
+    String(countedExpression || ''),
+  );
 }
 
 function resolveForEachTokenAmount(
@@ -189,7 +217,8 @@ function resolveForEachTokenAmount(
   controllerId: PlayerID,
   raw: string,
   ctx: OracleIRExecutionContext,
-  runtime?: TokenStepRuntime
+  runtime?: TokenStepRuntime,
+  step?: OracleEffectStep,
 ): number | null {
   const match = String(raw || '').match(
     /^for each\s+(.+?),\s+(?:(?:you|they|that player|target player|target opponent)\s+)?create(?:s)?\s+(twice\s+x|that many|that much|a|an|\d+|x|[a-z]+)\s+/i
@@ -197,6 +226,14 @@ function resolveForEachTokenAmount(
   if (!match) return null;
 
   const countedExpression = String(match[1] || '').trim();
+  const perTokenAmountRaw = String(match[2] || '').trim();
+  const perTokenAmount = resolveForEachPerTokenAmount(perTokenAmountRaw, ctx, runtime);
+
+  if (isGraveyardThisWayCountExpression(countedExpression)) {
+    const objects = collectThisWayGraveyardObjects(ctx, countedExpression, runtime, step);
+    return objects.length * (perTokenAmount ?? 1);
+  }
+
   if (/\bthis way\b/i.test(countedExpression)) {
     const fallbackAmount = readFiniteAmount(runtime?.lastReferenceAmount ?? ctx.referenceAmount);
     if (fallbackAmount !== null) return fallbackAmount;
@@ -207,19 +244,10 @@ function resolveForEachTokenAmount(
     controllerId,
     `the number of ${pluralizeCountExpression(countedExpression)}`,
     ctx,
-    runtime
+    runtime,
+    step,
   );
   if (count === null) return null;
-
-  const perTokenAmountRaw = String(match[2] || '').trim();
-  const perTokenAmount = /^x$/i.test(perTokenAmountRaw)
-    ? readFiniteAmount(ctx.referenceAmount ?? runtime?.lastReferenceAmount)
-    : /^twice\s+x$/i.test(perTokenAmountRaw)
-      ? (() => {
-          const ref = readFiniteAmount(ctx.referenceAmount ?? runtime?.lastReferenceAmount);
-          return ref === null ? null : ref * 2;
-        })()
-      : parseSmallTokenQuantityText(perTokenAmountRaw);
 
   return count * (perTokenAmount ?? 1);
 }
@@ -229,11 +257,12 @@ function resolveEqualToTokenAmount(
   controllerId: PlayerID,
   raw: string,
   ctx: OracleIRExecutionContext,
-  runtime?: TokenStepRuntime
+  runtime?: TokenStepRuntime,
+  step?: OracleEffectStep,
 ): number | null {
   const match = String(raw || '').match(/\bcreate(?:s)?\s+a\s+number\s+of\s+.+?\s+tokens?\s+equal\s+to\s+(.+)$/i);
   if (!match) return null;
-  return evaluateTokenAmountExpression(state, controllerId, String(match[1] || ''), ctx, runtime);
+  return evaluateTokenAmountExpression(state, controllerId, String(match[1] || ''), ctx, runtime, step);
 }
 
 function resolveTokenCreationSpecsForReplacementEffects(
@@ -352,15 +381,16 @@ function resolveTokenAmount(
       controllerId,
       String(suffixForEachMatch[1] || '').trim(),
       ctx,
-      runtime
+      runtime,
+      step,
     );
     if (count !== null) return count;
   }
 
-  const forEachAmount = resolveForEachTokenAmount(state, controllerId, raw, ctx, runtime);
+  const forEachAmount = resolveForEachTokenAmount(state, controllerId, raw, ctx, runtime, step);
   if (forEachAmount !== null) return forEachAmount;
 
-  const equalToAmount = resolveEqualToTokenAmount(state, controllerId, raw, ctx, runtime);
+  const equalToAmount = resolveEqualToTokenAmount(state, controllerId, raw, ctx, runtime, step);
   if (equalToAmount !== null) return equalToAmount * twiceXMultiplier;
 
   const whereMatch = raw.match(/\bwhere\s+x\s+is\s+(.+)$/i);
@@ -388,7 +418,9 @@ function resolveTokenAmount(
     whereRaw,
     targetCreatureId,
     ctx,
-    runtime as any
+    runtime as any,
+    0,
+    step,
   );
   if (evaluated !== null) return evaluated * twiceXMultiplier;
 
@@ -2195,6 +2227,14 @@ export function applyCreateTokenStep(
       message: `Skipped token creation (unknown amount): ${step.raw}`,
       reason: 'unknown_amount',
       options: { classification: 'ambiguous' },
+    };
+  }
+  if (amount <= 0) {
+    return {
+      applied: true,
+      state,
+      log: [`Created 0 tokens: ${step.raw}`],
+      createdTokenIds: [],
     };
   }
 

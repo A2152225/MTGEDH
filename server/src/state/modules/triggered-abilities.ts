@@ -67,12 +67,17 @@ import { detectCastTrigger } from "../../../../rules-engine/src/cards/castTrigge
 import { hasTrainingKeyword } from "../../../../rules-engine/src/keywordAbilities/training.js";
 import { parseMillFromOracleText } from "../../../../rules-engine/src/keywordActions/mill.js";
 import { timingTriggerEffect, findFirstRegexMatchAcrossOracleLines } from './triggers/timing-effect-extraction.js';
+import { isEnchantedByAuraYouControl } from './triggers/combat.js';
 import {
   buildRoomUnlockDoorRegisteredTrigger,
   detectRoomUnlockDoorTriggers,
 } from './triggers/room.js';
 import { getCurrentGoaders } from './goad-effects.js';
 import { getActualPowerToughness, normalizeCardNameForOracleText } from '../utils.js';
+import {
+  oracleTextHasDoThisOnlyOnceEachTurn,
+  oracleTextHasTriggersOnlyOnceEachTurn,
+} from './triggerDoThisOnlyOnceEachTurn.js';
 
 function buildCardNameRegexAlternatives(cardName: string): string[] {
   const names = new Set<string>();
@@ -209,6 +214,7 @@ export {
   type DamageReceivedTriggerInfo,
   detectBeginningOfCombatTriggers,
   getBeginningOfCombatTriggers,
+  isEnchantedByAuraYouControl,
 } from "./triggers/combat.js";
 export type { BeginningOfCombatTrigger } from "./triggers/types.js";
 export {
@@ -7759,6 +7765,26 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     });
   }
 
+  const oneOrMoreEnchantedByAuraAttackMatch = oracleText.match(
+    /whenever one or more creatures that are enchanted by an aura you control attack,?\s*([^.]+)/i,
+  );
+  if (
+    oneOrMoreEnchantedByAuraAttackMatch &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_enchanted_by_aura_you_control_attack')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreEnchantedByAuraAttackMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'one_or_more_enchanted_by_aura_you_control_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      batched: true,
+    });
+  }
+
   const oneOrMoreAttackMatch = oracleText.match(
     /whenever one or more creatures(?: you control)? attack(?! you),?\s*([^.]+)/i,
   );
@@ -9184,7 +9210,10 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
       controlledOnly: true,
-    });
+      requiredTypePhrase: String(namedOrAnotherTypedEtbMatch[1] || '').trim(),
+      doThisOnlyOnceEachTurn: oracleTextHasDoThisOnlyOnceEachTurn(oracleText),
+      oncePerTurn: oracleTextHasTriggersOnlyOnceEachTurn(oracleText),
+    } as any);
   }
 
   const namedOrCreaturePowerOrLessEtbMatch = oracleText.match(
@@ -9522,7 +9551,11 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
       controlledOnly: true,
-    });
+      nontokenOnly: true,
+      requiredTypePhrase: String(namedOrAnotherNontokenTypedEtbMatch[1] || '').trim(),
+      doThisOnlyOnceEachTurn: oracleTextHasDoThisOnlyOnceEachTurn(oracleText),
+      oncePerTurn: oracleTextHasTriggersOnlyOnceEachTurn(oracleText),
+    } as any);
   }
 
   const thisOrAnotherTypedEtbAnyMatch = oracleText.match(
@@ -9543,7 +9576,10 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         description: effectText,
         effect: effectText,
         mandatory: !effectText.toLowerCase().includes('you may'),
-      });
+        requiredTypePhrase: tribalType,
+        doThisOnlyOnceEachTurn: oracleTextHasDoThisOnlyOnceEachTurn(oracleText),
+        oncePerTurn: oracleTextHasTriggersOnlyOnceEachTurn(oracleText),
+      } as any);
     }
   }
 
@@ -9563,7 +9599,11 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
       controlledOnly: true,
-    });
+      nontokenOnly: true,
+      requiredTypePhrase: String(thisOrAnotherNontokenTypedEtbMatch[1] || '').trim(),
+      doThisOnlyOnceEachTurn: oracleTextHasDoThisOnlyOnceEachTurn(oracleText),
+      oncePerTurn: oracleTextHasTriggersOnlyOnceEachTurn(oracleText),
+    } as any);
   }
 
   const thisOrAnotherArtifactEtbAnyMatch = oracleText.match(
@@ -9672,7 +9712,10 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         effect: effectText,
         mandatory: !effectText.toLowerCase().includes('you may'),
         controlledOnly: true,
-      });
+        requiredTypePhrase: tribalType,
+        doThisOnlyOnceEachTurn: oracleTextHasDoThisOnlyOnceEachTurn(oracleText),
+        oncePerTurn: oracleTextHasTriggersOnlyOnceEachTurn(oracleText),
+      } as any);
     }
   }
 
@@ -10289,13 +10332,20 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // Also handles plural forms and "another"/"other" variants
   const equipmentETBMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) equipments? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
   if (equipmentETBMatch && !triggers.some(t => t.triggerType === 'equipment_etb')) {
+    const effectText = timingTriggerEffect(oracleText, equipmentETBMatch);
+    const matchText = String(equipmentETBMatch[0] || '');
+    const targetType = detectTargetType(effectText);
     triggers.push({
       permanentId,
       cardName,
       triggerType: 'equipment_etb',
-      description: timingTriggerEffect(oracleText, equipmentETBMatch),
-      effect: timingTriggerEffect(oracleText, equipmentETBMatch),
-      mandatory: !lowerOracle.includes('you may'),
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: /equipments?\s+you\s+control|under your control/i.test(matchText),
+      nontokenOnly: /\b(?:nontoken|non-token)\b/i.test(matchText),
+      requiresTarget: /\btarget\b/i.test(effectText) || !!targetType,
+      targetType,
     });
   }
   
@@ -10310,13 +10360,19 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   if (artifactETBMatch && !triggers.some(t => t.triggerType === 'artifact_etb')) {
     const effectText = timingTriggerEffect(oracleText, artifactETBMatch);
     if (effectText && !isSwallowedCompoundEnterEffect(effectText)) {
+      const matchText = String(artifactETBMatch[0] || '');
+      const targetType = detectTargetType(effectText);
       triggers.push({
         permanentId,
         cardName,
         triggerType: 'artifact_etb',
         description: effectText,
         effect: effectText,
-        mandatory: !lowerOracle.includes('you may'),
+        mandatory: !effectText.toLowerCase().includes('you may'),
+        controlledOnly: /artifacts?\s+you\s+control|under your control/i.test(matchText),
+        nontokenOnly: /\b(?:nontoken|non-token)\b/i.test(matchText),
+        requiresTarget: /\btarget\b/i.test(effectText) || !!targetType,
+        targetType,
       });
     }
   }
@@ -10325,13 +10381,20 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // Also handles plural forms and "another"/"other" variants
   const enchantmentETBMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?enchantments? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
   if (enchantmentETBMatch && !triggers.some(t => t.triggerType === 'enchantment_etb')) {
+    const effectText = timingTriggerEffect(oracleText, enchantmentETBMatch);
+    const matchText = String(enchantmentETBMatch[0] || '');
+    const targetType = detectTargetType(effectText);
     triggers.push({
       permanentId,
       cardName,
       triggerType: 'enchantment_etb',
-      description: timingTriggerEffect(oracleText, enchantmentETBMatch),
-      effect: timingTriggerEffect(oracleText, enchantmentETBMatch),
-      mandatory: !lowerOracle.includes('you may'),
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: /enchantments?\s+you\s+control|under your control/i.test(matchText),
+      nontokenOnly: /\b(?:nontoken|non-token)\b/i.test(matchText),
+      requiresTarget: /\btarget\b/i.test(effectText) || !!targetType,
+      targetType,
     });
   }
   
@@ -11283,6 +11346,7 @@ export function getAttackTriggersForCreatures(
     );
     const defendingPlayerId = getDefendingPlayerIdForAttacker(attacker);
     for (const trigger of [...attackerTriggers, ...selfEtbTriggers]) {
+      if (trigger.triggerType === 'one_or_more_enchanted_by_aura_you_control_attack') continue;
       // Preserve target player context for "that player" intervening-if templates.
       const existingValue = (trigger as any).value;
       const mergedValue =
@@ -11309,6 +11373,18 @@ export function getAttackTriggersForCreatures(
               ? { ...existingValue, defendingPlayerId, defendingPlayer: defendingPlayerId, attackingCreatureId: attacker.id }
               : { defendingPlayerId, defendingPlayer: defendingPlayerId, attackingCreatureId: attacker.id };
           triggers.push({ ...(trigger as any), value: mergedValue } as any);
+        }
+      }
+      if (trigger.triggerType === 'one_or_more_enchanted_by_aura_you_control_attack') {
+        const anyEnchanted = attackingCreatures.some((attacker: any) =>
+          isEnchantedByAuraYouControl(
+            battlefield,
+            String(attacker?.id || ''),
+            String(permanent?.controller || attackingPlayer),
+          ),
+        );
+        if (anyEnchanted) {
+          triggers.push(trigger);
         }
       }
       if (trigger.triggerType === 'chosen_type_creature_etb_or_attack') {

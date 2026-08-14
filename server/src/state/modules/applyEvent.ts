@@ -63,6 +63,7 @@ import {
   movePermanentToExile,
 } from "./counters_tokens";
 import { cleanupCardLeavingExile, removePlayableFromExileForCard, stripPlayableFromExileTags } from "./playable-from-exile";
+import { cardFromHideawayToHand, clearStoredHideawayCard, storeHideawayExiledCard } from "./hideawayExile.js";
 import { buildEmbalmOrEternalizeTokenPermanent } from "./graveyard-tokens.js";
 import { clearPreparedPermanent, syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { transformPermanentToFace } from "./day-night.js";
@@ -8986,15 +8987,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               const zones = (ctx.state as any).zones = (ctx.state as any).zones || {};
               const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 };
               z.hand = Array.isArray(z.hand) ? z.hand : [];
-              (z.hand as any[]).push({ ...(movedHideawayCard as any), zone: 'hand' });
+              (z.hand as any[]).push(cardFromHideawayToHand(movedHideawayCard));
               z.handCount = (z.hand as any[]).length;
             }
 
             if (clearedHideawayPermanentId) {
               const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
               const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === clearedHideawayPermanentId) as any;
-              if (permanent && 'hideawayCard' in permanent) {
-                delete permanent.hideawayCard;
+              if (permanent) {
+                clearStoredHideawayCard(ctx.state, permanent, pid);
               }
             }
           } catch {
@@ -11908,9 +11909,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
             const permanent = battlefield.find((entry: any) => String(entry?.id || '') === permanentId) as any;
             if (permanent && selectedCard) {
-              permanent.hideawayCard = {
-                card: { ...(selectedCard as any), zone: 'exile' },
-              };
+              storeHideawayExiledCard({
+                state: ctx.state,
+                playerId: pid,
+                permanent,
+                selectedCard,
+                sourceName: String((e as any).sourceName || permanent.card?.name || 'Hideaway'),
+              });
             }
           }
 

@@ -9,9 +9,12 @@ import { orderTriggersByAPNAP } from './triggers/ordering.js';
 import { buildInterveningIfSubjectSnapshot } from './triggerSourceUtils.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import {
+  isTypedPermanentEtbTrigger,
   matchesRequiredTypePhrase,
   persistTriggeredAbilityPush,
   shouldQueueChosenTypeCreatureEtbTrigger,
+  shouldQueueTypedPermanentEtbTrigger,
+  TYPED_PERMANENT_ETB_REQUIRED_TYPE,
   triggerETBEffectsForToken,
 } from './triggerEtbEntryEffects.js';
 import {
@@ -96,6 +99,9 @@ export function queuePermanentEntersBattlefieldTriggerStackItems(
       if (selfETBTriggerTypes.has(trigger.triggerType)) {
         return true;
       }
+      if (isTypedPermanentEtbTrigger(trigger.triggerType)) {
+        return shouldQueueTypedPermanentEtbTrigger(trigger, newPermanent, newPermanent, String(controller));
+      }
       if (trigger.triggerType === 'permanent_etb' ||
           trigger.triggerType === 'creature_etb' ||
           trigger.triggerType === 'chosen_type_creature_etb' ||
@@ -171,6 +177,8 @@ export function queuePermanentEntersBattlefieldTriggerStackItems(
           if (triggerController && triggerController !== controller) {
             etbTriggers.push({ ...trigger, permanentId: perm.id, targetPlayer: controller } as any);
           }
+        } else if (shouldQueueTypedPermanentEtbTrigger(trigger, perm, newPermanent, String(controller))) {
+          etbTriggers.push({ ...trigger, permanentId: perm.id });
         }
       }
     }
@@ -247,6 +255,12 @@ export function queuePermanentEntersBattlefieldTriggerStackItems(
               desc = `Whenever a permanent enters the battlefield, ${desc}`;
             } else if (trigger.triggerType === 'opponent_creature_etb') {
               desc = `Whenever a creature enters the battlefield under an opponent's control, ${desc}`;
+            } else if (isTypedPermanentEtbTrigger(trigger.triggerType)) {
+              const requiredType = TYPED_PERMANENT_ETB_REQUIRED_TYPE[String(trigger.triggerType)] || 'permanent';
+              const article = /^[aeiou]/i.test(requiredType) ? 'an' : 'a';
+              desc = (trigger as any).controlledOnly
+                ? `Whenever ${article} ${requiredType} you control enters the battlefield, ${desc}`
+                : `Whenever ${article} ${requiredType} enters the battlefield, ${desc}`;
             } else {
               desc = `When ~ enters the battlefield, ${desc}`;
             }

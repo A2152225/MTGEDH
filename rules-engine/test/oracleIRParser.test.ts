@@ -5006,6 +5006,38 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('lowers you-may discover X where X is that creature\'s toughness', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever Pantlaza or another Dinosaur you control enters, you may discover X, where X is that creature's toughness. Do this only once each turn.",
+      'Pantlaza, Sun-Favored',
+    );
+
+    const discoverAbility = ir.abilities.find((ability) =>
+      ability.steps.some((step) => step.kind === 'impulse_exile_top'),
+    );
+    expect(discoverAbility?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'impulse_exile_top',
+          who: { kind: 'you' },
+          amount: {
+            kind: 'object_stat',
+            subject: 'that_creature',
+            stat: 'toughness',
+          },
+          duration: 'during_resolution',
+          permission: 'cast',
+        }),
+        expect.objectContaining({
+          kind: 'modify_exile_permissions',
+          scope: 'last_exiled_cards',
+          withoutPayingManaCost: true,
+        }),
+      ]),
+    );
+    expect(collectUnknownSteps(ir)).toEqual([]);
+  });
+
   it('parses full Discover reminder lines into the same lowered discover steps', () => {
     const ir = parseOracleTextToIR(
       "Discover 5 (Exile cards from the top of your library until you exile a nonland card whose mana value is less than this spell's mana value. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)",

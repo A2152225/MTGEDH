@@ -197,4 +197,13 @@ describe('triggered ability parsing', () => {
     expect(abilities[0]?.effect?.toLowerCase()).not.toContain('waterbend');
     expect(abilities[0]?.effect?.toLowerCase()).not.toContain("can't be blocked");
   });
+
+  it('preserves "an enchantment you control enters" instead of treating it as self-ETB', () => {
+    const oracle =
+      'Whenever an enchantment you control enters, tap up to one target creature and goad it.\nWhenever one or more creatures that are enchanted by an Aura you control attack, draw a card.';
+    const abilities = parseTriggeredAbilitiesFromText(oracle, 'SRC', 'P1', 'Killian, Decisive Mentor');
+    const etb = abilities.find((a) => a.event === TriggerEvent.ENTERS_BATTLEFIELD);
+    expect(etb).toBeDefined();
+    expect(String(etb?.triggerFilter || '').toLowerCase()).toBe('an enchantment you control enters');
+  });
 });

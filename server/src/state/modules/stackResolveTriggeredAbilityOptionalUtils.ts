@@ -21,6 +21,7 @@ import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.
 import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { collectTriggerExecutionSteps } from './oracleIrTriggerExecutionHelpers.js';
 import { oracleIrEffectProgramWouldPresentOptionalMay } from './oracleIrEffectProgramServer.js';
+import { recordDoThisOnlyOnceEachTurnOnAccept } from './triggerDoThisOnlyOnceEachTurn.js';
 
 /** Set on ctx when an optional may is consumed via Always No / no-until / shortcut no. */
 export const OPTIONAL_MAY_AUTO_DECLINED_FLAG = '__optionalMayAutoDeclined';
@@ -294,6 +295,7 @@ export function tryDeferOptionalTriggeredAbilityMayDecision(
   const savedTriggerDecision = getSavedMayAbilityTriggerDecision(state as any, options.triggerController, options.sourceName);
   if (savedTriggerDecision === 'yes') {
     (item as any).optionalTriggeredAbilityDecisionApplied = true;
+    recordDoThisOnlyOnceEachTurnOnAccept(state, item);
     debug(2, `[resolveTopOfStack] Optional trigger shortcut auto-yes for ${options.sourceName} (${options.triggerController})`);
     return false;
   }
@@ -337,6 +339,7 @@ export function tryDeferOptionalTriggeredAbilityMayDecision(
   }
   if (mayPref === 'yes') {
     (item as any).optionalTriggeredAbilityDecisionApplied = true;
+    recordDoThisOnlyOnceEachTurnOnAccept(state, item);
     debug(2, `[resolveTopOfStack] Optional mayAutoPreference auto-yes for ${options.sourceName} (${options.triggerController})`);
     return false;
   }

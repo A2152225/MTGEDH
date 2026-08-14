@@ -508,6 +508,15 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^until (?:they|you) exile a nonland card with (?:that mana value|mana value x|mana value that spell'?s mana value) or less$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
+  {
+    const creatureStatMatch = trimmed.match(
+      /^until (?:they|you) exile a nonland card with mana value that creature(?:'|’)?s (power|toughness) or less$/i,
+    );
+    if (creatureStatMatch) {
+      const stat = String(creatureStatMatch[1] || '').toLowerCase() === 'power' ? 'power' : 'toughness';
+      return { kind: 'object_stat', subject: 'that_creature', stat };
+    }
+  }
   if (/^x$/i.test(trimmed)) return { kind: 'x' };
   if (/^x\s+cards?$/i.test(trimmed)) return { kind: 'x' };
   if (/^all$/i.test(trimmed)) return { kind: 'all' };

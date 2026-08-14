@@ -28,6 +28,8 @@ import {
   startOracleEffectProgramOnServer,
 } from './oracleIrEffectProgramServer.js';
 import { copyPermanentTriggerStepNeedsTargetSelectionQueue } from './trigger-copy-permanent.js';
+import { recordDoThisOnlyOnceEachTurnOnAccept } from './triggerDoThisOnlyOnceEachTurn.js';
+import { getActualPowerToughness } from '../utils.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
@@ -270,6 +272,25 @@ function resolveTriggerTargetBinding(
     targetPermanentId = interveningSubjectPermanentId;
   }
 
+  let xValue = typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined;
+  if (typeof xValue !== 'number' || !Number.isFinite(xValue)) {
+    const effect = String(triggerItem?.effect || triggerItem?.description || '');
+    const statMatch = effect.match(/where\s+x\s+is\s+that\s+creature(?:'|’)?s\s+(power|toughness)/i);
+    if (statMatch) {
+      const subjectId = interveningSubjectPermanentId || String(targetPermanentId || '').trim();
+      const subject =
+        battlefield.find((permanent: any) => String(permanent?.id || '') === subjectId)
+        || triggerItem?.interveningIfSubjectSnapshot;
+      if (subject) {
+        const pt = getActualPowerToughness(subject, state);
+        const bound = String(statMatch[1] || '').toLowerCase() === 'power' ? pt.power : pt.toughness;
+        if (Number.isFinite(bound)) {
+          xValue = Math.max(0, Math.floor(Number(bound)));
+        }
+      }
+    }
+  }
+
   return {
     targetPermanentId,
     targetPlayerId: (targetPlayerId || losingPlayerId || undefined) as PlayerID | undefined,
@@ -285,7 +306,7 @@ function resolveTriggerTargetBinding(
           : Number.isFinite(damageReference) && damageReference > 0
             ? damageReference
             : undefined,
-    xValue: typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined,
+    xValue,
   };
 }
 
@@ -319,6 +340,9 @@ function buildTriggerIrContext(
   ).trim();
 
   const optionalTriggerAccepted = (params.triggerItem as any)?.optionalTriggeredAbilityDecisionApplied === true;
+  if (optionalTriggerAccepted) {
+    recordDoThisOnlyOnceEachTurnOnAccept(state, params.triggerItem);
+  }
   const irCtx = buildOracleIRExecutionContext(
     {
       controllerId: params.controller,

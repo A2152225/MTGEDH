@@ -21,6 +21,7 @@ import {
   queueTemporaryEtbTriggersForEntry,
   recordBattlefieldEntryTurnTracking,
   shouldQueueChosenTypeCreatureEtbTrigger,
+  tryBuildTypedPermanentEtbStackItem,
 } from './triggerEtbEntryEffects.js';
 import { matchesColorRestriction } from './stackResolvePermanentEtbTriggerUtils.js';
 import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
@@ -585,6 +586,18 @@ export function triggerETBEffectsForPermanent(
           
           debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
         }
+      }
+
+      const typedEtbStackItem = tryBuildTypedPermanentEtbStackItem(
+        ctx,
+        trigger,
+        perm,
+        permanent,
+        String(controller),
+      );
+      if (typedEtbStackItem) {
+        pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, typedEtbStackItem);
+        debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s typed ETB trigger: ${trigger.description}`);
       }
     }
   }

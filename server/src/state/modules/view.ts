@@ -15,6 +15,11 @@ import { getContinuousGrantedAbilitiesForPermanent, syncDerivedContinuousEffects
 import { collectBattlefieldAbilityBadgesForView } from "./battlefieldAbilityBadges.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
 import { maskFaceDownExileCardForViewer } from "./impulse-exile-utils.js";
+import {
+  applyCurrentHideawayExamination,
+  collectMissingHideawayExileCards,
+  sanitizeHideawayCardForViewer,
+} from "./hideawayExile.js";
 
 /**
  * Determine if `viewer` can see `owner`'s hidden zones (hand, library top, etc.)
@@ -221,10 +226,16 @@ export function viewFor(
       !!cz &&
       Array.isArray(cz.commanderIds) &&
       cz.commanderIds.includes((perm.card as any)?.id);
-    const { grantedAbilities: _rawGrantedAbilities, ...permWithoutRawGrants } = perm as any;
+    const { grantedAbilities: _rawGrantedAbilities, hideawayCard: rawHideawayCard, ...permWithoutRawGrants } = perm as any;
+    const viewedHideaway = sanitizeHideawayCardForViewer(
+      rawHideawayCard,
+      String(viewer || ''),
+      String(perm.controller || ''),
+    );
     return {
       ...permWithoutRawGrants,
       card: perm.card,
+      ...(viewedHideaway ? { hideawayCard: viewedHideaway } : {}),
       ...(typeof effectivePower === "number" &&
       typeof effectiveToughness === "number"
         ? { effectivePower, effectiveToughness }
@@ -303,8 +314,20 @@ export function viewFor(
         } as any;
     }
 
-    const rawExile = Array.isArray((z as any).exile) ? (z as any).exile : [];
-    const visibleExile = rawExile.map((card: any) => maskFaceDownExileCardForViewer(card, viewer));
+    const rawExile = Array.isArray((z as any).exile) ? [...(z as any).exile] : [];
+    const missingHideaway = collectMissingHideawayExileCards(p.id as PlayerID, state.battlefield || []);
+    for (const hidden of missingHideaway) {
+      const cardId = String(hidden?.id || '');
+      const sourceId = String(hidden?.hideawaySourcePermanentId || '');
+      const alreadyPresent = rawExile.some((card: any) =>
+        (cardId && String(card?.id || '') === cardId)
+        || (sourceId && String(card?.hideawaySourcePermanentId || '') === sourceId),
+      );
+      if (!alreadyPresent) rawExile.push(hidden);
+    }
+    const visibleExile = rawExile
+      .map((card: any) => applyCurrentHideawayExamination(card, state.battlefield || []))
+      .map((card: any) => maskFaceDownExileCardForViewer(card, viewer));
 
     filteredZones[p.id] = {
       hand: visibleHand,

@@ -937,6 +937,23 @@ export interface CombatTriggeredAbility {
   batched?: boolean;
 }
 
+export function isEnchantedByAuraYouControl(
+  battlefield: readonly any[],
+  creatureId: string,
+  controllerId: string,
+): boolean {
+  const id = String(creatureId || '').trim();
+  const ctrl = String(controllerId || '').trim();
+  if (!id || !ctrl) return false;
+  return (battlefield || []).some((perm: any) => {
+    const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+    if (!/\baura\b/.test(typeLine)) return false;
+    if (String(perm?.controller || '') !== ctrl) return false;
+    const attachedTo = String(perm?.attachedTo || perm?.enchanting || '').trim();
+    return attachedTo === id;
+  });
+}
+
 export interface AttachmentAttackTrigger {
   permanentId: string;
   cardName: string;
@@ -1534,6 +1551,23 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
       mandatory: true,
     });
   }
+
+  // Killian / similar: "Whenever one or more creatures that are enchanted by an Aura you control attack"
+  const enchantedByAuraAttackMatch = oracleText.match(
+    /whenever one or more creatures that are enchanted by an aura you control attack,?\s*([^.]+)/i,
+  );
+  if (enchantedByAuraAttackMatch) {
+    const effectText = timingTriggerEffect(oracleText, enchantedByAuraAttackMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_or_more_enchanted_by_aura_you_control_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+      batched: true,
+    });
+  }
   
   // Join Forces attack trigger
   if (lowerOracle.includes('join forces') && 
@@ -1569,10 +1603,12 @@ export function getAttackTriggersForCreatures(
   for (const attacker of attackingCreatures) {
     const attackerTriggers = detectAttackTriggers(attacker.card, attacker);
     triggers.push(
-      ...attackerTriggers.map((trigger) => ({
-        ...trigger,
-        controllerId: String((trigger as any).controllerId || attacker?.controller || attackingPlayer || ''),
-      }))
+      ...attackerTriggers
+        .filter((trigger) => trigger.triggerType !== 'one_or_more_enchanted_by_aura_you_control_attack')
+        .map((trigger) => ({
+          ...trigger,
+          controllerId: String((trigger as any).controllerId || attacker?.controller || attackingPlayer || ''),
+        }))
     );
   }
   
@@ -1584,6 +1620,17 @@ export function getAttackTriggersForCreatures(
     for (const trigger of permTriggers) {
       if (trigger.triggerType === 'creature_attacks') {
         for (const _ of attackingCreatures) {
+          triggers.push({
+            ...trigger,
+            controllerId: String((trigger as any).controllerId || permanent?.controller || attackingPlayer || ''),
+          });
+        }
+      }
+      if (trigger.triggerType === 'one_or_more_enchanted_by_aura_you_control_attack') {
+        const anyEnchanted = attackingCreatures.some((attacker: any) =>
+          isEnchantedByAuraYouControl(battlefield, String(attacker?.id || ''), String(permanent?.controller || attackingPlayer)),
+        );
+        if (anyEnchanted) {
           triggers.push({
             ...trigger,
             controllerId: String((trigger as any).controllerId || permanent?.controller || attackingPlayer || ''),

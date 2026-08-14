@@ -457,15 +457,26 @@ export function evaluateControlledPermanentEntersCondition(
   sourceId?: string
 ): boolean | null {
   const normalized = String(condition || '').trim().toLowerCase();
-  const match = normalized.match(/^(?:a|an)\s+([a-z][a-z -]*)\s+enters(?:\s+the\s+battlefield)?\s+under\s+your\s+control$/);
+  const youControlEnters = normalized.match(
+    /^(?:another\s+)?(?:a|an)\s+([a-z][a-z -]*)\s+you\s+control\s+enters(?:\s+the\s+battlefield)?$/,
+  );
+  const underYourControl = normalized.match(
+    /^(?:a|an)\s+([a-z][a-z -]*)\s+enters(?:\s+the\s+battlefield)?\s+under\s+your\s+control$/,
+  );
+  const match = youControlEnters || underYourControl;
   if (!match) {
     return null;
   }
 
+  const anotherOnly = /^another\s+/.test(normalized);
   const enteringPermanentId = String(eventData.targetPermanentId || eventData.sourceId || '').trim();
   const normalizedSourceId = String(sourceId || '').trim();
   if (!enteringPermanentId) return false;
-  if (normalizedSourceId && enteringPermanentId === normalizedSourceId) {
+  if (
+    (anotherOnly || Boolean(underYourControl)) &&
+    normalizedSourceId &&
+    enteringPermanentId === normalizedSourceId
+  ) {
     return false;
   }
 

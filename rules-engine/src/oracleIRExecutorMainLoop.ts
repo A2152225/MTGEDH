@@ -749,6 +749,9 @@ export function applyOracleIRStepsToGameStateImpl(
   let lastGrantedGraveyardCards: any[] = [];
   let lastGrantedGraveyardPermissionIds: string[] = [];
   let lastMovedCards: any[] = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+  let lastMilledCards: any[] = Array.isArray((ctx as any).lastMilledCards)
+    ? [...((ctx as any).lastMilledCards as any[])]
+    : [];
   let lastMovedBattlefieldPermanentIds: string[] = Array.isArray(ctx.lastMovedBattlefieldPermanentIds)
     ? [...ctx.lastMovedBattlefieldPermanentIds]
     : [];
@@ -2557,7 +2560,8 @@ export function applyOracleIRStepsToGameStateImpl(
             lastRevealedCardCount = Math.max(0, Number(appliedResult.lastRevealedCardCount) || 0);
           }
           if (Array.isArray(appliedResult.lastMilledCards) && appliedResult.lastMilledCards.length > 0) {
-            currentCtx = { ...currentCtx, lastMilledCards: [...appliedResult.lastMilledCards] };
+            lastMilledCards = [...appliedResult.lastMilledCards];
+            currentCtx = { ...currentCtx, lastMilledCards };
           }
         });
         break;
@@ -2943,6 +2947,7 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applyCreateTokenStep(nextState, step, currentCtx, {
           lastMovedBattlefieldPermanentIds,
           lastMovedCards,
+          lastMilledCards,
           lastReferenceAmount,
           lastSacrificedPermanents,
           lastCreatedTokenIds,

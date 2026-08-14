@@ -5,6 +5,7 @@
 import React from 'react';
 import type { PlayerID, PlayerRef } from '../../../shared/src';
 import { colors, fontSize, radii, spacing } from '../theme';
+import { lifeTotalColor, readPlayerLife } from '../utils/gameDisplayHelpers';
 
 export interface SeatStripProps {
   players: PlayerRef[];
@@ -13,6 +14,7 @@ export interface SeatStripProps {
   focusedPlayerId?: PlayerID | null;
   monarch?: PlayerID | null;
   initiative?: PlayerID | null;
+  life?: Record<string, number>;
   onFocusPlayer: (playerId: PlayerID) => void;
   onClearFocus?: () => void;
 }
@@ -30,6 +32,7 @@ export const SeatStrip: React.FC<SeatStripProps> = ({
   focusedPlayerId,
   monarch,
   initiative,
+  life,
   onFocusPlayer,
   onClearFocus,
 }) => {
@@ -93,6 +96,7 @@ export const SeatStrip: React.FC<SeatStripProps> = ({
         const isFocused = player.id === focusedPlayerId;
         const badge = seatBadge(player.id, monarch, initiative);
         const label = isYou ? 'You' : player.name.split(/\s+/)[0] || player.name;
+        const playerLife = readPlayerLife(life, player.id);
 
         return (
           <button
@@ -138,6 +142,16 @@ export const SeatStrip: React.FC<SeatStripProps> = ({
               />
             )}
             <span>{label}</span>
+            <span
+              style={{
+                fontSize: fontSize.xs,
+                fontWeight: 700,
+                color: lifeTotalColor(playerLife),
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {playerLife}
+            </span>
             {badge && <span aria-hidden style={{ fontSize: fontSize.xs }}>{badge}</span>}
           </button>
         );

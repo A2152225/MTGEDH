@@ -9,6 +9,10 @@ import {
   resolveSnapshotCountAtAntecedent,
 } from './oracleIRThisWayResolver';
 import { resolveThisWayAntecedentStepIndex } from './oracleIRThisWayBinding';
+import {
+  resolveAntecedentMilledCards,
+  resolveLedgerAntecedentStepIndex,
+} from './oracleIRLedgerCardAccess';
 import type { OracleEffectStep } from './oracleIR';
 
 type CountCardsExiledWithSource = (
@@ -174,6 +178,33 @@ export function tryEvaluateModifyPtWhereExileAndCardStats(args: {
       if (antecedentStepIndex != null) {
         return resolveNonlandCountDiscardedThisWay(ctx, antecedentStepIndex);
       }
+    }
+  }
+
+  {
+    const m = raw.match(
+      /^x is the number of (?:(creature|artifact|enchantment|land|planeswalker) )?cards? (?:put into (?:a |your |their )?graveyard this way|milled this way)$/i,
+    );
+    if (m && ctx) {
+      const typeIncludes = String(m[1] || '').trim().toLowerCase() || undefined;
+      const antecedentStepIndex = resolveLedgerAntecedentStepIndex(
+        ctx,
+        args.step,
+        ['mill', 'discard', 'move_zone'],
+      );
+      if (antecedentStepIndex != null && ctx.stepLedger?.has(antecedentStepIndex)) {
+        return resolveSnapshotCountAtAntecedent(
+          ctx,
+          antecedentStepIndex,
+          typeIncludes ? { typeIncludes } : undefined,
+        );
+      }
+      const milled = resolveAntecedentMilledCards(ctx);
+      if (!typeIncludes) return milled.length;
+      return milled.filter((card) => {
+        const typeLine = String((card as any)?.type_line || (card as any)?.card?.type_line || '').toLowerCase();
+        return typeLine.includes(typeIncludes);
+      }).length;
     }
   }
 

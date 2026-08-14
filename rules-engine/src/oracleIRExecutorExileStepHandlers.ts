@@ -8,6 +8,7 @@ import {
   getCardTypeLineLower,
   getPlayableUntilTurnForImpulseDuration,
   impulseExileTopRequiresChooseOne,
+  normalizeOracleText,
   quantityToNumber,
   resolvePlayers,
   resolveUnknownExileUntilAmountForPlayer,
@@ -20,6 +21,7 @@ import {
 } from './oracleIRExecutorPlayerUtils';
 import { cardMatchesExileSelectorText } from './oracleIRExecutorZoneOps';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
+import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import type { PlayerZoneChangeBridgeContext } from './oracleIRExecutorCardZoneTransitionCommit';
 import {
@@ -69,6 +71,59 @@ export type ExilePermissionModifierResult =
   | ExilePermissionModifierSkipResult;
 
 type GrantExilePermissionResult = ExilePermissionModifierResult;
+
+function resolveDiscoverManaValueThreshold(
+  amount: any,
+  ctx: OracleIRExecutionContext,
+  state: GameState,
+  playerId: PlayerID,
+): number | null {
+  if (amount?.kind === 'until_nonland_mana_value_lte') {
+    const value = Number(amount.value);
+    return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : null;
+  }
+
+  if (amount?.kind === 'object_stat') {
+    const resolved = resolveOracleQuantity(state, playerId, amount, ctx);
+    return resolved == null ? null : Math.max(0, Math.floor(resolved));
+  }
+
+  if (amount?.kind !== 'reference_amount' && amount?.kind !== 'unknown' && amount?.kind !== 'x') {
+    return null;
+  }
+
+  const raw = normalizeOracleText(String((amount as any)?.raw || ''));
+  if (amount?.kind === 'x' || /mana value x or less/i.test(raw) || /with that mana value or less/i.test(raw)) {
+    const xValue = Number(ctx.xValue);
+    if (Number.isFinite(xValue)) return Math.max(0, Math.floor(xValue));
+  }
+
+  const creatureStatMatch = raw.match(/mana value that creature(?:'|’)?s (power|toughness) or less/i);
+  if (creatureStatMatch) {
+    const stat = String(creatureStatMatch[1] || '').toLowerCase() === 'power' ? 'power' : 'toughness';
+    const resolved = resolveOracleQuantity(
+      state,
+      playerId,
+      { kind: 'object_stat', subject: 'that_creature', stat },
+      ctx,
+    );
+    return resolved == null ? null : Math.max(0, Math.floor(resolved));
+  }
+
+  return null;
+}
+
+function coerceDiscoverImpulseAmount(
+  amount: any,
+  ctx: OracleIRExecutionContext,
+  state: GameState,
+  playerId: PlayerID,
+): any {
+  if (amount?.kind === 'until_nonland_mana_value_lte') return amount;
+  const threshold = resolveDiscoverManaValueThreshold(amount, ctx, state, playerId);
+  if (threshold == null) return amount;
+  return { kind: 'until_nonland_mana_value_lte', value: threshold };
+}
 
 function resolveExileCounts(
   state: GameState,
@@ -230,7 +285,9 @@ export function applyImpulseExileTopStep(
     };
   }
 
-  const exileCountByPlayer = resolveExileCounts(state, players, step.amount, ctx, { rawHint: step.raw, runtime });
+  const coercedAmount = coerceDiscoverImpulseAmount(step.amount, ctx, state, players[0] as PlayerID);
+  const impulseStep = coercedAmount === step.amount ? step : { ...step, amount: coercedAmount };
+  const exileCountByPlayer = resolveExileCounts(state, players, impulseStep.amount, ctx, { rawHint: step.raw, runtime });
   if (!exileCountByPlayer) {
     return {
       applied: false,
@@ -252,9 +309,9 @@ export function applyImpulseExileTopStep(
   const playableUntilTurn = getPlayableUntilTurnForImpulseDuration(state, step.duration);
   const condition = step.condition;
   const exiledBy = ctx.sourceName;
-  const returnUncastToBottom = shouldReturnUncastExiledToBottom(step as any);
-  const shuffleRestIntoLibrary = shouldShuffleRestIntoLibrary(step as any);
-  const requiresChooseOne = impulseExileTopRequiresChooseOne(step);
+  const returnUncastToBottom = shouldReturnUncastExiledToBottom(impulseStep as any);
+  const shuffleRestIntoLibrary = shouldShuffleRestIntoLibrary(impulseStep as any);
+  const requiresChooseOne = impulseExileTopRequiresChooseOne(impulseStep);
   const spendManaAsThoughAnyType = /mana of any type can be spent to cast those spells/i.test(String(step.raw || ''));
   const permissionRecipientForWho = (libraryOwnerId: PlayerID): PlayerID => {
     const whoKind = String((step.who as any)?.kind || '').trim();
@@ -307,7 +364,7 @@ export function applyImpulseExileTopStep(
     }
 
     if (shuffleRestIntoLibrary && result.exiled.length > 0) {
-      const split = splitExiledForShuffleRest(step as any, result.exiled);
+      const split = splitExiledForShuffleRest(impulseStep as any, result.exiled);
       if (split.returnToLibrary.length > 0) {
         const shuffledRestResult = putSpecificExiledCardsOnLibraryBottom(nextState, playerId, split.returnToLibrary);
         nextState = shuffledRestResult.state;

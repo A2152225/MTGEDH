@@ -438,6 +438,36 @@ export function LandRow(props: {
                   </div>
                 );
               }
+
+              if (itAny.hideawayCard) {
+                const hiddenCard = itAny.hideawayCard.card;
+                badges.push(
+                  <div
+                    key="hideaway"
+                    style={{
+                      background: 'rgba(88, 28, 135, 0.9)',
+                      color: '#fff',
+                      fontSize: 9,
+                      padding: '2px 5px',
+                      borderRadius: 4,
+                      fontWeight: 650,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={hiddenCard?.name ? `Hideaway: ${hiddenCard.name}` : 'A card is hidden here (Hideaway)'}
+                    onMouseEnter={hiddenCard ? (e) => {
+                      e.stopPropagation();
+                      showCardPreview(e.currentTarget as HTMLElement, hiddenCard, { prefer: 'above', anchorPadding: 0 });
+                    } : undefined}
+                    onMouseLeave={hiddenCard ? (e) => {
+                      e.stopPropagation();
+                      showCardPreview(e.currentTarget as HTMLElement, (it.perm.card as any), { prefer: 'above', anchorPadding: 0 });
+                    } : undefined}
+                  >
+                    Hideaway
+                  </div>
+                );
+              }
               
               return badges.length > 0 ? (
                 <div

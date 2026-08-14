@@ -397,7 +397,7 @@ function resolveReferenceScalerScale(
   if (/^for each creature in your party$/.test(normalized)) {
     return Math.max(0, countPartyCreatures(state, controllerId));
   }
-  if (/^for each creature card put into your graveyard this way$/.test(normalized)) {
+  if (/^for each creature card (?:put into (?:a |your |their )?graveyard this way|milled this way)$/.test(normalized)) {
     const antecedentStepIndex = resolveLedgerAntecedentStepIndex(
       ctx,
       step,
@@ -406,7 +406,11 @@ function resolveReferenceScalerScale(
     if (antecedentStepIndex != null && ctx?.stepLedger?.has(antecedentStepIndex)) {
       return resolveCreatureLedgerCountAtAntecedent(ctx, antecedentStepIndex);
     }
-    const moved = Array.isArray(runtime.lastMovedCards) ? runtime.lastMovedCards : [];
+    const moved = [
+      ...(Array.isArray(runtime.lastMovedCards) ? runtime.lastMovedCards : []),
+      ...(Array.isArray((runtime as any).lastMilledCards) ? (runtime as any).lastMilledCards : []),
+      ...(Array.isArray(ctx?.lastMilledCards) ? ctx.lastMilledCards : []),
+    ];
     return moved.reduce((count: number, card: any) => {
       const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
       return count + (/\bcreature\b/i.test(typeLine) ? 1 : 0);

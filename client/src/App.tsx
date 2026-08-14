@@ -102,6 +102,7 @@ import { useRandomDeckPicker } from "./hooks/useRandomDeckPicker";
 import { GameCommunicationsPanel } from "./components/GameCommunicationsPanel";
 import { MobileActionDock } from "./components/MobileActionDock";
 import { SeatStrip } from "./components/SeatStrip";
+import { YourTurnBanner } from "./components/YourTurnBanner";
 import { MobileHandStrip } from "./components/MobileHandStrip";
 import { MobilePlaySheets, type MobilePlaySheet } from "./components/MobilePlaySheets";
 import { toast } from "./components/ToastHost";
@@ -117,7 +118,7 @@ import {
   getBackgroundStyle,
   getTextColorsForBackground,
 } from "./utils/appearanceSettings";
-import { prettyPhase, prettyStep, isLandTypeLine } from "./utils/gameDisplayHelpers";
+import { prettyPhase, prettyStep, isLandTypeLine, readPlayerLife, lifeTotalColor } from "./utils/gameDisplayHelpers";
 import { canCreatureAttackNow, canCreatureBlockNow, isCurrentlyCreature } from "./utils/creatureUtils";
 import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
 import { MayAutoPreferencesPanel } from "./components/MayAutoPreferencesPanel";
@@ -622,6 +623,8 @@ export function App() {
   const [focusedPlayerId, setFocusedPlayerId] = useState<string | null>(null);
   const [mobilePlaySheet, setMobilePlaySheet] = useState<MobilePlaySheet>(null);
   const [utilityRailCollapsed, setUtilityRailCollapsed] = useState(false);
+  const [yourTurnBannerVisible, setYourTurnBannerVisible] = useState(false);
+  const previousTurnRef = useRef<{ gameId?: string; turnPlayer?: string | null }>({});
   const { width: viewportWidth } = useViewport();
   const isTouch = useIsTouch();
   const mobilePlayLayout = useMobilePlayLayout();
@@ -4551,6 +4554,32 @@ export function App() {
     return phaseStr === "" || phaseStr === "PRE_GAME";
   }, [safeView]);
 
+  useEffect(() => {
+    const gameId = safeView?.id;
+    const turnPlayer = safeView?.turnPlayer ?? null;
+    const prev = previousTurnRef.current;
+    const becameYourTurn =
+      !!you &&
+      !!turnPlayer &&
+      turnPlayer === you &&
+      !isPreGame &&
+      prev.gameId === gameId &&
+      prev.turnPlayer != null &&
+      prev.turnPlayer !== turnPlayer;
+
+    previousTurnRef.current = { gameId, turnPlayer };
+
+    if (becameYourTurn) {
+      setYourTurnBannerVisible(true);
+    }
+  }, [safeView?.id, safeView?.turnPlayer, you, isPreGame]);
+
+  useEffect(() => {
+    if (!yourTurnBannerVisible) return;
+    const timeoutId = window.setTimeout(() => setYourTurnBannerVisible(false), 1500);
+    return () => window.clearTimeout(timeoutId);
+  }, [yourTurnBannerVisible]);
+
   const mulliganState = useMemo(() => {
     if (!safeView || !you) return null;
     return (safeView as any).mulliganState?.[you] || null;
@@ -6543,6 +6572,7 @@ export function App() {
             focusedPlayerId={focusedPlayerId}
             monarch={(safeView as any).monarch}
             initiative={(safeView as any).initiative}
+            life={safeView.life}
             onFocusPlayer={handleFocusPlayer}
             onClearFocus={clearPlayerFocus}
           />
@@ -6792,6 +6822,17 @@ export function App() {
                 <div style={{ fontSize: 11, fontWeight: 600, wordBreak: 'break-word' }}>
                   {playerFocusOrder.find((player: any) => player.id === safeView.turnPlayer)?.name || 'Waiting'}
                 </div>
+                {safeView.turnPlayer && (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: lifeTotalColor(readPlayerLife(safeView.life, safeView.turnPlayer)),
+                    }}
+                  >
+                    {readPlayerLife(safeView.life, safeView.turnPlayer)} life
+                  </div>
+                )}
               </div>
             ) : (
               <>
@@ -6841,6 +6882,7 @@ export function App() {
                       const isTurnPlayer = safeView.turnPlayer === player.id;
                       const isFocused = focusedPlayerId === player.id;
                       const isYouPlayerFocus = you === player.id;
+                      const playerLife = readPlayerLife(safeView.life, player.id);
                       return (
                         <button
                           key={player.id}
@@ -6870,6 +6912,18 @@ export function App() {
                             <span style={{ fontSize: 10, color: '#9ca3af', minWidth: 18 }}>{index + 1}.</span>
                             <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {player.name}{isYouPlayerFocus ? ' (You)' : ''}
+                            </span>
+                            <span
+                              style={{
+                                flexShrink: 0,
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: lifeTotalColor(playerLife),
+                                fontVariantNumeric: 'tabular-nums',
+                              }}
+                              title={`${player.name}: ${playerLife} life`}
+                            >
+                              {playerLife}
                             </span>
                           </span>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -7003,6 +7057,7 @@ export function App() {
         )}
       </div>
 
+      <YourTurnBanner open={yourTurnBannerVisible} />
       <CardPreviewLayer controlMode={showExpandedUtilityRail ? 'hidden' : 'floating'} />
 
       {/* Mobile bottom action dock — only on touch devices with narrow

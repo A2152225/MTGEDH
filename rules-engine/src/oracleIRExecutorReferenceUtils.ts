@@ -2,16 +2,19 @@ import type { GameState, PlayerID } from '../../shared/src';
 import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import {
-  collectLedgerCardsAtAntecedent,
+  resolveAntecedentDiscardedCards,
+  resolveAntecedentMilledCards,
   resolveLedgerAntecedentStepIndex,
+  snapshotToCardLike,
 } from './oracleIRLedgerCardAccess';
 import type { OracleEffectStep } from './oracleIR';
-import { snapshotToCardLike } from './oracleIRLedgerCardAccess';
 export type ReferencedObjectRole = 'controller' | 'owner';
 
 export interface ReferencedObjectRuntime {
   readonly lastMovedCards?: readonly any[];
   readonly lastSacrificedPermanents?: readonly any[];
+  readonly lastMilledCards?: readonly any[];
+  readonly lastDiscardedCards?: readonly any[];
 }
 
 function normalizeId(value: unknown): string {
@@ -272,9 +275,16 @@ export function resolveReferencedPlayerZone(
 
 function objectMatchesCountedExpression(obj: any, countedExpression: string): boolean {
   const normalized = String(countedExpression || '').trim().toLowerCase();
-  const typeLine = String(
-    obj?.type_line ?? obj?.card?.type_line ?? obj?.card?.typeLine ?? ''
-  ).toLowerCase();
+  const typeLine = [
+    obj?.type_line,
+    obj?.card?.type_line,
+    obj?.card?.typeLine,
+    Array.isArray(obj?.types) ? obj.types.join(' ') : '',
+    Array.isArray(obj?.card?.types) ? obj.card.types.join(' ') : '',
+  ]
+    .map((value) => String(value || ''))
+    .join(' ')
+    .toLowerCase();
   if (/\bcreature\b/.test(normalized) && !typeLine.includes('creature')) return false;
   if (/\bartifact\b/.test(normalized) && !typeLine.includes('artifact')) return false;
   if (/\bplaneswalker\b/.test(normalized) && !typeLine.includes('planeswalker')) return false;
@@ -334,4 +344,36 @@ export function collectThisWayDestroyedObjects(
 
   const movedSnapshots = dedupeObjectsById(collectMovedSnapshots(ctx, runtime));
   return movedSnapshots.filter((obj) => objectMatchesCountedExpression(obj, countedExpression));
+}
+
+const GRAVEYARD_THIS_WAY_ANTECEDENT_KINDS = ['mill', 'discard', 'move_zone'] as const;
+
+/**
+ * Cards from a prior mill/discard/move for "for each creature card put into a graveyard this way"
+ * and "for each creature card milled this way" riders. Prefers step ledger, then milled/discarded/moved carry-over.
+ */
+export function collectThisWayGraveyardObjects(
+  ctx: OracleIRExecutionContext,
+  countedExpression: string,
+  runtime?: ReferencedObjectRuntime,
+  step?: OracleEffectStep,
+): readonly any[] {
+  const antecedentIndex = resolveLedgerAntecedentStepIndex(ctx, step, GRAVEYARD_THIS_WAY_ANTECEDENT_KINDS);
+  if (antecedentIndex !== null && ctx.stepLedger?.has(antecedentIndex)) {
+    const snapshots = ctx.stepLedger.get(antecedentIndex) ?? [];
+    return dedupeObjectsById(
+      snapshots
+        .filter((snap) => objectMatchesCountedExpression(snapshotToCardLike(snap), countedExpression))
+        .map((snap) => ledgerCardToReferencedObject(snapshotToCardLike(snap), snap)),
+    );
+  }
+
+  const combined = dedupeObjectsById([
+    ...(resolveAntecedentMilledCards(ctx) as any[]),
+    ...(Array.isArray(runtime?.lastMilledCards) ? runtime.lastMilledCards : []),
+    ...(Array.isArray((ctx as any).lastMilledCards) ? (ctx as any).lastMilledCards : []),
+    ...(resolveAntecedentDiscardedCards(ctx, runtime) as any[]),
+    ...collectMovedSnapshots(ctx, runtime),
+  ]);
+  return combined.filter((obj) => objectMatchesCountedExpression(obj, countedExpression));
 }

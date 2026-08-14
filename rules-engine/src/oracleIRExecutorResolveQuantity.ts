@@ -401,6 +401,24 @@ export function resolveOracleQuantity(
       if (contextualAmount !== null) return contextualAmount;
     }
 
+    if (subject === 'that_creature' || subject === 'it' || subject === 'that_card') {
+      const boundIds = [
+        String(ctx.targetPermanentId || '').trim(),
+        String(ctx.selectorContext?.targetPermanentId || '').trim(),
+        ...(Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : []),
+        ...(Array.isArray(ctx.chosenObjectIds) ? ctx.chosenObjectIds : []),
+      ]
+        .map((id) => String(id || '').trim())
+        .filter(Boolean);
+      for (const boundId of boundIds) {
+        const boundPermanent = ((state.battlefield || []) as any[]).find(
+          (entry) => String(entry?.id || '').trim() === boundId,
+        );
+        const boundAmount = readStat(boundPermanent);
+        if (boundAmount !== null) return boundAmount;
+      }
+    }
+
     if (qty.stat === 'mana_value') {
       const spellMv = Number((ctx as any).lastCastSpellManaValue ?? (ctx as any).targetSpellManaValue);
       if (Number.isFinite(spellMv)) return Math.max(0, spellMv);

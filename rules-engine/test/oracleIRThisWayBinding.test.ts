@@ -539,4 +539,22 @@ describe('oracleIRThisWayBinding', () => {
 
     expect(value).toBe(2);
   });
+
+  it('binds put-into-a-graveyard-this-way token rider to prior mill', () => {
+    const steps: OracleEffectStep[] = [
+      { kind: 'mill', raw: 'Each player mills X cards', who: { kind: 'each_player' }, amount: { kind: 'x' } },
+      {
+        kind: 'create_token',
+        raw: 'For each creature card put into a graveyard this way, you create a tapped 2/2 black Zombie creature token.',
+        who: { kind: 'you' },
+        amount: { kind: 'x' },
+        token: '2/2 black Zombie',
+        entersTapped: true,
+      },
+    ];
+
+    const bound = bindThisWayAntecedentOnSteps(steps);
+    expect((bound[1] as any).thisWayAntecedentStepIndex).toBe(0);
+    expect((bound[1] as any).thisWayAntecedentStepKind).toBe('mill');
+  });
 });

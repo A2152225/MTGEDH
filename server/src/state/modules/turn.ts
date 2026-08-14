@@ -4606,6 +4606,8 @@ export function nextTurn(ctx: GameContext) {
     (ctx as any).state.lifeGainedThisTurn = {};
     (ctx as any).state.lifegainTriggersFiredThisTurn = {};
     (ctx as any).state.discoverTriggersFiredThisTurn = {};
+    (ctx as any).state.doThisOnlyOnceEachTurnUsedThisTurn = {};
+    (ctx as any).state.oncePerTurnTriggersFiredThisTurn = {};
     (ctx as any).state.lifeLostThisTurn = {};
     for (const pid of players) {
       (ctx as any).state.lifeGainedThisTurn[String(pid)] = 0;

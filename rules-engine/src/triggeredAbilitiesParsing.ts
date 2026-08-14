@@ -82,12 +82,14 @@ function shouldPreserveTriggerConditionFilter(normalizedCondition: string): bool
     normalizedCondition === 'this permanent enters the battlefield' ||
     normalizedCondition === 'this creature enters the battlefield' ||
     /^(?:a|an)\s+[a-z][a-z -]*\s+enters(?:\s+the\s+battlefield)?\s+under\s+your\s+control$/.test(normalizedCondition) ||
+    /^(?:another\s+)?(?:a|an)\s+[a-z][a-z -]*\s+you\s+control\s+enters(?:\s+the\s+battlefield)?$/.test(normalizedCondition) ||
     normalizedCondition === 'this creature attacks or blocks' ||
     normalizedCondition === 'a creature an opponent controls attacks' ||
     normalizedCondition === 'enchanted creature becomes tapped' ||
     normalizedCondition === 'enchanted creature is dealt damage' ||
     /^another [\w]+ creature you control dies$/.test(normalizedCondition) ||
-    /^a [\w]+ creature you control dies$/.test(normalizedCondition)
+    /^a [\w]+ creature you control dies$/.test(normalizedCondition) ||
+    /^one or more creatures that are enchanted by an aura you control attack$/.test(normalizedCondition)
   );
 }
 

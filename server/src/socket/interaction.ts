@@ -16,6 +16,7 @@ import { isSacrificeCreatureOfChosenTypeCost } from "../state/modules/chosen-cre
 import { adjustActivationManaCostForPayment, isActivatedManaAbilityText } from "../state/modules/ability-cost-adjustments.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility, detectHideawayAbility } from "../state/modules/triggered-abilities";
+import { cardFromHideawayToHand, clearStoredHideawayCard } from "../state/modules/hideawayExile.js";
 import { movePermanentToGraveyard, trackPermanentSacrificedThisTurn } from "../state/modules/counters_tokens.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { queueTapTriggersForTappedPermanents } from "../state/modules/tap-trigger-queue.js";
@@ -6687,15 +6688,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Move the hideaway card to hand or cast it
       // For now, move to hand
       const zones = (game.state as any).zones?.[pid];
-      const movedCard = { ...hideawayData.card, zone: 'hand' };
+      const movedCard = cardFromHideawayToHand(hideawayData.card);
       if (zones) {
         zones.hand = zones.hand || [];
         zones.hand.push(movedCard);
         zones.handCount = zones.hand.length;
       }
       
-      // Clear hideaway data
-      delete (permanent as any).hideawayCard;
+      clearStoredHideawayCard(game.state, permanent, pid);
       
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,

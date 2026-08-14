@@ -665,9 +665,15 @@ export function resolveUnknownExileUntilAmountForPlayer(
     const discoverMatch = raw.match(/^until (?:they|you) exile a nonland card with mana value (\d+|x) or less$/i);
     if (discoverMatch) {
       const thresholdRaw = String(discoverMatch[1] || '').trim().toLowerCase();
-      if (thresholdRaw === 'x') return null;
-      const threshold = Number(thresholdRaw);
-      if (!Number.isFinite(threshold) || threshold < 0) return null;
+      let threshold: number;
+      if (thresholdRaw === 'x') {
+        const xValue = Number(ctx?.xValue);
+        if (!Number.isFinite(xValue)) return null;
+        threshold = Math.max(0, Math.floor(xValue));
+      } else {
+        threshold = Number(thresholdRaw);
+        if (!Number.isFinite(threshold) || threshold < 0) return null;
+      }
 
       for (let i = 0; i < library.length; i++) {
         const typeLine = getCardTypeLineLower(library[i]);

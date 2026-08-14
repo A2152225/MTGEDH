@@ -114,6 +114,7 @@ import {
   recordPrisonersDilemmaChoice,
 } from "../state/modules/spellLegacyChoiceBatchUtils.js";
 import { returnExiledCardToBattlefield, scheduleExiledCardReturnToBattlefield } from "../state/modules/executeSpellEffect.js";
+import { storeHideawayExiledCard } from "../state/modules/hideawayExile.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import {
   extractControlledExploitTriggeredEffects,
@@ -24243,9 +24244,13 @@ function handleHideawayChoiceResponse(
   zoneState.library = Array.isArray(library) ? library.map((card: any) => ({ ...card, zone: 'library' })) : zoneState.library;
   zoneState.libraryCount = Array.isArray(library) ? library.length : zoneState.libraryCount;
 
-  (permanent as any).hideawayCard = {
-    card: { ...selectedCard, zone: 'exile' },
-  };
+  storeHideawayExiledCard({
+    state: game.state,
+    playerId: pid,
+    permanent,
+    selectedCard,
+    sourceName,
+  });
 
   if (stackItemId) {
     game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
@@ -24274,7 +24279,7 @@ function handleHideawayChoiceResponse(
     id: `m_${Date.now()}`,
     gameId,
     from: 'system',
-    message: `${getPlayerName(game, pid)} hides away ${selectedCard.name || 'a card'} with ${sourceName}.`,
+    message: `${getPlayerName(game, pid)} hides away a card face down with ${sourceName}.`,
     ts: Date.now(),
   });
 

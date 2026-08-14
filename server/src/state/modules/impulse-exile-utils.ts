@@ -52,6 +52,7 @@ export function maskFaceDownExileCardForViewer(card: any, viewer: PlayerID | 'sp
     exiledBy: base.exiledBy,
     canBePlayedBy: base.canBePlayedBy,
     canBeExaminedBy: base.canBeExaminedBy,
+    hideawaySourcePermanentId: base.hideawaySourcePermanentId,
     playableUntilTurn: base.playableUntilTurn,
     spendManaAsThoughAnyType: base.spendManaAsThoughAnyType,
     castWithoutPayingManaCost: base.castWithoutPayingManaCost,

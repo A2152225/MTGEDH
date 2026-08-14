@@ -82,3 +82,15 @@ export function prettyStep(step?: string | null): string {
 export function isLandTypeLine(tl?: string | null): boolean {
   return !!tl && /\bland\b/i.test(tl);
 }
+
+export function readPlayerLife(lifeByPlayer: Record<string, number> | undefined, playerId: string): number {
+  const n = Number(lifeByPlayer?.[playerId]);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function lifeTotalColor(life: number): string {
+  if (!Number.isFinite(life)) return '#9ca3af';
+  if (life <= 10) return '#ef4444';
+  if (life <= 20) return '#fbbf24';
+  return '#4ade80';
+}

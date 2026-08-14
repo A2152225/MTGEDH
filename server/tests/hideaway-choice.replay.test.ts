@@ -82,6 +82,15 @@ describe('hideawayChoice replay', () => {
     const zoneLibrary = ctx.state.zones.p1.library || [];
 
     expect(permanent.hideawayCard?.card?.id).toBe('top_2');
+    const exile = ctx.state.zones.p1.exile || [];
+    expect(exile).toHaveLength(1);
+    expect(exile[0]).toMatchObject({
+      id: 'top_2',
+      zone: 'exile',
+      faceDown: true,
+      hideawaySourcePermanentId: 'windbrisk_1',
+      canBeExaminedBy: ['p1'],
+    });
     expect(library.map((card: any) => card.id)).toEqual(['rest_1', 'top_3', 'top_1', 'top_4']);
     expect(zoneLibrary.map((card: any) => card.id)).toEqual(['rest_1', 'top_3', 'top_1', 'top_4']);
     expect((ctx.state.stack || []).some((item: any) => item.id === 'hideaway_stack_1')).toBe(false);

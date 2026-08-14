@@ -33,7 +33,23 @@ export interface ExileViewModalProps {
   ignoredCardIds?: Set<string>;
 }
 
+function isUnknownFaceDownExileCard(card: KnownCardRef): boolean {
+  return Boolean((card as any).faceDown) && (card as any).known === false;
+}
+
+function isHideawayExileCard(card: KnownCardRef): boolean {
+  return Boolean((card as any).hideawaySourcePermanentId);
+}
+
+function exileCardDisplayName(card: KnownCardRef): string {
+  if (isUnknownFaceDownExileCard(card)) {
+    return isHideawayExileCard(card) ? 'Hideaway (face down)' : 'Face-down card';
+  }
+  return card.name || (isHideawayExileCard(card) ? 'Hideaway' : 'Unknown card');
+}
+
 function parseExileAbilities(card: KnownCardRef): ExileAbility[] {
+  if (isUnknownFaceDownExileCard(card)) return [];
   const abilities: ExileAbility[] = [];
   const oracleText = (card.oracle_text || '').toLowerCase();
   
@@ -137,7 +153,8 @@ export function ExileViewModal({
     
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(({ card }) => 
+      filtered = filtered.filter(({ card }) =>
+        exileCardDisplayName(card).toLowerCase().includes(term) ||
         card.name?.toLowerCase().includes(term) ||
         card.type_line?.toLowerCase().includes(term) ||
         card.oracle_text?.toLowerCase().includes(term)
@@ -223,6 +240,9 @@ export function ExileViewModal({
                 const isPlayable = playableCards.includes(card.id);
                 const isSuspended = abilities.some(a => a.id === 'suspend');
                 const isIgnored = ignoredCardIds.has(card.id);
+                const isUnknownFaceDown = isUnknownFaceDownExileCard(card);
+                const isHideaway = isHideawayExileCard(card);
+                const displayName = exileCardDisplayName(card);
                 
                 return (
                   <div
@@ -231,6 +251,8 @@ export function ExileViewModal({
                       position: 'relative', borderRadius: 6, overflow: 'hidden',
                       border: isIgnored 
                         ? '2px solid rgba(250, 204, 21, 0.5)'
+                        : isHideaway
+                          ? '2px solid rgba(147,51,234,0.65)'
                         : isSuspended 
                           ? '2px solid rgba(245,158,11,0.5)' 
                           : abilities.length > 0 
@@ -244,7 +266,10 @@ export function ExileViewModal({
                       e.preventDefault();
                       setContextMenu({ card, x: e.clientX, y: e.clientY });
                     }}
-                    onMouseEnter={(e) => showCardPreview(e.currentTarget as HTMLElement, card, { prefer: 'above' })}
+                    onMouseEnter={(e) => {
+                      if (isUnknownFaceDown) return;
+                      showCardPreview(e.currentTarget as HTMLElement, card, { prefer: 'above' });
+                    }}
                     onMouseLeave={(e) => hideCardPreview(e.currentTarget as HTMLElement)}
                   >
                     {/* Ignored badge */}
@@ -265,21 +290,31 @@ export function ExileViewModal({
                       </div>
                     )}
                     <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden' }}>
-                      {card.image_uris?.small || card.image_uris?.normal ? (
-                        <img src={card.image_uris.small || card.image_uris.normal} alt={card.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      {isUnknownFaceDown ? (
+                        <div style={{
+                          width: '100%', height: '100%',
+                          background: 'linear-gradient(135deg, #111827, #020617)',
+                          border: '1px solid #9ca3af',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 11, textAlign: 'center', padding: 8, color: '#d1d5db',
+                        }}>
+                          Face down
+                        </div>
+                      ) : card.image_uris?.small || card.image_uris?.normal ? (
+                        <img src={card.image_uris.small || card.image_uris.normal} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       ) : (
                         <div style={{ width: '100%', height: '100%', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, textAlign: 'center', padding: 4 }}>
-                          {card.name}
+                          {displayName}
                         </div>
                       )}
                     </div>
-                    {abilities.length > 0 && !isIgnored && (
-                      <div style={{ position: 'absolute', top: 4, right: 4, backgroundColor: isSuspended ? 'rgba(245,158,11,0.9)' : 'rgba(147,51,234,0.9)', color: '#fff', fontSize: 9, padding: '2px 4px', borderRadius: 3, fontWeight: 600 }}>
-                        {isSuspended ? '⏱️' : '⚡'}
+                    {(isHideaway || (abilities.length > 0 && !isIgnored)) && (
+                      <div style={{ position: 'absolute', top: 4, right: 4, backgroundColor: isHideaway ? 'rgba(88,28,135,0.95)' : isSuspended ? 'rgba(245,158,11,0.9)' : 'rgba(147,51,234,0.9)', color: '#fff', fontSize: 9, padding: '2px 4px', borderRadius: 3, fontWeight: 600 }}>
+                        {isHideaway ? 'Hideaway' : isSuspended ? '⏱️' : '⚡'}
                       </div>
                     )}
                     <div style={{ padding: '4px 6px', fontSize: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', background: 'linear-gradient(transparent, rgba(0,0,0,0.8))' }}>
-                      {card.name}
+                      {displayName}
                     </div>
                   </div>
                 );
@@ -291,7 +326,7 @@ export function ExileViewModal({
         {selectedCard && (
           <div style={{ padding: 12, backgroundColor: '#252540', borderTop: '1px solid #4a4a6a' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <div style={{ fontWeight: 600 }}>{selectedCard.name}</div>
+              <div style={{ fontWeight: 600 }}>{exileCardDisplayName(selectedCard)}</div>
               <button onClick={() => setSelectedCard(null)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>×</button>
             </div>
             
@@ -330,7 +365,18 @@ export function ExileViewModal({
               </div>
             )}
             
-            {parseExileAbilities(selectedCard).length === 0 && (
+            {isHideawayExileCard(selectedCard) && (
+              <div style={{ padding: 8, backgroundColor: '#1a1a2e', borderRadius: 6, marginBottom: 8, border: '1px solid rgba(147,51,234,0.5)' }}>
+                <div style={{ fontWeight: 600, fontSize: 14, color: '#c4b5fd', marginBottom: 4 }}>Hideaway</div>
+                <div style={{ fontSize: 12, color: '#ccc' }}>
+                  {isUnknownFaceDownExileCard(selectedCard)
+                    ? 'A card is exiled face down here. Only the player who can look at it may see its identity.'
+                    : 'Play this card with the hiding permanent\'s activated ability when its condition is met.'}
+                </div>
+              </div>
+            )}
+
+            {parseExileAbilities(selectedCard).length === 0 && !isHideawayExileCard(selectedCard) && (
               <div style={{ fontSize: 12, color: '#888', fontStyle: 'italic', padding: 8 }}>
                 No special abilities from exile
               </div>
@@ -356,7 +402,7 @@ export function ExileViewModal({
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ padding: '10px 16px', borderBottom: '1px solid #444', fontWeight: 600, color: '#fff', fontSize: 13 }}>
-              🌀 {contextMenu.card.name}
+              🌀 {exileCardDisplayName(contextMenu.card)}
             </div>
             <div style={{ padding: '4px 0' }}>
               {ignoredCardIds.has(contextMenu.card.id) ? (

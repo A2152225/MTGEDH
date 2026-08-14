@@ -142,6 +142,8 @@ export function CardOverlay({
 
   // Targeted by indicator
   const targetedBy = perm.targetedBy || [];
+  const hideawayCard = (perm as any).hideawayCard;
+  const hideawayKnownCard = hideawayCard?.card;
 
   // Scale factor with minimum to ensure readability on small cards
   // Minimum scale of 0.7 ensures text remains readable even on small tiles
@@ -190,6 +192,29 @@ export function CardOverlay({
 
   return (
     <>
+      {/* Hideaway: face-down exiled card attached to this permanent */}
+      {hideawayCard && (
+        <div
+          title={hideawayKnownCard?.name ? `Hideaway: ${hideawayKnownCard.name}` : 'A card is hidden here (Hideaway)'}
+          style={{
+            position: 'absolute',
+            top: Math.round(4 * scale),
+            left: Math.round(4 * scale),
+            background: 'rgba(88, 28, 135, 0.9)',
+            color: '#fff',
+            fontSize: Math.round(9 * scale),
+            fontWeight: 650,
+            padding: `${Math.round(1 * scale)}px ${Math.round(4 * scale)}px`,
+            borderRadius: Math.round(3 * scale),
+            border: '1px solid rgba(255,255,255,0.3)',
+            zIndex: 6,
+            pointerEvents: 'none',
+          }}
+        >
+          Hideaway
+        </div>
+      )}
+
       {/* Granted abilities badges */}
       {showAbilities && abilities.length > 0 && (
         <div style={{

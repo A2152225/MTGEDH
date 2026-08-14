@@ -27982,7 +27982,9 @@ function buildDiscoverKeywordSteps(amountText: string, sequence?: 'then'): reado
   const displayAmountText = /^x$/i.test(normalizedAmountText) ? 'X' : normalizedAmountText;
   const quantityText = /^that spell(?:'|’)?s mana value$/i.test(normalizedAmountText)
     ? "that spell's mana value"
-    : displayAmountText;
+    : /^that creature(?:'|’)?s (?:power|toughness)$/i.test(normalizedAmountText)
+      ? normalizedAmountText.replace(/’/g, "'")
+      : displayAmountText;
 
   return [
     {
@@ -28011,8 +28013,15 @@ function getDiscoverKeywordAmountFromUnknownStep(step: OracleEffectStep): string
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
     .trim();
-  const match = normalized.match(/^(?:you\s+)?discover\s+(\d+|x)(?:,\s*where\s+x\s+is\s+that\s+spell(?:'|’)?s\s+mana\s+value)?$/i);
+  const match = normalized.match(/^(?:you\s+may\s+)?(?:you\s+)?discover\s+(\d+|x)(?:,\s*where\s+x\s+is\s+(.+))?$/i);
   if (!match) return null;
+  const where = String(match[2] || '').trim().replace(/[.)]+$/g, '');
+  if (where) {
+    if (/^that spell(?:'|’)?s mana value$/i.test(where)) return "that spell's mana value";
+    if (/^that creature(?:'|’)?s power$/i.test(where)) return "that creature's power";
+    if (/^that creature(?:'|’)?s toughness$/i.test(where)) return "that creature's toughness";
+    return null;
+  }
   return /where\s+x\s+is\s+that\s+spell/i.test(normalized)
     ? "that spell's mana value"
     : String(match[1] || '').trim();
@@ -28071,7 +28080,7 @@ export function lowerDiscoverKeywordAbilities(
       .replace(/\s+/g, ' ')
       .trim();
     const isUnknownOnlyAbility = ability.steps.length > 0 && ability.steps.every((step) => step.kind === 'unknown' || isDiscoverReminderTailUnknownStep(step));
-    const fullReminderMatch = normalizedText.match(/^discover\s+(\d+|x)\s*\(/i);
+    const fullReminderMatch = normalizedText.match(/^(?:you\s+may\s+)?discover\s+(\d+|x)\s*\(/i);
 
     if (isUnknownOnlyAbility && fullReminderMatch) {
       return {
