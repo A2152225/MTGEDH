@@ -61,3 +61,18 @@ describe('applyAscendCitysBlessing', () => {
     expect(ctx.state.cityBlessing.p1).toBeFalsy();
   });
 });
+
+describe('parseCreatureKeywords player-specific cannot-attack', () => {
+  it('does not treat cannot-attack-owner as a blanket cantAttack keyword', () => {
+    const keywords = parseCreatureKeywords({
+      name: 'Sleeper',
+      oracle_text:
+        "Trample\nThis creature attacks each combat if able, can't be sacrificed, and can't attack its owner.",
+      keywords: [],
+      type_line: 'Legendary Creature — Human Berserker',
+    });
+    expect(keywords.trample).toBe(true);
+    expect(keywords.cantAttack).toBe(false);
+    expect(keywords.defender).toBe(false);
+  });
+});

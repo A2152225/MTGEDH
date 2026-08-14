@@ -45,6 +45,7 @@ import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "./staticEffectSpec.js";
 import { parseAttachmentGrantedKeywordsFromOracle } from '../../../../shared/src/attachmentKeywordGrants.js';
+import { hasBlanketCantAttack } from '../../../../rules-engine/src/attackRestrictionText.js';
 
 export interface CombatCreature {
   permanentId: string;
@@ -356,7 +357,7 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
       shroud: hasKeywordOrGranted("shroud"),
       haste: hasKeywordOrGranted("haste"),
       defender: hasKeywordOrGranted("defender"),
-      cantAttack: oracleText.includes("can't attack") || hasKeywordOrGranted("defender"),
+      cantAttack: hasBlanketCantAttack(oracleText) || hasKeywordOrGranted("defender"),
       cantBlock: oracleText.includes("can't block"),
     };
     

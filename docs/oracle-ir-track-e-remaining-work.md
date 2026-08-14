@@ -202,6 +202,7 @@ These are **in-scope migration work** that does not always move the usual metric
 - ~~Library-search card-name rows~~ ✅ oracle-pattern specs (prevent / pay-to-search / top-four / control / search trigger)
 - ~~Combat prevent-and-mill first-match table~~ ✅ Mindskinner-family parse from oracle
 - ~~Szadek-style source-self combat replace~~ ✅ instead +1/+1 on source + mill that player (not controller-wide)
+- ~~Vigor creature-damage card-name~~ ✅ another-creature prevent + +1/+1 per 1 prevented (oracle pattern)
 - Phase 5 leftover: 1 unwired loyalty line (Davriel, Soul Broker Alchemy offers/conditions)
 
 ---

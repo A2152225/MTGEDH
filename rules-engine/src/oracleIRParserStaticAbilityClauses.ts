@@ -539,7 +539,11 @@ export function tryParseStaticAbilityGrantClause(args: {
   }
 
   const staticCombatRestrictionGenericMatch = normalized.match(/^(.+?)\s+can't\s+attack(?:\s+(.+))?$/i);
-  if (staticCombatRestrictionGenericMatch && !/\bor\s+block\b/i.test(normalized)) {
+  if (
+    staticCombatRestrictionGenericMatch &&
+    !/\bor\s+block\b/i.test(normalized) &&
+    !/\battacks\s+each\s+combat\s+if\s+able\b/i.test(normalized)
+  ) {
     const restrictionTail = String(staticCombatRestrictionGenericMatch[2] || '').trim();
     return withMeta({
       kind: 'grant_static_ability',
@@ -889,12 +893,35 @@ export function tryParseStaticAbilityGrantClause(args: {
     });
   }
 
-  const staticAttacksCantAttackMatch = normalized.match(/^(.+?)\s+attacks\s+each\s+combat\s+if\s+able\s+and\s+can't\s+attack\s+(.+)$/i);
+  const staticAttacksCantAttackMatch = normalized.match(
+    /^(.+?)\s+attacks\s+each\s+combat\s+if\s+able(?:,\s*((?:(?!\band\s+can't\s+attack\b).)+?))?\s+and\s+can't\s+attack\s+(.+)$/i
+  );
   if (staticAttacksCantAttackMatch) {
+    const middleText = String(staticAttacksCantAttackMatch[2] || '')
+      .replace(/,+\s*$/g, '')
+      .trim();
+    const middleEffects = middleText
+      ? middleText.split(/\s*,\s*/).map((part) => part.trim()).filter(Boolean)
+      : [];
     return withMeta({
       kind: 'grant_static_ability',
       target: parseObjectSelector(String(staticAttacksCantAttackMatch[1] || '').trim()),
-      effectText: ['attacks each combat if able', `can't attack ${String(staticAttacksCantAttackMatch[2] || '').trim()}`],
+      effectText: [
+        'attacks each combat if able',
+        ...middleEffects,
+        `can't attack ${String(staticAttacksCantAttackMatch[3] || '').trim()}`,
+      ],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
+  const staticCantBeSacrificedMatch = normalized.match(/^(.+?)\s+can't be sacrificed$/i);
+  if (staticCantBeSacrificedMatch) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(String(staticCantBeSacrificedMatch[1] || '').trim()),
+      effectText: ["can't be sacrificed"],
       duration: 'static',
       raw: rawClause,
     });

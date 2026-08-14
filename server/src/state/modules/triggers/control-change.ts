@@ -21,6 +21,9 @@
 
 import type { BattlefieldPermanent, PlayerID } from '../../../../../shared/src/types';
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
+import {
+  parseSelfCombatRestrictions,
+} from '../../../../../rules-engine/src/attackRestrictionText.js';
 
 // ============================================================================
 // Control Change Effect Types
@@ -114,18 +117,6 @@ const OPPONENT_CREATURE_DIES_STEAL_PATTERN = /whenever (?:a|an) (?:nontoken )?cr
  * Examples: Vislor Turlough
  */
 const GOADED_ON_CONTROL_CHANGE_PATTERN = /it's goaded (?:for )?as long as (?:they|that player|the opponent) controls? it/i;
-
-/**
- * Pattern: "attacks each combat if able" - forced attack restriction
- * Examples: Xantcha
- */
-const ATTACKS_EACH_COMBAT_PATTERN = /(?:~|this creature|it) attacks each combat if able/i;
-
-/**
- * Pattern: "can't attack its owner or planeswalkers its owner controls"
- * Examples: Xantcha
- */
-const CANT_ATTACK_OWNER_PATTERN = /can't attack its owner|can't attack you/i;
 
 // ============================================================================
 // Detection Functions
@@ -311,16 +302,14 @@ export function shouldGoadOnControlChange(card: any): boolean {
  * Check if creature must attack each combat (Xantcha)
  */
 export function mustAttackEachCombat(card: any): boolean {
-  const oracleText = (card?.oracle_text || "").toLowerCase();
-  return ATTACKS_EACH_COMBAT_PATTERN.test(oracleText);
+  return parseSelfCombatRestrictions(card?.oracle_text || '').mustAttackEachCombat;
 }
 
 /**
- * Check if creature can't attack its owner (Xantcha)
+ * Check if creature can't attack its owner (Xantcha / Alexios)
  */
 export function cantAttackOwner(card: any): boolean {
-  const oracleText = (card?.oracle_text || "").toLowerCase();
-  return CANT_ATTACK_OWNER_PATTERN.test(oracleText);
+  return parseSelfCombatRestrictions(card?.oracle_text || '').cantAttackOwner;
 }
 
 // ============================================================================
@@ -384,12 +373,12 @@ export function getAttackRestrictions(permanent: BattlefieldPermanent): {
   cantAttackOwner: boolean;
   cantAttackPlaneswalkers: boolean;
 } {
-  const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+  const restrictions = parseSelfCombatRestrictions(permanent.card?.oracle_text || '');
   
   return {
-    mustAttack: ATTACKS_EACH_COMBAT_PATTERN.test(oracleText),
-    cantAttackOwner: CANT_ATTACK_OWNER_PATTERN.test(oracleText),
-    cantAttackPlaneswalkers: oracleText.includes("planeswalkers its owner controls"),
+    mustAttack: restrictions.mustAttackEachCombat,
+    cantAttackOwner: restrictions.cantAttackOwner,
+    cantAttackPlaneswalkers: restrictions.cantAttackOwnerPlaneswalkers,
   };
 }
 

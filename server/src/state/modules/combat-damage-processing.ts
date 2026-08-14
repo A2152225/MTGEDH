@@ -11,6 +11,10 @@ import {
   getCounterGrantedAbilities,
 } from './counter-common-effects.js';
 import { updateCounters } from './counters_tokens.js';
+import {
+  canDamageBePrevented,
+  detectAnotherCreaturePreventDamagePlusOneReplacement,
+} from './game-state-effects.js';
 
 export function applyPoisonCountersToPlayer(ctx: GameContext, playerId: string, amount: number): void {
   const normalized = Math.max(0, Number(amount || 0));
@@ -204,13 +208,32 @@ export function sourceHasInfectOrWither(sourcePermanent: any, state: any): boole
   return characteristics.hasInfect || characteristics.hasWither;
 }
 
+export function applyAnotherCreaturePreventDamagePlusOneReplacement(
+  ctx: GameContext,
+  damagedPermanent: any,
+  damageAmount: number,
+  sourceCard: any,
+): boolean {
+  const normalizedAmount = Math.max(0, Number(damageAmount || 0));
+  if (!damagedPermanent || normalizedAmount <= 0) return false;
+
+  const detected = detectAnotherCreaturePreventDamagePlusOneReplacement(ctx, damagedPermanent);
+  if (!detected) return false;
+
+  const controllerId = String(damagedPermanent?.controller || '').trim();
+  if (!canDamageBePrevented(ctx, sourceCard, controllerId)) return false;
+
+  updateCounters(ctx, String(damagedPermanent.id || ''), { '+1/+1': normalizedAmount });
+  return true;
+}
+
 export function applyCreatureDamageFromSource(
   ctx: GameContext,
   sourcePermanent: any,
   targetPermanent: any,
   amount: number,
   damageField: 'damage' | 'markedDamage' | 'damageMarked' = 'markedDamage',
-): { prevented: boolean; appliedAmount: number; usedMinusCounters: boolean } {
+): { prevented: boolean; appliedAmount: number; usedMinusCounters: boolean; damageReplaced?: boolean } {
   const normalizedAmount = Math.max(0, Number(amount || 0));
   if (!targetPermanent || normalizedAmount <= 0) {
     return { prevented: false, appliedAmount: 0, usedMinusCounters: false };
@@ -218,6 +241,10 @@ export function applyCreatureDamageFromSource(
 
   const sourceCard = sourcePermanent?.card || {};
   const sourceId = String(sourcePermanent?.id || '');
+
+  if (applyAnotherCreaturePreventDamagePlusOneReplacement(ctx, targetPermanent, normalizedAmount, sourceCard)) {
+    return { prevented: true, appliedAmount: 0, usedMinusCounters: false, damageReplaced: true };
+  }
 
   if (sourcePermanent && sourceHasInfectOrWither(sourcePermanent, (ctx as any).state)) {
     updateCounters(ctx, String(targetPermanent.id || ''), { '-1/-1': normalizedAmount });

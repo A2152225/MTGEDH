@@ -35,6 +35,12 @@ import {
 } from '../pillowfortEffects';
 import { getCombinedPermanentText, getPermanentTextFragments } from '../permanentText';
 import { applyStaticAbilitiesToBattlefield } from '../staticAbilities';
+import {
+  getAttackProhibitionSourceForPlayer,
+  getIllegalDefendingPlayerRestriction,
+  hasBlanketCantAttack,
+  permanentHasMustAttackRequirement,
+} from '../attackRestrictionText';
 
 export interface AttackerDeclaration {
   readonly creatureId: string;
@@ -554,29 +560,6 @@ function satisfiesDefendingPlayerLandAttackRestriction(
   );
 }
 
-function getAttackProhibitionSourceForPlayer(
-  battlefield: readonly any[] | undefined,
-  defendingPlayerId: string | undefined,
-): string | null {
-  if (!Array.isArray(battlefield) || !defendingPlayerId) {
-    return null;
-  }
-
-  const normalizedDefendingPlayerId = String(defendingPlayerId || '').trim();
-  for (const permanent of battlefield) {
-    if (String(permanent?.controller || '').trim() !== normalizedDefendingPlayerId) {
-      continue;
-    }
-
-    const oracleText = String(permanent?.card?.oracle_text || '');
-    if (/\byou can't be attacked\b/i.test(oracleText)) {
-      return String(permanent?.card?.name || 'an effect');
-    }
-  }
-
-  return null;
-}
-
 /**
  * Check if a permanent has a "can't attack" restriction
  * This includes:
@@ -642,6 +625,17 @@ export function canPermanentAttack(
       reason: "This creature can't attack that player until that player's next turn",
     };
   }
+
+  const ownerRestriction = getIllegalDefendingPlayerRestriction({
+    oracleText: getCombinedPermanentText(analyzedPermanent),
+    ownerId: analyzedPermanent.owner || analyzedPermanent.ownerId,
+    controllerId: controllerId || analyzedPermanent.controller,
+    defendingPlayerId,
+    cantAttackOwner: Boolean((analyzedPermanent as any).cantAttackOwner),
+  });
+  if (ownerRestriction.illegal) {
+    return { canParticipate: false, reason: ownerRestriction.reason };
+  }
   
   // Check oracle text for "can't attack" effects on attached auras/equipment
   const oracleText = getCombinedPermanentText(analyzedPermanent);
@@ -661,12 +655,8 @@ export function canPermanentAttack(
   }
 
   const genericCantAttackText = oracleText.replace(DEFENDING_PLAYER_LAND_ATTACK_RESTRICTION_RE, '');
-  if (genericCantAttackText.includes("can't attack") || genericCantAttackText.includes("cannot attack")) {
-    // Self-restricting abilities like "can't attack alone" are handled differently
-    // Full implementation would check specific conditions
-    if (!genericCantAttackText.includes("can't attack alone")) {
-      return { canParticipate: false, reason: 'This creature cannot attack' };
-    }
+  if (hasBlanketCantAttack(genericCantAttackText)) {
+    return { canParticipate: false, reason: 'This creature cannot attack' };
   }
   
   return { canParticipate: true };
@@ -1447,6 +1437,42 @@ export function validateDeclareAttackers(
         reason: `${creatureName} is goaded and must attack if able (Rule 701.15b)` 
       };
     }
+  }
+
+  const opponentIds = (state.players || [])
+    .filter((player: any) => {
+      const id = String(player?.id || '').trim();
+      return Boolean(id) && id !== action.playerId && !player?.hasLost;
+    })
+    .map((player: any) => String(player.id));
+
+  for (const perm of battlefield) {
+    if (String(perm?.controller || '') !== action.playerId) continue;
+    if (!isCurrentlyCreature(perm)) continue;
+    if (attackingCreatureIds.has(perm.id)) continue;
+    if (!permanentHasMustAttackRequirement(perm, battlefield)) continue;
+
+    const canAttack = canPermanentAttack(perm, action.playerId, battlefield);
+    if (!canAttack.canParticipate) continue;
+
+    const legalDefenders = opponentIds.filter((opponentId) => {
+      const restriction = getIllegalDefendingPlayerRestriction({
+        oracleText: getCombinedPermanentText(perm),
+        ownerId: perm.owner || (perm as any).ownerId,
+        controllerId: action.playerId,
+        defendingPlayerId: opponentId,
+        cantAttackOwner: Boolean((perm as any).cantAttackOwner),
+      });
+      if (restriction.illegal) return false;
+      return canPermanentAttack(perm, action.playerId, battlefield, opponentId).canParticipate;
+    });
+    if (legalDefenders.length === 0) continue;
+
+    const creatureName = perm.card?.name || 'Creature';
+    return {
+      legal: false,
+      reason: `${creatureName} attacks each combat if able`,
+    };
   }
   
   // Check pillowfort costs for each defending player

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
+import { applyCreatureDamageFromSource } from '../src/state/modules/combat-damage-processing.js';
+import { detectAnotherCreaturePreventDamagePlusOneReplacement } from '../src/state/modules/game-state-effects.js';
 
 function setupToMain1(game: ReturnType<typeof createInitialGameState>, p1: PlayerID, p2: PlayerID) {
   game.applyEvent({ type: 'nextTurn' });
@@ -419,5 +421,86 @@ describe('combat regression: dynamic P/T and Vigor', () => {
     expect(battlefield.some((perm: any) => perm?.id === attackerId)).toBe(false);
     expect(blocker).toBeTruthy();
     expect(Number(blocker?.markedDamage || 0)).toBe(2);
+  });
+});
+
+describe('another-creature prevent-and-+1/+1 replacement (Vigor family)', () => {
+  const vigorOracle =
+    "Trample\nIf damage would be dealt to another creature you control, prevent that damage. Put a +1/+1 counter on that creature for each 1 damage prevented this way.\nWhen this creature is put into a graveyard from anywhere, shuffle it into its owner's library.";
+
+  function makeCtx(battlefield: any[]) {
+    return {
+      state: {
+        players: [{ id: 'p1' }, { id: 'p2' }],
+        battlefield,
+      },
+      bumpSeq: () => {},
+    } as any;
+  }
+
+  it('prevents damage to another creature you control and puts that many +1/+1 counters', () => {
+    const bear = {
+      id: 'bear_1',
+      controller: 'p1',
+      card: { name: 'Generic Bear', type_line: 'Creature — Bear', oracle_text: '' },
+      counters: {},
+      markedDamage: 0,
+    };
+    const ctx = makeCtx([
+      {
+        id: 'incarnation_1',
+        controller: 'p1',
+        card: { name: 'Generic Incarnation', type_line: 'Creature — Elemental Incarnation', oracle_text: vigorOracle },
+      },
+      bear,
+    ]);
+
+    const result = applyCreatureDamageFromSource(ctx, { id: 'src', card: { name: 'Shock' } }, bear, 3, 'markedDamage');
+    expect(result.prevented).toBe(true);
+    expect(result.damageReplaced).toBe(true);
+    expect(result.appliedAmount).toBe(0);
+    expect(Number(bear.markedDamage || 0)).toBe(0);
+    expect(Number(bear.counters?.['+1/+1'] || 0)).toBe(3);
+  });
+
+  it('does not replace damage to the replacement source itself', () => {
+    const incarnation = {
+      id: 'incarnation_1',
+      controller: 'p1',
+      card: { name: 'Generic Incarnation', type_line: 'Creature — Elemental Incarnation', oracle_text: vigorOracle },
+      counters: {},
+      markedDamage: 0,
+    };
+    const ctx = makeCtx([incarnation]);
+
+    const result = applyCreatureDamageFromSource(ctx, { id: 'src', card: { name: 'Shock' } }, incarnation, 2, 'markedDamage');
+    expect(result.prevented).toBe(false);
+    expect(result.damageReplaced).toBeUndefined();
+    expect(Number(incarnation.markedDamage || 0)).toBe(2);
+    expect(Number(incarnation.counters?.['+1/+1'] || 0)).toBe(0);
+  });
+
+  it('does not route on the name Vigor when oracle does not match', () => {
+    const bear = {
+      id: 'bear_1',
+      controller: 'p1',
+      card: { name: 'Generic Bear', type_line: 'Creature — Bear', oracle_text: '' },
+      counters: {},
+      markedDamage: 0,
+    };
+    const ctx = makeCtx([
+      {
+        id: 'named_vigor',
+        controller: 'p1',
+        card: { name: 'Vigor', type_line: 'Creature — Elemental Incarnation', oracle_text: '' },
+      },
+      bear,
+    ]);
+
+    const detected = detectAnotherCreaturePreventDamagePlusOneReplacement(ctx, bear);
+    expect(detected).toBeNull();
+    const result = applyCreatureDamageFromSource(ctx, { id: 'src', card: { name: 'Shock' } }, bear, 2, 'markedDamage');
+    expect(result.prevented).toBe(false);
+    expect(Number(bear.markedDamage || 0)).toBe(2);
   });
 });

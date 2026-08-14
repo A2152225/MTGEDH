@@ -2654,6 +2654,43 @@ export function detectPreventDamageMillReplacementForController(
   return null;
 }
 
+function parseAnotherCreaturePreventDamagePlusOneFromOracle(replacementText: string): boolean {
+  if (!replacementText.includes('if damage would be dealt to another creature you control')) return false;
+  if (!replacementText.includes('prevent that damage')) return false;
+  if (!replacementText.includes('+1/+1 counter')) return false;
+  return replacementText.includes('for each 1 damage prevented');
+}
+
+/**
+ * "If damage would be dealt to another creature you control, prevent that damage.
+ * Put a +1/+1 counter on that creature for each 1 damage prevented this way."
+ */
+export function detectAnotherCreaturePreventDamagePlusOneReplacement(
+  ctx: GameContext,
+  damagedPermanent: any,
+): { sourceName: string; sourcePermanentId: string } | null {
+  if (!damagedPermanent) return null;
+  const typeLine = String(damagedPermanent?.card?.type_line || damagedPermanent?.type_line || '').toLowerCase();
+  if (!typeLine.includes('creature')) return null;
+
+  const controllerId = String(damagedPermanent?.controller || '').trim();
+  const damagedId = String(damagedPermanent?.id || '').trim();
+  if (!controllerId || !damagedId) return null;
+
+  for (const perm of getActivePermanents(ctx)) {
+    if (String(perm?.controller || '') !== controllerId) continue;
+    if (String(perm?.id || '') === damagedId) continue;
+    const texts = collectCombatDamageReplacementTexts(perm?.card, perm);
+    if (!texts.some((text) => parseAnotherCreaturePreventDamagePlusOneFromOracle(text))) continue;
+    return {
+      sourceName: String(perm?.card?.name || 'Effect'),
+      sourcePermanentId: String(perm.id || ''),
+    };
+  }
+
+  return null;
+}
+
 function isOpponentOfController(
   ctx: GameContext,
   controllerId: string,

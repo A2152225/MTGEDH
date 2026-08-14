@@ -9,6 +9,7 @@ import type { GameState } from '../../../shared/src';
 import { getLeaveBattlefieldDestination } from '../../../shared/src/leaveBattlefieldReplacement';
 import type { EngineResult, ActionContext, BaseAction } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
+import { permanentCannotBeSacrificed } from '../attackRestrictionText';
 
 export interface SacrificeAction extends BaseAction {
   readonly type: 'sacrifice';
@@ -41,6 +42,10 @@ export function validateSacrifice(
   const controllerId = permanent.controller || action.playerId;
   if (controllerId !== action.playerId) {
     return { legal: false, reason: 'Cannot sacrifice a permanent you do not control' };
+  }
+
+  if (permanentCannotBeSacrificed(permanent, state.battlefield as any[] | undefined)) {
+    return { legal: false, reason: "This permanent can't be sacrificed" };
   }
   
   return { legal: true };
@@ -78,6 +83,11 @@ export function executeSacrifice(
   
   if (permanentIndex === -1) {
     return { next: state, log: ['Permanent not found on battlefield'] };
+  }
+
+  const candidate = battlefield[permanentIndex];
+  if (permanentCannotBeSacrificed(candidate, state.battlefield as any[] | undefined)) {
+    return { next: state, log: [`${candidate?.card?.name || 'Permanent'} can't be sacrificed`] };
   }
   
   const [sacrificed] = battlefield.splice(permanentIndex, 1);

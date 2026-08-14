@@ -54,7 +54,7 @@ import {
   resolvePlayerCombatDamage,
 } from "./combat-damage-processing.js";
 import { queueCombatDamageChat } from "./combatDamageChat.js";
-import { runSBA, createToken, updateCounters } from "./counters_tokens.js";
+import { runSBA, createToken } from "./counters_tokens.js";
 import { applyDamageToPermanentWithCounterEffects, applyShieldCounterDamagePrevention, clearMarkedPermanentDamage } from "./counter-common-effects.js";
 import { calculateAllPTBonuses, calculateVariablePT, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
 import { canAct, canRespond, turnPlayerMustDeclareAttackers } from "./can-respond.js";
@@ -481,30 +481,6 @@ function getCombatCreatureStats(ctx: GameContext, permanent: any): { power: numb
     power: Math.max(0, Number(basePower || 0) + counterDelta + otherCounterPower + allBonuses.power),
     toughness: Number(baseToughness || 0) + counterDelta + otherCounterToughness + allBonuses.toughness,
   };
-}
-
-function applyVigorDamageReplacement(ctx: GameContext, damagedPermanent: any, damageAmount: number, sourceCard: any): boolean {
-  const normalizedAmount = Math.max(0, Number(damageAmount || 0));
-  if (!damagedPermanent || normalizedAmount <= 0) return false;
-
-  const damagedTypeLine = String(damagedPermanent?.card?.type_line || '').toLowerCase();
-  if (!damagedTypeLine.includes('creature')) return false;
-
-  const controllerId = String(damagedPermanent?.controller || '').trim();
-  if (!controllerId) return false;
-
-  const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
-  const vigor = battlefield.find((perm: any) => {
-    const permName = String(perm?.card?.name || '').toLowerCase();
-    return perm && perm.id !== damagedPermanent.id && perm.controller === controllerId && permName.includes('vigor');
-  });
-
-  if (!vigor) return false;
-  if (!canDamageBePrevented(ctx, sourceCard, controllerId)) return false;
-
-  updateCounters(ctx, String(damagedPermanent.id || ''), { '+1/+1': normalizedAmount });
-  debug(1, `${ts()} [dealCombatDamage] Vigor prevented ${normalizedAmount} damage to ${damagedPermanent.card?.name || damagedPermanent.id}`);
-  return true;
 }
 
 function getCurrentTurnNumberForEffects(state: any): number {
@@ -2408,10 +2384,6 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 debug(2, `${ts()} [dealCombatDamage] Combat damage to blocker ${blockerCard.name || blockerId} was prevented`);
                 continue;
               }
-              if (applyVigorDamageReplacement(ctx, blocker, damageToBlockerAfterPrevention, card)) {
-                remainingDamage -= damageToBlocker;
-                continue;
-              }
               const damageResult = applyCreatureCombatDamageFromSource(
                 ctx,
                 attacker,
@@ -2419,6 +2391,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 damageToBlockerAfterPrevention,
                 'markedDamage',
               );
+              if (damageResult.damageReplaced) {
+                remainingDamage -= damageToBlocker;
+                continue;
+              }
               if (damageResult.prevented) {
                 continue;
               }
@@ -2669,9 +2645,6 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             } catch {}
 
             // Deal damage to attacker
-            if (applyVigorDamageReplacement(ctx, attacker, blockerDamageAfterPrevention, blockerCard)) {
-              continue;
-            }
             const damageResult = applyCreatureCombatDamageFromSource(
               ctx,
               blocker,
@@ -2679,7 +2652,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               blockerDamageAfterPrevention,
               'markedDamage',
             );
-            if (damageResult.prevented) {
+            if (damageResult.prevented || damageResult.damageReplaced) {
               continue;
             }
             // Track damage dealt to this permanent this turn (for intervening-if clauses).

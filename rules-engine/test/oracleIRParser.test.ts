@@ -9375,6 +9375,39 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses must-attack plus cannot-sacrifice plus cannot-attack-owner as one static grant', () => {
+    const ir = parseOracleTextToIR(
+      "This creature attacks each combat if able, can't be sacrificed, and can't attack its owner.",
+      'Control-change creature',
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'This creature' },
+        effectText: ['attacks each combat if able', "can't be sacrificed", "can't attack its owner"],
+      }),
+    ]);
+  });
+
+  it('parses attacks-each-combat and cannot-attack-owner without a middle sacrifice clause', () => {
+    const ir = parseOracleTextToIR(
+      "This creature attacks each combat if able and can't attack its owner or planeswalkers its owner controls.",
+      'Sleeper agent',
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'This creature' },
+        effectText: [
+          'attacks each combat if able',
+          "can't attack its owner or planeswalkers its owner controls",
+        ],
+      }),
+    ]);
+  });
+
   it('prunes standalone defending-player basic-land attack restrictions from Oracle IR', () => {
     const ir = parseOracleTextToIR(
       "This creature can't attack unless defending player controls an Island.",

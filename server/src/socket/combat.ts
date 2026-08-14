@@ -13,6 +13,12 @@ import {
   isStationPermanentCreatureNow,
   isStationPermanentTypeLine,
 } from "../../../rules-engine/src/stationPermanentUtils.js";
+import {
+  getAttackProhibitionSourceForPlayer,
+  getIllegalDefendingPlayerRestriction,
+  hasBlanketCantAttack,
+  permanentHasMustAttackRequirement,
+} from "../../../rules-engine/src/attackRestrictionText.js";
 import { getLandwalkUnblockableReason } from "../../../shared/src/combatLandwalk.js";
 import {
   isCounterPreventingAttack,
@@ -293,19 +299,37 @@ function trimReminderText(text: string): string {
   return String(text || '').replace(/\s*\([^)]*\)\s*$/i, '').trim();
 }
 
-function getAttackProhibitionSourceForPlayer(battlefield: any[], defendingPlayerId: string): string | null {
-  for (const permanent of battlefield) {
-    if (String((permanent as any)?.controller || '').trim() !== String(defendingPlayerId || '').trim()) {
-      continue;
-    }
+function getOwnerAttackRestrictionReason(
+  creature: any,
+  defendingPlayerId?: string,
+  options?: { targetIsOwnerPlaneswalker?: boolean },
+): string | null {
+  const restriction = getIllegalDefendingPlayerRestriction({
+    oracleText: String(creature?.card?.oracle_text || creature?.oracle_text || ''),
+    ownerId: creature?.owner || creature?.ownerId,
+    controllerId: creature?.controller,
+    defendingPlayerId,
+    cantAttackOwner: Boolean(creature?.cantAttackOwner),
+    targetIsOwnerPlaneswalker: options?.targetIsOwnerPlaneswalker === true,
+  });
+  return restriction.illegal ? String(restriction.reason || "This creature can't attack its owner") : null;
+}
 
-    const oracleText = String((permanent as any)?.card?.oracle_text || '');
-    if (/\byou can't be attacked\b/i.test(oracleText)) {
-      return String((permanent as any)?.card?.name || 'an effect');
-    }
-  }
+function isAttackingOwnerPlaneswalker(creature: any, attacker: any, battlefield: any[]): boolean {
+  const targetPermanentId = String(attacker?.targetPermanentId || '').trim();
+  if (!targetPermanentId) return false;
+  const target = battlefield.find((perm: any) => String(perm?.id || '') === targetPermanentId);
+  if (!target) return false;
+  const typeLine = String(target?.card?.type_line || '').toLowerCase();
+  if (!typeLine.includes('planeswalker')) return false;
+  const ownerId = String(creature?.owner || creature?.ownerId || '').trim();
+  return Boolean(ownerId) && String(target.controller || '') === ownerId;
+}
 
-  return null;
+function hasLegalMustAttackDefender(permanent: any, playerId: string, players: any[]): boolean {
+  return (Array.isArray(players) ? players : [])
+    .filter((player: any) => player?.id && player.id !== playerId && !player.hasLost)
+    .some((player: any) => !getOwnerAttackRestrictionReason(permanent, String(player.id)));
 }
 
 function pushPaidAttackTriggerEffectOntoStack(
@@ -1722,6 +1746,21 @@ export async function executeDeclareAttackers(
       );
     }
 
+    const defendingPlayerId = resolveDefendingPlayerIdForAttackTarget(
+      attacker,
+      battlefield,
+      (game.state as any).players,
+    );
+    const ownerRestrictionReason = getOwnerAttackRestrictionReason(creature, defendingPlayerId, {
+      targetIsOwnerPlaneswalker: isAttackingOwnerPlaneswalker(creature, attacker, battlefield),
+    });
+    if (ownerRestrictionReason) {
+      throw Object.assign(
+        new Error(`${(creature as any).card?.name || 'Creature'} ${ownerRestrictionReason.toLowerCase()}`),
+        { code: 'CANT_ATTACK_OWNER' },
+      );
+    }
+
     if ((creature as any).tapped) {
       const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
       if (!hasVigilance) {
@@ -2245,6 +2284,18 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           return;
         }
 
+        const defendingPlayerId = resolveDefendingPlayerIdForAttackTarget(attacker, battlefield, players);
+        const ownerRestrictionReason = getOwnerAttackRestrictionReason(creature, defendingPlayerId, {
+          targetIsOwnerPlaneswalker: isAttackingOwnerPlaneswalker(creature, attacker, battlefield),
+        });
+        if (ownerRestrictionReason) {
+          socket.emit("error", {
+            code: "CANT_ATTACK_OWNER",
+            message: `${(creature as any).card?.name || "Creature"} ${ownerRestrictionReason.toLowerCase()}.`,
+          });
+          return;
+        }
+
         // Check if creature is tapped (can't attack if tapped, unless vigilance)
         if ((creature as any).tapped) {
           const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
@@ -2452,7 +2503,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             // Check if the creature CAN attack (not tapped, doesn't have defender, etc.)
             const isTapped = (perm as any).tapped;
             const hasDefender = permanentHasKeyword(perm, battlefield, playerId, 'defender');
-            const cantAttack = (perm.card?.oracle_text || '').toLowerCase().includes("can't attack");
+            const cantAttack = hasBlanketCantAttack(perm.card?.oracle_text || '');
             
             // Check if there's summoning sickness (creature entered this turn without haste)
             const hasSummoningSickness = permanentHasSummoningSickness(perm, battlefield, playerId);
@@ -2484,6 +2535,38 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         socket.emit("error", {
           code: "GOAD_MUST_ATTACK",
           message: `The following goaded creature(s) must attack if able: ${creatureList}`,
+        });
+        return;
+      }
+
+      const mustAttackCreaturesNotAttacking: any[] = [];
+      for (const perm of battlefield) {
+        if (perm.controller !== playerId) continue;
+        const typeLine = (perm.card?.type_line || '').toLowerCase();
+        if (!typeLine.includes('creature')) continue;
+        if (attackerIds.includes(perm.id)) continue;
+        if (!permanentHasMustAttackRequirement(perm, battlefield)) continue;
+
+        const isTapped = (perm as any).tapped;
+        const hasDefender = permanentHasKeyword(perm, battlefield, playerId, 'defender');
+        const cantAttack = hasBlanketCantAttack(perm.card?.oracle_text || '');
+        const hasSummoningSickness = permanentHasSummoningSickness(perm, battlefield, playerId);
+        if (isTapped || hasDefender || cantAttack || hasSummoningSickness) continue;
+
+        const players = (game.state as any).players || [];
+        if (hasLegalMustAttackDefender(perm, playerId, players)) {
+          mustAttackCreaturesNotAttacking.push({
+            id: perm.id,
+            name: perm.card?.name || 'Unknown',
+          });
+        }
+      }
+
+      if (mustAttackCreaturesNotAttacking.length > 0) {
+        const creatureList = mustAttackCreaturesNotAttacking.map((entry) => entry.name).join(', ');
+        socket.emit("error", {
+          code: "MUST_ATTACK",
+          message: `The following creature(s) attack each combat if able: ${creatureList}`,
         });
         return;
       }

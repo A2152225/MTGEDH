@@ -21,6 +21,7 @@ import { queueSacrificeTriggers } from "./triggers/sacrifice.js";
 import { movePermanentToGraveyard } from "./counters_tokens.js";
 import { isControllerOptionalTriggeredAbilityEffect } from "./trigger-runtime-wiring.js";
 import { getActivePermanentCardFace } from "./cardFaceOracle.js";
+import { permanentCannotBeSacrificed } from "../../../../rules-engine/src/attackRestrictionText.js";
 
 // ============================================================================
 // DYNAMIC PATTERN DETECTION REGEXES
@@ -960,6 +961,9 @@ export function sacrificePermanent(ctx: GameContext, permanentId: string, player
   
   if (idx !== -1) {
     const permanent = battlefield[idx];
+    if (permanentCannotBeSacrificed(permanent, battlefield)) {
+      return null;
+    }
     const cardName = permanent.card?.name || "Unknown";
 
     // Per-turn tracking for intervening-if templates like:
