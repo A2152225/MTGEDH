@@ -21262,7 +21262,6 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^if it(?:'|â€™)?s a creature, it has haste\.?\)?$/i.test(normalizedText) ||
     /^if that(?:'|â€™)?s another creature, it gains the following abilities until end of turn\.?\)?$/i.test(normalizedText) ||
     /^if you do, it becomes plotted$/i.test(normalizedText) ||
-    /^join forces\s+-\s+starting with you, each player may pay any amount of mana$/i.test(normalizedText) ||
     /^target opponent chooses a creature they control$/i.test(normalizedText) ||
     /^this effect reduces only the amount of colored mana you pay$/i.test(normalizedText) ||
     /^this mana can(?:not|'t) be spent to cast a nonartifact spell\.?"?\)?$/i.test(normalizedText) ||
@@ -22807,9 +22806,9 @@ function parseSelfEntryCounterReplacement(rawText: string): {
     .trim();
   if (!normalized) return null;
 
-  const shortMatch = normalized.match(/^with\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i);
+  const shortMatch = normalized.match(/^with\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+(?:it|him|her)$/i);
   const fullMatch = normalized.match(
-    /^(?:this\s+[^.;]+?|it)\s+enters(?: the battlefield)?\s+with\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i
+    /^(?:this\s+[^.;]+?|it)\s+enters(?: the battlefield)?\s+with\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+(?:it|him|her)$/i
   );
   const match = shortMatch || fullMatch;
   if (!match) return null;

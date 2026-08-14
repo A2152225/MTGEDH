@@ -53,6 +53,12 @@ function serializeJoinForcesSteps(
       availableMana: Number(step.availableMana || 0),
       isInitiator: step.isInitiator === true,
       priority: Number(step.priority || 0),
+      oracleIrResumeStepsJson: step.oracleIrResumeStepsJson
+        ? String(step.oracleIrResumeStepsJson)
+        : undefined,
+      oracleIrControllerId: step.oracleIrControllerId ? String(step.oracleIrControllerId) : undefined,
+      oracleIrSourceId: step.oracleIrSourceId ? String(step.oracleIrSourceId) : undefined,
+      oracleIrSourceName: step.oracleIrSourceName ? String(step.oracleIrSourceName) : undefined,
     }));
 }
 
@@ -67,6 +73,10 @@ export function queueJoinForcesResolutionSteps(
     effectDescription: string;
     cardImageUrl?: string;
     logPrefix?: string;
+    oracleIrResumeStepsJson?: string;
+    oracleIrControllerId?: string;
+    oracleIrSourceId?: string;
+    oracleIrSourceName?: string;
   },
 ): boolean {
   const state = (ctx as any).state;
@@ -78,6 +88,17 @@ export function queueJoinForcesResolutionSteps(
   const players = Array.isArray(state?.players) ? state.players : [];
   if (players.length === 0) return false;
 
+  const existingQueue = ResolutionQueueManager.getQueue(gameId);
+  const alreadyQueued = (existingQueue.steps || []).some(
+    (step: any) =>
+      String(step?.type || '') === String(ResolutionStepType.JOIN_FORCES)
+      && String(step?.cardName || '') === cardName,
+  );
+  if (alreadyQueued) {
+    debug(2, `[${params.logPrefix || 'joinForces'}] ${cardName} already queued JOIN_FORCES; skip duplicate`);
+    return true;
+  }
+
   if ((ctx as any).isReplaying) {
     debug(2, `[${params.logPrefix || 'joinForces'}] skipping resolution steps during replay`);
     return true;
@@ -85,6 +106,16 @@ export function queueJoinForcesResolutionSteps(
 
   const turnOrder = players.map((player: any) => player.id);
   const battlefield = state.battlefield || [];
+  const resumeJson = String(params.oracleIrResumeStepsJson || '').trim();
+  const resumeFields = resumeJson
+    ? {
+        oracleIrResumeStepsJson: resumeJson,
+        oracleIrControllerId: String(params.oracleIrControllerId || controller).trim() || undefined,
+        oracleIrSourceId: String(params.oracleIrSourceId || params.sourceId || '').trim() || undefined,
+        oracleIrSourceName: String(params.oracleIrSourceName || params.sourceName || cardName).trim() || undefined,
+      }
+    : {};
+
   const stepConfigs = players.map((player: any) => {
     const playerId = String(player.id || '').trim() as PlayerID;
     return {
@@ -101,6 +132,7 @@ export function queueJoinForcesResolutionSteps(
       initiator: controller,
       availableMana: countUntappedLandsForPlayer(battlefield, playerId),
       isInitiator: playerId === controller,
+      ...resumeFields,
     };
   });
 

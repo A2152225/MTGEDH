@@ -568,8 +568,20 @@ const WOULD_EVENT_REPLACE_PATTERN = /^If\s+(.+?)\s+would\s+(.+?),\s+(.+)$/i;
 // by the IR parser as spell instructions with follow-up modifiers.
 const ENTERS_WITH_PATTERN = /^([^.;]+?)\s+enters the battlefield\s+([^.;]+?)[.;]?$/i;
 const SELF_ENTERS_SHORT_PATTERN = /^(This\s+[^.;]+?)\s+enters\s+([^.;]+?)[.;]?$/i;
+const SELF_ENTERS_WITH_COUNTERS_PATTERN =
+  /^([^.;]+?)\s+enters(?: the battlefield)?\s+(with\s+(?:a|an|\d+|x|[a-z]+)\s+.+?\s+counters?\s+on\s+(?:it|him|her))[.;]?$/i;
 const CONDITIONAL_SELF_ENTERS_PATTERN = /^If\s+(.+?),\s+((?:This\s+[^.;]+?|It)\s+enters(?: the battlefield)?\s+[^.;]+?)[.;]?$/i;
 const ENTERS_AS_PATTERN = /^As\s+(.+?)\s+enters the battlefield,\s+(.+)$/i;
+
+function isLikelySelfEntryCounterSubject(subject: string): boolean {
+  const normalized = String(subject || '').trim().toLowerCase();
+  if (!normalized) return false;
+  if (/^this\b/.test(normalized) || normalized === 'it') return true;
+  if (/\b(each|all|any|other|your|you control|opponent|creatures?|permanents?|tokens?|they|them|those)\b/.test(normalized)) {
+    return false;
+  }
+  return true;
+}
 
 /**
  * Parse a replacement effect from oracle text
@@ -653,6 +665,16 @@ export function parseReplacementEffect(text: string): ParsedAbility | null {
       text,
       triggerCondition: `${selfEntersShortMatch[1]} enters the battlefield`,
       effect: selfEntersShortMatch[2].trim(),
+    };
+  }
+
+  const selfEntersWithCountersMatch = text.match(SELF_ENTERS_WITH_COUNTERS_PATTERN);
+  if (selfEntersWithCountersMatch && isLikelySelfEntryCounterSubject(selfEntersWithCountersMatch[1])) {
+    return {
+      type: AbilityType.REPLACEMENT,
+      text,
+      triggerCondition: `${selfEntersWithCountersMatch[1]} enters the battlefield`,
+      effect: selfEntersWithCountersMatch[2].trim(),
     };
   }
   
@@ -1223,7 +1245,11 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
     }
     
     // Step 3: Check for self-replacement "enters with/tapped" patterns
-    if (/\benters the battlefield\b/i.test(trimmed) || /^this\s+[^.;]+?\s+enters\b/i.test(trimmed)) {
+    if (
+      /\benters the battlefield\b/i.test(trimmed)
+      || /^this\s+[^.;]+?\s+enters\b/i.test(trimmed)
+      || (/\benters(?: the battlefield)? with\b/i.test(trimmed) && /\bcounters?\s+on\s+(?:it|him|her)\b/i.test(trimmed))
+    ) {
       const replacement = parseReplacementEffect(trimmed);
       if (replacement) {
         abilities.push(replacement);

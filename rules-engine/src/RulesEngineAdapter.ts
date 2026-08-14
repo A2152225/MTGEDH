@@ -75,9 +75,7 @@ import {
   consumeFutureSpellCastAdjustments,
   previewFutureSpellCastAdjustments,
 } from './futureSpellEffects';
-import { normalizeCounterName } from './oracleIRParserSacrificeHelpers';
-import { parseQuantity } from './oracleIRParserUtils';
-import { normalizeOracleTextSelfReferences } from './oracleTextParserPreprocess';
+import { deriveSelfEntryCountersFromOracleIR } from './oracleIRSelfEntryCounters';
 
 /** Simple mana pool interface for checking mana availability (doesn't need restricted mana info) */
 interface SimpleManaPool {
@@ -2756,12 +2754,6 @@ export class RulesEngineAdapter {
     ).trim();
     if (!rawOracleText) return undefined;
 
-    const normalizedOracleText = normalizeOracleTextSelfReferences(rawOracleText, cardName || undefined);
-    const lines = normalizedOracleText
-      .split(/\r?\n/)
-      .map((line) => String(line || '').trim())
-      .filter(Boolean);
-
     const wasCastKicked = (() => {
       const explicitWasKicked = this.getCastMetadataValue(action, sourceCard, 'wasKicked');
       if (typeof explicitWasKicked === 'boolean') return explicitWasKicked;
@@ -2775,37 +2767,13 @@ export class RulesEngineAdapter {
       return false;
     })();
 
-    for (const line of lines) {
-      const normalizedLine = String(line).replace(/[.;]\s*$/g, '').trim();
-      const conditionalKickedMatch = normalizedLine.match(
-        /^if\s+(?:this creature|this permanent|it)\s+was kicked,\s+(?:this\s+[^.;]+?|it)\s+enters(?: the battlefield)?\s+with\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i
-      );
-      const match = conditionalKickedMatch || normalizedLine.match(
-        /^this\s+[^.;]+?\s+enters(?: the battlefield)?\s+with\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i
-      );
-      if (!match) continue;
-      if (conditionalKickedMatch && !wasCastKicked) continue;
-
-      const amount = parseQuantity(String(match[1] || '').trim());
-      let numericAmount: number | null = null;
-      if (amount.kind === 'number') {
-        numericAmount = amount.value;
-      } else if (amount.kind === 'x') {
-        const xValue = Number(action?.xValue);
-        if (Number.isFinite(xValue)) {
-          numericAmount = Math.max(0, Math.floor(xValue));
-        }
-      }
-
-      if (!Number.isFinite(numericAmount) || numericAmount === null || numericAmount <= 0) continue;
-
-      const counter = normalizeCounterName(String(match[2] || '').trim());
-      if (!counter) continue;
-
-      return { [counter]: numericAmount };
-    }
-
-    return undefined;
+    const xValue = Number(action?.xValue);
+    return deriveSelfEntryCountersFromOracleIR({
+      oracleText: rawOracleText,
+      cardName: cardName || undefined,
+      xValue: Number.isFinite(xValue) ? xValue : undefined,
+      wasKicked: wasCastKicked,
+    });
   }
 
   private normalizeTypePhrase(value: unknown): string {

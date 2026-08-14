@@ -264,6 +264,8 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
       /^x is the (?:(?:total )?amount of mana paid this way|(?:total )?amount of mana that player paid this way)$/i
     );
     if (m) {
+      const fromCtx = Number(ctx?.xValue ?? ctx?.referenceAmount);
+      if (Number.isFinite(fromCtx)) return Math.max(0, Math.floor(fromCtx));
       const ref = getSourceRef();
       if (!ref) return null;
       return getAmountOfManaSpent(ref);

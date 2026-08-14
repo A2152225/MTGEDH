@@ -12705,6 +12705,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 availableMana: Number((rawStep as any).availableMana || 0),
                 isInitiator: (rawStep as any).isInitiator === true,
                 priority: Number((rawStep as any).priority || 0),
+                oracleIrResumeStepsJson: (rawStep as any).oracleIrResumeStepsJson
+                  ? String((rawStep as any).oracleIrResumeStepsJson)
+                  : undefined,
+                oracleIrControllerId: (rawStep as any).oracleIrControllerId
+                  ? String((rawStep as any).oracleIrControllerId)
+                  : undefined,
+                oracleIrSourceId: (rawStep as any).oracleIrSourceId
+                  ? String((rawStep as any).oracleIrSourceId)
+                  : undefined,
+                oracleIrSourceName: (rawStep as any).oracleIrSourceName
+                  ? String((rawStep as any).oracleIrSourceName)
+                  : undefined,
               } as any);
             }
           } else if ((e as any).type === 'joinForcesContribution') {
@@ -12764,7 +12776,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               }
             }
 
-            if (cardNameLower.includes('minds aglow')) {
+            if ((e as any).oracleIrResumed !== true) {
+              if (cardNameLower.includes('minds aglow')) {
               for (const player of players) {
                 if (player?.hasLost) continue;
                 drawCards(ctx as any, player.id, totalContributions);
@@ -12864,6 +12877,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 effectDescription: String((e as any).effectDescription || ''),
                 sourcePermanentId: String((e as any).sourcePermanentId || '').trim() || undefined,
               });
+            }
+
             }
 
             const stateAny = ctx.state as any;

@@ -250,6 +250,22 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    // Join Forces — Starting with you, each player may pay any amount of mana.
+    // Also: "each player starting with you may pay any amount of mana" (attack/block triggers).
+    const joinForcesPay = clause.match(
+      /^(?:join forces\s*[-—–]\s*)?(?:starting with you,\s*)?each player(?: starting with you)? may pay any amount of mana\.?$/i,
+    );
+    if (joinForcesPay) {
+      return withMeta({
+        kind: 'join_forces',
+        who: { kind: 'each_player' },
+        startingWith: 'you',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
+  {
     // "That player taps an untapped artifact, creature, or land they control for each
     // fade counter on this artifact." (Tangle Wire). The leading "a"/"an" before "untapped"
     // is grammatical (one permanent per counter), not the tap amount — the real amount comes

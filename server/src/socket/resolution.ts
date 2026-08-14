@@ -23591,11 +23591,32 @@ function handleJoinForcesResponse(
     // All players have responded - apply the Join Forces effect
     const contributions = game.state.joinForcesContributions[cardName];
     const total = contributions.total;
-    
-    const completionPayload = applyJoinForcesEffect(io, game, gameId, cardName, total, contributions.byPlayer, initiator, {
-      effectDescription: contributions.effectDescription,
-      sourcePermanentId: contributions.sourcePermanentId,
-    });
+    const resumeJson = String(stepData.oracleIrResumeStepsJson || '').trim();
+    let oracleIrResumed = false;
+
+    if (resumeJson) {
+      const ctx = ((game as any).ctx || game) as any;
+      ctx.gameId = gameId;
+      ctx.state = game.state;
+      const resumeResult = maybeResumeOracleIRStepsAfterResolution(ctx, {
+        ...stepData,
+        oracleIrResumeStepsJson: resumeJson,
+        oracleIrXValue: total,
+        oracleIrControllerId: String(stepData.oracleIrControllerId || initiator || pid).trim(),
+      });
+      const appliedCount = Array.isArray(resumeResult?.appliedSteps) ? resumeResult.appliedSteps.length : 0;
+      const queuedFollowUpChoice = (resumeResult?.automationGaps || []).some(
+        (gap: any) => String(gap?.classification || '') === 'player_choice',
+      );
+      oracleIrResumed = Boolean(resumeResult) && (appliedCount > 0 || queuedFollowUpChoice);
+    }
+
+    const completionPayload = oracleIrResumed
+      ? undefined
+      : applyJoinForcesEffect(io, game, gameId, cardName, total, contributions.byPlayer, initiator, {
+          effectDescription: contributions.effectDescription,
+          sourcePermanentId: contributions.sourcePermanentId,
+        });
 
     try {
       appendEvent(gameId, (game as any).seq ?? 0, 'joinForcesComplete', {
@@ -23605,6 +23626,7 @@ function handleJoinForcesResponse(
         byPlayer: { ...(contributions.byPlayer || {}) },
         effectDescription: contributions.effectDescription,
         sourcePermanentId: contributions.sourcePermanentId,
+        ...(oracleIrResumed ? { oracleIrResumed: true } : {}),
         ...(completionPayload || {}),
       });
     } catch (err) {

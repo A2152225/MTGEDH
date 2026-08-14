@@ -116,6 +116,7 @@ import { resolveOracleIrBoundTargetSpellId } from '../../../../rules-engine/src/
 import type { GameContext } from '../context.js';
 import { registerLinkedExile } from './triggers/linked-exile.js';
 import { queueCastFromExileResolutionPrompt } from './triggerCastFromExileUtils.js';
+import { queueJoinForcesResolutionSteps } from './joinForcesResolutionQueue.js';
 
 type MutableOracleIRExecutionResult = {
   -readonly [K in keyof OracleIRExecutionResult]: OracleIRExecutionResult[K];
@@ -3206,6 +3207,59 @@ function buildApnapVoterOrder(
   return [...players.slice(startIdx), ...players.slice(0, startIdx)];
 }
 
+function queueJoinForcesPromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  for (const gap of result.automationGaps || []) {
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
+    if (String(gap.stepKind || '') !== 'join_forces') continue;
+
+    const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'join_forces' }> | undefined;
+    if (!step || step.kind !== 'join_forces') continue;
+
+    const sourceName = String(params.sourceName || 'Join Forces').trim() || 'Join Forces';
+    const sourceId = String(params.sourceId || '').trim() || undefined;
+    const resumePayload = attachOracleIrResumeMetadata(
+      {},
+      result,
+      { controller: params.controller, sourceId, sourceName, irCtx: params.irCtx },
+    );
+    // Join Forces X is the contribution total, not the spell's cost X (e.g. {X}{U}).
+    delete (resumePayload as { oracleIrXValue?: number }).oracleIrXValue;
+
+    const continuationRaw = (result.pendingContinuationSteps || [])
+      .map((entry) => String((entry as { raw?: string }).raw || '').trim())
+      .filter(Boolean)
+      .join(' ');
+    const effectDescription = [String(step.raw || '').trim(), continuationRaw].filter(Boolean).join(' ');
+
+    queueJoinForcesResolutionSteps(ctx, {
+      controller: params.controller,
+      cardName: sourceName,
+      sourceId,
+      sourceName,
+      effectDescription: effectDescription || String(step.raw || sourceName),
+      logPrefix: 'oracleIR joinForces',
+      oracleIrResumeStepsJson: String(resumePayload.oracleIrResumeStepsJson || '').trim() || undefined,
+      oracleIrControllerId: String(resumePayload.oracleIrControllerId || params.controller).trim() || undefined,
+      oracleIrSourceId: String(resumePayload.oracleIrSourceId || sourceId || '').trim() || undefined,
+      oracleIrSourceName: String(resumePayload.oracleIrSourceName || sourceName).trim() || undefined,
+    });
+    return;
+  }
+}
+
 function queueVotePromptsFromOracleIRResult(
   ctx: GameContext,
   state: any,
@@ -5916,6 +5970,12 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
     triggerItem: resolutionTriggerItem,
+  });
+  queueJoinForcesPromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
   });
   queueVotePromptsFromOracleIRResult(ctx, state, result, {
     controller,

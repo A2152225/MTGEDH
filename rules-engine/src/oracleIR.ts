@@ -597,6 +597,18 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      /**
+       * Join Forces — "Starting with you, each player may pay any amount of mana."
+       * X on later steps is the total mana paid this way (including 0).
+       */
+      readonly kind: 'join_forces';
+      readonly who: OraclePlayerSelector;
+      readonly startingWith?: 'you';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'choose_opponent';
       readonly optional?: boolean;
       readonly sequence?: 'then';

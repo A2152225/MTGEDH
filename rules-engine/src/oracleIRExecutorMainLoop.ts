@@ -143,6 +143,7 @@ import {
   applyMillStep,
   applyOpenAttractionStep,
   applyPayManaStep,
+  applyJoinForcesStep,
   applyPlaneswalkStep,
   applyRetainManaStep,
   applyRevealHandStep,
@@ -705,6 +706,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'library_chaos_exchange',
   'move_zone',
   'pay_mana',
+  'join_forces',
   'player_choice',
   'proliferate',
   'redistribute_life_totals',
@@ -1939,6 +1941,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'pay_mana': {
         const result = applyPayManaStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'join_forces': {
+        const result = applyJoinForcesStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

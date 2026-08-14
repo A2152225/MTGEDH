@@ -5,6 +5,7 @@ import { debug, debugWarn } from '../../utils/debug.js';
 import { appendEvent } from '../../db/index.js';
 import { mergeRetainedCountersForBattlefieldEntry } from '../../../../shared/src/zoneRetainedCounters.js';
 import { detectEntersWithCounters } from './detectEntersWithCounters.js';
+import { deriveSelfEntryCountersFromOracleIR } from '../../../../rules-engine/src/oracleIRSelfEntryCounters.js';
 import { checkPermanentEntersTapped } from './triggerPermanentEntersTapped.js';
 import { creatureWillHaveHaste } from './creatureEntryHasteUtils.js';
 import { applyCounterModifications } from './counters_tokens.js';
@@ -347,6 +348,27 @@ export function resolvePermanentSpellBattlefieldEntry(
   for (const [counterType, count] of Object.entries(etbCounters)) {
     initialCounters[counterType] = (initialCounters[counterType] || 0) + count;
     debug(2, `[resolveTopOfStack] ${effectiveCard.name} enters with ${count} ${counterType} counter(s)`);
+  }
+
+  const spellXValue = Number((item as any)?.xValue ?? (item as any)?.card?.xValue ?? (effectiveCard as any)?.xValue);
+  const wasCastKicked = (item as any)?.wasKicked === true
+    || (item as any)?.card?.wasKicked === true
+    || (effectiveCard as any)?.wasKicked === true
+    || Number((item as any)?.timesKicked ?? (item as any)?.card?.timesKicked ?? (effectiveCard as any)?.timesKicked) > 0
+    || Number((item as any)?.kickerPaidCount ?? (item as any)?.card?.kickerPaidCount ?? (effectiveCard as any)?.kickerPaidCount) > 0;
+  const irEntryCounters = deriveSelfEntryCountersFromOracleIR({
+    oracleText: String((effectiveCard as any)?.oracle_text || fallbackOracleText || ''),
+    cardName: String((effectiveCard as any)?.name || (item as any)?.cardName || ''),
+    xValue: Number.isFinite(spellXValue) ? spellXValue : undefined,
+    wasKicked: wasCastKicked,
+  });
+  if (irEntryCounters) {
+    for (const [counterType, rawCount] of Object.entries(irEntryCounters)) {
+      const count = Number(rawCount || 0);
+      if (!Number.isFinite(count) || count <= 0) continue;
+      initialCounters[counterType] = Math.max(Number(initialCounters[counterType] || 0), count);
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name} enters with ${count} ${counterType} counter(s) from self-entry replacement`);
+    }
   }
 
   const explicitEntryCounters = ((item as any).entersBattlefieldWithCounters && typeof (item as any).entersBattlefieldWithCounters === 'object')

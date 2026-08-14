@@ -973,6 +973,50 @@ describe('RulesEngineAdapter', () => {
       expect(stackObjects[0].card.entersBattlefieldWithCounters).toEqual({ '+1/+1': 3 });
     });
 
+    it('should derive named-subject X entry counters from the cast spell oracle text', () => {
+      const stateWithGrenzo: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        step: 'main' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [
+                  {
+                    id: 'grenzo-1',
+                    name: 'Grenzo, Dungeon Warden',
+                    type_line: 'Legendary Creature — Goblin Rogue',
+                    mana_cost: '{X}{B}{R}',
+                    oracle_text:
+                      'Grenzo enters with X +1/+1 counters on it.\n{2}: Put the bottom card of your library into your graveyard. If it\'s a creature card with power less than or equal to Grenzo\'s power, put it onto the battlefield.',
+                    power: '2',
+                    toughness: '2',
+                  },
+                ],
+                manaPool: { white: 5, blue: 5, black: 5, red: 5, green: 0, colorless: 5 },
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithGrenzo);
+      const result = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'grenzo-1',
+        manaCost: '{5}{B}{R}',
+        xValue: 5,
+        targets: [],
+      });
+
+      expect(result.log).toContain('player1 announces Grenzo, Dungeon Warden');
+      const stackObjects = ((adapter as any).stacks.get('test-game')?.objects || []) as any[];
+      expect(stackObjects).toHaveLength(1);
+      expect(stackObjects[0].entersBattlefieldWithCounters).toEqual({ '+1/+1': 5 });
+      expect(stackObjects[0].card.entersBattlefieldWithCounters).toEqual({ '+1/+1': 5 });
+    });
+
     it('should derive kicked self-entry counters when cast metadata says the spell was kicked', () => {
       const stateWithKickedCreature: any = {
         ...testGameState,

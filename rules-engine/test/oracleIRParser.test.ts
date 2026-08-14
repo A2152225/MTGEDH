@@ -10512,6 +10512,28 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('lowers named-subject X enters-with-counters text into an add_counter replacement', () => {
+    const ir = parseOracleTextToIR(
+      'Grenzo enters with X +1/+1 counters on it.\n{2}: Put the bottom card of your library into your graveyard. If it\'s a creature card with power less than or equal to Grenzo\'s power, put it onto the battlefield.',
+      'Grenzo, Dungeon Warden'
+    );
+
+    const replacement = ir.abilities.find((ability) => ability.type === 'replacement');
+    expect(replacement).toMatchObject({
+      type: 'replacement',
+      effectText: 'with X +1/+1 counters on it',
+    });
+    expect(replacement?.steps).toEqual([
+      {
+        kind: 'add_counter',
+        target: { kind: 'raw', text: 'this permanent' },
+        counter: '+1/+1',
+        amount: { kind: 'x' },
+        raw: 'with X +1/+1 counters on it',
+      },
+    ]);
+  });
+
   it('lowers self numeric enters-with-counters replacement text into an add_counter step', () => {
     const ir = parseOracleTextToIR('This artifact enters the battlefield with two charge counters on it.', 'Magistrate\'s Scepter');
 
@@ -17035,6 +17057,31 @@ This creature has protection from each of the exiled card's card types. (Artifac
     for (const text of samples) {
       expect(isExternallyHandledOracleFragmentText(text), text).toBe(false);
     }
+  });
+
+  it('parses Join Forces payment plus draw-X as join_forces then draw', () => {
+    // Minds Aglow — Join forces — Starting with you, each player may pay any amount of mana.
+    // Each player draws X cards, where X is the total amount of mana paid this way.
+    const ir = parseOracleTextToIR(
+      'Join forces — Starting with you, each player may pay any amount of mana. Each player draws X cards, where X is the total amount of mana paid this way.',
+      'Minds Aglow',
+    );
+    const steps = flattenNestedSteps(ir.abilities.flatMap((ability: any) => ability.steps || []));
+    expect(steps.map((step: any) => step.kind)).toEqual(['join_forces', 'draw']);
+    expect(steps[0]).toMatchObject({
+      kind: 'join_forces',
+      who: { kind: 'each_player' },
+      startingWith: 'you',
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'draw',
+      who: { kind: 'each_player' },
+      amount: { kind: 'x' },
+    });
+    expect(String((steps[1] as any).whereX?.raw || '')).toMatch(/total amount of mana paid this way/i);
+    expect(isExternallyHandledOracleFragmentText(
+      'Join forces - Starting with you, each player may pay any amount of mana',
+    )).toBe(false);
   });
 
 });

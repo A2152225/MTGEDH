@@ -3385,6 +3385,21 @@ export function applyModifyTokenCreationStep(
   };
 }
 
+export function applyJoinForcesStep(
+  _state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'join_forces' }>,
+  _ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  return {
+    applied: false,
+    message: `Deferred join forces mana contributions (requires player choice): ${step.raw}`,
+    reason: 'player_choice_required',
+    options: {
+      classification: 'player_choice',
+    },
+  };
+}
+
 export function applyPayManaStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'pay_mana' }>,

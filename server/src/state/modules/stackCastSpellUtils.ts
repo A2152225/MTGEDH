@@ -5,6 +5,7 @@ import { debug, debugWarn, debugEnv } from '../../utils/debug.js';
 import { cleanupCardLeavingExile, removeCardFromAnyPlayerExile } from './playable-from-exile.js';
 import { castCommander } from './commander.js';
 import { extractModalModesFromOracleText } from '../../utils/oraclePromptContext.js';
+import { deriveSelfEntryCountersFromOracleIR } from '../../../../rules-engine/src/oracleIRSelfEntryCounters.js';
 import { repairReplayCardSourceZones } from './stackReplayUtils.js';
 import {
   recordCommittedCrimeThisTurn,
@@ -316,6 +317,32 @@ export function castSpell(
     castFromGraveyard: castSourceZone === 'graveyard',
     castFromLibrary: castSourceZone === 'library',
   };
+
+  const derivedEntryCounters = deriveSelfEntryCountersFromOracleIR({
+    oracleText: String(card?.oracle_text || ''),
+    cardName: String(card?.name || ''),
+    xValue: Number.isFinite(Number(xValue)) ? Number(xValue) : undefined,
+    wasKicked: card?.wasKicked === true
+      || Number(card?.timesKicked) > 0
+      || Number(card?.kickerPaidCount) > 0,
+  });
+  if (derivedEntryCounters) {
+    const existingCounters = stackItem.card?.entersBattlefieldWithCounters && typeof stackItem.card.entersBattlefieldWithCounters === 'object'
+      ? stackItem.card.entersBattlefieldWithCounters as Record<string, number>
+      : undefined;
+    const mergedCounters: Record<string, number> = { ...(existingCounters || {}) };
+    for (const [counterType, rawCount] of Object.entries(derivedEntryCounters)) {
+      const count = Number(rawCount || 0);
+      if (!Number.isFinite(count) || count <= 0) continue;
+      mergedCounters[counterType] = Math.max(Number(mergedCounters[counterType] || 0), count);
+    }
+    if (Object.keys(mergedCounters).length > 0) {
+      stackItem.entersBattlefieldWithCounters = { ...mergedCounters };
+      if (stackItem.card && typeof stackItem.card === 'object') {
+        stackItem.card.entersBattlefieldWithCounters = { ...mergedCounters };
+      }
+    }
+  }
 
   try {
     if (stackItem.card && typeof stackItem.card === 'object') {

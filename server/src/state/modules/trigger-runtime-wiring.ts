@@ -105,6 +105,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'modify_graveyard_permissions',
   'copy_spell',
   'pay_mana',
+  'join_forces',
   'add_extra_combat',
   'take_extra_turn',
   'end_turn',

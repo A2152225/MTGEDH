@@ -189,7 +189,6 @@ function shouldIgnoreGap(raw: string, gapType: GapRecord['gapType']): boolean {
   if (/^if it's a creature, it has haste\.\)?$/.test(lower)) return true;
   if (/^if that's another creature, it gains the following abilities until end of turn\.\)?$/.test(lower)) return true;
   if (/^if you do, it becomes plotted$/.test(lower)) return true;
-  if (/^join forces\s+-\s+starting with you, each player may pay any amount of mana$/.test(lower)) return true;
   if (/^target opponent chooses a creature they control$/.test(lower)) return true;
   if (/^ripple \d+\s*\(when you cast this spell, you may reveal the top \w+ cards? of your library$/.test(lower)) return true;
   if (/^spell commander\s*\(this card can be your commander$/.test(lower)) return true;
