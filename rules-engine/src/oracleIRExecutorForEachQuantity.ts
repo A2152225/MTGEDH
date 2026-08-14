@@ -5,6 +5,7 @@ import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator
 import { collectBattlefieldPermanentsForCountExpression } from './oracleIRExecutorModifyPtWhereMiscCounts';
 import { normalizeOracleText } from './oracleIRExecutorPlayerUtils';
 import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
+import { getSourceBattlefieldPermanent } from './oracleIRExecutorCreatureStepUtils';
 
 const COUNT_WORDS: Record<string, number> = {
   a: 1,
@@ -111,7 +112,15 @@ export function tryResolveForEachReferenceAmount(
 
   if (normalized === 'that many' || normalized === 'that much') {
     const runtimeAmount = Number(options?.runtime?.lastReferenceAmount ?? ctx.referenceAmount);
-    return Number.isFinite(runtimeAmount) ? Math.max(0, runtimeAmount) : null;
+    if (Number.isFinite(runtimeAmount)) return Math.max(0, runtimeAmount);
+    const source = getSourceBattlefieldPermanent(state, ctx);
+    const squadTimesPaid = Number(
+      (source as any)?.squadTimesPaid
+      ?? (source as any)?.card?.squadTimesPaid
+      ?? (ctx as any)?.sourceCard?.squadTimesPaid,
+    );
+    if (Number.isFinite(squadTimesPaid)) return Math.max(0, Math.floor(squadTimesPaid));
+    return null;
   }
 
   const handSizePlayerId = String(options?.targetPlayerId || controllerId || '').trim() as PlayerID;
@@ -164,6 +173,20 @@ export function tryResolveForEachReferenceAmount(
     if (multiplier === null) return null;
 
     const eachPart = String(forEachMatch[2] || '').trim();
+    if (/^auras? you controlled that (?:was|were) attached to it$/i.test(eachPart)) {
+      if (Number.isFinite(Number(ctx.referenceAmount))) {
+        return Math.max(0, multiplier * Math.max(0, Math.floor(Number(ctx.referenceAmount))));
+      }
+      const hostId = String(ctx.targetPermanentId || ctx.targetCreatureId || ctx.sourcePermanentId || '').trim();
+      if (!hostId) return null;
+      const counted = (state.battlefield || []).filter((perm: any) => {
+        if (String(perm?.controller || '').trim() !== String(controllerId || '').trim()) return false;
+        const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+        if (!typeLine.includes('aura')) return false;
+        return String(perm?.attachedTo || '').trim() === hostId;
+      }).length;
+      return Math.max(0, multiplier * counted);
+    }
     const count = evaluateCountExpression(
       state,
       controllerId,

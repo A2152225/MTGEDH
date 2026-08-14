@@ -14,7 +14,7 @@
 import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import type { DetectedKeyword, KeywordTiming } from "./keyword-detection.js";
-import { detectKeywords, getAttackTriggerKeywords, getETBKeywords, getDeathTriggerKeywords, getCombatDamageTriggerKeywords, getSpellCastTriggerKeywords } from "./keyword-detection.js";
+import { detectKeywords, getAttackTriggerKeywords, getETBKeywords, getDeathTriggerKeywords, getCombatDamageTriggerKeywords, getSpellCastTriggerKeywords, battlefieldGrantsRiotToPermanent } from "./keyword-detection.js";
 import { listLegalHauntCreatureTargets } from "./hauntKeywordUtils.js";
 
 // ============================================================================
@@ -94,7 +94,9 @@ export function processKeywordTriggers(
   // Filter out creature-only triggers (like prowess) if this is not actually a creature card/token
   const isCreature = ctx.permanent ? String(ctx.permanent?.card?.type_line || '').toLowerCase().includes('creature') : false;
   if (!isCreature) {
-    detected.keywords = detected.keywords.filter(k => k.keyword !== 'prowess');
+    detected.keywords = detected.keywords.filter(k =>
+      k.keyword !== 'prowess' && k.keyword !== 'riot' && k.keyword !== 'unleash'
+    );
   }
   
   // Get keywords for this timing
@@ -130,6 +132,26 @@ export function processKeywordTriggers(
   }
   
   return results;
+}
+
+/**
+ * Riot choice for a creature that has riot from a continuous grant
+ * (Rhythm of the Wild), not from its own keyword line.
+ */
+export function createGrantedRiotChoiceResult(ctx: KeywordTriggerContext): KeywordTriggerResult | null {
+  if (!battlefieldGrantsRiotToPermanent(ctx.permanent, ctx.battlefield || [])) {
+    return null;
+  }
+  return handleRiot(ctx, {
+    keyword: 'riot',
+    category: 'enters_effect',
+    timing: 'etb',
+    effect: 'Choose: enters with a +1/+1 counter OR enters with haste',
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'riot_choice',
+    raw: 'riot',
+  });
 }
 
 /**

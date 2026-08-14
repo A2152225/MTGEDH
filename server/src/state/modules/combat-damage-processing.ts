@@ -15,6 +15,8 @@ import {
   canDamageBePrevented,
   detectAnotherCreaturePreventDamagePlusOneReplacement,
 } from './game-state-effects.js';
+import { protectionPreventsSource } from './combat-mechanics.js';
+import { permanentHasIndestructible } from '../../rules-engine/index.js';
 
 export function applyPoisonCountersToPlayer(ctx: GameContext, playerId: string, amount: number): void {
   const normalized = Math.max(0, Number(amount || 0));
@@ -242,6 +244,10 @@ export function applyCreatureDamageFromSource(
   const sourceCard = sourcePermanent?.card || {};
   const sourceId = String(sourcePermanent?.id || '');
 
+  if (protectionPreventsSource(targetPermanent, sourcePermanent, (ctx as any).state)) {
+    return { prevented: true, appliedAmount: 0, usedMinusCounters: false };
+  }
+
   if (applyAnotherCreaturePreventDamagePlusOneReplacement(ctx, targetPermanent, normalizedAmount, sourceCard)) {
     return { prevented: true, appliedAmount: 0, usedMinusCounters: false, damageReplaced: true };
   }
@@ -299,17 +305,23 @@ export function creatureDiesFromCombatDamage(
   usedMinusCounters: boolean,
   combatToughness?: number,
 ): boolean {
+  // CR 704.5f: toughness 0 or less is not destruction; indestructible does not apply.
   if (usedMinusCounters) {
     return getEffectiveToughnessForDeathCheck(ctx, permanent) <= 0;
   }
 
   const damageOnCreature = Math.max(0, Number(markedDamage || 0));
-  if (deathtouch && damageOnCreature > 0) return true;
-
   const toughness = Number.isFinite(combatToughness)
     ? Number(combatToughness)
     : getEffectiveToughnessForDeathCheck(ctx, permanent);
-  return damageOnCreature >= toughness;
+  const lethal = (deathtouch && damageOnCreature > 0) || damageOnCreature >= toughness;
+  if (!lethal) return false;
+
+  // CR 702.12b: lethal damage (including deathtouch) does not destroy an indestructible creature.
+  if (permanentHasIndestructible((ctx as any)?.state, permanent)) {
+    return false;
+  }
+  return true;
 }
 
 function getEffectiveToughnessForDeathCheck(ctx: GameContext, permanent: any): number {

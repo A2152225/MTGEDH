@@ -48,4 +48,26 @@ describe('chooseAILibrarySearchResponse split destination', () => {
       toHand: [],
     });
   });
+
+  it('assigns one card to the battlefield and the rest to hand', () => {
+    const result = chooseAILibrarySearchResponse(
+      { state: { players: [{ id: 'p1' }] } },
+      'p1' as any,
+      availableCards,
+      {
+        minSelections: 0,
+        maxSelections: 3,
+        destination: 'split',
+        splitDestination: true,
+        toBattlefield: 1,
+        toHand: 'rest',
+      },
+    );
+
+    expect(result.selections).toHaveLength(3);
+    expect(result.splitAssignments).toEqual({
+      toBattlefield: [result.selections[0]],
+      toHand: result.selections.slice(1),
+    });
+  });
 });

@@ -11,9 +11,22 @@ export function queueCastFromExileResolutionPrompt(
   sourceId: string | undefined,
   sourceImage: string | undefined,
   exiledCard: any,
+  extras?: {
+    declineDestination?: string;
+    declineLabel?: string;
+    castLabel?: string;
+    description?: string;
+    mandatory?: boolean;
+  },
 ): void {
   const stateAny = (ctx as any)?.state as any;
   const exiledCardId = String(exiledCard?.id || '').trim();
+  const cardName = String(exiledCard?.name || 'that card');
+  const declineDestination = String(
+    extras?.declineDestination
+    || (exiledCard as any)?.castFromExileDeclineDestination
+    || 'library_bottom_random',
+  );
   if (stateAny && exiledCardId) {
     upsertDurablePermission(stateAny, buildDurablePlayableFromExilePermission({
       playerId,
@@ -32,19 +45,19 @@ export function queueCastFromExileResolutionPrompt(
   ResolutionQueueManager.addStep(gameId, {
     type: ResolutionStepType.OPTION_CHOICE,
     playerId: playerId as any,
-    description: `${sourceName}: You may cast ${exiledCard?.name || 'that card'} from exile without paying its mana cost.`,
-    mandatory: false,
+    description: extras?.description || `${sourceName}: You may cast ${cardName} from exile without paying its mana cost.`,
+    mandatory: extras?.mandatory === true,
     sourceName,
     sourceId,
     sourceImage,
     options: [
-      { id: 'cast', label: `Cast ${exiledCard?.name || 'that card'}` },
-      { id: 'decline', label: 'Decline' },
+      { id: 'cast', label: extras?.castLabel || `Cast ${cardName}` },
+      { id: 'decline', label: extras?.declineLabel || 'Decline' },
     ],
     minSelections: 1,
     maxSelections: 1,
     castFromExileCardId: exiledCard?.id,
     castFromExileCard: exiledCard,
-    castFromExileDeclineDestination: String((exiledCard as any)?.castFromExileDeclineDestination || 'library_bottom_random'),
+    castFromExileDeclineDestination: declineDestination,
   } as any);
 }

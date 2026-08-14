@@ -29,6 +29,28 @@ describe('chosen-color static effects', () => {
     expect(parseProtections(perm.card, perm)).toContain('red');
   });
 
+  it('grants Flickering Ward chosen-color protection to the enchanted creature, not the Aura', () => {
+    const ward = {
+      id: 'ward_1',
+      controller: 'p1',
+      attachedTo: 'eidolon_1',
+      chosenColor: 'green',
+      card: {
+        name: 'Flickering Ward',
+        type_line: 'Enchantment — Aura',
+        oracle_text:
+          'Enchant creature\nAs Flickering Ward enters, choose a color.\nEnchanted creature has protection from the chosen color. This effect doesn\'t remove Flickering Ward.',
+        colors: ['W'],
+      },
+    };
+    const specs = parseStaticEffectSpecsFromOraclePermanent(ward as any);
+    const hostGrant = specs.find((s) => s.id.includes('attachment-protection-host'));
+    expect(hostGrant?.sourcePermanentId).toBe('eidolon_1');
+    expect(hostGrant?.scope.kind).toBe('self');
+    expect(hostGrant?.grant.abilities).toEqual(['protection from green']);
+    expect(specs.some((s) => s.id.includes('chosen-color-protection-self'))).toBe(false);
+  });
+
   it('parses Gauntlet global chosen-color anthem', () => {
     const perm = {
       id: 'gauntlet_1',

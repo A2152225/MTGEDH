@@ -26,6 +26,7 @@ import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.
 import { hasExhaustedOnceDuringEachGraveyardCastActivation } from "../../../../rules-engine/src/stationPermanentUtils.js";
 import { calculateMaxLandsPerTurn, canCastFromTop, canPlayLandsFromTop, getActiveAbilityConditions } from "./game-state-effects";
 import { buildGraveyardCastingPermissionId, getActiveGraveyardCastingPermissions, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo, isActivatableStationGraveyardPermissionLine, type GraveyardCastingPermission, type GraveyardCastingPermissionCostMode } from "./graveyard-permissions";
+import { checkOpponentHasMoreLands } from './stackLandCountUtils.js';
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan, getCostAdjustmentForCard as getSharedCostAdjustmentForCard, type CostAdjustmentPlan } from "./cost-adjustments";
 import { collectStaticEffectSources } from "./static-effect-sources";
@@ -65,6 +66,13 @@ function isLandTypeLine(typeLine: unknown): boolean {
 }
 
 function isActivatedAbilityConditionMet(ctx: GameContext, playerId: PlayerID, fullAbilityText: string, oracleText?: string, matchIndex?: number): boolean {
+  const abilityLine = typeof matchIndex === 'number' && Number.isFinite(matchIndex)
+    ? String(oracleText || '').slice(Math.max(0, matchIndex), matchIndex + 500)
+    : '';
+  if (/activate only if an opponent controls more lands than you/i.test(`${fullAbilityText}\n${abilityLine}`)) {
+    return checkOpponentHasMoreLands((ctx as any).state, playerId).anyOpponentHasMoreLands;
+  }
+
   const requirement = detectActivatedAbilityConditionRequirement(fullAbilityText, oracleText, matchIndex);
   if (!requirement) {
     return true;

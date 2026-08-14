@@ -17,8 +17,11 @@ import {
   createBattlefieldPermanentsFromCards,
   cardMatchesMoveZoneSingleTargetCriteria,
   cardMatchesType,
+  parseMoveZoneAnyNumberCardsFromYourHand,
+  parseMoveZoneAnyNumberTypedFromYourHand,
   parseMoveZoneSingleTargetCriteria,
   parseMoveZoneTypedCardFromYourHand,
+  parseMoveZoneUpToTargetCountFromYourHand,
   parseSimpleCardTypeFromText,
   type MoveZoneSingleTargetCriteria,
 } from './oracleIRExecutorZoneOps';
@@ -2355,6 +2358,19 @@ function filterMoveZoneSelectionCandidates(
     return [];
   }
 
+  const anyNumberTypedFromHand = parseMoveZoneAnyNumberTypedFromYourHand({ kind: 'raw', text: whatText });
+  if (anyNumberTypedFromHand) {
+    return pool.filter((card) => cardMatchesType(card, anyNumberTypedFromHand.cardType));
+  }
+  const anyNumberCardsFromHand = parseMoveZoneAnyNumberCardsFromYourHand({ kind: 'raw', text: whatText });
+  if (anyNumberCardsFromHand) {
+    return pool.filter((card) => cardMatchesType(card, anyNumberCardsFromHand.cardType));
+  }
+  const upToFromHand = parseMoveZoneUpToTargetCountFromYourHand({ kind: 'raw', text: whatText });
+  if (upToFromHand) {
+    return pool.filter((card) => cardMatchesMoveZoneSingleTargetCriteria(card, upToFromHand.criteria));
+  }
+
   const typedFromHand = parseMoveZoneTypedCardFromYourHand({ kind: 'raw', text: whatText });
   if (typedFromHand) {
     let resolvedCriteria = typedFromHand;
@@ -2404,12 +2420,18 @@ function resolveMoveZoneSelectionLimits(
   step: Extract<OracleEffectStep, { kind: 'move_zone' }>,
   candidateCount: number,
 ): { readonly minSelections: number; readonly maxSelections: number } {
-  const whatText = normalizeMoveZoneWhatCriteriaText(
-    String((step.what as any)?.text || (step.what as any)?.raw || '').trim(),
-  );
+  const rawWhat = String((step.what as any)?.text || (step.what as any)?.raw || '').trim();
+  const whatText = normalizeMoveZoneWhatCriteriaText(rawWhat);
   const optional = step.optional === true || /^you may\b/i.test(String(step.raw || ''));
   if (/^the rest/i.test(whatText)) {
     return { minSelections: 0, maxSelections: 0 };
+  }
+  if (/^any number of /i.test(rawWhat) || /^any number of /i.test(whatText)) {
+    return { minSelections: 0, maxSelections: candidateCount };
+  }
+  const upToFromHand = parseMoveZoneUpToTargetCountFromYourHand({ kind: 'raw', text: rawWhat });
+  if (upToFromHand && !upToFromHand.useXValue && !upToFromHand.useReferenceAmount) {
+    return { minSelections: 0, maxSelections: Math.min(upToFromHand.maxCount, candidateCount) };
   }
   if (/^those cards$|^those creature cards$/i.test(whatText)) {
     return {
@@ -2438,11 +2460,12 @@ export function buildMoveZoneSelectionOptions(
   readonly maxSelections: number;
   readonly destination: string;
   readonly shuffleAfter: boolean;
-  readonly remainderDestination: 'bottom' | 'graveyard' | 'shuffle' | 'top';
+  readonly remainderDestination: 'bottom' | 'graveyard' | 'shuffle' | 'top' | 'none';
   readonly remainderRandomOrder: boolean;
   readonly remainderPlayerChoosesOrder: boolean;
   readonly filter: ReturnType<typeof buildLookChooseLibrarySearchFilter>;
   readonly optional: boolean;
+  readonly searchZone: 'hand' | 'graveyard' | 'library';
 } | null {
   const players = resolvePlayers(state, (step as any).who || { kind: 'you' }, ctx);
   const playerId = (players[0] || ctx.controllerId) as PlayerID;
@@ -2458,6 +2481,8 @@ export function buildMoveZoneSelectionOptions(
 
   const whatText = String((step.what as any)?.text || (step.what as any)?.raw || '').trim();
   const toRaw = String(step.toRaw || step.raw || '').toLowerCase();
+  const fromHand = /from your hand/i.test(`${whatText} ${String(step.raw || '')}`);
+  const fromGraveyard = /from your graveyard|from a graveyard|from graveyards/i.test(`${whatText} ${String(step.raw || '')}`);
   const destination =
     step.to === 'battlefield'
       ? 'battlefield'
@@ -2468,10 +2493,18 @@ export function buildMoveZoneSelectionOptions(
           : step.to === 'library' && /shuffle/i.test(toRaw)
             ? 'shuffle'
             : 'hand';
+  const remainderDestination: 'bottom' | 'graveyard' | 'shuffle' | 'top' | 'none' =
+    /shuffle.*(rest|revealed)/i.test(toRaw)
+      ? 'shuffle'
+      : /bottom/i.test(toRaw)
+        ? 'bottom'
+        : fromHand
+          ? 'none'
+          : 'bottom';
 
   return {
     playerId,
-    availableCards: pool,
+    availableCards: fromHand && candidates.length > 0 ? candidates : pool,
     selectableCardIds: candidates
       .map((card) => String(card?.id || '').trim())
       .filter(Boolean),
@@ -2479,15 +2512,12 @@ export function buildMoveZoneSelectionOptions(
     maxSelections: limits.maxSelections,
     destination,
     shuffleAfter: destination === 'shuffle',
-    remainderDestination: /shuffle.*(rest|revealed)/i.test(toRaw)
-      ? 'shuffle'
-      : /bottom/i.test(toRaw)
-        ? 'bottom'
-        : 'bottom',
+    remainderDestination,
     remainderRandomOrder: /random order/i.test(toRaw),
     remainderPlayerChoosesOrder: /any order/i.test(toRaw),
     filter: buildLookChooseLibrarySearchFilter(whatText),
     optional,
+    searchZone: fromHand ? 'hand' : fromGraveyard ? 'graveyard' : 'library',
   };
 }
 

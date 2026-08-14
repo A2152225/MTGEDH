@@ -66,6 +66,7 @@ const CONTINUATION_SENTENCE_PATTERNS = [
   /^instead\b/i,
   /^draw\b/i,
   /^exile\b/i,
+  /^search\b/i,
   /^shuffle\b/i,
   /^(?:sacrifice|exile)\s+(?:it|them|that token|those tokens|the token|the tokens)\b/i,
 ];

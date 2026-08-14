@@ -74,6 +74,13 @@ export function isValidCreatureType(type: string): type is CreatureType {
   return CREATURE_TYPES.includes(type as CreatureType);
 }
 
+/** Case-insensitive creature-type check (oracle text is usually lowercase). */
+export function isCreatureTypeWord(word: string): boolean {
+  const lower = String(word || '').trim().toLowerCase();
+  if (!lower) return false;
+  return CREATURE_TYPES.some((type) => type.toLowerCase() === lower);
+}
+
 /**
  * Search creature types by partial match
  */

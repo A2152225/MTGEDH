@@ -46,6 +46,19 @@ describe('Rule 701.15: Goad Mechanic', () => {
       
       expect(isGoaded(creature)).toBe(true);
     });
+
+    it('should return true for legacy goaded object', () => {
+      const creature = {
+        id: 'creature1',
+        controller: 'player1',
+        owner: 'player1',
+        card: { name: 'Test Creature' },
+        goaded: { player2: true },
+      } as BattlefieldPermanent;
+
+      expect(isGoaded(creature)).toBe(true);
+      expect(getGoadedBy(creature)).toEqual(['player2']);
+    });
     
     it('should return true for multiply-goaded creature', () => {
       const creature = {

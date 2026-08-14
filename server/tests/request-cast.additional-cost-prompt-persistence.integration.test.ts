@@ -74,6 +74,7 @@ describe('requestCastSpell additional-cost prompt persistence (integration)', ()
     `${gameId}_blight_notarget_paymana`,
     `${gameId}_blight_targeted_target`,
     `${gameId}_blight_followup_target`,
+    `${gameId}_squad`,
   ];
 
   async function resetGame(gameId: string) {
@@ -490,5 +491,67 @@ describe('requestCastSpell additional-cost prompt persistence (integration)', ()
     expect(queuedCastEvent?.payload?.effectId).toBe(String((blightStep as any)?.keywordBlightEffectId || ''));
     expect(queuedCastEvent?.payload?.queuedResolutionStep?.keywordBlight).toBe(true);
     expect(String(queuedCastEvent?.payload?.queuedResolutionStep?.keywordBlightStage || '')).toBe('cast_additional_cost');
+  });
+
+  it('persists squad-cost prompts for no-target creatures like Galadhrim Brigade', async () => {
+    const testGameId = `${gameId}_squad`;
+    const game = setupBaseGame(testGameId, playerId, opponentId);
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'brigade_1',
+            name: 'Galadhrim Brigade',
+            mana_cost: '{2}{G}',
+            manaCost: '{2}{G}',
+            type_line: 'Creature — Elf Soldier',
+            oracle_text:
+              'Squad {1}{G} (As an additional cost to cast this spell, you may pay {1}{G} any number of times. When this creature enters, create that many tokens that are copies of it.)\nOther Elves you control get +1/+1.',
+            image_uris: { small: 'https://example.com/brigade.jpg' },
+            colors: ['G'],
+          },
+        ],
+        handCount: 1,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers.requestCastSpell({ gameId: testGameId, cardId: 'brigade_1' });
+
+    const squadStep = ResolutionQueueManager.getQueue(testGameId).steps.find((step: any) => step.type === 'squad_cost_payment') as any;
+    expect(squadStep?.cardId).toBe('brigade_1');
+    expect(squadStep?.squadCost).toBe('{1}{G}');
+
+    const queuedCastEvent = [...getEvents(testGameId)].reverse().find((event: any) => event.type === 'castSpellContinuation') as any;
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.type).toBe('squad_cost_payment');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.squadCost).toBe('{1}{G}');
+
+    await handlers.submitResolutionResponse({
+      gameId: testGameId,
+      stepId: String(squadStep.id),
+      selections: 2,
+    });
+
+    const paymentStep = ResolutionQueueManager.getQueue(testGameId).steps.find((step: any) => step.type === 'mana_payment_choice') as any;
+    expect(paymentStep?.spellPaymentRequired).toBe(true);
+    // {2}{G} plus two Squad payments of {1}{G} combine to {4}{G}{G}{G}.
+    expect(String(paymentStep?.manaCost || '').toUpperCase()).toBe('{4}{G}{G}{G}');
   });
 });

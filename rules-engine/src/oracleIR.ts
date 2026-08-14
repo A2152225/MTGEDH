@@ -1678,6 +1678,8 @@ export type OracleEffectStep =
   readonly rememberChosenModes?: boolean;
   /** When true, max mode count becomes 2 if teamworkWasPaid is set on the execution context. */
   readonly teamworkChooseBoth?: boolean;
+  /** When true, each chosen mode must target a different player (Shadrix-style). */
+  readonly distinctPlayerTargets?: boolean;
   /**
    * Season-style `{P}` budget ("Choose up to five {P} worth of modes").
    * When set, selected modes' `pCost` values must sum to at most this budget.

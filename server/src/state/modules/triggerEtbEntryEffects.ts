@@ -14,7 +14,7 @@ import {
   buildInterveningIfSubjectSnapshot,
   buildTriggerSourcePermanentSnapshot,
 } from './triggerSourceUtils.js';
-import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
+import { inferTriggeredAbilityTargetMetadata, isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetadata.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 import { handleRoomDoorStateOnEnter } from './triggers/room.js';
 import { pushTriggerDoublerCopies } from './triggers/combat.js';
@@ -209,10 +209,14 @@ export function tryBuildTypedPermanentEtbStackItem(
   }
 
   const effectText = String((trigger as any)?.effect || trigger?.description || '');
+  const modalChooseModes = isModalChooseModesEffectText(effectText);
   const enrichedMetadata = (
-    (trigger as any)?.requiresTarget === true
-    || /\btarget\b/i.test(effectText)
-    || String((trigger as any)?.targetZone || '').trim().length > 0
+    !modalChooseModes
+    && (
+      (trigger as any)?.requiresTarget === true
+      || /\btarget\b/i.test(effectText)
+      || String((trigger as any)?.targetZone || '').trim().length > 0
+    )
   )
     ? inferTriggeredAbilityTargetMetadata(effectText, {
         gameState: (ctx as any).state,
@@ -221,9 +225,11 @@ export function tryBuildTypedPermanentEtbStackItem(
         sourcePermanent,
       } as any)
     : ({} as ReturnType<typeof inferTriggeredAbilityTargetMetadata>);
-  const effectiveRequiresTarget = (trigger as any)?.requiresTarget === true
+  const effectiveRequiresTarget = !modalChooseModes && (
+    (trigger as any)?.requiresTarget === true
     || Boolean(enrichedMetadata.targetZone)
-    || Boolean(enrichedMetadata.targetType);
+    || Boolean(enrichedMetadata.targetType)
+  );
 
   const discoverXValue = resolveEnteringCreatureDiscoverXValue(trigger, enteringPermanent, (ctx as any).state);
   recordTurnLimitedEtbTriggerQueued((ctx as any).state, trigger, String(sourcePermanent?.id || ''));
@@ -310,6 +316,10 @@ function buildTriggeredAbilityGraveyardValidTargets(
     baseToken = 'graveyard_card';
   }
 
+  const typeTokens = filterTypes.length > 1
+    ? filterTypes.map((typeName) => `graveyard_${String(typeName).toLowerCase()}_card`)
+    : [baseToken];
+
   const exactMV = typeof (metadata as any).targetFilterExactManaValue === 'number' ? Number((metadata as any).targetFilterExactManaValue) : undefined;
   const minMV = typeof (metadata as any).targetFilterMinManaValue === 'number' ? Number((metadata as any).targetFilterMinManaValue) : undefined;
   const maxMV = typeof metadata.targetFilterMaxManaValue === 'number' ? Number(metadata.targetFilterMaxManaValue) : undefined;
@@ -318,7 +328,7 @@ function buildTriggeredAbilityGraveyardValidTargets(
   for (const ownerId of owners) {
     const graveyard = Array.isArray(zones[ownerId]?.graveyard) ? zones[ownerId].graveyard : [];
     for (const card of graveyard) {
-      if (!matchesGraveyardCardTargetType(card, baseToken)) continue;
+      if (!typeTokens.some((token) => matchesGraveyardCardTargetType(card, token))) continue;
       // Required-type words must all appear in the type line (e.g. "Dragon" for
       // "target Dragon creature card from your graveyard"). Hyphens are tolerated.
       if (requiredTypeWords.length > 0) {
@@ -364,6 +374,7 @@ export function queueSelfETBTriggersForPermanent(
     'etb_search',
     'etb_create_token',
     'etb_counter',
+    'hideaway_etb',
   ]);
   const allTriggers = getETBTriggersForPermanent(permanent.card, permanent);
   for (const trigger of allTriggers) {
@@ -485,6 +496,8 @@ export function queueSelfETBTriggersForPermanent(
       ...(typeof discoverXValue === 'number' ? { xValue: discoverXValue } : null),
       ...(triggerAny.doThisOnlyOnceEachTurn ? { doThisOnlyOnceEachTurn: true } : null),
       ...(triggerAny.oncePerTurn ? { oncePerTurn: true } : null),
+      ...(typeof triggerAny.hideawayCount === 'number' ? { hideawayCount: triggerAny.hideawayCount } : null),
+      ...(triggerAny.hideawayCondition ? { hideawayCondition: triggerAny.hideawayCondition } : null),
     } as any;
     recordTurnLimitedEtbTriggerQueued(state, trigger, String(permanent.id || ''));
     state.stack.push(stackItem);
@@ -534,6 +547,8 @@ export function queueSelfETBTriggersForPermanent(
           ...(enrichedMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
           ...(typeof enrichedMetadata.minTargets === 'number' ? { minTargets: enrichedMetadata.minTargets } : null),
           ...(typeof enrichedMetadata.maxTargets === 'number' ? { maxTargets: enrichedMetadata.maxTargets } : null),
+          ...(typeof triggerAny.hideawayCount === 'number' ? { hideawayCount: triggerAny.hideawayCount } : null),
+          ...(triggerAny.hideawayCondition ? { hideawayCondition: triggerAny.hideawayCondition } : null),
         });
       } catch (err) {
         debugWarn(1, '[queueSelfETBTriggersForPermanent] appendEvent(pushTriggeredAbility self ETB) failed:', err);

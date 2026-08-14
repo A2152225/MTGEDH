@@ -1205,6 +1205,53 @@ const ALL_KEYWORD_PATTERNS: KeywordPattern[] = [
 // Detection Functions
 // ============================================================================
 
+function isGrantedKeywordAbilityMatch(
+  text: string,
+  match: RegExpMatchArray,
+  keyword: string,
+): boolean {
+  const idx = typeof match.index === 'number'
+    ? match.index
+    : String(text || '').toLowerCase().indexOf(keyword.toLowerCase());
+  if (idx < 0) return false;
+  const before = String(text || '').slice(Math.max(0, idx - 48), idx);
+  return /\b(?:have|has|gains?|gained)\s+$/i.test(before);
+}
+
+function stripKeywordReminderText(oracleText: string): string {
+  return String(oracleText || '').replace(/\([^)]*\)/g, '');
+}
+
+/**
+ * True when another permanent you control grants this creature riot as it enters
+ * (e.g. Rhythm of the Wild: "Nontoken creatures you control have riot").
+ */
+export function battlefieldGrantsRiotToPermanent(permanent: any, battlefield: readonly any[]): boolean {
+  const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
+  if (!typeLine.includes('creature')) return false;
+
+  const isToken = permanent?.isToken === true;
+  const controller = String(permanent?.controller || '').trim();
+  const enteringId = String(permanent?.id || '').trim();
+
+  for (const perm of battlefield || []) {
+    if (!perm) continue;
+    if (enteringId && String(perm.id || '').trim() === enteringId) continue;
+    if (controller && String(perm.controller || '').trim() !== controller) continue;
+
+    const oracle = stripKeywordReminderText(String(perm?.card?.oracle_text || perm?.oracle_text || ''));
+    if (/nontoken creatures you control have riot/i.test(oracle)) {
+      if (!isToken) return true;
+      continue;
+    }
+    if (/(?:^|[.\n])\s*(?:each )?(?:other )?creatures? you control (?:have|has) riot/i.test(oracle)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Detect all keywords from oracle text
  * @param oracleText - Card's oracle text
@@ -1221,12 +1268,20 @@ export function detectKeywords(oracleText: string, cardName: string = ''): Keywo
   
   for (const pattern of ALL_KEYWORD_PATTERNS) {
     // Try matching in text without reminder first, then full text
+    let matchedIn = textWithoutReminder;
     let match = textWithoutReminder.match(pattern.pattern);
     if (!match) {
       match = text.match(pattern.pattern);
+      matchedIn = text;
     }
     
     if (match) {
+      // "Nontoken creatures you control have riot" grants riot to others; the source
+      // itself does not have riot as a keyword (Rhythm of the Wild).
+      if (pattern.keyword === 'riot' && isGrantedKeywordAbilityMatch(matchedIn, match, 'riot')) {
+        continue;
+      }
+
       // Extract numeric value if present (group 1 for most patterns)
       let value: number | undefined;
       if (match[1] && /^\d+$/.test(match[1])) {

@@ -446,6 +446,29 @@ export function getEffectiveAdditionalCost(card: any, oracleText: string): Addit
   return detectAdditionalCost(oracleText);
 }
 
+function getRecordedSquadTimesPaid(card: any): number {
+  const n = Number(card?.squadTimesPaid);
+  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+}
+
+function getPendingSquadTimesPaidFields(card: any): { squadTimesPaid: number } | Record<string, never> {
+  if (!Number.isFinite(Number(card?.squadTimesPaid))) return {};
+  return { squadTimesPaid: getRecordedSquadTimesPaid(card) };
+}
+
+function getSquadDisplayedCost(oracleText: string, fallback?: string): string | undefined {
+  const additional = detectAdditionalCost(oracleText);
+  if (additional?.type === 'squad' && additional.cost) return String(additional.cost);
+  return fallback;
+}
+
+function getSquadAdditionalManaCost(oracleText: string, timesPaid: number): string | undefined {
+  if (timesPaid <= 0) return undefined;
+  const additional = detectAdditionalCost(oracleText);
+  if (additional?.type !== 'squad' || !additional.cost) return undefined;
+  return repeatManaCost(String(additional.cost).replace(/\s+/g, ''), timesPaid);
+}
+
 function getRevealAdditionalCostCards(hand: any[], castSourceZone: SpellCastSourceZone, cardId: string, additionalCost: AdditionalCostResult): any[] {
   const filter = String(additionalCost.filter || '').trim().toLowerCase();
   return (Array.isArray(hand) ? hand : [])
@@ -1480,6 +1503,13 @@ export function finalizePlayedLand(
           p.id !== permanent.id && p.controller === playerId
         );
 
+        const opponentLandCount = battlefield.filter((p: any) => {
+          if (p.id === permanent.id) return false;
+          if (p.controller === playerId) return false;
+          const typeLine = (p.card?.type_line || '').toLowerCase();
+          return typeLine.includes('land');
+        }).length;
+
         evaluation = evaluateConditionalLandETB(
           oracleText,
           otherLandCount,
@@ -1487,7 +1517,8 @@ export function finalizePlayedLand(
           playerHand,
           basicLandCount,
           opponentCount,
-          controlledPermanents
+          controlledPermanents,
+          opponentLandCount,
         );
       }
 
@@ -6238,6 +6269,9 @@ export async function requestCastSpellForSocket(
     const selectedSpell = resolveSelectedSpellCard(cardInHand, effectiveFaceIndex);
     const cardForCast = selectedSpell.card;
     const selectedFaceIndex = selectedSpell.faceIndex;
+    if (Number.isFinite(Number((cardInHand as any)?.squadTimesPaid))) {
+      (cardForCast as any).squadTimesPaid = getRecordedSquadTimesPaid(cardInHand);
+    }
     if (options?.exileAfterResolution === true) {
       (cardInHand as any).exileAfterResolution = true;
       (cardForCast as any).exileAfterResolution = true;
@@ -6760,10 +6794,13 @@ export async function requestCastSpellForSocket(
       return;
     }
 
-    const resolvedManaCost = expandManaCostWithMultikicker(
-      expandManaCostWithChosenX(manaCost, chosenXValue),
-      multikickerCost,
-      chosenTimesKicked ?? 0,
+    const resolvedManaCost = appendManaCost(
+      expandManaCostWithMultikicker(
+        expandManaCostWithChosenX(manaCost, chosenXValue),
+        multikickerCost,
+        chosenTimesKicked ?? 0,
+      ),
+      getSquadAdditionalManaCost(String(cardInHand?.oracle_text || oracleTextRaw || ''), getRecordedSquadTimesPaid(cardInHand)),
     );
 
     // Check if this spell requires targets
@@ -6930,8 +6967,12 @@ export async function requestCastSpellForSocket(
           validTargetList = (game.state.battlefield || [])
             .filter((p: any) => {
               const tl = (p.card?.type_line || '').toLowerCase();
-              if (auraTargetType === 'permanent') return true;
-              return tl.includes(auraTargetType);
+              if (auraTargetType === 'permanent') {
+                // keep all permanents
+              } else if (!tl.includes(auraTargetType)) {
+                return false;
+              }
+              return canPermanentBeTargetedByPlayer(p, game.state, playerId as PlayerID);
             })
             .map((p: any) => ({
               id: p.id,
@@ -7011,6 +7052,7 @@ export async function requestCastSpellForSocket(
           playerId,
           faceIndex: selectedFaceIndex,
           xValue: chosenXValue,
+          ...getPendingSquadTimesPaidFields(cardInHand),
           selectedModes: Array.isArray((cardForCast as any).selectedModes) ? [...((cardForCast as any).selectedModes as string[])] : undefined,
           selectedAdditionalCostModes: Array.isArray((cardForCast as any).selectedAdditionalCostModes)
             ? [...((cardForCast as any).selectedAdditionalCostModes as string[])]
@@ -7326,6 +7368,46 @@ export async function requestCastSpellForSocket(
               pendingCast.teamworkWasPaid = false;
             }
           }
+        } else if (!requestCastAdditionalCostPaid && additionalCost?.type === 'squad') {
+          const squadCostStep = ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.SQUAD_COST_PAYMENT,
+            playerId: playerId as any,
+            sourceId: effectId,
+            sourceName: cardName,
+            sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: `Choose how many times to pay Squad for ${cardName}.`,
+            mandatory: true,
+            cardId,
+            cardName,
+            squadCost: getSquadDisplayedCost(String(cardInHand?.oracle_text || oracleTextRaw || ''), additionalCost.cost),
+            imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            castSpellFromHandArgs: {
+              cardId,
+              faceIndex: selectedFaceIndex,
+              fromZone: castSourceZone,
+              xValue: chosenXValue,
+              alternateCostId: options?.forcedAlternateCostId,
+              castWithoutPayingManaCost: isFreeCast,
+              bypassExilePermissionCheck,
+              ignoreTimingRestrictions,
+              skipPriorityCheck: true,
+            },
+          } as any);
+
+          persistQueuedSpellCastStepContinuation(gameId, game, {
+            playerId,
+            cardId,
+            effectId,
+            pendingSpellCast: {
+              ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+            },
+            queuedResolutionStep: {
+              ...(squadCostStep as any),
+            },
+          });
+
+          debug(2, `[requestCastSpell] Queued squad additional-cost step for ${cardName} (cost: ${additionalCost.cost})`);
+          return;
         } else if (additionalCost?.type === 'blight') {
           const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
           if (!pendingCast) {
@@ -7675,6 +7757,7 @@ export async function requestCastSpellForSocket(
       faceIndex: selectedFaceIndex,
       xValue: chosenXValue,
       ...(chosenTimesKicked != null ? { timesKicked: chosenTimesKicked } : {}),
+      ...getPendingSquadTimesPaidFields(cardInHand),
       selectedModes: Array.isArray((cardForCast as any).selectedModes) ? [...((cardForCast as any).selectedModes as string[])] : undefined,
       selectedAdditionalCostModes: Array.isArray((cardForCast as any).selectedAdditionalCostModes)
         ? [...((cardForCast as any).selectedAdditionalCostModes as string[])]
@@ -8072,6 +8155,48 @@ export async function requestCastSpellForSocket(
         pendingCast.teamworkResolved = true;
         pendingCast.teamworkWasPaid = false;
       }
+    }
+
+    if (!requestCastAdditionalCostPaid && additionalCost?.type === 'squad') {
+      const squadCostStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.SQUAD_COST_PAYMENT,
+        playerId: playerId as any,
+        sourceId: effectId,
+        sourceName: cardName,
+        sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        description: `Choose how many times to pay Squad for ${cardName}.`,
+        mandatory: true,
+        cardId,
+        cardName,
+        squadCost: getSquadDisplayedCost(String(cardInHand?.oracle_text || oracleTextRaw || ''), additionalCost.cost),
+        imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        castSpellFromHandArgs: {
+          cardId,
+          faceIndex: selectedFaceIndex,
+          fromZone: castSourceZone,
+          xValue: chosenXValue,
+          alternateCostId: options?.forcedAlternateCostId,
+          castWithoutPayingManaCost: isFreeCast,
+          bypassExilePermissionCheck,
+          ignoreTimingRestrictions,
+          skipPriorityCheck: true,
+        },
+      } as any);
+
+      persistQueuedSpellCastStepContinuation(gameId, game, {
+        playerId,
+        cardId,
+        effectId,
+        pendingSpellCast: {
+          ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+        },
+        queuedResolutionStep: {
+          ...(squadCostStep as any),
+        },
+      });
+
+      debug(2, `[requestCastSpell] Queued squad additional-cost step for no-target spell ${cardName} (cost: ${additionalCost.cost})`);
+      return;
     }
 
     if (additionalCost?.type === 'blight') {
@@ -9159,7 +9284,13 @@ export function registerGameActions(io: Server, socket: Socket) {
       const selectedSpell = resolveSelectedSpellCard(cardInHand, effectiveFaceIndex);
       const selectedFaceIndex = selectedSpell.faceIndex;
       const castAsAdventure = selectedSpell.castAsAdventure;
+      const squadTimesPaidBeforeFace = Number.isFinite(Number((cardInHand as any)?.squadTimesPaid))
+        ? getRecordedSquadTimesPaid(cardInHand)
+        : undefined;
       cardInHand = selectedSpell.card;
+      if (squadTimesPaidBeforeFace != null) {
+        (cardInHand as any).squadTimesPaid = squadTimesPaidBeforeFace;
+      }
       const resolvedTimesKicked = timesKickedFromPayload != null
         ? timesKickedFromPayload
         : (Number.isFinite((cardInHand as any)?.timesKicked)
@@ -10580,6 +10711,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               // Apply controller restriction
               if (auraControllerRestriction === 'you_control' && p.controller !== playerId) return false;
               if (auraControllerRestriction === 'opponent_controls' && p.controller === playerId) return false;
+              if (!canPermanentBeTargetedByPlayer(p, game.state, playerId as PlayerID)) return false;
               
               return true;
             })
@@ -10593,17 +10725,20 @@ export function registerGameActions(io: Server, socket: Socket) {
             }));
         } else if (auraTargetType === 'permanent') {
           // Enchant permanent - any permanent
-          validTargets = (game.state.battlefield || []).map((p: any) => ({
-            id: p.id,
-            kind: 'permanent',
-            name: p.card?.name || 'Unknown',
-            controller: p.controller,
-            isOpponent: p.controller !== playerId,
-            imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-          }));
+          validTargets = (game.state.battlefield || [])
+            .filter((p: any) => canPermanentBeTargetedByPlayer(p, game.state, playerId as PlayerID))
+            .map((p: any) => ({
+              id: p.id,
+              kind: 'permanent',
+              name: p.card?.name || 'Unknown',
+              controller: p.controller,
+              isOpponent: p.controller !== playerId,
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            }));
         } else if (auraTargetType === 'artifact') {
           validTargets = (game.state.battlefield || [])
-            .filter((p: any) => (p.card?.type_line || '').toLowerCase().includes('artifact'))
+            .filter((p: any) => (p.card?.type_line || '').toLowerCase().includes('artifact')
+              && canPermanentBeTargetedByPlayer(p, game.state, playerId as PlayerID))
             .map((p: any) => ({
               id: p.id,
               kind: 'permanent',
@@ -10614,7 +10749,8 @@ export function registerGameActions(io: Server, socket: Socket) {
             }));
         } else if (auraTargetType === 'land') {
           validTargets = (game.state.battlefield || [])
-            .filter((p: any) => (p.card?.type_line || '').toLowerCase().includes('land'))
+            .filter((p: any) => (p.card?.type_line || '').toLowerCase().includes('land')
+              && canPermanentBeTargetedByPlayer(p, game.state, playerId as PlayerID))
             .map((p: any) => ({
               id: p.id,
               kind: 'permanent',
@@ -11195,10 +11331,13 @@ export function registerGameActions(io: Server, socket: Socket) {
                     : (castSourceZone === 'command' ? (commandZoneManaCost || '') : (graveyardCastManaCost || cardInHand.mana_cost || "")),
         spellModeAdditionalCost,
       );
-      const manaCost = expandManaCostWithMultikicker(
-        expandManaCostWithChosenX(rawManaCost, xValue),
-        parseMultikickerManaCost(String(cardInHand?.oracle_text || '')),
-        resolvedTimesKicked ?? 0,
+      const manaCost = appendManaCost(
+        expandManaCostWithMultikicker(
+          expandManaCostWithChosenX(rawManaCost, xValue),
+          parseMultikickerManaCost(String(cardInHand?.oracle_text || '')),
+          resolvedTimesKicked ?? 0,
+        ),
+        getSquadAdditionalManaCost(String(cardInHand?.oracle_text || ''), getRecordedSquadTimesPaid(cardInHand)),
       );
       const parsedCost = parseManaCost(manaCost);
       
@@ -12503,7 +12642,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                     if (!permanentTypeLine.includes('creature')) return false;
                     if (auraControllerRestriction === 'you_control' && permanent.controller !== playerId) return false;
                     if (auraControllerRestriction === 'opponent_controls' && permanent.controller === playerId) return false;
-                    return true;
+                    return canPermanentBeTargetedByPlayer(permanent, game.state, playerId as PlayerID);
                   })
                   .map((permanent: any) => ({
                     id: permanent.id,
@@ -12515,18 +12654,21 @@ export function registerGameActions(io: Server, socket: Socket) {
                     typeLine: permanent.card?.type_line,
                   }));
               } else if (auraTargetType === 'permanent') {
-                validTargetList = (game.state.battlefield || []).map((permanent: any) => ({
-                  id: permanent.id,
-                  kind: 'permanent',
-                  name: permanent.card?.name || 'Unknown',
-                  controller: permanent.controller,
-                  isOpponent: permanent.controller !== playerId,
-                  imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
-                  typeLine: permanent.card?.type_line,
-                }));
+                validTargetList = (game.state.battlefield || [])
+                  .filter((permanent: any) => canPermanentBeTargetedByPlayer(permanent, game.state, playerId as PlayerID))
+                  .map((permanent: any) => ({
+                    id: permanent.id,
+                    kind: 'permanent',
+                    name: permanent.card?.name || 'Unknown',
+                    controller: permanent.controller,
+                    isOpponent: permanent.controller !== playerId,
+                    imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+                    typeLine: permanent.card?.type_line,
+                  }));
               } else if (auraTargetType === 'artifact' || auraTargetType === 'land' || auraTargetType === 'enchantment') {
                 validTargetList = (game.state.battlefield || [])
-                  .filter((permanent: any) => String(permanent?.card?.type_line || '').toLowerCase().includes(auraTargetType))
+                  .filter((permanent: any) => String(permanent?.card?.type_line || '').toLowerCase().includes(auraTargetType)
+                    && canPermanentBeTargetedByPlayer(permanent, game.state, playerId as PlayerID))
                   .map((permanent: any) => ({
                     id: permanent.id,
                     kind: 'permanent',
@@ -13948,6 +14090,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       let pendingAlternateCostId: string | undefined;
       let pendingXValue: number | undefined;
       let pendingTimesKicked: number | undefined;
+      let pendingSquadTimesPaid: number | undefined;
       let pendingFaceIndex: number | undefined;
       let pendingTargetGrouping: any;
       let suspendedLibrarySearchStep: any;
@@ -13988,6 +14131,11 @@ export function registerGameActions(io: Server, socket: Socket) {
             ? Math.max(0, Math.floor(Number(pendingCast.timesKicked)))
             : (Number.isFinite(pendingCast?.card?.timesKicked)
               ? Math.max(0, Math.floor(Number(pendingCast.card.timesKicked)))
+              : undefined);
+          pendingSquadTimesPaid = Number.isFinite(pendingCast?.squadTimesPaid)
+            ? Math.max(0, Math.floor(Number(pendingCast.squadTimesPaid)))
+            : (Number.isFinite(pendingCast?.card?.squadTimesPaid)
+              ? Math.max(0, Math.floor(Number(pendingCast.card.squadTimesPaid)))
               : undefined);
           pendingFaceIndex = Number.isFinite(pendingCast?.faceIndex) ? Number(pendingCast.faceIndex) : undefined;
           pendingTargetGrouping = pendingCast?.targetGrouping;
@@ -14107,6 +14255,35 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
           } catch (e) {
             debugWarn(1, '[completeCastSpell] Failed to apply multikicker metadata:', e);
+          }
+        }
+
+        if (pendingSquadTimesPaid != null) {
+          try {
+            const zones = (game.state as any)?.zones?.[playerId];
+            const fromZone = normalizeSpellCastSourceZone(pendingCast?.fromZone) || 'hand';
+            const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
+            const exile: any[] = Array.isArray((zones as any)?.exile) ? (zones as any).exile : [];
+            const graveyard: any[] = Array.isArray((zones as any)?.graveyard) ? (zones as any).graveyard : [];
+            const library: any[] = Array.isArray((game.libraries as any)?.get?.(playerId))
+              ? (game.libraries as any).get(playerId)
+              : (Array.isArray((game.libraries as any)?.[playerId]) ? (game.libraries as any)[playerId] : []);
+            const sourceArr = fromZone === 'command'
+              ? getPlayerCommandZoneCards(game, String(playerId))
+              : fromZone === 'exile'
+                ? exile
+                : fromZone === 'graveyard'
+                  ? graveyard
+                  : fromZone === 'library'
+                    ? library
+                    : hand;
+            const cardObj = sourceArr.find((c: any) => c && String(c.id) === String(cardId));
+            if (cardObj) {
+              (cardObj as any).squadTimesPaid = pendingSquadTimesPaid;
+              (cardObj as any).additionalCostPaid = true;
+            }
+          } catch (e) {
+            debugWarn(1, '[completeCastSpell] Failed to apply squad metadata:', e);
           }
         }
 

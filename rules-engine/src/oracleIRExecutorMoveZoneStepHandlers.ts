@@ -785,6 +785,10 @@ function getChosenObjectIds(ctx: OracleIRExecutionContext): readonly string[] {
   return ids;
 }
 
+function hasExplicitChosenObjectIds(ctx: OracleIRExecutionContext): boolean {
+  return Array.isArray(ctx.selectorContext?.chosenObjectIds);
+}
+
 function normalizeReferenceText(value: unknown): string {
   return String(value || '')
     .replace(/\u2019/g, "'")
@@ -1479,16 +1483,45 @@ function resolveBattlefieldAttachment(
     return { kind: 'resolved', permanentId: String((controlledCreatures[0] as any)?.id || '').trim() };
   }
 
-  if (normalized === 'that creature' || normalized === 'that land' || normalized === 'that permanent') {
-    const expectedType = normalized === 'that land' ? 'land' : normalized === 'that creature' ? 'creature' : undefined;
+  if (normalized === 'that creature' || normalized === 'that land' || normalized === 'that permanent'
+    || normalized === 'that token' || normalized === 'the token') {
+    const expectedType = normalized === 'that land'
+      ? 'land'
+      : normalized === 'that creature'
+        ? 'creature'
+        : undefined;
+    const preferTokens = normalized === 'that token' || normalized === 'the token';
+    const createdTokenIds = Array.isArray((ctx as any)?.lastCreatedTokenIds)
+      ? (ctx as any).lastCreatedTokenIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const candidateIds = preferTokens
+      ? Array.from(new Set([...createdTokenIds, ...contextualPermanentIds]))
+      : contextualPermanentIds;
     const matches = battlefield.filter(perm => {
       const permanentId = String((perm as any)?.id || '').trim();
-      if (!contextualPermanentIds.includes(permanentId)) return false;
+      if (!candidateIds.includes(permanentId)) return false;
+      if (preferTokens && (perm as any)?.isToken !== true && createdTokenIds.length > 0 && !createdTokenIds.includes(permanentId)) {
+        return false;
+      }
+      if (preferTokens && (perm as any)?.isToken !== true && createdTokenIds.length === 0) {
+        if (!hasExecutorClass(perm as any, 'creature')) return false;
+      }
       if (expectedType && !hasExecutorClass(perm as any, expectedType)) return false;
       return true;
     });
     if (matches.length === 0) return { kind: 'impossible', selector: selectorText || normalized };
-    if (matches.length > 1) return { kind: 'player_choice_required', selector: selectorText || normalized };
+    if (matches.length > 1 && !preferTokens) return { kind: 'player_choice_required', selector: selectorText || normalized };
+    if (matches.length > 1 && preferTokens) {
+      const tokenMatches = matches.filter((perm: any) => perm?.isToken === true);
+      if (tokenMatches.length === 1) {
+        return { kind: 'resolved', permanentId: String((tokenMatches[0] as any)?.id || '').trim() };
+      }
+      if (createdTokenIds.length === 1) {
+        const created = matches.find((perm: any) => String((perm as any)?.id || '').trim() === createdTokenIds[0]);
+        if (created) return { kind: 'resolved', permanentId: createdTokenIds[0] };
+      }
+      return { kind: 'player_choice_required', selector: selectorText || normalized };
+    }
     return { kind: 'resolved', permanentId: String((matches[0] as any)?.id || '').trim() };
   }
 
@@ -4937,8 +4970,19 @@ export function applyMoveZoneStep(
       .filter((card: any) => cardMatchesMoveZoneSingleTargetCriteria(card, effectiveCriteria))
       .map((card: any) => String(card?.id || '').trim())
       .filter(Boolean);
+    if (!hasExplicitChosenObjectIds(ctx)) {
+      if (matchingIds.length === 0 || dynamicMaxCount <= 0) {
+        return buildAppliedResult({ state: nextState, log: [`No matching hand cards: ${step.raw}`] });
+      }
+      return {
+        applied: false,
+        message: `Skipped move zone (needs player card selection): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
     const preferred = preferredIds.filter((id) => matchingIds.includes(id));
-    const selectedIds = (preferred.length > 0 ? preferred : matchingIds).slice(0, dynamicMaxCount);
+    const selectedIds = preferred.slice(0, dynamicMaxCount);
     let workingState = nextState;
     const combinedLog: string[] = [];
     const movedBattlefieldIds: string[] = [];
@@ -4974,14 +5018,24 @@ export function applyMoveZoneStep(
   if (parsedAnyNumberCardsFromYourHand && step.to === 'battlefield') {
     const player = nextState.players.find((entry) => entry.id === controllerId) as any;
     const hand = Array.isArray(player?.hand) ? [...player.hand] : [];
+    const matchingCards = hand.filter((card: any) => {
+      const cardId = String(card?.id || '').trim();
+      return Boolean(cardId && cardMatchesType(card, parsedAnyNumberCardsFromYourHand.cardType));
+    });
+    if (!hasExplicitChosenObjectIds(ctx)) {
+      if (matchingCards.length === 0) {
+        return buildAppliedResult({ state: nextState, log: [`No matching hand cards: ${step.raw}`] });
+      }
+      return {
+        applied: false,
+        message: `Skipped move zone (needs player card selection): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
     const preferred = new Set(getChosenObjectIds(ctx).map((id) => String(id || '').trim()).filter(Boolean));
-    const cardIds = hand
-      .filter((card: any) => {
-        const cardId = String(card?.id || '').trim();
-        if (!cardId || !cardMatchesType(card, parsedAnyNumberCardsFromYourHand.cardType)) return false;
-        if (preferred.size > 0 && !preferred.has(cardId)) return false;
-        return true;
-      })
+    const cardIds = matchingCards
+      .filter((card: any) => preferred.has(String(card?.id || '').trim()))
       .map((card: any) => String(card?.id || '').trim())
       .filter(Boolean);
     let workingState = nextState;
@@ -6339,14 +6393,24 @@ export function applyMoveZoneStep(
   if (parsedAnyNumberFromYourHand && step.to === 'battlefield') {
     const player = nextState.players.find(p => p.id === controllerId) as any;
     const hand = Array.isArray(player?.hand) ? [...player.hand] : [];
+    const matchingCards = hand.filter((card: any) => {
+      const cardId = String(card?.id || '').trim();
+      return Boolean(cardId && cardMatchesType(card, parsedAnyNumberFromYourHand.cardType));
+    });
+    if (!hasExplicitChosenObjectIds(ctx)) {
+      if (matchingCards.length === 0) {
+        return buildAppliedResult({ state: nextState, log: [`No matching hand cards: ${step.raw}`] });
+      }
+      return {
+        applied: false,
+        message: `Skipped move zone (needs player card selection): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
     const preferred = new Set(getChosenObjectIds(ctx).map(id => String(id || '').trim()).filter(Boolean));
-    const cardIds = hand
-      .filter((card: any) => {
-        const cardId = String(card?.id || '').trim();
-        if (!cardId || !cardMatchesType(card, parsedAnyNumberFromYourHand.cardType)) return false;
-        if (preferred.size > 0 && !preferred.has(cardId)) return false;
-        return true;
-      })
+    const cardIds = matchingCards
+      .filter((card: any) => preferred.has(String(card?.id || '').trim()))
       .map((card: any) => String(card?.id || '').trim())
       .filter(Boolean);
     let workingState = nextState;

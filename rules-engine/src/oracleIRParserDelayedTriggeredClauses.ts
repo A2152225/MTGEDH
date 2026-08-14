@@ -62,6 +62,22 @@ export function tryParseDelayedTriggerClause(args: {
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
 
+  // Reflexive "When you do" (CR 603.12) is a delayed trigger on the same ability,
+  // not a new triggered ability line. Keep it as on_event so the server can queue
+  // it immediately after the antecedent (e.g. create a token).
+  const whenYouDo = clause.match(/^when you do(?: so)?,?\s*(.+)$/i);
+  if (whenYouDo) {
+    const effect = normalizeEffectText(String(whenYouDo[1] || ''));
+    if (effect) {
+      return withMeta({
+        kind: 'schedule_delayed_trigger',
+        timing: 'on_event',
+        effect,
+        raw: rawClause,
+      });
+    }
+  }
+
   for (const spec of TIMING_SPECS) {
     const leading = clause.match(spec.leading);
     if (leading) {

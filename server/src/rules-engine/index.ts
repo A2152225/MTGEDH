@@ -1,4 +1,5 @@
 import type { GameState, BattlefieldPermanent } from '../../../shared/src';
+import { permanentHasAttachmentGrantedKeyword } from '../../../shared/src';
 
 import {
   getCounterValue,
@@ -170,6 +171,11 @@ function oracleTextGrantsNativeIndestructible(oracleTextRaw: string): boolean {
       return true;
     }
 
+    // Aura/Equipment grants apply to the host, not this permanent.
+    if (/\b(?:enchanted|equipped|fortified)\s+(?:creature|permanent|land)\b/.test(line)) {
+      continue;
+    }
+
     // Static self-grants like "CARDNAME is indestructible." should count, but
     // conditional and temporary clauses are handled elsewhere.
     if ((/\bis indestructible\b/.test(line) || /\bhas indestructible\b/.test(line)) &&
@@ -220,54 +226,37 @@ function hasIndestructible(state: Readonly<GameState>, perm: BattlefieldPermanen
   if (permanentHasCounterGrantedAbility(state, perm, 'indestructible')) {
     return true;
   }
-  
-  // Check for equipment that grants indestructible (e.g., Darksteel Plate)
-  const attachedEquipment = (perm as any).attachedEquipment || [];
-  const attachments = (perm as any).attachments || [];
-  const allAttachments = [...attachedEquipment, ...attachments];
-  
-  // We need to check the battlefield for these attachments
-  // This will be done in the main function where we have access to state
-  
+
   return false;
 }
 
 /**
- * Check if any attached permanents grant indestructible
- * Used for Equipment like Darksteel Plate
+ * True when attached Equipment or Auras grant indestructible
+ * (Darksteel Plate, Redemption Arc, etc.).
  */
 function attachmentGrantsIndestructible(
-  state: Readonly<GameState>, 
-  perm: BattlefieldPermanent
+  state: Readonly<GameState>,
+  perm: BattlefieldPermanent,
 ): boolean {
-  const attachedEquipment = (perm as any).attachedEquipment || [];
-  const attachments = (perm as any).attachments || [];
-  const allAttachments = [...attachedEquipment, ...attachments];
-  
-  for (const attachId of allAttachments) {
-    const attachment = (state.battlefield as readonly BattlefieldPermanent[]).find(
-      p => p.id === attachId
-    );
-    if (attachment) {
-      const attachOracleText = ((attachment.card as any)?.oracle_text || '').toLowerCase();
-      // Pattern: "Equipped creature has indestructible" or "Equipped creature is indestructible"
-      if (attachOracleText.includes('equipped creature') && 
-          (attachOracleText.includes('has indestructible') || 
-           attachOracleText.includes('is indestructible') ||
-           attachOracleText.includes('indestructible'))) {
-        return true;
-      }
-    }
-  }
-  
-  return false;
+  const battlefield = Array.isArray(state.battlefield) ? [...state.battlefield] : [];
+  return permanentHasAttachmentGrantedKeyword(perm, battlefield, 'indestructible');
+}
+
+/** Rule 702.12: a permanent with indestructible can't be destroyed. */
+export function permanentHasIndestructible(
+  state: Readonly<GameState> | undefined,
+  perm: BattlefieldPermanent | undefined,
+): boolean {
+  if (!state || !perm) return false;
+  return hasIndestructible(state, perm) || attachmentGrantsIndestructible(state, perm);
 }
 
 // Pure SBA pass
 export function applyStateBasedActions(state: Readonly<GameState>): EngineSBAResult {
   const updates: EngineCounterUpdate[] = [];
+  const battlefieldPermanents = state.battlefield as readonly BattlefieldPermanent[];
 
-  for (const perm of state.battlefield as readonly BattlefieldPermanent[]) {
+  for (const perm of battlefieldPermanents) {
     const normalized = normalizeCounters(perm.counters);
     if (!countersEqual(perm.counters, normalized)) {
       updates.push({ permanentId: perm.id, counters: normalized });
@@ -275,45 +264,43 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
   }
 
   const destroys: string[] = [];
-  
-  // CR 704.5m: If an Aura is attached to an illegal object or player,
-  // or is not attached to an object or player, that Aura is put into
-  // its owner's graveyard.
-  // CR 704.5n: If an Aura is on the battlefield and isn't enchanting
-  // an object or player, that Aura is put into its owner's graveyard.
-  for (const perm of state.battlefield as readonly BattlefieldPermanent[]) {
-    const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
-    const isAura = typeLine.includes('enchantment') && typeLine.includes('aura');
-    
-    if (isAura) {
-      // Check if the aura is an enchantment creature (Bestow, Reconfigure, etc.)
-      // These can exist on the battlefield without being attached
-      const isEnchantmentCreature = typeLine.includes('creature');
-      
-      // If it's NOT an enchantment creature and has no attachedTo, destroy it
-      if (!isEnchantmentCreature && !(perm as any).attachedTo) {
-        destroys.push(perm.id);
-      }
-      // If it IS attached, verify the target still exists
-      else if ((perm as any).attachedTo && !isEnchantmentCreature) {
-        const targetExists = (state.battlefield as readonly BattlefieldPermanent[])
-          .some(p => p.id === (perm as any).attachedTo);
-        if (!targetExists) {
-          destroys.push(perm.id);
-        }
-      }
-      // Note: Enchantment creatures (bestow/reconfigure) are handled in runSBA
-      // before applyStateBasedActions is called, so they get their stats restored
-      // before the toughness check below
+
+  const pushDestroy = (id: string | undefined) => {
+    const permanentId = String(id || '').trim();
+    if (permanentId && !destroys.includes(permanentId)) {
+      destroys.push(permanentId);
     }
-  }
+  };
+
+  const collectIllegalAuraDestroys = () => {
+    // CR 704.5m / 704.5n: Aura not attached to a legal object/player is put into its owner's graveyard.
+    for (const perm of battlefieldPermanents) {
+      const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
+      const isAura = typeLine.includes('enchantment') && typeLine.includes('aura');
+      if (!isAura) continue;
+
+      // Enchantment creatures (Bestow, Reconfigure) can exist unattached.
+      const isEnchantmentCreature = typeLine.includes('creature');
+      if (isEnchantmentCreature) continue;
+
+      const attachedTo = String((perm as any).attachedTo || '').trim();
+      if (!attachedTo) {
+        pushDestroy(perm.id);
+        continue;
+      }
+      const targetExists = battlefieldPermanents.some((p) => p.id === attachedTo);
+      if (!targetExists || destroys.includes(attachedTo)) {
+        pushDestroy(perm.id);
+      }
+    }
+  };
   
   // CR 704.5f: If a creature has toughness 0 or less, it's put into its owner's graveyard.
   // This is NOT destruction (Rule 702.12b) - it happens regardless of indestructible
   // CR 704.5g: If a creature has toughness greater than 0, and it has been dealt damage equal to
   // or greater than its toughness, that creature has been dealt lethal damage and is destroyed.
   // Rule 702.12b: Indestructible creatures are NOT destroyed by lethal damage.
-  for (const perm of state.battlefield as readonly BattlefieldPermanent[]) {
+  for (const perm of battlefieldPermanents) {
     const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
     if (!typeLine.includes('creature')) continue;
     const totalToughness = getEffectiveStatsForSBA(state, perm).toughness;
@@ -324,7 +311,7 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
     
     // CR 704.5f: 0 or less toughness - NOT destruction, ignores indestructible
     if (totalToughness <= 0) {
-      destroys.push(perm.id);
+      pushDestroy(perm.id);
       continue;
     }
     
@@ -346,15 +333,15 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
         continue;
       }
 
-      const isIndestructible = hasIndestructible(state, perm) || attachmentGrantsIndestructible(state, perm);
+      const isIndestructible = permanentHasIndestructible(state, perm);
       if (!isIndestructible) {
-        destroys.push(perm.id);
+        pushDestroy(perm.id);
       }
     }
   }
 
   // CR 704.5i: If a planeswalker has loyalty 0, it's put into its owner's graveyard.
-  for (const perm of state.battlefield as readonly BattlefieldPermanent[]) {
+  for (const perm of battlefieldPermanents) {
     const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
     if (!typeLine.includes('planeswalker')) continue;
     
@@ -362,9 +349,11 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
     const loyalty = (perm as any).counters?.loyalty ?? 0;
     
     if (loyalty <= 0) {
-      destroys.push(perm.id);
+      pushDestroy(perm.id);
     }
   }
+
+  collectIllegalAuraDestroys();
   
   // CR 704.5j: Legend Rule - If a player controls two or more legendary permanents
   // with the same name, that player chooses one of them, and the rest are put into
@@ -373,7 +362,7 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
   // is handled by the caller (runSBA) via ResolutionQueueManager
   const legendaryByControllerAndName = new Map<string, BattlefieldPermanent[]>();
   
-  for (const perm of state.battlefield as readonly BattlefieldPermanent[]) {
+  for (const perm of battlefieldPermanents) {
     const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
     // Check for "legendary" supertype (both legendary creatures and legendary planeswalkers)
     if (!typeLine.includes('legendary')) continue;

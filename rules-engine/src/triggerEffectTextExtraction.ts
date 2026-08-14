@@ -7,12 +7,21 @@ import { normalizeGameplayEffectText } from './oracleReminderText.js';
 import { resolveGlobalTimingMatchIndex } from './oracleLineRegexMatch.js';
 
 const ABILITY_LINE_BOUNDARY =
-  /\n\s*(?=(?:when|whenever|at the beginning of)\b|\{[0-9WUBRGC/P]+\}|[A-Za-z][A-Za-z0-9' ,-]*\{[0-9WUBRGC/P]+\}\s*:|(?:[A-Za-z]+(?: [A-Za-z]+)*—))/i;
+  /\n\s*(?=(?:whenever|at the beginning of)\b|(?:when(?!\s+you\s+do(?:\s+so)?\b))|\{[0-9WUBRGC/P]+\}|[A-Za-z][A-Za-z0-9' ,-]*\{[0-9WUBRGC/P]+\}\s*:|(?:[A-Za-z]+(?: [A-Za-z]+)*—))/i;
 
 const NEW_TRIGGER_TIMING_SENTENCE = /^(?:when|whenever|at the beginning of)\b/i;
+const REFLEXIVE_WHEN_YOU_DO_SENTENCE = /^when you do(?: so)?\b/i;
 
 const CONTINUATION_SENTENCE =
-  /^(?:then|each|if you (?:do|win)|otherwise|you may|that player|those|they|it|choose|target|create|otherwise)\b/i;
+  /^(?:then|each|if you (?:do|win)|when you do(?: so)?|otherwise|you may|that player|those|they|it|choose|target|create|otherwise|search|reveal (?:those|them|it))\b/i;
+
+function isNewTriggerTimingSentence(sentence: string): boolean {
+  const trimmed = String(sentence || '').trim();
+  if (!trimmed) return false;
+  // Reflexive "When you do" continues the same ability (CR 603.12), not a new trigger line.
+  if (REFLEXIVE_WHEN_YOU_DO_SENTENCE.test(trimmed)) return false;
+  return NEW_TRIGGER_TIMING_SENTENCE.test(trimmed);
+}
 
 function splitSentences(text: string): string[] {
   const source = String(text || '').trim();
@@ -57,6 +66,31 @@ function joinSentences(left: string, right: string): string {
   return `${leftEnds} ${b}`.replace(/\.\s+\./g, '.').trim();
 }
 
+function unmatchedOpenParenCount(text: string): number {
+  let depth = 0;
+  for (const char of String(text || '')) {
+    if (char === '(') depth += 1;
+    if (char === ')') depth = Math.max(0, depth - 1);
+  }
+  return depth;
+}
+
+function sliceClosedReminderTail(tail: string, openParenCount: number): string | null {
+  if (openParenCount <= 0) return null;
+  let depth = openParenCount;
+  for (let i = 0; i < tail.length; i += 1) {
+    const char = tail[i];
+    if (char === '(') depth += 1;
+    if (char === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        return tail.slice(0, i).trim();
+      }
+    }
+  }
+  return tail.trim();
+}
+
 export function truncateAtAbilityBoundary(text: string): string {
   const source = String(text || '');
   const boundary = source.match(ABILITY_LINE_BOUNDARY);
@@ -71,7 +105,7 @@ export function truncateAtAbilityBoundary(text: string): string {
     if (firstLine.endsWith('.') && rest) {
       const restIsContinuation =
         CONTINUATION_SENTENCE.test(rest)
-        || NEW_TRIGGER_TIMING_SENTENCE.test(rest)
+        || isNewTriggerTimingSentence(rest)
         // Modal / random-choice modes continue on bullet lines after the lead sentence.
         || /^[\u2022•]/.test(rest);
       if (!restIsContinuation) {
@@ -86,7 +120,7 @@ export function truncateAtAbilityBoundary(text: string): string {
 function shouldIncludeContinuationSentence(sentence: string, fullTail: string): boolean {
   const trimmed = String(sentence || '').trim();
   if (!trimmed) return false;
-  if (NEW_TRIGGER_TIMING_SENTENCE.test(trimmed)) return false;
+  if (isNewTriggerTimingSentence(trimmed)) return false;
   if (CONTINUATION_SENTENCE.test(trimmed)) return true;
   // Modal / random-choice modes continue on bullet lines.
   if (/^[\u2022•]/.test(trimmed)) return true;
@@ -109,7 +143,11 @@ export function extractTriggerEffectAfterPrefix(
   const source = String(oracleText || '');
   if (effectStartIndex < 0 || effectStartIndex >= source.length) return '';
 
-  const tail = truncateAtAbilityBoundary(source.slice(effectStartIndex));
+  const reminderClosed = sliceClosedReminderTail(
+    source.slice(effectStartIndex),
+    unmatchedOpenParenCount(source.slice(0, effectStartIndex)),
+  );
+  const tail = truncateAtAbilityBoundary(reminderClosed ?? source.slice(effectStartIndex));
   const sentences = splitSentences(tail);
   if (sentences.length === 0) return normalizeGameplayEffectText(tail);
   if (sentences.length === 1) return normalizeGameplayEffectText(sentences[0].trim());

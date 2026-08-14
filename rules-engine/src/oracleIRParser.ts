@@ -94,6 +94,7 @@ import {
   mergeSearchLibraryToHandFollowupAbilities,
   mergeSearchLibraryPutOnTopFollowupAbilities,
   mergeSearchLibraryShuffleFollowupAbilities,
+  expandRepeatThisProcessOnceAbilities,
   expandVoteChoiceCountAbilities,
   pruneRedundantAnyPlayerMayActivateUnknownAbilities,
   pruneRedundantActivationRestrictionUnknownAbilities,
@@ -1942,6 +1943,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantEnchantAttachmentReminderUnknownAbilities(abilities);
   abilities = bindThisWayAntecedentOnAbilities(abilities);
   abilities = abilities.map(wrapTriggeredInterveningIfAbility);
+  abilities = expandRepeatThisProcessOnceAbilities(abilities);
   abilities = pruneBatch382MisparseExecutableSteps(abilities);
   abilities = upgradeSpryAndMightyCompoundSteps(abilities);
   abilities = pruneIgnorableEffectReminderUnknownSteps(abilities);

@@ -1,6 +1,17 @@
 import { inferManaValueConstraintFromText, type DynamicManaValueContext } from './graveyard-mana-value.js';
 import { parseBattlefieldCounterClause } from './triggerDelayedEffectUtils.js';
 
+/**
+ * Modal "choose one/two —" effects choose modes before targets (CR 700.2).
+ * Stack-time targeting of the full clause would prompt for a fight/destroy
+ * target even when the player later picks a non-targeted mode.
+ */
+export function isModalChooseModesEffectText(effectText: string): boolean {
+  const text = String(effectText || '');
+  if (!/[\u2022•]/.test(text)) return false;
+  return /\b(?:you may )?choose (?:one|two|three|\d+|one or more|any number)(?:\s*[.\u2014\u2013-]| at random)/i.test(text);
+}
+
 export function inferTriggeredAbilityTargetMetadata(effectText: string, context?: DynamicManaValueContext): {
   requiresTarget: boolean;
   targetType?: string;
@@ -25,6 +36,10 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
   minTargets?: number;
   maxTargets?: number;
 } {
+  if (isModalChooseModesEffectText(effectText)) {
+    return { requiresTarget: false };
+  }
+
   const lower = String(effectText || '').toLowerCase();
   const requiresTarget = lower.includes('target');
   let targetType: string | undefined;
@@ -117,6 +132,12 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
       if (lower.includes('any number of target')) {
         minTargets = 0;
         maxTargets = 99;
+      } else if (/\bup to one target\b/.test(lower)) {
+        minTargets = 0;
+        maxTargets = 1;
+      } else if (/\bup to two target\b/.test(lower)) {
+        minTargets = 0;
+        maxTargets = 2;
       }
 
       if (targetDestination === 'battlefield') {
@@ -158,6 +179,8 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
             targetFilterExcludeTypes = ['creature', 'land'];
           } else if (lower.includes('target creature or battle card')) {
             targetFilterTypes = ['creature', 'battle'];
+          } else if (/\btarget aura or equipment card\b/.test(lower) || /\btarget equipment or aura card\b/.test(lower)) {
+            targetFilterTypes = ['aura', 'equipment'];
           } else if (lower.includes('target instant card')) {
             targetFilterTypes = ['instant'];
           } else if (lower.includes('target sorcery card')) {
@@ -182,6 +205,7 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
     }
 
     if (lower.includes('target creature or planeswalker')) targetType = 'creature or planeswalker';
+    else if (/\btarget aura or equipment\b/.test(lower) || /\btarget equipment or aura\b/.test(lower)) targetType = 'aura or equipment';
     else if (lower.includes('target artifact or enchantment')) targetType = 'artifact or enchantment';
     else if (lower.includes('target noncreature artifact')) targetType = 'noncreature artifact';
     else if (/target\s+non-[a-z0-9'-]+(?:\s+[a-z0-9'-]+)*\s+creature\b/.test(lower)) targetType = 'creature';

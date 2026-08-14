@@ -5,6 +5,7 @@ import type {
   ReplacementResult,
 } from './replacementEffectsTypes';
 import { ReplacementEffectType } from './replacementEffectsTypes';
+import { matchOpponentsControlLandsETB } from './oracleIREtbTappedPattern';
 
 /**
  * Evaluate conditional ETB replacement effects
@@ -22,6 +23,7 @@ export function evaluateETBCondition(
     readonly playerLifeTotals?: readonly number[];
     readonly opponentCount?: number;
     readonly controlledBasicLandCount?: number;
+    readonly opponentLandCount?: number;
   }
 ): ETBConditionCheck {
   const text = (card.oracle_text || '').toLowerCase();
@@ -81,6 +83,17 @@ export function evaluateETBCondition(
     return {
       entersTapped: !hasTwoOpponents,
       reason: hasTwoOpponents ? 'Have 2 or more opponents' : 'Have fewer than 2 opponents',
+    };
+  }
+
+  const opponentsLandThreshold = matchOpponentsControlLandsETB(
+    card.oracle_text || '',
+    Math.max(0, Number(context?.opponentLandCount) || 0),
+  );
+  if (opponentsLandThreshold) {
+    return {
+      entersTapped: opponentsLandThreshold.shouldEnterTapped,
+      reason: opponentsLandThreshold.reason,
     };
   }
 

@@ -591,6 +591,87 @@ export function mergeSearchLibraryShuffleFollowupAbilities(
   });
 }
 
+function cloneOracleEffectStep(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind === 'conditional') {
+    const nested = (step as Extract<OracleEffectStep, { kind: 'conditional' }>).steps || [];
+    return {
+      ...step,
+      steps: nested.map(cloneOracleEffectStep),
+    } as OracleEffectStep;
+  }
+  return { ...step };
+}
+
+function isShuffleIfSearchedThisWayStep(step: OracleEffectStep): boolean {
+  if (step.kind === 'shuffle_library') return true;
+  const conditionRaw = String((step as { condition?: { raw?: string } }).condition?.raw || '');
+  const raw = `${String((step as { raw?: string }).raw || '')} ${conditionRaw}`;
+  return /if you search(?:ed)? your library this way/i.test(raw);
+}
+
+function isRepeatThisProcessOncePlaceholder(step: OracleEffectStep): boolean {
+  if (step.kind === 'conditional') {
+    const nested = (step as Extract<OracleEffectStep, { kind: 'conditional' }>).steps || [];
+    if (nested.length === 0) {
+      return /repeat this process once/i.test(String((step as { raw?: string }).raw || ''));
+    }
+    return nested.every(isRepeatThisProcessOncePlaceholder);
+  }
+  const effectText = Array.isArray((step as { effectText?: string[] }).effectText)
+    ? (step as { effectText: string[] }).effectText.join(' ')
+    : '';
+  const raw = `${String((step as { raw?: string }).raw || '')} ${effectText}`;
+  return /repeat this process once/i.test(raw);
+}
+
+function expandRepeatThisProcessOnceSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const recursed = steps.map((step) => {
+    if (step.kind !== 'conditional') return step;
+    const conditional = step as Extract<OracleEffectStep, { kind: 'conditional' }>;
+    const nested = expandRepeatThisProcessOnceSteps(conditional.steps || []);
+    const unchanged = nested.length === (conditional.steps || []).length
+      && nested.every((inner, index) => inner === (conditional.steps || [])[index]);
+    return unchanged ? step : { ...conditional, steps: nested } as OracleEffectStep;
+  });
+
+  const expanded: OracleEffectStep[] = [];
+  for (const step of recursed) {
+    if (!isRepeatThisProcessOncePlaceholder(step)) {
+      expanded.push(step);
+      continue;
+    }
+
+    const process = expanded.filter((prior) => !isShuffleIfSearchedThisWayStep(prior));
+    if (process.length === 0) {
+      expanded.push(step);
+      continue;
+    }
+
+    const copies = process.map(cloneOracleEffectStep);
+    if (step.kind === 'conditional') {
+      expanded.push({
+        ...(step as Extract<OracleEffectStep, { kind: 'conditional' }>),
+        steps: copies,
+      } as OracleEffectStep);
+    } else {
+      expanded.push(...copies);
+    }
+  }
+  return expanded;
+}
+
+/** Copy the preceding process into "repeat this process once" conditionals (Claim Jumper / Balance-style). */
+export function expandRepeatThisProcessOnceAbilities(
+  abilities: readonly OracleIRAbility[],
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const expanded = expandRepeatThisProcessOnceSteps(ability.steps || []);
+    const unchanged = expanded.length === (ability.steps || []).length
+      && expanded.every((step, index) => step === (ability.steps || [])[index]);
+    return unchanged ? ability : { ...ability, steps: expanded };
+  });
+}
+
 function parseLookSelectTopPrimaryStep(params: {
   lookRaw: string;
   moveRaw: string;
@@ -2838,9 +2919,20 @@ function parseSearchResultCount(raw: string): number | undefined {
   }
 }
 
-function normalizeLibrarySearchCriteria(rawCriteria: string): { text: string; maxResults?: number | 'any_number' } {
+function normalizeLibrarySearchCriteria(rawCriteria: string): {
+  text: string;
+  maxResults?: number | 'any_number';
+  whereX?: { kind: 'where'; raw: string };
+} {
   let criteria = String(rawCriteria || '').trim();
   let maxResults: number | 'any_number' | undefined;
+  let whereX: { kind: 'where'; raw: string } | undefined;
+
+  const equalToMatch = criteria.match(/^(?:a\s+number\s+of|x)\s+(.+?)\s+(?:cards?\s+)?equal\s+to\s+(.+)$/i);
+  if (equalToMatch) {
+    criteria = String(equalToMatch[1] || '').trim();
+    whereX = { kind: 'where', raw: String(equalToMatch[2] || '').trim() };
+  }
 
   const upToMatch = criteria.match(/^up to\s+([a-z0-9]+)\s+(.+)$/i);
   if (upToMatch) {
@@ -2866,7 +2958,7 @@ function normalizeLibrarySearchCriteria(rawCriteria: string): { text: string; ma
     .replace(/\s+/g, ' ')
     .trim();
 
-  return { text: criteria, maxResults };
+  return { text: criteria, maxResults, ...(whereX ? { whereX } : {}) };
 }
 
 function parseLibrarySearchUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
@@ -2896,8 +2988,14 @@ function parseLibrarySearchUnknownStep(step: OracleEffectStep): OracleEffectStep
   const split = afterFor.match(/^([\s\S]+?)(?:,\s*([\s\S]+)|\s+and\s+((?:put|reveal|cast|exile)\b[\s\S]+))?$/i);
   if (!split) return null;
 
-  const { text: criteriaText, maxResults } = normalizeLibrarySearchCriteria(String(split[1] || '').trim());
-  const tail = String(split[2] || split[3] || '').trim();
+  const { text: criteriaText, maxResults, whereX: criteriaWhereX } = normalizeLibrarySearchCriteria(String(split[1] || '').trim());
+  let tail = String(split[2] || split[3] || '').trim();
+  let whereX: { kind: 'where'; raw: string } | undefined = criteriaWhereX;
+  const whereMatch = tail.match(/^where\s+x\s+is\s+(.+?)(?:,\s*(.+))?$/i);
+  if (whereMatch) {
+    whereX = { kind: 'where', raw: String(whereMatch[1] || '').trim() };
+    tail = String(whereMatch[2] || '').trim();
+  }
   const combined = `${searchClause} ${tail}`.trim();
   const destination = /\bonto\s+the\s+battlefield\b/i.test(tail)
     ? 'battlefield'
@@ -2935,6 +3033,7 @@ function parseLibrarySearchUnknownStep(step: OracleEffectStep): OracleEffectStep
     entersTapped: destination === 'battlefield' && /\btapped\b/i.test(tail) || undefined,
     shuffle: /\bshuffle\b/i.test(combined) || undefined,
     maxResults,
+    ...(whereX ? { whereX } : {}),
     optional: /\bmay\s+search\b/i.test(searchClause) || undefined,
     raw: searchClause,
   };
@@ -10264,6 +10363,14 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return staticMetadata('target-changing effect', raw);
   }
 
+  if (/^choose (?:an opponent|target opponent)(?:\s+at\s+random|\s+who\s+.+)?\.?$/i.test(raw)) {
+    return [{
+      kind: 'choose_opponent',
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep];
+  }
+
   if (/^choose\b/i.test(raw)) {
     const choice = /\bcolor\b/i.test(raw)
       ? 'generic'
@@ -12834,7 +12941,13 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^then if you control six or more lands, repeat this process once$/i.test(raw)) {
-    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+    return [{
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'you control six or more lands' },
+      steps: [staticMetadata('process', 'repeat this process once')[0]],
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep];
   }
 
   if (/^this creature gains landwalk of the chosen type until the end of that turn$/i.test(raw)) {
@@ -13990,6 +14103,32 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return staticMetadata('those creatures', raw);
   }
 
+  const whenYouDoFollowup = raw.match(/^when you do(?: so)?,?\s*(.+)$/i);
+  if (whenYouDoFollowup) {
+    const followup = String(whenYouDoFollowup[1] || '').trim();
+    const nestedClause = normalizeClauseForParse(followup);
+    const nested =
+      tryParseZoneAndRemovalClause({
+        clause: nestedClause.clause,
+        rawClause: followup,
+        withMeta: <T extends OracleEffectStep>(value: T) => value,
+      })
+      ?? tryParseSimpleActionClause({
+        clause: nestedClause.clause,
+        rawClause: followup,
+        withMeta: <T extends OracleEffectStep>(value: T) => value,
+      });
+    const nestedSteps = nested && nested.kind !== 'unknown' ? [nested] : undefined;
+    return [{
+      kind: 'schedule_delayed_trigger',
+      timing: 'on_event',
+      effect: followup,
+      ...(nestedSteps ? { steps: nestedSteps } : {}),
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep];
+  }
+
   if (/^when (?:you|that|this|it|the|one|each|a |an |the targeted|it connives|it enters|it regenerates|that creature|that permanent|that token|that equipment|this creature|this aura|this enchantment|the creature|you discard|you remove|you lose|you pay|you put|you sacrifice|you spend|one or more)/i.test(raw)) {
     return [{
       kind: 'schedule_delayed_trigger',
@@ -14839,7 +14978,20 @@ function expandDynamicCounterRiderSteps(steps: readonly OracleEffectStep[]): Ora
     }
     if (cleanedStep.kind === 'schedule_delayed_trigger' && !cleanedStep.steps) {
       const effect = normalizeOracleText(String(cleanedStep.effect || '')).trim();
-      const parsed = parseSimpleCounterTailStep(effect) ?? parseLifeTailStep(effect);
+      const followup = effect.replace(/^when you do(?: so)?,?\s*/i, '').trim();
+      const nestedClause = normalizeClauseForParse(followup);
+      const parsed = parseSimpleCounterTailStep(effect)
+        ?? parseLifeTailStep(effect)
+        ?? tryParseZoneAndRemovalClause({
+          clause: nestedClause.clause,
+          rawClause: followup,
+          withMeta: <T extends OracleEffectStep>(value: T) => value,
+        })
+        ?? tryParseSimpleActionClause({
+          clause: nestedClause.clause,
+          rawClause: followup,
+          withMeta: <T extends OracleEffectStep>(value: T) => value,
+        });
       if (parsed && parsed.kind !== 'unknown') {
         cleanedStep = { ...cleanedStep, steps: [parsed] };
       }
@@ -20521,7 +20673,6 @@ function isRedundantTriggerEffectFragmentUnknownStep(step: OracleEffectStep): bo
     /^you may copy this permanent and may choose a new target for the copy$/i.test(normalized) ||
     /^until end of turn, whenever one or more gorgons and\/or snakes you control deal combat damage to a player, you gain 2 life$/i.test(normalized) ||
     /^this permanent is attacking that player or planeswalker$/i.test(normalized) ||
-    /^then if you control six or more lands, repeat this process once$/i.test(normalized) ||
     /^this creature gains landwalk of the chosen type until the end of that turn$/i.test(normalized) ||
     /^you may cast shattered seraph for as long as it remains exiled$/i.test(normalized) ||
     /^you get that many additional upkeep steps after this phase$/i.test(normalized) ||
@@ -25232,7 +25383,7 @@ function parseChoiceUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown
     };
   }
 
-  if (/^choose (?:an opponent|target opponent)$/i.test(normalized)) {
+  if (/^choose (?:an opponent|target opponent)(?:\s+at\s+random|\s+who\s+.+)?$/i.test(normalized)) {
     return {
       kind: 'choose_opponent',
       ...(step.sequence ? { sequence: step.sequence } : {}),
@@ -29434,7 +29585,7 @@ function absorbChooseModeBulletSteps(
     bulletSteps[0].kind === 'draw' &&
     steps[scan].kind === 'lose_life' &&
     /\bdraw a card\b/i.test(String(bulletSteps[0].raw || '')) &&
-    /\blose 1 life\b/i.test(String(steps[scan].raw || ''))
+    /\bloses?\s+1\s+life\b/i.test(String(steps[scan].raw || ''))
   ) {
     bulletSteps.push(steps[scan]);
     scan += 1;
@@ -29462,7 +29613,8 @@ export function repairSplitChooseModeBulletSteps(
       const nextRaw = String(steps[scan]?.raw || '').trim();
       const needsMoreModes = modes.length < minModes;
       const looksLikeBullet = /^[\u2022•]\s*/.test(nextRaw);
-      if (!needsMoreModes && !looksLikeBullet) break;
+      const looksLikeTargetPlayerMode = /^target player\b/i.test(nextRaw.replace(/^[\u2022•]\s*/, ''));
+      if (!needsMoreModes && !looksLikeBullet && !looksLikeTargetPlayerMode) break;
       const absorbed = absorbChooseModeBulletSteps(steps, scan);
       const label = String(absorbed.modeSteps[0]?.raw || '')
         .replace(/^[\u2022•]\s*/, '')

@@ -5,6 +5,10 @@ import { detectETBTriggers } from '../src/state/modules/triggered-abilities.js';
 import { queueSelfETBTriggersForPermanent } from '../src/state/modules/triggerEtbEntryEffects.js';
 import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
 import { recordDoThisOnlyOnceEachTurnOnAccept } from '../src/state/modules/triggerDoThisOnlyOnceEachTurn.js';
+import { applyOracleIRStepsOnServer } from '../src/state/modules/oracleIrServerZoneSync.js';
+import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
+import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutor.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 // Oracle from oracle-cards.jsonl (Pantlaza, Sun-Favored)
 const PANTLAZA_ORACLE =
@@ -124,7 +128,42 @@ describe('Pantlaza, Sun-Favored discover ETB', () => {
     expect(stacked?.interveningIfSubjectPermanentId).toBe(ghalta.id);
   });
 
-  it('does not queue for a non-dinosaur entering', () => {
+  it('queues when Temple Altisaur (Creature — Dinosaur) enters, using its toughness', () => {
+    const g = createInitialGameState('t_pantlaza_temple_altisaur');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    const pantlaza = pantlazaPermanent('pantlaza_1', p1);
+    const temple = {
+      id: 'temple_altisaur_1',
+      controller: p1,
+      owner: p1,
+      tapped: false,
+      counters: {},
+      card: {
+        id: 'temple_altisaur_card',
+        name: 'Temple Altisaur',
+        type_line: 'Creature — Dinosaur',
+        oracle_text:
+          'If a source would deal damage to another Dinosaur you control, prevent all but 1 of that damage.',
+        power: '3',
+        toughness: '4',
+      },
+    };
+    (g.state.battlefield as any).push(pantlaza, temple);
+
+    triggerETBEffectsForPermanent(g as any, temple, p1);
+    const stacked = ((g.state.stack || []) as any[]).find(
+      (s) => s?.sourceName === 'Pantlaza, Sun-Favored' && s?.triggerType === 'named_or_another_typed_etb',
+    );
+    expect(stacked).toBeTruthy();
+    expect(stacked?.xValue).toBe(4);
+    expect(stacked?.interveningIfSubjectPermanentId).toBe(temple.id);
+  });
+
+  it('does not queue for a non-Dinosaur creature', () => {
     const g = createInitialGameState('t_pantlaza_bear');
     const p1 = 'p1' as PlayerID;
     g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
@@ -165,5 +204,67 @@ describe('Pantlaza, Sun-Favored discover ETB', () => {
         (s) => s?.sourceName === 'Pantlaza, Sun-Favored' && s?.triggerType === 'named_or_another_typed_etb',
       ),
     ).toBe(false);
+  });
+
+  it('queues a cast-or-put-in-hand prompt for the Discover hit', () => {
+    const gameId = 't_pantlaza_discover_prompt';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const player = (g.state as any).players.find((entry: any) => entry.id === p1);
+    player.library = [
+      { id: 'forest-1', name: 'Forest', type_line: 'Basic Land — Forest', cmc: 0 },
+      { id: 'ghalta-1', name: 'Ghalta, Primal Hunger', type_line: 'Legendary Creature — Elder Dinosaur', cmc: 12, mana_value: 12 },
+      { id: 'bolt-1', name: 'Lightning Bolt', type_line: 'Instant', cmc: 1, mana_value: 1 },
+    ];
+    player.exile = [];
+    player.hand = [];
+    (g as any).libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
+    (g.state.battlefield as any).push(pantlazaPermanent('pantlaza_1', p1));
+
+    const ir = parseOracleTextToIR(PANTLAZA_ORACLE, 'Pantlaza, Sun-Favored');
+    const steps = ir.abilities.find((ability) =>
+      ability.steps.some((step) => step.kind === 'impulse_exile_top'),
+    )?.steps ?? [];
+    expect(steps.some((step) => step.kind === 'impulse_exile_top')).toBe(true);
+
+    applyOracleIRStepsOnServer(
+      g as any,
+      g.state as any,
+      steps,
+      buildOracleIRExecutionContext({
+        controllerId: p1,
+        sourceId: 'pantlaza_1',
+        sourceName: 'Pantlaza, Sun-Favored',
+        xValue: 4,
+        targetPermanentId: 'pantlaza_1',
+        chosenObjectIds: ['pantlaza_1'],
+        selectorContext: { chosenObjectIds: ['pantlaza_1'], targetPermanentId: 'pantlaza_1' },
+      }),
+      { allowOptional: true, haltOnPlayerChoiceRequired: false },
+      { controller: p1, sourceId: 'pantlaza_1', sourceName: 'Pantlaza, Sun-Favored' },
+    );
+
+    const playerAfter = (g.state as any).players.find((entry: any) => entry.id === p1);
+    const exileNames = (playerAfter?.exile || []).map((card: any) => String(card?.name || ''));
+    expect(exileNames).toContain('Lightning Bolt');
+
+    const prompt = ResolutionQueueManager.getStepsForPlayer(gameId, p1).find(
+      (step: any) =>
+        step?.type === ResolutionStepType.OPTION_CHOICE &&
+        String(step?.castFromExileCardId || '') === 'bolt-1',
+    );
+    expect(prompt).toBeTruthy();
+    expect((prompt as any)?.castFromExileDeclineDestination).toBe('hand');
+    expect((prompt as any)?.options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'cast' }),
+        expect.objectContaining({ id: 'decline', label: expect.stringMatching(/hand/i) }),
+      ]),
+    );
+
+    ResolutionQueueManager.removeQueue(gameId);
   });
 });

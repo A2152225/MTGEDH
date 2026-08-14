@@ -83,7 +83,7 @@ function parseMoveZoneBattlefieldAttachment(to: OracleZone, toRaw: string) {
 
   const normalized = normalizeOracleText(toRaw).trim();
   const match = normalized.match(
-    /\battached to (this creature|a creature you control|that creature|that land|that permanent)\b/i
+    /\battached to (this creature|a creature you control|that token|the token|that creature|that land|that permanent)\b/i
   );
   if (!match) return undefined;
 

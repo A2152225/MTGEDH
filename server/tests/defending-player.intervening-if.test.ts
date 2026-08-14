@@ -488,4 +488,82 @@ describe('Intervening-if: defending player combat context', () => {
       })
     ).toBe(true);
   });
+
+  it('treats "player who controls more lands than you" as that-player land comparison', () => {
+    const g = createInitialGameState('t_eval_player_who_more_lands');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    (g.state.battlefield as any[]).push(
+      {
+        id: 'src_1',
+        controller: p1,
+        owner: p1,
+        attacking: p2,
+        card: {
+          id: 'src_card_1',
+          name: 'Test Hawk',
+          type_line: 'Creature',
+          oracle_text:
+            'Whenever this creature deals combat damage to a player who controls more lands than you, return it to its owner\'s hand.',
+        },
+        tapped: false,
+      },
+      {
+        id: 'p1_land_1',
+        controller: p1,
+        owner: p1,
+        card: { id: 'p1_land_1_card', name: 'Plains', type_line: 'Land — Plains', oracle_text: '' },
+        tapped: false,
+      },
+      {
+        id: 'p2_land_1',
+        controller: p2,
+        owner: p2,
+        card: { id: 'p2_land_1_card', name: 'Island', type_line: 'Land — Island', oracle_text: '' },
+        tapped: false,
+      },
+      {
+        id: 'p2_land_2',
+        controller: p2,
+        owner: p2,
+        card: { id: 'p2_land_2_card', name: 'Swamp', type_line: 'Land — Swamp', oracle_text: '' },
+        tapped: false,
+      },
+    );
+
+    const source = (g.state.battlefield as any[]).find((p) => p?.id === 'src_1');
+    const desc =
+      'Whenever this creature deals combat damage to a player who controls more lands than you, return it to its owner\'s hand.';
+    const synthetic =
+      'Whenever ~ deals combat damage to a player, who controls more lands than you, return it to its owner\'s hand.';
+
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, source, {
+        defendingPlayerId: String(p2),
+        thatPlayerId: String(p2),
+        referencedPlayerId: String(p2),
+        theirPlayerId: String(p2),
+      }),
+    ).toBe(true);
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), synthetic, source, {
+        defendingPlayerId: String(p2),
+        thatPlayerId: String(p2),
+        referencedPlayerId: String(p2),
+        theirPlayerId: String(p2),
+      }),
+    ).toBe(true);
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, source, {
+        defendingPlayerId: String(p1),
+        thatPlayerId: String(p1),
+        referencedPlayerId: String(p1),
+        theirPlayerId: String(p1),
+      }),
+    ).toBe(false);
+  });
 });

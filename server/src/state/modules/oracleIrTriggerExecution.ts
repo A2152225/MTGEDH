@@ -215,6 +215,12 @@ function resolveTriggerTargetBinding(
   ).trim();
   const lifeLostReference = Number(triggerItem?.effectData?.lifeLost ?? 0);
   const countersPlacedReference = Number(triggerItem?.effectData?.countersPlaced ?? 0);
+  const snapshottedReference = Number(
+    triggerItem?.referenceAmount
+    ?? triggerItem?.value?.attachedAuraCount
+    ?? triggerItem?.effectData?.attachedAuraCount
+    ?? 0,
+  );
   const damageReference = Number(
     triggerItem?.damageAmount ?? triggerItem?.effectData?.damageAmount ?? 0,
   );
@@ -258,11 +264,15 @@ function resolveTriggerTargetBinding(
   ).trim();
   const discardedCardId = String(triggerItem?.effectData?.discardedCardId || '').trim();
   const boundGraveyardCardId = String(triggerItem?.boundGraveyardCardId || '').trim();
+  const createdTokenIds = Array.isArray(triggerItem?.effectData?.createdTokenIds)
+    ? triggerItem.effectData.createdTokenIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+    : [];
   const chosenObjectIds = Array.from(new Set([
     ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...normalizedTargetIds,
     ...(discardedCardId ? [discardedCardId] : []),
     ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),
+    ...createdTokenIds,
   ]));
   if (
     !targetPermanentId
@@ -270,6 +280,10 @@ function resolveTriggerTargetBinding(
     && battlefield.some((permanent: any) => String(permanent?.id || '') === interveningSubjectPermanentId)
   ) {
     targetPermanentId = interveningSubjectPermanentId;
+  }
+  if (!targetPermanentId) {
+    const dyingId = String(triggerItem?.dyingCreature?.id || triggerItem?.value?.dyingPermanentId || '').trim();
+    if (dyingId) targetPermanentId = dyingId;
   }
 
   let xValue = typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined;
@@ -303,9 +317,11 @@ function resolveTriggerTargetBinding(
         ? lifeLostReference
         : Number.isFinite(countersPlacedReference) && countersPlacedReference > 0
           ? countersPlacedReference
-          : Number.isFinite(damageReference) && damageReference > 0
-            ? damageReference
-            : undefined,
+          : Number.isFinite(snapshottedReference) && snapshottedReference > 0
+            ? snapshottedReference
+            : Number.isFinite(damageReference) && damageReference > 0
+              ? damageReference
+              : undefined,
     xValue,
   };
 }
@@ -321,9 +337,17 @@ function buildTriggerIrContext(
       ? params.triggerItem.selectedModes
       : undefined;
 
-  const defendingOpponentId = binding.targetPlayerId && String(binding.targetPlayerId) !== String(params.controller)
-    ? binding.targetPlayerId
-    : undefined;
+  const explicitDefendingPlayerId = String(
+    params.triggerItem?.defendingPlayer
+      || params.triggerItem?.effectData?.defendingPlayerId
+      || params.triggerItem?.effectData?.defendingPlayer
+      || '',
+  ).trim();
+  const defendingOpponentId = (explicitDefendingPlayerId && explicitDefendingPlayerId !== String(params.controller)
+    ? explicitDefendingPlayerId
+    : (binding.targetPlayerId && String(binding.targetPlayerId) !== String(params.controller)
+      ? binding.targetPlayerId
+      : undefined)) as PlayerID | undefined;
   const sourcePermanentId = String(binding.sourcePermanentId || binding.sourceId || '').trim();
   const sourcePermanent = sourcePermanentId
     ? (state?.battlefield || []).find((entry: any) => entry && String(entry.id || '') === sourcePermanentId)
@@ -336,13 +360,17 @@ function buildTriggerIrContext(
   ).trim();
   const attackingPlayerId = String(
     params.triggerItem?.attackingPlayerId
-    || '',
+      || params.triggerItem?.effectData?.attackingPlayerId
+      || '',
   ).trim();
 
   const optionalTriggerAccepted = (params.triggerItem as any)?.optionalTriggeredAbilityDecisionApplied === true;
   if (optionalTriggerAccepted) {
     recordDoThisOnlyOnceEachTurnOnAccept(state, params.triggerItem);
   }
+  const createdTokenIds = Array.isArray(params.triggerItem?.effectData?.createdTokenIds)
+    ? params.triggerItem.effectData.createdTokenIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+    : [];
   const irCtx = buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
@@ -352,12 +380,20 @@ function buildTriggerIrContext(
       xValue: binding.xValue,
       ...(typeof binding.referenceAmount === 'number' ? { referenceAmount: binding.referenceAmount } : {}),
       ...(attackingPlayerId ? { attackingPlayerId } : {}),
+      ...(createdTokenIds.length > 0
+        ? {
+            lastCreatedTokenIds: createdTokenIds,
+            lastMovedBattlefieldPermanentIds: createdTokenIds,
+            lastAntecedentBattlefieldPermanentIds: createdTokenIds,
+          }
+        : {}),
       selectorContext: {
         ...(binding.chosenObjectIds ? { chosenObjectIds: binding.chosenObjectIds } : {}),
         ...(binding.targetPlayerId ? { targetPlayerId: binding.targetPlayerId } : {}),
         ...(defendingOpponentId ? { targetOpponentId: defendingOpponentId } : {}),
         ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
         ...(chosenCreatureType ? { chosenCreatureType } : {}),
+        ...(createdTokenIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: createdTokenIds } : {}),
       },
       ...(binding.targetPermanentId ? { targetPermanentId: binding.targetPermanentId } : {}),
       ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),

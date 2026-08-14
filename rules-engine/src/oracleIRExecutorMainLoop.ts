@@ -160,7 +160,7 @@ import {
 } from './oracleIRExecutorPlayerStepHandlers';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
 import { applyAddExtraCombat, applyEndCombatPhaseStep, applyEndTurnStep, applySkipNextDrawStep, applySkipNextTurnStep, applyTakeExtraTurn } from './oracleIRExecutorTurnStepHandlers';
-import { stampCardsPutIntoGraveyardThisTurn, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { stampCardsPutIntoGraveyardThisTurn, resolvePlayers, listEligibleChooseOpponentIds } from './oracleIRExecutorPlayerUtils';
 import { getColorsFromObject, normalizeOracleManaCostString } from './oracleIRExecutorManaUtils';
 import type {
   OracleIRExecutionContext,
@@ -1146,6 +1146,11 @@ export function applyOracleIRStepsToGameStateImpl(
             lastExiledCards = [...appliedResult.lastExiledCards];
             currentCtx = { ...currentCtx, lastExiledCards };
           }
+          if (Array.isArray(appliedResult.lastMovedCards) && appliedResult.lastMovedCards.length > 0) {
+            lastMovedCards = [...appliedResult.lastMovedCards];
+          } else if (lastExiledCards.length > 0) {
+            lastMovedCards = [...lastExiledCards];
+          }
         });
         break;
       }
@@ -1777,7 +1782,7 @@ export function applyOracleIRStepsToGameStateImpl(
           }
         })) {
           currentCtx = { ...currentCtx, searchedLibraryThisWay: true };
-        } else {
+        } else if (currentCtx.searchedLibraryThisWay !== true) {
           currentCtx = { ...currentCtx, searchedLibraryThisWay: false };
         }
         break;
@@ -1938,26 +1943,33 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       case 'choose_opponent': {
+        const eligibleOpponentIds = listEligibleChooseOpponentIds(
+          nextState,
+          controllerId,
+          String(step.raw || ''),
+        );
         const explicitOpponentId = (
           String(currentCtx.selectorContext?.targetOpponentId || '').trim() ||
           String(currentCtx.selectorContext?.targetPlayerId || '').trim()
         ) as PlayerID;
         const validExplicitOpponent = Boolean(
-          explicitOpponentId &&
-          (nextState.players || []).some(
-            (p: any) => String(p?.id || '').trim() === explicitOpponentId && String(p?.id || '').trim() !== controllerId
-          )
+          explicitOpponentId && eligibleOpponentIds.includes(explicitOpponentId)
         );
-        const opponentIds = (nextState.players || [])
-          .map((p: any) => String(p?.id || '').trim())
-          .filter((id: string) => Boolean(id) && id !== controllerId) as PlayerID[];
         const chosenOpponentId = (validExplicitOpponent
           ? explicitOpponentId
-          : opponentIds.length === 1
-            ? opponentIds[0]
+          : eligibleOpponentIds.length === 1
+            ? eligibleOpponentIds[0]
             : '') as PlayerID | '';
 
         if (!chosenOpponentId) {
+          if (eligibleOpponentIds.length === 0) {
+            recordSkippedStep(
+              step,
+              `Skipped choose opponent (no eligible opponents): ${step.raw}`,
+              'no_applicable_targets',
+            );
+            break;
+          }
           recordSkippedStep(
             step,
             `Skipped choose opponent (requires player choice): ${step.raw}`,
@@ -1965,7 +1977,7 @@ export function applyOracleIRStepsToGameStateImpl(
             {
               classification: 'player_choice',
               metadata: {
-                opponentCount: opponentIds.length,
+                opponentCount: eligibleOpponentIds.length,
               },
             }
           );

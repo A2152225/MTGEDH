@@ -28,6 +28,7 @@ import {
 import { queueSacrificeTriggers } from "../state/modules/triggers/sacrifice.js";
 import { queueSelfETBTriggersForPermanent, triggerETBEffectsForToken } from "../state/modules/triggerEtbEntryEffects.js";
 import { triggerETBEffectsForPermanent } from "../state/modules/triggerEtbPermanentEffects.js";
+import { checkOpponentHasMoreLands } from "../state/modules/stackLandCountUtils.js";
 import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
 import { 
@@ -64,7 +65,7 @@ import {
 import { parseStationAbilities } from "../utils/stationParser.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 import { isAIPlayer } from "./ai.js";
-import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
+import { inferSplitLibrarySearchPlan } from "../../../rules-engine/src/oracleIRSplitLibrarySearch.js";
 import { consumeDelayedSpellCopiesForCast, creatureHasHaste, processHeroicTriggersForTargets, processOpponentSpellCastTriggersForCast, processSpellCastTriggersForCast, recordSpellCastThisTurn, buildAlternateCastSpellManaCost, isGraveyardAlternateCastAbilityId } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
@@ -1267,7 +1268,7 @@ export interface TutorInfo {
   /** Number of cards to put on battlefield for split effects */
   toBattlefield?: number;
   /** Number of cards to put in hand for split effects */
-  toHand?: number;
+  toHand?: number | 'rest';
   /** Whether cards enter battlefield tapped */
   entersTapped?: boolean;
 }
@@ -2848,19 +2849,18 @@ export function detectTutorEffect(oracleText: string): TutorInfo {
       searchCriteria = forMatch[2].trim();
     }
     
-    // SPECIAL CASE: Kodama's Reach / Cultivate pattern
-    // "put one onto the battlefield tapped and the other into your hand"
-    if (text.includes('put one onto the battlefield') && text.includes('the other into your hand')) {
-      const entersTapped = text.includes('battlefield tapped') || text.includes('enters tapped');
+    // Split-destination tutors (Cultivate / Kodama's Reach / Boreas Charger)
+    const splitPlan = inferSplitLibrarySearchPlan(text);
+    if (splitPlan) {
       return {
         isTutor: true,
         searchCriteria,
-        destination: 'split', // Special destination type
-        maxSelections: 2,
+        destination: 'split',
+        maxSelections: splitPlan.toHand === 'rest' ? maxSelections : 2,
         splitDestination: true,
-        toBattlefield: 1,
-        toHand: 1,
-        entersTapped,
+        toBattlefield: splitPlan.toBattlefield,
+        toHand: splitPlan.toHand,
+        entersTapped: splitPlan.entersTapped || entersTapped,
       };
     }
     
@@ -9986,6 +9986,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         socket.emit("error", {
           code: "ACTIVATION_CONDITION_NOT_MET",
           message: `${cardName}'s ability can only be activated if you attacked with ${requiredCount} or more creatures this turn. (You attacked with ${creaturesAttacked})`,
+        });
+        return;
+      }
+      abilityHasCondition = true;
+    }
+
+    if (/activate only if an opponent controls more lands than you/i.test(abilityConditionText)) {
+      const { anyOpponentHasMoreLands, myLandCount } = checkOpponentHasMoreLands(game.state, pid);
+      if (!anyOpponentHasMoreLands) {
+        socket.emit("error", {
+          code: "ACTIVATION_CONDITION_NOT_MET",
+          message: `${cardName}'s ability can only be activated if an opponent controls more lands than you. (You control ${myLandCount})`,
         });
         return;
       }

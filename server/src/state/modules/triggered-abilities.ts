@@ -78,6 +78,7 @@ import {
   oracleTextHasDoThisOnlyOnceEachTurn,
   oracleTextHasTriggersOnlyOnceEachTurn,
 } from './triggerDoThisOnlyOnceEachTurn.js';
+import { isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetadata.js';
 
 function buildCardNameRegexAlternatives(cardName: string): string[] {
   const names = new Set<string>();
@@ -8999,6 +9000,22 @@ export function detectTargetedTriggers(card: any, permanent: any): TriggeredAbil
   return triggers;
 }
 
+function isHideawayLookEffectText(text: string): boolean {
+  const t = String(text || '').toLowerCase();
+  return /look at the top/.test(t) && /exile/.test(t) && /face\s*down/.test(t);
+}
+
+function isOracleIndexInsideParenthetical(oracleText: string, index: number): boolean {
+  if (typeof index !== 'number' || index < 0) return false;
+  let depth = 0;
+  for (let i = 0; i < index && i < oracleText.length; i++) {
+    const ch = oracleText[i];
+    if (ch === '(') depth += 1;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+  }
+  return depth > 0;
+}
+
 /**
  * ETB pattern alternatives (static to avoid recreating on every function call)
  */
@@ -9942,6 +9959,14 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       // Skip ETB self-sacrifice lines that no longer apply because the permanent already escaped.
     }
     
+    // Keyword reminders such as Hideaway 4 (When this land enters, ...) must not
+    // also register as a generic self-ETB — hideaway_etb is queued separately.
+    else if (
+      isOracleIndexInsideParenthetical(oracleText, matchIndex)
+      || (detectHideawayAbility(card) && isHideawayLookEffectText(effectText))
+    ) {
+      // skip reminder / keyword-covered hideaway ETB
+    }
     // Check for "sacrifice ~ unless you pay" pattern (Transguild Promenade, Gateway Plaza, Rupture Spire)
     else {
       const sacrificeUnlessPayMatch = effectText.match(/sacrifice\s+(?:~|it|this\s+\w+)\s+unless\s+you\s+pay\s+(\{[^}]+\})/i);
@@ -9970,9 +9995,11 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       });
       }
       else {
-      // Detect if this trigger requires targeting
-      const targetType = detectTargetType(effectText);
-      const requiresTarget = /\btarget\b/i.test(effectText) || !!targetType;
+      // Detect if this trigger requires targeting. Modal choose-one effects pick
+      // a mode first; only some modes have targets, so do not require a stack target.
+      const modalChooseModes = isModalChooseModesEffectText(effectText);
+      const targetType = modalChooseModes ? undefined : detectTargetType(effectText);
+      const requiresTarget = !modalChooseModes && (/\btarget\b/i.test(effectText) || !!targetType);
       
       // Detect targeting constraint (e.g., "opponent controls" or "you control")
       let targetConstraint: 'opponent' | 'you' | undefined = undefined;
@@ -10655,6 +10682,15 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // Pattern: "Hideaway N" keyword or oracle text
   const hideawayInfo = detectHideawayAbility(card);
   if (hideawayInfo && !triggers.some(t => t.triggerType === 'hideaway_etb')) {
+    for (let i = triggers.length - 1; i >= 0; i--) {
+      const existing = triggers[i];
+      if (
+        (existing.triggerType === 'etb' || existing.triggerType === 'self_enters_or_attacks')
+        && isHideawayLookEffectText(String(existing.effect || existing.description || ''))
+      ) {
+        triggers.splice(i, 1);
+      }
+    }
     triggers.push({
       permanentId,
       cardName,
@@ -11347,6 +11383,7 @@ export function getAttackTriggersForCreatures(
     const defendingPlayerId = getDefendingPlayerIdForAttacker(attacker);
     for (const trigger of [...attackerTriggers, ...selfEtbTriggers]) {
       if (trigger.triggerType === 'one_or_more_enchanted_by_aura_you_control_attack') continue;
+      if (trigger.triggerType === 'player_attacks_your_opponent') continue;
       // Preserve target player context for "that player" intervening-if templates.
       const existingValue = (trigger as any).value;
       const mergedValue =
@@ -11357,12 +11394,34 @@ export function getAttackTriggersForCreatures(
     }
   }
   
+  const attackedPlayerIds = Array.from(new Set(
+    attackingCreatures.map((attacker: any) => getDefendingPlayerIdForAttacker(attacker)).filter(Boolean),
+  ));
+  if (attackedPlayerIds.length === 0 && defendingPlayer) {
+    attackedPlayerIds.push(String(defendingPlayer));
+  }
+
   // Check all permanents for "whenever a creature you control attacks" triggers
   for (const permanent of battlefield) {
-    if (!permanent || permanent.controller !== attackingPlayer) continue;
+    if (!permanent) continue;
+    const isAttackingController = permanent.controller === attackingPlayer;
     
     const permTriggers = detectAttackTriggers(permanent.card, permanent);
     for (const trigger of permTriggers) {
+      if (trigger.triggerType === 'player_attacks_your_opponent') {
+        const sourceController = String((trigger as any).controllerId || permanent.controller || '');
+        for (const attackedId of attackedPlayerIds) {
+          if (!attackedId || attackedId === sourceController) continue;
+          const existingValue = (trigger as any).value;
+          const mergedValue =
+            existingValue && typeof existingValue === 'object'
+              ? { ...existingValue, defendingPlayerId: attackedId, defendingPlayer: attackedId, attackingPlayerId: attackingPlayer }
+              : { defendingPlayerId: attackedId, defendingPlayer: attackedId, attackingPlayerId: attackingPlayer };
+          triggers.push({ ...(trigger as any), value: mergedValue } as any);
+        }
+        continue;
+      }
+      if (!isAttackingController) continue;
       if (trigger.triggerType === 'creature_attacks') {
         // Trigger once for each attacking creature
         for (const attacker of attackingCreatures) {
@@ -11480,6 +11539,9 @@ export interface DeathTriggerResult {
   sacrificeFrom?: string; // Player ID who must sacrifice
   returnsUnderControl?: boolean; // For Grave Betrayal - return under your control
   dyingCreatureCard?: any; // The card that died, for reanimation effects
+  /** Snapshotted "for each" amount (e.g. Auras attached as the creature died). */
+  referenceAmount?: number;
+  value?: any;
 }
 
 function getPermanentRulesTextFragments(perm: any): string[] {
@@ -11599,6 +11661,46 @@ function deathTriggerDyingCreatureWasAttackingOrBlocking(dyingCreature: any): bo
   return wasAttacking || wasBlocking;
 }
 
+function isAuraPermanent(permanent: any): boolean {
+  const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
+  return typeLine.includes('aura');
+}
+
+function countControlledAurasAttachedTo(
+  ctx: GameContext,
+  controllerId: string,
+  hostId: string,
+): number {
+  const battlefield = ctx.state?.battlefield || [];
+  const host = String(hostId || '').trim();
+  const controller = String(controllerId || '').trim();
+  if (!host || !controller) return 0;
+  return battlefield.filter((perm: any) => {
+    if (!isAuraPermanent(perm)) return false;
+    if (String(perm?.attachedTo || '').trim() !== host) return false;
+    return String(perm?.controller || '').trim() === controller;
+  }).length;
+}
+
+function dyingCreatureIsEnchanted(ctx: GameContext, dyingCreature: any): boolean {
+  const dyingId = String(dyingCreature?.id || '').trim();
+  if (!dyingId) return false;
+  const battlefield = ctx.state?.battlefield || [];
+  if (battlefield.some((perm: any) => isAuraPermanent(perm) && String(perm?.attachedTo || '').trim() === dyingId)) {
+    return true;
+  }
+  const attachmentIds = Array.isArray(dyingCreature?.attachments) ? dyingCreature.attachments : [];
+  if (attachmentIds.some((id: unknown) => {
+    const attachmentId = String(id || '').trim();
+    if (!attachmentId) return false;
+    const attachment = battlefield.find((perm: any) => String(perm?.id || '') === attachmentId);
+    return !attachment || isAuraPermanent(attachment);
+  })) {
+    return true;
+  }
+  return false;
+}
+
 function deathTriggerClauseMatchesDyingCreature(
   ctx: GameContext,
   clauseText: string,
@@ -11611,7 +11713,13 @@ function deathTriggerClauseMatchesDyingCreature(
 
   const damageMarkedDiesClause = /^a\s+creature\s+dealt\s+damage\s+by\s+this\s+creature\s+this\s+turn$/i.test(clause);
   const equippedDamageMarkedDiesClause = /^a\s+creature\s+dealt\s+damage\s+by\s+equipped\s+creature\s+this\s+turn$/i.test(clause);
-  if ((clause.includes('enchanted creature') || clause.includes('equipped creature')) && !equippedDamageMarkedDiesClause) return false;
+  if (clause.includes('enchanted creature') || clause.includes('equipped creature')) {
+    if (/^an?\s+enchanted creature$/.test(clause)) {
+      if (!dyingCreatureIsEnchanted(ctx, dyingCreature)) return false;
+    } else if (!equippedDamageMarkedDiesClause) {
+      return false;
+    }
+  }
   const isThisOrAnotherControlledClause =
     /\bthis creature or another (?:nontoken )?creature you control\b/i.test(clause);
   if (
@@ -11921,6 +12029,32 @@ export function getDeathTriggers(
     const attachedTo = String((permanent as any)?.attachedTo || '').trim();
     
     // ===== DYNAMIC DETECTION (Primary) =====
+
+    const anEnchantedCreatureDiesMatch = oracleText.match(/when(?:ever)? an enchanted creature dies,?\s*([^.]+)/i);
+    if (anEnchantedCreatureDiesMatch && dyingCreatureIsEnchanted(ctx, dyingCreature)) {
+      const effect = collectDeathTriggerEffectText(oracleText, anEnchantedCreatureDiesMatch, 1);
+      if (effect && !deathResultsHaveEffect(results, String(permanent.id || ''), effect)) {
+        const auraCount = countControlledAurasAttachedTo(
+          ctx,
+          permanentController,
+          String(dyingCreature?.id || ''),
+        );
+        results.push({
+          source: {
+            permanentId: permanent.id,
+            cardName: card.name,
+            controllerId: permanentController,
+          },
+          effect,
+          referenceAmount: auraCount,
+          value: {
+            attachedAuraCount: auraCount,
+            dyingPermanentId: String(dyingCreature?.id || ''),
+          },
+          dyingCreatureCard: dyingCreature?.card,
+        });
+      }
+    }
 
     if ((lowerOracleText.includes('when enchanted creature dies') || lowerOracleText.includes('whenever enchanted creature dies')) &&
         attachedTo && attachedTo === String(dyingCreature?.id || '')) {

@@ -1,4 +1,4 @@
-import { detectETBTappedPattern } from './oracleIREtbTappedPattern';
+import { detectETBTappedPattern, matchOpponentsControlLandsETB } from './oracleIREtbTappedPattern';
 import type { OracleIRPendingTransition } from './oracleIRTransitionTypes';
 import { nextOracleIRSnapshotId, snapshotObjectAtZone } from './oracleIRSnapshotFactory';
 
@@ -23,8 +23,9 @@ export function detectOpponentEntersTappedFromBattlefield(
     if (!controller || controller === enteringController) continue;
 
     const oracle = String((perm as any)?.card?.oracle_text ?? '').toLowerCase();
-    if (!oracle.includes('enter') || !oracle.includes('tapped')) continue;
-    if (!oracle.includes('opponent')) continue;
+    // Require "X your opponents control enter ... tapped", not
+    // "this land enters tapped unless your opponents control eight or more lands".
+    if (!/opponents? control enter(?: the battlefield)? tapped/.test(oracle)) continue;
 
     if (isCreature && oracle.includes('creature')) return true;
     if (isArtifact && oracle.includes('artifact')) return true;
@@ -38,13 +39,33 @@ export function detectOpponentEntersTappedFromBattlefield(
   return false;
 }
 
+function countOpponentLands(battlefield: readonly unknown[], controllerId: string): number {
+  let count = 0;
+  for (const perm of battlefield) {
+    if (!perm) continue;
+    const controller = String((perm as any)?.controller ?? '');
+    if (!controller || controller === controllerId) continue;
+    const typeLine = String((perm as any)?.card?.type_line ?? '').toLowerCase();
+    if (typeLine.includes('land')) count += 1;
+  }
+  return count;
+}
+
 export function resolvePermanentEntersTapped(args: {
   battlefield: readonly unknown[];
   controllerId: string;
   card: unknown;
 }): boolean {
   const ownText = String((args.card as any)?.oracle_text ?? '');
-  if (detectETBTappedPattern(ownText) === 'always') return true;
+  const pattern = detectETBTappedPattern(ownText);
+  if (pattern === 'always') return true;
+  if (pattern === 'conditional') {
+    const opponentsLandThreshold = matchOpponentsControlLandsETB(
+      ownText,
+      countOpponentLands(args.battlefield, args.controllerId),
+    );
+    if (opponentsLandThreshold?.shouldEnterTapped) return true;
+  }
   return detectOpponentEntersTappedFromBattlefield(args.battlefield, args.controllerId, args.card);
 }
 

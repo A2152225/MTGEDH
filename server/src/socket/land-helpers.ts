@@ -12,6 +12,7 @@
 
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { detectTeamworkAdditionalCost } from '../state/modules/marvelMechanicsHelpers.js';
+import { matchOpponentsControlLandsETB } from '../../../rules-engine/src/oracleIREtbTappedPattern.js';
 
 // ============================================================================
 // Additional Cost Detection
@@ -367,6 +368,7 @@ export function detectETBTappedPattern(oracleText: string): 'always' | 'conditio
   // Check for conditional patterns ONLY in the ETB sentence
   const conditionalPatterns = [
     'unless you',           // "unless you control" / "unless you pay"
+    'unless your',          // "unless your opponents control eight or more lands"
     'you may pay',          // Shock lands
     'if you control',       // Checklands
     'if you don\'t',        // Various conditionals
@@ -413,6 +415,7 @@ export interface ConditionalLandETBResult {
  * - Check lands: "unless you control a [type]" (Castle Locthwain, Dragonskull Summit)
  * - Reveal lands: "you may reveal a [type] card from your hand" (Furycalm Snarl)
  * - Legendary creature lands: "unless you control a legendary creature" (Minas Tirith)
+ * - Opponent-land threshold: "unless your opponents control eight or more lands" (Turbulent Moor)
  * 
  * @param oracleText - The oracle text of the land
  * @param controlledLandCount - Number of OTHER lands the player controls (not counting this one)
@@ -421,6 +424,7 @@ export interface ConditionalLandETBResult {
  * @param basicLandCount - Number of BASIC lands the player controls (for battle lands)
  * @param opponentCount - Number of opponents (for multiplayer lands)
  * @param controlledPermanents - Array of all permanents the player controls (for legendary creature checks)
+ * @param opponentLandCount - Combined land count among all opponents (for turbulent lands)
  * @returns Object with shouldEnterTapped, reason, and optional prompt for reveal lands
  */
 export function evaluateConditionalLandETB(
@@ -430,7 +434,8 @@ export function evaluateConditionalLandETB(
   cardsInHand?: any[],
   basicLandCount?: number,
   opponentCount?: number,
-  controlledPermanents?: any[]
+  controlledPermanents?: any[],
+  opponentLandCount?: number,
 ): ConditionalLandETBResult {
   const text = (oracleText || '').toLowerCase();
   
@@ -524,6 +529,16 @@ export function evaluateConditionalLandETB(
       reason: shouldTap 
         ? `Enters tapped (you have only ${actualOpponentCount} opponent${actualOpponentCount !== 1 ? 's' : ''})` 
         : `Enters untapped (you have ${actualOpponentCount} opponents)`,
+    };
+  }
+
+  // Turbulent lands (Turbulent Moor, etc.)
+  // "This land enters tapped unless your opponents control eight or more lands"
+  const opponentsLandThreshold = matchOpponentsControlLandsETB(oracleText, opponentLandCount ?? 0);
+  if (opponentsLandThreshold) {
+    return {
+      shouldEnterTapped: opponentsLandThreshold.shouldEnterTapped,
+      reason: opponentsLandThreshold.reason,
     };
   }
   
@@ -644,6 +659,14 @@ export function evaluateConditionalLandETB(
     };
   }
   
+  // Unmatched "enters tapped unless ..." — tap rather than giving a free untapped land.
+  if (/(?:this land )?enters(?: the battlefield)? tapped unless/i.test(text) || text.includes('comes into play tapped unless')) {
+    return {
+      shouldEnterTapped: true,
+      reason: 'Enters tapped (unrecognized unless-condition)',
+    };
+  }
+
   // Default - shouldn't reach here if detectETBTappedPattern was used first
   return {
     shouldEnterTapped: false,

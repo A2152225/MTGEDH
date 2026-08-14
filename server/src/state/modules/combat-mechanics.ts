@@ -44,8 +44,22 @@
 import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "./staticEffectSpec.js";
-import { parseAttachmentGrantedKeywordsFromOracle } from '../../../../shared/src/attachmentKeywordGrants.js';
+import { getEffectiveColors } from "./effectiveColors.js";
+import { iterAttachments, parseAttachmentGrantedKeywordsFromOracle } from '../../../../shared/src/attachmentKeywordGrants.js';
+import { isCreatureTypeWord, permanentHasCreatureType } from '../../../../shared/src/creatureTypes.js';
 import { hasBlanketCantAttack } from '../../../../rules-engine/src/attackRestrictionText.js';
+
+const COLOR_WORDS = ['white', 'blue', 'black', 'red', 'green'];
+
+function permanentMatchesColorWord(permanent: any, colorWord: string): boolean {
+  const code = ({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' } as Record<string, string>)[colorWord];
+  if (!code) return false;
+  const colors = (permanent?.card?.colors || permanent?.colors || []) as unknown[];
+  return colors.some((entry) => {
+    const value = String(entry || '');
+    return value.toUpperCase() === code || value.toLowerCase() === colorWord;
+  });
+}
 
 export interface CombatCreature {
   permanentId: string;
@@ -124,9 +138,9 @@ export function oracleTextGrantsOwnKeyword(oracleText: string, keyword: string):
     if (!line) continue;
     if (/^(when|whenever|at\s+the\b|as\s+|if\s+)/.test(line)) continue;
     if (/[{][^}]*[}].*:/.test(line) || /^[^:\n]+:/.test(line)) continue; // activated
-    if (/^(other\s+creatures?|creatures?\s+you\s+control|enchanted\s+|equipped\s+|all\s+creatures?)/.test(line)) {
-      continue;
-    }
+    if (/^(?:other\s+)?(?:[a-z]+\s+)?creatures?\s+you\s+control/.test(line)) continue;
+    if (/^(?:enchanted|equipped)\s+/.test(line)) continue;
+    if (/^all\s+creatures?/.test(line)) continue;
     // "Trample" / "Flying, trample" / "Trample (reminder)"
     if (new RegExp(`(?:^|,)\\s*${escaped}\\b`).test(line)) {
       return true;
@@ -262,7 +276,7 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
           const keywordsText = match[2];
           
           // Check if this creature has the target type
-          if (creatureTypeLine.includes(targetType)) {
+          if (creatureTypeLine.includes(targetType) || permanentHasCreatureType(permanent, targetType)) {
             // Parse keywords from the text (could be comma-separated)
             const keywordList = keywordsText.split(/\s*(?:and|,)\s*/).map(k => k.trim());
             for (const kw of keywordList) {
@@ -273,10 +287,30 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
             }
           }
         }
+
+        // Pattern: "[Type]/[color] creatures you control have [keyword]" (includes self)
+        // Example: "Pegasus creatures you control have lifelink"
+        const typedHavePattern = /(?:^|[.\n;])\s*(?!other\s)([a-z]+)\s+creatures\s+(?:you control\s+)?(?:get\s+[+\-]\d+\/[+\-]\d+\s+and\s+)?have\s+([a-z\s,]+)/gi;
+        while ((match = typedHavePattern.exec(lordOracle)) !== null) {
+          const qualifier = match[1].toLowerCase();
+          const keywordsText = match[2];
+          const applies = COLOR_WORDS.includes(qualifier)
+            ? permanentMatchesColorWord(permanent, qualifier)
+            : (isCreatureTypeWord(qualifier)
+              && (permanentHasCreatureType(permanent, qualifier) || creatureTypeLine.includes(qualifier)));
+          if (!applies) continue;
+          const keywordList = keywordsText.split(/\s*(?:and|,)\s*/).map(k => k.trim());
+          for (const kw of keywordList) {
+            if (kw && kw.length > 0) {
+              grantedKeywords.push(kw);
+              debug(2, `[KEYWORDS] ${cardName} granted ${kw} by ${lord.card.name} (typed lord effect)`);
+            }
+          }
+        }
         
         // Pattern: "Creatures you control have [keyword]" (no type restriction)
         // Example: "Creatures you control have flying and indestructible"
-        const lordGenericPattern = /creatures\s+you\s+control\s+(?:get\s+[+\-]\d+\/[+\-]\d+\s+and\s+)?have\s+([a-z\s,]+)/gi;
+        const lordGenericPattern = /(?<![a-z] )(?:all\s+)?creatures\s+you\s+control\s+(?:get\s+[+\-]\d+\/[+\-]\d+\s+and\s+)?have\s+([a-z\s,]+)/gi;
         while ((match = lordGenericPattern.exec(lordOracle)) !== null) {
           const keywordsText = match[1];
           
@@ -378,15 +412,15 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
 }
 
 /**
- * Parse protection abilities from card
+ * Collect protection qualities ("green", "creatures", "everything", …) from oracle-like text.
  */
-export function parseProtections(card: any, permanent?: any): string[] {
+export function collectProtectionQualitiesFromText(oracleText: string, chosenColor?: string): string[] {
   const protections: string[] = [];
-  const oracleText = (card?.oracle_text || "");
+  const text = String(oracleText || "");
   
   // Protection from [color] - handles "protection from black", "protection from black and from red", etc.
   // First try the standard pattern
-  const colorProtections = oracleText.match(/protection from (white|blue|black|red|green)/gi);
+  const colorProtections = text.match(/protection from (white|blue|black|red|green)/gi);
   if (colorProtections) {
     for (const match of colorProtections) {
       protections.push(match.toLowerCase().replace("protection from ", ""));
@@ -394,13 +428,8 @@ export function parseProtections(card: any, permanent?: any): string[] {
   }
 
   // Resolve "protection from the chosen color" using stored ETB choice.
-  if (/protection from the chosen colou?r/i.test(oracleText)) {
-    const chosen = String(
-      permanent?.chosenColor
-      || permanent?.card?.chosenColor
-      || card?.chosenColor
-      || '',
-    ).trim().toLowerCase();
+  if (/protection from the chosen colou?r/i.test(text)) {
+    const chosen = String(chosenColor || '').trim().toLowerCase();
     if (chosen && ['white', 'blue', 'black', 'red', 'green'].includes(chosen) && !protections.includes(chosen)) {
       protections.push(chosen);
     }
@@ -408,7 +437,7 @@ export function parseProtections(card: any, permanent?: any): string[] {
   
   // Handle "and from [color]" pattern (e.g., "protection from black and from red")
   // This catches the second+ colors in compound protection text
-  const additionalColors = oracleText.match(/and from (white|blue|black|red|green)/gi);
+  const additionalColors = text.match(/and from (white|blue|black|red|green)/gi);
   if (additionalColors) {
     for (const match of additionalColors) {
       const color = match.toLowerCase().replace("and from ", "");
@@ -419,7 +448,7 @@ export function parseProtections(card: any, permanent?: any): string[] {
   }
   
   // Protection from [type]
-  const typeProtections = oracleText.match(/protection from (creatures|artifacts|enchantments|instants|sorceries|planeswalkers)/gi);
+  const typeProtections = text.match(/protection from (creatures|artifacts|enchantments|instants|sorceries|planeswalkers)/gi);
   if (typeProtections) {
     for (const match of typeProtections) {
       protections.push(match.toLowerCase().replace("protection from ", ""));
@@ -427,27 +456,124 @@ export function parseProtections(card: any, permanent?: any): string[] {
   }
   
   // Protection from everything (Teferi's Protection, Progenitus)
-  if (oracleText.toLowerCase().includes("protection from everything") ||
-      oracleText.toLowerCase().includes("protection from all")) {
+  if (text.toLowerCase().includes("protection from everything") ||
+      text.toLowerCase().includes("protection from all")) {
     protections.push("everything");
   }
   
   // Protection from colored spells
-  if (oracleText.toLowerCase().includes("protection from colored")) {
+  if (text.toLowerCase().includes("protection from colored")) {
     protections.push("colored");
   }
   
   // Protection from monocolored
-  if (oracleText.toLowerCase().includes("protection from monocolored")) {
+  if (text.toLowerCase().includes("protection from monocolored")) {
     protections.push("monocolored");
   }
   
   // Protection from multicolored
-  if (oracleText.toLowerCase().includes("protection from multicolored")) {
+  if (text.toLowerCase().includes("protection from multicolored")) {
     protections.push("multicolored");
   }
   
   return protections;
+}
+
+/**
+ * Parse protection abilities from card
+ */
+function oracleTextForSelfProtection(oracleText: string): string {
+  // "Enchanted creature has protection from …" is a host grant, not a self ability.
+  return String(oracleText || '').replace(
+    /(?:enchanted (?:creature|permanent|land)|equipped creature) has protection from [^.]+/gi,
+    ' ',
+  );
+}
+
+export function parseProtections(card: any, permanent?: any): string[] {
+  return collectProtectionQualitiesFromText(
+    oracleTextForSelfProtection(card?.oracle_text || ""),
+    String(permanent?.chosenColor || permanent?.card?.chosenColor || card?.chosenColor || ''),
+  );
+}
+
+function abilityTextFromGrantEntry(entry: unknown): string {
+  if (typeof entry === 'string') return entry;
+  if (entry && typeof entry === 'object' && typeof (entry as any).ability === 'string') {
+    return String((entry as any).ability);
+  }
+  return '';
+}
+
+function typeWordsFromPermanent(permanent: any): string[] {
+  const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
+  return typeLine.split(/[\s—\-]+/).map((part) => part.trim()).filter(Boolean);
+}
+
+/**
+ * Protection qualities on a permanent, including Aura/Equipment grants and continuous effects.
+ * Flickering Ward: "Enchanted creature has protection from the chosen color."
+ */
+export function getPermanentProtections(permanent: any, gameState?: any): string[] {
+  const seen = new Set<string>();
+  const addAll = (qualities: readonly string[]) => {
+    for (const quality of qualities) {
+      const normalized = String(quality || '').trim().toLowerCase();
+      if (normalized) seen.add(normalized);
+    }
+  };
+
+  addAll(parseProtections(permanent?.card, permanent));
+
+  const grantTexts: string[] = [];
+  for (const entry of [
+    ...(Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : []),
+    ...(Array.isArray(permanent?.tempAbilities) ? permanent.tempAbilities : []),
+    ...(Array.isArray(permanent?.temporaryAbilities) ? permanent.temporaryAbilities : []),
+    ...(Array.isArray(permanent?.grantedKeywords) ? permanent.grantedKeywords : []),
+  ]) {
+    const text = abilityTextFromGrantEntry(entry);
+    if (text) grantTexts.push(text);
+  }
+  if (gameState) {
+    grantTexts.push(...getContinuousGrantedAbilitiesForPermanent(permanent, gameState));
+  }
+  for (const text of grantTexts) {
+    addAll(collectProtectionQualitiesFromText(text, String(permanent?.chosenColor || permanent?.card?.chosenColor || '')));
+  }
+
+  if (gameState) {
+    const battlefield = Array.isArray(gameState.battlefield) ? gameState.battlefield : [];
+    for (const attachment of iterAttachments(permanent, battlefield)) {
+      const oracle = String(attachment?.card?.oracle_text || '');
+      if (!/(?:enchanted (?:creature|permanent|land)|equipped creature) has protection/i.test(oracle)) {
+        continue;
+      }
+      addAll(collectProtectionQualitiesFromText(
+        oracle,
+        String(attachment?.chosenColor || attachment?.card?.chosenColor || ''),
+      ));
+    }
+  }
+
+  return [...seen];
+}
+
+/**
+ * True when protection on `protectedPermanent` prevents damage/blocking/targeting from `sourcePermanent`.
+ */
+export function protectionPreventsSource(
+  protectedPermanent: any,
+  sourcePermanent: any,
+  gameState?: any,
+): boolean {
+  const protections = getPermanentProtections(protectedPermanent, gameState);
+  if (protections.length === 0 || !sourcePermanent) return false;
+  const colors = getEffectiveColors(sourcePermanent, gameState);
+  return wouldDamageBePreventedByProtection(
+    { colors, types: typeWordsFromPermanent(sourcePermanent) },
+    { protections },
+  );
 }
 
 /**
@@ -527,7 +653,8 @@ export function canBlock(
     const colorMap: Record<string, string> = {
       white: "W", blue: "U", black: "B", red: "R", green: "G"
     };
-    if (colorMap[protection] && blocker.colors.includes(colorMap[protection])) {
+    const blockerColors = (blocker.colors || []).map((c) => String(c || '').toUpperCase());
+    if (colorMap[protection] && (blockerColors.includes(colorMap[protection]) || blocker.colors.includes(protection))) {
       return { legal: false, reason: `Protection from ${protection}` };
     }
   }
@@ -801,24 +928,36 @@ export function wouldDamageBePreventedByProtection(
   source: { colors: string[]; types: string[]; isSpell?: boolean },
   target: { protections: string[] }
 ): boolean {
+  const sourceColors = (source.colors || []).map((color) => String(color || '').trim().toLowerCase());
+  const sourceColorSymbols = sourceColors.map((color) => {
+    if (color === 'white' || color === 'w') return 'w';
+    if (color === 'blue' || color === 'u') return 'u';
+    if (color === 'black' || color === 'b') return 'b';
+    if (color === 'red' || color === 'r') return 'r';
+    if (color === 'green' || color === 'g') return 'g';
+    return color;
+  });
+  const sourceTypes = (source.types || []).map((entry) => String(entry || '').toLowerCase());
+
   for (const protection of target.protections) {
     if (protection === "everything") return true;
     
     // Color protection
     const colorMap: Record<string, string> = {
-      white: "W", blue: "U", black: "B", red: "R", green: "G"
+      white: "w", blue: "u", black: "b", red: "r", green: "g"
     };
-    if (colorMap[protection] && source.colors.includes(colorMap[protection])) {
+    const wanted = colorMap[protection];
+    if (wanted && sourceColorSymbols.includes(wanted)) {
       return true;
     }
     
     // Type protection
-    if (source.types.some(t => t.toLowerCase() === protection)) {
+    if (sourceTypes.some(t => t === protection)) {
       return true;
     }
     
     // Colored spells
-    if (protection === "colored" && source.colors.length > 0) {
+    if (protection === "colored" && sourceColorSymbols.some((c) => ['w', 'u', 'b', 'r', 'g'].includes(c))) {
       return true;
     }
   }

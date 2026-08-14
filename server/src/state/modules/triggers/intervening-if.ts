@@ -1480,6 +1480,13 @@ export function extractInterveningIfClause(text: string): string | null {
     if (clause) return clause;
   }
 
+  const playerWhoMore = normalized.match(
+    /\b(?:a |that |defending )?player(?:,)? who (controls more (?:lands|creatures) than you)\b/i,
+  );
+  if (playerWhoMore) {
+    return `if that player ${playerWhoMore[1]}`;
+  }
+
   // Only treat comma-delimited ", if ..." as intervening-if when the text looks like a trigger template.
   // This avoids false positives for effect text like "... . If you do, ...".
   if (!/^(when|whenever|at)\b/i.test(normalized)) return null;

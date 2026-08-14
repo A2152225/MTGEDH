@@ -2766,7 +2766,6 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               const synthetic = trigger.triggerType === 'deals_damage'
                 ? `Whenever ~ deals damage to a player, ${text}`
                 : `Whenever ~ deals combat damage to a player, ${text}`;
-              const needsThatPlayerRef = /\bthat player\b/i.test(synthetic);
               const ok = isInterveningIfSatisfied(
                 ctx as any,
                 String(attackerPerm.controller),
@@ -2774,13 +2773,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 attackerPerm,
                 {
                   defendingPlayerId: String(defendingPlayerId),
-                  ...(needsThatPlayerRef
-                    ? {
-                        thatPlayerId: String(defendingPlayerId),
-                        referencedPlayerId: String(defendingPlayerId),
-                        theirPlayerId: String(defendingPlayerId),
-                      }
-                    : {}),
+                  thatPlayerId: String(defendingPlayerId),
+                  referencedPlayerId: String(defendingPlayerId),
+                  theirPlayerId: String(defendingPlayerId),
                 }
               );
               if (ok === false) {

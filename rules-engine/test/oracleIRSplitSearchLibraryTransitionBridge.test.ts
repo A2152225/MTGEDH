@@ -21,6 +21,18 @@ describe('oracleIR split search library transition bridge', () => {
     });
   });
 
+  it('infers rest-to-hand split-destination plan from one-of-them oracle text', () => {
+    const plan = inferSplitLibrarySearchPlan(
+      'Search your library for a number of Plains cards equal to the difference, reveal those cards, put one of them onto the battlefield tapped and the rest into your hand, then shuffle.',
+    );
+    expect(plan).toEqual({
+      splitDestination: true,
+      toBattlefield: 1,
+      toHand: 'rest',
+      entersTapped: true,
+    });
+  });
+
   it('puts split search selections onto battlefield and hand via pre-commit bridge', () => {
     const state: any = {
       players: [{

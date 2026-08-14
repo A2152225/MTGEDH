@@ -194,6 +194,11 @@ export function isGraveyardSourceLibrarySearchStep(step: Record<string, unknown>
   return haystack.includes('graveyard');
 }
 
+export function isHandSourceLibrarySearchStep(step: Record<string, unknown>): boolean {
+  const haystack = `${String(step.searchCriteria || '')} ${String(step.description || '')} ${String(step.searchZone || '')}`.toLowerCase();
+  return haystack.includes('from your hand') || haystack.includes('from hand') || String(step.searchZone || '') === 'hand';
+}
+
 export interface LibrarySearchModalStateShape {
   cards: KnownCardRef[];
   nonSelectableCards: KnownCardRef[];
@@ -234,12 +239,17 @@ export function buildLibrarySearchModalStateFromStep(
   const searchCriteria = String(step.searchCriteria || '').trim();
   const stepDescription = String(step.description || '').trim();
   const fromGraveyard = isGraveyardSourceLibrarySearchStep(step);
+  const fromHand = isHandSourceLibrarySearchStep(step);
   const defaultTitle = fromGraveyard
     ? (sourceName ? `${sourceName}: Choose from graveyard` : 'Choose from graveyard')
-    : (sourceName || 'Search Library');
+    : fromHand
+      ? (sourceName ? `${sourceName}: Choose from hand` : 'Choose from hand')
+      : (sourceName || 'Search Library');
   const defaultDescription = fromGraveyard
     ? (searchCriteria || stepDescription || 'Choose a card from your graveyard')
-    : (stepDescription || searchCriteria || 'Search your library');
+    : fromHand
+      ? (searchCriteria || stepDescription || 'Choose cards from your hand')
+      : (stepDescription || searchCriteria || 'Search your library');
 
   return {
     cards: Array.isArray(step.availableCards) ? step.availableCards as KnownCardRef[] : [],

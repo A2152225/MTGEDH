@@ -704,7 +704,7 @@ export function tryParseSimpleActionClause(args: {
 
   {
     const searchBattlefield = clause.match(
-      /^search your library for (?:up to one |a |an )(.+?) card,\s*(reveal it,\s*)?put (?:it|that card) onto the battlefield( tapped)?(?: under your control)?(?:,\s*(?:then\s+)?shuffle(?: your library)?)?$/i
+      /^search your library for (?:up to one |a |an )(.+?) card(?:,\s*|\s+and\s+)(reveal it,\s*)?put (?:it|that card) onto the battlefield( tapped)?(?: under your control)?(?:,\s*(?:then\s+)?shuffle(?: your library)?)?$/i
     );
     if (searchBattlefield) {
       return withMeta({
@@ -2879,7 +2879,7 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
-    if (/^choose\s+an\s+opponent\s+at\s+random$/i.test(clause)) {
+    if (/^choose\s+an\s+opponent(?:\s+at\s+random|\s+who\s+.+)?$/i.test(clause)) {
       return withMeta({
         kind: 'choose_opponent',
         raw: rawClause,

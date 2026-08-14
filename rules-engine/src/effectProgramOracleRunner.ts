@@ -10,7 +10,7 @@ import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUti
 import { evaluateConditionalWrapperCondition } from './oracleIRExecutorConditionalStepSupport';
 import { applyProliferateSelectedTargetIds, getProliferateChoiceTargets } from './oracleIRExecutorKeywordStepHandlers';
 import type { OracleIRExecutionContext, OracleIRExecutionOptions, OracleIRExecutionResult } from './oracleIRExecutionTypes';
-import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { resolvePlayers, listEligibleChooseOpponentIds } from './oracleIRExecutorPlayerUtils';
 import { buildSacrificeTargetSelectionOptions } from './oracleIRExecutorBattlefieldStepHandlers';
 import { executePopulate, getPopulateTargets } from './keywordActions/populate';
 import { parseOracleTextToIR } from './oracleIRParser';
@@ -386,7 +386,15 @@ function createOracleIRChoiceEvent(
 
   if (request.type === ChoiceEventType.PLAYER_CHOICE && !hasNonEmptyChoiceOptions(payload.validPlayers)) {
     const oracleStep = (payload as any).oracleStep;
-    const validPlayers = buildOracleIRPlayerChoiceOptions(args.state, args.runtime.program.controllerId, oracleStep);
+    const validPlayers = buildOracleIRPlayerChoiceOptions(
+      args.state,
+      args.runtime.program.controllerId,
+      oracleStep,
+      {
+        runtime: args.runtime,
+        distinctPlayerTargets: Boolean((payload as any).distinctPlayerTargets),
+      },
+    );
     return createChoiceEventFromEffectProgramChoiceRequest({
       request: {
         ...request,
@@ -1620,10 +1628,31 @@ function buildOracleIRTargetSelectionOptions(
 function buildOracleIRPlayerChoiceOptions(
   state: GameState,
   controllerId: string,
-  oracleStep: unknown
+  oracleStep: unknown,
+  options?: {
+    readonly runtime?: EffectProgramRuntime<GameState>;
+    readonly distinctPlayerTargets?: boolean;
+  },
 ): readonly { id: string; name: string }[] {
   const kind = String((oracleStep as any)?.kind || '');
   const allowSelf = shouldOracleIRPlayerChoiceAllowSelf(oracleStep);
+  const eligibleOpponentIds = kind === 'choose_opponent'
+    ? new Set(listEligibleChooseOpponentIds(state, controllerId, String((oracleStep as any)?.raw || '')))
+    : null;
+  const excludedPlayerIds = new Set<string>();
+  if (options?.distinctPlayerTargets && options.runtime) {
+    for (const step of options.runtime.program.steps) {
+      if (step.kind !== 'choice') continue;
+      if (String(step.choiceRequest?.type || '') !== ChoiceEventType.PLAYER_CHOICE) continue;
+      if (!Boolean((step.choiceRequest?.payload as any)?.distinctPlayerTargets)) continue;
+      const response = options.runtime.bindings[step.bindingKey] as ChoiceResponse | undefined;
+      if (!response || response.cancelled) continue;
+      for (const selection of normalizeChoiceResponseSelections(response)) {
+        const playerId = String(selection || '').trim();
+        if (playerId) excludedPlayerIds.add(playerId);
+      }
+    }
+  }
   return (state.players || [])
     .filter(player => {
       const playerId = String(player?.id || '').trim();
@@ -1631,7 +1660,15 @@ function buildOracleIRPlayerChoiceOptions(
         return false;
       }
 
+      if (excludedPlayerIds.has(playerId)) {
+        return false;
+      }
+
       if ((kind === 'choose_opponent' || !allowSelf) && playerId === controllerId) {
+        return false;
+      }
+
+      if (eligibleOpponentIds && !eligibleOpponentIds.has(playerId as any)) {
         return false;
       }
 
@@ -1647,6 +1684,9 @@ function shouldOracleIRPlayerChoiceAllowSelf(oracleStep: unknown): boolean {
   const kind = String((oracleStep as any)?.kind || '');
   if (kind === 'choose_opponent') {
     return false;
+  }
+  if (kind === 'target_player') {
+    return true;
   }
 
   const targetKind = String((oracleStep as any)?.target?.kind || '');

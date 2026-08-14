@@ -4694,6 +4694,28 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             zones.graveyard = Array.isArray(zones.graveyard) ? zones.graveyard : [];
             pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, exiledCard, zones.graveyard);
             zones.graveyardCount = zones.graveyard.length;
+          } else if (declineDestination === 'hand') {
+            const toHand = { ...exiledCard, zone: 'hand' };
+            delete (toHand as any).canBePlayedBy;
+            delete (toHand as any).playableUntilTurn;
+            delete (toHand as any).withoutPayingManaCost;
+            delete (toHand as any).castWithoutPayingManaCost;
+            zones.hand = Array.isArray(zones.hand) ? zones.hand : [];
+            zones.hand.push(toHand);
+            zones.handCount = zones.hand.length;
+            const player = ((ctx.state as any)?.players || []).find(
+              (entry: any) => String(entry?.id || '').trim() === playerId,
+            );
+            if (player) {
+              player.hand = Array.isArray(player.hand) ? player.hand : [];
+              player.hand.push({ ...toHand });
+              if (Array.isArray(player.exile)) {
+                const playerExileIndex = player.exile.findIndex(
+                  (card: any) => String(card?.id || '').trim() === cardId,
+                );
+                if (playerExileIndex !== -1) player.exile.splice(playerExileIndex, 1);
+              }
+            }
           } else if (declineDestination === 'library_bottom_random') {
             const bottomed = { ...exiledCard, zone: 'library' };
             zones.library = Array.isArray(zones.library) ? zones.library : [];

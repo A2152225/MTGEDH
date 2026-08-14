@@ -7,7 +7,7 @@ import { isFaceUpTriggerType } from './triggerEmissionFamilyUtils.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
 import { orderTriggersByAPNAP } from './triggers/ordering.js';
 import { buildInterveningIfSubjectSnapshot } from './triggerSourceUtils.js';
-import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
+import { inferTriggeredAbilityTargetMetadata, isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetadata.js';
 import {
   isTypedPermanentEtbTrigger,
   matchesRequiredTypePhrase,
@@ -290,10 +290,14 @@ export function queuePermanentEntersBattlefieldTriggerStackItems(
         }
 
         const triggerEffectText = String((trigger as any).effect || trigger.description || '');
+        const modalChooseModes = isModalChooseModesEffectText(triggerEffectText);
         const enrichedMetadata = (
-          (trigger as any).requiresTarget === true
-          || /\btarget\b/i.test(triggerEffectText)
-          || String((trigger as any).targetZone || '').trim().length > 0
+          !modalChooseModes
+          && (
+            (trigger as any).requiresTarget === true
+            || /\btarget\b/i.test(triggerEffectText)
+            || String((trigger as any).targetZone || '').trim().length > 0
+          )
         )
           ? inferTriggeredAbilityTargetMetadata(triggerEffectText, {
               gameState: (ctx as any).state,
@@ -302,9 +306,11 @@ export function queuePermanentEntersBattlefieldTriggerStackItems(
               sourcePermanent: newPermanent,
             } as any)
           : ({} as ReturnType<typeof inferTriggeredAbilityTargetMetadata>);
-        const effectiveRequiresTarget = (trigger as any).requiresTarget === true
+        const effectiveRequiresTarget = !modalChooseModes && (
+          (trigger as any).requiresTarget === true
           || Boolean(enrichedMetadata.targetZone)
-          || Boolean(enrichedMetadata.targetType);
+          || Boolean(enrichedMetadata.targetType)
+        );
 
         const stackItem = {
           id: triggerId,

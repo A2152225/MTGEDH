@@ -3887,7 +3887,7 @@ async function handleAIResolutionStep(
           maxTotalManaValue: Number.isFinite(maxTotalManaValue) ? maxTotalManaValue : undefined,
           splitDestination: searchStep.splitDestination === true,
           toBattlefield: Number(searchStep.toBattlefield),
-          toHand: Number(searchStep.toHand),
+          toHand: searchStep.toHand === 'rest' ? 'rest' : Number(searchStep.toHand),
         });
         
         response = {
@@ -15536,32 +15536,93 @@ async function handleStepResponse(
       if (typeof response.selections === 'number') timesPaid = response.selections;
       else if (typeof response.selections === 'string') timesPaid = Number(response.selections);
       else if (Array.isArray(response.selections) && response.selections.length > 0) timesPaid = Number(response.selections[0]);
+      else if (response.selections && typeof response.selections === 'object' && (response.selections as any).timesPaid != null) {
+        timesPaid = Number((response.selections as any).timesPaid);
+      }
       timesPaid = Number.isFinite(timesPaid) ? Math.max(0, Math.floor(timesPaid)) : 0;
 
       const zones = (game.state as any)?.zones?.[pid];
-      if (!zones || !Array.isArray(zones.hand)) {
+      if (!zones) {
         emitToPlayer(io, pid as any, 'error', { code: 'NO_ZONES', message: 'Player zones not found' });
         break;
       }
 
-      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
-      if (!cardInHand) {
-        emitToPlayer(io, pid as any, 'error', { code: 'CARD_NOT_IN_HAND', message: 'Card not found in hand' });
+      const requestCastEffectId = String(stepData.effectId || stepData.sourceId || '').trim();
+      const requestCastPending = requestCastEffectId
+        ? (game.state as any)?.pendingSpellCasts?.[requestCastEffectId]
+        : undefined;
+
+      const sourceZoneRaw = String(castArgs?.fromZone || requestCastPending?.fromZone || 'hand').toLowerCase().trim();
+      const spellSourceZone = sourceZoneRaw === 'exile'
+        || sourceZoneRaw === 'graveyard'
+        || sourceZoneRaw === 'library'
+        || sourceZoneRaw === 'command'
+        ? sourceZoneRaw
+        : 'hand';
+
+      const hand = Array.isArray((zones as any).hand) ? ((zones as any).hand as any[]) : [];
+      const exile = Array.isArray((zones as any).exile) ? ((zones as any).exile as any[]) : [];
+      const graveyard = Array.isArray((zones as any).graveyard) ? ((zones as any).graveyard as any[]) : [];
+      const library = Array.isArray((game as any).libraries?.get?.(String(pid)))
+        ? ((game as any).libraries.get(String(pid)) as any[])
+        : (Array.isArray((zones as any).library) ? ((zones as any).library as any[]) : []);
+      const command = Array.isArray((game.state as any)?.commandZone?.[String(pid)]?.commanderCards)
+        ? ((game.state as any).commandZone[String(pid)].commanderCards as any[])
+        : [];
+
+      const sourceCards = spellSourceZone === 'exile'
+        ? exile
+        : spellSourceZone === 'graveyard'
+          ? graveyard
+          : spellSourceZone === 'library'
+            ? library
+            : spellSourceZone === 'command'
+              ? command
+              : hand;
+
+      const cardInHand = hand.find((c: any) => c && c.id === cardId);
+      const spellCard = cardInHand || sourceCards.find((c: any) => c && c.id === cardId);
+      if (!spellCard) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: spellSourceZone === 'hand' ? 'CARD_NOT_IN_HAND' : 'CARD_NOT_FOUND',
+          message: spellSourceZone === 'hand' ? 'Card not found in hand' : `Card not found in ${spellSourceZone}`,
+        });
         break;
       }
 
-      (cardInHand as any).squadTimesPaid = timesPaid;
-      (cardInHand as any).additionalCostPaid = true;
+      (spellCard as any).squadTimesPaid = timesPaid;
+      (spellCard as any).additionalCostPaid = true;
+      (spellCard as any).additionalCostMethod = 'squad';
+      if (requestCastPending) {
+        requestCastPending.squadTimesPaid = timesPaid;
+        requestCastPending.additionalCostPaid = true;
+        requestCastPending.additionalCostMethod = 'squad';
+      }
 
       appendCastSpellContinuationEvent(gameId, game, {
         playerId: pid,
         resolvedStepId: String((step as any).id || ''),
         resolvedStepType: String((step as any).type || ''),
         cardId,
-        cardUpdates: {
-          squadTimesPaid: timesPaid,
-          additionalCostPaid: true,
-        },
+        ...(spellSourceZone === 'hand'
+          ? {
+              cardUpdates: {
+                squadTimesPaid: timesPaid,
+                additionalCostPaid: true,
+              },
+            }
+          : {}),
+        ...(requestCastPending
+          ? {
+              effectId: requestCastEffectId,
+              pendingSpellCast: {
+                ...(requestCastPending || {}),
+                squadTimesPaid: timesPaid,
+                additionalCostPaid: true,
+                additionalCostMethod: 'squad',
+              },
+            }
+          : {}),
       });
 
       if (timesPaid > 0) {
@@ -15572,6 +15633,39 @@ async function handleStepResponse(
           message: `${getPlayerName(game, pid)} pays the squad cost ${timesPaid} time(s) for ${cardName}.`,
           ts: Date.now(),
         });
+      }
+
+      const shouldRestartRequestCast = Boolean(requestCastPending && requestCastEffectId)
+        || castArgs?.skipPriorityCheck === true;
+
+      if (shouldRestartRequestCast) {
+        if (requestCastPending && requestCastEffectId) {
+          delete (game.state as any).pendingSpellCasts[requestCastEffectId];
+        }
+        const { socket: restartCastSocket } = createForwardingGameActionSocket(io, gameId, String(pid));
+        await requestCastSpellForSocket(
+          io,
+          restartCastSocket as any,
+          {
+            gameId,
+            cardId,
+            faceIndex: Number.isFinite(castArgs?.faceIndex)
+              ? Number(castArgs.faceIndex)
+              : (Number.isFinite(requestCastPending?.faceIndex) ? Number(requestCastPending.faceIndex) : undefined),
+            fromZone: spellSourceZone as any,
+          },
+          {
+            skipPriorityCheck: true,
+            xValue: Number.isFinite(castArgs?.xValue)
+              ? Number(castArgs.xValue)
+              : (Number.isFinite(requestCastPending?.xValue) ? Number(requestCastPending.xValue) : undefined),
+            forcedAlternateCostId: String(castArgs?.alternateCostId || requestCastPending?.forcedAlternateCostId || '').trim() || undefined,
+            castWithoutPayingManaCost: castArgs?.castWithoutPayingManaCost === true || requestCastPending?.castWithoutPayingManaCost === true,
+            bypassExilePermissionCheck: castArgs?.bypassExilePermissionCheck === true || requestCastPending?.bypassExilePermissionCheck === true,
+            ignoreTimingRestrictions: castArgs?.ignoreTimingRestrictions === true || requestCastPending?.ignoreTimingRestrictions === true,
+          },
+        );
+        break;
       }
 
       const basePayment = Array.isArray(castArgs?.payment) ? castArgs.payment : [];
@@ -33590,6 +33684,31 @@ async function handleOptionChoiceResponse(
         } else if ((game as any).libraries?.set) {
           (game as any).libraries.set(playerId, [{ ...bottomed }]);
         }
+      } else if (declineDestination === 'hand') {
+        zones.exile.splice(cardIndex, 1);
+        zones.exileCount = zones.exile.length;
+
+        cleanupCardLeavingExile(game.state as any, exiledCard);
+
+        const toHand = { ...exiledCard, zone: 'hand' };
+        delete (toHand as any).canBePlayedBy;
+        delete (toHand as any).playableUntilTurn;
+        delete (toHand as any).withoutPayingManaCost;
+        delete (toHand as any).castWithoutPayingManaCost;
+        zones.hand = Array.isArray(zones.hand) ? zones.hand : [];
+        zones.hand.push(toHand);
+        zones.handCount = zones.hand.length;
+        const player = (game.state.players || []).find((entry: any) => String(entry?.id || '').trim() === String(playerId));
+        if (player) {
+          player.hand = Array.isArray(player.hand) ? player.hand : [];
+          player.hand.push({ ...toHand });
+          if (Array.isArray(player.exile)) {
+            const playerExileIndex = player.exile.findIndex(
+              (card: any) => String(card?.id || '').trim() === exiledCardId,
+            );
+            if (playerExileIndex !== -1) player.exile.splice(playerExileIndex, 1);
+          }
+        }
       } else if (declineDestination === 'exile') {
         cleanupCardLeavingExile(game.state as any, exiledCard);
       }
@@ -33632,6 +33751,8 @@ async function handleOptionChoiceResponse(
               ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} and it was put into their graveyard (${sourceName}).`
               : declineDestination === 'library_bottom_random'
                 ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} and it was put on the bottom of their library (${sourceName}).`
+                : declineDestination === 'hand'
+                  ? `${getPlayerName(game, playerId)} put ${exiledCard.name} into their hand (${sourceName}).`
                 : declineDestination === 'cease_to_exist'
                   ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} and the copy ceased to exist (${sourceName}).`
                 : `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} (${sourceName}).`,

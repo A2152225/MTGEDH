@@ -65,6 +65,21 @@ function splitConservativeActionConjunctionClause(args: {
   const second = String(splitMatch[2] || '').trim();
   if (!first || !second) return null;
 
+  // "Search your library for a Plains card and put it onto the battlefield tapped"
+  // is one search_library step, not a hand-search plus a later move_zone.
+  const isLibrarySearchLead = /\bsearch\b[\s\S]*\blibrary\b/i.test(first);
+  const isFoundCardPlacement =
+    /^(?:then\s+)?(?:reveal\s+(?:it|them|that card|those cards)(?:,\s*)?)?(?:puts?|exiles?|reveals?)\s+(?:it|them|that card|those cards)\b/i.test(second);
+  if (isLibrarySearchLead && isFoundCardPlacement) return null;
+  if (isLibrarySearchLead && parseEffectClauseToStep(normalized).kind === 'search_library') {
+    return null;
+  }
+  // Keep "Target player draws a card and loses 1 life" as one clause so the
+  // life-loss inherits the same player subject (splitDrawAndLifeStep).
+  if (/\bdraws?\b/i.test(first) && /^(?:loses?)\s+.+\blife\b/i.test(second)) {
+    return null;
+  }
+
   const firstStep = parseEffectClauseToStep(first);
   const secondStep = parseEffectClauseToStep(second);
   if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;

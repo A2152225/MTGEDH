@@ -1583,6 +1583,27 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
       value: { isJoinForces: true },
     });
   }
+
+  // Combat Calligrapher / Ellie, Brick Master:
+  // "Whenever a player attacks one of your opponents, that attacking player creates..."
+  const playerAttacksYourOpponentMatch = oracleText.match(
+    /whenever a player attacks one of your opponents,?\s*([^.]+)/i,
+  );
+  if (
+    playerAttacksYourOpponentMatch
+    && !triggers.some((trigger) => trigger.triggerType === 'player_attacks_your_opponent')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, playerAttacksYourOpponentMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'player_attacks_your_opponent',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
   
   return triggers;
 }
@@ -1599,12 +1620,37 @@ export function getAttackTriggersForCreatures(
   const triggers: CombatTriggeredAbility[] = [];
   const battlefield = ctx.state?.battlefield || [];
   
+  const playerIds = Array.isArray((ctx as any).state?.players)
+    ? (ctx as any).state.players.map((player: any) => String(player?.id || '')).filter(Boolean)
+    : [];
+
+  const resolveAttackedPlayerId = (attacker: any): string => {
+    const attacking = typeof attacker?.attacking === 'string' ? String(attacker.attacking) : '';
+    if (attacking && playerIds.includes(attacking)) return attacking;
+    if (attacking) {
+      const attackedPermanent = battlefield.find((perm: any) => String(perm?.id || '') === attacking);
+      const controller = String(attackedPermanent?.controller || '');
+      if (controller && playerIds.includes(controller)) return controller;
+    }
+    return String(defendingPlayer || '');
+  };
+
+  const attackedPlayerIds = Array.from(new Set(
+    attackingCreatures.map((attacker) => resolveAttackedPlayerId(attacker)).filter(Boolean),
+  ));
+  if (attackedPlayerIds.length === 0 && defendingPlayer) {
+    attackedPlayerIds.push(String(defendingPlayer));
+  }
+
   // Check each attacking creature for attack triggers
   for (const attacker of attackingCreatures) {
     const attackerTriggers = detectAttackTriggers(attacker.card, attacker);
     triggers.push(
       ...attackerTriggers
-        .filter((trigger) => trigger.triggerType !== 'one_or_more_enchanted_by_aura_you_control_attack')
+        .filter((trigger) =>
+          trigger.triggerType !== 'one_or_more_enchanted_by_aura_you_control_attack'
+          && trigger.triggerType !== 'player_attacks_your_opponent',
+        )
         .map((trigger) => ({
           ...trigger,
           controllerId: String((trigger as any).controllerId || attacker?.controller || attackingPlayer || ''),
@@ -1614,7 +1660,29 @@ export function getAttackTriggersForCreatures(
   
   // Check all permanents for "whenever a creature you control attacks" triggers
   for (const permanent of battlefield) {
-    if (!permanent || permanent.controller !== attackingPlayer) continue;
+    if (!permanent) continue;
+    const isAttackingController = permanent.controller === attackingPlayer;
+    if (!isAttackingController) {
+      const permTriggers = detectAttackTriggers(permanent.card, permanent);
+      for (const trigger of permTriggers) {
+        if (trigger.triggerType !== 'player_attacks_your_opponent') continue;
+        const sourceController = String((trigger as any).controllerId || permanent.controller || '');
+        for (const attackedId of attackedPlayerIds) {
+          if (!attackedId || attackedId === sourceController) continue;
+          triggers.push({
+            ...trigger,
+            controllerId: sourceController,
+            value: {
+              ...((trigger as any).value && typeof (trigger as any).value === 'object' ? (trigger as any).value : {}),
+              defendingPlayerId: attackedId,
+              defendingPlayer: attackedId,
+              attackingPlayerId: attackingPlayer,
+            },
+          });
+        }
+      }
+      continue;
+    }
     
     const permTriggers = detectAttackTriggers(permanent.card, permanent);
     for (const trigger of permTriggers) {
@@ -1642,6 +1710,22 @@ export function getAttackTriggersForCreatures(
           ...trigger,
           controllerId: String((trigger as any).controllerId || permanent?.controller || attackingPlayer || ''),
         });
+      }
+      if (trigger.triggerType === 'player_attacks_your_opponent') {
+        const sourceController = String((trigger as any).controllerId || permanent.controller || attackingPlayer || '');
+        for (const attackedId of attackedPlayerIds) {
+          if (!attackedId || attackedId === sourceController) continue;
+          triggers.push({
+            ...trigger,
+            controllerId: sourceController,
+            value: {
+              ...((trigger as any).value && typeof (trigger as any).value === 'object' ? (trigger as any).value : {}),
+              defendingPlayerId: attackedId,
+              defendingPlayer: attackedId,
+              attackingPlayerId: attackingPlayer,
+            },
+          });
+        }
       }
     }
   }

@@ -3,6 +3,8 @@ import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { enqueueLibrarySearchStep } from './triggerLibrarySearchUtils.js';
 
+import { inferSplitLibrarySearchPlan } from '../../../../rules-engine/src/oracleIRSplitLibrarySearch.js';
+
 export function detectTutorSpell(oracleText: string): {
   isTutor: boolean;
   searchCriteria?: string;
@@ -11,7 +13,7 @@ export function detectTutorSpell(oracleText: string): {
   maxSelections?: number;
   splitDestination?: boolean;
   toBattlefield?: number;
-  toHand?: number;
+  toHand?: number | 'rest';
   entersTapped?: boolean;
 } {
   if (!oracleText) return { isTutor: false };
@@ -47,18 +49,18 @@ export function detectTutorSpell(oracleText: string): {
     optional = true;
   }
 
-  if (text.includes('put one onto the battlefield') && text.includes('the other into your hand')) {
-    const entersTappedSplit = text.includes('battlefield tapped') || text.includes('enters tapped');
+  const splitPlan = inferSplitLibrarySearchPlan(text);
+  if (splitPlan) {
     return {
       isTutor: true,
       searchCriteria,
       destination: 'split',
       optional,
-      maxSelections: 2,
+      maxSelections: splitPlan.toHand === 'rest' ? maxSelections : 2,
       splitDestination: true,
-      toBattlefield: 1,
-      toHand: 1,
-      entersTapped: entersTappedSplit,
+      toBattlefield: splitPlan.toBattlefield,
+      toHand: splitPlan.toHand,
+      entersTapped: splitPlan.entersTapped,
     };
   }
 

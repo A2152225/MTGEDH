@@ -12,6 +12,7 @@ import {
 } from './staticEffectSpecOracleParsing.js';
 import { getEffectiveOracleText } from './effectiveOracleText.js';
 import { scanBattlefieldContinuousEffectOverlayGaps } from './oracleIrContinuousEffectGapTelemetry.js';
+import { collectPrintedColorSymbols, printedObjectHasManaColor } from './printedColorSymbols.js';
 
 /** Declarative static spec (Phase 5.3). See docs/oracle-ir-phase5-continuous-effects-design.md */
 export type StaticEffectScopeKind =
@@ -313,14 +314,13 @@ function colorNameToSymbol(colorName: string): string | null {
 
 function creatureHasManaColor(permanent: BattlefieldPermanent, colorName: string): boolean {
   const symbol = colorNameToSymbol(colorName);
-  const colors = ((permanent.card as any)?.colors || []).map((entry: string) => String(entry).toUpperCase());
+  const colors = collectPrintedColorSymbols(permanent);
   const added = Array.isArray((permanent as any).colorAdditions)
     ? ((permanent as any).colorAdditions as string[]).map((entry) => String(entry).toUpperCase())
     : [];
   const effective = [...new Set([...colors, ...added])];
   if (symbol && effective.includes(symbol)) return true;
-  const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
-  return typeLine.includes(String(colorName || '').trim().toLowerCase());
+  return printedObjectHasManaColor(permanent, colorName);
 }
 
 export function collectStaticEffectSpecsFromState(state: unknown): StaticEffectSpec[] {

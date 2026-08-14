@@ -1856,20 +1856,28 @@ export function chooseAILibrarySearchResponse(
     maxTotalManaValue?: number;
     splitDestination?: boolean;
     toBattlefield?: number;
-    toHand?: number;
+    toHand?: number | 'rest';
   },
 ): { selections: string[]; splitAssignments?: { toBattlefield: string[]; toHand: string[] } } {
   const minSelections = Math.max(0, Number(options?.minSelections ?? 0));
   const maxSelections = Math.max(minSelections, Number(options?.maxSelections ?? 1));
   const destination = String(options?.destination || 'hand');
   const isSplitDestination = options?.splitDestination === true || destination.toLowerCase() === 'split';
+  const restToHand = options?.toHand === 'rest' || String(options?.toHand || '').toLowerCase() === 'rest';
+  const toBattlefieldCount = Math.max(1, Number(options?.toBattlefield) || 1);
+  const toHandCount = restToHand
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, Number.isFinite(Number(options?.toHand)) ? Number(options?.toHand) : (isSplitDestination ? 1 : 0));
 
   if (availableCards.length === 0) {
     return { selections: [] };
   }
 
+  const splitCap = restToHand
+    ? maxSelections
+    : Math.max(minSelections, Math.min(maxSelections, toBattlefieldCount + (Number.isFinite(toHandCount) ? toHandCount : 0)));
   const desiredCount = isSplitDestination
-    ? Math.min(maxSelections, availableCards.length, Math.max(minSelections, 2))
+    ? Math.min(maxSelections, availableCards.length, splitCap)
     : Math.max(minSelections, Math.min(maxSelections, availableCards.length > 0 ? 1 : 0));
 
   const selections = chooseAILibrarySearchCards(game, playerId, availableCards, {
@@ -1883,21 +1891,13 @@ export function chooseAILibrarySearchResponse(
     return { selections };
   }
 
-  if (selections.length >= 2) {
-    return {
-      selections: selections.slice(0, 2),
-      splitAssignments: {
-        toBattlefield: [selections[0]!],
-        toHand: [selections[1]!],
-      },
-    };
-  }
-
+  const battlefieldIds = selections.slice(0, toBattlefieldCount);
+  const handIds = selections.slice(toBattlefieldCount);
   return {
     selections,
     splitAssignments: {
-      toBattlefield: [selections[0]!],
-      toHand: [],
+      toBattlefield: battlefieldIds,
+      toHand: handIds,
     },
   };
 }
@@ -11780,7 +11780,7 @@ export async function handleAIResolutionStep(
               : undefined,
             splitDestination: (step as any)?.splitDestination === true,
             toBattlefield: Number((step as any)?.toBattlefield),
-            toHand: Number((step as any)?.toHand),
+            toHand: (step as any)?.toHand === 'rest' ? 'rest' : Number((step as any)?.toHand),
           },
         );
         ResolutionQueueManager.completeStep(

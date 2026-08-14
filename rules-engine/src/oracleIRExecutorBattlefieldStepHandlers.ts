@@ -9747,6 +9747,20 @@ export function applyScheduleDelayedTriggerStep(
   ctx: OracleIRExecutionContext,
   runtime?: { readonly lastMovedBattlefieldPermanentIds?: readonly string[] }
 ): BattlefieldStepHandlerResult {
+  const raw = `${String(step.raw || '')} ${String(step.effect || '')}`.trim();
+  const isReflexiveWhenYouDo = /^when you do(?: so)?\b/i.test(String(step.raw || '').trim())
+    || /^when you do(?: so)?\b/i.test(String(step.effect || '').trim())
+    || /\bwhen you do(?: so)?,/i.test(raw);
+  // Reflexive "When you do" fires immediately after the antecedent (CR 603.12).
+  // The server queues it as a stack trigger; do not wait for the next end step.
+  if (isReflexiveWhenYouDo && step.timing === 'on_event') {
+    return {
+      applied: true,
+      state,
+      log: ['Queued reflexive when-you-do trigger'],
+    };
+  }
+
   const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
   const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
   const timing =
@@ -11715,6 +11729,41 @@ export function applyExileStep(
     }
     const removedIds = new Set<string>(toRemove.map(perm => perm.id));
     const kept = battlefield.filter(perm => !removedIds.has(perm.id));
+    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
+    const movedCards = toRemove
+      .filter(perm => !(perm as any).isToken)
+      .map(perm => buildPermanentCardWithStats(perm, 'exile'));
+    return {
+      applied: true,
+      state: annotateBattlefieldExilesWithSource(result.state, toRemove, ctx),
+      log: result.log,
+      ...(movedCards.length > 0
+        ? { lastMovedCards: movedCards, lastExiledCards: movedCards, lastExiledCardCount: movedCards.length }
+        : {}),
+    };
+  }
+
+  const upToArtifactsAndEnchantmentsMatch = normalizedExileTargetText.match(
+    /^up to (one|two|three|four|five|\d+) target artifacts? and\/or enchantments?$/i
+  );
+  if (upToArtifactsAndEnchantmentsMatch) {
+    const maxToken = String(upToArtifactsAndEnchantmentsMatch[1] || '1').toLowerCase();
+    const maxCount = DISTRIBUTE_WORD_TO_NUMBER[maxToken] ?? Number.parseInt(maxToken, 10);
+    const cappedMax = Number.isFinite(maxCount) && maxCount > 0 ? maxCount : 1;
+    const battlefieldNow = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const boundIds = collectBoundBattlefieldIds(ctx);
+    const toRemove = battlefieldNow
+      .filter((perm: any) => {
+        const id = String(perm?.id || '').trim();
+        if (!boundIds.includes(id)) return false;
+        return permanentMatchesType(perm, 'artifact') || permanentMatchesType(perm, 'enchantment');
+      })
+      .slice(0, cappedMax);
+    if (toRemove.length === 0) {
+      return { applied: true, state, log: ['No artifacts or enchantments to exile'] };
+    }
+    const removedIds = new Set<string>(toRemove.map(perm => perm.id));
+    const kept = battlefieldNow.filter(perm => !removedIds.has(perm.id));
     const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
     const movedCards = toRemove
       .filter(perm => !(perm as any).isToken)

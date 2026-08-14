@@ -16,6 +16,7 @@ import {
   type ReferencedObjectRuntime,
 } from './oracleIRExecutorReferenceUtils';
 import type { GameState, PlayerID } from '../../shared/src';
+import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 
 type PlayerZoneName = 'library' | 'hand' | 'graveyard' | 'exile';
 
@@ -72,6 +73,29 @@ export function stampCardsPutIntoGraveyardThisTurn(state: GameState, cards: read
 export function impulseExileTopRequiresChooseOne(step: { readonly raw?: string } | null | undefined): boolean {
   const raw = normalizeOracleText(String(step?.raw || ''));
   return /choose one of them/i.test(raw);
+}
+
+export function impulseExileTopIsDiscoverCastOrHand(step: {
+  readonly kind?: string;
+  readonly raw?: string;
+  readonly duration?: string;
+  readonly permission?: string;
+  readonly amount?: { readonly kind?: string; readonly subject?: string; readonly raw?: string };
+} | null | undefined): boolean {
+  if (!step || step.kind !== 'impulse_exile_top') return false;
+  if (String(step.duration || '') !== 'during_resolution') return false;
+  if (String(step.permission || '') !== 'cast') return false;
+
+  const raw = normalizeOracleText(String(step.raw || ''));
+  if (/put it into your hand/i.test(raw)) return true;
+
+  const amountKind = String(step.amount?.kind || '');
+  if (amountKind === 'until_nonland_mana_value_lte') return true;
+  if (amountKind === 'object_stat' && String(step.amount?.subject || '') === 'that_creature') return true;
+  if (amountKind === 'reference_amount' && /that spell(?:'|’)s mana value/i.test(String(step.amount?.raw || raw))) {
+    return true;
+  }
+  return false;
 }
 
 export function getPlayableUntilTurnForImpulseDuration(state: GameState, duration: any): number | null {
@@ -1127,6 +1151,30 @@ export function resolvePlayers(
       return resolvePlayersFromRawSelectorText(state, rawText, ctx);
     }
   }
+}
+
+export function countControlledLands(state: GameState, playerId: string): number {
+  const id = String(playerId || '').trim();
+  if (!id) return 0;
+  return (state.battlefield || []).filter((permanent: any) => (
+    String(permanent?.controller || '').trim() === id && hasExecutorClass(permanent, 'land')
+  )).length;
+}
+
+export function listEligibleChooseOpponentIds(
+  state: GameState,
+  controllerId: string,
+  raw: string,
+): PlayerID[] {
+  const you = String(controllerId || '').trim();
+  const opponents = (state.players || [])
+    .map((player: any) => String(player?.id || '').trim())
+    .filter((id: string) => Boolean(id) && id !== you) as PlayerID[];
+  if (!/who\s+controls\s+more\s+lands\s+than\s+you/i.test(String(raw || ''))) {
+    return opponents;
+  }
+  const yourLands = countControlledLands(state, you);
+  return opponents.filter((id) => countControlledLands(state, id) > yourLands);
 }
 
 export function resolvePlayersFromDamageTarget(

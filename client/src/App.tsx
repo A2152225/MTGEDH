@@ -2382,8 +2382,7 @@ export function App() {
     }
   }, [safeView]);
 
-  // If the server rejects an illegal block declaration, it will emit a socket "error".
-  // Ensure the blockers modal re-opens (or stays open) and surface the message.
+  // If the server rejects an illegal combat declaration, re-open the modal and surface the message.
   React.useEffect(() => {
     if (!safeView || !you) return;
     if (!lastError) return;
@@ -2391,7 +2390,23 @@ export function App() {
     lastCombatErrorSeenRef.current = lastError;
 
     const step = String((safeView as any).step || "").toLowerCase();
-    if (step !== "declareblockers" && step !== "declare_blockers") return;
+    const isDeclareBlockers = step === "declareblockers" || step === "declare_blockers";
+    const isDeclareAttackers = step === "declareattackers" || step === "declare_attackers";
+    if (!isDeclareBlockers && !isDeclareAttackers) return;
+
+    if (isDeclareAttackers) {
+      const attackersDeclaredBy: string[] = Array.isArray((safeView as any).attackersDeclaredBy)
+        ? (safeView as any).attackersDeclaredBy
+        : [];
+      if (!attackersDeclaredBy.includes(you)) {
+        setCombatMode('attackers');
+        setCombatModalError(lastError);
+        setCombatModalReadOnly(false);
+        setCombatModalMinimized(false);
+        setCombatModalOpen(true);
+      }
+      return;
+    }
 
     const battlefield = (safeView.battlefield || []) as any[];
     const attackersTargetingYou = battlefield.filter((p: any) => {
@@ -5083,8 +5098,8 @@ export function App() {
     if (!safeView) return;
     if (combatMode === 'attackers') {
       socket.emit("skipDeclareAttackers", { gameId: safeView.id });
-      setCombatModalOpen(false);
-      setCombatModalMinimized(false);
+      // Keep the modal open until the server advances the step. Skip is rejected
+      // when goaded / must-attack creatures are able to attack.
     } else {
       setCombatModalError(null);
       socket.emit("skipDeclareBlockers", { gameId: safeView.id });
@@ -8089,7 +8104,7 @@ export function App() {
               }
             : undefined
         }
-        errorMessage={combatMode === 'blockers' ? combatModalError : null}
+        errorMessage={combatModalError}
         isYourTurn={safeView != null && safeView.turnPlayer != null && safeView.turnPlayer === you}
         defenderInfoMap={combatMode === 'attackers' ? defenderInfoMap : undefined}
         onConfirm={(selections) => {

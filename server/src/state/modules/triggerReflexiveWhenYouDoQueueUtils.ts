@@ -846,3 +846,130 @@ export function tryDeferReflexiveWhenYouDoTriggers(
   }
   return false;
 }
+
+function isOracleIrReflexiveWhenYouDoStep(step: { kind?: string; timing?: string; raw?: string; effect?: string }): boolean {
+  if (String(step?.kind || '') !== 'schedule_delayed_trigger') return false;
+  if (String(step?.timing || '').trim() !== 'on_event') return false;
+  const raw = `${String(step.raw || '')} ${String(step.effect || '')}`.trim();
+  return /^when you do(?: so)?\b/i.test(String(step.raw || '').trim())
+    || /^when you do(?: so)?\b/i.test(String(step.effect || '').trim())
+    || /\bwhen you do(?: so)?,/i.test(raw);
+}
+
+function stripReflexiveWhenYouDoPrefix(text: string): string {
+  return String(text || '')
+    .replace(/^when you do(?: so)?,?\s*/i, '')
+    .trim();
+}
+
+function collectCreatedTokenIdsFromOracleIR(
+  state: any,
+  result: { readonly appliedSteps?: readonly { kind?: string }[]; readonly replayMutations?: readonly { kind?: string; tokenData?: { id?: string } }[] },
+  battlefieldIdsBefore: ReadonlySet<string>,
+): string[] {
+  const fromMutations = (Array.isArray(result.replayMutations) ? result.replayMutations : [])
+    .filter((mutation) => mutation?.kind === 'createToken')
+    .map((mutation) => String(mutation?.tokenData?.id || '').trim())
+    .filter(Boolean);
+  const fromBattlefield = (Array.isArray(state?.battlefield) ? state.battlefield : [])
+    .filter((permanent: any) => {
+      const id = String(permanent?.id || '').trim();
+      if (!id || battlefieldIdsBefore.has(id)) return false;
+      return permanent?.isToken === true;
+    })
+    .map((permanent: any) => String(permanent.id).trim())
+    .filter(Boolean);
+  return Array.from(new Set([...fromMutations, ...fromBattlefield]));
+}
+
+export function queueOracleIrReflexiveWhenYouDoFollowups(
+  ctx: GameContext,
+  state: any,
+  result: {
+    readonly appliedSteps?: readonly { kind?: string; timing?: string; raw?: string; effect?: string }[];
+    readonly replayMutations?: readonly { kind?: string; tokenData?: { id?: string } }[];
+  },
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    triggerItem?: any;
+    battlefieldIdsBefore?: ReadonlySet<string>;
+  },
+): void {
+  if ((ctx as any).isReplaying) return;
+  const delayedSteps = (result.appliedSteps || []).filter(isOracleIrReflexiveWhenYouDoStep);
+  if (delayedSteps.length === 0) return;
+  if (!(result.appliedSteps || []).some((step) => step.kind === 'create_token')) return;
+
+  const createdTokenIds = collectCreatedTokenIdsFromOracleIR(
+    state,
+    result,
+    params.battlefieldIdsBefore || new Set(),
+  );
+  if (createdTokenIds.length === 0) return;
+
+  const controller = String(params.controller || '').trim();
+  const sourceName = String(params.sourceName || params.triggerItem?.sourceName || 'Delayed trigger').trim() || 'Delayed trigger';
+  const sourceId = String(params.sourceId || params.triggerItem?.source || params.triggerItem?.permanentId || '').trim();
+  if (!controller) return;
+
+  const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(
+    getTriggerSourcePermanent(state, params.triggerItem || { source: sourceId, permanentId: sourceId }),
+  );
+
+  for (const step of delayedSteps) {
+    const followup = stripReflexiveWhenYouDoPrefix(String(step.effect || step.raw || '').trim());
+    if (!followup) continue;
+    const targetMetadata = inferTriggeredAbilityTargetMetadata(followup);
+    const triggerId = uid('trigger');
+    const stackItem = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller,
+      source: sourceId || null,
+      ...(sourceId ? { permanentId: sourceId } : {}),
+      sourceName,
+      description: followup,
+      effect: followup,
+      triggerType: 'reflexive_when_you_do',
+      mandatory: !/\byou may\b/i.test(followup),
+      ...targetMetadata,
+      chosenObjectIds: [...createdTokenIds],
+      sourcePermanentSnapshot,
+      effectData: {
+        createdTokenIds: [...createdTokenIds],
+        originalEffect: String(step.raw || step.effect || '').trim() || followup,
+      },
+      card: sourcePermanentSnapshot?.card || params.triggerItem?.card,
+    } as any;
+
+    state.stack = Array.isArray(state.stack) ? state.stack : [];
+    state.stack.push(stackItem);
+
+    const gameId = String((ctx as any).gameId || '').trim();
+    if (gameId && gameId !== 'unknown') {
+      try {
+        appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? state.seq ?? 0), 'pushTriggeredAbility', {
+          triggerId,
+          sourceId: sourceId || null,
+          ...(sourceId ? { permanentId: sourceId } : {}),
+          sourceName,
+          controllerId: controller,
+          description: followup,
+          effect: followup,
+          triggerType: 'reflexive_when_you_do',
+          mandatory: stackItem.mandatory,
+          ...targetMetadata,
+          sourcePermanentSnapshot,
+          card: stackItem.card,
+          effectData: stackItem.effectData,
+          chosenObjectIds: [...createdTokenIds],
+        });
+      } catch (err) {
+        debugWarn(1, `[oracle-ir] appendEvent(pushTriggeredAbility reflexive when-you-do) failed for ${sourceName}:`, err);
+      }
+    }
+    debug(2, `[oracle-ir] Queued reflexive when-you-do follow-up for ${sourceName}`);
+  }
+}

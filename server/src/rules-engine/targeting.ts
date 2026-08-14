@@ -1,4 +1,5 @@
 import type { GameState, PlayerID, TargetRef, BattlefieldPermanent } from '../../../shared/src';
+import { isCreatureTypeWord, permanentHasAttachmentGrantedKeyword, permanentHasCreatureType } from '../../../shared/src';
 import { inferManaValueConstraintFromText, type DynamicManaValueContext } from '../state/modules/graveyard-mana-value.js';
 import { maybeSuppressRetiredCategorizeSpellSpec } from '../state/modules/oracleIrSpellLegacyRouting.js';
 
@@ -3055,30 +3056,63 @@ function matchesMultiFilter(p: BattlefieldPermanent, filters: PermanentFilter[])
   return false;
 }
 
+function abilityListIncludesKeyword(values: unknown, keyword: string): boolean {
+  if (!Array.isArray(values)) return false;
+  const needle = keyword.toLowerCase();
+  return values.some((value: unknown) => {
+    const text = String(value || '').toLowerCase().trim();
+    return text === needle || text.includes(needle);
+  });
+}
+
+function permanentOracleGrantsSelfKeyword(oracleText: string, keyword: string): boolean {
+  const text = String(oracleText || '').toLowerCase();
+  if (!text) return false;
+  const keywordRe = new RegExp(`\\b${keyword.replace(/\s+/g, '\\s+')}\\b`, 'i');
+  if (!keywordRe.test(text)) return false;
+
+  // "Equipped/Enchanted creature has shroud" applies to the host, not this permanent.
+  const withoutHostGrants = text.replace(
+    /(?:equipped|enchanted)\s+(?:creature|permanent|land)\s+(?:has|gains?|gets?)\s+[^.]+/gi,
+    ' ',
+  );
+  return keywordRe.test(withoutHostGrants);
+}
+
 function permanentHasKeywordFromRuntimeGrants(
   permanent: BattlefieldPermanent,
   keyword: 'hexproof' | 'shroud',
 ): boolean {
-  const grantedAbilities = Array.isArray((permanent as any)?.grantedAbilities)
-    ? (permanent as any).grantedAbilities
-    : [];
-  if (grantedAbilities.some((ability: unknown) => String(ability || '').toLowerCase().includes(keyword))) {
-    return true;
-  }
+  if (abilityListIncludesKeyword((permanent as any)?.grantedAbilities, keyword)) return true;
+  if (abilityListIncludesKeyword((permanent as any)?.grantedKeywords, keyword)) return true;
+  if (abilityListIncludesKeyword((permanent as any)?.temporaryAbilities, keyword)) return true;
 
   const temporaryEffects = Array.isArray((permanent as any)?.temporaryEffects)
     ? (permanent as any).temporaryEffects
     : [];
   for (const effect of temporaryEffects) {
-    const effectGranted = Array.isArray(effect?.grantedAbilities) ? effect.grantedAbilities : [];
-    if (effectGranted.some((ability: unknown) => String(ability || '').toLowerCase().includes(keyword))) {
-      return true;
-    }
+    if (abilityListIncludesKeyword(effect?.grantedAbilities, keyword)) return true;
     const description = String(effect?.description || '').toLowerCase();
-    if (description.includes(keyword)) {
-      return true;
-    }
+    if (description.includes(keyword)) return true;
   }
+
+  return false;
+}
+
+function permanentHasKeywordFromDerivedContinuousEffects(
+  permanent: BattlefieldPermanent,
+  state: Readonly<GameState>,
+  keyword: 'hexproof' | 'shroud',
+): boolean {
+  const derived = (state as any)?._derivedContinuousEffects;
+  const permanentId = String(permanent?.id || '');
+  if (!derived || !permanentId) return false;
+
+  const creatureAbilities = derived?.perPermanent?.get?.(permanentId)?.abilities;
+  if (creatureAbilities instanceof Set && creatureAbilities.has(keyword)) return true;
+
+  const permanentAbilities = derived?.permanentAbilities?.get?.(permanentId);
+  if (permanentAbilities instanceof Set && permanentAbilities.has(keyword)) return true;
 
   return false;
 }
@@ -3089,19 +3123,18 @@ function hasGrantedProtectionKeyword(
   keyword: 'hexproof' | 'shroud'
 ): boolean {
   const self = (((p.card as any)?.oracle_text) || '').toLowerCase();
-  if (self.includes(keyword)) return true;
+  if (permanentOracleGrantsSelfKeyword(self, keyword)) return true;
+
+  if (abilityListIncludesKeyword((p.card as any)?.keywords, keyword)) return true;
 
   if (permanentHasKeywordFromRuntimeGrants(p, keyword)) return true;
 
-  // Check if any attached aura or equipment grants the protection keyword.
-  const hasFromAttachment = s.battlefield.some(a => {
-    if (a.attachedTo !== p.id) return false;
-    const attachmentTypeLine = (((a.card as any)?.type_line) || '').toLowerCase();
-    const attachmentOracle = (((a.card as any)?.oracle_text) || '').toLowerCase();
-    if (!attachmentTypeLine.includes('aura') && !attachmentTypeLine.includes('equipment')) return false;
-    return attachmentOracle.includes(keyword);
-  });
-  if (hasFromAttachment) return true;
+  if (permanentHasKeywordFromDerivedContinuousEffects(p, s, keyword)) return true;
+
+  // Equipment/Aura grants: use both attachedTo and attachedEquipment pointers.
+  if (permanentHasAttachmentGrantedKeyword(p, Array.isArray(s.battlefield) ? s.battlefield : [], keyword)) {
+    return true;
+  }
 
   // Check static effects from other permanents on the battlefield.
   const typeLine = (((p.card as any)?.type_line) || '').toLowerCase();
@@ -3131,16 +3164,22 @@ function hasGrantedProtectionKeyword(
     }
 
     if (!sourceOracle.includes('other creatures') &&
-        new RegExp(`creatures you control have ${keyword}`).test(sourceOracle) && isCreaturePerm) {
+        new RegExp(`(?<![a-z] )creatures you control have ${keyword}`).test(sourceOracle) && isCreaturePerm) {
       return true;
+    }
+
+    const typedHave = sourceOracle.match(
+      new RegExp(`(?:^|[.\\n;])\\s*(?!other\\s)([a-z]+)\\s+creatures you control have ${keyword}`),
+    );
+    if (typedHave && isCreaturePerm) {
+      const qualifier = String(typedHave[1] || '').toLowerCase();
+      if (isCreatureTypeWord(qualifier) && permanentHasCreatureType(p, qualifier)) {
+        return true;
+      }
     }
   }
 
   return false;
-}
-
-function hasHexproofOrShroud(p: BattlefieldPermanent, s: Readonly<GameState>): boolean {
-  return hasGrantedProtectionKeyword(p, s, 'hexproof') || hasGrantedProtectionKeyword(p, s, 'shroud');
 }
 
 export function canPermanentBeTargetedByPlayer(
@@ -3247,8 +3286,8 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
     // Optional nonland restriction (e.g., "target nonland permanent")
     if (spec.nonlandOnly && isLand(p)) continue;
     
-    // Check hexproof/shroud (can't target opponent's permanents with hexproof/shroud)
-    if (hasHexproofOrShroud(p, state) && p.controller !== caster) continue;
+    // Shroud blocks all targeting; hexproof only blocks opponents.
+    if (!canPermanentBeTargetedByPlayer(p, state, caster)) continue;
     
     // Check controller restriction ("creature you control")
     if (spec.controllerOnly && p.controller !== caster) continue;

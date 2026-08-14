@@ -68,12 +68,28 @@ describe('triggerEffectTextExtraction', () => {
     );
   });
 
-  it('finds full trigger clauses from truncated stack fragments', () => {
+  it('keeps reflexive When you do on the same upkeep ability', () => {
     const oracle =
-      "At the beginning of your end step, draw a card. Each player may put a land card from their hand onto the battlefield, then each opponent who didn't draws a card.";
+      'At the beginning of your upkeep, create a 2/1 white and black Inkling creature token with flying. When you do, return up to one target Aura or Equipment card from your graveyard to the battlefield attached to that token.';
+    const match = oracle.match(/at the beginning of your upkeep,?\s*([^.]+)/i);
+    expect(match).not.toBeNull();
 
-    const hydrated = findTriggerEffectClauseMatchingFragment(oracle, 'draw a card.');
-    expect(hydrated?.toLowerCase()).toContain('each player may put a land');
-    expect(hydrated?.toLowerCase()).toContain("each opponent who didn't");
+    const effect = extractTriggeredEffectFromTimingMatch(oracle, match!);
+    expect(effect.toLowerCase()).toContain('create a 2/1');
+    expect(effect.toLowerCase()).toContain('inkling');
+    expect(effect.toLowerCase()).toContain('when you do');
+    expect(effect.toLowerCase()).toContain('aura or equipment');
+    expect(effect.toLowerCase()).toContain('attached to that token');
+  });
+
+  it('stops Squad reminder ETB at the closing parenthesis, not the next ability', () => {
+    const oracle =
+      'Squad {1}{G} (As an additional cost to cast this spell, you may pay {1}{G} any number of times. When this creature enters, create that many tokens that are copies of it.)\nOther Elves you control get +1/+1.';
+    const match = oracle.match(/when this creature enters(?: the battlefield)?,?\s*([^.]+)/i);
+    expect(match).not.toBeNull();
+
+    const effect = extractTriggeredEffectFromTimingMatch(oracle, match!);
+    expect(effect.toLowerCase()).toBe('create that many tokens that are copies of it.');
+    expect(effect.toLowerCase()).not.toContain('other elves');
   });
 });

@@ -11,7 +11,7 @@
  */
 
 import type { GameState, CombatInfo, CombatantInfo, BattlefieldPermanent } from '../../../shared/src';
-import { GameStep as SharedGameStep } from '../../../shared/src';
+import { GameStep as SharedGameStep, isCreatureTypeWord, permanentHasCreatureType } from '../../../shared/src';
 import { getLandwalkUnblockableReason } from '../../../shared/src/combatLandwalk.js';
 import type { EngineResult, ActionContext, BaseAction } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
@@ -915,8 +915,30 @@ function hasAbility(permanent: any, abilityName: string, battlefield?: any[]): b
       // Pattern: "creatures you control have [ability]" or "creatures you control get +X/+X and have [ability]"
       // This handles Eldrazi Monument, anthem effects, etc.
       if (isCreature && sourceController === permanent.controller) {
-        // Check if the source grants this ability to creatures
-        const grantPattern = new RegExp(`creatures\\s+you\\s+control\\s+(?:get\\s+[+\\-]\\d+/[+\\-]\\d+\\s+and\\s+)?have\\s+[^.]*\\b${lowerName}\\b`, 'i');
+        const typedGrantPattern = new RegExp(
+          `(?:^|[.\\n;])\\s*(?!other\\s)([a-z]+)\\s+creatures\\s+you\\s+control\\s+(?:get\\s+[+\\-]\\d+/[+\\-]\\d+\\s+and\\s+)?have\\s+[^.]*\\b${lowerName}\\b`,
+          'i',
+        );
+        const typedGrant = sourceOracle.match(typedGrantPattern);
+        if (typedGrant) {
+          const qualifier = String(typedGrant[1] || '').toLowerCase();
+          const colorCode = ({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' } as Record<string, string>)[qualifier];
+          if (colorCode) {
+            const colors = (permanent.card?.colors || permanent.colors || []) as unknown[];
+            if (colors.some((entry) => {
+              const value = String(entry || '');
+              return value.toUpperCase() === colorCode || value.toLowerCase() === qualifier;
+            })) {
+              return true;
+            }
+          } else if (isCreatureTypeWord(qualifier) && permanentHasCreatureType(permanent, qualifier)) {
+            return true;
+          }
+        }
+
+        // Pattern: "creatures you control have [ability]" or "creatures you control get +X/+X and have [ability]"
+        // This handles Eldrazi Monument, anthem effects, etc.
+        const grantPattern = new RegExp(`(?<![a-z] )(?:all\\s+)?creatures\\s+you\\s+control\\s+(?:get\\s+[+\\-]\\d+/[+\\-]\\d+\\s+and\\s+)?have\\s+[^.]*\\b${lowerName}\\b`, 'i');
         if (grantPattern.test(sourceOracle)) {
           return true;
         }
@@ -1057,6 +1079,14 @@ export function getGoadedBy(permanent: any, currentTurn?: number, battlefield?: 
           }
         }
       }
+    }
+  }
+
+  // Legacy replay/state shape: { [goaderId]: true }
+  if (analyzedPermanent.goaded && typeof analyzedPermanent.goaded === 'object' && !Array.isArray(analyzedPermanent.goaded)) {
+    for (const [legacyGoader, active] of Object.entries(analyzedPermanent.goaded as Record<string, unknown>)) {
+      if (!active) continue;
+      addUniqueGoaders(goaders, [legacyGoader]);
     }
   }
   

@@ -2,8 +2,9 @@
  * CombatSelectionModal.tsx
  * 
  * Modal for declaring attackers and blockers during combat phase.
- * Shows the player's available creatures and allows selection for combat.
- * Displays effective P/T and danger indicators for combat abilities.
+ * Unique creatures always use the card grid; identical creatures/tokens always
+ * use grouped rows with bulk assignment. Do not switch the whole modal based
+ * on total creature count.
  */
 
 import React, { useState, useMemo } from 'react';
@@ -12,6 +13,12 @@ import { getLandwalkUnblockableReason } from '../../../shared/src/combatLandwalk
 import { getBlockerCapacity } from '../utils/blockerCapacity';
 import { getCombinedPermanentText } from '../utils/permanentText';
 import { canBlockAttacker } from '../utils/combatBlocking';
+import {
+  getPermanentGoaders,
+  isPermanentGoaded,
+  permanentMustAttackIfAble,
+  preferredForcedAttackTarget,
+} from '../utils/combatGoad';
 import { hideCardPreview, showCardPreview } from './CardPreviewLayer';
 
 export interface DefenderAttackInfo {
@@ -245,8 +252,8 @@ function getCreatureInfo(perm: BattlefieldPermanent): {
     doubleStrike: hasAbility('double strike') || hasAbility('double_strike'),
     lifelink: hasAbility('lifelink'),
     indestructible: hasAbility('indestructible'),
-    goaded: (perm.goadedBy && Array.isArray(perm.goadedBy) && perm.goadedBy.length > 0) || false,
-    goadedBy: perm.goadedBy,
+    goaded: isPermanentGoaded(perm),
+    goadedBy: getPermanentGoaders(perm),
     lure: hasLure,
   };
   
@@ -477,6 +484,16 @@ function groupCreatures(creatures: BattlefieldPermanent[]): CreatureGroup[] {
   });
 }
 
+function splitCreatureGroups(groups: CreatureGroup[]): { unique: CreatureGroup[]; stacks: CreatureGroup[] } {
+  const unique: CreatureGroup[] = [];
+  const stacks: CreatureGroup[] = [];
+  for (const group of groups) {
+    if (group.creatures.length > 1) stacks.push(group);
+    else unique.push(group);
+  }
+  return { unique, stacks };
+}
+
 function buildAttackerSelections(
   selectedAttackers: Map<string, string | undefined>,
   availableCreatures: BattlefieldPermanent[],
@@ -571,7 +588,15 @@ export function CombatSelectionModal({
   // token-group +/- assignments during declare blockers).
   React.useEffect(() => {
     if (!open) return;
-    setSelectedAttackers(new Map());
+    const nextAttackers = new Map<string, string | undefined>();
+    if (mode === 'attackers' && !readOnly && isYourTurn) {
+      const defenderIdList = defenders.map((defender) => String(defender.id || '').trim()).filter(Boolean);
+      for (const creature of availableCreatures) {
+        if (creature.tapped || !permanentMustAttackIfAble(creature)) continue;
+        nextAttackers.set(creature.id, preferredForcedAttackTarget(creature, defenderIdList));
+      }
+    }
+    setSelectedAttackers(nextAttackers);
     setSelectedBlockers(new Map());
     setBulkAttackTarget(defenders[0]?.id || '');
     setBulkAttackCount(0);
@@ -617,6 +642,36 @@ export function CombatSelectionModal({
   const availableForAttack = useMemo(() => {
     return readOnly ? availableCreatures : availableCreatures.filter(c => !c.tapped);
   }, [availableCreatures, readOnly]);
+
+  const forcedAttackerIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (mode !== 'attackers' || !isInteractive) return ids;
+    for (const creature of availableForAttack) {
+      if (permanentMustAttackIfAble(creature)) ids.add(creature.id);
+    }
+    return ids;
+  }, [mode, isInteractive, availableForAttack]);
+
+  const defenderIds = useMemo(
+    () => defenders.map((defender) => String(defender.id || '').trim()).filter(Boolean),
+    [defenders],
+  );
+
+  // Goaded / must-attack creatures cannot be left out of the declaration (Rule 701.15b).
+  React.useEffect(() => {
+    if (!open || !isInteractive || mode !== 'attackers') return;
+    if (forcedAttackerIds.size === 0) return;
+    setSelectedAttackers((prev) => {
+      const next = new Map(prev);
+      let changed = false;
+      for (const creature of availableForAttack) {
+        if (!forcedAttackerIds.has(creature.id) || next.has(creature.id)) continue;
+        next.set(creature.id, preferredForcedAttackTarget(creature, defenderIds));
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [open, isInteractive, mode, availableForAttack, forcedAttackerIds, defenderIds]);
 
   const defenderNameById = useMemo(() => {
     const lookup = new Map<string, string>();
@@ -665,6 +720,11 @@ export function CombatSelectionModal({
   const creatureGroups = useMemo(() => {
     return groupCreatures(availableForAttack);
   }, [availableForAttack]);
+
+  const { unique: uniqueAttackerGroups, stacks: stackAttackerGroups } = useMemo(
+    () => splitCreatureGroups(creatureGroups),
+    [creatureGroups],
+  );
   
   // Count of unselected attackers available
   const unselectedCount = useMemo(() => {
@@ -713,8 +773,9 @@ export function CombatSelectionModal({
     setSelectedAttackers(prev => {
       const next = new Map(prev);
       if (allSelected) {
-        // Deselect all in group
+        // Deselect voluntary attackers; goaded / must-attack creatures stay selected.
         for (const c of group.creatures) {
+          if (forcedAttackerIds.has(c.id)) continue;
           next.delete(c.id);
         }
       } else {
@@ -726,18 +787,21 @@ export function CombatSelectionModal({
       return next;
     });
   };
-  
-  // Handle selecting X from a group
-  const handleSelectFromGroup = (group: CreatureGroup, count: number, targetId: string) => {
-    if (!isInteractive || count <= 0) return;
-    
-    const unselectedInGroup = group.creatures.filter(c => !selectedAttackers.has(c.id));
-    const toSelect = unselectedInGroup.slice(0, count);
-    
+
+  const handleAdjustGroupSelection = (group: CreatureGroup, delta: number, targetId: string) => {
+    if (!isInteractive || delta === 0) return;
     setSelectedAttackers(prev => {
       const next = new Map(prev);
-      for (const creature of toSelect) {
-        next.set(creature.id, targetId);
+      if (delta > 0) {
+        const unselected = group.creatures.filter(c => !next.has(c.id));
+        for (const creature of unselected.slice(0, delta)) {
+          next.set(creature.id, targetId);
+        }
+      } else {
+        const selected = group.creatures.filter(c => next.has(c.id) && !forcedAttackerIds.has(c.id));
+        for (const creature of selected.slice(0, -delta)) {
+          next.delete(creature.id);
+        }
       }
       return next;
     });
@@ -746,7 +810,12 @@ export function CombatSelectionModal({
   // Clear all selections
   const handleClearAll = () => {
     if (!isInteractive) return;
-    setSelectedAttackers(new Map());
+    const next = new Map<string, string | undefined>();
+    for (const creature of availableForAttack) {
+      if (!forcedAttackerIds.has(creature.id)) continue;
+      next.set(creature.id, preferredForcedAttackTarget(creature, defenderIds));
+    }
+    setSelectedAttackers(next);
   };
 
   // Check for menace violations
@@ -841,16 +910,21 @@ export function CombatSelectionModal({
     return groupCreatures(availableForBlock);
   }, [availableForBlock]);
 
+  const { unique: uniqueBlockerGroups, stacks: stackBlockerGroups } = useMemo(
+    () => splitCreatureGroups(blockerGroups),
+    [blockerGroups],
+  );
+
   const handleToggleAttacker = (creatureId: string) => {
     if (!isInteractive) return; // Don't allow interaction if read-only
     setSelectedAttackers(prev => {
       const next = new Map(prev);
       if (next.has(creatureId)) {
+        if (forcedAttackerIds.has(creatureId)) return prev;
         next.delete(creatureId);
       } else {
-        // Default target is the first opponent
-        const defaultTarget = defenders[0]?.id;
-        next.set(creatureId, defaultTarget);
+        const creature = availableForAttack.find((perm) => perm.id === creatureId);
+        next.set(creatureId, preferredForcedAttackTarget(creature, defenderIds) || defenders[0]?.id);
       }
       return next;
     });
@@ -867,6 +941,7 @@ export function CombatSelectionModal({
 
   const handleSkip = () => {
     if (!isInteractive) return;
+    if (mode === 'attackers' && forcedAttackerIds.size > 0) return;
     onSkip();
   };
 
@@ -907,6 +982,10 @@ export function CombatSelectionModal({
     }
     
     if (mode === 'attackers') {
+      const missingForced = availableForAttack.filter(
+        (creature) => forcedAttackerIds.has(creature.id) && !selectedAttackers.has(creature.id),
+      );
+      if (missingForced.length > 0) return;
       const selections = buildAttackerSelections(selectedAttackers, availableForAttack);
       onConfirm(selections);
     } else {
@@ -1058,8 +1137,8 @@ export function CombatSelectionModal({
             : isReadOnlyBlockerView
               ? 'Read-only combat view for watching attackers and blockers as combat develops.'
               : mode === 'attackers'
-                ? 'Click on creatures to select them as attackers. Choose a target for each attacker.'
-                : 'Click on your creatures, then click an attacker to block it. Watch for dangerous abilities!'}
+                ? 'Click unique creatures to select them. Identical tokens stay grouped so you can assign them in bulk. Choose a target for each attacker.'
+                : 'Click unique creatures to assign blockers, or use +/- on identical tokens. Watch for dangerous abilities!'}
         </div>
 
         {/* Menace warning banner */}
@@ -1081,6 +1160,19 @@ export function CombatSelectionModal({
                     {errorMessage}
                   </div>
                 )}
+        {mode === 'attackers' && isInteractive && forcedAttackerIds.size > 0 && (
+          <div style={{
+            padding: '8px 12px',
+            backgroundColor: 'rgba(217,119,6,0.2)',
+            border: '1px solid #d97706',
+            borderRadius: 8,
+            marginBottom: 16,
+            fontSize: 12,
+            color: '#fbbf24',
+          }}>
+            Goaded creatures must attack if able. Don't Attack is unavailable until they are declared.
+          </div>
+        )}
 
         {/* Attacker Selection Mode */}
         {mode === 'attackers' && (
@@ -1245,10 +1337,12 @@ export function CombatSelectionModal({
               <div style={{ color: '#666', padding: 12, textAlign: 'center' }}>
                 {isReadOnlyAttackerView ? 'No attackers previewed yet' : 'No untapped creatures available to attack'}
               </div>
-            ) : availableForAttack.length > 2 ? (
-              /* Grouped view for many creatures */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-                {creatureGroups.map(group => {
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {stackAttackerGroups.length > 0 && (
+              /* Identical creatures / tokens: grouped rows with bulk assignment */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16, order: 2 }}>
+                {stackAttackerGroups.map(group => {
                   const selectedInGroup = group.creatures.filter(c => selectedAttackers.has(c.id)).length;
                   const allSelected = selectedInGroup === group.creatures.length;
                   // Get group-specific target or default to first defender
@@ -1355,6 +1449,42 @@ export function CombatSelectionModal({
                             </select>
                           )}
                           
+                          <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }}>
+                            <button
+                              onClick={() => handleAdjustGroupSelection(group, -1, groupTarget)}
+                              disabled={selectedInGroup === 0}
+                              style={{
+                                padding: '2px 8px',
+                                fontSize: 12,
+                                borderRadius: 3,
+                                border: 'none',
+                                background: selectedInGroup === 0 ? '#333' : '#dc2626',
+                                color: '#fff',
+                                cursor: selectedInGroup === 0 ? 'not-allowed' : 'pointer',
+                              }}
+                            >
+                              −
+                            </button>
+                            <span style={{ fontSize: 12, minWidth: 36, textAlign: 'center', fontWeight: 600 }}>
+                              {selectedInGroup}/{group.creatures.length}
+                            </span>
+                            <button
+                              onClick={() => handleAdjustGroupSelection(group, 1, groupTarget)}
+                              disabled={unselectedInGroup === 0}
+                              style={{
+                                padding: '2px 8px',
+                                fontSize: 12,
+                                borderRadius: 3,
+                                border: 'none',
+                                background: unselectedInGroup === 0 ? '#333' : '#ef4444',
+                                color: '#fff',
+                                cursor: unselectedInGroup === 0 ? 'not-allowed' : 'pointer',
+                              }}
+                            >
+                              +
+                            </button>
+                          </div>
+
                           <button
                             onClick={() => handleToggleGroup(group, groupTarget)}
                             style={{
@@ -1369,41 +1499,6 @@ export function CombatSelectionModal({
                           >
                             {allSelected ? 'Deselect All' : `Attack All (${group.creatures.length})`}
                           </button>
-                          
-                          {/* Allow adding more attackers if there are unselected creatures */}
-                          {unselectedInGroup > 0 && (
-                            <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                              <input
-                                type="number"
-                                min="1"
-                                max={unselectedInGroup}
-                                placeholder={`1-${unselectedInGroup}`}
-                                onClick={(e) => e.stopPropagation()}
-                                style={{
-                                  width: 55,
-                                  padding: '2px 4px',
-                                  borderRadius: 3,
-                                  border: '1px solid #555',
-                                  background: '#222',
-                                  color: '#fff',
-                                  fontSize: 10,
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    const input = e.target as HTMLInputElement;
-                                    const count = Math.min(parseInt(input.value) || 0, unselectedInGroup);
-                                    if (count > 0) {
-                                      handleSelectFromGroup(group, count, groupTarget);
-                                    }
-                                    input.value = '';
-                                  }
-                                }}
-                              />
-                              <span style={{ fontSize: 9, color: '#888', alignSelf: 'center' }}>
-                                /{unselectedInGroup} +↵
-                              </span>
-                            </div>
-                          )}
                         </div>
                         )}
                       </div>
@@ -1411,10 +1506,13 @@ export function CombatSelectionModal({
                   );
                 })}
               </div>
-            ) : (
-              /* Standard card view for smaller numbers */
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-                {availableForAttack.map(creature => {
+              )}
+              {uniqueAttackerGroups.length > 0 && (
+              /* Unique creatures always use the card grid */
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, order: 1 }}>
+                {uniqueAttackerGroups.map(group => {
+                  const creature = group.creatures[0];
+                  if (!creature) return null;
                   const { name, pt, effectivePower, imageUrl, dangers } = getCreatureInfo(creature);
                   const isSelected = selectedAttackers.has(creature.id);
                   const targetId = selectedAttackers.get(creature.id);
@@ -1521,6 +1619,8 @@ export function CombatSelectionModal({
                     </div>
                   );
                 })}
+              </div>
+              )}
               </div>
             )}
           </div>
@@ -1725,10 +1825,12 @@ export function CombatSelectionModal({
                 <div style={{ color: '#666', padding: 12, textAlign: 'center' }}>
                   No untapped creatures available to block
                 </div>
-              ) : availableForBlock.length > 2 ? (
-                /* Grouped view for many creatures (tokens) */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {blockerGroups.map(group => {
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {stackBlockerGroups.length > 0 && (
+                /* Identical creatures / tokens: grouped rows with +/- assignment */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, order: 2 }}>
+                  {stackBlockerGroups.map(group => {
                     // Count how many from this group are blocking
                     const blockingInGroup = group.creatures.filter(c => (selectedBlockers.get(c.id)?.size || 0) > 0).length;
                     const availableInGroup = group.creatures.reduce((total, creature) => {
@@ -1931,10 +2033,13 @@ export function CombatSelectionModal({
                     );
                   })}
                 </div>
-              ) : (
-                /* Standard card view for smaller numbers */
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                  {availableForBlock.map(blocker => {
+                )}
+                {uniqueBlockerGroups.length > 0 && (
+                /* Unique creatures always use the card grid */
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: stackBlockerGroups.length > 0 ? 12 : 0, order: 1 }}>
+                  {uniqueBlockerGroups.map(group => {
+                    const blocker = group.creatures[0];
+                    if (!blocker) return null;
                     const { name, pt, effectivePower, effectiveToughness, imageUrl, dangers } = getCreatureInfo(blocker);
                     const blockerAssignments = getBlockerAssignments(selectedBlockers, blocker.id);
                     const isBlocking = blockerAssignments.length > 0;
@@ -2073,6 +2178,8 @@ export function CombatSelectionModal({
                     );
                   })}
                 </div>
+                )}
+                </div>
               )}
             </div>
           </div>
@@ -2092,16 +2199,23 @@ export function CombatSelectionModal({
           >
             <button
               onClick={handleSkip}
-              disabled={!isInteractive}
+              disabled={!isInteractive || (mode === 'attackers' && forcedAttackerIds.size > 0)}
+              title={
+                mode === 'attackers' && forcedAttackerIds.size > 0
+                  ? 'Goaded creatures must attack if able'
+                  : undefined
+              }
               style={{
                 padding: '10px 20px',
                 borderRadius: 8,
                 border: '1px solid #4a4a6a',
                 backgroundColor: 'transparent',
                 color: '#fff',
-                cursor: !isInteractive ? 'not-allowed' : 'pointer',
+                cursor: (!isInteractive || (mode === 'attackers' && forcedAttackerIds.size > 0))
+                  ? 'not-allowed'
+                  : 'pointer',
                 fontSize: 14,
-                opacity: !isInteractive ? 0.5 : 1,
+                opacity: (!isInteractive || (mode === 'attackers' && forcedAttackerIds.size > 0)) ? 0.5 : 1,
               }}
             >
               {mode === 'attackers' ? "Don't Attack" : "Don't Block"}

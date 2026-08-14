@@ -20,6 +20,7 @@ import {
   permanentHasMustAttackRequirement,
 } from "../../../rules-engine/src/attackRestrictionText.js";
 import { getLandwalkUnblockableReason } from "../../../shared/src/combatLandwalk.js";
+import { isCreatureTypeWord, permanentHasCreatureType } from "../../../shared/src/creatureTypes.js";
 import {
   isCounterPreventingAttack,
   isCounterPreventingBlock,
@@ -46,6 +47,7 @@ import {
   resolveGroupedPermanentRef,
 } from "./tokenGroupResolve.js";
 import { sanitizeOracleTextForStaticEffectScan } from "../../../rules-engine/src/staticEffectOracleSanitize.js";
+import { protectionPreventsSource } from "../state/modules/combat-mechanics.js";
 import {
   formatDeclareAttackersMessage,
   formatDeclareBlockersMessage,
@@ -605,6 +607,79 @@ function getCreatureGoadStatus(
   };
 }
 
+type ForcedAttackViolation = {
+  code: 'GOAD_MUST_ATTACK' | 'MUST_ATTACK';
+  message: string;
+};
+
+function creatureCanBeForcedToAttack(
+  perm: any,
+  battlefield: any[],
+  playerId: PlayerID,
+  players: any[],
+): boolean {
+  if ((perm as any).tapped) return false;
+  if (permanentHasKeyword(perm, battlefield, playerId, 'defender')) return false;
+  if (hasBlanketCantAttack(perm.card?.oracle_text || '')) return false;
+  if (permanentHasSummoningSickness(perm, battlefield, playerId)) return false;
+  if (!canPermanentAttack(perm, battlefield, playerId).canAttack) return false;
+  return (Array.isArray(players) ? players : []).some(
+    (player: any) => player?.id && player.id !== playerId && !player.hasLost,
+  );
+}
+
+/**
+ * Rule 701.15b / 701.38b: goaded creatures (and "attacks each combat if able")
+ * must be declared as attackers when they are able.
+ */
+function findForcedAttackViolation(
+  game: any,
+  playerId: PlayerID,
+  attackerIds: readonly string[],
+): ForcedAttackViolation | null {
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const currentTurn = Number((game?.state as any)?.turn || 0);
+  const players = Array.isArray((game?.state as any)?.players) ? (game.state as any).players : [];
+  const attacking = new Set(attackerIds.map((id) => String(id)));
+
+  const goadedNames: string[] = [];
+  const mustAttackNames: string[] = [];
+
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== playerId) continue;
+    if (!isCurrentlyCreature(perm, battlefield, playerId)) continue;
+    if (attacking.has(String(perm.id))) continue;
+    if (!creatureCanBeForcedToAttack(perm, battlefield, playerId, players)) continue;
+
+    const goadInfo = getCreatureGoadStatus(perm, battlefield, playerId, currentTurn);
+    if (goadInfo.isGoaded) {
+      goadedNames.push(perm.card?.name || 'Unknown');
+      continue;
+    }
+
+    if (
+      permanentHasMustAttackRequirement(perm, battlefield) &&
+      hasLegalMustAttackDefender(perm, playerId, players)
+    ) {
+      mustAttackNames.push(perm.card?.name || 'Unknown');
+    }
+  }
+
+  if (goadedNames.length > 0) {
+    return {
+      code: 'GOAD_MUST_ATTACK',
+      message: `The following goaded creature(s) must attack if able: ${goadedNames.join(', ')}`,
+    };
+  }
+  if (mustAttackNames.length > 0) {
+    return {
+      code: 'MUST_ATTACK',
+      message: `The following creature(s) attack each combat if able: ${mustAttackNames.join(', ')}`,
+    };
+  }
+  return null;
+}
+
 /**
  * Process tap triggers for attacking creatures
  * This handles cards like Magda, Brazen Outlaw: "Whenever a Dwarf you control becomes tapped, create a Treasure token."
@@ -1049,13 +1124,33 @@ function hasEffectiveAbility(
       // This includes patterns like:
       // - "creatures you control have flying"
       // - "creatures you control get +1/+1 and have flying and indestructible" (Eldrazi Monument)
-      const grantPattern = new RegExp(`creatures?\\s+(?:you\\s+control\\s+)?have\\s+${lowerAbility}`, 'i');
-      const grantWithBuffPattern = new RegExp(`creatures?\\s+you\\s+control\\s+get\\s+[+\\-]\\d+/[+\\-]\\d+\\s+and\\s+have\\s+[^.]*\\b${lowerAbility}\\b`, 'i');
+      // - "Pegasus creatures you control have lifelink"
+      const typedGrantPattern = new RegExp(
+        `(?:^|[.\\n;])\\s*(?!other\\s)([a-z]+)\\s+creatures?\\s+(?:you\\s+control\\s+)?have\\s+${lowerAbility}`,
+        'i',
+      );
+      const typedGrant = permOracle.match(typedGrantPattern);
+      const permTypeLine = (permanent?.card?.type_line || '').toLowerCase();
+      const isCreatureTarget = permTypeLine.includes('creature');
+      if (typedGrant && permController === controllerId && isCreatureTarget) {
+        const qualifier = String(typedGrant[1] || '').toLowerCase();
+        const colorCode = ({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' } as Record<string, string>)[qualifier];
+        if (colorCode) {
+          const colors = (permanent?.card?.colors || []) as unknown[];
+          if (colors.some((entry) => {
+            const value = String(entry || '');
+            return value.toUpperCase() === colorCode || value.toLowerCase() === qualifier;
+          })) {
+            asThough = true;
+          }
+        } else if (isCreatureTypeWord(qualifier) && permanentHasCreatureType(permanent, qualifier)) {
+          asThough = true;
+        }
+      }
+      const grantPattern = new RegExp(`(?<![a-z] )creatures?\\s+(?:you\\s+control\\s+)?have\\s+${lowerAbility}`, 'i');
+      const grantWithBuffPattern = new RegExp(`(?<![a-z] )creatures?\\s+you\\s+control\\s+get\\s+[+\\-]\\d+/[+\\-]\\d+\\s+and\\s+have\\s+[^.]*\\b${lowerAbility}\\b`, 'i');
       if ((grantPattern.test(permOracle) || grantWithBuffPattern.test(permOracle)) && permController === controllerId) {
-        // This permanent grants the ability
-        // Check if our permanent matches the filter (simplified - assumes creature)
-        const permTypeLine = (permanent?.card?.type_line || '').toLowerCase();
-        if (permTypeLine.includes('creature')) {
+        if (isCreatureTarget) {
           asThough = true;
         }
       }
@@ -1266,6 +1361,11 @@ function canBlockAttacker(
     if (!blockerHorsemanship.hasAbility) {
       return { canBlock: false, reason: 'Attacker has horsemanship' };
     }
+  }
+
+  // Protection DEBT "B": creatures with the protected quality can't block.
+  if (protectionPreventsSource(attacker, blocker, { battlefield })) {
+    return { canBlock: false, reason: 'Attacker has protection from this blocker' };
   }
   
   return { canBlock: true };
@@ -1573,6 +1673,18 @@ function processAttackTriggersAfterDeclaration(
                 (effectData as any).defendingPlayerId = (effectData as any).defendingPlayerId || defendingPlayerId;
               }
             }
+            const attackingPlayerId = String(
+              (effectData as any)?.attackingPlayerId
+                || ((trigger.triggerType as string) === 'player_attacks_your_opponent' ? playerId : ''),
+            ).trim();
+            if (attackingPlayerId) {
+              stackItem.attackingPlayerId = attackingPlayerId;
+              if (effectData) {
+                (effectData as any).attackingPlayerId = (effectData as any).attackingPlayerId || attackingPlayerId;
+              } else {
+                stackItem.effectData = { attackingPlayerId, defendingPlayerId: defendingPlayerId || undefined };
+              }
+            }
             
             game.state.stack.push(stackItem);
             persistTriggeredAbilityPush(gameId, game, {
@@ -1658,6 +1770,14 @@ export async function executeDeclareAttackers(
   const resolvedAttackers = normalizeAttackerSelections(game, playerId, attackers);
 
   const battlefield = game.state?.battlefield || [];
+  const forcedViolation = findForcedAttackViolation(
+    game,
+    playerId,
+    resolvedAttackers.map((attacker) => attacker.creatureId),
+  );
+  if (forcedViolation) {
+    throw Object.assign(new Error(forcedViolation.message), { code: forcedViolation.code });
+  }
   const attackerIds: string[] = [];
 
   // Per-combat/per-turn tracking consumed by intervening-if.
@@ -2378,6 +2498,19 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         }
       }
 
+      const forcedViolation = findForcedAttackViolation(
+        game,
+        playerId,
+        resolvedAttackers.map((entry) => String(entry.creatureId || '')),
+      );
+      if (forcedViolation) {
+        socket.emit("error", {
+          code: forcedViolation.code,
+          message: forcedViolation.message,
+        });
+        return;
+      }
+
       if (totalAttackCostRequired > 0) {
         const attackerIdsToExclude = resolvedAttackers.map((entry) => String(entry.creatureId || ''));
         const totalAvailable = getMaxGenericManaAvailable(game.state, playerId, {
@@ -2479,96 +2612,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         enqueueSupportedEnlistChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
       } catch (e) {
         debugWarn(1, '[combat] Failed to enqueue enlist choice steps:', e);
-      }
-
-      // ========================================================================
-      // GOAD ENFORCEMENT (Rule 701.38b)
-      // Goaded creatures attack each combat if able
-      // ========================================================================
-      // Check if there are any goaded creatures that should have attacked but didn't
-      const goadedCreaturesNotAttacking: any[] = [];
-      
-      for (const perm of battlefield) {
-        if (perm.controller !== playerId) continue;
-        const typeLine = (perm.card?.type_line || '').toLowerCase();
-        if (!typeLine.includes('creature')) continue;
-        
-        const goadInfo = getCreatureGoadStatus(perm, battlefield, playerId, currentTurn);
-        
-        if (goadInfo.isGoaded) {
-          // This creature is goaded - check if it's attacking
-          const isAttacking = attackerIds.includes(perm.id);
-          
-          if (!isAttacking) {
-            // Check if the creature CAN attack (not tapped, doesn't have defender, etc.)
-            const isTapped = (perm as any).tapped;
-            const hasDefender = permanentHasKeyword(perm, battlefield, playerId, 'defender');
-            const cantAttack = hasBlanketCantAttack(perm.card?.oracle_text || '');
-            
-            // Check if there's summoning sickness (creature entered this turn without haste)
-            const hasSummoningSickness = permanentHasSummoningSickness(perm, battlefield, playerId);
-            
-            if (!isTapped && !hasDefender && !cantAttack && !hasSummoningSickness) {
-              // Check if there are any valid targets to attack
-              const players = (game.state as any).players || [];
-              const possibleTargets = players
-                .filter((p: any) => p?.id && p.id !== playerId && !p.hasLost)
-                .map((p: any) => p.id);
-              
-              if (possibleTargets.length > 0) {
-                // This creature should have attacked but didn't
-                goadedCreaturesNotAttacking.push({
-                  id: perm.id,
-                  name: perm.card?.name || 'Unknown',
-                  goaders: goadInfo.goaders
-                });
-              }
-            }
-          }
-        }
-      }
-      
-      if (goadedCreaturesNotAttacking.length > 0) {
-        const creatureList = goadedCreaturesNotAttacking
-          .map(c => c.name)
-          .join(', ');
-        socket.emit("error", {
-          code: "GOAD_MUST_ATTACK",
-          message: `The following goaded creature(s) must attack if able: ${creatureList}`,
-        });
-        return;
-      }
-
-      const mustAttackCreaturesNotAttacking: any[] = [];
-      for (const perm of battlefield) {
-        if (perm.controller !== playerId) continue;
-        const typeLine = (perm.card?.type_line || '').toLowerCase();
-        if (!typeLine.includes('creature')) continue;
-        if (attackerIds.includes(perm.id)) continue;
-        if (!permanentHasMustAttackRequirement(perm, battlefield)) continue;
-
-        const isTapped = (perm as any).tapped;
-        const hasDefender = permanentHasKeyword(perm, battlefield, playerId, 'defender');
-        const cantAttack = hasBlanketCantAttack(perm.card?.oracle_text || '');
-        const hasSummoningSickness = permanentHasSummoningSickness(perm, battlefield, playerId);
-        if (isTapped || hasDefender || cantAttack || hasSummoningSickness) continue;
-
-        const players = (game.state as any).players || [];
-        if (hasLegalMustAttackDefender(perm, playerId, players)) {
-          mustAttackCreaturesNotAttacking.push({
-            id: perm.id,
-            name: perm.card?.name || 'Unknown',
-          });
-        }
-      }
-
-      if (mustAttackCreaturesNotAttacking.length > 0) {
-        const creatureList = mustAttackCreaturesNotAttacking.map((entry) => entry.name).join(', ');
-        socket.emit("error", {
-          code: "MUST_ATTACK",
-          message: `The following creature(s) attack each combat if able: ${creatureList}`,
-        });
-        return;
       }
 
       // Process tap triggers for creatures that became tapped from attacking
@@ -3207,6 +3250,24 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         socket.emit("error", {
           code: "NOT_YOUR_TURN",
           message: "You can only skip declaring attackers on your turn",
+        });
+        return;
+      }
+
+      const step = String((game.state as any).step || '').toLowerCase();
+      if (step !== 'declareattackers' && step !== 'declare_attackers') {
+        socket.emit('error', {
+          code: 'WRONG_STEP',
+          message: 'Can only skip declaring attackers during the declare attackers step',
+        });
+        return;
+      }
+
+      const forcedViolation = findForcedAttackViolation(game, playerId, []);
+      if (forcedViolation) {
+        socket.emit('error', {
+          code: forcedViolation.code,
+          message: forcedViolation.message,
         });
         return;
       }
@@ -3882,6 +3943,18 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   if (effectData) {
                     (effectData as any).defendingPlayer = (effectData as any).defendingPlayer || defendingPlayerId;
                     (effectData as any).defendingPlayerId = (effectData as any).defendingPlayerId || defendingPlayerId;
+                  }
+                }
+                const attackingPlayerId = String(
+                  (effectData as any)?.attackingPlayerId
+                    || ((trigger.triggerType as string) === 'player_attacks_your_opponent' ? playerId : ''),
+                ).trim();
+                if (attackingPlayerId) {
+                  stackItem.attackingPlayerId = attackingPlayerId;
+                  if (effectData) {
+                    (effectData as any).attackingPlayerId = (effectData as any).attackingPlayerId || attackingPlayerId;
+                  } else {
+                    stackItem.effectData = { attackingPlayerId, defendingPlayerId: defendingPlayerId || undefined };
                   }
                 }
 

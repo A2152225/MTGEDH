@@ -541,6 +541,9 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
     ...(sourceCard ? { card: sourceCard } : null),
     ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
     ...(dyingPermanent ? { dyingCreature: dyingPermanent } : null),
+    ...(typeof trigger?.referenceAmount === 'number' && Number.isFinite(trigger.referenceAmount)
+      ? { referenceAmount: Math.max(0, Math.floor(trigger.referenceAmount)) }
+      : null),
     ...(trigger.requiresChoice === true ? { requiresChoice: true } : null),
     ...(Array.isArray(trigger.modalOptions) ? { modalOptions: trigger.modalOptions } : null),
     ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
@@ -600,6 +603,9 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
       ...(sourceCard ? { card: sourceCard } : null),
       ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       ...(dyingPermanent ? { dyingCreature: dyingPermanent } : null),
+      ...(typeof trigger?.referenceAmount === 'number' && Number.isFinite(trigger.referenceAmount)
+        ? { referenceAmount: Math.max(0, Math.floor(trigger.referenceAmount)) }
+        : null),
       ...(trigger.requiresChoice === true ? { requiresChoice: true } : null),
       ...(Array.isArray(trigger.modalOptions) ? { modalOptions: trigger.modalOptions } : null),
       ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
@@ -2567,7 +2573,18 @@ export function runSBA(ctx: GameContext) {
   // Update god creature status based on devotion (Rule 704.5n - gods with insufficient devotion aren't creatures)
   updateGodCreatureStatus(ctx);
   
-  if (changed) bumpSeq();
+  if (changed) {
+    bumpSeq();
+    const depth = Number((ctx as any)._sbaLoopDepth || 0);
+    if (!(state as any)._legendRuleChoiceBatch && depth < 16) {
+      (ctx as any)._sbaLoopDepth = depth + 1;
+      try {
+        runSBA(ctx);
+      } finally {
+        (ctx as any)._sbaLoopDepth = depth;
+      }
+    }
+  }
 }
 
 export function applyEngineEffects(ctx: GameContext, effects: readonly any[]) {

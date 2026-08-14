@@ -3,6 +3,7 @@ import { cardHasCreatureType } from '../../../shared/src/creatureTypes.js';
 import { sanitizeOracleTextForStaticEffectScan } from '../../../rules-engine/src/staticEffectOracleSanitize.js';
 
 import { getTotalManaFromPool } from '../state/modules/mana-check.js';
+import { printedObjectHasManaColor } from '../state/modules/printedColorSymbols.js';
 
 /**
  * Lightweight continuous effect scanner.
@@ -217,17 +218,7 @@ function isColor(creature: BattlefieldPermanent, colorWord: string): boolean {
 }
 
 function creatureHasManaColor(creature: BattlefieldPermanent, colorName: string): boolean {
-  const colorMap: Record<string, string> = {
-    white: 'W',
-    blue: 'U',
-    black: 'B',
-    red: 'R',
-    green: 'G',
-  };
-  const symbol = colorMap[String(colorName || '').trim().toLowerCase()];
-  const colors = ((creature.card as any)?.colors || []).map((entry: string) => String(entry).toUpperCase());
-  if (symbol && colors.includes(symbol)) return true;
-  return isColor(creature, colorName);
+  return printedObjectHasManaColor(creature, colorName);
 }
 
 /**
@@ -589,7 +580,7 @@ export function computeContinuousEffects(
     // Creatures you control have <abilities> (but NOT if it matches "other creatures" already handled above)
     // Only match if the text doesn't say "other creatures" or "legendary creatures"
     if (!otherCtrlHaveMatch && !youAndOtherMatch) {
-      const ctrlHaveMatch = oracle.match(/(?<!legendary )creatures you control have ([^.]+)/);
+      const ctrlHaveMatch = oracle.match(/(?<![a-z] )(?<!legendary )(?:all )?creatures you control have ([^.]+)/);
       if (ctrlHaveMatch) {
         const abilities = resolveGrantedAbilities(source, ctrlHaveMatch[1]);
         if (abilities.length) {
@@ -851,6 +842,25 @@ export function computeContinuousEffects(
           if (perm.controller === controller && 
               isCreature(perm) && 
               perm.id !== source.id && 
+              hasCreatureType(perm, creatureType)) {
+            const agg = perPermanent.get(perm.id)!;
+            for (const a of abilities) agg.abilities.add(a);
+          }
+        }
+      }
+
+      // Pattern 3b: "[TYPE] creatures you control have [ABILITIES]" (includes self)
+      // Example: Archon of Sun's Grace — "Pegasus creatures you control have lifelink."
+      const typeAbilitiesPattern = new RegExp(
+        `(?<!other\\s+)${creatureType}\\s+creatures?\\s+you\\s+control\\s+have\\s+([^.]+)`,
+        'i'
+      );
+      const typeAbilitiesMatch = oracle.match(typeAbilitiesPattern);
+      if (typeAbilitiesMatch && !otherTypeAbilitiesMatch) {
+        const abilities = resolveGrantedAbilities(source, typeAbilitiesMatch[1]);
+        for (const perm of state.battlefield) {
+          if (perm.controller === controller &&
+              isCreature(perm) &&
               hasCreatureType(perm, creatureType)) {
             const agg = perPermanent.get(perm.id)!;
             for (const a of abilities) agg.abilities.add(a);

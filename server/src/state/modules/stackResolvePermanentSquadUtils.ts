@@ -23,6 +23,12 @@ export function applyPermanentSquadTokenCopiesOnEntry(
   const baseP = options.basePower;
   const baseT = options.baseToughness;
 
+  // Squad copies are created by the Squad ETB via Oracle IR (`create_token` copies of it).
+  const oracle = String(effectiveCard?.oracle_text || card?.oracle_text || '');
+  if (/\bsquad\b/i.test(oracle) && /\bwhen this (?:creature|permanent) enters\b/i.test(oracle)) {
+    return;
+  }
+
   // Squad: "As an additional cost to cast this spell, you may pay {cost} any number of times. 
   // When this permanent enters the battlefield, create that many tokens that are copies of it."
   try {

@@ -1764,6 +1764,72 @@ describe('canActivateAnyAbility', () => {
     expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('should return false when an opponent-more-lands ability is gated off', () => {
+    const ctx = createTestContext({
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      battlefield: [
+        createConditionGatedPermanent(
+          'Weathered Wayfarer',
+          '{W}, {T}: Search your library for a land card, reveal it, put it into your hand, then shuffle. Activate only if an opponent controls more lands than you.',
+          { type_line: 'Creature — Human Nomad Cleric', power: '1', toughness: '1' },
+        ),
+        {
+          id: 'p1_land',
+          controller: 'p1',
+          tapped: false,
+          card: { name: 'Plains', type_line: 'Basic Land — Plains' },
+        },
+        {
+          id: 'p2_land',
+          controller: 'p2',
+          tapped: false,
+          card: { name: 'Island', type_line: 'Basic Land — Island' },
+        },
+      ],
+      manaPool: {
+        p1: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should return true when an opponent-more-lands ability is gated on', () => {
+    const ctx = createTestContext({
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      battlefield: [
+        createConditionGatedPermanent(
+          'Weathered Wayfarer',
+          '{W}, {T}: Search your library for a land card, reveal it, put it into your hand, then shuffle. Activate only if an opponent controls more lands than you.',
+          { type_line: 'Creature — Human Nomad Cleric', power: '1', toughness: '1' },
+        ),
+        {
+          id: 'p1_land',
+          controller: 'p1',
+          tapped: false,
+          card: { name: 'Plains', type_line: 'Basic Land — Plains' },
+        },
+        {
+          id: 'p2_land_1',
+          controller: 'p2',
+          tapped: false,
+          card: { name: 'Island', type_line: 'Basic Land — Island' },
+        },
+        {
+          id: 'p2_land_2',
+          controller: 'p2',
+          tapped: false,
+          card: { name: 'Mountain', type_line: 'Basic Land — Mountain' },
+        },
+      ],
+      manaPool: {
+        p1: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('should return false when a coven-only activated ability is inactive', () => {
     const ctx = createTestContext({
       battlefield: [

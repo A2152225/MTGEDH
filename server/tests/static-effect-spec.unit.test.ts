@@ -288,6 +288,68 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
     expect(granted).toContain('vigilance');
   });
 
+  it("grants Archon of Sun's Grace lifelink only to Pegasus creatures", () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'archon',
+          controller: 'p1',
+          card: {
+            name: "Archon of Sun's Grace",
+            type_line: 'Enchantment Creature — Archon',
+            oracle_text:
+              "Flying\nPegasus creatures you control have lifelink.\nWhenever an enchantment you control enters, create a 2/2 white Pegasus creature token with flying.",
+          },
+        },
+        {
+          id: 'pegasus',
+          controller: 'p1',
+          card: { name: 'Pegasus Token', type_line: 'Token Creature — Pegasus', oracle_text: 'Flying' },
+        },
+        {
+          id: 'bear',
+          controller: 'p1',
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+      ],
+    };
+
+    expect(getContinuousGrantedAbilitiesForPermanent(state.battlefield[1] as any, state)).toContain('lifelink');
+    expect(getContinuousGrantedAbilitiesForPermanent(state.battlefield[2] as any, state)).not.toContain('lifelink');
+    expect(getContinuousGrantedAbilitiesForPermanent(state.battlefield[0] as any, state)).not.toContain('lifelink');
+
+    const pegasusKeywords = parseCreatureKeywords(state.battlefield[1].card, state.battlefield[1] as any, state as any);
+    const bearKeywords = parseCreatureKeywords(state.battlefield[2].card, state.battlefield[2] as any, state as any);
+    const archonKeywords = parseCreatureKeywords(state.battlefield[0].card, state.battlefield[0] as any, state as any);
+    expect(pegasusKeywords.lifelink).toBe(true);
+    expect(bearKeywords.lifelink).toBe(false);
+    expect(archonKeywords.lifelink).toBe(false);
+  });
+
+  it('still grants unrestricted creatures-you-control keywords (Whip of Erebos)', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'whip',
+          controller: 'p1',
+          card: {
+            name: 'Whip of Erebos',
+            type_line: 'Legendary Enchantment Artifact',
+            oracle_text: 'Creatures you control have lifelink.',
+          },
+        },
+        {
+          id: 'bear',
+          controller: 'p1',
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+      ],
+    };
+
+    expect(getContinuousGrantedAbilitiesForPermanent(state.battlefield[1] as any, state)).toContain('lifelink');
+    expect(parseCreatureKeywords(state.battlefield[1].card, state.battlefield[1] as any, state as any).lifelink).toBe(true);
+  });
+
   it('parses oracle anthem specs without double-counting legacy regex', () => {
     const state = {
       battlefield: [
@@ -643,6 +705,37 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
     const redBonus = calculateAllPTBonuses(state.battlefield[2], state);
     expect(greenBonus).toMatchObject({ power: 1, toughness: 1 });
     expect(redBonus).toMatchObject({ power: 0, toughness: 0 });
+  });
+
+  it('applies chosen-color anthem to creatures that only have mana_cost colors', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'caged_sun_perm',
+          controller: 'p1',
+          chosenColor: 'green',
+          card: {
+            name: 'Caged Sun',
+            type_line: 'Artifact',
+            oracle_text: 'As Caged Sun enters, choose a color.\nCreatures you control of the chosen color get +1/+1.',
+          },
+        },
+        {
+          id: 'newer_green_creature',
+          controller: 'p1',
+          card: {
+            name: 'Llanowar Elves',
+            type_line: 'Creature — Elf Druid',
+            mana_cost: '{G}',
+            oracle_text: '{T}: Add {G}.',
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('newer_green_creature')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(calculateAllPTBonuses(state.battlefield[1], state)).toMatchObject({ power: 1, toughness: 1 });
   });
 
   it('applies opponent chosen-type debuffs through computeContinuousEffects', () => {
@@ -1107,6 +1200,34 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
     expect(merged.perPermanent.get('ally_elf')?.abilities?.has('shroud')).toBe(true);
     expect(merged.perPermanent.get('opponent_elf')?.abilities?.has('shroud')).toBe(true);
     expect(merged.perPermanent.get('ally_goblin')?.abilities?.has('shroud')).toBe(false);
+  });
+
+  it('grants shroud and haste from Lightning Greaves to the equipped host', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'greaves_1',
+          controller: 'p1',
+          attachedTo: 'bear_1',
+          card: {
+            name: 'Lightning Greaves',
+            type_line: 'Artifact — Equipment',
+            oracle_text: 'Equipped creature has haste and shroud.\nEquip {0}',
+          },
+        },
+        {
+          id: 'bear_1',
+          controller: 'p1',
+          attachedEquipment: ['greaves_1'],
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('bear_1')?.abilities?.has('shroud')).toBe(true);
+    expect(merged.perPermanent.get('bear_1')?.abilities?.has('haste')).toBe(true);
+    expect(merged.perPermanent.get('greaves_1')?.abilities?.has('shroud')).toBeFalsy();
   });
 
   it('applies controlled chosen-type anthem buffs through declarative specs', () => {

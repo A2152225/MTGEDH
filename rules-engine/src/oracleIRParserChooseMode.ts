@@ -12,7 +12,7 @@ import { normalizeOracleText } from './oracleIRParserUtils';
  * - "Choose any number of modes -"
  */
 const CHOOSE_MODE_HEADER_RE =
-  /^Choose\s+(?:one\s+at\s+random|one\s+that\s+has(?:n't| not)\s+been\s+chosen|one\s+or\s+both|one\s+or\s+more|up\s+to\s+one|one|two|three|four|up\s+to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\w+)(?:\s*\{P\}\s*worth\s+of\s+modes)?|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?(?:you\s+may\s+)?choose\s+(?:both|any\s+number)\s+instead[.\u2014-]?)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014]|\.|)\s*$/i;
+  /^(?:You\s+(?:may\s+)?)?Choose\s+(?:one\s+at\s+random|one\s+that\s+has(?:n't| not)\s+been\s+chosen|one\s+or\s+both|one\s+or\s+more|up\s+to\s+one|one|two|three|four|up\s+to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\w+)(?:\s*\{P\}\s*worth\s+of\s+modes)?|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?(?:you\s+may\s+)?choose\s+(?:both|any\s+number)\s+instead[.\u2014-]?)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014]|\.|)\s*(?:Each mode must target a different player\.?)?\s*$/i;
 
 const P_WORTH_HEADER_RE =
   /^Choose\s+up\s+to\s+(\w+)\s*\{P\}\s*worth\s+of\s+modes\.(?:\s*You may choose the same mode more than once\.)?\s*$/i;
@@ -22,7 +22,7 @@ function splitChooseModeHeaderText(headerText: string): {
   readonly headerText: string;
 } | null {
   let headerStart = -1;
-  const chooseMatchRe = /\bChoose\s+/gi;
+  const chooseMatchRe = /\b(?:You\s+(?:may\s+)?)?Choose\s+/gi;
 
   for (const match of headerText.matchAll(chooseMatchRe)) {
     const start = Number(match.index ?? -1);
@@ -48,6 +48,8 @@ function resolveChooseModeLimits(headerText: string): {
   readonly canRepeatModes: boolean;
   readonly rememberChosenModes: boolean;
   readonly teamworkChooseBoth?: boolean;
+  readonly optional?: boolean;
+  readonly distinctPlayerTargets?: boolean;
 } {
   let minModes = 1;
   let maxModes = 1;
@@ -55,13 +57,16 @@ function resolveChooseModeLimits(headerText: string): {
   const canRepeatModes = /you may choose the same mode more than once/i.test(headerText);
   const rememberChosenModes = /choose\s+one\s+that\s+has(?:n't| not)\s+been\s+chosen/i.test(headerText);
   const teamworkChooseBoth = /if this spell was cast using teamwork,\s*choose both instead/i.test(headerText);
+  const optional = /^you\s+may\s+choose\b/i.test(normalizedHeaderText);
+  const distinctPlayerTargets = /each mode must target a different player/i.test(headerText);
+  const chooseHeaderText = normalizedHeaderText.replace(/^you\s+may\s+/i, '');
   const chooseBothInstead = !teamworkChooseBoth && /(?:you may\s+)?choose both instead/i.test(headerText);
   const chooseAnyNumberInstead = /(?:you may\s+)?choose any number instead/i.test(headerText);
-  const oneOrBothMatch = normalizedHeaderText.match(/^choose\s+one\s+or\s+both\b/i);
-  const oneOrMoreMatch = normalizedHeaderText.match(/^choose\s+one\s+or\s+more\b/i);
-  const chooseOneAtRandomMatch = normalizedHeaderText.match(/^choose\s+one\s+at\s+random\b/i);
-  const upToMatch = normalizedHeaderText.match(/^choose\s+up\s+to\s+(\w+)/i);
-  const exactMatch = normalizedHeaderText.match(/^choose\s+(one|two|three|four)\b/i);
+  const oneOrBothMatch = chooseHeaderText.match(/^choose\s+one\s+or\s+both\b/i);
+  const oneOrMoreMatch = chooseHeaderText.match(/^choose\s+one\s+or\s+more\b/i);
+  const chooseOneAtRandomMatch = chooseHeaderText.match(/^choose\s+one\s+at\s+random\b/i);
+  const upToMatch = chooseHeaderText.match(/^choose\s+up\s+to\s+(\w+)/i);
+  const exactMatch = chooseHeaderText.match(/^choose\s+(one|two|three|four)\b/i);
 
   if (chooseOneAtRandomMatch) {
     minModes = 1;
@@ -84,7 +89,15 @@ function resolveChooseModeLimits(headerText: string): {
     maxModes = -1;
   }
 
-  return { minModes, maxModes, canRepeatModes, rememberChosenModes, ...(teamworkChooseBoth ? { teamworkChooseBoth: true } : {}) };
+  return {
+    minModes,
+    maxModes,
+    canRepeatModes,
+    rememberChosenModes,
+    ...(teamworkChooseBoth ? { teamworkChooseBoth: true } : {}),
+    ...(optional ? { optional: true } : {}),
+    ...(distinctPlayerTargets ? { distinctPlayerTargets: true } : {}),
+  };
 }
 
 function resolveModeCount(word: string): number | null {
@@ -248,6 +261,8 @@ export function tryParseChooseModeBlock(
     canRepeatModes,
     rememberChosenModes,
     teamworkChooseBoth,
+    optional,
+    distinctPlayerTargets,
   } = resolveChooseModeLimits(headerText);
   const resolvedMaxModes = maxModes === 99 ? rawBullets.length : maxModes;
 
@@ -273,6 +288,8 @@ export function tryParseChooseModeBlock(
     canRepeatModes,
     ...(rememberChosenModes ? { rememberChosenModes: true } : {}),
     ...(teamworkChooseBoth ? { teamworkChooseBoth: true } : {}),
+    ...(optional ? { optional: true } : {}),
+    ...(distinctPlayerTargets ? { distinctPlayerTargets: true } : {}),
     modes,
     raw: normalized.slice(0, 300),
   };
@@ -291,6 +308,8 @@ export function tryParseChooseModeHeaderOnly(
     canRepeatModes,
     rememberChosenModes,
     teamworkChooseBoth,
+    optional,
+    distinctPlayerTargets,
   } = resolveChooseModeLimits(normalized);
 
   return withMeta({
@@ -300,6 +319,8 @@ export function tryParseChooseModeHeaderOnly(
     canRepeatModes,
     ...(rememberChosenModes ? { rememberChosenModes: true } : {}),
     ...(teamworkChooseBoth ? { teamworkChooseBoth: true } : {}),
+    ...(optional ? { optional: true } : {}),
+    ...(distinctPlayerTargets ? { distinctPlayerTargets: true } : {}),
     modes: [],
     raw: normalized,
   });

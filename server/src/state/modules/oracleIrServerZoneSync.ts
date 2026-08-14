@@ -13,6 +13,7 @@ import { resolveOracleQuantity, resolveOracleQuantityForPlayer } from '../../../
 import { normalizeOracleManaCostString } from '../../../../rules-engine/src/oracleIRExecutorManaUtils.js';
 import {
   getPlayableUntilTurnForImpulseDuration,
+  impulseExileTopIsDiscoverCastOrHand,
   impulseExileTopRequiresChooseOne,
   resolvePlayers,
 } from '../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
@@ -38,6 +39,7 @@ import {
   snapshotBattlefieldForTriggerEmission,
 } from './oracleIrPostApplyTriggerEmission.js';
 import { queuePayLifeTriggers } from './triggers/pay-life.js';
+import { inferSplitLibrarySearchPlan } from '../../../../rules-engine/src/oracleIRSplitLibrarySearch.js';
 import {
   detectTutorSpell,
   parseLibrarySearchFilter,
@@ -77,6 +79,7 @@ import {
 import { queueEachPlayerCounterPlacementPromptsFromOracleIRResult } from './triggerCounterPlacementPromptUtils.js';
 import { bridgeGameStateOracleEffectsAfterOracleIR } from './triggerGameStateOracleBridgeUtils.js';
 import { bridgeCreatedTokenEtbTriggersAfterOracleIR } from './triggerOracleIrTokenEtbBridge.js';
+import { queueOracleIrReflexiveWhenYouDoFollowups } from './triggerReflexiveWhenYouDoQueueUtils.js';
 import {
   executeLibraryChaosExchange,
   permanentMatchesLibraryChaosTarget,
@@ -112,6 +115,7 @@ import type { OracleIRTransitionHaltState } from '../../../../rules-engine/src/o
 import { resolveOracleIrBoundTargetSpellId } from '../../../../rules-engine/src/oracleIrTargetBinding.js';
 import type { GameContext } from '../context.js';
 import { registerLinkedExile } from './triggers/linked-exile.js';
+import { queueCastFromExileResolutionPrompt } from './triggerCastFromExileUtils.js';
 
 type MutableOracleIRExecutionResult = {
   -readonly [K in keyof OracleIRExecutionResult]: OracleIRExecutionResult[K];
@@ -1810,8 +1814,9 @@ function queueSearchLibraryChoicePromptsFromOracleIRResult(
     if (queuedKeys.has(queueKey)) continue;
     queuedKeys.add(queueKey);
 
+    const splitPlan = inferSplitLibrarySearchPlan(stepRaw);
     const tutorInfo = detectTutorSpell(stepRaw);
-    const splitDestination = tutorInfo.splitDestination === true;
+    const splitDestination = splitPlan?.splitDestination === true || tutorInfo.splitDestination === true;
     const destination = splitDestination
       ? 'split'
       : built.destination === 'battlefield'
@@ -1886,9 +1891,11 @@ function queueSearchLibraryChoicePromptsFromOracleIRResult(
       ...(splitDestination
         ? {
             splitDestination: true,
-            toBattlefield: tutorInfo.toBattlefield ?? 1,
-            toHand: tutorInfo.toHand ?? 1,
-            entersTapped: tutorInfo.entersTapped === true || Boolean((step as any).entersTapped),
+            toBattlefield: splitPlan?.toBattlefield ?? tutorInfo.toBattlefield ?? 1,
+            toHand: splitPlan?.toHand ?? tutorInfo.toHand ?? 1,
+            entersTapped: splitPlan?.entersTapped === true
+              || tutorInfo.entersTapped === true
+              || Boolean((step as any).entersTapped),
           }
         : ((step as any).entersTapped ? { entersTapped: true } : {})),
       oracleIrChoiceStepJson: JSON.stringify([step]),
@@ -3892,6 +3899,7 @@ function buildMoveZoneLibrarySearchPrompt(
     availableCards,
     nonSelectableCards,
     filter: built.filter,
+    searchZone: built.searchZone,
     persistLibrarySearchResolve: true,
     persistLibrarySearchResolveReason: 'stack_resolution',
     oracleIrChoiceStepJson: JSON.stringify([step]),
@@ -4323,6 +4331,93 @@ function queueChooseOneImpulseExilePlayPromptsFromOracleIRResult(
     grantPlayableFromExileUntilTurn: playableUntilTurn,
     grantPlayableFromExileWindowText: playWindowText,
   } as any);
+}
+
+function collectDiscoverHitCardsStillInExile(
+  state: any,
+  controllerId: string,
+  sourceName: string,
+  lastMovedCards: readonly any[] | undefined,
+): any[] {
+  const preferredIds = new Set(
+    (Array.isArray(lastMovedCards) ? lastMovedCards : [])
+      .map((card) => String(card?.id || '').trim())
+      .filter(Boolean),
+  );
+  const seen = new Set<string>();
+  const hits: any[] = [];
+  const consider = (card: any) => {
+    const id = String(card?.id || '').trim();
+    if (!id || seen.has(id)) return;
+    if (preferredIds.size > 0 && !preferredIds.has(id)) return;
+    const canBePlayedBy = String(card?.canBePlayedBy || '').trim();
+    const exiledBy = String(card?.exiledBy || '').trim();
+    if (canBePlayedBy !== controllerId && exiledBy !== sourceName) return;
+    seen.add(id);
+    hits.push(card);
+  };
+
+  for (const player of state?.players || []) {
+    if (String(player?.id || '').trim() !== controllerId) continue;
+    for (const card of Array.isArray(player?.exile) ? player.exile : []) consider(card);
+  }
+  const zoneExile = state?.zones?.[controllerId]?.exile;
+  if (Array.isArray(zoneExile)) {
+    for (const card of zoneExile) consider(card);
+  }
+  return hits;
+}
+
+function queueDiscoverCastOrHandPromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const appliedDiscoverSteps = (result.appliedSteps || []).filter(
+    (step) => step.kind === 'impulse_exile_top' && impulseExileTopIsDiscoverCastOrHand(step),
+  );
+  if (appliedDiscoverSteps.length === 0) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const controllerId = String(params.controller || '').trim();
+  if (!controllerId) return;
+
+  const hitCards = collectDiscoverHitCardsStillInExile(
+    state,
+    controllerId,
+    sourceName,
+    result.lastMovedCards,
+  );
+  if (hitCards.length === 0) return;
+
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  for (const hitCard of hitCards) {
+    const cardName = String(hitCard?.name || 'that card');
+    queueCastFromExileResolutionPrompt(
+      ctx,
+      gameId,
+      controllerId as PlayerID,
+      sourceName,
+      sourceId,
+      undefined,
+      hitCard,
+      {
+        declineDestination: 'hand',
+        declineLabel: `Put ${cardName} into your hand`,
+        castLabel: `Cast ${cardName} without paying its mana cost`,
+        description: `${sourceName}: Cast ${cardName} without paying its mana cost or put it into your hand.`,
+        mandatory: true,
+      },
+    );
+  }
 }
 
 function queueOptionalStepChoicePromptsFromOracleIRResult(
@@ -4929,12 +5024,19 @@ export function resumeOracleIRStepWithChoiceFromResolution(
     return null;
   }
 
-  const chosenObjectIds = (params.chosenObjectIds || [])
+  const explicitObjectChoice = Array.isArray(params.chosenObjectIds)
+    || Array.isArray(params.selectorContext?.chosenObjectIds);
+  const chosenObjectIds = (
+    params.chosenObjectIds
+    ?? (Array.isArray(params.selectorContext?.chosenObjectIds)
+      ? (params.selectorContext!.chosenObjectIds as readonly string[])
+      : [])
+  )
     .map((id) => String(id || '').trim())
     .filter(Boolean);
   const selectorContext = {
     ...(params.selectorContext || {}),
-    ...(chosenObjectIds.length > 0 ? { chosenObjectIds } : {}),
+    ...(explicitObjectChoice ? { chosenObjectIds } : {}),
   };
 
   const state = (ctx as any).state;
@@ -4962,7 +5064,7 @@ export function resumeOracleIRStepWithChoiceFromResolution(
       targetPermanentId: typeof params.selectorContext?.targetPermanentId === 'string'
         ? String(params.selectorContext.targetPermanentId)
         : undefined,
-      chosenObjectIds: chosenObjectIds.length > 0 ? chosenObjectIds : undefined,
+      chosenObjectIds: explicitObjectChoice ? chosenObjectIds : (chosenObjectIds.length > 0 ? chosenObjectIds : undefined),
       ...(params.selectorContext || {}),
     },
   );
@@ -5155,7 +5257,6 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
     || firstStep?.kind === 'discard'
     || firstStep?.kind === 'sacrifice'
     || firstStep?.kind === 'search_library'
-    || firstStep?.kind === 'move_zone'
   ) {
     if (selectionIds.length === 0) {
       return null;
@@ -5165,6 +5266,20 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
     if (splitAssignments && typeof splitAssignments === 'object' && !Array.isArray(splitAssignments)) {
       selectorContext = { chosenObjectIds: selectionIds, splitAssignments };
     }
+  } else if (firstStep?.kind === 'move_zone') {
+    const minSelections = Number(step?.minSelections);
+    const allowsEmpty = Number.isFinite(minSelections) && minSelections <= 0;
+    if (selectionIds.length === 0 && !allowsEmpty) {
+      return null;
+    }
+    chosenObjectIds = selectionIds;
+    const splitAssignments = (response as { splitAssignments?: { toBattlefield?: string[]; toHand?: string[] } }).splitAssignments;
+    selectorContext = {
+      chosenObjectIds: selectionIds,
+      ...(splitAssignments && typeof splitAssignments === 'object' && !Array.isArray(splitAssignments)
+        ? { splitAssignments }
+        : {}),
+    };
   } else if (
     firstStep?.kind === 'redistribute_life_totals'
     && response.selections
@@ -5788,6 +5903,13 @@ export function applyOracleIRStepsOnServer(
     effectText: String(params?.oracleText || adjustedSteps.map((step) => String((step as any).raw || '')).filter(Boolean).join(' ')),
   });
   bridgeCreatedTokenEtbTriggersAfterOracleIR(ctx, state, result);
+  queueOracleIrReflexiveWhenYouDoFollowups(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    triggerItem: resolutionTriggerItem,
+    battlefieldIdsBefore: new Set(triggerEmissionBefore.permanents.keys()),
+  });
   queuePlayerChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -5816,6 +5938,11 @@ export function applyOracleIRStepsOnServer(
   queueChooseOneImpulseExilePlayPromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+  });
+  queueDiscoverCastOrHandPromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
   });
   queueOptionalStepChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,

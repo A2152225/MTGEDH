@@ -7,6 +7,7 @@ import {
   getCardManaValue,
   getCardTypeLineLower,
   getPlayableUntilTurnForImpulseDuration,
+  impulseExileTopIsDiscoverCastOrHand,
   impulseExileTopRequiresChooseOne,
   normalizeOracleText,
   quantityToNumber,
@@ -342,27 +343,10 @@ export function applyImpulseExileTopStep(
     }
     nextState = result.state;
     totalExiled += Math.max(0, result.exiled.length | 0);
-    exiledCardsThisStep.push(...(result.exiled as any[]));
     log.push(...result.log);
     if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
 
-    if (!requiresChooseOne || result.exiled.length <= 1) {
-      const markerResult = applyImpulsePermissionMarkers(nextState, playerId, result.exiled, {
-        permission,
-        playableUntilTurn,
-        condition,
-        exiledBy,
-        permissionRecipient: permissionRecipientForWho(playerId),
-        ...(spendManaAsThoughAnyType ? { spendManaAsThoughAnyType: true } : {}),
-      });
-      nextState = markerResult.state;
-      if (markerResult.granted > 0) {
-        log.push(`${permissionRecipientForWho(playerId)} may ${permission === 'play' ? 'play' : 'cast'} ${markerResult.granted} exiled card(s)`);
-      }
-    } else {
-      nextState = stampExiledCardsForDeferredChoice(nextState, playerId, result.exiled, String(exiledBy || '').trim());
-    }
-
+    let keptExiled = result.exiled as any[];
     if (shuffleRestIntoLibrary && result.exiled.length > 0) {
       const split = splitExiledForShuffleRest(impulseStep as any, result.exiled);
       if (split.returnToLibrary.length > 0) {
@@ -370,6 +354,25 @@ export function applyImpulseExileTopStep(
         nextState = shuffledRestResult.state;
         log.push(...shuffledRestResult.log);
       }
+      keptExiled = [...split.keepExiled];
+    }
+
+    if (!requiresChooseOne || keptExiled.length <= 1) {
+      const markerResult = applyImpulsePermissionMarkers(nextState, playerId, keptExiled, {
+        permission,
+        playableUntilTurn,
+        condition,
+        exiledBy,
+        permissionRecipient: permissionRecipientForWho(playerId),
+        ...(spendManaAsThoughAnyType ? { spendManaAsThoughAnyType: true } : {}),
+        ...(impulseExileTopIsDiscoverCastOrHand(impulseStep) ? { withoutPayingManaCost: true } : {}),
+      });
+      nextState = markerResult.state;
+      if (markerResult.granted > 0) {
+        log.push(`${permissionRecipientForWho(playerId)} may ${permission === 'play' ? 'play' : 'cast'} ${markerResult.granted} exiled card(s)`);
+      }
+    } else {
+      nextState = stampExiledCardsForDeferredChoice(nextState, playerId, keptExiled, String(exiledBy || '').trim());
     }
 
     if (returnUncastToBottom && result.exiled.length > 0) {
@@ -377,6 +380,8 @@ export function applyImpulseExileTopStep(
       nextState = bottomResult.state;
       log.push(...bottomResult.log);
     }
+
+    exiledCardsThisStep.push(...keptExiled);
   }
 
   return withExileTopLedgerFlags({

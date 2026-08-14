@@ -28,12 +28,39 @@ export function hydrateCardOracleInPlace(
   card: unknown,
   options?: { isToken?: boolean; isCopyToken?: boolean; copiedFromPermanentId?: string },
 ): boolean {
-  return hydrateCardOracle(card, lookupPrintedCardOracle, options);
+  const hydrated = hydrateCardOracle(card, lookupPrintedCardOracle, options);
+  fillMissingPrintedColors(card);
+  return hydrated;
+}
+
+function fillMissingPrintedColors(card: unknown): void {
+  if (!card || typeof card !== 'object' || Array.isArray(card)) return;
+  const record = card as Record<string, unknown>;
+  const existing = Array.isArray(record.colors) ? record.colors.filter(Boolean) : [];
+  if (existing.length > 0) return;
+
+  const name = String(record.name || '').trim();
+  const lookedUp = name ? lookupLocalCardByNameSync(name)?.colors : undefined;
+  if (Array.isArray(lookedUp) && lookedUp.length > 0) {
+    record.colors = [...lookedUp];
+    return;
+  }
+
+  const fromCost: string[] = [];
+  const manaCost = String(record.mana_cost || record.manaCost || '');
+  for (const match of manaCost.matchAll(/[WUBRG]/gi)) {
+    const symbol = String(match[0] || '').toUpperCase();
+    if (symbol && !fromCost.includes(symbol)) fromCost.push(symbol);
+  }
+  if (fromCost.length > 0) {
+    record.colors = fromCost;
+  }
 }
 
 export function hydratePermanentCardOracleInPlace(permanent: unknown): boolean {
   if (!permanent || typeof permanent !== 'object') return false;
   const hydrated = hydratePermanentCardOracle(permanent as any, lookupPrintedCardOracle);
+  fillMissingPrintedColors((permanent as any)?.card);
   reapplyStoredCopyTokenOverrides(permanent);
   return hydrated;
 }

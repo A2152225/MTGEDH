@@ -843,6 +843,17 @@ function appendOracleStepToEffectProgram(args: {
       guard = { bindingKey, selectionIncludes: 'yes', onFalse: 'skip' };
     }
 
+    if (appendChooseModePerModePlayerTargetSteps({
+      input,
+      steps,
+      oracleStep,
+      clause,
+      baseId,
+      guard,
+    })) {
+      return;
+    }
+
     if (isSupportedFatesealChoiceStep(oracleStep)) {
       const opponentBindingKey = `${baseId}:opponent-choice`;
       const fatesealBindingKey = `${baseId}:choice`;
@@ -1051,6 +1062,197 @@ function unwrapMatchingLeadingConditional(
 
 function normalizeConditionText(raw: string | undefined): string {
   return String(raw || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function modeStepsNeedTargetPlayer(steps: readonly OracleEffectStep[] | undefined): boolean {
+  if (!Array.isArray(steps)) return false;
+  return steps.some((inner) => {
+    if (!inner) return false;
+    if (String((inner as any).who?.kind || '') === 'target_player') return true;
+    const targetText = String((inner as any).target?.text || (inner as any).what?.text || '');
+    if (/\btarget player\b/i.test(targetText)) return true;
+    return /\btarget player\b/i.test(String((inner as any).raw || ''));
+  });
+}
+
+function isSelfReferentialObjectTargetText(text: string): boolean {
+  return /^(?:it|this creature|this permanent|this card|~)$/i.test(String(text || '').trim());
+}
+
+function modeStepsNeedObjectTarget(steps: readonly OracleEffectStep[] | undefined): boolean {
+  if (!Array.isArray(steps)) return false;
+  return steps.some((inner) => {
+    if (!inner) return false;
+    const kind = String((inner as any).kind || '');
+    if (kind === 'create_token') return false;
+    if (kind === 'choose_target_creature') return true;
+    if (String((inner as any).who?.kind || '') === 'target_player') return false;
+
+    const targetText = String((inner as any).target?.text || (inner as any).what?.text || '').trim();
+    if (targetText && isSelfReferentialObjectTargetText(targetText)) return false;
+    if (/\btarget player\b/i.test(targetText) || /\btarget opponent\b/i.test(targetText)) return false;
+    if (/\btarget\b/i.test(targetText) || /\bany target\b/i.test(targetText)) return true;
+
+    if (
+      kind === 'deal_damage'
+      || kind === 'destroy'
+      || kind === 'exile'
+      || kind === 'bounce'
+      || kind === 'fight'
+    ) {
+      const raw = String((inner as any).raw || '');
+      if (/\btarget player\b|\btarget opponent\b/i.test(raw)) return false;
+      if (/\bany target\b/i.test(raw)) return true;
+      if (/\btarget (?:creature|permanent|artifact|enchantment|land|planeswalker|battle)\b/i.test(raw)) return true;
+    }
+    return false;
+  });
+}
+
+function findModeObjectTargetSourceStep(
+  steps: readonly OracleEffectStep[] | undefined,
+): OracleEffectStep | undefined {
+  if (!Array.isArray(steps)) return undefined;
+  return steps.find((inner) => modeStepsNeedObjectTarget([inner]));
+}
+
+function chooseModeRequiresPerModeTargets(step: OracleEffectStep): boolean {
+  if (String((step as any).kind || '') !== 'choose_mode') return false;
+  const modes = Array.isArray((step as any).modes) ? (step as any).modes : [];
+  if (modes.length === 0) return false;
+  if (Boolean((step as any).distinctPlayerTargets)) return true;
+  return modes.some((mode: { steps?: readonly OracleEffectStep[] }) => (
+    modeStepsNeedTargetPlayer(mode?.steps) || modeStepsNeedObjectTarget(mode?.steps)
+  ));
+}
+
+function appendChooseModePerModePlayerTargetSteps(args: {
+  readonly input: BuildEffectProgramFromOracleIRInput;
+  readonly steps: EffectProgramStep[];
+  readonly oracleStep: OracleEffectStep;
+  readonly clause: EffectProgramClauseRef;
+  readonly baseId: string;
+  readonly guard?: EffectProgramStepGuard;
+}): boolean {
+  const { input, steps, oracleStep, clause, baseId, guard } = args;
+  if (!chooseModeRequiresPerModeTargets(oracleStep)) return false;
+
+  const modes = Array.isArray((oracleStep as any).modes) ? (oracleStep as any).modes : [];
+  const modeBindingKey = `${baseId}:choice`;
+  const distinctPlayerTargets = Boolean((oracleStep as any).distinctPlayerTargets);
+
+  steps.push({
+    id: `${baseId}:choice`,
+    kind: 'choice',
+    bindingKey: modeBindingKey,
+    clause,
+    raw: oracleStep.raw,
+    guard,
+    choiceRequest: buildChoiceRequestForOracleStep(input, {
+      ...oracleStep,
+      optional: false,
+    } as OracleEffectStep),
+  });
+
+  modes.forEach((mode: { label?: string; raw?: string; steps?: readonly OracleEffectStep[] }, modeIndex: number) => {
+    const label = String(mode?.label || `Mode ${modeIndex + 1}`).trim();
+    const modeRaw = String(mode?.raw || label).trim();
+    const modeGuard: EffectProgramStepGuard = {
+      bindingKey: modeBindingKey,
+      selectionIncludes: label,
+      cancelledEquals: false,
+      onFalse: 'skip',
+    };
+    const innerSteps = Array.isArray(mode?.steps) ? mode.steps : [];
+    let commandGuard = modeGuard;
+
+    if (modeStepsNeedTargetPlayer(innerSteps) || distinctPlayerTargets) {
+      const playerBindingKey = `${baseId}:mode-${modeIndex}:player`;
+      steps.push({
+        id: `${baseId}:mode-${modeIndex}:player`,
+        kind: 'choice',
+        bindingKey: playerBindingKey,
+        clause,
+        raw: modeRaw,
+        guard: modeGuard,
+        choiceRequest: {
+          type: ChoiceEventType.PLAYER_CHOICE,
+          playerId: input.controllerId,
+          description: `${input.sourceName || 'Ability'}: Choose a player for ${modeRaw}`,
+          mandatory: true,
+          sourceId: input.sourceId,
+          sourceName: input.sourceName,
+          sourceImage: input.sourceImage,
+          payload: {
+            oracleStepKind: 'target_player',
+            oracleStep: { kind: 'target_player', raw: modeRaw },
+            distinctPlayerTargets,
+            modeLabel: label,
+          },
+        },
+      });
+      commandGuard = {
+        bindingKey: playerBindingKey,
+        cancelledEquals: false,
+        onFalse: 'skip',
+      };
+    }
+
+    if (modeStepsNeedObjectTarget(innerSteps)) {
+      const targetBindingKey = `${baseId}:mode-${modeIndex}:target`;
+      const sourceStep = findModeObjectTargetSourceStep(innerSteps);
+      const targetText = String(
+        (sourceStep as any)?.target?.text
+        || (sourceStep as any)?.what?.text
+        || (sourceStep as any)?.raw
+        || modeRaw,
+      ).trim();
+      steps.push({
+        id: `${baseId}:mode-${modeIndex}:target`,
+        kind: 'choice',
+        bindingKey: targetBindingKey,
+        clause,
+        raw: modeRaw,
+        guard: commandGuard,
+        choiceRequest: {
+          type: ChoiceEventType.TARGET_SELECTION,
+          playerId: input.controllerId,
+          description: `${input.sourceName || 'Ability'}: Choose ${targetText || 'a target'} for ${modeRaw}`,
+          mandatory: true,
+          sourceId: input.sourceId,
+          sourceName: input.sourceName,
+          sourceImage: input.sourceImage,
+          payload: {
+            oracleStepKind: 'choose_target_creature',
+            oracleStep: {
+              kind: 'choose_target_creature',
+              target: (sourceStep as any)?.target || { kind: 'raw', text: targetText },
+              raw: String((sourceStep as any)?.raw || targetText),
+            },
+            modeLabel: label,
+          },
+        },
+      });
+      commandGuard = {
+        bindingKey: targetBindingKey,
+        cancelledEquals: false,
+        onFalse: 'skip',
+      };
+    }
+
+    innerSteps.forEach((innerStep, innerIndex) => {
+      steps.push({
+        id: `${baseId}:mode-${modeIndex}:cmd-${innerIndex}`,
+        kind: 'command',
+        clause,
+        raw: String((innerStep as any)?.raw || modeRaw),
+        guard: commandGuard,
+        command: { kind: 'oracle_ir_step', step: innerStep },
+      });
+    });
+  });
+
+  return true;
 }
 
 function oracleStepNeedsChoice(
@@ -1600,21 +1802,38 @@ function evaluateStepGuard(step: EffectProgramStep, bindings: Readonly<Record<st
 
 function responseSelectionsInclude(selections: ChoiceResponse['selections'] | undefined, expected: string): boolean {
   if (Array.isArray(selections)) {
-    return selections.includes(expected);
+    return selections.some((selection) => normalizeGuardSelection(selection) === expected);
   }
 
-  return selections !== undefined && String(selections) === expected;
+  return selections !== undefined && normalizeGuardSelection(selections) === expected;
 }
 
 function responseSelectionEquals(
   selections: ChoiceResponse['selections'] | undefined,
   expected: string | number | boolean
 ): boolean {
+  const expectedText = String(expected);
   if (Array.isArray(selections)) {
-    return selections.length === 1 && selections[0] === expected;
+    return selections.length === 1 && normalizeGuardSelection(selections[0]) === expectedText;
   }
 
-  return selections === expected;
+  return selections !== undefined && normalizeGuardSelection(selections) === expectedText;
+}
+
+function normalizeGuardSelection(selection: unknown): string {
+  if (selection === undefined || selection === null) return '';
+  if (typeof selection === 'string' || typeof selection === 'number' || typeof selection === 'boolean') {
+    return String(selection).trim();
+  }
+  if (typeof selection === 'object') {
+    const record = selection as Record<string, unknown>;
+    for (const key of ['id', 'value', 'label', 'selection']) {
+      if (record[key] !== undefined && record[key] !== null) {
+        return String(record[key]).trim();
+      }
+    }
+  }
+  return '';
 }
 
 function resolveFalseConditionCursor(

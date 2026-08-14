@@ -186,6 +186,18 @@ describe('Replacement Effects', () => {
       expect(evaluateETBCondition(card as any, 0, [], undefined, { opponentCount: 1 }).entersTapped).toBe(true);
       expect(evaluateETBCondition(card as any, 0, [], undefined, { opponentCount: 2 }).entersTapped).toBe(false);
     });
+
+    it('should tap unless opponents control eight or more lands', () => {
+      const card = {
+        oracle_text: 'This land enters tapped unless your opponents control eight or more lands.',
+        name: 'Turbulent Moor',
+      };
+
+      expect(evaluateETBCondition(card as any, 0, [], undefined, { opponentLandCount: 4 }).entersTapped).toBe(true);
+      expect(evaluateETBCondition(card as any, 0, [], undefined, { opponentLandCount: 7 }).entersTapped).toBe(true);
+      expect(evaluateETBCondition(card as any, 0, [], undefined, { opponentLandCount: 8 }).entersTapped).toBe(false);
+      expect(evaluateETBCondition(card as any, 0, [], undefined, { opponentLandCount: 0 }).entersTapped).toBe(true);
+    });
   });
   
   describe('applyReplacementEffect', () => {

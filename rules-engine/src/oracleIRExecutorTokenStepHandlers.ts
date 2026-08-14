@@ -20,6 +20,7 @@ import {
   parseMoveZoneSingleTargetFromLinkedExile,
 } from './oracleIRExecutorZoneOps';
 import { getCardManaValue, quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { tryResolveForEachReferenceAmount } from './oracleIRExecutorForEachQuantity';
 import {
   resolveBattlefieldEntryFromOracleIrContext,
   type OracleIrBattlefieldEntryContext,
@@ -364,7 +365,27 @@ function resolveTokenAmount(
   const numericAmount = quantityToNumber(step.amount, ctx);
   if (numericAmount !== null) return numericAmount;
   if (step.amount.kind === 'reference_amount') {
-    return readFiniteAmount(runtime?.lastReferenceAmount);
+    const referenced = tryResolveForEachReferenceAmount(
+      state,
+      (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID,
+      String(step.amount.raw || ''),
+      ctx,
+      { runtime: runtime as any },
+    );
+    if (referenced !== null) return referenced;
+    const fromRuntime = readFiniteAmount(runtime?.lastReferenceAmount);
+    if (fromRuntime !== null) return fromRuntime;
+    const source = findSourceObjectByIdAcrossState(state, String(ctx.sourceId || '').trim());
+    const squadTimesPaid = Number(
+      (source as any)?.squadTimesPaid
+      ?? (source as any)?.card?.squadTimesPaid
+      ?? (ctx as any)?.sourceCard?.squadTimesPaid,
+    );
+    if (Number.isFinite(squadTimesPaid)) return Math.max(0, Math.floor(squadTimesPaid));
+    if (/copy of it/i.test(String(step.token || '')) || /\bsquad\b/i.test(String(step.raw || ''))) {
+      return 0;
+    }
+    return null;
   }
   if (step.amount.kind !== 'x') return null;
 

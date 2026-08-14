@@ -58,6 +58,7 @@ export function parseAttachmentGrantedKeywordsFromOracle(oracleText: string): st
   const patterns = [
     /(?:equipped|enchanted)\s+creature\s+has\s+([^.]+)/gi,
     /(?:equipped|enchanted)\s+creature\s+gains?\s+([^.]+)/gi,
+    /(?:equipped|enchanted)\s+creature\s+is\s+([^.]+)/gi,
     /(?:equipped|enchanted)\s+creature\s+gets?\s+[+\-]?\d*\s*\/\s*[+\-]?\d*\s+and\s+(?:has|gains?)\s+([^.]+)/gi,
   ];
 

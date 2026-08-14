@@ -5,6 +5,10 @@ import type { OracleEffectStep } from '../src/oracleIR';
 import { createEmptyStepLedger } from '../src/oracleIRStepLedger';
 import { createOracleIRServerExecutionBridge } from '../../server/src/state/modules/oracleIrTransitionPipeline.js';
 import type { OracleIRTransitionHaltState } from '../src/oracleIRExecutionTypes';
+import {
+  detectOpponentEntersTappedFromBattlefield,
+  resolvePermanentEntersTapped,
+} from '../src/oracleIRBattlefieldEntryProposal';
 
 function authorityStyleBattlefield(controllerId: string) {
   return [{
@@ -148,3 +152,56 @@ describe('oracleIR battlefield entry commit', () => {
     expect(battlefield[0].tapped).toBe(true);
   });
 });
+
+describe('resolvePermanentEntersTapped — opponents control N lands', () => {
+  const turbulentMoor = {
+    name: 'Turbulent Moor',
+    type_line: 'Land — Plains Swamp',
+    oracle_text: 'This land enters tapped unless your opponents control eight or more lands.',
+  };
+
+  function land(id: string, controller: string) {
+    return {
+      id,
+      controller,
+      owner: controller,
+      card: { id: `${id}-card`, name: 'Island', type_line: 'Basic Land — Island' },
+    };
+  }
+
+  it('taps when opponents control fewer than eight lands', () => {
+    const battlefield = [
+      land('opp-1', 'p2'),
+      land('opp-2', 'p2'),
+      land('opp-3', 'p3'),
+      land('opp-4', 'p3'),
+    ];
+    expect(resolvePermanentEntersTapped({
+      battlefield,
+      controllerId: 'p1',
+      card: turbulentMoor,
+    })).toBe(true);
+  });
+
+  it('enters untapped when opponents control eight lands', () => {
+    const battlefield = Array.from({ length: 8 }, (_, i) => land(`opp-${i}`, 'p2'));
+    expect(resolvePermanentEntersTapped({
+      battlefield,
+      controllerId: 'p1',
+      card: turbulentMoor,
+    })).toBe(false);
+  });
+
+  it('does not tap opponent creatures just because Turbulent Moor is on the battlefield', () => {
+    expect(detectOpponentEntersTappedFromBattlefield(
+      [{
+        id: 'moor-1',
+        controller: 'p1',
+        card: turbulentMoor,
+      }],
+      'p2',
+      { name: 'Test Bear', type_line: 'Creature — Bear' },
+    )).toBe(false);
+  });
+});
+

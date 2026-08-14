@@ -9,7 +9,7 @@ import { stampPermanentControlEntryForEcho } from './upkeep-triggers.js';
 import { ensureInitialDayNightDesignationFromBattlefield, applyDayNightTransforms } from './day-night.js';
 import { cardEntersPrepared, setPermanentPrepared } from './prepared.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
-import { processKeywordTriggers, type KeywordTriggerContext } from './keyword-handlers.js';
+import { createGrantedRiotChoiceResult, processKeywordTriggers, type KeywordTriggerContext } from './keyword-handlers.js';
 import { enqueueSupportedKeywordChoiceStep } from './triggerKeywordChoiceUtils.js';
 import {
   buildInterveningIfSubjectSnapshot,
@@ -26,6 +26,7 @@ import {
 import { matchesColorRestriction } from './stackResolvePermanentEtbTriggerUtils.js';
 import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
 import { wouldAutoDeclineOptionalTriggeredAbility } from './stackResolveTriggeredAbilityOptionalUtils.js';
+import { isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetadata.js';
 
 function pushPendingEtbTriggerIfNotAutoDeclined(
   state: any,
@@ -64,6 +65,12 @@ export function queueSupportedETBKeywordChoices(
   };
 
   const results = processKeywordTriggers(keywordCtx, 'etb');
+  if (!results.some((result) => result.keyword === 'riot')) {
+    const grantedRiot = createGrantedRiotChoiceResult(keywordCtx);
+    if (grantedRiot) {
+      results.push(grantedRiot);
+    }
+  }
   for (const result of results) {
     if (!result.requiresPlayerChoice) {
       continue;
@@ -627,7 +634,7 @@ export function triggerETBEffectsForPermanent(
   // Also check if the permanent itself has ETB triggers
   const selfTriggers = includeSelfTriggers ? getETBTriggersForPermanent(permanent.card, permanent) : [];
   for (const trigger of selfTriggers) {
-    if (trigger.triggerType === 'etb') {
+    if (trigger.triggerType === 'etb' || trigger.triggerType === 'hideaway_etb') {
       const triggerController = controller;
       state.stack = state.stack || [];
       const triggerId = uid("trigger");
@@ -663,6 +670,9 @@ export function triggerETBEffectsForPermanent(
       
       // Build the trigger object with proper structure
       // The stack doesn't have strict typing, but we define the expected shape here
+      const effectText = String(trigger.effect || trigger.description || '');
+      const modalChooseModes = isModalChooseModesEffectText(effectText);
+      const requiresTarget = !modalChooseModes && Boolean(trigger.requiresTarget);
       const triggerObj = {
         id: triggerId,
         type: 'triggered_ability' as const,
@@ -673,14 +683,16 @@ export function triggerETBEffectsForPermanent(
         description: trigger.description,
         triggerType: trigger.triggerType,
         mandatory: trigger.mandatory,
-        effect: trigger.effect || trigger.description,
+        effect: effectText,
         card: permanent.card,
         sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(permanent),
         // Targeting properties (optional)
-        requiresTarget: trigger.requiresTarget || false,
-        targetType: trigger.targetType,
-        targetConstraint: trigger.targetConstraint,
-        needsTargetSelection: trigger.requiresTarget || false,
+        requiresTarget,
+        targetType: requiresTarget ? trigger.targetType : undefined,
+        targetConstraint: requiresTarget ? trigger.targetConstraint : undefined,
+        needsTargetSelection: requiresTarget,
+        ...((trigger as any).hideawayCount != null ? { hideawayCount: (trigger as any).hideawayCount } : null),
+        ...((trigger as any).hideawayCondition ? { hideawayCondition: (trigger as any).hideawayCondition } : null),
       };
       
       state.stack.push(triggerObj);

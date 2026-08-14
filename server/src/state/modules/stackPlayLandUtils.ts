@@ -309,6 +309,12 @@ export function finishPlayLandBattlefieldEntry(
       } else {
         const controlledPermanents = battlefield.filter((p: any) => p.controller === playerId);
 
+        const opponentLandCount = battlefield.filter((p: any) => {
+          if (p.controller === playerId) return false;
+          const typeLine = (p.card?.type_line || '').toLowerCase();
+          return typeLine.includes('land');
+        }).length;
+
         const evaluation = evaluateConditionalLandETB(
           oracleText,
           otherLandCount,
@@ -316,7 +322,8 @@ export function finishPlayLandBattlefieldEntry(
           undefined,
           basicLandCount,
           opponentCount,
-          controlledPermanents
+          controlledPermanents,
+          opponentLandCount,
         );
         shouldEnterTapped = evaluation.shouldEnterTapped;
         debug(2, `[playLand] ${card.name || 'Land'} conditional ETB: ${evaluation.reason}`);
@@ -404,6 +411,8 @@ export function finishPlayLandBattlefieldEntry(
           effect: trigger.effect || trigger.description || '',
           requiresChoice: trigger.requiresChoice,
           targets: [],
+          ...((trigger as any).hideawayCount != null ? { hideawayCount: (trigger as any).hideawayCount } : null),
+          ...((trigger as any).hideawayCondition ? { hideawayCondition: (trigger as any).hideawayCondition } : null),
         } as any);
 
         debug(2, `[playLand] Pushed ETB trigger to stack: ${trigger.description || trigger.effect}`);

@@ -7,6 +7,7 @@ import {
   isGenericNumberChoiceStep,
   isGenericOptionChoiceFallbackStep,
   isGraveyardSourceLibrarySearchStep,
+  isHandSourceLibrarySearchStep,
   isNamedGenericOptionChoiceStep,
   resolveLibrarySearchMoveTo,
 } from '../src/utils/resolutionChoicePrimitives';
@@ -113,6 +114,32 @@ describe('resolutionChoicePrimitives', () => {
       maxSelections: 1,
       title: "God-Pharaoh's Gift: Choose from graveyard",
       stepId: 'gift-step',
+    });
+  });
+
+  it('maps from-hand battlefield prompts to a hand-origin library search', () => {
+    const step = {
+      id: 'ghalta-step',
+      sourceName: 'Ghalta, Stampede Tyrant',
+      description: 'Ghalta, Stampede Tyrant: put any number of creature cards from your hand onto the battlefield',
+      searchCriteria: 'put any number of creature cards from your hand onto the battlefield',
+      searchZone: 'hand',
+      destination: 'battlefield',
+      mandatory: true,
+      minSelections: 0,
+      maxSelections: 2,
+      availableCards: [{ id: 'bear-1', name: 'Grizzly Bears' }],
+    };
+
+    expect(resolveLibrarySearchMoveTo(step)).toBe('battlefield');
+    expect(isHandSourceLibrarySearchStep(step)).toBe(true);
+    expect(buildLibrarySearchModalStateFromStep(step)).toMatchObject({
+      moveTo: 'battlefield',
+      mandatory: true,
+      minSelections: 0,
+      maxSelections: 2,
+      title: 'Ghalta, Stampede Tyrant: Choose from hand',
+      stepId: 'ghalta-step',
     });
   });
 });

@@ -47,18 +47,35 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
   }
 
   {
-    const m = raw.match(/^x is the number of opponents who control more lands than you$/i);
+    const m = raw.match(/^x is the number of (?:opponents|players) who control more lands than you$/i);
     if (m) {
       const controllerLandCount = countByClasses(controlled, ['land']);
-      const opponentIds = (state.players || [])
+      const otherIds = (state.players || [])
         .map((p: any) => String((p as any)?.id || '').trim())
         .filter((pid) => pid.length > 0 && pid !== controllerId);
-      let opponentCount = 0;
-      for (const opponentId of opponentIds) {
-        const oppPermanents = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === opponentId);
-        if (countByClasses(oppPermanents, ['land']) > controllerLandCount) opponentCount += 1;
+      let otherCount = 0;
+      for (const otherId of otherIds) {
+        const otherPermanents = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === otherId);
+        if (countByClasses(otherPermanents, ['land']) > controllerLandCount) otherCount += 1;
       }
-      return opponentCount;
+      return otherCount;
+    }
+  }
+
+  {
+    const m = raw.match(
+      /^x is the difference(?:\s+between\s+the\s+number\s+of\s+lands\s+(?:that player|the chosen opponent|that opponent)\s+controls?\s+and\s+the\s+number\s+of\s+lands\s+you\s+control)?$/i,
+    );
+    if (m) {
+      const targetOpponentId = String(
+        ctx?.selectorContext?.targetOpponentId || ctx?.selectorContext?.targetPlayerId || '',
+      ).trim();
+      if (!targetOpponentId) return 0;
+      const controllerLandCount = countByClasses(controlled, ['land']);
+      const targetControlled = battlefield.filter(
+        (p: any) => String((p as any)?.controller || '').trim() === targetOpponentId,
+      );
+      return Math.max(0, countByClasses(targetControlled, ['land']) - controllerLandCount);
     }
   }
 

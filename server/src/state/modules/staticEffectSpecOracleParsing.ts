@@ -1,4 +1,6 @@
 import type { BattlefieldPermanent } from '../../../../shared/src/index.js';
+import { parseAttachmentGrantedKeywordsFromOracle } from '../../../../shared/src/attachmentKeywordGrants.js';
+import { isCreatureTypeWord } from '../../../../shared/src/creatureTypes.js';
 import type { StaticEffectCountBasis, StaticEffectGrant, StaticEffectSpec } from './staticEffectSpec.js';
 import { sanitizeOracleTextForStaticEffectScan } from '../../../../rules-engine/src/staticEffectOracleSanitize.js';
 
@@ -7,6 +9,8 @@ const ABILITY_WORDS = [
   'deathtouch', 'lifelink', 'haste', 'menace', 'reach', 'first strike',
   'double strike', 'protection', 'ward',
 ];
+
+const COLOR_WORDS = ['white', 'blue', 'black', 'red', 'green'];
 
 const SMALL_NUMBER_WORDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -82,8 +86,13 @@ function parseLordAbilitiesFromTail(tail: string): string[] {
 
 function parseLordCreatureType(raw: string): string {
   const lower = String(raw || '').trim().toLowerCase();
+  if (!lower) return '';
+  // "Pegasus" / "Homunculus" already end in s; do not strip a valid type to "pegasu".
+  if (isCreatureTypeWord(lower)) return lower;
   if (lower.endsWith('s') && lower.length > 2) {
-    return lower.slice(0, -1);
+    const singular = lower.slice(0, -1);
+    if (isCreatureTypeWord(singular)) return singular;
+    return singular;
   }
   return lower;
 }
@@ -104,6 +113,70 @@ function buildSpec(
     sourceController: source.sourceController,
     sourceName: source.sourceName,
   };
+}
+
+/** Lightning Greaves / Swiftfoot Boots: grant keywords to the equipped/enchanted host. */
+function pushAttachedHostKeywordGrants(
+  specs: StaticEffectSpec[],
+  source: { sourcePermanentId: string; sourceController: string; sourceName: string },
+  perm: BattlefieldPermanent,
+  oracleText: string,
+): void {
+  const attachedTo = String((perm as any).attachedTo || '').trim();
+  if (!attachedTo) return;
+
+  const granted = parseAttachmentGrantedKeywordsFromOracle(oracleText)
+    .map((ability) => String(ability || '').trim().toLowerCase())
+    .filter((ability) => ABILITY_WORDS.includes(ability));
+  if (granted.length === 0) return;
+
+  const duringYourTurn = /during your turn,?\s*(?:equipped|enchanted)\s+creature\s+has/i.test(oracleText);
+
+  specs.push({
+    ...buildSpec(
+      source,
+      'attachment-keyword-host',
+      { kind: 'self' },
+      { abilities: granted },
+      duringYourTurn ? { kind: 'during_source_controller_turn' } : undefined,
+    ),
+    sourcePermanentId: attachedTo,
+    scope: { kind: 'self' },
+  });
+}
+
+/** Flickering Ward / White Ward: grant protection to the enchanted/equipped host, not the Aura. */
+function pushAttachedHostProtectionGrant(
+  specs: StaticEffectSpec[],
+  source: { sourcePermanentId: string; sourceController: string; sourceName: string },
+  perm: BattlefieldPermanent,
+  oracle: string,
+  chosenColor?: string,
+): void {
+  const attachedTo = String((perm as any).attachedTo || '').trim();
+  if (!attachedTo) return;
+
+  const match = oracle.match(
+    /(?:enchanted (?:creature|permanent|land)|equipped creature) has protection from (the chosen colou?r|white|blue|black|red|green)/i,
+  );
+  if (!match) return;
+
+  let color = String(match[1] || '').trim().toLowerCase();
+  if (/chosen/.test(color)) {
+    color = String(chosenColor || '').trim().toLowerCase();
+  }
+  if (!color || !COLOR_WORDS.includes(color)) return;
+
+  specs.push({
+    ...buildSpec(
+      source,
+      'attachment-protection-host',
+      { kind: 'self' },
+      { abilities: [`protection from ${color}`] },
+    ),
+    sourcePermanentId: attachedTo,
+    scope: { kind: 'self' },
+  });
 }
 
 function pushChosenTypeAbilityGrantSpecs(
@@ -210,8 +283,41 @@ function pushAbilityGrantSpecs(
     return;
   }
 
+  // "[Type] creatures you control have …" / "[color] creatures you control have …"
+  // Must run before the unrestricted "creatures you control have" pattern, which would
+  // otherwise match inside "Pegasus creatures you control have lifelink."
+  const typedCreaturesAbilityMatch = oracle.match(
+    /(?:^|[.\n;])\s*(?!other\s+)([a-z]+)\s+creatures you control have ([^.]+)/i,
+  );
+  if (typedCreaturesAbilityMatch) {
+    const qualifier = String(typedCreaturesAbilityMatch[1] || '').toLowerCase();
+    const abilities = parseAbilitiesFromTail(typedCreaturesAbilityMatch[2] || '');
+    if (abilities.length > 0) {
+      if (COLOR_WORDS.includes(qualifier)) {
+        specs.push(buildSpec(
+          source,
+          `${qualifier}-creatures-ability-grant`,
+          { kind: 'creatures_you_control' },
+          { abilities },
+          { kind: 'target_has_mana_color', color: qualifier },
+        ));
+      } else {
+        const creatureType = parseLordCreatureType(qualifier);
+        if (isCreatureTypeWord(creatureType)) {
+          specs.push(buildSpec(
+            source,
+            `${creatureType}-creatures-ability-grant`,
+            { kind: 'creatures_you_control', creatureType },
+            { abilities },
+          ));
+        }
+      }
+    }
+    return;
+  }
+
   if (!/other creatures you control have/i.test(oracle)) {
-    const creaturesAbilityMatch = oracle.match(/(?<!legendary )creatures you control have ([^.]+)/i);
+    const creaturesAbilityMatch = oracle.match(/(?<![a-z] )(?<!legendary )(?:all )?creatures you control have ([^.]+)/i);
     if (creaturesAbilityMatch) {
       const abilities = parseAbilitiesFromTail(creaturesAbilityMatch[1] || '');
       if (abilities.length > 0) {
@@ -225,8 +331,6 @@ function pushAbilityGrantSpecs(
     }
   }
 }
-
-const COLOR_WORDS = ['white', 'blue', 'black', 'red', 'green'];
 
 function pushColorAnthemSpecs(
   specs: StaticEffectSpec[],
@@ -614,10 +718,18 @@ export function parseStaticEffectSpecsFromOraclePermanent(
     } as Record<string, string>)[String(chosenColor).toLowerCase()] || String(chosenColor).toUpperCase();
 
     // Voice of All / Order of the Stars: "This creature has protection from the chosen color."
-    if (/\b(?:this (?:creature|permanent)|it) has protection from the chosen colou?r\b/i.test(oracle)
-      || /\bprotection from the chosen colou?r\b/i.test(oracle)
+    // Do not treat Aura text like "Enchanted creature has protection from the chosen color"
+    // as a self-grant (Flickering Ward).
+    const grantsSelfChosenColorProtection =
+      /\b(?:this (?:creature|permanent)|it) has protection from the chosen colou?r\b/i.test(oracle)
+      || (
+        /\bprotection from the chosen colou?r\b/i.test(oracle)
+        && !/\benchanted\s+(?:creature|permanent|land)\s+has\s+protection from the chosen colou?r\b/i.test(oracle)
+        && !/\bequipped\s+creature\s+has\s+protection from the chosen colou?r\b/i.test(oracle)
         && !/\ball\s+\w+s?\s+have protection from the chosen colou?r\b/i.test(oracle)
-        && !/\bcreatures?\s+you\s+control\b.*\bprotection from the chosen colou?r\b/i.test(oracle)) {
+        && !/\bcreatures?\s+you\s+control\b.*\bprotection from the chosen colou?r\b/i.test(oracle)
+      );
+    if (grantsSelfChosenColorProtection) {
       specs.push(buildSpec(
         source,
         'chosen-color-protection-self',
@@ -682,6 +794,9 @@ export function parseStaticEffectSpecsFromOraclePermanent(
       }
     }
   }
+
+  pushAttachedHostProtectionGrant(specs, source, perm, oracle, chosenColor);
+  pushAttachedHostKeywordGrants(specs, source, perm, oracleText);
 
   if (chosenCreatureType) {
     const chosenTypeOtherBuffMatch = oracle.match(
