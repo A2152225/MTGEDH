@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import { lookupLocalCardByNameSync } from '../src/services/localCardLookup.js';
@@ -20,6 +20,11 @@ describe('Growing Rites of Itlimoc regressions', () => {
   const gameId = 'growing_rites_regression';
   const playerId = 'p1' as PlayerID;
   const opponentId = 'p2' as PlayerID;
+
+  beforeEach(() => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+  });
 
   it('queues its ETB library search from the live library map and preserves the creature filter', () => {
     ResolutionQueueManager.removeQueue(gameId);
@@ -166,12 +171,62 @@ describe('Growing Rites of Itlimoc regressions', () => {
       playerId,
       'Growing Rites of Itlimoc',
       String(growingRitesTrigger?.description || ''),
-      { sourceName: 'Growing Rites of Itlimoc', permanentId: 'growing_rites_perm' },
+      { sourceName: 'Growing Rites of Itlimoc', permanentId: 'growing_rites_perm', source: 'growing_rites_perm' },
     );
 
-    expect(growingRitesPermanent.transformed).toBe(true);
-    expect(growingRitesPermanent.card.name).toBe('Itlimoc, Cradle of the Sun');
-    expect(growingRitesPermanent.card.type_line).toBe('Legendary Land');
+    const resolved = (ctx.state.battlefield || []).find((permanent: any) => permanent?.id === 'growing_rites_perm');
+    expect(resolved?.transformed).toBe(true);
+    expect(resolved?.card?.name).toBe('Itlimoc, Cradle of the Sun');
+    expect(resolved?.card?.type_line).toBe('Legendary Land');
+  });
+
+  it('does not queue the transform trigger when you control fewer than four creatures', () => {
+    const growingRitesPermanent = {
+      id: 'growing_rites_perm',
+      controller: playerId,
+      owner: playerId,
+      tapped: false,
+      transformed: false,
+      card: {
+        id: 'growing_rites_card',
+        name: 'Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun',
+        type_line: 'Legendary Enchantment // Legendary Land',
+        layout: 'transform',
+        card_faces: [
+          {
+            name: 'Growing Rites of Itlimoc',
+            type_line: 'Legendary Enchantment',
+            oracle_text:
+              'When Growing Rites of Itlimoc enters, look at the top four cards of your library. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom of your library in any order.\nAt the beginning of your end step, if you control four or more creatures, transform Growing Rites of Itlimoc.',
+          },
+          {
+            name: 'Itlimoc, Cradle of the Sun',
+            type_line: 'Legendary Land',
+            oracle_text: '(Transforms from Growing Rites of Itlimoc.)\n{T}: Add {G} for each creature you control.',
+          },
+        ],
+      },
+    };
+
+    const creatures = [
+      { id: 'creature_1', controller: playerId, card: { name: 'Elf 1', type_line: 'Creature — Elf' } },
+      { id: 'creature_2', controller: playerId, card: { name: 'Elf 2', type_line: 'Creature — Elf' } },
+      { id: 'creature_3', controller: playerId, card: { name: 'Elf 3', type_line: 'Creature — Elf' } },
+    ];
+
+    const ctx: any = {
+      gameId,
+      state: {
+        players: [{ id: playerId }, { id: opponentId }],
+        turnPlayer: playerId,
+        phase: 'ending',
+        step: 'END',
+        battlefield: [growingRitesPermanent, ...creatures],
+      },
+    };
+
+    const triggers = getEndStepTriggers(ctx, playerId);
+    expect(triggers.some((trigger: any) => trigger.permanentId === 'growing_rites_perm')).toBe(false);
   });
 
   it('resolves the playable DFC from local lookup instead of the art-series placeholder', () => {

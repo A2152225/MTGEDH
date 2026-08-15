@@ -49,6 +49,7 @@ import {
   expandCopyChapterAbilityUnknownAbilities,
   expandCopyPermanentUnknownAbilities,
   expandCopySpellUnknownAbilities,
+  mergeChangeTargetRestrictionFollowupAbilities,
   expandDeterministicMoveZoneFollowupAbilities,
   upgradeExiledThisWayReturnMoveZoneSteps,
   upgradeReanimationHasteGrantSteps,
@@ -183,6 +184,7 @@ import {
   expandBlightPrefixAbilities,
   expandSimpleConditionalUnknownAbilities,
   expandYouMayTransformIfYouDoAbilities,
+  wrapIfYouDoConditionOnParsedAbilities,
   expandTapMatchingPermanentCountAbilities,
   expandUnlessSacrificeAbilities,
   upgradeConditionalIfYouDoImpulseAbilities,
@@ -1410,6 +1412,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
           steps[idx] = {
             ...prev,
             ...(mod.entersTapped ? { entersTapped: true } : {}),
+            ...(mod.attacking ? { attacking: mod.attacking } : {}),
             ...(mod.withCounters ? { withCounters: { ...(prev.withCounters || {}), ...mod.withCounters } } : {}),
             ...(mod.grantsHaste ? { grantsHaste: mod.grantsHaste } : {}),
             ...(mod.grantsAbilitiesUntilEndOfTurn
@@ -1709,6 +1712,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandWinLossUnknownAbilities(abilities);
   abilities = expandTapMatchingPermanentCountAbilities(abilities);
   abilities = expandYouMayTransformIfYouDoAbilities(abilities);
+  abilities = wrapIfYouDoConditionOnParsedAbilities(abilities);
   abilities = expandSimpleConditionalUnknownAbilities(abilities);
   abilities = mergeKinshipRevealConditionalAbilities(abilities);
   abilities = expandCopySpellUnknownAbilities(abilities);
@@ -2058,38 +2062,53 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
       /\bany player may activate\b/i.test(line) ||
       !/\bgets?\s+[+-](?:\d+|x)\s*\/\s*[+-](?:\d+|x)\b/i.test(line)
     ) continue;
-    // Ignore PT text that exists only inside quoted grants on the same line.
-    const withoutQuotes = line.replace(/"[^"]*"/g, ' ');
-    if (!/\bgets?\s+[+-](?:\d+|x)\s*\/\s*[+-](?:\d+|x)\b/i.test(withoutQuotes)) continue;
-    if (abilityTextAlreadyCovered(line)) continue;
-    const step = parseEffectClauseToStep(line);
-    const lineType = isSpellInstructionLine(line) ? AbilityType.SPELL : AbilityType.STATIC;
-    if (step.kind === 'unknown') {
-      const fragment = parseBareTriggerEffectFragmentSteps(line);
-      if (fragment && fragment.length > 0 && fragment.every((fragmentStep) => fragmentStep.kind !== 'unknown')) {
+    // Recover only the PT-bearing sentence(s). Multi-sentence ETB+static lines such as
+    // "Mill two cards. Enchanted creature gets -X/-0, where X is…" must not be reparsed
+    // as a single mill quantity with a borrowed where-X clause.
+    const ptSentences = line
+      .split(/(?<=\.)\s+/)
+      .map((part) => part.trim())
+      .filter((part) => /\bgets?\s+[+-](?:\d+|x)\s*\/\s*[+-](?:\d+|x)\b/i.test(part));
+    const recoveryUnits = ptSentences.length > 0 ? ptSentences : [line];
+    for (const unit of recoveryUnits) {
+      // Ignore PT text that exists only inside quoted grants on the same unit.
+      const withoutQuotes = unit.replace(/"[^"]*"/g, ' ');
+      if (!/\bgets?\s+[+-](?:\d+|x)\s*\/\s*[+-](?:\d+|x)\b/i.test(withoutQuotes)) continue;
+      if (abilityTextAlreadyCovered(unit)) continue;
+      const step = parseEffectClauseToStep(unit);
+      const lineType = isSpellInstructionLine(unit) ? AbilityType.SPELL : AbilityType.STATIC;
+      if (step.kind === 'unknown') {
+        const fragment = parseBareTriggerEffectFragmentSteps(unit);
+        if (fragment && fragment.length > 0 && fragment.every((fragmentStep) => fragmentStep.kind !== 'unknown')) {
+          abilities.push({
+            type: lineType,
+            text: unit,
+            effectText: unit,
+            steps: [...fragment],
+          });
+          continue;
+        }
         abilities.push({
           type: lineType,
-          text: line,
-          effectText: line,
-          steps: [...fragment],
+          text: unit,
+          effectText: unit,
+          steps: [],
         });
         continue;
       }
       abilities.push({
         type: lineType,
-        text: line,
-        effectText: line,
-        steps: [],
+        text: unit,
+        effectText: unit,
+        steps: [step],
       });
-      continue;
     }
-    abilities.push({
-      type: lineType,
-      text: line,
-      effectText: line,
-      steps: [step],
-    });
   }
+
+  // Recovery above can reintroduce unknowns after the main residual pass
+  // (e.g. multi-sentence aura statics with "instead as long as…" riders).
+  abilities = lowerCurrentResidualUnknownAbilities(abilities);
+  abilities = expandKeywordActionUnknownAbilities(abilities);
 
   abilities = abilities.reduce<OracleIRAbility[]>((merged, ability) => {
     const previous = merged[merged.length - 1];
@@ -2189,6 +2208,8 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
     if (!fragment || fragment.length === 0 || fragment.some((step) => step.kind === 'unknown')) return ability;
     return { ...ability, steps: [...fragment] };
   });
+
+  abilities = mergeChangeTargetRestrictionFollowupAbilities(abilities);
 
   return {
     normalizedOracleText,

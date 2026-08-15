@@ -166,6 +166,8 @@ export function resolveOracleQuantity(
   const evaluateWhereExpr = (exprRaw: string): number | null => {
     const raw = normalizeOracleText(String(exprRaw || ''));
     if (!raw) return null;
+    const fromCombat = tryEvaluateCombatDamageReferenceCount(state, controllerId, raw, ctx);
+    if (fromCombat !== null) return Math.max(0, fromCombat);
     const evaluated = evaluateModifyPtWhereX(
       state,
       controllerId,
@@ -205,7 +207,10 @@ export function resolveOracleQuantity(
 
   if (qty.kind === 'x') {
     const xValue = Number(ctx.xValue);
-    return Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue)) : null;
+    if (Number.isFinite(xValue)) return Math.max(0, Math.floor(xValue));
+    const fromReference = Number(runtime?.lastReferenceAmount ?? ctx.referenceAmount);
+    if (Number.isFinite(fromReference)) return Math.max(0, Math.floor(fromReference));
+    return null;
   }
 
   if (qty.kind === 'source_power') {

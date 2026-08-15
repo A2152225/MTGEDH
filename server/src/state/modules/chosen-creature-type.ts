@@ -43,20 +43,25 @@ export function parseChosenTypeCreatureEtbTrigger(oracleText: string): {
   anotherOnly: boolean;
   nontokenOnly: boolean;
   mandatory: boolean;
+  /** Subject noun from oracle: creature vs permanent (Dawn-Blessed Pennant / Rimefire Torque). */
+  subjectKind: 'creature' | 'permanent';
 } | null {
   const match = String(oracleText || '').match(
-    /whenever\s+(another\s+|a\s+)?(nontoken\s+)?creatures?\s+you\s+control\s+of\s+the\s+chosen\s+type\s+enters?(?:\s+the\s+battlefield)?(?=\s|,)(?!\s+or\s+),?\s*([^.]+)/i,
+    /whenever\s+(another\s+|a\s+)?(nontoken\s+)?(creatures?|permanents?)\s+you\s+control\s+of\s+the\s+chosen\s+type\s+enters?(?:\s+the\s+battlefield)?(?=\s|,)(?!\s+or\s+),?\s*([^.]+)/i,
   );
   if (!match) return null;
 
-  const effect = String(match[3] || '').trim();
+  const effect = String(match[4] || '').trim();
   if (!effect) return null;
+  const subjectRaw = String(match[3] || '').trim().toLowerCase();
+  const subjectKind: 'creature' | 'permanent' = /^permanent/.test(subjectRaw) ? 'permanent' : 'creature';
 
   return {
     effect,
     anotherOnly: Boolean(match[1] && /another/i.test(match[1])),
     nontokenOnly: Boolean(match[2]),
     mandatory: !/\byou may\b/i.test(effect),
+    subjectKind,
   };
 }
 

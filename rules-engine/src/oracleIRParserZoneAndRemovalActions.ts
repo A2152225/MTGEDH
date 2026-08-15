@@ -25,6 +25,22 @@ function splitMoveZoneReturnClause(clause: string): { readonly whatRaw: string; 
     return { whatRaw, toRaw };
   }
 
+  // Abbreviated battlefield returns omit "to the battlefield":
+  // "return that card under your control with a finality counter on it"
+  const underControl = body.match(
+    /^(.+?)\s+(under\s+(?:your|its\s+owner'?s|their|his\s+or\s+her)\s+control(?:\s+with\s+.+)?)$/i,
+  );
+  if (underControl) {
+    const whatRaw = String(underControl[1] || '').trim();
+    const controlTail = String(underControl[2] || '').trim();
+    if (whatRaw && controlTail) {
+      return {
+        whatRaw,
+        toRaw: `the battlefield ${controlTail}`,
+      };
+    }
+  }
+
   return null;
 }
 

@@ -12,11 +12,13 @@ import {
 } from './counter-common-effects.js';
 import { updateCounters } from './counters_tokens.js';
 import {
+  calculateModifiedDamage,
   canDamageBePrevented,
   detectAnotherCreaturePreventDamagePlusOneReplacement,
 } from './game-state-effects.js';
 import { protectionPreventsSource } from './combat-mechanics.js';
 import { permanentHasIndestructible } from '../../rules-engine/index.js';
+import { processPlayerDealtDamageTriggers } from './triggers/dealt-damage-watchers.js';
 
 export function applyPoisonCountersToPlayer(ctx: GameContext, playerId: string, amount: number): void {
   const normalized = Math.max(0, Number(amount || 0));
@@ -143,11 +145,26 @@ export function resolvePlayerDamage(
     isCombatDamage?: boolean;
     sourcePermanent?: any;
     sourceCard?: any;
+    skipAmountReplacements?: boolean;
   },
 ): ResolvedPlayerDamage {
-  const damageDealt = Math.max(0, Number(options.amount || 0));
+  const incomingAmount = Math.max(0, Number(options.amount || 0));
   const targetPlayerId = String(options.targetPlayerId || '').trim();
-  if (!targetPlayerId || damageDealt <= 0) {
+  if (!targetPlayerId || incomingAmount <= 0) {
+    return { lifeLost: 0, poisonAdded: 0, damageDealt: 0 };
+  }
+
+  const damageDealt = options.skipAmountReplacements
+    ? incomingAmount
+    : calculateModifiedDamage(
+      ctx,
+      incomingAmount,
+      String(options.sourcePermanent?.controller || ''),
+      targetPlayerId,
+      String(options.sourcePermanent?.id || '') || undefined,
+      options.isCombatDamage,
+    ).amount;
+  if (damageDealt <= 0) {
     return { lifeLost: 0, poisonAdded: 0, damageDealt: 0 };
   }
 
@@ -184,6 +201,16 @@ export function resolvePlayerDamage(
     applyPoisonCountersToPlayer(ctx, targetPlayerId, processed.poisonCounters);
   }
 
+  if (damageDealt > 0) {
+    processPlayerDealtDamageTriggers(ctx, {
+      damagedPlayerId: targetPlayerId,
+      damageAmount: damageDealt,
+      isCombatDamage: options.isCombatDamage === true,
+      sourcePermanent: options.sourcePermanent,
+      sourceControllerId: String(options.sourcePermanent?.controller || ''),
+    });
+  }
+
   return {
     lifeLost,
     poisonAdded: processed.poisonCounters,
@@ -202,6 +229,7 @@ export function resolvePlayerCombatDamage(
     amount,
     isCombatDamage: true,
     sourcePermanent,
+    skipAmountReplacements: true,
   });
 }
 
@@ -235,14 +263,29 @@ export function applyCreatureDamageFromSource(
   targetPermanent: any,
   amount: number,
   damageField: 'damage' | 'markedDamage' | 'damageMarked' = 'markedDamage',
+  options?: { skipAmountReplacements?: boolean; isCombatDamage?: boolean },
 ): { prevented: boolean; appliedAmount: number; usedMinusCounters: boolean; damageReplaced?: boolean } {
-  const normalizedAmount = Math.max(0, Number(amount || 0));
-  if (!targetPermanent || normalizedAmount <= 0) {
+  const incomingAmount = Math.max(0, Number(amount || 0));
+  if (!targetPermanent || incomingAmount <= 0) {
     return { prevented: false, appliedAmount: 0, usedMinusCounters: false };
   }
 
   const sourceCard = sourcePermanent?.card || {};
   const sourceId = String(sourcePermanent?.id || '');
+  const normalizedAmount = options?.skipAmountReplacements
+    ? incomingAmount
+    : calculateModifiedDamage(
+      ctx,
+      incomingAmount,
+      String(sourcePermanent?.controller || ''),
+      String(targetPermanent?.controller || ''),
+      sourceId || undefined,
+      options?.isCombatDamage,
+      String(targetPermanent?.id || '') || undefined,
+    ).amount;
+  if (normalizedAmount <= 0) {
+    return { prevented: true, appliedAmount: 0, usedMinusCounters: false };
+  }
 
   if (protectionPreventsSource(targetPermanent, sourcePermanent, (ctx as any).state)) {
     return { prevented: true, appliedAmount: 0, usedMinusCounters: false };
@@ -279,7 +322,18 @@ export function applyCreatureDamageFromSource(
   };
 }
 
-export const applyCreatureCombatDamageFromSource = applyCreatureDamageFromSource;
+export function applyCreatureCombatDamageFromSource(
+  ctx: GameContext,
+  sourcePermanent: any,
+  targetPermanent: any,
+  amount: number,
+  damageField: 'damage' | 'markedDamage' | 'damageMarked' = 'markedDamage',
+): { prevented: boolean; appliedAmount: number; usedMinusCounters: boolean; damageReplaced?: boolean } {
+  return applyCreatureDamageFromSource(ctx, sourcePermanent, targetPermanent, amount, damageField, {
+    skipAmountReplacements: true,
+    isCombatDamage: true,
+  });
+}
 
 export function applyFightDamageBetweenCreatures(
   ctx: GameContext,

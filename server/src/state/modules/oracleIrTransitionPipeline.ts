@@ -22,6 +22,7 @@ import {
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import type { GameContext } from '../context.js';
 import { movePermanentToExile } from './counters_tokens.js';
+import { calculateModifiedDamage } from './game-state-effects.js';
 
 export interface OracleIRTransitionInterceptorOptions {
   readonly interactivePlayerChoices: boolean;
@@ -197,6 +198,66 @@ function applyReplacementToTransition(
   return transition;
 }
 
+function applyOraclePatternDamageAmountReplacements(
+  state: unknown,
+  transition: OracleIRPendingTransition,
+  existing: ReplacementEffectResult,
+): ReplacementEffectResult {
+  if (transition.kind !== 'damage') return existing;
+  if (existing.choiceRequired) return existing;
+  if (existing.applied && Number(existing.replacementAmount) === 0) return existing;
+
+  const payload = transition.event;
+  const originalAmount = Math.max(0, Number(payload.amount ?? existing.originalAmount ?? 0));
+  const baseAmount = existing.applied && existing.replacementAmount != null
+    ? Math.max(0, Number(existing.replacementAmount))
+    : originalAmount;
+  if (baseAmount <= 0) return existing;
+
+  const targetPermanent = payload.object as { id?: string; controller?: string } | undefined;
+  const targetPermanentId = String(payload.targetPermanentId || payload.objectId || targetPermanent?.id || '').trim();
+  const targetPlayerId = String(payload.playerId || '').trim();
+  const sourceId = String((payload.metadata as { sourceId?: string } | undefined)?.sourceId || '').trim();
+  const battlefield = Array.isArray((state as { battlefield?: unknown })?.battlefield)
+    ? (state as { battlefield: unknown[] }).battlefield
+    : [];
+  const sourcePermanent = sourceId
+    ? battlefield.find((perm) => perm && typeof perm === 'object' && String((perm as { id?: string }).id || '').trim() === sourceId)
+    : undefined;
+  const dealer = String(
+    (sourcePermanent as { controller?: string } | undefined)?.controller
+    || payload.controllerId
+    || '',
+  );
+  const receiver = String(targetPermanent?.controller || targetPlayerId || '');
+
+  const { amount, modifiers } = calculateModifiedDamage(
+    { state } as GameContext,
+    baseAmount,
+    dealer,
+    receiver,
+    sourceId || undefined,
+    Boolean((payload.metadata as { isCombatDamage?: boolean } | undefined)?.isCombatDamage),
+    targetPermanentId || undefined,
+  );
+  if (amount === baseAmount) return existing;
+
+  return {
+    applied: true,
+    eventType: 'damage',
+    effectId: existing.effectId || 'damage-amount-modified',
+    sourceName: existing.sourceName,
+    originalAmount,
+    replacementAmount: amount,
+    preventedAmount: Math.max(0, originalAmount - amount),
+    reason: existing.reason || 'oracle_pattern_damage_amount',
+    metadata: {
+      ...(existing.metadata || {}),
+      appliedEffects: modifiers,
+    },
+  };
+}
+
 export function interceptOracleIRTransitions(
   state: unknown,
   transitions: readonly OracleIRPendingTransition[],
@@ -211,7 +272,11 @@ export function interceptOracleIRTransitions(
   const replacementLog: ReplacementEffectResult[] = [];
 
   for (const transition of transitions) {
-    const result = evaluateReplacementEvent(toReplacementEvent(state, transition));
+    const result = applyOraclePatternDamageAmountReplacements(
+      state,
+      transition,
+      evaluateReplacementEvent(toReplacementEvent(state, transition)),
+    );
     replacementLog.push(result);
 
     if (result.choiceRequired && options.interactivePlayerChoices) {

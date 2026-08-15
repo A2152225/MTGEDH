@@ -13,6 +13,12 @@ import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
 import { resolveOracleIrBoundTargetSpellId } from './oracleIrTargetBinding';
 import {
+  applyRandomRetargetToStackSpells,
+  isRandomChangeTargetStep,
+  resolveChangeTargetExcludeText,
+  resolveChangeTargetSpellIds,
+} from './oracleIRExecutorChangeTargetSupport';
+import {
   addBattlefieldPermanentsToState,
   createBattlefieldPermanentsFromCards,
   cardMatchesMoveZoneSingleTargetCriteria,
@@ -26,7 +32,7 @@ import {
   type MoveZoneSingleTargetCriteria,
 } from './oracleIRExecutorZoneOps';
 import { payManaCost } from './spellCasting';
-import { createEmptyManaPool, setManaDoesNotEmpty, type ManaCost } from './types/mana';
+import { createEmptyManaPool, type ManaCost } from './types/mana';
 import { parseManaSymbols } from './types/numbers';
 import { oracleGraveyardAdditionalCostToSerializable } from './graveyardPermissionAdditionalCost';
 import {
@@ -415,10 +421,28 @@ function resolveAddManaAmount(
   if (step.amount.kind === 'x') return Number.isFinite(ctx.xValue) ? Math.max(0, Math.floor(ctx.xValue as number)) : null;
   if (step.amount.kind === 'object_stat') {
     const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
-    if (!sourcePermanent) return null;
-    if (step.amount.stat === 'power') return readPermanentPower(sourcePermanent);
-    if (step.amount.stat === 'toughness') return readPermanentToughness(sourcePermanent);
-    if (step.amount.stat === 'mana_value') return getCardManaValue(sourcePermanent?.card || sourcePermanent);
+    const subject = String(step.amount.subject || '');
+    const attachedToId = String(
+      sourcePermanent?.attachedTo
+      || sourcePermanent?.enchanting
+      || (ctx as any).targetPermanentId
+      || ctx.selectorContext?.targetPermanentId
+      || (ctx.selectorContext as any)?.attachedToId
+      || '',
+    ).trim();
+    const hostPermanent = attachedToId
+      ? ((state.battlefield || []) as any[]).find((permanent) => String(permanent?.id || '').trim() === attachedToId)
+      : null;
+    const statPermanent = (
+      hostPermanent
+      && (subject === 'it' || subject === 'this_creature' || subject === 'this_permanent' || subject === 'source')
+    )
+      ? hostPermanent
+      : sourcePermanent;
+    if (!statPermanent) return null;
+    if (step.amount.stat === 'power') return readPermanentPower(statPermanent);
+    if (step.amount.stat === 'toughness') return readPermanentToughness(statPermanent);
+    if (step.amount.stat === 'mana_value') return getCardManaValue(statPermanent?.card || statPermanent);
     return null;
   }
   if (step.amount.kind === 'greatest_power_among_creatures_you_control') {
@@ -744,6 +768,7 @@ function cardMatchesLookChooseSelector(
     .replace(/\s+/g, ' ')
     .trim();
   if (!normalizedSelector) return false;
+  if (/^(?:(?:one|any) of )?those(?: cards?)?$|^cards?$/i.test(normalizedSelector)) return true;
 
   const structuredCriteria = parseMoveZoneSingleTargetCriteria(normalizedSelector);
   if (structuredCriteria?.usesChosenCreatureType) {
@@ -4911,6 +4936,29 @@ export function applyChangeTargetStep(
   step: Extract<OracleEffectStep, { kind: 'change_target' }>,
   ctx: OracleIRExecutionContext,
 ): PlayerStepHandlerResult {
+  if (isRandomChangeTargetStep(step)) {
+    const spellIds = resolveChangeTargetSpellIds(state, step, ctx);
+    if (spellIds.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped change target (no spell to reselect): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+    const result = applyRandomRetargetToStackSpells(
+      state,
+      spellIds,
+      ctx,
+      step.exclude,
+      resolveChangeTargetExcludeText(step),
+    );
+    return {
+      applied: true,
+      state: result.state,
+      log: result.log.length > 0 ? [...result.log] : [`Reselected targets at random: ${step.raw}`],
+    };
+  }
+
   const stack = Array.isArray((state as any).stack) ? [...((state as any).stack as any[])] : [];
   const targetedSpells = stack.filter(
     (item) =>
@@ -5424,7 +5472,10 @@ function resolveLookChooseAmount(
     return untilReveal?.count ?? null;
   }
 
-  const resolved = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, { runtime });
+  const resolved = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
+    runtime,
+    whereX: (step as { whereX?: OracleClauseCondition }).whereX,
+  });
   if (resolved !== null) return resolved;
 
   if (step.amount.kind !== 'x') return null;
@@ -7254,13 +7305,37 @@ export function applyLoseLifeStep(
   const log: string[] = [];
   let totalLifeLost = 0;
   const replayMutations: OracleIRReplayMutation[] = [];
+  const firstAmount =
+    resolveStepAmountForPlayer(state, controllerId, step.amount, ctx, players[0], {
+      whereX: step.whereX,
+      runtime,
+    }) ??
+    resolveVariableAmount(state, controllerId, step.amount, ctx, runtime, evaluateWhereX);
+  if (
+    step.optional === true
+    && ctx?.interactivePlayerChoices
+    && firstAmount !== null
+    && firstAmount > 0
+  ) {
+    return {
+      applied: false,
+      message: `Deferred optional life payment (requires player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: { lifeAmount: firstAmount },
+      },
+    };
+  }
   for (const playerId of players) {
     const amount =
-      resolveStepAmountForPlayer(state, controllerId, step.amount, ctx, playerId, {
-        whereX: step.whereX,
-        runtime,
-      }) ??
-      resolveVariableAmount(state, controllerId, step.amount, ctx, runtime, evaluateWhereX);
+      playerId === players[0] && firstAmount !== null
+        ? firstAmount
+        : resolveStepAmountForPlayer(state, controllerId, step.amount, ctx, playerId, {
+            whereX: step.whereX,
+            runtime,
+          }) ??
+          resolveVariableAmount(state, controllerId, step.amount, ctx, runtime, evaluateWhereX);
     if (amount === null) {
       return {
         applied: false,
@@ -7497,6 +7572,34 @@ export function applyDrawStep(
   }, ledgerRecordedViaBridge);
 }
 
+const TEMPORARY_RETAINED_MANA_COLORS = ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const;
+
+function manaStringToColorCounts(mana: string): Record<(typeof TEMPORARY_RETAINED_MANA_COLORS)[number], number> {
+  const counts = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+  const symbols = String(mana || '').match(/\{[^}]+\}/g) || [];
+  for (const symbol of symbols) {
+    const upper = symbol.toUpperCase();
+    if (upper === '{W}') counts.white += 1;
+    else if (upper === '{U}') counts.blue += 1;
+    else if (upper === '{B}') counts.black += 1;
+    else if (upper === '{R}') counts.red += 1;
+    else if (upper === '{G}') counts.green += 1;
+    else if (upper === '{C}') counts.colorless += 1;
+    else if (/^\{\d+\}$/.test(upper)) counts.colorless += Math.max(0, parseInt(upper.slice(1, -1), 10) || 0);
+  }
+  return counts;
+}
+
+function recordProducedMana(state: GameState, playerId: PlayerID, manaToAdd: string): GameState {
+  return {
+    ...(state as any),
+    lastOracleIrProducedMana: {
+      ...((state as any).lastOracleIrProducedMana || {}),
+      [playerId]: manaStringToColorCounts(manaToAdd),
+    },
+  } as any;
+}
+
 export function applyAddManaStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'add_mana' }>,
@@ -7561,7 +7664,7 @@ export function applyAddManaStep(
             reason: 'failed_to_apply',
           };
         }
-        nextState = result.state;
+        nextState = recordProducedMana(result.state, playerId, manaToAdd);
       }
       return { applied: true, state: nextState, log };
     }
@@ -7914,7 +8017,7 @@ export function applyAddManaStep(
           },
         };
       }
-      nextState = result.state;
+      nextState = recordProducedMana(result.state, playerId, manaToAdd);
     }
 
     return { applied: true, state: nextState, log };
@@ -7956,10 +8059,41 @@ export function applyAddManaStep(
         },
       };
     }
-    nextState = result.state;
+    nextState = recordProducedMana(result.state, playerId, manaToAdd);
   }
 
   return { applied: true, state: nextState, log };
+}
+
+function poolColorCounts(pool: any): Record<(typeof TEMPORARY_RETAINED_MANA_COLORS)[number], number> {
+  return {
+    white: Math.max(0, Number(pool?.white || 0)),
+    blue: Math.max(0, Number(pool?.blue || 0)),
+    black: Math.max(0, Number(pool?.black || 0)),
+    red: Math.max(0, Number(pool?.red || 0)),
+    green: Math.max(0, Number(pool?.green || 0)),
+    colorless: Math.max(0, Number(pool?.colorless || 0)),
+  };
+}
+
+function addTemporaryRetainedMana(
+  state: GameState,
+  playerId: PlayerID,
+  duration: 'until_end_of_turn' | 'until_end_of_combat',
+  amounts: Record<string, number>,
+): Record<string, any> {
+  const bucketKey = duration === 'until_end_of_combat' ? 'untilEndCombat' : 'untilEndTurn';
+  const existing = { ...((((state as any).temporaryRetainedMana || {}) as Record<string, any>)) };
+  const playerBuckets = { ...(existing[playerId] || {}) };
+  const bucket = { ...(playerBuckets[bucketKey] || {}) };
+  for (const color of TEMPORARY_RETAINED_MANA_COLORS) {
+    const n = Math.max(0, Number(amounts[color] || 0));
+    if (n <= 0) continue;
+    bucket[color] = Math.max(0, Number(bucket[color] || 0)) + n;
+  }
+  playerBuckets[bucketKey] = bucket;
+  existing[playerId] = playerBuckets;
+  return existing;
 }
 
 export function applyRetainManaStep(
@@ -7977,14 +8111,17 @@ export function applyRetainManaStep(
   }
 
   const sourceId = String(ctx.sourceId || ctx.sourceName || step.raw || 'oracle-ir-retain-mana');
-  const manaPoolRecord: Record<PlayerID, any> = { ...((((state as any).manaPool || {}) as any) || {}) };
-  const retainedPools = new Map<PlayerID, any>();
+  const producedByPlayer = ((((state as any).lastOracleIrProducedMana || {}) as Record<string, any>) || {});
+  let temporaryRetainedMana = { ...((((state as any).temporaryRetainedMana || {}) as Record<string, any>)) };
 
   for (const playerId of players) {
-    const currentPool = manaPoolRecord[playerId] || createEmptyManaPool();
-    const retainedPool = setManaDoesNotEmpty(currentPool, sourceId);
-    manaPoolRecord[playerId] = retainedPool;
-    retainedPools.set(playerId, retainedPool);
+    const produced = producedByPlayer[playerId];
+    const amounts = produced && typeof produced === 'object'
+      ? produced
+      : poolColorCounts((((state as any).manaPool || {}) as any)[playerId]);
+    temporaryRetainedMana = addTemporaryRetainedMana(state, playerId, step.duration, amounts);
+    // addTemporaryRetainedMana reads state.temporaryRetainedMana; keep it current across players.
+    (state as any).temporaryRetainedMana = temporaryRetainedMana;
   }
 
   const existingEffects = Array.isArray((state as any).manaRetentionEffects)
@@ -8008,20 +8145,14 @@ export function applyRetainManaStep(
     }
   }
 
-  const updatedPlayers = state.players.map(player => {
-    const retainedPool = retainedPools.get(player.id as PlayerID);
-    return retainedPool ? ({ ...player, manaPool: retainedPool } as any) : player;
-  });
-
   return {
     applied: true,
     state: {
       ...(state as any),
-      manaPool: manaPoolRecord,
+      temporaryRetainedMana,
       manaRetentionEffects: existingEffects,
-      players: updatedPlayers as any,
     } as any,
-    log: players.map(playerId => `${playerId} doesn't lose this mana as steps and phases end`),
+    log: players.map(playerId => `${playerId} doesn't lose this mana as steps and phases end (${step.duration.replace(/_/g, ' ')})`),
   };
 }
 

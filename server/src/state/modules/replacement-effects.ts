@@ -265,6 +265,8 @@ function replacementEffectModifiedAmount(originalAmount: number, rawEffects: unk
       amount = Math.ceil(amount / 2);
     } else if (type === 'add_flat' || type === 'add flat') {
       amount += Number(effect?.value || 1);
+    } else if (type === 'cap') {
+      amount = Math.min(amount, Math.max(0, Number(effect?.value ?? 1)));
     } else {
       continue;
     }
@@ -485,12 +487,25 @@ const damagePreventionEffectEvaluator: ReplacementEffectEvaluator = (event) => {
       ? effect.colors.map((color: any) => String(color || '').trim().toUpperCase()).filter(Boolean)
       : [];
     if (requiredColors.length > 0 && !requiredColors.some((color: string) => sourceColors.includes(color))) continue;
+    if (effect?.combatOnly === true && event.metadata?.isCombatDamage !== true) continue;
+    if (effect?.unblockedOnly === true) {
+      const sourcePermanent = (Array.isArray(event.state?.battlefield) ? event.state.battlefield : []).find(
+        (perm: any) => String(perm?.id || '').trim() === normalizedSourceId,
+      );
+      const attacking = sourcePermanent?.attacking;
+      const blockedBy = sourcePermanent?.blockedBy;
+      if (!attacking || (Array.isArray(blockedBy) && blockedBy.length > 0)) continue;
+    }
 
+    const capTo = Number(effect?.capTo);
+    const hasCap = Number.isFinite(capTo);
     const remainingAmount = Number(effect?.remainingAmount);
-    const preventedAmount = Number.isFinite(remainingAmount)
-      ? Math.min(originalAmount, Math.max(0, remainingAmount))
-      : originalAmount;
-    if (preventedAmount <= 0) continue;
+    const preventedAmount = hasCap
+      ? Math.max(0, originalAmount - Math.min(originalAmount, Math.max(0, capTo)))
+      : Number.isFinite(remainingAmount)
+        ? Math.min(originalAmount, Math.max(0, remainingAmount))
+        : originalAmount;
+    if (!hasCap && preventedAmount <= 0) continue;
 
     return {
       applied: true,

@@ -22,6 +22,7 @@ import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { collectTriggerExecutionSteps } from './oracleIrTriggerExecutionHelpers.js';
 import { oracleIrEffectProgramWouldPresentOptionalMay } from './oracleIrEffectProgramServer.js';
 import { recordDoThisOnlyOnceEachTurnOnAccept } from './triggerDoThisOnlyOnceEachTurn.js';
+import { isNoOpOptionalCombatDamagePayLife } from '../../../../rules-engine/src/oracleIRExecutorCombatDamageCounts.js';
 
 /** Set on ctx when an optional may is consumed via Always No / no-until / shortcut no. */
 export const OPTIONAL_MAY_AUTO_DECLINED_FLAG = '__optionalMayAutoDeclined';
@@ -57,6 +58,9 @@ export function wouldAutoDeclineOptionalTriggeredAbility(state: any, item: any):
   }
   if (effectForOptionalCheck && !isControllerOptionalTriggeredAbilityEffect(effectForOptionalCheck)) {
     return false;
+  }
+  if (isNoOpOptionalCombatDamagePayLife(state, triggerController, effectForOptionalCheck)) {
+    return true;
   }
 
   const savedTriggerDecision = getSavedMayAbilityTriggerDecision(state as any, triggerController, sourceName);
@@ -290,6 +294,13 @@ export function tryDeferOptionalTriggeredAbilityMayDecision(
   }
   if (effectForOptionalCheck && !isControllerOptionalTriggeredAbilityEffect(effectForOptionalCheck)) {
     return false;
+  }
+
+  if (isNoOpOptionalCombatDamagePayLife(state, options.triggerController, effectForOptionalCheck)) {
+    debug(2, `[resolveTopOfStack] Skipping no-op optional pay-X-life (X=0) for ${options.sourceName} (${options.triggerController})`);
+    markOptionalMayAutoDeclined(ctx);
+    options.bumpSeq();
+    return true;
   }
 
   const savedTriggerDecision = getSavedMayAbilityTriggerDecision(state as any, options.triggerController, options.sourceName);

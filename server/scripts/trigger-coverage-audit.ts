@@ -71,6 +71,7 @@ import { detectSacrificeTriggers } from '../src/state/modules/triggers/sacrifice
 import { detectSpellCounteredTriggers, detectMutateTriggers, detectDealtDamageTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectTokenCreatedTriggers } from '../src/state/modules/triggers/tokens.js';
 import { detectPayLifeTriggers } from '../src/state/modules/triggers/pay-life.js';
+import { detectKeywords, getETBKeywords } from '../src/state/modules/keyword-detection.js';
 
 type OracleCard = {
   oracle_id?: string;
@@ -331,6 +332,16 @@ function getDetectorResultsForEvent(
       detectorResults.push(...detectETBTriggers(cardObj, probePermanent));
       // Land / land-subtype ETBs are handled by landfall detectors (Gate/Swamp/Desert/…).
       detectorResults.push(...detectLandfallTriggers(cardObj, probePermanent));
+      // Keyword ETB choices (Fabricate, Riot, Unleash, Exploit, …) are live via
+      // keyword-detection → FABRICATE_CHOICE / keyword handlers, not detectETBTriggers.
+      if (detectorResults.length === 0) {
+        const etbKeywords = getETBKeywords(
+          detectKeywords(cardObj.oracle_text || '', String(cardObj.name || '')).keywords,
+        );
+        if (etbKeywords.length > 0) {
+          detectorResults.push(...etbKeywords);
+        }
+      }
       break;
     case TriggerEvent.LEAVES_BATTLEFIELD:
       detectorResults.push(...detectLTBTriggers(cardObj, probePermanent));
@@ -588,6 +599,9 @@ function isIgnorableUnknownIrGap(raw: string): boolean {
     /^return this card transformed under its owner's control$/i.test(n) ||
     /^combine it with target host$/i.test(n) ||
     /^collect your reward$/i.test(n) ||
+    /^it isn't an equipment$/i.test(n) ||
+    /^all cards with that name$/i.test(n) ||
+    /^all cards with that spell's mana value$/i.test(n) ||
     /^this permanent perpetually gets [+-]/i.test(n) ||
     /^this creature perpetually gets [+-]/i.test(n) ||
     /^target creature you control perpetually gets [+-]/i.test(n) ||
@@ -1006,6 +1020,16 @@ export function serverDetectsTrigger(card: OracleCard, trigger: TriggeredAbility
       detectorResults.push(...detectETBTriggers(cardObj, probePermanent));
       // Land / land-subtype ETBs are handled by landfall detectors (Gate/Swamp/Desert/…).
       detectorResults.push(...detectLandfallTriggers(cardObj, probePermanent));
+      // Keyword ETB choices (Fabricate, Riot, Unleash, Exploit, …) are live via
+      // keyword-detection → FABRICATE_CHOICE / keyword handlers, not detectETBTriggers.
+      if (detectorResults.length === 0) {
+        const etbKeywords = getETBKeywords(
+          detectKeywords(getCombinedOracleText(card), String(card.name || '')).keywords,
+        );
+        if (etbKeywords.length > 0) {
+          return true;
+        }
+      }
       break;
     case TriggerEvent.LEAVES_BATTLEFIELD:
       detectorResults.push(...detectLTBTriggers(cardObj, probePermanent));
@@ -1121,6 +1145,7 @@ export function serverDetectsTrigger(card: OracleCard, trigger: TriggeredAbility
       break;
     case TriggerEvent.ABILITY_TRIGGERED:
       if (detectRoomTriggers(cardObj, probePermanent).length > 0) return true;
+      if (detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) return true;
       if (anyServerTriggerDetectorMatches(cardObj)) return true;
       break;
     case TriggerEvent.ABILITY_ACTIVATED:

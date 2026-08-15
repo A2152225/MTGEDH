@@ -108,7 +108,14 @@ function parseLifeChangeAmount(
 
   const normalized = normalizedRaw.toLowerCase();
 
-  if (normalized === 'the life that player lost this turn') {
+  if (
+    normalized === 'the life that player lost this turn'
+    || normalized === 'the life they lost this turn'
+    || normalized === 'life they lost this turn'
+    || normalized === 'life that player lost this turn'
+    || normalized === 'the amount of life they lost this turn'
+    || normalized === 'the amount of life that player lost this turn'
+  ) {
     return { kind: 'reference_amount', raw: normalized };
   }
 
@@ -433,6 +440,18 @@ export function tryParseLifeAndCombatClause(args: {
         kind: 'lose_life',
         who: { kind: 'raw', text: 'the loser of the flip' },
         amount: { kind: 'reference_amount', raw: 'a quarter of their life, rounded up' },
+        raw: rawClause,
+      });
+    }
+
+    const payLife = clause.match(/^pay\s+(x|\d+|that much)\s+life(?:,\s+where\s+x\s+is\s+(.+))?$/i);
+    if (payLife) {
+      const whereRaw = String(payLife[2] || '').trim();
+      return withMeta({
+        kind: 'lose_life',
+        who: { kind: 'you' },
+        amount: parseQuantity(String(payLife[1] || '').trim()),
+        ...(whereRaw ? { whereX: { kind: 'where', raw: whereRaw } } : {}),
         raw: rawClause,
       });
     }

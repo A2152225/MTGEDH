@@ -31,6 +31,10 @@ import {
   parseAttachmentGrantedAbilityTextsFromOracle,
 } from "../../../../../shared/src/attachmentAbilityGrants.js";
 import { isInterveningIfSatisfied } from "./intervening-if.js";
+import {
+  inferCombatWhoseTurn,
+  shouldQueuePhaseTriggerForActivePlayer,
+} from "./phaseWhoseTurn.js";
 import { detectKeywords } from "../keyword-detection.js";
 import { getActualPowerToughness, normalizeCardNameForOracleText } from "../../utils.js";
 import { hasTrainingKeyword } from "../../../../../rules-engine/src/keywordAbilities/training.js";
@@ -935,6 +939,10 @@ export interface CombatTriggeredAbility {
   manaCost?: string;
   energyCost?: number;
   batched?: boolean;
+  /** Creature type / color phrase for typed attack watchers (e.g. "Dragon", "white", "Samurai or Warrior"). */
+  requiredTypePhrase?: string;
+  /** Power threshold for "power N or less" attack watchers. */
+  maxPower?: number;
 }
 
 export function isEnchantedByAuraYouControl(
@@ -952,6 +960,274 @@ export function isEnchantedByAuraYouControl(
     const attachedTo = String(perm?.attachedTo || perm?.enchanting || '').trim();
     return attachedTo === id;
   });
+}
+
+/** Watcher types that fire from other permanents, not as self-attack abilities. */
+const ATTACK_WATCHER_TRIGGER_TYPES = new Set([
+  'creature_attacks',
+  'typed_creature_attacks',
+  'typed_subtype_attacks',
+  'another_typed_creature_attacks',
+  'another_creature_attacks',
+  'opponent_creature_attacks',
+  'any_creature_attacks',
+  'any_creature_attacks_or_blocks',
+  'creature_attacks_alone',
+  'typed_attacks_alone',
+  'modified_creature_attacks',
+  'counter_creature_attacks',
+  'low_power_creature_attacks',
+  'equipped_creature_attacks',
+  'nontoken_creature_attacks',
+  'one_or_more_enchanted_by_aura_you_control_attack',
+  'player_attacks_your_opponent',
+  'enchanted_player_attacked',
+  'curse_attack',
+  'opponents_two_or_more_creatures_attack',
+  'chosen_type_creature_etb_or_attack',
+  'exalted',
+]);
+
+function isAttackWatcherTriggerType(triggerType: string | undefined): boolean {
+  return ATTACK_WATCHER_TRIGGER_TYPES.has(String(triggerType || ''));
+}
+
+function isTokenPermanent(permanent: any): boolean {
+  if (permanent?.isToken === true || permanent?.token === true) return true;
+  return /\btoken\b/i.test(String(permanent?.card?.type_line || ''));
+}
+
+function hasPlusOnePlusOneCounter(permanent: any): boolean {
+  const counters = permanent?.counters;
+  if (!counters || typeof counters !== 'object') return false;
+  const n = Number((counters as any)['+1/+1'] ?? (counters as any).p1p1 ?? 0);
+  return Number.isFinite(n) && n > 0;
+}
+
+function isCreatureEquipped(battlefield: readonly any[], creature: any): boolean {
+  if (creature?.isEquipped === true) return true;
+  if (Array.isArray(creature?.attachedEquipment) && creature.attachedEquipment.length > 0) return true;
+  const id = String(creature?.id || '').trim();
+  if (!id) return false;
+  return (battlefield || []).some((perm: any) => {
+    if (String(perm?.attachedTo || '').trim() !== id) return false;
+    return /\bequipment\b/i.test(String(perm?.card?.type_line || perm?.type_line || ''));
+  });
+}
+
+function isAttackingCreatureModified(battlefield: readonly any[], creature: any): boolean {
+  const counters = creature?.counters;
+  if (counters && typeof counters === 'object') {
+    for (const value of Object.values(counters)) {
+      if (typeof value === 'number' && value > 0) return true;
+    }
+  }
+  if (isCreatureEquipped(battlefield, creature)) return true;
+  const id = String(creature?.id || '').trim();
+  if (!id) return false;
+  return (battlefield || []).some((perm: any) => {
+    if (String(perm?.attachedTo || perm?.enchanting || '').trim() !== id) return false;
+    return /\baura\b/i.test(String(perm?.card?.type_line || perm?.type_line || ''));
+  });
+}
+
+const ATTACK_COLOR_NAMES = new Set(['white', 'blue', 'black', 'red', 'green']);
+const ATTACK_COLOR_LETTER: Record<string, string> = {
+  white: 'w',
+  blue: 'u',
+  black: 'b',
+  red: 'r',
+  green: 'g',
+};
+
+function attackerHasColor(attacker: any, colorName: string): boolean {
+  const color = String(colorName || '').trim().toLowerCase();
+  if (!ATTACK_COLOR_NAMES.has(color)) return false;
+  const card = attacker?.card || attacker || {};
+  const colors = Array.isArray(card.colors)
+    ? card.colors.map((entry: any) => String(entry || '').toLowerCase())
+    : [];
+  const letter = ATTACK_COLOR_LETTER[color];
+  if (colors.includes(color) || (letter && colors.includes(letter))) return true;
+  const identity = Array.isArray(card.color_identity)
+    ? card.color_identity.map((entry: any) => String(entry || '').toLowerCase())
+    : [];
+  if (letter && identity.includes(letter)) return true;
+  const manaCost = String(card.mana_cost || attacker?.mana_cost || '');
+  if (letter && manaCost.toLowerCase().includes(`{${letter}}`)) return true;
+  return false;
+}
+
+function attackerMatchesSingleTypeToken(attacker: any, token: string): boolean {
+  const t = String(token || '').trim().toLowerCase();
+  if (!t) return false;
+  if (ATTACK_COLOR_NAMES.has(t)) return attackerHasColor(attacker, t);
+  if (t === 'token') return isTokenPermanent(attacker);
+  if (t === 'nontoken') return !isTokenPermanent(attacker);
+  const typeLine = String(attacker?.card?.type_line || '').toLowerCase();
+  if (['artifact', 'enchantment', 'legendary', 'vehicle', 'creature'].includes(t)) {
+    return typeLine.includes(t);
+  }
+  return permanentHasCreatureType(attacker, t);
+}
+
+function attackerMatchesTypePhrase(attacker: any, phrase: string): boolean {
+  const parts = String(phrase || '')
+    .split(/\s+or\s+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return false;
+  return parts.some((part) => attackerMatchesSingleTypeToken(attacker, part));
+}
+
+type AttackWatcherQueuePlan =
+  | { kind: 'skip' }
+  | { kind: 'once' }
+  | { kind: 'per_attacker'; attackers: any[] }
+  | { kind: 'per_attacked_player'; playerIds: string[] };
+
+function planAttackWatcherQueue(
+  trigger: CombatTriggeredAbility,
+  sourcePermanent: any,
+  attackingCreatures: any[],
+  attackingPlayer: string,
+  attackedPlayerIds: string[],
+  battlefield: readonly any[],
+  resolveAttackedPlayerId: (attacker: any) => string,
+): AttackWatcherQueuePlan {
+  const triggerType = String(trigger.triggerType || '');
+  const sourceController = String(trigger.controllerId || sourcePermanent?.controller || '');
+  const sourceId = String(sourcePermanent?.id || '');
+  const youControl = (attacker: any) => String(attacker?.controller || '') === sourceController;
+  const notSource = (attacker: any) => String(attacker?.id || '') !== sourceId;
+  const typePhrase = String(trigger.requiredTypePhrase || (trigger as any).value?.requiredTypePhrase || '');
+
+  switch (triggerType) {
+    case 'creature_attacks':
+      return { kind: 'per_attacker', attackers: attackingCreatures.filter(youControl) };
+    case 'another_creature_attacks':
+      return { kind: 'per_attacker', attackers: attackingCreatures.filter((attacker) => youControl(attacker) && notSource(attacker)) };
+    case 'typed_creature_attacks':
+    case 'typed_subtype_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => youControl(attacker) && attackerMatchesTypePhrase(attacker, typePhrase)),
+      };
+    case 'another_typed_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => (
+          youControl(attacker) && notSource(attacker) && attackerMatchesTypePhrase(attacker, typePhrase)
+        )),
+      };
+    case 'opponent_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => String(attacker?.controller || '') !== sourceController),
+      };
+    case 'any_creature_attacks':
+    case 'any_creature_attacks_or_blocks':
+      return { kind: 'per_attacker', attackers: attackingCreatures };
+    case 'nontoken_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => youControl(attacker) && !isTokenPermanent(attacker)),
+      };
+    case 'equipped_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => youControl(attacker) && isCreatureEquipped(battlefield, attacker)),
+      };
+    case 'modified_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => youControl(attacker) && isAttackingCreatureModified(battlefield, attacker)),
+      };
+    case 'counter_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => {
+          if (!hasPlusOnePlusOneCounter(attacker)) return false;
+          if ((trigger as any).controlledOnly && !youControl(attacker)) return false;
+          return true;
+        }),
+      };
+    case 'low_power_creature_attacks': {
+      const maxPower = Number(trigger.maxPower ?? (trigger as any).value?.maxPower);
+      if (!Number.isFinite(maxPower)) return { kind: 'skip' };
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => {
+          if (!youControl(attacker)) return false;
+          const { power } = getActualPowerToughness(attacker, { battlefield });
+          return Number(power) <= maxPower;
+        }),
+      };
+    }
+    case 'chosen_type_creature_etb_or_attack': {
+      const chosenType = String(
+        sourcePermanent?.chosenCreatureType || sourcePermanent?.card?.chosenCreatureType || '',
+      ).trim();
+      if (!chosenType) return { kind: 'skip' };
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => (
+          youControl(attacker) && permanentHasCreatureType(attacker, chosenType)
+        )),
+      };
+    }
+    case 'creature_attacks_alone':
+      if (attackingCreatures.length !== 1 || !youControl(attackingCreatures[0])) return { kind: 'skip' };
+      return { kind: 'once' };
+    case 'typed_attacks_alone':
+      if (attackingCreatures.length !== 1 || !youControl(attackingCreatures[0])) return { kind: 'skip' };
+      if (!attackerMatchesTypePhrase(attackingCreatures[0], typePhrase)) return { kind: 'skip' };
+      return { kind: 'once' };
+    case 'exalted':
+      if (attackingCreatures.length !== 1 || sourceController !== attackingPlayer) return { kind: 'skip' };
+      return { kind: 'once' };
+    case 'one_or_more_enchanted_by_aura_you_control_attack': {
+      const anyEnchanted = attackingCreatures.some((attacker: any) =>
+        isEnchantedByAuraYouControl(battlefield, String(attacker?.id || ''), sourceController),
+      );
+      return anyEnchanted ? { kind: 'once' } : { kind: 'skip' };
+    }
+    case 'player_attacks_your_opponent': {
+      const playerIds = attackedPlayerIds.filter((id) => Boolean(id) && id !== sourceController);
+      return playerIds.length > 0 ? { kind: 'per_attacked_player', playerIds } : { kind: 'skip' };
+    }
+    case 'enchanted_player_attacked':
+    case 'curse_attack': {
+      const enchantedPlayer = String(sourcePermanent?.attachedTo || sourcePermanent?.enchanting || '').trim();
+      if (!enchantedPlayer) return { kind: 'skip' };
+      const attackingEnchanted = attackingCreatures.some((attacker) => resolveAttackedPlayerId(attacker) === enchantedPlayer);
+      return attackingEnchanted ? { kind: 'once' } : { kind: 'skip' };
+    }
+    case 'opponents_two_or_more_creatures_attack': {
+      const opponentAttackers = attackingCreatures.filter((attacker) => String(attacker?.controller || '') !== sourceController);
+      return opponentAttackers.length >= 2 ? { kind: 'once' } : { kind: 'skip' };
+    }
+    default:
+      return { kind: 'skip' };
+  }
+}
+
+function mergeCombatTriggerValue(existing: unknown, extra: Record<string, unknown>): Record<string, unknown> {
+  if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+    return { ...(existing as Record<string, unknown>), ...extra };
+  }
+  if (typeof existing === 'number') {
+    return { amount: existing, ...extra };
+  }
+  return extra;
+}
+
+function extractCommanderOwnedGrantedAbilityTexts(oracleText: string): string[] {
+  const granted = parseAttachmentGrantedAbilityTextsFromOracle(oracleText);
+  if (!/commander\s+creatures?\s+you\s+own\s+have/i.test(String(oracleText || ''))) {
+    return [];
+  }
+  return granted.filter((text) => /whenever\s+(?:this creature|~)\s+attacks/i.test(text));
 }
 
 export interface AttachmentAttackTrigger {
@@ -1078,6 +1354,21 @@ function findGenericAttackTriggerLine(oracleText: string, cardName: string): Reg
     oracleText,
     (line) => ATTACK_KEYWORD_REMINDER_LINE_PATTERN.test(line),
     (line) => line.match(attacksPattern),
+  );
+}
+
+function findGenericAttacksOrBlocksLine(oracleText: string, cardName: string): RegExpMatchArray | null {
+  const cardNameVariants = getCardNameVariantsForOracleMatching(cardName, oracleText)
+    .map((value) => escapeCardNameForRegex(value));
+  const attacksOrBlocksPattern = new RegExp(
+    `whenever\\s+(?:~|this (?:creature|vehicle|artifact|permanent)|${cardNameVariants.join('|')})\\s+attacks or blocks,?\\s*(.+)$`,
+    'i',
+  );
+
+  return findRegexMatchAcrossOracleLines(
+    oracleText,
+    (line) => ATTACK_KEYWORD_REMINDER_LINE_PATTERN.test(line),
+    (line) => line.match(attacksOrBlocksPattern),
   );
 }
 
@@ -1314,13 +1605,14 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   for (const firebendingMatch of firebendingMatches) {
     const n = parseInt(String(firebendingMatch[1] || '0'), 10);
     if (!(n > 0)) continue;
+    const effectText = `Add ${'{R}'.repeat(n)}. This mana lasts until end of combat.`;
     triggers.push({
       permanentId,
       cardName,
       triggerType: 'firebending',
-      description: `Add ${'{R}'.repeat(n)} (until end of combat)`,
-      effect: `add_red_mana`,
-      value: n,
+      description: effectText,
+      effect: effectText,
+      value: { amount: n },
       mandatory: true,
       requiresTarget: false,
     });
@@ -1425,12 +1717,31 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     }
   }
   
+  const attacksOrBlocksMatch = findGenericAttacksOrBlocksLine(oracleText, cardName);
+  if (attacksOrBlocksMatch && !triggers.some((t) => t.triggerType === 'attacks_or_blocks')) {
+    const effectText = timingTriggerEffect(oracleText, attacksOrBlocksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'attacks_or_blocks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
   // Generic "whenever ~ attacks" - match ~, this creature, Tanuki-style
   // "this creature or equipped creature", or the actual card name
   // Capture the full ability line (including periods) so patterns like
   // "you may pay {1}{G}. If you do, ..." can be recognized.
   const attacksMatch = findGenericAttackTriggerLine(oracleText, cardName);
-  if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
+  const genericAttackEffect = attacksMatch ? String(attacksMatch[1] || '').trim() : '';
+  if (
+    attacksMatch
+    && !/^or blocks\b/i.test(genericAttackEffect)
+    && !triggers.some((t) => t.triggerType === 'attacks' || t.triggerType === 'attacks_or_blocks')
+  ) {
     const effectText = timingTriggerEffect(oracleText, attacksMatch);
     
     // Check for optional mana or energy payment trigger
@@ -1539,16 +1850,353 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     }
   }
   
-  // "Whenever a creature you control attacks"
-  const creatureAttacksMatch = oracleText.match(/whenever a creature you control attacks,?\s*([^.]+)/i);
-  if (creatureAttacksMatch) {
+  // "Whenever a creature you control attacks" (not alone / this turn / or blocks)
+  const creatureAttacksMatch = oracleText.match(
+    /whenever a creature you control attacks(?! alone)(?! this turn)(?! or blocks),?\s*([^.]+)/i,
+  );
+  if (creatureAttacksMatch && !triggers.some((t) => t.triggerType === 'creature_attacks')) {
+    const effectText = timingTriggerEffect(oracleText, creatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
+      controllerId: String(permanent?.controller || ''),
       triggerType: 'creature_attacks',
-      description: timingTriggerEffect(oracleText, creatureAttacksMatch),
-      effect: timingTriggerEffect(oracleText, creatureAttacksMatch),
-      mandatory: true,
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
+  const creatureAttacksAloneMatch = oracleText.match(
+    /whenever a creature you control attacks alone,?\s*([^.]+)/i,
+  );
+  if (creatureAttacksAloneMatch && !triggers.some((t) => t.triggerType === 'creature_attacks_alone')) {
+    const effectText = timingTriggerEffect(oracleText, creatureAttacksAloneMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'creature_attacks_alone',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
+  const anotherCreatureAttacksMatch = oracleText.match(
+    /whenever another creature you control attacks,?\s*([^.]+)/i,
+  );
+  if (anotherCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'another_creature_attacks')) {
+    const effectText = timingTriggerEffect(oracleText, anotherCreatureAttacksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'another_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
+  const anotherTypedCreatureAttacksMatch = oracleText.match(
+    /whenever another ([\w]+(?: or [\w]+)*) you control attacks,?\s*([^.]+)/i,
+  );
+  if (anotherTypedCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'another_typed_creature_attacks')) {
+    const typedSubject = String(anotherTypedCreatureAttacksMatch[1] || '').trim();
+    const typedSubjectLower = typedSubject.toLowerCase();
+    if (!['creature', 'vehicle', 'permanent', 'modified'].includes(typedSubjectLower)) {
+      const effectText = timingTriggerEffect(oracleText, anotherTypedCreatureAttacksMatch, 2);
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId: String(permanent?.controller || ''),
+        triggerType: 'another_typed_creature_attacks',
+        description: effectText,
+        effect: effectText,
+        mandatory: !/\byou may\b/i.test(effectText),
+        requiredTypePhrase: typedSubject,
+      });
+    }
+  }
+
+  const typedAttacksAloneMatch = oracleText.match(
+    /whenever an? ([\w]+(?: or [\w]+)*) you control attacks alone,?\s*([^.]+)/i,
+  );
+  if (typedAttacksAloneMatch && !triggers.some((t) => t.triggerType === 'typed_attacks_alone')) {
+    const typedSubject = String(typedAttacksAloneMatch[1] || '').trim();
+    if (typedSubject.toLowerCase() !== 'creature') {
+      const effectText = timingTriggerEffect(oracleText, typedAttacksAloneMatch, 2);
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId: String(permanent?.controller || ''),
+        triggerType: 'typed_attacks_alone',
+        description: effectText,
+        effect: effectText,
+        mandatory: !/\byou may\b/i.test(effectText),
+        requiredTypePhrase: typedSubject,
+      });
+    }
+  }
+
+  const typedSubtypeExcluded = new Set([
+    'creature',
+    'nontoken',
+    'modified',
+    'permanent',
+    'vehicle',
+    'land',
+    'player',
+    'spell',
+    'token',
+  ]);
+  const typedSubtypeAttacksMatch = oracleText.match(
+    /whenever an? ([\w]+(?: or [\w]+)*) you control attacks(?! alone)(?! this turn)(?! or blocks),?\s*([^.]+)/i,
+  );
+  if (
+    typedSubtypeAttacksMatch
+    && !typedSubtypeExcluded.has(String(typedSubtypeAttacksMatch[1] || '').trim().toLowerCase())
+    && !/\bcreature\b/i.test(String(typedSubtypeAttacksMatch[1] || ''))
+    && !triggers.some((t) => t.triggerType === 'typed_subtype_attacks' || t.triggerType === 'typed_creature_attacks')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, typedSubtypeAttacksMatch, 2);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'typed_subtype_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+      requiredTypePhrase: String(typedSubtypeAttacksMatch[1] || '').trim(),
+    });
+  }
+
+  const typedCreatureAttacksMatch = oracleText.match(
+    /whenever an? ((?:[\w]+\s+)+)creature you control attacks(?! alone)(?! this turn)(?! or blocks),?\s*([^.]+)/i,
+  );
+  if (typedCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'typed_creature_attacks')) {
+    const qualifier = String(typedCreatureAttacksMatch[1] || '').trim();
+    const qualifierLower = qualifier.toLowerCase();
+    if (!['modified', 'nontoken', 'equipped', 'another', 'enchanted'].includes(qualifierLower)) {
+      const effectText = timingTriggerEffect(oracleText, typedCreatureAttacksMatch, 2);
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId: String(permanent?.controller || ''),
+        triggerType: 'typed_creature_attacks',
+        description: effectText,
+        effect: effectText,
+        mandatory: !/\byou may\b/i.test(effectText),
+        requiredTypePhrase: qualifier,
+      });
+    }
+  }
+
+  const modifiedCreatureAttacksMatch = oracleText.match(
+    /whenever a modified creature you control attacks,?\s*([^.]+)/i,
+  );
+  if (modifiedCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'modified_creature_attacks')) {
+    const effectText = timingTriggerEffect(oracleText, modifiedCreatureAttacksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'modified_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
+  // Soulblade Corrupter: "Whenever a creature with a +1/+1 counter on it attacks one of your opponents"
+  // Also covers "a creature you control with a +1/+1 counter on it attacks"
+  const counterCreatureAttacksMatch = oracleText.match(
+    /whenever a creature(?: you control)? with a \+1\/\+1 counter on it attacks(?:\s+(?:one of your opponents|an opponent|a player))?,?\s*([^.]+)/i,
+  );
+  if (counterCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'counter_creature_attacks')) {
+    const effectText = timingTriggerEffect(oracleText, counterCreatureAttacksMatch);
+    const matchText = String(counterCreatureAttacksMatch[0] || '');
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'counter_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+      controlledOnly: /\ba creature you control\b/i.test(matchText),
+      requiresOpponentDefender: /\battacks(?:\s+one of your opponents|\s+an opponent)/i.test(matchText),
+    } as any);
+  }
+
+  const lowPowerCreatureAttacksMatch = oracleText.match(
+    /whenever a creature you control with power (\d+) or less attacks,?\s*([^.]+)/i,
+  );
+  if (lowPowerCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'low_power_creature_attacks')) {
+    const effectText = timingTriggerEffect(oracleText, lowPowerCreatureAttacksMatch, 2);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'low_power_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+      maxPower: parseInt(String(lowPowerCreatureAttacksMatch[1] || '0'), 10),
+    });
+  }
+
+  const equippedCreatureAttacksMatch = oracleText.match(
+    /whenever an equipped creature you control attacks,?\s*([^.]+)/i,
+  );
+  if (equippedCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'equipped_creature_attacks')) {
+    const effectText = timingTriggerEffect(oracleText, equippedCreatureAttacksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'equipped_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
+  const nontokenCreatureAttacksMatch = oracleText.match(
+    /whenever a nontoken creature you control attacks,?\s*([^.]+)/i,
+  );
+  if (nontokenCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'nontoken_creature_attacks')) {
+    const effectText = timingTriggerEffect(oracleText, nontokenCreatureAttacksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'nontoken_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
+  const opponentCreatureAttacksMatch = oracleText.match(
+    /whenever a creature an opponent controls attacks,?\s*([^.]+)/i,
+  );
+  if (opponentCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'opponent_creature_attacks')) {
+    const effectText = timingTriggerEffect(oracleText, opponentCreatureAttacksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'opponent_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
+  const anyCreatureAttacksOrBlocksMatch = oracleText.match(
+    /whenever a creature attacks or blocks,?\s*([^.]+)/i,
+  );
+  if (anyCreatureAttacksOrBlocksMatch && !triggers.some((t) => t.triggerType === 'any_creature_attacks_or_blocks')) {
+    const effectText = timingTriggerEffect(oracleText, anyCreatureAttacksOrBlocksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'any_creature_attacks_or_blocks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
+  const anyCreatureAttacksMatch = oracleText.match(
+    /whenever a creature attacks(?! this turn)(?! or blocks),?\s*([^.]+)/i,
+  );
+  if (
+    anyCreatureAttacksMatch
+    && !triggers.some((t) => (
+      t.triggerType === 'any_creature_attacks'
+      || t.triggerType === 'creature_attacks'
+      || t.triggerType === 'any_creature_attacks_or_blocks'
+    ))
+  ) {
+    const effectText = timingTriggerEffect(oracleText, anyCreatureAttacksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'any_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
+  const opponentsTwoOrMoreAttackMatch = oracleText.match(
+    /whenever two or more creatures your opponents control attack,?\s*([^.]+)/i,
+  );
+  if (opponentsTwoOrMoreAttackMatch && !triggers.some((t) => t.triggerType === 'opponents_two_or_more_creatures_attack')) {
+    const effectText = timingTriggerEffect(oracleText, opponentsTwoOrMoreAttackMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'opponents_two_or_more_creatures_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
+  const enchantedPlayerAttackedMatch = oracleText.match(
+    /whenever enchanted player is attacked,?\s*([^.]+)/i,
+  );
+  if (enchantedPlayerAttackedMatch && !triggers.some((t) => t.triggerType === 'enchanted_player_attacked')) {
+    const effectText = timingTriggerEffect(oracleText, enchantedPlayerAttackedMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'enchanted_player_attacked',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
+  const curseAttackMatch = oracleText.match(
+    /whenever a player attacks enchanted player with one or more creatures,?\s*([^.]+)/i,
+  );
+  if (curseAttackMatch && !triggers.some((t) => t.triggerType === 'curse_attack')) {
+    const effectText = timingTriggerEffect(oracleText, curseAttackMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'curse_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+      batched: true,
+    });
+  }
+
+  const chosenTypeAttackMatch = oracleText.match(
+    /whenever a creature you control of the chosen type (?:enters or )?attacks,?\s*([^.]+)/i,
+  );
+  if (chosenTypeAttackMatch && !triggers.some((t) => t.triggerType === 'chosen_type_creature_etb_or_attack')) {
+    const effectText = timingTriggerEffect(oracleText, chosenTypeAttackMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'chosen_type_creature_etb_or_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
     });
   }
 
@@ -1642,90 +2290,76 @@ export function getAttackTriggersForCreatures(
     attackedPlayerIds.push(String(defendingPlayer));
   }
 
-  // Check each attacking creature for attack triggers
+  // Self-attack abilities on the attacking creatures (keywords, "whenever this attacks", Join Forces).
+  // Watcher types are queued once below so an attacking source is not double-counted.
   for (const attacker of attackingCreatures) {
     const attackerTriggers = detectAttackTriggers(attacker.card, attacker);
+    const defendingPlayerId = resolveAttackedPlayerId(attacker);
     triggers.push(
       ...attackerTriggers
-        .filter((trigger) =>
-          trigger.triggerType !== 'one_or_more_enchanted_by_aura_you_control_attack'
-          && trigger.triggerType !== 'player_attacks_your_opponent',
-        )
+        .filter((trigger) => !isAttackWatcherTriggerType(trigger.triggerType))
         .map((trigger) => ({
           ...trigger,
           controllerId: String((trigger as any).controllerId || attacker?.controller || attackingPlayer || ''),
+          value: mergeCombatTriggerValue((trigger as any).value, {
+            defendingPlayerId,
+            defendingPlayer: defendingPlayerId,
+            attackingCreatureId: attacker.id,
+          }),
         }))
     );
   }
-  
-  // Check all permanents for "whenever a creature you control attacks" triggers
+
+  // Watchers on any battlefield permanent: typed/another/any/opponent/alone/modified/curse/exalted/...
   for (const permanent of battlefield) {
     if (!permanent) continue;
-    const isAttackingController = permanent.controller === attackingPlayer;
-    if (!isAttackingController) {
-      const permTriggers = detectAttackTriggers(permanent.card, permanent);
-      for (const trigger of permTriggers) {
-        if (trigger.triggerType !== 'player_attacks_your_opponent') continue;
-        const sourceController = String((trigger as any).controllerId || permanent.controller || '');
-        for (const attackedId of attackedPlayerIds) {
-          if (!attackedId || attackedId === sourceController) continue;
-          triggers.push({
-            ...trigger,
-            controllerId: sourceController,
-            value: {
-              ...((trigger as any).value && typeof (trigger as any).value === 'object' ? (trigger as any).value : {}),
-              defendingPlayerId: attackedId,
-              defendingPlayer: attackedId,
-              attackingPlayerId: attackingPlayer,
-            },
-          });
-        }
-      }
-      continue;
-    }
-    
     const permTriggers = detectAttackTriggers(permanent.card, permanent);
     for (const trigger of permTriggers) {
-      if (trigger.triggerType === 'creature_attacks') {
-        for (const _ of attackingCreatures) {
-          triggers.push({
-            ...trigger,
-            controllerId: String((trigger as any).controllerId || permanent?.controller || attackingPlayer || ''),
-          });
-        }
-      }
-      if (trigger.triggerType === 'one_or_more_enchanted_by_aura_you_control_attack') {
-        const anyEnchanted = attackingCreatures.some((attacker: any) =>
-          isEnchantedByAuraYouControl(battlefield, String(attacker?.id || ''), String(permanent?.controller || attackingPlayer)),
-        );
-        if (anyEnchanted) {
-          triggers.push({
-            ...trigger,
-            controllerId: String((trigger as any).controllerId || permanent?.controller || attackingPlayer || ''),
-          });
-        }
-      }
-      if (trigger.triggerType === 'exalted' && attackingCreatures.length === 1) {
-        triggers.push({
-          ...trigger,
-          controllerId: String((trigger as any).controllerId || permanent?.controller || attackingPlayer || ''),
-        });
-      }
-      if (trigger.triggerType === 'player_attacks_your_opponent') {
-        const sourceController = String((trigger as any).controllerId || permanent.controller || attackingPlayer || '');
-        for (const attackedId of attackedPlayerIds) {
-          if (!attackedId || attackedId === sourceController) continue;
+      if (!isAttackWatcherTriggerType(trigger.triggerType)) continue;
+      const sourceController = String((trigger as any).controllerId || permanent.controller || '');
+      const plan = planAttackWatcherQueue(
+        { ...trigger, controllerId: sourceController },
+        permanent,
+        attackingCreatures,
+        attackingPlayer,
+        attackedPlayerIds,
+        battlefield,
+        resolveAttackedPlayerId,
+      );
+      if (plan.kind === 'skip') continue;
+      if (plan.kind === 'per_attacked_player') {
+        for (const attackedId of plan.playerIds) {
           triggers.push({
             ...trigger,
             controllerId: sourceController,
-            value: {
-              ...((trigger as any).value && typeof (trigger as any).value === 'object' ? (trigger as any).value : {}),
+            value: mergeCombatTriggerValue((trigger as any).value, {
               defendingPlayerId: attackedId,
               defendingPlayer: attackedId,
               attackingPlayerId: attackingPlayer,
-            },
+            }),
           });
         }
+        continue;
+      }
+      if (plan.kind === 'once') {
+        triggers.push({
+          ...trigger,
+          controllerId: sourceController,
+        });
+        continue;
+      }
+      for (const attacker of plan.attackers) {
+        const defendingPlayerId = resolveAttackedPlayerId(attacker);
+        triggers.push({
+          ...trigger,
+          controllerId: sourceController,
+          value: mergeCombatTriggerValue((trigger as any).value, {
+            defendingPlayerId,
+            defendingPlayer: defendingPlayerId,
+            attackingCreatureId: attacker.id,
+            attackingPlayerId: attackingPlayer,
+          }),
+        });
       }
     }
   }
@@ -1751,8 +2385,8 @@ export function getAttackTriggersForCreatures(
     }
   }
   
-  // Check for Background enchantments that grant abilities to commanders
-  // Example: Agent of the Shadow Thieves - grants attack trigger to commanders
+  // Quoted "Commander creatures you own have 'Whenever this creature attacks…'" grants
+  // (Backgrounds and any other permanent using that template).
   for (const attacker of attackingCreatures) {
     const attackerOwner = String(attacker?.owner || attackingPlayer);
     const ownerCommandZone = (ctx.state as any).commandZone?.[attackerOwner];
@@ -1763,43 +2397,28 @@ export function getAttackTriggersForCreatures(
       attacker?.isCommander === true ||
       ownerCommanderIds.includes(attacker.card?.id) ||
       (attacker.card?.name && ownerCommanderNames.includes(attacker.card.name));
-    
-    if (isOwnedByAttackingPlayer && isCommander) {
-      // Check all permanents for backgrounds that grant abilities to commanders
-      for (const permanent of battlefield) {
-        if (!permanent || permanent.controller !== attackingPlayer) continue;
-        
-        const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
-        const cardName = (permanent.card?.name || "").toLowerCase();
-        const typeLine = (permanent.card?.type_line || "").toLowerCase();
-        
-        // Check if this is a Background enchantment
-        if (!typeLine.includes('background')) continue;
-        
-        // Agent of the Shadow Thieves: "Commander creatures you own have 'Whenever this creature attacks a player...'"
-        if (cardName.includes('agent of the shadow thieves') ||
-            (oracleText.includes('commander creatures you own') && 
-             oracleText.includes('whenever this creature attacks'))) {
-          // Extract the granted ability
-          const grantedAbilityMatch = oracleText.match(/commander creatures you own have "([^"]+)"/i);
-          if (grantedAbilityMatch) {
-            const grantedAbility = grantedAbilityMatch[1];
-            triggers.push({
-              permanentId: attacker.id,
-              cardName: attacker.card?.name || 'Commander',
-              controllerId: String(attacker?.controller || attackingPlayer || ''),
-              description: grantedAbility,
-              triggerType: 'attacks',
-              mandatory: true,
-              value: {
-                grantedBy: permanent.id,
-                grantedByName: permanent.card?.name,
-                defendingPlayer: defendingPlayer, // Pass defending player for conditional check
-              },
-            });
-            debug(2, `[getAttackTriggersForCreatures] Background ${permanent.card?.name} granted attack trigger to commander ${attacker.card?.name} (defending ${defendingPlayer})`);
-          }
-        }
+
+    if (!isOwnedByAttackingPlayer || !isCommander) continue;
+
+    for (const permanent of battlefield) {
+      if (!permanent || String(permanent.controller || '') !== attackingPlayer) continue;
+      const grantedAbilities = extractCommanderOwnedGrantedAbilityTexts(String(permanent.card?.oracle_text || ''));
+      for (const grantedAbility of grantedAbilities) {
+        triggers.push({
+          permanentId: attacker.id,
+          cardName: attacker.card?.name || 'Commander',
+          controllerId: String(attacker?.controller || attackingPlayer || ''),
+          description: grantedAbility,
+          triggerType: 'attacks',
+          mandatory: !/\byou may\b/i.test(grantedAbility),
+          value: {
+            grantedBy: permanent.id,
+            grantedByName: permanent.card?.name,
+            defendingPlayer,
+            defendingPlayerId: resolveAttackedPlayerId(attacker),
+          },
+        });
+        debug(2, `[getAttackTriggersForCreatures] ${permanent.card?.name} granted attack trigger to commander ${attacker.card?.name} (defending ${defendingPlayer})`);
       }
     }
   }
@@ -2004,6 +2623,7 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
       mandatory: true,
       requiresChoice,
       createsToken,
+      triggerType: 'your_combat_step',
     });
   }
   
@@ -2039,6 +2659,7 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
       mandatory: true,
       requiresChoice,
       createsToken,
+      triggerType: 'each_player_turn_combat',
     });
   }
 
@@ -2178,92 +2799,41 @@ export function getBeginningOfCombatTriggers(
     }
     
     const permTriggers = detectBeginningOfCombatTriggers(permanent.card, permanent);
+    const oracleText = String(permanent.card.oracle_text || '');
     
     for (const trigger of permTriggers) {
-      const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();
-      
-      const hasOnYourTurn = lowerOracle.includes('on your turn') || 
-                           lowerOracle.includes('on his or her turn') ||
-                           lowerOracle.includes('on their turn');
-      
-      const hasEachCombat = lowerOracle.includes('each combat') ||
-                           lowerOracle.includes('each player\'s combat') ||
-                           lowerOracle.includes('every combat');
-      
-      if (hasOnYourTurn) {
-        if (permanent.controller === activePlayerId) {
-          const raw = String(trigger.effect || trigger.description || '').trim();
-          let interveningText = raw;
-          if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
-            interveningText = `At the beginning of combat, ${interveningText}`;
-          }
-          const needsThatPlayerRef = /\bthat player\b/i.test(interveningText) || /\btheir\b/i.test(interveningText);
-          const ok = isInterveningIfSatisfied(
-            ctx,
-            trigger.controllerId || permanent.controller,
-            interveningText,
-            permanent,
-            needsThatPlayerRef
-              ? {
-                  thatPlayerId: activePlayerId,
-                  referencedPlayerId: activePlayerId,
-                  theirPlayerId: activePlayerId,
-                }
-              : undefined
-          );
-          if (ok !== false) {
-            triggers.push(trigger);
-            triggerCount++;
-          }
-        }
-      } else if (hasEachCombat) {
-        const raw = String(trigger.effect || trigger.description || '').trim();
-        let interveningText = raw;
-        if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
-          interveningText = `At the beginning of combat, ${interveningText}`;
-        }
-        const needsThatPlayerRef = /\bthat player\b/i.test(interveningText) || /\btheir\b/i.test(interveningText);
-        const ok = isInterveningIfSatisfied(
-          ctx,
-          trigger.controllerId || permanent.controller,
-          interveningText,
-          permanent,
-          needsThatPlayerRef
-            ? {
-                thatPlayerId: activePlayerId,
-                referencedPlayerId: activePlayerId,
-                theirPlayerId: activePlayerId,
-              }
-            : undefined
-        );
-        if (ok !== false) {
-          triggers.push(trigger);
-          triggerCount++;
-        }
-      } else if (permanent.controller === activePlayerId) {
-        const raw = String(trigger.effect || trigger.description || '').trim();
-        let interveningText = raw;
-        if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
-          interveningText = `At the beginning of combat, ${interveningText}`;
-        }
-        const needsThatPlayerRef = /\bthat player\b/i.test(interveningText) || /\btheir\b/i.test(interveningText);
-        const ok = isInterveningIfSatisfied(
-          ctx,
-          trigger.controllerId || permanent.controller,
-          interveningText,
-          permanent,
-          needsThatPlayerRef
-            ? {
-                thatPlayerId: activePlayerId,
-                referencedPlayerId: activePlayerId,
-                theirPlayerId: activePlayerId,
-              }
-            : undefined
-        );
-        if (ok !== false) {
-          triggers.push(trigger);
-          triggerCount++;
-        }
+      if (!shouldQueuePhaseTriggerForActivePlayer({
+        whose: inferCombatWhoseTurn(trigger, oracleText),
+        activePlayerId,
+        controllerId: String(trigger.controllerId || permanent.controller || ''),
+        sourcePermanent: permanent,
+        state: ctx.state,
+      })) {
+        continue;
+      }
+
+      const raw = String(trigger.effect || trigger.description || '').trim();
+      let interveningText = raw;
+      if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
+        interveningText = `At the beginning of combat, ${interveningText}`;
+      }
+      const needsThatPlayerRef = /\bthat player\b/i.test(interveningText) || /\btheir\b/i.test(interveningText);
+      const ok = isInterveningIfSatisfied(
+        ctx,
+        trigger.controllerId || permanent.controller,
+        interveningText,
+        permanent,
+        needsThatPlayerRef
+          ? {
+              thatPlayerId: activePlayerId,
+              referencedPlayerId: activePlayerId,
+              theirPlayerId: activePlayerId,
+            }
+          : undefined
+      );
+      if (ok !== false) {
+        triggers.push(trigger);
+        triggerCount++;
       }
     }
   }

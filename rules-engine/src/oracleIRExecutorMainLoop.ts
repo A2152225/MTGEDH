@@ -61,6 +61,7 @@ import {
   applyPhaseOutStep,
   applyCopyPermanentStep,
   applyPutStickerStep,
+  applyRemoveFromCombatStep,
   applyRemoveCounterStep,
   applyMoveCountersStep,
   applySacrificeStep,
@@ -704,6 +705,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'look_choose_from_top',
   'look_select_top',
   'library_chaos_exchange',
+  'lose_life',
   'move_zone',
   'pay_mana',
   'join_forces',
@@ -2831,6 +2833,11 @@ export function applyOracleIRStepsToGameStateImpl(
             };
           }
         });
+        break;
+      }
+      case 'remove_from_combat': {
+        const result = applyRemoveFromCombatStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
         break;
       }
       case 'phase_out': {

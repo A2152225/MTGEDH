@@ -6,6 +6,7 @@ import { applyOracleIRStepsOnServer } from '../src/state/modules/oracleIrServerZ
 import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import { extractTriggeredEffectFromTimingMatch } from '../../rules-engine/src/triggerEffectTextExtraction.js';
 import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutor.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 
 const FORUM_FILIBUSTER_ORACLE =
   'At the beginning of your upkeep, create a 2/1 white and black Inkling creature token with flying. When you do, return up to one target Aura or Equipment card from your graveyard to the battlefield attached to that token.';
@@ -171,5 +172,52 @@ describe('Forum Filibuster upkeep reflexive return', () => {
     const playerAfter = (g.state as any).players.find((entry: any) => entry.id === p1);
     const gyAfter = playerAfter?.graveyard || (g.state as any).zones?.[p1]?.graveyard || [];
     expect(gyAfter.map((card: any) => card.id)).not.toContain(sword.id);
+  });
+
+  it('queues the reflexive return from executeTriggerEffect on the upkeep clause', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    const g = createInitialGameState('t_forum_filibuster_execute');
+    const p1 = 'p1' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    (g as any).gameId = 't_forum_filibuster_execute';
+
+    const player = (g.state as any).players.find((entry: any) => entry.id === p1);
+    player.graveyard = [
+      {
+        id: 'sword-1',
+        name: 'Short Sword',
+        type_line: 'Artifact — Equipment',
+        oracle_text: 'Equipped creature gets +1/+1. Equip {1}',
+      },
+    ];
+    (g.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, graveyard: [...player.graveyard], graveyardCount: 1, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+    };
+    (g.state.battlefield as any).push(filibusterPermanent('filibuster_1', p1));
+
+    const match = FORUM_FILIBUSTER_ORACLE.match(/at the beginning of your upkeep,?\s*([^.]+)/i);
+    const effect = extractTriggeredEffectFromTimingMatch(FORUM_FILIBUSTER_ORACLE, match!);
+    executeTriggerEffect(
+      g as any,
+      p1,
+      'Forum Filibuster',
+      effect,
+      {
+        id: 'filibuster_upkeep',
+        source: 'filibuster_1',
+        permanentId: 'filibuster_1',
+        sourceId: 'filibuster_1',
+        triggerType: 'upkeep_effect',
+        sourceName: 'Forum Filibuster',
+      },
+    );
+
+    const token = ((g.state.battlefield as any[]) || []).find((perm) => perm?.isToken === true);
+    const followup = ((g.state.stack || []) as any[]).find(
+      (item) => item?.triggerType === 'reflexive_when_you_do',
+    );
+    expect(token).toBeTruthy();
+    expect(followup).toBeTruthy();
+    expect(followup?.effectData?.createdTokenIds).toEqual([token.id]);
   });
 });

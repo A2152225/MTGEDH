@@ -348,5 +348,21 @@ export function tryParseTemporaryAbilityClause(args: {
     }
   }
 
+  {
+    // "Target creature with haste can't be blocked this turn except by creatures with haste"
+    const m = workingClause.match(
+      /^(?:until end of turn,\s+)?(.+?)\s+can't be blocked(?:\s+this turn)?\s+except\s+by\s+(.+?)(?:\s+this turn)?$/i,
+    );
+    if (m) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(m[1] || '').trim()),
+        duration: 'this_turn',
+        effectText: [`can't be blocked except by ${String(m[2] || '').trim()}`],
+        raw: rawClause,
+      });
+    }
+  }
+
   return null;
 }

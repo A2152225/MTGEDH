@@ -7,6 +7,7 @@ import { createInitialGameState } from '../src/state/gameState.js';
 import { applyOracleIRStepsOnServer } from '../src/state/modules/oracleIrServerZoneSync.js';
 import { detectETBTriggers } from '../src/state/modules/triggered-abilities.js';
 import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
+import { queuePermanentEntersBattlefieldTriggerStackItems } from '../src/state/modules/stackResolvePermanentEtbTriggerUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 const GHALTA_ORACLE =
@@ -131,5 +132,23 @@ describe('Ghalta, Stampede Tyrant ETB — any-number creatures from hand', () =>
     expect(searchStep.minSelections).toBe(0);
     expect(searchStep.maxSelections).toBe(2);
     expect(searchStep.destination).toBe('battlefield');
+  });
+
+  it('queues the self-ETB from the live creature-spell path', () => {
+    const game = seedGame();
+    const ghalta = (game.state as any).battlefield.find((perm: any) => perm.id === 'ghalta-1');
+    queuePermanentEntersBattlefieldTriggerStackItems(game as any, {
+      controller: p1,
+      card: ghalta.card,
+      effectiveCard: ghalta.card,
+      newPermanent: ghalta,
+      newPermId: ghalta.id,
+      isCreature: true,
+    });
+    const stacked = ((game.state as any).stack || []).find(
+      (item: any) => item?.sourceName === 'Ghalta, Stampede Tyrant' && item?.triggerType === 'etb',
+    );
+    expect(stacked).toBeTruthy();
+    expect(String(stacked?.effect || '')).toMatch(/put any number of creature cards from your hand/i);
   });
 });

@@ -22,6 +22,10 @@ import { movePermanentToGraveyard } from "./counters_tokens.js";
 import { isControllerOptionalTriggeredAbilityEffect } from "./trigger-runtime-wiring.js";
 import { getActivePermanentCardFace } from "./cardFaceOracle.js";
 import { permanentCannotBeSacrificed } from "../../../../rules-engine/src/attackRestrictionText.js";
+import {
+  inferUpkeepWhoseTurn,
+  shouldQueuePhaseTriggerForActivePlayer,
+} from "./triggers/phaseWhoseTurn.js";
 
 // ============================================================================
 // DYNAMIC PATTERN DETECTION REGEXES
@@ -860,20 +864,16 @@ export function getUpkeepTriggersForPlayer(ctx: GameContext, activePlayerId: str
       );
       if (ok === false) continue;
 
-      // Check if this trigger applies to the current upkeep
-      const isControllerUpkeep = controller === activePlayerId;
-      const isOpponentUpkeep = controller !== activePlayerId;
-      
-      if (trigger.anyPlayerTrigger) {
-        // Triggers on any player's upkeep
-        triggers.push(trigger);
-      } else if (trigger.controllerTrigger && isControllerUpkeep) {
-        // Triggers only on controller's upkeep
-        triggers.push(trigger);
-      } else if (trigger.triggerType === 'opponent_upkeep' && isOpponentUpkeep) {
-        // Triggers on opponent's upkeep
-        triggers.push(trigger);
+      if (!shouldQueuePhaseTriggerForActivePlayer({
+        whose: inferUpkeepWhoseTurn(trigger.triggerType),
+        activePlayerId,
+        controllerId: String(controller || ''),
+        sourcePermanent: permanent,
+        state: (ctx as any).state,
+      })) {
+        continue;
       }
+      triggers.push(trigger);
     }
   }
   

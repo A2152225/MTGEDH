@@ -34,6 +34,9 @@ export function splitQuantityTailAndWhereX(quantityTail: string): SplitQuantityA
     const quantityPart = String(match[1] || '').trim();
     const whereRaw = String(match[2] || '').trim().replace(/[.;:,]+$/g, '').trim();
     if (!quantityPart || !whereRaw) return { quantityPart: normalized };
+    // Fear of Death-style: "Mill two cards. Enchanted creature gets -X/-0, where X is…"
+    // must not treat the enchanted clause's where-X as a mill quantity binding.
+    if (/\./.test(quantityPart)) return { quantityPart: normalized };
     return {
       quantityPart,
       whereX: { kind: 'where', raw: whereRaw },
@@ -134,7 +137,10 @@ export function quantityTailSupportsDynamicQuantity(quantityTail: string): boole
   if (/^\d+$/.test(normalized)) return true;
   if (/^x(?:,|\b|$)/i.test(normalized)) return true;
   if (/^(?:that many|that much)\b/i.test(normalized)) return true;
-  if (/^(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(normalized)) return true;
+  if (/^(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(normalized)) {
+    // Bare "two" / "a card" yes; compound "a card and you may…" no.
+    return isSimpleCardQuantityTail(normalized) || /^(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten)$/i.test(normalized);
+  }
   return isSimpleCardQuantityTail(normalized);
 }
 
@@ -151,6 +157,14 @@ export function isSimpleCardQuantityTail(quantityTail: string): boolean {
   if (/\sand\s+convert\b/i.test(normalized)) return false;
   if (/\sand\s+reveal\b/i.test(normalized)) return false;
   if (/\sand\s+sacrifices?\b/i.test(normalized)) return false;
+  // Imoen-style: "draw a card and you may play an additional land this turn"
+  if (/\sand\s+(?:you|they|that player|that opponent|each player|each opponent)\s+may\b/i.test(normalized)) return false;
+  if (/\sand\s+(?:play|cast|draw|discard|create|exile|put|return|sacrifice|tap|untap|mill|scry|surveil)\b/i.test(normalized)) return false;
+  // Reckless Detective-style: "a card and this creature gets +2/+0 until end of turn"
+  if (/\sand\s+(?:this|that|it|enchanted|equipped|target|another)\b/i.test(normalized)) return false;
+  if (/\sand\s+.+\s+gets?\s+[+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)/i.test(normalized)) return false;
+  // Any remaining "and …" is a compound effect, not a card quantity.
+  if (/\sand\b/i.test(normalized)) return false;
   if (/\sif\s+/i.test(normalized)) return false;
   if (/^until you exile/i.test(normalized)) return false;
   if (/,/.test(normalized)) return false;
@@ -255,6 +269,17 @@ export function tryParsePlayerMillClause(args: {
       quantityTail: String(enchantedPlayerMill[1] || '').trim(),
       rawClause: args.rawClause,
       withMeta: args.withMeta,
+    });
+  }
+
+  const optionalYouMill = working.match(/^you\s+may\s+mill\s+(.+)$/i);
+  if (optionalYouMill) {
+    return buildMillStepFromClauseParts({
+      who: { kind: 'you' },
+      quantityTail: String(optionalYouMill[1] || '').trim(),
+      rawClause: args.rawClause,
+      withMeta: args.withMeta,
+      optional: true,
     });
   }
 

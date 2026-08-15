@@ -25,6 +25,14 @@ import { processLifeChange } from "../game-state-effects.js";
 import { triggerLifeGainEffects } from "../../utils.js";
 import { applyDamageToPermanentWithCounterEffects } from "../counter-common-effects.js";
 import { applyCreatureDamageFromSource, resolvePlayerDamage } from "../combat-damage-processing.js";
+import { detectDealtDamageTriggers } from "../triggered-abilities.js";
+import {
+  inferDamageReceivedEffectFromOracle,
+  isSelfDealtDamageClause,
+  isThatMuchDamageRedirectOracle,
+  processDelayedDealtDamageWatchers,
+  processPermanentDealtDamageWatchers,
+} from "./dealt-damage-watchers.js";
 
 function escapeRegex(text: string): string {
   return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -35,7 +43,7 @@ function extractDamageReceivedAbilityText(oracleText: string, creatureName: stri
   const nameEscaped = escapeRegex(String(creatureName || ""));
 
   const pattern = new RegExp(
-    `(whenever\\s+(?:this creature|${nameEscaped}|enchanted creature|equipped creature)\\s+is\\s+dealt\\s+(?:combat\\s+)?damage[^.]*)(?:\\.|$)`,
+    `(whenever\\s+(?:this (?:creature|permanent)|${nameEscaped}|enchanted creature|equipped creature)\\s+is\\s+dealt\\s+(?:combat\\s+)?damage[^.]*(?:\\.|$)|whenever\\s+(?:a source(?: an opponent controls)? deals damage to this creature)[^.]*)`,
     "i"
   );
 
@@ -124,73 +132,47 @@ export function getDamageReceivedTrigger(
               (attachment.card?.oracle_text || ""),
           };
         }
+
+        const attachmentDetected = detectDealtDamageTriggers(attachment.card, attachment)
+          .some((trigger) => trigger.triggerType === 'dealt_damage');
+        const attachmentOracle = String(attachment.card?.oracle_text || '');
+        if (
+          attachmentDetected
+          && isThatMuchDamageRedirectOracle(attachmentOracle)
+          && (/enchanted creature is dealt/.test(attachmentOracle.toLowerCase())
+            || /equipped creature is dealt/.test(attachmentOracle.toLowerCase()))
+        ) {
+          const inferred = inferDamageReceivedEffectFromOracle(attachmentOracle);
+          return {
+            controllerId: attachment.controller || permanent.controller,
+            targetType: inferred.targetType,
+            effect: inferred.effect,
+            effectMode: inferred.effectMode,
+            targetRestriction: inferred.targetRestriction,
+            oracleTextForInterveningIf:
+              extractDamageReceivedAbilityText(attachmentOracle, attachment.card?.name || '') || attachmentOracle,
+          };
+        }
       }
     }
   }
 
-  // Dynamic pattern matching for unknown cards
-  // Pattern: "Whenever this creature is dealt damage/combat damage" or "Whenever ~ is dealt damage/combat damage"
-  if (oracleText.includes("whenever this creature is dealt damage") ||
-      oracleText.includes("whenever this creature is dealt combat damage") ||
-      oracleText.includes(`whenever ${creatureName} is dealt damage`) ||
-      oracleText.includes(`whenever ${creatureName} is dealt combat damage`) ||
-      oracleText.includes("whenever enchanted creature is dealt damage") ||
-      oracleText.includes("whenever enchanted creature is dealt combat damage") ||
-      oracleText.includes("whenever equipped creature is dealt damage") ||
-      oracleText.includes("whenever equipped creature is dealt combat damage")) {
-    
-    // Determine target type from oracle text
-    let targetType = 'any'; // Default to any target
-    let targetRestriction = '';
-    let effectMode: 'gain_life' | 'gain_life_and_attacking_player_loses_life' | undefined;
+  const detectedSelf = detectDealtDamageTriggers(card, permanent)
+    .some((trigger) => trigger.triggerType === 'dealt_damage');
+  const matchesSelfClause = isSelfDealtDamageClause(oracleText, creatureName)
+    || oracleText.includes('whenever enchanted creature is dealt damage')
+    || oracleText.includes('whenever enchanted creature is dealt combat damage')
+    || oracleText.includes('whenever equipped creature is dealt damage')
+    || oracleText.includes('whenever equipped creature is dealt combat damage');
 
-    if (oracleText.includes("you gain that much life and attacking player loses that much life")) {
-      targetType = 'none';
-      effectMode = 'gain_life_and_attacking_player_loses_life';
-    } else if (oracleText.includes("you gain that much life")) {
-      targetType = 'none';
-      effectMode = 'gain_life';
-    }
-    
-    if (targetType !== 'none' && oracleText.includes("target opponent or planeswalker")) {
-      targetType = 'opponent_or_planeswalker';
-      targetRestriction = 'opponent or planeswalker';
-    } else if (targetType !== 'none' && oracleText.includes("target opponent")) {
-      targetType = 'opponent';
-      targetRestriction = 'opponent';
-    } else if (targetType !== 'none' && oracleText.includes("each opponent")) {
-      targetType = 'each_opponent';
-      targetRestriction = 'each opponent';
-    } else if (targetType !== 'none' && oracleText.includes("any target that isn't a dragon")) {
-      targetType = 'any_non_dragon';
-      targetRestriction = "that isn't a Dragon";
-    } else if (targetType !== 'none' && oracleText.includes("the chosen player")) {
-      targetType = 'chosen_player';
-      targetRestriction = 'chosen player';
-    } else if (targetType !== 'none' && oracleText.includes("target player")) {
-      targetType = 'any';
-      targetRestriction = 'player';
-    }
-    
-    // Extract effect description
-    let effect = "Deals that much damage to target";
-    if (effectMode === 'gain_life_and_attacking_player_loses_life') {
-      effect = 'You gain that much life and attacking player loses that much life';
-    } else if (effectMode === 'gain_life') {
-      effect = 'You gain that much life';
-    } else if (oracleText.includes("deals that much damage to")) {
-      const match = oracleText.match(/deals that much damage to ([^.]+)/);
-      if (match) {
-        effect = `Deals that much damage to ${match[1]}`;
-      }
-    }
-    
+  if (matchesSelfClause || (detectedSelf && isSelfDealtDamageClause(oracleText, creatureName))) {
+    const inferred = inferDamageReceivedEffectFromOracle(oracleText);
     return {
       controllerId: permanent.controller,
-      targetType,
-      effect,
-      effectMode,
-      targetRestriction,
+      targetType: inferred.targetType,
+      effect: inferred.effect,
+      effectMode: inferred.effectMode,
+      targetRestriction: inferred.targetRestriction,
       oracleTextForInterveningIf,
     };
   }
@@ -214,48 +196,66 @@ export function processDamageReceivedTriggers(
   onTriggerDetected: (triggerInfo: DamageTriggerInfo) => void
 ): void {
   if (!permanent || damageAmount <= 0) return;
+  if ((ctx as any).isReplaying) return;
 
   const state = (ctx as any).state;
   const triggerInfo = getDamageReceivedTrigger(permanent, state);
-  
-  if (!triggerInfo) return;
 
-  // Intervening-if (Rule 603.4): if the condition is recognized and false at trigger time,
-  // the ability does not trigger and must not be queued.
-  try {
-    const controllerId = String(triggerInfo.controllerId || permanent.controller || "");
-    const text = String(triggerInfo.oracleTextForInterveningIf || "").trim();
-    const ok = isInterveningIfSatisfied(ctx, controllerId, text, permanent);
-    if (ok === false) return;
-  } catch {
-    // Conservative fallback: keep the trigger if evaluation fails.
+  if (triggerInfo) {
+    // Intervening-if (Rule 603.4): if the condition is recognized and false at trigger time,
+    // the ability does not trigger and must not be queued.
+    let interveningOk = true;
+    try {
+      const controllerId = String(triggerInfo.controllerId || permanent.controller || "");
+      const text = String(triggerInfo.oracleTextForInterveningIf || "").trim();
+      const ok = isInterveningIfSatisfied(ctx, controllerId, text, permanent);
+      if (ok === false) interveningOk = false;
+    } catch {
+      // Conservative fallback: keep the trigger if evaluation fails.
+    }
+
+    if (interveningOk) {
+      const card = permanent.card || {};
+      const creatureName = card.name || "Unknown";
+      const triggerId = `damage_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const phase = String(state?.phase || '').toLowerCase();
+      const attackingPlayerId = triggerInfo.effectMode === 'gain_life_and_attacking_player_loses_life' && phase === 'combat'
+        ? String(state?.activePlayer || state?.turnPlayer || '') || undefined
+        : undefined;
+
+      onTriggerDetected({
+        triggerId,
+        sourceId: permanent.id,
+        sourceName: creatureName,
+        controller: triggerInfo.controllerId || permanent.controller,
+        damageAmount,
+        triggerType: 'dealt_damage',
+        targetType: triggerInfo.targetType as any,
+        targetRestriction: triggerInfo.targetRestriction,
+        effect: triggerInfo.effect,
+        effectMode: triggerInfo.effectMode,
+        attackingPlayerId,
+      });
+    }
   }
 
-  const card = permanent.card || {};
-  const creatureName = card.name || "Unknown";
-  const triggerId = `damage_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const phase = String(state?.phase || '').toLowerCase();
-  const attackingPlayerId = triggerInfo.effectMode === 'gain_life_and_attacking_player_loses_life' && phase === 'combat'
-    ? String(state?.activePlayer || state?.turnPlayer || '') || undefined
-    : undefined;
+  processPermanentDealtDamageWatchers(ctx, permanent, damageAmount, (hit) => {
+    const triggerId = `damage_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    onTriggerDetected({
+      triggerId,
+      sourceId: permanent.id,
+      sourceName: String(permanent.card?.name || hit.watcher?.card?.name || 'Unknown'),
+      controller: String(hit.watcher?.controller || permanent.controller || ''),
+      damageAmount,
+      triggerType: 'dealt_damage',
+      targetType: hit.inferred.targetType as DamageTriggerInfo['targetType'],
+      targetRestriction: hit.inferred.targetRestriction,
+      effect: hit.inferred.effect || hit.effect,
+      effectMode: hit.inferred.effectMode,
+    });
+  });
 
-  // Create trigger info
-  const damageTrigger: DamageTriggerInfo = {
-    triggerId,
-    sourceId: permanent.id,
-    sourceName: creatureName,
-    controller: triggerInfo.controllerId || permanent.controller,
-    damageAmount,
-    triggerType: 'dealt_damage',
-    targetType: triggerInfo.targetType as any,
-    targetRestriction: triggerInfo.targetRestriction,
-    effect: triggerInfo.effect,
-    effectMode: triggerInfo.effectMode,
-    attackingPlayerId,
-  };
-
-  // Call the callback to handle queueing and client notification
-  onTriggerDetected(damageTrigger);
+  processDelayedDealtDamageWatchers(ctx, permanent, damageAmount);
 }
 
 function syncPlayerLife(state: any, playerId: string, lifeTotal: number): void {

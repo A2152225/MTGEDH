@@ -171,4 +171,58 @@ describe('Tymna postcombat main integration', () => {
     expect(Number((game.state as any).life?.[p1] || 40)).toBe(38);
     expect(Number((game.state as any).zones?.[p1]?.handCount || 0)).toBe(handBefore + 2);
   });
+
+  it('does not prompt when no opponents were dealt combat damage this turn', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+      { id: p3, name: 'P3', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40, [p3]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).activePlayer = p1;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'END_COMBAT';
+    (game.state as any).battlefield = [];
+    (game.state as any).creaturesThatDealtDamageToPlayer = {};
+
+    game.importDeckResolved(p1 as any, [
+      { id: 'draw_1', name: 'Card 1', type_line: 'Sorcery' } as any,
+    ]);
+
+    (game.state as any).battlefield.push({
+      id: 'tymna_perm',
+      controller: p1,
+      owner: p1,
+      tapped: false,
+      counters: {},
+      summoningSickness: false,
+      card: {
+        id: 'tymna_card',
+        name: 'Tymna the Weaver',
+        type_line: 'Legendary Creature — Human Cleric',
+        oracle_text:
+          'At the beginning of each of your postcombat main phases, you may pay X life, where X is the number of opponents that were dealt combat damage this turn. If you do, draw X cards.',
+        power: '2',
+        toughness: '2',
+      },
+    });
+
+    const handBefore = Number((game.state as any).zones?.[p1]?.handCount || 0);
+    game.applyEvent({ type: 'nextStep' });
+
+    const trigger = ((game.state as any).stack || []).find((item: any) => item?.type === 'triggered_ability' && item?.source === 'tymna_perm');
+    expect(trigger).toBeUndefined();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.find((queuedStep: any) => (queuedStep as any)?.effectProgramFamily === 'optional_triggered_ability')).toBeUndefined();
+    expect(queue.steps.find((queuedStep: any) => (queuedStep as any)?.optionalPaymentPrompt === true)).toBeUndefined();
+    expect(Number((game.state as any).life?.[p1] || 40)).toBe(40);
+    expect(Number((game.state as any).zones?.[p1]?.handCount || 0)).toBe(handBefore);
+  });
 });

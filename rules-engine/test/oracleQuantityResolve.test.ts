@@ -1,22 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
-import { resolveOracleQuantity } from '../src/oracleIRExecutorResolveQuantity';
+import { resolveOracleQuantity, resolveOracleQuantityForPlayer } from '../src/oracleIRExecutorResolveQuantity';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import {
   parseQuantityWithOptionalWhereX,
   splitQuantityTailAndWhereX,
   tryParseExileTopClause,
 } from '../src/oracleIRParserQuantityHelpers';
-import { applyMillStep } from '../src/oracleIRExecutorPlayerStepHandlers';
+import { applyLoseLifeStep, applyMillStep } from '../src/oracleIRExecutorPlayerStepHandlers';
 import { tryParseLifeAndCombatClause } from '../src/oracleIRParserLifeAndCombatClauses';
 import { parseQuantity } from '../src/oracleIRParserUtils';
 
 function makeState(overrides?: Partial<Record<string, unknown>>): GameState {
   return {
     players: [
-      { id: 'p1' as PlayerID, name: 'P1', library: ['a', 'b', 'c', 'd'], graveyard: [] },
-      { id: 'p2' as PlayerID, name: 'P2', library: ['e', 'f', 'g', 'h', 'i'], graveyard: [] },
-      { id: 'p3' as PlayerID, name: 'P3', library: ['g', 'h'], graveyard: [] },
+      { id: 'p1' as PlayerID, name: 'P1', library: ['a', 'b', 'c', 'd'], graveyard: [], life: 40 },
+      { id: 'p2' as PlayerID, name: 'P2', library: ['e', 'f', 'g', 'h', 'i'], graveyard: [], life: 40 },
+      { id: 'p3' as PlayerID, name: 'P3', library: ['g', 'h'], graveyard: [], life: 40 },
     ],
     battlefield: [],
     stack: [],
@@ -136,6 +136,17 @@ describe('resolveOracleQuantity', () => {
     );
     const count = resolveOracleQuantity(state, 'p1' as PlayerID, amount, { controllerId: 'p1' as PlayerID }, { whereX });
     expect(count).toBe(3);
+  });
+
+  it('resolves life gained this turn as 0 when the tracker has no controller key', () => {
+    const state = makeState({
+      lifeGainedThisTurn: {},
+    } as any);
+    const { amount, whereX } = parseQuantityWithOptionalWhereX(
+      'x cards, where x is the amount of life you gained this turn'
+    );
+    const count = resolveOracleQuantity(state, 'p1' as PlayerID, amount, { controllerId: 'p1' as PlayerID }, { whereX });
+    expect(count).toBe(0);
   });
 
   it('resolves Ivory Tower hand-size-above reference gain_life amount', () => {
@@ -274,6 +285,60 @@ describe('applyMillStep', () => {
     const p3 = result.state.players.find(p => p.id === 'p3');
     expect(p2?.graveyard?.length).toBe(2);
     expect(p3?.graveyard?.length).toBe(2);
+  });
+
+  it('applies mill 0 when life-gained tracker is empty', () => {
+    const state = makeState({ lifeGainedThisTurn: {} } as any);
+    const result = applyMillStep(
+      state,
+      {
+        kind: 'mill',
+        who: { kind: 'each_opponent' },
+        amount: { kind: 'x' },
+        whereX: { kind: 'where', raw: 'the amount of life you gained this turn' },
+        raw: 'Each opponent mills X cards, where X is the amount of life you gained this turn.',
+      },
+      { controllerId: 'p1' as PlayerID }
+    );
+    expect(result.applied).toBe(true);
+    const p2 = result.state.players.find(p => p.id === 'p2');
+    expect(p2?.graveyard?.length ?? 0).toBe(0);
+    expect(p2?.library?.length).toBeGreaterThan(0);
+  });
+
+  it('loses life per opponent equal to the life they lost this turn', () => {
+    const state = makeState({
+      lifeLostThisTurn: { p1: 1, p2: 5, p3: 3 },
+      life: { p1: 40, p2: 40, p3: 40 },
+    } as any);
+    const ir = parseOracleTextToIR(
+      'Each opponent loses life equal to the life they lost this turn.',
+      'Wound Reflection'
+    );
+    const lose = ir.abilities.flatMap((ability) => ability.steps).find((step) => step.kind === 'lose_life');
+    expect(lose).toBeTruthy();
+    const p2Amount = resolveOracleQuantityForPlayer(
+      state,
+      'p1' as PlayerID,
+      (lose as any).amount,
+      { controllerId: 'p1' as PlayerID },
+      'p2' as PlayerID,
+    );
+    const p3Amount = resolveOracleQuantityForPlayer(
+      state,
+      'p1' as PlayerID,
+      (lose as any).amount,
+      { controllerId: 'p1' as PlayerID },
+      'p3' as PlayerID,
+    );
+    expect(p2Amount).toBe(5);
+    expect(p3Amount).toBe(3);
+
+    const result = applyLoseLifeStep(state, lose as any, { controllerId: 'p1' as PlayerID }, 'p1' as PlayerID);
+    expect(result.applied).toBe(true);
+    expect(result.state.players.find((player) => player.id === 'p2')?.life).toBe(35);
+    expect(result.state.players.find((player) => player.id === 'p3')?.life).toBe(37);
+    expect(result.state.players.find((player) => player.id === 'p1')?.life).toBe(40);
   });
 });
 

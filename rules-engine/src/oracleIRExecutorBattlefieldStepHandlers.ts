@@ -36,6 +36,7 @@ import {
   DelayedTriggerTiming,
   createDelayedTrigger,
   createDelayedTriggerRegistry,
+  createWhenDealtDamageThisTurnTrigger,
   registerDelayedTrigger,
 } from './delayedTriggeredAbilities';
 import { createLastKnownPermanentSnapshot, type LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo';
@@ -69,6 +70,8 @@ import {
   resolveNonlandCountDiscardedThisWay,
 } from './oracleIRThisWayResolver';
 import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
+import { resolveOracleIrBoundTargetSpellId } from './oracleIrTargetBinding';
+import { getStackItems } from './stackOperations';
 import { canTargetPermanent } from './permanentTargeting';
 import {
   trySpecialAddCounterStep,
@@ -4148,6 +4151,86 @@ export function applyTapOrUntapStep(
   };
 }
 
+/**
+ * Rule 506.4: a creature removed from combat stops attacking/blocking. Preserve
+ * the rest of the battlefield object and only clear combat relationships that
+ * cannot survive the removal.
+ */
+export function applyRemoveFromCombatStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'remove_from_combat' }>,
+  ctx: OracleIRExecutionContext,
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const selectedIds = new Set(
+    resolveTapOrUntapTargetIds(state, step.target as any, ctx)
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  );
+  if (selectedIds.size === 0) {
+    for (const id of [
+      ctx.targetCreatureId,
+      ctx.targetPermanentId,
+      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : []),
+    ]) {
+      const normalized = String(id || '').trim();
+      if (normalized) selectedIds.add(normalized);
+    }
+  }
+  if (selectedIds.size === 0) {
+    return {
+      applied: false,
+      message: `Skipped remove-from-combat (no bound creature): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const removedBlockerIds = new Set<string>();
+  const unblockedAttackerIds = new Set<string>();
+  for (const permanent of battlefield as any[]) {
+    const id = String(permanent?.id || '').trim();
+    if (!selectedIds.has(id)) continue;
+    if (Array.isArray(permanent?.blocking)) {
+      for (const attackerId of permanent.blocking) {
+        const normalized = String(attackerId || '').trim();
+        if (normalized) unblockedAttackerIds.add(normalized);
+      }
+    }
+    removedBlockerIds.add(id);
+  }
+
+  const nextBattlefield = battlefield.map((permanent: any) => {
+    const id = String(permanent?.id || '').trim();
+    if (selectedIds.has(id)) {
+      return {
+        ...permanent,
+        attacking: undefined,
+        attackingPlayerId: undefined,
+        isAttacking: false,
+        blocking: [],
+        blockedBy: [],
+      };
+    }
+
+    const next = { ...permanent };
+    if (Array.isArray(next.blockedBy)) {
+      next.blockedBy = next.blockedBy.filter((blockerId: unknown) => !removedBlockerIds.has(String(blockerId || '').trim()));
+    }
+    if (step.unblockCreaturesBlockedOnlyByIt && unblockedAttackerIds.has(id) && (!next.blockedBy || next.blockedBy.length === 0)) {
+      next.blockedBy = [];
+      next.isBlocked = false;
+      next.wasBlockedThisCombat = false;
+    }
+    return next;
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+    log: [`Removed ${selectedIds.size} creature(s) from combat`],
+  };
+}
+
 export function applyPhaseOutStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'phase_out' }>,
@@ -8069,6 +8152,66 @@ function turnFaceDownCardsFaceUpInPlayerZones(
   };
 }
 
+function applyTransformPermanentFromTurnFaceUpStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'turn_face_up' }>,
+  ctx: OracleIRExecutionContext,
+  resolvedTargetIds: readonly string[],
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const sourceId = String(ctx.sourceId || '').trim();
+  const targetIds = resolvedTargetIds.length > 0
+    ? [...resolvedTargetIds]
+    : (sourceId ? [sourceId] : []);
+  if (targetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped transform (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  let transformedCount = 0;
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!targetIds.includes(permanentId)) return perm;
+    const faces = Array.isArray((perm as any)?.card?.card_faces) ? (perm as any).card.card_faces : [];
+    if (faces.length < 2) return perm;
+    const nextFaceIndex = (perm as any)?.transformed === true ? 0 : 1;
+    const nextFace = faces[nextFaceIndex];
+    if (!nextFace) return perm;
+    transformedCount += 1;
+    return {
+      ...perm,
+      transformed: nextFaceIndex === 1,
+      card: {
+        ...((perm as any).card || {}),
+        name: nextFace.name || (perm as any).card?.name,
+        ...(nextFace.type_line ? { type_line: nextFace.type_line } : {}),
+        ...(typeof nextFace.oracle_text === 'string' ? { oracle_text: nextFace.oracle_text } : {}),
+        ...('power' in nextFace ? { power: nextFace.power } : {}),
+        ...('toughness' in nextFace ? { toughness: nextFace.toughness } : {}),
+        ...(nextFace.image_uris ? { image_uris: nextFace.image_uris } : {}),
+      },
+    };
+  });
+
+  if (transformedCount === 0) {
+    return {
+      applied: false,
+      message: `Skipped transform (target is not a double-faced permanent): ${step.raw}`,
+      reason: 'impossible_action',
+      options: { persist: false },
+    };
+  }
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield: nextBattlefield as any } as GameState,
+    log: [`Transformed ${transformedCount} permanent(s)`],
+  };
+}
+
 export function applyTurnFaceUpStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'turn_face_up' }>,
@@ -8101,6 +8244,10 @@ export function applyTurnFaceUpStep(
           .map((perm: any) => String((perm as any)?.id || '').trim())
           .filter(Boolean);
   const effectiveTargetIds = targetIds.length > 0 ? targetIds : fallbackTargetIds;
+
+  if (/^transform\b/i.test(String(step.raw || ''))) {
+    return applyTransformPermanentFromTurnFaceUpStep(state, step, ctx, effectiveTargetIds);
+  }
 
   let turnedCount = 0;
   let nextState = state;
@@ -8590,6 +8737,96 @@ export function applyGainControlStep(
       applied: true,
       state: { ...(state as any), battlefield: nextBattlefield } as GameState,
       log: ['Each player gained control of a nonland permanent from the player to their right'],
+    };
+  }
+
+  const gainControlWhatText = step.what?.kind === 'raw' ? String(step.what.text || '').trim() : '';
+  if (/\bspell\b/i.test(gainControlWhatText)) {
+    const resolvedSpellControllers = resolvePlayers(state, step.newController, ctx);
+    if (resolvedSpellControllers.length !== 1) {
+      return {
+        applied: false,
+        message: `Skipped gain-control (unsupported player selector): ${step.raw}`,
+        reason: 'unsupported_player_selector',
+      };
+    }
+    const spellController = String(resolvedSpellControllers[0] || '').trim();
+    if (!spellController) {
+      return {
+        applied: false,
+        message: `Skipped gain-control (unsupported player selector): ${step.raw}`,
+        reason: 'unsupported_player_selector',
+      };
+    }
+
+    const stack = [...getStackItems((state as any)?.stack)];
+    const sourceId = String(ctx.sourceId || '').trim();
+    const boundSpellId = resolveOracleIrBoundTargetSpellId(ctx);
+    const chosenIds = (Array.isArray(ctx.selectorContext?.chosenObjectIds)
+      ? ctx.selectorContext.chosenObjectIds
+      : []
+    ).map((id) => String(id || '').trim()).filter(Boolean);
+    const chosenStackId = chosenIds.find((id) =>
+      stack.some((item) => String((item as any)?.id || '').trim() === id && id !== sourceId)
+    );
+    const otherSpells = stack.filter((item) => {
+      const id = String((item as any)?.id || '').trim();
+      if (!id || id === sourceId) return false;
+      const type = String((item as any)?.type || 'spell').trim().toLowerCase();
+      return !type || type === 'spell';
+    });
+    const targetSpellId = boundSpellId || chosenStackId || (otherSpells.length === 1
+      ? String((otherSpells[0] as any)?.id || '').trim()
+      : '');
+
+    if (!targetSpellId) {
+      return {
+        applied: false,
+        message: `Skipped gain-control (no deterministic target spell): ${step.raw}`,
+        reason: otherSpells.length > 1 ? 'player_choice_required' : 'no_deterministic_target',
+        ...(otherSpells.length > 1
+          ? {
+              options: {
+                classification: 'player_choice' as const,
+                metadata: {
+                  candidateSpellIds: otherSpells
+                    .map((item) => String((item as any)?.id || '').trim())
+                    .filter(Boolean),
+                },
+              },
+            }
+          : {}),
+      };
+    }
+
+    const spellIndex = stack.findIndex(
+      (item) => String((item as any)?.id || '').trim() === targetSpellId
+    );
+    if (spellIndex < 0) {
+      return {
+        applied: false,
+        message: `Skipped gain-control (target spell not on stack): ${step.raw}`,
+        reason: 'impossible_action',
+      };
+    }
+
+    const targetSpell = { ...(stack[spellIndex] as any) };
+    targetSpell.controller = spellController;
+    if (targetSpell.controllerId !== undefined) {
+      targetSpell.controllerId = spellController;
+    }
+    stack[spellIndex] = targetSpell;
+
+    const nextState = Array.isArray((state as any)?.stack)
+      ? { ...(state as any), stack }
+      : (state as any)?.stack && typeof (state as any).stack === 'object'
+        ? { ...(state as any), stack: { ...((state as any).stack as object), objects: stack } }
+        : { ...(state as any), stack };
+
+    return {
+      applied: true,
+      state: nextState as GameState,
+      log: [`${targetSpellId} changes controller to ${spellController}`],
     };
   }
 
@@ -9763,15 +10000,6 @@ export function applyScheduleDelayedTriggerStep(
 
   const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
   const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
-  const timing =
-    step.timing === 'your_next_end_step'
-      ? DelayedTriggerTiming.YOUR_NEXT_END_STEP
-      : step.timing === 'next_upkeep'
-        ? DelayedTriggerTiming.NEXT_UPKEEP
-        : step.timing === 'your_next_upkeep'
-          ? DelayedTriggerTiming.YOUR_NEXT_UPKEEP
-          : DelayedTriggerTiming.NEXT_END_STEP;
-
   const targetPermanentId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim() || undefined;
   const baseChosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
     ? ctx.selectorContext.chosenObjectIds
@@ -9787,6 +10015,59 @@ export function applyScheduleDelayedTriggerStep(
   })();
   const targetPlayerId = String(ctx.selectorContext?.targetPlayerId || '').trim() || undefined;
   const targetOpponentId = String(ctx.selectorContext?.targetOpponentId || '').trim() || undefined;
+
+  if (step.timing === 'when_dealt_damage') {
+    const watchingPermanentId =
+      targetPermanentId
+      || (Array.isArray(chosenObjectIds) && chosenObjectIds.length > 0 ? chosenObjectIds[0] : '');
+    if (!watchingPermanentId) {
+      return {
+        applied: false,
+        message: `Skipped dealt-damage delayed trigger (no watched permanent): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+
+    const delayedTrigger = createWhenDealtDamageThisTurnTrigger(
+      String(ctx.sourceId || ctx.sourceName || 'oracle-ir'),
+      String(ctx.sourceName || 'Delayed dealt-damage trigger'),
+      controllerId,
+      watchingPermanentId,
+      step.effect,
+      currentTurn,
+      {
+        targets: [watchingPermanentId],
+        eventDataSnapshot: {
+          sourceId: String(ctx.sourceId || '').trim() || undefined,
+          sourceControllerId: String(controllerId || '').trim() || undefined,
+          targetPermanentId: watchingPermanentId,
+          chosenObjectIds: [watchingPermanentId],
+          targetPlayerId,
+          targetOpponentId,
+        },
+      }
+    );
+
+    const registry = (state as any).delayedTriggerRegistry || createDelayedTriggerRegistry();
+    const nextRegistry = registerDelayedTrigger(registry, delayedTrigger);
+    return {
+      applied: true,
+      state: {
+        ...(state as any),
+        delayedTriggerRegistry: nextRegistry,
+      } as GameState,
+      log: [`Scheduled repeating dealt-damage watcher on ${watchingPermanentId}`],
+    };
+  }
+
+  const timing =
+    step.timing === 'your_next_end_step'
+      ? DelayedTriggerTiming.YOUR_NEXT_END_STEP
+      : step.timing === 'next_upkeep'
+        ? DelayedTriggerTiming.NEXT_UPKEEP
+        : step.timing === 'your_next_upkeep'
+          ? DelayedTriggerTiming.YOUR_NEXT_UPKEEP
+          : DelayedTriggerTiming.NEXT_END_STEP;
 
   const delayedTrigger = createDelayedTrigger(
     String(ctx.sourceId || ctx.sourceName || 'oracle-ir'),

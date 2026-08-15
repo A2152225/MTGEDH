@@ -754,7 +754,7 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
     mandatory: true,
   },
   "wound reflection": { 
-    effect: "Each opponent loses life equal to life they lost this turn", 
+    effect: "Each opponent loses life equal to the life they lost this turn", 
     mandatory: true,
   },
   "hope estheim": {

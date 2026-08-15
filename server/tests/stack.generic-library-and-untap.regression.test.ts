@@ -319,6 +319,6 @@ describe('generic stack resolution regressions', () => {
       .filter((trigger: any) => trigger?.triggerType === 'firebending');
 
     expect(firebendingTriggers).toHaveLength(2);
-    expect(firebendingTriggers.map((trigger: any) => trigger.value)).toEqual([4, 4]);
+    expect(firebendingTriggers.map((trigger: any) => trigger.value?.amount ?? trigger.value)).toEqual([4, 4]);
   });
 });

@@ -31,6 +31,7 @@ import { hydratePermanentCardOracleInPlace, hydrateCardOracleInPlace } from './c
 import { lookupLocalCardByNameSync } from '../../services/localCardLookup.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { parseTriggeredAbilitiesFromText, TriggerEvent as ParsedTriggerEvent } from '../../../../rules-engine/src/triggeredAbilities.js';
+import { detectMutateTriggers } from './triggered-abilities.js';
 import type {
   PermanentBattlefieldEntryOptions,
   PermanentBattlefieldEntryOutcome,
@@ -127,6 +128,29 @@ export function queueMutateTriggeredAbilities(
       String(entry?.name || sourceName).trim() || sourceName,
     ).filter((trigger) => trigger?.event === ParsedTriggerEvent.MUTATES);
   });
+  const seenMutateEffects = new Set(
+    mutateTriggers.map((trigger) => String(trigger?.effect || '').trim().toLowerCase()).filter(Boolean),
+  );
+  for (const entry of cardsToInspect) {
+    const oracleText = String(entry?.oracleText || '').trim();
+    if (!oracleText) continue;
+    const detected = detectMutateTriggers(
+      { name: String(entry?.name || sourceName).trim() || sourceName, oracle_text: oracleText },
+      permanent,
+    );
+    for (const extra of detected) {
+      const effect = String(extra.effect || extra.description || '').trim();
+      if (!effect || seenMutateEffects.has(effect.toLowerCase())) continue;
+      seenMutateEffects.add(effect.toLowerCase());
+      mutateTriggers.push({
+        event: ParsedTriggerEvent.MUTATES,
+        effect,
+        optional: extra.mandatory === false,
+        keyword: 'whenever',
+        condition: 'this creature mutates',
+      } as any);
+    }
+  }
   if (mutateTriggers.length === 0) {
     return;
   }

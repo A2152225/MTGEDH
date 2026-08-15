@@ -3,6 +3,7 @@ import type { OracleEffectStep } from './oracleIR';
 
 export type CreateTokenFollowupModifier = {
   entersTapped?: true;
+  attacking?: 'defending_player';
   withCounters?: Record<string, number>;
   grantsHaste?: 'permanent' | 'until_end_of_turn';
   grantsAbilitiesUntilEndOfTurn?: readonly string[];
@@ -181,6 +182,11 @@ export function tryParseCreateTokenFollowupModifier(rawClause: string): CreateTo
 
   const rest = String(subjectMatch[2] || '').trim();
   if (!rest) return null;
+
+  // Living Laser / myriad-style: "The tokens enter tapped and attacking."
+  if (/^tapped\s+and\s+attacking\.?$/i.test(rest)) {
+    return { entersTapped: true, attacking: 'defending_player' };
+  }
 
   const out: { entersTapped?: true; withCounters?: Record<string, number> } = {};
 

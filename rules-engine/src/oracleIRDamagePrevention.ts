@@ -24,6 +24,15 @@ function findDamageSourceObject(state: GameState, sourceId: string): any | null 
   return null;
 }
 
+export function isUnblockedAttacker(state: GameState, sourceId: string): boolean {
+  const source = findDamageSourceObject(state, sourceId);
+  if (!source) return false;
+  const attacking = (source as { attacking?: unknown }).attacking;
+  if (!attacking) return false;
+  const blockedBy = (source as { blockedBy?: unknown }).blockedBy;
+  return !Array.isArray(blockedBy) || blockedBy.length === 0;
+}
+
 export function createSourceColorDamagePreventionEffect(params: {
   state: GameState;
   sourceId?: string;
@@ -125,6 +134,9 @@ export function createSourceChoiceDamagePreventionEffect(params: {
   targetPlayerId?: PlayerID;
   targetPermanentId?: string;
   description: string;
+  combatOnly?: boolean;
+  unblockedOnly?: boolean;
+  capTo?: number;
 }): DamagePreventionEffect {
   const currentTurn = getCurrentTurnNumber(params.state);
   const targetRef = String(params.targetPlayerId || params.targetPermanentId || 'target').trim() || 'target';
@@ -138,6 +150,9 @@ export function createSourceChoiceDamagePreventionEffect(params: {
     targetPlayerId: params.targetPlayerId,
     targetPermanentId: params.targetPermanentId,
     consumeOnUse: true,
+    combatOnly: params.combatOnly,
+    unblockedOnly: params.unblockedOnly,
+    capTo: params.capTo,
     expiresAtTurn: currentTurn,
   };
 }
@@ -227,18 +242,23 @@ export function previewPreventedDamage(
     const expiresAtTurn = Number((effect as any)?.expiresAtTurn);
     if (Number.isFinite(expiresAtTurn) && expiresAtTurn !== currentTurn) continue;
     if (effect?.combatOnly === true && options?.combatDamage !== true) continue;
+    if (effect?.unblockedOnly === true && !isUnblockedAttacker(state, normalizedSourceId)) continue;
 
     const requiredColors = Array.isArray(effect?.colors)
       ? effect.colors.map((color) => String(color || '').trim().toUpperCase()).filter(Boolean)
       : [];
     if (requiredColors.length > 0 && !requiredColors.some((color) => sourceColors.includes(color))) continue;
 
+    const capTo = Number(effect?.capTo);
+    const hasCap = Number.isFinite(capTo);
     const numericRemainingAmount = Number(effect?.remainingAmount);
     const remainingShieldAmount = Number.isFinite(numericRemainingAmount)
       ? Math.max(0, numericRemainingAmount)
       : null;
-    const prevented = remainingShieldAmount === null ? initialAmount : Math.min(initialAmount, remainingShieldAmount);
-    if (prevented <= 0) continue;
+    const prevented = hasCap
+      ? Math.max(0, initialAmount - Math.min(initialAmount, Math.max(0, capTo)))
+      : remainingShieldAmount === null ? initialAmount : Math.min(initialAmount, remainingShieldAmount);
+    if (!hasCap && prevented <= 0) continue;
 
     let nextState: GameState | undefined;
     if ((effect as any)?.consumeOnUse === true) {

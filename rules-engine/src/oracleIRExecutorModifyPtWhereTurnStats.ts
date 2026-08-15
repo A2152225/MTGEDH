@@ -119,9 +119,9 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
     const m = raw.match(/^x is the amount of life you gained(?: this turn)?$/i);
     if (m) {
       return firstNonNull([
-        readControllerValue(stateAny.lifeGainedThisTurn, controllerId, false),
-        readControllerValue(stateAny.lifeGained, controllerId, false),
-        readControllerValue(stateAny.turnStats?.lifeGained, controllerId, false),
+        readControllerValue(stateAny.lifeGainedThisTurn, controllerId, true),
+        readControllerValue(stateAny.lifeGained, controllerId, true),
+        readControllerValue(stateAny.turnStats?.lifeGained, controllerId, true),
       ]);
     }
   }
@@ -141,9 +141,40 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
     const m = raw.match(/^x is the amount of life (?:you(?:['Ã¢â‚¬â„¢]ve| have)|you) lost(?: this turn)?$/i);
     if (m) {
       return firstNonNull([
-        readControllerValue(stateAny.lifeLostThisTurn, controllerId, false),
-        readControllerValue(stateAny.lifeLost, controllerId, false),
-        readControllerValue(stateAny.turnStats?.lifeLost, controllerId, false),
+        readControllerValue(stateAny.lifeLostThisTurn, controllerId, true),
+        readControllerValue(stateAny.lifeLost, controllerId, true),
+        readControllerValue(stateAny.turnStats?.lifeLost, controllerId, true),
+      ]);
+    }
+  }
+
+  {
+    const referencedPlayerId = String(
+      ctx?.selectorContext?.targetPlayerId
+        || ctx?.selectorContext?.referencedPlayerId
+        || ctx?.selectorContext?.theirPlayerId
+        || ctx?.selectorContext?.thatPlayerId
+        || '',
+    ).trim();
+    const playerId = referencedPlayerId || controllerId;
+    const theyLost = raw.match(
+      /^x is (?:the (?:amount of )?life|life) (?:they|that player) lost(?: this turn)?$/i,
+    );
+    if (theyLost) {
+      return firstNonNull([
+        readControllerValue(stateAny.lifeLostThisTurn, playerId, true),
+        readControllerValue(stateAny.lifeLost, playerId, true),
+        readControllerValue(stateAny.turnStats?.lifeLost, playerId, true),
+      ]);
+    }
+    const theyGained = raw.match(
+      /^x is (?:the (?:amount of )?life|life) (?:they|that player) gained(?: this turn)?$/i,
+    );
+    if (theyGained) {
+      return firstNonNull([
+        readControllerValue(stateAny.lifeGainedThisTurn, playerId, true),
+        readControllerValue(stateAny.lifeGained, playerId, true),
+        readControllerValue(stateAny.turnStats?.lifeGained, playerId, true),
       ]);
     }
   }

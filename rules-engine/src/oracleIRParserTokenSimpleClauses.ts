@@ -373,6 +373,20 @@ export function tryParseSimpleCreateTokenClause(args: {
     });
   }
 
+  // "Create copies of each nonland card among them"
+  const createCopiesOfEach = clause.match(
+    /^create\s+copies\s+of\s+(each(?:\s+\w+)?(?:\s+\w+)?\s+cards?\s+among\s+them)$/i,
+  ) ?? clause.match(/^create\s+copies\s+of\s+(each\s+nonland\s+card\s+among\s+them)$/i);
+  if (createCopiesOfEach) {
+    return withMeta({
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: { kind: 'reference_amount', raw: String(createCopiesOfEach[1] || '').trim() },
+      token: `copy of ${String(createCopiesOfEach[1] || '').trim()}`,
+      raw: rawClause,
+    });
+  }
+
   const createNamedToken = clause.match(
     new RegExp(
       `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+([A-Z][^,]+),\\s+(?:a|an)\\s+(.+?)\\s+tokens?\\b`,

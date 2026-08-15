@@ -10,6 +10,7 @@ import {
 } from '../../../../rules-engine/src/oracleIRExecutor.js';
 import { resolveSingleCreatureTargetId } from '../../../../rules-engine/src/oracleIRExecutorCreatureStepUtils.js';
 import { resolveOracleQuantity, resolveOracleQuantityForPlayer } from '../../../../rules-engine/src/oracleIRExecutorResolveQuantity.js';
+import { tryEvaluateCombatDamageReferenceCount } from '../../../../rules-engine/src/oracleIRExecutorCombatDamageCounts.js';
 import { normalizeOracleManaCostString } from '../../../../rules-engine/src/oracleIRExecutorManaUtils.js';
 import {
   getPlayableUntilTurnForImpulseDuration,
@@ -4474,6 +4475,51 @@ function queueDiscoverCastOrHandPromptsFromOracleIRResult(
   }
 }
 
+function applyOracleIrOptionalLifePayment(state: any, playerId: string, amount: number): void {
+  if (!state || !playerId || !(amount > 0)) return;
+  state.life = state.life || {};
+  const player = Array.isArray(state.players)
+    ? state.players.find((entry: any) => String(entry?.id || '').trim() === playerId)
+    : undefined;
+  const current = Number(
+    state.life[playerId]
+    ?? (typeof player?.life === 'number' ? player.life : undefined)
+    ?? state.startingLife
+    ?? 40,
+  );
+  const nextLife = current - amount;
+  state.life[playerId] = nextLife;
+  if (player) {
+    player.life = nextLife;
+  }
+  state.lifeLostThisTurn = state.lifeLostThisTurn || {};
+  state.lifeLostThisTurn[playerId] = Number(state.lifeLostThisTurn[playerId] || 0) + amount;
+}
+
+function resolveOptionalPayLifeAmount(
+  state: any,
+  step: Extract<OracleEffectStep, { kind: 'lose_life' }>,
+  controllerId: PlayerID,
+  irCtx?: OracleIRExecutionContext,
+): number {
+  const amount = step.amount as OracleQuantity | undefined;
+  if (amount?.kind === 'number') return Number(amount.value);
+  const whereRaw = String(
+    (step as { whereX?: { raw?: string } }).whereX?.raw
+    || (amount && 'raw' in amount ? amount.raw : '')
+    || '',
+  ).trim();
+  if (whereRaw) {
+    const counted = tryEvaluateCombatDamageReferenceCount(state, controllerId, whereRaw, irCtx);
+    if (counted != null) return counted;
+  }
+  if (amount && irCtx) {
+    const resolved = resolveOracleQuantity(state, controllerId, amount, irCtx);
+    if (resolved != null) return Number(resolved);
+  }
+  return Number.NaN;
+}
+
 function queueOptionalStepChoicePromptsFromOracleIRResult(
   ctx: GameContext,
   state: any,
@@ -4496,6 +4542,42 @@ function queueOptionalStepChoicePromptsFromOracleIRResult(
   for (const gap of result.automationGaps || []) {
     if (gap.reasonCode !== 'optional_step_requires_player_choice') continue;
     const stepKind = String(gap.stepKind || '');
+    if (stepKind === 'lose_life') {
+      const step = findSkippedOracleStep(result, gap);
+      if (!step || step.kind !== 'lose_life') continue;
+      const lifeAmount = resolveOptionalPayLifeAmount(state, step, params.controller, params.irCtx);
+      if (!Number.isFinite(lifeAmount) || lifeAmount <= 0) continue;
+      const queueKey = `${stepKind}:${String((step as any).raw || '')}`;
+      if (queuedKeys.has(queueKey)) continue;
+      queuedKeys.add(queueKey);
+      const cardWord = lifeAmount === 1 ? 'card' : 'cards';
+      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: params.controller,
+        description: `${sourceName}: You may pay ${lifeAmount} life. If you do, draw ${lifeAmount} ${cardWord}.`,
+        mandatory: false,
+        sourceId,
+        sourceName,
+        options: [
+          { id: 'pay_life', label: `Pay ${lifeAmount} life`, description: `Pay ${lifeAmount} life` },
+          { id: 'decline', label: 'Decline', description: 'Decline to pay life' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        optionalPaymentPrompt: true,
+        optionalPaymentValidationKind: 'life',
+        optionalPaymentLifeAmount: lifeAmount,
+        optionalPaymentPayChoiceId: 'pay_life',
+        optionalPaymentDeclineChoiceId: 'decline',
+        oracleIrOptionalMayChoice: true,
+        oracleIrChoiceStepJson: JSON.stringify([step]),
+        oracleIrControllerId: params.controller,
+        oracleIrSourceId: sourceId,
+        oracleIrSourceName: sourceName,
+        oracleIrXValue: lifeAmount,
+      } as any, result, params) as any);
+      continue;
+    }
     if (
       stepKind !== 'move_zone'
       && stepKind !== 'grant_graveyard_permission'
@@ -4718,6 +4800,41 @@ function queueUnlessPayChoicePromptsFromOracleIRResult(
     }
 
     const skippedStep = findSkippedOracleStep(result, gap);
+
+    if (stepKind === 'lose_life' && skippedStep?.kind === 'lose_life') {
+      const lifeAmount = resolveOptionalPayLifeAmount(state, skippedStep, params.controller, params.irCtx);
+      if (!Number.isFinite(lifeAmount) || lifeAmount <= 0) continue;
+      const players = resolvePlayers(state, (skippedStep as any).who, params.irCtx);
+      const payerId = String(metadata.payerId || players[0] || params.controller).trim() as PlayerID;
+      queuedKeys.add(queueKey);
+      const cardWord = lifeAmount === 1 ? 'card' : 'cards';
+      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: payerId,
+        description: `${sourceName}: You may pay ${lifeAmount} life. If you do, draw ${lifeAmount} ${cardWord}.`,
+        mandatory: false,
+        sourceId,
+        sourceName,
+        options: [
+          { id: 'pay_life', label: `Pay ${lifeAmount} life`, description: `Pay ${lifeAmount} life` },
+          { id: 'decline', label: 'Decline', description: 'Decline to pay life' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        optionalPaymentPrompt: true,
+        optionalPaymentValidationKind: 'life',
+        optionalPaymentLifeAmount: lifeAmount,
+        optionalPaymentPayChoiceId: 'pay_life',
+        optionalPaymentDeclineChoiceId: 'decline',
+        oracleIrOptionalMayChoice: true,
+        oracleIrChoiceStepJson: JSON.stringify([skippedStep]),
+        oracleIrControllerId: params.controller,
+        oracleIrSourceId: sourceId,
+        oracleIrSourceName: sourceName,
+        oracleIrXValue: lifeAmount,
+      } as any, result, params) as any);
+      continue;
+    }
 
     if (stepKind === 'pay_mana' && skippedStep?.kind === 'pay_mana') {
       const manaCost = normalizeOracleManaCostString(String((skippedStep as any).mana || metadata.manaCost || '').trim());
@@ -5148,6 +5265,11 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
   if (response.cancelled) {
     return null;
   }
+  // Optional pay-life / pay-mana prompts carry oracleIrChoiceStepJson for resume,
+  // but the selection is pay/decline — not an object choice.
+  if (step?.optionalPaymentPrompt === true) {
+    return null;
+  }
 
   if (step?.oracleIrMoveZoneDestinationChoice === true) {
     const choiceJson = String(step?.oracleIrChoiceStepJson || '').trim();
@@ -5459,6 +5581,7 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
   ) {
     const lifeAmount = Number(stepData.optionalPaymentLifeAmount || 0);
     if (Number.isFinite(lifeAmount) && lifeAmount > 0 && !(ctx as any).isReplaying) {
+      applyOracleIrOptionalLifePayment(state, playerId, lifeAmount);
       try {
         queuePayLifeTriggers(ctx, playerId, lifeAmount, {
           sourceId: String(stepData.oracleIrSourceId || stepData.sourceId || '').trim() || undefined,
@@ -5500,13 +5623,28 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
         choiceSteps = [];
       }
       if (choiceSteps.length > 0) {
-        resumeOracleIRStepWithChoiceFromResolution(ctx, {
-          controller: String(stepData.oracleIrControllerId || playerId).trim() as PlayerID,
-          sourceId: String(stepData.oracleIrSourceId || stepData.sourceId || '').trim() || undefined,
-          sourceName: String(stepData.oracleIrSourceName || stepData.sourceName || '').trim() || undefined,
-          steps: choiceSteps,
-          allowOptional: true,
-        });
+        const lifeAlreadyPaid =
+          String(stepData.optionalPaymentValidationKind || '') === 'life'
+          && Number(stepData.optionalPaymentLifeAmount || 0) > 0;
+        const resumeSteps = choiceSteps
+          .filter((choiceStep) => !(lifeAlreadyPaid && choiceStep.kind === 'lose_life'))
+          .map((choiceStep) => (
+            choiceStep.kind === 'lose_life' && (choiceStep as { optional?: boolean }).optional === true
+              ? { ...choiceStep, optional: false }
+              : choiceStep
+          ));
+        if (resumeSteps.length > 0) {
+          resumeOracleIRStepWithChoiceFromResolution(ctx, {
+            controller: String(stepData.oracleIrControllerId || playerId).trim() as PlayerID,
+            sourceId: String(stepData.oracleIrSourceId || stepData.sourceId || '').trim() || undefined,
+            sourceName: String(stepData.oracleIrSourceName || stepData.sourceName || '').trim() || undefined,
+            steps: resumeSteps,
+            allowOptional: true,
+            ...(Number.isFinite(Number(stepData.oracleIrXValue))
+              ? { xValue: Number(stepData.oracleIrXValue) }
+              : {}),
+          });
+        }
       }
       maybeResumeOracleIRStepsAfterResolution(ctx, step);
     } else if (stepData.oracleIrUnlessDiscardsChoice === true) {
@@ -5566,7 +5704,10 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
       });
     }
   } else if (stepData.oracleIrOptionalMayChoice === true) {
-    maybeResumeOracleIRStepsAfterResolution(ctx, step);
+    // "You may pay. If you do, …" — declining the payment must not run the follow-up.
+    if (stepData.optionalPaymentPrompt !== true) {
+      maybeResumeOracleIRStepsAfterResolution(ctx, step);
+    }
   } else if (stepData.copyTriggeredAbilityDeclineEvent === true) {
     appendCopyTriggeredAbilityResolveEvent(ctx, {
       sourceId: String(stepData.copyTriggeredAbilitySourceId || stepData.sourceId || '').trim() || undefined,

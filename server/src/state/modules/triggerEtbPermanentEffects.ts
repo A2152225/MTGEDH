@@ -11,6 +11,7 @@ import { cardEntersPrepared, setPermanentPrepared } from './prepared.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { createGrantedRiotChoiceResult, processKeywordTriggers, type KeywordTriggerContext } from './keyword-handlers.js';
 import { enqueueSupportedKeywordChoiceStep } from './triggerKeywordChoiceUtils.js';
+import { queueSoulbondPairingChoices } from './soulbond.js';
 import {
   buildInterveningIfSubjectSnapshot,
   buildTriggerSourcePermanentSnapshot,
@@ -18,6 +19,7 @@ import {
 import {
   matchesRequiredTypePhrase,
   persistTriggeredAbilityPush,
+  queueSelfETBTriggersForPermanent,
   queueTemporaryEtbTriggersForEntry,
   recordBattlefieldEntryTurnTracking,
   shouldQueueChosenTypeCreatureEtbTrigger,
@@ -239,6 +241,7 @@ export function triggerETBEffectsForPermanent(
   });
 
   queueSupportedETBKeywordChoices(ctx, permanent, controller);
+  queueSoulbondPairingChoices(ctx, permanent, String(controller));
   const pendingExternalEtbTriggers: any[] = [];
   
   // Check all other permanents for triggers that fire when creatures/permanents enter
@@ -349,7 +352,7 @@ export function triggerETBEffectsForPermanent(
         debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
 
-      if (trigger.triggerType === 'chosen_type_creature_etb' && isCreature) {
+      if (trigger.triggerType === 'chosen_type_creature_etb') {
         if (!shouldQueueChosenTypeCreatureEtbTrigger(trigger, perm, permanent, controller, isToken, isCreature)) {
           continue;
         }
@@ -422,6 +425,16 @@ export function triggerETBEffectsForPermanent(
           continue; // Skip - entering permanent is not controlled by trigger's controller
         }
 
+        const colorRestriction = typeof (trigger as any).colorRestriction === 'string'
+          ? String((trigger as any).colorRestriction).trim()
+          : '';
+        if (colorRestriction) {
+          const enteringColors = Array.isArray(permanent.card?.colors) ? permanent.card.colors : [];
+          if (!matchesColorRestriction(colorRestriction, enteringColors)) {
+            continue;
+          }
+        }
+
         // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
         try {
           let textForEval = desc;
@@ -477,6 +490,16 @@ export function triggerETBEffectsForPermanent(
       // permanent_etb triggers (Altar of the Brood style)
       if (trigger.triggerType === 'permanent_etb') {
         const triggerController = perm.controller || controller;
+
+        const colorRestriction = typeof (trigger as any).colorRestriction === 'string'
+          ? String((trigger as any).colorRestriction).trim()
+          : '';
+        if (colorRestriction) {
+          const enteringColors = Array.isArray(permanent.card?.colors) ? permanent.card.colors : [];
+          if (!matchesColorRestriction(colorRestriction, enteringColors)) {
+            continue;
+          }
+        }
 
         const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
         const needsThatPlayerRef = /\bthat player\b/i.test(desc);
@@ -630,76 +653,9 @@ export function triggerETBEffectsForPermanent(
   });
 
   queueGraveyardResidentCreatureEntryTriggers(ctx, permanent, controller, isCreature);
-  
-  // Also check if the permanent itself has ETB triggers
-  const selfTriggers = includeSelfTriggers ? getETBTriggersForPermanent(permanent.card, permanent) : [];
-  for (const trigger of selfTriggers) {
-    if (trigger.triggerType === 'etb' || trigger.triggerType === 'hideaway_etb') {
-      const triggerController = controller;
-      state.stack = state.stack || [];
-      const triggerId = uid("trigger");
 
-      // Intervening-if triggers (e.g., "When ... enters..., if ...").
-      // If the condition is recognized and false at trigger time, do not create the trigger.
-      try {
-        const desc = String((trigger as any)?.description || "").trim();
-        let textForEval = desc;
-        if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
-          textForEval = `When ~ enters the battlefield, ${textForEval}`;
-        }
-        const satisfied = isInterveningIfSatisfied(
-          ctx as any,
-          String(triggerController),
-          textForEval,
-          permanent,
-          /\bthat player\b/i.test(textForEval)
-            ? {
-                thatPlayerId: String(triggerController),
-                referencedPlayerId: String(triggerController),
-                theirPlayerId: String(triggerController),
-              }
-            : undefined
-        );
-        if (satisfied === false) {
-          debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
-          continue;
-        }
-      } catch {
-        // Conservative fallback: if we can't evaluate, keep the trigger.
-      }
-      
-      // Build the trigger object with proper structure
-      // The stack doesn't have strict typing, but we define the expected shape here
-      const effectText = String(trigger.effect || trigger.description || '');
-      const modalChooseModes = isModalChooseModesEffectText(effectText);
-      const requiresTarget = !modalChooseModes && Boolean(trigger.requiresTarget);
-      const triggerObj = {
-        id: triggerId,
-        type: 'triggered_ability' as const,
-        controller: triggerController,
-        source: permanent.id,
-        permanentId: permanent.id,
-        sourceName: trigger.cardName,
-        description: trigger.description,
-        triggerType: trigger.triggerType,
-        mandatory: trigger.mandatory,
-        effect: effectText,
-        card: permanent.card,
-        sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(permanent),
-        // Targeting properties (optional)
-        requiresTarget,
-        targetType: requiresTarget ? trigger.targetType : undefined,
-        targetConstraint: requiresTarget ? trigger.targetConstraint : undefined,
-        needsTargetSelection: requiresTarget,
-        ...((trigger as any).hideawayCount != null ? { hideawayCount: (trigger as any).hideawayCount } : null),
-        ...((trigger as any).hideawayCondition ? { hideawayCondition: (trigger as any).hideawayCondition } : null),
-      };
-      
-      state.stack.push(triggerObj);
-      persistTriggeredAbilityPush(ctx, triggerObj);
-      
-      debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
-    }
+  if (includeSelfTriggers) {
+    queueSelfETBTriggersForPermanent(ctx, permanent, controller);
   }
   
   // Check for pending control change effects (Vislor Turlough, Xantcha, Akroan Horse)

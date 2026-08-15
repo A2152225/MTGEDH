@@ -2,7 +2,7 @@
 import type { GameContext } from '../context.js';
 import type { EngineEffect } from '../../rules-engine/targeting.js';
 import { uid, triggerLifeGainEffects } from '../utils.js';
-import { processLifeChange, resolveOpponentDirectedDamage, applyMillReplacements } from './game-state-effects.js';
+import { calculateModifiedDamage, processLifeChange, resolveOpponentDirectedDamage, applyMillReplacements } from './game-state-effects.js';
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from './triggers/damage-received.js';
 import { queueBecomesUntappedTriggers } from './triggers/tap-untap.js';
 import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
@@ -225,8 +225,17 @@ export function executeSpellEffect(
         const damageResult = sourcePerm
           ? applyCreatureDamageFromSource(ctx, sourcePerm, perm, dmg, 'damageMarked')
           : (() => {
-              (perm as any).damage = ((perm as any).damage || 0) + dmg;
-              return { prevented: false, appliedAmount: dmg, usedMinusCounters: false };
+              const { amount: modifiedDmg } = calculateModifiedDamage(
+                ctx,
+                dmg,
+                String(caster || ''),
+                String((perm as any)?.controller || ''),
+                undefined,
+                false,
+                String((perm as any)?.id || '') || undefined,
+              );
+              (perm as any).damage = ((perm as any).damage || 0) + modifiedDmg;
+              return { prevented: modifiedDmg <= 0, appliedAmount: modifiedDmg, usedMinusCounters: false };
             })();
         if (damageResult.prevented || damageResult.appliedAmount <= 0) break;
 
@@ -305,6 +314,7 @@ export function executeSpellEffect(
           amount: actualDmg,
           sourcePermanent: sourcePerm || undefined,
           sourceCard,
+          skipAmountReplacements: true,
         });
 
         // Track per-turn damage/life loss for intervening-if templates.

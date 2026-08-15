@@ -368,7 +368,7 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { hydratePermanentCardOracleInPlace } from "./cardOracleHydration.js";
 import { checkGraveyardTrigger, parsePlaneswalkerAbilities } from "./triggered-abilities.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
-import { processLifeChange, resolveOpponentDirectedDamage } from "./game-state-effects";
+import { calculateModifiedDamage, processLifeChange, resolveOpponentDirectedDamage } from "./game-state-effects";
 import { markEchoPaid, sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { applyEffectProgramChoiceBindingOnReplay } from "../effects/effectProgramReplayRestore.js";
@@ -2776,7 +2776,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     if (sourcePerm) {
                       applyCreatureDamageFromSource(ctx as any, sourcePerm, perm, eff.amount, 'damage');
                     } else {
-                      applyDamageToPermanentWithCounterEffects(perm, eff.amount, 'damage');
+                      const { amount: modified } = calculateModifiedDamage(
+                        ctx as any,
+                        eff.amount,
+                        String(caster || ''),
+                        String((perm as any)?.controller || ''),
+                        undefined,
+                        false,
+                        String((perm as any)?.id || '') || undefined,
+                      );
+                      applyDamageToPermanentWithCounterEffects(perm, modified, 'damage');
                     }
                   }
                   break;
@@ -2809,6 +2818,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     amount: actualDmg,
                     sourcePermanent: sourcePerm || undefined,
                     sourceCard,
+                    skipAmountReplacements: true,
                   });
 
                   // Track per-turn damage/life loss for intervening-if templates.
@@ -8302,6 +8312,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           if (permanent) {
             permanent.controller = newController;
             syncPreparedPermanentAfterControlChange(ctx.state, permanent, oldController);
+            try {
+              const { reconcileSoulbondPairing } = require('./soulbond.js') as typeof import('./soulbond.js');
+              reconcileSoulbondPairing(ctx.state, permanent);
+            } catch {
+              // best-effort
+            }
           }
 
           if (duration === 'eot' || duration === 'turn' || duration === 'until_end_of_turn') {

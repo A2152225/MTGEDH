@@ -892,6 +892,41 @@ export function applyPreventDamageStep(
   if (specialPrevent) return specialPrevent;
 
   const rawLower = String(step.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
+  const leaveAmount = Number(step.leaveAmount);
+  const hasLeaveAmount = Number.isFinite(leaveAmount);
+  if (hasLeaveAmount || /prevent all but \d+ of that damage/.test(rawLower)) {
+    const capTo = hasLeaveAmount
+      ? Math.max(0, leaveAmount)
+      : Math.max(0, Math.floor(Number(rawLower.match(/prevent all but (\d+) of that damage/)?.[1] || 1)));
+    const controllerId = (String(ctx.controllerId || '').trim() || 'p1') as PlayerID;
+    const targetSourceId = resolvePreventionTargetSourceId(state, ctx);
+    if (!targetSourceId) {
+      return {
+        applied: false,
+        message: `Skipped prevent damage (target source unavailable): ${step.raw}`,
+        reason: 'unsupported_target',
+        options: { classification: 'ambiguous' },
+      };
+    }
+    const effect = createSourceChoiceDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      targetSourceId,
+      targetPlayerId: controllerId,
+      combatOnly: step.combatOnly === true || /combat damage/.test(rawLower),
+      unblockedOnly: /unblocked/.test(rawLower),
+      capTo,
+      description: `Prevent all but ${capTo} combat damage from ${targetSourceId} to ${controllerId} this turn`,
+    });
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: [`Prevent all but ${capTo} damage from ${targetSourceId} to ${controllerId} this turn`],
+    };
+  }
+
   if (
     step.amount !== 'all' &&
     /prevent the next x damage that would be dealt to you this turn/i.test(rawLower)
@@ -949,6 +984,8 @@ export function applyPreventDamageStep(
 
   if (
     step.amount === 'all' &&
+    !hasLeaveAmount &&
+    !/prevent all but/.test(rawLower) &&
     (/dealt to you\b/.test(rawLower) || /\bto you this turn\b/.test(rawLower))
   ) {
     const controllerId = (String(ctx.controllerId || '').trim() || 'p1') as PlayerID;

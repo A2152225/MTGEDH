@@ -79,6 +79,11 @@ function splitConservativeActionConjunctionClause(args: {
   if (/\bdraws?\b/i.test(first) && /^(?:loses?)\s+.+\blife\b/i.test(second)) {
     return null;
   }
+  // Keep "If you do, draw a card and this creature gets +N/+N" intact so both
+  // effects stay under the same If-you-do conditional.
+  if (/^if\s+you\s+do,/i.test(first)) {
+    return null;
+  }
 
   const firstStep = parseEffectClauseToStep(first);
   const secondStep = parseEffectClauseToStep(second);

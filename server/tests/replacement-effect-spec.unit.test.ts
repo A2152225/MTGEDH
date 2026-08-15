@@ -900,6 +900,181 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
     expect(calculateModifiedDamage(torbranCtx, 3, 'p1', 'p1').amount).toBe(3);
   });
 
+  it('applies prevent-all-but-N to another matching permanent you control from oracle text', () => {
+    const altisaurOracle =
+      'If a source would deal damage to another Dinosaur you control, prevent all but 1 of that damage.';
+    const ctx = {
+      state: {
+        players: [{ id: 'p1' }, { id: 'p2' }],
+        battlefield: [
+          {
+            id: 'shield_1',
+            controller: 'p1',
+            card: {
+              name: 'Anonymous Temple',
+              type_line: 'Creature — Dinosaur',
+              oracle_text: altisaurOracle,
+            },
+          },
+          {
+            id: 'dino_1',
+            controller: 'p1',
+            card: { name: 'Other Dino', type_line: 'Creature — Dinosaur' },
+          },
+          {
+            id: 'bear_1',
+            controller: 'p1',
+            card: { name: 'Bear', type_line: 'Creature — Bear' },
+          },
+          {
+            id: 'opp_dino_1',
+            controller: 'p2',
+            card: { name: 'Opp Dino', type_line: 'Creature — Dinosaur' },
+          },
+        ],
+      },
+    } as any;
+
+    const specs = collectReplacementEffectSpecsFromState(ctx.state);
+    expect(specs.some((spec) => spec.effectId === 'prevent-all-but-damage-to-another-type-you-control')).toBe(true);
+
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1', 'src_1', false, 'dino_1').amount).toBe(1);
+    expect(calculateModifiedDamage(ctx, 1, 'p2', 'p1', 'src_1', false, 'dino_1').amount).toBe(1);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1', 'src_1', true, 'dino_1').amount).toBe(1);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1', 'src_1', false, 'shield_1').amount).toBe(5);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1', 'src_1', false, 'bear_1').amount).toBe(5);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p2', 'src_1', false, 'opp_dino_1').amount).toBe(5);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1').amount).toBe(5);
+  });
+
+  it('applies prevent-all-but-N to you or a matching permanent you control from oracle text', () => {
+    const hyperionOracle =
+      'Flash\nFlying\nIf a source would deal damage to you or a Hero you control, prevent all but 1 of that damage.';
+    const ctx = {
+      state: {
+        players: [{ id: 'p1' }, { id: 'p2' }],
+        battlefield: [
+          {
+            id: 'hero_1',
+            controller: 'p1',
+            card: {
+              name: 'Anonymous Hyperion',
+              type_line: 'Legendary Creature — Eternal Hero',
+              oracle_text: hyperionOracle,
+            },
+          },
+          {
+            id: 'sidekick_1',
+            controller: 'p1',
+            card: { name: 'Sidekick', type_line: 'Creature — Human Hero' },
+          },
+          {
+            id: 'bear_1',
+            controller: 'p1',
+            card: { name: 'Bear', type_line: 'Creature — Bear' },
+          },
+          {
+            id: 'opp_hero_1',
+            controller: 'p2',
+            card: { name: 'Opp Hero', type_line: 'Creature — Hero' },
+          },
+        ],
+      },
+    } as any;
+
+    const specs = collectReplacementEffectSpecsFromState(ctx.state);
+    expect(specs.some((spec) => spec.effectId === 'prevent-all-but-damage-to-you-or-type-you-control')).toBe(true);
+
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1').amount).toBe(1);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1', 'src_1', false, 'hero_1').amount).toBe(1);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1', 'src_1', false, 'sidekick_1').amount).toBe(1);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1', 'src_1', false, 'bear_1').amount).toBe(5);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p2', 'src_1', false, 'opp_hero_1').amount).toBe(5);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p2').amount).toBe(5);
+  });
+
+  it('does not treat Ajani Steadfast itself as the emblem shield', () => {
+    const ajaniOracle =
+      '+1: Until end of turn, up to one target creature gets +1/+1 and gains first strike, vigilance, and lifelink.\n'
+      + '−2: Put a +1/+1 counter on each creature you control and a loyalty counter on each other planeswalker you control.\n'
+      + '−7: You get an emblem with "If a source would deal damage to you or a planeswalker you control, prevent all but 1 of that damage."';
+    const specs = collectReplacementEffectSpecsFromState({
+      battlefield: [
+        {
+          id: 'ajani_1',
+          controller: 'p1',
+          card: {
+            name: 'Ajani Steadfast',
+            type_line: 'Legendary Planeswalker — Ajani',
+            oracle_text: ajaniOracle,
+          },
+        },
+      ],
+    });
+    expect(specs.some((spec) => spec.effectId === 'prevent-all-but-damage-to-you-or-type-you-control')).toBe(false);
+  });
+
+  it('applies Ajani emblem prevent-all-but-N from stored emblem text', () => {
+    const emblemOracle =
+      'If a source would deal damage to you or a planeswalker you control, prevent all but 1 of that damage.';
+    const ctx = {
+      state: {
+        players: [{ id: 'p1' }, { id: 'p2' }],
+        emblems: [
+          {
+            id: 'emblem_1',
+            controller: 'p1',
+            sourceName: 'Ajani Steadfast',
+            effect: emblemOracle,
+          },
+        ],
+        battlefield: [
+          {
+            id: 'walker_1',
+            controller: 'p1',
+            card: { name: 'Walker', type_line: 'Legendary Planeswalker — Test' },
+          },
+          {
+            id: 'bear_1',
+            controller: 'p1',
+            card: { name: 'Bear', type_line: 'Creature — Bear' },
+          },
+        ],
+      },
+    } as any;
+
+    const specs = collectReplacementEffectSpecsFromState(ctx.state);
+    expect(specs.some((spec) => spec.effectId === 'prevent-all-but-damage-to-you-or-type-you-control')).toBe(true);
+
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1').amount).toBe(1);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1', 'src_1', false, 'walker_1').amount).toBe(1);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p1', 'src_1', false, 'bear_1').amount).toBe(5);
+    expect(calculateModifiedDamage(ctx, 5, 'p2', 'p2').amount).toBe(5);
+  });
+
+  it('reads Ajani-style prevent-all-but text from emblem abilities[]', () => {
+    const ctx = {
+      state: {
+        players: [{
+          id: 'p1',
+          emblems: [{
+            id: 'emblem_abilities_1',
+            controller: 'p1',
+            name: 'Ajani Steadfast Emblem',
+            abilities: [
+              'If a source would deal damage to you or a planeswalker you control, prevent all but 1 of that damage.',
+            ],
+          }],
+        }, { id: 'p2' }],
+        battlefield: [],
+      },
+    } as any;
+
+    const specs = collectReplacementEffectSpecsFromState(ctx.state);
+    expect(specs.some((spec) => spec.effectId === 'prevent-all-but-damage-to-you-or-type-you-control')).toBe(true);
+    expect(calculateModifiedDamage(ctx, 6, 'p2', 'p1').amount).toBe(1);
+  });
+
   it('applies Vorinclex-style you-double / opponent-halve from oracle text alone', () => {
     const vorinclexOracle =
       'Trample, haste\n'

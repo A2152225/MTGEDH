@@ -2340,7 +2340,8 @@ export function calculateModifiedDamage(
   damageDealer: string,
   damageReceiver: string,
   damageSourcePermanentId?: string,
-  isCombatDamage?: boolean
+  isCombatDamage?: boolean,
+  targetPermanentId?: string,
 ): { amount: number; modifiers: string[] } {
   const isToOpponent = damageDealer !== damageReceiver;
   
@@ -2351,7 +2352,8 @@ export function calculateModifiedDamage(
     damageReceiver,
     isToOpponent,
     damageSourcePermanentId,
-    isCombatDamage
+    isCombatDamage,
+    targetPermanentId,
   );
   
   if (effects.length === 0) {
@@ -3159,7 +3161,8 @@ export type ReplacementEffectType =
   | 'triple'        // *3
   | 'halve'         // /2 (rounded down)
   | 'halve_round_up' // /2 (rounded up, like Gisela's prevention)
-  | 'prevent';      // Set to 0
+  | 'prevent'       // Set to 0
+  | 'cap';          // Prevent all but N (Temple Altisaur family)
 
 export interface ReplacementEffect {
   type: ReplacementEffectType;
@@ -3242,6 +3245,7 @@ export function applyBeneficialReplacements(
   // Note: halving/prevention are generally harmful, so apply them last.
   const sortedEffects = [...effects].sort((a, b) => {
     const order: Record<ReplacementEffectType, number> = {
+      'cap': 0,            // Cap first so remaining N can still be doubled
       'add_flat': 1,
       'double': 2,
       'triple': 3,
@@ -3279,6 +3283,12 @@ export function applyBeneficialReplacements(
         amount = 0;
         appliedEffects.push(`${effect.source}: prevented (${before} -> 0)`);
         break;
+      case 'cap': {
+        const cap = Math.max(0, Number(effect.value ?? 1));
+        amount = Math.min(amount, cap);
+        appliedEffects.push(`${effect.source}: prevent all but ${cap} (${before} -> ${amount})`);
+        break;
+      }
     }
   }
   
@@ -3332,6 +3342,7 @@ export function applyDamageReplacementsMinimized(
       'double': 3,         // Doublers apply to halved amount
       'triple': 4,         // Triplers apply to halved amount
       'add_flat': 5,       // Add last so it's not multiplied
+      'cap': 6,            // Cap last so doubled damage still becomes N
     };
     return (order[a.type] || 99) - (order[b.type] || 99);
   });
@@ -3362,6 +3373,12 @@ export function applyDamageReplacementsMinimized(
       case 'prevent':
         // Already handled above
         break;
+      case 'cap': {
+        const cap = Math.max(0, Number(effect.value ?? 1));
+        amount = Math.min(amount, cap);
+        appliedEffects.push(`${effect.source}: prevent all but ${cap} (${before} -> ${amount})`);
+        break;
+      }
     }
   }
   
@@ -3435,6 +3452,12 @@ export function applyReplacementsCustomOrder(
         amount = 0;
         appliedEffects.push(`${effect.source}: prevented (${before} -> 0)`);
         break;
+      case 'cap': {
+        const cap = Math.max(0, Number(effect.value ?? 1));
+        amount = Math.min(amount, cap);
+        appliedEffects.push(`${effect.source}: prevent all but ${cap} (${before} -> ${amount})`);
+        break;
+      }
     }
   }
   
@@ -3467,7 +3490,8 @@ export function detectDamageReplacementEffects(
   damageReceiver: string,
   isToOpponent: boolean,
   damageSourcePermanentId?: string,
-  isCombatDamage?: boolean
+  isCombatDamage?: boolean,
+  targetPermanentId?: string,
 ): ReplacementEffect[] {
   const effects: ReplacementEffect[] = [];
 
@@ -3478,7 +3502,7 @@ export function detectDamageReplacementEffects(
     if (!spec.instead?.modify) continue;
     if (!overlaySpecsMatchDamage(
       spec,
-      { damageDealer, damageReceiver, damageSourcePermanentId, isCombatDamage },
+      { damageDealer, damageReceiver, damageSourcePermanentId, isCombatDamage, targetPermanentId },
       state,
     )) continue;
     effects.push(overlayReplacementSpecToEffect(spec));

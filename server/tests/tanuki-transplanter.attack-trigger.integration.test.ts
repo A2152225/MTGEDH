@@ -232,3 +232,80 @@ describe('Tanuki Transplanter attack trigger', () => {
     expect((game.state as any).temporaryRetainedMana?.[p1]?.untilEndCombat).toBeUndefined();
   });
 });
+
+describe('Firebending uses the same retain-mana duration buckets', () => {
+  it('detects firebending as add-mana plus until-end-of-combat retention text', () => {
+    const triggers = detectAttackTriggers({
+      name: 'Sample Bender',
+      type_line: 'Creature — Human Soldier',
+      oracle_text: 'Firebending 2 (Whenever this creature attacks, add {R}{R}. This mana lasts until end of combat.)',
+      power: '2',
+      toughness: '2',
+    }, { id: 'bender_1', controller: 'p1' });
+
+    const firebending = triggers.find((trigger) => trigger.triggerType === 'firebending');
+    expect(firebending).toBeTruthy();
+    expect((firebending as any)?.value?.amount ?? firebending?.value).toBe(2);
+    expect(String(firebending?.effect || firebending?.description || '')).toMatch(/add \{r\}\{r\}\. this mana lasts until end of combat/i);
+  });
+
+  it('keeps firebending mana through combat steps and empties it when combat ends', () => {
+    const game = createInitialGameState('firebending_unified_retain_mana');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'Player 1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'Player 2' } as any);
+
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'END_COMBAT';
+    (game.state as any).priority = p1;
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      [p2]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'bender_1',
+        controller: p1,
+        owner: p1,
+        tapped: true,
+        card: {
+          id: 'bender_card_1',
+          name: 'Sample Bender',
+          type_line: 'Creature — Human Soldier',
+          oracle_text: 'Firebending 2',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).stack = [
+      {
+        id: 'firebending_trigger_1',
+        type: 'triggered_ability',
+        controller: p1,
+        source: 'bender_1',
+        permanentId: 'bender_1',
+        sourceName: 'Sample Bender',
+        description: 'Add {R}{R}. This mana lasts until end of combat.',
+        triggerType: 'firebending',
+        mandatory: true,
+      },
+    ];
+
+    game.resolveTopOfStack();
+
+    expect((game.state as any).manaPool?.[p1]?.red).toBe(2);
+    expect((game.state as any).temporaryRetainedMana?.[p1]?.untilEndCombat?.red).toBe(2);
+    expect((game.state as any).firebendingMana).toBeUndefined();
+
+    nextStep({ state: game.state, inactive: new Set<string>(), bumpSeq: () => undefined } as any);
+
+    expect((game.state as any).phase).toBe('postcombatMain');
+    expect((game.state as any).manaPool?.[p1]?.red).toBe(0);
+    expect((game.state as any).temporaryRetainedMana?.[p1]?.untilEndCombat).toBeUndefined();
+  });
+});

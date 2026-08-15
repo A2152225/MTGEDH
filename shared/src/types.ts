@@ -276,6 +276,8 @@ export interface BattlefieldPermanent {
   // Goad mechanic (Rule 701.15)
   goadedBy?: string[];              // Player IDs who have goaded this creature
   goadedUntil?: Readonly<Record<string, number>>; // Map of player ID -> turn number when goad expires
+  // Soulbond pairing (Rule 702.95) — bilateral partner permanent id
+  pairedWith?: string;
   // Mutate support (Rule 702.140)
   mutatedStack?: MutatedCardStack;  // Stack of cards in a mutated creature (presence indicates mutation)
   mutationCount?: number;           // Number of times this creature has been mutated
@@ -353,6 +355,10 @@ export interface DamagePreventionEffect {
   remainingAmount?: number;
   consumeOnUse?: boolean;
   combatOnly?: boolean;
+  /** Leave this much damage (Forcefield: prevent all but 1). */
+  capTo?: number;
+  /** Only apply if the damage source is an unblocked attacker. */
+  unblockedOnly?: boolean;
   colors?: readonly string[];
   expiresAtTurn?: number;
 }
@@ -787,11 +793,6 @@ export interface GameState {
     sourcePermId?: string;
     counterType?: string;
   }>;
-  /**
-   * Firebending mana tracking - tracks red mana from firebending that lasts until end of combat.
-   * Maps playerId to amount of firebending red mana in their pool.
-   */
-  firebendingMana?: Record<PlayerID, number>;
   /**
    * Pending proliferate activations awaiting target selection.
    * Array of proliferate effects waiting for player to choose permanents/players with counters.

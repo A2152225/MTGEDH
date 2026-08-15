@@ -71,6 +71,13 @@ export function isLandfallEtbSubjectPhrase(rawPhrase: string): boolean {
   if (!phrase) return false;
   if (phrase === 'land' || /\blands?\b/.test(phrase)) return true;
   if (isKnownLandSubtype(phrase)) return true;
+  // Dual land-subtype subjects: "Swamp or Forest", "Island or Swamp"
+  if (/\bor\b/.test(phrase)) {
+    const parts = phrase.split(/\s+or\s+/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length >= 2 && parts.every((part) => isKnownLandSubtype(part.replace(/^an?\s+/i, '')))) {
+      return true;
+    }
+  }
   // "basic Forest", "Snow-Covered Mountain", etc.
   const tokens = phrase.split(/[\s/]+/).map((t) => t.replace(/[^a-z'-]/g, '')).filter(Boolean);
   return tokens.some((token) => isKnownLandSubtype(token));
@@ -81,6 +88,10 @@ function enteringLandMatchesRequiredType(enteringLand: any, requiredLandType?: s
   if (!required) return true;
   // No entering land provided (detect-only / legacy callers): do not filter out.
   if (!enteringLand) return true;
+  // Dual subtypes are encoded as "swamp|forest".
+  if (required.includes('|')) {
+    return required.split('|').some((part) => enteringLandMatchesRequiredType(enteringLand, part.trim()));
+  }
   const typeLine = String(enteringLand?.card?.type_line || enteringLand?.type_line || '').toLowerCase();
   if (!typeLine) return false;
   // Power-Plant / Urza's need exact subtype token checks beyond simple includes for short words.
@@ -278,6 +289,35 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
         requiresChoice: effectText.toLowerCase().includes('you may'),
         triggerType: 'typed_land_enter' as any,
         requiredLandType: landType,
+      } as LandfallTrigger);
+    }
+  }
+
+  // Dual land-subtype landfall (Slimefoot / Tireless Angler):
+  // "Whenever a Swamp or Forest enters under your control, ..."
+  // "Whenever an Island or Swamp enters the battlefield under your control, ..."
+  const dualTypedLandEnterMatch = oracleText.match(
+    /whenever an? ([\w'-]+)\s+or\s+([\w'-]+) enters(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i,
+  );
+  if (dualTypedLandEnterMatch && !triggers.some((t) => (t as any).triggerType === 'typed_land_enter')) {
+    const landTypeA = String(dualTypedLandEnterMatch[1] || '').trim().toLowerCase();
+    const landTypeB = String(dualTypedLandEnterMatch[2] || '').trim().toLowerCase();
+    const effectText = timingTriggerEffect(oracleText, dualTypedLandEnterMatch, 3);
+    if (
+      effectText
+      && isKnownLandSubtype(landTypeA)
+      && isKnownLandSubtype(landTypeB)
+    ) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+        requiresChoice: effectText.toLowerCase().includes('you may'),
+        triggerType: 'typed_land_enter' as any,
+        // Pipe-delimited dual subtype; matcher treats either subtype as a hit.
+        requiredLandType: `${landTypeA}|${landTypeB}`,
       } as LandfallTrigger);
     }
   }

@@ -8,6 +8,12 @@ import {
   resolveCopiedTargetSpellStackItem,
   resolveCopySpellCount,
 } from '../../../../rules-engine/src/oracleIRExecutorCopySpellSupport.js';
+import {
+  applyRandomRetargetToStackSpells,
+  changeTargetMentionsCopies,
+  isRandomChangeTargetStep,
+  resolveChangeTargetExcludeText,
+} from '../../../../rules-engine/src/oracleIRExecutorChangeTargetSupport.js';
 import { getStackItems } from '../../../../rules-engine/src/stackOperations.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
@@ -391,6 +397,10 @@ export function queueCopySpellStackPushFromOracleIRResult(
   const sourceName = String(params.sourceName || params.irCtx.sourceName || 'Spell').trim() || 'Spell';
   const triggerItem = params.sourceItem;
   const retargetMetadata = resolveCopyRetargetMetadata(state, triggerItem, params.irCtx);
+  const randomCopyRetarget = (result.appliedSteps || []).find(
+    (step): step is Extract<OracleEffectStep, { kind: 'change_target' }> =>
+      isRandomChangeTargetStep(step) && changeTargetMentionsCopies(step as Extract<OracleEffectStep, { kind: 'change_target' }>),
+  );
   const queuedKeys = new Set<string>();
   let bridged = false;
 
@@ -435,11 +445,11 @@ export function queueCopySpellStackPushFromOracleIRResult(
       const copiedItem = abilityCopy
         ? {
           ...buildResolvedAbilityCopySnapshot(targetStackItem, sourceName, params.controller),
-          ...retargetMetadata,
+          ...(randomCopyRetarget ? {} : retargetMetadata),
         }
         : {
           ...buildResolvedSpellCopySnapshot(targetStackItem, sourceName, params.controller),
-          ...retargetMetadata,
+          ...(randomCopyRetarget ? {} : retargetMetadata),
         };
       appendCopiedSpellToServerStack(state, copiedItem);
 
@@ -463,7 +473,18 @@ export function queueCopySpellStackPushFromOracleIRResult(
         });
       }
 
-      if (copyStep.allowNewTargets) {
+      if (randomCopyRetarget) {
+        const retargeted = applyRandomRetargetToStackSpells(
+          state,
+          [String(copiedItem?.id || '').trim()].filter(Boolean),
+          params.irCtx,
+          randomCopyRetarget.exclude,
+          resolveChangeTargetExcludeText(randomCopyRetarget),
+        );
+        if (retargeted.state && retargeted.state !== state) {
+          Object.assign(state, retargeted.state);
+        }
+      } else if (copyStep.allowNewTargets) {
         if (abilityCopy) {
           queueAbilityCopyRetargetPrompt(ctx, sourceName, params.controller, copiedItem);
         } else {

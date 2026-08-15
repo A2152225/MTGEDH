@@ -95,6 +95,7 @@ import { ensureInitialDayNightDesignationFromBattlefield, setDayNightState } fro
 import { clearTemporaryGraveyardKeywordGrants, clearTemporaryPlayableFromGraveyardPermissions } from "./graveyard-permissions.js";
 import { resetDurablePermissionUsageForTurn } from "./durable-permissions.js";
 import { evaluateDamageReplacementEvent } from "./replacement-effects.js";
+import { expireDelayedDealtDamageWatchers } from "./triggers/dealt-damage-watchers.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -330,6 +331,7 @@ function modifyCombatDamageToPermanentAmount(
     String(targetPermanent?.controller || ''),
     String(sourcePermanent?.id || ''),
     true,
+    String(targetPermanent?.id || '') || undefined,
   );
   return modified;
 }
@@ -542,11 +544,23 @@ function applyCombatDamagePreventionEffects(
       ? effect.colors.map((color: any) => String(color || '').trim().toUpperCase()).filter(Boolean)
       : [];
     if (requiredColors.length > 0 && !requiredColors.some((color: string) => sourceColors.includes(color))) continue;
+    if (effect?.unblockedOnly === true) {
+      const sourcePermanent = (Array.isArray(state?.battlefield) ? state.battlefield : []).find(
+        (perm: any) => String(perm?.id || '').trim() === normalizedSourceId,
+      );
+      const attacking = sourcePermanent?.attacking;
+      const blockedBy = sourcePermanent?.blockedBy;
+      if (!attacking || (Array.isArray(blockedBy) && blockedBy.length > 0)) continue;
+    }
 
+    const capTo = Number(effect?.capTo);
+    const hasCap = Number.isFinite(capTo);
     const remainingAmount = Number(effect?.remainingAmount);
     const hasFiniteShield = Number.isFinite(remainingAmount);
-    const prevented = hasFiniteShield ? Math.min(initialAmount, Math.max(0, remainingAmount)) : initialAmount;
-    if (prevented <= 0) continue;
+    const prevented = hasCap
+      ? Math.max(0, initialAmount - Math.min(initialAmount, Math.max(0, capTo)))
+      : hasFiniteShield ? Math.min(initialAmount, Math.max(0, remainingAmount)) : initialAmount;
+    if (!hasCap && prevented <= 0) continue;
 
     if (effect?.consumeOnUse === true) {
       state.damagePreventionEffects = effects.filter((entry: any) => String(entry?.id || '') !== String(effect?.id || ''));
@@ -3386,6 +3400,12 @@ function endTemporaryEffects(ctx: GameContext) {
       state.creaturesAttackedThisTurn = {};
       debug(2, `${ts()} [endTemporaryEffects] Cleared creaturesAttackedThisTurn tracking`);
     }
+
+    const expiredDealtDamageWatchers = expireDelayedDealtDamageWatchers(state);
+    if (expiredDealtDamageWatchers > 0) {
+      endedCount += expiredDealtDamageWatchers;
+      debug(2, `${ts()} [endTemporaryEffects] Expired ${expiredDealtDamageWatchers} dealt-damage delayed watcher(s)`);
+    }
     
     if (endedCount > 0) {
       debug(2, `${ts()} [endTemporaryEffects] Ended ${endedCount} temporary effect(s) (Rule 514.2)`);
@@ -5358,9 +5378,27 @@ export function nextStep(ctx: GameContext) {
         }
       }
     } else if (currentPhase === "postcombatMain" || currentPhase === "main2") {
-      nextPhase = "ending";
-      nextStep = "END";
-      // NOTE: End step triggers will be pushed AFTER phase/step update below
+      // Extra combat granted during a postcombat main (Relentless Assault, etc.)
+      // inserts another combat, then another postcombat main. Tymna-style
+      // "beginning of each of your postcombat main phases" fires again at that
+      // later MAIN2+ entry — not mid-phase and not at end of combat.
+      if (hasExtraCombat(ctx)) {
+        const extraCombat = consumeExtraCombat(ctx);
+        debug(2, `${ts()} [nextStep] Starting extra combat from postcombat main (${extraCombat?.source || 'Unknown'})`);
+        nextPhase = "combat";
+        nextStep = "BEGIN_COMBAT";
+        const battlefield = (ctx as any).state?.battlefield || [];
+        for (const perm of battlefield) {
+          if (perm) {
+            perm.attacking = null;
+            perm.blockedBy = null;
+            perm.blocking = null;
+          }
+        }
+      } else {
+        nextPhase = "ending";
+        nextStep = "END";
+      }
     } else if (currentPhase === "ending") {
       if (currentStep === "endStep" || currentStep === "end" || currentStep === "END") {
         nextStep = "CLEANUP";
@@ -5941,63 +5979,6 @@ export function nextStep(ctx: GameContext) {
           ];
           pushTriggersToStack(endCombatTriggers, 'end_combat', 'endcombat');
           processPendingFlickerReturnsAtBeginningOfEndStep(ctx, turnPlayer, 'end_combat');
-          
-          // Clear firebending mana at end of combat
-          // Firebending: "add {R}{R}... This mana lasts until end of combat."
-          // BUT: Check for mana retention effects (Ozai, Leyline Tyrant) first
-          const firebendingMana = (ctx as any).state?.firebendingMana;
-          if (firebendingMana) {
-            for (const [playerId, amount] of Object.entries(firebendingMana)) {
-              if (typeof amount === 'number' && amount > 0) {
-                const manaPool = (ctx as any).state?.manaPool?.[playerId];
-                if (manaPool) {
-                  // Check for mana retention effects that would keep red mana
-                  // Ozai: "If you would lose unspent mana, that mana becomes red instead"
-                  // Leyline Tyrant: "Red mana doesn't empty from your mana pool"
-                  const battlefield = (ctx as any).state?.battlefield || [];
-                  let retainsRedMana = false;
-                  let hasOzaiEffect = false;
-                  
-                  for (const permanent of battlefield) {
-                    if (!permanent || permanent.controller !== playerId) continue;
-                    
-                    const cardName = (permanent.card?.name || "").toLowerCase();
-                    const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
-                    
-                    // Leyline Tyrant - Red mana doesn't empty
-                    // Oracle text: "You don't lose unspent red mana as steps and phases end."
-                    if (cardName.includes("leyline tyrant") ||
-                        (oracleText.includes("red mana") && (oracleText.includes("don't lose") || oracleText.includes("doesn't empty")))) {
-                      retainsRedMana = true;
-                      debug(2, `${ts()} [END_COMBAT] ${playerId} has Leyline Tyrant - firebending red mana preserved`);
-                      break;
-                    }
-                    
-                    // Ozai - mana becomes red instead of emptying
-                    if (cardName.includes("ozai") || 
-                        (oracleText.includes("lose unspent mana") && oracleText.includes("becomes red instead"))) {
-                      hasOzaiEffect = true;
-                      debug(2, `${ts()} [END_COMBAT] ${playerId} has Ozai - firebending red mana converts to red (already red, so preserved)`);
-                    }
-                  }
-                  
-                  // Firebending mana is red, so:
-                  // - Leyline Tyrant keeps it
-                  // - Ozai converts it to red (already red, so effectively keeps it)
-                  if (retainsRedMana || hasOzaiEffect) {
-                    debug(2, `${ts()} [END_COMBAT] Firebending mana (${amount} red) preserved due to mana retention effect`);
-                    // Don't clear the mana, just reset the firebending tracking
-                  } else {
-                    // Remove firebending red mana from pool
-                    manaPool.red = Math.max(0, (manaPool.red || 0) - amount);
-                    debug(2, `${ts()} [END_COMBAT] Cleared ${amount} firebending red mana from ${playerId}`);
-                  }
-                }
-              }
-            }
-            // Reset firebending tracking (regardless of whether mana was kept)
-            (ctx as any).state.firebendingMana = {};
-          }
         }
         
         // Rule 513.1: End step - "at the beginning of your end step" triggers

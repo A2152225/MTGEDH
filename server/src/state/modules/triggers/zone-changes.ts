@@ -588,9 +588,10 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     });
   }
   
-  // Equipment ETB
-  const equipmentETBMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) equipments? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
+  // Equipment ETB (including nontoken Equipment — Firion)
+  const equipmentETBMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?equipments? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
   if (equipmentETBMatch && !triggers.some(t => t.triggerType === 'equipment_etb')) {
+    const matchText = String(equipmentETBMatch[0] || '');
     triggers.push({
       permanentId,
       cardName,
@@ -598,7 +599,9 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       description: timingTriggerEffect(oracleText, equipmentETBMatch),
       effect: timingTriggerEffect(oracleText, equipmentETBMatch),
       mandatory: !lowerOracle.includes('you may'),
-    });
+      controlledOnly: /equipments?\s+you\s+control|under your control/i.test(matchText),
+      nontokenOnly: /\b(?:nontoken|non-token)\b/i.test(matchText),
+    } as any);
   }
   
   // Artifact ETB
@@ -624,6 +627,22 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       description: timingTriggerEffect(oracleText, enchantmentETBMatch),
       effect: timingTriggerEffect(oracleText, enchantmentETBMatch),
       mandatory: !lowerOracle.includes('you may'),
+    });
+  }
+
+  // Planeswalker ETB
+  const planeswalkerETBMatch = oracleText.match(
+    /whenever (?:a|an(?:other)?|one or more(?: other)?|other) planeswalkers? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i,
+  );
+  if (planeswalkerETBMatch && !triggers.some((t) => t.triggerType === 'planeswalker_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'planeswalker_etb',
+      description: timingTriggerEffect(oracleText, planeswalkerETBMatch),
+      effect: timingTriggerEffect(oracleText, planeswalkerETBMatch),
+      mandatory: !lowerOracle.includes('you may'),
+      controlledOnly: /planeswalkers?\s+you\s+control|under your control/i.test(String(planeswalkerETBMatch[0] || '')),
     });
   }
   

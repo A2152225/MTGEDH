@@ -154,3 +154,26 @@ export function tryEvaluateCombatDamageReferenceCount(
 
   return null;
 }
+
+/**
+ * Optional "you may pay X life, where X is [combat-damage count]".
+ * X=0 is a legal value but a no-op (pay 0, draw 0) — callers should skip the prompt.
+ */
+export function isNoOpOptionalCombatDamagePayLife(
+  state: GameState,
+  controllerId: PlayerID,
+  effectText: string,
+  ctx?: OracleIRExecutionContext,
+): boolean {
+  const raw = normalizeOracleText(String(effectText || ''));
+  if (!/\byou may pay x life\b/i.test(raw)) return false;
+  const whereMatch = raw.match(/where x is\s+(.+?)(?:\.|$)/i);
+  if (!whereMatch) return false;
+  const counted = tryEvaluateCombatDamageReferenceCount(
+    state,
+    controllerId,
+    String(whereMatch[1] || '').trim(),
+    ctx,
+  );
+  return counted === 0;
+}

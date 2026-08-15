@@ -663,6 +663,14 @@ export function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSin
     return { cardType: 'creature', usesChosenCreatureType: true, ...sharedCriteriaExtras };
   }
 
+  const subtypeCreatureMatch = normalizedTypeText.match(/^([a-z][a-z'-]+)\s+creature$/i);
+  if (subtypeCreatureMatch) {
+    const subtype = normalizeCreatureTypeCriteriaTerm(String(subtypeCreatureMatch[1] || ''));
+    if (subtype) {
+      return { cardType: 'creature', creatureTypesAnyOf: [subtype], ...sharedCriteriaExtras };
+    }
+  }
+
   if (/^card that has an adventure$/i.test(normalizedTypeText)) {
     return { cardType: 'any', requiresAdventure: true, ...sharedCriteriaExtras };
   }

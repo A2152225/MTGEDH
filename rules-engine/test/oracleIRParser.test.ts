@@ -13653,6 +13653,50 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses Chef\'s Kiss into gain_control, copy_spell, and random change_target with exclude', () => {
+    const ir = parseOracleTextToIR(
+      "Gain control of target spell that targets only a single permanent or player. Copy it, then reselect the targets at random for the spell and the copy. The new targets can't be you or a permanent you control.",
+      "Chef's Kiss",
+    );
+
+    const steps = ir.abilities.flatMap((ability) => ability.steps || []);
+    expect(steps.map((step) => step.kind)).toEqual(['gain_control', 'copy_spell', 'change_target']);
+    expect(steps[0]).toMatchObject({
+      kind: 'gain_control',
+      what: { kind: 'raw', text: 'target spell that targets only a single permanent or player' },
+      newController: { kind: 'you' },
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: 'it' },
+    });
+    expect(steps[2]).toMatchObject({
+      kind: 'change_target',
+      random: true,
+      target: { kind: 'raw', text: 'the spell and the copy' },
+      exclude: { kind: 'raw', text: 'you or a permanent you control' },
+    });
+  });
+
+  it('parses Aethersnatch into gain_control of a spell plus optional change_target', () => {
+    const ir = parseOracleTextToIR(
+      'Gain control of target spell. You may choose new targets for it.',
+      'Aethersnatch',
+    );
+
+    const steps = ir.abilities.flatMap((ability) => ability.steps || []);
+    expect(steps.map((step) => step.kind)).toEqual(['gain_control', 'change_target']);
+    expect(steps[0]).toMatchObject({
+      kind: 'gain_control',
+      what: { kind: 'raw', text: 'target spell' },
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'change_target',
+      optional: true,
+    });
+  });
+
   it('parses Melek, Izzet Paragon copy-it triggers into target_spell copy steps', () => {
     const ir = parseOracleTextToIR(
       'Play with the top card of your library revealed.\nYou may cast instant and sorcery spells from the top of your library.\nWhenever you cast an instant or sorcery spell from your library, copy it. You may choose new targets for the copy.',

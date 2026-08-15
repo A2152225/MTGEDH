@@ -34,7 +34,7 @@ function snapshotPermanent(permanent: any): any | undefined {
   };
 }
 
-function pushGenericTriggeredAbility(
+export function queueGenericTriggeredAbility(
   ctx: GameContext,
   trigger: any,
   triggerType: string,
@@ -156,7 +156,7 @@ export function processEquippedTriggers(
       continue;
     }
     debug(2, `[triggerEmission] Equipped trigger: ${trigger.cardName} - ${trigger.description}`);
-    const item = pushGenericTriggeredAbility(ctx, trigger, 'equipped_attached', {
+    const item = queueGenericTriggeredAbility(ctx, trigger, 'equipped_attached', {
       equipmentId: String(equipment.id || ''),
       attachedToId: String(attachedToPermanent?.id || equipment.attachedTo || ''),
       attachedToName: String(attachedToPermanent?.card?.name || ''),
@@ -244,7 +244,7 @@ export function processReturnedToHandTriggers(
       }
 
       debug(2, `[triggerEmission] Returned-to-hand trigger: ${trigger.cardName} - ${trigger.description}`);
-      const item = pushGenericTriggeredAbility(ctx, enriched, 'returned_to_hand', {
+      const item = queueGenericTriggeredAbility(ctx, enriched, 'returned_to_hand', {
         returnedPermanentId: returnedId,
         returnedPermanentName: String(returnedPermanent?.card?.name || ''),
         returnedController,
@@ -278,7 +278,7 @@ export function processTransformTriggers(ctx: GameContext, permanent: any): any[
     };
     if (!evaluateInterveningIf(ctx, enriched, 'Whenever this permanent transforms', permanent)) continue;
     debug(2, `[triggerEmission] Transform trigger: ${trigger.cardName} - ${trigger.description}`);
-    const item = pushGenericTriggeredAbility(ctx, enriched, 'transform', {
+    const item = queueGenericTriggeredAbility(ctx, enriched, 'transform', {
       transformedPermanentId: String(permanent.id || ''),
     });
     if (item) queued.push(item);
@@ -296,7 +296,7 @@ export function processTransformTriggers(ctx: GameContext, permanent: any): any[
         controllerId: String(watcher.controller || ''),
       };
       if (!evaluateInterveningIf(ctx, enriched, 'Whenever equipped creature transforms', watcher)) continue;
-      const item = pushGenericTriggeredAbility(ctx, enriched, 'transform', {
+      const item = queueGenericTriggeredAbility(ctx, enriched, 'transform', {
         transformedPermanentId: String(permanent.id || ''),
         watcherPermanentId: String(watcher.id || ''),
       });
@@ -399,7 +399,7 @@ export function processFaceUpTriggers(ctx: GameContext, faceUpPermanent: any): a
       }
 
       debug(2, `[triggerEmission] Face-up trigger: ${trigger.cardName} (${triggerType}) - ${trigger.description}`);
-      const item = pushGenericTriggeredAbility(ctx, enriched, triggerType, {
+      const item = queueGenericTriggeredAbility(ctx, enriched, triggerType, {
         faceUpPermanentId: faceUpId,
         faceUpPermanentName: String(faceUpPermanent?.card?.name || ''),
         faceUpController,
@@ -435,7 +435,7 @@ export function processMonstrousTriggers(ctx: GameContext, permanent: any): any[
       continue;
     }
     debug(2, `[triggerEmission] Monstrous trigger: ${trigger.cardName} - ${trigger.description}`);
-    const item = pushGenericTriggeredAbility(ctx, trigger, 'became_monstrous', {
+    const item = queueGenericTriggeredAbility(ctx, trigger, 'became_monstrous', {
       monstrousPermanentId: String(permanent.id || ''),
     });
     if (item) queued.push(item);
@@ -511,7 +511,7 @@ export function processLTBTriggers(
       }
 
       debug(2, `[triggerEmission] LTB trigger: ${trigger.cardName} (${triggerType}) - ${trigger.description}`);
-      const item = pushGenericTriggeredAbility(ctx, enriched, triggerType, {
+      const item = queueGenericTriggeredAbility(ctx, enriched, triggerType, {
         leftPermanentId: leftId,
         leftPermanentName: String(leftPermanent?.card?.name || ''),
         leftController,
@@ -587,7 +587,7 @@ export function processDetectedAbilityActivatedTriggers(
           continue;
         }
 
-        const item = pushGenericTriggeredAbility(ctx, enriched, 'ability_activated', {
+        const item = queueGenericTriggeredAbility(ctx, enriched, 'ability_activated', {
           activatedBy: String(event.activatedBy),
           sourcePermanentId: String(event.sourcePermanentId),
           isManaAbility: event.isManaAbility,
@@ -630,7 +630,7 @@ export function processDetectedAbilityActivatedTriggers(
           effect = effect.replace(/pay that much life again/gi, `pay ${lifePaid} life again`);
         }
 
-        const item = pushGenericTriggeredAbility(
+        const item = queueGenericTriggeredAbility(
           ctx,
           {
             ...trigger,

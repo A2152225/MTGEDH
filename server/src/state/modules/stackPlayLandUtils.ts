@@ -3,7 +3,7 @@ import type { GameContext } from '../context.js';
 import { uid, parsePT } from '../utils.js';
 import { debug, debugWarn, debugEnv } from '../../utils/debug.js';
 import { recalculatePlayerEffects } from './game-state-effects.js';
-import { getETBTriggersForPermanent, getLandfallTriggers } from './triggered-abilities.js';
+import { getLandfallTriggers } from './triggered-abilities.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
 import { cleanupCardLeavingExile, removeCardFromAnyPlayerExile } from './playable-from-exile.js';
 import { getEffectiveBasicLandTypes } from './mana-abilities.js';
@@ -360,70 +360,7 @@ export function finishPlayLandBattlefieldEntry(
   // and resolveTopOfStack events — re-pushing them here duplicates stack work and drifts zones.
   if (!(ctx as any).isReplaying) {
   try {
-    const etbTriggers = getETBTriggersForPermanent(card, newPermanent);
-
-    if (etbTriggers.length > 0) {
-      debug(2, `[playLand] Found ${etbTriggers.length} ETB trigger(s) for ${card.name || 'land'}`);
-
-      state.stack = state.stack || [];
-      for (const trigger of etbTriggers) {
-        if (trigger.triggerType === 'etb_sacrifice_unless_pay') {
-          continue;
-        }
-
-        try {
-          const desc = String(trigger.description || trigger.effect || '').trim();
-          let textForEval = desc;
-          if (textForEval && !/^(?:when|whenever|at)\b/i.test(textForEval)) {
-            textForEval = `When ~ enters the battlefield, ${textForEval}`;
-          }
-          const satisfied = isInterveningIfSatisfied(
-            ctx as any,
-            String(playerId),
-            textForEval,
-            newPermanent,
-            /\bthat player\b/i.test(textForEval)
-              ? {
-                  thatPlayerId: String(playerId),
-                  referencedPlayerId: String(playerId),
-                  theirPlayerId: String(playerId),
-                }
-              : undefined
-          );
-          if (satisfied === false) {
-            debug(2, `[playLand] Skipping land ETB trigger due to unmet intervening-if: ${card.name || 'Land'} - ${desc}`);
-            continue;
-          }
-        } catch {
-          // Conservative fallback: keep the trigger if evaluation fails.
-        }
-
-        state.stack.push({
-          id: uid('trigger'),
-          type: 'triggered_ability',
-          controller: playerId,
-          source: newPermanent.id,
-          permanentId: newPermanent.id,
-          sourceName: card.name || 'Land',
-          description: trigger.description || trigger.effect || '',
-          triggerType: trigger.triggerType,
-          mandatory: trigger.mandatory !== false,
-          effect: trigger.effect || trigger.description || '',
-          requiresChoice: trigger.requiresChoice,
-          targets: [],
-          ...((trigger as any).hideawayCount != null ? { hideawayCount: (trigger as any).hideawayCount } : null),
-          ...((trigger as any).hideawayCondition ? { hideawayCondition: (trigger as any).hideawayCondition } : null),
-        } as any);
-
-        debug(2, `[playLand] Pushed ETB trigger to stack: ${trigger.description || trigger.effect}`);
-      }
-    }
-  } catch (err) {
-    debugWarn(1, '[playLand] Failed to check ETB triggers:', err);
-  }
-
-  try {
-    triggerETBEffectsForPermanent(ctx, newPermanent, playerId, false);
+    triggerETBEffectsForPermanent(ctx, newPermanent, playerId, true);
   } catch (err) {
     debugWarn(1, '[playLand] Failed to run triggerETBEffectsForPermanent for played land:', err);
   }

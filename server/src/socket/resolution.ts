@@ -21969,6 +21969,21 @@ async function handleTargetSelectionResponse(
 
   // Execute immediate actions for certain target-selection steps
   const action = (step as any).action;
+  if (action === 'soulbond_pair') {
+    const sourceId = String((step as any).soulbondSourceId || step.sourceId || '').trim();
+    const targetId = String(selections?.[0] || '').trim();
+    if (sourceId && targetId) {
+      try {
+        const { pairPermanents } = await import('../state/modules/soulbond.js');
+        pairPermanents(game.state, sourceId, targetId);
+      } catch (err) {
+        debugWarn(1, `[Resolution] soulbond_pair failed:`, err);
+      }
+    }
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
   if (action === 'sacrifice_selected_permanents') {
     const sourceName = String(step.sourceName || 'Effect');
     const controllerId = String(pid);
@@ -30038,7 +30053,10 @@ async function handleOptionChoiceResponse(
     return;
   }
 
-  if (String(stepData?.oracleIrChoiceStepJson || '').trim()) {
+  if (
+    String(stepData?.oracleIrChoiceStepJson || '').trim()
+    && stepData?.optionalPaymentPrompt !== true
+  ) {
     const ctx = ((game as any).ctx || game) as any;
     ctx.gameId = gameId;
     ctx.state = game.state;

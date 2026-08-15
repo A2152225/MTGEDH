@@ -64,13 +64,8 @@ export function detectEntersWithCounters(card: any): Record<string, number> {
     }
   }
 
-  const fabricateMatch = oracleText.match(/fabricate\s+(\d+)/i);
-  if (fabricateMatch && typeLine.includes('creature')) {
-    const n = parseInt(fabricateMatch[1], 10);
-    if (!isNaN(n) && n > 0) {
-      counters['+1/+1'] = (counters['+1/+1'] || 0) + n;
-    }
-  }
+  // Fabricate (CR 702.123) is a triggered ETB choice, not an enters-with-counters effect.
+  // Counters are applied only if the player chooses that mode via FABRICATE_CHOICE.
 
   if (oracleText.includes('unleash')) {
     counters['+1/+1'] = (counters['+1/+1'] || 0) + 1;

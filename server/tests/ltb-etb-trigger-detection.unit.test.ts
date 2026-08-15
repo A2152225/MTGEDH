@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { detectETBTriggers, detectLTBTriggers } from '../src/state/modules/triggered-abilities.js';
+import {
+  detectAttackTriggers,
+  detectETBTriggers,
+  detectLTBTriggers,
+} from '../src/state/modules/triggered-abilities.js';
 
 const permanent = { id: 'P1', controller: 'P1' };
 
@@ -18,6 +22,16 @@ describe('LTB trigger detection', () => {
       oracle_text: 'Whenever another permanent you control leaves the battlefield, Purphoros deals 2 damage to each opponent.',
     }, permanent);
     expect(triggers.some((t) => t.triggerType === 'controlled_ltb')).toBe(true);
+  });
+
+  it('does not register a keyword reminder leaves trigger', () => {
+    const triggers = detectLTBTriggers({
+      name: 'Reminder Test',
+      oracle_text:
+        'Escape {2}{B} (You may cast this card from your graveyard for its escape cost. It escapes with three +1/+1 counters on it.)\nWhenever this creature leaves the battlefield, draw a card.',
+    }, permanent);
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0]?.effect).toMatch(/draw a card/i);
   });
 });
 
@@ -52,6 +66,49 @@ describe('ETB trigger detection extensions', () => {
       oracle_text: 'When this Vehicle enters, return target creature card with mana value 2 or less from your graveyard to the battlefield.',
     }, permanent);
     expect(triggers.length).toBeGreaterThan(0);
+  });
+
+  it('skips a keyword reminder ETB in favor of the real ETB ability', () => {
+    const triggers = detectETBTriggers({
+      name: 'Sample Offspring',
+      oracle_text:
+        'Offspring {1}{U} (You may pay an additional {1}{U} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\nWhen this creature enters, tap up to one target creature and put a stun counter on it.',
+    }, permanent);
+    expect(triggers.some((trigger) => (
+      trigger.triggerType === 'etb'
+      && /tap up to one target creature/i.test(String(trigger.effect || ''))
+    ))).toBe(true);
+  });
+
+  it('does not register an offspring reminder as an ETB by itself', () => {
+    const triggers = detectETBTriggers({
+      name: 'Offspring Only',
+      oracle_text:
+        'Offspring {1}{U} (You may pay an additional {1}{U} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)',
+    }, permanent);
+    expect(triggers).toEqual([]);
+  });
+
+  it('detects planeswalker ETB triggers (Gatewatch Beacon)', () => {
+    const triggers = detectETBTriggers({
+      name: 'Gatewatch Beacon',
+      oracle_text:
+        'This artifact enters with three loyalty counters on it.\n'
+        + '{T}: Add {W}.\n'
+        + 'Whenever a planeswalker you control enters, if this artifact has loyalty counters on it, you may move a loyalty counter from this artifact onto that planeswalker.',
+    }, permanent);
+    expect(triggers.some((t) => t.triggerType === 'planeswalker_etb')).toBe(true);
+  });
+});
+
+describe('attack trigger reminder exclusion', () => {
+  it('ignores attack wording inside a keyword reminder', () => {
+    const triggers = detectAttackTriggers({
+      name: 'Reminder Attacker',
+      oracle_text:
+        'Escape {2}{B} (Whenever this creature attacks, create a Treasure token.)',
+    }, permanent);
+    expect(triggers).toEqual([]);
   });
 });
 

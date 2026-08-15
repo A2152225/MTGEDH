@@ -5,7 +5,8 @@ type DelayedTriggerTiming =
   | 'next_end_step'
   | 'your_next_end_step'
   | 'next_upkeep'
-  | 'your_next_upkeep';
+  | 'your_next_upkeep'
+  | 'when_dealt_damage';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
@@ -72,6 +73,22 @@ export function tryParseDelayedTriggerClause(args: {
       return withMeta({
         kind: 'schedule_delayed_trigger',
         timing: 'on_event',
+        effect,
+        raw: rawClause,
+      });
+    }
+  }
+
+  // Arcbond-style: "Whenever that creature is dealt damage this turn, …"
+  const dealtDamageThisTurn = clause.match(
+    /^whenever that creature is dealt damage this turn,?\s*(.+)$/i,
+  );
+  if (dealtDamageThisTurn) {
+    const effect = normalizeEffectText(String(dealtDamageThisTurn[1] || ''));
+    if (effect) {
+      return withMeta({
+        kind: 'schedule_delayed_trigger',
+        timing: 'when_dealt_damage',
         effect,
         raw: rawClause,
       });

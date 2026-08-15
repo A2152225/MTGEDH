@@ -92,13 +92,15 @@ describe('Postcombat main combat-damage regressions', () => {
 
     g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
     g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
 
     (estinien as any).attacking = opponents[0];
     (estinien as any).blockedBy = [];
     (dragon as any).attacking = opponents[1];
     (dragon as any).blockedBy = [];
+    (g.state as any).attackersDeclaredBy = [activePlayer];
 
+    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
+    (g.state as any).blockersDeclaredBy = [...opponents];
     g.applyEvent({ type: 'nextStep' }); // DAMAGE
     g.applyEvent({ type: 'nextStep' }); // END_COMBAT
     g.applyEvent({ type: 'nextStep' }); // MAIN2

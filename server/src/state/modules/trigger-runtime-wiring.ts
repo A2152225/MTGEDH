@@ -33,6 +33,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'exile_top',
   'impulse_exile_top',
   'add_mana',
+  'retain_mana',
   'draw',
   'scry',
   'surveil',

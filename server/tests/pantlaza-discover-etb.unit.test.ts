@@ -4,8 +4,10 @@ import { createInitialGameState } from '../src/state/gameState';
 import { detectETBTriggers } from '../src/state/modules/triggered-abilities.js';
 import { queueSelfETBTriggersForPermanent } from '../src/state/modules/triggerEtbEntryEffects.js';
 import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
+import { queuePermanentEntersBattlefieldTriggerStackItems } from '../src/state/modules/stackResolvePermanentEtbTriggerUtils.js';
 import { recordDoThisOnlyOnceEachTurnOnAccept } from '../src/state/modules/triggerDoThisOnlyOnceEachTurn.js';
 import { applyOracleIRStepsOnServer } from '../src/state/modules/oracleIrServerZoneSync.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutor.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -163,6 +165,51 @@ describe('Pantlaza, Sun-Favored discover ETB', () => {
     expect(stacked?.interveningIfSubjectPermanentId).toBe(temple.id);
   });
 
+  it('queues from the live creature-spell ETB path when another Dinosaur is played', () => {
+    const g = createInitialGameState('t_pantlaza_live_spell_etb');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    const pantlaza = pantlazaPermanent('pantlaza_1', p1);
+    const temple = {
+      id: 'temple_altisaur_1',
+      controller: p1,
+      owner: p1,
+      tapped: false,
+      counters: {},
+      card: {
+        id: 'temple_altisaur_card',
+        name: 'Temple Altisaur',
+        type_line: 'Creature — Dinosaur',
+        oracle_text:
+          'If a source would deal damage to another Dinosaur you control, prevent all but 1 of that damage.',
+        power: '3',
+        toughness: '4',
+      },
+    };
+    (g.state.battlefield as any).push(pantlaza, temple);
+
+    queuePermanentEntersBattlefieldTriggerStackItems(g as any, {
+      controller: p1,
+      card: temple.card,
+      effectiveCard: temple.card,
+      newPermanent: temple,
+      newPermId: temple.id,
+      isCreature: true,
+    });
+
+    const stacked = ((g.state.stack || []) as any[]).find(
+      (s) => s?.sourceName === 'Pantlaza, Sun-Favored' && s?.triggerType === 'named_or_another_typed_etb',
+    );
+    expect(stacked).toBeTruthy();
+    expect(stacked?.xValue).toBe(4);
+    expect(stacked?.interveningIfSubjectPermanentId).toBe(temple.id);
+    expect(stacked?.doThisOnlyOnceEachTurn).toBe(true);
+    expect(stacked?.source).toBe(pantlaza.id);
+  });
+
   it('does not queue for a non-Dinosaur creature', () => {
     const g = createInitialGameState('t_pantlaza_bear');
     const p1 = 'p1' as PlayerID;
@@ -264,6 +311,62 @@ describe('Pantlaza, Sun-Favored discover ETB', () => {
         expect.objectContaining({ id: 'decline', label: expect.stringMatching(/hand/i) }),
       ]),
     );
+
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('queues cast-or-hand from executeTriggerEffect using the stacked ETB item', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    const gameId = 't_pantlaza_discover_execute';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    ResolutionQueueManager.removeQueue(gameId);
+    (g as any).gameId = gameId;
+
+    const player = (g.state as any).players.find((entry: any) => entry.id === p1);
+    player.library = [
+      { id: 'forest-1', name: 'Forest', type_line: 'Basic Land — Forest', cmc: 0 },
+      { id: 'ghalta-1', name: 'Ghalta, Primal Hunger', type_line: 'Legendary Creature — Elder Dinosaur', cmc: 12, mana_value: 12 },
+      { id: 'bolt-1', name: 'Lightning Bolt', type_line: 'Instant', cmc: 1, mana_value: 1 },
+    ];
+    player.exile = [];
+    player.hand = [];
+    (g as any).libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
+    const pantlaza = pantlazaPermanent('pantlaza_1', p1);
+    (g.state.battlefield as any).push(pantlaza);
+
+    executeTriggerEffect(
+      g as any,
+      p1,
+      'Pantlaza, Sun-Favored',
+      "you may discover X, where X is that creature's toughness",
+      {
+        id: 'pantlaza_etb',
+        source: pantlaza.id,
+        permanentId: pantlaza.id,
+        sourceId: pantlaza.id,
+        triggerType: 'named_or_another_typed_etb',
+        xValue: 4,
+        interveningIfSubjectPermanentId: pantlaza.id,
+        doThisOnlyOnceEachTurn: true,
+        mandatory: false,
+        optionalTriggeredAbilityDecisionApplied: true,
+        card: pantlaza.card,
+      },
+    );
+
+    const playerAfter = (g.state as any).players.find((entry: any) => entry.id === p1);
+    const exileNames = (playerAfter?.exile || []).map((card: any) => String(card?.name || ''));
+    expect(exileNames).toContain('Lightning Bolt');
+
+    const prompt = ResolutionQueueManager.getStepsForPlayer(gameId, p1).find(
+      (step: any) =>
+        step?.type === ResolutionStepType.OPTION_CHOICE &&
+        String(step?.castFromExileCardId || '') === 'bolt-1',
+    );
+    expect(prompt).toBeTruthy();
+    expect((prompt as any)?.castFromExileDeclineDestination).toBe('hand');
 
     ResolutionQueueManager.removeQueue(gameId);
   });

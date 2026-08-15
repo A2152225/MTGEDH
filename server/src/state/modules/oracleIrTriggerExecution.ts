@@ -262,6 +262,13 @@ function resolveTriggerTargetBinding(
   const interveningSubjectPermanentId = String(
     triggerItem?.interveningIfSubjectPermanentId || '',
   ).trim();
+  // Damage-received watchers retain the object that was dealt damage in
+  // effectData. Bind it as the pronoun antecedent for effects such as
+  // "put a +1/+1 counter on it"; the watcher itself remains the source for
+  // "this creature" / "this permanent".
+  const damagedPermanentId = String(
+    triggerItem?.effectData?.damagedPermanentId || '',
+  ).trim();
   const discardedCardId = String(triggerItem?.effectData?.discardedCardId || '').trim();
   const boundGraveyardCardId = String(triggerItem?.boundGraveyardCardId || '').trim();
   const createdTokenIds = Array.isArray(triggerItem?.effectData?.createdTokenIds)
@@ -270,6 +277,7 @@ function resolveTriggerTargetBinding(
   const chosenObjectIds = Array.from(new Set([
     ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...normalizedTargetIds,
+    ...(damagedPermanentId ? [damagedPermanentId] : []),
     ...(discardedCardId ? [discardedCardId] : []),
     ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),
     ...createdTokenIds,
@@ -280,6 +288,13 @@ function resolveTriggerTargetBinding(
     && battlefield.some((permanent: any) => String(permanent?.id || '') === interveningSubjectPermanentId)
   ) {
     targetPermanentId = interveningSubjectPermanentId;
+  }
+  if (
+    !targetPermanentId
+    && damagedPermanentId
+    && battlefield.some((permanent: any) => String(permanent?.id || '') === damagedPermanentId)
+  ) {
+    targetPermanentId = damagedPermanentId;
   }
   if (!targetPermanentId) {
     const dyingId = String(triggerItem?.dyingCreature?.id || triggerItem?.value?.dyingPermanentId || '').trim();
@@ -363,6 +378,13 @@ function buildTriggerIrContext(
       || params.triggerItem?.effectData?.attackingPlayerId
       || '',
   ).trim();
+  const attachedToId = String(
+    params.triggerItem?.effectData?.attachedToId
+    || sourcePermanent?.attachedTo
+    || sourcePermanent?.enchanting
+    || '',
+  ).trim();
+  const resolvedTargetPermanentId = String(binding.targetPermanentId || attachedToId || '').trim();
 
   const optionalTriggerAccepted = (params.triggerItem as any)?.optionalTriggeredAbilityDecisionApplied === true;
   if (optionalTriggerAccepted) {
@@ -394,12 +416,13 @@ function buildTriggerIrContext(
         ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
         ...(chosenCreatureType ? { chosenCreatureType } : {}),
         ...(createdTokenIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: createdTokenIds } : {}),
+        ...(attachedToId ? { attachedToId } : {}),
       },
-      ...(binding.targetPermanentId ? { targetPermanentId: binding.targetPermanentId } : {}),
+      ...(resolvedTargetPermanentId ? { targetPermanentId: resolvedTargetPermanentId } : {}),
       ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
     },
     {
-      targetPermanentId: binding.targetPermanentId,
+      targetPermanentId: resolvedTargetPermanentId || binding.targetPermanentId,
       targetPlayerId: (attackingPlayerId || binding.targetPlayerId) as PlayerID | undefined,
       targetOpponentId: defendingOpponentId,
       targetSpellId: binding.targetSpellId,

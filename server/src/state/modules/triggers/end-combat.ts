@@ -1,6 +1,10 @@
 import type { GameContext } from '../../context.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { timingTriggerEffect } from './timing-effect-extraction.js';
+import {
+  inferEndCombatWhoseTurn,
+  shouldQueuePhaseTriggerForActivePlayer,
+} from './phaseWhoseTurn.js';
 
 export interface EndOfCombatTrigger {
   permanentId: string;
@@ -21,6 +25,7 @@ export function detectEndOfCombatTriggers(card: any, permanent: any): EndOfComba
 
   const patterns: Array<{ regex: RegExp; triggerType?: EndOfCombatTrigger['triggerType'] }> = [
     { regex: /at the end of combat on your turn,?\s*([\s\S]+)/i, triggerType: 'your_turn_end_combat' },
+    { regex: /at the end of combat on each opponent's turn,?\s*([\s\S]+)/i, triggerType: 'end_combat' },
     { regex: /at the end of each combat,?\s*([\s\S]+)/i, triggerType: 'each_combat_end' },
     { regex: /at (?:the )?end of combat,?\s*([\s\S]+)/i, triggerType: 'end_combat' },
   ];
@@ -61,15 +66,16 @@ export function getEndOfCombatTriggers(
     if (triggers.length >= MAX_TRIGGERS_PER_STEP) break;
 
     const permTriggers = detectEndOfCombatTriggers(permanent.card, permanent);
-    const lowerOracle = String(permanent.card.oracle_text || '').toLowerCase();
+    const oracleText = String(permanent.card.oracle_text || '');
 
     for (const trigger of permTriggers) {
-      const hasOnYourTurn =
-        lowerOracle.includes('on your turn') ||
-        lowerOracle.includes('at the end of combat on your turn') ||
-        trigger.triggerType === 'your_turn_end_combat';
-
-      if (hasOnYourTurn && permanent.controller !== activePlayerId) {
+      if (!shouldQueuePhaseTriggerForActivePlayer({
+        whose: inferEndCombatWhoseTurn(trigger, oracleText),
+        activePlayerId,
+        controllerId: String(trigger.controllerId || permanent.controller || ''),
+        sourcePermanent: permanent,
+        state: ctx.state,
+      })) {
         continue;
       }
 

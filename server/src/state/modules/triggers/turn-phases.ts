@@ -21,6 +21,14 @@ import { isInterveningIfSatisfied } from "./intervening-if.js";
 import { KNOWN_END_STEP_TRIGGERS } from "./card-data-tables.js";
 import { shouldSkipUntapStepForPlayer } from "../skipUntapStepUtils.js";
 import { stripReminderParentheticals } from "../../../../../rules-engine/src/oracleReminderText.js";
+import { isNoOpOptionalCombatDamagePayLife } from "../../../../../rules-engine/src/oracleIRExecutorCombatDamageCounts.js";
+import {
+  inferDrawStepWhoseTurn,
+  inferEndStepWhoseTurn,
+  inferMainPhaseWhoseTurn,
+  shouldQueuePhaseTriggerForActivePlayer,
+  type PhaseWhoseTurn,
+} from "./phaseWhoseTurn.js";
 
 // ============================================================================
 // Type Definitions for Turn Phase Triggers
@@ -42,6 +50,7 @@ export interface EndStepTrigger {
   modalOptions?: string[];
   affectsAllPlayers?: boolean;
   triggersOnOpponentEndStep?: boolean;  // For cards like Keeper of the Accord
+  whoseTurn?: PhaseWhoseTurn;
 }
 
 export interface DrawStepTrigger {
@@ -62,6 +71,14 @@ export interface UntapStepEffect {
   untapType: 'artifacts' | 'creatures' | 'all' | 'lands' | 'specific';
   onOtherPlayersTurn: boolean;
   onYourTurn: boolean;
+}
+
+function shouldSkipNoOpOptionalCombatDamagePayLife(
+  ctx: GameContext,
+  controllerId: string,
+  effectText: string,
+): boolean {
+  return isNoOpOptionalCombatDamagePayLife((ctx as any).state, controllerId, effectText);
 }
 
 export interface DoesntUntapEffect {
@@ -134,6 +151,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
       mandatory: !effect.toLowerCase().includes('you may'),
       requiresChoice: detectRequiresChoice(effect),
       affectsAllPlayers: false,
+      whoseTurn: 'enchanted_player',
     });
   }
 
@@ -152,6 +170,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
       mandatory: !effect.toLowerCase().includes('you may'),
       requiresChoice: detectRequiresChoice(effect),
       affectsAllPlayers: false,
+      whoseTurn: 'enchanted_player',
     });
   }
 
@@ -170,6 +189,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
       mandatory: !effect.toLowerCase().includes('you may'),
       requiresChoice: detectRequiresChoice(effect),
       affectsAllPlayers: false,
+      whoseTurn: 'monarch',
     });
   }
 
@@ -444,25 +464,25 @@ export function getPrecombatMainTriggers(
       );
       if (ok === false) continue;
 
+      if (!shouldQueuePhaseTriggerForActivePlayer({
+        whose: inferMainPhaseWhoseTurn(oracleText),
+        activePlayerId,
+        controllerId: String(trigger.controllerId || permanent.controller || ''),
+        sourcePermanent: permanent,
+        state: (ctx as any).state,
+      })) {
+        continue;
+      }
       if (
-        trigger.affectsAllPlayers
-        || lowerOracle.includes("each player's first main phase")
-        || lowerOracle.includes('each player')
+        shouldSkipNoOpOptionalCombatDamagePayLife(
+          ctx,
+          String(trigger.controllerId || permanent.controller || ''),
+          String(trigger.effect || trigger.description || oracleText || ''),
+        )
       ) {
-        triggers.push(trigger);
         continue;
       }
-
-      if (lowerOracle.includes('each of your main phases')) {
-        if (permanent.controller === activePlayerId) {
-          triggers.push(trigger);
-        }
-        continue;
-      }
-
-      if (permanent.controller === activePlayerId) {
-        triggers.push(trigger);
-      }
+      triggers.push(trigger);
     }
   }
 
@@ -581,14 +601,25 @@ export function getPostcombatMainTriggers(
       );
       if (ok === false) continue;
 
-      if (trigger.affectsAllPlayers || lowerOracle.includes('each postcombat main phase')) {
-        triggers.push(trigger);
+      if (!shouldQueuePhaseTriggerForActivePlayer({
+        whose: inferMainPhaseWhoseTurn(oracleText),
+        activePlayerId,
+        controllerId: String(trigger.controllerId || permanent.controller || ''),
+        sourcePermanent: permanent,
+        state: (ctx as any).state,
+      })) {
         continue;
       }
-
-      if (permanent.controller === activePlayerId) {
-        triggers.push(trigger);
+      if (
+        shouldSkipNoOpOptionalCombatDamagePayLife(
+          ctx,
+          String(trigger.controllerId || permanent.controller || ''),
+          String(trigger.effect || trigger.description || oracleText || ''),
+        )
+      ) {
+        continue;
       }
+      triggers.push(trigger);
     }
   }
 
@@ -689,32 +720,17 @@ export function getEndStepTriggers(
           : undefined
       );
       if (ok === false) continue;
-      
-      // Check for "each opponent's end step" triggers (Keeper of the Accord style)
-      // These trigger when it's an OPPONENT's end step, not the controller's
-      // Handle both straight (') and curly (') apostrophes
-      if (trigger.triggersOnOpponentEndStep || 
-          lowerOracle.includes("each opponent's end step") || 
-          lowerOracle.includes("each opponent's end step")) {
-        // Triggers if the active player (whose end step it is) is NOT the controller
-        if (permanent.controller !== activePlayerId) {
-          triggers.push(trigger);
-        }
+
+      if (!shouldQueuePhaseTriggerForActivePlayer({
+        whose: inferEndStepWhoseTurn(trigger, oracleText),
+        activePlayerId,
+        controllerId: String(trigger.controllerId || permanent.controller || ''),
+        sourcePermanent: permanent,
+        state: (ctx as any).state,
+      })) {
+        continue;
       }
-      // "At the beginning of your end step" - only for controller
-      else if (lowerOracle.includes('your end step')) {
-        if (permanent.controller === activePlayerId) {
-          triggers.push(trigger);
-        }
-      }
-      // "At the beginning of each end step" - triggers regardless of whose turn
-      else if (lowerOracle.includes('each end step')) {
-        triggers.push(trigger);
-      }
-      // Default: assume "your end step" if not specified
-      else if (permanent.controller === activePlayerId) {
-        triggers.push(trigger);
-      }
+      triggers.push(trigger);
     }
   }
   
@@ -766,7 +782,7 @@ export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigg
   const controllerId = permanent?.controller || "";
 
   const lowerOracle = oracleText.toLowerCase();
-  const hasExplicitDrawStepTrigger = /at the beginning of (?:your|each(?: player's)?) draw step/i.test(oracleText);
+  const hasExplicitDrawStepTrigger = /at the beginning of (?:your|each(?: player's)?|each opponent's|enchanted player's) draw step/i.test(oracleText);
   if (
     !hasExplicitDrawStepTrigger &&
     lowerOracle.includes('draw') &&
@@ -822,6 +838,38 @@ export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigg
     }
   }
 
+  const opponentDrawMatch = oracleText.match(/at the beginning of each opponent's draw step,?\s*([^.]+)/i);
+  if (opponentDrawMatch) {
+    const effect = timingTriggerEffect(oracleText, opponentDrawMatch);
+    if (!isAdditionalDrawOnlyEffect(effect)) {
+      triggers.push({
+        permanentId,
+        cardName: card?.name || 'Unknown',
+        controllerId,
+        description: effect,
+        effect,
+        mandatory: !/\byou may\b/i.test(effect),
+      });
+    }
+  }
+
+  const enchantedPlayerDrawMatch = oracleText.match(
+    /at the beginning of enchanted player's draw step,?\s*([^.]+)/i,
+  );
+  if (enchantedPlayerDrawMatch) {
+    const effect = timingTriggerEffect(oracleText, enchantedPlayerDrawMatch);
+    if (!isAdditionalDrawOnlyEffect(effect)) {
+      triggers.push({
+        permanentId,
+        cardName: card?.name || 'Unknown',
+        controllerId,
+        description: effect,
+        effect,
+        mandatory: !/\byou may\b/i.test(effect),
+      });
+    }
+  }
+
   return triggers;
 }
 
@@ -872,16 +920,17 @@ export function getDrawStepTriggers(
           : undefined
       );
       if (ok === false) continue;
-      
-      if (lowerOracle.includes('your draw step')) {
-        if (permanent.controller === activePlayerId) {
-          triggers.push(trigger);
-        }
-      } else if (lowerOracle.includes('each player')) {
-        triggers.push(trigger);
-      } else if (permanent.controller === activePlayerId) {
-        triggers.push(trigger);
+
+      if (!shouldQueuePhaseTriggerForActivePlayer({
+        whose: inferDrawStepWhoseTurn(permanent.card.oracle_text || ''),
+        activePlayerId,
+        controllerId: String(trigger.controllerId || permanent.controller || ''),
+        sourcePermanent: permanent,
+        state: (ctx as any).state,
+      })) {
+        continue;
       }
+      triggers.push(trigger);
     }
   }
   

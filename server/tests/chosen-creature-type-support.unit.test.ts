@@ -75,12 +75,14 @@ describe('chosen creature type infrastructure', () => {
       anotherOnly: true,
       nontokenOnly: false,
       mandatory: true,
+      subjectKind: 'creature',
     });
     expect(parseChosenTypeCreatureEtbTrigger(molten)?.effect).toContain("create a token that's a copy of that creature");
     expect(parseChosenTypeCreatureEtbTrigger(molten)).toMatchObject({
       anotherOnly: false,
       nontokenOnly: true,
       mandatory: true,
+      subjectKind: 'creature',
     });
 
     const pretenderTriggers = detectETBTriggers(
@@ -94,6 +96,22 @@ describe('chosen creature type infrastructure', () => {
       { id: 'echoes_1', controller: 'p1', chosenCreatureType: 'Goblin' },
     );
     expect(echoesTriggers.some((trigger) => trigger.triggerType === 'chosen_type_creature_etb')).toBe(true);
+
+    const pennant =
+      'As this artifact enters, choose Elemental, Elf, Faerie, Giant, Goblin, Kithkin, Merfolk, or Treefolk.\n'
+      + 'Whenever a permanent you control of the chosen type enters, you gain 1 life.';
+    expect(parseChosenTypeCreatureEtbTrigger(pennant)).toMatchObject({
+      effect: 'you gain 1 life',
+      subjectKind: 'permanent',
+      anotherOnly: false,
+      nontokenOnly: false,
+      mandatory: true,
+    });
+    const pennantTriggers = detectETBTriggers(
+      { name: 'Dawn-Blessed Pennant', oracle_text: pennant },
+      { id: 'pennant_1', controller: 'p1', chosenCreatureType: 'Elf' },
+    );
+    expect(pennantTriggers.some((trigger) => trigger.triggerType === 'chosen_type_creature_etb')).toBe(true);
   });
 
   it('parses behold chosen-type additional costs and excludes them from resolve-time choices', () => {

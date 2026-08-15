@@ -5,6 +5,7 @@ import { appendEvent } from '../../db/index.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { uid, cardManaValue, getActualPowerToughness } from '../utils.js';
 import { getETBTriggersForPermanent } from './triggered-abilities.js';
+import { isFaceUpTriggerType } from './triggerEmissionFamilyUtils.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
 import { orderTriggersByAPNAP } from './triggers/ordering.js';
 import { stampPermanentControlEntryForEcho } from './upkeep-triggers.js';
@@ -57,8 +58,17 @@ export function shouldQueueChosenTypeCreatureEtbTrigger(
   isToken: boolean,
   isCreature: boolean,
 ): boolean {
-  if (!isCreature || !enteringPermanent) return false;
+  if (!enteringPermanent) return false;
+  const subjectKind = String((trigger as any)?.subjectKind || 'creature').trim().toLowerCase();
+  // Permanent chosen-type ETBs (Pennant / Torque) fire for any permanent with the type;
+  // creature chosen-type ETBs still require a creature.
+  if (subjectKind !== 'permanent' && !isCreature) return false;
   if ((trigger as any)?.nontokenOnly && isToken) return false;
+  if ((trigger as any)?.anotherOnly) {
+    const sourceId = String(sourcePermanent?.id || '').trim();
+    const enteringId = String(enteringPermanent?.id || '').trim();
+    if (sourceId && enteringId && sourceId === enteringId) return false;
+  }
   const chosenType = String(sourcePermanent?.chosenCreatureType || '').trim();
   if (!chosenType) return false;
   const triggerController = String(sourcePermanent?.controller || enteringController || '');
@@ -71,6 +81,7 @@ export const TYPED_PERMANENT_ETB_REQUIRED_TYPE: Record<string, string> = {
   enchantment_etb: 'enchantment',
   artifact_etb: 'artifact',
   equipment_etb: 'equipment',
+  planeswalker_etb: 'planeswalker',
 };
 
 export function isTypedPermanentEtbTrigger(triggerType: string): boolean {
@@ -364,6 +375,7 @@ export function queueSelfETBTriggersForPermanent(
 
   const selfETBTriggerTypes = new Set([
     'etb',
+    'self_enters_or_attacks',
     'etb_modal_choice',
     'job_select',
     'living_weapon',
@@ -381,6 +393,9 @@ export function queueSelfETBTriggersForPermanent(
     const triggerAny = trigger as any;
     const triggerType = String((trigger as any)?.triggerType || '').trim();
     const isExplicitSelfETB = selfETBTriggerTypes.has(triggerType);
+    if (isFaceUpTriggerType(triggerType) || triggerType === 'job_select' || triggerType === 'living_weapon') {
+      continue;
+    }
     const isKnownExternalETB =
       triggerType === 'permanent_etb' ||
       triggerType === 'creature_etb' ||

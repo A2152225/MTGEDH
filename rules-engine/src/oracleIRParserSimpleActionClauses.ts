@@ -13,7 +13,7 @@ import { normalizeClauseForParse, normalizeOracleText, parseObjectSelector, pars
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
 const PLAYER_SUBJECT_PREFIX =
-  "(?:(you|each player|each other player|each opponent|each friend|each of those opponents|any number of target opponents|any number of target players other than that player|any number of target players|each of that player's opponents|enchanted player|target player|target opponent|that player|that opponent|that attacking player|an opponent|the opponent|the player|attacking player|defending player|the defending player|the attacking player|the controller of those creatures|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
+  "(?:(you|each player|each other player|each opponent|each friend|each of those players|each of those opponents|any number of target opponents|any number of target players other than that player|any number of target players|each of that player's opponents|enchanted player|target player|target opponent|that player|that opponent|that attacking player|an opponent|the opponent|the player|attacking player|defending player|the defending player|the attacking player|the controller of those creatures|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
 
 const DRAW_AMOUNT_WORD_PATTERN = '(?:that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
 const COUNTER_AMOUNT_PATTERN = '(?:a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
@@ -89,6 +89,10 @@ function parseAddManaAmountExpression(
   if (!normalized) return null;
 
   switch (normalized) {
+    case 'its power':
+    case "this creature's power":
+    case "this permanent's power":
+      return { kind: 'object_stat', subject: 'it', stat: 'power' };
     case "this permanent's toughness":
       return { kind: 'object_stat', subject: 'it', stat: 'toughness' };
     case 'the greatest power among creatures you control':
@@ -238,6 +242,24 @@ export function tryParseSimpleActionClause(args: {
   const clause = recoverTruncatedActionClause(args.clause);
   const rawClause = args.rawClause;
   const { withMeta } = args;
+
+  {
+    // "Tap the creature, remove it from combat, and creatures it was blocking
+    // that had become blocked by only that creature this combat become unblocked."
+    // The target was selected by an antecedent action, so preserve the contextual
+    // creature reference for the executor instead of re-targeting.
+    const removeFromCombat = clause.match(
+      /^(?:tap|untap)\s+(?:the|that)\s+creature,\s*remove it from combat(?:,\s*and\s*creatures it was blocking that had become blocked by only that creature this combat become unblocked)?\.?$/i,
+    );
+    if (removeFromCombat) {
+      return withMeta({
+        kind: 'remove_from_combat',
+        target: parseObjectSelector('that creature'),
+        unblockCreaturesBlockedOnlyByIt: /become unblocked/i.test(clause),
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
 
   {
     if (/^redistribute any number of players(?:'|'|') life totals\.?$/i.test(clause)) {
@@ -521,6 +543,42 @@ export function tryParseSimpleActionClause(args: {
       }
     }
 
+    // Omnath, Locus of All: "add three mana in any combination of its colors"
+    const addCombinationOfItsColors = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}adds?\\s+(a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\\s+mana\\s+in\\s+any\\s+combination\\s+of\\s+its\\s+colors$`,
+        'i',
+      ),
+    );
+    if (addCombinationOfItsColors) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addCombinationOfItsColors[1]),
+        mana: '{C}',
+        amount: parseQuantity(String(addCombinationOfItsColors[2] || '').trim()),
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        manaOptionsScope: 'referenced_permanent_colors',
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const subjectlessAddCombinationOfItsColors = clause.match(
+      /^adds?\s+(a|an|\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\s+mana\s+in\s+any\s+combination\s+of\s+its\s+colors$/i,
+    );
+    if (subjectlessAddCombinationOfItsColors) {
+      return withMeta({
+        kind: 'add_mana',
+        who: { kind: 'you' },
+        mana: '{C}',
+        amount: parseQuantity(String(subjectlessAddCombinationOfItsColors[1] || '').trim()),
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        manaOptionsScope: 'referenced_permanent_colors',
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
     const skipNextTurn = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}skip(?:s)?\\s+(?:your|their|his or her)\\s+next\\s+turn$`, 'i'));
     if (skipNextTurn) {
       return withMeta({
@@ -567,6 +625,29 @@ export function tryParseSimpleActionClause(args: {
         target: parseObjectSelector('the spell or ability'),
         newTarget: parseObjectSelector(String(contextualChangeTarget[1] || '').trim()),
         optional: /^you\s+may\s+/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+
+    const reselectAtRandom = clause.match(
+      /^reselect\s+(?:the\s+|its\s+)?targets?\s+at\s+random(?:\s+for\s+(.+))?$/i
+    );
+    if (reselectAtRandom) {
+      return withMeta({
+        kind: 'change_target',
+        target: parseObjectSelector(String(reselectAtRandom[1] || 'it').trim()),
+        newTarget: parseObjectSelector('at random'),
+        random: true,
+        raw: rawClause,
+      });
+    }
+
+    const newTargetsCantBe = clause.match(/^the\s+new\s+targets?\s+can(?:'|’)t\s+be\s+(.+)$/i);
+    if (newTargetsCantBe) {
+      return withMeta({
+        kind: 'change_target',
+        target: parseObjectSelector('it'),
+        exclude: parseObjectSelector(String(newTargetsCantBe[1] || '').trim()),
         raw: rawClause,
       });
     }
@@ -829,6 +910,22 @@ export function tryParseSimpleActionClause(args: {
         raw: rawClause,
         });
     }
+
+    // Parallel Thoughts: "Shuffle that pile and put it back on top of your library."
+    const shufflePileOntoLibrary = clause.match(
+      /^shuffle that pile and put it back on top of (?:your|their|his or her) library$/i,
+    );
+    if (shufflePileOntoLibrary) {
+      return withMeta({
+        kind: 'move_zone',
+        what: parseObjectSelector('that pile'),
+        to: 'library',
+        toRaw: 'on top of your library',
+        libraryPlacement: 'top',
+        order: 'random',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
   }
 
   {
@@ -903,6 +1000,36 @@ export function tryParseSimpleActionClause(args: {
         manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
         raw: rawClause,
         });
+    }
+
+    const addThatMuchAnyColor = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+that\\s+much\\s+mana\\s+of\\s+any(?:\\s+one)?\\s+color\\s*$`, 'i')
+    );
+    if (addThatMuchAnyColor) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addThatMuchAnyColor[1]),
+        mana: '{W}',
+        amount: { kind: 'reference_amount', raw: 'that much' },
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addThatMuchAnyColorDefault = clause.match(
+      /^add\s+that\s+much\s+mana\s+of\s+any(?:\s+one)?\s+color\s*$/i
+    );
+    if (addThatMuchAnyColorDefault) {
+      return withMeta({
+        kind: 'add_mana',
+        who: { kind: 'you' },
+        mana: '{W}',
+        amount: { kind: 'reference_amount', raw: 'that much' },
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
     }
 
     const signedArtBoxMana = clause.match(/^add one mana of any color signed in this card's art box by someone who has illustrated a printed magic card\.?$/i);
@@ -3784,9 +3911,8 @@ export function tryParseSimpleActionClause(args: {
       /^transform\s+(this\s+(?:land|creature|permanent|enchantment|artifact|equipment)|.+?)(?:[.]\s*.*)?$/i
     );
     if (transformMatch) {
-      const targetText = /^this\s+/i.test(String(transformMatch[1] || '').trim())
-        ? String(transformMatch[1] || 'this creature').trim()
-        : 'this creature';
+      const captured = String(transformMatch[1] || '').trim();
+      const targetText = /^this\s+/i.test(captured) ? captured : 'this permanent';
       return withMeta({
         kind: 'turn_face_up',
         target: parseObjectSelector(targetText),
@@ -4225,6 +4351,35 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
+    // Vanish into Memory: "discard cards equal to that creature's toughness"
+    const discardEqualToCreatureStat = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?discards?\\s+cards\\s+equal\\s+to\\s+(that\\s+creature(?:'s|\\u2019s)?\\s+(?:power|toughness)|its\\s+(?:power|toughness))$`,
+        'i',
+      ),
+    );
+    if (discardEqualToCreatureStat) {
+      return withMeta({
+        kind: 'discard',
+        who: parsePlayerSelector(discardEqualToCreatureStat[1]),
+        amount: { kind: 'reference_amount', raw: String(discardEqualToCreatureStat[2] || '').trim() },
+        optional: /\bmay\b/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+
+    const subjectlessDiscardEqualToCreatureStat = clause.match(
+      /^discards?\s+cards\s+equal\s+to\s+(that\s+creature(?:'s|\u2019s)?\s+(?:power|toughness)|its\s+(?:power|toughness))$/i,
+    );
+    if (subjectlessDiscardEqualToCreatureStat) {
+      return withMeta({
+        kind: 'discard',
+        who: { kind: 'you' },
+        amount: { kind: 'reference_amount', raw: String(subjectlessDiscardEqualToCreatureStat[1] || '').trim() },
+        raw: rawClause,
+      });
+    }
+
     const subjectlessDiscardHalf = clause.match(/^(?:then\s+)?discards?\s+half\s+the\s+cards\s+in\s+(?:their|your)\s+hand(?:,\s+rounded\s+(up|down))?$/i);
     if (subjectlessDiscardHalf) {
       return withMeta({
@@ -4411,7 +4566,7 @@ export function tryParseSimpleActionClause(args: {
     const mill = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}mills?\\s+(.+)$`, 'i')
     );
-    if (mill) {
+    if (mill && !/\.\s+\S/.test(String(mill[2] || ''))) {
       return buildMillStepFromClauseParts({
         who: parsePlayerSelector(mill[1]),
         quantityTail: String(mill[2] || '').trim(),
@@ -4432,8 +4587,19 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
+    const optionalYouMill = clause.match(/^you\s+may\s+mill\s+(.+)$/i);
+    if (optionalYouMill && !/\.\s+\S/.test(String(optionalYouMill[1] || ''))) {
+      return buildMillStepFromClauseParts({
+        who: { kind: 'you' },
+        quantityTail: String(optionalYouMill[1] || '').trim(),
+        rawClause,
+        withMeta,
+        optional: true,
+      });
+    }
+
     const millDefault = clause.match(/^mills?\s+(.+)$/i);
-    if (millDefault) {
+    if (millDefault && !/\.\s+\S/.test(String(millDefault[1] || ''))) {
       return buildMillStepFromClauseParts({
         who: { kind: 'you' },
         quantityTail: String(millDefault[1] || '').trim(),

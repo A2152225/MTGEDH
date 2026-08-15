@@ -757,6 +757,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(resolutionHandlersSource.includes("from './triggerLandPlayPromptUtils.js'")).toBe(false);
     expect(stackSource.includes("from './triggerKeywordChoiceUtils.js'")).toBe(true);
     expect(triggerEtbPermanentEffectsSource.includes('export function triggerETBEffectsForPermanent')).toBe(true);
+    expect(triggerEtbPermanentEffectsSource.includes('queueSelfETBTriggersForPermanent(')).toBe(true);
     expect(triggerEtbPermanentEffectsSource.includes('export function queueSupportedETBKeywordChoices')).toBe(true);
     expect(triggerEtbPermanentEffectsSource.includes("from './triggerKeywordChoiceUtils.js'")).toBe(true);
     expect(stackSource.includes("from './triggerEtbPermanentEffects.js'")).toBe(true);
@@ -1195,8 +1196,9 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('getETBTriggersForPermanent(')).toBe(false);
     expect(stackSource.includes('function matchesColorRestriction')).toBe(false);
     expect(stackResolvePermanentEtbTriggerUtilsSource.includes('getETBTriggersForPermanent(')).toBe(true);
-    expect(stackResolvePermanentEtbTriggerUtilsSource.includes('orderTriggersByAPNAP(')).toBe(true);
+    expect(stackResolvePermanentEtbTriggerUtilsSource.includes('triggerETBEffectsForPermanent(')).toBe(true);
     expect(stackResolvePermanentEtbTriggerUtilsSource.includes('job_select')).toBe(true);
+    expect(stackResolvePermanentEtbTriggerUtilsSource.includes('living_weapon')).toBe(true);
     expect(stackResolvePermanentEntryUtilsSource.includes('export function resolvePermanentSpellBattlefieldEntry')).toBe(true);
     expect(stackResolvePermanentSpellOrchestratorUtilsSource.includes('resolvePermanentSpellBattlefieldEntry(ctx')).toBe(true);
     expect(stackSource.includes('resolvePermanentSpellBattlefieldEntry(ctx')).toBe(false);

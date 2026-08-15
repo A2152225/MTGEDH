@@ -570,7 +570,7 @@ export type OracleEffectStep =
       /** Optional mana choices for clauses like "Add {R} or {G}." */
       readonly manaOptions?: readonly string[];
       /** Restricts available choices to the controller's commander color identity. */
-      readonly manaOptionsScope?: 'commander_color_identity';
+      readonly manaOptionsScope?: 'commander_color_identity' | 'referenced_permanent_colors';
       /** Requires an explicit chosen color/mana binding instead of defaulting to the first option. */
       readonly requiresChosenMana?: boolean;
       /** Restricts how the produced mana can be spent. */
@@ -860,6 +860,7 @@ export type OracleEffectStep =
       readonly kind: 'look_choose_from_top';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly selectorText: string;
       readonly destination: 'hand' | 'exile' | 'battlefield';
       readonly reveal?: boolean;
@@ -1174,6 +1175,8 @@ export type OracleEffectStep =
       readonly recipientTarget?: OracleObjectSelector;
       readonly duration: 'this_turn';
       readonly combatOnly?: boolean;
+      /** Leave this much damage (Forcefield: prevent all but N). */
+      readonly leaveAmount?: number;
       /** Restricts legal target sources to those sharing a color with the linked exiled card. */
       readonly sharesColorWithLinkedExiledCard?: boolean;
       readonly optional?: boolean;
@@ -1213,6 +1216,18 @@ export type OracleEffectStep =
       readonly kind: 'tap_or_untap';
       readonly target: OracleObjectSelector;
       readonly mode?: 'tap' | 'untap';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * Removes a creature from combat. When requested, creatures blocked only by
+       * it this combat become unblocked (for effects such as Imprison).
+       */
+      readonly kind: 'remove_from_combat';
+      readonly target: OracleObjectSelector;
+      readonly unblockCreaturesBlockedOnlyByIt?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -1335,7 +1350,8 @@ export type OracleEffectStep =
         | 'your_next_end_step'
         | 'next_upkeep'
         | 'your_next_upkeep'
-        | 'on_event';
+        | 'on_event'
+        | 'when_dealt_damage';
       readonly effect: string;
       /** Parsed metadata for delayed effect text; not executed when scheduling. */
       readonly steps?: readonly OracleEffectStep[];
@@ -1387,6 +1403,10 @@ export type OracleEffectStep =
       readonly kind: 'change_target';
       readonly target: OracleObjectSelector;
       readonly newTarget?: OracleObjectSelector;
+      /** Reselect legal targets at random instead of prompting a player choice. */
+      readonly random?: boolean;
+      /** Targets that must not be chosen (e.g. "you or a permanent you control"). */
+      readonly exclude?: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

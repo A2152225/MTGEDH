@@ -700,6 +700,7 @@ export function parsePlayerSelector(raw: string | undefined): OraclePlayerSelect
   if (s === 'your opponents') return { kind: 'each_opponent' };
   if (s === 'any number of target opponents') return { kind: 'any_number_of_target_opponents' };
   if (s === 'any number of target players' || s === 'any number of target players other than that player') return { kind: 'any_number_of_target_players' };
+  if (s === 'each of those players' || s === 'those players') return { kind: 'any_number_of_target_players' };
   if (isThoseOpponentsSelector(s)) return { kind: 'each_of_those_opponents' };
   if (s === 'target player') return { kind: 'target_player' };
   if (/^target\s+player\s+other\s+than\s+.+?\s+owner$/.test(s)) return { kind: 'target_player' };

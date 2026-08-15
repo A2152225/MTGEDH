@@ -55,6 +55,8 @@ export enum DelayedTriggerTiming {
   WHEN_DIES = 'when_dies',
   /** When a specific permanent dies or is put into exile */
   WHEN_DIES_OR_EXILED = 'when_dies_or_exiled',
+  /** When a specific permanent is dealt damage */
+  WHEN_DEALT_DAMAGE = 'when_dealt_damage',
   /** When the controller loses control of a watched permanent */
   WHEN_CONTROL_LOST = 'when_control_lost',
   /** Until end of turn (expires at cleanup) */
@@ -181,6 +183,7 @@ export function checkDelayedTriggers(
       | 'permanent_left'
       | 'dies'
       | 'dies_or_exiled'
+      | 'dealt_damage'
       | 'control_lost'
       | 'turn_start';
     playerId?: PlayerID;
@@ -188,6 +191,7 @@ export function checkDelayedTriggers(
     permanentId?: string;
     currentTurn?: number;
     eligibleTriggerIds?: ReadonlySet<string>;
+    damageAmount?: number;
   }
 ): {
   triggersToFire: readonly DelayedTriggeredAbility[];
@@ -204,7 +208,8 @@ export function checkDelayedTriggers(
 
     if (
       currentEvent.type === 'cleanup' &&
-      trigger.timing === DelayedTriggerTiming.WHEN_DIES &&
+      (trigger.timing === DelayedTriggerTiming.WHEN_DIES
+        || trigger.timing === DelayedTriggerTiming.WHEN_DEALT_DAMAGE) &&
       Boolean((trigger.effectData as any)?.expireAtEndOfTurn)
     ) {
       continue;
@@ -285,6 +290,15 @@ export function checkDelayedTriggers(
       case DelayedTriggerTiming.WHEN_DIES_OR_EXILED:
         if (
           (currentEvent.type === 'dies' || currentEvent.type === 'dies_or_exiled') &&
+          currentEvent.permanentId === trigger.watchingPermanentId
+        ) {
+          shouldFire = true;
+        }
+        break;
+
+      case DelayedTriggerTiming.WHEN_DEALT_DAMAGE:
+        if (
+          currentEvent.type === 'dealt_damage' &&
           currentEvent.permanentId === trigger.watchingPermanentId
         ) {
           shouldFire = true;
@@ -528,6 +542,38 @@ export function createWhenLeavesTrigger(
 }
 
 /**
+ * Create a repeating "whenever that creature is dealt damage this turn" delayed trigger.
+ */
+export function createWhenDealtDamageThisTurnTrigger(
+  sourceId: string,
+  sourceName: string,
+  controllerId: PlayerID,
+  watchingPermanentId: string,
+  effect: string,
+  currentTurn: number,
+  options: {
+    targets?: string[];
+    eventDataSnapshot?: TriggerEventData;
+  } = {}
+): DelayedTriggeredAbility {
+  return createDelayedTrigger(
+    sourceId,
+    sourceName,
+    controllerId,
+    DelayedTriggerTiming.WHEN_DEALT_DAMAGE,
+    effect,
+    currentTurn,
+    {
+      watchingPermanentId,
+      targets: options.targets || [watchingPermanentId],
+      oneShot: false,
+      effectData: { expireAtEndOfTurn: true },
+      eventDataSnapshot: options.eventDataSnapshot,
+    }
+  );
+}
+
+/**
  * Create an "at the beginning of your next upkeep" delayed trigger
  */
 export function createNextUpkeepTrigger(
@@ -558,5 +604,6 @@ export default {
   createFlickerReturnTrigger,
   createSacrificeAtEndTrigger,
   createWhenLeavesTrigger,
+  createWhenDealtDamageThisTurnTrigger,
   createNextUpkeepTrigger,
 };

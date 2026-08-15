@@ -42,6 +42,13 @@ function clearPreparedStateOnBattlefieldExit(state: any, permanent: any): void {
     return;
   }
 
+  try {
+    const { unpairPermanent } = require('./soulbond.js') as typeof import('./soulbond.js');
+    unpairPermanent(state, permanent);
+  } catch {
+    // best-effort soulbond cleanup
+  }
+
   const hasPreparedState =
     permanent?.prepared === true ||
     permanent?.isPrepared === true ||

@@ -100,6 +100,7 @@ export interface BeginningOfCombatTrigger {
   mandatory: boolean;
   requiresChoice?: boolean;
   createsToken?: boolean;
+  triggerType?: string;
 }
 
 // NOTE: EndStepTrigger and DrawStepTrigger have been moved to turn-phases.ts
