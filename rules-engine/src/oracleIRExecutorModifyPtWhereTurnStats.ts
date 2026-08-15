@@ -151,9 +151,11 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
   {
     const referencedPlayerId = String(
       ctx?.selectorContext?.targetPlayerId
-        || ctx?.selectorContext?.referencedPlayerId
-        || ctx?.selectorContext?.theirPlayerId
+        || ctx?.referencedPlayerId
         || ctx?.selectorContext?.thatPlayerId
+        || ctx?.thatPlayerId
+        || ctx?.selectorContext?.targetOpponentId
+        || ctx?.targetOpponentId
         || '',
     ).trim();
     const playerId = referencedPlayerId || controllerId;

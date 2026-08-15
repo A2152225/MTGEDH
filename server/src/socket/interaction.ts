@@ -64,6 +64,7 @@ import {
 } from "../../../rules-engine/src/stationPermanentUtils.js";
 import { parseStationAbilities } from "../utils/stationParser.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
+import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
 import { isAIPlayer } from "./ai.js";
 import { inferSplitLibrarySearchPlan } from "../../../rules-engine/src/oracleIRSplitLibrarySearch.js";
 import { consumeDelayedSpellCopiesForCast, creatureHasHaste, processHeroicTriggersForTargets, processOpponentSpellCastTriggersForCast, processSpellCastTriggersForCast, recordSpellCastThisTurn, buildAlternateCastSpellManaCost, isGraveyardAlternateCastAbilityId } from "./game-actions.js";
@@ -5016,9 +5017,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     "tapPermanent",
     (payload?: { gameId?: unknown; permanentId?: unknown }) => {
       const gameIdRaw = payload?.gameId;
-      let permanentId = payload?.permanentId;
+      const payloadPermanentId = payload?.permanentId;
 
-      if (!permanentId || typeof permanentId !== 'string') return;
+      if (!payloadPermanentId || typeof payloadPermanentId !== 'string') return;
 
       const ctx = ensureInRoomAndSeated(gameIdRaw);
       if (!ctx) return;
@@ -5026,7 +5027,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const { gameId, game, pid } = ctx;
       const battlefield = getBattlefield(game);
 
-    const resolvedPermanentId = resolveGroupedPermanentRef(game, pid as any, permanentId) || permanentId;
+    const resolvedPermanentId = resolveGroupedPermanentRef(game, pid as any, payloadPermanentId) || payloadPermanentId;
     const permanent = battlefield.find((p: any) => p?.id === resolvedPermanentId && p?.controller === pid);
     if (!permanent) {
       socket.emit("error", {
@@ -5035,7 +5036,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
       return;
     }
-    permanentId = String(permanent.id);
+    const permanentId = String(permanent.id);
     
     if ((permanent as any).tapped) {
       socket.emit("error", {

@@ -263,7 +263,8 @@ function collapseAcceptedOuterMayChoice(program: EffectProgram): EffectProgram {
   const mayIndex = program.steps.findIndex((step) => isOuterOptionalMayChoiceStep(step));
   if (mayIndex < 0) return program;
 
-  const mayBindingKey = String(program.steps[mayIndex]?.bindingKey || '');
+  const mayStep = program.steps[mayIndex];
+  const mayBindingKey = mayStep?.kind === 'choice' ? String(mayStep.bindingKey || '') : '';
   const steps = program.steps
     .filter((_, index) => index !== mayIndex)
     .map((step) => {

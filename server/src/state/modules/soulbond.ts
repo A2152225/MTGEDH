@@ -106,7 +106,9 @@ export function unpairPermanent(state: any, permanentOrId: any): boolean {
 export function reconcileSoulbondPairing(state: any, permanent?: any): number {
   if (!state) return 0;
   const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
-  const byId = new Map(battlefield.map((perm: any) => [String(perm?.id || ''), perm]));
+  const byId = new Map<string, any>(
+    battlefield.map((perm: any) => [String(perm?.id || ''), perm]),
+  );
   let cleared = 0;
 
   const candidates = permanent ? [permanent] : battlefield;

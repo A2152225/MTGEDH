@@ -77,6 +77,55 @@ function evaluateZoneProvenanceCondition(
   return null;
 }
 
+function evaluateSelfCombatEventCondition(
+  conditionLower: string,
+  eventData: TriggerEventData,
+  sourceId?: string,
+): boolean | null {
+  const isSelfAttack = /^(?:this (?:creature|permanent)|it) attacks(?:\b|$)/i.test(conditionLower);
+  const isSelfCombatDamage = /^(?:this (?:creature|permanent)|it) deals combat damage to (?:a|an|each) player(?:\b|$)/i.test(conditionLower);
+  if (!isSelfAttack && !isSelfCombatDamage) return null;
+
+  const normalizedSourceId = String(sourceId || '').trim();
+  const triggeringSourceId = String(eventData.sourceId || '').trim();
+  return Boolean(normalizedSourceId && triggeringSourceId && normalizedSourceId === triggeringSourceId);
+}
+
+function evaluateCommonEventFilter(
+  conditionLower: string,
+  controllerId: string,
+  eventData: TriggerEventData,
+): boolean | null {
+  if (/^an opponent draws (?:a|one) card$/i.test(conditionLower)) {
+    const drawingPlayerId = String(eventData.sourceControllerId || '').trim();
+    return Boolean(drawingPlayerId && drawingPlayerId !== String(controllerId || '').trim());
+  }
+
+  if (/^the beginning of your upkeep$/i.test(conditionLower)) {
+    return String(eventData.sourceControllerId || '').trim() === String(controllerId || '').trim();
+  }
+
+  if (/^a creature you control attacks alone$/i.test(conditionLower)) {
+    const attackingCreatures = (eventData.battlefield || []).filter((permanent: any) => {
+      if (String(permanent?.controllerId || permanent?.controller || '').trim() !== String(controllerId || '').trim()) {
+        return false;
+      }
+      const typeLine = String(permanent?.type_line || permanent?.card?.type_line || '').toLowerCase();
+      return typeLine.includes('creature')
+        && Boolean(permanent?.attacking || permanent?.defendingPlayerId || permanent?.attackingPlayerId);
+    });
+    if (attackingCreatures.length > 0) return attackingCreatures.length === 1;
+    // ATTACKS_ALONE event producers may provide only the lone attacker's
+    // identity/controller rather than a full battlefield snapshot.
+    return Boolean(
+      (eventData.sourceId || eventData.targetPermanentId)
+      && String(eventData.sourceControllerId || '').trim() === String(controllerId || '').trim(),
+    );
+  }
+
+  return null;
+}
+
 function evaluateSelfCastCondition(
   conditionLower: string,
   controllerId: string,
@@ -129,6 +178,14 @@ export function evaluateTriggerCondition(
   }
 
   const conditionLower = condition.toLowerCase().trim();
+  const selfCombatEvent = evaluateSelfCombatEventCondition(conditionLower, eventData, sourceId);
+  if (selfCombatEvent !== null) {
+    return selfCombatEvent;
+  }
+  const commonEventFilter = evaluateCommonEventFilter(conditionLower, controllerId, eventData);
+  if (commonEventFilter !== null) {
+    return commonEventFilter;
+  }
   if (
     conditionLower === 'defending player has the most life or is tied for the most life' ||
     conditionLower === 'the defending player has the most life or is tied for the most life'

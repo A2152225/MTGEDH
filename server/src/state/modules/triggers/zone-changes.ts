@@ -35,6 +35,7 @@ export interface TriggeredAbility {
   manaCost?: string;
   requiresChoice?: boolean;
   nontokenOnly?: boolean;
+  controlledOnly?: boolean;
   colorRestriction?: string;
   creatureOnly?: boolean;
   modalOptions?: string[];

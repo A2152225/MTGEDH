@@ -21,6 +21,7 @@ export type LocalCardLookupSource = 'oracle-cards' | 'AtomicCards';
 
 export interface LocalCardLookupRecord extends ScryfallCardInput {
   legalities?: Record<string, string>;
+  keywords?: readonly string[];
   source: LocalCardLookupSource;
 }
 

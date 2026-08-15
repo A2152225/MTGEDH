@@ -33,8 +33,13 @@ function mergeTokenCharacteristics(
       types: Array.from(new Set([...merged.types, ...fallback.types])),
     };
   }
-  if (quotedAbilities.length === 0) return merged;
-  const abilities = Array.from(new Set([...(merged.abilities || []), ...quotedAbilities]));
+  const abilities = Array.from(
+    new Set([
+      ...(merged.abilities || []),
+      ...(fallback?.abilities || []),
+      ...quotedAbilities,
+    ]),
+  );
   return { ...merged, abilities };
 }
 

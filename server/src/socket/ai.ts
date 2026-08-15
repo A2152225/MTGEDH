@@ -6487,9 +6487,9 @@ function findCastableSpells(
       const timesKicked = Number.isFinite((candidate as any).__aiTimesKicked)
         ? Math.max(0, Math.floor(Number((candidate as any).__aiTimesKicked)))
         : undefined;
-      const cmc = paymentCost
-        ? Number(paymentCost.generic || 0) + Object.values(paymentCost.colors || {}).reduce((sum: number, count: any) => sum + Number(count || 0), 0)
-        : candidate.cost!.generic + Object.values(candidate.cost!.colors).reduce((sum, count) => sum + count, 0);
+      const cmc = getAIParsedManaCostAmount(
+        (paymentCost || candidate.cost) as ParsedManaCost,
+      );
 
       return {
         card: candidate.card,

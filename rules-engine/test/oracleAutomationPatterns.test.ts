@@ -133,8 +133,23 @@ describe('ETB gain life whereX on full card text', () => {
   });
 });
 
+function isCompleteOracleClause(clause: string): boolean {
+  let parentheticalDepth = 0;
+  for (const char of String(clause || '')) {
+    if (char === '(') parentheticalDepth += 1;
+    if (char === ')') parentheticalDepth -= 1;
+    if (parentheticalDepth < 0) return false;
+  }
+  return parentheticalDepth === 0;
+}
+
 function categoryItems(id: string, limit = 30) {
-  return catalog.categories.find(category => category.id === id)?.items.slice(0, limit) ?? [];
+  return (catalog.categories.find(category => category.id === id)?.items ?? [])
+    // The generated catalog predates the JSONL corpus and contains some
+    // truncated parenthetical reminders. They are not executable Oracle
+    // clauses and must not become parser acceptance tests.
+    .filter(item => isCompleteOracleClause(item.clause))
+    .slice(0, limit);
 }
 
 describe('oracle automation scry and surveil category', () => {

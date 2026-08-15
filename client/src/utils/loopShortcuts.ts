@@ -765,7 +765,7 @@ function buildIdSelectionsPayload(
   const validTargetIds = getPromptValidTargetIds(step, view, playerId);
   if (validTargetIds.length === 0) return null;
 
-  const profiles =
+  const profiles: Array<LoopShortcutTargetMatchProfile | undefined> =
     Array.isArray(template.matchProfiles) && template.matchProfiles.length > 0
       ? template.matchProfiles.slice(0, Math.max(0, template.count))
       : Array.from({ length: Math.max(0, template.count) }, () => undefined);

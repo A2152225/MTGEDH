@@ -36,7 +36,11 @@ import {
 } from './state/modules/oracleIrGapTelemetry.js';
 import { evaluateLibrarySearchReplacementEvent } from './state/modules/replacement-effects.js';
 import { millCardsFromLibrary } from './state/modules/triggerLibraryMillUtils.js';
-import { ResolutionQueueManager } from './state/resolution/index.js';
+import {
+  ResolutionQueueManager,
+  ResolutionStepType,
+  type TargetSelectionStep,
+} from './state/resolution/index.js';
 import { debug, debugError, debugWarn } from './utils/debug.js';
 
 export type LiveSoakSetup = 'main' | 'combat' | 'vote_board';
@@ -400,9 +404,9 @@ async function autoCompleteTargetSelection(
   playerId: string,
   errors: LiveSoakCastResult['errors'],
 ) {
-  const pending = (ResolutionQueueManager.getQueue(gameId).steps || []).filter((step: any) => {
+  const pending = (ResolutionQueueManager.getQueue(gameId).steps || []).filter((step): step is TargetSelectionStep => {
     const status = String(step.status || '').toLowerCase();
-    return String(step.type) === 'target_selection'
+    return step.type === ResolutionStepType.TARGET_SELECTION
       && status !== 'completed'
       && status !== 'cancelled';
   });

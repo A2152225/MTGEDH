@@ -87,7 +87,7 @@ export function applyEndCombatPhaseStep(
   nextState = {
     ...(nextState as any),
     phase: GamePhase.POSTCOMBAT_MAIN,
-    step: (GameStep as any).MAIN2 || GameStep.MAIN || 'MAIN2',
+    step: GameStep.MAIN2,
     priorityPasses: 0,
   } as GameState;
 

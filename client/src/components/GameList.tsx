@@ -337,7 +337,7 @@ export default function GameList(props: GameListProps) {
         <div style={{ fontWeight: 600, color: "#e5e5e5", fontSize: 12 }}>Active Games</div>
         <div>
           <button 
-            onClick={fetchGames} 
+            onClick={() => void fetchGames()} 
             disabled={loading}
             style={{
               padding: "3px 10px",

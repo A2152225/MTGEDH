@@ -1385,7 +1385,7 @@ export function exileTopCardsForPlayer(
   }
 
   writePlayerZoneCards(state, playerId, player, 'library', nextLibrary);
-  writePlayerZoneCards(state, playerId, player, 'exile', [...exile, ...exiled]);
+  writePlayerZoneCards(state, playerId, player, 'exile', exile);
   const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...player } : p));
   return {
     state: { ...state, players: updatedPlayers as any },

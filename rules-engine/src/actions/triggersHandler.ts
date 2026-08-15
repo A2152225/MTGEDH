@@ -1001,7 +1001,11 @@ export function checkLandfallTriggers(
     buildResolutionEventDataFromGameState(
       state,
       landPlayerId,
-      buildTriggerEventDataFromPayloads(landPlayerId, options.eventData, { affectedPlayerIds: [landPlayerId] })
+      buildTriggerEventDataFromPayloads(landPlayerId, options.eventData, {
+        affectedPlayerIds: [landPlayerId],
+        sourceControllerId: landPlayerId,
+        permanentTypes: ['land'],
+      })
     ),
     options
   );

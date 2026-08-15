@@ -21,7 +21,7 @@ export interface EnqueueLibrarySearchStepOptions {
   remainderDestination?: string;
   splitDestination?: boolean;
   toBattlefield?: number;
-  toHand?: number;
+  toHand?: number | 'rest';
   entersTapped?: boolean;
   lifeLoss?: number;
   maxTotalManaValue?: number;

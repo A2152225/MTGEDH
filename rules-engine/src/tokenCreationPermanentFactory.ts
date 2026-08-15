@@ -9,6 +9,31 @@ function generateTokenId(): string {
   });
 }
 
+const TOKEN_KEYWORD_NAMES: Record<string, string> = {
+  deathtouch: 'Deathtouch',
+  defender: 'Defender',
+  double_strike: 'Double strike',
+  first_strike: 'First strike',
+  flying: 'Flying',
+  haste: 'Haste',
+  hexproof: 'Hexproof',
+  indestructible: 'Indestructible',
+  lifelink: 'Lifelink',
+  menace: 'Menace',
+  reach: 'Reach',
+  trample: 'Trample',
+  vigilance: 'Vigilance',
+};
+
+function canonicalizeTokenAbility(ability: string): string {
+  const normalized = String(ability || '').trim();
+  const keywordKey = normalized
+    .replace(/[.!]+$/, '')
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  return TOKEN_KEYWORD_NAMES[keywordKey] || normalized;
+}
+
 export function createTokenPermanent(
   characteristics: TokenCharacteristics,
   controllerId: PlayerID,
@@ -30,6 +55,7 @@ export function createTokenPermanent(
     typeLineParts.push('—');
     typeLineParts.push(...characteristics.subtypes);
   }
+  const abilities = characteristics.abilities.map(canonicalizeTokenAbility);
 
   return {
     id: tokenId,
@@ -45,8 +71,8 @@ export function createTokenPermanent(
       id: tokenId,
       name: characteristics.name,
       type_line: typeLineParts.join(' '),
-      oracle_text: characteristics.abilities.join('\n'),
-      keywords: [...characteristics.abilities],
+      oracle_text: abilities.join('\n'),
+      keywords: abilities,
       power: characteristics.power?.toString(),
       toughness: characteristics.toughness?.toString(),
       colors: [...characteristics.colors],

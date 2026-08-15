@@ -3234,17 +3234,22 @@ export function applyMoveZoneStep(
           ctx.selectorContext?.combatOpponentCreatureId ||
           'bf-opponent-creature'
       ).trim();
-    if (step.to === 'hand') {
-      const result = moveBattlefieldPermanentsByIdToOwnersHands(nextState, [targetId]);
-      return finalizeAppliedResult(result);
+    const targetIsOnBattlefield = ((nextState.battlefield || []) as any[]).some(
+      (permanent: any) => String(permanent?.id || '').trim() === targetId,
+    );
+    if (targetIsOnBattlefield) {
+      if (step.to === 'hand') {
+        const result = moveBattlefieldPermanentsByIdToOwnersHands(nextState, [targetId]);
+        return finalizeAppliedResult(result);
+      }
+      const placement = getLibraryPlacement(step) || 'bottom';
+      const result = moveBattlefieldPermanentsByIdToOwnersLibraries(nextState, [targetId], placement || 'bottom');
+      return finalizeAppliedResult({
+        applied: true,
+        state: result.state,
+        log: result.log.length > 0 ? result.log : [`Moved target to library: ${step.raw}`],
+      });
     }
-    const placement = getLibraryPlacement(step) || 'bottom';
-    const result = moveBattlefieldPermanentsByIdToOwnersLibraries(nextState, [targetId], placement || 'bottom');
-    return finalizeAppliedResult({
-      applied: true,
-      state: result.state,
-      log: result.log.length > 0 ? result.log : [`Moved target to library: ${step.raw}`],
-    });
   }
 
   if (parsedAllPermanentsYouOwn && step.to === 'library') {

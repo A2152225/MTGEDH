@@ -97,6 +97,14 @@ export interface InMemoryGame {
   // Event lifecycle
   applyEvent: (e: GameEvent) => void;
   replay?: (events: GameEvent[]) => void;
+  replayAsync?: (
+    events: GameEvent[],
+    options?: {
+      afterEachEvent?: (ctx: unknown, event: GameEvent, index: number) => void;
+      onProgress?: (current: number, total: number) => void;
+      yieldEvery?: number;
+    },
+  ) => Promise<void>;
   reset?: (preservePlayers?: boolean) => void;
   skip?: (playerId: PlayerID) => void;
   unskip?: (playerId: PlayerID) => void;

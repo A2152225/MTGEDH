@@ -177,7 +177,7 @@ export function tryResolveForEachReferenceAmount(
       if (Number.isFinite(Number(ctx.referenceAmount))) {
         return Math.max(0, multiplier * Math.max(0, Math.floor(Number(ctx.referenceAmount))));
       }
-      const hostId = String(ctx.targetPermanentId || ctx.targetCreatureId || ctx.sourcePermanentId || '').trim();
+      const hostId = String(ctx.targetPermanentId || ctx.targetCreatureId || ctx.sourceId || '').trim();
       if (!hostId) return null;
       const counted = (state.battlefield || []).filter((perm: any) => {
         if (String(perm?.controller || '').trim() !== String(controllerId || '').trim()) return false;

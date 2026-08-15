@@ -1440,6 +1440,22 @@ function tokenCharacteristicsToEntryCard(characteristics: {
   readonly isLegendary?: boolean;
   readonly isArtifact?: boolean;
 }): any {
+  const keywordNames: Record<string, string> = {
+    deathtouch: 'Deathtouch',
+    defender: 'Defender',
+    flying: 'Flying',
+    haste: 'Haste',
+    lifelink: 'Lifelink',
+    menace: 'Menace',
+    reach: 'Reach',
+    trample: 'Trample',
+    vigilance: 'Vigilance',
+  };
+  const abilities = (characteristics.abilities || []).map((ability) => {
+    const normalized = String(ability || '').trim();
+    const key = normalized.replace(/[.!]+$/, '').toLowerCase().replace(/\s+/g, '_');
+    return keywordNames[key] || normalized;
+  });
   const cardTypes = [...(characteristics.types || [])];
   if (characteristics.isArtifact && !cardTypes.includes('Artifact')) cardTypes.unshift('Artifact');
   const subtypeText = [...(characteristics.subtypes || [])].join(' ');
@@ -1452,7 +1468,7 @@ function tokenCharacteristicsToEntryCard(characteristics: {
   return {
     name: characteristics.name || 'Token',
     type_line: typeLine,
-    oracle_text: (characteristics.abilities || []).join('\n'),
+    oracle_text: abilities.join('\n'),
   };
 }
 

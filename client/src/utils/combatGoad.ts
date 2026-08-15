@@ -3,12 +3,16 @@
  * Server remains authoritative (Rule 701.15 / 701.38).
  */
 
-export function getPermanentGoaders(perm: {
+type GoadedPermanentLike = {
   goadedBy?: unknown;
   goaded?: unknown;
   isStaticallyGoaded?: unknown;
   staticGoadedBy?: unknown;
-} | null | undefined): string[] {
+  mustAttackEachCombat?: unknown;
+  mustAttack?: unknown;
+};
+
+export function getPermanentGoaders(perm: GoadedPermanentLike | null | undefined): string[] {
   const goaders: string[] = [];
   const add = (id: unknown) => {
     const normalized = String(id || '').trim();
@@ -36,24 +40,12 @@ export function getPermanentGoaders(perm: {
   return goaders;
 }
 
-export function isPermanentGoaded(perm: {
-  goadedBy?: unknown;
-  goaded?: unknown;
-  isStaticallyGoaded?: unknown;
-  staticGoadedBy?: unknown;
-} | null | undefined): boolean {
+export function isPermanentGoaded(perm: GoadedPermanentLike | null | undefined): boolean {
   if (perm?.isStaticallyGoaded) return true;
   return getPermanentGoaders(perm).length > 0;
 }
 
-export function permanentMustAttackIfAble(perm: {
-  goadedBy?: unknown;
-  goaded?: unknown;
-  isStaticallyGoaded?: unknown;
-  staticGoadedBy?: unknown;
-  mustAttackEachCombat?: unknown;
-  mustAttack?: unknown;
-} | null | undefined): boolean {
+export function permanentMustAttackIfAble(perm: GoadedPermanentLike | null | undefined): boolean {
   return isPermanentGoaded(perm) || Boolean(perm?.mustAttackEachCombat) || Boolean(perm?.mustAttack);
 }
 

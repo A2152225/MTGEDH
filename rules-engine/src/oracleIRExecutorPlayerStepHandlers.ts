@@ -3,7 +3,6 @@ import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
 import type { OracleClauseCondition, OracleEffectStep, OracleObjectSelector, OracleQuantity } from './oracleIR';
 import { createCustomEmblem } from './emblemSupport';
 import type { OracleIRExecutionContext, OracleIRExecutionOptions } from './oracleIRExecutionTypes';
-import type { OracleIRReplayMutation } from './oracleIRReplayMutations';
 import { omitBridgedStepCarryOver, usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
 import {
   buildDiscardEffectReplayMutationsFromCards,
@@ -606,7 +605,8 @@ type StepSkipResult = {
     | 'player_choice_required'
     | 'impossible_action'
     | 'failed_to_apply'
-    | 'invalid_input';
+    | 'invalid_input'
+    | 'no_deterministic_target';
   readonly state?: GameState;
   readonly options?: {
     readonly classification?: 'ambiguous' | 'player_choice' | 'invalid_input';

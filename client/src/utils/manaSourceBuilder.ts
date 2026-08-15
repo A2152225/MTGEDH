@@ -532,7 +532,7 @@ function getInlineSelectedPaymentAbilities(perm: BattlefieldPermanent): InlineSe
   const chosenTypes = getEffectiveBasicLandTypes(perm as any);
   const manaColors = chosenTypes
     .map((landType) => manaColorForBasicLandType(landType))
-    .filter((color): color is ManaColor => Boolean(color));
+    .filter((color): color is Exclude<ManaColor, 'C'> => color !== null);
   if (manaColors.length === 0) return combined;
 
   const symbols = manaColors.map((color) => `{${color}}`).join(' or ');

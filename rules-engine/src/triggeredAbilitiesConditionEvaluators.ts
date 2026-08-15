@@ -463,15 +463,21 @@ export function evaluateControlledPermanentEntersCondition(
   const underYourControl = normalized.match(
     /^(?:a|an)\s+([a-z][a-z -]*)\s+enters(?:\s+the\s+battlefield)?\s+under\s+your\s+control$/,
   );
-  const match = youControlEnters || underYourControl;
+  const bareEnters = normalized.match(
+    /^(?:a|an)\s+([a-z][a-z -]*)\s+enters(?:\s+the\s+battlefield)?$/,
+  );
+  const match = youControlEnters || underYourControl || bareEnters;
   if (!match) {
     return null;
   }
 
   const anotherOnly = /^another\s+/.test(normalized);
-  const enteringPermanentId = String(eventData.targetPermanentId || eventData.sourceId || '').trim();
+  const enteringPermanentId = String(eventData.sourceId || eventData.targetPermanentId || '').trim();
   const normalizedSourceId = String(sourceId || '').trim();
-  if (!enteringPermanentId) return false;
+  const enteringTypes = new Set(
+    (eventData.permanentTypes || []).map(type => String(type || '').trim().toLowerCase()).filter(Boolean),
+  );
+  if (!enteringPermanentId && enteringTypes.size === 0) return false;
   if (
     (anotherOnly || Boolean(underYourControl)) &&
     normalizedSourceId &&
@@ -482,21 +488,23 @@ export function evaluateControlledPermanentEntersCondition(
 
   const battlefield = Array.isArray(eventData.battlefield) ? eventData.battlefield : [];
   const enteringPermanent = battlefield.find(entry => String(entry?.id || '').trim() === enteringPermanentId);
-  if (!enteringPermanent) return false;
-
   const enteringControllerId = String(
-    enteringPermanent.controllerId || eventData.sourceControllerId || controllerId || ''
+    enteringPermanent?.controllerId || eventData.sourceControllerId || controllerId || ''
   ).trim();
-  if (!enteringControllerId || enteringControllerId !== String(controllerId || '').trim()) {
+  if (
+    (youControlEnters || underYourControl) &&
+    (!enteringControllerId || enteringControllerId !== String(controllerId || '').trim())
+  ) {
     return false;
   }
 
   const wantedType = String(match[1] || '').trim().toLowerCase();
   if (!wantedType || wantedType === 'permanent') return true;
 
-  return Boolean(
-    enteringPermanent.types?.some(type => String(type || '').trim().toLowerCase() === wantedType)
-  );
+  const resolvedTypes = enteringPermanent?.types?.length
+    ? enteringPermanent.types.map(type => String(type || '').trim().toLowerCase())
+    : [...enteringTypes];
+  return resolvedTypes.includes(wantedType);
 }
 
 export function evaluateTargetedSpellCastCondition(
@@ -645,7 +653,7 @@ export function evaluateSelfEntersBattlefieldCondition(
     return null;
   }
 
-  const triggeringPermanentId = String(eventData.targetPermanentId || eventData.sourceId || '').trim();
+  const triggeringPermanentId = String(eventData.sourceId || eventData.targetPermanentId || '').trim();
   const normalizedSourceId = String(sourceId || '').trim();
   if (!triggeringPermanentId || !normalizedSourceId || triggeringPermanentId !== normalizedSourceId) {
     return false;
@@ -658,7 +666,10 @@ export function evaluateSelfEntersBattlefieldCondition(
 
   const battlefield = Array.isArray(eventData.battlefield) ? eventData.battlefield : [];
   const triggeringPermanent = battlefield.find(entry => String(entry?.id || '').trim() === triggeringPermanentId);
-  if (!triggeringPermanent) return false;
+  // Some event sources carry only the source and entering ids. Once those
+  // establish a self-entry, lack of an optional battlefield snapshot must not
+  // suppress a keyword's own ETB trigger.
+  if (!triggeringPermanent) return true;
 
   return Boolean(triggeringPermanent.types?.some(type => String(type || '').toLowerCase() === subject));
 }

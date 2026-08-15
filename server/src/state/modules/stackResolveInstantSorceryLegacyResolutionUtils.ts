@@ -62,6 +62,25 @@ export function tryResolveInstantSorceryLegacyResolution(
       resyncPreparedExileCopiesWithControllers(state);
       return true;
     }
+
+    // The primary IR execution has already applied the spell's instructions.
+    // Only zone finalization remains; legacy special cases and body handlers
+    // would otherwise apply the same text a second time.
+    if ((item as any)?.oracleIrDeferredFinalize !== true) {
+      if (finalizeResolvedInstantOrSorceryResolution(ctx, {
+        controller,
+        card,
+        effectiveCard,
+        item,
+        oracleText,
+        oracleTextLower,
+      })) {
+        bumpSeq?.();
+      } else {
+        resyncPreparedExileCopiesWithControllers((ctx as any).state);
+      }
+      return true;
+    }
   }
 
   if ((item as any)?.oracleIrDeferredFinalize === true) {

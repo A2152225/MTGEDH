@@ -1425,7 +1425,7 @@ export function TableLayout(props: {
                             </div>
                             {/* Floating Mana Pool - all seats when they have floating mana */}
                             {(() => {
-                              const seatPool = getSeatManaPool(pb.player.id, isYouThis);
+                              const seatPool = getSeatManaPool(pb.player.id, Boolean(isYouThis));
                               return seatPool && getTotalFloatingMana(seatPool) > 0 ? (
                                 <FloatingManaPool manaPool={seatPool} compact />
                               ) : null;

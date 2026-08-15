@@ -3,6 +3,7 @@
   OracleEffectStep,
   OracleGraveyardAdditionalCost,
   OracleIRAbility,
+  OracleObjectSelector,
   OraclePlayerSelector,
   OracleQuantity,
   OracleScaler,
@@ -617,8 +618,9 @@ function isRepeatThisProcessOncePlaceholder(step: OracleEffectStep): boolean {
     }
     return nested.every(isRepeatThisProcessOncePlaceholder);
   }
-  const effectText = Array.isArray((step as { effectText?: string[] }).effectText)
-    ? (step as { effectText: string[] }).effectText.join(' ')
+  const effectTextProp = (step as { effectText?: readonly string[] }).effectText;
+  const effectText = Array.isArray(effectTextProp)
+    ? effectTextProp.join(' ')
     : '';
   const raw = `${String((step as { raw?: string }).raw || '')} ${effectText}`;
   return /repeat this process once/i.test(raw);
