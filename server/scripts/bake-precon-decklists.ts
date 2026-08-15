@@ -14,6 +14,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { COMMANDER_PRECONS } from '../../shared/src/precons.js';
 import { getPreconWizardsAnnouncementUrl } from '../src/data/preconWizardsUrls.js';
@@ -34,6 +35,10 @@ const MIN_TOTAL = 90;
 const MTGJSON_DECK_LIST_URL = 'https://mtgjson.com/api/v5/DeckList.json';
 const MTGJSON_DECK_URL = (fileName: string) =>
   `https://mtgjson.com/api/v5/decks/${encodeURIComponent(fileName)}.json`;
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(scriptDir, '../..');
+const localMtgJsonDeckListPath = path.join(repoRoot, 'DeckList.json');
+const localMtgJsonDecksDir = path.join(repoRoot, 'AllDeckFiles');
 
 type MtgJsonDeckListEntry = {
   code?: string;
@@ -224,22 +229,30 @@ async function bakeFromWizards(setFilter: Set<string> | null, delayMs: number, f
 }
 
 async function loadMtgJsonCommanderIndex(): Promise<Map<string, MtgJsonDeckListEntry[]>> {
-  const response = await fetch(MTGJSON_DECK_LIST_URL, {
-    headers: { Accept: 'application/json' },
-  });
-  if (!response.ok) {
-    throw new Error(`MTGJSON DeckList error: ${response.status}`);
+  let body: { data?: MtgJsonDeckListEntry[] } | MtgJsonDeckListEntry[];
+  if (fs.existsSync(localMtgJsonDeckListPath)) {
+    console.log(`[mtgjson] loading local DeckList index from ${localMtgJsonDeckListPath}`);
+    body = JSON.parse(fs.readFileSync(localMtgJsonDeckListPath, 'utf8'));
+  } else {
+    const response = await fetch(MTGJSON_DECK_LIST_URL, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) {
+      throw new Error(`MTGJSON DeckList error: ${response.status}`);
+    }
+    body = (await response.json()) as { data?: MtgJsonDeckListEntry[] } | MtgJsonDeckListEntry[];
   }
-  const body = (await response.json()) as { data?: MtgJsonDeckListEntry[] } | MtgJsonDeckListEntry[];
   const entries = Array.isArray(body) ? body : Array.isArray(body.data) ? body.data : [];
   const byName = new Map<string, MtgJsonDeckListEntry[]>();
   for (const entry of entries) {
     if (!/commander/i.test(String(entry.type || ''))) continue;
     const name = String(entry.name || '').trim().toLowerCase();
     if (!name) continue;
-    const list = byName.get(name) || [];
-    list.push(entry);
-    byName.set(name, list);
+    for (const alias of new Set([name, name.replace(/\s+\([^)]*\)\s*$/, '')])) {
+      const list = byName.get(alias) || [];
+      list.push(entry);
+      byName.set(alias, list);
+    }
   }
   return byName;
 }
@@ -261,13 +274,19 @@ function pickMtgJsonEntry(
 }
 
 async function fetchMtgJsonDeckLines(fileName: string): Promise<ParsedLine[]> {
-  const response = await fetch(MTGJSON_DECK_URL(fileName), {
-    headers: { Accept: 'application/json' },
-  });
-  if (!response.ok) {
-    throw new Error(`MTGJSON deck ${fileName} error: ${response.status}`);
+  const localDeckPath = path.join(localMtgJsonDecksDir, `${fileName}.json`);
+  let body: { data?: MtgJsonDeckPayload } | MtgJsonDeckPayload;
+  if (fs.existsSync(localDeckPath)) {
+    body = JSON.parse(fs.readFileSync(localDeckPath, 'utf8'));
+  } else {
+    const response = await fetch(MTGJSON_DECK_URL(fileName), {
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) {
+      throw new Error(`MTGJSON deck ${fileName} error: ${response.status}`);
+    }
+    body = (await response.json()) as { data?: MtgJsonDeckPayload } | MtgJsonDeckPayload;
   }
-  const body = (await response.json()) as { data?: MtgJsonDeckPayload } | MtgJsonDeckPayload;
   const deck = (body as { data?: MtgJsonDeckPayload }).data || (body as MtgJsonDeckPayload);
   return mergeCardLines([...(deck.commander || []), ...(deck.mainBoard || [])]);
 }
@@ -317,8 +336,12 @@ async function bakeFromMtgJson(setFilter: Set<string> | null, delayMs: number, f
       }
       if (
         upsertParsedDeck(setCode, deckName, parsed, {
-          source: 'mtgjson',
-          sourceUrl: MTGJSON_DECK_URL(fileName),
+          source: fs.existsSync(path.join(localMtgJsonDecksDir, `${fileName}.json`))
+            ? 'mtgjson-local'
+            : 'mtgjson',
+          sourceUrl: fs.existsSync(path.join(localMtgJsonDecksDir, `${fileName}.json`))
+            ? `file://${path.join(localMtgJsonDecksDir, `${fileName}.json`)}`
+            : MTGJSON_DECK_URL(fileName),
         })
       ) {
         fetchedDecks += 1;

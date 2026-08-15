@@ -13,10 +13,10 @@ type RefreshPair = {
 };
 
 const refreshPairs: RefreshPair[] = [
-  { source: 'oracle-cards-20260629210229.jsonl', target: 'oracle-cards.jsonl' },
-  { source: 'oracle-cards-20260629210229.json', target: 'oracle-cards.json' },
-  { source: 'AtomicCards (2).json', target: 'AtomicCards.json' },
-  { source: 'rulings-20260629210037.json', target: 'rulings.json' },
+  { source: 'oracle-cards-20260815090155.jsonl', target: 'oracle-cards.jsonl' },
+  { source: 'AtomicCards (1).json', target: 'AtomicCards.json' },
+  { source: 'rulings-20260815090033.jsonl', target: 'rulings.jsonl' },
+  { source: 'Keywords.json', target: 'docs/rules/Keywords_20260815.json' },
 ];
 
 function copyIfNewer(sourceName: string, targetName: string): void {
@@ -48,14 +48,14 @@ for (const pair of refreshPairs) {
   copyIfNewer(pair.source, pair.target);
 }
 
-const rulesSource = path.join(repoRoot, 'MagicCompRules 20260619.txt');
+const rulesSource = path.join(repoRoot, 'MagicCompRules 20260808.txt');
 const rulesTargetDir = path.join(repoRoot, 'docs', 'rules');
-const rulesTarget = path.join(rulesTargetDir, 'MagicCompRules_20260619.txt');
+const rulesTarget = path.join(rulesTargetDir, 'MagicCompRules_20260808.txt');
 if (fs.existsSync(rulesSource)) {
   if (!fs.existsSync(rulesTargetDir)) {
     fs.mkdirSync(rulesTargetDir, { recursive: true });
   }
-  copyIfNewer('MagicCompRules 20260619.txt', path.relative(repoRoot, rulesTarget));
+  copyIfNewer('MagicCompRules 20260808.txt', path.relative(repoRoot, rulesTarget));
 }
 
 console.log('Rebuilding local card lookup database...');

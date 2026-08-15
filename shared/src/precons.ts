@@ -106,7 +106,7 @@ export const COMMANDER_PRECONS: PreconYear[] = [
       },
       {
         name: "Final Fantasy",
-        code: "FIN",
+        code: "FIC",
         decks: [
           { name: "Revival Trance", commanders: ["Terra, Herald of Hope"], colorIdentity: "RWB", decklistUrl: "https://moxfield.com/decks/TdOsPBP3302BdskyLVzU-A" },
           { name: "Limit Break", commanders: ["Cloud, Ex-SOLDIER"], colorIdentity: "RGW", decklistUrl: "https://moxfield.com/decks/xNhT2XmIrkOu2lXb4-vjhg" },

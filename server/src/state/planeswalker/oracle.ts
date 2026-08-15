@@ -40,6 +40,13 @@ function resolveRepoFile(...parts: string[]): string | null {
 
 function loadJsonFile<T>(absolutePath: string): T {
   const raw = fs.readFileSync(absolutePath, "utf8");
+  if (absolutePath.toLowerCase().endsWith(".jsonl")) {
+    return raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => JSON.parse(line)) as T;
+  }
   return JSON.parse(raw) as T;
 }
 
@@ -87,8 +94,10 @@ export function getOracleIndex(): {
 } {
   if (oracleIndex) return oracleIndex;
 
-  const oracleCardsPath = resolveRepoFile("oracle-cards.json");
-  const rulingsPath = resolveRepoFile("rulings.json");
+  const oracleCardsPath =
+    resolveRepoFile("oracle-cards.jsonl") || resolveRepoFile("oracle-cards.json");
+  const rulingsPath =
+    resolveRepoFile("rulings.jsonl") || resolveRepoFile("rulings.json");
 
   const cardsByOracleId = new Map<string, OracleCard>();
   const rulingsByOracleId = new Map<string, OracleRuling[]>();

@@ -20,6 +20,15 @@ oracle-cards.jsonl
 oracle-cards.json.bak
 AtomicCards.json
 AtomicCards.old.json
+rulings.json
+rulings.jsonl
+oracle-cards-*.jsonl
+rulings-*.jsonl
+AtomicCards (*).json
+DeckList.json
+AllDeckFiles/
+Keywords.json
+MagicCompRules *.txt
 /server/scripts/out/
 .mtg_data.db
 mtg_data.db
