@@ -82,6 +82,11 @@ import { detectActivatedAbilityConditionRequirement, type ActivatedAbilityCondit
 import { buildCastFromGraveyardCard, buildGraveyardCastingPermissionId, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { detectAdditionalCost } from "./land-helpers.js";
 import {
+  hasActivatedExhaustAbility,
+  isExhaustAbilityText,
+  markExhaustAbilityActivated,
+} from '../state/modules/keywordActivationState.js';
+import {
   applyPowerUpEnteredThisTurnDiscount,
   applyPowerUpActivationCostReductions,
   hasUsedPowerUpAbility,
@@ -9827,6 +9832,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ? String(activatedLines[selectedAbilityIndex] || '').trim()
         : selectedAbilityFullText;
     })();
+    const isExhaustActivation = isExhaustAbilityText(selectedAbilityOracleLine);
+    if (isExhaustActivation && hasActivatedExhaustAbility(game.state, permanentId, selectedAbilityIndex)) {
+      socket.emit('error', {
+        code: 'EXHAUST_ALREADY_ACTIVATED',
+        message: `That Exhaust ability on ${cardName} has already been activated this turn.`,
+      });
+      return;
+    }
 
     if (
       isSacrificeCreatureOfChosenTypeCost(selectedAbilityFullText)
@@ -13457,10 +13470,26 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ...(isOnceDuringEachOfYourTurnActivatedEffect(oncePerTurnActivatedEffect)
           ? { oncePerTurnActivated: true }
           : null),
+        ...(isExhaustActivation ? { exhaustAbility: true } : null),
       } as any;
       
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
+      if (isExhaustActivation) {
+        markExhaustAbilityActivated(game.state, permanentId, selectedAbilityIndex);
+      }
+
+      try {
+        const triggeredAbilities = triggerAbilityActivatedTriggers(game as any, {
+          activatedBy: pid as any,
+          sourcePermanentId: permanentId as any,
+          isManaAbility: false,
+          abilityText: activatedAbilityTextForStack,
+          stackItemId: stackItem.id,
+          isExhaustAbility: isExhaustActivation,
+        });
+        persistAbilityActivatedTriggerPushes(gameId, game, triggeredAbilities);
+      } catch {}
       
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -14176,6 +14205,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       activatedAbilityText,
       usesStack: !isManaAbility,
       xValue: selectedXValue,
+      activatedAbilityIndex: selectedAbilityIndex,
+      ...(isExhaustActivation ? { exhaustAbility: true } : null),
       tappedPermanents: tappedPermanentsForCost,
       sacrificedPermanents: sacrificedPermanentsForCost,
       removedCountersForCost,

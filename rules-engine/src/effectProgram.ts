@@ -753,6 +753,7 @@ function appendOracleStepToEffectProgram(args: {
   readonly skipTargetStepId?: string;
 }): void {
   const { input, steps, oracleStep, clauseIndex, baseId } = args;
+  const kind = String((oracleStep as any)?.kind || '');
 
   if ((oracleStep as any)?.kind === 'conditional' && Array.isArray((oracleStep as any).steps)) {
     const condition = normalizeInterveningIfCondition((oracleStep as any).condition);
@@ -937,12 +938,15 @@ function appendOracleStepToEffectProgram(args: {
       });
 
       if (oracleChoiceStepNeedsCommandContinuation(oracleStep)) {
+        const commandGuard = kind === 'pay_mana'
+          ? { bindingKey, selectionIncludes: 'yes' as const, onFalse: 'skip' as const }
+          : { bindingKey, cancelledEquals: false, onFalse: 'skip' as const };
         steps.push({
           id: `${baseId}:command`,
           kind: 'command',
           clause,
           raw: oracleStep.raw,
-          guard: { bindingKey, cancelledEquals: false, onFalse: 'skip' },
+          guard: commandGuard,
           command: { kind: 'oracle_ir_step', step: oracleStep },
         });
       }
@@ -996,6 +1000,7 @@ function appendOracleStepToEffectProgram(args: {
     || kind === 'unless_pays_mana'
     || kind === 'unless_pays_life'
     || kind === 'unless_discards'
+    || kind === 'pay_mana'
     || (kind === 'add_mana' && (step as any).requiresChosenMana === true);
   }
 
@@ -1359,6 +1364,20 @@ function buildChoiceRequestPayloadForOracleStep(
       ...(colors.length > 0 ? { colors } : {}),
       minColors: 1,
       maxColors: 1,
+    };
+  }
+
+  if (kind === 'pay_mana') {
+    const manaCost = String((step as any).mana || '').trim();
+    return {
+      ...basePayload,
+      manaCost,
+      options: [
+        { id: 'yes', label: manaCost ? `Pay ${manaCost}` : 'Pay' },
+        { id: 'no', label: 'Decline' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
     };
   }
 

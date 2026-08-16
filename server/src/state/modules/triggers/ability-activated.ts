@@ -16,6 +16,8 @@ export type AbilityActivatedEvent = {
   lifePaidForCost?: number;
   manaFromTreasureSpentKnown?: boolean;
   manaFromTreasureSpent?: boolean;
+  /** True when the activation used the Exhaust keyword action. */
+  isExhaustAbility?: boolean;
 };
 
 export type AbilityActivatedTriggeredStackItem = {
@@ -308,6 +310,7 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
       ...(typeof e.lifePaidForCost === 'number' && e.lifePaidForCost > 0
         ? { lifePaidForCost: e.lifePaidForCost }
         : null),
+      ...(e.isExhaustAbility ? { isExhaustAbility: true } : null),
     });
   } catch {
     // best-effort

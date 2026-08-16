@@ -17,6 +17,7 @@ import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.
 import { applyKeywordTriggerFallbackFromOracle } from './triggerKeywordFallbackUtils.js';
 import { tryApplyPresetTriggerChosenTypeEffects } from './stackExecuteTriggerChosenTypeUtils.js';
 import { applyStackParadigmTrigger, applyStackReboundTrigger } from './stackSpecialTriggerHandlers.js';
+import { processDetectedFirebendingResolvedTriggers } from './triggerEmissionFamilyUtils.js';
 
 /** Retirement triage (D2): tag legacy trigger executions while IR primary is enabled. */
 function recordLegacyTriggerHandled(
@@ -27,6 +28,15 @@ function recordLegacyTriggerHandled(
   legacyHandler?: string,
 ): void {
   recordLegacyTriggerHandlerTelemetry(ctx, sourceName, effectText, handlerFamily, legacyHandler);
+}
+
+function emitFirebendingResolved(ctx: GameContext, controller: PlayerID, triggerItem: any): void {
+  if (String(triggerItem?.triggerType || '').toLowerCase() !== 'firebending') return;
+  processDetectedFirebendingResolvedTriggers(ctx, {
+    playerId: String(controller),
+    sourcePermanentId: String(triggerItem?.permanentId || triggerItem?.source || ''),
+    amount: Number(triggerItem?.value?.amount ?? triggerItem?.effectData?.amount) || undefined,
+  });
 }
 
 export function executeTriggerEffect(
@@ -101,6 +111,7 @@ export function executeTriggerEffect(
   });
   if (triggerIrOutcome.handled) {
     tryApplyRoomDoorStateFromResolvedEffect(ctx, controller, normalizedDescription, triggerItem);
+    emitFirebendingResolved(ctx, controller, triggerItem);
     return;
   }
 

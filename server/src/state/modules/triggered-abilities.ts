@@ -12975,6 +12975,20 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
 
   const castTriggerInfo = detectCastTrigger(oracleText, card?.type_line);
 
+  // Increment: retain the full trigger condition so the common
+  // spell-cast emitter can evaluate it both when triggering and resolving.
+  if (/(?:^|\n)\s*increment\s*(?:\([^)]*\))?\s*(?:\n|$)/i.test(oracleText)) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Whenever you cast a spell, if this permanent is a creature and the amount of mana spent to cast that spell is greater than this creature's power or this creature's toughness, put a +1/+1 counter on this creature.",
+      effect: 'Put a +1/+1 counter on this creature.',
+      spellCondition: 'any',
+      mandatory: true,
+    });
+  }
+
   const playerCastsCommanderOrAttacksMatch = oracleText.match(
     /whenever a player casts their commander or attacks with their commander,?\s*([^.]+)/i,
   );

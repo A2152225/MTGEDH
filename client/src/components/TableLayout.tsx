@@ -281,6 +281,8 @@ export function TableLayout(props: {
   initiative?: PlayerID | null;
   dayNight?: 'day' | 'night' | null;
   cityBlessing?: Record<PlayerID, boolean>;
+  speed?: Record<PlayerID, number>;
+  enduringStory?: Record<PlayerID, boolean>;
   // Game state for activated ability buttons
   priority?: PlayerID | null;
   phase?: string;
@@ -348,7 +350,7 @@ export function TableLayout(props: {
     focusedPlayerId,
     gameId, stackItems, importedCandidates, energyCounters, energy,
     chatView,
-    monarch, initiative, dayNight, cityBlessing,
+    monarch, initiative, dayNight, cityBlessing, speed, enduringStory,
     priority, phase, step, turnPlayer,
     hasThousandYearElixirEffect = false,
     appearanceSettings,
@@ -1342,6 +1344,12 @@ export function TableLayout(props: {
                             }}
                           >
                             <span style={{ fontSize: 14 }}>{pb.player.name}</span>
+                            {speed?.[pb.player.id] !== undefined ? (
+                              <span title="Speed" style={{ fontSize: 12, color: '#fbbf24' }}>🏁 {speed[pb.player.id]}</span>
+                            ) : null}
+                            {enduringStory?.[pb.player.id] ? (
+                              <span title="Enduring story" style={{ fontSize: 12, color: '#c4b5fd' }}>📖 Story</span>
+                            ) : null}
                             {/* Enhanced Counter Display Panel */}
                             <div
                               style={{

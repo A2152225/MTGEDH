@@ -10992,6 +10992,23 @@ function evaluateInterveningIfClauseInternal(
     return spent > pow;
   }
 
+  // Increment: the source must still be a creature, and the exact mana spent
+  // for the triggering spell must exceed either of its current P/T values.
+  if (/^if\s+this\s+permanent\s+is\s+a\s+creature\s+and\s+the\s+amount\s+of\s+mana\s+spent\s+to\s+cast\s+that\s+spell\s+is\s+greater\s+than\s+this\s+creature'?s\s+power\s+or\s+this\s+creature'?s\s+toughness$/i.test(clause)) {
+    const item = getTriggeringStackItemForInterveningIf();
+    const source = sourcePermanent ?? findBattlefieldPermanent(
+      ctx,
+      String((refs as any)?.sourcePermanentId ?? (refs as any)?.thisPermanentId ?? '').trim(),
+    );
+    if (!item || !source) return null;
+    if (!String((source as any)?.card?.type_line || '').toLowerCase().includes('creature')) return false;
+    const spent = sumManaSpentTotal(item);
+    const power = getPermanentPowerMaybe(source, ctx);
+    const toughness = getPermanentToughnessMaybe(source, ctx);
+    if (spent === null || power === null || toughness === null) return null;
+    return spent > power || spent > toughness;
+  }
+
   // "if its additional cost was paid" (deterministic when `...Known` is available; otherwise positive-only)
   if (/^if\s+its\s+additional\s+cost\s+was\s+paid$/i.test(clause)) {
     const item = getTriggeringStackItemForInterveningIf();

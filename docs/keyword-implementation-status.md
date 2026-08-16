@@ -1,11 +1,11 @@
 # Keyword Implementation Status
 
-Generated: 2026-03-26T07:55:26.464Z
+Generated: 2026-08-15 (updated for Heal and Recruit)
 
 ## Keyword Abilities & Actions
 
-- Total keywords: 250 (Abilities: 184, Actions: 66)
-- Status counts: ✅ 250 | 🔶 0 | ❌ 0
+- Total keywords: 252 (Abilities: 184, Actions: 68)
+- Status counts: ✅ 252 | 🔶 0 | ❌ 0
 
 | Keyword | Category | Status | Source |
 |---|---|---|---|
@@ -130,6 +130,7 @@ Generated: 2026-03-26T07:55:26.464Z
 | Harness | Keyword Action | ✅ Fully Implemented | `rules-engine\src\keywordActions\harness.ts` |
 | Haste | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\haste.ts` |
 | Haunt | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\haunt.ts` |
+| Heal | Keyword Action | ✅ Fully Implemented | `rules-engine\src\oracleIRParserSimpleActionClauses.ts` + `oracleIRExecutorBattlefieldStepHandlers.ts` |
 | Hexproof | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\hexproof.ts` |
 | Hidden Agenda | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\hiddenAgenda.ts` |
 | Hideaway | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\hideaway.ts` |
@@ -199,6 +200,7 @@ Generated: 2026-03-26T07:55:26.464Z
 | Regeneration | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\regeneration.ts` |
 | Reinforce | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\reinforce.ts` |
 | Renown | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\renown.ts` |
+| Recruit | Keyword Action | ✅ Fully Implemented | `rules-engine\src\oracleIRParserPostprocess.ts` + discard queue bridge |
 | Replicate | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\replicate.ts` |
 | Retrace | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\retrace.ts` |
 | Reveal | Keyword Action | ✅ Fully Implemented | `rules-engine\src\keywordActions\reveal.ts` |

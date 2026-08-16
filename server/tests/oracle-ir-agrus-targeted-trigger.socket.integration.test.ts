@@ -222,7 +222,7 @@ describe('Oracle IR Agrus targeted trigger socket activation', () => {
 
     game.resolveTopOfStack();
 
-    for (let payPromptIndex = 0; payPromptIndex < 2; payPromptIndex += 1) {
+    for (let payPromptIndex = 0; payPromptIndex < 1; payPromptIndex += 1) {
       const payStep = ResolutionQueueManager.getStepsForPlayer(multiCopyGameId, playerId)[0];
       expect(payStep?.type).toBe(ResolutionStepType.OPTION_CHOICE);
       expect((payStep as any)?.effectProgramPrompt).toBe(true);

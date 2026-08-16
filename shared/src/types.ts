@@ -213,6 +213,8 @@ export interface BattlefieldPermanent {
   owner: PlayerID;
   leaveBattlefieldReplacement?: 'exile';
   tapped?: boolean;
+  /** CR 701.64b designation. It is not copiable and clears when this object leaves the battlefield. */
+  harnessed?: boolean;
   counters?: Readonly<Record<string, number>>;
   basePower?: number;
   baseToughness?: number;
@@ -691,6 +693,14 @@ export interface GameState {
   completedDungeons?: Record<PlayerID, number>;
   dayNight?: 'day' | 'night' | null;
   cityBlessing?: Record<PlayerID, boolean>;
+  /** CR 702.179: players have no speed until an effect or Start Your Engines! gives it to them. */
+  speed?: Record<PlayerID, number>;
+  /** CR 702.179d's inherent trigger can fire at most once each turn for each player. */
+  speedIncreasedThisTurn?: Record<PlayerID, boolean>;
+  /** CR 702.195: permanent player designation granted by Storied. */
+  enduringStory?: Record<PlayerID, boolean>;
+  /** CR 702.177a: each Exhaust ability may be activated only once per turn. */
+  exhaustAbilitiesActivatedThisTurn?: Record<string, boolean>;
   // Mana pool for each player
   manaPool?: Record<PlayerID, ManaPool>;
   // Combat state

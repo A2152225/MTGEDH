@@ -40,6 +40,7 @@ import { canActivateLoyaltyAtInstantSpeed } from "./triggered-abilities.js";
 import { canPayCounterRemovalCost } from "./counter-removal-costs.js";
 import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard, isCardOnAdventureForPlayer } from "./playable-from-exile.js";
 import { getDurableCommandZonePermissionForCard, playerHasDurableLandPlayPermission } from "./durable-permissions";
+import { cardMayBeCastWithMayhem, parseMayhemCost } from './keywordCastMechanics.js';
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -172,7 +173,7 @@ export function getHandCastEvaluationCards(card: any): any[] {
 export type SharedSpellSourceZone = 'hand' | 'graveyard' | 'exile' | 'library';
 export type SharedSpellCandidateMode = 'main' | 'response' | 'sorcery';
 export type SharedSpellCandidatePayability = 'normal' | 'alternate' | 'assumed';
-export type SharedSpellCastMethod = 'normal' | 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize' | 'foretell' | 'playable_from_exile' | 'adventure_creature' | 'graveyard_permanent' | 'graveyard_adventure';
+export type SharedSpellCastMethod = 'normal' | 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize' | 'mayhem' | 'foretell' | 'playable_from_exile' | 'adventure_creature' | 'graveyard_permanent' | 'graveyard_adventure';
 export type SharedLandSourceZone = SharedSpellSourceZone;
 
 export interface SharedSourceGrantedAdditionalCost {
@@ -1335,7 +1336,7 @@ function canUseAlternateCostForSpellCandidate(sourceZone: SharedSpellSourceZone,
   return false;
 }
 
-type GraveyardCastKeyword = 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize';
+type GraveyardCastKeyword = 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize' | 'mayhem';
 
 function getPrintedGraveyardCastKeywordInfo(card: any, keyword: GraveyardCastKeyword): { hasIt: boolean; cost?: string; additionalExileCount?: number } {
   const oracleText = String(card?.oracle_text || card?.oracleText || '');
@@ -1366,6 +1367,11 @@ function getPrintedGraveyardCastKeywordInfo(card: any, keyword: GraveyardCastKey
     };
   }
 
+  if (keyword === 'mayhem') {
+    const mayhemCost = parseMayhemCost(oracleText);
+    return { hasIt: Boolean(mayhemCost), ...(mayhemCost ? { cost: mayhemCost } : {}) };
+  }
+
   const escapeMatch = oracleText.match(/escape\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
   if (!escapeMatch && !/\bescape\b/i.test(oracleText)) return { hasIt: false };
 
@@ -1391,15 +1397,20 @@ function getAvailableGraveyardCastKeywordInfo(
   playerId: PlayerID,
   card: any,
 ): { keyword: GraveyardCastKeyword; cost?: string; additionalExileCount?: number } | undefined {
-  for (const keyword of ['flashback', 'jump-start', 'retrace', 'escape', 'harmonize'] as GraveyardCastKeyword[]) {
+  for (const keyword of ['flashback', 'jump-start', 'retrace', 'escape', 'harmonize', 'mayhem'] as GraveyardCastKeyword[]) {
     const printedInfo = getPrintedGraveyardCastKeywordInfo(card, keyword);
     if (printedInfo.hasIt) {
+      if (keyword === 'mayhem' && !cardMayBeCastWithMayhem((ctx as any).state, playerId, card)) {
+        continue;
+      }
       return { keyword, cost: printedInfo.cost, additionalExileCount: printedInfo.additionalExileCount };
     }
 
-    const grantedInfo = getGrantedCastFromGraveyardKeywordInfo(ctx, playerId, card, keyword);
-    if (grantedInfo.hasIt) {
-      return { keyword, cost: grantedInfo.cost, additionalExileCount: grantedInfo.additionalExileCount };
+    if (keyword !== 'mayhem') {
+      const grantedInfo = getGrantedCastFromGraveyardKeywordInfo(ctx, playerId, card, keyword);
+      if (grantedInfo.hasIt) {
+        return { keyword, cost: grantedInfo.cost, additionalExileCount: grantedInfo.additionalExileCount };
+      }
     }
   }
 

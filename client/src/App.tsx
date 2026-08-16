@@ -3381,6 +3381,7 @@ export function App() {
         const ca = (step as any).costAdjustment as PaymentCostAdjustment | undefined;
         const co = (step as any).convokeOptions;
         const so = (step as any).sneakOptions;
+        const wo = (step as any).webSlingingOptions;
         const isWardPayment = (step as any).wardPayment === true;
 
         setSpellToCast({
@@ -3406,6 +3407,7 @@ export function App() {
           costAdjustment: isWardPayment ? undefined : ca,
           convokeOptions: isWardPayment ? undefined : co,
           sneakOptions: isWardPayment ? undefined : so,
+          webSlingingOptions: isWardPayment ? undefined : wo,
           forcedAlternateCostId: isWardPayment ? undefined : ((step as any).forcedAlternateCostId != null ? String((step as any).forcedAlternateCostId) : undefined),
           preferredAlternateCostId: isWardPayment ? undefined : ((step as any).preferredAlternateCostId != null ? String((step as any).preferredAlternateCostId) : undefined),
           // Track the resolution step id so confirm/cancel responds via the queue.
@@ -4972,6 +4974,7 @@ export function App() {
     xValue?: number,
     convokeTappedCreatures?: string[],
     sneakReturnedCreatureId?: string,
+    webSlingingReturnedCreatureId?: string,
   ) => {
     if (!safeView || !spellToCast) return;
 
@@ -4987,6 +4990,7 @@ export function App() {
           alternateCostId,
           convokeTappedCreatures,
           sneakReturnedCreatureId,
+          webSlingingReturnedCreatureId,
         },
         cancelled: false,
       });
@@ -5020,6 +5024,7 @@ export function App() {
         alternateCostId,
         convokeTappedCreatures,
         sneakReturnedCreatureId,
+        webSlingingReturnedCreatureId,
       };
       socket.emit("completeCastSpell", payload);
     } else {
@@ -5031,6 +5036,7 @@ export function App() {
         xValue,
         alternateCostId,
         sneakReturnedCreatureId,
+        webSlingingReturnedCreatureId,
         convokeTappedCreatures,
       };
       socket.emit("castSpellFromHand", payload);
@@ -6627,6 +6633,8 @@ export function App() {
               poisonCounters={(safeView as any).poisonCounters}
               experienceCounters={(safeView as any).experienceCounters}
               energyCounters={(safeView as any).energyCounters}
+              speed={(safeView as any).speed}
+              enduringStory={(safeView as any).enduringStory}
               showYourHandBelow
               onReorderHand={(order) =>
                 safeView &&
@@ -7993,6 +8001,7 @@ export function App() {
         costAdjustment={spellToCast?.costAdjustment}
         convokeOptions={spellToCast?.convokeOptions}
         sneakOptions={spellToCast?.sneakOptions}
+        webSlingingOptions={(spellToCast as any)?.webSlingingOptions}
         currentStep={String((safeView as any)?.step || '')}
         onConfirm={handleCastSpellConfirm}
         onCancel={handleCastSpellCancel}

@@ -547,7 +547,7 @@ export function parseKeywordAlternateManaCost(
   oracleText: string,
   keyword: string,
 ): string | undefined {
-  const normalizedKeyword = String(keyword || '').trim().toLowerCase();
+  const normalizedKeyword = String(keyword || '').trim().toLowerCase().replace(/_/g, '[-\\s]');
   if (!normalizedKeyword || !oracleText) return undefined;
   const match = oracleText.match(
     new RegExp(`\\b${normalizedKeyword}\\s*(\\{[^}]+\\}(?:\\s*\\{[^}]+\\})*)`, 'i'),

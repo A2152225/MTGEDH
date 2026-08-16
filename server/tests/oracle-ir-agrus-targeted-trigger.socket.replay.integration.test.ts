@@ -177,7 +177,7 @@ describe('Oracle IR Agrus targeted trigger socket replay', () => {
 
     game.resolveTopOfStack();
 
-    for (let payPromptIndex = 0; payPromptIndex < 2; payPromptIndex += 1) {
+    for (let payPromptIndex = 0; payPromptIndex < 1; payPromptIndex += 1) {
       const payStep = ResolutionQueueManager.getStepsForPlayer(gameId, playerId)[0];
       await handlers['submitResolutionResponse']({
         gameId,

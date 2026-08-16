@@ -538,6 +538,7 @@ export function processDetectedAbilityActivatedTriggers(
     abilityText?: string;
     stackItemId?: string;
     lifePaidForCost?: number;
+    isExhaustAbility?: boolean;
   },
 ): any[] {
   if ((ctx as any)?.isReplaying) return [];
@@ -554,16 +555,36 @@ export function processDetectedAbilityActivatedTriggers(
     const detected = detectAbilityActivatedTriggers(permanent.card, permanent);
     for (const trigger of detected) {
       const triggerType = String(trigger.triggerType || '');
-      // Only wire activation-shaped detectors here; exploit/surveil/exhaust are other events.
+      // Only wire activation-shaped detectors here; exploit/surveil are other events.
       if (
         triggerType !== 'opponent_ability_activated'
         && triggerType !== 'opponent_artifact_ability_activated'
         && triggerType !== 'non_mana_ability_activated'
+        && triggerType !== 'exhaust_ability_activated'
+        && triggerType !== 'exhaust_ability_next'
       ) {
         continue;
       }
       if (event.isManaAbility) continue;
       const controllerId = String(permanent.controller || '');
+
+      if (
+        triggerType === 'exhaust_ability_activated'
+        || triggerType === 'exhaust_ability_next'
+      ) {
+        if (!event.isExhaustAbility || String(event.activatedBy) !== controllerId) continue;
+        const enriched = { ...trigger, controllerId };
+        const item = queueGenericTriggeredAbility(ctx, enriched, 'ability_activated', {
+          activatedBy: String(event.activatedBy),
+          sourcePermanentId: String(event.sourcePermanentId),
+          isManaAbility: event.isManaAbility,
+          isExhaustAbility: true,
+          ...(event.abilityText ? { abilityText: event.abilityText } : null),
+          ...(event.stackItemId ? { triggeringStackItemId: String(event.stackItemId) } : null),
+        });
+        if (item) queued.push(item);
+        continue;
+      }
 
       if (
         triggerType === 'opponent_ability_activated'
@@ -593,6 +614,7 @@ export function processDetectedAbilityActivatedTriggers(
           isManaAbility: event.isManaAbility,
           ...(event.abilityText ? { abilityText: event.abilityText } : null),
           ...(event.stackItemId ? { triggeringStackItemId: String(event.stackItemId) } : null),
+          ...(event.isExhaustAbility ? { isExhaustAbility: true } : null),
         });
         if (item) queued.push(item);
         continue;
@@ -646,6 +668,7 @@ export function processDetectedAbilityActivatedTriggers(
             isManaAbility: false,
             ...(event.abilityText ? { abilityText: event.abilityText } : null),
             ...(event.stackItemId ? { triggeringStackItemId: String(event.stackItemId) } : null),
+            ...(event.isExhaustAbility ? { isExhaustAbility: true } : null),
             lifePaidForCost: lifePaid,
             lifeWasPaidToActivateIt: lifePaid > 0,
           },
@@ -659,5 +682,40 @@ export function processDetectedAbilityActivatedTriggers(
       }
     }
   }
+  return queued;
+}
+
+/** Emit the CR 702.189b event only after a Firebending ability resolves. */
+export function processDetectedFirebendingResolvedTriggers(
+  ctx: GameContext,
+  event: { playerId: string; sourcePermanentId?: string; amount?: number },
+): any[] {
+  if ((ctx as any)?.isReplaying) return [];
+  const state = (ctx as any).state;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const queued: any[] = [];
+
+  for (const permanent of battlefield) {
+    const oracle = String(permanent?.card?.oracle_text || '');
+    const match = oracle.match(/whenever\s+(?:a|one or more)\s+player(?:s)?\s+firebends?,?\s*([^.]+)/i);
+    if (!match) continue;
+    const controllerId = String(permanent?.controller || '');
+    if (!controllerId) continue;
+    const effect = String(match[1] || '').trim();
+    const item = queueGenericTriggeredAbility(ctx, {
+      permanentId: String(permanent.id || ''),
+      cardName: String(permanent?.card?.name || 'Triggered ability'),
+      controllerId,
+      description: effect,
+      effect,
+      mandatory: !/\byou may\b/i.test(effect),
+    }, 'firebending_resolved', {
+      firebendingPlayerId: String(event.playerId),
+      ...(event.sourcePermanentId ? { firebendingSourcePermanentId: String(event.sourcePermanentId) } : null),
+      ...(typeof event.amount === 'number' ? { firebendingAmount: event.amount } : null),
+    });
+    if (item) queued.push(item);
+  }
+
   return queued;
 }

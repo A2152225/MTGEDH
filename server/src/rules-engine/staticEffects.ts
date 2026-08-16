@@ -4,6 +4,7 @@ import { sanitizeOracleTextForStaticEffectScan } from '../../../rules-engine/src
 
 import { getTotalManaFromPool } from '../state/modules/mana-check.js';
 import { printedObjectHasManaColor } from '../state/modules/printedColorSymbols.js';
+import { infinityGrantedAbility, maxSpeedGrantedAbility } from '../state/modules/statefulPaperKeywords.js';
 
 /**
  * Lightweight continuous effect scanner.
@@ -345,6 +346,21 @@ export function computeContinuousEffects(
     const oracle = sanitizeOracleTextForStaticEffectScan((source.card as any)?.oracle_text || '').toLowerCase();
     if (!oracle) continue;
     const controller = source.controller;
+    // CR 702.178 / 702.186: these are static abilities that conditionally
+    // grant their following Oracle-text ability to this object.
+    for (const granted of [
+      maxSpeedGrantedAbility(source, state),
+      infinityGrantedAbility(source),
+    ]) {
+      if (!granted) continue;
+      const normalized = granted.toLowerCase();
+      const ownAbilities = permanentAbilities.get(source.id);
+      if (ownAbilities) ownAbilities.add(normalized);
+      if (isCreature(source)) {
+        const ownAggregate = perPermanent.get(source.id);
+        if (ownAggregate) ownAggregate.abilities.add(normalized);
+      }
+    }
     const skipLegacyStatic = Boolean(
       options?.skipDeclarativeStaticForSourceIds?.has(String(source.id || ''))
       || options?.skipDeclarativePtForSourceIds?.has(String(source.id || '')),
@@ -579,7 +595,27 @@ export function computeContinuousEffects(
 
     // Creatures you control have <abilities> (but NOT if it matches "other creatures" already handled above)
     // Only match if the text doesn't say "other creatures" or "legendary creatures"
-    if (!otherCtrlHaveMatch && !youAndOtherMatch) {
+    // "As long as you have an enduring story, [scope] have [abilities]."
+    // The designation is set by the Storied SBA, not by an individual card.
+    const enduringStoryMatch = oracle.match(
+      /as long as you have an enduring story,\s*((?:artifacts and )?creatures) you control have\s+([^.]+)/i,
+    );
+    if (enduringStoryMatch && (state as any).enduringStory?.[controller]) {
+      const includesArtifacts = enduringStoryMatch[1].toLowerCase().includes('artifact');
+      const abilities = resolveGrantedAbilities(source, enduringStoryMatch[2]);
+      for (const perm of state.battlefield) {
+        const typeLine = String((perm.card as any)?.type_line || '').toLowerCase();
+        const applies = perm.controller === controller
+          && (typeLine.includes('creature') || (includesArtifacts && typeLine.includes('artifact')));
+        if (!applies) continue;
+        const targetAbilities = isCreature(perm)
+          ? perPermanent.get(perm.id)!.abilities
+          : permanentAbilities.get(perm.id)!;
+        for (const ability of abilities) targetAbilities.add(ability);
+      }
+    }
+
+    if (!otherCtrlHaveMatch && !youAndOtherMatch && !enduringStoryMatch) {
       const ctrlHaveMatch = oracle.match(/(?<![a-z] )(?<!legendary )(?:all )?creatures you control have ([^.]+)/);
       if (ctrlHaveMatch) {
         const abilities = resolveGrantedAbilities(source, ctrlHaveMatch[1]);

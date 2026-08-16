@@ -237,7 +237,7 @@ function collectTargetedTriggersForTargetedPermanent(
   const controller = String(triggerSource.controller || '').trim() as PlayerID;
   if (!controller) return created;
 
-  created.push(buildTargetedTriggeredStackItem(ctx, triggerSource, controller, effectText, oracleText, event));
+  created.push(buildTargetedTriggeredStackItem(ctx, triggerSource, controller, effectText, effectText, event));
 
   return created;
 }
@@ -277,7 +277,7 @@ function collectObserverTargetedTriggersForTargetedPermanent(
     observerSource,
     controller,
     effectText,
-    oracleText,
+    effectText,
     event,
     { targetedSubjectPermanentId: String(targetedPermanent.id || '').trim() || undefined },
   ));
@@ -314,7 +314,7 @@ function collectAttachmentTargetedTriggersForTargetedPermanent(
     attachmentSource,
     controller,
     effectText,
-    oracleText,
+    effectText,
     event,
     { targetedSubjectPermanentId: String(targetedPermanent.id || '').trim() || undefined },
   ));
@@ -420,7 +420,7 @@ function buildTargetedTriggeredStackItem(
   triggerSource: any,
   controller: PlayerID,
   description: string,
-  fullOracleText: string,
+  effectText: string,
   event: TargetedTriggerSourceEvent,
   options?: { targetedSubjectPermanentId?: string },
 ): TargetedTriggeredStackItem {
@@ -443,7 +443,10 @@ function buildTargetedTriggeredStackItem(
     ...(triggerSourceId ? { permanentId: triggerSourceId } : {}),
     sourceName: String(triggerSource?.card?.name || 'Triggered ability').trim() || 'Triggered ability',
     description,
-    effect: fullOracleText,
+    // Persist the complete triggered-effect clause, never the source's entire
+    // oracle text. The latter prevents Oracle IR from seeing this trigger's
+    // payment/continuation chain during stack resolution.
+    effect: effectText,
     triggerType: 'targeted',
     mandatory: !String(description || '').toLowerCase().includes('you may'),
     triggeringPlayer,

@@ -200,6 +200,27 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
     });
   }
 
+  const mayhemMatch = text.match(/mayhem\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (mayhemMatch) {
+    costs.push({
+      id: 'mayhem',
+      label: 'Mayhem',
+      description: 'Cast from your graveyard if you discarded it this turn',
+      manaCost: mayhemMatch[1],
+    });
+  }
+
+  const webSlingingMatch = text.match(/web-slinging\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (webSlingingMatch) {
+    costs.push({
+      id: 'web_slinging',
+      label: 'Web-slinging',
+      description: 'Return a tapped creature you control to its owner’s hand',
+      manaCost: webSlingingMatch[1],
+      additionalCost: 'Return a tapped creature you control to its owner’s hand',
+    });
+  }
+
   // Warp - cast from hand for warp cost (exile at next end step; may recast from exile)
   const warpMatch = text.match(/warp\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
   if (warpMatch) {
@@ -465,6 +486,7 @@ const GRAVEYARD_ONLY_ALTERNATE_COST_IDS = new Set([
   'unearth',
   'retrace',
   'harmonize',
+  'mayhem',
   'jump-start',
 ]);
 
@@ -593,6 +615,10 @@ interface CastSpellModalProps {
     }>;
     messages: string[];
   };
+  webSlingingOptions?: {
+    availableCreatures: Array<{ id: string; name: string; imageUrl?: string }>;
+    messages: string[];
+  };
   currentStep?: string;
   onConfirm: (
     payment: PaymentItem[],
@@ -600,6 +626,7 @@ interface CastSpellModalProps {
     xValue?: number,
     convokeTappedCreatures?: string[],
     sneakReturnedCreatureId?: string,
+    webSlingingReturnedCreatureId?: string,
   ) => void;
   onCancel: () => void;
 }
@@ -624,6 +651,7 @@ export function CastSpellModal({
   costAdjustment,
   convokeOptions,
   sneakOptions,
+  webSlingingOptions,
   currentStep,
   onConfirm,
   onCancel,
@@ -633,6 +661,7 @@ export function CastSpellModal({
   const [selectedCostId, setSelectedCostId] = useState('normal');
   const [selectedConvokeCreatures, setSelectedConvokeCreatures] = useState<string[]>([]);
   const [selectedSneakCreatureId, setSelectedSneakCreatureId] = useState('');
+  const [selectedWebSlingingCreatureId, setSelectedWebSlingingCreatureId] = useState('');
 
   // When the server forces an alternate cost (e.g., Miracle), lock the selection.
   // Otherwise prefer an eligible free/alternate cost (e.g. Fierce Guardianship with a commander).
@@ -681,9 +710,12 @@ export function CastSpellModal({
     } else if (sneakOptions && sneakOptions.availableCreatures.length === 0) {
       costs = costs.filter((cost) => cost.id !== 'sneak');
     }
+    if (!webSlingingOptions || webSlingingOptions.availableCreatures.length === 0) {
+      costs = costs.filter((cost) => cost.id !== 'web_slinging');
+    }
 
     return filterAlternateCostsForCastZone(costs, castFromZone);
-  }, [oracleText, manaCost, cardName, castFromZone, extraAlternateCosts, currentStep, sneakOptions]);
+  }, [oracleText, manaCost, cardName, castFromZone, extraAlternateCosts, currentStep, sneakOptions, webSlingingOptions]);
 
   // Get the currently selected cost
   const currentCost = useMemo(() => {
@@ -852,6 +884,9 @@ export function CastSpellModal({
     if (effectiveCostId === 'sneak' && !selectedSneakCreatureId) {
       return;
     }
+    if (effectiveCostId === 'web_slinging' && !selectedWebSlingingCreatureId) {
+      return;
+    }
 
     onConfirm(
       finalPayment,
@@ -859,12 +894,14 @@ export function CastSpellModal({
       xValue,
       selectedConvokeCreatures.length > 0 ? selectedConvokeCreatures : undefined,
       effectiveCostId === 'sneak' ? selectedSneakCreatureId : undefined,
+      effectiveCostId === 'web_slinging' ? selectedWebSlingingCreatureId : undefined,
     );
     setPayment([]);
     setXValue(0);
     setSelectedCostId('normal');
     setSelectedConvokeCreatures([]);
     setSelectedSneakCreatureId('');
+    setSelectedWebSlingingCreatureId('');
   };
 
   const handleCancel = () => {
@@ -1118,6 +1155,22 @@ export function CastSpellModal({
                     checked={selectedSneakCreatureId === creature.id}
                     onChange={() => setSelectedSneakCreatureId(creature.id)}
                   />
+                  <span style={{ fontWeight: 500 }}>{creature.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {selectedCostId === 'web_slinging' && webSlingingOptions && webSlingingOptions.availableCreatures.length > 0 && (
+          <div style={{ marginBottom: 12, padding: 12, background: '#1a1a2e', borderRadius: 8, border: '1px solid #334155' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#fbbf24' }}>
+              Return a tapped creature you control
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {webSlingingOptions.availableCreatures.map((creature) => (
+                <label key={creature.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', background: selectedWebSlingingCreatureId === creature.id ? '#2d3748' : 'transparent' }}>
+                  <input type="radio" name="web-slinging-creature" checked={selectedWebSlingingCreatureId === creature.id} onChange={() => setSelectedWebSlingingCreatureId(creature.id)} />
                   <span style={{ fontWeight: 500 }}>{creature.name}</span>
                 </label>
               ))}

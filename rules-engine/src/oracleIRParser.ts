@@ -42,6 +42,7 @@ import {
   lowerAmassReminderAbilities,
   pruneRedundantAmassSubtypeReminderUnknownAbilities,
   lowerConniveKeywordAbilities,
+  lowerRecruitKeywordAbilities,
   lowerDiscoverKeywordAbilities,
   pruneRedundantDiscoverReminderUnknownAbilities,
   expandChoiceUnknownAbilities,
@@ -1802,6 +1803,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = lowerAmassReminderAbilities(abilities);
   abilities = pruneRedundantAmassSubtypeReminderUnknownAbilities(abilities);
   abilities = lowerConniveKeywordAbilities(abilities);
+  abilities = lowerRecruitKeywordAbilities(abilities);
   abilities = lowerDiscoverKeywordAbilities(abilities);
   abilities = pruneRedundantDiscoverReminderUnknownAbilities(abilities);
   abilities = expandKeywordActionUnknownAbilities(abilities);
@@ -2108,6 +2110,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   // Recovery above can reintroduce unknowns after the main residual pass
   // (e.g. multi-sentence aura statics with "instead as long as…" riders).
   abilities = lowerCurrentResidualUnknownAbilities(abilities);
+  abilities = lowerRecruitKeywordAbilities(abilities);
   abilities = expandKeywordActionUnknownAbilities(abilities);
 
   abilities = abilities.reduce<OracleIRAbility[]>((merged, ability) => {

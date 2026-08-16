@@ -9,6 +9,19 @@ export interface PushCardToGraveyardOptions {
   readonly controllerId?: string;
   readonly sourceZone?: ReplacementZone;
   readonly extraFields?: Record<string, unknown>;
+  /** Stamp Mayhem / Jump-start discard provenance onto the graveyard card. */
+  readonly asDiscard?: boolean;
+}
+
+/** Fields required for Mayhem and similar "discarded this turn" eligibility. */
+export function buildDiscardProvenanceFields(
+  state: any,
+  playerId: string,
+): { discardedByPlayerId: string; discardedOnTurn: number } {
+  return {
+    discardedByPlayerId: String(playerId || '').trim(),
+    discardedOnTurn: Number(state?.turnNumber ?? state?.turn ?? 0) || 0,
+  };
 }
 
 /**
@@ -37,9 +50,14 @@ export function pushCardToPlayerGraveyardWithReplacements(
     return false;
   }
 
+  const discardFields = options.asDiscard
+    ? buildDiscardProvenanceFields((ctx as any).state, ownerId)
+    : {};
+
   graveyard.push({
     ...card,
     zone: 'graveyard',
+    ...discardFields,
     ...(options.extraFields || {}),
   });
   recordCardPutIntoGraveyardThisTurn(ctx, ownerId, card, {

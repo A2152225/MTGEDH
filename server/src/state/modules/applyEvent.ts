@@ -14,7 +14,7 @@ import { createContext, type GameContext } from "../context";
 import type { PlayerID, GameEvent } from "../types";
 
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
-import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
+import { pushCardToPlayerGraveyardWithReplacements, buildDiscardProvenanceFields } from "./graveyardEntryUtils.js";
 import {
   repairReplayCardSourceZones,
   repairCardIdAwayFromZones,
@@ -43,6 +43,7 @@ import {
   applyZursWeirdingOpponentChoice,
 } from "./zones";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander";
+import { markExhaustAbilityActivated } from './keywordActivationState.js';
 import { applyArcaneAdaptationToControllerCreatures } from "./chosen-creature-type.js";
 import { applyPermanentBecomeCopyOfTargetPermanent } from "./permanent-copy.js";
 import { pushTriggerDoublerCopies } from "./triggers/combat.js";
@@ -3255,6 +3256,29 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // best-effort only
         }
 
+        // Web-slinging's return-to-hand is a nonmana cost paid before the spell
+        // reaches the stack. Persisted casts carry the exact permanent ID so a
+        // restart/undo never needs to infer a fresh legal selection.
+        try {
+          const alternateCostId = String((e as any).alternateCostId || '').trim().toLowerCase();
+          const returnedCreatureId = String(
+            (e as any).webSlingingReturnedCreatureId
+            || (e as any).card?.webSlingingReturnedCreatureId
+            || '',
+          ).trim();
+          if (alternateCostId === 'web_slinging' && returnedCreatureId) {
+            const stillOnBattlefield = (ctx.state.battlefield || []).some(
+              (permanent: any) => String(permanent?.id || '') === returnedCreatureId,
+            );
+            if (stillOnBattlefield) {
+              movePermanentToHand(ctx as any, returnedCreatureId);
+            }
+          }
+        } catch {
+          // The cast event remains replayable even if an older stream omitted
+          // the selected permanent or an intervening effect already moved it.
+        }
+
         const stackLengthBefore = ctx.state.stack?.length || 0;
 
         // Prefer full card object for replay (contains all card data)
@@ -3499,6 +3523,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               applyToStackItem('surgeCostWasPaid', altLower === 'surge');
               applyToStackItem('madnessCostWasPaid', altLower === 'madness');
               applyToStackItem('spectacleCostWasPaid', altLower === 'spectacle');
+              applyToStackItem('webSlingingCostWasPaid', altLower === 'web_slinging' || (e as any).webSlingingCostWasPaid === true);
+              if (altLower === 'web_slinging' || (e as any).webSlingingCostWasPaid === true) {
+                applyToStackItem('castUsingWebSlinging', true);
+                const returnedId = String(
+                  (e as any).webSlingingReturnedCreatureId
+                  || (e as any).card?.webSlingingReturnedCreatureId
+                  || '',
+                ).trim();
+                if (returnedId) applyToStackItem('webSlingingReturnedCreatureId', returnedId);
+              }
             }
 
             // Mana/payment metadata
@@ -4507,7 +4541,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               if (handIndex === -1) continue;
               const [card] = hand.splice(handIndex, 1);
               pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, card, graveyard, {
-                extraFields: { discardedByPlayerId: playerId },
+                extraFields: {
+                  discardedByPlayerId: playerId,
+                  discardedOnTurn: Number((ctx.state as any)?.turnNumber ?? (ctx.state as any)?.turn ?? 0) || 0,
+                },
               });
               movedCount++;
             }
@@ -7005,7 +7042,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const idx = hand.findIndex((c: any) => c.id === cardId);
             if (idx !== -1) {
               const [card] = hand.splice(idx, 1);
-              pushCardToPlayerGraveyardWithReplacements(ctx as any, String(pid), card, graveyard);
+              pushCardToPlayerGraveyardWithReplacements(ctx as any, String(pid), card, graveyard, {
+                asDiscard: true,
+              });
               discardedCount++;
             }
           }
@@ -7035,6 +7074,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(cleanupDiscard): failed", err);
+        }
+        break;
+      }
+
+      case "increasePlayerSpeed": {
+        try {
+          const playerId = String((e as any).playerId || '').trim();
+          const to = Number((e as any).to);
+          if (!playerId || !Number.isFinite(to) || to < 1) break;
+          const stateAny = ctx.state as any;
+          stateAny.speed = { ...(stateAny.speed || {}), [playerId]: to };
+          stateAny.speedIncreasedThisTurn = { ...(stateAny.speedIncreasedThisTurn || {}), [playerId]: true };
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(increasePlayerSpeed): failed', err);
         }
         break;
       }
@@ -8579,7 +8633,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     const handIndex = (z.hand as any[]).findIndex((entry: any) => entry && String(entry.id) === discardId);
                     if (handIndex === -1) continue;
                     const [discardedCard] = (z.hand as any[]).splice(handIndex, 1);
-                    (z.graveyard as any[]).push({ ...discardedCard, zone: 'graveyard' });
+                    (z.graveyard as any[]).push({
+                      ...discardedCard,
+                      zone: 'graveyard',
+                      ...buildDiscardProvenanceFields(ctx.state, String(playerId)),
+                    });
                   }
                   z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
                   z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : z.graveyardCount;
@@ -8722,10 +8780,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const abilityId = (e as any).abilityId;
           const abilityText = String((e as any).abilityText || '');
           const activatedAbilityText = String((e as any).activatedAbilityText || '');
+          const activatedAbilityIndex = Number((e as any).activatedAbilityIndex);
           const persistedStackItemId = String((e as any).stackItemId || '').trim();
           const persistedTargets = Array.isArray((e as any).targets)
             ? ((e as any).targets as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
             : [];
+
+          if ((e as any).exhaustAbility === true && permId != null && Number.isFinite(activatedAbilityIndex)) {
+            markExhaustAbilityActivated(stateAny, permId, activatedAbilityIndex);
+          }
 
           if (replayGameId && (persistedStackItemId || persistedTargets.length > 0)) {
             clearReplayQueuedSteps(replayGameId, (step: any) => {
@@ -8772,11 +8835,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   const idx = (z.hand as any[]).findIndex((c: any) => c && String(c.id) === id);
                   if (idx === -1) continue;
                   const [card] = (z.hand as any[]).splice(idx, 1);
-                  (z.graveyard as any[]).push({ ...card, zone: 'graveyard' });
+                  (z.graveyard as any[]).push({
+                    ...card,
+                    zone: 'graveyard',
+                    ...buildDiscardProvenanceFields(ctx.state, pid),
+                  });
                 }
 
                 z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
                 z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : z.graveyardCount;
+
+                const stateAny = ctx.state as any;
+                stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
+                stateAny.discardedCardThisTurn[pid] = true;
+                stateAny.anyPlayerDiscardedCardThisTurn = true;
               }
             }
           } catch {
@@ -10052,7 +10124,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     const handIndex = (z.hand as any[]).findIndex((entry: any) => entry && String(entry.id) === discardId);
                     if (handIndex === -1) continue;
                     const [discardedCard] = (z.hand as any[]).splice(handIndex, 1);
-                    (z.graveyard as any[]).push({ ...discardedCard, zone: 'graveyard' });
+                    (z.graveyard as any[]).push({
+                      ...discardedCard,
+                      zone: 'graveyard',
+                      ...buildDiscardProvenanceFields(ctx.state, String(pid)),
+                    });
                   }
                   z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
                   z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : z.graveyardCount;
@@ -10115,7 +10191,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     const handIndex = (z.hand as any[]).findIndex((entry: any) => entry && String(entry.id) === discardId);
                     if (handIndex === -1) continue;
                     const [discardedCard] = (z.hand as any[]).splice(handIndex, 1);
-                    (z.graveyard as any[]).push({ ...discardedCard, zone: 'graveyard' });
+                    (z.graveyard as any[]).push({
+                      ...discardedCard,
+                      zone: 'graveyard',
+                      ...buildDiscardProvenanceFields(ctx.state, String(pid)),
+                    });
                   }
 
                   z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
@@ -15153,7 +15233,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const [card] = hand.splice(cardIndex, 1);
                 z.graveyard = z.graveyard || [];
                 if (card && typeof card === 'object') {
-                  (z.graveyard as any[]).push({ ...card, zone: 'graveyard' });
+                  (z.graveyard as any[]).push({
+                    ...card,
+                    zone: 'graveyard',
+                    ...buildDiscardProvenanceFields(ctx.state, String(pid)),
+                  });
                   discardedCount++;
                 }
               }

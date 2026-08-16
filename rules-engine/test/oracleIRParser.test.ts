@@ -4916,6 +4916,41 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('lowers Recruit from current oracle reminder text into draw, discard, and nonland token steps', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, recruit. (Draw a card, then discard a card. If you discarded a nonland card, create a 1/1 white Human Soldier creature token.)',
+      'Esgaroth Garrison',
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps.map((step) => step.kind)).toEqual(['draw', 'discard', 'conditional']);
+    expect(steps[2]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'a nonland card was discarded this way' },
+      steps: [
+        {
+          kind: 'create_token',
+          who: { kind: 'you' },
+          amount: { kind: 'number', value: 1 },
+          token: '1/1 white Human Soldier creature token',
+        },
+      ],
+    });
+  });
+
+  it('parses Heal from current comprehensive-rules wording as marked-damage removal', () => {
+    const ir = parseOracleTextToIR('Heal all damage on target creature.', 'Healing Draft');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'remove_marked_damage',
+        target: { kind: 'raw', text: 'target creature' },
+        amount: 'all',
+        raw: 'Heal all damage on target creature',
+      },
+    ]);
+  });
+
   it('parses subject-form connive clauses into connive steps', () => {
     const ir = parseOracleTextToIR("When this creature enters, it connives.", "Raffine's Informant");
 

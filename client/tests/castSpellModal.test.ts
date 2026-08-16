@@ -200,6 +200,21 @@ describe('resolveEffectiveManaCostForCastStep', () => {
     ]);
   });
 
+  it('offers Mayhem only from the graveyard and describes Web-slinging', () => {
+    const costs = parseAlternateCosts(
+      'Mayhem {1}{R} (You may cast this card from your graveyard for its mayhem cost if you discarded it this turn.)\nWeb-slinging {W} (You may return a tapped creature you control to its owner\'s hand rather than pay this spell\'s mana cost.)',
+      '{4}{R}',
+      'Generic keyword card',
+    );
+
+    expect(filterAlternateCostsForCastZone(costs, 'hand').map((cost) => cost.id)).not.toContain('mayhem');
+    expect(filterAlternateCostsForCastZone(costs, 'graveyard').map((cost) => cost.id)).toContain('mayhem');
+    expect(costs.find((cost) => cost.id === 'web_slinging')).toMatchObject({
+      manaCost: '{W}',
+      additionalCost: expect.stringContaining('tapped creature'),
+    });
+  });
+
   it('offers Free Cast for commander-gated free spells with a clear description', () => {
     const costs = parseAlternateCosts(
       'If you control a commander, you may cast this spell without paying its mana cost.\nCounter target noncreature spell.',

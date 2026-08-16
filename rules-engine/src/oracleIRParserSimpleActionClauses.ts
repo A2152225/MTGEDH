@@ -3836,6 +3836,21 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const heal = clause.match(
+      /^(?:heal|heals?)\s+(?:(all|\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?damage\s+(?:from|on)\s+(.+?)\s*\.?(?:\s*\(.*\))?$/i,
+    );
+    if (heal) {
+      const amountRaw = String(heal[1] || 'all').trim();
+      return withMeta({
+        kind: 'remove_marked_damage',
+        target: parseObjectSelector(String(heal[2] || '').trim()),
+        amount: /^all$/i.test(amountRaw) ? 'all' : parseQuantity(amountRaw),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const investigate = clause.match(
       new RegExp(
         `^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?(?:investigate|investigates)(?:\\s+(twice|that many|that much|\\d+|x)(?:\\s+times)?)?(?:,\\s+where\\s+x\\s+is\\s+(.+))?$`,

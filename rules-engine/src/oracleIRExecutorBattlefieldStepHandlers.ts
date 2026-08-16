@@ -11517,6 +11517,69 @@ export function applyAddTypesStep(
   };
 }
 
+export function applyRemoveMarkedDamageStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'remove_marked_damage' }>,
+  ctx: OracleIRExecutionContext,
+): BattlefieldStepHandlerResult {
+  const targets = resolveDirectBattlefieldPermanents(
+    (state.battlefield || []) as BattlefieldPermanent[],
+    step.target as any,
+    ctx,
+  );
+  if (targets.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped heal (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const amount =
+    step.amount === 'all'
+      ? Number.POSITIVE_INFINITY
+      : step.amount.kind === 'number'
+        ? Math.max(0, step.amount.value)
+        : null;
+  if (amount === null) {
+    return {
+      applied: false,
+      message: `Skipped heal (unknown damage amount): ${step.raw}`,
+      reason: 'unsupported_condition',
+    };
+  }
+
+  const targetIds = new Set(targets.map((target: any) => String(target?.id || '').trim()).filter(Boolean));
+  let healedCount = 0;
+  const battlefield = ((state.battlefield || []) as BattlefieldPermanent[]).map((permanent: any) => {
+    if (!targetIds.has(String(permanent?.id || '').trim())) return permanent;
+
+    const reduceDamage = (value: unknown) => Math.max(0, (Number(value) || 0) - amount);
+    const counters = { ...(permanent?.counters || {}) };
+    if (Object.prototype.hasOwnProperty.call(counters, 'damage')) counters.damage = reduceDamage(counters.damage);
+    healedCount += 1;
+    return {
+      ...permanent,
+      ...(Object.prototype.hasOwnProperty.call(permanent, 'markedDamage')
+        ? { markedDamage: reduceDamage(permanent.markedDamage) }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(permanent, 'damageMarked')
+        ? { damageMarked: reduceDamage(permanent.damageMarked) }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(permanent, 'damage')
+        ? { damage: reduceDamage(permanent.damage) }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(counters, 'damage') ? { counters } : {}),
+    } as BattlefieldPermanent;
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield } as GameState,
+    log: [`Healed marked damage from ${healedCount} permanent(s)`],
+  };
+}
+
 export function applyDestroyStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'destroy' }>,

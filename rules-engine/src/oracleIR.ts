@@ -1191,6 +1191,15 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      /** Remove marked damage from permanents (CR 701.69, heal). */
+      readonly kind: 'remove_marked_damage';
+      readonly target: OracleObjectSelector;
+      readonly amount: 'all' | OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'win_game';
       readonly optional?: boolean;
       readonly sequence?: 'then';

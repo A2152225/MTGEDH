@@ -96,6 +96,8 @@ import { clearTemporaryGraveyardKeywordGrants, clearTemporaryPlayableFromGraveya
 import { resetDurablePermissionUsageForTurn } from "./durable-permissions.js";
 import { evaluateDamageReplacementEvent } from "./replacement-effects.js";
 import { expireDelayedDealtDamageWatchers } from "./triggers/dealt-damage-watchers.js";
+import { resetExhaustAbilityActivations } from './keywordActivationState.js';
+import { resetSpeedIncreasedThisTurn } from './statefulPaperKeywords.js';
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -4623,6 +4625,8 @@ export function nextTurn(ctx: GameContext) {
     (ctx as any).state.discoverTriggersFiredThisTurn = {};
     (ctx as any).state.doThisOnlyOnceEachTurnUsedThisTurn = {};
     (ctx as any).state.oncePerTurnTriggersFiredThisTurn = {};
+    resetExhaustAbilityActivations((ctx as any).state);
+    resetSpeedIncreasedThisTurn((ctx as any).state);
     (ctx as any).state.lifeLostThisTurn = {};
     for (const pid of players) {
       (ctx as any).state.lifeGainedThisTurn[String(pid)] = 0;

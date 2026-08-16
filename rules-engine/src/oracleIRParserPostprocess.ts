@@ -28895,6 +28895,95 @@ export function lowerConniveKeywordAbilities(
   });
 }
 
+function tryLowerRecruitKeywordSteps(steps: readonly OracleEffectStep[]): readonly OracleEffectStep[] | null {
+  let changed = false;
+  const nextSteps: OracleEffectStep[] = [];
+
+  for (const step of steps) {
+    if (step.kind !== 'unknown') {
+      nextSteps.push(step);
+      continue;
+    }
+
+    const normalized = normalizeOracleText(String(step.raw || ''))
+      .replace(/^then\b\s*/i, '')
+      .trim();
+    if (!/^(?:you\s+)?recruit$/i.test(normalized)) {
+      nextSteps.push(step);
+      continue;
+    }
+
+    changed = true;
+    nextSteps.push(
+      {
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        raw: 'Draw a card.',
+      },
+      {
+        kind: 'discard',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        sequence: 'then',
+        raw: 'Discard a card.',
+      },
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'a nonland card was discarded this way' },
+        steps: [
+          {
+            kind: 'create_token',
+            who: { kind: 'you' },
+            amount: { kind: 'number', value: 1 },
+            token: '1/1 white Human Soldier creature token',
+            raw: 'Create a 1/1 white Human Soldier creature token.',
+          },
+        ],
+        raw: 'If you discarded a nonland card this way, create a 1/1 white Human Soldier creature token.',
+      },
+    );
+  }
+
+  if (!changed) return null;
+
+  // Reminder text is parsed as the same three steps after the keyword line.
+  // Keep the keyword expansion and discard the immediately repeated reminder.
+  const dedupedSteps: OracleEffectStep[] = [];
+  for (let index = 0; index < nextSteps.length; index += 1) {
+    const first = nextSteps[index];
+    const second = nextSteps[index + 1];
+    const third = nextSteps[index + 2];
+    const repeatFirst = nextSteps[index + 3];
+    const repeatSecond = nextSteps[index + 4];
+    const repeatThird = nextSteps[index + 5];
+    if (
+      first?.kind === 'draw' &&
+      second?.kind === 'discard' &&
+      third?.kind === 'conditional' &&
+      repeatFirst?.kind === 'draw' &&
+      repeatSecond?.kind === 'discard' &&
+      repeatThird?.kind === 'conditional'
+    ) {
+      dedupedSteps.push(first, second, third);
+      index += 5;
+      continue;
+    }
+    dedupedSteps.push(first);
+  }
+
+  return dedupedSteps;
+}
+
+export function lowerRecruitKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const lowered = tryLowerRecruitKeywordSteps(ability.steps);
+    return lowered ? { ...ability, steps: lowered } : ability;
+  });
+}
+
 function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')

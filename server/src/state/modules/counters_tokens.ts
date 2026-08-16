@@ -72,6 +72,7 @@ import { processLTBTriggers } from "./triggerEmissionFamilyUtils.js";
 import { buildWarpedExileCardMarkers, permanentShouldExileAsWarped } from "./warpDelayedEffects.js";
 import { queueTokenCreatedTriggers } from "./triggers/tokens.js";
 import { syncDerivedContinuousEffects } from "./staticEffectSpec.js";
+import { applyStatefulPaperKeywordSBAs } from "./statefulPaperKeywords.js";
 import { hydrateCardOracleInPlace, hydrateGameStateOracleText } from './cardOracleHydration.js';
 import {
   applyCopyTokenOverrides,
@@ -2194,6 +2195,14 @@ export function runSBA(ctx: GameContext) {
 
   try {
     syncDerivedContinuousEffects(state);
+  } catch {}
+
+  // Stateful paper keywords grant player designations as state-based actions:
+  // Start Your Engines! gives initial speed and Storied grants enduring story.
+  try {
+    if (applyStatefulPaperKeywordSBAs(state)) {
+      bumpSeq();
+    }
   } catch {}
 
   // Ascend (702.131b): grant City's Blessing when a player with Ascend controls 10+ permanents.

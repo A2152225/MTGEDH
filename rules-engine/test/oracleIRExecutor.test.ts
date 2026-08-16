@@ -50217,6 +50217,77 @@ This creature has protection from each of the exiled card's card types. (Artifac
     );
   });
 
+  it('removes marked damage through the generic Heal Oracle IR step', () => {
+    const ir = parseOracleTextToIR('Heal all damage on target creature.', 'Healing Draft');
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any],
+        battlefield: [
+          {
+            id: 'damaged-creature',
+            controller: 'p1',
+            owner: 'p1',
+            name: 'Damaged Creature',
+            type_line: 'Creature - Human',
+            markedDamage: 4,
+            damageMarked: 4,
+            damage: 4,
+            counters: { damage: 4 },
+          } as any,
+        ],
+      } as any),
+      ir.abilities[0]?.steps ?? [],
+      { controllerId: 'p1', sourceName: 'Healing Draft', targetPermanentId: 'damaged-creature' },
+    );
+
+    const creature = (result.state.battlefield || []).find((perm: any) => perm.id === 'damaged-creature') as any;
+    expect(result.appliedSteps.map((step) => step.kind)).toEqual(['remove_marked_damage']);
+    expect(creature).toMatchObject({ markedDamage: 0, damageMarked: 0, damage: 0, counters: { damage: 0 } });
+  });
+
+  it('executes Recruit draw, chosen discard, and nonland-only Soldier creation', () => {
+    const steps = parseOracleTextToIR(
+      'When this creature enters, recruit. (Draw a card, then discard a card. If you discarded a nonland card, create a 1/1 white Human Soldier creature token.)',
+      'Esgaroth Garrison',
+    ).abilities[0]?.steps ?? [];
+    const baseState = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          hand: [
+            { id: 'spell-to-discard', name: 'Lightning Bolt', type_line: 'Instant' },
+            { id: 'land-to-keep', name: 'Plains', type_line: 'Basic Land' },
+          ],
+          library: [{ id: 'drawn-card', name: 'Island', type_line: 'Basic Land' }],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    } as any);
+
+    const nonlandResult = applyOracleIRStepsToGameState(baseState, steps, {
+      controllerId: 'p1',
+      sourceName: 'Esgaroth Garrison',
+      selectorContext: { chosenObjectIds: ['spell-to-discard'] },
+      interactivePlayerChoices: true,
+    });
+    expect(nonlandResult.appliedSteps.map((step) => step.kind)).toEqual(['draw', 'discard', 'create_token', 'conditional']);
+    expect((nonlandResult.state.battlefield || [])).toHaveLength(1);
+
+    const landResult = applyOracleIRStepsToGameState(baseState, steps, {
+      controllerId: 'p1',
+      sourceName: 'Esgaroth Garrison',
+      selectorContext: { chosenObjectIds: ['land-to-keep'] },
+      interactivePlayerChoices: true,
+    });
+    expect(landResult.appliedSteps.map((step) => step.kind)).toEqual(['draw', 'discard', 'conditional']);
+    expect((landResult.state.battlefield || [])).toHaveLength(0);
+  });
+
   it("does not use regeneration shields when destroy says the permanent can't be regenerated", () => {
     const ir = parseOracleTextToIR("Destroy target creature. It can't be regenerated.", 'Terror');
     const steps = ir.abilities[0]?.steps ?? [];

@@ -7,6 +7,7 @@ import { uid } from '../../utils.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
+import { maybeIncreaseSpeedFromOpponentLifeLoss } from '../statefulPaperKeywords.js';
 
 export interface LifeLossTrigger {
   permanentId: string;
@@ -168,6 +169,27 @@ export function queueLifeLossTriggers(
   if (options.trackLifeLost !== false) {
     stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
     stateAny.lifeLostThisTurn[losingPlayerId] = Number(stateAny.lifeLostThisTurn[losingPlayerId] || 0) + lifeLost;
+  }
+
+  // CR 702.179d: inherent once-per-turn speed increase when an opponent loses life.
+  try {
+    const turnPlayer = String(stateAny.turnPlayer || stateAny.activePlayer || '').trim();
+    const previousSpeed = Number(stateAny.speed?.[turnPlayer]);
+    const nextSpeed = maybeIncreaseSpeedFromOpponentLifeLoss(stateAny, losingPlayerId);
+    if (nextSpeed != null && turnPlayer) {
+      const gameId = String((ctx as any).gameId || '').trim();
+      if (gameId && gameId !== 'unknown') {
+        appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'increasePlayerSpeed', {
+          playerId: turnPlayer,
+          from: Number.isFinite(previousSpeed) ? previousSpeed : undefined,
+          to: nextSpeed,
+          reason: 'opponent_life_loss',
+          losingPlayerId,
+        });
+      }
+    }
+  } catch (err) {
+    debugWarn(1, '[lifeLossTrigger] Failed to apply Start Your Engines! speed increase:', err);
   }
 
   const triggers = orderTriggersByAPNAP(ctx, getLifeLossTriggers(ctx, losingPlayerId));

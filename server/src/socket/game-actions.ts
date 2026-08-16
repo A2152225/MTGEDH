@@ -69,6 +69,12 @@ import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, parseWarpCos
 import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
 import { calculateSneakOptions, canCastWithSneakAtCurrentTiming, validateSneakReturnedCreature, applySneakReturnedCreatureCost, parseSneakCost } from "../state/modules/sneakCastUtils.js";
 import {
+  applyWebSlingingReturnedCreatureCost,
+  calculateWebSlingingOptions,
+  parseWebSlingingCost,
+  validateWebSlingingReturnedCreature,
+} from '../state/modules/keywordCastMechanics.js';
+import {
   expandManaCostWithMultikicker,
   getMultikickerChargeEntryCounters,
   parseMultikickerManaCost,
@@ -277,7 +283,7 @@ function applySharedGraveyardCandidateMetadata(
 ): void {
   const targets = [sourceCard, castCard].filter((target) => target && typeof target === 'object');
   const isKeywordGraveyardCast = candidate.sourceZone === 'graveyard'
-    && ['flashback', 'jump-start', 'retrace', 'escape', 'harmonize'].includes(String(candidate.castMethod || ''));
+    && ['flashback', 'jump-start', 'retrace', 'escape', 'harmonize', 'mayhem'].includes(String(candidate.castMethod || ''));
 
   for (const target of targets) {
     if (candidate.sourceZone === 'graveyard') {
@@ -793,6 +799,18 @@ function buildAlternateCostPaymentExtrasForCast(
       label: 'Sneak',
       description: 'Declare blockers step: return an unblocked attacker to hand',
       rawCost: sneakCost,
+    });
+  }
+
+  const webSlinging = timingContext?.game && timingContext?.playerId
+    ? calculateWebSlingingOptions(timingContext.game.state, timingContext.playerId, { oracle_text: normalizedOracleText })
+    : undefined;
+  if (webSlinging?.cost && webSlinging.availableCreatures.length > 0) {
+    handKeywordAlternateCosts.push({
+      id: 'web_slinging',
+      label: 'Web-slinging',
+      description: 'Return a tapped creature you control to its owner’s hand',
+      rawCost: webSlinging.cost,
     });
   }
 
@@ -6854,6 +6872,7 @@ export async function requestCastSpellForSocket(
       const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast, castSourceZone);
       const harmonizeOptions = calculateHarmonizeOptions(game, playerId, cardForCast);
       const sneakOptions = calculateSneakOptions(game, playerId, cardForCast);
+      const webSlingingOptions = calculateWebSlingingOptions(game.state, playerId, cardForCast);
 
       (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
       (game.state as any).pendingSpellCasts[effectId] = {
@@ -6873,6 +6892,7 @@ export async function requestCastSpellForSocket(
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         harmonizeOptions: harmonizeOptions.availableCreatures.length > 0 ? harmonizeOptions.availableCreatures : undefined,
         sneakOptions: sneakOptions.availableCreatures.length > 0 ? sneakOptions : undefined,
+        webSlingingOptions: webSlingingOptions.availableCreatures.length > 0 ? webSlingingOptions : undefined,
         ignoreTimingRestrictions,
         ...(giftInfo.hasGift
           ? {
@@ -7729,6 +7749,7 @@ export async function requestCastSpellForSocket(
     const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast, castSourceZone);
     const harmonizeOptions = calculateHarmonizeOptions(game, playerId, cardForCast);
     const sneakOptions = calculateSneakOptions(game, playerId, cardForCast);
+    const webSlingingOptions = calculateWebSlingingOptions(game.state, playerId, cardForCast);
     const paymentManaCost = appendManaCost(
       castSourceZone === 'command'
         ? resolvedManaCost
@@ -7776,6 +7797,7 @@ export async function requestCastSpellForSocket(
       convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
       harmonizeOptions: harmonizeOptions.availableCreatures.length > 0 ? harmonizeOptions.availableCreatures : undefined,
       sneakOptions: sneakOptions.availableCreatures.length > 0 ? sneakOptions : undefined,
+      webSlingingOptions: webSlingingOptions.availableCreatures.length > 0 ? webSlingingOptions : undefined,
       forcedAlternateCostId: options?.forcedAlternateCostId,
       castWithoutPayingManaCost: isFreeCast,
       bypassExilePermissionCheck,
@@ -8356,6 +8378,7 @@ export async function requestCastSpellForSocket(
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         harmonizeOptions: harmonizeOptions.availableCreatures.length > 0 ? harmonizeOptions.availableCreatures : undefined,
         sneakOptions: sneakOptions.availableCreatures.length > 0 ? sneakOptions : undefined,
+        webSlingingOptions: webSlingingOptions.availableCreatures.length > 0 ? webSlingingOptions : undefined,
         forcedAlternateCostId: options?.forcedAlternateCostId,
         castWithoutPayingManaCost: isFreeCast ? true : undefined,
         oracleText: warpPaymentExtras.oracleText,
@@ -9030,6 +9053,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     convokeTappedCreatures?: unknown;
     harmonizeTappedCreatureId?: unknown;
     sneakReturnedCreatureId?: unknown;
+    webSlingingReturnedCreatureId?: unknown;
     fromZone?: unknown;
     bypassExilePermissionCheck?: unknown;
     ignoreTimingRestrictions?: unknown;
@@ -9062,6 +9086,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         : undefined;
       const sneakReturnedCreatureId = typeof payload?.sneakReturnedCreatureId === 'string'
         ? String(payload.sneakReturnedCreatureId)
+        : undefined;
+      const webSlingingReturnedCreatureId = typeof payload?.webSlingingReturnedCreatureId === 'string'
+        ? String(payload.webSlingingReturnedCreatureId)
         : undefined;
       const fromZone = normalizeSpellCastSourceZone(payload?.fromZone);
       const bypassExilePermissionCheck = payload?.bypassExilePermissionCheck === true;
@@ -9101,6 +9128,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       if (sneakReturnedCreatureId) {
         debug(2, `[handleCastSpellFromHand] sneakReturnedCreatureId: ${sneakReturnedCreatureId}`);
+      }
+      if (webSlingingReturnedCreatureId) {
+        debug(2, `[handleCastSpellFromHand] webSlingingReturnedCreatureId: ${webSlingingReturnedCreatureId}`);
       }
       debug(2, `[handleCastSpellFromHand] priority: ${game.state.priority}`);
 
@@ -11278,6 +11308,24 @@ export function registerGameActions(io: Server, socket: Socket) {
         (cardInHand as any).sneakCostWasPaid = true;
       }
 
+      if (alternateCostId === 'web_slinging') {
+        if (!parseWebSlingingCost(String(cardInHand.oracle_text || ''))) {
+          socket.emit('error', { code: 'NO_WEB_SLINGING', message: 'This card does not have web-slinging.' });
+          return;
+        }
+        const webSlingingValidation = validateWebSlingingReturnedCreature(
+          game.state,
+          playerId as PlayerID,
+          String(webSlingingReturnedCreatureId || ''),
+        );
+        if (webSlingingValidation.ok === false) {
+          socket.emit('error', { code: webSlingingValidation.code, message: webSlingingValidation.message });
+          return;
+        }
+        (cardInHand as any).webSlingingReturnedCreatureId = String(webSlingingReturnedCreatureId);
+        (cardInHand as any).webSlingingCostWasPaid = true;
+      }
+
       if (alternateCostId === 'miracle' && !resolvedMiracleCost) {
         socket.emit('error', { code: 'NO_MIRACLE', message: 'This card does not have miracle.' });
         return;
@@ -11588,6 +11636,22 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
         (cardInHand as any).sneakAttackTarget = sneakResult.attackTarget;
         (cardInHand as any).sneakCostWasPaid = true;
+      }
+
+      if (alternateCostId === 'web_slinging' && (cardInHand as any).webSlingingReturnedCreatureId) {
+        const moved = applyWebSlingingReturnedCreatureCost({
+          state: game.state,
+          bumpSeq: () => { if (typeof game.bumpSeq === 'function') game.bumpSeq(); },
+          gameId,
+        } as any, String((cardInHand as any).webSlingingReturnedCreatureId));
+        if (!moved) {
+          abortCastSpellPayment({
+            code: 'WEB_SLINGING_RETURN_FAILED',
+            message: 'Failed to return the tapped creature for web-slinging.',
+          });
+          return;
+        }
+        (cardInHand as any).webSlingingCostWasPaid = true;
       }
 
       // ======================================================================
@@ -12775,6 +12839,12 @@ export function registerGameActions(io: Server, socket: Socket) {
               ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
               ...(typeof castAsAdventure === 'boolean' ? { castAsAdventure } : {}),
               alternateCostId,
+              ...(alternateCostId === 'web_slinging'
+                ? {
+                    webSlingingCostWasPaid: true,
+                    webSlingingReturnedCreatureId: String((cardInHand as any).webSlingingReturnedCreatureId || '') || undefined,
+                  }
+                : {}),
               ...(isFreeCast ? { castWithoutPayingManaCost: true } : {}),
               ...(giftPromisedForCast === true
                 ? {
@@ -14040,6 +14110,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     convokeTappedCreatures?: unknown;
     harmonizeTappedCreatureId?: unknown;
     sneakReturnedCreatureId?: unknown;
+    webSlingingReturnedCreatureId?: unknown;
   }) => {
     const gameId = payload?.gameId;
     const cardId = payload?.cardId;
@@ -14054,6 +14125,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     const convokeTappedCreatures = payload?.convokeTappedCreatures;
     const harmonizeTappedCreatureId = payload?.harmonizeTappedCreatureId;
     const sneakReturnedCreatureId = payload?.sneakReturnedCreatureId;
+    const webSlingingReturnedCreatureId = payload?.webSlingingReturnedCreatureId;
 
     if (!gameId || typeof gameId !== 'string') return;
     if (!cardId || typeof cardId !== 'string') return;
@@ -14065,6 +14137,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     if (!(convokeTappedCreatures === undefined || (Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.every((id) => typeof id === 'string')))) return;
     if (!(harmonizeTappedCreatureId === undefined || typeof harmonizeTappedCreatureId === 'string')) return;
     if (!(sneakReturnedCreatureId === undefined || typeof sneakReturnedCreatureId === 'string')) return;
+    if (!(webSlingingReturnedCreatureId === undefined || typeof webSlingingReturnedCreatureId === 'string')) return;
 
     const effectIdStr = effectId as string | undefined;
     const convokeTapped = convokeTappedCreatures as string[] | undefined;
@@ -14399,6 +14472,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         convokeTappedCreatures: convokeTapped,
         harmonizeTappedCreatureId: harmonizeTappedCreatureId as string | undefined,
         sneakReturnedCreatureId: sneakReturnedCreatureId as string | undefined,
+        webSlingingReturnedCreatureId: webSlingingReturnedCreatureId as string | undefined,
         fromZone: pendingFromZone,
         bypassExilePermissionCheck: pendingBypassExilePermissionCheck,
         ignoreTimingRestrictions: pendingIgnoreTimingRestrictions,

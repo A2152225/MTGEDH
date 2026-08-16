@@ -62,6 +62,7 @@ import {
   applyCopyPermanentStep,
   applyPutStickerStep,
   applyRemoveFromCombatStep,
+  applyRemoveMarkedDamageStep,
   applyRemoveCounterStep,
   applyMoveCountersStep,
   applySacrificeStep,
@@ -2809,6 +2810,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'damage_cant_be_prevented': {
         const result = applyDamageCantBePreventedStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'remove_marked_damage': {
+        const result = applyRemoveMarkedDamageStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
