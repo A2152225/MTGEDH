@@ -41,6 +41,7 @@ import { canPayCounterRemovalCost } from "./counter-removal-costs.js";
 import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard, isCardOnAdventureForPlayer } from "./playable-from-exile.js";
 import { getDurableCommandZonePermissionForCard, playerHasDurableLandPlayPermission } from "./durable-permissions";
 import { cardMayBeCastWithMayhem, parseMayhemCost } from './keywordCastMechanics.js';
+import { buildFreeCastIntentFields } from './castIntent.js';
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -200,18 +201,24 @@ export interface SharedSpellCastCandidate {
   leaveBattlefieldReplacementSourceName?: string;
   leaveBattlefieldReplacementLifeGain?: number;
   sourceGrantedAdditionalCost?: SharedSourceGrantedAdditionalCost;
+  /** Alias of DurablePermission.id / graveyardPermissionId for cast-intent requests. */
+  castPermissionId?: string;
   graveyardPermissionId?: string;
   graveyardPermissionSourceName?: string;
   graveyardPermissionCostMode?: GraveyardCastingPermissionCostMode;
   /** Mosswood-style: permission only allows casting the Adventure face. */
   castAsAdventureOnly?: boolean;
   libraryPermissionCostMode?: string;
+  /** Payment intent when permission/cost mode grants a free cast (not a second candidate). */
+  alternateCostId?: 'free';
+  castWithoutPayingManaCost?: boolean;
 }
 
 export interface SharedPlayableLandCandidate {
   card: any;
   sourceZone: SharedLandSourceZone;
   selectedFaceIndex?: number;
+  castPermissionId?: string;
   graveyardPermissionId?: string;
   graveyardPermissionSourceName?: string;
   leaveBattlefieldReplacementDestination?: 'exile';
@@ -1513,6 +1520,8 @@ export function getCastableSpellCandidates(
         let castAsAdventureOnly = false;
         let libraryPermissionCostMode: string | undefined;
         let spendManaAsThoughAnyType = false;
+        let freeCastIntent = false;
+        let exileCastPermissionId: string | undefined;
 
         if (sourceZone === 'library') {
           const topSpellPermission = getTopLibrarySpellPermission(ctx, playerId, castCard);
@@ -1524,6 +1533,7 @@ export function getCastableSpellCandidates(
           spendManaAsThoughAnyType = (topSpellPermission as any).spendManaAsThoughAnyType === true;
           if (libraryPermissionCostMode === 'without_paying_mana_cost') {
             manaCost = '';
+            freeCastIntent = true;
           }
         } else if (sourceZone === 'graveyard') {
           const graveyardKeywordInfo = getAvailableGraveyardCastKeywordInfo(ctx, playerId, castCard);
@@ -1538,6 +1548,22 @@ export function getCastableSpellCandidates(
             } else {
               unknownCostFallback = true;
             }
+            // Cast-intent identity for printed/granted GY keywords (Mayhem, Flashback, …).
+            // Same DurablePermission.id convention as first-class grants; synthetic ids are
+            // stable across live cast + reset/replay without a second pipeline.
+            const syntheticPermission = buildSyntheticGraveyardPermissionMetadata(playerId, 'cast', {
+              sourceId: String(card?.id || '').trim(),
+              sourceName: String(card?.name || castCard?.name || '').trim(),
+              cardId: String(card?.id || '').trim(),
+              qualifier: graveyardKeywordInfo.keyword,
+              costMode: 'normal',
+              replacement: {
+                ...(exileAfterResolution ? { exileAfterResolution: true } : {}),
+              },
+            });
+            graveyardPermissionId = syntheticPermission.graveyardPermissionId;
+            graveyardPermissionSourceName = syntheticPermission.graveyardPermissionSourceName;
+            graveyardPermissionCostMode = syntheticPermission.graveyardPermissionCostMode;
           } else {
             const specificPermission = getSpecificSpellFromGraveyardPermission(ctx, playerId, castCard);
             if (!specificPermission.allowed) {
@@ -1562,6 +1588,7 @@ export function getCastableSpellCandidates(
             graveyardPermissionCostMode = specificPermission.graveyardPermissionCostMode;
             if (graveyardPermissionCostMode === 'without_paying_mana_cost') {
               manaCost = '';
+              freeCastIntent = true;
             }
             castAsAdventureOnly = specificPermission.castAsAdventureOnly === true;
           }
@@ -1587,6 +1614,10 @@ export function getCastableSpellCandidates(
           spendManaAsThoughAnyType = (card as any)?.spendManaAsThoughAnyType === true
             || (durablePermission?.metadata as any)?.spendManaAsThoughAnyType === true;
           grantsFlash = durableGrantsFlash;
+          exileCastPermissionId = String(durablePermission?.id || '').trim() || undefined;
+          if (castWithoutPayingManaCost) {
+            freeCastIntent = true;
+          }
 
           if (onAdventure) {
             castMethod = 'adventure_creature';
@@ -1608,6 +1639,15 @@ export function getCastableSpellCandidates(
             continue;
           }
         }
+
+        const freeCastFields = freeCastIntent
+          ? buildFreeCastIntentFields(undefined, { force: true })
+          : {};
+        const castPermissionFields = graveyardPermissionId
+          ? { castPermissionId: graveyardPermissionId, graveyardPermissionId }
+          : exileCastPermissionId
+            ? { castPermissionId: exileCastPermissionId }
+            : {};
 
         if (!spellMatchesCandidateMode(castCard, mode, grantsFlash)) {
           continue;
@@ -1639,10 +1679,11 @@ export function getCastableSpellCandidates(
             ...(leaveBattlefieldReplacementSourceName ? { leaveBattlefieldReplacementSourceName } : {}),
             ...(leaveBattlefieldReplacementLifeGain ? { leaveBattlefieldReplacementLifeGain } : {}),
             ...(sourceGrantedAdditionalCost ? { sourceGrantedAdditionalCost } : {}),
-            ...(graveyardPermissionId ? { graveyardPermissionId } : {}),
+            ...castPermissionFields,
             ...(graveyardPermissionSourceName ? { graveyardPermissionSourceName } : {}),
             ...(graveyardPermissionCostMode ? { graveyardPermissionCostMode } : {}),
             ...(libraryPermissionCostMode ? { libraryPermissionCostMode } : {}),
+            ...freeCastFields,
           });
           continue;
         }
@@ -1680,11 +1721,12 @@ export function getCastableSpellCandidates(
             ...(leaveBattlefieldReplacementSourceName ? { leaveBattlefieldReplacementSourceName } : {}),
             ...(leaveBattlefieldReplacementLifeGain ? { leaveBattlefieldReplacementLifeGain } : {}),
             ...(sourceGrantedAdditionalCost ? { sourceGrantedAdditionalCost } : {}),
-            ...(graveyardPermissionId ? { graveyardPermissionId } : {}),
+            ...castPermissionFields,
             ...(graveyardPermissionSourceName ? { graveyardPermissionSourceName } : {}),
             ...(graveyardPermissionCostMode ? { graveyardPermissionCostMode } : {}),
             ...(castAsAdventureOnly ? { castAsAdventureOnly: true } : {}),
             ...(libraryPermissionCostMode ? { libraryPermissionCostMode } : {}),
+            ...freeCastFields,
           });
           continue;
         }
@@ -1702,8 +1744,12 @@ export function getCastableSpellCandidates(
             payability: 'alternate',
             manaCost,
             grantsFlash,
+            ...castPermissionFields,
+            ...(graveyardPermissionSourceName ? { graveyardPermissionSourceName } : {}),
+            ...(graveyardPermissionCostMode ? { graveyardPermissionCostMode } : {}),
             ...(castAsAdventureOnly ? { castAsAdventureOnly: true } : {}),
             ...(libraryPermissionCostMode ? { libraryPermissionCostMode } : {}),
+            ...freeCastFields,
           });
         }
       }
@@ -2895,7 +2941,9 @@ export function getPlayableLandCandidates(
         card,
         sourceZone,
         selectedFaceIndex: getPlayableLandFaceIndex(card),
-        ...(options?.graveyardPermissionId ? { graveyardPermissionId: options.graveyardPermissionId } : {}),
+        ...(options?.graveyardPermissionId
+          ? { castPermissionId: options.graveyardPermissionId, graveyardPermissionId: options.graveyardPermissionId }
+          : {}),
         ...(options?.graveyardPermissionSourceName ? { graveyardPermissionSourceName: options.graveyardPermissionSourceName } : {}),
         ...(options?.leaveBattlefieldReplacementDestination ? { leaveBattlefieldReplacementDestination: options.leaveBattlefieldReplacementDestination } : {}),
         ...(options?.leaveBattlefieldReplacementSourceName ? { leaveBattlefieldReplacementSourceName: options.leaveBattlefieldReplacementSourceName } : {}),

@@ -1,23 +1,18 @@
-import { useCallback, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
-
-import type { DeckResolvePreviewCard } from '../components/DeckResolvePreviewPanel';
-import {
+import { useCallback, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';import type { DeckResolvePreviewCard } from '../components/DeckResolvePreviewPanel';import {
   aggregateDeckCardQuantities,
   enumerateDeckTextLines,
   extractCardNamesFromDeckText,
   getLineAtCaret,
   parseCardNameFromDeckLine,
-} from '../utils/deckListLine';
-import { lookupDeckCardsViaApi, type DeckCardLookupResult } from '../utils/serverDeckApi';
-
+} from '../utils/deckListLine';import { lookupDeckCardsViaApi, type DeckCardLookupResult } from '../utils/serverDeckApi';
 export type UnresolvedDeckLine = {
   lineNumber: number;
   name: string;
 };
-
 function toPreviewCard(result: DeckCardLookupResult): DeckResolvePreviewCard | null {
   if (!result.found || !result.name) return null;
   return {
+
     query: result.query,
     found: true,
     name: result.name,
@@ -28,7 +23,6 @@ function toPreviewCard(result: DeckCardLookupResult): DeckResolvePreviewCard | n
     quantity: 1,
   };
 }
-
 function cardsEqual(a: DeckResolvePreviewCard[], b: DeckResolvePreviewCard[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i += 1) {
@@ -38,6 +32,7 @@ function cardsEqual(a: DeckResolvePreviewCard[], b: DeckResolvePreviewCard[]): b
   return true;
 }
 
+
 function unresolvedEqual(a: UnresolvedDeckLine[], b: UnresolvedDeckLine[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i += 1) {
@@ -46,17 +41,15 @@ function unresolvedEqual(a: UnresolvedDeckLine[], b: UnresolvedDeckLine[]): bool
   }
   return true;
 }
-
 type PreviewSnapshot = {
   cards: DeckResolvePreviewCard[];
   unresolvedLines: UnresolvedDeckLine[];
   resolvedCopies: number;
   totalCopies: number;
 };
-
-/** Build gallery + totals from current text and lookup cache (includes duplicate quantities). */
-function buildPreviewSnapshot(
+/** Build gallery + totals from current text and lookup cache (includes duplicate quantities). */function buildPreviewSnapshot(
   text: string,
+
   cache: Map<string, DeckResolvePreviewCard | null>,
 ): PreviewSnapshot {
   const quantities = aggregateDeckCardQuantities(text);
@@ -65,6 +58,9 @@ function buildPreviewSnapshot(
   let totalCopies = 0;
 
   for (const row of quantities) {
+    // Ignore lines or category names starting with [
+    if (row.name.trim().startsWith('[')) continue;
+
     totalCopies += row.count;
     const cached = cache.get(row.name.toLowerCase());
     if (!cached) continue;
@@ -73,8 +69,13 @@ function buildPreviewSnapshot(
   }
 
   const unresolvedLines: UnresolvedDeckLine[] = [];
+
   for (const line of enumerateDeckTextLines(text)) {
     if (!line.name) continue;
+
+    // Ignore lines or category names starting with [ so they aren't marked as unresolved
+    if (line.name.trim().startsWith('[')) continue;
+
     const cached = cache.get(line.name.toLowerCase());
     // Only alert after we've attempted a lookup and it missed.
     if (cached === null) {
@@ -84,14 +85,15 @@ function buildPreviewSnapshot(
 
   return { cards, unresolvedLines, resolvedCopies, totalCopies };
 }
-
 export function useDeckResolvePreview() {
   const [cards, setCards] = useState<DeckResolvePreviewCard[]>([]);
   const [unresolvedLines, setUnresolvedLines] = useState<UnresolvedDeckLine[]>([]);
+
   const [resolvedCopies, setResolvedCopies] = useState(0);
   const [totalCopies, setTotalCopies] = useState(0);
   const [focusCardKey, setFocusCardKey] = useState<string | null>(null);
   const [focusToken, setFocusToken] = useState(0);
+
   const cacheRef = useRef(new Map<string, DeckResolvePreviewCard | null>());
   const inflightRef = useRef(new Map<string, Promise<DeckResolvePreviewCard | null>>());
   const generationRef = useRef(0);
@@ -106,6 +108,7 @@ export function useDeckResolvePreview() {
   }, []);
 
   const clearPreview = useCallback(() => {
+
     generationRef.current += 1;
     setCards([]);
     setUnresolvedLines([]);
@@ -125,6 +128,7 @@ export function useDeckResolvePreview() {
       clearPreview();
       return;
     }
+
     applySnapshot(buildPreviewSnapshot(text, cacheRef.current));
   }, [applySnapshot, clearPreview]);
 
@@ -144,6 +148,7 @@ export function useDeckResolvePreview() {
         return preview;
       })
       .catch(() => {
+
         // Treat hard failures as unresolved misses for this session.
         cacheRef.current.set(key, null);
         inflightRef.current.delete(key);
@@ -156,11 +161,17 @@ export function useDeckResolvePreview() {
 
   const resolveLine = useCallback(
     async (line: string, textAfter?: string) => {
+      // Abort early if the current line being executed starts with [
+      if (line.trim().startsWith('[')) return;
+
       const name = parseCardNameFromDeckLine(line);
       if (!name) return;
+
       const gen = generationRef.current;
+
       const card = await fetchOne(name);
       if (gen !== generationRef.current) return;
+
       const text = textAfter ?? name;
       applySnapshot(buildPreviewSnapshot(text, cacheRef.current));
       if (card) focusResolvedCard(card.name);
@@ -170,11 +181,13 @@ export function useDeckResolvePreview() {
 
   const resolveAllFromText = useCallback(
     async (text: string) => {
-      const names = extractCardNamesFromDeckText(text);
+      // Filter out names extracted from lines starting with [
+      const names = extractCardNamesFromDeckText(text).filter(name => !name.trim().startsWith('['));
       if (names.length === 0) {
         clearPreview();
         return;
       }
+
 
       const gen = generationRef.current;
       const previouslyKnown = new Set(
@@ -182,6 +195,7 @@ export function useDeckResolvePreview() {
           .filter(([, card]) => !!card)
           .map(([key]) => key),
       );
+
       const missing: string[] = [];
       for (const name of names) {
         if (!cacheRef.current.has(name.toLowerCase())) {
@@ -194,6 +208,7 @@ export function useDeckResolvePreview() {
           const results = await lookupDeckCardsViaApi(missing);
           const byQuery = new Map(
             results.map((r) => [r.query.toLowerCase(), toPreviewCard(r)] as const),
+
           );
           for (const name of missing) {
             const preview = byQuery.get(name.toLowerCase()) ?? null;
@@ -213,22 +228,27 @@ export function useDeckResolvePreview() {
       const snapshot = buildPreviewSnapshot(text, cacheRef.current);
       applySnapshot(snapshot);
 
+
       let focusName: string | null = null;
       for (let i = snapshot.cards.length - 1; i >= 0; i -= 1) {
         const card = snapshot.cards[i];
-        const wasNew = !previouslyKnown.has(card.name.toLowerCase())
-          && !previouslyKnown.has(card.query.toLowerCase());
+        const wasNew =
+          !previouslyKnown.has(card.name.toLowerCase()) &&
+          !previouslyKnown.has(card.query.toLowerCase());
         if (
-          wasNew
-          || missing.some((m) => (
-            m.toLowerCase() === card.query.toLowerCase()
-            || m.toLowerCase() === card.name.toLowerCase()
-          ))
+          wasNew ||
+          missing.some(
+            (m) =>
+              m.toLowerCase() === card.query.toLowerCase() ||
+              m.toLowerCase() === card.name.toLowerCase(),
+          )
         ) {
           focusName = card.name;
           break;
         }
       }
+
+
       if (!focusName && snapshot.cards.length > 0) {
         focusName = snapshot.cards[snapshot.cards.length - 1].name;
       }
@@ -247,6 +267,7 @@ export function useDeckResolvePreview() {
     },
     [resolveLine],
   );
+
 
   const onTextareaPaste = useCallback(
     (e: ClipboardEvent<HTMLTextAreaElement>, currentText: string) => {
@@ -267,6 +288,7 @@ export function useDeckResolvePreview() {
     set.add(line.lineNumber);
     return set;
   }, new Set());
+
 
   return {
     cards,

@@ -4159,7 +4159,13 @@ describe('RulesEngineAdapter', () => {
             controller: 'player1',
             owner: 'player1',
             name: 'Training Grounds',
-            card: { id: 'training-grounds-card', name: 'Training Grounds', type_line: 'Enchantment' },
+            card: {
+              id: 'training-grounds-card',
+              name: 'Training Grounds',
+              type_line: 'Enchantment',
+              oracle_text:
+                "Activated abilities of creatures you control cost {2} less to activate. This effect can't reduce the mana in that cost to less than one mana.",
+            },
             tapped: false,
             summoningSickness: false,
             attachments: [],
@@ -4215,7 +4221,13 @@ describe('RulesEngineAdapter', () => {
             controller: 'player1',
             owner: 'player1',
             name: 'Training Grounds',
-            card: { id: 'training-grounds-card', name: 'Training Grounds', type_line: 'Enchantment' },
+            card: {
+              id: 'training-grounds-card',
+              name: 'Training Grounds',
+              type_line: 'Enchantment',
+              oracle_text:
+                "Activated abilities of creatures you control cost {2} less to activate. This effect can't reduce the mana in that cost to less than one mana.",
+            },
             tapped: false,
             summoningSickness: false,
             attachments: [],
@@ -4271,7 +4283,13 @@ describe('RulesEngineAdapter', () => {
             controller: 'player1',
             owner: 'player1',
             name: 'Training Grounds',
-            card: { id: 'training-grounds-card', name: 'Training Grounds', type_line: 'Enchantment' },
+            card: {
+              id: 'training-grounds-card',
+              name: 'Training Grounds',
+              type_line: 'Enchantment',
+              oracle_text:
+                "Activated abilities of creatures you control cost {2} less to activate. This effect can't reduce the mana in that cost to less than one mana.",
+            },
             tapped: false,
             summoningSickness: false,
             attachments: [],

@@ -100,6 +100,10 @@ import {
   recordDurablePermissionUse,
   upsertDurablePermission,
 } from "./durable-permissions.js";
+import {
+  resolveCastPermissionId,
+  resolveDurablePermissionForCastReplay,
+} from "./castIntent.js";
 import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import {
@@ -359,7 +363,13 @@ function resolveReplayCardForPermissionUse(ctx: any, event: any, zone: string, c
 
 function recordReplayDurablePermissionUse(state: any, permission: any): void {
   if (!permission) return;
-  recordDurablePermissionUse(state, typeof permission?.kind === 'string' ? permission : String(permission?.id || ''));
+  const permissionId = resolveCastPermissionId(permission)
+    || String(typeof permission === 'string' ? permission : permission?.id || '').trim();
+  if (!permissionId && typeof permission?.kind !== 'string') return;
+  recordDurablePermissionUse(
+    state,
+    typeof permission?.kind === 'string' ? permission : permissionId,
+  );
 }
 import { join, leave as leaveModule } from "./join";
 import { resolveSpell } from "../../rules-engine/targeting";
@@ -1183,7 +1193,7 @@ function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
   const playerId = String(event?.playerId || '').trim();
   const cardId = String(event?.card?.id || event?.cardId || '').trim();
   const persistedPermanentId = String(event?.permanentId || '').trim();
-  const graveyardPermissionId = String(event?.graveyardPermissionId || event?.card?.graveyardPermissionId || '').trim();
+  const graveyardPermissionId = resolveCastPermissionId(event);
   const graveyardPermissionSourceName = String(event?.graveyardPermissionSourceName || event?.card?.graveyardPermissionSourceName || '').trim();
   if (!playerId || !cardId) return;
 
@@ -1198,8 +1208,10 @@ function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
 
   if (graveyardPermissionId) {
     permanent.graveyardPermissionId = graveyardPermissionId;
+    permanent.castPermissionId = graveyardPermissionId;
     if (permanent.card && typeof permanent.card === 'object') {
       permanent.card.graveyardPermissionId = graveyardPermissionId;
+      permanent.card.castPermissionId = graveyardPermissionId;
     }
   }
 
@@ -3133,15 +3145,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const cardForPermission = resolveReplayCardForPermissionUse(ctx as any, e, fromZone, cardData);
         const battlefieldLengthBefore = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield.length : 0;
         const durablePermissionToRecord = playerId
-          ? fromZone === 'library'
-            ? getDurableLibraryPermissionForCard(ctx.state as any, playerId as any, cardForPermission, 'play')
-            : fromZone === 'exile'
-              ? getDurablePlayableFromExilePermissionForCard(ctx.state as any, playerId as any, cardForPermission, 'play')
-                || getDurableLandPlayPermissionForCard(ctx.state as any, playerId as any, 'exile', cardForPermission)
-              : fromZone === 'graveyard'
-                ? getMatchingGraveyardCastingPermission(ctx.state as any, playerId as any, cardForPermission, 'play')
-                  || getDurableLandPlayPermissionForCard(ctx.state as any, playerId as any, 'graveyard', cardForPermission)
-                : undefined
+          ? resolveDurablePermissionForCastReplay(
+            ctx.state as any,
+            e as any,
+            fromZone === 'library'
+              ? getDurableLibraryPermissionForCard(ctx.state as any, playerId as any, cardForPermission, 'play')
+              : fromZone === 'exile'
+                ? getDurablePlayableFromExilePermissionForCard(ctx.state as any, playerId as any, cardForPermission, 'play')
+                  || getDurableLandPlayPermissionForCard(ctx.state as any, playerId as any, 'exile', cardForPermission)
+                : fromZone === 'graveyard'
+                  ? getMatchingGraveyardCastingPermission(ctx.state as any, playerId as any, cardForPermission, 'play')
+                    || getDurableLandPlayPermissionForCard(ctx.state as any, playerId as any, 'graveyard', cardForPermission)
+                  : undefined,
+          )
           : undefined;
 
         // Defensive replay hardening: if the persisted event indicates the land
@@ -3310,15 +3326,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ? spellCardData
           : { id: spellCardData };
         const durablePermissionToRecord = playerIdForDurablePermissionUse
-          ? fromZone === 'library'
-            ? getDurableLibraryPermissionForCard(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
-            : fromZone === 'command'
-              ? getDurableCommandZonePermissionForCard(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
-              : fromZone === 'exile'
-                ? getDurablePlayableFromExilePermissionForCard(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
-                : fromZone === 'graveyard'
-                  ? getMatchingGraveyardCastingPermission(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
-                  : undefined
+          ? resolveDurablePermissionForCastReplay(
+            ctx.state as any,
+            e as any,
+            fromZone === 'library'
+              ? getDurableLibraryPermissionForCard(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
+              : fromZone === 'command'
+                ? getDurableCommandZonePermissionForCard(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
+                : fromZone === 'exile'
+                  ? getDurablePlayableFromExilePermissionForCard(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
+                  : fromZone === 'graveyard'
+                    ? getMatchingGraveyardCastingPermission(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
+                    : undefined,
+          )
           : undefined;
 
         if (fromZone === 'library') {
@@ -3424,12 +3444,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if ((e as any).castWithoutPayingManaCost === true) {
               applyToStackItem('castWithoutPayingManaCost', true);
             }
-            const graveyardPermissionId =
-              (e as any).graveyardPermissionId ??
-              (e as any).card?.graveyardPermissionId ??
-              (e as any).card?.card?.graveyardPermissionId;
+            const graveyardPermissionId = resolveCastPermissionId(e as any);
             if (graveyardPermissionId) {
-              applyToStackItem('graveyardPermissionId', String(graveyardPermissionId));
+              applyToStackItem('graveyardPermissionId', graveyardPermissionId);
+              applyToStackItem('castPermissionId', graveyardPermissionId);
             }
             const graveyardPermissionSourceName =
               (e as any).graveyardPermissionSourceName ??

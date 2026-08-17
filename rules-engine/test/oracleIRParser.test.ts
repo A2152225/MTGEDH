@@ -11068,6 +11068,25 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(impulse.permission).toBe('play');
   });
 
+  it('keeps Spectacle casting metadata separate from Light Up the Stage impulse effects', () => {
+    const text =
+      'Spectacle {R} (You may cast this spell for its spectacle cost rather than its mana cost if an opponent lost life this turn.)\nExile the top two cards of your library. Until the end of your next turn, you may play those cards.';
+
+    const ir = parseOracleTextToIR(text, 'Light Up the Stage');
+    const impulse = ir.abilities
+      .flatMap(ability => ability.steps)
+      .find(step => step.kind === 'impulse_exile_top') as any;
+
+    expect(ir.keywords).toContain('spectacle');
+    expect(impulse).toMatchObject({
+      kind: 'impulse_exile_top',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 2 },
+      duration: 'until_end_of_next_turn',
+      permission: 'play',
+    });
+  });
+
   it('parses impulse exile-top with "until the end of your next turn, you may play them" wording', () => {
     const text = 'Exile the top two cards of your library. Until the end of your next turn, you may play them.';
     const ir = parseOracleTextToIR(text);
@@ -12804,6 +12823,53 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         to: 'hand',
       }),
     ]);
+  });
+
+  it('parses Farewell as a choose-one-or-more modal block', () => {
+    const oracleText =
+      'Choose one or more —\n\u2022 Exile all artifacts.\n\u2022 Exile all creatures.\n\u2022 Exile all enchantments.\n\u2022 Exile all graveyards.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Farewell');
+    const step = ir.abilities[0]?.steps?.[0] as any;
+
+    expect(step).toMatchObject({
+      kind: 'choose_mode',
+      minModes: 1,
+      maxModes: 4,
+      canRepeatModes: false,
+    });
+    expect(step?.modes).toHaveLength(4);
+  });
+
+  it('parses Austere Command as a choose-two modal block', () => {
+    const oracleText =
+      'Choose two —\n\u2022 Destroy all artifacts.\n\u2022 Destroy all enchantments.\n\u2022 Destroy all creatures with mana value 3 or less.\n\u2022 Destroy all creatures with mana value 4 or greater.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Austere Command');
+    const step = ir.abilities[0]?.steps?.[0] as any;
+
+    expect(step).toMatchObject({
+      kind: 'choose_mode',
+      minModes: 2,
+      maxModes: 2,
+      canRepeatModes: false,
+    });
+    expect(step?.modes).toHaveLength(4);
+  });
+
+  it('parses Cleansing Nova as a simple choose-one modal block', () => {
+    const oracleText = 'Choose one —\n\u2022 Destroy all creatures.\n\u2022 Destroy all artifacts and enchantments.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Cleansing Nova');
+    const step = ir.abilities[0]?.steps?.[0] as any;
+
+    expect(step).toMatchObject({
+      kind: 'choose_mode',
+      minModes: 1,
+      maxModes: 1,
+      canRepeatModes: false,
+    });
+    expect(step?.modes).toHaveLength(2);
   });
 
   it('parses Stitch Together threshold text as a conditional battlefield upgrade', () => {

@@ -4220,9 +4220,10 @@ export function applySearchLibraryStep(
       && (
         matches.length > maxResults
         || step.maxResults === 'any_number'
-        // Live / interactive: always pause for LIBRARY_SEARCH UI even when only one card matches
-        // (Celestial X-search, tutors). Non-interactive dry-run may still auto-pick unique matches.
-        || (ctx.interactivePlayerChoices !== false && !isOptionalSearchLibraryStep(step))
+        // Live / interactive (explicit true): always pause for LIBRARY_SEARCH UI even when only
+        // one card matches. Default / non-interactive paths auto-pick unique fixed-count matches
+        // (e.g. Transmute with a single same-mana-value hit).
+        || (ctx.interactivePlayerChoices === true && !isOptionalSearchLibraryStep(step))
       )
     ) {
       return {

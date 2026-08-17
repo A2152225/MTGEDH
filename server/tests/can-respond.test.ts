@@ -2408,6 +2408,7 @@ describe('canRespond', () => {
         {
           id: 'commander1',
           controller: 'p1',
+          isCommander: true,
           card: {
             name: 'Commander',
             type_line: 'Legendary Creature — Human Wizard',
@@ -2487,6 +2488,7 @@ describe('canRespond', () => {
           ],
         },
       },
+      players: [{ id: 'p1' }, { id: 'p2' }],
       battlefield: [],
       emblems: [
         {
@@ -4586,6 +4588,8 @@ describe('canAct', () => {
       graveyardPermissionId: 'durable_chainer_creature_1',
       graveyardPermissionSourceName: 'Chainer, Nightmare Adept',
       graveyardPermissionCostMode: 'without_paying_mana_cost',
+      alternateCostId: 'free',
+      castWithoutPayingManaCost: true,
       exileAfterResolution: true,
     });
     expect(candidates.some((candidate: any) => candidate.card?.id === 'consider_1')).toBe(false);
@@ -5568,6 +5572,8 @@ describe('canAct', () => {
         castMethod: 'normal',
         manaCost: '',
         libraryPermissionCostMode: 'without_paying_mana_cost',
+        alternateCostId: 'free',
+        castWithoutPayingManaCost: true,
         card: expect.objectContaining({ id: 'top_artifact_1' }),
       }),
     ]));

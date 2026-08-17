@@ -80,6 +80,16 @@ import {
   parseMultikickerManaCost,
 } from "../state/modules/multikickerCastUtils.js";
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
+import {
+  buildPersistedCastPermissionFields,
+  buildPersistedFreeCastIntentFields,
+  buildPersistedWebSlingingCastIntentFields,
+  isFreeCastIntent,
+  preferCandidateByCastPermissionId,
+  resolveCastPermissionId,
+  stampCastPermissionId,
+  stampFreeCastIntent,
+} from "../state/modules/castIntent.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
 import { getDeclarativeLeaveBattlefieldReplacementHint } from "../state/modules/leaveBattlefieldReplacementHint.js";
 import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, cleanupCardLeavingExile, findPlayableExileCardForPlayer, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard, isCardOnAdventureForPlayer } from "../state/modules/playable-from-exile.js";
@@ -245,6 +255,8 @@ function getRequestedSpellCastCandidate(
   cardId: string,
   selectedSpellCard: any,
   selectedFaceIndex?: number,
+  castPermissionId?: string,
+  sourceZone: 'graveyard' | 'exile' | 'library' | 'hand' = 'graveyard',
 ): SharedSpellCastCandidate | undefined {
   const state = game?.state;
   if (!state || !playerId || !cardId) return undefined;
@@ -263,8 +275,8 @@ function getRequestedSpellCastCandidate(
     allowUnknownCostFallback: false,
   });
 
-  return sharedCandidates.find((candidate) => {
-    if (candidate.sourceZone !== 'graveyard') return false;
+  const matchingCandidates = sharedCandidates.filter((candidate) => {
+    if (candidate.sourceZone !== sourceZone) return false;
     if (String(candidate.card?.id || '') !== String(cardId)) return false;
     if (selectedFaceIndex !== undefined && Number(candidate.castCard?.faceIndex ?? -1) !== Number(selectedFaceIndex)) {
       return false;
@@ -274,6 +286,21 @@ function getRequestedSpellCastCandidate(
     }
     return true;
   });
+
+  return preferCandidateByCastPermissionId(matchingCandidates, castPermissionId);
+}
+
+function applySharedCandidateFreeCastIntent(
+  sourceCard: any,
+  castCard: any,
+  candidate: SharedSpellCastCandidate | undefined,
+): boolean {
+  if (!candidate || !isFreeCastIntent(candidate as any)) return false;
+  const targets = [sourceCard, castCard].filter((target) => target && typeof target === 'object');
+  for (const target of targets) {
+    stampFreeCastIntent(target as any, candidate as any, { force: true });
+  }
+  return true;
 }
 
 function applySharedGraveyardCandidateMetadata(
@@ -284,6 +311,7 @@ function applySharedGraveyardCandidateMetadata(
   const targets = [sourceCard, castCard].filter((target) => target && typeof target === 'object');
   const isKeywordGraveyardCast = candidate.sourceZone === 'graveyard'
     && ['flashback', 'jump-start', 'retrace', 'escape', 'harmonize', 'mayhem'].includes(String(candidate.castMethod || ''));
+  const castPermissionId = resolveCastPermissionId(candidate);
 
   for (const target of targets) {
     if (candidate.sourceZone === 'graveyard') {
@@ -332,11 +360,7 @@ function applySharedGraveyardCandidateMetadata(
       delete (target as any).sourceGrantedAdditionalCost;
     }
 
-    if (candidate.graveyardPermissionId) {
-      (target as any).graveyardPermissionId = candidate.graveyardPermissionId;
-    } else {
-      delete (target as any).graveyardPermissionId;
-    }
+    stampCastPermissionId(target as any, castPermissionId || undefined);
 
     if (candidate.graveyardPermissionSourceName) {
       (target as any).graveyardPermissionSourceName = candidate.graveyardPermissionSourceName;
@@ -349,13 +373,9 @@ function applySharedGraveyardCandidateMetadata(
     } else {
       delete (target as any).graveyardPermissionCostMode;
     }
-
-    if (candidate.graveyardPermissionCostMode === 'without_paying_mana_cost') {
-      (target as any).castWithoutPayingManaCost = true;
-    } else {
-      delete (target as any).castWithoutPayingManaCost;
-    }
   }
+
+  applySharedCandidateFreeCastIntent(sourceCard, castCard, candidate);
 }
 
 function getDelegatedGraveyardCastAbilityId(candidate?: SharedSpellCastCandidate): 'flashback' | 'jump-start' | 'retrace' | 'escape' | undefined {
@@ -6038,7 +6058,15 @@ function resolveSelectedSpellCard(card: any, faceIndex?: number): { card: any; f
 export async function requestCastSpellForSocket(
   io: Server,
   socket: Socket,
-  payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown; fromZone?: unknown },
+  payload?: {
+    gameId?: unknown;
+    cardId?: unknown;
+    faceIndex?: unknown;
+    fromZone?: unknown;
+    castPermissionId?: unknown;
+    permissionId?: unknown;
+    graveyardPermissionId?: unknown;
+  },
   options?: {
     skipPriorityCheck?: boolean;
     forcedAlternateCostId?: string;
@@ -6059,6 +6087,7 @@ export async function requestCastSpellForSocket(
       ? payload.faceIndex
       : undefined;
     const fromZone = normalizeSpellCastSourceZone(payload?.fromZone);
+    const requestedCastPermissionId = resolveCastPermissionId(payload as any) || undefined;
     if (!gameId || typeof gameId !== 'string') return;
     if (!cardId || typeof cardId !== 'string') return;
 
@@ -6306,11 +6335,19 @@ export async function requestCastSpellForSocket(
       isFreeCast = true;
     }
     const effectiveTypeLine = String(cardForCast?.type_line || typeLine || '').toLowerCase();
-    const sharedGraveyardCandidate = castSourceZone === 'graveyard' && !ignoreTimingRestrictions && !isFreeCast
-      ? getRequestedSpellCastCandidate(game, String(playerId), String(cardId), cardForCast, selectedFaceIndex)
+    const sharedGraveyardCandidate = castSourceZone === 'graveyard' && !ignoreTimingRestrictions
+      ? getRequestedSpellCastCandidate(
+        game,
+        String(playerId),
+        String(cardId),
+        cardForCast,
+        selectedFaceIndex,
+        requestedCastPermissionId,
+        'graveyard',
+      )
       : undefined;
 
-    if (castSourceZone === 'graveyard' && !ignoreTimingRestrictions && !isFreeCast) {
+    if (castSourceZone === 'graveyard' && !ignoreTimingRestrictions) {
       if (!sharedGraveyardCandidate) {
         socket.emit('error', {
           code: 'NO_PERMISSION',
@@ -6321,7 +6358,7 @@ export async function requestCastSpellForSocket(
 
       applySharedGraveyardCandidateMetadata(cardInHand, cardForCast, sharedGraveyardCandidate);
 
-      if (sharedGraveyardCandidate.graveyardPermissionCostMode === 'without_paying_mana_cost') {
+      if (isFreeCastIntent(sharedGraveyardCandidate as any)) {
         options = {
           ...options,
           castWithoutPayingManaCost: true,
@@ -6367,7 +6404,19 @@ export async function requestCastSpellForSocket(
       }
 
       const topLibraryPermission = canCastFromTop({ state: game.state } as any, String(playerId), cardForCast);
-      if (String((topLibraryPermission as any)?.costMode || '') === 'without_paying_mana_cost') {
+      const sharedLibraryCandidate = getRequestedSpellCastCandidate(
+        game,
+        String(playerId),
+        String(cardId),
+        cardForCast,
+        selectedFaceIndex,
+        requestedCastPermissionId,
+        'library',
+      );
+      if (
+        applySharedCandidateFreeCastIntent(cardInHand, cardForCast, sharedLibraryCandidate)
+        || String((topLibraryPermission as any)?.costMode || '') === 'without_paying_mana_cost'
+      ) {
         (cardInHand as any).castWithoutPayingManaCost = true;
         (cardForCast as any).castWithoutPayingManaCost = true;
         options = {
@@ -8715,8 +8764,14 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
       return;
     }
 
-    if (requestedLandCandidate?.graveyardPermissionId) {
-      (cardInZone as any).graveyardPermissionId = requestedLandCandidate.graveyardPermissionId;
+    if (requestedLandCandidate?.graveyardPermissionId || requestedLandCandidate?.castPermissionId) {
+      const permissionId = String(
+        requestedLandCandidate.castPermissionId
+        || requestedLandCandidate.graveyardPermissionId
+        || '',
+      ).trim();
+      (cardInZone as any).graveyardPermissionId = permissionId;
+      (cardInZone as any).castPermissionId = permissionId;
     }
     if (requestedLandCandidate?.graveyardPermissionSourceName) {
       (cardInZone as any).graveyardPermissionSourceName = requestedLandCandidate.graveyardPermissionSourceName;
@@ -8909,9 +8964,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
       sourceZone,
       requestedLandCandidate
         ? {
-            ...(requestedLandCandidate.graveyardPermissionId
-              ? { graveyardPermissionId: requestedLandCandidate.graveyardPermissionId }
-              : {}),
+            ...buildPersistedCastPermissionFields(requestedLandCandidate as any),
             ...(requestedLandCandidate.graveyardPermissionSourceName
               ? { graveyardPermissionSourceName: requestedLandCandidate.graveyardPermissionSourceName }
               : {}),
@@ -9058,6 +9111,9 @@ export function registerGameActions(io: Server, socket: Socket) {
     bypassExilePermissionCheck?: unknown;
     ignoreTimingRestrictions?: unknown;
     allowLibrarySearchCast?: unknown;
+    castPermissionId?: unknown;
+    permissionId?: unknown;
+    graveyardPermissionId?: unknown;
   }) => {
     const safeGameId = typeof payload?.gameId === 'string' ? payload.gameId : undefined;
     try {
@@ -9094,6 +9150,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const bypassExilePermissionCheck = payload?.bypassExilePermissionCheck === true;
       let ignoreTimingRestrictions = payload?.ignoreTimingRestrictions === true;
       const allowLibrarySearchCast = payload?.allowLibrarySearchCast === true;
+      const requestedCastPermissionId = resolveCastPermissionId(payload as any) || undefined;
 
       if (!gameId || typeof gameId !== 'string') return;
       if (!cardId || typeof cardId !== 'string') return;
@@ -9341,13 +9398,19 @@ export function registerGameActions(io: Server, socket: Socket) {
           };
         }
       }
-      const skipsSharedGraveyardPermissionCheck = alternateCostId === 'free'
-        || (cardInHand as any).castWithoutPayingManaCost === true;
-      const sharedGraveyardCandidate = castSourceZone === 'graveyard' && !ignoreTimingRestrictions && !skipsSharedGraveyardPermissionCheck
-        ? getRequestedSpellCastCandidate(game, String(playerId), String(cardId), cardInHand, selectedFaceIndex)
+      const sharedGraveyardCandidate = castSourceZone === 'graveyard' && !ignoreTimingRestrictions
+        ? getRequestedSpellCastCandidate(
+          game,
+          String(playerId),
+          String(cardId),
+          cardInHand,
+          selectedFaceIndex,
+          requestedCastPermissionId,
+          'graveyard',
+        )
         : undefined;
 
-      if (castSourceZone === 'graveyard' && !ignoreTimingRestrictions && !skipsSharedGraveyardPermissionCheck) {
+      if (castSourceZone === 'graveyard' && !ignoreTimingRestrictions) {
         if (!sharedGraveyardCandidate) {
           socket.emit('error', {
             code: 'NO_PERMISSION',
@@ -9357,6 +9420,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
 
         applySharedGraveyardCandidateMetadata(cardInHand, undefined, sharedGraveyardCandidate);
+        // Free intent comes from the authoritative shared candidate, not a client-supplied
+        // alternateCostId='free' that previously skipped permission validation.
+        if (alternateCostId === 'free' && !isFreeCastIntent(sharedGraveyardCandidate as any) && !isFreeCastIntent(cardInHand as any)) {
+          socket.emit('error', {
+            code: 'NO_PERMISSION',
+            message: "That card cannot be cast for free from your graveyard.",
+          });
+          return;
+        }
       }
 
       const commandZoneManaCost = castSourceZone === 'command'
@@ -12839,13 +12911,8 @@ export function registerGameActions(io: Server, socket: Socket) {
               ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
               ...(typeof castAsAdventure === 'boolean' ? { castAsAdventure } : {}),
               alternateCostId,
-              ...(alternateCostId === 'web_slinging'
-                ? {
-                    webSlingingCostWasPaid: true,
-                    webSlingingReturnedCreatureId: String((cardInHand as any).webSlingingReturnedCreatureId || '') || undefined,
-                  }
-                : {}),
-              ...(isFreeCast ? { castWithoutPayingManaCost: true } : {}),
+              ...buildPersistedWebSlingingCastIntentFields(cardInHand as any, alternateCostId),
+              ...buildPersistedFreeCastIntentFields(cardInHand as any, alternateCostId),
               ...(giftPromisedForCast === true
                 ? {
                     giftPromised: true,
@@ -12856,9 +12923,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               // Provenance / replay-stable metadata for intervening-if templates.
               fromZone: castSourceZone,
               castFromHand: castSourceZone === 'hand',
-              ...(typeof (cardInHand as any).graveyardPermissionId === 'string' && (cardInHand as any).graveyardPermissionId
-                ? { graveyardPermissionId: String((cardInHand as any).graveyardPermissionId) }
-                : {}),
+              ...buildPersistedCastPermissionFields(cardInHand as any),
               ...(typeof (cardInHand as any).graveyardPermissionSourceName === 'string' && (cardInHand as any).graveyardPermissionSourceName
                 ? { graveyardPermissionSourceName: String((cardInHand as any).graveyardPermissionSourceName) }
                 : {}),
@@ -13625,14 +13690,11 @@ export function registerGameActions(io: Server, socket: Socket) {
           ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
           ...(typeof castAsAdventure === 'boolean' ? { castAsAdventure } : {}),
           alternateCostId,
+          ...buildPersistedWebSlingingCastIntentFields(cardInHand as any, alternateCostId),
           fromZone: castSourceZone,
           castFromHand: castSourceZone === 'hand',
-          ...(alternateCostId === 'free' || (cardInHand as any).castWithoutPayingManaCost === true
-            ? { castWithoutPayingManaCost: true }
-            : {}),
-          ...(typeof (cardInHand as any).graveyardPermissionId === 'string' && (cardInHand as any).graveyardPermissionId
-            ? { graveyardPermissionId: String((cardInHand as any).graveyardPermissionId) }
-            : {}),
+          ...buildPersistedFreeCastIntentFields(cardInHand as any, alternateCostId),
+          ...buildPersistedCastPermissionFields(cardInHand as any),
           ...(typeof (cardInHand as any).graveyardPermissionSourceName === 'string' && (cardInHand as any).graveyardPermissionSourceName
             ? { graveyardPermissionSourceName: String((cardInHand as any).graveyardPermissionSourceName) }
             : {}),

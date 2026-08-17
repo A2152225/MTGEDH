@@ -856,7 +856,9 @@ function buildGraveyardCastHintFromCandidate(candidate: SharedSpellCastCandidate
     label: 'Cast',
     description,
     ...(cost ? { cost } : {}),
-    ...(String(candidate?.graveyardPermissionId || '').trim() ? { permissionId: candidate.graveyardPermissionId } : {}),
+    ...(String(candidate?.castPermissionId || candidate?.graveyardPermissionId || '').trim()
+      ? { permissionId: String(candidate?.castPermissionId || candidate?.graveyardPermissionId || '').trim() }
+      : {}),
     ...(sourceName ? { sourceName } : {}),
     costMode,
   };

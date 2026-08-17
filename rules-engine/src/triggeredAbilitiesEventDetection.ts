@@ -256,11 +256,11 @@ export function detectTriggeredAbilityEvent<T extends string>(
   }
 
   if (text.includes('beginning of your end step') || text.includes('your end step')) {
-    return { event: triggerEventValues.BEGINNING_OF_END_STEP, filter: text };
+    return { event: triggerEventValues.BEGINNING_OF_END_STEP, filter: 'your' };
   }
 
   if (text.includes('beginning of each end step') || text.includes('each end step')) {
-    return { event: triggerEventValues.BEGINNING_OF_END_STEP, filter: text };
+    return { event: triggerEventValues.BEGINNING_OF_END_STEP, filter: 'each' };
   }
 
   if (text.includes('end step') || text.includes('end of turn')) {

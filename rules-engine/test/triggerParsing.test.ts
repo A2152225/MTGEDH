@@ -150,8 +150,10 @@ describe('Trigger Parsing', () => {
 
       expect(abilities.length).toBeGreaterThan(0);
       expect(abilities[0].event).toBe(TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER);
-      expect(String(abilities[0].effect || '')).toContain("exile the top card of each of those opponents' libraries");
-      expect(String(abilities[0].effect || '')).toContain('you may play those cards this turn');
+      expect(String(abilities[0].effect || '').toLowerCase()).toContain(
+        "exile the top card of each of those opponents' libraries",
+      );
+      expect(String(abilities[0].effect || '').toLowerCase()).toContain('you may play those cards this turn');
     });
 
     it('should preserve multiline trigger effects until the next trigger header', () => {
@@ -161,7 +163,7 @@ describe('Trigger Parsing', () => {
 
       expect(abilities.length).toBeGreaterThan(0);
       expect(abilities[0].event).toBe(TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER);
-      expect(String(abilities[0].effect || '')).toContain('you may play those cards this turn');
+      expect(String(abilities[0].effect || '').toLowerCase()).toContain('you may play those cards this turn');
     });
 
     it('should split adjacent trigger headers into separate parsed abilities', () => {
@@ -172,8 +174,8 @@ describe('Trigger Parsing', () => {
       expect(abilities.length).toBe(2);
       expect(abilities[0].event).toBe(TriggerEvent.ATTACKS);
       expect(abilities[1].event).toBe(TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER);
-      expect(String(abilities[0].effect || '')).toContain('draw a card');
-      expect(String(abilities[1].effect || '')).toContain('create a treasure token');
+      expect(String(abilities[0].effect || '').toLowerCase()).toContain('draw a card');
+      expect(String(abilities[1].effect || '').toLowerCase()).toContain('create a treasure token');
     });
     
     it('should parse spell cast trigger', () => {

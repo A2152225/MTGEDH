@@ -134,20 +134,44 @@ describe('ETB gain life whereX on full card text', () => {
 });
 
 function isCompleteOracleClause(clause: string): boolean {
+  const text = String(clause || '');
+  if (!text.trim()) return false;
+  // Catalog fixtures must never ship ellipsized truncations.
+  if (/\.\.\.|…/.test(text)) return false;
+
   let parentheticalDepth = 0;
-  for (const char of String(clause || '')) {
+  for (const char of text) {
     if (char === '(') parentheticalDepth += 1;
     if (char === ')') parentheticalDepth -= 1;
     if (parentheticalDepth < 0) return false;
   }
-  return parentheticalDepth === 0;
+  if (parentheticalDepth !== 0) return false;
+
+  // Bare modal headers without mode bullets are not executable fixtures.
+  const lines = text
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(Boolean);
+  const looksLikeChooseHeader = (line: string) =>
+    /^(?:You\s+(?:may\s+)?)?Choose\s+(?:one|two|three|four|one or both|one or more|up to|any number)\b/i.test(
+      line
+    );
+  const looksLikeModeBullet = (line: string) =>
+    /^(?:[•\u2022]|\+[^{—\n]*[—-]|\s*\{P\}(?:\{P\})*\s*[—-])/.test(line);
+
+  if (lines.some(looksLikeChooseHeader)) {
+    const headerIndex = lines.findIndex(looksLikeChooseHeader);
+    const hasBullets = lines.slice(headerIndex + 1).some(looksLikeModeBullet);
+    if (!hasBullets) return false;
+  }
+
+  return true;
 }
 
 function categoryItems(id: string, limit = 30) {
   return (catalog.categories.find(category => category.id === id)?.items ?? [])
-    // The generated catalog predates the JSONL corpus and contains some
-    // truncated parenthetical reminders. They are not executable Oracle
-    // clauses and must not become parser acceptance tests.
+    // Reject truncated / bare-header catalog rows so parser acceptance
+    // tests only see executable Oracle clauses.
     .filter(item => isCompleteOracleClause(item.clause))
     .slice(0, limit);
 }
@@ -290,18 +314,25 @@ describe('composite and activated mill patterns', () => {
   });
 
   it('parses Mindskinner prevent-and-mill replacement', () => {
-    const ir = parseClause(
+    // Replacement abilities split the "If … would …," frame into triggerCondition;
+    // effect steps are flat prevent_damage + mill (not a wrapping conditional).
+    const samples = [
       'If a source you control would deal damage to an opponent, prevent that damage and each opponent mills that many cards.',
-      'The Mindskinner'
-    );
-    const steps = ir.abilities.flatMap(ability => ability.steps);
-    const conditional = steps.find(step => step.kind === 'conditional');
-    expect(conditional).toBeTruthy();
-    const inner = (conditional as any)?.steps ?? [];
-    expect(inner.some((step: { kind: string }) => step.kind === 'prevent_damage')).toBe(true);
-    const mill = inner.find((step: { kind: string }) => step.kind === 'mill');
-    expect(mill).toBeTruthy();
-    expect((mill as any)?.who?.kind).toBe('each_opponent');
+      'If a source you control would deal damage to an opponent, prevent that damage and each opponent mills cards equal to the amount of damage prevented this way.',
+    ];
+
+    for (const clause of samples) {
+      const ir = parseClause(clause, 'The Mindskinner');
+      expect(ir.abilities[0]?.type).toBe('replacement');
+      expect(String(ir.abilities[0]?.triggerCondition || '')).toMatch(
+        /source you control would deal damage to an opponent/i
+      );
+      const steps = ir.abilities.flatMap(ability => ability.steps);
+      expect(steps.some(step => step.kind === 'prevent_damage')).toBe(true);
+      const mill = steps.find(step => step.kind === 'mill');
+      expect(mill).toBeTruthy();
+      expect((mill as any)?.who?.kind).toBe('each_opponent');
+    }
   });
 });
 
@@ -463,15 +494,12 @@ describe('oracle automation modal choices category', () => {
       const ir = parseClause(item.clause, item.name);
       const steps = ir.abilities.flatMap(ability => ability.steps);
       expect(steps.length).toBeGreaterThan(0);
-      expect(hasRecognizedStep(steps)).toBe(true);
-      if (/\bchoose\b/i.test(item.clause)) {
-        const hasModal = steps.some(step =>
-          step.kind === 'choose_mode' ||
-          step.kind === 'choose_target_creature' ||
-          (step.kind === 'grant_static_ability' && /\bchoose\b/i.test(String((step as any).effectText?.[0] || (step as any).raw || '')))
-        );
-        expect(hasModal || hasRecognizedStep(steps)).toBe(true);
-      }
+      const chooseMode = steps.find(step => step.kind === 'choose_mode') as
+        | { kind: string; modes?: Array<unknown> }
+        | undefined;
+      expect(chooseMode).toBeTruthy();
+      expect(Array.isArray(chooseMode?.modes)).toBe(true);
+      expect((chooseMode?.modes?.length ?? 0)).toBeGreaterThan(0);
     });
   }
 });

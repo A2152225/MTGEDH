@@ -8183,7 +8183,9 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     ];
   }
 
-  const preventMillMatch = raw.match(/^prevent that damage and each opponent mills that many cards$/i);
+  const preventMillMatch = raw.match(
+    /^prevent that damage and each opponent mills (?:that many cards|cards equal to the amount of damage prevented this way)$/i
+  );
   if (preventMillMatch) {
     return [
       {
@@ -13841,9 +13843,11 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     } as unknown as OracleEffectStep];
   }
 
-  // Contagion Engine reminder leftover after "Proliferate twice" expansion.
+  // Double-cascade ("Then do it again") must remain visible as an unknown step.
+  // Contagion Engine / proliferate leftovers are dropped later by
+  // pruneRedundantProliferateReminderUnknownAbilities when the ability is proliferate-scoped.
   if (/^then do it again$/i.test(raw)) {
-    return [];
+    return [{ kind: 'unknown', raw: 'Then do it again', ...sequence } as OracleEffectStep];
   }
 
   if (/^if you do,\s*proliferate(?:\s+(twice|two\s+times|2\s+times))?$/i.test(raw)) {
@@ -20502,7 +20506,7 @@ export function pruneCleaveReminderAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
   return abilities.filter((ability) => {
-    if (ability.type !== 'static' || ability.steps.length === 0 || !ability.steps.every((step) => step.kind === 'unknown')) {
+    if (ability.type !== 'static' || ability.steps.length === 0) {
       return true;
     }
 
@@ -20511,7 +20515,18 @@ export function pruneCleaveReminderAbilities(
       .trim()
       .toLowerCase();
 
-    return !(normalizedText.startsWith('cleave ') && normalizedText.includes('remove the words in square brackets'));
+    if (!(normalizedText.startsWith('cleave ') && normalizedText.includes('remove the words in square brackets'))) {
+      return true;
+    }
+
+    // Reminder-only cleave lines may lower into unknown, grant_static_ability, and/or
+    // "If you do, …" conditional tails after parenthetical splitting.
+    return !ability.steps.every(
+      (step) =>
+        step.kind === 'unknown'
+        || step.kind === 'grant_static_ability'
+        || step.kind === 'conditional',
+    );
   });
 }
 
@@ -21201,8 +21216,21 @@ export function pruneRedundantCrewReminderAbilities(
     ability.steps.length > 0 && ability.steps.every((step) => step.kind === 'unknown')
   );
 
+  const isCrewKeywordOnlyAbility = (ability: OracleIRAbility): boolean => {
+    const normalizedText = normalizedAbilityText(ability);
+    if (!/^crew\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText)) return false;
+    if (ability.steps.length === 0) return true;
+    return ability.steps.every(
+      (step) =>
+        step.kind === 'unknown'
+        || step.kind === 'grant_static_ability'
+        || step.kind === 'conditional',
+    );
+  };
+
   const isCrewReminderLeadAbility = (ability: OracleIRAbility): boolean => (
-    isUnknownOnlyAbility(ability) && /^crew\s+\d+\s*\(/i.test(normalizedAbilityText(ability))
+    (isUnknownOnlyAbility(ability) || isCrewKeywordOnlyAbility(ability))
+    && /^crew\s+\d+\s*\(/i.test(normalizedAbilityText(ability))
   );
 
   const isCrewReminderTailAbility = (ability: OracleIRAbility): boolean => {
@@ -21222,6 +21250,11 @@ export function pruneRedundantCrewReminderAbilities(
     const normalizedText = normalizedAbilityText(ability);
 
     if (/^saddle\s+\d+\s*\(/i.test(normalizedText) && /\bbecomes saddled\b/i.test(normalizedText)) {
+      continue;
+    }
+
+    if (isCrewKeywordOnlyAbility(ability)) {
+      pruningCrewReminderTail = /^crew\s+\d+\s*\(/i.test(normalizedText) && !/\)\s*$/i.test(normalizedText);
       continue;
     }
 
@@ -21314,10 +21347,15 @@ export function pruneLateKeywordReminderOnlyAbilities(
         return withoutCommanderEligibility.length > 0 ? [{ ...ability, steps: withoutCommanderEligibility }] : [];
       }
 
-      if (/\bdredge\s+\d+\s*\(if you would draw a card\b/i.test(normalizedText)) {
+      if (/\bdredge\s+\d+(?:\s*\(if you would draw a card\b)?/i.test(normalizedText)) {
         const dredgeStartIndex = ability.steps.findIndex((step) => {
+          if (step.kind === 'grant_static_ability') {
+            const granted = Array.isArray((step as any).abilities) ? (step as any).abilities : [];
+            return granted.some((entry: unknown) => /^dredge\s+\d+$/i.test(String(entry || '')))
+              || /^dredge\s+\d+$/i.test(String(step.raw || ''));
+          }
           if (step.kind !== 'unknown') return false;
-          return /^dredge\s+\d+\s*\(if you would draw a card\b/i.test(
+          return /^dredge\s+\d+(?:\s*\(if you would draw a card\b)?/i.test(
             normalizeReminderStepRaw(step)
           );
         });
@@ -21325,13 +21363,25 @@ export function pruneLateKeywordReminderOnlyAbilities(
         if (dredgeStartIndex >= 0) {
           const nextSteps = ability.steps.filter((step, index) => {
             if (index < dredgeStartIndex) return true;
+            if (step.kind === 'grant_static_ability') {
+              const granted = Array.isArray((step as any).abilities) ? (step as any).abilities : [];
+              return !(
+                granted.some((entry: unknown) => /^dredge\s+\d+$/i.test(String(entry || '')))
+                || /^dredge\s+\d+$/i.test(String(step.raw || ''))
+              );
+            }
             if (step.kind === 'unknown') {
-              return !/^dredge\s+\d+\s*\(if you would draw a card\b/i.test(normalizeReminderStepRaw(step));
+              return !/^dredge\s+\d+(?:\s*\(if you would draw a card\b)?/i.test(normalizeReminderStepRaw(step));
             }
             const normalizedRaw = normalizeReminderStepRaw(step as any);
             return !/^(?:if you do,\s*)?return this card from your graveyard to your hand$/i.test(normalizedRaw);
           });
           return nextSteps.length > 0 ? [{ ...ability, steps: nextSteps }] : [];
+        }
+
+        // Standalone "Dredge N" ability after reminder stripping.
+        if (/^dredge\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) && isStructuredKeywordReminderAbility) {
+          return [];
         }
       }
 
@@ -21378,9 +21428,20 @@ export function pruneLateKeywordReminderOnlyAbilities(
       }
 
       const isUnknownOnlyAbility = ability.steps.length === 0 || ability.steps.every((step) => step.kind === 'unknown');
+      // Keyword lines often lower into grant_static_ability (+ optional "If you do" conditional
+      // reminder tails) after parenthetical stripping; still prune those reminder-only abilities.
+      const isStructuredKeywordReminderAbility = ability.steps.length > 0 && ability.steps.every((step) => {
+        if (step.kind === 'unknown' || step.kind === 'grant_static_ability') return true;
+        if (step.kind === 'conditional') {
+          const raw = String(step.raw || '').trim();
+          return /^if you do,/i.test(raw);
+        }
+        return false;
+      });
+      const isPrunableKeywordReminderAbility = isUnknownOnlyAbility || isStructuredKeywordReminderAbility;
 
       if (
-        isUnknownOnlyAbility && (
+        isPrunableKeywordReminderAbility && (
           /^choose a background(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^.+\s+can be your commander[.)]*$/i.test(normalizedText) ||
           /^ascend(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
