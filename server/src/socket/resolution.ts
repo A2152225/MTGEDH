@@ -19010,7 +19010,7 @@ async function handleTargetSelectionResponse(
   const validTargetIds = new Set(validTargets.map((t: any) => String(t.id)));
   const normalizedSelections = selections.map((id: any) => String(id));
   if (!normalizedSelections.every(id => validTargetIds.has(id))) {
-    debugWarn(1, [Resolution] Invalid target selection: one or more targets not in valid targets list (got=));
+    debugWarn(1, `[Resolution] Invalid target selection: one or more targets not in valid targets list (got=${JSON.stringify(selections)})`);
     return;
   }
   const targetGrouping = (step as any)?.targetGrouping;
