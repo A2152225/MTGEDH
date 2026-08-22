@@ -98,6 +98,7 @@ import { getMatchingGraveyardCastingPermission } from "../state/modules/graveyar
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { buildCostAdjustmentPlan, buildLiveSpellCostAdjustment } from "../state/modules/cost-adjustments.js";
+import { resolveGroupedPermanentRef } from "./tokenGroupResolve.js";
 import { adjustActivationManaCostForPayment } from "../state/modules/ability-cost-adjustments.js";
 import { buildNormalizedManaPaymentModel, stringifyParsedManaCost, type NormalizedManaPaymentModel } from "../state/modules/mana-check.js";
 import {
@@ -1255,24 +1256,74 @@ function restorePlayerCastSpellPaymentCheckpoint(
   }
 }
 
+
+function resolveSpellPaymentPermanentId(
+  gameOrState: any,
+  playerId: string,
+  permanentId: string,
+  usedIds?: Set<string>,
+  opts?: { requireUntappedForTapAbility?: boolean; mana?: string; abilityId?: string },
+): string | null {
+  const game = gameOrState?.state ? gameOrState : { state: gameOrState };
+  const raw = String(permanentId || '').trim();
+  if (!raw) return null;
+  // Floating pool refs are not battlefield permanents; keep them as-is for callers that need the sentinel.
+  if (parseFloatingPaymentPermanentId(raw)) return raw;
+
+  const predicate = (perm: any) => {
+    if (!opts?.requireUntappedForTapAbility) return true;
+    // Prefer untapped when we know activation taps; if we can't tell yet, still allow.
+    try {
+      const costInfo = getPaymentActivationCostInfo(
+        perm,
+        resolvePaymentManaAbilityActivationCost(perm, String(opts?.mana || ''), opts?.abilityId),
+      );
+      if (costInfo.taps && (perm as any).tapped) return false;
+    } catch {
+      // best-effort
+    }
+    return true;
+  };
+
+  const resolved = resolveGroupedPermanentRef(game, playerId as any, raw, {
+    usedIds,
+    predicate,
+  });
+  if (resolved) return resolved;
+  // Direct id fallback already handled inside resolveGroupedPermanentRef; null means missing.
+  return null;
+}
+
 function validateCastSpellPaymentPermanentUsage(
-  state: any,
+  gameOrState: any,
   playerId: string,
   payment: Array<{ permanentId?: string; mana?: string; abilityId?: string }>,
 ): string | null {
-  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const game = gameOrState?.state ? gameOrState : { state: gameOrState };
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  const usedIds = new Set<string>();
   const tapPermanentIds = new Set<string>();
 
   for (const item of payment) {
     const floatingPoolKey = getFloatingPaymentPoolKey(String(item?.permanentId || ''), String(item?.mana || ''));
     if (floatingPoolKey) continue;
 
-    const permanentId = String(item?.permanentId || '').trim();
-    if (!permanentId) continue;
+    const rawPermanentId = String(item?.permanentId || '').trim();
+    if (!rawPermanentId) continue;
+
+    const permanentId = resolveSpellPaymentPermanentId(game, playerId, rawPermanentId, usedIds, {
+      requireUntappedForTapAbility: true,
+      mana: item?.mana,
+      abilityId: item?.abilityId,
+    });
+    if (!permanentId || parseFloatingPaymentPermanentId(permanentId)) {
+      return `Payment source ${rawPermanentId} is not on the battlefield.`;
+    }
+    usedIds.add(permanentId);
 
     const permanent = battlefield.find((entry: any) => entry?.id === permanentId && entry?.controller === playerId);
     if (!permanent) {
-      return `Payment source ${permanentId} is not on the battlefield.`;
+      return `Payment source ${rawPermanentId} is not on the battlefield.`;
     }
 
     const activationCostInfo = getPaymentActivationCostInfo(
@@ -11616,6 +11667,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Add mana from payment sources, using calculateManaProduction for accurate amounts
       if (payment && payment.length > 0) {
         const projectedTapPermanentIds = new Set<string>();
+        const usedPaymentPermanentIds = new Set<string>();
         for (const { permanentId, mana, count, abilityId, producedColors } of payment) {
           const floatingRef = parseFloatingPaymentPermanentId(String(permanentId || ''));
           const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''), existingPool);
@@ -11629,14 +11681,30 @@ export function registerGameActions(io: Server, socket: Socket) {
             continue;
           }
 
-          const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
+          const resolvedPermanentId = resolveSpellPaymentPermanentId(
+            game,
+            playerId,
+            String(permanentId || ''),
+            usedPaymentPermanentIds,
+            {
+              requireUntappedForTapAbility: true,
+              mana: String(mana || ''),
+              abilityId,
+            },
+          );
+          if (!resolvedPermanentId || parseFloatingPaymentPermanentId(resolvedPermanentId)) {
+            continue;
+          }
+          usedPaymentPermanentIds.add(resolvedPermanentId);
+
+          const permanent = globalBattlefield.find((p: any) => p?.id === resolvedPermanentId && p?.controller === playerId);
           if (permanent) {
             const activationCostInfo = getPaymentActivationCostInfo(
               permanent,
               resolvePaymentManaAbilityActivationCost(permanent, String(mana || ''), abilityId)
             );
             if (activationCostInfo.taps) {
-              const tapPermanentId = String(permanentId || '');
+              const tapPermanentId = String(resolvedPermanentId || '');
               if (projectedTapPermanentIds.has(tapPermanentId)) {
                 socket.emit('error', {
                   code: 'DUPLICATE_PAYMENT_SOURCE',
@@ -11938,7 +12006,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (!isForceAltCostPaid && payment && payment.length > 0) {
         debug(2, `[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
 
-        const duplicatePaymentError = validateCastSpellPaymentPermanentUsage(game.state, playerId, payment);
+        const duplicatePaymentError = validateCastSpellPaymentPermanentUsage(game, playerId, payment);
         if (duplicatePaymentError) {
           abortCastSpellPayment({ code: 'DUPLICATE_PAYMENT_SOURCE', message: duplicatePaymentError });
           return;
@@ -11949,15 +12017,40 @@ export function registerGameActions(io: Server, socket: Socket) {
         if (!(game as any).zones && game.state?.zones) {
           (game as any).zones = game.state.zones;
         }
+
+        const usedPaymentPermanentIds = new Set<string>();
         
         // Process each payment item: apply the mana ability cost, then add mana to pool
-        for (const { permanentId, mana, count, abilityId, sacrificedPermanentIds, producedColors } of payment) {
+        for (let paymentIdx = 0; paymentIdx < payment.length; paymentIdx++) {
+          let { permanentId, mana, count, abilityId, sacrificedPermanentIds, producedColors } = payment[paymentIdx];
           const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''), existingPool);
           if (floatingPoolKey && parseFloatingPaymentPermanentId(String(permanentId || ''))) {
             const amount = Math.max(1, Number(count || 1));
             selectedPaymentAvailableTotals[floatingPoolKey] = (selectedPaymentAvailableTotals[floatingPoolKey] || 0) + amount;
             continue;
           }
+
+          const resolvedPermanentId = resolveSpellPaymentPermanentId(
+            game,
+            playerId,
+            String(permanentId || ''),
+            usedPaymentPermanentIds,
+            {
+              requireUntappedForTapAbility: true,
+              mana: String(mana || ''),
+              abilityId,
+            },
+          );
+          if (!resolvedPermanentId || parseFloatingPaymentPermanentId(resolvedPermanentId)) {
+            abortCastSpellPayment({
+              code: 'PAYMENT_SOURCE_NOT_FOUND',
+              message: `Permanent ${permanentId} not found on battlefield`,
+            });
+            return;
+          }
+          usedPaymentPermanentIds.add(resolvedPermanentId);
+          permanentId = resolvedPermanentId;
+          payment[paymentIdx].permanentId = resolvedPermanentId;
 
           const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
           
@@ -12434,7 +12527,10 @@ export function registerGameActions(io: Server, socket: Socket) {
         if (Array.isArray(payment) && payment.length > 0) {
           const battlefield = (game.state.battlefield || []) as any[];
           for (const pay of payment) {
-            const perm = battlefield.find((p: any) => p?.id === pay?.permanentId && p?.controller === playerId);
+            const rawPayId = String(pay?.permanentId || '');
+            const resolvedPayId =
+              resolveSpellPaymentPermanentId(game, playerId, rawPayId) || rawPayId;
+            const perm = battlefield.find((p: any) => p?.id === resolvedPayId && p?.controller === playerId);
             const typeLine = String(perm?.card?.type_line || '').toLowerCase();
             if (/\btreasure\b/.test(typeLine)) {
               manaFromTreasureSpent = true;
