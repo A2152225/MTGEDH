@@ -490,7 +490,58 @@ export function resolveSingleCreatureTargetId(
 
   const sourceId = String(ctx.sourceId || '').trim();
 
-  if (targetText === 'target creature' || targetText === 'creature' || targetText.includes('target creature')) {
+  // "target attacking creature" / "target blocking creature" (and optional subtype words)
+  // do not contain the contiguous substring "target creature". Prefer chosen/bound ids
+  // within the legal combat-role pool (same gap as inferTriggeredAbilityTargetMetadata).
+  const combatRoleTargetMatch = targetText.match(
+    /^target (attacking(?: or blocking)?|blocking)(?: [a-z0-9'-]+)* creature(?: you control)?$/i,
+  );
+  if (combatRoleTargetMatch) {
+    const role = String(combatRoleTargetMatch[1] || '').toLowerCase();
+    const youControlOnly = /\byou control\b/i.test(targetText);
+    const isBlockingPermanent = (permanent: BattlefieldPermanent | any): boolean => {
+      const blocking = (permanent as any)?.blocking;
+      if (Array.isArray(blocking) && blocking.length > 0) return true;
+      if (typeof blocking === 'string' && blocking.trim().length > 0) return true;
+      return Boolean((permanent as any)?.isBlocking);
+    };
+    const pool = creatures.filter((permanent) => {
+      if (youControlOnly && String((permanent as any)?.controller || '').trim() !== controllerId) {
+        return false;
+      }
+      const attacking = isAttackingPermanent(permanent);
+      const blocking = isBlockingPermanent(permanent);
+      if (role === 'attacking or blocking') return attacking || blocking;
+      if (role === 'blocking') return blocking;
+      return attacking;
+    });
+    const chosenIds = [
+      String(ctx.targetCreatureId || '').trim(),
+      String(ctx.targetPermanentId || '').trim(),
+      String(ctx.selectorContext?.targetCreatureId || '').trim(),
+      String(ctx.selectorContext?.targetPermanentId || '').trim(),
+      ...(
+        Array.isArray(ctx.selectorContext?.chosenObjectIds)
+          ? ctx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim()).filter(Boolean)
+          : []
+      ),
+    ].filter(Boolean);
+    if (chosenIds.length > 0) {
+      const legalIdSet = new Set(
+        pool.map((permanent) => String((permanent as any)?.id || '').trim()).filter(Boolean),
+      );
+      const matchedChosenIds = Array.from(new Set(chosenIds)).filter((id) => legalIdSet.has(id));
+      return matchedChosenIds.length === 1 ? matchedChosenIds[0] : undefined;
+    }
+    return pickFromControllerPool(pool);
+  }
+
+  if (
+    targetText === 'target creature'
+    || targetText === 'creature'
+    || targetText.includes('target creature')
+    || /\btarget\b(?:\s+(?:attacking(?:\s+or\s+blocking)?|blocking|[a-z0-9'-]+))+\s+creature\b/i.test(targetText)
+  ) {
     const preferredTarget = pickFromControllerPool(creatures);
     if (preferredTarget) return preferredTarget;
     return creatures.length === 1 ? creatures[0].id : undefined;

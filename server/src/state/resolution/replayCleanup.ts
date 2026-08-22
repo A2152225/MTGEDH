@@ -20,6 +20,7 @@ function spellCastCardId(step: any): string {
   return String(
     step?.spellCastContext?.cardId
     || step?.cardId
+    || step?.spellCardId
     || step?.mutateCardId
     || step?.sourceId
     || '',
@@ -34,6 +35,21 @@ function cardAlreadyOnStack(state: any, cardId: string): boolean {
   return stack.some((entry: any) => {
     if (!entry) return false;
     if (String(entry?.cardId || entry?.sourceCardId || '').trim() === normalizedCardId) return true;
+    if (String(entry?.card?.id || '').trim() === normalizedCardId) return true;
+    return false;
+  });
+}
+
+/** Permanent spells that finished resolving leave the stack for the battlefield. */
+function cardAlreadyOnBattlefield(state: any, cardId: string): boolean {
+  const normalizedCardId = String(cardId || '').trim();
+  if (!normalizedCardId) return false;
+
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  return battlefield.some((entry: any) => {
+    if (!entry) return false;
+    if (String(entry?.id || '').trim() === normalizedCardId) return true;
+    if (String(entry?.cardId || '').trim() === normalizedCardId) return true;
     if (String(entry?.card?.id || '').trim() === normalizedCardId) return true;
     return false;
   });
@@ -300,6 +316,31 @@ export function pruneObsoleteResolutionQueueAfterReplay(
       if (cardId && cardAlreadyOnStack(state, cardId)) {
         ResolutionQueueManager.cancelStep(gameId, String(step.id || ''));
         continue;
+      }
+
+      // Permanent spells leave the stack for the battlefield; cast-flow X/payment prompts
+      // (e.g. Royal Talon Fighter Jet Choose X) must not survive undo/reconnect.
+      if (cardId && cardAlreadyOnBattlefield(state, cardId)) {
+        ResolutionQueueManager.cancelStep(gameId, String(step.id || ''));
+        continue;
+      }
+
+      // Spell-cast X selection often has no pendingSpellCasts effectId — drop it once the
+      // card has left its cast source zone and is no longer on the stack.
+      if (
+        stepType === ResolutionStepType.X_VALUE_SELECTION
+        && (step as any)?.spellCastXSelection === true
+        && cardId
+      ) {
+        const castLike = {
+          cardId,
+          playerId: String((step as any)?.playerId || '').trim(),
+          fromZone: String((step as any)?.spellFromZone || 'hand').trim() || 'hand',
+        };
+        if (!cardStillInCastSourceZone(state, castLike, librarySource)) {
+          ResolutionQueueManager.cancelStep(gameId, String(step.id || ''));
+          continue;
+        }
       }
 
       if (effectId && !pendingEffectIds.has(effectId)) {

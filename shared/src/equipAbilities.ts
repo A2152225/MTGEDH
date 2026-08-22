@@ -168,7 +168,19 @@ export function parseEquipAbilitiesFromOracle(oracleText: string): ParsedEquipAb
 }
 
 function permanentIsCreature(permanent: any): boolean {
-  return String(permanent?.card?.type_line || '').toLowerCase().includes('creature');
+  if (!permanent) return false;
+  // Crew / animate / station: temporary Creature until EOT (or while stationed).
+  if (permanent.crewed === true) return true;
+  if (Array.isArray(permanent.grantedTypes)
+    && permanent.grantedTypes.some((t: any) => String(t || '').toLowerCase() === 'creature')) {
+    return true;
+  }
+  if (permanent.animated === true || permanent.isCreature === true) return true;
+
+  const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+  // Vehicles are not creatures unless crewed/granted above.
+  if (/\bvehicle\b/.test(typeLine) && !/\bcreature\b/.test(typeLine)) return false;
+  return /\bcreature\b/.test(typeLine);
 }
 
 function permanentIsPlaneswalker(permanent: any): boolean {

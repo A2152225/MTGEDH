@@ -1332,7 +1332,7 @@ function checkPendingInteractions(ctx: GameContext): {
     // =========================================================================
     // Check the unified ResolutionQueue first (new system)
     // =========================================================================
-    const gameId = ctx.gameId;
+    const gameId = String((ctx as any).gameId || (ctx as any).id || '').trim();
     if (gameId) {
       const queueSummary = ResolutionQueueManager.getPendingSummary(gameId);
       if (queueSummary.hasPending) {

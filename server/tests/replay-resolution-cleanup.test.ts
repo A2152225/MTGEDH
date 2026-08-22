@@ -271,4 +271,93 @@ describe('pruneObsoleteResolutionQueueAfterReplay', () => {
     const pending = queue.steps.filter((step) => step.status === ResolutionStepStatus.PENDING);
     expect(pending).toHaveLength(0);
   });
+
+  it('removes spell-cast X prompts when the permanent is already on the battlefield', () => {
+    const gameId = 'game_replay_cleanup_x_on_battlefield';
+    const state: any = {
+      players: [{ id: 'p1' }],
+      turnPlayer: 'p1',
+      priority: 'p1',
+      step: 'MAIN1',
+      phase: 'precombatMain',
+      stack: [],
+      zones: { p1: { hand: [] } },
+      battlefield: [{
+        id: 'talon_1',
+        controller: 'p1',
+        card: {
+          id: 'talon_1',
+          name: 'Royal Talon Fighter Jet',
+          type_line: 'Artifact Creature — Vehicle',
+          mana_cost: '{X}{W}',
+        },
+      }],
+    };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.X_VALUE_SELECTION,
+      playerId: 'p1' as any,
+      description: 'Choose X for Royal Talon Fighter Jet.',
+      mandatory: true,
+      sourceId: 'talon_1',
+      sourceName: 'Royal Talon Fighter Jet',
+      minValue: 0,
+      maxValue: 20,
+      xCount: 1,
+      spellCastXSelection: true,
+      spellCardId: 'talon_1',
+      spellFromZone: 'hand',
+    } as any);
+
+    pruneObsoleteResolutionQueueAfterReplay(gameId, state);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const pending = queue.steps.filter((step) => step.status === ResolutionStepStatus.PENDING);
+    expect(pending).toHaveLength(0);
+  });
+
+  it('keeps spell-cast X prompts when the card is still in hand', () => {
+    const gameId = 'game_replay_cleanup_x_in_progress';
+    const state: any = {
+      players: [{ id: 'p1' }],
+      turnPlayer: 'p1',
+      priority: 'p1',
+      step: 'MAIN1',
+      phase: 'precombatMain',
+      stack: [],
+      zones: {
+        p1: {
+          hand: [{
+            id: 'talon_hand',
+            name: 'Royal Talon Fighter Jet',
+            type_line: 'Artifact Creature — Vehicle',
+            mana_cost: '{X}{W}',
+          }],
+        },
+      },
+      battlefield: [],
+    };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.X_VALUE_SELECTION,
+      playerId: 'p1' as any,
+      description: 'Choose X for Royal Talon Fighter Jet.',
+      mandatory: true,
+      sourceId: 'talon_hand',
+      sourceName: 'Royal Talon Fighter Jet',
+      minValue: 0,
+      maxValue: 20,
+      xCount: 1,
+      spellCastXSelection: true,
+      spellCardId: 'talon_hand',
+      spellFromZone: 'hand',
+    } as any);
+
+    pruneObsoleteResolutionQueueAfterReplay(gameId, state);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const pending = queue.steps.filter((step) => step.status === ResolutionStepStatus.PENDING);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].type).toBe(ResolutionStepType.X_VALUE_SELECTION);
+  });
 });

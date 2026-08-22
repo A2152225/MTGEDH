@@ -9761,6 +9761,8 @@ export function initializePriorityResolutionHandler(io: Server): void {
       
       const ctx = (game as any).ctx || game;
       if (!ctx) return;
+      // Ensure resolution-mode enter/exit and pending checks can see this game's queue.
+      if (!(ctx as any).gameId) (ctx as any).gameId = gameId;
       
       // When first step is added, enter resolution mode (set priority = null)
       if (event === ResolutionQueueEvent.STEP_ADDED) {

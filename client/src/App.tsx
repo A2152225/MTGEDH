@@ -591,6 +591,9 @@ export function App() {
     turnNumber?: number;
     phase: string;
     step?: string;
+    turnPlayer?: string;
+    turnPlayerName?: string;
+    round?: number;
     label: string;
     eventsToUndo: number;
   }>>([]);
@@ -2851,6 +2854,9 @@ export function App() {
         turnNumber?: number;
         phase: string;
         step?: string;
+        turnPlayer?: string;
+        turnPlayerName?: string;
+        round?: number;
         label: string;
         eventsToUndo: number;
       }>;
@@ -2958,7 +2964,7 @@ export function App() {
 
   const handleRequestUndoTurnPhaseTargets = React.useCallback(() => {
     if (!safeView?.id) return;
-    socket.emit("getUndoTurnPhaseTargets", { gameId: safeView.id });
+    socket.emit("getUndoTurnPhaseTargets", { gameId: safeView.id, includeSteps: true });
   }, [safeView?.id]);
 
   const handleUndoToTurnPhase = React.useCallback((target: { turnNumber?: number; phase: string; step?: string }) => {

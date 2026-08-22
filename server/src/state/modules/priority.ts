@@ -149,7 +149,15 @@ export function passPriority(
   const turnPlayer = state.turnPlayer as PlayerID;
 
   // Turn player cannot pass priority during declare attackers until they declare (including empty).
-  if (isDeclareAttackersStep(currentStep) && playerId === turnPlayer && turnPlayerHasNotDeclaredAttackers(stateAny, turnPlayer)) {
+  // Exception: a non-empty stack must be allowed to resolve first (e.g. Equip that somehow
+  // landed on the stack before attackers were declared) or the game deadlocks.
+  const stackLen = Array.isArray(stateAny.stack) ? stateAny.stack.length : 0;
+  if (
+    stackLen === 0
+    && isDeclareAttackersStep(currentStep)
+    && playerId === turnPlayer
+    && turnPlayerHasNotDeclaredAttackers(stateAny, turnPlayer)
+  ) {
     if (turnPlayerMustDeclareAttackers(ctx, turnPlayer)) {
       debug(1, `[priority] Cannot pass priority - ${turnPlayer} must declare attackers first`);
       return { changed: false, resolvedNow: false, advanceStep: false };
@@ -422,8 +430,10 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     const triggerAutoPassReason = getTopTriggeredAbilityAutoPassReason(state, currentPlayer);
     const currentStep = String(stateAny.step || '').toUpperCase();
 
+    const loopStackLen = Array.isArray(stateAny.stack) ? stateAny.stack.length : 0;
     if (
-      autoPassForTurn
+      loopStackLen === 0
+      && autoPassForTurn
       && isDeclareAttackersStep(currentStep)
       && currentPlayer === turnPlayer
       && turnPlayerHasNotDeclaredAttackers(stateAny, turnPlayer)
@@ -540,7 +550,7 @@ export function exitResolutionMode(ctx: GameContext): void {
   // Defense-in-depth: never restore priority while a would-enter / replacement
   // choice (or other non-payment resolution prompt) is still open. Mana payment
   // prompts intentionally allow priority so players can activate mana abilities.
-  const gameId = String((ctx as any).gameId || stateAny?.id || '').trim();
+  const gameId = String((ctx as any).gameId || (ctx as any).id || stateAny?.gameId || stateAny?.id || '').trim();
   if (gameId) {
     try {
       const blocking = ResolutionQueueManager.getQueue(gameId).steps.filter((step: any) => {
@@ -557,9 +567,15 @@ export function exitResolutionMode(ctx: GameContext): void {
         );
         return;
       }
-    } catch {
-      // best-effort guard
+    } catch (err) {
+      // Fail closed: if we cannot verify the queue, keep resolution mode.
+      debugWarn(1, '[priority] Refusing to exit resolution mode — queue guard failed:', err);
+      return;
     }
+  } else if (state.priority == null) {
+    // No gameId available to verify the queue — do not restore priority blind.
+    debugWarn(1, '[priority] Refusing to exit resolution mode — missing gameId while priority is null');
+    return;
   }
   
   // Restore priority to the saved player, or turn player as fallback

@@ -3009,7 +3009,16 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
 }
 
 function isCreature(p: BattlefieldPermanent) {
-  return (((p.card as any)?.type_line) || '').toLowerCase().includes('creature');
+  const permAny = p as any;
+  if (permAny?.crewed === true) return true;
+  if (Array.isArray(permAny?.grantedTypes)
+    && permAny.grantedTypes.some((t: any) => String(t || '').toLowerCase() === 'creature')) {
+    return true;
+  }
+  if (permAny?.animated === true || permAny?.isCreature === true) return true;
+  const typeLine = (((p.card as any)?.type_line) || '').toLowerCase();
+  if (/\bvehicle\b/.test(typeLine) && !/\bcreature\b/.test(typeLine)) return false;
+  return typeLine.includes('creature');
 }
 function isPlaneswalker(p: BattlefieldPermanent) {
   return (((p.card as any)?.type_line) || '').toLowerCase().includes('planeswalker');

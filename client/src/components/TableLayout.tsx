@@ -37,6 +37,7 @@ import { getPlayAreaGradientStyle, getBackgroundStyle, getPlayableCardHighlight 
 import { battlefieldGridContentHeightForRows } from '../utils/battlefieldGrid';
 import { useMobilePlayLayout } from '../hooks/useMobilePlayLayout';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { stripCreateTokenGrantedAbilities } from '../../../rules-engine/src/oracleReminderText';
 
 const BATTLEFIELD_EXPAND_STORAGE_KEY = 'mtgedh:battlefieldExpanded';
 
@@ -80,13 +81,8 @@ const MIN_INITIAL_ZOOM = 0.7;
  * Mana dorks: Creatures that produce mana (e.g., Llanowar Elves, Birds of Paradise)
  */
 function stripCreateTokenTypeReminders(oracleText: string): string {
-  // Drop CR-style token reminders like:
-  // (It's an artifact with indestructible and "{T}: Add {C}...")
-  // so creators of Treasure/Lander/Vibranium/etc. are not treated as mana rocks.
-  return String(oracleText || '')
-    .replace(/\(\s*(?:it['\u2019]?s|they['\u2019]?re)\s+(?:an\s+)?(?:artifacts?|enchantments?|creatures?)(?:\s+with)?[\s\S]*?\)/gi, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+  // Prefer shared create-token strip so Vibranium/Treasure reminders never look like mana abilities.
+  return stripCreateTokenGrantedAbilities(String(oracleText || ''));
 }
 
 function isManaSource(perm: BattlefieldPermanent): boolean {

@@ -53,6 +53,7 @@ type BoundaryStateSnapshot = {
   turnNumber?: number;
   phase?: string;
   step?: string;
+  turnPlayer?: string;
 };
 
 type UndoBoundaryPreview = BoundaryStateSnapshot & {
@@ -165,6 +166,43 @@ function phaseOrderRank(phase: unknown): number {
   }
 }
 
+
+/** Higher = later within the turn (Cleanup > End > Main2 > ... > Untap). */
+function stepOrderRank(step: unknown): number {
+  const key = normalizeStepToken(step);
+  switch (key) {
+    case 'CLEANUP':
+      return 130;
+    case 'END':
+      return 120;
+    case 'MAIN2':
+      return 110;
+    case 'END_COMBAT':
+      return 100;
+    case 'DAMAGE':
+      return 90;
+    case 'FIRST_STRIKE_DAMAGE':
+      return 80;
+    case 'DECLARE_BLOCKERS':
+      return 70;
+    case 'DECLARE_ATTACKERS':
+      return 60;
+    case 'BEGIN_COMBAT':
+      return 50;
+    case 'MAIN1':
+      return 40;
+    case 'DRAW':
+      return 30;
+    case 'UPKEEP':
+      return 20;
+    case 'UNTAP':
+      return 10;
+    case 'PRE_GAME':
+      return 0;
+    default:
+      return 15;
+  }
+}
 function normalizePhaseToken(value: unknown): string {
   const raw = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
   if (!raw) return 'unknown';
@@ -223,7 +261,7 @@ function getTurnBoundaryKey(stateAny: any): string {
   if (phaseRaw === 'pre_game' || phaseRaw === 'pre-game' || phaseRaw === '') {
     return 'turn:pre_game';
   }
-  // No numeric turn yet — keep a distinct unknown bucket so we do not merge every
+  // No numeric turn yet â€” keep a distinct unknown bucket so we do not merge every
   // live turn into a single `turn:live` key (that made step/phase/turn counts match).
   return 'turn:unknown';
 }
@@ -231,7 +269,7 @@ function getTurnBoundaryKey(stateAny: any): string {
 /**
  * Single canonical key per boundary kind. Previously returned multiple aliases
  * (`turn:N` plus `turn:live`), and live lookup preferred the alias that spanned
- * the whole game — collapsing smart-undo counts across scopes.
+ * the whole game â€” collapsing smart-undo counts across scopes.
  *
  * Step/phase aliases are normalized so restart/restore (which may surface
  * BEGIN_COMBAT while older stamps used beginCombat) still share one chunk.
@@ -253,12 +291,16 @@ function snapshotBoundaryState(stateAny: any): BoundaryStateSnapshot | undefined
   const turnNumber = Number.isFinite(rawTurnNumber) && rawTurnNumber > 0 ? rawTurnNumber : undefined;
   const phase = typeof stateAny?.phase === 'undefined' ? undefined : String(stateAny.phase);
   const step = typeof stateAny?.step === 'undefined' ? undefined : String(stateAny.step);
+  const turnPlayerRaw = (stateAny as any)?.turnPlayer ?? (stateAny as any)?.activePlayer;
+  const turnPlayer = typeof turnPlayerRaw === 'undefined'
+    ? undefined
+    : (String(turnPlayerRaw || '').trim() || undefined);
 
   if (typeof turnNumber === 'undefined' && typeof phase === 'undefined' && typeof step === 'undefined') {
     return undefined;
   }
 
-  return { turnNumber, phase, step };
+  return { turnNumber, phase, step, turnPlayer };
 }
 
 function humanizeBoundaryToken(value: string | undefined): string {
@@ -318,7 +360,7 @@ function eventHasAnyBoundaryMetadata(event: PersistedEvent): boolean {
 function hasPersistedBoundaryMetadata(events: PersistedEvent[]): boolean {
   // Prefer the fast metadata path whenever we have enough stamped events.
   // Requiring *every* row used to fail (and fall back to a slow/fragile probe)
-  // whenever a single append missed stamping — which collapsed smart-undo counts.
+  // whenever a single append missed stamping â€” which collapsed smart-undo counts.
   if (!Array.isArray(events) || events.length === 0) return false;
   let stamped = 0;
   for (const event of events) {
@@ -340,6 +382,9 @@ function mergeBoundaryStateCarryForward(
     turnNumber: typeof nextRaw?.turnNumber === 'number' ? nextRaw.turnNumber : previous?.turnNumber,
     phase: typeof nextRaw?.phase !== 'undefined' ? nextRaw.phase : previous?.phase,
     step: typeof nextRaw?.step !== 'undefined' ? nextRaw.step : previous?.step,
+    turnPlayer: typeof nextRaw?.turnPlayer !== 'undefined' && String(nextRaw.turnPlayer || '').trim()
+      ? String(nextRaw.turnPlayer).trim()
+      : previous?.turnPlayer,
   };
   if (
     typeof merged.turnNumber === 'undefined' &&
@@ -517,14 +562,131 @@ export type UndoTurnPhaseTarget = {
   turnNumber?: number;
   phase: string;
   step?: string;
+  turnPlayer?: string;
+  turnPlayerName?: string;
+  round?: number;
   label: string;
   eventsToUndo: number;
   entryIndex: number;
 };
 
+function getTurnOrderPlayerIds(game: any): string[] {
+  const state = game?.state || {};
+  if (Array.isArray(state.turnOrder) && state.turnOrder.length > 0) {
+    return state.turnOrder.map((id: unknown) => String(id || '').trim()).filter(Boolean);
+  }
+  const players = Array.isArray(state.players) ? state.players : [];
+  return players
+    .filter((p: any) => !p?.isSpectator)
+    .map((p: any) => String(p?.id || p?.playerId || '').trim())
+    .filter(Boolean);
+}
+
+function getPlayerCountForRound(game: any): number {
+  const turnOrder = getTurnOrderPlayerIds(game);
+  if (turnOrder.length > 0) return turnOrder.length;
+  const players = Array.isArray(game?.state?.players) ? game.state.players : [];
+  const seated = players.filter((p: any) => !p?.isSpectator);
+  if (seated.length > 0) return seated.length;
+  return Math.max(1, players.length || 1);
+}
+
+/** Display-only multiplayer round from cumulative turn number. */
+function computeDisplayRound(turnNumber: number | undefined, playerCount: number): number | undefined {
+  if (typeof turnNumber !== 'number' || turnNumber <= 0) return undefined;
+  const n = Math.max(1, Number(playerCount) || 1);
+  return Math.floor((turnNumber - 1) / n) + 1;
+}
+
+/** Resolve who was active on a historical turn (snapshot first, else seat-order inference). */
+function resolveTurnPlayerId(
+  game: any,
+  turnNumber: number | undefined,
+  snapshotTurnPlayer?: string,
+): string | undefined {
+  const fromSnap = String(snapshotTurnPlayer || '').trim();
+  if (fromSnap) return fromSnap;
+  if (typeof turnNumber !== 'number' || turnNumber <= 0) return undefined;
+
+  const state = game?.state || {};
+  const liveTurnRaw = Number(state.turnNumber ?? state.turn);
+  const liveTurn = Number.isFinite(liveTurnRaw) && liveTurnRaw > 0 ? liveTurnRaw : undefined;
+  const livePlayer = String(state.turnPlayer || state.activePlayer || '').trim();
+  const turnOrder = getTurnOrderPlayerIds(game);
+  if (!turnOrder.length) {
+    return liveTurn === turnNumber && livePlayer ? livePlayer : undefined;
+  }
+
+  if (liveTurn && livePlayer) {
+    const liveIdx = turnOrder.indexOf(livePlayer);
+    if (liveIdx >= 0) {
+      const delta = turnNumber - liveTurn;
+      const idx = ((liveIdx + delta) % turnOrder.length + turnOrder.length) % turnOrder.length;
+      return turnOrder[idx];
+    }
+  }
+
+  const idx = ((turnNumber - 1) % turnOrder.length + turnOrder.length) % turnOrder.length;
+  return turnOrder[idx];
+}
+
+function buildTurnPhaseTargetLabel(opts: {
+  turnNumber?: number;
+  round?: number;
+  phase: string;
+  step?: string;
+  turnPlayerName?: string;
+}): string {
+  const parts: string[] = [];
+  if (typeof opts.turnNumber === 'number') {
+    parts.push(`Turn ${opts.turnNumber}`);
+  }
+  if (typeof opts.round === 'number' && opts.round > 0) {
+    parts.push(`Round ${opts.round}`);
+  }
+  const name = String(opts.turnPlayerName || '').trim();
+  if (name) parts.push(name);
+
+  const phaseLabel = humanizeBoundaryToken(opts.phase);
+  const stepLabel = humanizeBoundaryToken(opts.step);
+  if (phaseLabel && stepLabel) {
+    // Prefer distinct step name when it adds info (e.g. Declare Attackers under Combat).
+    const phaseNorm = phaseLabel.toLowerCase().replace(/\s+/g, '');
+    const stepNorm = stepLabel.toLowerCase().replace(/\s+/g, '');
+    if (stepNorm === 'main' || stepNorm === phaseNorm || phaseNorm.includes(stepNorm)) {
+      parts.push(phaseLabel);
+    } else {
+      parts.push(`${phaseLabel} / ${stepLabel}`);
+    }
+  } else if (phaseLabel) {
+    parts.push(phaseLabel);
+  } else if (stepLabel) {
+    parts.push(stepLabel);
+  }
+
+  return parts.filter(Boolean).join(' ? ') || 'Earlier game state';
+}
+
+function undoTargetDedupeKey(target: {
+  turnNumber?: number;
+  phase: string;
+  step?: string;
+}): string {
+  const turn = typeof target.turnNumber === 'number' && target.turnNumber > 0 ? String(target.turnNumber) : '?';
+  const phase = normalizePhaseToken(target.phase);
+  const step = typeof target.step === 'undefined' || String(target.step || '').trim() === ''
+    ? ''
+    : normalizeStepToken(target.step);
+  return `${turn}|${phase}|${step}`;
+}
+
 /**
  * Contiguous phase (or step) segments earlier than "now", for jump-undo pickers.
  * eventsToUndo = how many trailing DB events to truncate to land at that segment start.
+ * Defaults to step-level targets for the last full round of turns; older history is phase-only.
+ * Dedupes by (turn, phase, step) keeping the earliest boundary (largest eventsToUndo) so
+ * revisited/flickered segments do not double-list.
+ * Round / turn-player name are display-only fields on the label.
  */
 export function listUndoTurnPhaseTargets(
   game: any,
@@ -533,9 +695,19 @@ export function listUndoTurnPhaseTargets(
 ): UndoTurnPhaseTarget[] {
   if (!game || !Array.isArray(events) || events.length === 0) return [];
 
-  const includeSteps = opts?.includeSteps === true;
-  const limit = Math.max(1, Math.min(200, Number(opts?.limit || 40)));
+  // Menu prefers step boundaries; callers may pass includeSteps:false for phase-only.
+  const includeSteps = opts?.includeSteps !== false;
+  const limit = Math.max(1, Math.min(200, Number(opts?.limit || 200)));
   const kind: BoundaryKind = includeSteps ? 'step' : 'phase';
+  const playerNames = buildPlayerNameMap(game);
+  const playerCount = getPlayerCountForRound(game);
+  const liveTurnNumber = typeof (game?.state as any)?.turnNumber === 'number' && (game.state as any).turnNumber > 0
+    ? Number((game.state as any).turnNumber)
+    : undefined;
+  // Keep step detail for the current round of seats; older than that -> phase rows only.
+  const recentStepMinTurn = typeof liveTurnNumber === 'number'
+    ? liveTurnNumber - playerCount + 1
+    : undefined;
 
   let history = buildBoundaryHistoryFromPersistedMetadata(events, kind);
   let eventCount = events.length;
@@ -555,7 +727,7 @@ export function listUndoTurnPhaseTargets(
     }
   }
 
-  const targets: UndoTurnPhaseTarget[] = [];
+  const targetsByKey = new Map<string, UndoTurnPhaseTarget>();
   // Skip the synthetic pre-log bucket and the current segment.
   for (let i = currentIndex - 1; i >= 0; i--) {
     const entry = history[i];
@@ -566,27 +738,56 @@ export function listUndoTurnPhaseTargets(
     const turnNumber = typeof state.turnNumber === 'number' && state.turnNumber > 0
       ? state.turnNumber
       : undefined;
-    const step = includeSteps ? (typeof state.step === 'undefined' ? undefined : String(state.step)) : undefined;
-    const preview = buildUndoBoundaryPreview({ turnNumber, phase, step });
+    // Steps only for the last full round of turns; older history is phase-only.
+    const useStepForEntry = includeSteps && (
+      recentStepMinTurn === undefined
+      || typeof turnNumber !== 'number'
+      || turnNumber >= recentStepMinTurn
+    );
+    const step = useStepForEntry
+      ? (typeof state.step === 'undefined' ? undefined : String(state.step))
+      : undefined;
     const eventsToUndo = Math.max(0, eventCount - Math.max(0, entry.entryIndex));
     if (eventsToUndo <= 0) continue;
-    targets.push({
+
+    const turnPlayerId = resolveTurnPlayerId(game, turnNumber, state.turnPlayer);
+    const turnPlayerName = turnPlayerId
+      ? (playerNames[turnPlayerId] || turnPlayerId)
+      : undefined;
+    const round = computeDisplayRound(turnNumber, playerCount);
+    const candidate: UndoTurnPhaseTarget = {
       turnNumber,
       phase,
       step,
-      label: preview?.summary || `Turn ${turnNumber ?? '?'} / ${phase}`,
+      turnPlayer: turnPlayerId,
+      turnPlayerName,
+      round,
+      label: buildTurnPhaseTargetLabel({ turnNumber, round, phase, step, turnPlayerName }),
       eventsToUndo,
       entryIndex: entry.entryIndex,
-    });
+    };
+
+    const key = undoTargetDedupeKey(candidate);
+    const existing = targetsByKey.get(key);
+    // Keep earliest/most useful boundary for returning to segment start (larger eventsToUndo).
+    if (!existing || candidate.eventsToUndo > existing.eventsToUndo) {
+      targetsByKey.set(key, candidate);
+    }
   }
 
-  // Newest turn first, then later phases within that turn (Ending before Beginning).
+  const targets = Array.from(targetsByKey.values());
+
+  // Newest turn first, then later phases/steps within that turn.
   // Tie-break: fewer events to undo = closer to now.
   targets.sort((a, b) => {
     const turnDiff = (b.turnNumber ?? -1) - (a.turnNumber ?? -1);
     if (turnDiff !== 0) return turnDiff;
     const phaseDiff = phaseOrderRank(b.phase) - phaseOrderRank(a.phase);
     if (phaseDiff !== 0) return phaseDiff;
+    if (a.step || b.step) {
+      const stepDiff = stepOrderRank(b.step) - stepOrderRank(a.step);
+      if (stepDiff !== 0) return stepDiff;
+    }
     return a.eventsToUndo - b.eventsToUndo;
   });
 
@@ -1730,7 +1931,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
     } catch (err: any) {
       debugError(1, `requestUndoToTurn error for game ${gameId}:`, err);
     }
-  });﻿
+  });
   socket.on("getUndoTurnPhaseTargets", (payload?: { gameId?: unknown; includeSteps?: unknown }) => {
     const gameId = payload?.gameId;
     try {
@@ -1746,8 +1947,8 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         debugWarn(1, `[getUndoTurnPhaseTargets] Failed to get events for game ${gameId}:`, e);
       }
 
-      const includeSteps = payload?.includeSteps === true;
-      const targets = listUndoTurnPhaseTargets(game, events, { includeSteps, limit: 40 });
+      const includeSteps = payload?.includeSteps !== false;
+      const targets = listUndoTurnPhaseTargets(game, events, { includeSteps, limit: 200 });
       socket.emit("undoTurnPhaseTargetsUpdate", {
         gameId,
         targets,

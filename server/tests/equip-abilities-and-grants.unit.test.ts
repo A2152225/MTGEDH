@@ -132,6 +132,31 @@ describe('equip abilities + attachment grants', () => {
     const either = parseEquipAbilitiesFromOracle('Equip creature or planeswalker {3}')[0]!;
     expect(permanentMatchesEquipQualifier(wizard, either.qualifier)).toBe(true);
     expect(permanentMatchesEquipQualifier(walker, either.qualifier)).toBe(true);
+
+    const crewedVehicle = {
+      id: 'talon_1',
+      controller: 'p1',
+      crewed: true,
+      grantedTypes: ['Creature'],
+      card: {
+        name: 'Royal Talon Fighter Jet',
+        type_line: 'Artifact — Vehicle',
+        oracle_text: 'Flying, vigilance\nCrew 2',
+      },
+    };
+    const uncrewedVehicle = {
+      id: 'talon_2',
+      controller: 'p1',
+      crewed: false,
+      card: {
+        name: 'Royal Talon Fighter Jet',
+        type_line: 'Artifact — Vehicle',
+        oracle_text: 'Flying, vigilance\nCrew 2',
+      },
+    };
+    const anyEquip = parseEquipAbilitiesFromOracle('Equip {2}')[0]!;
+    expect(permanentMatchesEquipQualifier(crewedVehicle, anyEquip.qualifier)).toBe(true);
+    expect(permanentMatchesEquipQualifier(uncrewedVehicle, anyEquip.qualifier)).toBe(false);
   });
 
   it('parses equipment keyword grants including prowess', () => {

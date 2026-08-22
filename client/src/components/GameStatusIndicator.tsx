@@ -53,6 +53,9 @@ interface Props {
     turnNumber?: number;
     phase: string;
     step?: string;
+    turnPlayer?: string;
+    turnPlayerName?: string;
+    round?: number;
     label: string;
     eventsToUndo: number;
   }>;
@@ -103,7 +106,6 @@ export function GameStatusIndicator({
   turn, phase, step, turnPlayer, priority, players, you, combat,
   monarch, initiative, dayNight, cityBlessing,
   isYouPlayer, gameOver, immediateConcede, onConcede, onLeaveGame, onUndo, onOpenUndoMenu, availableUndoCount = 0,
-  smartUndoCounts,
   undoTurnPhaseTargets = [],
   onUndoToTurnPhase,
   onRequestUndoTurnPhaseTargets,
@@ -134,32 +136,22 @@ export function GameStatusIndicator({
   
   const phaseKey = String(phase || '').toLowerCase();
   const stepKey = String(step || '').toLowerCase();
-  const undoOptions: Array<{ scope: UndoScope; label: string; count: number; preview?: UndoBoundaryPreview }> = [
-    { scope: 'step', label: 'Current Step', count: Number(smartUndoCounts?.stepCount || 0), preview: smartUndoCounts?.previews?.step },
-    { scope: 'phase', label: 'Current Phase', count: Number(smartUndoCounts?.phaseCount || 0), preview: smartUndoCounts?.previews?.phase },
-    { scope: 'turn', label: 'Current Turn', count: Number(smartUndoCounts?.turnCount || 0), preview: smartUndoCounts?.previews?.turn },
-    { scope: 'previousPhase', label: 'Previous Phase', count: Number(smartUndoCounts?.previousPhaseCount || 0), preview: smartUndoCounts?.previews?.previousPhase },
-  ];
-  const formatUndoCountLabel = (scope: UndoScope, eventCount: number): string => {
-    const semanticCount = scope === 'step'
-      ? Number(smartUndoCounts?.semanticStepCount || 0)
-      : scope === 'phase'
-        ? Number(smartUndoCounts?.semanticPhaseCount || 0)
-        : 0;
-    if (semanticCount > 0 && semanticCount < eventCount) {
-      return `${semanticCount} action${semanticCount === 1 ? '' : 's'} (${eventCount} events)`;
-    }
-    return `${eventCount} event${eventCount === 1 ? '' : 's'}`;
-  };
-  const hasAnyUndoOption = undoOptions.some((option) => option.count > 0);
   const canOpenUndoMenu = Boolean(isYouPlayer && availableUndoCount > 0);
-  const undoOptionsLoading = canOpenUndoMenu && !hasAnyUndoOption;
-  
+
   const phaseInfo = phaseConfig[phase || ''] || phaseConfig[phaseKey] || { label: phase || '-', color: '#6b7280', icon: '🎮' };
   const stepInfo = stepConfig[step || ''] || stepConfig[stepKey] || { label: step || '', subColor: '#9ca3af' };
 
   const turnPlayerName = players.find(p => p.id === turnPlayer)?.name || turnPlayer || '-';
   const priorityPlayerName = players.find(p => p.id === priority)?.name || priority || '-';
+  const turnNumber = Math.max(1, Number(turn) || 1);
+  // Display-only: one round = each seated player has had a turn.
+  const seatedPlayerCount = Math.max(
+    1,
+    (players || []).filter((p) => p?.id && !(p as any).spectator && !(p as any).isSpectator).length
+      || (players || []).length
+      || 1,
+  );
+  const roundNumber = Math.floor((turnNumber - 1) / seatedPlayerCount) + 1;
   
   const isYourTurn = turnPlayer === you;
   const youHavePriority = priority === you;
@@ -209,25 +201,49 @@ export function GameStatusIndicator({
           flex: '1 1 700px',
           minWidth: 0,
         }}>
-      {/* Turn number */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ 
-          fontSize: 11, 
-          color: '#9ca3af', 
-          textTransform: 'uppercase', 
-          letterSpacing: '0.05em' 
-        }}>
-          Turn
-        </span>
-        <span style={{ 
-          fontWeight: 700, 
-          fontSize: 18,
-          color: '#fff',
-          minWidth: 24,
-          textAlign: 'center'
-        }}>
-          {turn || 1}
-        </span>
+      {/* Turn + Round (round is display-only from cumulative turn / seated players) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ 
+            fontSize: 11, 
+            color: '#9ca3af', 
+            textTransform: 'uppercase', 
+            letterSpacing: '0.05em' 
+          }}>
+            Turn
+          </span>
+          <span style={{ 
+            fontWeight: 700, 
+            fontSize: 18,
+            color: '#fff',
+            minWidth: 24,
+            textAlign: 'center'
+          }}>
+            {turnNumber}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ 
+            fontSize: 11, 
+            color: '#9ca3af', 
+            textTransform: 'uppercase', 
+            letterSpacing: '0.05em' 
+          }}>
+            Round
+          </span>
+          <span
+            title={`Round ${roundNumber} (turn ${turnNumber}, ${seatedPlayerCount} players)`}
+            style={{ 
+              fontWeight: 700, 
+              fontSize: 18,
+              color: '#c4b5fd',
+              minWidth: 24,
+              textAlign: 'center'
+            }}
+          >
+            {roundNumber}
+          </span>
+        </div>
       </div>
 
       {/* Vertical divider */}
@@ -721,84 +737,17 @@ export function GameStatusIndicator({
                     gap: 4,
                     zIndex: 1000,
                     boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
-                    minWidth: 220,
+                    minWidth: 280,
                   }}
                 >
-                  <div style={{
-                    fontSize: 11,
-                    color: '#9ca3af',
-                    marginBottom: 4,
-                    padding: '2px 4px',
-                    borderBottom: '1px solid rgba(255,255,255,0.1)',
-                  }}>
-                    ⏪ Undo Scope
-                  </div>
-                  {undoOptionsLoading && (
-                    <div
-                      style={{
-                        padding: '8px 12px',
-                        fontSize: 11,
-                        color: '#9ca3af',
-                        background: 'rgba(75, 85, 99, 0.18)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: 4,
-                      }}
-                    >
-                      Loading undo options...
-                    </div>
-                  )}
-                  {undoOptions.map((option) => {
-                    const enabled = option.count > 0;
-                    return (
-                      <button
-                        key={option.scope}
-                        onClick={() => {
-                          if (!enabled) return;
-                          onUndo(option.scope);
-                          setShowUndoMenu(false);
-                        }}
-                        disabled={!enabled}
-                        style={{
-                          padding: '8px 12px',
-                          fontSize: 11,
-                          background: enabled ? 'rgba(99, 102, 241, 0.18)' : 'rgba(75, 85, 99, 0.22)',
-                          border: '1px solid rgba(99, 102, 241, 0.28)',
-                          borderRadius: 4,
-                          color: enabled ? '#e5e7eb' : '#6b7280',
-                          cursor: enabled ? 'pointer' : 'not-allowed',
-                          textAlign: 'left',
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          justifyContent: 'space-between',
-                          gap: 12,
-                        }}
-                        title={enabled
-                          ? `${option.label} (${formatUndoCountLabel(option.scope, option.count)})${option.preview?.summary ? ` - ${option.preview.summary}` : ''}`
-                          : `${option.label} unavailable`}
-                      >
-                        <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <span>{option.label}</span>
-                          {option.preview?.summary && (
-                            <span style={{ fontSize: 10, color: enabled ? '#a5b4fc' : '#6b7280' }}>
-                              {option.preview.summary}
-                            </span>
-                          )}
-                        </span>
-                        <span style={{ color: enabled ? '#c7d2fe' : '#6b7280', whiteSpace: 'nowrap' }}>
-                          {formatUndoCountLabel(option.scope, option.count)}
-                        </span>
-                      </button>
-                    );
-                  })}
                   {onUndoToTurnPhase && (
                     <>
                       <div style={{
                         fontSize: 11,
                         color: '#9ca3af',
-                        marginTop: 6,
                         marginBottom: 4,
-                        padding: '6px 4px 2px',
-                        borderTop: '1px solid rgba(255,255,255,0.1)',
+                        padding: '2px 4px',
+                        borderBottom: '1px solid rgba(255,255,255,0.1)',
                       }}>
                         Return to Turn / Phase
                       </div>
@@ -818,7 +767,7 @@ export function GameStatusIndicator({
                       ) : (
                         <div
                           style={{
-                            maxHeight: 180,
+                            maxHeight: 320,
                             overflowY: 'auto',
                             display: 'flex',
                             flexDirection: 'column',
@@ -827,7 +776,7 @@ export function GameStatusIndicator({
                         >
                           {undoTurnPhaseTargets.map((target) => (
                             <button
-                              key={`${target.turnNumber ?? 'x'}|${target.phase}|${target.step ?? ''}|${target.eventsToUndo}`}
+                              key={`${target.turnNumber ?? 'x'}|${target.phase}|${target.step ?? ''}`}
                               onClick={() => {
                                 onUndoToTurnPhase({
                                   turnNumber: target.turnNumber,

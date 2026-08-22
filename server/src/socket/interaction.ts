@@ -7138,6 +7138,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const equipAbilityText = hasExplicitEquipAbilityId ? oracleText : scopedAbilityFullText;
     const isEquipAbility = hasExplicitEquipAbilityId || (isEquipment && /\bequip\b/i.test(equipAbilityText));
     if (isEquipAbility) {
+      // CR 702.6a: Equip is sorcery-speed even when oracle omits the reminder text.
+      if (!isBattlefieldSorcerySpeedWindow(game, String(pid))) {
+        socket.emit('error', {
+          code: 'SORCERY_SPEED_ONLY',
+          message: `${cardName}'s Equip ability can only be activated at sorcery speed (your main phase with an empty stack).`,
+        });
+        return;
+      }
       // Parse all equip abilities (shared qualifier parser): legendary / tribal / compound / commander / token / …
       const equipAbilities = parseEquipAbilitiesFromOracle(equipAbilityText);
       
@@ -7160,6 +7168,23 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (p.controller !== pid) return false;
         return permanentMatchesEquipQualifier(p, equipQualifier);
       });
+
+      debug(2, `[activateBattlefieldAbility] Equip ${cardName} targets=${validTargets.length}: ${validTargets.map((p: any) => {
+        const name = String(p?.card?.name || p?.id || '?');
+        const crewed = p?.crewed === true ? 'crewed' : '';
+        const granted = Array.isArray(p?.grantedTypes) && p.grantedTypes.some((t: any) => String(t).toLowerCase() === 'creature') ? 'grantedCreature' : '';
+        const tl = String(p?.card?.type_line || '');
+        return `${name}[${[crewed, granted].filter(Boolean).join('|') || tl}]`;
+      }).join(', ')}`);
+      const excludedVehicles = battlefield.filter((p: any) => {
+        if (p.controller !== pid) return false;
+        const tl = String(p?.card?.type_line || '').toLowerCase();
+        if (!tl.includes('vehicle')) return false;
+        return !permanentMatchesEquipQualifier(p, equipQualifier);
+      });
+      if (excludedVehicles.length > 0) {
+        debug(2, `[activateBattlefieldAbility] Equip ${cardName} excluded vehicles: ${excludedVehicles.map((p: any) => `${p?.card?.name || p?.id}(crewed=${p?.crewed === true}, grantedTypes=${JSON.stringify(p?.grantedTypes || [])})`).join(', ')}`);
+      }
 
       if (validTargets.length === 0) {
         socket.emit("error", {

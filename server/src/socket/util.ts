@@ -237,6 +237,17 @@ export function clearHumanAutoPassPauseOnAction(
   try {
     const stateAny = (game.state as any) || {};
     const actingPlayerId = String(playerId || '').trim();
+    const gameId = String((game as any)?.gameId || (game as any)?.id || '').trim();
+
+    // Always cancel a scheduled human auto-pass for this player on voluntary actions.
+    // Otherwise a MAIN1 idle auto-pass (already scheduled) can fire mid-Equip/target
+    // prompt and advance into combat while the resolution queue is still open.
+    if (clearAutoPassForTurn && actingPlayerId && gameId) {
+      clearScheduledHumanAutoPass(gameId, actingPlayerId);
+      if (stateAny._autoPassInProgress instanceof Set) {
+        stateAny._autoPassInProgress.delete(actingPlayerId);
+      }
+    }
 
     // Clear autoPassForTurn when a player takes a voluntary action.
     // If the player actively chose to do something, they are no longer in "auto-pass rest of turn" mode.
@@ -252,7 +263,6 @@ export function clearHumanAutoPassPauseOnAction(
 
     delete stateAny._pauseHumanAutoPassUntilActionFor;
 
-    const gameId = String((game as any)?.gameId || '').trim();
     if (gameId) {
       clearScheduledHumanAutoPass(gameId, actingPlayerId);
     }
@@ -2582,12 +2592,25 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
             }
             
             if (result.advanceStep) {
-              debug(2, `${ts()} [executeAutoPass] Advancing step after auto-pass for ${priority} (ID: ${debugCallId})`);
-              advanceStepPersistingEvent(io, game as any, gameId, {
-                reason: 'autoPassAdvance',
-                by: priority,
-                auto: true,
-              });
+              // Re-check: a voluntary action may have queued a resolution prompt between
+              // schedule and execute (Equip target selection, etc.).
+              const pendingBeforeAdvance = ResolutionQueueManager.getPendingSummary(gameId);
+              const blockingBeforeAdvance = (pendingBeforeAdvance.pendingTypes || []).filter(
+                (type) => String(type) !== 'mana_payment_choice',
+              );
+              if (blockingBeforeAdvance.length > 0) {
+                debug(
+                  2,
+                  `${ts()} [executeAutoPass] Skipping step advance - pending resolution steps: ${blockingBeforeAdvance.join(', ')} (ID: ${debugCallId})`,
+                );
+              } else {
+                debug(2, `${ts()} [executeAutoPass] Advancing step after auto-pass for ${priority} (ID: ${debugCallId})`);
+                advanceStepPersistingEvent(io, game as any, gameId, {
+                  reason: 'autoPassAdvance',
+                  by: priority,
+                  auto: true,
+                });
+              }
             }
             
             // Clear the in-progress flag before broadcasting
