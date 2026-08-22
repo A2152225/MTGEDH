@@ -6,6 +6,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
+import { resolveGroupedPermanentRef } from './tokenGroupResolve.js';
 import { appendEvent } from "../db/index.js";
 import { attachZoneHandSnapshotToStep } from "../state/modules/promptZoneHandSnapshot.js";
 import { 
@@ -9774,6 +9775,11 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('minTargets' in step) fields.minTargets = step.minTargets;
       if ('maxTargets' in step) fields.maxTargets = step.maxTargets;
       if ('targetDescription' in step) fields.targetDescription = step.targetDescription;
+      if ((step as any).crewAbility === true) {
+        fields.crewAbility = true;
+        if ((step as any).vehicleId != null) fields.vehicleId = (step as any).vehicleId;
+        if ((step as any).crewPower != null) fields.crewPower = (step as any).crewPower;
+      }
       break;
 
     case ResolutionStepType.COUNTER_TARGET:
@@ -19001,12 +19007,12 @@ async function handleTargetSelectionResponse(
   }
   
   // Validate all selected targets are in valid targets list
-  const validTargetIds = new Set(validTargets.map((t: any) => t.id));
-  if (!selections.every(id => validTargetIds.has(id))) {
-    debugWarn(1, `[Resolution] Invalid target selection: one or more targets not in valid targets list`);
+  const validTargetIds = new Set(validTargets.map((t: any) => String(t.id)));
+  const normalizedSelections = selections.map((id: any) => String(id));
+  if (!normalizedSelections.every(id => validTargetIds.has(id))) {
+    debugWarn(1, [Resolution] Invalid target selection: one or more targets not in valid targets list (got=));
     return;
   }
-
   const targetGrouping = (step as any)?.targetGrouping;
   if (targetGrouping?.groupBy === 'controller' && Array.isArray(targetGrouping.groups)) {
     const groupedError = validateGroupedTargetSelections({
@@ -19522,7 +19528,10 @@ async function handleTargetSelectionResponse(
     return;
   }
 
-  if (stepAny?.crewAbility === true) {
+  const isCrewTargetStep =
+    stepAny?.crewAbility === true
+    || (Array.isArray(stepAny?.targetTypes) && stepAny.targetTypes.some((t: any) => String(t).toLowerCase() === 'crew_creature'));
+  if (isCrewTargetStep) {
     const vehicleId = String(stepAny?.vehicleId || step.sourceId || '').trim();
     const crewPower = Number(stepAny?.crewPower || 0);
     const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
@@ -19535,32 +19544,47 @@ async function handleTargetSelectionResponse(
     // Validate selected crewers are still legal and total power is sufficient.
     let totalPower = 0;
     const chosenCrewers: any[] = [];
-    for (const crewerId of selections) {
-      const crewer = battlefield.find((p: any) => p && String(p.id) === String(crewerId));
+    const resolvedCrewerIds: string[] = [];
+    const usedCrewerIds = new Set<string>();
+    for (const rawId of selections.map((id: any) => String(id))) {
+      const resolvedId =
+        resolveGroupedPermanentRef(game, pid as any, rawId, { usedIds: usedCrewerIds }) || rawId;
+      const crewer = battlefield.find((p: any) => p && String(p.id) === String(resolvedId));
       if (!crewer) {
-        debugWarn(1, `[Resolution] crewAbility: crewer missing: ${crewerId}`);
+        debugWarn(1, `[Resolution] crewAbility: crewer missing: ${rawId} (resolved=${resolvedId})`);
+        emitToPlayer(io, pid as any, 'error', { code: 'INVALID_CREWER', message: `Crew failed: selected permanent is no longer available.` });
         return;
       }
       if (String(crewer.controller || '') !== String(pid)) {
-        debugWarn(1, `[Resolution] crewAbility: crewer not controlled by player: ${crewerId}`);
+        debugWarn(1, `[Resolution] crewAbility: crewer not controlled by player: ${resolvedId}`);
+        emitToPlayer(io, pid as any, 'error', { code: 'INVALID_CREWER', message: `Crew failed: you no longer control that creature.` });
         return;
       }
       const tl = String(crewer.card?.type_line || '').toLowerCase();
-      if (!tl.includes('creature')) {
-        debugWarn(1, `[Resolution] crewAbility: crewer not a creature: ${crewerId}`);
+      const grantedCreature = Array.isArray((crewer as any).grantedTypes)
+        && (crewer as any).grantedTypes.some((t: any) => String(t).toLowerCase() === 'creature');
+      const isCreatureNow = tl.includes('creature') || (crewer as any).crewed === true || grantedCreature;
+      if (!isCreatureNow) {
+        debugWarn(1, `[Resolution] crewAbility: crewer not a creature: ${resolvedId}`);
+        emitToPlayer(io, pid as any, 'error', { code: 'INVALID_CREWER', message: `Crew failed: that permanent is not a creature.` });
         return;
       }
       if (crewer.tapped) {
-        debugWarn(1, `[Resolution] crewAbility: crewer already tapped: ${crewerId}`);
+        debugWarn(1, `[Resolution] crewAbility: crewer already tapped: ${resolvedId}`);
+        emitToPlayer(io, pid as any, 'error', { code: 'INVALID_CREWER', message: `Crew failed: that creature is already tapped.` });
         return;
       }
-      if (String(crewerId) === String(vehicleId)) {
-        debugWarn(1, `[Resolution] crewAbility: vehicle cannot crew itself: ${crewerId}`);
+      if (String(resolvedId) === String(vehicleId)) {
+        debugWarn(1, `[Resolution] crewAbility: vehicle cannot crew itself: ${resolvedId}`);
+        emitToPlayer(io, pid as any, 'error', { code: 'INVALID_CREWER', message: `Crew failed: a Vehicle cannot crew itself.` });
         return;
       }
+      usedCrewerIds.add(String(resolvedId));
+      resolvedCrewerIds.push(String(resolvedId));
       chosenCrewers.push(crewer);
       totalPower += getEffectivePower(crewer);
     }
+    const crewerIds = resolvedCrewerIds;
 
     if (crewPower > 0 && totalPower < crewPower) {
       emitToPlayer(io, pid as any, 'error', {
@@ -19570,6 +19594,7 @@ async function handleTargetSelectionResponse(
       return;
     }
 
+    debug(1, `[Resolution] Applying crewVehicle for ${vehicleId} with ${selections.length} crewer(s)`);
     // Apply via applyEvent for determinism (replay uses the same path).
     if (typeof (game as any).applyEvent === 'function') {
       (game as any).applyEvent({
@@ -19577,7 +19602,7 @@ async function handleTargetSelectionResponse(
         playerId: pid,
         resolvedStepId: String(step.id || '').trim(),
         vehicleId,
-        crewerIds: selections,
+        crewerIds,
       });
     }
 
@@ -19587,7 +19612,7 @@ async function handleTargetSelectionResponse(
         playerId: pid,
         resolvedStepId: String(step.id || '').trim(),
         vehicleId,
-        crewerIds: selections,
+        crewerIds,
       });
     } catch {
       // ignore persistence failures

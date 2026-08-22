@@ -413,7 +413,7 @@ export function FreeField(props: {
       const img = kc?.image_uris?.[imagePref] || kc?.image_uris?.normal || kc?.image_uris?.small || null;
       const name = kc?.name || p.id;
       const tl = (kc?.type_line || '').toLowerCase();
-      const isCreature = /\bcreature\b/.test(tl);
+      const isCreature = isCurrentlyCreature(p as any);
       const isPlaneswalker = /\bplaneswalker\b/.test(tl);
 
       const baseP = typeof p.basePower === 'number' ? p.basePower : parsePT(kc?.power);

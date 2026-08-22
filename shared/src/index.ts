@@ -9,6 +9,7 @@ export * from "./optionalEffectKey.js";
 export * from "./mayAutoPreference.js";
 export * from "./combatLandwalk.js";
 export * from "./counterCombatRestrictions.js";
+export * from "./controlledCreatureCombatGate.js";
 export * from "./cardFactory.js";
 export * from "./hydrateCardOracleText.js";
 export * from "./copyTokenUtils.js";

@@ -90,7 +90,14 @@ export function CardOverlay({
 }: Props) {
   const kc = perm.card as KnownCardRef;
   const typeLine = (kc?.type_line || '').toLowerCase();
-  const isCreature = /\bcreature\b/.test(typeLine);
+  const permanentAny = perm as any;
+  const isCreature =
+    /\bcreature\b/.test(typeLine)
+    || permanentAny?.crewed === true
+    || permanentAny?.animated === true
+    || permanentAny?.isCreature === true
+    || (Array.isArray(permanentAny?.grantedTypes)
+      && permanentAny.grantedTypes.some((t: any) => String(t).toLowerCase() === 'creature'));
   const isPlaneswalker = /\bplaneswalker\b/.test(typeLine);
 
   // Parse base P/T

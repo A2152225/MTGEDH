@@ -25,6 +25,12 @@ import {
   isCounterPreventingAttack,
   isCounterPreventingBlock,
 } from "../../../shared/src/counterCombatRestrictions.js";
+import {
+  countControlledCreaturesForCombatGate,
+  getControlledCreatureCombatGateViolation,
+  parseControlledCreatureCombatGate,
+} from "../../../shared/src/controlledCreatureCombatGate.js";
+
 import { getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
 import { buildTapTriggeredStackItem, collectTapTriggersForTapEvent, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
 import { canExertAsItAttacks, getAttackTriggersForCreatures, getSupportedExertAttackReward } from "../state/modules/triggers/combat.js";
@@ -1209,11 +1215,56 @@ function isFullyUnblockableRestriction(entry: string): boolean {
  * @param controllerId - The controller's player ID
  * @returns Object with canAttack flag and reason if blocked
  */
+
+function getOracleTextForCombatGate(permanent: any): string {
+  return [
+    String(permanent?.card?.oracle_text || ''),
+    String(permanent?.oracle_text || ''),
+    Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities.join('\n') : '',
+  ].join('\n');
+}
+
+function getControlledCreatureGateViolationForPermanent(
+  permanent: any,
+  battlefield: any[] = [],
+  controllerId: string | undefined,
+  action: 'attack' | 'block',
+): { illegal: boolean; reason?: string } {
+  const oracleText = getOracleTextForCombatGate(permanent);
+  const gate = parseControlledCreatureCombatGate(oracleText);
+  if (!gate) return { illegal: false };
+
+  const pid = String(controllerId || permanent?.controller || '').trim();
+  const controlledCount = countControlledCreaturesForCombatGate({
+    battlefield,
+    controllerId: pid,
+    isCreature: (perm) => isCurrentlyCreature(perm, battlefield, pid),
+    excludePermanentId: gate.otherOnly ? String(permanent?.id || '') : null,
+  });
+
+  return getControlledCreatureCombatGateViolation({
+    oracleText,
+    controlledCreatureCount: controlledCount,
+    action,
+    permanentName: String(permanent?.card?.name || 'This creature'),
+  });
+}
+
 function canPermanentAttack(
   permanent: any,
   battlefield: any[] = [],
   controllerId?: string
 ): { canAttack: boolean; reason?: string } {
+  const creatureGate = getControlledCreatureGateViolationForPermanent(
+    permanent,
+    battlefield,
+    controllerId,
+    'attack',
+  );
+  if (creatureGate.illegal) {
+    return { canAttack: false, reason: creatureGate.reason || 'Creature-count combat gate' };
+  }
+
   // Check for counters that prevent attacking (e.g., bribery counters with Gwafa Hazid)
   // Uses scalable pattern matching instead of hardcoded card checks
   const counterCheck = isCounterPreventingAttack(permanent, battlefield);
@@ -1277,6 +1328,16 @@ function canBlockAttacker(
   battlefield: any[] = [],
   blockerControllerId?: string
 ): { canBlock: boolean; reason?: string } {
+  const creatureGate = getControlledCreatureGateViolationForPermanent(
+    blocker,
+    battlefield,
+    blockerControllerId,
+    'block',
+  );
+  if (creatureGate.illegal) {
+    return { canBlock: false, reason: creatureGate.reason || 'Creature-count combat gate' };
+  }
+
   // Check for counters that prevent blocking (e.g., bribery counters with Gwafa Hazid)
   // Uses scalable pattern matching instead of hardcoded card checks
   const counterCheck = isCounterPreventingBlock(blocker, battlefield);

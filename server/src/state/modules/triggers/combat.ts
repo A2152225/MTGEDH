@@ -986,6 +986,7 @@ const ATTACK_WATCHER_TRIGGER_TYPES = new Set([
   'opponents_two_or_more_creatures_attack',
   'chosen_type_creature_etb_or_attack',
   'exalted',
+  'you_attack',
   'you_attack_with_commander',
   'commander_attacks',
 ]);
@@ -1187,6 +1188,9 @@ function planAttackWatcherQueue(
       return { kind: 'once' };
     case 'exalted':
       if (attackingCreatures.length !== 1 || sourceController !== attackingPlayer) return { kind: 'skip' };
+      return { kind: 'once' };
+    case 'you_attack':
+      if (sourceController !== attackingPlayer || attackingCreatures.length === 0) return { kind: 'skip' };
       return { kind: 'once' };
     case 'you_attack_with_commander':
     case 'commander_attacks': {
@@ -1861,6 +1865,23 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     }
   }
   
+  // Bast / similar: "Whenever you attack, ..." (not "attack with ...")
+  const youAttackMatch = oracleText.match(
+    /whenever you attack(?!\s+with)\b,?\s*([^.]+)/i,
+  );
+  if (youAttackMatch && !triggers.some((t) => t.triggerType === 'you_attack')) {
+    const effectText = timingTriggerEffect(oracleText, youAttackMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'you_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
   // W'Kabi / similar: "Whenever you attack with your commander, ..."
   const youAttackWithCommanderMatch = oracleText.match(
     /whenever you attack with your commander,?\s*([^.]+)/i,

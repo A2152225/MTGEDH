@@ -7,6 +7,11 @@ import {
   isCounterPreventingAttack,
   isCounterPreventingBlock,
 } from '../../../shared/src/counterCombatRestrictions';
+import {
+  countControlledCreaturesForCombatGate,
+  getControlledCreatureCombatGateViolation,
+  parseControlledCreatureCombatGate,
+} from '../../../shared/src/controlledCreatureCombatGate';
 import { getCombinedPermanentText } from './permanentText';
 
 function escapeRegExp(value: string): string {
@@ -92,6 +97,14 @@ export function isCurrentlyCreature(perm: BattlefieldPermanent): boolean {
   const card = perm.card as KnownCardRef | undefined;
   const typeLine = (card?.type_line || '').toLowerCase();
   const oracleText = (card?.oracle_text || '').toLowerCase();
+  const permAny = perm as any;
+
+  // Crew / animate / station: temporary Creature type until EOT (or while stationed).
+  if (permAny.crewed === true) return true;
+  if (Array.isArray(permAny.grantedTypes) && permAny.grantedTypes.some((t: any) => String(t).toLowerCase() === 'creature')) {
+    return true;
+  }
+  if (permAny.animated === true || permAny.isCreature === true) return true;
   
   // Check for Equipment with Reconfigure or Enchantment with Bestow
   // These can be creatures OR equipment/auras depending on attachment state
@@ -107,6 +120,11 @@ export function isCurrentlyCreature(perm: BattlefieldPermanent): boolean {
     return !perm.attachedTo; // IS a creature when NOT attached
   }
   
+  // Vehicles are NOT creatures unless crewed/granted above.
+  if (typeLine.includes('vehicle')) {
+    return false;
+  }
+
   // For all other permanents, check if it's a creature in the type line
   // This covers normal creatures, artifact creatures, enchantment creatures, etc.
   return typeLine.includes('creature');
@@ -154,11 +172,49 @@ export function canCreatureUseTapAbilityNow(
   return !getSummoningSickness(perm) || hasCurrentHaste(perm, battlefield);
 }
 
+
+function getOracleTextForCombatGate(perm: BattlefieldPermanent): string {
+  return [
+    String((perm.card as any)?.oracle_text || ''),
+    String((perm as any).oracle_text || ''),
+    Array.isArray((perm as any).grantedAbilities) ? (perm as any).grantedAbilities.join('\n') : '',
+  ].join('\n');
+}
+
+function failsControlledCreatureCombatGate(
+  perm: BattlefieldPermanent,
+  battlefield: readonly BattlefieldPermanent[] | undefined,
+  action: 'attack' | 'block',
+): boolean {
+  const field = battlefield || [];
+  const oracleText = getOracleTextForCombatGate(perm);
+  const gate = parseControlledCreatureCombatGate(oracleText);
+  if (!gate) return false;
+
+  const controllerId = String(perm.controller || '').trim();
+  const controlledCount = countControlledCreaturesForCombatGate({
+    battlefield: field,
+    controllerId,
+    isCreature: (p) => isCurrentlyCreature(p as BattlefieldPermanent),
+    excludePermanentId: gate.otherOnly ? String(perm.id || '') : null,
+  });
+
+  return getControlledCreatureCombatGateViolation({
+    oracleText,
+    controlledCreatureCount: controlledCount,
+    action,
+    permanentName: String((perm.card as any)?.name || 'This creature'),
+  }).illegal;
+}
+
 export function canCreatureAttackNow(
   perm: BattlefieldPermanent,
   battlefield?: BattlefieldPermanent[],
 ): boolean {
   const field = battlefield || [];
+  if (failsControlledCreatureCombatGate(perm, field, 'attack')) {
+    return false;
+  }
   const counterCheck = isCounterPreventingAttack(perm, field);
   if (counterCheck.isPrevented) {
     return false;
@@ -176,6 +232,9 @@ export function canCreatureBlockNow(
   battlefield?: BattlefieldPermanent[],
 ): boolean {
   const field = battlefield || [];
+  if (failsControlledCreatureCombatGate(perm, field, 'block')) {
+    return false;
+  }
   const counterCheck = isCounterPreventingBlock(perm, field);
   if (counterCheck.isPrevented) {
     return false;
@@ -199,4 +258,27 @@ export function getCounterCombatRestrictionReason(
     : isCounterPreventingBlock(perm, battlefield);
   if (!check.isPrevented) return undefined;
   return `Has ${check.counterType} counter (${check.sourceName} effect)`;
+}
+export function getControlledCreatureCombatGateReason(
+  perm: BattlefieldPermanent,
+  battlefield: readonly BattlefieldPermanent[],
+  action: 'attack' | 'block',
+): string | undefined {
+  const oracleText = getOracleTextForCombatGate(perm);
+  const gate = parseControlledCreatureCombatGate(oracleText);
+  if (!gate) return undefined;
+  const controllerId = String(perm.controller || '').trim();
+  const controlledCount = countControlledCreaturesForCombatGate({
+    battlefield,
+    controllerId,
+    isCreature: (p) => isCurrentlyCreature(p as BattlefieldPermanent),
+    excludePermanentId: gate.otherOnly ? String(perm.id || '') : null,
+  });
+  const violation = getControlledCreatureCombatGateViolation({
+    oracleText,
+    controlledCreatureCount: controlledCount,
+    action,
+    permanentName: String((perm.card as any)?.name || 'This creature'),
+  });
+  return violation.illegal ? violation.reason : undefined;
 }

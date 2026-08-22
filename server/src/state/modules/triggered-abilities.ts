@@ -11521,6 +11521,11 @@ export function getAttackTriggersForCreatures(
           triggers.push({ ...(trigger as any), value: mergedValue } as any);
         }
       }
+      
+      if (trigger.triggerType === 'you_attack' && attackingCreatures.length > 0) {
+        // "Whenever you attack, ..." — fires once when this player declares one or more attackers.
+        triggers.push(trigger);
+      }
       if (trigger.triggerType === 'exalted' && attackingCreatures.length === 1) {
         // Exalted only triggers when attacking alone
         triggers.push(trigger);
