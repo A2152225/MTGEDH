@@ -1,0 +1,118 @@
+import type { PlayerID } from '../../../../shared/src/index.js';
+import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
+import type { OracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
+import type { GameContext } from '../context.js';
+import { applyOracleIRUncategorizedSpellFallback } from './oracleIrUncategorizedSpellFallback.js';
+import { shouldSkipTriggerUncategorizedFallback } from './oracleIrTriggerLegacyRouting.js';
+import {
+  collectOracleEffectSteps,
+  wouldOracleIRFallbackPrefilterMatch,
+} from './trigger-runtime-wiring.js';
+import { extractOracleCardLookupKeys } from './oracleIrCompiledOverlayLookup.js';
+import {
+  buildTriggerExecutionOptionsFromSteps,
+} from './oracleIrTriggerExecutionHelpers.js';
+import { debugWarn } from '../../utils/debug.js';
+import { queueExploreDecisionStep } from './triggerExploreUtils.js';
+
+export interface TriggerUncategorizedFallbackDeps {
+  applyCopyPermanentTriggerStep(
+    ctx: GameContext,
+    controller: PlayerID,
+    sourceName: string,
+    step: Extract<OracleEffectStep, { kind: 'copy_permanent' }>,
+    triggerItem?: any,
+  ): number;
+  queueOptionalSelfCopyFromControlledCreature(
+    ctx: GameContext,
+    controller: PlayerID,
+    sourceName: string,
+    sourcePermanentId: string,
+  ): number;
+  createEquippedCreatureCopyTokenFromEquipment(
+    ctx: GameContext,
+    controller: PlayerID,
+    sourcePermanentId: string,
+    description: string,
+    grantsHaste: boolean,
+  ): number;
+}
+
+function applyLegacyTriggerSpecialHandlers(
+  ctx: GameContext,
+  controller: PlayerID,
+  sourceName: string,
+  description: string,
+  triggerItem: any | undefined,
+  steps: readonly OracleEffectStep[],
+  deps: TriggerUncategorizedFallbackDeps,
+): number {
+  const sourcePermanentId = String(
+    triggerItem?.source || triggerItem?.permanentId || '',
+  ).trim();
+
+  let applied = 0;
+  for (const step of steps) {
+    if (step.kind === 'copy_permanent') {
+      applied += deps.applyCopyPermanentTriggerStep(
+        ctx,
+        controller,
+        sourceName,
+        step as Extract<OracleEffectStep, { kind: 'copy_permanent' }>,
+        triggerItem,
+      );
+    }
+  }
+
+  if (applied > 0) return applied;
+
+  for (const step of steps) {
+    if (step.kind === 'explore' && sourcePermanentId) {
+      const targetText = String((step as { target?: { text?: string; raw?: string } }).target?.text
+        || (step as { target?: { text?: string; raw?: string } }).target?.raw
+        || '').trim();
+      if (/this creature/i.test(targetText) && queueExploreDecisionStep(ctx, controller, sourcePermanentId)) {
+        applied += 1;
+      }
+      continue;
+    }
+
+    if (step.kind === 'grant_temporary_ability' && (step as { optional?: boolean }).optional) {
+      const effectText = Array.isArray((step as { effectText?: readonly string[] }).effectText)
+        ? (step as { effectText: readonly string[] }).effectText.join(' ')
+        : '';
+      if (/becomes a copy of another creature you control/i.test(effectText) && sourcePermanentId) {
+        applied += deps.queueOptionalSelfCopyFromControlledCreature(
+          ctx,
+          controller,
+          sourceName,
+          sourcePermanentId,
+        );
+      }
+      continue;
+    }
+
+    if (step.kind === 'create_token') {
+      const rawToken = String((step as { token?: string }).token || '').trim();
+      if (/copy of equipped (?:creature|permanent)/i.test(rawToken) && sourcePermanentId) {
+        applied += deps.createEquippedCreatureCopyTokenFromEquipment(
+          ctx,
+          controller,
+          sourcePermanentId,
+          description,
+          Boolean((step as { grantsHaste?: string }).grantsHaste),
+        );
+      }
+    }
+  }
+
+  return applied;
+}
+
+/**
+ * Copy/explore/equipped-token bridges that still run when IR primary owns the effect
+ * but the primary gate did not apply (e.g. server target queue deferrals).
+ */
+export function applyTriggerIrSpecialHandlersOnly(
+  ctx: GameContext,
+  contro

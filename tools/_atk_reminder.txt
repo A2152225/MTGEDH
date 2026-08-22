@@ -1,0 +1,7 @@
+const ATTACK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:annihilator\s+\d+|firebending\s+\d+|melee|myriad|exalted|battle cry|dethrone|mentor|training)\b/i;
+const BLOCK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:afflict\s+\d+|bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
+
+/** Names used in oracle text (~, comma-short, or "Svyelun of Sea and Sky" -> "Svyelun"). */
+function getCardNameVariantsForOracleMatching(cardName: string, oracleText?: string): string[] {
+  const variants = new Set<string>();
+  const full = S

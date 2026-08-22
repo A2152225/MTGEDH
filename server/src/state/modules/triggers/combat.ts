@@ -1273,7 +1273,7 @@ function getCardNameVariantsForOracleMatching(cardName: string, oracleText?: str
 
   if (oracleText) {
     for (const line of getOracleLines(oracleText)) {
-      const refMatch = line.match(/^Whenever\s+([A-Za-z][^\s,]+)\s+attacks\b/i);
+      const refMatch = line.match(/^Whenever\s+([A-Za-z][^\s,]+)(?:\s+enters(?:\s+the\s+battlefield)?\s+or)?\s+attacks\b/i);
       if (refMatch?.[1] && full.toLowerCase().startsWith(refMatch[1].toLowerCase())) {
         variants.add(refMatch[1]);
       }

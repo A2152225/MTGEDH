@@ -25,6 +25,7 @@ export type CommonArtifactTokenKind =
   | 'junk'
   | 'map'
   | 'powerstone'
+  | 'vibranium'
   | 'blood';
 
 export const PREDEFINED_TRIGGER_ARTIFACT_TOKEN_KINDS = [
@@ -35,6 +36,7 @@ export const PREDEFINED_TRIGGER_ARTIFACT_TOKEN_KINDS = [
   'blood',
   'gold',
   'powerstone',
+  'vibranium',
 ] as const;
 
 export type PredefinedTriggerArtifactTokenKind = (typeof PREDEFINED_TRIGGER_ARTIFACT_TOKEN_KINDS)[number];
@@ -137,6 +139,14 @@ const COMMON_ARTIFACT_TOKEN_DEFINITIONS: Record<CommonArtifactTokenKind, CommonA
     typeLine: 'Token Artifact — Powerstone',
     abilities: ["{T}: Add {C}. This mana can't be spent to cast a nonartifact spell."],
   },
+  vibranium: {
+    name: 'Vibranium',
+    typeLine: 'Token Artifact — Vibranium',
+    abilities: [
+      'Indestructible',
+      "{T}: Add {C}. This mana can't be spent to cast a nonartifact spell.",
+    ],
+  },
   blood: {
     name: 'Blood',
     typeLine: 'Token Artifact — Blood',
@@ -160,6 +170,7 @@ const COMMON_ARTIFACT_TOKEN_MATCHERS: Array<{ kind: CommonArtifactTokenKind; tes
   { kind: 'junk', test: (lower) => lower.includes('junk') },
   { kind: 'map', test: (lower) => lower.includes('map') },
   { kind: 'powerstone', test: (lower) => lower.includes('powerstone') },
+  { kind: 'vibranium', test: (lower) => lower.includes('vibranium') },
   { kind: 'blood', test: (lower) => lower.includes('blood') },
 ];
 
@@ -210,6 +221,7 @@ export function createCommonArtifactTokenFromText(
   const spec = parseCommonArtifactTokenOptions(tokenText);
   if (!spec) return false;
 
+  const entersTapped = /\btapped\b/i.test(String(tokenText || ''));
   createToken(
     ctx as any,
     controller,
@@ -217,7 +229,10 @@ export function createCommonArtifactTokenFromText(
     count,
     spec.basePower,
     spec.baseToughness,
-    spec.options,
+    {
+      ...spec.options,
+      ...(entersTapped ? { entersTapped: true } : {}),
+    },
   );
   return true;
 }

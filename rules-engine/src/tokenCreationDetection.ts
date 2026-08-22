@@ -247,21 +247,41 @@ export function resolveTokenCharacteristicsFromOracleStep(
 
   // Prefer catalog definitions for named tokens (Treasure, Powerstone, Vibranium, ...).
   // Reminder text on the creating card is not a reliable source of token abilities.
+  // Scan known catalog names; skip noise words like Create/Tapped so matching cannot no-op.
   const catalogNameCandidates: string[] = [];
+  const pushCandidate = (value: string | undefined | null) => {
+    const trimmed = String(value || '').trim();
+    if (trimmed) catalogNameCandidates.push(trimmed);
+  };
   for (const source of [tokenHint, hintParsed.descriptor, clauseRaw]) {
     const raw = String(source || '').trim();
     if (!raw) continue;
+    const tappedNamed = raw.match(/\b(?:tapped(?:\s+and\s+attacking)?\s+)?([A-Za-z][A-Za-z'-]*)\b(?:\s+token)?/i);
+    if (tappedNamed) pushCandidate(tappedNamed[1]);
     const named = raw.match(/\b([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)*)\b/);
-    // Also catch simple single-word descriptors like "Vibranium" / "tapped Vibranium"
-    const simple = raw.match(/\b(?:tapped(?:\s+and\s+attacking)?\s+)?([A-Za-z][A-Za-z'-]*)\b/i);
-    if (named) catalogNameCandidates.push(named[1]);
-    if (simple) catalogNameCandidates.push(simple[1]);
+    if (named) pushCandidate(named[1]);
+    for (const wordMatch of raw.matchAll(/\b([A-Za-z][A-Za-z'-]*)\b/g)) {
+      pushCandidate(wordMatch[1]);
+    }
   }
+  const seenCandidates = new Set<string>();
   for (const candidate of catalogNameCandidates) {
-    const catalog = getTokenCharacteristics(candidate) || getTokenCharacteristics(candidate.charAt(0).toUpperCase() + candidate.slice(1));
+    const key = candidate.toLowerCase();
+    if (seenCandidates.has(key)) continue;
+    seenCandidates.add(key);
+    // Skip noise words that are never token catalog keys.
+    if (/^(?:create|creates|created|a|an|the|tapped|attacking|token|tokens|artifact|creature|enchantment|with|and|or|it|its|it'?s)$/i.test(candidate)) {
+      continue;
+    }
+    const catalog = getTokenCharacteristics(candidate)
+      || getTokenCharacteristics(candidate.charAt(0).toUpperCase() + candidate.slice(1));
     if (catalog) {
       const parsed = fromHint?.characteristics || fromClause?.characteristics || null;
-      return mergeTokenCharacteristics(catalog, parsed, quotedAbilities);
+      // Never promote artifact-only catalog tokens into creatures via fuzzy parse leftovers.
+      const safeParsed = parsed && catalog.isArtifact && !catalog.types.includes('Creature')
+        ? { ...parsed, types: parsed.types.filter((type) => type !== 'Creature') }
+        : parsed;
+      return mergeTokenCharacteristics(catalog, safeParsed, quotedAbilities);
     }
   }
 

@@ -44,6 +44,11 @@ import {
   payManaCostWithAvailableSources,
   refundGenericManaPayment,
   getFloatingPaymentPoolColorKey,
+  buildActivatedAbilityRestrictedManaPurpose,
+  buildManaTotalsIncludingEligibleRestricted,
+  consumeManaFromPoolForPurpose,
+  canUseRestrictedMana,
+  type RestrictedManaSpendPurpose,
 } from "./util.js";
 import { syncDerivedContinuousEffects } from "../state/modules/staticEffectSpec.js";
 import { isLoopShortcutBroadcastSuppressed } from "./loopShortcutSustain.js";
@@ -2068,7 +2073,8 @@ function applySelectedManaPaymentForResolutionCost(
   game: any,
   playerId: string,
   manaCost: string,
-  payment: ResolutionPaymentItem[] | undefined
+  payment: ResolutionPaymentItem[] | undefined,
+  purpose?: RestrictedManaSpendPurpose,
 ): ResolutionSelectedManaPaymentResult {
   const parsedCost = parseManaCost(String(manaCost || ''));
   const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
@@ -2076,7 +2082,11 @@ function applySelectedManaPaymentForResolutionCost(
   const manaPoolBeforePayment = snapshotResolutionManaPool((game.state as any)?.manaPool?.[playerId]);
   const totalAvailable: Record<string, number> = payment && payment.length > 0
     ? createEmptyResolutionManaTotals()
-    : snapshotResolutionManaPool(manaPool);
+    : (
+      purpose
+        ? buildManaTotalsIncludingEligibleRestricted(manaPool as any, purpose)
+        : snapshotResolutionManaPool(manaPool)
+    );
   const selectedFloatingMana: Record<string, number> = createEmptyResolutionManaTotals();
   const selectedPaymentAvailableTotals: Record<string, number> = createEmptyResolutionManaTotals();
   const usedPermanentIds = new Set<string>();
@@ -2182,7 +2192,18 @@ function applySelectedManaPaymentForResolutionCost(
     }
 
     for (const [poolKey, amount] of Object.entries(selectedFloatingMana)) {
-      if (Number(manaPool[poolKey] || 0) < Number(amount || 0)) {
+      const needed = Number(amount || 0);
+      if (needed <= 0) continue;
+      const regularAvailable = Number(manaPool[poolKey] || 0);
+      let eligibleRestricted = 0;
+      if (purpose && Array.isArray(manaPool.restricted)) {
+        for (const entry of manaPool.restricted) {
+          if (!entry || !canUseRestrictedMana(entry, purpose)) continue;
+          if (String((entry as any).type || '') !== poolKey) continue;
+          eligibleRestricted += Number(entry.amount || 0);
+        }
+      }
+      if (regularAvailable + eligibleRestricted < needed) {
         return { ok: false, code: 'INSUFFICIENT_MANA', message: `Not enough ${poolKey} mana selected from your pool.` };
       }
     }
@@ -2320,10 +2341,19 @@ function applySelectedManaPaymentForResolutionCost(
       hybridResolvedColors,
       hybridResolvedGeneric,
       '[resolutionSelectedPayment]',
+      purpose,
     );
     if ('error' in selectedConsumption) {
       return { ok: false, code: 'INSUFFICIENT_MANA', message: selectedConsumption.error };
     }
+  } else if (purpose) {
+    consumeManaFromPoolForPurpose(
+      manaPool,
+      parsedCost.colors,
+      parsedCost.generic,
+      purpose,
+      '[resolutionSelectedPayment]',
+    );
   } else {
     consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic, '[resolutionSelectedPayment]');
   }
@@ -2447,6 +2477,7 @@ function consumeExplicitSelectedResolutionMana(
   coloredCost: Record<string, number>,
   genericCost: number,
   logPrefix: string,
+  purpose?: RestrictedManaSpendPurpose,
 ): { consumed: Record<string, number> } | { error: string } {
   const selectedPool = snapshotResolutionManaPool(selectedAvailable);
   const validationError = validateManaPayment(selectedPool, coloredCost, genericCost);
@@ -2457,17 +2488,36 @@ function consumeExplicitSelectedResolutionMana(
   const manaConsumption = consumeManaFromPool(selectedPool, coloredCost, genericCost, logPrefix);
 
   for (const key of RESOLUTION_PAYMENT_MANA_KEYS) {
-    const amount = Number((manaConsumption.consumed as any)?.[key] || 0);
-    if (amount <= 0) continue;
-    if (Number(pool?.[key] || 0) < amount) {
-      return { error: `Selected payment used more ${key} mana than is available.` };
-    }
-  }
+    let remaining = Number((manaConsumption.consumed as any)?.[key] || 0);
+    if (remaining <= 0) continue;
 
-  for (const key of RESOLUTION_PAYMENT_MANA_KEYS) {
-    const amount = Number((manaConsumption.consumed as any)?.[key] || 0);
-    if (amount > 0) {
-      pool[key] = Number(pool?.[key] || 0) - amount;
+    const regularAvailable = Number(pool?.[key] || 0);
+    const regularUse = Math.min(regularAvailable, remaining);
+    if (regularUse > 0) {
+      pool[key] = regularAvailable - regularUse;
+      remaining -= regularUse;
+    }
+
+    if (remaining > 0 && purpose && Array.isArray(pool?.restricted)) {
+      for (let index = pool.restricted.length - 1; index >= 0 && remaining > 0; index -= 1) {
+        const entry = pool.restricted[index];
+        if (!entry || !canUseRestrictedMana(entry, purpose)) continue;
+        if (String(entry.type || '') !== key) continue;
+        const use = Math.min(Number(entry.amount || 0), remaining);
+        if (use <= 0) continue;
+        entry.amount -= use;
+        remaining -= use;
+        if (entry.amount <= 0) {
+          pool.restricted.splice(index, 1);
+        }
+      }
+      if (Array.isArray(pool.restricted) && pool.restricted.length === 0) {
+        delete pool.restricted;
+      }
+    }
+
+    if (remaining > 0) {
+      return { error: `Selected payment used more ${key} mana than is available.` };
     }
   }
 
@@ -6006,17 +6056,38 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         }
       }
 
+      // activationPaymentChoice (Equip/fortify/etc.) must be validated BEFORE completeStep.
+      // Otherwise a failed apply leaves the prompt gone, mana unchanged, and the ability unstacked.
       const needsSelectedPaymentValidation =
         !cancelled &&
         stepAny.phyrexianManaChoice !== true &&
-        stepAny.sacrificeUnlessPayChoice === true;
+        (
+          stepAny.sacrificeUnlessPayChoice === true
+          || stepAny.activationPaymentChoice === true
+        );
 
       if (needsSelectedPaymentValidation) {
         const manaCost = String(stepAny?.manaCost || stepAny?.totalManaCost || '').trim();
         if (manaCost) {
           const validationGame = cloneGameForResolutionPaymentValidation(game, pid);
           const payment = extractResolutionPaymentItems(response.selections as any);
-          const applied = applySelectedManaPaymentForResolutionCost(validationGame, pid, manaCost, payment);
+          const prevalidatePurpose = stepAny.activationPaymentChoice === true
+            ? (() => {
+                const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
+                const permanent = (Array.isArray(game.state?.battlefield) ? game.state.battlefield : [])
+                  .find((perm: any) => perm && String(perm.id) === permanentId);
+                return permanent
+                  ? buildActivatedAbilityRestrictedManaPurpose(permanent)
+                  : ({ isActivatedAbility: true } as RestrictedManaSpendPurpose);
+              })()
+            : undefined;
+          const applied = applySelectedManaPaymentForResolutionCost(
+            validationGame,
+            pid,
+            manaCost,
+            payment,
+            prevalidatePurpose,
+          );
           if (!applied.ok) {
             const appliedError = applied as { ok: false; code: string; message: string };
             socket.emit('error', {
@@ -12659,7 +12730,18 @@ async function handleStepResponse(
           });
           break;
         }
-        const applied = applySelectedManaPaymentForResolutionCost(game, pid, manaCost, payment);
+        const activatingPermanent = (Array.isArray(game.state?.battlefield) ? game.state.battlefield : [])
+          .find((perm: any) => perm && String(perm.id) === activatingPermanentId);
+        const activationManaPurpose = activatingPermanent
+          ? buildActivatedAbilityRestrictedManaPurpose(activatingPermanent)
+          : ({ isActivatedAbility: true } as RestrictedManaSpendPurpose);
+        const applied = applySelectedManaPaymentForResolutionCost(
+          game,
+          pid,
+          manaCost,
+          payment,
+          activationManaPurpose,
+        );
         if (!applied.ok) {
           const appliedError = applied as { ok: false; code: string; message: string };
           emitToPlayer(io, pid as any, 'error', {

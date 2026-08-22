@@ -11487,10 +11487,14 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Calculate total mana cost for spell from hand (using reduced cost)
       const totalGeneric = payableCost.generic;
       const totalColored = payableCost.colors;
-      const castingCreatureSpell = String(cardInHand?.type_line || '').toLowerCase().includes('creature');
-      const restrictedManaPurpose: RestrictedManaSpendPurpose = castingCreatureSpell
-        ? { isCreature: true, spellCard: cardInHand }
-        : { spellCard: cardInHand };
+      const castingTypeLine = String(cardInHand?.type_line || '').toLowerCase();
+      const castingCreatureSpell = castingTypeLine.includes('creature');
+      const castingArtifactSpell = castingTypeLine.includes('artifact');
+      const restrictedManaPurpose: RestrictedManaSpendPurpose = {
+        spellCard: cardInHand,
+        ...(castingCreatureSpell ? { isCreature: true } : {}),
+        ...(castingArtifactSpell ? { isArtifact: true } : {}),
+      };
       
       // Get existing mana pool (floating mana from previous spells)
       const existingPool = getOrInitManaPool(game.state, playerId);

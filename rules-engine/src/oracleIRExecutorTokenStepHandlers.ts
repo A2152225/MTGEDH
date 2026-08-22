@@ -1695,7 +1695,9 @@ function addTokensToBattlefield(
 
   const tokenCharacteristics = resolveTokenCharacteristicsFromOracleStep(tokenHint, clauseRaw);
   if (!tokenCharacteristics) {
-    return { applied: true, state, log: ['Token creation not recognized'], createdTokenIds: [] };
+    // Do not report applied:true with zero tokens — that skips legacy create fallbacks
+    // (named artifact tokens like Vibranium/Powerstone when hint matching fails).
+    return { applied: false, message: 'Token creation not recognized', reason: 'impossible_action' };
   }
 
   const count = Math.max(1, amount | 0);

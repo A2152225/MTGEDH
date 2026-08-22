@@ -1,0 +1,67 @@
+function consumeExplicitSelectedResolutionMana(
+  pool: any,
+  selectedAvailable: Record<string, number>,
+  coloredCost: Record<string, number>,
+  genericCost: number,
+  logPrefix: string,
+): { consumed: Record<string, number> } | { error: string } {
+  const selectedPool = snapshotResolutionManaPool(selectedAvailable);
+  const validationError = validateManaPayment(selectedPool, coloredCost, genericCost);
+  if (validationError) {
+    return { error: validationError };
+  }
+
+  const manaConsumption = consumeManaFromPool(selectedPool, coloredCost, genericCost, logPrefix);
+
+  for (const key of RESOLUTION_PAYMENT_MANA_KEYS) {
+    const amount = Number((manaConsumption.consumed as any)?.[key] || 0);
+    if (amount <= 0) continue;
+    if (Number(pool?.[key] || 0) < amount) {
+      return { error: `Selected payment used more ${key} mana than is available.` };
+    }
+  }
+
+  for (const key of RESOLUTION_PAYMENT_MANA_KEYS) {
+    const amount = Number((manaConsumption.consumed as any)?.[key] || 0);
+    if (amount > 0) {
+      pool[key] = Number(pool?.[key] || 0) - amount;
+    }
+  }
+
+  return { consumed: manaConsumption.consumed };
+}
+
+function calculateResolutionManaPoolDelta(before: any, after: any): Record<string, number> | undefined {
+  const baseline = snapshotResolutionManaPool(before);
+  const current = snapshotResolutionManaPool(after);
+  const delta: Record<string, number> = {};
+
+  for (const key of ['white', 'blue', 'black', 'red', 'green', 'colorless']) {
+    const amount = Number(current[key] || 0) - Number(baseline[key] || 0);
+    if (amount !== 0) {
+      delta[key] = amount;
+    }
+  }
+
+  return Object.keys(delta).length > 0 ? delta : undefined;
+}
+
+function appendCastSpellContinuationEvent(
+  gameId: string,
+  game: any,
+  payload: Record<string, unknown>
+): void {
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'castSpellContinuation', payload);
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(castSpellContinuation) failed:', err);
+  }
+}
+
+type NormalizedCounterRemovalPayment = Array<{ permanentId: string; counterType: string; count: number }>;
+
+function normalizeCounterRemovalPaymentSelections(rawSelections: any, stepData: any): { selections: NormalizedCounterRemovalPayment; error?: string } {
+  const raw = rawSelections && typeof rawSelections === 'object' && !Array.isArray(rawSelections) && Array.isArray(rawSelections.counterSelections)
+    ? rawSelections.counterSelections
+    : rawSelections;
+  const entries = Array.isArray(raw) ? ra

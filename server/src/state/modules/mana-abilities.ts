@@ -147,7 +147,14 @@ function parseSpelledOutManaAmount(rawAmount: string): number | undefined {
 export function parseManaSpendRestrictionFromOracle(
   oracleText: string,
 ): { restriction: import('../../../../shared/src/types.js').ManaRestrictionType; restrictedTo?: string } | null {
-  const text = String(oracleText || '').toLowerCase();
+  const text = String(oracleText || '').toLowerCase().replace(/[\u2019\u2018]/g, "'");
+
+  // Powerstone / Vibranium: "This mana can't be spent to cast a nonartifact spell."
+  // (CR: still legal for activated abilities, artifact spells, and non-cast costs.)
+  if (/this mana can'?t be spent to cast a nonartifact spell/.test(text)) {
+    return { restriction: 'no_nonartifact_spells' };
+  }
+
   if (!text.includes('spend this mana only')) return null;
 
   // Helga: creature spells with mana value N or greater OR creature spells with {X} in their mana costs
@@ -1408,8 +1415,10 @@ export function getManaAbilitiesForPermanent(
         const match = text.match(pattern);
         if (match && match.index !== undefined) {
           // Look backwards from the match to see if "create" appears nearby
+          // Skip this guard for tokens themselves (Vibranium/Powerstone oracle is only the mana line).
           const beforeMatch = text.substring(Math.max(0, match.index - 100), match.index);
-          if (beforeMatch.includes('create')) {
+          const permanentIsToken = Boolean((permanent as any)?.isToken) || /\btoken\b/i.test(typeLine);
+          if (!permanentIsToken && beforeMatch.includes('create')) {
             // This is likely a token creation ability, not the permanent's own ability
             continue;
           }

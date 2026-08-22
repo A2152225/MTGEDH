@@ -1,0 +1,59 @@
+function getFloatingPaymentPoolKey(permanentId: string, mana: string, pool?: any): string | null {
+  return getFloatingPaymentPoolColorKey(permanentId, mana, pool);
+}
+
+function getFightAbilityDescription(step: any): string {
+  const activatedAbilityText = String(step?.activatedAbilityText || step?.description || '').trim();
+  if (!activatedAbilityText) {
+    return 'This creature fights target creature';
+  }
+
+  const parts = activatedAbilityText.split(/:(.+)/);
+  const effectText = String(parts[1] || activatedAbilityText).trim();
+  return effectText || activatedAbilityText;
+}
+
+function buildKnownCardRefForSearch(card: any): any {
+  return {
+    id: card.id,
+    name: card.name,
+    type_line: card.type_line,
+    oracle_text: card.oracle_text,
+    image_uris: card.image_uris,
+    imageUrl: card.image_uris?.normal,
+    mana_cost: card.mana_cost,
+    cmc: card.cmc,
+    colors: card.colors,
+    power: card.power,
+    toughness: card.toughness,
+    loyalty: card.loyalty,
+  };
+}
+
+function getPanglacialCastCardId(selections: unknown): string | undefined {
+  if (!selections || typeof selections !== 'object' || Array.isArray(selections)) return undefined;
+  const raw = selections as Record<string, any>;
+  if (String(raw.action || '').trim().toLowerCase() !== 'cast_panglacial_wurm') return undefined;
+  const cardId = String(raw.cardId || '').trim();
+  return cardId || undefined;
+}
+
+function isTrueLibrarySearchStep(step: any): boolean {
+  const searchZone = String(step?.searchZone || 'library').toLowerCase();
+  const searchZones = Array.isArray(step?.searchZones)
+    ? step.searchZones.map((zone: any) => String(zone || '').toLowerCase())
+    : [];
+  const includesLibrary = searchZone === 'library' || searchZones.includes('library') || searchZones.length === 0;
+  if (!includesLibrary) return false;
+
+  const text = `${String(step?.description || '')} ${String(step?.searchCriteria || '')}`.toLowerCase();
+  if (text.includes('look at the top') || text.includes('reveal the top')) return false;
+  if (/\btop\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/.test(text)) return false;
+  return /\bsearch(?:es)?\s+(?:your|their|that player's|target player's|a player's)?\s*library\b/.test(text) || text.includes('search library');
+}
+
+function getPanglacialCastableCards(gameId: string, step: ResolutionStep): any[] {
+  if (step.type !== ResolutionStepType.LIBRARY_SEARCH) return [];
+  if (!isTrueLibrarySearchStep(step as any)) return [];
+
+  const game = ensureGame(gameId

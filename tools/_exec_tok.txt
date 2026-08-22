@@ -1,0 +1,76 @@
+errides,
+  type CopyTokenOverrides,
+} from '../../shared/src/copyTokenOverrides.js';
+import { copyAsEntersCopiableChoicesFromSource } from '../../shared/src/copyTokenUtils.js';
+import { createTokens, resolveTokenCharacteristicsFromOracleStep } from './tokenCreation';
+import {
+  DelayedTriggerTiming,
+  createDelayedTrigger,
+  createDelayedTriggerRegistry,
+  registerDelayedTrigger,
+} from './delayedTriggeredAbilities';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
+import {
+  attachExistingBattlefieldPermanentToTarget,
+  findCardsExiledWithSource,
+  parseMoveZoneSingleTargetFromLinkedExile,
+} from './oracleIRExecutorZoneOps';
+import { getCardManaValue, quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { tryResolveForEachReferenceAmount } from './oracleIRExecutorForEachQuantity';
+import {
+  resolveBattlefieldEntryFromOracleIrContext,
+  type OracleIrBattlefieldEntryContext,
+} from './oracleIRExecutorBattlefieldEntryCommit';
+import {
+  collectThisWayDestroyedObjects,
+  collectThisWayGraveyardObjects,
+  resolveReferencedObjectPlayerIds,
+  type ReferencedObjectRole,
+  type ReferencedObjectRuntime,
+} from './oracleIRExecutorReferenceUtils';
+
+type StepApplyResult = {
+  readonly applied: true;
+  readonly state: GameState;
+  readonly log: readonly string[];
+  readonly createdTokenIds?: readonly string[];
+};
+
+type StepSkipResult = {
+  readonly applied: false;
+  readonly message: string;
+  readonly reason: 'unknown_amount' | 'unsupported_player_selector' | 'player_choice_required' | 'impossible_action';
+  readonly options?: {
+    readonly classification?: 'ambiguous' | 'player_choice';
+    readonly metadata?: Record<string, string | number | boolean | null | readonly string[]>;
+  };
+};
+
+export type TokenStepHandlerResult = StepApplyResult | StepSkipResult;
+
+type TokenStepRuntime = {
+  readonly lastMovedBattlefieldPermanentIds?: readonly string[];
+  readonly lastMovedCards?: readonly any[];
+  readonly lastMilledCards?: readonly any[];
+  readonly lastReferenceAmount?: number;
+  readonly lastSacrificedPermanents?: readonly any[];
+  readonly lastCreatedTokenIds?: readonly string[];
+};
+
+type TokenCreationSpec = {
+  readonly tokenHint: string;
+  readonly amount: number;
+};
+
+function normalizeTokenTypeText(value: unknown): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\b(?:token|tokens|artifact|creature|enchantment)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenHintMatchesReplacementType(tokenHint: string, toke

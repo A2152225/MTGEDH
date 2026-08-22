@@ -966,6 +966,7 @@ export type ManaRestrictionType =
   | 'abilities'           // Can only be spent on abilities (e.g., Metalworker with Training Grounds)
   | 'colorless_spells'    // Can only be spent on colorless spells (e.g., Eldrazi Temple)
   | 'artifacts'           // Can only be spent on artifacts
+  | 'no_nonartifact_spells' // Powerstone/Vibranium: cannot cast nonartifact spells; OK for artifact spells, activated abilities, other costs
   | 'legendary'           // Can only be spent on legendary spells (e.g., Reki, History of Kamigawa)
   | 'multicolored'        // Can only be spent on multicolored spells
   | 'commander'           // Can only be spent on commander costs (e.g., Command Tower in some interpretations)

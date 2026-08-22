@@ -1,0 +1,65 @@
+function extractResolutionPaymentItems(rawSelections: any): ResolutionPaymentItem[] | undefined {
+  const raw = Array.isArray(rawSelections?.payment)
+    ? rawSelections.payment
+    : (Array.isArray(rawSelections) ? rawSelections : undefined);
+  if (!Array.isArray(raw)) return undefined;
+
+  return raw
+    .map((entry: any) => ({
+      permanentId: String(entry?.permanentId || '').trim(),
+      mana: String(entry?.mana || '').trim().toUpperCase(),
+      abilityId: typeof entry?.abilityId === 'string' && entry.abilityId.trim()
+        ? String(entry.abilityId).trim()
+        : undefined,
+      count: entry?.count != null ? Number(entry.count) : undefined,
+      producedColors: Array.isArray(entry?.producedColors) // Updated producedColors mapping
+        ? entry.producedColors
+            .map((color: any) => String(color || '').trim().toUpperCase())
+            .filter((color: string) => /^[WUBRGC]$/.test(color))
+        : undefined, // End of producedColors mapping
+    }))
+    .filter((entry) => entry.permanentId && /^[WUBRGC]$/.test(entry.mana));
+}
+
+function createSyntheticAIGameActionSocket(gameId: string, playerId: string): { socket: any; handlers: Map<string, (...args: any[]) => any> } {
+  const handlers = new Map<string, (...args: any[]) => any>();
+  const socket: any = {
+    data: { gameId, playerId },
+    rooms: new Set([gameId]),
+    emit: (_event: string, _payload: any) => {
+      // AI uses server-side completion directly; client-facing emits are ignored here.
+    },
+    on: (event: string, handler: (...args: any[]) => any) => {
+      handlers.set(event, handler);
+      return socket;
+    },
+  };
+
+  return { socket, handlers };
+}
+
+function createForwardingGameActionSocket(
+  io: Server,
+  gameId: string,
+  playerId: string,
+): { socket: any; handlers: Map<string, (...args: any[]) => any> } {
+  const handlers = new Map<string, (...args: any[]) => any>();
+  const socket: any = {
+    data: { gameId, playerId },
+    rooms: new Set([gameId]),
+    emit: (event: string, payload: any) => {
+      emitToPlayer(io, playerId as any, event as any, payload);
+    },
+    on: (event: string, handler: (...args: any[]) => any) => {
+      handlers.set(event, handler);
+      return socket;
+    },
+  };
+
+  return { socket, handlers };
+}
+
+function didQueuedSpellCastComplete(game: any, playerId: string, cardId: string): boolean {
+  const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
+  const onStack = stack.some((item: any) =>
+    String(item?.control

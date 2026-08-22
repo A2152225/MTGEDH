@@ -180,7 +180,7 @@ export function findTokenByDescription(description: string): TokenCard | undefin
     'saproling', 'wolf', 'elemental', 'dragon', 'angel', 'demon',
     'vampire', 'cat', 'bird', 'snake', 'insect', 'thopter', 'servo',
     'construct', 'golem', 'warrior', 'knight', 'cleric', 'wizard',
-    'treasure', 'food', 'clue', 'blood', 'map', 'powerstone',
+    'treasure', 'food', 'clue', 'blood', 'map', 'powerstone', 'vibranium',
     'faerie', 'rogue', 'bat', 'devil', 'eldrazi', 'spawn', 'scion'
   ];
   
@@ -318,6 +318,17 @@ export function getCommonToken(tokenType: string): {
       toughness: 0,
       colors: [],
       abilities: ['{T}: Add {C}. This mana can\'t be spent to cast a nonartifact spell.']
+    },
+    'vibranium': {
+      name: 'Vibranium',
+      type_line: 'Token Artifact — Vibranium',
+      power: 0,
+      toughness: 0,
+      colors: [],
+      abilities: [
+        'Indestructible',
+        '{T}: Add {C}. This mana can\'t be spent to cast a nonartifact spell.',
+      ],
     },
     'map': {
       name: 'Map',

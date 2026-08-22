@@ -6923,6 +6923,28 @@ export function canUseRestrictedMana(
       return purpose.isColorless === true;
     case 'artifacts':
       return purpose.isArtifact === true;
+    case 'no_nonartifact_spells': {
+      // Ban only casting a nonartifact spell. Activated abilities and other costs are fine.
+      if (purpose.isActivatedAbility === true || purpose.isAbility === true) return true;
+      const spellCard = purpose.spellCard;
+      if (spellCard) {
+        const typeLine = String(spellCard.type_line || '').toLowerCase();
+        return typeLine.includes('artifact') || purpose.isArtifact === true;
+      }
+      // Casting without spellCard: treat non-artifact purpose flags as bans.
+      if (
+        purpose.isCreature === true
+        || purpose.isInstantOrSorcery === true
+        || purpose.isLegendary === true
+        || purpose.isMulticolored === true
+        || purpose.isColorless === true
+        || purpose.isCommander === true
+      ) {
+        return purpose.isArtifact === true;
+      }
+      // Unknown / non-cast payment context — allow (matches Powerstone CR reading).
+      return true;
+    }
     case 'legendary':
       return purpose.isLegendary === true;
     case 'multicolored':
