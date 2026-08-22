@@ -523,6 +523,22 @@ export function millUntilLand(
     
     zones.libraryCount = zones.library?.length ?? zones.libraryCount;
     zones.graveyardCount = zones.graveyard?.length ?? zones.graveyardCount;
+
+    if (result.milled.length > 0 && !game?.isReplaying) {
+      const gameId = String(game?.gameId || game?.id || '').trim();
+      if (gameId && gameId !== 'unknown') {
+        try {
+          appendEvent(gameId, Number(game?.seq ?? 0), 'mill', {
+            playerId: targetPlayerId,
+            count: result.milled.length,
+            cardIds: result.milled.map((c: any) => c?.id).filter(Boolean),
+            reason: 'millUntilLand',
+          });
+        } catch (err) {
+          debugWarn(1, '[millUntilLand] appendEvent(mill) failed:', err);
+        }
+      }
+    }
   } catch (err) {
     if (process.env.DEBUG_STATE) {
       debugWarn(1, "[millUntilLand] Error milling:", err);

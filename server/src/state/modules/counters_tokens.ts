@@ -799,6 +799,10 @@ export function updateCounters(
     if (current[k] <= 0) delete current[k];
   }
   p.counters = Object.keys(current).length ? current : undefined;
+  // Keep top-level loyalty in sync for client display / PW ability checks.
+  if (Object.prototype.hasOwnProperty.call(modifiedDeltas, 'loyalty')) {
+    (p as any).loyalty = Number(current['loyalty'] || 0);
+  }
   queueCounterPlacedTriggers(ctx, p, permanentId, modifiedDeltas);
   queueCounterRemovedTriggers(ctx, p, permanentId, removedDeltas);
 
@@ -2236,29 +2240,50 @@ export function runSBA(ctx: GameContext) {
     
     if (isEnchantmentCreature && hasBestowOrReconfigure && (perm as any).attachedTo) {
       // Check if the attached target still exists
+      const previousAttachedTo = String((perm as any).attachedTo || '').trim();
       const targetExists = state.battlefield.some(p => p.id === (perm as any).attachedTo);
       if (!targetExists) {
         // Target is gone - unattach and restore creature stats
         debug(2, `[runSBA] ${(perm as any).card?.name} unattaching (bestow/reconfigure target gone), restoring creature stats`);
-        (perm as any).attachedTo = undefined;
-        
+        const restoredBasePower: number | undefined = (() => {
+          if ((perm as any).basePower !== undefined) return undefined;
+          const parsed = parsePT((perm as any).card?.power);
+          return parsed;
+        })();
+        const restoredBaseToughness: number | undefined = (() => {
+          if ((perm as any).baseToughness !== undefined) return undefined;
+          const parsed = parsePT((perm as any).card?.toughness);
+          return parsed;
+        })();
+
+        delete (perm as any).attachedTo;
+
         // Restore creature stats from the card if they're missing
-        if ((perm as any).basePower === undefined || (perm as any).baseToughness === undefined) {
-          const cardPower = (perm as any).card?.power;
-          const cardToughness = (perm as any).card?.toughness;
-          
-          if (cardPower !== undefined) {
-            const parsed = parsePT(cardPower);
-            if (parsed !== undefined) {
-              (perm as any).basePower = parsed;
-              debug(2, `[runSBA] Restored basePower to ${parsed}`);
-            }
-          }
-          if (cardToughness !== undefined) {
-            const parsed = parsePT(cardToughness);
-            if (parsed !== undefined) {
-              (perm as any).baseToughness = parsed;
-              debug(2, `[runSBA] Restored baseToughness to ${parsed}`);
+        if (restoredBasePower !== undefined) {
+          (perm as any).basePower = restoredBasePower;
+          debug(2, `[runSBA] Restored basePower to ${restoredBasePower}`);
+        }
+        if (restoredBaseToughness !== undefined) {
+          (perm as any).baseToughness = restoredBaseToughness;
+          debug(2, `[runSBA] Restored baseToughness to ${restoredBaseToughness}`);
+        }
+
+        // Persist so undo/reload restores attach state (reuse reconfigureUnattachPermanent apply handler).
+        if (!(ctx as any).isReplaying) {
+          const gameId = String((ctx as any).gameId || '').trim();
+          if (gameId && gameId !== 'unknown') {
+            try {
+              appendEvent(gameId, (state as any).seq ?? 0, 'reconfigureUnattachPermanent', {
+                playerId: String((perm as any).controller || (perm as any).owner || ''),
+                reconfigureId: String((perm as any).id || ''),
+                reconfigureName: String((perm as any).card?.name || 'Bestow/reconfigure permanent'),
+                targetCreatureId: previousAttachedTo || undefined,
+                ...(restoredBasePower !== undefined ? { restoredBasePower } : {}),
+                ...(restoredBaseToughness !== undefined ? { restoredBaseToughness } : {}),
+                reason: 'sba_target_gone',
+              });
+            } catch (err) {
+              debugWarn(1, '[runSBA] appendEvent(reconfigureUnattachPermanent) failed:', err);
             }
           }
         }

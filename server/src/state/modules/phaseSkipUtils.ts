@@ -201,7 +201,7 @@ function performDrawStepTurnActionDuringPhaseSkip(ctx: PhaseSkipContext): unknow
         drawn = result;
       }
     } else {
-      drawn = drawCards(game as any, turnPlayer, totalDraws);
+      drawn = drawCards(game as any, turnPlayer, totalDraws, { reason: 'skipToPhase_drawStep' });
     }
   } catch (err) {
     debugWarn(1, '[phaseSkip] Failed to perform draw step turn action:', err);
@@ -219,16 +219,6 @@ function performDrawStepTurnActionDuringPhaseSkip(ctx: PhaseSkipContext): unknow
       ...buildPendingPhaseSkip(ctx),
       drawStepActionPerformed: true,
     };
-  }
-
-  try {
-    appendEvent(gameId, game?.seq || 0, 'drawCards', {
-      playerId: turnPlayer,
-      count: totalDraws,
-      reason: 'skipToPhase_drawStep',
-    });
-  } catch (e) {
-    debugWarn(1, 'appendEvent(drawCards drawStep) failed:', e);
   }
 
   debug(2, `[phaseSkip] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step during phase skip`);
@@ -833,15 +823,6 @@ export function completePendingPhaseSkipCore(ctx: PhaseSkipContext): PhaseSkipCo
           result.drawnCards = drawn;
         }
 
-        try {
-          appendEvent(gameId, game?.seq || 0, 'drawCards', {
-            playerId: turnPlayer,
-            count: totalDraws,
-            reason: 'skipToPhase',
-          });
-        } catch (e) {
-          debugWarn(1, 'appendEvent(drawCards) failed:', e);
-        }
       }
     } catch (err) {
       debugWarn(1, '[phaseSkip] Failed to draw card:', err);

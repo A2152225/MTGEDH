@@ -488,7 +488,6 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             // If we did the opening draw (shuffle + draw 7), persist those events for replay
             if (doingOpeningDraw) {
               appendEvent(gameId, game.seq, "shuffleLibrary", { playerId: pid });
-              appendEvent(gameId, game.seq, "drawCards", { playerId: pid, count: 7 });
               debug(1, "[commander] Persisted opening draw events (shuffle + draw 7) for player", pid);
             }
           } catch (err) {

@@ -15,7 +15,7 @@ import { randomUUID } from "crypto";
 import { createInitialGameState } from "./state/index.js";
 import { buildCommanderCardSnapshot, reconcileCommandZoneZoneConsistency } from "./state/modules/commander.js";
 import { hydrateGameStateOracleText } from "./state/modules/cardOracleHydration.js";
-import { processDrawTriggers } from "./state/modules/zones.js";
+import { processDrawTriggers, persistDrawCardsEvent } from "./state/modules/zones.js";
 import { applyEmptyLibraryDrawConsequences } from "./state/modules/game-state-effects.js";
 import { createGameIfNotExists, getEvents, gameExistsInDb } from "./db"; // NEW: import getEvents for replay, gameExistsInDb for deleted game check
 import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
@@ -358,12 +358,13 @@ export class MinimalGameAdapter {
       /* ignore */
     }
   }
-  drawCards(playerId: string, count: number) {
+  drawCards(playerId: string, count: number, options?: { skipEventPersistence?: boolean; reason?: string }) {
     try {
       const z = (this.state.zones || {})[playerId];
       if (!z) return;
       z.hand = z.hand || [];
       let actualDrawn = 0;
+      const drawnCards: any[] = [];
       const requested = Math.max(0, Math.floor(Number(count || 0)));
       
       // Try to get library from multiple sources:
@@ -385,6 +386,7 @@ export class MinimalGameAdapter {
       while (remaining > 0 && lib.length > 0) {
         const c = lib.shift();
         z.hand.push(c);
+        drawnCards.push(c);
         actualDrawn += 1;
         remaining -= 1;
       }
@@ -401,6 +403,7 @@ export class MinimalGameAdapter {
 
       if (actualDrawn > 0) {
         processDrawTriggers(this as any, playerId as any, actualDrawn);
+        persistDrawCardsEvent(this as any, playerId, drawnCards, options);
       }
 
       // Mandatory draw from empty library (Rule 704.5b) — any forced draw, not just draw step.

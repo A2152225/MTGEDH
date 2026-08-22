@@ -33,7 +33,7 @@ export interface InMemoryGame {
   // Deck/library operations
   importDeckResolved: (playerId: PlayerID, cards: Array<Pick<KnownCardRef, "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness">>) => void;
   shuffleLibrary: (playerId: PlayerID) => void;
-  drawCards: (playerId: PlayerID, count: number) => any[];
+  drawCards: (playerId: PlayerID, count: number, options?: { skipEventPersistence?: boolean; reason?: string }) => any[];
   
   // Library access and search
   libraries?: Map<PlayerID, any[]>;

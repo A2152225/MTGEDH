@@ -465,19 +465,6 @@ function executeReflexiveBoundSelfExilePrelude(
       sourcePermanentId || null,
     );
 
-    if (gameId && gameId !== 'unknown' && !(ctx as any).isReplaying) {
-      try {
-        appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? stateAny.seq ?? 0), 'mill', {
-          playerId,
-          count: millCount,
-          sourceId: sourcePermanentId || undefined,
-          sourceName,
-          reason: 'reflexive_bound_graveyard_self_exile_prelude',
-        });
-      } catch (err) {
-        debugWarn(1, `[resolveTopOfStack] appendEvent(mill prelude) failed for ${sourceName}:`, err);
-      }
-    }
   }
 
   return true;

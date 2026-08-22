@@ -157,7 +157,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     importDeckResolved: (playerId: PlayerID, cards: Array<Pick<KnownCardRef, any>>) =>
       importDeckResolved(ctx, playerId, cards as any),
     shuffleLibrary: (playerId: PlayerID) => shuffleLibrary(ctx, playerId),
-    drawCards: (playerId: PlayerID, count: number) => drawCards(ctx, playerId, count),
+    drawCards: (playerId: PlayerID, count: number, options?: { skipEventPersistence?: boolean; reason?: string }) => drawCards(ctx, playerId, count, options),
     selectFromLibrary: (playerId: PlayerID, cardIds: string[], moveTo: any) =>
       selectFromLibrary(ctx, playerId, cardIds, moveTo),
     moveHandToLibrary: (playerId: PlayerID) => moveHandToLibrary(ctx, playerId),

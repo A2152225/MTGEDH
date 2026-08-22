@@ -28,7 +28,7 @@ import { isOracleIrTriggerPrimaryEnabled } from "../state/modules/oracleIrFeatur
 import { isTriggerEffectOwnedByOracleIrPrimary } from "../state/modules/oracleIrTriggerLegacyRouting.js";
 import { resolveOnCastSpellTriggerDescription } from "../state/modules/onCastSpellTriggerUtils.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
-import { createToken } from "../state/modules/counters_tokens.js";
+import { createToken, updateCounters } from "../state/modules/counters_tokens.js";
 import { hydrateCardOracleInPlace, hydrateGameStateOracleText } from "../state/modules/cardOracleHydration.js";
 import { resolveLandCardFaceForBattlefieldEntry } from "../state/modules/stackPlayLandUtils.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
@@ -4459,20 +4459,27 @@ export function processSpellCastTriggersForCast(
         const battlefield = game.state?.battlefield || [];
         const planeswalker = battlefield.find((perm: any) => perm.id === trigger.permanentId && perm.controller === casterId);
         if (planeswalker) {
-          planeswalker.counters = planeswalker.counters || {};
-          const currentLoyalty = parseInt(String(planeswalker.counters.loyalty || planeswalker.card?.loyalty || 0), 10) || 0;
-          const newLoyalty = currentLoyalty + trigger.addsLoyaltyCounters;
-          (planeswalker.counters as any).loyalty = newLoyalty;
+          const addAmount = Number(trigger.addsLoyaltyCounters) || 0;
+          updateCounters(
+            {
+              state: game.state,
+              bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
+              gameId,
+            } as any,
+            String(planeswalker.id),
+            { loyalty: addAmount },
+          );
+          const newLoyalty = Number((planeswalker as any)?.counters?.loyalty || 0);
 
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
             gameId,
             from: 'system',
-            message: `${trigger.cardName}: ${getPlayerName(game, casterId)} adds ${trigger.addsLoyaltyCounters} loyalty counter${trigger.addsLoyaltyCounters > 1 ? 's' : ''} (now ${newLoyalty}).`,
+            message: `${trigger.cardName}: ${getPlayerName(game, casterId)} adds ${addAmount} loyalty counter${addAmount > 1 ? 's' : ''} (now ${newLoyalty}).`,
             ts: Date.now(),
           });
 
-          debug(2, `[processSpellCastTriggersForCast] ${trigger.cardName}: Added ${trigger.addsLoyaltyCounters} loyalty counter(s), now at ${newLoyalty}`);
+          debug(2, `[processSpellCastTriggersForCast] ${trigger.cardName}: Added ${addAmount} loyalty counter(s), now at ${newLoyalty}`);
         }
       }
 
@@ -5117,9 +5124,16 @@ function applyHeroicTrigger(game: any, trigger: HeroicTrigger, io: any, gameId: 
   
   // "+1/+1 counter" pattern (Favored Hoplite, Hero of Leina Tower, Phalanx Leader, etc.)
   if (effectLower.includes('+1/+1 counter') || effectLower.includes('put a +1/+1 counter')) {
-    permanent.counters = permanent.counters || {};
-    permanent.counters['+1/+1'] = (permanent.counters['+1/+1'] || 0) + 1;
-    
+    updateCounters(
+      {
+        state: game.state,
+        bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
+        gameId,
+      } as any,
+      String(permanent.id),
+      { '+1/+1': 1 },
+    );
+
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
       gameId,

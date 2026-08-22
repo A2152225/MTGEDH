@@ -3,7 +3,8 @@ import type { GameContext } from '../context.js';
 import { applyMillReplacements } from './game-state-effects.js';
 import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 import { processMillTriggers } from './zones.js';
-import { debug } from '../../utils/debug.js';
+import { debug, debugWarn } from '../../utils/debug.js';
+import { appendEvent } from '../../db/index.js';
 
 export function millPlayerCardsFromTrigger(
   ctx: GameContext,
@@ -54,6 +55,26 @@ export function millPlayerCardsFromTrigger(
     z.libraryCount = lib.length;
     z.graveyardCount = z.graveyard.length;
     processMillTriggers(ctx, targetPlayerId as PlayerID, milledCards, caster);
+    if (!(ctx as any)?.isReplaying) {
+      const gameId = String((ctx as any).gameId || '').trim();
+      if (gameId && gameId !== 'unknown' && milledCards.length > 0) {
+        try {
+          appendEvent(
+            gameId,
+            Number((ctx as any).seq?.value ?? (ctx as any).seq ?? state.seq ?? 0),
+            'mill',
+            {
+              playerId: targetPlayerId,
+              count: milledCards.length,
+              cardIds: milledCards.map((c: any) => c.id).filter(Boolean),
+              sourceName,
+            },
+          );
+        } catch (err) {
+          debugWarn(1, '[millPlayerCardsFromTrigger] appendEvent(mill) failed:', err);
+        }
+      }
+    }
     if (typeof (ctx as any).bumpSeq === 'function') {
       (ctx as any).bumpSeq();
     }

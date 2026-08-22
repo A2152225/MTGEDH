@@ -2142,11 +2142,115 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "proposeLoopShortcut": {
+        // Multiplayer CR 731-style consent: live sets state.pendingLoopShortcut.
+        // When opponentIds is empty, live auto-approves and clears pending in the same handler
+        // (no resolveLoopShortcutConsent event) — mirror that end state.
+        try {
+          const proposalId = String((e as any).proposalId || "").trim();
+          const proposerId = String((e as any).proposerId || "").trim();
+          const requestedIterations = Math.max(
+            1,
+            Math.min(1000, Math.floor(Number((e as any).requestedIterations) || 1)),
+          );
+          const name = String((e as any).name || "Loop Shortcut").trim() || "Loop Shortcut";
+          const summary =
+            String((e as any).summary || "").trim() || (requestedIterations + " iteration(s)");
+          const opponentIds = Array.isArray((e as any).opponentIds)
+            ? (e as any).opponentIds
+                .map((id: any) => String(id || "").trim())
+                .filter((id: string) => !!id)
+            : [];
+
+          if (proposalId && proposerId) {
+            if (opponentIds.length === 0) {
+              delete (ctx.state as any).pendingLoopShortcut;
+            } else {
+              (ctx.state as any).pendingLoopShortcut = {
+                id: proposalId,
+                proposerId,
+                name,
+                summary,
+                requestedIterations,
+                status: "pending",
+                createdAt: Number((e as any).createdAt) || 0,
+                responses: {},
+              };
+            }
+          }
+          if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(proposeLoopShortcut): failed", err);
+        }
+        break;
+      }
+
+      case "resolveLoopShortcutConsent": {
+        // Live: marks proposal approved + effectiveIterations, notifies clients, then clears pending.
+        // Lasting GameContext mutation is clearing pendingLoopShortcut (consent outcome is socket-only).
+        try {
+          delete (ctx.state as any).pendingLoopShortcut;
+          if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(resolveLoopShortcutConsent): failed", err);
+        }
+        break;
+      }
+
       case "setTurnDirection": {
         (ctx.state as any).turnDirection = (e as any).direction;
         try {
           if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
         } catch {}
+        break;
+      }
+
+      case "claimTurn": {
+        // Pregame: claim first turn. Live: game-actions claimMyTurn.
+        try {
+          const by = String((e as any).by || (e as any).playerId || "").trim();
+          if (by) {
+            (ctx.state as any).turnPlayer = by;
+            // Best-effort: only set starting player if missing (mirrors live).
+            if (!(ctx.state as any).startingPlayerId) {
+              (ctx.state as any).startingPlayerId = by;
+              (ctx.state as any).startingPlayer = by;
+            }
+          }
+          if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(claimTurn): failed", err);
+        }
+        break;
+      }
+
+      case "randomizeStartingPlayer": {
+        // Pregame: random first player. Live: game-actions randomizeStartingPlayer.
+        try {
+          const selected = String((e as any).selectedPlayerId || "").trim();
+          if (selected) {
+            (ctx.state as any).turnPlayer = selected;
+            (ctx.state as any).startingPlayerId = selected;
+            (ctx.state as any).startingPlayer = selected;
+          }
+          if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(randomizeStartingPlayer): failed", err);
+        }
+        break;
+      }
+
+      case "autoAssignTurn": {
+        // Pregame/solo: auto-assign turnPlayer when only one player. Live: nextTurn path.
+        try {
+          const playerId = String((e as any).playerId || "").trim();
+          if (playerId) {
+            (ctx.state as any).turnPlayer = playerId;
+          }
+          if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(autoAssignTurn): failed", err);
+        }
         break;
       }
 
@@ -2449,7 +2553,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           drawCards(
             ctx as any,
             drawPlayerId,
-            (e as any).count || 1
+            (e as any).count || 1,
+            { skipEventPersistence: true },
           );
         }
         clearOracleIrPendingCompoundResumeOnState(ctx.state);
@@ -5545,6 +5650,93 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(crewVehicle): failed', err);
+        }
+        break;
+      }
+
+      case "station_activated": {
+        try {
+          const pid = String((e as any).playerId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const stationId = String((e as any).stationId || '').trim();
+          const creatureId = String((e as any).creatureId || '').trim();
+          const counterType = String((e as any).counterType || 'charge').trim() || 'charge';
+          const countersAdded = Math.max(0, Math.floor(Number((e as any).countersAdded || 0)));
+          const totalCountersRaw = (e as any).totalCounters;
+          const stationed = Boolean((e as any).stationed);
+          const grantedTypesRaw = (e as any).grantedTypes;
+
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              const stepStationId = String(
+                (step as any)?.tapForCountersSource?.id
+                  || (step as any)?.station?.id
+                  || (step as any)?.sourceId
+                  || '',
+              ).trim();
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.STATION_CREATURE_SELECTION) &&
+                (!pid || String((step as any)?.playerId || '').trim() === pid) &&
+                (!stationId || stepStationId === stationId)
+              );
+            });
+          }
+
+          const battlefield = (ctx.state.battlefield || []) as any[];
+          const station = stationId
+            ? battlefield.find((p: any) => p && String(p.id) === stationId)
+            : null;
+
+          if (station) {
+            // Idempotent sync: IR may already have applied an updateCounters event earlier.
+            const current = Number((station as any).counters?.[counterType] || 0);
+            const desired = totalCountersRaw != null && totalCountersRaw !== ''
+              ? Math.max(0, Math.floor(Number(totalCountersRaw)))
+              : current + countersAdded;
+            const delta = desired - current;
+            if (delta !== 0) {
+              updateCounters(ctx as any, stationId, { [counterType]: delta }, {
+                skipEventPersistence: true,
+                skipCounterModifications: true,
+              });
+            }
+
+            if (stationed) {
+              (station as any).stationed = true;
+              (station as any).grantedTypes = Array.isArray((station as any).grantedTypes)
+                ? (station as any).grantedTypes
+                : [];
+              const typesToGrant = Array.isArray(grantedTypesRaw) && grantedTypesRaw.length > 0
+                ? grantedTypesRaw.map((t: any) => String(t || '').trim()).filter(Boolean)
+                : ['Creature'];
+              for (const typeName of typesToGrant) {
+                if (!(station as any).grantedTypes.includes(typeName)) {
+                  (station as any).grantedTypes.push(typeName);
+                }
+              }
+            }
+          }
+
+          if (creatureId) {
+            const creature = battlefield.find((p: any) => p && String(p.id) === creatureId);
+            if (creature) {
+              (creature as any).tapped = true;
+              if (pid) {
+                const stateAny = ctx.state as any;
+                stateAny.tappedNonlandPermanentThisTurnByPlayer =
+                  stateAny.tappedNonlandPermanentThisTurnByPlayer || {};
+                stateAny.tappedNonlandPermanentThisTurnByPlayer[pid] = true;
+              }
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(station_activated): failed', err);
         }
         break;
       }
@@ -8853,8 +9045,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "activateBattlefieldAbility": {
-        // Best-effort replay hook: this event is emitted for both mana and non-mana activations.
-        // We only use it for replay-stable evidence tracking.
+        // Critical undo/replay gap #3 contract (split, not a full effect re-executor):
+        // - Replay cost/tap/stack evidence recorded on the event (discard/exile/sac/bounce/tap/
+        //   mana delta/life/counters-as-cost/exert/hideaway/queued step).
+        // - Rebuild stack items for usesStack / known abilityTypes so later resolve events apply effects.
+        // - Apply rich non-stack effect payload fields when present (counterUpdates, specialAnimation,
+        //   hideawayMovedCardToHand, known abilityType one-shots like humble-defector).
+        // - Do NOT invent arbitrary activated effects. Live paths must emit discrete follow-up events
+        //   (activateManaAbility, battlefieldPermanentPatch, updateCounters, resolve events, etc.)
+        //   for mutations this stub cannot reconstruct. Fail closed with a warning when usesStack is
+        //   false and no reconstructible effect evidence is present.
         try {
           const stateAny = ctx.state as any;
           const replayGameId = String((ctx as any).gameId || '').trim();
@@ -9166,10 +9366,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               const permanentId = String(entry?.permanentId || '').trim();
               const deltas = entry?.deltas;
               if (!permanentId || !deltas || typeof deltas !== 'object' || Array.isArray(deltas)) continue;
-              updateCounters(ctx as any, permanentId, deltas as Record<string, number>);
+              // Parent event already recorded the final deltas; do not re-emit updateCounters or
+              // re-apply Vorinclex/Doubling Season modifiers during replay/apply.
+              updateCounters(ctx as any, permanentId, deltas as Record<string, number>, {
+                skipEventPersistence: true,
+                skipCounterModifications: true,
+              });
             }
-          } catch {
-            // best-effort only
+          } catch (err) {
+            debugWarn(1, 'applyEvent(activateBattlefieldAbility): counterUpdates failed', err);
           }
 
           // If the server persisted a hideaway card moving to hand, replay that zone change
@@ -9272,7 +9477,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const counterType = String(entry?.counterType || '').trim();
                 const count = Number(entry?.count || 0);
                 if (!permanentId || !counterType || !Number.isFinite(count) || count <= 0) continue;
-                updateCounters(ctx as any, permanentId, { [counterType]: -count });
+                updateCounters(ctx as any, permanentId, { [counterType]: -count }, {
+                  skipEventPersistence: true,
+                  skipCounterModifications: true,
+                });
               }
             }
           } catch {
@@ -9337,7 +9545,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const blightTargetId = String((e as any).blightTargetPermanentIdForCost || '').trim();
             const blightN = Number((e as any).blightNForCost || 0);
             if (blightTargetId && Number.isFinite(blightN) && blightN > 0) {
-              updateCounters(ctx as any, blightTargetId, { '-1/-1': blightN });
+              updateCounters(ctx as any, blightTargetId, { '-1/-1': blightN }, {
+                skipEventPersistence: true,
+                skipCounterModifications: true,
+              });
             }
           } catch {
             // best-effort only
@@ -9409,6 +9620,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const isReconfigureAttachActivation = persistedAbilityType === 'reconfigure_attach';
             const isReconfigureUnattachActivation = persistedAbilityType === 'reconfigure_unattach';
             const persistedUsesStack = (e as any).usesStack === true;
+            // Explicit usesStack:false means live already applied (or deferred via discrete events);
+            // do not invent a stack item from cost evidence alone.
+            const explicitNonStack = (e as any).usesStack === false;
             const replayAbilityDescription = String(abilityText || '').trim()
               || (persistedUsesStack && activatedAbilityText.includes(':')
                 ? activatedAbilityText.split(':').slice(1).join(':').trim()
@@ -9427,7 +9641,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               Boolean(Array.isArray((e as any).sacrificedPermanents) && (e as any).sacrificedPermanents.length > 0) ||
               Boolean(Array.isArray((e as any).removedCountersForCost) && (e as any).removedCountersForCost.length > 0) ||
               Boolean(Number((e as any).lifePaidForCost || 0) > 0);
-            const shouldRebuildStack = Boolean(replayAbilityDescription || activatedAbilityText) && playerId != null && permId != null && (
+            const shouldRebuildStack = !explicitNonStack && Boolean(replayAbilityDescription || activatedAbilityText) && playerId != null && permId != null && (
               isEquipActivation ||
               isFortifyActivation ||
               isFightActivation ||
@@ -9735,6 +9949,37 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             }
           } catch {
             // best-effort only
+          }
+
+          // Fail closed for non-stack activations lacking reconstructible effect evidence:
+          // costs/stack evidence above still apply; we do not invent the ability's effect body.
+          try {
+            const usesStackFlag = (e as any).usesStack === true;
+            const abilityTypeFlag = String((e as any).abilityType || '').trim();
+            const hasEffectPayload =
+              Boolean(Array.isArray((e as any).counterUpdates) && (e as any).counterUpdates.length > 0) ||
+              Boolean((e as any).specialAnimation && typeof (e as any).specialAnimation === 'object') ||
+              Boolean((e as any).hideawayMovedCardToHand && typeof (e as any).hideawayMovedCardToHand === 'object') ||
+              Boolean((e as any).queuedResolutionStep && typeof (e as any).queuedResolutionStep === 'object') ||
+              Boolean(abilityTypeFlag) ||
+              Boolean(String((e as any).stackItemId || '').trim()) ||
+              usesStackFlag;
+            const looksLikeManaAbilityText =
+              /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(String((e as any).abilityText || '')) &&
+              !/target/i.test(String((e as any).abilityText || ''));
+            if ((e as any).usesStack === false && !hasEffectPayload && !looksLikeManaAbilityText) {
+              debugWarn(
+                1,
+                'applyEvent(activateBattlefieldAbility): non-stack activation lacks reconstructible effect payload; applied costs/evidence only',
+                {
+                  permanentId: (e as any).permanentId,
+                  abilityId: (e as any).abilityId,
+                  cardName: (e as any).cardName,
+                },
+              );
+            }
+          } catch {
+            // ignore diagnostics failures
           }
 
           // Detect mana ability (mirrors socket-side checks): produces mana and doesn't target.
@@ -10099,9 +10344,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const battlefield = ctx.state.battlefield || [];
             const perm = battlefield.find((p: any) => p.id === permId);
             if (perm) {
-              (perm as any).counters = (perm as any).counters || {};
-              (perm as any).counters.loyalty = ((perm as any).counters.loyalty || 0) + loyaltyCost;
-              (perm as any).loyalty = (perm as any).counters.loyalty;
+              // Match live activation semantics (no Doubling Season on cost apply here);
+              // skipEventPersistence because this parent event already records the change.
+              if (loyaltyCost) {
+                updateCounters(ctx as any, String(permId), { loyalty: Number(loyaltyCost) || 0 }, {
+                  skipEventPersistence: true,
+                  skipCounterModifications: true,
+                });
+              }
 
               const parsed = parsePlaneswalkerAbilities((perm as any).card, perm);
               const loyaltyAbility = Number.isFinite(Number(abilityIndex))
@@ -15240,6 +15490,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "reconfigureUnattachPermanent": {
         const reconfigureId = (e as any).reconfigureId;
         const targetCreatureId = (e as any).targetCreatureId;
+        const restoredBasePower = (e as any).restoredBasePower;
+        const restoredBaseToughness = (e as any).restoredBaseToughness;
 
         try {
           const battlefield = ctx.state.battlefield || [];
@@ -15253,10 +15505,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 if (((prevTarget as any).attachedEquipment || []).length === 0) {
                   (prevTarget as any).isEquipped = false;
                 }
+                // Bestow / aura hosts track attachments separately from equipment.
+                (prevTarget as any).attachments = ((prevTarget as any).attachments || []).filter((id: string) => id !== reconfigureId);
               }
             }
 
             delete (equipment as any).attachedTo;
+
+            // SBA bestow/reconfigure unattach may restore printed P/T when missing.
+            if (typeof restoredBasePower === 'number' && Number.isFinite(restoredBasePower)) {
+              (equipment as any).basePower = restoredBasePower;
+            }
+            if (typeof restoredBaseToughness === 'number' && Number.isFinite(restoredBaseToughness)) {
+              (equipment as any).baseToughness = restoredBaseToughness;
+            }
           }
           ctx.bumpSeq();
         } catch (err) {
@@ -16105,11 +16367,43 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Player chose an option for a permanent (e.g., "flying or first strike")
         try {
           const { permanentId, chosenOption } = e as any;
+          const playerId = String((e as any).playerId || '').trim();
+          const permanentIdStr = String(permanentId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const replayGameId = String((ctx as any).gameId || '').trim();
           const chosenOptions = Array.isArray((e as any).chosenOptions)
             ? ((e as any).chosenOptions as any[])
                 .map((value: any) => String(value || '').trim())
                 .filter((value: string) => value.length > 0)
             : [];
+
+          // Clear the matching OPTION_CHOICE prompt on replay so undo/reload does not
+          // leave an orphan choice UI. Live play already completed the step before emit.
+          if (replayGameId) {
+            if (resolvedStepId) {
+              clearReplayQueuedStepById(replayGameId, resolvedStepId);
+            } else {
+              clearReplayQueuedSteps(replayGameId, (step: any) => {
+                if (!step || String(step?.type || '') !== String(ResolutionStepType.OPTION_CHOICE)) return false;
+                // Specialized option-choice events clear themselves; do not steal those prompts.
+                if (
+                  (step as any).myriadChoice === true
+                  || (step as any).giftCastChoice === true
+                  || (step as any).mdfcFaceChoice === true
+                  || (step as any).forceOfWillExileChoice === true
+                  || (step as any).legendRuleChoice === true
+                  || (step as any).prisonersDilemmaChoice === true
+                  || (step as any).optionalPaymentPrompt === true
+                ) {
+                  return false;
+                }
+                if (playerId && String(step?.playerId || '') !== playerId) return false;
+                const queuedPermanentId = String((step as any).permanentId || (step as any).sourceId || '').trim();
+                return !permanentIdStr || queuedPermanentId === permanentIdStr;
+              });
+            }
+          }
+
           const battlefield = ctx.state.battlefield || [];
           const permanent = battlefield.find((p: any) => p.id === permanentId);
           

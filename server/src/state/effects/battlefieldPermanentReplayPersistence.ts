@@ -14,6 +14,7 @@ export const BATTLEFIELD_PERMANENT_REPLAY_PATCH_FIELDS = [
   'phasedOutControllerId',
   'temporaryEffects',
   'grantedAbilities',
+  'temporaryAbilities',
   'untilEndOfTurn',
   'temporaryPTMods',
   'modifiers',
@@ -27,6 +28,22 @@ export const BATTLEFIELD_PERMANENT_REPLAY_PATCH_FIELDS = [
   'mustAttackEachCombat',
   'cantAttackOwner',
   'goaded',
+] as const;
+
+/** Default fields for Critical undo/replay gap #2 (temp P/T / until-EOT abilities). */
+export const TEMPORARY_PERMANENT_MOD_REPLAY_FIELDS = [
+  'temporaryPTMods',
+  'temporaryAbilities',
+  'grantedAbilities',
+  'temporaryEffects',
+  'untilEndOfTurn',
+  'modifiers',
+  'tempPowerBonus',
+  'tempToughnessBonus',
+  'temporaryPowerBoost',
+  'temporaryToughnessBoost',
+  'tempBonusExpires',
+  'summoningSickness',
 ] as const;
 
 type ReplayPatchField = (typeof BATTLEFIELD_PERMANENT_REPLAY_PATCH_FIELDS)[number];
@@ -172,3 +189,90 @@ export function persistBattlefieldPermanentPatchesFromOracleIR(
     }
   }
 }
+
+type PersistCtxLike = {
+  gameId?: unknown;
+  seq?: unknown;
+  isReplaying?: unknown;
+  skipEventPersistence?: unknown;
+  bumpSeq?: unknown;
+  state?: unknown;
+};
+
+function resolvePersistGameId(ctx: PersistCtxLike): string {
+  return String(ctx?.gameId || "").trim();
+}
+
+function resolvePersistSeq(ctx: PersistCtxLike): number {
+  const seq = (ctx as any)?.seq;
+  if (seq && typeof seq === "object" && seq.value != null) {
+    return Number(seq.value) || 0;
+  }
+  return Number(seq ?? (ctx as any)?.state?.seq ?? 0) || 0;
+}
+
+function shouldSkipBattlefieldPermanentPatchPersistence(ctx: PersistCtxLike): boolean {
+  return Boolean((ctx as any)?.isReplaying) || Boolean((ctx as any)?.skipEventPersistence);
+}
+
+/**
+ * Persist selected battlefield permanent fields after a live silent mutation
+ * (temporary P/T, temporary abilities, granted abilities, etc.).
+ *
+ * Live callers should mutate first, then call this. Replay restores via
+ * applyEvent(battlefieldPermanentPatch); do not also re-run the silent push
+ * during resolveTopOfStack replay (that path only pops).
+ */
+export function persistBattlefieldPermanentPatchAfterMutation(
+  ctx: PersistCtxLike,
+  permanent: any,
+  options?: {
+    fields?: readonly ReplayPatchField[];
+    sourceId?: string;
+    sourceName?: string;
+  },
+): boolean {
+  if (shouldSkipBattlefieldPermanentPatchPersistence(ctx)) return false;
+
+  const permanentId = String(permanent?.id || '').trim();
+  if (!permanentId) return false;
+
+  const gameId = resolvePersistGameId(ctx);
+  if (!gameId || gameId === 'unknown') return false;
+
+  const fields = (options?.fields && options.fields.length > 0)
+    ? options.fields
+    : (TEMPORARY_PERMANENT_MOD_REPLAY_FIELDS as readonly ReplayPatchField[]);
+
+  // Only persist fields that currently exist so we do not null unrelated keys.
+  const patch: BattlefieldPermanentReplayPatch = {};
+  for (const field of fields) {
+    if (permanent[field] !== undefined) {
+      patch[field] = clonePatchValue(permanent[field]);
+    }
+  }
+  if (Object.keys(patch).length === 0) return false;
+
+  try {
+    appendEvent(
+      gameId,
+      resolvePersistSeq(ctx),
+      'battlefieldPermanentPatch',
+      {
+        permanentId,
+        patch,
+        temporaryPermanentModMutation: true,
+        ...(options?.sourceId ? { sourceId: options.sourceId } : {}),
+        ...(options?.sourceName ? { sourceName: options.sourceName } : {}),
+      },
+    );
+    if (typeof (ctx as any).bumpSeq === 'function') {
+      (ctx as any).bumpSeq();
+    }
+    return true;
+  } catch (err) {
+    debugWarn(1, `[temp-mod] appendEvent(battlefieldPermanentPatch) failed for ${permanentId}:`, err);
+    return false;
+  }
+}
+

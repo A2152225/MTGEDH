@@ -1022,7 +1022,6 @@ export async function autoSelectAICommander(
         // This ensures undo/replay produces the same hand contents
         if (doingOpeningDraw || didManualDraw) {
           await appendEvent(gameId, (game as any).seq || 0, 'shuffleLibrary', { playerId });
-          await appendEvent(gameId, (game as any).seq || 0, 'drawCards', { playerId, count: INITIAL_HAND_SIZE });
           debug(1, '[AI] Persisted opening draw events (shuffle + draw) for player', playerId);
         }
       } catch (e) {

@@ -190,6 +190,7 @@ import { tryApplyStationChargeCountersViaOracleIR } from '../state/modules/oracl
 import { readOracleIrLedgerPersistFields, readOracleIrCompoundResumePersistFields } from '../state/modules/oracleIrTransitionPipeline.js';
 import { maybeResumeDeferredOracleIrStackSpellOnGame } from '../state/modules/oracleIrDeferredStackFinalize.js';
 import { applyJoinForcesPaidManaPowerPump } from '../state/modules/joinForcesResolutionQueue.js';
+import { persistBattlefieldPermanentPatchAfterMutation } from '../state/effects/battlefieldPermanentReplayPersistence.js';
 import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { advanceStepPersistingEvent } from "./step-advance.js";
 import { tryAutoStartGameFromPreGame } from "./pregame-auto-start.js";
@@ -1839,11 +1840,90 @@ function validateWardManaPaymentSelection(
   return { ok: true, parsedCost };
 }
 
+
+type ResolutionManaPaymentPersistOptions = {
+  /** When true, do not append tap/mana events (validation clones / callers that already parent-cover). */
+  skipEventPersistence?: boolean;
+};
+
+/**
+ * Persist resolution-path payment taps + net mana-pool delta after live mutation.
+ * Uses appendEvent (DB only) because the caller already mutated state — do not appendGameEvent.
+ * Gated by isReplaying / missing gameId / skipEventPersistence to avoid doubles during replay
+ * and when a parent event already carries tappedPermanents + paymentManaDelta.
+ */
+export function persistResolutionPaymentManaMutations(
+  game: any,
+  playerId: string,
+  tappedPermanentIds: string[] | undefined,
+  paymentManaDelta: Record<string, number> | undefined,
+  options?: ResolutionManaPaymentPersistOptions,
+): void {
+  if (options?.skipEventPersistence) return;
+  if ((game as any)?.isReplaying) return;
+
+  const gameId = String((game as any)?.gameId || (game as any)?.id || '').trim();
+  if (!gameId || gameId === 'unknown') return;
+
+  const pid = String(playerId || '').trim();
+  if (!pid) return;
+
+  const seq = Number((game as any)?.seq?.value ?? (game as any)?.seq ?? 0);
+  const tappedIds = Array.from(
+    new Set(
+      (Array.isArray(tappedPermanentIds) ? tappedPermanentIds : [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (tappedIds.length > 0) {
+    try {
+      appendEvent(gameId, seq, 'permanent_tapped', {
+        playerId: pid,
+        permanentIds: tappedIds,
+        reason: 'resolution_mana_payment',
+      });
+    } catch (err) {
+      debugWarn(1, '[resolution] appendEvent(permanent_tapped payment) failed:', err);
+    }
+  }
+
+  if (paymentManaDelta && typeof paymentManaDelta === 'object' && !Array.isArray(paymentManaDelta)) {
+    for (const [poolKey, rawAmount] of Object.entries(paymentManaDelta)) {
+      const amount = Number(rawAmount || 0);
+      if (!Number.isFinite(amount) || amount === 0) continue;
+      const color = String(poolKey || '').trim();
+      if (!color) continue;
+      try {
+        if (amount > 0) {
+          appendEvent(gameId, seq, 'addManaToPool', {
+            playerId: pid,
+            color,
+            amount,
+            reason: 'resolution_mana_payment',
+          });
+        } else {
+          appendEvent(gameId, seq, 'removeManaFromPool', {
+            playerId: pid,
+            color,
+            amount: Math.abs(amount),
+            reason: 'resolution_mana_payment',
+          });
+        }
+      } catch (err) {
+        debugWarn(1, '[resolution] appendEvent(mana pool payment delta) failed:', err);
+      }
+    }
+  }
+}
+
 function applyWardManaPaymentSelection(
   game: any,
   playerId: string,
   wardCost: string,
-  payment: ResolutionPaymentItem[] | undefined
+  payment: ResolutionPaymentItem[] | undefined,
+  options?: ResolutionManaPaymentPersistOptions,
 ): {
   ok: true;
   tappedPermanents: string[];
@@ -1859,7 +1939,7 @@ function applyWardManaPaymentSelection(
   const manaPool = getOrInitManaPool(game.state, playerId) as any;
   const manaPoolBeforePayment = snapshotResolutionManaPool((game.state as any)?.manaPool?.[playerId]);
   const selectedPaymentAvailableTotals: Record<string, number> = createEmptyResolutionManaTotals();
-  const tappedPermanents = getTappedResolutionPaymentPermanentIds(payment);
+  const tappedPermanents: string[] = [];
   const sacrificedPermanents: string[] = [];
 
   if (payment && payment.length > 0) {
@@ -1891,6 +1971,7 @@ function applyWardManaPaymentSelection(
         sacrificedPermanents.push(String(permanentId));
       } else {
         (permanent as any).tapped = true;
+        tappedPermanents.push(String(permanentId));
       }
 
       const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana, abilityId);
@@ -1964,11 +2045,17 @@ function applyWardManaPaymentSelection(
     consumeManaFromPool(manaPool, validation.parsedCost.colors, validation.parsedCost.generic, '[wardPayment]');
   }
 
+  const paymentManaDelta = calculateResolutionManaPoolDelta(
+    manaPoolBeforePayment,
+    (game.state as any)?.manaPool?.[playerId],
+  );
+  persistResolutionPaymentManaMutations(game, playerId, tappedPermanents, paymentManaDelta, options);
+
   return {
     ok: true,
     tappedPermanents,
     sacrificedPermanents,
-    paymentManaDelta: calculateResolutionManaPoolDelta(manaPoolBeforePayment, (game.state as any)?.manaPool?.[playerId]),
+    paymentManaDelta,
   };
 }
 
@@ -2077,6 +2164,7 @@ function applySelectedManaPaymentForResolutionCost(
   manaCost: string,
   payment: ResolutionPaymentItem[] | undefined,
   purpose?: RestrictedManaSpendPurpose,
+  options?: ResolutionManaPaymentPersistOptions,
 ): ResolutionSelectedManaPaymentResult {
   const parsedCost = parseManaCost(String(manaCost || ''));
   const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
@@ -2360,11 +2448,17 @@ function applySelectedManaPaymentForResolutionCost(
     consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic, '[resolutionSelectedPayment]');
   }
 
+  const paymentManaDelta = calculateResolutionManaPoolDelta(
+    manaPoolBeforePayment,
+    (game.state as any)?.manaPool?.[playerId],
+  );
+  persistResolutionPaymentManaMutations(game, playerId, tappedPermanents, paymentManaDelta, options);
+
   return {
     ok: true,
     tappedPermanents,
     sacrificedPermanents,
-    paymentManaDelta: calculateResolutionManaPoolDelta(manaPoolBeforePayment, (game.state as any)?.manaPool?.[playerId]),
+    paymentManaDelta,
   };
 }
 
@@ -6089,6 +6183,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             manaCost,
             payment,
             prevalidatePurpose,
+            { skipEventPersistence: true },
           );
           if (!applied.ok) {
             const appliedError = applied as { ok: false; code: string; message: string };
@@ -6187,7 +6282,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       const manaCost = String(stepAny?.manaCost || '{W/B}').trim();
       const validationGame = cloneGameForResolutionPaymentValidation(game, pid);
       const payment = extractResolutionPaymentItems(response.selections as any);
-      const applied = applySelectedManaPaymentForResolutionCost(validationGame, pid, manaCost, payment);
+      const applied = applySelectedManaPaymentForResolutionCost(validationGame, pid, manaCost, payment, undefined, { skipEventPersistence: true });
       if (!applied.ok) {
         const appliedError = applied as { ok: false; code: string; message: string };
         socket.emit('error', {
@@ -11321,13 +11416,20 @@ async function handleStepResponse(
           break;
         }
 
+        let tapOtherPaymentManaDelta: Record<string, number> | undefined;
         if (manaOnly) {
           const { payAbilityManaCostFromPool } = await import('./util.js');
+          const manaPoolBeforeTapOther = snapshotResolutionManaPool((game.state as any)?.manaPool?.[controllerId]);
           const paid = payAbilityManaCostFromPool(game.state, controllerId, manaOnly, sourcePerm, '[tapOtherAbilityAsCost]');
           if (!paid.ok) {
             emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (paid as any).error || 'Insufficient mana.' });
             break;
           }
+          tapOtherPaymentManaDelta = calculateResolutionManaPoolDelta(
+            manaPoolBeforeTapOther,
+            (game.state as any)?.manaPool?.[controllerId],
+          );
+          persistResolutionPaymentManaMutations(game, controllerId, undefined, tapOtherPaymentManaDelta);
         }
 
         if (Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0) {
@@ -11978,17 +12080,27 @@ async function handleStepResponse(
         });
       }
 
+      const stationedNow = Boolean((stationAfterCounters as any).stationed);
       appendGameEvent(game, gameId, 'station_activated', {
         playerId: pid,
+        resolvedStepId: String((step as any).id || '').trim() || undefined,
         stationId,
         stationName,
         creatureId,
         creatureName,
         creaturePower,
+        counterType,
         countersAdded,
         totalCounters: newCounterCount,
         threshold: stationThreshold,
-        stationed: Boolean((stationAfterCounters as any).stationed),
+        stationed: stationedNow,
+        ...(stationedNow
+          ? {
+              grantedTypes: Array.isArray((stationAfterCounters as any).grantedTypes)
+                ? [...(stationAfterCounters as any).grantedTypes]
+                : ['Creature'],
+            }
+          : null),
         ts: Date.now(),
       });
 
@@ -12590,6 +12702,8 @@ async function handleStepResponse(
           }
 
           try {
+            // Tap/mana-pool mutations already persisted by applyWardManaPaymentSelection
+            // (permanent_tapped + addManaToPool/removeManaFromPool). Parent keeps sacrifice evidence only.
             appendEvent(gameId, (game as any).seq ?? 0, 'wardPaymentResolve', {
               playerId: pid,
               stepId: String((step as any)?.id || ''),
@@ -12598,9 +12712,8 @@ async function handleStepResponse(
               wardPermanentId: String(stepData?.wardPermanentId || ''),
               wardPermanentName: wardName,
               wardPaymentType: 'mana',
-              tappedPermanents: applied.tappedPermanents,
               sacrificedPermanents: applied.sacrificedPermanents,
-              paymentManaDelta: applied.paymentManaDelta,
+              paymentMutationsPersistedSeparately: true,
             });
           } catch {
             // ignore persistence failures for ward payment resolution
@@ -12690,9 +12803,8 @@ async function handleStepResponse(
             payMana: true,
             manaCost,
             cardName,
-            tappedPermanents: applied.tappedPermanents,
             sacrificedPaymentPermanents: applied.sacrificedPermanents,
-            paymentManaDelta: applied.paymentManaDelta,
+            paymentMutationsPersistedSeparately: true,
           });
         } catch (e) {
           debugWarn(1, '[Resolution] Failed to persist sacrificeUnlessPayChoice event:', e);
@@ -12844,7 +12956,8 @@ async function handleStepResponse(
           const sacrificedPermanentsForCost = Array.isArray(stepData?.sacrificedPermanentsForCost)
             ? stepData.sacrificedPermanentsForCost.map((id: any) => String(id)).filter(Boolean)
             : [];
-          const allTappedPermanentsForCost = Array.from(new Set([...tappedPermanentsForCost, ...tappedPaymentPermanents]));
+          // Payment-source taps/mana are persisted by applySelectedManaPaymentForResolutionCost.
+        const allTappedPermanentsForCost = Array.from(new Set([...tappedPermanentsForCost]));
           const allSacrificedPermanentsForCost = Array.from(new Set([...sacrificedPermanentsForCost, ...sacrificedPaymentPermanents]));
 
           const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
@@ -12918,11 +13031,11 @@ async function handleStepResponse(
                 cardName,
                 abilityText,
                 targets: selectedTargetIds,
-                tappedPermanents: allTappedPermanentsForCost,
+                tappedPermanents: allTappedPermanentsForCost.length > 0 ? allTappedPermanentsForCost : undefined,
                 sacrificedPermanents: allSacrificedPermanentsForCost.length > 0 ? allSacrificedPermanentsForCost : undefined,
                 activatedAbilityText: activatedAbilityText || undefined,
                 abilityType: battlefieldAbilityType || undefined,
-                paymentManaDelta,
+                paymentMutationsPersistedSeparately: true,
                 ...(battlefieldAbilityType === 'equip'
                   ? { equipParams: stackItem.equipParams }
                   : battlefieldAbilityType === 'fortify'
@@ -13187,9 +13300,9 @@ async function handleStepResponse(
               cardName,
               abilityText,
               activatedAbilityText: activatedAbilityText || undefined,
-              tappedPermanents: Array.from(new Set([...tappedPaymentPermanents, ...(requiresTap ? [permanentId] : [])])),
+              tappedPermanents: requiresTap ? [permanentId] : undefined,
               sacrificedPermanents: Array.from(new Set([...sacrificedPermanentsForCost, ...sacrificedPaymentPermanents])),
-              paymentManaDelta,
+              paymentMutationsPersistedSeparately: true,
             });
           } catch {
             // ignore persistence failures
@@ -13280,9 +13393,9 @@ async function handleStepResponse(
                 abilityText,
                 activatedAbilityText: activatedAbilityText || undefined,
                 xValue,
-                tappedPermanents: Array.from(new Set([...tappedPaymentPermanents, ...(requiresTap ? [permanentId] : [])])),
+                tappedPermanents: requiresTap ? [permanentId] : undefined,
                 sacrificedPermanents: Array.from(new Set([...sacrificedPermanentsForCost, ...sacrificedPaymentPermanents])),
-                paymentManaDelta,
+                paymentMutationsPersistedSeparately: true,
               });
             } catch {
               // ignore persistence failures
@@ -13413,9 +13526,8 @@ async function handleStepResponse(
               : undefined,
             xValue: Number.isFinite(Number(stepData.xValue)) ? Math.max(0, Math.floor(Number(stepData.xValue))) : undefined,
             manaCostAlreadyPaid: true,
-            tappedPermanentsForManaCost: applied.tappedPermanents.length > 0 ? applied.tappedPermanents : undefined,
+            // Payment taps/mana already persisted by applySelectedManaPaymentForResolutionCost.
             sacrificedPermanentsForManaCost: applied.sacrificedPermanents.length > 0 ? applied.sacrificedPermanents : undefined,
-            paymentManaDelta: applied.paymentManaDelta && Object.keys(applied.paymentManaDelta).length > 0 ? applied.paymentManaDelta : undefined,
             emitError: (payload) => emitToPlayer(io, pid as any, 'error', payload),
           });
           debug(2, `[Resolution] Graveyard spell payment complete for ${cardName}; resumed cast (result='${result}')`);
@@ -16741,12 +16853,8 @@ function handleExtortPaymentResponse(
     choiceId,
     manaCost,
     payment,
-    ...(applied.paymentManaDelta && Object.keys(applied.paymentManaDelta).length > 0
-      ? { paymentManaDelta: applied.paymentManaDelta }
-      : {}),
-    ...(Array.isArray(applied.tappedPermanents) && applied.tappedPermanents.length > 0
-      ? { tappedPermanents: applied.tappedPermanents }
-      : {}),
+    // Payment taps/mana already persisted by applySelectedManaPaymentForResolutionCost.
+    paymentMutationsPersistedSeparately: true,
     ...(Array.isArray(applied.sacrificedPermanents) && applied.sacrificedPermanents.length > 0
       ? { sacrificedPermanents: applied.sacrificedPermanents }
       : {}),
@@ -18151,16 +18259,6 @@ async function handleDiscardResponse(
     }
   }
 
-  if (followupDrawCount > 0) {
-    try {
-      appendEvent(gameId, (game as any).seq ?? 0, 'drawCards', {
-        playerId: pid,
-        count: followupDrawCount,
-      });
-    } catch {
-      // ignore persistence failures
-    }
-  }
 
   if ((step as any)?.reflexiveDiscardWhenYouDo === true && movedCards.length > 0) {
     const controllerId = String((step as any)?.reflexiveDiscardWhenYouDoController || pid);
@@ -22322,6 +22420,15 @@ async function handleTargetSelectionResponse(
         // Store temporary P/T modification
         targetPerm.temporaryPTMods = targetPerm.temporaryPTMods || [];
         targetPerm.temporaryPTMods.push({ power: xValue, toughness: toughnessBonus, until: 'end_of_turn' });
+        persistBattlefieldPermanentPatchAfterMutation({
+          gameId,
+          seq: (game as any).seq,
+          isReplaying: (game as any).isReplaying,
+          bumpSeq: typeof (game as any).bumpSeq === 'function' ? () => (game as any).bumpSeq() : undefined,
+        }, targetPerm, {
+          sourceName: String(sourceName || 'begin combat'),
+          fields: ['temporaryPTMods', 'grantedAbilities'],
+        });
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -22344,6 +22451,15 @@ async function handleTargetSelectionResponse(
           
           targetPerm.temporaryPTMods = targetPerm.temporaryPTMods || [];
           targetPerm.temporaryPTMods.push({ power: powerBonus, toughness: toughnessBonus, until: 'end_of_turn' });
+          persistBattlefieldPermanentPatchAfterMutation({
+            gameId,
+            seq: (game as any).seq,
+            isReplaying: (game as any).isReplaying,
+            bumpSeq: typeof (game as any).bumpSeq === 'function' ? () => (game as any).bumpSeq() : undefined,
+          }, targetPerm, {
+            sourceName: String(sourceName || 'begin combat'),
+            fields: ['temporaryPTMods', 'grantedAbilities'],
+          });
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
@@ -36250,6 +36366,7 @@ async function handleOptionChoiceResponse(
           permanentId: permanentId,
           cardName: cardName,
           chosenOptions: chosenOptions,
+          resolvedStepId: String((step as any).id || '').trim(),
         });
       } catch (e) {
         debugWarn(1, "[Resolution] Failed to persist option choice event:", e);

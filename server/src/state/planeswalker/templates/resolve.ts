@@ -5526,8 +5526,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       destroyPermanent(ctx, targetId, true);
 
       if (toughness > 0) {
-        (sourcePerm as any).counters = (sourcePerm as any).counters || {};
-        (sourcePerm as any).counters.loyalty = ((sourcePerm as any).counters.loyalty || 0) + toughness;
+        updateCounters(ctx, String(sourcePerm.id), { loyalty: toughness });
       }
 
       (ctx as any).bumpSeq?.();
@@ -5740,9 +5739,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
           );
 
         if (sourcePerm) {
-          (sourcePerm as any).counters = (sourcePerm as any).counters || {};
-          (sourcePerm as any).counters.loyalty = ((sourcePerm as any).counters.loyalty || 0) + 1;
-          (ctx as any).bumpSeq?.();
+          updateCounters(ctx, String(sourcePerm.id), { loyalty: 1 });
         }
       }
 
@@ -5959,10 +5956,9 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         perm.card.colors = colors;
         perm.card.keywords = keywords;
 
-        if (Number.isFinite(loyaltyValue)) {
-          perm.counters = perm.counters || {};
-          perm.counters.loyalty = loyaltyValue;
-          perm.loyalty = loyaltyValue;
+        if (Number.isFinite(loyaltyValue) && loyaltyValue > 0) {
+          // Initialize printed loyalty via updateCounters so undo/replay persists it.
+          updateCounters(ctx, String(perm.id), { loyalty: loyaltyValue });
           perm.baseLoyalty = loyaltyValue;
         }
       }
@@ -6533,8 +6529,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
 
         // Put a loyalty counter on the source planeswalker (best-effort)
         if (sourcePerm) {
-          (sourcePerm as any).counters = (sourcePerm as any).counters || {};
-          (sourcePerm as any).counters.loyalty = ((sourcePerm as any).counters.loyalty || 0) + 1;
+          updateCounters(ctx, String(sourcePerm.id), { loyalty: 1 });
         }
       }
 
@@ -6560,8 +6555,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       }
 
       if (count > 0) {
-        (sourcePerm as any).counters = (sourcePerm as any).counters || {};
-        (sourcePerm as any).counters.loyalty = ((sourcePerm as any).counters.loyalty || 0) + count;
+        updateCounters(ctx, String(sourcePerm.id), { loyalty: count });
       }
 
       (ctx as any).bumpSeq?.();
@@ -6590,8 +6584,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       }
 
       if (count > 0) {
-        (sourcePerm as any).counters = (sourcePerm as any).counters || {};
-        (sourcePerm as any).counters.loyalty = ((sourcePerm as any).counters.loyalty || 0) + count;
+        updateCounters(ctx, String(sourcePerm.id), { loyalty: count });
       }
 
       (ctx as any).bumpSeq?.();
@@ -7354,8 +7347,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         if (!typeLineLower.includes("planeswalker")) continue;
         if (!permHasColor(perm)) continue;
 
-        (perm as any).counters = (perm as any).counters || {};
-        (perm as any).counters.loyalty = ((perm as any).counters.loyalty || 0) + 1;
+        updateCounters(ctx, String(perm.id), { loyalty: 1 });
         affected++;
       }
 
@@ -7393,8 +7385,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
 
         if (nLoyalty > 0 && typeLineLower.includes("planeswalker")) {
           if (sourceId && String(perm.id) === String(sourceId)) continue; // "other" planeswalkers
-          (perm as any).counters = (perm as any).counters || {};
-          (perm as any).counters.loyalty = ((perm as any).counters.loyalty || 0) + nLoyalty;
+          updateCounters(ctx, String(perm.id), { loyalty: nLoyalty });
           planeswalkersAffected++;
         }
       }

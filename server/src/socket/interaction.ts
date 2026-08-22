@@ -12744,6 +12744,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // - "Add an amount of {G}" (Karametra's Acolyte, etc.)
     // - "Add X mana in any combination" (Selvala, Nykthos, etc.)
     // Note: Also matches Talisman pattern: "{T}: Add {R} or {W}. This artifact deals 1 damage to you."
+    // Captured when a non-mana activation pushes a stack item so the trailing
+    // activateBattlefieldAbility event can rebuild that exact stack identity on replay.
+    let persistedStackItemId: string | undefined;
+
     const isManaAbility = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana(?:\s+of\s+(?:the\s+chosen\s+colou?r|any(?:\s+one)?\s+colou?r))?|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) && 
                           !/target/i.test(abilityText);
 
@@ -13486,6 +13490,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
+      persistedStackItemId = String(stackItem.id || '').trim() || undefined;
       if (isExhaustActivation) {
         markExhaustAbilityActivated(game.state, permanentId, selectedAbilityIndex);
       }
@@ -14207,6 +14212,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const persistedAbilityText = String(resolvedAbilityText || '').trim()
       || (activatedAbilityText.includes(':') ? activatedAbilityText.split(':').slice(1).join(':').trim() : activatedAbilityText);
     
+    // Contract (Critical undo/replay gap #3): this event records cost/tap/stack evidence.
+    // Arbitrary activated effects must be reconstructible from:
+    // - usesStack + stackItemId (later resolve events apply the effect), or
+    // - rich payload fields (counterUpdates / specialAnimation / hideaway / queued step / abilityType), or
+    // - follow-up discrete events (activateManaAbility, battlefieldPermanentPatch, updateCounters, etc.).
     appendEvent(gameId, (game as any).seq ?? 0, "activateBattlefieldAbility", { 
       playerId: pid, 
       permanentId, 
@@ -14215,6 +14225,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       abilityText: persistedAbilityText,
       activatedAbilityText,
       usesStack: !isManaAbility,
+      ...(persistedStackItemId ? { stackItemId: persistedStackItemId } : null),
       xValue: selectedXValue,
       activatedAbilityIndex: selectedAbilityIndex,
       ...(isExhaustActivation ? { exhaustAbility: true } : null),

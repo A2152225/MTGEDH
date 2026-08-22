@@ -16,6 +16,7 @@ import {
   skipRetiredSpellLegacyHandler,
 } from './oracleIrSpellLegacyRouting.js';
 import { parseNumberWord } from './oracleIrSpellLegacySpellShapeUtils.js';
+import { persistBattlefieldPermanentPatchAfterMutation } from '../effects/battlefieldPermanentReplayPersistence.js';
 
 export function executeInstantSorceryLegacyCategorizedSpell(
   ctx: GameContext,
@@ -161,6 +162,10 @@ export function executeInstantSorceryLegacyCategorizedSpell(
         expiresAt: 'end_of_turn',
         turnApplied: state.turnNumber || 0,
       });
+      persistBattlefieldPermanentPatchAfterMutation(ctx as any, targetCreatureRuntime, {
+        sourceName: String(effectiveCard.name || 'spell'),
+        fields: ['temporaryPTMods'],
+      });
 
       debug(2, `[resolveTopOfStack] ${effectiveCard.name || 'spell'} gave ${targetCreature.card?.name || targetId} +${currentPower}/+0 until end of turn`);
     }
@@ -183,6 +188,10 @@ export function executeInstantSorceryLegacyCategorizedSpell(
         source: effectiveCard.name || 'spell',
         expiresAt: 'end_of_turn',
         turnApplied: state.turnNumber || 0,
+      });
+      persistBattlefieldPermanentPatchAfterMutation(ctx as any, targetCreatureRuntime, {
+        sourceName: String(effectiveCard.name || 'spell'),
+        fields: ['temporaryAbilities'],
       });
 
       debug(2, `[resolveTopOfStack] ${effectiveCard.name || 'spell'} made ${targetCreature.card?.name || targetId} unblockable until end of turn`);

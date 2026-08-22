@@ -1,6 +1,8 @@
 import type { GameContext } from '../context.js';
 import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
+import { appendEvent } from '../../db/index.js';
+import { debugWarn } from '../../utils/debug.js';
 
 export function getOrCreatePlayerZones(stateAny: any, playerId: PlayerID): any {
   stateAny.zones = stateAny.zones || {};
@@ -27,11 +29,40 @@ export function getOrCreatePlayerZones(stateAny: any, playerId: PlayerID): any {
   return zones;
 }
 
+export type MillCardsOptions = {
+  skipEventPersistence?: boolean;
+};
+
+function persistMillEvent(
+  ctx: GameContext | undefined,
+  stateAny: any,
+  playerId: string,
+  milled: number,
+  options?: MillCardsOptions,
+): void {
+  if (options?.skipEventPersistence) return;
+  if ((ctx as any)?.isReplaying || stateAny?.isReplaying) return;
+  const gameId = String((ctx as any)?.gameId || stateAny?.gameId || '').trim();
+  if (!gameId || gameId === 'unknown') return;
+  if (milled <= 0) return;
+  try {
+    appendEvent(
+      gameId,
+      Number((ctx as any)?.seq?.value ?? (ctx as any)?.seq ?? stateAny?.seq ?? 0),
+      'mill',
+      { playerId, count: milled },
+    );
+  } catch (err) {
+    debugWarn(1, '[millCardsFromLibrary] appendEvent(mill) failed:', err);
+  }
+}
+
 export function millCardsFromLibrary(
   stateAny: any,
   playerId: PlayerID,
   count: number,
   ctx?: GameContext,
+  options?: MillCardsOptions,
 ): number {
   const zones = getOrCreatePlayerZones(stateAny, playerId);
   const libraries =
@@ -73,5 +104,6 @@ export function millCardsFromLibrary(
     zones.libraryCount = zones.library.length;
   }
   zones.graveyardCount = zones.graveyard.length;
+  persistMillEvent(ctx, stateAny, String(playerId), milled, options);
   return milled;
 }

@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { getNextEndStepFireTurnNumber } from './triggerDelayedEffectUtils.js';
+import { persistBattlefieldPermanentPatchAfterMutation } from '../effects/battlefieldPermanentReplayPersistence.js';
 
 export function spellWasCastWithDashPaid(stackItem?: any, card?: any): boolean {
   const alt = String(stackItem?.alternateCostId || card?.alternateCostId || '').toLowerCase().trim();
@@ -78,6 +79,14 @@ export function scheduleDashDelayedReturnOnPermanentEntry(
     wasDashCast: true,
   };
   applyKeywordHasteToPermanent(permanent);
+  // Permanent-entry replay rebuilds haste from stack flags; still emit a patch so
+  // undo/reload converges if entry rebuild misses alternateCost markers.
+  if (!(ctx as any).isReplaying) {
+    persistBattlefieldPermanentPatchAfterMutation(ctx as any, permanent, {
+      sourceName: String(sourceName || 'Dash'),
+      fields: ['temporaryAbilities', 'grantedAbilities', 'summoningSickness'],
+    });
+  }
 }
 
 export function scheduleBlitzDelayedSacrificeOnPermanentEntry(
@@ -122,6 +131,12 @@ export function scheduleBlitzDelayedSacrificeOnPermanentEntry(
     drawsCardOnBlitzDeath: true,
   };
   applyKeywordHasteToPermanent(permanent);
+  if (!(ctx as any).isReplaying) {
+    persistBattlefieldPermanentPatchAfterMutation(ctx as any, permanent, {
+      sourceName: String(sourceName || 'Blitz'),
+      fields: ['temporaryAbilities', 'grantedAbilities', 'summoningSickness'],
+    });
+  }
 }
 
 export function scheduleKeywordCastDelayedEffectsOnPermanentEntry(

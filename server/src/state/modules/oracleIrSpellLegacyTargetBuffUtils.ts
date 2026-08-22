@@ -1,6 +1,8 @@
 import type { GameContext } from '../context.js';
 import { categorizeSpellWithoutPrimaryRetirement } from '../../rules-engine/targeting.js';
 import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
+import { persistBattlefieldPermanentPatchAfterMutation } from '../effects/battlefieldPermanentReplayPersistence.js';
+import { updateCounters } from './counters_tokens.js';
 
 const WORD_TO_NUMBER: Record<string, number> = {
   a: 1,
@@ -108,9 +110,14 @@ export function applySimpleTargetedTemporarySpellEffects(
 
     let modified = false;
 
+    let patchNeeded = false;
+
     if (counterCount > 0) {
-      targetCreature.counters = targetCreature.counters || {};
-      targetCreature.counters['+1/+1'] = Number(targetCreature.counters['+1/+1'] || 0) + counterCount;
+      // Route through updateCounters so undo/replay gets a persisted event
+      // (Doubling Season / Vorinclex etc. also apply on this path).
+      updateCounters(ctx as any, String(targetId), { '+1/+1': counterCount }, {
+        ...(Boolean((ctx as any)?.isReplaying) ? { skipEventPersistence: true } : {}),
+      });
       modified = true;
     }
 
@@ -124,6 +131,7 @@ export function applySimpleTargetedTemporarySpellEffects(
         turnApplied: state?.turnNumber || 0,
       });
       modified = true;
+      patchNeeded = true;
     }
 
     if (gainedAbilities.length > 0) {
@@ -137,8 +145,15 @@ export function applySimpleTargetedTemporarySpellEffects(
         });
       }
       modified = true;
+      patchNeeded = true;
     }
 
+    if (patchNeeded) {
+      persistBattlefieldPermanentPatchAfterMutation(ctx as any, targetCreature, {
+        sourceName,
+        fields: ['temporaryPTMods', 'temporaryAbilities', 'grantedAbilities'],
+      });
+    }
     if (modified) {
       applied += 1;
     }

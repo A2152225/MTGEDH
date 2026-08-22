@@ -36,6 +36,7 @@ export function tryApplyTriggerEffectPrefaceHandlers(
   battlefield: any[],
 ): TriggerPrefaceResult {
   if (applyPlaneswalkerLoyaltyCountersFromTriggerMetadata({
+    ctx,
     sourceName,
     triggerItem,
     battlefield,

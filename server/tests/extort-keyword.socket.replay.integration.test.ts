@@ -149,8 +149,14 @@ describe('extort keyword socket replay integration', () => {
     const replayEvents = toReplayEvents(gameId, eventStart);
     expect(replayEvents.some((event: any) =>
       event.type === 'keywordPromptResolve'
-      && event.keyword === 'extort'
-      && event.paymentManaDelta?.white === -1,
+      && event.keyword === 'extort',
+    )).toBe(true);
+    // Resolution payment mana is persisted as discrete pool events (not parent paymentManaDelta).
+    expect(replayEvents.some((event: any) =>
+      event.type === 'removeManaFromPool'
+      && event.playerId === playerId
+      && event.color === 'white'
+      && Number(event.amount || 0) === 1,
     )).toBe(true);
 
     const replayGame = createInitialGameState(replayGameId);

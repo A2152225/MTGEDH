@@ -5465,7 +5465,7 @@ export function nextStep(ctx: GameContext) {
             const additionalDraws = (ctx as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
             const totalDraws = 1 + additionalDraws;
 
-            const drawn = drawCards(ctx, turnPlayer, totalDraws);
+            const drawn = drawCards(ctx, turnPlayer, totalDraws, { skipEventPersistence: true });
             debug(2,
               `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step (base: 1, additional: ${additionalDraws})`
             );

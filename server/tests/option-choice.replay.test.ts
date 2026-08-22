@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
-import { ResolutionQueueManager } from '../src/state/resolution/index.js';
+import { applyEvent } from '../src/state/modules/applyEvent';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import type { PlayerID } from '../../shared/src';
 
 function addPlayer(game: any, id: PlayerID, name: string) {
@@ -19,7 +20,7 @@ describe('option choice replay semantics', () => {
         hand: [
           {
             id: 'greymond_card',
-            name: 'Greymond, Avacyn\'s Stalwart',
+            name: "Greymond, Avacyn's Stalwart",
             type_line: 'Legendary Creature — Human Noble',
             power: '5',
             toughness: '5',
@@ -46,7 +47,7 @@ describe('option choice replay semantics', () => {
       tappedAndAttacking: false,
       card: {
         id: 'greymond_card',
-        name: 'Greymond, Avacyn\'s Stalwart',
+        name: "Greymond, Avacyn's Stalwart",
         type_line: 'Legendary Creature — Human Noble',
         power: '5',
         toughness: '5',
@@ -62,10 +63,10 @@ describe('option choice replay semantics', () => {
         id: 'queued_greymond_enter_1',
         type: 'option_choice',
         playerId: p1,
-        description: 'Choose 2 for Greymond, Avacyn\'s Stalwart: first strike, vigilance, lifelink',
+        description: "Choose 2 for Greymond, Avacyn's Stalwart: first strike, vigilance, lifelink",
         mandatory: true,
         sourceId: 'greymond_perm',
-        sourceName: 'Greymond, Avacyn\'s Stalwart',
+        sourceName: "Greymond, Avacyn's Stalwart",
         options: ['first strike', 'vigilance', 'lifelink'],
         minSelections: 2,
         maxSelections: 2,
@@ -78,7 +79,7 @@ describe('option choice replay semantics', () => {
     const battlefield = (game.state as any).battlefield || [];
     expect(battlefield).toHaveLength(1);
     expect(battlefield[0]?.id).toBe('greymond_perm');
-    expect(battlefield[0]?.card?.name).toBe('Greymond, Avacyn\'s Stalwart');
+    expect(battlefield[0]?.card?.name).toBe("Greymond, Avacyn's Stalwart");
     const queue = ResolutionQueueManager.getQueue('t_option_choice_replay_put_from_hand');
     expect(queue.steps).toHaveLength(1);
     expect((queue.steps[0] as any)?.type).toBe('option_choice');
@@ -103,16 +104,35 @@ describe('option choice replay semantics', () => {
       },
     ];
 
+    ResolutionQueueManager.removeQueue('t_option_choice_replay_single');
+    ResolutionQueueManager.addStep('t_option_choice_replay_single', {
+      id: 'option_choice_step_single',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1,
+      description: 'Choose flying or first strike',
+      mandatory: true,
+      permanentId: 'adaptive_1',
+      sourceId: 'adaptive_1',
+      options: ['flying', 'first strike'],
+    } as any);
+
     game.applyEvent({
       type: 'optionChoice',
       playerId: p1,
       permanentId: 'adaptive_1',
       chosenOptions: ['flying'],
+      resolvedStepId: 'option_choice_step_single',
     } as any);
 
     const permanent = ((game.state as any).battlefield || [])[0];
     expect((permanent as any).chosenOption).toBe('flying');
     expect((permanent as any).chosenOptions).toBeUndefined();
+    expect(
+      ResolutionQueueManager.getQueue('t_option_choice_replay_single').steps.some(
+        (entry: any) => String(entry?.id || '') === 'option_choice_step_single',
+      ),
+    ).toBe(false);
+    ResolutionQueueManager.removeQueue('t_option_choice_replay_single');
   });
 
   it('replays multiple chosen options onto chosenOptions', () => {
@@ -127,21 +147,153 @@ describe('option choice replay semantics', () => {
         owner: p1,
         card: {
           id: 'greymond_card',
-          name: 'Greymond, Avacyn\'s Stalwart',
+          name: "Greymond, Avacyn's Stalwart",
           type_line: 'Legendary Creature',
         },
       },
     ];
+
+    ResolutionQueueManager.removeQueue('t_option_choice_replay_multi');
+    ResolutionQueueManager.addStep('t_option_choice_replay_multi', {
+      id: 'option_choice_step_multi',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1,
+      description: 'Choose 2 abilities',
+      mandatory: true,
+      permanentId: 'greymond_1',
+      sourceId: 'greymond_1',
+      options: ['first strike', 'vigilance', 'lifelink'],
+      minSelections: 2,
+      maxSelections: 2,
+    } as any);
 
     game.applyEvent({
       type: 'optionChoice',
       playerId: p1,
       permanentId: 'greymond_1',
       chosenOptions: ['first strike', 'vigilance'],
+      resolvedStepId: 'option_choice_step_multi',
     } as any);
 
     const permanent = ((game.state as any).battlefield || [])[0];
     expect((permanent as any).chosenOptions).toEqual(['first strike', 'vigilance']);
     expect((permanent as any).chosenOption).toBeUndefined();
+    expect(
+      ResolutionQueueManager.getQueue('t_option_choice_replay_multi').steps.some(
+        (entry: any) => String(entry?.id || '') === 'option_choice_step_multi',
+      ),
+    ).toBe(false);
+    ResolutionQueueManager.removeQueue('t_option_choice_replay_multi');
+  });
+
+  it('clears a matching OPTION_CHOICE queue step by resolvedStepId without touching myriad prompts', () => {
+    const gameId = 't_option_choice_replay_queue_cleanup';
+    const ctx: any = {
+      gameId,
+      state: {
+        players: [{ id: 'p1', name: 'P1', spectator: false, life: 40 }],
+        battlefield: [
+          {
+            id: 'adaptive_1',
+            controller: 'p1',
+            owner: 'p1',
+            card: { id: 'adaptive_card', name: 'Adaptive Automaton', type_line: 'Artifact Creature' },
+          },
+        ],
+        stack: [],
+        zones: {},
+      },
+      bumpSeq() {},
+    };
+
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'option_choice_step_1',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: 'p1',
+      description: 'Choose flying or first strike',
+      mandatory: true,
+      permanentId: 'adaptive_1',
+      sourceId: 'adaptive_1',
+      options: ['flying', 'first strike'],
+    } as any);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'myriad_choice_step_keep',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: 'p1',
+      description: 'Choose Myriad opponents',
+      mandatory: false,
+      myriadChoice: true,
+      permanentId: 'adaptive_1',
+    } as any);
+
+    applyEvent(ctx, {
+      type: 'optionChoice',
+      playerId: 'p1',
+      permanentId: 'adaptive_1',
+      chosenOptions: ['flying'],
+      resolvedStepId: 'option_choice_step_1',
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry?.id || '') === 'option_choice_step_1')).toBe(false);
+    expect(queue.steps.some((entry: any) => String(entry?.id || '') === 'myriad_choice_step_keep')).toBe(true);
+    expect((ctx.state.battlefield[0] as any).chosenOption).toBe('flying');
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('falls back to clearing OPTION_CHOICE by player/permanent when resolvedStepId is missing', () => {
+    const gameId = 't_option_choice_replay_fallback_cleanup';
+    const ctx: any = {
+      gameId,
+      state: {
+        players: [{ id: 'p1', name: 'P1', spectator: false, life: 40 }],
+        battlefield: [
+          {
+            id: 'adaptive_1',
+            controller: 'p1',
+            owner: 'p1',
+            card: { id: 'adaptive_card', name: 'Adaptive Automaton', type_line: 'Artifact Creature' },
+          },
+        ],
+        stack: [],
+        zones: {},
+      },
+      bumpSeq() {},
+    };
+
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'option_choice_legacy_step',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: 'p1',
+      description: 'Choose flying or first strike',
+      mandatory: true,
+      permanentId: 'adaptive_1',
+      sourceId: 'adaptive_1',
+      options: ['flying', 'first strike'],
+    } as any);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'myriad_choice_step_keep',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: 'p1',
+      description: 'Choose Myriad opponents',
+      mandatory: false,
+      myriadChoice: true,
+      permanentId: 'adaptive_1',
+    } as any);
+
+    applyEvent(ctx, {
+      type: 'optionChoice',
+      playerId: 'p1',
+      permanentId: 'adaptive_1',
+      chosenOptions: ['first strike'],
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry?.id || '') === 'option_choice_legacy_step')).toBe(false);
+    expect(queue.steps.some((entry: any) => String(entry?.id || '') === 'myriad_choice_step_keep')).toBe(true);
+    expect((ctx.state.battlefield[0] as any).chosenOption).toBe('first strike');
+    ResolutionQueueManager.removeQueue(gameId);
   });
 });

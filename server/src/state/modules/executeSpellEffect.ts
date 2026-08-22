@@ -20,6 +20,7 @@ import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { detectEntersWithCounters } from './detectEntersWithCounters.js';
 import { processSpellCounteredTriggers } from './spellCounteredTriggerUtils.js';
 import { debug, debugWarn } from '../../utils/debug.js';
+import { appendEvent } from '../../db/index.js';
 /**
  * Execute a single spell effect
  */
@@ -774,6 +775,26 @@ export function executeSpellEffect(
         z.libraryCount = lib.length;
         z.graveyardCount = z.graveyard.length;
         processMillTriggers(ctx, playerId, milledCards, caster);
+        if (!(ctx as any)?.isReplaying && milledCards.length > 0) {
+          const gameId = String((ctx as any).gameId || '').trim();
+          if (gameId && gameId !== 'unknown') {
+            try {
+              appendEvent(
+                gameId,
+                Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (state as any)?.seq ?? 0),
+                'mill',
+                {
+                  playerId,
+                  count: milledCards.length,
+                  cardIds: milledCards.map((c: any) => c.id).filter(Boolean),
+                  sourceName: spellName,
+                },
+              );
+            } catch (err) {
+              debugWarn(1, '[MillCards] appendEvent(mill) failed:', err);
+            }
+          }
+        }
         ctx.bumpSeq();
         debug(2, `[resolveSpell] ${spellName} milled ${millCount} card(s) for ${playerId}`);
       }

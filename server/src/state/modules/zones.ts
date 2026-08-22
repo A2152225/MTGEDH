@@ -495,7 +495,7 @@ export function applyZursWeirdingOpponentChoice(ctx: GameContext, event: {
     ctx.bumpSeq();
 
     if (remainingDrawCountAfterChoice > 0) {
-      drawCards(ctx, drawingPlayerId, remainingDrawCountAfterChoice);
+      drawCards(ctx, drawingPlayerId, remainingDrawCountAfterChoice, { skipEventPersistence: true });
     }
 
     return { applied: true, revealedCard, milledCard: graveyardCard };
@@ -517,10 +517,10 @@ export function applyZursWeirdingOpponentChoice(ctx: GameContext, event: {
   const previousSuppress = (ctx as any)._suppressZursWeirdingReplacement === true;
   (ctx as any)._suppressZursWeirdingReplacement = true;
   try {
-    const drawnCards = drawCards(ctx, drawingPlayerId, 1);
+    const drawnCards = drawCards(ctx, drawingPlayerId, 1, { skipEventPersistence: true });
     delete (ctx.state as any).zursWeirdingPendingDraw;
     if (remainingDrawCountAfterChoice > 0) {
-      drawCards(ctx, drawingPlayerId, remainingDrawCountAfterChoice);
+      drawCards(ctx, drawingPlayerId, remainingDrawCountAfterChoice, { skipEventPersistence: true });
     }
     return { applied: true, revealedCard, drawnCards };
   } finally {
@@ -616,10 +616,10 @@ export function applyDredgeDrawReplacementChoice(ctx: GameContext, event: {
     const previousSuppress = (ctx as any)._suppressDredgeReplacement === true;
     (ctx as any)._suppressDredgeReplacement = true;
     try {
-      const drawnCards = drawCards(ctx, playerId, 1);
+      const drawnCards = drawCards(ctx, playerId, 1, { skipEventPersistence: true });
       if (!previousSuppress) delete (ctx as any)._suppressDredgeReplacement;
       if (remainingDrawCountAfterChoice > 0) {
-        drawCards(ctx, playerId, remainingDrawCountAfterChoice);
+        drawCards(ctx, playerId, remainingDrawCountAfterChoice, { skipEventPersistence: true });
       }
       return { applied: true, declined: true, drawnCards };
     } finally {
@@ -667,13 +667,53 @@ export function applyDredgeDrawReplacementChoice(ctx: GameContext, event: {
   ctx.bumpSeq();
 
   if (remainingDrawCountAfterChoice > 0) {
-    drawCards(ctx, playerId, remainingDrawCountAfterChoice);
+    drawCards(ctx, playerId, remainingDrawCountAfterChoice, { skipEventPersistence: true });
   }
 
   return { applied: true, dredgeCard: returnedToHand, milledCards };
 }
 
-export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): KnownCardRef[] {
+export type DrawCardsOptions = {
+  /** Parent event (nextStep / dredge|zur choice resolve) already restores draws on replay. */
+  skipEventPersistence?: boolean;
+  reason?: string;
+};
+
+export function persistDrawCardsEvent(
+  ctx: GameContext,
+  playerId: string,
+  drawnCards: KnownCardRef[],
+  options?: DrawCardsOptions,
+): void {
+  if (options?.skipEventPersistence) return;
+  if ((ctx as any)?.isReplaying) return;
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown') return;
+
+  const drawnCardIds = (Array.isArray(drawnCards) ? drawnCards : [])
+    .map((card: any) => String(card?.id || '').trim())
+    .filter(Boolean);
+  const count = drawnCardIds.length > 0 ? drawnCardIds.length : (Array.isArray(drawnCards) ? drawnCards.length : 0);
+  if (count <= 0) return;
+
+  try {
+    appendEvent(
+      gameId,
+      Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (ctx.state as any)?.seq ?? 0),
+      'drawCards',
+      {
+        playerId,
+        count,
+        ...(drawnCardIds.length > 0 ? { drawnCardIds } : {}),
+        ...(options?.reason ? { reason: options.reason } : {}),
+      },
+    );
+  } catch (err) {
+    debugWarn(1, '[drawCards] appendEvent(drawCards) failed:', err);
+  }
+}
+
+export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, options?: DrawCardsOptions): KnownCardRef[] {
   const zones = ctx.state.zones = ctx.state.zones || {};
   const drawn: KnownCardRef[] = [];
   const normalizedCount = Math.max(0, Math.floor(Number(count || 0)));
@@ -853,6 +893,12 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
     }
   }
   
+  for (const [pid, cards] of Object.entries(drawnByPlayer)) {
+    if (Array.isArray(cards) && cards.length > 0) {
+      persistDrawCardsEvent(ctx, pid, cards, options);
+    }
+  }
+
   ctx.bumpSeq();
   return drawn;
 }
