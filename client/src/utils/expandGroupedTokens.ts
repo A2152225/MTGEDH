@@ -5,8 +5,8 @@ import type { BattlefieldPermanent } from '../../../shared/src';
  * into individual permanents with real member IDs.
  *
  * Emit collapses identical tokens (same name/controller/tap/sick/etc.) into one entry.
- * Mana-source rows and FreeField must expand so tapping one Vibranium does not hide
- * its sibling when both become the same tap state and re-group.
+ * Mana-source / LandRow stays collapsed (group id + Nx badge); server resolves group_*
+ * on activate/cast/equip/ward payment. FreeField may still expand for free positioning.
  */
 export function expandGroupedTokensForDisplay(
   permanents: readonly BattlefieldPermanent[],

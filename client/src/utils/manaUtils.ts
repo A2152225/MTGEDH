@@ -39,7 +39,18 @@ export interface ManaPaymentSource {
   label?: string;
   options: Color[];
   producedColors?: Color[];
+  /** Mana produced by a single activation (e.g. Sol Ring = 2). Distinct from availableQuantity. */
   amount?: number;
+  /**
+   * Number of identical usable copies represented by this row (grouped tokens / collapsed twins).
+   * Default 1. Suggest/capacity treats total mana as (mana per activation) * availableQuantity.
+   */
+  availableQuantity?: number;
+  /**
+   * When collapsing N distinct permanents into one row, the permanent ids for each quantity unit.
+   * Grouped `group_*` sources omit this and repeat sourcePermanentId (server usedIds resolves members).
+   */
+  stackPermanentIds?: string[];
   consumable?: boolean;
   sacrificeCost?: ManaSourceSacrificeCost;
 }
@@ -470,9 +481,19 @@ export function getTotalManaProduction(options: Color[]): number {
   return 1;
 }
 
-function getSourceManaCapacity(source: ManaPaymentSource): number {
+/** Mana produced by one activation of this source (ignores availableQuantity). */
+export function getManaPerActivation(source: ManaPaymentSource): number {
   if (typeof source.amount === 'number' && source.amount > 0) return source.amount;
   return getTotalManaProduction(source.options);
+}
+
+export function getSourceAvailableQuantity(source: ManaPaymentSource): number {
+  const qty = Number(source.availableQuantity);
+  return Number.isFinite(qty) && qty > 0 ? Math.floor(qty) : 1;
+}
+
+function getSourceManaCapacity(source: ManaPaymentSource): number {
+  return getManaPerActivation(source) * getSourceAvailableQuantity(source);
 }
 
 /**

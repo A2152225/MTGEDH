@@ -13,6 +13,8 @@ import {
   canUseRestrictedManaClient,
   buildRestrictedManaPurposeForSpell,
   getTotalManaProduction,
+  getManaPerActivation,
+  getSourceAvailableQuantity,
   type ManaPaymentSource,
   type SuggestedPaymentSelection,
   type OtherCardInfo,
@@ -229,10 +231,26 @@ export function PaymentPicker(props: PaymentPickerProps) {
   const remaining = useMemo(() => remainingAfter(costForPayment, pool), [costForPayment, pool]);
 
   const getPaymentItemKey = (item: PaymentItem) => String(item.paymentSourceId || item.permanentId || '');
-  const chosenById = useMemo(() => new Set(chosen.map(getPaymentItemKey)), [chosen]);
+  const chosenCountBySourceId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of chosen) {
+      const key = getPaymentItemKey(item);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+  }, [chosen]);
+  const chosenById = useMemo(() => new Set(chosenCountBySourceId.keys()), [chosenCountBySourceId]);
+  const autoSelectedCountBySourceId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of autoSelectedPayment) {
+      const key = getPaymentItemKey(item);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+  }, [autoSelectedPayment]);
   const autoSelectedById = useMemo(
-    () => new Set(autoSelectedPayment.map(getPaymentItemKey)),
-    [autoSelectedPayment],
+    () => new Set(autoSelectedCountBySourceId.keys()),
+    [autoSelectedCountBySourceId],
   );
 
   const [pendingSacrificeSelection, setPendingSacrificeSelection] = React.useState<{
@@ -337,16 +355,63 @@ export function PaymentPicker(props: PaymentPickerProps) {
   const createPaymentItem = (source: ManaPaymentSource, mana: Color, sacrificedPermanentIds?: string[]): PaymentItem =>
     createPaymentItemFromSource({ ...source, amount: getManaCountForSource(source.id) }, mana, sacrificedPermanentIds);
 
+  const buildStackPaymentItems = (source: ManaPaymentSource, mana: Color, quantity: number): PaymentItem[] => {
+    const maxQty = getSourceAvailableQuantity(source);
+    const qty = Math.max(0, Math.min(maxQty, Math.floor(quantity)));
+    const items: PaymentItem[] = [];
+    for (let index = 0; index < qty; index += 1) {
+      const base = createPaymentItem(source, mana);
+      const stackId = Array.isArray(source.stackPermanentIds) && index < source.stackPermanentIds.length
+        ? String(source.stackPermanentIds[index] || '').trim()
+        : '';
+      items.push({
+        ...base,
+        ...(stackId ? { permanentId: stackId } : {}),
+        paymentSourceId: source.id,
+      });
+    }
+    return items;
+  };
+
+  const setSourceQuantity = (source: ManaPaymentSource, mana: Color, quantity: number) => {
+    if (source.sacrificeCost && quantity > 0) {
+      // Sacrifice sources stay single-select via modal; quantity UI is not used for them.
+      setPendingSacrificeSelection({ source, mana });
+      return;
+    }
+    const without = chosen.filter((payment) => getPaymentItemKey(payment) !== source.id);
+    onChange([...without, ...buildStackPaymentItems(source, mana, quantity)]);
+  };
+
   const add = (source: ManaPaymentSource, mana: Color) => {
+    const maxQty = getSourceAvailableQuantity(source);
+    if (maxQty > 1) {
+      const current = chosenCountBySourceId.get(source.id) || 0;
+      const existing = chosen.find((payment) => getPaymentItemKey(payment) === source.id);
+      if (existing && existing.mana !== mana) {
+        setSourceQuantity(source, mana, Math.max(1, current));
+        return;
+      }
+      if (current >= maxQty) return;
+      setSourceQuantity(source, mana, current + 1);
+      return;
+    }
     if (chosenById.has(source.id)) return;
     if (source.sacrificeCost) {
       setPendingSacrificeSelection({ source, mana });
       return;
     }
-    onChange([...chosen, createPaymentItem(source, mana)]);
+    onChange([...chosen, { ...createPaymentItem(source, mana), paymentSourceId: source.id }]);
   };
   const remove = (sourceId: string) => {
     onChange(chosen.filter((payment) => getPaymentItemKey(payment) !== sourceId));
+  };
+  const decrementSource = (source: ManaPaymentSource) => {
+    const current = chosenCountBySourceId.get(source.id) || 0;
+    if (current <= 0) return;
+    const existing = chosen.find((payment) => getPaymentItemKey(payment) === source.id);
+    const color = (existing?.mana || source.options[0] || 'C') as Color;
+    setSourceQuantity(source, color, current - 1);
   };
   
   // Clear all selections including floating mana
@@ -455,13 +520,20 @@ export function PaymentPicker(props: PaymentPickerProps) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, maxHeight: 220, overflow: 'auto', paddingRight: 2 }}>
         {effectiveSources.map(s => {
-          const used = chosenById.has(s.id);
+          const stackQty = getSourceAvailableQuantity(s);
+          const chosenQty = chosenCountBySourceId.get(s.id) || 0;
+          const used = chosenQty > 0;
           const suggested = suggestedPayment.get(s.id);
-          const isAutoSelected = autoSelectedById.has(s.id);
+          const suggestedQty = suggested
+            ? Math.min(stackQty, Math.max(1, Math.ceil(Number(suggested.count || 1) / Math.max(1, getManaPerActivation(s)))))
+            : 0;
+          const autoSelectedQty = autoSelectedCountBySourceId.get(s.id) || 0;
+          const isAutoSelected = autoSelectedQty > 0;
           const isSuggested = suggested !== undefined && !used && chosen.length === 0;
           const showGreenHighlight = isAutoSelected || isSuggested;
           const hasAmount = s.amount && s.amount > 1;
           const isFloatingSource = s.id.startsWith('__pool__:');
+          const displayName = stackQty > 1 ? `${s.name} (${stackQty})` : s.name;
           
           return (
             <div 
@@ -477,7 +549,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111' }} title={s.name}>{s.name}</div>
+                  <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111' }} title={displayName}>{displayName}</div>
                   {s.label && s.label !== s.name && (
                     <div style={{ fontSize: 11, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.label}>
                       {s.label}
@@ -487,7 +559,11 @@ export function PaymentPicker(props: PaymentPickerProps) {
                 {used ? (
                   <button onClick={() => remove(s.id)} style={{ fontSize: 11 }} title="Remove this payment">Remove</button>
                 ) : showGreenHighlight ? (
-                  <span style={{ fontSize: 11, color: '#4caf50', fontWeight: 600 }}>{isAutoSelected ? 'auto-selected' : 'suggested'}</span>
+                  <span style={{ fontSize: 11, color: '#4caf50', fontWeight: 600 }}>
+                    {isAutoSelected
+                      ? (autoSelectedQty > 1 ? `auto ×${autoSelectedQty}` : 'auto-selected')
+                      : (suggestedQty > 1 ? `suggested ×${suggestedQty}` : 'suggested')}
+                  </span>
                 ) : (
                   <span style={{ fontSize: 11, opacity: 0.7 }}>{isFloatingSource ? 'floating' : 'untapped'}</span>
                 )}
@@ -540,14 +616,58 @@ export function PaymentPicker(props: PaymentPickerProps) {
                     {s.amount}×
                   </span>
                 )}
+                {stackQty > 1 && (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginRight: 4 }}>
+                    <button
+                      type="button"
+                      onClick={() => decrementSource(s)}
+                      disabled={chosenQty <= 0 || Boolean(s.sacrificeCost)}
+                      style={{ width: 24, height: 24, padding: 0, fontSize: 14, lineHeight: '22px' }}
+                      title="Use one fewer copy"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min={0}
+                      max={stackQty}
+                      value={chosenQty}
+                      onChange={(e) => {
+                        const next = Math.max(0, Math.min(stackQty, Number(e.target.value) || 0));
+                        const existing = chosen.find((payment) => getPaymentItemKey(payment) === s.id);
+                        const color = (existing?.mana || suggested?.color || s.options[0] || 'C') as Color;
+                        setSourceQuantity(s, color, next);
+                      }}
+                      style={{ width: 44, textAlign: 'center', fontSize: 12, padding: '2px 4px' }}
+                      title={`Quantity (max ${stackQty})`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const existing = chosen.find((payment) => getPaymentItemKey(payment) === s.id);
+                        const color = (existing?.mana || suggested?.color || s.options[0] || 'C') as Color;
+                        add(s, color);
+                      }}
+                      disabled={chosenQty >= stackQty || Boolean(s.sacrificeCost)}
+                      style={{ width: 24, height: 24, padding: 0, fontSize: 14, lineHeight: '22px' }}
+                      title="Use one more copy"
+                    >
+                      +
+                    </button>
+                  </div>
+                )}
                 {s.options.map(opt => {
                   const isSuggestedColor = suggested?.color === opt;
                   const displayText = hasAmount && s.options.length === 1 ? `{${opt}}` : opt;
+                  const selectedMana = chosen.find((payment) => getPaymentItemKey(payment) === s.id)?.mana;
+                  const disabledColor = stackQty > 1
+                    ? (chosenQty >= stackQty && selectedMana === opt)
+                    : used;
                   return (
                     <button
                       key={`${s.id}:${opt}`}
                       onClick={() => add(s, opt)}
-                      disabled={used}
+                      disabled={disabledColor}
                       style={{ 
                         padding: '2px 6px', 
                         fontSize: 12, 
@@ -556,7 +676,15 @@ export function PaymentPicker(props: PaymentPickerProps) {
                         background: isSuggestedColor ? 'rgba(76, 175, 80, 0.15)' : 'transparent',
                         fontWeight: isSuggestedColor ? 600 : 400
                       }}
-                      title={used ? 'Already used' : isSuggestedColor ? `Suggested: Add ${suggested?.count || 1} ${opt}` : `Add ${hasAmount ? `${s.amount}×` : ''}${opt}`}
+                      title={
+                        disabledColor && stackQty <= 1
+                          ? 'Already used'
+                          : isSuggestedColor
+                            ? `Suggested: Add ${suggestedQty || suggested?.count || 1}× ${opt}`
+                            : stackQty > 1
+                              ? `Add one ${opt} (qty ${chosenQty}/${stackQty})`
+                              : `Add ${hasAmount ? `${s.amount}×` : ''}${opt}`
+                      }
                     >
                       {displayText}
                     </button>
@@ -667,7 +795,10 @@ export function PaymentPicker(props: PaymentPickerProps) {
         excludePermanentId={pendingSacrificeSelection?.source.sacrificeCost?.mustBeOther ? getSourcePermanentId(pendingSacrificeSelection.source) : undefined}
         onConfirm={(selectedIds) => {
           if (!pendingSacrificeSelection) return;
-          onChange([...chosen, createPaymentItem(pendingSacrificeSelection.source, pendingSacrificeSelection.mana, selectedIds)]);
+          onChange([...chosen, {
+            ...createPaymentItem(pendingSacrificeSelection.source, pendingSacrificeSelection.mana, selectedIds),
+            paymentSourceId: pendingSacrificeSelection.source.id,
+          }]);
           setPendingSacrificeSelection(null);
         }}
         onCancel={() => setPendingSacrificeSelection(null)}

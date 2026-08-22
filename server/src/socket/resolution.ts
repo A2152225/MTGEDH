@@ -1740,12 +1740,21 @@ function validateWardManaPaymentSelection(
         continue;
       }
 
-      if (usedPermanentIds.has(permanentId)) {
+      const resolvedPermanentId = resolveGroupedPermanentRef(
+        game,
+        playerId as any,
+        permanentId,
+        { usedIds: usedPermanentIds },
+      );
+      if (!resolvedPermanentId) {
+        return { ok: false, code: 'PAYMENT_SOURCE_NOT_FOUND', message: `Permanent ${permanentId} not found on battlefield` };
+      }
+      if (usedPermanentIds.has(resolvedPermanentId)) {
         return { ok: false, code: 'INVALID_PAYMENT', message: 'A mana source can only be used once for ward payment.' };
       }
-      usedPermanentIds.add(permanentId);
+      usedPermanentIds.add(resolvedPermanentId);
 
-      const permanent = battlefield.find((entry: any) => entry?.id === permanentId && entry?.controller === playerId);
+      const permanent = battlefield.find((entry: any) => entry?.id === resolvedPermanentId && entry?.controller === playerId);
       if (!permanent) {
         return { ok: false, code: 'PAYMENT_SOURCE_NOT_FOUND', message: `Permanent ${permanentId} not found on battlefield` };
       }
@@ -1942,6 +1951,7 @@ function applyWardManaPaymentSelection(
   const selectedPaymentAvailableTotals: Record<string, number> = createEmptyResolutionManaTotals();
   const tappedPermanents: string[] = [];
   const sacrificedPermanents: string[] = [];
+  const usedPermanentIds = new Set<string>();
 
   if (payment && payment.length > 0) {
     for (const { permanentId, mana, count, abilityId, producedColors } of payment) {
@@ -1952,7 +1962,21 @@ function applyWardManaPaymentSelection(
         continue;
       }
 
-      const permanent = battlefield.find((entry: any) => entry?.id === permanentId && entry?.controller === playerId);
+      const resolvedPermanentId = resolveGroupedPermanentRef(
+        game,
+        playerId as any,
+        permanentId,
+        { usedIds: usedPermanentIds },
+      );
+      if (!resolvedPermanentId) {
+        return { ok: false, code: 'PAYMENT_SOURCE_NOT_FOUND', message: `Permanent ${permanentId} not found on battlefield` };
+      }
+      if (usedPermanentIds.has(resolvedPermanentId)) {
+        return { ok: false, code: 'INVALID_PAYMENT', message: 'A mana source can only be used once for ward payment.' };
+      }
+      usedPermanentIds.add(resolvedPermanentId);
+
+      const permanent = battlefield.find((entry: any) => entry?.id === resolvedPermanentId && entry?.controller === playerId);
       if (!permanent) {
         return { ok: false, code: 'PAYMENT_SOURCE_NOT_FOUND', message: `Permanent ${permanentId} not found on battlefield` };
       }
@@ -1964,15 +1988,15 @@ function applyWardManaPaymentSelection(
           manaPool,
           activationManaCost.colors,
           activationManaCost.generic,
-          `[wardPaymentActivation:${permCard.name || permanentId}]`,
+          `[wardPaymentActivation:${permCard.name || resolvedPermanentId}]`,
         );
       }
 
       if (resolutionManaSourceSelfSacrifices(game, playerId, permanent, mana, abilityId)) {
-        sacrificedPermanents.push(String(permanentId));
+        sacrificedPermanents.push(String(resolvedPermanentId));
       } else {
         (permanent as any).tapped = true;
-        tappedPermanents.push(String(permanentId));
+        tappedPermanents.push(String(resolvedPermanentId));
       }
 
       const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana, abilityId);
@@ -2185,6 +2209,16 @@ function applySelectedManaPaymentForResolutionCost(
   const sacrificedPermanents: string[] = [];
   const activationSimulationPool = snapshotResolutionManaPool(manaPool);
 
+  // Resolved payment entries so group_token-… refs (same as cast payment) map to real battlefield ids.
+  const resolvedPaymentEntries: Array<{
+    permanentId: string;
+    mana: string;
+    count?: number;
+    abilityId?: string;
+    producedColors?: string[];
+    floatingPoolKey?: string | null;
+  }> = [];
+
   if (payment && payment.length > 0) {
     for (const { permanentId, mana, count, abilityId, producedColors } of payment) {
       const floatingPoolKey = getFloatingPaymentPoolKey(permanentId, mana);
@@ -2192,15 +2226,33 @@ function applySelectedManaPaymentForResolutionCost(
         const amount = Math.max(1, Number(count || 1));
         selectedFloatingMana[floatingPoolKey] = (selectedFloatingMana[floatingPoolKey] || 0) + amount;
         totalAvailable[floatingPoolKey] = (totalAvailable[floatingPoolKey] || 0) + amount;
+        resolvedPaymentEntries.push({ permanentId, mana, count, abilityId, producedColors, floatingPoolKey });
         continue;
       }
 
-      if (usedPermanentIds.has(permanentId)) {
+      const resolvedPermanentId = resolveGroupedPermanentRef(
+        game,
+        playerId as any,
+        permanentId,
+        { usedIds: usedPermanentIds },
+      );
+      if (!resolvedPermanentId) {
+        return { ok: false, code: 'PAYMENT_SOURCE_NOT_FOUND', message: `Permanent ${permanentId} not found on battlefield.` };
+      }
+      if (usedPermanentIds.has(resolvedPermanentId)) {
         return { ok: false, code: 'INVALID_PAYMENT', message: 'A mana source can only be used once.' };
       }
-      usedPermanentIds.add(permanentId);
+      usedPermanentIds.add(resolvedPermanentId);
+      resolvedPaymentEntries.push({
+        permanentId: resolvedPermanentId,
+        mana,
+        count,
+        abilityId,
+        producedColors,
+        floatingPoolKey: null,
+      });
 
-      const permanent = battlefield.find((entry: any) => entry?.id === permanentId && entry?.controller === playerId);
+      const permanent = battlefield.find((entry: any) => entry?.id === resolvedPermanentId && entry?.controller === playerId);
       if (!permanent) {
         return { ok: false, code: 'PAYMENT_SOURCE_NOT_FOUND', message: `Permanent ${permanentId} not found on battlefield.` };
       }
@@ -2305,9 +2357,8 @@ function applySelectedManaPaymentForResolutionCost(
     return { ok: false, code: 'INSUFFICIENT_MANA', message: validationError };
   }
 
-  if (payment && payment.length > 0) {
-    for (const { permanentId, mana, count, abilityId, producedColors } of payment) {
-      const floatingPoolKey = getFloatingPaymentPoolKey(permanentId, mana);
+  if (resolvedPaymentEntries.length > 0) {
+    for (const { permanentId, mana, count, abilityId, producedColors, floatingPoolKey } of resolvedPaymentEntries) {
       if (floatingPoolKey) {
         const amount = Math.max(1, Number(count || 1));
         selectedPaymentAvailableTotals[floatingPoolKey] = (selectedPaymentAvailableTotals[floatingPoolKey] || 0) + amount;

@@ -6,6 +6,7 @@ import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
+import { registerTokenGroupMembers } from '../src/socket/tokenGroupResolve.js';
 import '../src/state/modules/priority.js';
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>, sockets: any[] = []) {
@@ -726,5 +727,117 @@ describe('ward mana payment flow', () => {
 
     const wardChat = emitted.find((event) => event.event === 'chat' && String(event.payload?.message || '').includes("can't be countered"));
     expect(wardChat).toBeTruthy();
+  });
+
+  it('resolves group_* mana-source refs when paying ward', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, casterId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: casterId, name: 'Caster', spectator: false, life: 40 },
+      { id: defenderId, name: 'Defender', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [casterId]: 40, [defenderId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = casterId;
+    (game.state as any).priority = casterId;
+    (game.state as any).manaPool = {
+      [casterId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      [defenderId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'vibranium_1',
+        controller: casterId,
+        tapped: false,
+        isToken: true,
+        card: { name: 'Vibranium', type_line: 'Artifact Token', oracle_text: '{T}: Add {C}.' },
+      },
+      {
+        id: 'vibranium_2',
+        controller: casterId,
+        tapped: false,
+        isToken: true,
+        card: { name: 'Vibranium', type_line: 'Artifact Token', oracle_text: '{T}: Add {C}.' },
+      },
+      {
+        id: 'ward_creature',
+        controller: defenderId,
+        tapped: false,
+        card: {
+          name: 'Shielded Bear',
+          type_line: 'Creature — Bear',
+          oracle_text: 'Ward {1}',
+        },
+      },
+    ];
+    registerTokenGroupMembers(game, 'group_vibranium_1', ['vibranium_1', 'vibranium_2']);
+    (game.state as any).zones = {
+      [casterId]: {
+        hand: [
+          {
+            id: 'bolt_1',
+            name: 'Lightning Bolt',
+            mana_cost: '{R}',
+            manaCost: '{R}',
+            type_line: 'Instant',
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+            image_uris: { small: 'https://example.com/bolt.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      [defenderId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(casterId, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId, cardId: 'bolt_1' });
+
+    const targetStep = ResolutionQueueManager.getQueue(gameId).steps.find((entry: any) => entry.type === 'target_selection') as any;
+    expect(targetStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(targetStep.id),
+      selections: ['ward_creature'],
+    });
+
+    const wardStep = ResolutionQueueManager.getQueue(gameId).steps.find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).wardPayment === true) as any;
+    expect(wardStep).toBeDefined();
+    expect(wardStep.wardCost).toBe('{1}');
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(wardStep.id),
+      selections: {
+        payment: [{ permanentId: 'group_vibranium_1', mana: 'C', count: 1 }],
+      },
+    });
+
+    expect(emitted.find((event) => event.event === 'error' && event.payload?.code === 'PAYMENT_SOURCE_NOT_FOUND')).toBeUndefined();
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'vibranium_1')?.tapped).toBe(true);
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'vibranium_2')?.tapped).toBe(false);
+
+    const wardPaidChat = emitted.find((event) => event.event === 'chat' && String(event.payload?.message || '').includes('paid ward {1}'));
+    expect(wardPaidChat).toBeTruthy();
   });
 });

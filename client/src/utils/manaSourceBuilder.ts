@@ -12,6 +12,8 @@ import {
   calculateSuggestedPayment,
   type RestrictedManaSpendPurpose,
   getTotalManaProduction,
+  getManaPerActivation,
+  getSourceAvailableQuantity,
   type ManaPool,
   type ManaPaymentSource,
 } from './manaUtils';
@@ -552,6 +554,102 @@ function getInlineSelectedPaymentAbilities(perm: BattlefieldPermanent): InlineSe
   }];
 }
 
+
+function getGroupedTokenUsableQuantity(perm: BattlefieldPermanent): number {
+  if ((perm as any).isGroupedTokens !== true) return 1;
+  const groupedIds = (perm as any).groupedTokenIds as string[] | undefined;
+  if (Array.isArray(groupedIds) && groupedIds.length > 0) {
+    return Math.max(1, groupedIds.length);
+  }
+  const tokenCount = Number((perm as any).tokenCount || 0);
+  return tokenCount > 1 ? Math.floor(tokenCount) : 1;
+}
+
+function buildManaSourceStackKey(source: ManaPaymentSource): string | null {
+  // Do not collapse sacrifice / consumable / multi-instance sacrifice repeats.
+  if (source.sacrificeCost) return null;
+  if (source.consumable) return null;
+  if (String(source.id || '').includes('#')) return null;
+  if (String(source.id || '').startsWith('__pool__')) return null;
+
+  const optionsKey = (source.options || []).join(',');
+  const producedKey = Array.isArray(source.producedColors) ? source.producedColors.join(',') : '';
+  const amountKey = typeof source.amount === 'number' && source.amount > 0 ? String(source.amount) : '1';
+  const abilityKey = String(source.abilityId || '');
+  const nameKey = String(source.name || '');
+  const labelKey = String(source.label || '');
+  return [nameKey, labelKey, abilityKey, optionsKey, producedKey, amountKey].join('||');
+}
+
+/**
+ * Collapse N identical untapped mana sources (same name/ability/options) into one row
+ * with availableQuantity + stackPermanentIds. Grouped tokens already carry availableQuantity.
+ */
+export function collapseIdenticalManaSources(sources: ManaPaymentSource[]): ManaPaymentSource[] {
+  const collapsed: ManaPaymentSource[] = [];
+  const indexByKey = new Map<string, number>();
+
+  for (const source of sources) {
+    const key = buildManaSourceStackKey(source);
+    if (!key) {
+      collapsed.push(source);
+      continue;
+    }
+
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex === undefined) {
+      indexByKey.set(key, collapsed.length);
+      const permanentId = getSourcePermanentId(source);
+      collapsed.push({
+        ...source,
+        availableQuantity: Math.max(1, getSourceAvailableQuantity(source)),
+        stackPermanentIds: [permanentId],
+      });
+      continue;
+    }
+
+    const existing = collapsed[existingIndex];
+    const addQty = getSourceAvailableQuantity(source);
+    const nextQty = getSourceAvailableQuantity(existing) + addQty;
+    const existingIds = Array.isArray(existing.stackPermanentIds) && existing.stackPermanentIds.length > 0
+      ? existing.stackPermanentIds.slice()
+      : [getSourcePermanentId(existing)];
+    const addId = getSourcePermanentId(source);
+    for (let i = 0; i < addQty; i += 1) {
+      // Distinct permanents: one id per unit. Group refs: repeat group_* per unit.
+      if (addId.startsWith('group_')) {
+        existingIds.push(addId);
+      } else if (i === 0) {
+        existingIds.push(addId);
+      }
+    }
+
+    collapsed[existingIndex] = {
+      ...existing,
+      availableQuantity: nextQty,
+      stackPermanentIds: existingIds,
+    };
+  }
+
+  return collapsed.map((source) => {
+    const qty = getSourceAvailableQuantity(source);
+    if (qty <= 1) {
+      const { availableQuantity: _aq, stackPermanentIds: _ids, ...rest } = source as ManaPaymentSource & {
+        availableQuantity?: number;
+        stackPermanentIds?: string[];
+      };
+      return rest;
+    }
+    // For a pure group_* row, stackPermanentIds are redundant (server resolves usedIds).
+    const permanentId = getSourcePermanentId(source);
+    if (permanentId.startsWith('group_') && (source.stackPermanentIds || []).every((id) => id === permanentId)) {
+      const { stackPermanentIds: _ids, ...rest } = source;
+      return { ...rest, availableQuantity: qty };
+    }
+    return { ...source, availableQuantity: qty };
+  });
+}
+
 function buildInlineManaSourcesForPermanent(
   perm: BattlefieldPermanent,
   playerId: string,
@@ -610,6 +708,8 @@ function buildInlineManaSourcesForPermanent(
     const instanceCount = Math.max(1, repeatCount);
     const consumable = abilitySelfSacrificesSource(card.name, ability.cost, ability) ? true : undefined;
 
+    const groupedQuantity = getGroupedTokenUsableQuantity(perm);
+
     for (let index = 0; index < instanceCount; index += 1) {
       const sourceId = instanceCount > 1 ? `${sourceBaseId}#${index}` : sourceBaseId;
       sources.push({
@@ -623,6 +723,7 @@ function buildInlineManaSourcesForPermanent(
         ...(typeof consumable === 'boolean' ? { consumable } : {}),
         ...(sacrificeCost ? { sacrificeCost } : {}),
         ...(computedAmount > 1 ? { amount: computedAmount } : {}),
+        ...(groupedQuantity > 1 ? { availableQuantity: groupedQuantity } : {}),
       });
     }
   }
@@ -650,7 +751,7 @@ export function buildAvailableManaSourcesForPlayer(
     sources.push(...buildInlineManaSourcesForPermanent(perm, playerId, globalBattlefield, playerBattlefield));
   }
 
-  return sources;
+  return collapseIdenticalManaSources(sources);
 }
 
 export function getSourcePermanentId(source: ManaPaymentSource): string {
@@ -683,16 +784,63 @@ export function createSuggestedPaymentItem(
   selection: { color: ManaColor; count: number },
   sourceById: ReadonlyMap<string, ManaPaymentSource>,
 ): PaymentItem {
+  const items = createSuggestedPaymentItemsFromSource(sourceId, selection, sourceById);
+  return items[0] || {
+    permanentId: sourceId,
+    mana: selection.color,
+    count: selection.count,
+  };
+}
+
+/**
+ * Expand a suggested selection into N payment rows when availableQuantity > 1.
+ * Each row is one activation (Sol Ring keeps count=2 on each row).
+ * Grouped tokens repeat permanentId `group_*`; ungrouped stacks use stackPermanentIds.
+ */
+export function createSuggestedPaymentItemsFromSource(
+  sourceId: string,
+  selection: { color: ManaColor; count: number },
+  sourceById: ReadonlyMap<string, ManaPaymentSource>,
+): PaymentItem[] {
   const source = sourceById.get(sourceId);
   if (!source) {
-    return {
+    return [{
       permanentId: sourceId,
       mana: selection.color,
       count: selection.count,
-    };
+    }];
   }
 
-  return createPaymentItemFromSource(source, selection.color);
+  const manaPerActivation = Math.max(1, getManaPerActivation(source));
+  const availableQuantity = getSourceAvailableQuantity(source);
+  const requestedMana = Math.max(0, Number(selection.count || 0));
+  const activationsNeeded = requestedMana > 0
+    ? Math.ceil(requestedMana / manaPerActivation)
+    : 0;
+  const quantity = Math.max(0, Math.min(availableQuantity, activationsNeeded || (requestedMana > 0 ? 1 : 0)));
+  if (quantity <= 0) return [];
+
+  const items: PaymentItem[] = [];
+  for (let index = 0; index < quantity; index += 1) {
+    const base = createPaymentItemFromSource(source, selection.color);
+    const stackId = Array.isArray(source.stackPermanentIds) && index < source.stackPermanentIds.length
+      ? String(source.stackPermanentIds[index] || '').trim()
+      : '';
+    if (!stackId || stackId === String(base.permanentId || '')) {
+      // Keep paymentSourceId stable so PaymentPicker can count stack rows.
+      items.push({
+        ...base,
+        paymentSourceId: source.id,
+      });
+      continue;
+    }
+    items.push({
+      ...base,
+      permanentId: stackId,
+      paymentSourceId: source.id,
+    });
+  }
+  return items;
 }
 
 const POOL_KEY_TO_MANA_COLOR: Record<string, ManaColor> = {
@@ -786,12 +934,14 @@ export function buildSuggestedPaymentItems(
   }
 
   for (const [sourceId, selection] of suggested.entries()) {
-    items.push(createSuggestedPaymentItem(sourceId, selection, sourceById));
+    items.push(...createSuggestedPaymentItemsFromSource(sourceId, selection, sourceById));
   }
 
   const dedupedItems: PaymentItem[] = [];
-  const seenTapPermanentIds = new Set<string>();
   const seenPoolPermanentIds = new Set<string>();
+  // permanentId -> paymentSourceId that claimed it. Quantity stacks share paymentSourceId
+  // and may repeat permanentId (group_*); conflicting ability rows on one permanent collapse.
+  const claimedPermanentSource = new Map<string, string>();
   for (const item of items) {
     const permanentId = String(item.permanentId || '');
     if (permanentId.startsWith('__pool__')) {
@@ -802,10 +952,13 @@ export function buildSuggestedPaymentItems(
       dedupedItems.push(item);
       continue;
     }
-    if (seenTapPermanentIds.has(permanentId)) {
+
+    const paymentSourceId = String(item.paymentSourceId || permanentId);
+    const previousSource = claimedPermanentSource.get(permanentId);
+    if (previousSource !== undefined && previousSource !== paymentSourceId) {
       continue;
     }
-    seenTapPermanentIds.add(permanentId);
+    claimedPermanentSource.set(permanentId, paymentSourceId);
     dedupedItems.push(item);
   }
 

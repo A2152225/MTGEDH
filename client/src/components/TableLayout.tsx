@@ -22,7 +22,6 @@ import { AttachmentLines } from './AttachmentLines';
 import { HandGallery } from './HandGallery';
 import { ZoneCardContextMenu, type ZoneType } from './ZoneCardContextMenu';
 import { LandRow } from './LandRow';
-import { expandGroupedTokensForDisplay } from '../utils/expandGroupedTokens';
 import { ZonesPiles } from './ZonesPiles';
 import { FreeField } from './FreeField';
 import { DeckManagerModal } from './DeckManagerModal';
@@ -1303,9 +1302,9 @@ export function TableLayout(props: {
                 const lands = splitLands ? perms.filter(x => isLandTypeLine((x.card as any)?.type_line)) : [];
                 // Separate mana sources (mana rocks/dorks) from other permanents
                 const nonLands = splitLands ? perms.filter(x => !isLandTypeLine((x.card as any)?.type_line)) : perms;
-                // Expand TokenOptimization groups so each Vibranium/Powerstone/etc.
-                // stays visible in the mana-source row (grouping is emit-only; BF still has all).
-                const manaSources = expandGroupedTokensForDisplay(nonLands.filter(x => isManaSource(x)));
+                // Keep TokenOptimization groups collapsed in the mana-source row.
+                // Server cast/equip/activate and ward payment resolve group_* refs to real members.
+                const manaSources = nonLands.filter(x => isManaSource(x));
                 // Separate tokens from non-token permanents (tokens have isToken: true)
                 const nonManaSourceNonLands = nonLands.filter(x => !isManaSource(x));
                 const tokens = nonManaSourceNonLands.filter(x => x.isToken === true);

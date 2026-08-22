@@ -140,3 +140,39 @@ describe('discard and targeted trigger detection', () => {
     expect(triggers.length).toBeGreaterThan(0);
   });
 });
+
+describe('Equipment create-then-attach ETB (Midnight Angel Armor)', () => {
+  it('emits a single self-ETB and not this_equipment_etb / job_select', () => {
+    const triggers = detectETBTriggers({
+      name: 'Midnight Angel Armor',
+      type_line: 'Artifact — Equipment',
+      oracle_text:
+        'When this Equipment enters, create a 1/1 white Soldier creature token, then attach this Equipment to it.\nEquipped creature gets +3/+3 and has flying and vigilance.\nEquip {3}',
+    }, permanent);
+    const selfCreateAttach = triggers.filter((t) =>
+      /create a 1\/1 white Soldier creature token/i.test(String(t.effect || t.description || ''))
+      && /attach/i.test(String(t.effect || t.description || '')),
+    );
+    expect(selfCreateAttach).toHaveLength(1);
+    expect(selfCreateAttach[0]?.triggerType).toBe('etb');
+    expect(triggers.some((t) => t.triggerType === 'this_equipment_etb')).toBe(false);
+    expect(triggers.some((t) => t.triggerType === 'job_select')).toBe(false);
+    expect(triggers.some((t) => t.triggerType === 'living_weapon')).toBe(false);
+  });
+
+  it('still registers Job select keyword and Living weapon keyword', () => {
+    const job = detectETBTriggers({
+      name: 'Sample Job Select',
+      type_line: 'Artifact — Equipment',
+      oracle_text: 'Job select\nEquipped creature gets +1/+1\nEquip {2}',
+    }, permanent);
+    expect(job.some((t) => t.triggerType === 'job_select')).toBe(true);
+
+    const living = detectETBTriggers({
+      name: 'Sample Living Weapon',
+      type_line: 'Artifact — Equipment',
+      oracle_text: 'Living weapon\nEquipped creature gets +1/+1\nEquip {2}',
+    }, permanent);
+    expect(living.some((t) => t.triggerType === 'living_weapon')).toBe(true);
+  });
+});

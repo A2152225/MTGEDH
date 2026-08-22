@@ -762,8 +762,10 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   }
   
   // Job Select (Final Fantasy set)
-  const hasJobSelect = lowerOracle.includes('job select') || 
-    (lowerOracle.includes('create') && lowerOracle.includes('hero') && lowerOracle.includes('token') && lowerOracle.includes('attach'));
+  // Only Job Select keyword or explicit Hero-token reminder — not generic create+attach equipment ETBs.
+  const hasJobSelect = lowerOracle.includes('job select') ||
+    (/create a 1\/1 colorless hero creature token/i.test(oracleText) &&
+      /attach this(?: equipment)? to it/i.test(oracleText));
   if (hasJobSelect && !triggers.some(t => t.triggerType === 'job_select')) {
     triggers.push({
       permanentId,

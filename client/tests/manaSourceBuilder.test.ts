@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildAvailableManaSourcesForPlayer, buildSuggestedPaymentItems } from '../src/utils/manaSourceBuilder';
+import {
+  buildAvailableManaSourcesForPlayer,
+  buildSuggestedPaymentItems,
+  collapseIdenticalManaSources,
+  createSuggestedPaymentItemsFromSource,
+} from '../src/utils/manaSourceBuilder';
 import type { ManaPaymentSource } from '../src/utils/manaUtils';
 
 describe('buildSuggestedPaymentItems', () => {
@@ -255,5 +260,130 @@ describe('buildSuggestedPaymentItems', () => {
       .filter((item) => item.mana === 'W' && !String(item.permanentId).startsWith('__pool__'))
       .reduce((sum, item) => sum + Number(item.count || 1), 0);
     expect(Number(whitePool?.count || 0) + whiteFromTaps).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('mana source quantity stacks', () => {
+  it('sets availableQuantity from grouped Vibranium tokenCount / groupedTokenIds', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [
+      {
+        id: 'group_vib_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        isGroupedTokens: true,
+        tokenCount: 5,
+        groupedTokenIds: ['vib_1', 'vib_2', 'vib_3', 'vib_4', 'vib_5'],
+        card: {
+          id: 'vibranium_card',
+          name: 'Vibranium',
+          type_line: 'Artifact Token',
+          oracle_text: '{T}: Add {C}.',
+        },
+      },
+    ] as any);
+
+    const vib = sources.find((source) => source.name === 'Vibranium');
+    expect(vib).toBeTruthy();
+    expect(vib?.availableQuantity).toBe(5);
+    expect(sources.filter((source) => source.name === 'Vibranium')).toHaveLength(1);
+  });
+
+  it('collapses identical ungrouped Powerstone tokens into one quantity row', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [
+      {
+        id: 'ps_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'powerstone_card',
+          name: 'Powerstone',
+          type_line: 'Artifact Token',
+          oracle_text: '{T}: Add {C}.',
+        },
+      },
+      {
+        id: 'ps_2',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'powerstone_card',
+          name: 'Powerstone',
+          type_line: 'Artifact Token',
+          oracle_text: '{T}: Add {C}.',
+        },
+      },
+      {
+        id: 'ps_3',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'powerstone_card',
+          name: 'Powerstone',
+          type_line: 'Artifact Token',
+          oracle_text: '{T}: Add {C}.',
+        },
+      },
+    ] as any);
+
+    const powerstones = sources.filter((source) => source.name === 'Powerstone');
+    expect(powerstones).toHaveLength(1);
+    expect(powerstones[0].availableQuantity).toBe(3);
+    expect(powerstones[0].stackPermanentIds).toEqual(['ps_1', 'ps_2', 'ps_3']);
+  });
+
+  it('suggests qty>1 from a Vibranium group for generic mana and emits N group_* payment rows', () => {
+    const sources: ManaPaymentSource[] = [
+      {
+        id: 'group_vib::native_c',
+        sourcePermanentId: 'group_vib',
+        abilityId: 'native_c',
+        name: 'Vibranium',
+        options: ['C'],
+        availableQuantity: 5,
+      },
+      { id: 'forest_1', sourcePermanentId: 'forest_1', name: 'Forest', options: ['G'] },
+    ];
+
+    const items = buildSuggestedPaymentItems(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 3,
+        hybrids: [],
+      },
+      sources,
+      new Set(),
+    );
+
+    const vibItems = items.filter((item) => item.permanentId === 'group_vib');
+    expect(vibItems).toHaveLength(3);
+    expect(vibItems.every((item) => item.mana === 'C')).toBe(true);
+    expect(vibItems.every((item) => (item.count ?? 1) === 1)).toBe(true);
+    expect(vibItems.every((item) => item.paymentSourceId === 'group_vib::native_c')).toBe(true);
+  });
+
+  it('does not treat Sol Ring multi-mana amount as a quantity stack', () => {
+    const collapsed = collapseIdenticalManaSources([
+      {
+        id: 'sol::native',
+        sourcePermanentId: 'sol',
+        name: 'Sol Ring',
+        options: ['C', 'C'],
+        amount: 2,
+      },
+    ]);
+    expect(collapsed).toHaveLength(1);
+    expect(collapsed[0].availableQuantity).toBeUndefined();
+
+    const items = createSuggestedPaymentItemsFromSource(
+      'sol::native',
+      { color: 'C', count: 2 },
+      new Map([['sol::native', collapsed[0]]]),
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0].count).toBe(2);
   });
 });

@@ -9738,18 +9738,12 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     });
   }
 
-  const thisEquipmentEtbMatch = oracleText.match(/when(?:ever)? this equipment enters(?: the battlefield)?,?\s*([^.]+)/i);
-  if (thisEquipmentEtbMatch && !triggers.some((t) => t.triggerType === 'this_equipment_etb')) {
-    const effectText = timingTriggerEffect(oracleText, thisEquipmentEtbMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'this_equipment_etb',
-      description: effectText,
-      effect: effectText,
-      mandatory: !effectText.toLowerCase().includes('you may'),
-    });
-  }
+  // "When this Equipment enters…" is already covered by ETB_STATIC_ALTERNATIVES
+  // ("this equipment") → triggerType 'etb'. Do NOT also emit this_equipment_etb
+  // or Living Weapon / Job Select / Midnight Angel Armor-style clauses double-fire
+  // (G1: etb + this_equipment_etb both ran Oracle IR create+attach).
+  // Keep detection commented for grep/historical reference only.
+  // const thisEquipmentEtbMatch = oracleText.match(/when(?:ever)? this equipment enters(?: the battlefield)?,?\s*([^.]+)/i);
 
   const thisOrAnotherTypedEtbMatch = oracleText.match(
     /whenever this creature or another ([\w]+) you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
@@ -9968,7 +9962,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     )
     ?? etbMatches[0]
     ?? null;
-  if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'self_enters_or_attacks' || t.triggerType === 'self_enters_or_leaves' || t.triggerType === 'etb_sacrifice_unless_pay')) {
+  if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'self_enters_or_attacks' || t.triggerType === 'self_enters_or_leaves' || t.triggerType === 'etb_sacrifice_unless_pay' || t.triggerType === 'this_equipment_etb' || t.triggerType === 'job_select' || t.triggerType === 'living_weapon')) {
     let effectText = timingTriggerEffect(oracleText, etbMatch);
     const fullMatchText = String(etbMatch[0] || '');
     const isSelfEntersOrAttacks = /\bor\s+attacks\b/i.test(fullMatchText);
@@ -10712,8 +10706,12 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   
   // Job Select (Final Fantasy set) - When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.
   // Pattern: "Job select" or "job select" (keyword)
-  const hasJobSelect = lowerOracle.includes('job select') || 
-    (lowerOracle.includes('create') && lowerOracle.includes('hero') && lowerOracle.includes('token') && lowerOracle.includes('attach'));
+  // Only Job Select keyword or explicit Hero-token living-weapon-style reminder.
+  // Do NOT treat "create a … Soldier/Rebel/… token, then attach" as Job Select
+  // (Midnight Angel Armor / For Mirrodin! / generic equipment ETBs).
+  const hasJobSelect = lowerOracle.includes('job select') ||
+    (/create a 1\/1 colorless hero creature token/i.test(oracleText) &&
+      /attach this(?: equipment)? to it/i.test(oracleText));
   if (hasJobSelect && !triggers.some(t => t.triggerType === 'job_select')) {
     triggers.push({
       permanentId,

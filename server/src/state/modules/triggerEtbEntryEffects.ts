@@ -380,6 +380,7 @@ export function queueSelfETBTriggersForPermanent(
 
   const selfETBTriggerTypes = new Set([
     'etb',
+    'this_equipment_etb',
     'self_enters_or_attacks',
     'etb_modal_choice',
     'job_select',
@@ -394,6 +395,10 @@ export function queueSelfETBTriggersForPermanent(
     'hideaway_etb',
   ]);
   const allTriggers = getETBTriggersForPermanent(permanent.card, permanent);
+  // Suppress duplicate self-ETB stack items that describe the same clause
+  // (e.g. legacy this_equipment_etb + generic etb for Living Weapon / Job Select /
+  // Midnight Angel Armor "create … token, then attach").
+  const queuedSelfEtbEffectKeys = new Set<string>();
   for (const trigger of allTriggers) {
     const triggerAny = trigger as any;
     const triggerType = String((trigger as any)?.triggerType || '').trim();
@@ -426,6 +431,11 @@ export function queueSelfETBTriggersForPermanent(
     }
 
     const raw = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+    const effectDedupeKey = raw.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (effectDedupeKey && queuedSelfEtbEffectKeys.has(effectDedupeKey)) {
+      continue;
+    }
+    if (effectDedupeKey) queuedSelfEtbEffectKeys.add(effectDedupeKey);
     let textForEval = raw;
     if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
       textForEval = `When ~ enters the battlefield, ${textForEval}`;

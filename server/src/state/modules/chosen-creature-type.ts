@@ -5,8 +5,21 @@
 import type { ManaRestrictionType } from '../../../../shared/src/index.js';
 import { cardHasCreatureType, permanentHasCreatureTypeNow } from '../creatureTypeNow.js';
 
+/** Living Weapon / Job Select / For Mirrodin! / Midnight Angel Armor-style equipment ETB. */
+export function isEquipmentCreateTokenThenAttachOracle(oracleText: string): boolean {
+  const oracle = String(oracleText || '');
+  return /when(?:ever)? this equipment enters(?: the battlefield)?,?\s*create a .+? creature token,?\s*then attach this(?: equipment)? to it/i.test(oracle)
+    || /\bliving weapon\b/i.test(oracle)
+    || /\bjob select\b/i.test(oracle)
+    || /\bfor mirrodin!?\b/i.test(oracle);
+}
+
 export function isEtbCreatureTypeChoiceOracle(oracleText: string): boolean {
   const oracle = String(oracleText || '');
+  // Never treat "create a … TYPE creature token, then attach" as an as-enters type choice.
+  if (isEquipmentCreateTokenThenAttachOracle(oracle)) {
+    return false;
+  }
   if (/as .+? enters(?: the battlefield)?,?\s+choose a creature type/i.test(oracle)) {
     return true;
   }

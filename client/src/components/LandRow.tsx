@@ -6,7 +6,6 @@ import { CardContextMenu } from './CardContextMenu';
 import { AbilitySelectionModal } from './AbilitySelectionModal';
 import { parseActivatedAbilities, getActivatedAbilityActivationStatus, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
-import { expandGroupedTokensForDisplay } from '../utils/expandGroupedTokens';
 
 function canonicalLandKey(typeLine?: string, name?: string) {
   const tl = (typeLine || '').toLowerCase();
@@ -126,11 +125,14 @@ export function LandRow(props: {
     appearanceSettings,
   } = props;
 
-  const items = useMemo(() => expandGroupedTokensForDisplay(lands).map(p => {
+  const items = useMemo(() => lands.map(p => {
     const kc = p.card as KnownCardRef;
     const { baseP, baseT, p: dispP, t: dispT } = getEffectivePT(p);
     const isCreature = (kc?.type_line || '').toLowerCase().includes('creature');
     const colors = ptBadgeColors(baseP, baseT, dispP, dispT);
+    const isGroupedTokens = (p as any).isGroupedTokens === true;
+    const tokenCount = (p as any).tokenCount as number | undefined;
+    const isToken = (p as any).isToken === true;
     return {
       id: p.id,
       name: kc?.name || p.id,
@@ -146,6 +148,9 @@ export function LandRow(props: {
       dispP,
       dispT,
       colors,
+      isGroupedTokens,
+      tokenCount,
+      isToken,
     };
   }), [lands, imagePref]);
 
@@ -304,11 +309,40 @@ export function LandRow(props: {
               <div title={it.name} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
             </div>
 
+            {/* Token count badge - keep TokenOptimization groups collapsed (same as FreeField) */}
+            {((it.isGroupedTokens && it.tokenCount && it.tokenCount > 1) || (it.isToken && it.tokenCount && it.tokenCount > 1)) && (
+              <div style={{
+                position: 'absolute',
+                top: 6,
+                left: 6,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: 24,
+                height: 20,
+                padding: '2px 6px',
+                borderRadius: 10,
+                background: 'linear-gradient(135deg, rgba(147,51,234,0.95), rgba(126,34,206,0.95))',
+                border: '2px solid rgba(255,255,255,0.4)',
+                boxShadow: '0 2px 8px rgba(147,51,234,0.6), inset 0 1px 0 rgba(255,255,255,0.2)',
+                zIndex: 25,
+              }}>
+                <span style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: '#fff',
+                  textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                }}>
+                  {it.tokenCount}x
+                </span>
+              </div>
+            )}
+
             {/* Tapped badge */}
             {it.tapped && (
               <div style={{
                 position: 'absolute',
-                top: 6,
+                top: ((it.isGroupedTokens && it.tokenCount && it.tokenCount > 1) || (it.isToken && it.tokenCount && it.tokenCount > 1)) ? 30 : 6,
                 left: 6,
                 background: 'rgba(0,0,0,0.6)',
                 color: '#fff',
