@@ -51,6 +51,8 @@ export interface ManaPaymentSource {
    * Grouped `group_*` sources omit this and repeat sourcePermanentId (server usedIds resolves members).
    */
   stackPermanentIds?: string[];
+  /** When true, never collapse this row with otherwise-identical sources (e.g. Fertile Ground land). */
+  keepSeparate?: boolean;
   consumable?: boolean;
   sacrificeCost?: ManaSourceSacrificeCost;
 }

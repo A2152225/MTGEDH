@@ -365,6 +365,119 @@ describe('mana source quantity stacks', () => {
     expect(vibItems.every((item) => item.paymentSourceId === 'group_vib::native_c')).toBe(true);
   });
 
+
+  it('keeps attachment-modified lands separate from identical unmodified lands', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [
+      {
+        id: 'plains_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'plains_card',
+          name: 'Plains',
+          type_line: 'Basic Land — Plains',
+          oracle_text: '{T}: Add {W}.',
+        },
+      },
+      {
+        id: 'plains_2',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'plains_card',
+          name: 'Plains',
+          type_line: 'Basic Land — Plains',
+          oracle_text: '{T}: Add {W}.',
+        },
+      },
+      {
+        id: 'plains_fertile',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        attachments: ['fertile_1'],
+        card: {
+          id: 'plains_card',
+          name: 'Plains',
+          type_line: 'Basic Land — Plains',
+          oracle_text: '{T}: Add {W}.',
+        },
+      },
+      {
+        id: 'fertile_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        attachedTo: 'plains_fertile',
+        card: {
+          id: 'fertile_card',
+          name: 'Fertile Ground',
+          type_line: 'Enchantment — Aura',
+          oracle_text: 'Enchant land\nWhenever enchanted land is tapped for mana, its controller adds one mana of any color.',
+        },
+      },
+    ] as any);
+
+    const plainsRows = sources.filter((source) => source.name === 'Plains');
+    expect(plainsRows).toHaveLength(2);
+
+    const stacked = plainsRows.find((source) => (source.availableQuantity || 1) > 1);
+    const separate = plainsRows.find((source) => source.sourcePermanentId === 'plains_fertile');
+    expect(stacked?.availableQuantity).toBe(2);
+    expect(stacked?.stackPermanentIds).toEqual(['plains_1', 'plains_2']);
+    expect(separate?.keepSeparate).toBe(true);
+    expect(separate?.availableQuantity).toBeUndefined();
+  });
+
+  it('keeps lands separate when attachment is only linked via attachedTo', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [
+      {
+        id: 'forest_a',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'forest_card',
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '{T}: Add {G}.',
+        },
+      },
+      {
+        id: 'forest_b',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'forest_card',
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '{T}: Add {G}.',
+        },
+      },
+      {
+        id: 'wild_growth',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        attachedTo: 'forest_b',
+        card: {
+          id: 'wg_card',
+          name: 'Wild Growth',
+          type_line: 'Enchantment — Aura',
+          oracle_text: 'Enchant land\nWhenever enchanted land is tapped for mana, its controller adds {G}.',
+        },
+      },
+    ] as any);
+
+    const forestRows = sources.filter((source) => source.name === 'Forest');
+    expect(forestRows).toHaveLength(2);
+    expect(forestRows.some((source) => source.sourcePermanentId === 'forest_b' && source.keepSeparate)).toBe(true);
+    expect(forestRows.some((source) => source.sourcePermanentId === 'forest_a' && (source.availableQuantity || 1) === 1)).toBe(true);
+  });
+
   it('does not treat Sol Ring multi-mana amount as a quantity stack', () => {
     const collapsed = collapseIdenticalManaSources([
       {

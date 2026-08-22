@@ -565,8 +565,16 @@ function getGroupedTokenUsableQuantity(perm: BattlefieldPermanent): number {
   return tokenCount > 1 ? Math.floor(tokenCount) : 1;
 }
 
+function permanentHasAttachments(perm: BattlefieldPermanent, battlefield: BattlefieldPermanent[]): boolean {
+  const listed = (perm as { attachments?: unknown }).attachments;
+  if (Array.isArray(listed) && listed.length > 0) return true;
+  const permId = String(perm.id || '').trim();
+  if (!permId) return false;
+  return battlefield.some((candidate) => String((candidate as { attachedTo?: string }).attachedTo || '').trim() === permId);
+}
 function buildManaSourceStackKey(source: ManaPaymentSource): string | null {
   // Do not collapse sacrifice / consumable / multi-instance sacrifice repeats.
+  if (source.keepSeparate) return null;
   if (source.sacrificeCost) return null;
   if (source.consumable) return null;
   if (String(source.id || '').includes('#')) return null;
@@ -712,6 +720,7 @@ function buildInlineManaSourcesForPermanent(
 
     for (let index = 0; index < instanceCount; index += 1) {
       const sourceId = instanceCount > 1 ? `${sourceBaseId}#${index}` : sourceBaseId;
+      const keepSeparate = permanentHasAttachments(perm, globalBattlefield);
       sources.push({
         id: sourceId,
         sourcePermanentId: actualSourceId,
@@ -724,6 +733,7 @@ function buildInlineManaSourcesForPermanent(
         ...(sacrificeCost ? { sacrificeCost } : {}),
         ...(computedAmount > 1 ? { amount: computedAmount } : {}),
         ...(groupedQuantity > 1 ? { availableQuantity: groupedQuantity } : {}),
+        ...(keepSeparate ? { keepSeparate: true } : {}),
       });
     }
   }
