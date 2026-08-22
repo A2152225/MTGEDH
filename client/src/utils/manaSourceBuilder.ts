@@ -10,6 +10,7 @@ import { canCreatureUseTapAbilityNow } from './creatureUtils';
 import {
   calculateRemainingCostAfterFloatingMana,
   calculateSuggestedPayment,
+  type RestrictedManaSpendPurpose,
   getTotalManaProduction,
   type ManaPool,
   type ManaPaymentSource,
@@ -761,9 +762,10 @@ export function buildSuggestedPaymentItems(
   sources: ManaPaymentSource[],
   colorsToPreserve: Set<ManaColor>,
   floatingMana?: ManaPool,
-  options?: { includeExplicitPoolItems?: boolean },
+  options?: { includeExplicitPoolItems?: boolean; purpose?: RestrictedManaSpendPurpose | null },
 ): PaymentItem[] {
-  const { colors, generic, hybrids, usedFromPool } = calculateRemainingCostAfterFloatingMana(cost, floatingMana);
+  const purpose = options?.purpose;
+  const { colors, generic, hybrids, usedFromPool } = calculateRemainingCostAfterFloatingMana(cost, floatingMana, purpose);
   const includeExplicitPoolItems = options?.includeExplicitPoolItems === true;
   const sourcesForSuggestion = includeExplicitPoolItems
     ? sources.filter((source) => !String(source.id || '').startsWith('__pool__'))
@@ -773,6 +775,7 @@ export function buildSuggestedPaymentItems(
     sourcesForSuggestion,
     colorsToPreserve,
     undefined,
+    purpose,
   );
 
   const sourceById = new Map(sources.map((source) => [source.id, source]));

@@ -203,6 +203,79 @@ describe('prompt response replay sweep', () => {
     ResolutionQueueManager.removeQueue(gameId);
   });
 
+  it('replays commanderZoneChoice moveToCommandZone by clearing BF ghosts and restoring CZ', () => {
+    const gameId = 't_commander_zone_choice_to_cz_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    const commanderCard = {
+      id: 'cmd_bf_1',
+      name: "T'Challa, the Pride's Hope",
+      type_line: 'Legendary Creature — Human Warrior',
+      mana_cost: '{1}{G}{W}',
+    };
+
+    (game.state as any).commandZone = {
+      [p1]: {
+        commanderIds: ['cmd_bf_1'],
+        commanderNames: [commanderCard.name],
+        commanderCards: [{ ...commanderCard }],
+        inCommandZone: [],
+        tax: 0,
+        taxById: { cmd_bf_1: 0 },
+      },
+    };
+
+    (game.state as any).battlefield = [
+      {
+        id: 'perm_cmd_bf_1',
+        controller: p1,
+        owner: p1,
+        isCommander: true,
+        card: { ...commanderCard },
+      },
+      {
+        id: 'perm_other',
+        controller: p1,
+        owner: p1,
+        card: { id: 'other_1', name: 'Bast, Panther Goddess', type_line: 'Legendary Creature' },
+      },
+    ];
+    (game.state as any).stack = [
+      {
+        type: 'ability',
+        id: 'trig_1',
+        sourceCard: { ...commanderCard },
+        sourceName: commanderCard.name,
+      },
+    ];
+
+    const zones = (game.state as any).zones[p1];
+    zones.graveyard = [];
+    zones.commandZone = [];
+    zones.commandZoneCount = 0;
+
+    game.applyEvent({
+      type: 'commanderZoneChoice',
+      playerId: p1,
+      commanderId: 'cmd_bf_1',
+      commanderName: commanderCard.name,
+      moveToCommandZone: true,
+      destinationZone: 'graveyard',
+      card: { ...commanderCard },
+    } as any);
+
+    expect((game.state as any).commandZone[p1].inCommandZone).toContain('cmd_bf_1');
+    expect((game.state as any).battlefield.some((p: any) => p.card?.id === 'cmd_bf_1' || p.id === 'cmd_bf_1')).toBe(false);
+    expect((game.state as any).battlefield.some((p: any) => p.id === 'perm_other')).toBe(true);
+    expect((zones.commandZone || []).some((c: any) => c.id === 'cmd_bf_1')).toBe(true);
+    // Trigger abilities sourced from the commander should remain (not treated as the commander spell).
+    expect(((game.state as any).stack || []).some((s: any) => s.id === 'trig_1')).toBe(true);
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
   it('replays mayAbilityResolve by clearing the resolved may prompt', () => {
     const gameId = 't_may_ability_resolve_replay';
     ResolutionQueueManager.removeQueue(gameId);

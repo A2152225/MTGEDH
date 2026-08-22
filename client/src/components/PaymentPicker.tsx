@@ -4,11 +4,14 @@ import {
   Color,
   MANA_COLORS,
   parseManaCost,
+  applyXValueToParsedCost,
   paymentToPool,
   canPayCost,
   computeColorsNeededByOtherCards,
   calculateSuggestedPayment,
   calculateRemainingCostAfterFloatingMana,
+  canUseRestrictedManaClient,
+  buildRestrictedManaPurposeForSpell,
   getTotalManaProduction,
   type ManaPaymentSource,
   type SuggestedPaymentSelection,
@@ -98,6 +101,8 @@ export interface PaymentPickerProps {
   onChange: (next: PaymentItem[]) => void;
   otherCardsInHand?: OtherCardInfo[];
   floatingMana?: ManaPool;
+  typeLine?: string;
+  isActivatedAbilityPayment?: boolean;
   // Convoke support
   hasConvoke?: boolean;
   convokeCreatures?: ConvokeCreature[];
@@ -122,6 +127,8 @@ export function PaymentPicker(props: PaymentPickerProps) {
     onChange, 
     otherCardsInHand = [], 
     floatingMana,
+  typeLine,
+  isActivatedAbilityPayment = false,
     hasConvoke = false,
     convokeCreatures = [],
     chosenConvokeCreatures = [],
@@ -132,10 +139,9 @@ export function PaymentPicker(props: PaymentPickerProps) {
   } = props;
 
   const parsed = useMemo(() => parseManaCost(manaCost), [manaCost]);
-  // For XX costs, multiply xValue by the number of X's (xCount)
-  // Example: {X}{X}{G} with xValue=7 means you pay 14 generic + G to create 7 tokens
-  const xMultiplier = parsed.xCount || 1;
-  const cost = useMemo(() => ({ colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(xValue || 0) * xMultiplier), hybrids: parsed.hybrids }), [parsed, xValue, xMultiplier]);
+  // Fold X into generic only while {X} symbols remain. Payment steps often pass an
+  // already-expanded cost ({10}{W}{W}) with xValue still set; do not double-count.
+  const cost = useMemo(() => applyXValueToParsedCost(parsed, xValue), [parsed, xValue]);
   
   // Calculate remaining cost after floating mana
   const floatingSources = useMemo(() => {
@@ -171,14 +177,16 @@ export function PaymentPicker(props: PaymentPickerProps) {
       colorless: 'C',
     };
     if (floatingMana.restricted) {
+      const restrictedPurpose = (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' }));
       floatingMana.restricted.forEach((entry, restrictedIndex) => {
+        if (!canUseRestrictedManaClient(entry as any, restrictedPurpose)) return;
         const poolKey = String(entry.type || 'colorless');
-        const symbol = manaSymbols[poolKey] || 'C';
+        const symbol = ({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G', colorless: 'C' } as Record<string, string>)[poolKey] || 'C';
         const amount = Number(entry.amount || 0);
         if (amount <= 0) return;
         entries.push({
           id: `__pool__:restricted:${restrictedIndex}`,
-          name: `Restricted {${symbol}} ×${amount.toLocaleString()}`,
+          name: `Restricted {${symbol}} x${amount.toLocaleString()}`,
           options: [symbol],
           amount,
         });
@@ -203,7 +211,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
       };
     }
 
-    return calculateRemainingCostAfterFloatingMana(cost, floatingMana);
+    return calculateRemainingCostAfterFloatingMana(cost, floatingMana, (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' })));
   }, [cost, floatingMana, manualFloatingManaSelection]);
   const costForPayment = useMemo(() => ({ 
     colors: costAfterFloating, 
@@ -243,7 +251,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
   const suggestedPayment = useMemo(() => {
     if (chosen.length > 0) return new Map<string, SuggestedPaymentSelection>();
     const costForSuggestion = manualFloatingManaSelection
-      ? calculateRemainingCostAfterFloatingMana(cost, floatingMana)
+      ? calculateRemainingCostAfterFloatingMana(cost, floatingMana, (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' })))
       : { colors: cost.colors, generic: cost.generic, hybrids: cost.hybrids };
     return calculateSuggestedPayment(
       {
@@ -353,6 +361,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
     onChange(
       buildSuggestedPaymentItems(cost, sourcesEligibleForSuggestion, colorsToPreserve, floatingMana, {
         includeExplicitPoolItems: manualFloatingManaSelection,
+        purpose: (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' })),
       }),
     );
   };

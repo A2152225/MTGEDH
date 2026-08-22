@@ -22,6 +22,7 @@ import { AttachmentLines } from './AttachmentLines';
 import { HandGallery } from './HandGallery';
 import { ZoneCardContextMenu, type ZoneType } from './ZoneCardContextMenu';
 import { LandRow } from './LandRow';
+import { expandGroupedTokensForDisplay } from '../utils/expandGroupedTokens';
 import { ZonesPiles } from './ZonesPiles';
 import { FreeField } from './FreeField';
 import { DeckManagerModal } from './DeckManagerModal';
@@ -872,16 +873,57 @@ export function TableLayout(props: {
     ability?: ParsedActivatedAbility,
     xValue?: number,
   ) => {
-    if (!gameId) return;
+    if (!gameId) {
+      window.alert('Cannot activate ability: game id missing.');
+      return;
+    }
 
     const normalizedAbilityId = typeof abilityId === 'number' ? String(abilityId) : (abilityId || '0');
+    if (!normalizedAbilityId) {
+      window.alert('Cannot activate ability: missing ability id.');
+      return;
+    }
+
+    // Prefer the caller's permanentId (expanded real member id). If the client still
+    // holds a group_* / virtual ref, map to a real groupedTokenIds member when present.
+    let emitPermanentId = String(permanentId || '');
+    const direct = allBattlefieldPerms.find((entry) => entry.id === emitPermanentId);
+    if (!direct) {
+      const groupHit = allBattlefieldPerms.find((entry) => {
+        const ids = (entry as any)?.groupedTokenIds;
+        return Array.isArray(ids) && ids.some((id: unknown) => String(id) === emitPermanentId);
+      });
+      if (groupHit && Array.isArray((groupHit as any).groupedTokenIds)) {
+        // Keep the real member id for emit — server BF has individuals, not group_*.
+        emitPermanentId = emitPermanentId;
+      } else if (emitPermanentId.includes('_virtual_') || emitPermanentId.startsWith('group_')) {
+        const group = allBattlefieldPerms.find((entry) => {
+          if (String(entry.id) === emitPermanentId) return true;
+          if (emitPermanentId.startsWith(String(entry.id) + '_virtual_')) return true;
+          if (String(entry.id) === emitPermanentId.replace(/_virtual_\d+$/, '')) return true;
+          return false;
+        });
+        const ids = (group as any)?.groupedTokenIds as string[] | undefined;
+        if (Array.isArray(ids) && ids.length > 0) {
+          const virtualMatch = emitPermanentId.match(/_virtual_(\d+)$/);
+          const idx = virtualMatch ? Number.parseInt(virtualMatch[1], 10) : 0;
+          emitPermanentId = String(ids[Math.min(Math.max(idx, 0), ids.length - 1)] || ids[0]);
+        }
+      }
+    }
+
     let resolvedAbility = ability;
     if (!resolvedAbility) {
-      const perm = allBattlefieldPerms.find((entry) => entry.id === permanentId);
+      const perm =
+        allBattlefieldPerms.find((entry) => entry.id === emitPermanentId)
+        || allBattlefieldPerms.find((entry) => {
+          const ids = (entry as any)?.groupedTokenIds;
+          return Array.isArray(ids) && ids.some((id: unknown) => String(id) === emitPermanentId);
+        });
       const card = perm?.card as KnownCardRef | undefined;
       if (card) {
         resolvedAbility = parseActivatedAbilities(card, (perm as any)?.grantedAbilities, {
-          permanent: perm,
+          permanent: { ...(perm as any), id: emitPermanentId },
           battlefield: allBattlefieldPerms,
         }).find((entry) => entry.id === normalizedAbilityId);
       }
@@ -889,9 +931,9 @@ export function TableLayout(props: {
     if (xValue === undefined && resolvedAbility?.hasXCost) {
       const xCount = Math.max(1, Number(resolvedAbility.xCount || 1));
       setPendingXActivation({
-        permanentId,
+        permanentId: emitPermanentId,
         abilityId: normalizedAbilityId,
-        cardName: battlefieldCardNames.get(permanentId) || resolvedAbility.label || 'Activated Ability',
+        cardName: battlefieldCardNames.get(emitPermanentId) || battlefieldCardNames.get(String(permanentId)) || resolvedAbility.label || 'Activated Ability',
         abilityText: resolvedAbility.effect || resolvedAbility.description,
         xCount,
         affordableXHint: totalFloatingMana > 0 ? Math.floor(totalFloatingMana / xCount) : undefined,
@@ -899,9 +941,10 @@ export function TableLayout(props: {
       return;
     }
 
+    // Always emit — even if the permanent is not in the emit-side grouped snapshot.
     socket.emit('activateBattlefieldAbility', {
       gameId,
-      permanentId,
+      permanentId: emitPermanentId,
       abilityId: normalizedAbilityId,
       xValue,
     });
@@ -1260,7 +1303,9 @@ export function TableLayout(props: {
                 const lands = splitLands ? perms.filter(x => isLandTypeLine((x.card as any)?.type_line)) : [];
                 // Separate mana sources (mana rocks/dorks) from other permanents
                 const nonLands = splitLands ? perms.filter(x => !isLandTypeLine((x.card as any)?.type_line)) : perms;
-                const manaSources = nonLands.filter(x => isManaSource(x));
+                // Expand TokenOptimization groups so each Vibranium/Powerstone/etc.
+                // stays visible in the mana-source row (grouping is emit-only; BF still has all).
+                const manaSources = expandGroupedTokensForDisplay(nonLands.filter(x => isManaSource(x)));
                 // Separate tokens from non-token permanents (tokens have isToken: true)
                 const nonManaSourceNonLands = nonLands.filter(x => !isManaSource(x));
                 const tokens = nonManaSourceNonLands.filter(x => x.isToken === true);

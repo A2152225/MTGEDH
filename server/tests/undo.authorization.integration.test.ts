@@ -217,6 +217,93 @@ describe('undo authorization (integration)', () => {
     expect(req!.payload.boundaryPreview?.summary).toContain('Precombat Main');
   });
 
+  
+  it('getUndoTurnPhaseTargets returns earlier phases and survives in-memory restart', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(wrapperGameId, 'commander', 40, undefined, p1);
+    let game = ensureGame(wrapperGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    appendAtBoundary(game, wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
+    appendAtBoundary(game, wrapperGameId, 3, 'playLand', { playerId: p1 }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
+    // Mixed alias stamp vs live restore casing.
+    appendAtBoundary(game, wrapperGameId, 4, 'nextStep', { reason: 'allPlayersPassed' }, {
+      turnNumber: 1,
+      phase: 'combat',
+      step: 'beginCombat',
+    });
+    appendAtBoundary(game, wrapperGameId, 5, 'passPriority', { playerId: p1 }, {
+      turnNumber: 1,
+      phase: 'combat',
+      step: 'BEGIN_COMBAT',
+    });
+
+    // Simulate server restart: drop in-memory game and rebuild from DB events.
+    games.delete(wrapperGameId as any);
+    game = ensureGame(wrapperGameId);
+    if (!game) throw new Error('ensureGame after restart returned undefined');
+    (game.state as any).turnNumber = 1;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'BEGIN_COMBAT';
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(wrapperGameId);
+    (socket.data as any).gameId = wrapperGameId;
+
+    const io = createMockIo(emitted, [socket]);
+    registerUndoHandlers(io as any, socket as any);
+
+    await handlers['getSmartUndoCounts']({ gameId: wrapperGameId });
+    const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
+    expect(smartUpdate).toBeTruthy();
+    // beginCombat + BEGIN_COMBAT must share one step chunk (2 events).
+    expect(smartUpdate!.payload.stepCount).toBe(2);
+    expect(smartUpdate!.payload.phaseCount).toBe(2);
+    expect(smartUpdate!.payload.turnCount).toBe(4);
+
+    await handlers['getUndoTurnPhaseTargets']({ gameId: wrapperGameId });
+    const targetsUpdate = emitted.find(e => e.event === 'undoTurnPhaseTargetsUpdate');
+    expect(targetsUpdate).toBeTruthy();
+    expect(Array.isArray(targetsUpdate!.payload.targets)).toBe(true);
+    expect(targetsUpdate!.payload.targets[0].phase).toMatch(/precombatMain/i);
+    expect(targetsUpdate!.payload.targets[0].eventsToUndo).toBe(4);
+
+    await handlers['requestUndoToTurnPhase']({
+      gameId: wrapperGameId,
+      turnNumber: 1,
+      phase: 'precombatMain',
+    });
+    const req = emitted.find(e => e.room === wrapperGameId && e.event === 'undoRequest');
+    expect(req).toBeTruthy();
+    expect(req!.payload.actionsToUndo).toBe(4);
+  });
+
   it('smart undo counts use persisted boundary metadata when live state matches event stamps', async () => {
     const p1 = 'p1';
     const p2 = 'p2';

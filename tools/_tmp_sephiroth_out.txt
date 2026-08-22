@@ -1,0 +1,11 @@
+FACE: Sephiroth, Fabled SOLDIER
+TEXT:
+Whenever Sephiroth enters or attacks, you may sacrifice another creature. If you do, draw a card.
+Whenever another creature dies, target opponent loses 1 life and you gain 1 life. If this is the fourth time this ability has resolved this turn, transform Sephiroth.
+
+FACE: Sephiroth, One-Winged Angel
+TEXT:
+Flying
+Super Nova — As this creature transforms into Sephiroth, One-Winged Angel, you get an emblem with "Whenever a creature dies, target opponent loses 1 life and you gain 1 life."
+Whenever Sephiroth attacks, you may sacrifice any number of other creatures. If you do, draw that many cards.
+

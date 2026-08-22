@@ -358,9 +358,25 @@ export function CardContextMenu({
                 key={ability.id}
                 style={canUse ? menuItemStyle : disabledStyle}
                 onClick={() => {
-                  if (!canUse) return;
                   const fullAbility = parsedAbilities.find((entry) => entry.id === ability.id);
-                  onActivateAbility?.(permanent.id, ability.id, fullAbility);
+                  if (!canUse) {
+                    // Never silent-return: tell the user why Add {C} / etc. did nothing.
+                    const reason = activationStatus.reason || (!canActivate ? 'Cannot activate now' : 'Ability unavailable');
+                    // Untapped mana abilities should still emit — client gate may be wrong for
+                    // expanded TokenOptimization members; server is authoritative.
+                    if (ability.isManaAbility && !isTapped && onActivateAbility && canActivate) {
+                      onActivateAbility(permanent.id, ability.id, fullAbility);
+                      onClose();
+                      return;
+                    }
+                    window.alert(`${ability.label}: ${reason}`);
+                    return;
+                  }
+                  if (!onActivateAbility) {
+                    window.alert('Cannot activate: no activation handler (game not ready?).');
+                    return;
+                  }
+                  onActivateAbility(permanent.id, ability.id, fullAbility);
                   onClose();
                 }}
                 onMouseEnter={(e) => {

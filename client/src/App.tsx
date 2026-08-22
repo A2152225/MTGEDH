@@ -282,6 +282,8 @@ export function App() {
     cardId: string; 
     cardName: string; 
     manaCost?: string;
+    typeLine?: string;
+    isActivatedAbilityPayment?: boolean;
     fromZone?: 'hand' | 'graveyard' | 'exile' | 'library' | 'command';
     oracleText?: string;  // Oracle text for parsing alternate costs (Overload, Flashback, Surge, etc.)
     forcedAlternateCostId?: string;
@@ -584,6 +586,14 @@ export function App() {
       turn?: UndoBoundaryPreview;
     };
   }>({ stepCount: 0, phaseCount: 0, previousPhaseCount: 0, turnCount: 0, previews: {} });
+
+  const [undoTurnPhaseTargets, setUndoTurnPhaseTargets] = useState<Array<{
+    turnNumber?: number;
+    phase: string;
+    step?: string;
+    label: string;
+    eventsToUndo: number;
+  }>>([]);
   
   // AI control state (for autopilot mode)
   const [aiControlEnabled, setAiControlEnabled] = useState(false);
@@ -2835,6 +2845,21 @@ export function App() {
       }
     };
 
+    const handleUndoTurnPhaseTargetsUpdate = (payload: {
+      gameId: string;
+      targets?: Array<{
+        turnNumber?: number;
+        phase: string;
+        step?: string;
+        label: string;
+        eventsToUndo: number;
+      }>;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setUndoTurnPhaseTargets(Array.isArray(payload.targets) ? payload.targets : []);
+      }
+    };
+
     const handleSmartUndoCountsUpdate = (payload: { 
       gameId: string; 
       stepCount: number; 
@@ -2865,10 +2890,12 @@ export function App() {
 
     socket.on("undoCountUpdate", handleUndoCountUpdate);
     socket.on("smartUndoCountsUpdate", handleSmartUndoCountsUpdate);
+    socket.on("undoTurnPhaseTargetsUpdate", handleUndoTurnPhaseTargetsUpdate);
 
     return () => {
       socket.off("undoCountUpdate", handleUndoCountUpdate);
       socket.off("smartUndoCountsUpdate", handleSmartUndoCountsUpdate);
+      socket.off("undoTurnPhaseTargetsUpdate", handleUndoTurnPhaseTargetsUpdate);
     };
   }, [safeView?.id]);
 
@@ -2927,6 +2954,21 @@ export function App() {
   const handleOpenUndoMenu = React.useCallback(() => {
     if (!safeView?.id) return;
     socket.emit("getSmartUndoCounts", { gameId: safeView.id });
+  }, [safeView?.id]);
+
+  const handleRequestUndoTurnPhaseTargets = React.useCallback(() => {
+    if (!safeView?.id) return;
+    socket.emit("getUndoTurnPhaseTargets", { gameId: safeView.id });
+  }, [safeView?.id]);
+
+  const handleUndoToTurnPhase = React.useCallback((target: { turnNumber?: number; phase: string; step?: string }) => {
+    if (!safeView?.id || !target?.phase) return;
+    socket.emit("requestUndoToTurnPhase", {
+      gameId: safeView.id,
+      turnNumber: target.turnNumber,
+      phase: target.phase,
+      step: target.step,
+    });
   }, [safeView?.id]);
 
   const dismissResolutionStepUi = React.useCallback(() => {
@@ -3390,6 +3432,8 @@ export function App() {
             ? String((step as any).wardPermanentName || (step as any).cardName || step.sourceName || 'Ward')
             : String((step as any).cardName || step.sourceName || 'Spell'),
           manaCost: String((step as any).wardCost || (step as any).manaCost || ''),
+          typeLine: isWardPayment ? undefined : String((step as any).typeLine || (step as any).type_line || ''),
+          isActivatedAbilityPayment: false,
           // Default hand so CastSpellModal hides graveyard-only alts (flashback, etc.)
           // even if a payment step omitted fromZone.
           fromZone: isWardPayment
@@ -3426,6 +3470,8 @@ export function App() {
           cardId: String((step as any).cardId || step.sourceId || ''),
           cardName: String((step as any).cardName || step.sourceName || 'Ability'),
           manaCost: String((step as any).manaCost || ''),
+          typeLine: String((step as any).typeLine || (step as any).type_line || ''),
+          isActivatedAbilityPayment: true,
           oracleText: String((step as any).abilityText || step.description || ''),
           // Explicit empty — do not fall back to Fist of Suns / Omniscience spell alts.
           extraAlternateCosts: [],
@@ -6260,6 +6306,9 @@ export function App() {
             onOpenUndoMenu={handleOpenUndoMenu}
             availableUndoCount={availableUndoCount}
             smartUndoCounts={smartUndoCounts}
+            undoTurnPhaseTargets={undoTurnPhaseTargets}
+            onRequestUndoTurnPhaseTargets={handleRequestUndoTurnPhaseTargets}
+            onUndoToTurnPhase={handleUndoToTurnPhase}
             onRollDie={(sides: number) => socket.emit("rollDie", { gameId: safeView.id, sides })}
             onFlipCoin={() => socket.emit("flipCoin", { gameId: safeView.id })}
             extraActions={isYouPlayer ? (
@@ -7973,6 +8022,8 @@ export function App() {
         open={castSpellModalOpen}
         cardName={spellToCast?.cardName || ''}
         manaCost={spellToCast?.manaCost}
+        typeLine={spellToCast?.typeLine}
+        isActivatedAbilityPayment={spellToCast?.isActivatedAbilityPayment === true}
         castFromZone={spellToCast?.fromZone ?? 'hand'}
         oracleText={spellToCast?.oracleText}
         forcedAlternateCostId={spellToCast?.forcedAlternateCostId}

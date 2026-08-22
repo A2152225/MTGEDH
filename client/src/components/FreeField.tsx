@@ -10,6 +10,7 @@ import { parseActivatedAbilities, canActivateTapAbility, getConditionalManaAbili
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 import { hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
+import { expandGroupedTokensForDisplay } from '../utils/expandGroupedTokens';
 import {
   isCounterPreventingAttack,
   isCounterPreventingBlock,
@@ -404,7 +405,10 @@ export function FreeField(props: {
     const placementEntries: Array<{ id: string; preferred: { x: number; y: number; z?: number } | null }> = [];
     const permMeta = new Map<string, Omit<(typeof placed)[number], 'id' | 'pos' | 'stackIndex' | 'stackTotal' | 'cellX' | 'cellY'>>();
 
-    for (const p of perms) {
+    // Expand emit-side token groups so each real permanent stays visible/tappable.
+    const displayPerms = expandGroupedTokensForDisplay(perms);
+
+    for (const p of displayPerms) {
       const kc = p.card as KnownCardRef;
       const img = kc?.image_uris?.[imagePref] || kc?.image_uris?.normal || kc?.image_uris?.small || null;
       const name = kc?.name || p.id;

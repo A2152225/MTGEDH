@@ -12220,10 +12220,46 @@ export async function handleAIResolutionStep(
               .map((entry: any) => String(entry?.id || ''))
               .filter(Boolean)
           : (costType === 'sacrifice'
-            ? (Array.isArray((step as any)?.availableTargets) ? (step as any).availableTargets : [])
-                .slice(0, amount)
-                .map((entry: any) => String(entry?.id || ''))
-                .filter(Boolean)
+            ? (() => {
+                const targets = Array.isArray((step as any)?.availableTargets)
+                  ? [...(step as any).availableTargets]
+                  : [];
+                const battlefield = Array.isArray((game as any)?.state?.battlefield)
+                  ? (game as any).state.battlefield
+                  : [];
+                const isCommanderTarget = (entry: any): boolean => {
+                  if (entry?.isCommander || entry?.commander === true || entry?.card?.isCommander) return true;
+                  const id = String(entry?.id || '').trim();
+                  if (!id) return false;
+                  const perm = battlefield.find((p: any) => p && String(p.id || '') === id);
+                  if (!perm) return false;
+                  return Boolean(
+                    perm.isCommander
+                    || perm.commander === true
+                    || perm?.card?.isCommander
+                    || perm?.card?.commander
+                    || (Array.isArray((game as any)?.state?.commanders)
+                      && (game as any).state.commanders.some((c: any) => String(c?.permanentId || c?.id || '') === id))
+                  );
+                };
+                // Prefer non-commanders so additional-cost payments do not auto-sac the commander first.
+                targets.sort((a: any, b: any) => {
+                  const aCmd = isCommanderTarget(a) ? 1 : 0;
+                  const bCmd = isCommanderTarget(b) ? 1 : 0;
+                  if (aCmd !== bCmd) return aCmd - bCmd;
+                  const aId = String(a?.id || '');
+                  const bId = String(b?.id || '');
+                  const aPerm = battlefield.find((p: any) => p && String(p.id || '') === aId);
+                  const bPerm = battlefield.find((p: any) => p && String(p.id || '') === bId);
+                  const aCmc = Number(aPerm?.card?.cmc ?? a?.card?.cmc ?? a?.cmc ?? 99);
+                  const bCmc = Number(bPerm?.card?.cmc ?? b?.card?.cmc ?? b?.cmc ?? 99);
+                  return aCmc - bCmc;
+                });
+                return targets
+                  .slice(0, amount)
+                  .map((entry: any) => String(entry?.id || ''))
+                  .filter(Boolean);
+              })()
             : chooseAIAdditionalCostCardIds(game, playerId, step, amount)));
 
         ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedIds));

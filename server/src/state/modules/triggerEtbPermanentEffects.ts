@@ -641,9 +641,12 @@ export function triggerETBEffectsForPermanent(
     })),
   ).map((entry: any) => entry.stackItem);
 
-  for (const stackItem of orderedExternalEtbTriggers) {
-    state.stack.push(stackItem);
-    persistTriggeredAbilityPush(ctx, stackItem);
+  // During replay, persisted pushTriggeredAbility events restore these triggers.
+  if (!(ctx as any).isReplaying) {
+    for (const stackItem of orderedExternalEtbTriggers) {
+      state.stack.push(stackItem);
+      persistTriggeredAbilityPush(ctx, stackItem);
+    }
   }
 
   queueTemporaryEtbTriggersForEntry(ctx, permanent, controller, {

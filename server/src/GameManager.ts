@@ -13,7 +13,8 @@
 
 import { randomUUID } from "crypto";
 import { createInitialGameState } from "./state/index.js";
-import { buildCommanderCardSnapshot } from "./state/modules/commander.js";
+import { buildCommanderCardSnapshot, reconcileCommandZoneZoneConsistency } from "./state/modules/commander.js";
+import { hydrateGameStateOracleText } from "./state/modules/cardOracleHydration.js";
 import { processDrawTriggers } from "./state/modules/zones.js";
 import { applyEmptyLibraryDrawConsequences } from "./state/modules/game-state-effects.js";
 import { createGameIfNotExists, getEvents, gameExistsInDb } from "./db"; // NEW: import getEvents for replay, gameExistsInDb for deleted game check
@@ -307,9 +308,14 @@ export class MinimalGameAdapter {
         prevCards.find((card: any) => card?.id === cid) ||
         lib?.find((card: any) => card?.id === cid);
 
-      return src
-        ? buildCommanderCardSnapshot(src, cleanNames[index] ?? cid)
-        : { id: cid, name: cleanNames[index] ?? cid };
+      if (src) {
+        return buildCommanderCardSnapshot(src, cleanNames[index] ?? cid);
+      }
+      // Thin stub — hydrateGameStateOracleText (on restore) fills mana_cost/oracle by name.
+      return buildCommanderCardSnapshot(
+        { id: cid, name: cleanNames[index] ?? cid },
+        cleanNames[index] ?? cid,
+      );
     });
 
     // Remove commanders from library (prefer libraries Map if present)
@@ -762,6 +768,21 @@ class GameManagerClass {
   }
 
   private finishEnsureGame(gameId: string, game: any): any {
+    try {
+      // Repair thin command-zone / zone card stubs after event replay (mana_cost, oracle, etc.).
+      hydrateGameStateOracleText(game?.state, game?.libraries);
+    } catch (e) {
+      debugWarn(1, `[GameManager] hydrateGameStateOracleText failed for ${gameId}`, e);
+    }
+    try {
+      // Undo/replay can leave the same commander id on BF/stack while inCommandZone still lists it.
+      const purged = reconcileCommandZoneZoneConsistency(game?.state);
+      if (purged.removedBattlefield || purged.removedStack) {
+        debugWarn(1, `[GameManager] Reconciled command-zone/BF ghosts for ${gameId}`, purged);
+      }
+    } catch (e) {
+      debugWarn(1, `[GameManager] reconcileCommandZoneZoneConsistency failed for ${gameId}`, e);
+    }
     if (this.ioServer) {
       const bridge = this.syncRulesBridge(gameId, game.state);
       if (bridge) {

@@ -29,6 +29,7 @@ import { isTriggerEffectOwnedByOracleIrPrimary } from "../state/modules/oracleIr
 import { resolveOnCastSpellTriggerDescription } from "../state/modules/onCastSpellTriggerUtils.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
 import { createToken } from "../state/modules/counters_tokens.js";
+import { hydrateCardOracleInPlace, hydrateGameStateOracleText } from "../state/modules/cardOracleHydration.js";
 import { resolveLandCardFaceForBattlefieldEntry } from "../state/modules/stackPlayLandUtils.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType, inferGenericTriggeredAbilityTargetMetadata } from "../state/modules/triggers/index.js";
@@ -2920,6 +2921,27 @@ function queueSelfEtbBattlefieldTutorSearch(game: any, gameId: string, permanent
   const controller = permanent?.controller;
   const { name: cardName, oracleText } = getActivePermanentCardFace(permanent);
   if (!controller || !cardName || !oracleText) return false;
+
+  // Stack self-ETB + Oracle IR search_library already owns these tutors (Solemn,
+  // Farhaven Elf, Wood Elves, etc.). Queuing a second LIBRARY_SEARCH here causes
+  // a double land-search prompt and undo/apply drift from duplicate resolves.
+  try {
+    const selfEtbTriggers = detectETBTriggers(card, permanent).filter((trigger: any) => {
+      const triggerType = String(trigger?.triggerType || '').trim();
+      return triggerType === 'etb' || triggerType === 'etb_search';
+    });
+    const stackOwnsBattlefieldTutor = selfEtbTriggers.some((trigger: any) => {
+      const effectText = String(trigger?.effect || trigger?.description || '');
+      return /search your library/i.test(effectText)
+        && /onto the battlefield/i.test(effectText);
+    });
+    if (stackOwnsBattlefieldTutor) {
+      permanent.etbProcessed = true;
+      return false;
+    }
+  } catch {
+    // Conservative: if detection fails, keep the legacy prompt path below.
+  }
 
   const etbTutorLine = oracleText
     .split('\n')
@@ -6157,6 +6179,56 @@ export async function requestCastSpellForSocket(
     let commanderCandidate = castSourceZone === 'command'
       ? findCommandZoneCommanderCandidate(game, String(playerId), String(cardId))
       : undefined;
+
+    // After reload, CZ stubs may lack mana_cost so getCommandZoneCommanderCandidates
+    // excludes them. Repair oracle/cast fields and retry before failing the cast.
+    if (castSourceZone === 'command' && !commanderCandidate) {
+      try {
+        hydrateGameStateOracleText(game.state, (game as any).libraries);
+      } catch { /* best-effort */ }
+      const cz = (game.state as any)?.commandZone?.[String(playerId)];
+      const cards = Array.isArray(cz?.commanderCards) ? cz.commanderCards : [];
+      for (const card of cards) {
+        try { hydrateCardOracleInPlace(card); } catch { /* best-effort */ }
+      }
+      commanderCandidate = findCommandZoneCommanderCandidate(game, String(playerId), String(cardId));
+      if (!commanderCandidate) {
+        const bf = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const stack = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+        const wanted = String(cardId);
+        debug(1, `[requestCastSpell] COMMAND zone cast failed after hydrate repair`, {
+          cardId: wanted,
+          playerId: String(playerId),
+          inCommandZone: Array.isArray(cz?.inCommandZone) ? cz.inCommandZone : [],
+          commanderCardIds: cards.map((c: any) => String(c?.id || '')),
+          commanderManaCosts: cards.map((c: any) => String(c?.mana_cost || c?.manaCost || '')),
+          stackSize: stack.length,
+          stackSummary: stack.map((s: any) => ({
+            type: s?.type,
+            id: s?.id,
+            cardId: s?.card?.id || s?.spell?.card?.id,
+            sourceCardId: s?.sourceCard?.id || s?.source?.card?.id,
+            name: s?.card?.name || s?.spell?.card?.name || s?.sourceCard?.name || s?.sourceName,
+          })),
+          bfHits: bf
+            .filter((p: any) => {
+              const ids = [String(p?.id || ''), String(p?.card?.id || '')];
+              const name = String(p?.card?.name || '');
+              const czName = String(cards.find((c: any) => String(c?.id || '') === wanted)?.name || '');
+              return ids.includes(wanted) || (czName && name === czName) || p?.isCommander === true;
+            })
+            .map((p: any) => ({
+              id: p?.id,
+              cardId: p?.card?.id,
+              name: p?.card?.name,
+              isCommander: p?.isCommander === true,
+              isToken: p?.isToken === true,
+              controller: p?.controller,
+            })),
+        });
+      }
+    }
+
     let cardInHand: any = castSourceZone === 'command'
       ? commanderCandidate?.card
       : getPlayerSpellSourceCards(game, String(playerId), castSourceZone).find((c: any) => c && c.id === cardId);
@@ -6188,6 +6260,13 @@ export async function requestCastSpellForSocket(
     }
 
     if (!cardInHand) {
+      debug(1, `[requestCastSpell] card not found`, {
+        cardId: String(cardId),
+        playerId: String(playerId),
+        castSourceZone,
+        fromZone: fromZone || null,
+        hasCommanderCandidate: Boolean(commanderCandidate),
+      });
       socket.emit("error", {
         code: castSourceZone === 'command'
           ? 'COMMANDER_NOT_IN_CZ'
@@ -6197,7 +6276,7 @@ export async function requestCastSpellForSocket(
               ? 'CARD_NOT_IN_GRAVEYARD'
               : (castSourceZone === 'library' ? 'CARD_NOT_IN_LIBRARY' : 'CARD_NOT_FOUND')),
         message: castSourceZone === 'command'
-          ? 'Commander not found in the command zone.'
+          ? 'Commander not found in the command zone (card data may be incomplete after reload).'
           : `Card not found in ${castSourceZone}`,
       });
       return;
@@ -7317,6 +7396,7 @@ export async function requestCastSpellForSocket(
               name: p.card?.name || 'Unknown',
               imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
               typeLine: p.card?.type_line,
+              isCommander: Boolean(p.isCommander || p.commander || p?.card?.isCommander || p?.card?.commander),
               ...getLeaveBattlefieldReplacementHint(p, 'graveyard', game.state),
             })),
             castSpellFromHandArgs: {
@@ -8056,12 +8136,13 @@ export async function requestCastSpellForSocket(
         title: `Sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}${additionalCost.amount > 1 ? 's' : ''} to cast ${cardName}`,
         imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
         availableTargets: validSacrificeTargets.map((p: any) => ({
-          id: p.id,
-          name: p.card?.name || 'Unknown',
-          imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-          typeLine: p.card?.type_line,
-          ...getLeaveBattlefieldReplacementHint(p, 'graveyard', game.state),
-        })),
+              id: p.id,
+              name: p.card?.name || 'Unknown',
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+              typeLine: p.card?.type_line,
+              isCommander: Boolean(p.isCommander || p.commander || p?.card?.isCommander || p?.card?.commander),
+              ...getLeaveBattlefieldReplacementHint(p, 'graveyard', game.state),
+            })),
         castSpellFromHandArgs: {
           cardId,
           faceIndex: selectedFaceIndex,
@@ -10602,12 +10683,13 @@ export function registerGameActions(io: Server, socket: Socket) {
               title: `Sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}${additionalCost.amount > 1 ? 's' : ''} to cast ${cardInHand.name}`,
               imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
               availableTargets: validSacrificeTargets.map((p: any) => ({
-                id: p.id,
-                name: p.card?.name || 'Unknown',
-                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-                typeLine: p.card?.type_line,
-                ...getLeaveBattlefieldReplacementHint(p, 'graveyard', game.state),
-              })),
+              id: p.id,
+              name: p.card?.name || 'Unknown',
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+              typeLine: p.card?.type_line,
+              isCommander: Boolean(p.isCommander || p.commander || p?.card?.isCommander || p?.card?.commander),
+              ...getLeaveBattlefieldReplacementHint(p, 'graveyard', game.state),
+            })),
               castSpellFromHandArgs: {
                 cardId,
                 payment,
@@ -10917,6 +10999,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             playerId,
             effectId,
             oracleText: cardInHand.oracle_text || '',
+          typeLine: String(cardInHand.type_line || ''),
             imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
           },
         });
@@ -12879,6 +12962,11 @@ export function registerGameActions(io: Server, socket: Socket) {
                 harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
                 removedCounters: castSpellPaymentCheckpoint.removedCounters,
               });
+              try {
+                delete (cardInHand as any).pendingAdditionalCostSacrificeIds;
+                delete (cardInHand as any).additionalCostPaid;
+                delete (cardInHand as any).additionalCostMethod;
+              } catch { /* ignore */ }
               debugWarn(
                 1,
                 `[castSpellFromHand] Aborting applyEvent for ${cardInHand.name} (${cardId}) — cast timing lost before stack push`,
@@ -13007,11 +13095,20 @@ export function registerGameActions(io: Server, socket: Socket) {
                     tappedPermanents: Array.from(tappedPaymentPermanents),
                   }
                 : {}),
-              ...(sacrificedPaymentPermanents.size > 0
-                ? {
-                    sacrificedPermanents: Array.from(sacrificedPaymentPermanents),
-                  }
-                : {}),
+              ...((() => {
+                const pendingAdditionalCostSacrificeIds = (
+                  Array.isArray((cardInHand as any)?.pendingAdditionalCostSacrificeIds)
+                    ? ((cardInHand as any).pendingAdditionalCostSacrificeIds as any[])
+                    : []
+                ).map((id: any) => String(id || '').trim()).filter(Boolean);
+                const mergedSacrificeIds = Array.from(new Set([
+                  ...Array.from(sacrificedPaymentPermanents),
+                  ...pendingAdditionalCostSacrificeIds,
+                ]));
+                return mergedSacrificeIds.length > 0
+                  ? { sacrificedPermanents: mergedSacrificeIds }
+                  : {};
+              })()),
               ...(additionalCost && typeof additionalCostPaid === 'boolean'
                 ? {
                     additionalCostPaidKnown: true,
@@ -13081,6 +13178,11 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
               // The spell wasn't added to the stack - something went wrong
               debugError(1, `[castSpellFromHand] applyEvent did not add spell to stack. Stack: ${stackLengthBefore} -> ${stackLengthAfter}`);
+              try {
+                delete (cardInHand as any).pendingAdditionalCostSacrificeIds;
+                delete (cardInHand as any).additionalCostPaid;
+                delete (cardInHand as any).additionalCostMethod;
+              } catch { /* ignore */ }
               abortCastSpellPayment({
                 code: 'CAST_FAILED',
                 message: `Failed to cast ${cardInHand.name}. The card may have been removed or an internal error occurred.`,
@@ -13420,6 +13522,13 @@ export function registerGameActions(io: Server, socket: Socket) {
               game.state.spellsCastFromHandThisTurn[playerId] = (game.state.spellsCastFromHandThisTurn[playerId] || 0) + 1;
             }
 
+            try {
+              delete (cardInHand as any).pendingAdditionalCostSacrificeIds;
+              const topStackItemAfterCast = game.state.stack?.[game.state.stack.length - 1] as any;
+              if (topStackItemAfterCast?.card && typeof topStackItemAfterCast.card === 'object') {
+                delete topStackItemAfterCast.card.pendingAdditionalCostSacrificeIds;
+              }
+            } catch { /* ignore */ }
             debug(2, `[castSpell] Player ${playerId} cast ${cardInHand.name} (${cardId}) from ${castSourceZone} via applyEvent`);
           } else {
           // Fallback for legacy game instances without applyEvent
@@ -13744,11 +13853,20 @@ export function registerGameActions(io: Server, socket: Socket) {
                 tappedPermanents: Array.from(tappedPaymentPermanents),
               }
             : {}),
-          ...(sacrificedPaymentPermanents.size > 0
-            ? {
-                sacrificedPermanents: Array.from(sacrificedPaymentPermanents),
-              }
-            : {}),
+          ...((() => {
+            const pendingAdditionalCostSacrificeIds = (
+              Array.isArray((cardInHand as any)?.pendingAdditionalCostSacrificeIds)
+                ? ((cardInHand as any).pendingAdditionalCostSacrificeIds as any[])
+                : []
+            ).map((id: any) => String(id || '').trim()).filter(Boolean);
+            const mergedSacrificeIds = Array.from(new Set([
+              ...Array.from(sacrificedPaymentPermanents),
+              ...pendingAdditionalCostSacrificeIds,
+            ]));
+            return mergedSacrificeIds.length > 0
+              ? { sacrificedPermanents: mergedSacrificeIds }
+              : {};
+          })()),
           ...(Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0
             ? {
                 convokeTappedCreatures: convokeTappedCreatures.slice(),

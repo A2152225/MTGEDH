@@ -834,6 +834,8 @@ const MANA_PAYMENT_CLIENT_FIELD_KEYS = [
   'forcedAlternateCostId',
   'preferredAlternateCostId',
   'oracleText',
+  'typeLine',
+  'type_line',
   'extraAlternateCosts',
   'fromZone',
   'xValue',
@@ -15280,21 +15282,37 @@ async function handleStepResponse(
           ts: Date.now(),
         });
       } else if (costType === 'sacrifice') {
+        // Defer the actual sacrifice until the cast commits to the stack.
+        // Applying it here caused pay-then-abort (e.g. Altar's Reap): commander-zone
+        // replacement from the sac blocked / aborted the cast restart while the
+        // permanent was already gone.
         const battlefield = (game.state as any).battlefield || [];
+        const deferredSacrificeIds: string[] = [];
         for (const permId of selectedIds) {
-          const permIndex = battlefield.findIndex((p: any) => p && p.id === permId);
-          if (permIndex === -1) continue;
-          const perm = battlefield[permIndex];
+          const perm = battlefield.find((p: any) => p && p.id === permId);
+          if (!perm) continue;
           if (String(perm?.controller || '') !== String(pid)) continue;
+          deferredSacrificeIds.push(String(permId));
           sacrificedNames.push(String(perm?.card?.name || 'Unknown'));
-          sacrificePermanent(game as any, String(permId), pid);
+        }
+        if (deferredSacrificeIds.length === 0) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_SELECTION',
+            message: 'Selected sacrifice permanent(s) are no longer available.',
+          });
+          break;
+        }
+        selectedIds = deferredSacrificeIds;
+        (spellCard as any).pendingAdditionalCostSacrificeIds = deferredSacrificeIds.slice();
+        if (requestCastPending) {
+          requestCastPending.pendingAdditionalCostSacrificeIds = deferredSacrificeIds.slice();
         }
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
           from: 'system',
-          message: `${getPlayerName(game, pid)} sacrifices ${sacrificedNames.join(', ')} as an additional cost to cast ${cardName}.`,
+          message: `${getPlayerName(game, pid)} chooses to sacrifice ${sacrificedNames.join(', ')} as an additional cost to cast ${cardName}.`,
           ts: Date.now(),
         });
       } else if (costType === 'remove_counters') {
@@ -15473,6 +15491,8 @@ async function handleStepResponse(
         resolvedStepType: String((step as any).type || ''),
         cardId,
         sacrificedPermanentIds: costType === 'sacrifice' ? selectedIds : [],
+        // Intent only for replay bookkeeping; live sacrifice is deferred until cast commits.
+        deferAdditionalCostSacrifice: costType === 'sacrifice',
         removedCountersForCost: costType === 'remove_counters' ? removedCountersForCost : [],
         revealedCardIdsForCost: costType === 'reveal' ? selectedIds : [],
         ...(spellSourceZone === 'hand'
@@ -15501,6 +15521,9 @@ async function handleStepResponse(
                     }
                   : {
                       additionalCostPaid: true,
+                      ...(costType === 'sacrifice'
+                        ? { pendingAdditionalCostSacrificeIds: selectedIds.slice() }
+                        : {}),
                     },
             }
           : {}),

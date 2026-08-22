@@ -1041,7 +1041,7 @@ function getSharedEmitBattlefieldCache(game: any): SharedEmitBattlefieldCache | 
 
 const MIN_TOKEN_GROUPING_REDUCTION_RATIO = 0.9;
 
-function optimizeBattlefieldTokensForEmit(
+export function optimizeBattlefieldTokensForEmit(
   battlefield: any[],
   game?: any,
 ): {

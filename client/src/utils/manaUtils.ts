@@ -183,6 +183,87 @@ export function computeColorsNeededByOtherCards(otherCards: OtherCardInfo[]): Se
 export interface RestrictedManaPoolEntry {
   type?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
   amount?: number;
+  restriction?: string;
+  restrictedTo?: string;
+}
+
+/** Purpose flags used to filter restricted floating mana (Vibranium/Powerstone, etc.). */
+export interface RestrictedManaSpendPurpose {
+  isCreature?: boolean;
+  isAbility?: boolean;
+  isArtifact?: boolean;
+  isActivatedAbility?: boolean;
+  isInstantOrSorcery?: boolean;
+  isLegendary?: boolean;
+  isMulticolored?: boolean;
+  isColorless?: boolean;
+  isCommander?: boolean;
+  spellCard?: { type_line?: string; mana_cost?: string; cmc?: number; name?: string } | null;
+}
+
+/** Client-side mirror of server canUseRestrictedMana for auto-pay filtering. */
+export function canUseRestrictedManaClient(
+  entry: RestrictedManaPoolEntry,
+  purpose?: RestrictedManaSpendPurpose | null,
+): boolean {
+  const restriction = String(entry?.restriction || '').trim();
+  if (!restriction) return true;
+  const p = purpose || {};
+  switch (restriction) {
+    case 'creatures':
+      return p.isCreature === true;
+    case 'abilities':
+      return p.isAbility === true;
+    case 'artifacts':
+      return p.isArtifact === true;
+    case 'activated_abilities':
+      return p.isActivatedAbility === true;
+    case 'instant_sorcery':
+      return p.isInstantOrSorcery === true;
+    case 'legendary':
+      return p.isLegendary === true;
+    case 'multicolored':
+      return p.isMulticolored === true;
+    case 'commander':
+      return p.isCommander === true;
+    case 'colorless_spells':
+      return p.isColorless === true;
+    case 'no_nonartifact_spells': {
+      // Powerstone / Vibranium: cannot cast nonartifact spells; OK for abilities / artifact spells.
+      if (p.isActivatedAbility === true || p.isAbility === true) return true;
+      const spellCard = p.spellCard;
+      if (spellCard) {
+        const typeLine = String(spellCard.type_line || '').toLowerCase();
+        return typeLine.includes('artifact') || p.isArtifact === true;
+      }
+      if (
+        p.isCreature === true
+        || p.isInstantOrSorcery === true
+        || p.isLegendary === true
+        || p.isMulticolored === true
+        || p.isColorless === true
+        || p.isCommander === true
+      ) {
+        return p.isArtifact === true;
+      }
+      // Unknown / non-cast context: allow.
+      return true;
+    }
+    default:
+      // Unknown restriction: exclude from auto-pay (safer than treating as free C).
+      return false;
+  }
+}
+
+export function buildRestrictedManaPurposeForSpell(spellCard?: { type_line?: string } | null): RestrictedManaSpendPurpose {
+  const typeLine = String(spellCard?.type_line || '').toLowerCase();
+  return {
+    spellCard: spellCard || undefined,
+    ...(typeLine.includes('creature') ? { isCreature: true } : {}),
+    ...(typeLine.includes('artifact') ? { isArtifact: true } : {}),
+    ...((typeLine.includes('instant') || typeLine.includes('sorcery')) ? { isInstantOrSorcery: true } : {}),
+    ...(typeLine.includes('legendary') ? { isLegendary: true } : {}),
+  };
 }
 
 /**
@@ -228,7 +309,8 @@ const SYMBOL_TO_POOL: Record<Color, string> = {
  */
 export function calculateRemainingCostAfterFloatingMana(
   cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] },
-  floatingMana?: ManaPool
+  floatingMana?: ManaPool,
+  purpose?: RestrictedManaSpendPurpose | null,
 ): { colors: Record<Color, number>; generic: number; hybrids: Color[][]; usedFromPool: Record<string, number> } {
   const costRemaining = { ...cost.colors };
   let genericRemaining = cost.generic;
@@ -250,6 +332,9 @@ export function calculateRemainingCostAfterFloatingMana(
   };
 
   for (const entry of floatingMana.restricted || []) {
+    // Never auto-consume restricted mana that is illegal for this purpose
+    // (e.g. Vibranium/Powerstone C for a nonartifact creature spell).
+    if (!canUseRestrictedManaClient(entry, purpose)) continue;
     const poolKey = String(entry.type || 'colorless');
     poolRemaining[poolKey] = (poolRemaining[poolKey] || 0) + Number(entry.amount || 0);
   }
@@ -390,6 +475,24 @@ function getSourceManaCapacity(source: ManaPaymentSource): number {
   return getTotalManaProduction(source.options);
 }
 
+/**
+ * Fold a chosen X value into a parsed mana cost for payment UI / autopay.
+ * Only multiplies by the number of {X} symbols still present in the cost.
+ * Payment steps often pass an already-expanded cost like {10}{W}{W} together with
+ * xValue=10; treating missing xCount as 1 would double-count X into generic.
+ */
+export function applyXValueToParsedCost(
+  parsed: Pick<ParsedManaCost, 'colors' | 'generic' | 'hybrids' | 'xCount'>,
+  xValue?: number,
+): { colors: Record<Color, number>; generic: number; hybrids: Color[][] } {
+  const xMultiplier = Math.max(0, Number(parsed.xCount || 0));
+  return {
+    colors: parsed.colors,
+    generic: Number(parsed.generic || 0) + Math.max(0, Number(xValue || 0) * xMultiplier),
+    hybrids: parsed.hybrids,
+  };
+}
+
 export interface SuggestedPaymentSelection {
   color: Color;
   count: number;
@@ -413,13 +516,14 @@ export function calculateSuggestedPayment(
   cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] },
   sources: ManaPaymentSource[],
   colorsToPreserve: Set<Color>,
-  floatingMana?: ManaPool
+  floatingMana?: ManaPool,
+  purpose?: RestrictedManaSpendPurpose | null,
 ): Map<string, SuggestedPaymentSelection> {
   const suggestions = new Map<string, SuggestedPaymentSelection>();
   
   // First, calculate what's left after using floating mana
   const { colors: costRemaining, generic: genericRemaining, hybrids: hybridsRemaining } = 
-    calculateRemainingCostAfterFloatingMana(cost, floatingMana);
+    calculateRemainingCostAfterFloatingMana(cost, floatingMana, purpose);
   
   let genericLeft = genericRemaining;
   

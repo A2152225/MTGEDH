@@ -55,7 +55,18 @@ export function cardShouldHydrateOracleText(
   if (!name || name === 'Face-down Creature') return false;
 
   const oracleText = String((card as { oracle_text?: string }).oracle_text || '').trim();
-  if (!oracleText) return true;
+  const manaCost = String(
+    (card as { mana_cost?: string; manaCost?: string }).mana_cost
+    || (card as { manaCost?: string }).manaCost
+    || '',
+  ).trim();
+  const typeLine = String(
+    (card as { type_line?: string; typeLine?: string }).type_line
+    || (card as { typeLine?: string }).typeLine
+    || '',
+  ).trim();
+  // Repair thin / post-reload stubs that kept oracle text (or images) but lost cast fields.
+  if (!oracleText || !manaCost || !typeLine) return true;
 
   // Copy tokens may have only override keywords (e.g. "Haste") applied before hydration runs.
   if (isPrintedCardCopyToken(card, options) && !oracleText.includes('\n') && oracleText.length < 80) {

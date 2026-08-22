@@ -2593,7 +2593,63 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
 
           if (moveToCommandZone) {
-            moveCommanderToCZ(ctx as any, pid, commanderId);
+            // Mirror live resolution.ts commander->CZ path. Previously only
+            // moveCommanderToCZ ran, leaving BF/stack/zone ghosts after undo/replay
+            // which made getCommandZoneCommanderCandidates exclude the commander.
+            moveCommanderToCZ(ctx as any, pid, commanderId || cardId);
+
+            const stateAny = ctx.state as any;
+            const ids = new Set(
+              [commanderId, cardId, String((e as any).sourceId || '').trim()]
+                .map((id) => String(id || '').trim())
+                .filter(Boolean),
+            );
+
+            // Remove from destination/source zones and battlefield (same helper used
+            // by the non-CZ branch). This also clears a stale zones.commandZone entry
+            // so we can re-insert a clean card below.
+            removeReplayCommanderCardFromZones(stateAny, pid, commanderId, cardId);
+
+            // Also drop an actual commander SPELL still on the stack (not triggers).
+            if (Array.isArray(stateAny.stack) && ids.size > 0) {
+              stateAny.stack = stateAny.stack.filter((item: any) => {
+                const itemType = String(item?.type || '').toLowerCase();
+                if (itemType && itemType !== 'spell') return true;
+                const spellCard = item?.card || item?.spell?.card;
+                const spellCardId = String(spellCard?.id || '').trim();
+                const spellId = String(item?.id || '').trim();
+                return !ids.has(spellCardId) && !ids.has(spellId);
+              });
+            }
+
+            // Ensure the card object is present in zones.commandZone for UI/view.
+            if (pid) {
+              stateAny.zones = stateAny.zones || {};
+              const zones = stateAny.zones[pid] = stateAny.zones[pid] || {};
+              zones.commandZone = Array.isArray(zones.commandZone) ? zones.commandZone : [];
+              const czCard = card && typeof card === 'object'
+                ? { ...card, zone: 'command' }
+                : { id: commanderId || cardId, zone: 'command' };
+              const czCardId = String(czCard?.id || '').trim();
+              const alreadyInZonesCZ = zones.commandZone.some(
+                (c: any) => czCardId && String(c?.id || '').trim() === czCardId,
+              );
+              if (!alreadyInZonesCZ && (czCardId || czCard?.name)) {
+                zones.commandZone.push(czCard);
+              }
+              zones.commandZoneCount = zones.commandZone.length;
+
+              // Keep commanderCards snapshot in sync if somehow missing.
+              const czInfo = stateAny.commandZone?.[pid];
+              if (czInfo && Array.isArray(czInfo.commanderCards) && czCardId) {
+                const hasSnapshot = czInfo.commanderCards.some(
+                  (c: any) => String(c?.id || '').trim() === czCardId,
+                );
+                if (!hasSnapshot) {
+                  czInfo.commanderCards.push({ ...czCard });
+                }
+              }
+            }
           } else if (pid && (commanderId || cardId)) {
             removeReplayCommanderCardFromZones(ctx.state as any, pid, commanderId, cardId);
             putReplayCommanderCardInDestination(ctx as any, pid, destinationZone, libraryPosition, card || { id: commanderId }, (e as any).exileTag);
@@ -3851,8 +3907,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const sacrificedPermanentIds = Array.isArray((e as any).sacrificedPermanentIds)
             ? (e as any).sacrificedPermanentIds
             : (Array.isArray((e as any).sacrificedPermanents) ? (e as any).sacrificedPermanents : []);
-          for (const permanentId of sacrificedPermanentIds) {
-            applyReplaySacrificedPermanent(ctx, String(permanentId || ''));
+          // Additional-cost sacrifices are deferred until castSpell commits. Store the
+          // selection on the card for the later cast; do not sac here or a cancelled /
+          // aborted cast leaves the permanent dead while the spell remains in hand.
+          if ((e as any).deferAdditionalCostSacrifice === true && playerId && cardId) {
+            const pendingIds = sacrificedPermanentIds.map((id: any) => String(id || '').trim()).filter(Boolean);
+            applyReplayCardUpdatesInHand(ctx, playerId, cardId, {
+              pendingAdditionalCostSacrificeIds: pendingIds,
+              additionalCostPaid: true,
+            });
+          } else {
+            for (const permanentId of sacrificedPermanentIds) {
+              applyReplaySacrificedPermanent(ctx, String(permanentId || ''));
+            }
           }
 
           const removedCountersForCost = Array.isArray((e as any).removedCountersForCost) ? (e as any).removedCountersForCost : [];

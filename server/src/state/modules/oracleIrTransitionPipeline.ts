@@ -21,7 +21,7 @@ import {
 } from './replacement-effects.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import type { GameContext } from '../context.js';
-import { movePermanentToExile } from './counters_tokens.js';
+import { movePermanentToExile, movePermanentToGraveyard } from './counters_tokens.js';
 import { calculateModifiedDamage } from './game-state-effects.js';
 
 export interface OracleIRTransitionInterceptorOptions {
@@ -576,7 +576,17 @@ export function queueOracleIrDeferredReplacementPrompts(
           || '',
       ).trim();
       if (permanentId) {
-        movePermanentToExile(ctx, permanentId);
+        // Preserve the original would-be destination so the commander prompt is
+        // CZ vs GY (sacrifice/destroy) or CZ vs exile (true exile effects).
+        const destinationZone = String(transition.event.destinationZone || 'graveyard').trim().toLowerCase();
+        if (destinationZone === 'exile') {
+          movePermanentToExile(ctx, permanentId);
+        } else {
+          // graveyard / hand / library / unknown: queue the graveyard commander choice.
+          // Hand/library commander prompts are handled by dedicated zone helpers elsewhere;
+          // IR sacrifice/edict paths are graveyard-bound.
+          movePermanentToGraveyard(ctx, permanentId, true);
+        }
       }
       continue;
     }

@@ -4,8 +4,9 @@ import type { ImagePref } from './BattlefieldGrid';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { CardContextMenu } from './CardContextMenu';
 import { AbilitySelectionModal } from './AbilitySelectionModal';
-import { parseActivatedAbilities, canActivateTapAbility, getThresholdActivationStatus, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
+import { parseActivatedAbilities, getActivatedAbilityActivationStatus, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
+import { expandGroupedTokensForDisplay } from '../utils/expandGroupedTokens';
 
 function canonicalLandKey(typeLine?: string, name?: string) {
   const tl = (typeLine || '').toLowerCase();
@@ -125,7 +126,7 @@ export function LandRow(props: {
     appearanceSettings,
   } = props;
 
-  const items = useMemo(() => lands.map(p => {
+  const items = useMemo(() => expandGroupedTokensForDisplay(lands).map(p => {
     const kc = p.card as KnownCardRef;
     const { baseP, baseT, p: dispP, t: dispT } = getEffectivePT(p);
     const isCreature = (kc?.type_line || '').toLowerCase().includes('creature');
@@ -157,23 +158,40 @@ export function LandRow(props: {
     abilities: { ability: ParsedActivatedAbility; canActivate: boolean; reason?: string }[];
   } | null>(null);
 
-  // Handle double-click on a land
+  // Handle double-click on a land / mana-source tile
   const handleDoubleClick = useCallback((perm: BattlefieldPermanent) => {
-    if (!canActivate || !onActivateAbility || perm.controller !== playerId) return;
+    if (!canActivate || !onActivateAbility) {
+      window.alert('Cannot activate: not your battlefield or game not ready.');
+      return;
+    }
+    if (String(perm.controller || '') !== String(playerId || '')) {
+      window.alert('Cannot activate: you do not control this permanent.');
+      return;
+    }
 
     const kc = perm.card as KnownCardRef;
-    if (!kc) return;
+    if (!kc) {
+      window.alert('Cannot activate: card data missing on this permanent.');
+      return;
+    }
 
-    // Parse abilities from the card
-    const abilities = parseActivatedAbilities(kc, perm.grantedAbilities);
-    if (abilities.length === 0) return;
+    // Parse abilities from the card (include granted lines / attachment grants)
+    const abilities = parseActivatedAbilities(kc, perm.grantedAbilities, {
+      permanent: perm,
+      battlefield: allBattlefieldPerms || lands,
+    });
+    if (abilities.length === 0) {
+      window.alert(`No activated abilities found on ${kc.name || perm.id}.`);
+      return;
+    }
 
-    // Build activation context
+    // Mana rocks / lands in this row: no summoning sickness.
+    // (Creature mana dorks still gated via isManaAbility + tap checks on FreeField.)
     const context: ActivationContext = {
       isTapped: !!perm.tapped,
-      hasSummoningSickness: false, // Lands don't have summoning sickness
+      hasSummoningSickness: false,
       hasHaste: false,
-      hasThousandYearElixirEffect: false,
+      hasThousandYearElixirEffect: hasThousandYearElixirEffect,
       loyaltyCounters: undefined,
       controllerHasPriority: hasPriority,
       isMainPhase,
@@ -181,44 +199,28 @@ export function LandRow(props: {
       stackEmpty,
     };
 
-    // Annotate abilities with activation status
     const annotatedAbilities = abilities.map(ability => {
-      const tapCheck = canActivateTapAbility(ability.requiresTap, context, ability.isManaAbility);
-      const thresholdCheck = getThresholdActivationStatus(ability, perm);
-      let canActivateAbility = tapCheck.canActivate && thresholdCheck.canActivate;
-      let reason = thresholdCheck.reason || tapCheck.reason;
-
-      // Check sorcery timing restriction
-      if (ability.timingRestriction === 'sorcery') {
-        if (!context.isMainPhase || !context.isOwnTurn || !context.stackEmpty) {
-          canActivateAbility = false;
-          reason = 'Sorcery timing required';
-        }
-      }
-
-      // Need priority for non-mana abilities
-      if (!ability.isManaAbility && !context.controllerHasPriority) {
-        canActivateAbility = false;
-        reason = 'No priority';
-      }
-
-      return { ability, canActivate: canActivateAbility, reason };
+      const status = getActivatedAbilityActivationStatus(
+        ability,
+        perm,
+        context,
+        allBattlefieldPerms || lands,
+      );
+      return { ability, canActivate: status.canActivate, reason: status.reason };
     });
 
-    // Filter to only activatable abilities for direct activation
     const activatableAbilities = annotatedAbilities.filter(a => a.canActivate);
 
-    // If only one ability and it can be activated, activate it directly
-    if (abilities.length === 1) {
-      if (activatableAbilities.length === 1) {
-        onActivateAbility(perm.id, activatableAbilities[0].ability.id, activatableAbilities[0].ability);
-      }
+    // Single activatable ability -> fire immediately (always emit)
+    if (activatableAbilities.length === 1 && abilities.length === 1) {
+      onActivateAbility(perm.id, activatableAbilities[0].ability.id, activatableAbilities[0].ability);
       return;
     }
 
-    // If multiple abilities, show the selection modal
+    // Multiple abilities, OR single ability that cannot activate: show modal with reasons
+    // (never silent-return — user must see why Add {C} is blocked).
     setAbilitySelectionModal({ permanent: perm, abilities: annotatedAbilities });
-  }, [canActivate, onActivateAbility, playerId, hasPriority, isMainPhase, isOwnTurn, stackEmpty]);
+  }, [allBattlefieldPerms, canActivate, onActivateAbility, playerId, hasPriority, isMainPhase, isOwnTurn, stackEmpty, hasThousandYearElixirEffect, lands]);
 
   // Handle ability selection from modal
   const handleAbilitySelect = useCallback((ability: ParsedActivatedAbility) => {
@@ -258,7 +260,7 @@ export function LandRow(props: {
         return (
           <div
             key={it.id}
-            onMouseEnter={(e) => { setHovered(it.id); showCardPreview(e.currentTarget as HTMLElement, (lands[idx].card as any), { prefer: 'above', anchorPadding: 0 }); }}
+            onMouseEnter={(e) => { setHovered(it.id); showCardPreview(e.currentTarget as HTMLElement, (it.perm.card as any), { prefer: 'above', anchorPadding: 0 }); }}
             onMouseLeave={(e) => { setHovered(prev => prev === it.id ? null : prev); hideCardPreview(e.currentTarget as HTMLElement); }}
             onClick={onCardClick ? () => onCardClick(it.id) : undefined}
             onDoubleClick={(e) => {

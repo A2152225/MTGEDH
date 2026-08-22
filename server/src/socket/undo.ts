@@ -5,6 +5,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName, transformDbEventsForReplay, clearScheduledHumanAutoPassForGame, suppressAutomationOnNextBroadcast, pauseHumanAutoPassUntilAction } from "./util";
 import { getEvents, truncateEventsForUndo, getEventCount } from "../db";
 import GameManager from "../GameManager.js";
+import { reconcileCommandZoneZoneConsistency } from "../state/modules/commander.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { createInitialGameState } from "../state/gameState.js";
 import { createContext } from "../state/context.js";
@@ -143,6 +144,51 @@ function sliceEventsForBoundaryPlan(events: PersistedEvent[], plan: UndoBoundary
 
 type BoundaryKind = 'step' | 'phase' | 'turn';
 
+﻿function normalizePhaseToken(value: unknown): string {
+  const raw = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+  if (!raw) return 'unknown';
+  if (raw === 'pre_game' || raw === 'pregame') return 'pre_game';
+  if (raw === 'main1' || raw === 'precombat_main' || raw === 'precombatmain') return 'precombatmain';
+  if (raw === 'main2' || raw === 'postcombat_main' || raw === 'postcombatmain') return 'postcombatmain';
+  if (raw === 'beginning' || raw === 'combat' || raw === 'ending') return raw;
+  return raw.replace(/_/g, '');
+}
+
+/** Canonical step keys so beginCombat / BEGIN_COMBAT / begin_combat share one bucket. */
+function normalizeStepToken(value: unknown): string {
+  const raw = String(value || '').trim();
+  if (!raw) return 'UNKNOWN';
+  const compact = raw.toUpperCase().replace(/[\s-]+/g, '_');
+  const aliases: Record<string, string> = {
+    UNTAP: 'UNTAP',
+    UPKEEP: 'UPKEEP',
+    DRAW: 'DRAW',
+    MAIN: 'MAIN1',
+    MAIN1: 'MAIN1',
+    MAIN2: 'MAIN2',
+    BEGINCOMBAT: 'BEGIN_COMBAT',
+    BEGIN_COMBAT: 'BEGIN_COMBAT',
+    DECLAREATTACKERS: 'DECLARE_ATTACKERS',
+    DECLARE_ATTACKERS: 'DECLARE_ATTACKERS',
+    DECLAREBLOCKERS: 'DECLARE_BLOCKERS',
+    DECLARE_BLOCKERS: 'DECLARE_BLOCKERS',
+    FIRSTSTRIKEDAMAGE: 'FIRST_STRIKE_DAMAGE',
+    FIRST_STRIKE_DAMAGE: 'FIRST_STRIKE_DAMAGE',
+    COMBATDAMAGE: 'DAMAGE',
+    DAMAGE: 'DAMAGE',
+    ENDCOMBAT: 'END_COMBAT',
+    END_COMBAT: 'END_COMBAT',
+    ENDSTEP: 'END',
+    END_STEP: 'END',
+    END: 'END',
+    CLEANUP: 'CLEANUP',
+    PREGAME: 'PRE_GAME',
+    PRE_GAME: 'PRE_GAME',
+  };
+  const noUnderscore = compact.replace(/_/g, '');
+  return aliases[compact] || aliases[noUnderscore] || compact;
+}
+
 function getTurnBoundaryKey(stateAny: any): string {
   const rawTurnNumber = Number((stateAny as any)?.turnNumber);
   if (Number.isFinite(rawTurnNumber) && rawTurnNumber > 0) {
@@ -152,8 +198,8 @@ function getTurnBoundaryKey(stateAny: any): string {
   if (Number.isFinite(rawTurn) && rawTurn > 0) {
     return `turn:${rawTurn}`;
   }
-  const phase = String(stateAny?.phase || '').toLowerCase();
-  if (phase === 'pre_game' || phase === 'pre-game' || phase === '') {
+  const phaseRaw = String(stateAny?.phase || '').toLowerCase();
+  if (phaseRaw === 'pre_game' || phaseRaw === 'pre-game' || phaseRaw === '') {
     return 'turn:pre_game';
   }
   // No numeric turn yet — keep a distinct unknown bucket so we do not merge every
@@ -165,16 +211,19 @@ function getTurnBoundaryKey(stateAny: any): string {
  * Single canonical key per boundary kind. Previously returned multiple aliases
  * (`turn:N` plus `turn:live`), and live lookup preferred the alias that spanned
  * the whole game — collapsing smart-undo counts across scopes.
+ *
+ * Step/phase aliases are normalized so restart/restore (which may surface
+ * BEGIN_COMBAT while older stamps used beginCombat) still share one chunk.
  */
 function getBoundaryKey(stateAny: any, kind: BoundaryKind): string {
   const turnKey = getTurnBoundaryKey(stateAny);
   if (kind === 'turn') return turnKey;
 
-  const phase = String(stateAny?.phase || '').toLowerCase() || 'unknown';
+  const phase = normalizePhaseToken(stateAny?.phase);
   const phaseKey = `${turnKey}|phase:${phase}`;
   if (kind === 'phase') return phaseKey;
 
-  const step = String(stateAny?.step || '').toUpperCase() || 'UNKNOWN';
+  const step = normalizeStepToken(stateAny?.step);
   return `${phaseKey}|step:${step}`;
 }
 
@@ -222,7 +271,7 @@ function buildUndoBoundaryPreview(state: BoundaryStateSnapshot | undefined): Und
 
   return {
     ...state,
-    summary: summaryParts.filter(Boolean).join(' • ') || 'Current game state',
+    summary: summaryParts.filter(Boolean).join(' · ') || 'Current game state',
   };
 }
 
@@ -281,29 +330,29 @@ function mergeBoundaryStateCarryForward(
   return merged;
 }
 
-function calculateBoundaryUndoCountFromPersistedMetadata(
+type BoundaryHistoryEntry = {
+  key: string;
+  entryIndex: number;
+  state?: BoundaryStateSnapshot;
+};
+
+/**
+ * Scan events into contiguous boundary segments. Entry indices are stored per
+ * history slot (not overwritten by key) so revisited phases (extra combat) and
+ * turn/phase jump targets keep the correct chunk start after restart.
+ */
+function buildBoundaryHistoryFromPersistedMetadata(
   events: PersistedEvent[],
-  game: any,
   boundaryKind: BoundaryKind,
-  boundaryOffset = 0,
-): UndoBoundaryPlan | undefined {
+): BoundaryHistoryEntry[] | undefined {
   if (!hasPersistedBoundaryMetadata(events)) {
     return undefined;
   }
 
-  const currentState = (game?.state || {}) as any;
-  const liveBoundaryKey = getBoundaryKey(currentState, boundaryKind);
-  if (!liveBoundaryKey) return { count: 0 };
-
-  const boundaryEntryIndices = new Map<string, number>();
-  const boundaryStates = new Map<string, BoundaryStateSnapshot | undefined>();
-  const boundaryHistory: string[] = [];
+  const history: BoundaryHistoryEntry[] = [];
   let carriedState = snapshotBoundaryState({});
   let previousBoundaryKey = getBoundaryKey({}, boundaryKind);
-
-  boundaryEntryIndices.set(previousBoundaryKey, -1);
-  boundaryStates.set(previousBoundaryKey, carriedState);
-  boundaryHistory.push(previousBoundaryKey);
+  history.push({ key: previousBoundaryKey, entryIndex: -1, state: carriedState });
 
   for (let index = 0; index < events.length; index++) {
     const rawState = snapshotBoundaryState(getPersistedEventBoundaryState(events[index]));
@@ -312,37 +361,76 @@ function calculateBoundaryUndoCountFromPersistedMetadata(
     carriedState = mergeBoundaryStateCarryForward(carriedState, rawState) || carriedState;
     const nextBoundaryKey = getBoundaryKey(carriedState || {}, boundaryKind);
     if (nextBoundaryKey !== previousBoundaryKey) {
-      boundaryEntryIndices.set(nextBoundaryKey, index);
-      boundaryStates.set(nextBoundaryKey, carriedState);
-      boundaryHistory.push(nextBoundaryKey);
+      history.push({ key: nextBoundaryKey, entryIndex: index, state: carriedState });
     }
     previousBoundaryKey = nextBoundaryKey;
   }
 
-  let targetBoundaryKey = boundaryEntryIndices.has(liveBoundaryKey) ? liveBoundaryKey : previousBoundaryKey;
-  let entryIndex = boundaryEntryIndices.get(targetBoundaryKey);
+  return history;
+}
 
-  if (entryIndex === undefined) {
-    targetBoundaryKey = previousBoundaryKey;
-    entryIndex = boundaryEntryIndices.get(targetBoundaryKey) ?? -1;
-    debugWarn(1, `[undo] Failed to locate persisted boundary ${liveBoundaryKey}; using last stored boundary ${targetBoundaryKey}`);
+function buildBoundaryHistoryFromReplay(
+  events: PersistedEvent[],
+  game: any,
+  boundaryKind: BoundaryKind,
+): { history: BoundaryHistoryEntry[]; eventCount: number } {
+  const replayEvents = transformDbEventsForReplay(events as any);
+  const scratch = createContext(`undo_probe_${game?.gameId || 'game'}` as any);
+  const history: BoundaryHistoryEntry[] = [];
+  let previousBoundaryKey = getBoundaryKey((scratch as any).state || {}, boundaryKind);
+  history.push({
+    key: previousBoundaryKey,
+    entryIndex: -1,
+    state: snapshotBoundaryState((scratch as any).state || {}),
+  });
+
+  replayOnContext(scratch as any, replayEvents as any, (replayCtx, _event, index) => {
+    const nextBoundaryKey = getBoundaryKey((replayCtx as any).state || {}, boundaryKind);
+    const nextBoundaryState = snapshotBoundaryState((replayCtx as any).state || {});
+    if (nextBoundaryKey !== previousBoundaryKey) {
+      history.push({ key: nextBoundaryKey, entryIndex: index, state: nextBoundaryState });
+    }
+    previousBoundaryKey = nextBoundaryKey;
+  });
+
+  return { history, eventCount: replayEvents.length };
+}
+
+function planFromBoundaryHistory(
+  history: BoundaryHistoryEntry[],
+  eventCount: number,
+  liveBoundaryKey: string,
+  boundaryOffset: number,
+): UndoBoundaryPlan {
+  if (!history.length || eventCount <= 0) return { count: 0 };
+
+  const lastKey = history[history.length - 1]?.key;
+  let targetHistoryIndex = -1;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].key === liveBoundaryKey) {
+      targetHistoryIndex = i;
+      break;
+    }
+  }
+  if (targetHistoryIndex < 0) {
+    targetHistoryIndex = history.length - 1;
+    if (liveBoundaryKey && liveBoundaryKey !== lastKey) {
+      debugWarn(1, `[undo] Failed to locate boundary ${liveBoundaryKey}; using last stored boundary ${lastKey}`);
+    }
   }
 
-  const targetHistoryIndex = boundaryHistory.lastIndexOf(targetBoundaryKey);
   const desiredHistoryIndex = targetHistoryIndex - boundaryOffset;
   if (desiredHistoryIndex < 0) {
     return { count: 0 };
   }
 
-  const desiredBoundaryKey = boundaryHistory[desiredHistoryIndex];
-  const desiredEntryIndex = boundaryEntryIndices.get(desiredBoundaryKey);
-  if (desiredEntryIndex === undefined) {
-    return { count: 0 };
-  }
+  const desired = history[desiredHistoryIndex];
+  if (!desired) return { count: 0 };
 
   return {
-    count: Math.max(0, events.length - Math.max(0, desiredEntryIndex)),
-    boundaryState: boundaryStates.get(desiredBoundaryKey),
+    // entryIndex -1 (synthetic pre-log bucket) => undo whole log
+    count: Math.max(0, eventCount - Math.max(0, desired.entryIndex)),
+    boundaryState: desired.state,
   };
 }
 
@@ -354,61 +442,17 @@ function calculateBoundaryUndoCount(
 ): UndoBoundaryPlan {
   if (events.length === 0) return { count: 0 };
 
-  const persistedPlan = calculateBoundaryUndoCountFromPersistedMetadata(events, game, boundaryKind, boundaryOffset);
-  if (persistedPlan) {
-    return persistedPlan;
-  }
-
   const currentState = (game?.state || {}) as any;
   const liveBoundaryKey = getBoundaryKey(currentState, boundaryKind);
   if (!liveBoundaryKey) return { count: 0 };
 
-  const replayEvents = transformDbEventsForReplay(events as any);
-  const scratch = createContext(`undo_probe_${game?.gameId || 'game'}` as any);
-  const boundaryEntryIndices = new Map<string, number>();
-  const boundaryStates = new Map<string, BoundaryStateSnapshot | undefined>();
-  const boundaryHistory: string[] = [];
-  let previousBoundaryKey = getBoundaryKey((scratch as any).state || {}, boundaryKind);
-  boundaryEntryIndices.set(previousBoundaryKey, -1);
-  boundaryStates.set(previousBoundaryKey, snapshotBoundaryState((scratch as any).state || {}));
-  boundaryHistory.push(previousBoundaryKey);
-
-  replayOnContext(scratch as any, replayEvents as any, (replayCtx, _event, index) => {
-    const nextBoundaryKey = getBoundaryKey((replayCtx as any).state || {}, boundaryKind);
-    const nextBoundaryState = snapshotBoundaryState((replayCtx as any).state || {});
-    if (nextBoundaryKey !== previousBoundaryKey) {
-      boundaryEntryIndices.set(nextBoundaryKey, index);
-      boundaryStates.set(nextBoundaryKey, nextBoundaryState);
-      boundaryHistory.push(nextBoundaryKey);
-    }
-    previousBoundaryKey = nextBoundaryKey;
-  });
-
-  let targetBoundaryKey = boundaryEntryIndices.has(liveBoundaryKey) ? liveBoundaryKey : previousBoundaryKey;
-  let entryIndex = boundaryEntryIndices.get(targetBoundaryKey);
-
-  if (entryIndex === undefined) {
-    targetBoundaryKey = previousBoundaryKey;
-    entryIndex = boundaryEntryIndices.get(targetBoundaryKey) ?? -1;
-    debugWarn(1, `[undo] Failed to locate live boundary ${liveBoundaryKey}; using replay boundary ${targetBoundaryKey}`);
+  const persistedHistory = buildBoundaryHistoryFromPersistedMetadata(events, boundaryKind);
+  if (persistedHistory) {
+    return planFromBoundaryHistory(persistedHistory, events.length, liveBoundaryKey, boundaryOffset);
   }
 
-  const targetHistoryIndex = boundaryHistory.lastIndexOf(targetBoundaryKey);
-  const desiredHistoryIndex = targetHistoryIndex - boundaryOffset;
-  if (desiredHistoryIndex < 0) {
-    return { count: 0 };
-  }
-
-  const desiredBoundaryKey = boundaryHistory[desiredHistoryIndex];
-  const desiredEntryIndex = boundaryEntryIndices.get(desiredBoundaryKey);
-  if (desiredEntryIndex === undefined) {
-    return { count: 0 };
-  }
-
-  return {
-    count: Math.max(0, replayEvents.length - Math.max(0, desiredEntryIndex)),
-    boundaryState: boundaryStates.get(desiredBoundaryKey),
-  };
+  const { history, eventCount } = buildBoundaryHistoryFromReplay(events, game, boundaryKind);
+  return planFromBoundaryHistory(history, eventCount, liveBoundaryKey, boundaryOffset);
 }
 
 function calculateSmartUndoCounts(game: any, events: PersistedEvent[]): SmartUndoCounts {
@@ -445,6 +489,109 @@ function calculateSmartUndoCounts(game: any, events: PersistedEvent[]): SmartUnd
       previousPhase: buildUndoBoundaryPreview(previousPhasePlan.boundaryState),
       turn: buildUndoBoundaryPreview(turnPlan.boundaryState),
     },
+  };
+}
+
+export type UndoTurnPhaseTarget = {
+  turnNumber?: number;
+  phase: string;
+  step?: string;
+  label: string;
+  eventsToUndo: number;
+  entryIndex: number;
+};
+
+/**
+ * Contiguous phase (or step) segments earlier than "now", for jump-undo pickers.
+ * eventsToUndo = how many trailing DB events to truncate to land at that segment start.
+ */
+export function listUndoTurnPhaseTargets(
+  game: any,
+  events: PersistedEvent[],
+  opts?: { includeSteps?: boolean; limit?: number },
+): UndoTurnPhaseTarget[] {
+  if (!game || !Array.isArray(events) || events.length === 0) return [];
+
+  const includeSteps = opts?.includeSteps === true;
+  const limit = Math.max(1, Math.min(200, Number(opts?.limit || 40)));
+  const kind: BoundaryKind = includeSteps ? 'step' : 'phase';
+
+  let history = buildBoundaryHistoryFromPersistedMetadata(events, kind);
+  let eventCount = events.length;
+  if (!history) {
+    const replayed = buildBoundaryHistoryFromReplay(events, game, kind);
+    history = replayed.history;
+    eventCount = replayed.eventCount;
+  }
+  if (!history.length) return [];
+
+  const liveKey = getBoundaryKey((game?.state || {}) as any, kind);
+  let currentIndex = history.length - 1;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].key === liveKey) {
+      currentIndex = i;
+      break;
+    }
+  }
+
+  const targets: UndoTurnPhaseTarget[] = [];
+  // Skip the synthetic pre-log bucket and the current segment.
+  for (let i = currentIndex - 1; i >= 0; i--) {
+    const entry = history[i];
+    if (!entry || entry.entryIndex < 0) continue;
+    const state = entry.state || {};
+    const phase = String(state.phase || '').trim();
+    if (!phase) continue;
+    const turnNumber = typeof state.turnNumber === 'number' && state.turnNumber > 0
+      ? state.turnNumber
+      : undefined;
+    const step = includeSteps ? (typeof state.step === 'undefined' ? undefined : String(state.step)) : undefined;
+    const preview = buildUndoBoundaryPreview({ turnNumber, phase, step });
+    const eventsToUndo = Math.max(0, eventCount - Math.max(0, entry.entryIndex));
+    if (eventsToUndo <= 0) continue;
+    targets.push({
+      turnNumber,
+      phase,
+      step,
+      label: preview?.summary || `Turn ${turnNumber ?? '?'} / ${phase}`,
+      eventsToUndo,
+      entryIndex: entry.entryIndex,
+    });
+    if (targets.length >= limit) break;
+  }
+
+  return targets;
+}
+
+function resolveUndoToTurnPhaseCount(
+  game: any,
+  events: PersistedEvent[],
+  target: { turnNumber?: number; phase?: string; step?: string },
+): { actionsToUndo: number; preview?: UndoBoundaryPreview } {
+  const phase = String(target?.phase || '').trim();
+  if (!phase) return { actionsToUndo: 0 };
+
+  const includeSteps = typeof target?.step !== 'undefined' && String(target.step || '').trim() !== '';
+  const targets = listUndoTurnPhaseTargets(game, events, { includeSteps, limit: 200 });
+  const wantTurn = typeof target.turnNumber === 'number' && target.turnNumber > 0 ? target.turnNumber : undefined;
+  const wantPhase = normalizePhaseToken(phase);
+  const wantStep = includeSteps ? normalizeStepToken(target.step) : undefined;
+
+  const match = targets.find((entry) => {
+    if (wantTurn !== undefined && entry.turnNumber !== wantTurn) return false;
+    if (normalizePhaseToken(entry.phase) !== wantPhase) return false;
+    if (wantStep && normalizeStepToken(entry.step) !== wantStep) return false;
+    return true;
+  });
+
+  if (!match) return { actionsToUndo: 0 };
+  return {
+    actionsToUndo: match.eventsToUndo,
+    preview: buildUndoBoundaryPreview({
+      turnNumber: match.turnNumber,
+      phase: match.phase,
+      step: match.step,
+    }),
   };
 }
 
@@ -715,6 +862,15 @@ function performUndo(gameId: string, actionsToUndo: number, eventCountOverride?:
       debugWarn(1, '[undo] Failed to restore participants:', e);
     }
     
+    try {
+      const purged = reconcileCommandZoneZoneConsistency((existingGame as any)?.state);
+      if (purged.removedBattlefield || purged.removedStack) {
+        debugWarn(1, `[undo] Reconciled command-zone/BF ghosts for ${gameId}`, purged);
+      }
+    } catch (reconcileErr) {
+      debugWarn(1, `[undo] reconcileCommandZoneZoneConsistency failed for ${gameId}:`, reconcileErr);
+    }
+
     // Bump seq to trigger UI updates
     if (typeof existingGame.bumpSeq === 'function') {
       existingGame.bumpSeq();
@@ -1544,6 +1700,80 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
     } catch (err: any) {
       debugError(1, `requestUndoToTurn error for game ${gameId}:`, err);
     }
+  });﻿
+  socket.on("getUndoTurnPhaseTargets", (payload?: { gameId?: unknown; includeSteps?: unknown }) => {
+    const gameId = payload?.gameId;
+    try {
+      if (!gameId || typeof gameId !== 'string') return;
+      if (!ensureInGameRoomForRead(gameId)) return;
+      const game = ensureGame(gameId);
+      if (!game) return;
+
+      let events: PersistedEvent[] = [];
+      try {
+        events = getEvents(gameId) as PersistedEvent[];
+      } catch (e) {
+        debugWarn(1, `[getUndoTurnPhaseTargets] Failed to get events for game ${gameId}:`, e);
+      }
+
+      const includeSteps = payload?.includeSteps === true;
+      const targets = listUndoTurnPhaseTargets(game, events, { includeSteps, limit: 40 });
+      socket.emit("undoTurnPhaseTargetsUpdate", {
+        gameId,
+        targets,
+      });
+    } catch (err: any) {
+      debugError(1, `getUndoTurnPhaseTargets error for game ${gameId}:`, err);
+    }
   });
+
+  socket.on("requestUndoToTurnPhase", (payload?: {
+    gameId?: unknown;
+    turnNumber?: unknown;
+    phase?: unknown;
+    step?: unknown;
+  }) => {
+    const gameId = payload?.gameId;
+    try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Missing gameId.' });
+        return;
+      }
+      const ctx = getUndoRequesterContext(gameId);
+      if (!ctx) return;
+
+      const phase = typeof payload?.phase === 'string' ? payload.phase.trim() : '';
+      if (!phase) {
+        socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Missing phase.' });
+        return;
+      }
+      const turnNumberRaw = Number(payload?.turnNumber);
+      const turnNumber = Number.isFinite(turnNumberRaw) && turnNumberRaw > 0 ? turnNumberRaw : undefined;
+      const step = typeof payload?.step === 'string' && payload.step.trim() ? payload.step.trim() : undefined;
+
+      let events: PersistedEvent[] = [];
+      try {
+        events = getEvents(gameId) as PersistedEvent[];
+      } catch (e) {
+        debugWarn(1, `[requestUndoToTurnPhase] Failed to get events:`, e);
+        return;
+      }
+
+      const { actionsToUndo, preview } = resolveUndoToTurnPhaseCount(ctx.game, events, {
+        turnNumber,
+        phase,
+        step,
+      });
+      if (actionsToUndo > 0) {
+        const label = preview?.summary
+          ? `Undo to ${preview.summary}`
+          : `Undo to turn ${turnNumber ?? '?'} / ${phase}`;
+        handleRequestUndo(gameId, actionsToUndo, label, undefined, preview);
+      }
+    } catch (err: any) {
+      debugError(1, `requestUndoToTurnPhase error for game ${gameId}:`, err);
+    }
+  });
+
 }
 

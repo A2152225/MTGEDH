@@ -5,8 +5,11 @@ import type { BattlefieldPermanent, PaymentCostAdjustment, PaymentItem, ManaColo
 import {
   Color,
   parseManaCost,
+  applyXValueToParsedCost,
   computeColorsNeededByOtherCards,
   calculateRemainingCostAfterFloatingMana,
+  canUseRestrictedManaClient,
+  buildRestrictedManaPurposeForSpell,
   type ManaPaymentSource,
   type OtherCardInfo,
   type ManaPool,
@@ -583,6 +586,8 @@ interface CastSpellModalProps {
   open: boolean;
   cardName: string;
   manaCost?: string;
+  typeLine?: string;
+  isActivatedAbilityPayment?: boolean;
   oracleText?: string;
   forcedAlternateCostId?: string;
   preferredAlternateCostId?: string;
@@ -635,6 +640,8 @@ export function CastSpellModal({
   open,
   cardName,
   manaCost,
+  typeLine,
+  isActivatedAbilityPayment = false,
   oracleText,
   forcedAlternateCostId,
   preferredAlternateCostId,
@@ -781,14 +788,16 @@ export function CastSpellModal({
       colorless: 'C',
     };
     if (floatingMana.restricted) {
+      const restrictedPurpose = (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' }));
       floatingMana.restricted.forEach((entry, restrictedIndex) => {
+        if (!canUseRestrictedManaClient(entry as any, restrictedPurpose)) return;
         const poolKey = String(entry.type || 'colorless');
-        const symbol = manaSymbols[poolKey] || 'C';
+        const symbol = ({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G', colorless: 'C' } as Record<string, string>)[poolKey] || 'C';
         const amount = Number(entry.amount || 0);
         if (amount <= 0) return;
         entries.push({
           id: `__pool__:restricted:${restrictedIndex}`,
-          name: `Restricted {${symbol}} ×${amount.toLocaleString()}`,
+          name: `Restricted {${symbol}} x${amount.toLocaleString()}`,
           options: [symbol],
           amount,
         });
@@ -805,24 +814,15 @@ export function CastSpellModal({
 
   const spellCostForPayment = useMemo(() => {
     const costToUse = effectiveManaCost || currentCost?.manaCost || manaCost;
-    const parsed = parseManaCost(costToUse);
-    const xMultiplier = parsed.xCount || 1;
-    return {
-      colors: parsed.colors,
-      generic: parsed.generic + Math.max(0, xValue * xMultiplier),
-      hybrids: parsed.hybrids,
-    };
+    return applyXValueToParsedCost(parseManaCost(costToUse), xValue);
   }, [currentCost, effectiveManaCost, manaCost, xValue]);
 
   // Calculate how much floating mana will be used
   const floatingManaUsage = useMemo(() => {
     if (!floatingMana) return null;
     const costToUse = effectiveManaCost || currentCost?.manaCost || manaCost;
-    const parsed = parseManaCost(costToUse);
-    // For XX costs, multiply xValue by the number of X's (xCount)
-    const xMultiplier = parsed.xCount || 1;
-    const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue * xMultiplier), hybrids: parsed.hybrids };
-    const { usedFromPool } = calculateRemainingCostAfterFloatingMana(cost, floatingMana);
+    const cost = applyXValueToParsedCost(parseManaCost(costToUse), xValue);
+    const { usedFromPool } = calculateRemainingCostAfterFloatingMana(cost, floatingMana, (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' })));
     const totalUsed = Object.values(usedFromPool).reduce((a, b) => a + b, 0);
     return totalUsed > 0 ? usedFromPool : null;
   }, [currentCost, effectiveManaCost, manaCost, xValue, floatingMana]);
@@ -849,7 +849,7 @@ export function CastSpellModal({
       effectiveSuggestedSources.filter((source) => !source.sacrificeCost),
       colorsToPreserve,
       floatingMana,
-      { includeExplicitPoolItems: manualFloatingManaSelection },
+      { includeExplicitPoolItems: manualFloatingManaSelection, purpose: (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' })) },
     );
   }, [
     spellCostForPayment,
@@ -857,6 +857,8 @@ export function CastSpellModal({
     otherCardsInHand,
     floatingMana,
     manualFloatingManaSelection,
+    typeLine,
+    isActivatedAbilityPayment,
   ]);
 
   useEffect(() => {
@@ -1226,6 +1228,8 @@ export function CastSpellModal({
             onChange={setPayment}
             otherCardsInHand={otherCardsInHand}
             floatingMana={floatingMana}
+            typeLine={typeLine}
+            isActivatedAbilityPayment={isActivatedAbilityPayment}
             manualFloatingManaSelection={manualFloatingManaSelection}
             autoSelectedPayment={suggestedPaymentItems}
           />

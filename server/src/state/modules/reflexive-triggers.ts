@@ -135,7 +135,7 @@ export function parseReflexiveSacrificeWhenYouDo(effectText: string): ReflexiveS
     .trim();
   if (!normalized) return null;
 
-  const match = normalized.match(/^(?:you\s+may\s+)?sacrifice\s+((?:(?:a|an|another)\s+)?(?:nonland\s+|nontoken\s+)?(?:artifact|creature|enchantment|land|permanent)(?:\s+or\s+(?:artifact|creature|enchantment|land|permanent))?)\.\s*when\s+you\s+do,?\s*([\s\S]+)$/i);
+  const match = normalized.match(/^(?:you\s+may\s+)?sacrifice\s+((?:(?:a|an|another)\s+)?(?:nonland\s+|nontoken\s+)?(?:artifact|creature|enchantment|land|permanent)(?:\s+or\s+(?:artifact|creature|enchantment|land|permanent))?)\.\s*(?:when|if)\s+you\s+do,?\s*([\s\S]+)$/i);
   if (!match) return null;
 
   const sacrificeType = String(match[1] || '')

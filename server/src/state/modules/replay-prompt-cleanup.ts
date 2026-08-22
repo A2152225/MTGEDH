@@ -655,12 +655,35 @@ function shouldPreserveStackAfterKeywordPromptResolve(ctx: GameContext): boolean
  * Preserves a legitimately pending trigger when the event log ends on a push /
  * keyword prompt / cast continuation.
  */
+function collectTrailingUnansweredPushTriggerIds(ctx: GameContext): Set<string> {
+  const ids = new Set<string>();
+  const last = (ctx as any)._replayLastEvent;
+  if (!last || String(last.type || '').trim() !== 'pushTriggeredAbility') {
+    return ids;
+  }
+  const lastId = String(last.triggerId || '').trim();
+  if (lastId) ids.add(lastId);
+  const penultimate = (ctx as any)._replayPenultimateEvent;
+  if (penultimate && String(penultimate.type || '').trim() === 'pushTriggeredAbility') {
+    const prevId = String(penultimate.triggerId || '').trim();
+    if (prevId) ids.add(prevId);
+  }
+  return ids;
+}
+
 export function scrubStaleReplayedStackAfterFullReplay(ctx: GameContext): void {
   const gameId = String(ctx?.gameId || '').trim();
   if (!gameId) return;
 
   const lastReplayEventType = String((ctx as any)._replayLastEventType || '').trim();
-  if (STACK_PUSH_REPLAY_EVENT_TYPES.has(lastReplayEventType)) {
+  const trailingPushTriggerIds = collectTrailingUnansweredPushTriggerIds(ctx);
+  // castSpell / pushStack / copy mid-cast: keep the whole stack.
+  // pushTriggeredAbility alone is handled below — only the trailing unanswered
+  // trigger(s) survive; older Deathmantle/Sephiroth orphans are dropped.
+  if (
+    STACK_PUSH_REPLAY_EVENT_TYPES.has(lastReplayEventType)
+    && lastReplayEventType !== 'pushTriggeredAbility'
+  ) {
     return;
   }
   if (shouldPreserveStackAfterKeywordPromptResolve(ctx)) {
@@ -684,7 +707,11 @@ export function scrubStaleReplayedStackAfterFullReplay(ctx: GameContext): void {
     // Note: castSpell/castCommander are in STACK_PUSH_REPLAY_EVENT_TYPES so a
     // replay that ends mid-cast preserves the stack before this filter runs.
     if (type === 'spell' || type === 'ability') return true;
-    if (type === 'triggered_ability') return false;
+    if (type === 'triggered_ability') {
+      if (trailingPushTriggerIds.size === 0) return false;
+      const triggerId = String(item.id || item.triggerId || '').trim();
+      return Boolean(triggerId && trailingPushTriggerIds.has(triggerId));
+    }
     if (!type) return false;
     return true;
   };

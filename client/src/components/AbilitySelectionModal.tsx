@@ -117,9 +117,10 @@ export function AbilitySelectionModal({
                 onClick={() => {
                   if (canActivate) {
                     onSelect(ability);
+                    return;
                   }
+                  window.alert(`${ability.label}: ${reason || 'Ability unavailable'}`);
                 }}
-                disabled={!canActivate}
                 style={{
                   display: 'flex',
                   flexDirection: 'column',

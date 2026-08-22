@@ -607,8 +607,18 @@ function parseCostComponents(costStr: string): {
 }
 
 function pushUniqueParsedAbility(abilities: ParsedActivatedAbility[], ability: ParsedActivatedAbility) {
-  const key = `${ability.cost}::${ability.effect}`.toLowerCase();
-  const exists = abilities.some((entry) => `${entry.cost}::${entry.effect}`.toLowerCase() === key);
+  const normalizeKey = (entry: ParsedActivatedAbility) => {
+    const cost = String(entry.cost || '').toLowerCase().trim();
+    const effect = String(entry.effect || '')
+      .toLowerCase()
+      .replace(/this mana can['\u2019]?t be spent to cast a nonartifact spell\.?/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/[.;]+$/g, '');
+    return `${cost}=>${effect}`;
+  };
+  const key = normalizeKey(ability);
+  const exists = abilities.some((entry) => normalizeKey(entry) === key);
   if (!exists) {
     abilities.push(ability);
   }
@@ -712,11 +722,12 @@ function appendGrantedActivatedAbilities(
     const grantedText = normalizeGrantedActivatedAbilityText(String(entry || ''));
     if (!grantedText) continue;
 
-    const manaMatch = grantedText.match(/^\{T\}\s*:\s*Add\s+(.+?)\.?$/i);
+    // Allow trailing restriction text (Powerstone / Vibranium).
+    const manaMatch = grantedText.match(/^\{T\}\s*:\s*Add\s+(.+?)(?:\.|$)/i);
     if (manaMatch) {
       const producedText = manaMatch[1].trim();
       const normalizedProduced = producedText.toLowerCase();
-      const singleColorSymbol = producedText.match(/^\{([WUBRGC])\}$/i)?.[1]?.toUpperCase();
+      const singleColorSymbol = producedText.match(/^\{([WUBRGC])\}/i)?.[1]?.toUpperCase();
       const nativeId = normalizedProduced.includes('any color')
         ? 'native_any'
         : singleColorSymbol

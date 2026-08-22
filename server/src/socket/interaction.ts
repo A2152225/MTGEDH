@@ -6112,11 +6112,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     "activateBattlefieldAbility",
     async (payload?: { gameId?: unknown; permanentId?: unknown; abilityId?: unknown; xValue?: unknown }) => {
     const gameIdRaw = payload?.gameId;
-    const permanentId = payload?.permanentId;
+    let permanentId = payload?.permanentId;
     const abilityId = payload?.abilityId;
     const selectedXValue = normalizeSelectedXValue(payload?.xValue);
 
-    if (typeof permanentId !== "string") return;
+    debug(1, `[activateBattlefieldAbility] received permanentId=${String(permanentId)} abilityId=${String(abilityId)} gameId=${String(gameIdRaw)}`);
+
+    if (typeof permanentId !== "string") {
+      debugWarn(1, `[activateBattlefieldAbility] rejected: permanentId is not a string (${typeof permanentId})`);
+      return;
+    }
 
     const ctx = ensureInRoomAndSeated(gameIdRaw);
     if (!ctx) return;
@@ -6134,8 +6139,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const splitSecondLockActive = isSplitSecondLockActive(game.state);
     const battlefield = game.state?.battlefield || [];
+
+    // Emit may send group_* / *_virtual_N ids for TokenOptimization stacks.
+    // Resolve to a real battlefield permanent before looking up / tapping.
+    const resolvedPermanentId =
+      resolveGroupedPermanentRef(game, pid as any, String(permanentId)) || String(permanentId);
     
-    const permIndex = battlefield.findIndex((p: any) => p?.id === permanentId && p?.controller === pid);
+    const permIndex = battlefield.findIndex((p: any) => p?.id === resolvedPermanentId && p?.controller === pid);
     if (permIndex === -1) {
       socket.emit("error", {
         code: "PERMANENT_NOT_FOUND",
@@ -6145,6 +6155,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     const permanent = battlefield[permIndex];
+    permanentId = String(permanent.id);
     const card = (permanent as any).card;
     const cardName = card?.name || "Unknown";
     const oracleText = (card?.oracle_text || "").toLowerCase();

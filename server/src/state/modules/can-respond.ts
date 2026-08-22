@@ -42,6 +42,7 @@ import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, getP
 import { getDurableCommandZonePermissionForCard, playerHasDurableLandPlayPermission } from "./durable-permissions";
 import { cardMayBeCastWithMayhem, parseMayhemCost } from './keywordCastMechanics.js';
 import { buildFreeCastIntentFields } from './castIntent.js';
+import { hydrateCardOracleInPlace } from './cardOracleHydration.js';
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -275,28 +276,114 @@ function getCommandZoneCommanderIds(commandZone: any): string[] {
   return [];
 }
 
+function isTokenOrCopyCommanderLookalike(entry: any, entryCard: any): boolean {
+  if (!entry && !entryCard) return false;
+  if (entry?.isToken === true || entryCard?.isToken === true) return true;
+  if (entry?.isCopy === true || entryCard?.isCopy === true) return true;
+  if (entry?.isCopyOfPrintedCard === true || entryCard?.isCopyOfPrintedCard === true) return true;
+  if (String(entry?.copiedFromPermanentId || entryCard?.copiedFromPermanentId || '').trim()) return true;
+  const typeLine = String(entryCard?.type_line || entryCard?.typeLine || entry?.type_line || '').toLowerCase();
+  if (/\btoken\b/.test(typeLine)) return true;
+  return false;
+}
+
+type CommanderZonePresenceHit = {
+  zone: 'battlefield' | 'stack';
+  entryId: string;
+  cardId: string;
+  cardName: string;
+  isCommander: boolean;
+  isToken: boolean;
+  controller: string;
+  matchReason: 'same_card_id' | 'isCommander_name';
+};
+
+/**
+ * Find BF/stack entries that look like this commander instance.
+ * Name-only matches require isCommander===true and must not be tokens/copies.
+ * Same-named non-commander permanents (or tokens) are ignored.
+ */
+function findCommanderBattlefieldOrStackHits(
+  state: any,
+  playerId: PlayerID,
+  commanderId: string,
+  commander: any,
+): CommanderZonePresenceHit[] {
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const stack = Array.isArray(state?.stack) ? state.stack : [];
+  const commanderName = String(commander?.name || '').trim();
+  const hits: CommanderZonePresenceHit[] = [];
+
+  const pushHit = (
+    zone: 'battlefield' | 'stack',
+    entry: any,
+    entryCard: any,
+    matchReason: CommanderZonePresenceHit['matchReason'],
+  ) => {
+    const entryCardId = String(entryCard?.id || '').trim();
+    hits.push({
+      zone,
+      entryId: String(entry?.id || entryCardId || '').trim(),
+      cardId: entryCardId,
+      cardName: String(entryCard?.name || '').trim(),
+      isCommander: entry?.isCommander === true,
+      isToken: isTokenOrCopyCommanderLookalike(entry, entryCard),
+      controller: String(entry?.controller || '').trim(),
+      matchReason,
+    });
+  };
+
+  for (const entry of battlefield) {
+    const entryCard = entry?.card;
+    const entryCardId = String(entryCard?.id || '').trim();
+    const entryCardName = String(entryCard?.name || '').trim();
+    const isCommander = entry?.isCommander === true;
+    const isToken = isTokenOrCopyCommanderLookalike(entry, entryCard);
+    const controller = String(entry?.controller || '').trim();
+
+    if (entryCardId && entryCardId === commanderId) {
+      pushHit('battlefield', entry, entryCard, 'same_card_id');
+      continue;
+    }
+    // Name match only for a real non-token commander permanent — never bare name equality.
+    if (
+      isCommander &&
+      controller === String(playerId || '') &&
+      commanderName.length > 0 &&
+      entryCardName === commanderName &&
+      !isToken
+    ) {
+      pushHit('battlefield', entry, entryCard, 'isCommander_name');
+    }
+  }
+
+  for (const entry of stack) {
+    const entryType = String(entry?.type || '').toLowerCase();
+    // Only an actual commander SPELL on the stack counts — not triggers/abilities whose
+    // sourceCard happens to be (or be named like) the commander.
+    if (entryType && entryType !== 'spell') continue;
+    const spellCard = entry?.card || entry?.spell?.card;
+    const spellCardId = String(spellCard?.id || '').trim();
+    if (spellCardId && spellCardId === commanderId) {
+      pushHit('stack', entry, spellCard, 'same_card_id');
+    }
+  }
+
+  return hits;
+}
+
+/**
+ * @deprecated Prefer findCommanderBattlefieldOrStackHits. Kept for call-site clarity.
+ * When the commander id is listed in inCommandZone, callers must NOT treat BF/stack
+ * leftovers as blocking (undo/replay can leave ghosts on both CZ and BF).
+ */
 function isCommanderAlreadyOnBattlefieldOrStack(
   state: any,
   playerId: PlayerID,
   commanderId: string,
   commander: any,
 ): boolean {
-  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
-  const stack = Array.isArray(state?.stack) ? state.stack : [];
-  const commanderName = String(commander?.name || '').trim();
-
-  const matchesCommander = (entry: any) => {
-    const entryCard = entry?.card || entry?.spell?.card || entry?.sourceCard || entry?.source?.card;
-    const entryCardId = String(entryCard?.id || '').trim();
-    const entryCardName = String(entryCard?.name || '').trim();
-    return (
-      entryCardId === commanderId ||
-      (commanderName.length > 0 && entryCardName === commanderName) ||
-      (entry?.isCommander === true && String(entry?.controller || '') === String(playerId || '') && entryCardName === commanderName)
-    );
-  };
-
-  return battlefield.some(matchesCommander) || stack.some(matchesCommander);
+  return findCommanderBattlefieldOrStackHits(state, playerId, commanderId, commander).length > 0;
 }
 
 export function getCommandZoneCommanderCandidates(
@@ -324,61 +411,108 @@ export function getCommandZoneCommanderCandidates(
         const cardName = String(card?.name || '').trim();
         return cardId === commanderKey || cardName === commanderKey;
       });
-      if (!commander) continue;
+      if (!commander) {
+        debugWarn(1, `[getCommandZoneCommanderCandidates] No commanderCards entry for inCommandZone key ${commanderKey}; excluding`);
+        continue;
+      }
 
       const commanderId = String(commander?.id || commanderKey).trim();
       if (!commanderId) continue;
 
-      if (isCommanderAlreadyOnBattlefieldOrStack(state, playerId, commanderId, commander)) {
-        continue;
+      // inCommandZone is authoritative for cast eligibility. After undo/reload, the same
+      // commander id can incorrectly remain on BF/stack as a ghost while also listed in CZ.
+      // Log those hits for diagnosis, but do NOT exclude the CZ cast candidate.
+      const presenceHits = findCommanderBattlefieldOrStackHits(state, playerId, commanderId, commander);
+      if (presenceHits.length > 0) {
+        debugWarn(1, `[getCommandZoneCommanderCandidates] Commander ${commanderId} (${commander?.name || '?'}) is inCommandZone but also present on BF/stack (undo drift?). Allowing CZ cast.`, {
+          hits: presenceHits,
+        });
+      }
+
+      // Post-reload stubs may keep name/image but lose mana_cost/oracle; repair before gating.
+      try {
+        hydrateCardOracleInPlace(commander);
+      } catch {
+        /* best-effort */
       }
 
       const manaCost = String(commander?.mana_cost || commander?.manaCost || '').trim();
-      if (!manaCost) continue;
+      if (!manaCost) {
+        debugWarn(1, `[getCommandZoneCommanderCandidates] Commander ${commanderId} (${commander?.name || '?'}) has no mana_cost after hydrate; excluding from cast candidates`);
+        continue;
+      }
 
-      const durableCommandPermission = getDurableCommandZonePermissionForCard(state, playerId, commander, 'cast');
-      const commandZonePermissionCostMode = String(durableCommandPermission?.costMode || '').trim() || undefined;
-      const spendManaAsThoughAnyType = (durableCommandPermission?.metadata as any)?.spendManaAsThoughAnyType === true;
-      const parsedCost = parseManaCost(commandZonePermissionCostMode === 'without_paying_mana_cost' ? '' : manaCost);
-      const commanderTax = Number((commandZone as any).taxById?.[commanderId] ?? (commandZone as any).taxById?.[commanderKey] ?? 0) || 0;
-      const costAdjustmentPlan = buildCostAdjustmentPlan(state, playerId, commander);
-      const costAdjustment = costAdjustmentPlan.totalAdjustment;
-      const adjustedCost = normalizeParsedManaCost(
-        applyCostAdjustmentToParsedCost(parsedCost, costAdjustmentPlan, commanderTax),
-      );
-      const payableCost = spendManaAsThoughAnyType
-        ? normalizeParsedCostForAnyTypeManaSpending(adjustedCost)
-        : adjustedCost;
-      const addCost = getEffectiveAdditionalCost(commander, commander.oracle_text || commander.oracleText || '');
-      const canPayCost = canPayManaCostWithAvailableSources(state, playerId, payableCost)
-        && (!addCost || canPaySourceGrantedAdditionalCost(state, playerId, commander, addCost as any));
+      try {
+        const durableCommandPermission = getDurableCommandZonePermissionForCard(state, playerId, commander, 'cast');
+        const commandZonePermissionCostMode = String(durableCommandPermission?.costMode || '').trim() || undefined;
+        const spendManaAsThoughAnyType = (durableCommandPermission?.metadata as any)?.spendManaAsThoughAnyType === true;
+        const parsedCost = parseManaCost(commandZonePermissionCostMode === 'without_paying_mana_cost' ? '' : manaCost);
+        const commanderTax = Number((commandZone as any).taxById?.[commanderId] ?? (commandZone as any).taxById?.[commanderKey] ?? 0) || 0;
+        const costAdjustmentPlan = buildCostAdjustmentPlan(state, playerId, commander);
+        const costAdjustment = costAdjustmentPlan.totalAdjustment;
+        const adjustedCost = normalizeParsedManaCost(
+          applyCostAdjustmentToParsedCost(parsedCost, costAdjustmentPlan, commanderTax),
+        );
+        const payableCost = spendManaAsThoughAnyType
+          ? normalizeParsedCostForAnyTypeManaSpending(adjustedCost)
+          : adjustedCost;
+        const addCost = getEffectiveAdditionalCost(commander, commander.oracle_text || commander.oracleText || '');
+        const canPayCost = canPayManaCostWithAvailableSources(state, playerId, payableCost)
+          && (!addCost || canPaySourceGrantedAdditionalCost(state, playerId, commander, addCost as any));
 
-      const typeLine = String(commander?.type_line || commander?.typeLine || '').toLowerCase();
-      const cmc = adjustedCost.generic + Object.values(adjustedCost.colors).reduce((sum, value) => sum + value, 0);
+        const typeLine = String(commander?.type_line || commander?.typeLine || '').toLowerCase();
+        const cmc = adjustedCost.generic + Object.values(adjustedCost.colors).reduce((sum, value) => sum + value, 0);
 
-      candidates.push({
-        card: commander,
-        commanderId,
-        manaCost,
-        cost: {
-          ...adjustedCost,
-          cmc,
-        },
-        grantsFlash: hasFlashOrInstant(commander)
-          || durableCommandPermission?.timingOverride?.asThoughFlash === true
-          || durableCommandPermission?.timingOverride?.ignoreTiming === true,
-        isBackground: typeLine.includes('background'),
-        commanderTax,
-        costAdjustment,
-        canPayCost,
-        ...(commandZonePermissionCostMode ? { commandZonePermissionCostMode } : {}),
-        ...(spendManaAsThoughAnyType ? {
-          spendManaAsThoughAnyType: true,
-          payableCost: {
-            ...payableCost,
+        candidates.push({
+          card: commander,
+          commanderId,
+          manaCost,
+          cost: {
+            ...adjustedCost,
             cmc,
           },
-        } : {}),
+          grantsFlash: hasFlashOrInstant(commander)
+            || durableCommandPermission?.timingOverride?.asThoughFlash === true
+            || durableCommandPermission?.timingOverride?.ignoreTiming === true,
+          isBackground: typeLine.includes('background'),
+          commanderTax,
+          costAdjustment,
+          canPayCost,
+          ...(commandZonePermissionCostMode ? { commandZonePermissionCostMode } : {}),
+          ...(spendManaAsThoughAnyType ? {
+            spendManaAsThoughAnyType: true,
+            payableCost: {
+              ...payableCost,
+              cmc,
+            },
+          } : {}),
+        });
+      } catch (costErr) {
+        debugWarn(1, `[getCommandZoneCommanderCandidates] Commander ${commanderId} (${commander?.name || '?'}) excluded: costParseError`, costErr);
+      }
+    }
+
+    if (candidates.length === 0 && inCommandZone.length > 0) {
+      debugWarn(1, '[getCommandZoneCommanderCandidates] Produced zero candidates despite inCommandZone entries', {
+        playerId: String(playerId),
+        inCommandZone,
+        commanderCardIds: commanderCards.map((c: any) => String(c?.id || '')),
+        commanderNames: commanderCards.map((c: any) => String(c?.name || '')),
+        commanderManaCosts: commanderCards.map((c: any) => String(c?.mana_cost || c?.manaCost || '')),
+        stackSize: Array.isArray(state?.stack) ? state.stack.length : 0,
+        stackTypes: Array.isArray(state?.stack) ? state.stack.map((s: any) => String(s?.type || '')) : [],
+        battlefieldCommanderFlags: Array.isArray(state?.battlefield)
+          ? state.battlefield
+              .filter((p: any) => p?.isCommander === true || String(p?.card?.name || '') === String(commanderCards[0]?.name || ''))
+              .map((p: any) => ({
+                id: p?.id,
+                cardId: p?.card?.id,
+                name: p?.card?.name,
+                isCommander: p?.isCommander === true,
+                isToken: p?.isToken === true,
+                controller: p?.controller,
+              }))
+          : [],
       });
     }
 

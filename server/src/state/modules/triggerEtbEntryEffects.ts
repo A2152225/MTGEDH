@@ -368,6 +368,11 @@ export function queueSelfETBTriggersForPermanent(
   permanent: any,
   controller: PlayerID,
 ): void {
+  // Persisted pushTriggeredAbility / resolveTopOfStackPrompt events own replay.
+  // Live re-queue during isReplaying leaves answered Sephiroth/etc. prompts on stack.
+  if ((ctx as any).isReplaying) {
+    return;
+  }
   const state = (ctx as any).state;
   if (!state || !permanent?.card) {
     return;
@@ -518,6 +523,16 @@ export function queueSelfETBTriggersForPermanent(
     state.stack.push(stackItem);
     pushTriggerDoublerCopies(state, stackItem);
 
+    // Prevent game-actions queueSelfEtbBattlefieldTutorSearch from also enqueueing
+    // a LIBRARY_SEARCH for the same self-ETB battlefield tutor (double prompt / undo drift).
+    const effectForTutorGuard = String(trigger.effect || trigger.description || '');
+    if (
+      /search your library/i.test(effectForTutorGuard)
+      && /onto the battlefield/i.test(effectForTutorGuard)
+    ) {
+      permanent.etbProcessed = true;
+    }
+
     const gameId = String((ctx as any).gameId || '').trim();
     if (gameId && gameId !== 'unknown') {
       try {
@@ -633,6 +648,9 @@ export function queueSelfETBTriggersForPermanent(
 }
 
 export function persistTriggeredAbilityPush(ctx: GameContext, stackItem: any): void {
+  if ((ctx as any).isReplaying) {
+    return;
+  }
   const state = (ctx as any).state;
   const gameId = String((ctx as any).gameId || '').trim();
   if (!gameId || gameId === 'unknown' || !stackItem?.id) {
@@ -738,6 +756,7 @@ export function queueTemporaryEtbTriggersForEntry(
     isToken: boolean;
   },
 ): void {
+  if ((ctx as any).isReplaying) return;
   const state = (ctx as any).state;
   const temporaryTriggers = getTemporaryEtbTriggers(state);
   if (temporaryTriggers.length === 0) return;

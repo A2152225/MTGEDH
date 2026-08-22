@@ -49,6 +49,15 @@ interface Props {
       turn?: UndoBoundaryPreview;
     };
   };
+  undoTurnPhaseTargets?: Array<{
+    turnNumber?: number;
+    phase: string;
+    step?: string;
+    label: string;
+    eventsToUndo: number;
+  }>;
+  onUndoToTurnPhase?: (target: { turnNumber?: number; phase: string; step?: string }) => void;
+  onRequestUndoTurnPhaseTargets?: () => void;
   // Randomness handlers
   onRollDie?: (sides: number) => void;
   onFlipCoin?: () => void;
@@ -95,6 +104,9 @@ export function GameStatusIndicator({
   monarch, initiative, dayNight, cityBlessing,
   isYouPlayer, gameOver, immediateConcede, onConcede, onLeaveGame, onUndo, onOpenUndoMenu, availableUndoCount = 0,
   smartUndoCounts,
+  undoTurnPhaseTargets = [],
+  onUndoToTurnPhase,
+  onRequestUndoTurnPhaseTargets,
   onRollDie, onFlipCoin,
   extraActions,
   aiControlEnabled, aiStrategy, onToggleAIControl,
@@ -667,7 +679,10 @@ export function GameStatusIndicator({
               <button
                 onClick={() => {
                   if (!canOpenUndoMenu) return;
-                  if (!showUndoMenu) onOpenUndoMenu?.();
+                  if (!showUndoMenu) {
+                    onOpenUndoMenu?.();
+                    onRequestUndoTurnPhaseTargets?.();
+                  }
                   setShowUndoMenu(!showUndoMenu);
                 }}
                 disabled={!canOpenUndoMenu}
@@ -706,7 +721,7 @@ export function GameStatusIndicator({
                     gap: 4,
                     zIndex: 1000,
                     boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
-                    minWidth: 180,
+                    minWidth: 220,
                   }}
                 >
                   <div style={{
@@ -769,10 +784,86 @@ export function GameStatusIndicator({
                             </span>
                           )}
                         </span>
-                        <span style={{ color: enabled ? '#c7d2fe' : '#6b7280' }}>{option.count}</span>
+                        <span style={{ color: enabled ? '#c7d2fe' : '#6b7280', whiteSpace: 'nowrap' }}>
+                          {formatUndoCountLabel(option.scope, option.count)}
+                        </span>
                       </button>
                     );
                   })}
+                  {onUndoToTurnPhase && (
+                    <>
+                      <div style={{
+                        fontSize: 11,
+                        color: '#9ca3af',
+                        marginTop: 6,
+                        marginBottom: 4,
+                        padding: '6px 4px 2px',
+                        borderTop: '1px solid rgba(255,255,255,0.1)',
+                      }}>
+                        Return to Turn / Phase
+                      </div>
+                      {undoTurnPhaseTargets.length === 0 ? (
+                        <div
+                          style={{
+                            padding: '8px 12px',
+                            fontSize: 11,
+                            color: '#9ca3af',
+                            background: 'rgba(75, 85, 99, 0.18)',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: 4,
+                          }}
+                        >
+                          No earlier turn/phase targets
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            maxHeight: 180,
+                            overflowY: 'auto',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 4,
+                          }}
+                        >
+                          {undoTurnPhaseTargets.map((target) => (
+                            <button
+                              key={`${target.turnNumber ?? 'x'}|${target.phase}|${target.step ?? ''}|${target.eventsToUndo}`}
+                              onClick={() => {
+                                onUndoToTurnPhase({
+                                  turnNumber: target.turnNumber,
+                                  phase: target.phase,
+                                  step: target.step,
+                                });
+                                setShowUndoMenu(false);
+                              }}
+                              style={{
+                                padding: '8px 12px',
+                                fontSize: 11,
+                                background: 'rgba(16, 185, 129, 0.14)',
+                                border: '1px solid rgba(16, 185, 129, 0.28)',
+                                borderRadius: 4,
+                                color: '#e5e7eb',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                justifyContent: 'space-between',
+                                gap: 12,
+                              }}
+                              title={`Undo to ${target.label} (${target.eventsToUndo} events)`}
+                            >
+                              <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <span>{target.label}</span>
+                              </span>
+                              <span style={{ color: '#6ee7b7', whiteSpace: 'nowrap' }}>
+                                {target.eventsToUndo} event{target.eventsToUndo === 1 ? '' : 's'}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
             </div>

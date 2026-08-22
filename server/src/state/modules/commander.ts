@@ -446,6 +446,111 @@ export function moveCommanderToCZ(ctx: GameContext, playerId: PlayerID, commande
   if (state && state.commandZone) {
     (state.commandZone as any)[playerId] = info;
   }
+
+  // A card cannot occupy two zones. When returning to CZ (esp. during undo/replay),
+  // remove any battlefield permanent still carrying this commander card id.
+  if (state && Array.isArray(state.battlefield)) {
+    const before = state.battlefield.length;
+    state.battlefield = state.battlefield.filter((perm: any) => {
+      const cardId = String(perm?.card?.id || '').trim();
+      if (cardId && cardId === String(commanderId)) {
+        debugWarn(1, `[moveCommanderToCZ] Removed BF permanent for commander returned to CZ`, {
+          playerId,
+          commanderId,
+          permanentId: perm?.id,
+          name: perm?.card?.name,
+        });
+        return false;
+      }
+      return true;
+    });
+    if (state.battlefield.length !== before) {
+      debug(1, `[moveCommanderToCZ] Purged ${before - state.battlefield.length} BF ghost(s) for ${commanderId}`);
+    }
+  }
   
   ctx.bumpSeq();
 }
+
+
+/**
+ * After undo/replay/reload, the same commander card id can incorrectly remain on the
+ * battlefield (or stack) while also listed in inCommandZone. A card cannot be in two
+ * zones — trust inCommandZone and purge same-id BF/stack ghosts so cast/UI stay consistent.
+ */
+export function reconcileCommandZoneZoneConsistency(state: any): { removedBattlefield: number; removedStack: number } {
+  let removedBattlefield = 0;
+  let removedStack = 0;
+  if (!state || typeof state !== 'object') {
+    return { removedBattlefield, removedStack };
+  }
+
+  const commandZone = state.commandZone;
+  if (!commandZone || typeof commandZone !== 'object') {
+    return { removedBattlefield, removedStack };
+  }
+
+  const idsInCommandZone = new Set<string>();
+  for (const entry of Object.values(commandZone as Record<string, any>)) {
+    const inCZ = Array.isArray(entry?.inCommandZone) ? entry.inCommandZone : [];
+    for (const id of inCZ) {
+      const normalized = String(id || '').trim();
+      if (normalized) idsInCommandZone.add(normalized);
+    }
+  }
+
+  if (idsInCommandZone.size === 0) {
+    return { removedBattlefield, removedStack };
+  }
+
+  const idsOf = (entry: any): string[] => {
+    const entryCard = entry?.card || entry?.spell?.card;
+    return [
+      String(entry?.id || '').trim(),
+      String(entryCard?.id || '').trim(),
+    ].filter(Boolean);
+  };
+
+  if (Array.isArray(state.battlefield)) {
+    const before = state.battlefield.length;
+    state.battlefield = state.battlefield.filter((entry: any) => {
+      const ids = idsOf(entry);
+      if (ids.some((id) => idsInCommandZone.has(id))) {
+        debugWarn(1, `[reconcileCommandZoneZoneConsistency] Removing BF ghost also listed inCommandZone`, {
+          permanentId: entry?.id,
+          cardId: entry?.card?.id,
+          name: entry?.card?.name || entry?.name,
+          isCommander: entry?.isCommander === true,
+          isToken: entry?.isToken === true,
+        });
+        return false;
+      }
+      return true;
+    });
+    removedBattlefield = before - state.battlefield.length;
+  }
+
+  // Only purge actual commander SPELLS on the stack — not triggers whose sourceCard
+  // points at a commander that is now in CZ.
+  if (Array.isArray(state.stack)) {
+    const before = state.stack.length;
+    state.stack = state.stack.filter((entry: any) => {
+      const entryType = String(entry?.type || '').toLowerCase();
+      if (entryType && entryType !== 'spell') return true;
+      const ids = idsOf(entry);
+      if (ids.some((id) => idsInCommandZone.has(id))) {
+        debugWarn(1, `[reconcileCommandZoneZoneConsistency] Removing stack spell ghost also listed inCommandZone`, {
+          stackId: entry?.id,
+          cardId: entry?.card?.id || entry?.spell?.card?.id,
+          name: entry?.card?.name || entry?.spell?.card?.name,
+        });
+        return false;
+      }
+      return true;
+    });
+    removedStack = before - state.stack.length;
+  }
+
+  return { removedBattlefield, removedStack };
+}
+

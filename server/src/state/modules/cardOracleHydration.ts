@@ -122,7 +122,10 @@ export function hydrateGameStateOracleText(
   if (commandZone && typeof commandZone === 'object') {
     for (const entry of Object.values(commandZone as Record<string, unknown>)) {
       if (!entry || typeof entry !== 'object') continue;
-      hydrateZoneCardList((entry as Record<string, unknown>).commanderCards);
+      const cz = entry as Record<string, unknown>;
+      hydrateZoneCardList(cz.commanderCards);
+      // Legacy shape used by some older saves / event replays.
+      hydrateZoneCardList(cz.commanders);
     }
   }
 

@@ -488,6 +488,11 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any,
 }
 
 function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanent: any): void {
+  // Replay applies persisted pushTriggeredAbility events. Re-emitting here duplicates
+  // stack items and appends out-of-order Deathmantle/etc. orphans after undo/restore.
+  if ((ctx as any).isReplaying) {
+    return;
+  }
   const state = ctx.state as any;
   const triggerId = uid('trigger');
   const effectText = String(trigger?.effect || '').trim();
@@ -1190,7 +1195,7 @@ export function createToken(
         zone: "battlefield",
         colors: options?.colors || [],
         image_uris: syncExactPrinting?.image_uris || imageUrls,
-        oracle_text: options?.abilities?.join('. ') || '',
+        oracle_text: options?.abilities?.join('\n') || '',
         keywords: options?.abilities || [],
         power: String(basePower),
         toughness: String(baseToughness),

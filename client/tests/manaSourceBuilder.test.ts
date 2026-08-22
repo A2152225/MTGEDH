@@ -222,4 +222,38 @@ describe('buildSuggestedPaymentItems', () => {
       && source.options.includes('G'),
     )).toBe(true);
   });
+
+  it('autopays {X}{W}{W} at X=10 by locking WW then filling generic from pool + lands', () => {
+    const items = buildSuggestedPaymentItems(
+      {
+        colors: { W: 2, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 10,
+        hybrids: [],
+      },
+      [
+        { id: 'plains_1', name: 'Plains', options: ['W'] },
+        { id: 'plains_2', name: 'Plains', options: ['W'] },
+        { id: 'forest_1', name: 'Forest', options: ['G'] },
+        { id: 'forest_2', name: 'Forest', options: ['G'] },
+        { id: 'forest_3', name: 'Forest', options: ['G'] },
+        { id: 'sol_ring', name: 'Sol Ring', options: ['C', 'C'] },
+      ],
+      new Set(),
+      { white: 2, blue: 0, black: 0, red: 0, green: 2, colorless: 1 },
+      { includeExplicitPoolItems: true },
+    );
+
+    // Floating white is reserved for the {W}{W} requirement first (not spent on X/generic).
+    const whitePool = items.find((item) => item.permanentId === '__pool__:white');
+    expect(whitePool).toEqual({ permanentId: '__pool__:white', mana: 'W', count: 2 });
+
+    const total = items.reduce((sum, item) => sum + Number(item.count || 1), 0);
+    expect(total).toBeGreaterThanOrEqual(12);
+
+    // Remaining white lands may still help fill generic, but colored WW is already covered by pool.
+    const whiteFromTaps = items
+      .filter((item) => item.mana === 'W' && !String(item.permanentId).startsWith('__pool__'))
+      .reduce((sum, item) => sum + Number(item.count || 1), 0);
+    expect(Number(whitePool?.count || 0) + whiteFromTaps).toBeGreaterThanOrEqual(2);
+  });
 });
