@@ -93,6 +93,18 @@ export const COMMON_TOKENS: Record<string, TokenCharacteristics> = {
     abilities: ['{T}: Add {C}. This mana can\'t be spent to cast a nonartifact spell.'],
     isArtifact: true,
   },
+  'Vibranium': {
+    name: 'Vibranium',
+    colors: [],
+    types: ['Artifact'],
+    subtypes: ['Vibranium'],
+    abilities: [
+      'Indestructible',
+      '{T}: Add {C}. This mana can\'t be spent to cast a nonartifact spell.',
+    ],
+    isArtifact: true,
+  },
+
   'Vehicle': {
     name: 'Vehicle',
     colors: [],

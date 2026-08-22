@@ -1219,6 +1219,9 @@ function normalizeBattlefieldTargetReferenceText(value: string): string {
     .replace(/\s+at end of combat$/i, '')
     .replace(/\s+this turn$/i, '')
     .replace(/\s+doesn['']t untap during its controller(?:'s)? next untap step$/i, '')
+    // Banisher Priest / Palace Jailer / Oblivion Ring style linked-exile duration.
+    .replace(/\s+until (?:this (?:permanent|creature|artifact|enchantment|aura|vehicle)|it|[^.]+?) leaves the battlefield\b.*$/i, '')
+    .replace(/\s+until an opponent becomes the monarch\b.*$/i, '')
     .replace(/^x target /i, 'up to x target ')
     .replace(/[.\s]+$/g, '')
     .replace(/\s+/g, ' ')

@@ -986,6 +986,8 @@ const ATTACK_WATCHER_TRIGGER_TYPES = new Set([
   'opponents_two_or_more_creatures_attack',
   'chosen_type_creature_etb_or_attack',
   'exalted',
+  'you_attack_with_commander',
+  'commander_attacks',
 ]);
 
 function isAttackWatcherTriggerType(triggerType: string | undefined): boolean {
@@ -1186,6 +1188,15 @@ function planAttackWatcherQueue(
     case 'exalted':
       if (attackingCreatures.length !== 1 || sourceController !== attackingPlayer) return { kind: 'skip' };
       return { kind: 'once' };
+    case 'you_attack_with_commander':
+    case 'commander_attacks': {
+      if (sourceController !== attackingPlayer) return { kind: 'skip' };
+      const commanderAttacking = attackingCreatures.some((attacker: any) => {
+        if (String(attacker?.controller || '') !== sourceController) return false;
+        return attacker?.isCommander === true || attacker?.commander === true || attacker?.card?.isCommander === true;
+      });
+      return commanderAttacking ? { kind: 'once' } : { kind: 'skip' };
+    }
     case 'one_or_more_enchanted_by_aura_you_control_attack': {
       const anyEnchanted = attackingCreatures.some((attacker: any) =>
         isEnchantedByAuraYouControl(battlefield, String(attacker?.id || ''), sourceController),
@@ -1850,6 +1861,40 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     }
   }
   
+  // W'Kabi / similar: "Whenever you attack with your commander, ..."
+  const youAttackWithCommanderMatch = oracleText.match(
+    /whenever you attack with your commander,?\s*([^.]+)/i,
+  );
+  if (youAttackWithCommanderMatch && !triggers.some((t) => t.triggerType === 'you_attack_with_commander')) {
+    const effectText = timingTriggerEffect(oracleText, youAttackWithCommanderMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'you_attack_with_commander',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
+  // "Whenever your commander attacks"
+  const yourCommanderAttacksMatch = oracleText.match(
+    /whenever your commander attacks,?\s*([^.]+)/i,
+  );
+  if (yourCommanderAttacksMatch && !triggers.some((t) => t.triggerType === 'commander_attacks' || t.triggerType === 'you_attack_with_commander')) {
+    const effectText = timingTriggerEffect(oracleText, yourCommanderAttacksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId: String(permanent?.controller || ''),
+      triggerType: 'commander_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
   // "Whenever a creature you control attacks" (not alone / this turn / or blocks)
   const creatureAttacksMatch = oracleText.match(
     /whenever a creature you control attacks(?! alone)(?! this turn)(?! or blocks),?\s*([^.]+)/i,
@@ -2288,6 +2333,20 @@ export function getAttackTriggersForCreatures(
   ));
   if (attackedPlayerIds.length === 0 && defendingPlayer) {
     attackedPlayerIds.push(String(defendingPlayer));
+  }
+
+  // Stamp commander identity on attackers for watcher planning (W'Kabi, etc.).
+  for (const attacker of attackingCreatures) {
+    if (!attacker || attacker.isCommander === true) continue;
+    const owner = String(attacker?.owner || attacker?.controller || attackingPlayer || '');
+    const zone = (ctx.state as any)?.commandZone?.[owner];
+    const commanderIds = Array.isArray(zone?.commanderIds) ? zone.commanderIds : [];
+    const commanderNames = Array.isArray(zone?.commanderNames) ? zone.commanderNames.map((n: any) => String(n || '').toLowerCase()) : [];
+    const cardId = String(attacker?.card?.id || attacker?.id || '');
+    const cardName = String(attacker?.card?.name || '').toLowerCase();
+    if ((cardId && commanderIds.includes(cardId)) || (cardName && commanderNames.includes(cardName))) {
+      attacker.isCommander = true;
+    }
   }
 
   // Self-attack abilities on the attacking creatures (keywords, "whenever this attacks", Join Forces).

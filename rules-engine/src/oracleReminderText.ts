@@ -88,7 +88,7 @@ const STANDALONE_KEYWORD_ACTION_EFFECT = new RegExp(
 const KEYWORD_ACTION_WITH_CONTINUATION = /^(?:explore-clash|support\s+\d+|fabricate\s+\d+)\.\s+\S/i;
 
 const TOKEN_TYPE_REMINDER =
-  /\.\s*\((?:it'?s|they'?re) (?:an )?(?:artifacts?|enchantments?|creatures?)(?: with)?[^)]*\)\s*\.?/gi;
+  /\.\s*\((?:it['\u2019]?s|they['\u2019]?re) (?:an )?(?:artifacts?|enchantments?|creatures?)(?: with)?[^)]*\)\s*\.?/gi;
 
 const ACTIVATION_TAIL =
   /(?:\.\s*(?:\([^)]*\)\s*)?|\n+\s*)\{[^}]+\}(?:\{[^}]+\})*(?:,\s*|\s*:)\s*[\s\S]*$/i;
@@ -132,6 +132,12 @@ function shouldStripParenthetical(source: string, openIndex: number): boolean {
 
   const inner = source.slice(openIndex + 1, closeIndex).trim();
   if (!inner) return false;
+
+  // Token-type reminders (Treasure/Lander/Vibranium/Powerstone style) must strip even though
+  // they begin with "It's an artifact with ...".
+  if (/^(?:it['\u2019]?s|they['\u2019]?re)\s+(?:an\s+)?(?:artifacts?|enchantments?|creatures?)(?:\s+with)\b/i.test(inner)) {
+    return true;
+  }
 
   if (GAMEPLAY_PAREN_CONTENT.test(inner)) return false;
   if (/^as a siege enters\b/i.test(inner)) return true;

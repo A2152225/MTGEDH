@@ -79,12 +79,22 @@ const MIN_INITIAL_ZOOM = 0.7;
  * Mana rocks: Artifacts that produce mana (e.g., Sol Ring, Mana Crypt, signets)
  * Mana dorks: Creatures that produce mana (e.g., Llanowar Elves, Birds of Paradise)
  */
+function stripCreateTokenTypeReminders(oracleText: string): string {
+  // Drop CR-style token reminders like:
+  // (It's an artifact with indestructible and "{T}: Add {C}...")
+  // so creators of Treasure/Lander/Vibranium/etc. are not treated as mana rocks.
+  return String(oracleText || '')
+    .replace(/\(\s*(?:it['\u2019]?s|they['\u2019]?re)\s+(?:an\s+)?(?:artifacts?|enchantments?|creatures?)(?:\s+with)?[\s\S]*?\)/gi, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 function isManaSource(perm: BattlefieldPermanent): boolean {
   const card = perm.card as any;
   if (!card) return false;
   const typeLine = (card.type_line || '').toLowerCase();
-  const oracleText = (card.oracle_text || '').toLowerCase();
   const name = (card.name || '').toLowerCase();
+  const oracleText = stripCreateTokenTypeReminders(card.oracle_text || '').toLowerCase();
   
   // Don't classify lands as mana sources here - they're handled separately
   if (typeLine.includes('land')) return false;
@@ -109,6 +119,8 @@ function isManaSource(perm: BattlefieldPermanent): boolean {
   // Cards that are NOT mana sources even though they mention mana/tokens
   // These create tokens or have triggered abilities, not tap abilities
   const notManaSources = [
+    "t'challa",             // Creates Vibranium tokens; reminder text has {T}: Add
+    'shuri',                // Creates Vibranium tokens / related
     'skullport merchant',   // Creates treasure on ETB, has sacrifice ability
     'tireless provisioner', // Landfall creates food/treasure tokens
     'feldon of the third path', // Creates token copies, not mana

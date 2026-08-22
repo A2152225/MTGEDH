@@ -108,10 +108,19 @@ export function tryBatch388ExileStep(
   const controllerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
   const boundIds = collectBoundIds(ctx);
 
-  if (/^exile target creature$/i.test(target) || /^exile target creature$/i.test(raw)) {
+  const isTargetCreatureExile =
+    /^exile target creature(?: an opponent controls)?(?: until .+ leaves the battlefield)?$/i.test(target)
+    || /^exile target creature(?: an opponent controls)?(?: until .+ leaves the battlefield)?$/i.test(raw)
+    || /^target creature(?: an opponent controls)?(?: until .+ leaves the battlefield)?$/i.test(target);
+  if (isTargetCreatureExile) {
+    const preferOpponent = /an opponent controls/i.test(target) || /an opponent controls/i.test(raw);
     const match =
-      battlefield.find((perm: any) => boundIds.includes(String(perm?.id || '').trim()) && permanentMatchesType(perm, 'creature')) ||
-      battlefield.find((perm: any) => permanentMatchesType(perm, 'creature'));
+      battlefield.find((perm: any) => boundIds.includes(String(perm?.id || '').trim()) && permanentMatchesType(perm, 'creature'))
+      || battlefield.find((perm: any) =>
+          permanentMatchesType(perm, 'creature')
+          && (!preferOpponent || String(perm?.controller || '').trim() !== controllerId)
+        )
+      || battlefield.find((perm: any) => permanentMatchesType(perm, 'creature'));
     if (!match) return { applied: true, state, log: ['No target creature to exile'] };
     const removedIds = new Set([String((match as any)?.id || '').trim()]);
     const kept = battlefield.filter((perm: any) => !removedIds.has(String(perm?.id || '').trim()));

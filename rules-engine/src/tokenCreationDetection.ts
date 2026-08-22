@@ -4,6 +4,7 @@ import type {
   TokenCharacteristics,
   TokenTriggerInfo,
 } from './tokenCreationTypes';
+import { getTokenCharacteristics } from './tokenCreationCatalog';
 
 function extractQuotedTokenAbilities(text: string): { readonly descriptor: string; readonly quotedAbilities: readonly string[] } {
   const quotedAbilities: string[] = [];
@@ -122,7 +123,7 @@ export function parseTokenCreationFromText(
     'saproling', 'servo', 'thopter', 'clue', 'treasure', 'food', 'blood', 'warrior',
     'knight', 'wizard', 'rogue', 'cleric', 'horror', 'insect', 'spider', 'snake', 'merfolk',
     'phyrexian', 'germ', 'wurm', 'gnome', 'fish', 'pegasus', 'pest', 'dryad', 'forest',
-    'mite', 'dinosaur', 'assassin', 'otter', 'pilot', 'lander', 'rabbit', 'myr', 'slug',
+    'mite', 'dinosaur', 'assassin', 'otter', 'pilot', 'lander', 'vibranium', 'rabbit', 'myr', 'slug',
     'kobold', 'samurai', 'monk', 'citizen', 'construct', 'plant', 'serpent', 'golem', 'goat',
   ];
   const subtypeSource = lowerText
@@ -160,6 +161,7 @@ export function parseTokenCreationFromText(
 
   const artifactOnlySubtypes = new Set([
     'treasure', 'food', 'clue', 'blood', 'powerstone', 'map', 'junk', 'gold', 'incubator', 'mutagen',
+    'lander', 'vibranium',
   ]);
   if (
     subtypes.some((subtype) => artifactOnlySubtypes.has(subtype.toLowerCase())) &&
@@ -194,6 +196,20 @@ export function parseTokenCreationFromText(
   if (descriptors.includes('food')) name = 'Food';
   if (descriptors.includes('clue')) name = 'Clue';
   if (descriptors.includes('blood')) name = 'Blood';
+  if (descriptors.includes('powerstone')) name = 'Powerstone';
+  if (descriptors.includes('lander')) name = 'Lander';
+  if (descriptors.includes('vibranium')) name = 'Vibranium';
+  const catalogHit = getTokenCharacteristics(name);
+  if (catalogHit) {
+    return {
+      characteristics: {
+        ...catalogHit,
+        // Keep entersTapped / count handled by caller; abilities come from catalog.
+        abilities: Array.from(new Set([...(catalogHit.abilities || []), ...abilities])),
+      },
+      count,
+    };
+  }
 
   return {
     characteristics: {
@@ -228,6 +244,26 @@ export function resolveTokenCharacteristicsFromOracleStep(
   const fromClause = clauseParsed.descriptor
     ? parseTokenCreationFromText(String(clauseRaw || '').trim())
     : null;
+
+  // Prefer catalog definitions for named tokens (Treasure, Powerstone, Vibranium, ...).
+  // Reminder text on the creating card is not a reliable source of token abilities.
+  const catalogNameCandidates: string[] = [];
+  for (const source of [tokenHint, hintParsed.descriptor, clauseRaw]) {
+    const raw = String(source || '').trim();
+    if (!raw) continue;
+    const named = raw.match(/\b([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)*)\b/);
+    // Also catch simple single-word descriptors like "Vibranium" / "tapped Vibranium"
+    const simple = raw.match(/\b(?:tapped(?:\s+and\s+attacking)?\s+)?([A-Za-z][A-Za-z'-]*)\b/i);
+    if (named) catalogNameCandidates.push(named[1]);
+    if (simple) catalogNameCandidates.push(simple[1]);
+  }
+  for (const candidate of catalogNameCandidates) {
+    const catalog = getTokenCharacteristics(candidate) || getTokenCharacteristics(candidate.charAt(0).toUpperCase() + candidate.slice(1));
+    if (catalog) {
+      const parsed = fromHint?.characteristics || fromClause?.characteristics || null;
+      return mergeTokenCharacteristics(catalog, parsed, quotedAbilities);
+    }
+  }
 
   if (fromHint) {
     return mergeTokenCharacteristics(fromHint.characteristics, fromClause?.characteristics, quotedAbilities);

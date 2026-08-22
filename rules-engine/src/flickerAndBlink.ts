@@ -574,6 +574,10 @@ export const COMMON_FLICKER_CARDS: Record<string, Partial<FlickerEffect>> = {
     timing: FlickerTiming.WHEN_EXILER_LEAVES,
     returnController: FlickerReturnController.OWNER,
   },
+  'Palace Jailer': {
+    timing: FlickerTiming.WHEN_EXILER_LEAVES,
+    returnController: FlickerReturnController.OWNER,
+  },
 };
 
 /**

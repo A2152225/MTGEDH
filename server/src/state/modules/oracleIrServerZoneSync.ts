@@ -47,7 +47,7 @@ import {
 } from './oracleIrSpellLegacyTutorUtils.js';
 import { isCelestialReunionOracle } from './chosen-creature-type.js';
 import { evaluateCounterPlacementReplacementEvent, evaluateMillReplacementEvent } from './replacement-effects.js';
-import { processMillTriggers } from './zones.js';
+import { processDrawTriggers, processMillTriggers } from './zones.js';
 import { recordCardPutIntoGraveyardThisTurn } from './turn-tracking.js';
 import {
   applyCopyPermanentTriggerStep,
@@ -5947,6 +5947,19 @@ export function applyOracleIRStepsOnServer(
   const deferOptionalGrantGraveyardChoices = deferOptionalLookChoices;
   const deferOptionalPerPlayerChoices = deferOptionalLookChoices;
 
+  const libraryCountsBeforeDrawHook: Record<string, number> = {};
+  for (const player of ((state as any)?.players || [])) {
+    const pid = String(player?.id || '').trim();
+    if (!pid) continue;
+    const fromPlayer = Array.isArray(player?.library) ? player.library.length : null;
+    const fromCtx = typeof (ctx as any)?.libraries?.get === 'function'
+      ? Number(((ctx as any).libraries.get(pid) || []).length)
+      : null;
+    libraryCountsBeforeDrawHook[pid] = Number.isFinite(fromPlayer as any)
+      ? Number(fromPlayer)
+      : (Number.isFinite(fromCtx as any) ? Number(fromCtx) : 0);
+  }
+
   const result = applyOracleIRStepsToGameState(state, adjustedSteps, {
     ...irCtx,
     stepLedger,
@@ -5964,6 +5977,29 @@ export function applyOracleIRStepsOnServer(
   });
   Object.assign(state, result.state);
   try {
+    // Fire "whenever you draw" triggers for IR draws (Temple Bell, Kynaios, etc.).
+    // Turn-based draws already go through zones.draw*; IR commits previously skipped this.
+    if (!(ctx as any).isReplaying) {
+      const drawStepsApplied = (result.appliedSteps || []).some((step: any) => step?.kind === 'draw');
+      if (drawStepsApplied) {
+        for (const player of ((state as any)?.players || [])) {
+          const pid = String(player?.id || '').trim();
+          if (!pid) continue;
+          const before = Number(libraryCountsBeforeDrawHook[pid] || 0);
+          const afterPlayer = Array.isArray(player?.library) ? player.library.length : null;
+          const afterCtx = typeof (ctx as any)?.libraries?.get === 'function'
+            ? Number(((ctx as any).libraries.get(pid) || []).length)
+            : null;
+          const after = Number.isFinite(afterPlayer as any)
+            ? Number(afterPlayer)
+            : (Number.isFinite(afterCtx as any) ? Number(afterCtx) : before);
+          const drawn = Math.max(0, before - after);
+          if (drawn > 0) {
+            processDrawTriggers(ctx, pid as any, drawn);
+          }
+        }
+      }
+    }
     const counterSpellApplied = (result.appliedSteps || []).some((step) => step?.kind === 'counter_spell');
     if (counterSpellApplied && !(ctx as any).isReplaying) {
       const stackAfterIds = new Set(

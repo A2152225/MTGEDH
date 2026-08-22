@@ -57,7 +57,8 @@ const LINKED_EXILE_CARDS: Record<string, {
   "banisher priest": { targetType: "creature", returnCondition: 'ltb', controllerRestriction: 'opponent', isCreature: true },
   "fairgrounds warden": { targetType: "creature", returnCondition: 'ltb', controllerRestriction: 'opponent', isCreature: true },
   "brutal cathar": { targetType: "creature", returnCondition: 'ltb', controllerRestriction: 'opponent', isCreature: true },
-  "palace jailer": { targetType: "creature", returnCondition: 'ltb', controllerRestriction: 'opponent', isCreature: true },
+  // Palace Jailer returns when an opponent becomes the monarch (not LTB) — handled via monarch-linked exile below.
+  // "palace jailer": removed from LTB table intentionally.
   "mangara of corondor": { targetType: "permanent", returnCondition: 'ltb' }, // Special - exiles self too
   
   // Note: Reality Shift is NOT a linked exile - it permanently exiles
@@ -112,6 +113,22 @@ export function detectLinkedExileEffect(card: any): {
       hasLinkedExile: true,
       targetType: targetDesc,
       returnCondition: 'ltb',
+      controllerRestriction: isOpponentOnly ? 'opponent' : 'any',
+      isCreature: card.type_line?.toLowerCase().includes('creature'),
+    };
+  }
+
+  // Palace Jailer-style: exile until an opponent becomes the monarch
+  const monarchLinked = oracleText.match(
+    /exile (?:target |that |a )?([^.]+?) until an opponent becomes the monarch/i,
+  );
+  if (monarchLinked) {
+    const targetDesc = monarchLinked[1].trim();
+    const isOpponentOnly = /an opponent controls|opponent controls/i.test(oracleText);
+    return {
+      hasLinkedExile: true,
+      targetType: targetDesc,
+      returnCondition: 'opponent_becomes_monarch' as any,
       controllerRestriction: isOpponentOnly ? 'opponent' : 'any',
       isCreature: card.type_line?.toLowerCase().includes('creature'),
     };
