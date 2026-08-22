@@ -1291,6 +1291,8 @@ export type OracleEffectStep =
       readonly grantsHaste?: 'permanent' | 'until_end_of_turn';
       /** Grant one or more keyword abilities to the created token(s) until end of turn (e.g. "They gain flying until end of turn."). */
       readonly grantsAbilitiesUntilEndOfTurn?: readonly string[];
+      /** Permanent defining keyword grants (e.g. "It has flying." / "They are indestructible."). */
+      readonly grantsAbilitiesPermanent?: readonly string[];
       /** Create a delayed trigger for the created token(s) at the beginning of the next end step. */
       readonly atNextEndStep?: 'sacrifice' | 'exile';
       /** Create a delayed trigger for the created token(s) at end of combat (beginning of the end of combat step). */

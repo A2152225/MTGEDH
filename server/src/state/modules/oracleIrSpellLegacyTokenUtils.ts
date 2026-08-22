@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
+import { extractCreateTokenGrantedAbilities } from '../../../../rules-engine/src/oracleReminderText.js';
 import { createToken } from './counters_tokens.js';
 
 export interface SpellLegacyTokenSpec {
@@ -10,6 +11,55 @@ export interface SpellLegacyTokenSpec {
   name: string;
   typeLine: string;
   colors?: string[];
+  /** Matched create span (+ same-sentence with / follow-up It has sentences). */
+  sourceText?: string;
+  /** Abilities extracted from sourceText. */
+  abilities?: string[];
+}
+
+const SPELL_LEGACY_FOLLOW_UP_PREFIX =
+  /^(It(?:['\u2019]?s|\s+has|\s+is|\s+have)|They(?:['\u2019]?re|\s+have|\s+are|\s+has)|That\s+tokens?\s+(?:has|have|is|are)|Those\s+tokens\s+(?:have|are))\b/i;
+
+/**
+ * Capture the matched create span from raw oracle, including same-sentence `with …`
+ * and immediate follow-up `It has` / `They are` / `That token has` sentences.
+ */
+function captureSpellLegacyCreateSourceText(
+  oracleRaw: string,
+  matchIndex: number,
+  matchLength: number,
+): string {
+  const raw = String(oracleRaw || '');
+  if (!raw || matchIndex < 0 || matchLength <= 0) return '';
+
+  let end = Math.min(raw.length, matchIndex + matchLength);
+  const rest = raw.slice(end);
+  const sentenceEnd = rest.search(/[.?!]/);
+  if (sentenceEnd >= 0) {
+    end = end + sentenceEnd + 1;
+  } else {
+    const nl = rest.search(/\n/);
+    end = nl >= 0 ? end + nl : raw.length;
+  }
+
+  let fragment = raw.slice(matchIndex, end).trim();
+  let remainder = raw.slice(end).replace(/^\s+/, '');
+  while (remainder) {
+    if (!SPELL_LEGACY_FOLLOW_UP_PREFIX.test(remainder)) break;
+    const followEnd = remainder.search(/[.?!]/);
+    let followLen: number;
+    if (followEnd >= 0) {
+      followLen = followEnd + 1;
+    } else {
+      const nl = remainder.search(/\n/);
+      followLen = nl >= 0 ? nl : remainder.length;
+    }
+    const follow = remainder.slice(0, followLen).trim();
+    if (!follow) break;
+    fragment = `${fragment} ${follow}`;
+    remainder = remainder.slice(followLen).replace(/^\s+/, '');
+  }
+  return fragment;
 }
 
 /**
@@ -20,6 +70,7 @@ export interface SpellLegacyTokenSpec {
  * - "Create a 3/3 green Beast creature token"
  *
  * @param xValue - Optional value of X for X spells like Secure the Wastes
+ * @param oracleTextRaw - Optional original (cased) oracle; preferred for sourceText capture
  */
 export function parseSpellLegacyTokenCreation(
   cardName: string,
@@ -27,6 +78,7 @@ export function parseSpellLegacyTokenCreation(
   _controller: PlayerID,
   _state: any,
   xValue?: number,
+  oracleTextRaw?: string,
 ): SpellLegacyTokenSpec | null {
   if (!oracleTextLower.includes('create') || !oracleTextLower.includes('token')) {
     return null;
@@ -41,9 +93,16 @@ export function parseSpellLegacyTokenCreation(
     /create\s+(a|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+(\d+)\/(\d+)\s+(\w+)\s+(\w+)\s+creature\s+tokens?/i,
   ];
 
+  const rawOracle = String(oracleTextRaw || oracleTextLower || '');
+
   for (const pattern of tokenPatterns) {
     const match = oracleTextLower.match(pattern);
-    if (!match) continue;
+    if (!match || match.index == null) continue;
+
+    // Prefer a case-preserving match from the raw oracle when available.
+    const rawMatch = rawOracle.match(pattern);
+    const matchIndex = rawMatch && rawMatch.index != null ? rawMatch.index : match.index;
+    const matchLength = rawMatch ? rawMatch[0].length : match[0].length;
 
     const countWord = match[1].toLowerCase();
     let count = 1;
@@ -87,6 +146,9 @@ export function parseSpellLegacyTokenCreation(
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join(' ');
 
+    const sourceText = captureSpellLegacyCreateSourceText(rawOracle, matchIndex, matchLength);
+    const abilities = sourceText ? extractCreateTokenGrantedAbilities(sourceText) : [];
+
     return {
       count,
       power,
@@ -94,6 +156,8 @@ export function parseSpellLegacyTokenCreation(
       name: normalizedCreatureType || 'Token',
       typeLine: `Token Creature — ${normalizedCreatureType || 'Token'}`,
       colors: foundColors.length > 0 ? foundColors : undefined,
+      ...(sourceText ? { sourceText } : {}),
+      ...(abilities.length > 0 ? { abilities } : {}),
     };
   }
 
@@ -115,6 +179,8 @@ export function createSpellLegacyTokenFromSpec(
     {
       colors: spec.colors,
       typeLine: spec.typeLine,
+      ...(spec.sourceText ? { sourceText: spec.sourceText } : {}),
+      ...(spec.abilities && spec.abilities.length > 0 ? { abilities: spec.abilities } : {}),
     },
   );
 }
@@ -126,6 +192,7 @@ export function createBeastToken(
   power: number,
   toughness: number,
   color?: string,
+  options?: { sourceText?: string; sourceOracleText?: string },
 ): void {
   const creatureType = name.replace(/\s*Token\s*/i, '').trim() || 'Beast';
   const typeLine = `Token Creature — ${creatureType}`;
@@ -150,6 +217,8 @@ export function createBeastToken(
   createToken(ctx as any, controller, name, 1, power, toughness, {
     colors: [colorLetter],
     typeLine,
+    ...(options?.sourceText ? { sourceText: options.sourceText } : {}),
+    ...(options?.sourceOracleText ? { sourceOracleText: options.sourceOracleText } : {}),
   });
 
   debug(2, `[createBeastToken] Created ${power}/${toughness} ${color || 'green'} ${name} token for ${controller}`);

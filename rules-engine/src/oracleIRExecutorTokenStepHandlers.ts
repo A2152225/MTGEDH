@@ -590,12 +590,45 @@ function tryApplyThoseReferencedTokenCreation(
 
     const tokenWithPermanentAbilities =
       Array.isArray(permanentGrantedAbilities) && permanentGrantedAbilities.length > 0
-        ? {
-            ...token,
-            grantedAbilities: Array.from(
-              new Set([...(Array.isArray(token.grantedAbilities) ? token.grantedAbilities : []), ...permanentGrantedAbilities])
-            ),
-          }
+        ? (() => {
+            const base = token;
+            const nextGranted = Array.from(
+              new Set([
+                ...(Array.isArray(base.grantedAbilities) ? base.grantedAbilities : []),
+                ...permanentGrantedAbilities,
+              ]),
+            );
+            const card = base.card || {};
+            const nextKeywords = Array.from(
+              new Set([
+                ...(Array.isArray(card.keywords) ? card.keywords.map((k) => String(k || '')) : []),
+                ...permanentGrantedAbilities.map((ability) => String(ability || '')),
+              ].filter(Boolean)),
+            );
+            const existingOracle = String(card.oracle_text || '').trim();
+            const oracleParts = [
+              existingOracle,
+              ...permanentGrantedAbilities.map((ability) => String(ability || '').trim()).filter(Boolean),
+            ].filter(Boolean);
+            const dedupedOracle = [];
+            for (const part of oracleParts) {
+              if (!dedupedOracle.some((entry) => entry.toLowerCase() === part.toLowerCase())) {
+                dedupedOracle.push(part);
+              }
+            }
+            return {
+              ...base,
+              grantedAbilities: nextGranted,
+              summoningSickness: permanentGrantedAbilities.some((ability) => /\bhaste\b/i.test(String(ability || '')))
+                ? false
+                : base.summoningSickness,
+              card: {
+                ...card,
+                keywords: nextKeywords,
+                oracle_text: dedupedOracle.join('\n'),
+              },
+            };
+          })()
         : token;
     copiedTokens.push(applyTemporaryGrantedAbilitiesToToken(tokenWithPermanentAbilities, temporaryGrantedAbilities));
   }
@@ -1629,12 +1662,44 @@ function addTokensToBattlefield(
 
       const tokenWithPermanentAbilities =
         Array.isArray(permanentGrantedAbilities) && permanentGrantedAbilities.length > 0
-          ? {
-              ...token,
-              grantedAbilities: Array.from(
-                new Set([...(Array.isArray(token.grantedAbilities) ? token.grantedAbilities : []), ...permanentGrantedAbilities])
-              ),
-            }
+          ? (() => {
+              const nextGranted = Array.from(
+                new Set([
+                  ...(Array.isArray(token.grantedAbilities) ? token.grantedAbilities : []),
+                  ...permanentGrantedAbilities,
+                ]),
+              );
+              const card = token.card || {};
+              const nextKeywords = Array.from(
+                new Set([
+                  ...(Array.isArray(card.keywords) ? card.keywords.map((k) => String(k || '')) : []),
+                  ...permanentGrantedAbilities.map((ability) => String(ability || '')),
+                ].filter(Boolean)),
+              );
+              const existingOracle = String(card.oracle_text || '').trim();
+              const oracleParts = [
+                existingOracle,
+                ...permanentGrantedAbilities.map((ability) => String(ability || '').trim()).filter(Boolean),
+              ].filter(Boolean);
+              const dedupedOracle = [];
+              for (const part of oracleParts) {
+                if (!dedupedOracle.some((entry) => entry.toLowerCase() === part.toLowerCase())) {
+                  dedupedOracle.push(part);
+                }
+              }
+              return {
+                ...token,
+                grantedAbilities: nextGranted,
+                summoningSickness: permanentGrantedAbilities.some((ability) => /\bhaste\b/i.test(String(ability || '')))
+                  ? false
+                  : token.summoningSickness,
+                card: {
+                  ...card,
+                  keywords: nextKeywords,
+                  oracle_text: dedupedOracle.join('\n'),
+                },
+              };
+            })()
           : token;
       copiedTokens.push(applyTemporaryGrantedAbilitiesToToken(tokenWithPermanentAbilities, temporaryGrantedAbilities));
     }
@@ -1739,12 +1804,44 @@ function addTokensToBattlefield(
     }
     const tokenWithPermanentAbilities =
       Array.isArray(permanentGrantedAbilities) && permanentGrantedAbilities.length > 0
-        ? {
-            ...createdToken,
-            grantedAbilities: Array.from(
-              new Set([...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []), ...permanentGrantedAbilities])
-            ),
-          }
+        ? (() => {
+            const nextGranted = Array.from(
+              new Set([
+                ...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []),
+                ...permanentGrantedAbilities,
+              ]),
+            );
+            const card = createdToken.card || {};
+            const nextKeywords = Array.from(
+              new Set([
+                ...(Array.isArray(card.keywords) ? card.keywords.map((k: any) => String(k || '')) : []),
+                ...permanentGrantedAbilities.map((ability) => String(ability || '')),
+              ].filter(Boolean)),
+            );
+            const existingOracle = String(card.oracle_text || '').trim();
+            const oracleParts = [
+              existingOracle,
+              ...permanentGrantedAbilities.map((ability) => String(ability || '').trim()).filter(Boolean),
+            ].filter(Boolean);
+            const dedupedOracle: string[] = [];
+            for (const part of oracleParts) {
+              if (!dedupedOracle.some((entry) => entry.toLowerCase() === part.toLowerCase())) {
+                dedupedOracle.push(part);
+              }
+            }
+            return {
+              ...createdToken,
+              grantedAbilities: nextGranted,
+              summoningSickness: permanentGrantedAbilities.some((ability) => /\bhaste\b/i.test(String(ability || '')))
+                ? false
+                : createdToken.summoningSickness,
+              card: {
+                ...card,
+                keywords: nextKeywords,
+                oracle_text: dedupedOracle.join('\n'),
+              },
+            };
+          })()
         : createdToken;
     return applyTemporaryGrantedAbilitiesToToken(tokenWithPermanentAbilities, temporaryGrantedAbilities);
   });
@@ -1970,7 +2067,7 @@ function tryApplyForEachAttackingCopyTokenStep(
       step.withCounters,
       defendingPlayerId || undefined,
       step.grantsHaste === 'until_end_of_turn' ? ['haste'] : step.grantsAbilitiesUntilEndOfTurn,
-      step.grantsHaste === 'permanent' ? ['haste'] : undefined
+      Array.from(new Set([...(step.grantsHaste === 'permanent' ? ['haste'] : []), ...((step as any).grantsAbilitiesPermanent || [])]))
     );
     if (!result.applied) return result;
     nextState = result.state;
@@ -2331,7 +2428,12 @@ export function applyCreateTokenStep(
           step.withCounters,
           attackTarget,
           step.grantsHaste === 'until_end_of_turn' ? ['haste'] : step.grantsAbilitiesUntilEndOfTurn,
-          step.grantsHaste === 'permanent' ? ['haste'] : undefined,
+          Array.from(
+            new Set([
+              ...(step.grantsHaste === 'permanent' ? ['haste'] : []),
+              ...((step as any).grantsAbilitiesPermanent || []),
+            ]),
+          ),
           blockTargetPermanentId,
         );
         if (!result.applied) return result;

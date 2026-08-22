@@ -62,6 +62,7 @@ export function applyInstantSorceryGraveyardConditionalTokenRider(
     options.controller,
     (ctx as any).state,
     typeof options.spellXValue === 'number' ? options.spellXValue : undefined,
+    options.oracleText,
   );
   if (!tokenCreationResult) {
     return;
@@ -275,7 +276,7 @@ export function applyInstantSorceryFracturedIdentityAndFallbackRiders(
     && options.uncategorizedSpellFallbackApplied <= 0
     && !options.oracleIrSpellHandled
   ) {
-    let tokenCreationResult = parseSpellLegacyTokenCreation(effectiveCard.name, oracleTextLower, controller, state, spellXValue);
+    let tokenCreationResult = parseSpellLegacyTokenCreation(effectiveCard.name, oracleTextLower, controller, state, spellXValue, options.oracleText);
     const graveyardTokenInsteadMatch = oracleTextLower.match(/if this spell was cast from a graveyard,\s*create (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) of those tokens instead/i);
     if (tokenCreationResult && wasSpellCastFromGraveyard(item) && graveyardTokenInsteadMatch) {
       const replacementCount = parseNumberWord(graveyardTokenInsteadMatch[1], tokenCreationResult.count);

@@ -8,7 +8,8 @@ import { evaluateCounterPlacementReplacementEvent, evaluateTokenCreationReplacem
 import { getDeathTriggers, processLinkedExileReturns } from "./triggered-abilities.js";
 import { pushTriggerDoublerCopies } from "./triggers/combat.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
-import { getTokenImageUrls, buildTokenImageSpec, resolveTokenPrinting, applyTokenPrintingToCard, lookupExactTokenPrinting } from "../../services/tokens.js";
+import { getTokenImageUrls, buildTokenImageSpec, resolveTokenPrinting, applyTokenPrintingToCard, lookupExactTokenPrinting, getCommonToken } from "../../services/tokens.js";
+import { deriveCreateTokenSourceFragment, extractCreateTokenGrantedAbilities } from "../../../../rules-engine/src/oracleReminderText.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { appendEvent } from '../../db/index.js';
 import { ResolutionQueueManager } from "../resolution/index.js";
@@ -947,6 +948,18 @@ export type CreateTokenOptions = {
   colors?: string[];
   typeLine?: string;
   abilities?: string[];
+  /**
+   * Optional create-clause / oracle fragment used to extract token-granted abilities
+   * (`with flying`, Vibranium-style reminders, `It has flying.` follow-ups).
+   */
+  sourceText?: string;
+  /** Alias for sourceText (call sites that pass a raw description string). */
+  description?: string;
+  /**
+   * Full source-card oracle. Used only when sourceText/description are absent:
+   * deriveCreateTokenSourceFragment picks the matching create clause (+ It has follow-ups).
+   */
+  sourceOracleText?: string;
   isArtifact?: boolean;
   entersTapped?: boolean;
   withCounters?: Record<string, number>;
@@ -1019,6 +1032,49 @@ function persistCreateTokenEvents(
       debugWarn(1, '[createToken] appendEvent(executeEffect/createToken) failed:', err);
     }
   }
+}
+
+
+function mergeUniqueAbilityStrings(values: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = String(value || '').trim();
+    if (!normalized) continue;
+    if (!out.some((entry) => entry.toLowerCase() === normalized.toLowerCase())) {
+      out.push(normalized);
+    }
+  }
+  return out;
+}
+
+/**
+ * Choke-point ability resolution for legacy createToken:
+ * merge caller abilities + catalog abilities + extractor(sourceText/description),
+ * with sourceOracleText create-clause fallback when those are absent.
+ */
+function resolveCreateTokenAbilities(
+  tokenName: string,
+  options?: CreateTokenOptions,
+  tokenPower?: number,
+  tokenToughness?: number,
+): string[] {
+  let sourceText = String(options?.sourceText || options?.description || '').trim();
+  if (!sourceText) {
+    const sourceOracleText = String(options?.sourceOracleText || '').trim();
+    if (sourceOracleText) {
+      sourceText = deriveCreateTokenSourceFragment(
+        tokenName,
+        sourceOracleText,
+        tokenPower,
+        tokenToughness,
+      );
+    }
+  }
+  const extracted = sourceText ? extractCreateTokenGrantedAbilities(sourceText) : [];
+  const catalog = getCommonToken(tokenName);
+  const catalogAbilities = Array.isArray(catalog?.abilities) ? catalog!.abilities : [];
+  const provided = Array.isArray(options?.abilities) ? options!.abilities : [];
+  return mergeUniqueAbilityStrings([...provided, ...catalogAbilities, ...extracted]);
 }
 
 export function createToken(
@@ -1150,7 +1206,7 @@ export function createToken(
     typeLine = parts.join(' ');
   }
 
-  const tokenAbilities = Array.isArray(options?.abilities) ? options.abilities : [];
+  const tokenAbilities = resolveCreateTokenAbilities(name, options, basePower, baseToughness);
   const tokenIsCreature = String(typeLine || '').toLowerCase().includes('creature');
   const tokenHasHaste = tokenAbilities.some((ability) => /\bhaste\b/i.test(String(ability || '')));
   
@@ -1164,7 +1220,7 @@ export function createToken(
     typeLine,
     isArtifact: options?.isArtifact,
   });
-  const imageUrls = getTokenImageUrls(name, basePower, baseToughness, options?.colors, options?.abilities, options?.isArtifact);
+  const imageUrls = getTokenImageUrls(name, basePower, baseToughness, options?.colors, tokenAbilities, options?.isArtifact);
   const syncExactPrinting = lookupExactTokenPrinting(tokenSpec);
   
   const entersTapped = !!options?.entersTapped;
@@ -1199,8 +1255,8 @@ export function createToken(
         zone: "battlefield",
         colors: options?.colors || [],
         image_uris: syncExactPrinting?.image_uris || imageUrls,
-        oracle_text: options?.abilities?.join('\n') || '',
-        keywords: options?.abilities || [],
+        oracle_text: tokenAbilities.join('\n') || '',
+        keywords: [...tokenAbilities],
         power: String(basePower),
         toughness: String(baseToughness),
       } as any  // Cast to any to allow keywords field

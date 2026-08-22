@@ -144,7 +144,28 @@ function sliceEventsForBoundaryPlan(events: PersistedEvent[], plan: UndoBoundary
 
 type BoundaryKind = 'step' | 'phase' | 'turn';
 
-﻿function normalizePhaseToken(value: unknown): string {
+/** Higher = later in the turn (Ending > Postcombat > Combat > Precombat > Beginning). */
+function phaseOrderRank(phase: unknown): number {
+  const key = normalizePhaseToken(phase);
+  switch (key) {
+    case 'ending':
+      return 50;
+    case 'postcombatmain':
+      return 40;
+    case 'combat':
+      return 30;
+    case 'precombatmain':
+      return 20;
+    case 'beginning':
+      return 10;
+    case 'pre_game':
+      return 0;
+    default:
+      return 15;
+  }
+}
+
+function normalizePhaseToken(value: unknown): string {
   const raw = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
   if (!raw) return 'unknown';
   if (raw === 'pre_game' || raw === 'pregame') return 'pre_game';
@@ -557,10 +578,19 @@ export function listUndoTurnPhaseTargets(
       eventsToUndo,
       entryIndex: entry.entryIndex,
     });
-    if (targets.length >= limit) break;
   }
 
-  return targets;
+  // Newest turn first, then later phases within that turn (Ending before Beginning).
+  // Tie-break: fewer events to undo = closer to now.
+  targets.sort((a, b) => {
+    const turnDiff = (b.turnNumber ?? -1) - (a.turnNumber ?? -1);
+    if (turnDiff !== 0) return turnDiff;
+    const phaseDiff = phaseOrderRank(b.phase) - phaseOrderRank(a.phase);
+    if (phaseDiff !== 0) return phaseDiff;
+    return a.eventsToUndo - b.eventsToUndo;
+  });
+
+  return targets.slice(0, limit);
 }
 
 function resolveUndoToTurnPhaseCount(

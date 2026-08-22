@@ -209,6 +209,9 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
     else if (lower.includes('target artifact or enchantment')) targetType = 'artifact or enchantment';
     else if (lower.includes('target noncreature artifact')) targetType = 'noncreature artifact';
     else if (/target\s+non-[a-z0-9'-]+(?:\s+[a-z0-9'-]+)*\s+creature\b/.test(lower)) targetType = 'creature';
+    // "target attacking creature" / "target blocking creature" / "target attacking or blocking creature"
+    // (and optional subtype words) do not contain the contiguous substring "target creature".
+    else if (/\btarget\s+(?:attacking(?:\s+or\s+blocking)?|blocking)\s+(?:[a-z0-9'-]+\s+)*creature\b/.test(lower)) targetType = 'creature';
     else if (lower.includes('target creature')) targetType = 'creature';
     else if (lower.includes('target player') || lower.includes('target opponent')) targetType = 'player';
     else if (lower.includes('target permanent')) targetType = 'permanent';
@@ -224,10 +227,22 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
 
   let targetConstraint: 'opponent' | 'you' | undefined;
   if (requiresTarget) {
-    if (lower.includes('an opponent controls') || lower.includes('opponent controls')) {
-      targetConstraint = 'opponent';
-    } else if (lower.includes('you control')) {
-      targetConstraint = 'you';
+    // Only inspect the target *noun phrase* (text after "target" before the effect verb).
+    // Sentence-wide / [^.]* scans falsely match Bast's X definition in the same sentence:
+    // "target attacking creature gets +X/+X ... creatures you control".
+    for (const match of lower.matchAll(/\btarget\b([^.]{0,160})/gi)) {
+      const afterTarget = String(match[1] || '');
+      const nounPhrase = afterTarget.split(
+        /\b(?:gets?|gains?|becomes?|deals?|loses?|fights?|blocks?|attacks?|is|are|can't|can|may|returns?|puts?|exiles?|destroys?|sacrifices?|taps?|untaps?|has|have|with)\b/i,
+      )[0] || '';
+      if (/\ban? opponent controls\b/.test(nounPhrase) || /\bopponent controls\b/.test(nounPhrase)) {
+        targetConstraint = 'opponent';
+        break;
+      }
+      if (/\byou control\b/.test(nounPhrase)) {
+        targetConstraint = 'you';
+        break;
+      }
     }
   }
 

@@ -1423,6 +1423,13 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
                   ),
                 }
               : {}),
+            ...(mod.grantsAbilitiesPermanent
+              ? {
+                  grantsAbilitiesPermanent: Array.from(
+                    new Set([...(prev.grantsAbilitiesPermanent || []), ...mod.grantsAbilitiesPermanent])
+                  ),
+                }
+              : {}),
             ...(mod.atNextEndStep ? { atNextEndStep: mod.atNextEndStep } : {}),
             ...(mod.atEndOfCombat ? { atEndOfCombat: mod.atEndOfCombat } : {}),
           } as any;

@@ -99,6 +99,6 @@ export function applyInstantSorceryItsControllerCreatesToken(
   const tokenType = type2 || type1 || 'Beast';
   const tokenName = `${tokenType} Token`;
 
-  createBeastToken(ctx, targetControllerForTokenCreation, tokenName, power, toughness, color);
+  createBeastToken(ctx, targetControllerForTokenCreation, tokenName, power, toughness, color, { sourceOracleText: oracleText });
   debug(2, `[applyInstantSorceryItsControllerCreatesToken] ${effectiveCard?.name} created ${power}/${toughness} ${tokenName} for ${targetControllerForTokenCreation}`);
 }

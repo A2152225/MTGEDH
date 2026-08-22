@@ -175,6 +175,20 @@ export function stripReminderParentheticals(text: string): string {
     if (source[i] === '(' && shouldStripParenthetical(source, i)) {
       const closeIndex = findClosingParen(source, i);
       if (closeIndex >= 0) {
+        const inner = source.slice(i + 1, closeIndex).trim();
+        // Lift create-token type reminder abilities onto the create stem before dropping the paren
+        // so IR/token construction still sees grants (indestructible, quoted mana abilities, …).
+        if (
+          /^(?:it['\u2019]?s|they['\u2019]?re)\s+(?:an\s+)?(?:artifacts?|enchantments?|creatures?)(?:\s+with)\b/i.test(inner)
+          && /\bcreates?\b[\s\S]*\btokens?\b/i.test(result)
+        ) {
+          const lifted = extractCreateTokenGrantedAbilities(`Create a token. (${inner})`);
+          const injection = formatCreateTokenAbilityInjection(lifted);
+          const recent = result.slice(Math.max(0, result.length - 160));
+          if (injection && !/\swith\s+indestructible\b/i.test(recent) && !recent.toLowerCase().includes(injection.trim().toLowerCase())) {
+            result += injection;
+          }
+        }
         i = closeIndex + 1;
         continue;
       }
@@ -258,6 +272,344 @@ export function stripKeywordAbilitySuffixes(text: string): string {
 export function stripTokenTypeReminders(text: string): string {
   return String(text || '').replace(TOKEN_TYPE_REMINDER, '.').replace(/\.\s*\./g, '.').trim();
 }
+
+const CREATE_TOKEN_TYPE_PAREN_INNER =
+  /^(?:it['\u2019]?s|they['\u2019]?re)\s+(?:an\s+)?(?:artifacts?|enchantments?|creatures?)(?:\s+with)?\b/i;
+
+/**
+ * Quote-safe removal of create-token type parentheticals such as
+ * `(It's an artifact with indestructible and "{T}: Add {C}.")`.
+ */
+function stripCreateTokenTypeParentheticals(text: string): string {
+  const source = String(text || '');
+  let result = '';
+  let i = 0;
+
+  while (i < source.length) {
+    if (source[i] === '(') {
+      const closeIndex = findClosingParen(source, i);
+      if (closeIndex >= 0) {
+        const inner = source.slice(i + 1, closeIndex).trim();
+        if (CREATE_TOKEN_TYPE_PAREN_INNER.test(inner)) {
+          i = closeIndex + 1;
+          continue;
+        }
+      }
+    }
+    result += source[i];
+    i += 1;
+  }
+
+  return result;
+}
+
+/** Static keywords commonly granted on created tokens via "with …" / follow-ups / reminders. */
+const CREATE_TOKEN_GRANTED_KEYWORD_NAMES = [
+  'flying',
+  'vigilance',
+  'haste',
+  'trample',
+  'lifelink',
+  'deathtouch',
+  'menace',
+  'reach',
+  'hexproof',
+  'shroud',
+  'defender',
+  'indestructible',
+  'first strike',
+  'double strike',
+  'prowess',
+  'decayed',
+  'flash',
+  'training',
+] as const;
+
+const CREATE_TOKEN_KEYWORD_LOOKUP = [...CREATE_TOKEN_GRANTED_KEYWORD_NAMES]
+  .sort((a, b) => b.length - a.length);
+
+function titleCaseCreateTokenKeyword(keyword: string): string {
+  const lower = String(keyword || '').toLowerCase();
+  if (lower === 'first strike') return 'First strike';
+  if (lower === 'double strike') return 'Double strike';
+  return lower ? lower.charAt(0).toUpperCase() + lower.slice(1) : '';
+}
+
+function collectCreateTokenKeywordsFromSegment(segment: string, into: string[]): void {
+  const text = String(segment || '');
+  if (!text.trim()) return;
+  const lower = text.toLowerCase();
+  for (const keyword of CREATE_TOKEN_KEYWORD_LOOKUP) {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!new RegExp(`\\b${escaped}\\b`, 'i').test(lower)) {
+      continue;
+    }
+    const normalized = titleCaseCreateTokenKeyword(keyword);
+    if (normalized && !into.some((entry) => entry.toLowerCase() === normalized.toLowerCase())) {
+      into.push(normalized);
+    }
+  }
+}
+
+function collectQuotedAbilitiesFromSegment(segment: string, into: string[]): void {
+  for (const match of String(segment || '').matchAll(/"([^"]+)"/g)) {
+    const ability = String(match[1] || '').trim();
+    if (!ability) continue;
+    if (!into.some((entry) => entry.toLowerCase() === ability.toLowerCase())) {
+      into.push(ability);
+    }
+  }
+}
+
+function isCopyTokenCreateFragment(text: string): boolean {
+  return /\bcreate\b[\s\S]*?\btokens?\b[\s\S]*?\bcopy\b/i.test(String(text || ''))
+    || /\btokens?\s+that(?:['\u2019]?s|\s+is|\s+are)\s+(?:a\s+)?copy\b/i.test(String(text || ''));
+}
+
+/**
+ * Extract keyword/ability grants that belong on a *created token*, not the creator.
+ *
+ * Supports generic oracle patterns:
+ * - same-sentence: `Create a 1/1 Soldier token with flying and lifelink.`
+ * - parenthetical: `create a Vibranium token. (It's an artifact with indestructible and "{T}: …")`
+ * - follow-up: `It has flying.` / `They are indestructible.` / `That token has lifelink.` / `It's indestructible.`
+ *
+ * Returns [] for non-create fragments such as `creatures you control with flying`.
+ * Copy-token creates return [] so keywords are not invented from unrelated "with" text.
+ */
+
+/**
+ * Derive a create-clause fragment from full source-card oracle for token ability extraction.
+ * Splits sentences and keeps follow-up `It has` / `They are` / `That token` lines attached.
+ *
+ * Matching priority when sourceText/description is absent:
+ * 1) unique create fragment mentioning the token name (case-insensitive; ignores trailing "Token")
+ * 2) exactly one create…token fragment on the card
+ * 3) unique create fragment containing the token P/T
+ * If multiple creates and none uniquely match, returns '' (do not merge - avoids Soldier getting Zombie keywords).
+ */
+export function deriveCreateTokenSourceFragment(
+  tokenName: string,
+  sourceOracleText: string,
+  tokenPower?: number,
+  tokenToughness?: number,
+): string {
+  const oracle = String(sourceOracleText || '').replace(/\r/g, '').trim();
+  if (!oracle) return '';
+
+  const followUpRe =
+    /^(?:It(?:['\u2019]?s|\s+has|\s+is|\s+have)|They(?:['\u2019]?re|\s+have|\s+are|\s+has)|That\s+tokens?\s+(?:has|have|is|are)|Those\s+tokens\s+(?:have|are))\b/i;
+  const createTokenRe = /\bcreates?\b[\s\S]*?\btokens?\b/i;
+
+  const sentences = oracle
+    .split(/(?<=[.?!])\s+|\n+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const fragments: string[] = [];
+  let current: string | null = null;
+  for (const sentence of sentences) {
+    if (createTokenRe.test(sentence)) {
+      if (current) fragments.push(current);
+      current = sentence;
+      continue;
+    }
+    if (current && followUpRe.test(sentence)) {
+      current = `${current} ${sentence}`;
+      continue;
+    }
+    if (current) {
+      fragments.push(current);
+      current = null;
+    }
+  }
+  if (current) fragments.push(current);
+  if (fragments.length === 0) return '';
+
+  const nameLower = String(tokenName || '').trim().toLowerCase();
+  const nameCandidates = new Set<string>();
+  if (nameLower) {
+    nameCandidates.add(nameLower);
+    const withoutTokenSuffix = nameLower.replace(/\s+tokens?$/i, '').trim();
+    if (withoutTokenSuffix) nameCandidates.add(withoutTokenSuffix);
+  }
+
+  if (nameCandidates.size > 0) {
+    const nameMatches = fragments.filter((fragment) => {
+      const lower = fragment.toLowerCase();
+      return [...nameCandidates].some((candidate) => candidate && lower.includes(candidate));
+    });
+    if (nameMatches.length === 1) return nameMatches[0];
+    if (nameMatches.length > 1) return '';
+  }
+
+  if (fragments.length === 1) return fragments[0];
+
+  if (
+    tokenPower != null
+    && tokenToughness != null
+    && Number.isFinite(Number(tokenPower))
+    && Number.isFinite(Number(tokenToughness))
+  ) {
+    const ptRe = new RegExp(String.raw`\b${Number(tokenPower)}/${Number(tokenToughness)}\b`);
+    const ptMatches = fragments.filter((fragment) => ptRe.test(fragment));
+    if (ptMatches.length === 1) return ptMatches[0];
+  }
+
+  return '';
+}
+
+export function extractCreateTokenGrantedAbilities(createClauseOrOracleFragment: string): string[] {
+  const source = String(createClauseOrOracleFragment || '');
+  if (!source.trim()) return [];
+
+  const hasCreateToken = /\bcreates?\b[\s\S]*?\btokens?\b/i.test(source);
+  const followUpOnly = /^(?:It(?:['\u2019]?s|\s+has|\s+is|\s+have)|They(?:['\u2019]?re|\s+have|\s+are|\s+has)|That\s+tokens?\s+(?:has|have|is|are)|Those\s+tokens\s+(?:have|are))\b/i.test(
+    source.trim(),
+  );
+
+  if (!hasCreateToken && !followUpOnly) return [];
+  if (hasCreateToken && isCopyTokenCreateFragment(source)) return [];
+
+  const out: string[] = [];
+
+  if (hasCreateToken) {
+    // Same-sentence ability tails attached to create … token (skip pure counter clauses).
+    const withTail = new RegExp(
+      String.raw`\bcreates?\b[^.?\n]*?\btokens?(?:\s+named\s+(?:"[^"]+"|'[^']+'|[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)*))?(?:\s+with\s+(?!\d+(?:\s+\+|\s+-)|a\s+(?:\+|-)|an\s+(?:\+|-)|one\s+(?:\+|-)|two\s+(?:\+|-)|three\s+(?:\+|-)|x\b)((?:(?!\band\s+create\b)[^.?\n(])*))`,
+      'gi',
+    );
+    for (const match of source.matchAll(withTail)) {
+      const segment = String(match[1] || '');
+      const hasKeyword = CREATE_TOKEN_KEYWORD_LOOKUP.some((keyword) =>
+        new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(segment),
+      );
+      const hasQuote = /"[^"]+"/.test(segment);
+      if (/\bcounters?\b/i.test(segment) && !hasKeyword && !hasQuote) continue;
+      collectCreateTokenKeywordsFromSegment(segment, out);
+      collectQuotedAbilitiesFromSegment(segment, out);
+    }
+
+    // Token-type parentheticals: (It's an artifact with indestructible and "{T}: …")
+    let i = 0;
+    while (i < source.length) {
+      if (source[i] === '(') {
+        const closeIndex = findClosingParen(source, i);
+        if (closeIndex >= 0) {
+          const inner = source.slice(i + 1, closeIndex).trim();
+          if (CREATE_TOKEN_TYPE_PAREN_INNER.test(inner)) {
+            collectCreateTokenKeywordsFromSegment(inner, out);
+            collectQuotedAbilitiesFromSegment(inner, out);
+          }
+          i = closeIndex + 1;
+          continue;
+        }
+      }
+      i += 1;
+    }
+
+    // Follow-up sentences after a create instruction.
+    const followUp = new RegExp(
+      String.raw`(\bcreate\b[^.?\n]*?\btokens?[^.?\n]*[.?]\s*)((?:(?:It(?:['\u2019]?s|\s+has|\s+is|\s+have)|They(?:['\u2019]?re|\s+have|\s+are|\s+has)|That\s+tokens?\s+(?:has|have|is|are)|Those\s+tokens\s+(?:have|are))\b[^.?\n]*[.?]?\s*)+)`,
+      'gi',
+    );
+    for (const match of source.matchAll(followUp)) {
+      collectCreateTokenKeywordsFromSegment(String(match[2] || ''), out);
+      collectQuotedAbilitiesFromSegment(String(match[2] || ''), out);
+    }
+  }
+
+  if (followUpOnly) {
+    collectCreateTokenKeywordsFromSegment(source, out);
+    collectQuotedAbilitiesFromSegment(source, out);
+  }
+
+  return out;
+}
+
+/** Build a synthetic ` with …` injection from extracted token abilities (for parse-time paren lift). */
+function formatCreateTokenAbilityInjection(abilities: readonly string[]): string {
+  const keywords: string[] = [];
+  const quoted: string[] = [];
+  for (const ability of abilities) {
+    const normalized = String(ability || '').trim();
+    if (!normalized) continue;
+    const lower = normalized.toLowerCase();
+    const plainKeyword = CREATE_TOKEN_KEYWORD_LOOKUP.find((keyword) => keyword === lower);
+    if (plainKeyword) {
+      if (!keywords.includes(plainKeyword)) keywords.push(plainKeyword);
+      continue;
+    }
+    if (!quoted.some((entry) => entry.toLowerCase() === lower)) quoted.push(normalized);
+  }
+  const parts: string[] = [...keywords];
+  for (const q of quoted) parts.push(`"${q}"`);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return ` with ${parts[0]}`;
+  if (parts.length === 2) return ` with ${parts[0]} and ${parts[1]}`;
+  return ` with ${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+}
+
+/**
+ * Remove create-token granted ability text so token keywords/abilities are not
+ * attributed to the creator permanent.
+ *
+ * Keeps the `create ... token(s) [named ...]` stem. Strips:
+ * - token-type parentheticals (`(It's an artifact with ...)`)
+ * - standard token-type reminder sentences (`stripTokenTypeReminders`)
+ * - same-sentence ability tails after the stem:
+ *   - `with <...>` through end of sentence (or until `and create`)
+ *   - `that is/are/has/have <...>` through end of sentence (skips `that is/are a copy`)
+ *
+ * Only touches `with` / `that ...` when attached to a create-token clause in the
+ * same sentence - unrelated lines like "creatures you control with flying" are kept.
+ */
+export function stripCreateTokenGrantedAbilities(text: string): string {
+  let result = String(text || '');
+  if (!result.trim()) return result;
+
+  result = stripCreateTokenTypeParentheticals(result);
+  result = stripTokenTypeReminders(result);
+
+  // Stem: create ... token(s), optionally named "...", named Name, or multi-word Name.
+  // Tail: with... / that has|have... / that is|are... (not "a copy") in the same sentence.
+  const createTokenStem =
+    String.raw`\b(create\b[^.?\n]*?\btokens?(?:\s+named\s+(?:"[^"]+"|'[^']+'|[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)*))?)`;
+  const sameSentenceTail = String.raw`(?:(?!\band\s+create\b)[^.?\n])*`;
+
+  const withTail = new RegExp(
+    `${createTokenStem}(\\s+with\\b${sameSentenceTail})`,
+    'gi',
+  );
+  const thatHasTail = new RegExp(
+    `${createTokenStem}(\\s+that\\s+(?:has|have)\\b${sameSentenceTail})`,
+    'gi',
+  );
+  const thatIsTail = new RegExp(
+    `${createTokenStem}(\\s+that(?:\\s+is|\\s+are|'s)\\b(?!\\s+a\\s+copy\\b)${sameSentenceTail})`,
+    'gi',
+  );
+
+  result = result.replace(withTail, '$1');
+  result = result.replace(thatHasTail, '$1');
+  result = result.replace(thatIsTail, '$1');
+
+  // Follow-up sentence(s) right after a create-token instruction that define the
+  // token(s): "Create a Soldier token. It has flying." / "They are indestructible."
+  // / "That token has lifelink." Keep the create stem; drop only those referents.
+  const followUpTokenAbility = new RegExp(
+    String.raw`(\bcreate\b[^.?\n]*?\btokens?[^.?\n]*[.?]\s*)((?:(?:It(?:['\u2019]?s|\s+has|\s+is|\s+have)|They(?:['\u2019]?re|\s+have|\s+are|\s+has)|That\s+tokens?\s+(?:has|have|is|are)|Those\s+tokens\s+(?:have|are))\b[^.?\n]*[.?]?\s*)+)`,
+    'gi',
+  );
+  result = result.replace(followUpTokenAbility, '$1');
+
+  return result
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 
 /**
  * Remove Equip / Reconfigure / {cost}: activation tails from effect text.

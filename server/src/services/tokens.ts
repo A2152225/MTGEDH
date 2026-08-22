@@ -1,3 +1,4 @@
+import { deriveCreateTokenSourceFragment, extractCreateTokenGrantedAbilities } from '../../../rules-engine/src/oracleReminderText.js';
 /**
  * server/src/services/tokens.ts
  * 
@@ -191,18 +192,16 @@ export function findTokenByDescription(description: string): TokenCard | undefin
     }
   }
   
-  // Parse abilities
-  const abilities: string[] = [];
-  if (desc.includes('flying')) abilities.push('flying');
-  if (desc.includes('vigilance')) abilities.push('vigilance');
-  if (desc.includes('haste')) abilities.push('haste');
-  if (desc.includes('trample')) abilities.push('trample');
-  if (desc.includes('lifelink')) abilities.push('lifelink');
-  if (desc.includes('deathtouch')) abilities.push('deathtouch');
-  if (desc.includes('first strike')) abilities.push('first strike');
-  if (desc.includes('double strike')) abilities.push('double strike');
-  if (desc.includes('menace')) abilities.push('menace');
-  if (desc.includes('reach')) abilities.push('reach');
+  // Parse abilities via shared create-token grant extractor (plus bare keyword scan for image matching).
+  const abilities: string[] = extractCreateTokenGrantedAbilities(
+    /\bcreates?\b/i.test(description) ? description : `Create a token ${description}`,
+  ).map((ability) => ability.toLowerCase());
+  for (const keyword of [
+    'flying', 'vigilance', 'haste', 'trample', 'lifelink', 'deathtouch',
+    'first strike', 'double strike', 'menace', 'reach', 'indestructible', 'hexproof',
+  ]) {
+    if (desc.includes(keyword) && !abilities.includes(keyword)) abilities.push(keyword);
+  }
   
   // Score each token and find the best match
   let bestMatch: TokenCard | undefined;
@@ -944,13 +943,53 @@ export function createTokenCard(options: {
   colors?: string[];
   oracle_text?: string;
   keywords?: string[];
+  /** Optional create-clause / description for ability extraction. */
+  sourceText?: string;
+  description?: string;
+  /**
+   * Full source-card oracle. Used only when sourceText/description are absent:
+   * deriveCreateTokenSourceFragment picks the matching create clause.
+   */
+  sourceOracleText?: string;
 }): any {
+  let sourceText = String(options.sourceText || options.description || '').trim();
+  if (!sourceText) {
+    const sourceOracleText = String(options.sourceOracleText || '').trim();
+    if (sourceOracleText) {
+      const powerNum = Number(options.power);
+      const toughnessNum = Number(options.toughness);
+      sourceText = deriveCreateTokenSourceFragment(
+        options.name,
+        sourceOracleText,
+        Number.isFinite(powerNum) ? powerNum : undefined,
+        Number.isFinite(toughnessNum) ? toughnessNum : undefined,
+      );
+    }
+  }
+  if (!sourceText) {
+    sourceText = String(options.oracle_text || '').trim();
+  }
+  const extracted = sourceText ? extractCreateTokenGrantedAbilities(sourceText) : [];
+  const catalog = getCommonToken(options.name);
+  const mergedKeywords: string[] = [];
+  for (const value of [
+    ...(Array.isArray(options.keywords) ? options.keywords : []),
+    ...(Array.isArray(catalog?.abilities) ? catalog.abilities : []),
+    ...extracted,
+  ]) {
+    const normalized = String(value || '').trim();
+    if (!normalized) continue;
+    if (!mergedKeywords.some((entry) => entry.toLowerCase() === normalized.toLowerCase())) {
+      mergedKeywords.push(normalized);
+    }
+  }
+  const oracleText = String(options.oracle_text || '').trim() || mergedKeywords.join('\n');
   const imageUrls = getTokenImageUrls(
     options.name, 
     options.power, 
     options.toughness, 
     options.colors,
-    options.keywords,
+    mergedKeywords,
     /\bartifact\b/i.test(String(options.type_line || '')),
   );
   
@@ -961,8 +1000,8 @@ export function createTokenCard(options: {
     power: String(options.power),
     toughness: String(options.toughness),
     colors: options.colors || [],
-    oracle_text: options.oracle_text || '',
-    keywords: options.keywords || [],
+    oracle_text: oracleText,
+    keywords: mergedKeywords,
     zone: 'battlefield',
     image_uris: imageUrls || undefined,
   };

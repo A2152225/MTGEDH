@@ -8,6 +8,7 @@ import {
 } from '../state/modules/counter-common-effects.js';
 import { calculateAllPTBonuses, calculateVariablePT, resolveSetBasePTFromAttachedAuras } from '../state/utils.js';
 import { sumActiveTemporaryPTMods } from '../state/modules/temporaryPtMods.js';
+import { stripCreateTokenGrantedAbilities } from '../../../rules-engine/src/oracleReminderText.js';
 
 /**
  * Parse power/toughness value from string or number
@@ -158,13 +159,24 @@ function getEffectiveStatsForSBA(
 }
 
 function oracleTextGrantsNativeIndestructible(oracleTextRaw: string): boolean {
-  const lines = String(oracleTextRaw || '')
+  // Strip create-token type reminders, inline create...token ability tails, and
+  // parentheticals so token keywords (e.g. Vibranium "with indestructible") are
+  // not treated as native self-grants.
+  const cleaned = stripCreateTokenGrantedAbilities(String(oracleTextRaw || ''))
+    .replace(/\([^)]*\)/g, ' ');
+
+  const lines = cleaned
     .split(/\n+/)
     .map((line) => line.trim().toLowerCase())
     .filter(Boolean);
 
   for (const line of lines) {
     if (!line.includes('indestructible')) continue;
+
+    // Create-a-token instructions describe the token, not a native self-grant.
+    if (/\bcreate\b/i.test(line) && /\btoken\b/i.test(line)) {
+      continue;
+    }
 
     // Native keyword lines are often just "Indestructible" or mixed with other keywords.
     if (/^(?:[a-z ,'-]+,\s*)*indestructible(?:\s*,\s*[a-z ,'-]+)*$/i.test(line)) {

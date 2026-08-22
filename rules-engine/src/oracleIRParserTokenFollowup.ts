@@ -7,6 +7,8 @@ export type CreateTokenFollowupModifier = {
   withCounters?: Record<string, number>;
   grantsHaste?: 'permanent' | 'until_end_of_turn';
   grantsAbilitiesUntilEndOfTurn?: readonly string[];
+  /** Permanent defining grants: "It has flying." / "They are indestructible." */
+  grantsAbilitiesPermanent?: readonly string[];
   grantsDiesTriggerEffect?: string;
   atNextEndStep?: 'sacrifice' | 'exile';
   atEndOfCombat?: 'sacrifice' | 'exile';
@@ -97,6 +99,49 @@ export function tryParseCreateTokenFollowupModifier(rawClause: string): CreateTo
 
       if (collected.length === 0) return null;
       return { grantsAbilitiesUntilEndOfTurn: collected };
+    }
+  }
+
+  // Permanent defining follow-ups: "It has flying." / "They are indestructible." / "That token has lifelink." / "It's indestructible."
+  {
+    const contraction = clause.match(/^(it['\u2019]s|they['\u2019]re)\s+(.+?)\s*$/i);
+    const explicit = clause.match(
+      /^(it|they|that token|those tokens|the token|the tokens)\s+(?:has|have|is|are)\s+(.+?)\s*$/i,
+    );
+    const m = contraction || explicit;
+    if (m) {
+      const abilitiesRaw = String(m[2] || '').trim();
+      if (abilitiesRaw && !/\buntil\s+end\s+of\s+turn\b/i.test(abilitiesRaw)) {
+        const allowed = new Set([
+          'flying', 'trample', 'vigilance', 'lifelink', 'deathtouch', 'reach', 'menace',
+          'hexproof', 'shroud', 'defender', 'indestructible', 'first strike', 'double strike',
+          'haste', 'prowess', 'decayed',
+        ]);
+        const parts = abilitiesRaw
+          .replace(/\(.*?\)/g, ' ')
+          .replace(/[.;]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .split(/\s*,\s*|\s+and\s+/i)
+          .map((x) => x.trim())
+          .filter(Boolean);
+        const collected = [];
+        let allAllowed = parts.length > 0;
+        for (const part of parts) {
+          const key = part.toLowerCase();
+          if (!allowed.has(key)) {
+            allAllowed = false;
+            break;
+          }
+          if (!collected.includes(key)) collected.push(key);
+        }
+        if (allAllowed && collected.length > 0) {
+          if (collected.length === 1 && collected[0] === 'haste') {
+            return { grantsHaste: 'permanent' };
+          }
+          return { grantsAbilitiesPermanent: collected };
+        }
+      }
     }
   }
 

@@ -1575,7 +1575,10 @@ export function getCombatDamageTriggersForCreature(
  */
 export function detectAttackTriggers(card: any, permanent: any): CombatTriggeredAbility[] {
   const triggers: CombatTriggeredAbility[] = [];
-  const oracleText = (card?.oracle_text || "");
+  // Prefer oracle_text; fall back to MTGJSON `text` / camelCase oracleText when decks omit oracle_text.
+  const oracleText = String(
+    card?.oracle_text || card?.oracleText || card?.text || ''
+  );
   const lowerOracle = oracleText.toLowerCase();
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();

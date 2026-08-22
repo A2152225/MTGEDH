@@ -5,6 +5,7 @@ import type {
   TokenTriggerInfo,
 } from './tokenCreationTypes';
 import { getTokenCharacteristics } from './tokenCreationCatalog';
+import { extractCreateTokenGrantedAbilities } from './oracleReminderText';
 
 function extractQuotedTokenAbilities(text: string): { readonly descriptor: string; readonly quotedAbilities: readonly string[] } {
   const quotedAbilities: string[] = [];
@@ -171,24 +172,17 @@ export function parseTokenCreationFromText(
   }
 
   const abilities: string[] = [];
-  if (lowerText.includes('flying')) abilities.push('Flying');
-  if (lowerText.includes('haste')) abilities.push('Haste');
-  if (lowerText.includes('lifelink')) abilities.push('Lifelink');
-  if (lowerText.includes('deathtouch')) abilities.push('Deathtouch');
-  if (lowerText.includes('trample')) abilities.push('Trample');
-  if (lowerText.includes('vigilance')) abilities.push('Vigilance');
-  if (lowerText.includes('menace')) abilities.push('Menace');
-  if (lowerText.includes('first strike')) abilities.push('First strike');
-  if (lowerText.includes('double strike')) abilities.push('Double strike');
-  if (lowerText.includes('reach')) abilities.push('Reach');
-  if (lowerText.includes('prowess')) abilities.push('Prowess');
-  if (lowerText.includes('decayed')) abilities.push('Decayed');
-  if (lowerText.includes('toxic 1')) abilities.push('Toxic 1');
-  // Grant Training only when the creation clause says "with training" (e.g. Torens), not
-  // from unrelated keyword lines elsewhere on the source card.
-  if (/\bwith\s+training\b/i.test(lowerText)) abilities.push('Training');
+  for (const granted of extractCreateTokenGrantedAbilities(oracleText)) {
+    if (!abilities.some((entry) => entry.toLowerCase() === granted.toLowerCase())) {
+      abilities.push(granted);
+    }
+  }
+  // Retain toxic N (not in the shared static keyword list) when present on the create clause.
+  if (/\btoxic\s+1\b/i.test(lowerText) && !abilities.some((entry) => /\btoxic\s+1\b/i.test(entry))) {
+    abilities.push('Toxic 1');
+  }
   for (const quoted of quotedAbilities) {
-    if (!abilities.includes(quoted)) abilities.push(quoted);
+    if (!abilities.some((entry) => entry.toLowerCase() === quoted.toLowerCase())) abilities.push(quoted);
   }
 
   let name = subtypes.length > 1 ? subtypes.join(' ') : (subtypes[subtypes.length - 1] || 'Token');
@@ -237,6 +231,13 @@ export function resolveTokenCharacteristicsFromOracleStep(
   const hintParsed = extractQuotedTokenAbilities(String(tokenHint || '').trim());
   const clauseParsed = extractQuotedTokenAbilities(String(clauseRaw || '').trim());
   const quotedAbilities = Array.from(new Set([...hintParsed.quotedAbilities, ...clauseParsed.quotedAbilities]));
+  const extractedFromSources = Array.from(
+    new Set([
+      ...extractCreateTokenGrantedAbilities(String(tokenHint || '')),
+      ...extractCreateTokenGrantedAbilities(String(clauseRaw || '')),
+      ...quotedAbilities,
+    ]),
+  );
 
   const fromHint = hintParsed.descriptor
     ? parseTokenCreationFromText(`Create a ${hintParsed.descriptor} token`)
@@ -281,16 +282,37 @@ export function resolveTokenCharacteristicsFromOracleStep(
       const safeParsed = parsed && catalog.isArtifact && !catalog.types.includes('Creature')
         ? { ...parsed, types: parsed.types.filter((type) => type !== 'Creature') }
         : parsed;
-      return mergeTokenCharacteristics(catalog, safeParsed, quotedAbilities);
+      return mergeTokenCharacteristics(
+        {
+          ...catalog,
+          abilities: Array.from(new Set([...(catalog.abilities || []), ...extractedFromSources])),
+        },
+        safeParsed,
+        [],
+      );
     }
   }
 
   if (fromHint) {
-    return mergeTokenCharacteristics(fromHint.characteristics, fromClause?.characteristics, quotedAbilities);
+    return mergeTokenCharacteristics(
+      {
+        ...fromHint.characteristics,
+        abilities: Array.from(new Set([...(fromHint.characteristics.abilities || []), ...extractedFromSources])),
+      },
+      fromClause?.characteristics,
+      [],
+    );
   }
 
   if (fromClause) {
-    return mergeTokenCharacteristics(fromClause.characteristics, null, quotedAbilities);
+    return mergeTokenCharacteristics(
+      {
+        ...fromClause.characteristics,
+        abilities: Array.from(new Set([...(fromClause.characteristics.abilities || []), ...extractedFromSources])),
+      },
+      null,
+      [],
+    );
   }
 
   return null;

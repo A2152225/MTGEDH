@@ -222,6 +222,7 @@ export function createCommonArtifactTokenFromText(
   if (!spec) return false;
 
   const entersTapped = /\btapped\b/i.test(String(tokenText || ''));
+  const sourceText = String(tokenText || '').trim();
   createToken(
     ctx as any,
     controller,
@@ -232,6 +233,9 @@ export function createCommonArtifactTokenFromText(
     {
       ...spec.options,
       ...(entersTapped ? { entersTapped: true } : {}),
+      // Pass through create-clause / reminder text when callers supply more than a bare kind name
+      // (e.g. Vibranium parenthetical) so oracle_text can retain mana reminder lines.
+      ...(sourceText ? { sourceText } : {}),
     },
   );
   return true;

@@ -15,6 +15,7 @@
  */
 
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { stripCreateTokenGrantedAbilities } from "../../../../rules-engine/src/oracleReminderText.js";
 
 // ============================================================================
 // Types and Interfaces
@@ -1219,7 +1220,11 @@ function isGrantedKeywordAbilityMatch(
 }
 
 function stripKeywordReminderText(oracleText: string): string {
-  return String(oracleText || '').replace(/\([^)]*\)/g, '');
+  // Shared create-token strip removes type parentheticals and inline `with` /
+  // `that is|are|has|have` ability tails so token keywords are not attributed
+  // to the creator. Then strip remaining parenthetical reminder text.
+  return stripCreateTokenGrantedAbilities(String(oracleText || ''))
+    .replace(/\([^)]*\)/g, ' ');
 }
 
 /**
@@ -1262,15 +1267,16 @@ export function detectKeywords(oracleText: string, cardName: string = ''): Keywo
   const keywords: DetectedKeyword[] = [];
   const text = oracleText || '';
   
-  // Remove reminder text (text in parentheses) for cleaner matching
-  // But keep original for some patterns that need full context
-  const textWithoutReminder = text.replace(/\([^)]*\)/g, '');
+  // Strip parenthetical + create-token reminders so static keywords inside token
+  // definitions (e.g. Vibranium) are not attributed to the creator card.
+  const textForKeywordMatch = stripKeywordReminderText(text);
   
   for (const pattern of ALL_KEYWORD_PATTERNS) {
-    // Try matching in text without reminder first, then full text
-    let matchedIn = textWithoutReminder;
-    let match = textWithoutReminder.match(pattern.pattern);
-    if (!match) {
+    // Match against stripped text. Fall back to full oracle only for non-static
+    // patterns that may genuinely need reminder-text context.
+    let matchedIn = textForKeywordMatch;
+    let match = textForKeywordMatch.match(pattern.pattern);
+    if (!match && pattern.category !== 'static') {
       match = text.match(pattern.pattern);
       matchedIn = text;
     }
