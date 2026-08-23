@@ -1,0 +1,22 @@
+---
+description: After edits, re-read changed lines plus neighbors for formatting damage (literal escapes, mangled imports, CRLF/BOM)
+alwaysApply: true
+---
+
+# Verify edited lines (and neighbors)
+
+After any file edit - especially Windows / PowerShell / ExternalShell patches - do **not** trust exit codes alone.
+
+## Required check
+
+Re-read the **edited line(s) plus a few surrounding lines** and look for:
+
+- Literal escape junk: `` `r`n ``, `` `n ``, `\r\n` written as text, doubled backslashes in imports
+- Broken imports / quotes / template strings
+- Truncated or merged lines
+- Accidental BOM / mojibake / wrong line endings that corrupt syntax
+- Partial replacements that left both old and new text on one line
+
+## If anything looks wrong
+
+Fix it immediately in the same turn before continuing other work or telling the user it is done.

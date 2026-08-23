@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import Database from 'better-sqlite3';
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { games } from '../socket/socket.js';
+import { isGameRestoring } from '../gameRestoreState.js';
 
 type DB = Database.Database;
 
@@ -277,6 +278,12 @@ export function appendEvent(gameId: string, seq: number, type: string, payload: 
   // markers / the final state patch still persist for replay.
   try {
     const liveGame = games.get(gameId) as any;
+    // replayAsync yields to the event loop mid-restore; socket/AI handlers can race
+    // and append with mid-replay turn/phase stamps. Those regressive rows break
+    // undo boundary history after reconnect (live turn N, metadata tip stuck earlier).
+    if (liveGame?.isReplaying || isGameRestoring(gameId)) {
+      return -1;
+    }
     const suppressCount = Number(liveGame?.state?._suppressEventAppendCount || 0);
     if (suppressCount > 0) {
       const allowed =

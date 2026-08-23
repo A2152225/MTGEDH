@@ -25,7 +25,39 @@ export type TriggeredBattlefieldTargetFilterMetadata = {
   targetFilterExcludeTypes?: string[];
   /** Ugin-style: permanent that is one or more colors (not colorless). */
   targetFilterRequiresOneOrMoreColors?: boolean;
+  /** Bast / Condemn-style combat role on the target noun phrase. */
+  targetCombatRole?: 'attacking' | 'blocking' | 'attacking_or_blocking';
 };
+
+export function isPermanentCurrentlyAttacking(permanent: any): boolean {
+  if (!permanent) return false;
+  if (permanent.isAttacking === true) return true;
+  const attacking = permanent.attacking;
+  if (typeof attacking === 'string' && attacking.trim().length > 0) return true;
+  if (attacking === true) return true;
+  return false;
+}
+
+export function isPermanentCurrentlyBlocking(permanent: any): boolean {
+  if (!permanent) return false;
+  if (permanent.isBlocking === true) return true;
+  const blocking = permanent.blocking;
+  if (Array.isArray(blocking) && blocking.length > 0) return true;
+  if (typeof blocking === 'string' && blocking.trim().length > 0) return true;
+  return false;
+}
+
+export function matchesTriggeredCombatRole(
+  permanent: any,
+  role: 'attacking' | 'blocking' | 'attacking_or_blocking' | undefined,
+): boolean {
+  if (!role) return true;
+  const attacking = isPermanentCurrentlyAttacking(permanent);
+  const blocking = isPermanentCurrentlyBlocking(permanent);
+  if (role === 'attacking_or_blocking') return attacking || blocking;
+  if (role === 'blocking') return blocking;
+  return attacking;
+}
 
 function typeLineHasWord(typeLine: string, word: string): boolean {
   const needle = String(word || '').trim().toLowerCase();
@@ -41,7 +73,16 @@ export function matchesTriggeredBattlefieldTarget(
   targetType: string,
   typeLine: string,
   metadata?: TriggeredBattlefieldTargetFilterMetadata,
-  permanent?: { colors?: readonly string[]; colorAdditions?: readonly string[]; card?: any; id?: string } | null,
+  permanent?: {
+    colors?: readonly string[];
+    colorAdditions?: readonly string[];
+    card?: any;
+    id?: string;
+    attacking?: unknown;
+    isAttacking?: boolean;
+    blocking?: unknown;
+    isBlocking?: boolean;
+  } | null,
   gameState?: unknown,
 ): boolean {
   const normalizedType = String(targetType || '').toLowerCase().trim();
@@ -147,6 +188,10 @@ export function matchesTriggeredBattlefieldTarget(
     if (!Array.isArray(colors) || colors.length === 0) {
       return false;
     }
+  }
+
+  if (metadata?.targetCombatRole && !matchesTriggeredCombatRole(permanent, metadata.targetCombatRole)) {
+    return false;
   }
 
   return true;

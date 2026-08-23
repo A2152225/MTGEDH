@@ -48,6 +48,9 @@ function canPayAdjustedAlternateManaCost(
       ...(excludedHandCardIds?.length ? { excludedHandCardIds } : {}),
       restrictedSpendPurpose: {
         isCreature: typeLine.includes('creature'),
+        isArtifact: typeLine.includes('artifact'),
+        isInstantOrSorcery: typeLine.includes('instant') || typeLine.includes('sorcery'),
+        isLegendary: typeLine.includes('legendary'),
         spellCard: card,
       },
     },

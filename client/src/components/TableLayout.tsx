@@ -40,6 +40,7 @@ import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { stripCreateTokenGrantedAbilities } from '../../../rules-engine/src/oracleReminderText';
 
 const BATTLEFIELD_EXPAND_STORAGE_KEY = 'mtgedh:battlefieldExpanded';
+const ABILITY_BADGES_STORAGE_KEY = 'mtgedh:showAbilityBadges';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
@@ -507,6 +508,24 @@ export function TableLayout(props: {
       const next = !prev;
       try {
         window.localStorage.setItem(BATTLEFIELD_EXPAND_STORAGE_KEY, String(next));
+      } catch { /* noop */ }
+      return next;
+    });
+  }, []);
+  // Ability badges default OFF (hide clutter); toggle persists like battlefield expand.
+  const [showAbilityBadges, setShowAbilityBadges] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(ABILITY_BADGES_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const handleToggleAbilityBadges = useCallback(() => {
+    setShowAbilityBadges((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(ABILITY_BADGES_STORAGE_KEY, String(next));
       } catch { /* noop */ }
       return next;
     });
@@ -1730,7 +1749,10 @@ export function TableLayout(props: {
                           isMainPhase={!!isMainPhase}
                           stackEmpty={stackEmpty}
                           hasThousandYearElixirEffect={hasThousandYearElixirEffect}
-                          showActivatedAbilityButtons={!!isYouThis}
+                          showActivatedAbilityButtons={!!isYouThis && showAbilityBadges}
+                          showAbilityBadges={!!isYouThis && showAbilityBadges}
+                          onToggleAbilityBadges={isYouThis ? handleToggleAbilityBadges : undefined}
+                          currentStep={step}
                           playableCards={isYouThis ? playableCards : undefined}
                           appearanceSettings={appearanceSettings}
                         />
@@ -1776,6 +1798,8 @@ export function TableLayout(props: {
                               isMainPhase={!!isMainPhase}
                               stackEmpty={stackEmpty}
                               hasThousandYearElixirEffect={hasThousandYearElixirEffect}
+                              currentStep={step}
+                              showActivatedAbilityButtons={!!isYouThis && showAbilityBadges}
                               playableCards={isYouThis ? playableCards : undefined}
                               appearanceSettings={appearanceSettings}
                             />
@@ -1819,6 +1843,8 @@ export function TableLayout(props: {
                               isMainPhase={!!isMainPhase}
                               stackEmpty={stackEmpty}
                               hasThousandYearElixirEffect={hasThousandYearElixirEffect}
+                              currentStep={step}
+                              showActivatedAbilityButtons={!!isYouThis && showAbilityBadges}
                               playableCards={isYouThis ? playableCards : undefined}
                               appearanceSettings={appearanceSettings}
                             />

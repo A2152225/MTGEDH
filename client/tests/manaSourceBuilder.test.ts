@@ -264,6 +264,27 @@ describe('buildSuggestedPaymentItems', () => {
 });
 
 describe('mana source quantity stacks', () => {
+    it('stamps no_nonartifact_spells on Vibranium sources from oracle text', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [
+      {
+        id: 'vib_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'vibranium_card',
+          name: 'Vibranium',
+          type_line: 'Token Artifact - Vibranium',
+          oracle_text: "{T}: Add {C}. This mana can't be spent to cast a nonartifact spell.",
+        },
+      },
+    ] as any);
+
+    const vib = sources.find((source) => source.name === 'Vibranium');
+    expect(vib).toBeTruthy();
+    expect(vib?.spendRestriction).toEqual({ restriction: 'no_nonartifact_spells' });
+  });
+
   it('sets availableQuantity from grouped Vibranium tokenCount / groupedTokenIds', () => {
     const sources = buildAvailableManaSourcesForPlayer('p1', [
       {
@@ -365,6 +386,82 @@ describe('mana source quantity stacks', () => {
     expect(vibItems.every((item) => item.paymentSourceId === 'group_vib::native_c')).toBe(true);
   });
 
+
+  it('collapses unmodified identical lands across different printings/card ids', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [
+      {
+        id: 'plains_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'plains_printing_a',
+          name: 'Plains',
+          type_line: 'Basic Land - Plains',
+          oracle_text: '{T}: Add {W}.',
+        },
+      },
+      {
+        id: 'plains_2',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'plains_printing_b',
+          name: 'Plains',
+          type_line: 'Basic Land - Plains',
+          oracle_text: '{T}: Add {W}.',
+        },
+      },
+      {
+        id: 'plains_3',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'plains_printing_c',
+          name: 'Plains',
+          type_line: 'Basic Land - Plains',
+          oracle_text: '{T}: Add {W}.',
+        },
+      },
+      {
+        id: 'breeding_pool_a',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'bp_printing_a',
+          name: 'Breeding Pool',
+          type_line: 'Land - Forest Island',
+          oracle_text: '({T}: Add {G} or {U}.)\nAs Breeding Pool enters, you may pay 2 life. If you don\'t, it enters tapped.',
+        },
+      },
+      {
+        id: 'breeding_pool_b',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'bp_printing_b',
+          name: 'Breeding Pool',
+          type_line: 'Land - Forest Island',
+          oracle_text: '({T}: Add {G} or {U}.)\nAs Breeding Pool enters, you may pay 2 life. If you don\'t, it enters tapped.',
+        },
+      },
+    ] as any);
+
+    const plainsRows = sources.filter((source) => source.name === 'Plains');
+    expect(plainsRows).toHaveLength(1);
+    expect(plainsRows[0].availableQuantity).toBe(3);
+    expect(plainsRows[0].stackPermanentIds).toEqual(['plains_1', 'plains_2', 'plains_3']);
+    expect(plainsRows[0].abilityId).toBe('native_w');
+
+    const poolRows = sources.filter((source) => source.name === 'Breeding Pool');
+    expect(poolRows).toHaveLength(1);
+    expect(poolRows[0].availableQuantity).toBe(2);
+    expect(poolRows[0].stackPermanentIds).toEqual(['breeding_pool_a', 'breeding_pool_b']);
+  });
 
   it('keeps attachment-modified lands separate from identical unmodified lands', () => {
     const sources = buildAvailableManaSourcesForPlayer('p1', [

@@ -184,6 +184,8 @@ export function FreeField(props: {
   expanded?: boolean;
   onToggleExpanded?: () => void;
   showExpandControl?: boolean;
+  showAbilityBadges?: boolean;
+  onToggleAbilityBadges?: () => void;
   draggable?: boolean;
   onMove?: (id: string, x: number, y: number, z?: number) => void;
   highlightTargets?: ReadonlySet<string>;
@@ -209,6 +211,7 @@ export function FreeField(props: {
   isOwnTurn?: boolean;
   isMainPhase?: boolean;
   stackEmpty?: boolean;
+  currentStep?: string;
   // Thousand-Year Elixir and similar effects
   hasThousandYearElixirEffect?: boolean;
   // Display options for ability buttons
@@ -224,6 +227,8 @@ export function FreeField(props: {
     expanded = false,
     onToggleExpanded,
     showExpandControl = false,
+    showAbilityBadges = false,
+    onToggleAbilityBadges,
     draggable = false, onMove, highlightTargets, selectedTargets, onCardClick,
     players = [],
     onTap, onUntap, onActivateAbility, onAddCounter, onSacrifice, onRemove,
@@ -234,6 +239,7 @@ export function FreeField(props: {
     isOwnTurn = false,
     isMainPhase = false,
     stackEmpty = true,
+    currentStep,
     hasThousandYearElixirEffect = false,
     showActivatedAbilityButtons = true,
     playableCards = [],
@@ -291,6 +297,7 @@ export function FreeField(props: {
       isMainPhase,
       isOwnTurn,
       stackEmpty,
+      currentStep,
     };
 
     // Annotate abilities with activation status
@@ -851,26 +858,48 @@ export function FreeField(props: {
             Battlefield: {slotStats.occupied}/{slotStats.total} slots
             {slotStats.rows > viewportRows && !expanded ? ` · ${slotStats.rows} rows` : ''}
           </span>
-          {showExpandControl && onToggleExpanded && (
-            <button
-              type="button"
-              onClick={onToggleExpanded}
-              style={{
-                minHeight: 32,
-                padding: '4px 10px',
-                borderRadius: 6,
-                border: '1px solid rgba(148, 163, 184, 0.45)',
-                background: expanded ? 'rgba(59, 130, 246, 0.25)' : 'rgba(15, 23, 42, 0.85)',
-                color: '#e2e8f0',
-                fontSize: 11,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-              title={expanded ? 'Collapse playmat to scrollable viewport' : 'Expand playmat to show all rows'}
-            >
-              {expanded ? 'Collapse' : 'Expand'}
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {showExpandControl && onToggleAbilityBadges && (
+              <button
+                type="button"
+                onClick={onToggleAbilityBadges}
+                style={{
+                  minHeight: 32,
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  border: '1px solid rgba(148, 163, 184, 0.45)',
+                  background: showAbilityBadges ? 'rgba(16, 185, 129, 0.28)' : 'rgba(15, 23, 42, 0.85)',
+                  color: '#e2e8f0',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+                title={showAbilityBadges ? 'Hide activated-ability badges on permanents' : 'Show activated-ability badges (click a badge to activate)'}
+              >
+                {showAbilityBadges ? 'Abilities: On' : 'Abilities: Off'}
+              </button>
+            )}
+            {showExpandControl && onToggleExpanded && (
+              <button
+                type="button"
+                onClick={onToggleExpanded}
+                style={{
+                  minHeight: 32,
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  border: '1px solid rgba(148, 163, 184, 0.45)',
+                  background: expanded ? 'rgba(59, 130, 246, 0.25)' : 'rgba(15, 23, 42, 0.85)',
+                  color: '#e2e8f0',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+                title={expanded ? 'Collapse playmat to scrollable viewport' : 'Expand playmat to show all rows'}
+              >
+                {expanded ? 'Collapse' : 'Expand'}
+              </button>
+            )}
+          </div>
         </div>
       )}
       <div
@@ -1837,6 +1866,7 @@ export function FreeField(props: {
                 isOwnTurn={isOwnTurn}
                 isMainPhase={isMainPhase}
                 stackEmpty={stackEmpty}
+                currentStep={currentStep}
                 hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                 onActivateAbility={onActivateAbility}
                 showOnHover={false}
@@ -1856,6 +1886,7 @@ export function FreeField(props: {
                   isOwnTurn={isOwnTurn}
                   isMainPhase={isMainPhase}
                   stackEmpty={stackEmpty}
+                  currentStep={currentStep}
                   hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                   onActivateAbility={onActivateAbility}
                   showOnHover={false}
@@ -1895,6 +1926,7 @@ export function FreeField(props: {
           isOwnTurn={isOwnTurn}
           isMainPhase={isMainPhase}
           stackEmpty={stackEmpty}
+          currentStep={currentStep}
           hasThousandYearElixirEffect={hasThousandYearElixirEffect}
         />
       )}

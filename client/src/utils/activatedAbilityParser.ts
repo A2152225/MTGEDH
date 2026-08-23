@@ -56,7 +56,7 @@ export interface ParsedActivatedAbility {
   crewPower?: number;  // Power required to crew
   stationThreshold?: number;  // Charge counters needed to become creature
   // Activation restrictions
-  timingRestriction?: 'sorcery' | 'instant';
+  timingRestriction?: 'sorcery' | 'instant' | 'upkeep' | 'your_turn';
   oncePerTurn?: boolean;
   // For targeting
   requiresTarget?: boolean;
@@ -94,6 +94,8 @@ export interface ActivationContext {
   isMainPhase: boolean;
   isOwnTurn: boolean;
   stackEmpty: boolean;
+  /** Current game step (e.g. UPKEEP, MAIN1) for timing-restricted activates */
+  currentStep?: string;
 }
 
 export function parseStationThreshold(oracleText: string): number | undefined {
@@ -183,6 +185,35 @@ export function getThresholdActivationStatus(
 /**
  * Check if a creature can activate tap abilities considering summoning sickness and haste effects
  */
+
+/**
+ * Parse timing restriction phrases from ability/oracle text.
+ * Prefer ability-local text so one restricted ability does not poison siblings.
+ */
+export function parseTimingRestrictionFromText(
+  text: string,
+): ParsedActivatedAbility['timingRestriction'] | undefined {
+  const src = String(text || '');
+  if (/activate\s+(?:this\s+ability\s+|these\s+abilities\s+)?only\s+during\s+(?:an?\s+)?opponent'?s?\s+upkeep/i.test(src)
+    || /activate\s+(?:this\s+ability\s+|these\s+abilities\s+)?only\s+during\s+your\s+upkeep/i.test(src)
+    || /activate\s+(?:this\s+ability\s+|these\s+abilities\s+)?only\s+during\s+(?:the\s+)?upkeep/i.test(src)) {
+    return 'upkeep';
+  }
+  if (/activate\s+(?:this\s+ability\s+|these\s+abilities\s+)?only\s+during\s+your\s+turn/i.test(src)) {
+    return 'your_turn';
+  }
+  if (/activate\s+(?:this\s+ability\s+)?(?:only\s+)?(?:as\s+a\s+)?sorcery/i.test(src)
+    || /(?:activate|use)\s+(?:this\s+ability\s+|these\s+abilities\s+)?only\s+(?:as\s+a\s+sorcery|any\s+time\s+you\s+could\s+cast\s+a\s+sorcery)/i.test(src)) {
+    return 'sorcery';
+  }
+  return undefined;
+}
+
+function isUpkeepStep(step?: string): boolean {
+  const s = String(step || '').toUpperCase();
+  return s.includes('UPKEEP');
+}
+
 export function canActivateTapAbility(
   requiresTap: boolean,
   context: ActivationContext,
@@ -367,6 +398,20 @@ export function getActivatedAbilityActivationStatus(
     if (!context.isMainPhase || !context.isOwnTurn || !context.stackEmpty) {
       canActivateAbility = false;
       reason = 'Sorcery timing required';
+    }
+  }
+
+  if (ability.timingRestriction === 'upkeep') {
+    if (!context.isOwnTurn || !isUpkeepStep(context.currentStep)) {
+      canActivateAbility = false;
+      reason = 'Only during your upkeep';
+    }
+  }
+
+  if (ability.timingRestriction === 'your_turn') {
+    if (!context.isOwnTurn) {
+      canActivateAbility = false;
+      reason = 'Only during your turn';
     }
   }
 
@@ -929,10 +974,7 @@ export function parseActivatedAbilities(
         }
       }
 
-      let timingRestriction: 'sorcery' | 'instant' | undefined;
-      if (/activate\s+(?:this\s+ability\s+)?(?:only\s+)?(?:as\s+a\s+)?sorcery/i.test(nativeOracleText)) {
-        timingRestriction = 'sorcery';
-      }
+      let timingRestriction: ParsedActivatedAbility['timingRestriction'] | undefined = parseTimingRestrictionFromText(sentence);
 
       const oncePerTurn = /activate\s+(?:this\s+ability\s+)?only\s+once\s+(?:each|per)\s+turn/i.test(nativeOracleText);
       const millEffect = parseMillEffect(effectPart);
@@ -1049,10 +1091,7 @@ export function parseActivatedAbilities(
       }
       
       // Check for timing restrictions in the full oracle text
-      let timingRestriction: 'sorcery' | 'instant' | undefined;
-      if (/activate\s+(?:this\s+ability\s+)?(?:only\s+)?(?:as\s+a\s+)?sorcery/i.test(nativeOracleText)) {
-        timingRestriction = 'sorcery';
-      }
+      let timingRestriction: ParsedActivatedAbility['timingRestriction'] | undefined = parseTimingRestrictionFromText(sentence);
       
       // Check for once per turn
       const oncePerTurn = /activate\s+(?:this\s+ability\s+)?only\s+once\s+(?:each|per)\s+turn/i.test(nativeOracleText);

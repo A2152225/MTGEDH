@@ -4,6 +4,7 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName, transformDbEventsForReplay, clearScheduledHumanAutoPassForGame, suppressAutomationOnNextBroadcast, pauseHumanAutoPassUntilAction } from "./util";
 import { getEvents, truncateEventsForUndo, getEventCount } from "../db";
+import { markGameRestoring, clearGameRestoring } from "../gameRestoreState.js";
 import GameManager from "../GameManager.js";
 import { reconcileCommandZoneZoneConsistency } from "../state/modules/commander.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -422,6 +423,16 @@ function buildBoundaryHistoryFromPersistedMetadata(
 
   for (let index = 0; index < events.length; index++) {
     const rawState = snapshotBoundaryState(getPersistedEventBoundaryState(events[index]));
+    // Ignore turn regressions: replayAsync yields let concurrent auto-pass/AI append
+    // rows stamped with mid-restore turns. Those tails made history end on an old
+    // boundary (e.g. turn 25) while live state was later (turn 30 MAIN1).
+    if (
+      typeof carriedState?.turnNumber === 'number' &&
+      typeof rawState?.turnNumber === 'number' &&
+      rawState.turnNumber < carriedState.turnNumber
+    ) {
+      continue;
+    }
     // Carry forward last known turn/phase/step across unstamped rows so a single
     // missing stamp cannot invent a bogus empty boundary and collapse scopes.
     carriedState = mergeBoundaryStateCarryForward(carriedState, rawState) || carriedState;
@@ -433,6 +444,14 @@ function buildBoundaryHistoryFromPersistedMetadata(
   }
 
   return history;
+}
+
+function boundaryHistoryHasKey(history: BoundaryHistoryEntry[] | undefined, key: string): boolean {
+  if (!history || !key) return false;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i]?.key === key) return true;
+  }
+  return false;
 }
 
 function buildBoundaryHistoryFromReplay(
@@ -513,10 +532,12 @@ function calculateBoundaryUndoCount(
   if (!liveBoundaryKey) return { count: 0 };
 
   const persistedHistory = buildBoundaryHistoryFromPersistedMetadata(events, boundaryKind);
-  if (persistedHistory) {
+  if (persistedHistory && boundaryHistoryHasKey(persistedHistory, liveBoundaryKey)) {
     return planFromBoundaryHistory(persistedHistory, events.length, liveBoundaryKey, boundaryOffset);
   }
 
+  // Metadata missing the live boundary (lagging stamps, or pre-fix polluted tails):
+  // rebuild from payload replay so step/phase/turn undo can still target "now".
   const { history, eventCount } = buildBoundaryHistoryFromReplay(events, game, boundaryKind);
   return planFromBoundaryHistory(history, eventCount, liveBoundaryKey, boundaryOffset);
 }
@@ -710,16 +731,16 @@ export function listUndoTurnPhaseTargets(
     ? liveTurnNumber - playerCount + 1
     : undefined;
 
+  const liveKey = getBoundaryKey((game?.state || {}) as any, kind);
   let history = buildBoundaryHistoryFromPersistedMetadata(events, kind);
   let eventCount = events.length;
-  if (!history) {
+  if (!history || !boundaryHistoryHasKey(history, liveKey)) {
     const replayed = buildBoundaryHistoryFromReplay(events, game, kind);
     history = replayed.history;
     eventCount = replayed.eventCount;
   }
   if (!history.length) return [];
 
-  const liveKey = getBoundaryKey((game?.state || {}) as any, kind);
   let currentIndex = history.length - 1;
   for (let i = history.length - 1; i >= 0; i--) {
     if (history[i].key === liveKey) {
@@ -1056,12 +1077,15 @@ function performUndo(gameId: string, actionsToUndo: number, eventCountOverride?:
       // Transform events from DB format to replay format using shared utility
       const replayEvents = transformDbEventsForReplay(remainingEvents);
       
+      markGameRestoring(gameId);
       try {
         existingGame.replay(replayEvents);
         debug(2, `[undo] Replayed ${replayEvents.length} events for game ${gameId}`);
       } catch (replayErr) {
         debugError(1, `[undo] Replay failed for game ${gameId}:`, replayErr);
         return { success: false, error: "Failed to replay events" };
+      } finally {
+        clearGameRestoring(gameId);
       }
     } else if (remainingEvents.length === 0) {
       debug(2, `[undo] No events to replay for game ${gameId} (undid all actions)`);

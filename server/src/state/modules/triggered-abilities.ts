@@ -63,7 +63,6 @@ import {
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { cardHasCreatureType, permanentHasCreatureTypeNow } from "../creatureTypeNow.js";
 import { isEtbCreatureTypeChoiceOracle, parseChosenTypeCreatureEtbTrigger } from "./chosen-creature-type.js";
-import { detectCastTrigger } from "../../../../rules-engine/src/cards/castTriggers.js";
 import { hasTrainingKeyword } from "../../../../rules-engine/src/keywordAbilities/training.js";
 import { parseMillFromOracleText } from "../../../../rules-engine/src/keywordActions/mill.js";
 import { timingTriggerEffect, findFirstRegexMatchAcrossOracleLines } from './triggers/timing-effect-extraction.js';
@@ -79,6 +78,7 @@ import {
   oracleTextHasTriggersOnlyOnceEachTurn,
 } from './triggerDoThisOnlyOnceEachTurn.js';
 import { isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetadata.js';
+import { aOrAnSpellType } from '../../../../rules-engine/src/indefiniteArticle.js';
 import { stripReminderParentheticals } from "../../../../rules-engine/src/oracleReminderText.js";
 
 function buildCardNameRegexAlternatives(cardName: string): string[] {
@@ -12823,7 +12823,7 @@ export function detectSpellCastUntapEffects(card: any, permanent: any): SpellCas
       permanentId,
       cardName,
       controllerId,
-      description: `Whenever you cast a ${spellType} spell, untap`,
+      description: `Whenever you cast ${aOrAnSpellType(spellType)}, untap`,
       untapType: 'nonland_permanents',
       spellCondition,
     });
@@ -12975,8 +12975,6 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
   const lowerOracle = oracleText.toLowerCase();
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
-
-  const castTriggerInfo = detectCastTrigger(oracleText, card?.type_line);
 
   // Increment: retain the full trigger condition so the common
   // spell-cast emitter can evaluate it both when triggering and resolving.
@@ -13146,34 +13144,12 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
     });
   }
 
-  if (castTriggerInfo.hasCastTrigger && castTriggerInfo.triggerType === 'self_cast') {
-    const effectText = String(castTriggerInfo.effect || '').trim();
-    const description = castTriggerInfo.hasCascade
-      ? `Cascade${castTriggerInfo.cascadeCount && castTriggerInfo.cascadeCount > 1 ? ` (×${castTriggerInfo.cascadeCount})` : ''}`
-      : castTriggerInfo.hasStorm
-        ? 'Storm'
-        : 'When you cast this spell';
-    if (
-      effectText &&
-      !triggers.some((trigger) =>
-        trigger.effect === effectText ||
-        (castTriggerInfo.hasCascade && String(trigger.description || '').toLowerCase().includes('cascade')) ||
-        (castTriggerInfo.hasStorm && String(trigger.description || '').toLowerCase().includes('storm'))
-      )
-    ) {
-      triggers.push({
-        permanentId,
-        cardName,
-        controllerId,
-        description,
-        effect: effectText,
-        spellCondition: 'any',
-        mandatory: true,
-        ...(castTriggerInfo.hasCascade ? { cascade: true, cascadeCount: castTriggerInfo.cascadeCount } : {}),
-        ...(castTriggerInfo.hasStorm ? { storm: true } : {}),
-      } as SpellCastTrigger);
-    }
-  }
+  // Self-cast / Storm / Cascade ("When you cast this spell") are NOT permanent
+  // spell-cast watchers. They fire only via resolveOnCastSpellTriggerDescriptions
+  // when that card is cast as a spell. Registering them here with spellCondition
+  // 'any' incorrectly re-fires Hatut/Storm/Cascade from battlefield permanents
+  // whenever you cast any later spell (G1: Beast Within after Hatut copies).
+
 
   const getSpellCastConditionData = (spellType: string): Pick<SpellCastTrigger, 'spellCondition' | 'tribalType'> => {
     let spellCondition: SpellCastTrigger['spellCondition'] = 'any';
@@ -13385,7 +13361,7 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
           permanentId,
           cardName,
           controllerId,
-          description: `Whenever you cast a ${tribalType || spellType} spell, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`,
+          description: `Whenever you cast ${aOrAnSpellType(tribalType || spellType)}, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`,
           effect: effectText,
           spellCondition,
           tribalType,
@@ -13458,12 +13434,12 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
           cardName,
           controllerId,
           description: sourceZoneRequirement === 'library'
-            ? `Whenever you cast a ${tribalType || spellType} spell from your library, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`
+            ? `Whenever you cast ${aOrAnSpellType(tribalType || spellType)} from your library, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`
             : sourceZoneRequirement === 'graveyard'
-              ? `Whenever you cast a ${tribalType || spellType} spell from your graveyard, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`
+              ? `Whenever you cast ${aOrAnSpellType(tribalType || spellType)} from your graveyard, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`
             : sourceZoneRequirement === 'exile'
-              ? `Whenever you cast a ${tribalType || spellType} spell from exile, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`
-            : `Whenever you cast a ${tribalType || spellType} spell from anywhere other than your hand, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`,
+              ? `Whenever you cast ${aOrAnSpellType(tribalType || spellType)} from exile, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`
+            : `Whenever you cast ${aOrAnSpellType(tribalType || spellType)} from anywhere other than your hand, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`,
           effect: effectText,
           spellCondition,
           tribalType,
@@ -13745,7 +13721,7 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
           permanentId,
           cardName,
           controllerId,
-          description: `Whenever you cast a ${color} spell${orLandfall ? ` or ${orLandfall[1].trim()}` : ''}`,
+          description: `Whenever you cast ${aOrAnSpellType(color)}${orLandfall ? ` or ${orLandfall[1].trim()}` : ''}`,
           effect: effectText,
           spellCondition: 'color',
           tribalType: color,
@@ -13948,7 +13924,7 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
         permanentId,
         cardName,
         controllerId,
-        description: `Whenever you cast a ${tribalType || rawType || 'spell'} spell, ${effectText}`,
+        description: `Whenever you cast ${aOrAnSpellType(tribalType || rawType || 'spell')}, ${effectText}`,
         effect: effectText,
         spellCondition,
         tribalType,
@@ -14282,7 +14258,7 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
           permanentId,
           cardName,
           controllerId,
-          description: `Whenever you cast a ${chosenType} spell, ${effect}`,
+          description: `Whenever you cast ${aOrAnSpellType(chosenType)}, ${effect}`,
           effect,
           spellCondition: 'tribal_type',
           tribalType: chosenType,

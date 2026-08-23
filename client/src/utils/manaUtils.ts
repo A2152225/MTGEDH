@@ -55,6 +55,11 @@ export interface ManaPaymentSource {
   keepSeparate?: boolean;
   consumable?: boolean;
   sacrificeCost?: ManaSourceSacrificeCost;
+  /**
+   * Spend restriction stamped by the mana ability (Vibranium/Powerstone, Helga, etc.).
+   * Auto-pay and manual selection must not assign this source when purpose fails the check.
+   */
+  spendRestriction?: { restriction: string; restrictedTo?: string };
 }
 
 function normalizeProducedColors(producedColors?: readonly string[]): Color[] {
@@ -214,6 +219,11 @@ export interface RestrictedManaSpendPurpose {
   spellCard?: { type_line?: string; mana_cost?: string; cmc?: number; name?: string } | null;
 }
 
+/** True when type_line is an artifact spell (Vehicle, Equipment, Artifact Creature, etc.). */
+export function typeLineIndicatesArtifactSpell(typeLine: string | null | undefined): boolean {
+  return /\bartifact\b/i.test(String(typeLine || ''));
+}
+
 /** Client-side mirror of server canUseRestrictedMana for auto-pay filtering. */
 export function canUseRestrictedManaClient(
   entry: RestrictedManaPoolEntry,
@@ -243,11 +253,13 @@ export function canUseRestrictedManaClient(
       return p.isColorless === true;
     case 'no_nonartifact_spells': {
       // Powerstone / Vibranium: cannot cast nonartifact spells; OK for abilities / artifact spells.
+      // Artifact includes Vehicle, Equipment, Fortification, etc. — not only Artifact Creature.
       if (p.isActivatedAbility === true || p.isAbility === true) return true;
+      if (p.isArtifact === true) return true;
       const spellCard = p.spellCard;
-      if (spellCard) {
-        const typeLine = String(spellCard.type_line || '').toLowerCase();
-        return typeLine.includes('artifact') || p.isArtifact === true;
+      const spellTypeLine = String(spellCard?.type_line || '').trim();
+      if (spellTypeLine) {
+        return typeLineIndicatesArtifactSpell(spellTypeLine);
       }
       if (
         p.isCreature === true
@@ -257,9 +269,9 @@ export function canUseRestrictedManaClient(
         || p.isColorless === true
         || p.isCommander === true
       ) {
-        return p.isArtifact === true;
+        return false;
       }
-      // Unknown / non-cast context: allow.
+      // Unknown / non-cast context, or empty type_line without cast flags: allow.
       return true;
     }
     default:
@@ -269,14 +281,82 @@ export function canUseRestrictedManaClient(
 }
 
 export function buildRestrictedManaPurposeForSpell(spellCard?: { type_line?: string } | null): RestrictedManaSpendPurpose {
-  const typeLine = String(spellCard?.type_line || '').toLowerCase();
+  const rawTypeLine = String(spellCard?.type_line || '').trim();
+  const typeLine = rawTypeLine.toLowerCase();
+  const isArtifact = typeLineIndicatesArtifactSpell(rawTypeLine);
   return {
-    spellCard: spellCard || undefined,
+    // Only attach spellCard when type_line is present — empty type_line used to
+    // hard-fail no_nonartifact_spells and mark Vibranium restricted for Vehicles.
+    ...(rawTypeLine ? { spellCard: { ...spellCard, type_line: rawTypeLine } } : {}),
     ...(typeLine.includes('creature') ? { isCreature: true } : {}),
-    ...(typeLine.includes('artifact') ? { isArtifact: true } : {}),
+    ...(isArtifact ? { isArtifact: true } : {}),
     ...((typeLine.includes('instant') || typeLine.includes('sorcery')) ? { isInstantOrSorcery: true } : {}),
     ...(typeLine.includes('legendary') ? { isLegendary: true } : {}),
   };
+}
+
+/**
+ * Client mirror of server parseManaSpendRestrictionFromOracle.
+ * Covers Vibranium/Powerstone "can't be spent to cast a nonartifact spell" and common spend-only clauses.
+ */
+export function parseManaSpendRestrictionFromOracleText(
+  oracleText: string,
+): { restriction: string; restrictedTo?: string } | null {
+  const text = String(oracleText || '').toLowerCase().replace(/[’‘]/g, "'");
+  if (/this mana can'?t be spent to cast a nonartifact spell/.test(text)) {
+    return { restriction: 'no_nonartifact_spells' };
+  }
+  if (!text.includes('spend this mana only')) return null;
+
+  const helgaMatch = text.match(
+    /spend this mana only to cast creature spells with mana value\s+(\d+)\s+or greater(?:\s+or creature spells with \{x\} in their mana costs)?/i,
+  );
+  if (helgaMatch) {
+    return {
+      restriction: 'creature_spells_mv_or_x',
+      restrictedTo: String(helgaMatch[1] || '4'),
+    };
+  }
+  if (/spend this mana only to activate abilities/.test(text)) {
+    return { restriction: 'activated_abilities' };
+  }
+  if (/spend this mana only to cast creature spells|spend this mana only to cast creatures\b/.test(text)) {
+    return { restriction: 'creatures' };
+  }
+  if (/spend this mana only to cast artifact spells|spend this mana only to cast artifacts\b/.test(text)) {
+    return { restriction: 'artifacts' };
+  }
+  if (/spend this mana only to cast instant or sorcery|spend this mana only to cast instants and sorceries/.test(text)) {
+    return { restriction: 'instant_sorcery' };
+  }
+  if (/spend this mana only to cast colorless/.test(text)) {
+    return { restriction: 'colorless_spells' };
+  }
+  if (/spend this mana only to cast legendary/.test(text)) {
+    return { restriction: 'legendary' };
+  }
+  if (/spend this mana only to cast multicolored/.test(text)) {
+    return { restriction: 'multicolored' };
+  }
+  return null;
+}
+
+/** Whether a payment source's stamped spend restriction allows the current payment purpose. */
+export function manaSourceAllowsSpendPurpose(
+  source: Pick<ManaPaymentSource, 'spendRestriction'>,
+  purpose?: RestrictedManaSpendPurpose | null,
+): boolean {
+  const restriction = source?.spendRestriction;
+  if (!restriction?.restriction) return true;
+  return canUseRestrictedManaClient(
+    {
+      restriction: restriction.restriction,
+      restrictedTo: restriction.restrictedTo,
+      amount: 1,
+      type: 'colorless',
+    },
+    purpose,
+  );
 }
 
 /**
@@ -547,6 +627,10 @@ export function calculateSuggestedPayment(
   // First, calculate what's left after using floating mana
   const { colors: costRemaining, generic: genericRemaining, hybrids: hybridsRemaining } = 
     calculateRemainingCostAfterFloatingMana(cost, floatingMana, purpose);
+
+  // Exclude mana abilities whose spend restriction does not allow this purpose
+  // (e.g. Vibranium/Powerstone C cannot pay for Generous Gift).
+  const usableSources = sources.filter((source) => manaSourceAllowsSpendPurpose(source, purpose));
   
   let genericLeft = genericRemaining;
   
@@ -554,7 +638,7 @@ export function calculateSuggestedPayment(
   const usedSources = new Set<string>();
   const usedPermanentIds = new Set<string>();
   const remainingSourceCapacity = new Map<string, number>();
-  for (const source of sources) {
+  for (const source of usableSources) {
     remainingSourceCapacity.set(source.id, getSourceManaCapacity(source));
   }
   
@@ -626,7 +710,7 @@ export function calculateSuggestedPayment(
     if (costRemaining[c] <= 0) continue;
     
     // Sort sources: prefer sources with fewer unique options (more specific)
-    const colorSources = sources
+    const colorSources = usableSources
       .filter(s => !usedSources.has(s.id) && s.options.includes(c))
       .sort((a, b) => {
         if (isConsumableSource(a) !== isConsumableSource(b)) {
@@ -645,7 +729,7 @@ export function calculateSuggestedPayment(
   
   // Handle colorless mana requirement (specific {C} cost, not generic)
   if (costRemaining['C'] > 0) {
-    const colorlessSources = sources
+    const colorlessSources = usableSources
       .filter(s => !usedSources.has(s.id) && s.options.includes('C'))
       .sort((a, b) => {
         // Prefer colorless-only sources
@@ -671,7 +755,7 @@ export function calculateSuggestedPayment(
     let bestSource: ManaPaymentSource | null = null;
     let bestScore = Infinity;
     
-    for (const source of sources) {
+    for (const source of usableSources) {
       const remainingCapacity = remainingSourceCapacity.get(source.id) || 0;
       if (remainingCapacity <= 0) continue;
       const existing = suggestions.get(source.id);
@@ -700,7 +784,7 @@ export function calculateSuggestedPayment(
   }
 
   if (genericLeft > 0) {
-    const existingSuggestedSources = sources.filter((source) => {
+    const existingSuggestedSources = usableSources.filter((source) => {
       const existing = suggestions.get(source.id);
       return Boolean(existing) && (remainingSourceCapacity.get(source.id) || 0) > 0;
     });
@@ -719,7 +803,7 @@ export function calculateSuggestedPayment(
   // Also prefer sources that don't produce colors needed by other cards
   // IMPORTANT: Account for multi-mana sources (Sol Ring produces 2 colorless)
   if (genericLeft > 0) {
-    const remainingSources = sources.filter(s => !usedSources.has(s.id));
+    const remainingSources = usableSources.filter(s => !usedSources.has(s.id));
     
     remainingSources.sort((a, b) => {
       // Prefer reusable sources before consumable ones.

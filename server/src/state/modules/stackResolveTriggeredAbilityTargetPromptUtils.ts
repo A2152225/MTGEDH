@@ -11,7 +11,18 @@ import {
 import {
   PERMANENT_TRIGGER_TARGET_TYPES,
   matchesTriggeredBattlefieldTarget,
+  type TriggeredBattlefieldTargetFilterMetadata,
 } from './triggeredAbilityBattlefieldTargetMatch.js';
+import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
+
+function resolveTriggeredTargetCombatRole(item: any): TriggeredBattlefieldTargetFilterMetadata['targetCombatRole'] {
+  const explicit = String(item?.targetCombatRole || '').trim();
+  if (explicit === 'attacking' || explicit === 'blocking' || explicit === 'attacking_or_blocking') {
+    return explicit;
+  }
+  const effectText = String(item?.effect || item?.description || item?.targetDescription || '');
+  return inferTriggeredAbilityTargetMetadata(effectText).targetCombatRole;
+}
 
 function matchesTriggeredGraveyardTarget(card: any, metadata: {
   targetFilterTypes?: string[];
@@ -288,6 +299,7 @@ export function tryDeferTriggeredAbilityTargetSelection(
                 targetFilterRequiredTypeWords,
                 targetFilterExcludeTypes,
                 targetFilterRequiresOneOrMoreColors: (item as any).targetFilterRequiresOneOrMoreColors === true,
+                targetCombatRole: resolveTriggeredTargetCombatRole(item),
               },
               permanent,
               state,
@@ -326,8 +338,15 @@ export function tryDeferTriggeredAbilityTargetSelection(
     const minSelectionCount = Math.max(0, Number((item as any).minTargets ?? 1));
     const requestedMaxSelectionCount = Math.max(minSelectionCount, Number((item as any).maxTargets ?? minSelectionCount));
     const maxSelectionCount = Math.min(validTargets.length, requestedMaxSelectionCount);
+    const combatRole = resolveTriggeredTargetCombatRole(item);
+    const combatRoleLabel =
+      combatRole === 'attacking' ? 'attacking creature'
+      : combatRole === 'blocking' ? 'blocking creature'
+      : combatRole === 'attacking_or_blocking' ? 'attacking or blocking creature'
+      : '';
     const targetDescription = String(
       (item as any).targetDescription
+      || combatRoleLabel
       || (normalizedTargetType === 'any' || normalizedTargetType === 'any target' || normalizedTargetType === 'any_target'
         ? 'any target'
         : `target ${targetType || 'object'}`),

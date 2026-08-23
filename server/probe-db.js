@@ -1,0 +1,13 @@
+﻿const Database = require('better-sqlite3');
+const db = new Database('D:/Git/MTGEDH/server/server/data/mtgedh.sqlite', { readonly: true });
+const dist = db.prepare('SELECT turn_number, COUNT(*) c, SUM(CASE WHEN phase IS NULL THEN 1 ELSE 0 END) nullPhase, SUM(CASE WHEN step IS NULL THEN 1 ELSE 0 END) nullStep FROM events WHERE game_id=? GROUP BY turn_number ORDER BY turn_number').all('game_999');
+console.log(dist.map(r => JSON.stringify(r)).join('\n'));
+const last = db.prepare('SELECT id, type, turn_number, phase, step FROM events WHERE game_id=? ORDER BY id DESC LIMIT 20').all('game_999');
+console.log('---LAST---');
+console.log(last.map(r => JSON.stringify(r)).join('\n'));
+const nullish = db.prepare('SELECT id, type, turn_number, phase, step FROM events WHERE game_id=? AND (turn_number IS NULL OR phase IS NULL OR step IS NULL) ORDER BY id ASC LIMIT 30').all('game_999');
+console.log('---FIRST NULLISH---');
+console.log(nullish.map(r => JSON.stringify(r)).join('\n'));
+const byTurnPhase = db.prepare("SELECT turn_number, phase, step, COUNT(*) c FROM events WHERE game_id=? AND turn_number >= 20 GROUP BY turn_number, phase, step ORDER BY turn_number, MIN(id)").all('game_999');
+console.log('---T20+ BOUNDARIES---');
+console.log(byTurnPhase.map(r => JSON.stringify(r)).join('\n'));

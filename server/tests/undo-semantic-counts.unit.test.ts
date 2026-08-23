@@ -51,7 +51,7 @@ describe('undo turn/phase targets and alias-stable chunk counts', () => {
       },
     };
 
-    const targets = listUndoTurnPhaseTargets(game, events as any, { limit: 20 });
+    const targets = listUndoTurnPhaseTargets(game, events as any, { includeSteps: false, limit: 20 });
     expect(targets.length).toBeGreaterThanOrEqual(2);
     // Most recent earlier phase should be precombatMain (skip current combat).
     expect(targets[0].phase).toMatch(/precombatMain/i);
@@ -82,6 +82,41 @@ describe('undo turn/phase targets and alias-stable chunk counts', () => {
     const targets = listUndoTurnPhaseTargets(game, events as any, { includeSteps: true, limit: 10 });
     // Current step = DECLARE_ATTACKERS (3 events). Earlier step = beginCombat.
     expect(targets[0].step?.toLowerCase()).toMatch(/begin/);
+  });
+
+
+  it('ignores regressive mid-replay stamps so recent turns stay listed after reconnect', () => {
+    // Mirrors polluted DB tails seen after restart: valid history through turn 30 MAIN1,
+    // then concurrent appends stamped with mid-replayAsync turns (22/25).
+    const events = [
+      { type: 'a', turnNumber: 28, phase: 'precombatMain', step: 'MAIN1' },
+      { type: 'b', turnNumber: 29, phase: 'precombatMain', step: 'MAIN1' },
+      { type: 'c', turnNumber: 30, phase: 'beginning', step: 'DRAW' },
+      { type: 'd', turnNumber: 30, phase: 'precombatMain', step: 'MAIN1' },
+      { type: 'passPriority', turnNumber: 22, phase: 'ending', step: 'END' },
+      { type: 'resolveTopOfStack', turnNumber: 22, phase: 'ending', step: 'END' },
+      { type: 'passPriority', turnNumber: 25, phase: 'precombatMain', step: 'MAIN1' },
+    ];
+    const game = {
+      state: {
+        turnNumber: 30,
+        phase: 'precombatMain',
+        step: 'MAIN1',
+        players: [
+          { id: 'p1', name: 'A' },
+          { id: 'p2', name: 'B' },
+          { id: 'p3', name: 'C' },
+          { id: 'p4', name: 'D' },
+        ],
+      },
+    };
+
+    const targets = listUndoTurnPhaseTargets(game, events as any, { includeSteps: true, limit: 20 });
+    const turns = new Set(targets.map((t) => t.turnNumber));
+    expect(turns.has(29)).toBe(true);
+    expect(turns.has(28)).toBe(true);
+    // Must not treat polluted turn-25 tip as "current" and drop recent history.
+    expect(targets[0].turnNumber).toBeGreaterThanOrEqual(28);
   });
 
   it('keeps separate entry indices when the same phase is revisited (extra combat)', () => {

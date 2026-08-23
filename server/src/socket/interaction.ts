@@ -79,6 +79,7 @@ import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTri
 import { isCreatureNow } from "../state/creatureTypeNow.js";
 import { countArtifacts, getActiveAbilityConditions, getTotalCreaturePower } from "../state/modules/game-state-effects.js";
 import { detectActivatedAbilityConditionRequirement, type ActivatedAbilityConditionRequirement } from "../state/modules/activated-ability-conditions.js";
+import { detectActivationTimingRestriction, isActivatedAbilityTimingLegal } from "../state/modules/activation-timing.js";
 import { buildCastFromGraveyardCard, buildGraveyardCastingPermissionId, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { detectAdditionalCost } from "./land-helpers.js";
 import {
@@ -2710,6 +2711,8 @@ export function continueCastFromGraveyardAbility(params: {
         sacrificedPermanentIdsForCost: Array.isArray(params.sacrificedPermanentIdsForCost) && params.sacrificedPermanentIdsForCost.length > 0 ? params.sacrificedPermanentIdsForCost.slice() : undefined,
         xValue: Number.isFinite(Number(params.xValue)) ? Math.max(0, Math.floor(Number(params.xValue))) : undefined,
         oracleText: String((card as any)?.oracle_text || '').trim() || undefined,
+        typeLine: String((card as any)?.type_line || ''),
+        type_line: String((card as any)?.type_line || ''),
         ...(graveyardCastCostAdjustment ? { costAdjustment: graveyardCastCostAdjustment } : {}),
         ...(graveyardCastCostReduction && graveyardCastCostReduction.messages.length > 0
           ? { costReduction: graveyardCastCostReduction }
@@ -10052,6 +10055,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       abilityHasCondition = true;
+    }
+
+    // Timing windows from oracle ("Activate only during your upkeep/turn", etc.)
+    {
+      const timingSource = String(abilityConditionText || abilityText || oracleText || '');
+      const timingRestriction = detectActivationTimingRestriction(timingSource);
+      if (timingRestriction && !isActivatedAbilityTimingLegal(game.state as any, pid, timingSource, timingSource)) {
+        const timingLabel =
+          timingRestriction === 'your_upkeep' ? 'during your upkeep' :
+          timingRestriction === 'opponent_upkeep' ? "during an opponent's upkeep" :
+          timingRestriction === 'your_turn' ? 'during your turn' :
+          timingRestriction === 'sorcery' ? 'any time you could cast a sorcery' :
+          'at the correct time';
+        socket.emit("error", {
+          code: "ACTIVATION_TIMING",
+          message: `${cardName}'s ability can only be activated ${timingLabel}.`,
+        });
+        return;
+      }
     }
     
     // Log successful activation condition check for debugging

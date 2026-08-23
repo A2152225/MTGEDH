@@ -211,8 +211,12 @@ export function AbilitySelectionModal({
                     }}
                   >
                     {ability.timingRestriction === 'sorcery'
-                      ? '⏱️ Sorcery speed only'
-                      : '⚡ Instant speed'}
+                      ? 'Sorcery speed'
+                      : ability.timingRestriction === 'upkeep'
+                        ? 'Only during your upkeep'
+                        : ability.timingRestriction === 'your_turn'
+                          ? 'Only during your turn'
+                          : ability.timingRestriction}
                   </div>
                 )}
 

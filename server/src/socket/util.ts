@@ -14,6 +14,7 @@ import { sumActiveTemporaryPTMods } from "../state/modules/temporaryPtMods.js";
 import { syncDerivedContinuousEffects } from "../state/modules/staticEffectSpec.js";
 import { games, priorityTimers, PRIORITY_TIMEOUT_MS } from "./socket.js";
 import { appendEvent, createGameIfNotExists, getEvents, gameExistsInDb } from "../db/index.js";
+import { isGameRestoring } from "../gameRestoreState.js";
 import { createInitialGameState } from "../state/index.js";
 import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
@@ -2234,6 +2235,9 @@ export function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string
  */
 export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string): void {
   try {
+    if ((game as any)?.isReplaying || isGameRestoring(gameId)) {
+      return;
+    }
     const stateAny = game.state as any;
     const priority = stateAny?.priority;
     const priorityPlayerId = priority ? String(priority) as PlayerID : null;
@@ -2677,6 +2681,13 @@ export function appendGameEvent(
   type: string,
   payload: Record<string, any> = {}
 ) {
+  // Do not apply+persist while event-log replay is rebuilding state (restart/undo).
+  // Concurrent auto-pass / AI during replayAsync yields would duplicate actions and
+  // stamp regressive turn/phase metadata onto the tail of the log.
+  if ((game as any)?.isReplaying || isGameRestoring(gameId)) {
+    return;
+  }
+
   try {
     if (typeof (game as any).applyEvent === "function") {
       (game as any).applyEvent({ type, ...payload });
@@ -2716,6 +2727,10 @@ export function persistAndResolveTopOfStack(
     typeof (game as any).resolveTopOfStack !== "function"
     && typeof (game as any).applyEvent !== "function"
   ) {
+    return false;
+  }
+
+  if ((game as any)?.isReplaying || isGameRestoring(gameId)) {
     return false;
   }
 
@@ -6964,13 +6979,14 @@ export function canUseRestrictedMana(
       return purpose.isArtifact === true;
     case 'no_nonartifact_spells': {
       // Ban only casting a nonartifact spell. Activated abilities and other costs are fine.
+      // Artifact includes Vehicle, Equipment, Fortification — not only Artifact Creature.
       if (purpose.isActivatedAbility === true || purpose.isAbility === true) return true;
-      const spellCard = purpose.spellCard;
-      if (spellCard) {
-        const typeLine = String(spellCard.type_line || '').toLowerCase();
-        return typeLine.includes('artifact') || purpose.isArtifact === true;
+      if (purpose.isArtifact === true) return true;
+      const spellTypeLine = String(purpose.spellCard?.type_line || '').trim();
+      if (spellTypeLine) {
+        return /\bartifact\b/i.test(spellTypeLine);
       }
-      // Casting without spellCard: treat non-artifact purpose flags as bans.
+      // Casting without type_line: treat non-artifact purpose flags as bans.
       if (
         purpose.isCreature === true
         || purpose.isInstantOrSorcery === true
@@ -6979,7 +6995,7 @@ export function canUseRestrictedMana(
         || purpose.isColorless === true
         || purpose.isCommander === true
       ) {
-        return purpose.isArtifact === true;
+        return false;
       }
       // Unknown / non-cast payment context — allow (matches Powerstone CR reading).
       return true;

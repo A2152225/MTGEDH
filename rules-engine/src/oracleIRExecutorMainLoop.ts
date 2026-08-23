@@ -3080,15 +3080,14 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'copy_spell': {
         if (shouldDeferStackSpellCopyToServer(currentCtx, step)) {
+          // Always emit the server bridge gap — even when IR counts 0.
+          // Sticky copyCount:0 / missing tax on a transient state must not swallow
+          // commander-CZ (Storm suite / Hatut) or storm-count copies; the server
+          // re-resolves from authoritative tax / cast ledgers.
           const copyCount = Math.max(0, resolveCopySpellCount(nextState, controllerId, step, currentCtx));
-          if (copyCount <= 0) {
-            setLastStepOutcome(step, 'applied', { count: 0 });
-            appliedSteps.push(step);
-            log.push(`[oracle-ir] Copy spell produced 0 copies: ${step.raw}`);
-            break;
-          }
-
-          const deferMessage = `Deferred ${copyCount} stack spell cop${copyCount === 1 ? 'y' : 'ies'} to server: ${step.raw}`;
+          const deferMessage = copyCount > 0
+            ? `Deferred ${copyCount} stack spell cop${copyCount === 1 ? 'y' : 'ies'} to server: ${step.raw}`
+            : `Deferred stack spell copy to server for re-resolve (IR count 0): ${step.raw}`;
           const gap = createOracleAutomationGapRecord({
             state: nextState,
             ctx: currentCtx,

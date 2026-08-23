@@ -73,3 +73,48 @@ export async function restartPlayerCastRequest(
   });
 }
 
+export async function resumePlayerCastSpellFromHand(
+  io: Server,
+  gameId: string,
+  playerId: string,
+  payload: {
+    cardId: string;
+    faceIndex?: number;
+    targets?: unknown;
+    payment?: unknown;
+    skipInteractivePrompts?: boolean;
+    skipPriorityCheck?: boolean;
+    xValue?: number;
+    alternateCostId?: string;
+    selectedCastMode?: 'normal' | 'overload';
+    convokeTappedCreatures?: string[];
+    fromZone?: 'hand' | 'exile' | 'graveyard' | 'library' | 'command';
+    bypassExilePermissionCheck?: boolean;
+  },
+): Promise<void> {
+  const { socket, handlers } = createForwardingGameActionSocket(io, gameId, playerId);
+  const { registerGameActions } = await import("./game-actions.js");
+  registerGameActions(io, socket as any);
+
+  const castSpellFromHand = handlers.get('castSpellFromHand');
+  if (typeof castSpellFromHand !== 'function') {
+    throw new Error('Synthetic player socket missing castSpellFromHand handler');
+  }
+
+  await castSpellFromHand({
+    gameId,
+    cardId: payload.cardId,
+    faceIndex: payload.faceIndex,
+    targets: payload.targets,
+    payment: payload.payment,
+    skipInteractivePrompts: payload.skipInteractivePrompts,
+    skipPriorityCheck: payload.skipPriorityCheck,
+    xValue: payload.xValue,
+    alternateCostId: payload.alternateCostId,
+    selectedCastMode: payload.selectedCastMode,
+    convokeTappedCreatures: payload.convokeTappedCreatures,
+    fromZone: payload.fromZone,
+    bypassExilePermissionCheck: payload.bypassExilePermissionCheck,
+  });
+}
+

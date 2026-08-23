@@ -5,11 +5,9 @@ import React, { useMemo, useState } from 'react';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import {
   parseActivatedAbilities,
-  canActivateTapAbility,
+  getActivatedAbilityActivationStatus,
   getAbilityIcon,
   formatAbilityCost,
-  getConditionalManaAbilityStatus,
-  getThresholdActivationStatus,
   type ParsedActivatedAbility,
   type ActivationContext,
 } from '../utils/activatedAbilityParser';
@@ -87,6 +85,8 @@ export interface ActivatedAbilityButtonsProps {
   isOwnTurn: boolean;
   isMainPhase: boolean;
   stackEmpty: boolean;
+  /** Current game step for upkeep-only / timing-restricted activates */
+  currentStep?: string;
   // External state that affects activation
   hasThousandYearElixirEffect?: boolean;
   // Callbacks
@@ -154,7 +154,10 @@ function AbilityButton({
       }}
     >
       <button
+        onPointerDown={(e) => { e.stopPropagation(); }}
+        onMouseDown={(e) => { e.stopPropagation(); }}
         onClick={(e) => {
+          e.preventDefault();
           e.stopPropagation();
           if (canActivate) {
             onActivate();
@@ -284,9 +287,13 @@ function AbilityButton({
                 fontStyle: 'italic',
               }}
             >
-              {ability.timingRestriction === 'sorcery' 
-                ? '⏱️ Activate only as a sorcery' 
-                : '⚡ Activate at instant speed'}
+              {ability.timingRestriction === 'sorcery'
+                ? 'Sorcery speed'
+                : ability.timingRestriction === 'upkeep'
+                  ? 'Only during your upkeep'
+                  : ability.timingRestriction === 'your_turn'
+                    ? 'Only during your turn'
+                    : ability.timingRestriction}
             </div>
           )}
           
@@ -356,7 +363,10 @@ function CompactLoyaltyButton({
       onMouseLeave={() => setIsHovered(false)}
     >
       <button
+        onPointerDown={(e) => { e.stopPropagation(); }}
+        onMouseDown={(e) => { e.stopPropagation(); }}
         onClick={(e) => {
+          e.preventDefault();
           e.stopPropagation();
           if (canActivate) {
             onActivate();
@@ -424,6 +434,7 @@ export function ActivatedAbilityButtons({
   isOwnTurn,
   isMainPhase,
   stackEmpty,
+  currentStep,
   hasThousandYearElixirEffect = false,
   onActivateAbility,
   showOnHover = true,
@@ -463,63 +474,25 @@ export function ActivatedAbilityButtons({
     isMainPhase,
     isOwnTurn,
     stackEmpty,
-  }), [battlefield, perm, hasPriority, isMainPhase, isOwnTurn, stackEmpty, hasThousandYearElixirEffect]);
+    currentStep,
+  }), [battlefield, perm, hasPriority, isMainPhase, isOwnTurn, stackEmpty, currentStep, hasThousandYearElixirEffect]);
   
-  // Filter and annotate abilities with activation status
+  // Filter and annotate abilities with activation status (shared with context menu)
   const annotatedAbilities = useMemo(() => {
     return abilities.map(ability => {
-      // Check if ability can be activated
-      const tapCheck = canActivateTapAbility(
-        ability.requiresTap,
+      const status = getActivatedAbilityActivationStatus(
+        ability,
+        perm,
         context,
-        ability.isManaAbility
+        battlefield,
       );
-      const thresholdCheck = getThresholdActivationStatus(ability, perm);
-      const conditionalManaCheck = getConditionalManaAbilityStatus(ability, perm, battlefield);
-      
-      let canActivate = tapCheck.canActivate && thresholdCheck.canActivate && conditionalManaCheck.canActivate;
-      let reason = conditionalManaCheck.reason || thresholdCheck.reason || tapCheck.reason;
-      
-      // Check loyalty ability restrictions
-      if (ability.isLoyaltyAbility) {
-        if (!context.isMainPhase) {
-          canActivate = false;
-          reason = 'Only during main phase';
-        } else if (!context.isOwnTurn) {
-          canActivate = false;
-          reason = 'Only on your turn';
-        } else if (!context.stackEmpty) {
-          canActivate = false;
-          reason = 'Stack must be empty';
-        } else if (ability.loyaltyCost !== undefined && context.loyaltyCounters !== undefined) {
-          if (ability.loyaltyCost < 0 && context.loyaltyCounters < Math.abs(ability.loyaltyCost)) {
-            canActivate = false;
-            reason = 'Not enough loyalty';
-          }
-        }
-      }
-      
-      // Check sorcery timing restriction
-      if (ability.timingRestriction === 'sorcery') {
-        if (!context.isMainPhase || !context.isOwnTurn || !context.stackEmpty) {
-          canActivate = false;
-          reason = 'Sorcery timing required';
-        }
-      }
-      
-      // Need priority for non-mana abilities
-      if (!ability.isManaAbility && !context.controllerHasPriority) {
-        canActivate = false;
-        reason = 'No priority';
-      }
-      
       return {
         ability,
-        canActivate,
-        reason,
+        canActivate: status.canActivate,
+        reason: status.reason,
       };
     });
-  }, [abilities, context]);
+  }, [abilities, battlefield, context, perm]);
   
   // Don't show anything if no abilities
   if (annotatedAbilities.length === 0) {
@@ -625,7 +598,9 @@ export function ActivatedAbilityButtons({
       style={{
         position: 'absolute',
         inset: 0,
-        pointerEvents: showOnHover ? 'auto' : 'none',
+        // Keep the overlay non-blocking for card drag, but children with
+        // pointerEvents:auto (the badge buttons) remain clickable.
+        pointerEvents: 'none',
       }}
     >
       {/* Ability buttons container - now inside the card */}

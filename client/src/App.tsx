@@ -3438,7 +3438,29 @@ export function App() {
             ? String((step as any).wardPermanentName || (step as any).cardName || step.sourceName || 'Ward')
             : String((step as any).cardName || step.sourceName || 'Spell'),
           manaCost: String((step as any).wardCost || (step as any).manaCost || ''),
-          typeLine: isWardPayment ? undefined : String((step as any).typeLine || (step as any).type_line || ''),
+          typeLine: isWardPayment
+            ? undefined
+            : (() => {
+                const fromStep = String((step as any).typeLine || (step as any).type_line || '').trim();
+                if (fromStep) return fromStep;
+                const cardId = String((step as any).cardId || step.sourceId || '');
+                const zoneKey = String((step as any).fromZone || 'hand');
+                const zones = you && safeView?.zones ? (safeView.zones as any)[you] : null;
+                const zoneCards =
+                  zoneKey === 'graveyard' ? zones?.graveyard
+                  : zoneKey === 'exile' ? zones?.exile
+                  : zoneKey === 'command' ? zones?.command
+                  : zones?.hand;
+                const fromZoneCard = Array.isArray(zoneCards)
+                  ? zoneCards.find((c: any) => String(c?.id || '') === cardId)
+                  : null;
+                return String(
+                  fromZoneCard?.type_line
+                  || fromZoneCard?.typeLine
+                  || (step as any).card?.type_line
+                  || '',
+                ).trim();
+              })(),
           isActivatedAbilityPayment: false,
           // Default hand so CastSpellModal hides graveyard-only alts (flashback, etc.)
           // even if a payment step omitted fromZone.

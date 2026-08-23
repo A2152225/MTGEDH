@@ -173,7 +173,7 @@ describe('discard triggers (integration)', () => {
         type: 'triggered_ability',
         source: 'tinybones_perm',
         sourceName: 'Tinybones, Trinket Thief',
-        effect: 'create a 1/1 black Rat creature token',
+        effect: 'create a 1/1 black Rat creature token.',
         triggerType: 'opponent_discards',
       }),
     ]));
@@ -190,7 +190,7 @@ describe('discard triggers (integration)', () => {
       event?.type === 'pushTriggeredAbility' && String(event?.payload?.sourceName || '') === 'Tinybones, Trinket Thief'
     ) as any;
     expect(triggerEvent).toBeDefined();
-    expect(triggerEvent?.payload?.effect).toBe('create a 1/1 black Rat creature token');
+    expect(triggerEvent?.payload?.effect).toBe('create a 1/1 black Rat creature token.');
     expect(triggerEvent?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
       id: 'tinybones_perm',
       controller: p1,
@@ -286,7 +286,7 @@ describe('discard triggers (integration)', () => {
     const stack = (((game.state as any).stack || []) as any[]).filter((item: any) => item?.source === 'dying_to_serve_perm');
     expect(stack).toHaveLength(1);
     expect(stack[0]).toEqual(expect.objectContaining({
-      effect: 'create a tapped 2/2 black Zombie creature token',
+      effect: 'create a tapped 2/2 black Zombie creature token. This ability triggers only once each turn.',
       triggerType: 'you_discard',
     }));
     expect(stack[0]?.effectData?.discardedCardsCount).toBe(2);
@@ -396,7 +396,7 @@ describe('discard triggers (integration)', () => {
     const stack = (((game.state as any).stack || []) as any[]).filter((item: any) => item?.source === 'caress_perm');
     expect(stack).toHaveLength(1);
     expect(stack[0]).toEqual(expect.objectContaining({
-      effect: 'that player loses 2 life',
+      effect: 'that player loses 2 life.',
       triggeringPlayer: p2,
       targetPlayer: p2,
     }));
@@ -415,7 +415,7 @@ describe('discard triggers (integration)', () => {
 
     const replayedCaressTrigger = (((game.state as any).stack || []) as any[]).find((item: any) => item?.source === 'caress_perm');
     expect(replayedCaressTrigger).toEqual(expect.objectContaining({
-      effect: 'that player loses 2 life',
+      effect: 'that player loses 2 life.',
       triggeringPlayer: p2,
       targetPlayer: p2,
     }));

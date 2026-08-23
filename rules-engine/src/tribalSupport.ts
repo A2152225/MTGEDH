@@ -172,7 +172,9 @@ export function detectCastTribalTriggers(
       
       // Deeproot Waters pattern: "Whenever you cast a Merfolk spell..."
       if (oracleText.includes(`whenever you cast a ${typeLower} spell`) ||
-          oracleText.includes(`whenever you cast a ${typeLower} creature`)) {
+          oracleText.includes(`whenever you cast an ${typeLower} spell`) ||
+          oracleText.includes(`whenever you cast a ${typeLower} creature`) ||
+          oracleText.includes(`whenever you cast an ${typeLower} creature`)) {
         
         const effect: TribalEffect = {
           id: `${perm.id}-cast-${typeLower}`,
@@ -181,7 +183,12 @@ export function detectCastTribalTriggers(
           controllerId: perm.controller,
           creatureType,
           triggerType: TribalTriggerType.CAST_CREATURE,
-          effect: extractEffectFromOracleText(card.oracle_text, `whenever you cast a ${typeLower}`),
+          effect: extractEffectFromOracleText(
+            card.oracle_text,
+            oracleText.includes(`whenever you cast an ${typeLower}`)
+              ? `whenever you cast an ${typeLower}`
+              : `whenever you cast a ${typeLower}`,
+          ),
           isTriggered: true,
           requiresChoice: oracleText.includes('target') || oracleText.includes('may'),
           choiceType: oracleText.includes('target') ? 'target' : (oracleText.includes('may') ? 'may' : undefined),
@@ -350,6 +357,7 @@ export function detectTribalEffectInText(oracleText: string): {
     
     // Check for patterns like "whenever you cast a [type]" or "[type] creatures"
     if (lower.includes(`cast a ${typeLower}`) ||
+        lower.includes(`cast an ${typeLower}`) ||
         lower.includes(`${typeLower} creatures`) ||
         lower.includes(`${typeLower} you control`) ||
         lower.includes(`a ${typeLower} enters`)) {

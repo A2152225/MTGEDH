@@ -3,6 +3,7 @@ import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { CardContextMenu } from './CardContextMenu';
+import { ActivatedAbilityButtons } from './ActivatedAbilityButtons';
 import { AbilitySelectionModal } from './AbilitySelectionModal';
 import { parseActivatedAbilities, getActivatedAbilityActivationStatus, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
@@ -98,7 +99,9 @@ export function LandRow(props: {
   isOwnTurn?: boolean;
   isMainPhase?: boolean;
   stackEmpty?: boolean;
+  currentStep?: string;
   hasThousandYearElixirEffect?: boolean;
+  showActivatedAbilityButtons?: boolean;
   playableCards?: string[];
   appearanceSettings?: any;
 }) {
@@ -120,7 +123,9 @@ export function LandRow(props: {
     isOwnTurn = false,
     isMainPhase = false,
     stackEmpty = true,
+    currentStep,
     hasThousandYearElixirEffect = false,
+    showActivatedAbilityButtons = false,
     playableCards = [],
     appearanceSettings,
   } = props;
@@ -202,6 +207,7 @@ export function LandRow(props: {
       isMainPhase,
       isOwnTurn,
       stackEmpty,
+      currentStep,
     };
 
     const annotatedAbilities = abilities.map(ability => {
@@ -225,7 +231,7 @@ export function LandRow(props: {
     // Multiple abilities, OR single ability that cannot activate: show modal with reasons
     // (never silent-return — user must see why Add {C} is blocked).
     setAbilitySelectionModal({ permanent: perm, abilities: annotatedAbilities });
-  }, [allBattlefieldPerms, canActivate, onActivateAbility, playerId, hasPriority, isMainPhase, isOwnTurn, stackEmpty, hasThousandYearElixirEffect, lands]);
+  }, [allBattlefieldPerms, canActivate, onActivateAbility, playerId, hasPriority, isMainPhase, isOwnTurn, stackEmpty, currentStep, hasThousandYearElixirEffect, lands]);
 
   // Handle ability selection from modal
   const handleAbilitySelect = useCallback((ability: ParsedActivatedAbility) => {
@@ -563,6 +569,28 @@ export function LandRow(props: {
                 {onRemove && <button onClick={(e) => { e.stopPropagation(); onRemove!(it.id); }} title="Remove">✕</button>}
               </div>
             )}
+
+            {showActivatedAbilityButtons && playerId && (() => {
+              const permanent = lands.find((entry) => entry.id === it.id) || (it as any);
+              if (!permanent || permanent.controller !== playerId) return null;
+              return (
+                <ActivatedAbilityButtons
+                  perm={permanent}
+                  battlefield={allBattlefieldPerms || lands}
+                  tileWidth={tileWidth}
+                  hasPriority={hasPriority}
+                  isOwnTurn={isOwnTurn}
+                  isMainPhase={isMainPhase}
+                  stackEmpty={stackEmpty}
+                  currentStep={currentStep}
+                  hasThousandYearElixirEffect={hasThousandYearElixirEffect}
+                  onActivateAbility={onActivateAbility}
+                  showOnHover={false}
+                  maxVisible={4}
+                  position="left"
+                />
+              );
+            })()}
           </div>
         );
       })}
@@ -591,6 +619,7 @@ export function LandRow(props: {
         isOwnTurn={isOwnTurn}
         isMainPhase={isMainPhase}
         stackEmpty={stackEmpty}
+        currentStep={currentStep}
         hasThousandYearElixirEffect={hasThousandYearElixirEffect}
       />
     )}

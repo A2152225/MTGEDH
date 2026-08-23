@@ -7,17 +7,18 @@
  *   - handleTargetSelectionResponse
  *   - handleOptionChoiceResponse
  *
- * SEAM STATUS (2026-08-22):
+ * SEAM STATUS (2026-08-23):
  * - Response clusters behind this seam: library-look / modal / commander-zone /
  *   vote / proliferate / lim-dul / color-type-name choices / option-choice early
- *   specials PREFIX.
+ *   specials PREFIX + ConfirmCastPayment / join-forces+tempting / hideaway+zone-draft+return-permanent (split) /
+ *   cascade+dance+devour+suspend+morph (+ life redistrib / prisoners dilemma).
  * - Injectable cast helpers (appendCastSpellContinuationEvent,
  *   createForwardingGameActionSocket, restartPlayerCastRequest) unlock PREFIX
  *   extraction without blunt-cutting the four cores.
  * - Remaining: large switch/validation bodies still in the four cores; more
- *   option-choice specials after PREFIX; target-selection specialized branches;
- *   commander-cast copies / Hatut / Storm intentionally out of scope;
- *   triggered-abilities.ts skipped.
+ *   option-choice specials after ConfirmCastPayment; target-selection specialized branches;
+ *   discard-trigger + activated-targeting utils extracted; discard response extracted (core + activation-resume); graveyard selection extracted (apply + post/resume); activated-ability extracted; commander-cast copies /
+ *   Hatut / Storm intentionally out of scope; triggered-abilities.ts skipped.
  */
 
 import type { Server } from "socket.io";
@@ -37,12 +38,36 @@ import {
   handleTwoPileSplitResponse,
 } from "./resolutionLibraryLookResponseHandlers.js";
 import { handleModalChoiceResponse } from "./resolutionModalChoiceResponseHandlers.js";
+import { handleScryResponse, handleSurveilResponse } from "./resolutionScrySurveilResponseHandlers.js";
 import { tryHandleOptionChoiceEarlySpecialsPrefix } from "./resolutionOptionChoiceEarlySpecialsPrefixHandlers.js";
+import { tryHandleOptionChoiceEarlySpecialsConfirmCastPayment } from "./resolutionOptionChoiceEarlySpecialsConfirmCastPaymentHandlers.js";
 import {
   appendCastSpellContinuationEvent,
   createForwardingGameActionSocket,
   restartPlayerCastRequest,
 } from "./resolutionSyntheticCastSocketUtils.js";
+import {
+  handleJoinForcesResponse,
+  handleTemptingOfferResponse,
+} from "./resolutionJoinForcesTemptingOfferResponseHandlers.js";
+import {
+  handleHideawayChoiceResponse,
+  handleRepeatedZoneDraftResponse,
+  handleReturnControlledPermanentChoiceResponse,
+} from "./resolutionHideawayZoneDraftPermanentChoiceResponseHandlers.js";
+import {
+  handleCascadeResponse,
+  handleDanceWithCalamityCastSelectionResponse,
+  handleDanceWithCalamityResponse,
+  handleDevourSelectionResponse,
+  handleLifeRedistributionResponse,
+  handleMorphTurnFaceUpResponse,
+  handlePrisonersDilemmaChoiceResponse,
+  handleSuspendCastResponse,
+} from "./resolutionCascadeDanceDevourSuspendMorphResponseHandlers.js";
+import { handleActivatedAbilityResponse } from "./resolutionActivatedAbilityResponseHandlers.js";
+import { handleDiscardResponse } from "./resolutionDiscardResponseCoreHandlers.js";
+import { handleGraveyardSelectionResponse } from "./resolutionGraveyardSelectionApplyHandlers.js";
 import {
   handleLimDulsVaultResponse,
   handleProliferateResponse,
@@ -64,6 +89,8 @@ export type ResolutionHandlerDeps = {
   handlePonderEffectResponse: ResolutionStepHandler;
   handleTwoPileSplitResponse: ResolutionStepHandler;
   handleModalChoiceResponse: ResolutionStepHandler;
+  handleScryResponse: ResolutionStepHandler;
+  handleSurveilResponse: ResolutionStepHandler;
   handleCommanderZoneResponse: ResolutionStepHandler;
   handleProliferateResponse: ResolutionStepHandler;
   handleVoteResponse: ResolutionStepHandler;
@@ -72,7 +99,30 @@ export type ResolutionHandlerDeps = {
   handleBasicLandTypeChoiceResponse: ResolutionStepHandler;
   handleCreatureTypeChoiceResponse: ResolutionStepHandler;
   handleCardNameChoiceResponse: ResolutionStepHandler;
+  handleJoinForcesResponse: ResolutionStepHandler;
+  handleTemptingOfferResponse: ResolutionStepHandler;
+  handleReturnControlledPermanentChoiceResponse: ResolutionStepHandler;
+  handleHideawayChoiceResponse: ResolutionStepHandler;
+  handleRepeatedZoneDraftResponse: ResolutionStepHandler;
+  handleCascadeResponse: ResolutionStepHandler;
+  handleLifeRedistributionResponse: ResolutionStepHandler;
+  handlePrisonersDilemmaChoiceResponse: ResolutionStepHandler;
+  handleDanceWithCalamityResponse: ResolutionStepHandler;
+  handleDanceWithCalamityCastSelectionResponse: ResolutionStepHandler;
+  handleDevourSelectionResponse: ResolutionStepHandler;
+  handleSuspendCastResponse: ResolutionStepHandler;
+  handleMorphTurnFaceUpResponse: ResolutionStepHandler;
+  handleActivatedAbilityResponse: ResolutionStepHandler;
+  handleDiscardResponse: ResolutionStepHandler;
+  handleGraveyardSelectionResponse: ResolutionStepHandler;
   tryHandleOptionChoiceEarlySpecialsPrefix: (
+    io: Server,
+    game: any,
+    gameId: string,
+    step: ResolutionStep,
+    response: ResolutionStepResponse,
+  ) => Promise<boolean>;
+  tryHandleOptionChoiceEarlySpecialsConfirmCastPayment: (
     io: Server,
     game: any,
     gameId: string,
@@ -113,6 +163,8 @@ export function createResolutionHandlerDeps(
     handlePonderEffectResponse,
     handleTwoPileSplitResponse,
     handleModalChoiceResponse,
+    handleScryResponse,
+    handleSurveilResponse,
     handleCommanderZoneResponse,
     handleProliferateResponse,
     handleVoteResponse,
@@ -121,7 +173,24 @@ export function createResolutionHandlerDeps(
     handleBasicLandTypeChoiceResponse,
     handleCreatureTypeChoiceResponse,
     handleCardNameChoiceResponse,
+    handleJoinForcesResponse,
+    handleTemptingOfferResponse,
+    handleReturnControlledPermanentChoiceResponse,
+    handleHideawayChoiceResponse,
+    handleRepeatedZoneDraftResponse,
+    handleCascadeResponse,
+    handleLifeRedistributionResponse,
+    handlePrisonersDilemmaChoiceResponse,
+    handleDanceWithCalamityResponse,
+    handleDanceWithCalamityCastSelectionResponse,
+    handleDevourSelectionResponse,
+    handleSuspendCastResponse,
+    handleMorphTurnFaceUpResponse,
+    handleActivatedAbilityResponse,
+    handleDiscardResponse,
+    handleGraveyardSelectionResponse,
     tryHandleOptionChoiceEarlySpecialsPrefix,
+    tryHandleOptionChoiceEarlySpecialsConfirmCastPayment,
     appendCastSpellContinuationEvent,
     createForwardingGameActionSocket,
     restartPlayerCastRequest,

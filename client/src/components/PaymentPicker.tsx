@@ -12,6 +12,7 @@ import {
   calculateRemainingCostAfterFloatingMana,
   canUseRestrictedManaClient,
   buildRestrictedManaPurposeForSpell,
+  manaSourceAllowsSpendPurpose,
   getTotalManaProduction,
   getManaPerActivation,
   getSourceAvailableQuantity,
@@ -260,16 +261,22 @@ export function PaymentPicker(props: PaymentPickerProps) {
 
   // Calculate colors needed by other cards in hand
   const colorsToPreserve = useMemo(() => computeColorsNeededByOtherCards(otherCardsInHand), [otherCardsInHand]);
+  const restrictedPurpose = useMemo(
+    () => (isActivatedAbilityPayment
+      ? { isActivatedAbility: true, isAbility: true }
+      : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' })),
+    [isActivatedAbilityPayment, typeLine],
+  );
   const sourcesEligibleForSuggestion = useMemo(
-    () => effectiveSources.filter((source) => !source.sacrificeCost),
-    [effectiveSources]
+    () => effectiveSources.filter((source) => !source.sacrificeCost && manaSourceAllowsSpendPurpose(source, restrictedPurpose)),
+    [effectiveSources, restrictedPurpose]
   );
   
   // Calculate suggested payment when no sources have been chosen yet (considers floating mana)
   const suggestedPayment = useMemo(() => {
     if (chosen.length > 0) return new Map<string, SuggestedPaymentSelection>();
     const costForSuggestion = manualFloatingManaSelection
-      ? calculateRemainingCostAfterFloatingMana(cost, floatingMana, (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' })))
+      ? calculateRemainingCostAfterFloatingMana(cost, floatingMana, restrictedPurpose)
       : { colors: cost.colors, generic: cost.generic, hybrids: cost.hybrids };
     return calculateSuggestedPayment(
       {
@@ -280,8 +287,9 @@ export function PaymentPicker(props: PaymentPickerProps) {
       sourcesEligibleForSuggestion,
       colorsToPreserve,
       manualFloatingManaSelection ? undefined : floatingMana,
+      restrictedPurpose,
     );
-  }, [cost, sourcesEligibleForSuggestion, colorsToPreserve, chosen.length, floatingMana, manualFloatingManaSelection]);
+  }, [cost, sourcesEligibleForSuggestion, colorsToPreserve, chosen.length, floatingMana, manualFloatingManaSelection, restrictedPurpose]);
 
   const sourceById = useMemo(() => new Map(effectiveSources.map((source) => [source.id, source])), [effectiveSources]);
 
@@ -384,6 +392,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
   };
 
   const add = (source: ManaPaymentSource, mana: Color) => {
+    if (!manaSourceAllowsSpendPurpose(source, restrictedPurpose)) return;
     const maxQty = getSourceAvailableQuantity(source);
     if (maxQty > 1) {
       const current = chosenCountBySourceId.get(source.id) || 0;
@@ -426,7 +435,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
     onChange(
       buildSuggestedPaymentItems(cost, sourcesEligibleForSuggestion, colorsToPreserve, floatingMana, {
         includeExplicitPoolItems: manualFloatingManaSelection,
-        purpose: (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' })),
+        purpose: restrictedPurpose,
       }),
     );
   };
@@ -533,6 +542,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
           const showGreenHighlight = isAutoSelected || isSuggested;
           const hasAmount = s.amount && s.amount > 1;
           const isFloatingSource = s.id.startsWith('__pool__:');
+          const spendAllowed = manaSourceAllowsSpendPurpose(s, restrictedPurpose);
           const displayName = stackQty > 1 ? `${s.name} (${stackQty})` : s.name;
           
           return (
@@ -568,6 +578,24 @@ export function PaymentPicker(props: PaymentPickerProps) {
                   <span style={{ fontSize: 11, opacity: 0.7 }}>{isFloatingSource ? 'floating' : 'untapped'}</span>
                 )}
               </div>
+              {!spendAllowed && (
+                <div style={{ marginBottom: 6 }}>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: '#b91c1c',
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: 999,
+                      background: 'rgba(239, 68, 68, 0.12)',
+                      border: '1px solid rgba(185, 28, 28, 0.28)',
+                    }}
+                    title="This mana cannot be spent on the current spell or ability"
+                  >
+                    restricted
+                  </span>
+                </div>
+              )}
               {s.consumable && (
                 <div style={{ marginBottom: 6 }}>
                   <span
@@ -633,12 +661,14 @@ export function PaymentPicker(props: PaymentPickerProps) {
                       max={stackQty}
                       value={chosenQty}
                       onChange={(e) => {
+                        if (!spendAllowed) return;
                         const next = Math.max(0, Math.min(stackQty, Number(e.target.value) || 0));
                         const existing = chosen.find((payment) => getPaymentItemKey(payment) === s.id);
                         const color = (existing?.mana || suggested?.color || s.options[0] || 'C') as Color;
                         setSourceQuantity(s, color, next);
                       }}
                       style={{ width: 44, textAlign: 'center', fontSize: 12, padding: '2px 4px' }}
+                      disabled={!spendAllowed}
                       title={`Quantity (max ${stackQty})`}
                     />
                     <button
@@ -648,7 +678,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
                         const color = (existing?.mana || suggested?.color || s.options[0] || 'C') as Color;
                         add(s, color);
                       }}
-                      disabled={chosenQty >= stackQty || Boolean(s.sacrificeCost)}
+                      disabled={!spendAllowed || chosenQty >= stackQty || Boolean(s.sacrificeCost)}
                       style={{ width: 24, height: 24, padding: 0, fontSize: 14, lineHeight: '22px' }}
                       title="Use one more copy"
                     >
@@ -660,9 +690,9 @@ export function PaymentPicker(props: PaymentPickerProps) {
                   const isSuggestedColor = suggested?.color === opt;
                   const displayText = hasAmount && s.options.length === 1 ? `{${opt}}` : opt;
                   const selectedMana = chosen.find((payment) => getPaymentItemKey(payment) === s.id)?.mana;
-                  const disabledColor = stackQty > 1
+                  const disabledColor = !spendAllowed || (stackQty > 1
                     ? (chosenQty >= stackQty && selectedMana === opt)
-                    : used;
+                    : used);
                   return (
                     <button
                       key={`${s.id}:${opt}`}
@@ -674,10 +704,12 @@ export function PaymentPicker(props: PaymentPickerProps) {
                         borderRadius: 6, 
                         border: isSuggestedColor ? '2px solid #4caf50' : '1px solid #ccc',
                         background: isSuggestedColor ? 'rgba(76, 175, 80, 0.15)' : 'transparent',
-                        fontWeight: isSuggestedColor ? 600 : 400
+                        fontWeight: isSuggestedColor ? 600 : 400,
                       }}
                       title={
-                        disabledColor && stackQty <= 1
+                        !spendAllowed
+                          ? 'Restricted mana cannot be spent on this spell/ability'
+                          : disabledColor && stackQty <= 1
                           ? 'Already used'
                           : isSuggestedColor
                             ? `Suggested: Add ${suggestedQty || suggested?.count || 1}× ${opt}`

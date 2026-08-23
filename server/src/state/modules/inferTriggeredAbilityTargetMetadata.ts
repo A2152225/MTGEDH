@@ -34,6 +34,8 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
   targetCastWithoutPayingManaCost?: boolean;
   targetCastIsOptional?: boolean;
   targetFilterRequiresOneOrMoreColors?: boolean;
+  /** Combat-role restriction for "target attacking/blocking creature". */
+  targetCombatRole?: 'attacking' | 'blocking' | 'attacking_or_blocking';
   minTargets?: number;
   maxTargets?: number;
 } {
@@ -62,6 +64,7 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
   let targetCastWithoutPayingManaCost = false;
   let targetCastIsOptional = false;
   let targetFilterRequiresOneOrMoreColors = false;
+  let targetCombatRole: 'attacking' | 'blocking' | 'attacking_or_blocking' | undefined;
   let minTargets: number | undefined;
   let maxTargets: number | undefined;
 
@@ -280,6 +283,20 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
     targetFilterRequiresOneOrMoreColors = true;
   }
 
+  // Combat-role noun phrases: "target attacking creature", "target blocking creature",
+  // "target attacking or blocking creature" (optional subtype words allowed).
+  if (requiresTarget) {
+    const combatRoleMatch = lower.match(
+      /\btarget\s+(attacking(?:\s+or\s+blocking)?|blocking)(?:\s+[a-z0-9'-]+)*\s+creature\b/,
+    );
+    if (combatRoleMatch) {
+      const role = String(combatRoleMatch[1] || '').replace(/\s+/g, ' ').trim();
+      if (role === 'attacking or blocking') targetCombatRole = 'attacking_or_blocking';
+      else if (role === 'blocking') targetCombatRole = 'blocking';
+      else targetCombatRole = 'attacking';
+    }
+  }
+
   let targetConstraint: 'opponent' | 'you' | undefined;
   if (requiresTarget) {
     // Only inspect the target *noun phrase* (text after "target" before the effect verb).
@@ -323,6 +340,7 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
     targetCastWithoutPayingManaCost,
     targetCastIsOptional,
     targetFilterRequiresOneOrMoreColors,
+    targetCombatRole,
     minTargets,
     maxTargets,
   };

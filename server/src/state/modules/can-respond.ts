@@ -28,6 +28,7 @@ import { calculateMaxLandsPerTurn, canCastFromTop, canPlayLandsFromTop, getActiv
 import { buildGraveyardCastingPermissionId, getActiveGraveyardCastingPermissions, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo, isActivatableStationGraveyardPermissionLine, type GraveyardCastingPermission, type GraveyardCastingPermissionCostMode } from "./graveyard-permissions";
 import { checkOpponentHasMoreLands } from './stackLandCountUtils.js';
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
+import { isActivatedAbilityTimingLegal } from "./activation-timing.js";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan, getCostAdjustmentForCard as getSharedCostAdjustmentForCard, type CostAdjustmentPlan } from "./cost-adjustments";
 import { collectStaticEffectSources } from "./static-effect-sources";
 import { creatureHasHaste, getEffectiveAdditionalCost } from "../../socket/game-actions.js";
@@ -1833,6 +1834,9 @@ export function getCastableSpellCandidates(
         const castTypeLine = String(castCard?.type_line || '').toLowerCase();
         const restrictedSpendPurpose = {
           isCreature: castTypeLine.includes('creature'),
+          isArtifact: castTypeLine.includes('artifact'),
+          isInstantOrSorcery: castTypeLine.includes('instant') || castTypeLine.includes('sorcery'),
+          isLegendary: castTypeLine.includes('legendary'),
           spellCard: castCard,
         };
 
@@ -2190,14 +2194,6 @@ function isManaAbility(oracleText: string, effectPart: string): boolean {
   return true;
 }
 
-/**
- * Check if an ability has "Activate only during your turn" restriction
- * Examples: Humble Defector, Sundial of the Infinite
- * @returns true if the ability has this restriction
- */
-function hasActivateOnlyDuringYourTurnRestriction(oracleText: string): boolean {
-  return /activate (?:this ability )?only during your turn/i.test(oracleText);
-}
 
 function hasStationActivationWindow(ctx: GameContext, playerId: PlayerID, permanent: any): boolean {
   if (!permanent?.card) return false;
@@ -2329,7 +2325,7 @@ export function hasSacrificePrefixActivatedAbility(
       continue;
     }
 
-    if (hasActivateOnlyDuringYourTurnRestriction(oracleText) && (state as any)?.turnPlayer !== playerId) {
+    if (!isActivatedAbilityTimingLegal(state as any, playerId, fullAbilityText, oracleText, match.index)) {
       continue;
     }
 
@@ -2449,10 +2445,9 @@ function hasActivatableAbility(
       return false; // Mana abilities don't prevent auto-pass
     }
     
-    // Check for "Activate only during your turn" restriction (e.g., Humble Defector)
-    const isTurnPlayer = (state as any).turnPlayer === playerId;
-    if (hasActivateOnlyDuringYourTurnRestriction(oracleText) && !isTurnPlayer) {
-      return false; // Can only be activated during player's turn
+    // Timing restrictions from oracle (e.g. "only during your upkeep/turn")
+    if (!isActivatedAbilityTimingLegal(state as any, playerId, fullAbilityText, oracleText, abilityMatch.index)) {
+      return false;
     }
     
     // Check for mana costs BEFORE tap symbol (e.g., "{2}{R}, {T}:")
@@ -2584,10 +2579,9 @@ function hasActivatableAbility(
       continue; // Skip sorcery-speed ability
     }
     
-    // Skip "Activate only during your turn" abilities if it's not our turn
-    // Pattern: "Activate only during your turn" (e.g., Humble Defector)
-    if (hasActivateOnlyDuringYourTurnRestriction(oracleText) && !((state as any).turnPlayer === playerId)) {
-      continue; // Skip - can only be activated during player's turn
+    // Timing restrictions from oracle (upkeep / your turn / etc.)
+    if (!isActivatedAbilityTimingLegal(state as any, playerId, fullAbilityText, oracleText, match.index)) {
+      continue;
     }
 
     // {Q} untap cost (e.g. Gilder Bairn "{2}{G/U}, {Q}: ..."): the permanent must currently

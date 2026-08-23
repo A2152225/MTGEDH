@@ -232,6 +232,31 @@ export interface LibrarySearchModalStateShape {
   stepId: string;
 }
 
+function normalizeLibrarySearchCard(card: unknown): KnownCardRef | null {
+  if (!card || typeof card !== 'object') return null;
+  const entry = card as Record<string, unknown>;
+  const id = String(entry.id || '').trim();
+  if (!id) return null;
+  const existingUris =
+    entry.image_uris && typeof entry.image_uris === 'object'
+      ? (entry.image_uris as KnownCardRef['image_uris'])
+      : undefined;
+  const imageUrl = String(
+    entry.imageUrl
+    || entry.image_url
+    || (existingUris as any)?.normal
+    || (existingUris as any)?.small
+    || '',
+  ).trim();
+  return {
+    ...(entry as KnownCardRef),
+    id,
+    ...(imageUrl && !existingUris
+      ? { image_uris: { normal: imageUrl, small: imageUrl } }
+      : {}),
+  };
+}
+
 export function buildLibrarySearchModalStateFromStep(
   step: Record<string, unknown>,
 ): LibrarySearchModalStateShape {
@@ -252,11 +277,11 @@ export function buildLibrarySearchModalStateFromStep(
       : (stepDescription || searchCriteria || 'Search your library');
 
   return {
-    cards: Array.isArray(step.availableCards) ? step.availableCards as KnownCardRef[] : [],
-    nonSelectableCards: Array.isArray(step.nonSelectableCards) ? step.nonSelectableCards as KnownCardRef[] : [],
-    revealedCards: Array.isArray(step.revealedCards) ? step.revealedCards as KnownCardRef[] : [],
+    cards: Array.isArray(step.availableCards) ? (step.availableCards as unknown[]).map(normalizeLibrarySearchCard).filter((c): c is KnownCardRef => Boolean(c)) : [],
+    nonSelectableCards: Array.isArray(step.nonSelectableCards) ? (step.nonSelectableCards as unknown[]).map(normalizeLibrarySearchCard).filter((c): c is KnownCardRef => Boolean(c)) : [],
+    revealedCards: Array.isArray(step.revealedCards) ? (step.revealedCards as unknown[]).map(normalizeLibrarySearchCard).filter((c): c is KnownCardRef => Boolean(c)) : [],
     castableWhileSearchingCards: Array.isArray(step.castableWhileSearchingCards)
-      ? step.castableWhileSearchingCards as KnownCardRef[]
+      ? (step.castableWhileSearchingCards as unknown[]).map(normalizeLibrarySearchCard).filter((c): c is KnownCardRef => Boolean(c))
       : [],
     title: defaultTitle,
     description: defaultDescription,

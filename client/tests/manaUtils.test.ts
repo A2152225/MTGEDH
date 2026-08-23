@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyXValueToParsedCost, calculateSuggestedPayment, parseManaCost, paymentToPool } from '../src/utils/manaUtils';
+import {
+  applyXValueToParsedCost,
+  buildRestrictedManaPurposeForSpell,
+  calculateSuggestedPayment,
+  manaSourceAllowsSpendPurpose,
+  parseManaCost,
+  parseManaSpendRestrictionFromOracleText,
+  typeLineIndicatesArtifactSpell,
+  paymentToPool,
+} from '../src/utils/manaUtils';
 
 describe('calculateSuggestedPayment', () => {
   it('counts exact produced color bundles in selected payment pools', () => {
@@ -126,5 +135,124 @@ describe('calculateSuggestedPayment colored-before-generic', () => {
     );
     expect(pool.W).toBeGreaterThanOrEqual(2);
     expect(pool.W + pool.U + pool.B + pool.R + pool.G + pool.C).toBeGreaterThanOrEqual(12);
+  });
+});
+
+describe('restricted mana sources (Vibranium / Powerstone)', () => {
+  const vibraniumOracle =
+    "{T}: Add {C}. This mana can't be spent to cast a nonartifact spell.";
+
+  it('parses Vibranium nonartifact spend restriction from oracle text', () => {
+    expect(parseManaSpendRestrictionFromOracleText(vibraniumOracle)).toEqual({
+      restriction: 'no_nonartifact_spells',
+    });
+  });
+
+  it('does not auto-assign Vibranium for generic mana on Generous Gift', () => {
+    const purpose = buildRestrictedManaPurposeForSpell({
+      type_line: 'Instant',
+    });
+    const vibraniumSource = {
+      id: 'vib_1',
+      sourcePermanentId: 'vib_1',
+      name: 'Vibranium',
+      options: ['C'] as const,
+      spendRestriction: { restriction: 'no_nonartifact_spells' },
+    };
+    expect(manaSourceAllowsSpendPurpose(vibraniumSource, purpose)).toBe(false);
+
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 1, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 2,
+        hybrids: [],
+      },
+      [
+        vibraniumSource as any,
+        { id: 'plains_1', name: 'Plains', options: ['W'] },
+        { id: 'plains_2', name: 'Plains', options: ['W'] },
+        { id: 'plains_3', name: 'Plains', options: ['W'] },
+      ],
+      new Set(),
+      undefined,
+      purpose,
+    );
+
+    expect(suggestion.has('vib_1')).toBe(false);
+    expect(suggestion.size).toBe(3);
+    expect(suggestion.get('plains_1')).toEqual({ color: 'W', count: 1 });
+  });
+
+  it('still allows Vibranium for artifact spells and activated abilities', () => {
+    const artifactPurpose = buildRestrictedManaPurposeForSpell({
+      type_line: 'Artifact Creature - Construct',
+    });
+    const abilityPurpose = { isActivatedAbility: true, isAbility: true };
+    const vibraniumSource = {
+      id: 'vib_1',
+      name: 'Vibranium',
+      options: ['C'] as const,
+      spendRestriction: { restriction: 'no_nonartifact_spells' },
+    };
+
+    expect(manaSourceAllowsSpendPurpose(vibraniumSource, artifactPurpose)).toBe(true);
+    expect(manaSourceAllowsSpendPurpose(vibraniumSource, abilityPurpose)).toBe(true);
+
+    const artifactSuggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 1,
+        hybrids: [],
+      },
+      [vibraniumSource as any],
+      new Set(),
+      undefined,
+      artifactPurpose,
+    );
+    expect(artifactSuggestion.get('vib_1')).toEqual({ color: 'C', count: 1 });
+  });
+
+  it('allows Vibranium for Artifact Vehicle / Equipment (not only Artifact Creature)', () => {
+    expect(typeLineIndicatesArtifactSpell('Artifact - Vehicle')).toBe(true);
+    expect(typeLineIndicatesArtifactSpell('Artifact - Equipment')).toBe(true);
+    expect(typeLineIndicatesArtifactSpell('Instant')).toBe(false);
+
+    const vehiclePurpose = buildRestrictedManaPurposeForSpell({
+      type_line: 'Artifact - Vehicle',
+    });
+    const equipmentPurpose = buildRestrictedManaPurposeForSpell({
+      type_line: 'Artifact - Equipment',
+    });
+    const instantPurpose = buildRestrictedManaPurposeForSpell({
+      type_line: 'Instant',
+    });
+    expect(vehiclePurpose.isArtifact).toBe(true);
+    expect(equipmentPurpose.isArtifact).toBe(true);
+    expect(instantPurpose.isArtifact).toBeUndefined();
+    expect(instantPurpose.isInstantOrSorcery).toBe(true);
+
+    const vibraniumSource = {
+      id: 'vib_1',
+      name: 'Vibranium',
+      options: ['C'] as const,
+      spendRestriction: { restriction: 'no_nonartifact_spells' },
+    };
+
+    expect(manaSourceAllowsSpendPurpose(vibraniumSource, vehiclePurpose)).toBe(true);
+    expect(manaSourceAllowsSpendPurpose(vibraniumSource, equipmentPurpose)).toBe(true);
+    expect(manaSourceAllowsSpendPurpose(vibraniumSource, instantPurpose)).toBe(false);
+
+    const vehicleSuggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 1,
+        hybrids: [],
+      },
+      [vibraniumSource as any],
+      new Set(),
+      undefined,
+      vehiclePurpose,
+    );
+    expect(vehicleSuggestion.get('vib_1')).toEqual({ color: 'C', count: 1 });
   });
 });

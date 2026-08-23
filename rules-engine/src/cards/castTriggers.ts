@@ -10,6 +10,8 @@
  * Examples: Eldrazi titans (Ulalek, Kozilek, Ulamog), cascade cards, storm cards
  */
 
+import { aOrAnSpellType } from '../indefiniteArticle.js';
+
 export interface CastTriggerInfo {
   readonly hasCastTrigger: boolean;
   readonly triggerType: 'self_cast' | 'other_cast' | 'none';
@@ -143,7 +145,7 @@ export function detectCastTrigger(oracleText: string, typeLine?: string): CastTr
       triggerType: 'other_cast',
       creatureTypeFilter: creatureType,
       copyTriggers,
-      effect: `Triggers when you cast a ${creatureType} spell.`,
+      effect: `Triggers when you cast ${aOrAnSpellType(creatureType)}`,
     };
   }
   

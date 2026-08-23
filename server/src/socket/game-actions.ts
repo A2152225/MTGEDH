@@ -1,7 +1,8 @@
 import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
 import { ensureGame, broadcastGame, appendGameEvent, persistAndResolveTopOfStack, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, addCastSpellPaymentProducedMana, buildManaTotalsIncludingEligibleRestricted, consumeManaFromPool, consumeManaFromPoolForPurpose, deriveCreatureSpellHasteFromManaSpent, deriveCastUsedManaFromPermanentSource, getFloatingPaymentPoolColorKey, getOrInitManaPool, calculateTotalAvailableMana, parseFloatingPaymentPermanentId, payManaCostWithAvailableSources, validateManaPayment, validateSelectedFloatingPoolMana, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, snapshotManaProducedByPermanentLowerBound, applyManaSpendToManaProducedByPermanentLowerBound, resolveActivatedAbilityLineById, resolvePaymentManaAbilitySpendRestriction, restrictedManaSpendRestrictionAllowsPurpose, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower, paymentActivationCostHasUnsupportedAdditionalCosts, parseRemoveCounterActivationCost, resolvePermanentCounterKey, type RestrictedManaSpendPurpose } from "./util";
-import { emitResolutionStepPrompt, completeDanceWithCalamityDeferredAdvance, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingOracleIrCompoundResume, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil, queueMayAbilityStep } from "./resolution.js";
+import { emitResolutionStepPrompt, completeDanceWithCalamityDeferredAdvance, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingOracleIrCompoundResume, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil } from "./resolution.js";
+import { queueMayAbilityStep } from "./may-ability-prompts.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
 import {
@@ -124,6 +125,7 @@ import { normalizeGameplayEffectText } from '../../../rules-engine/src/oracleRem
 import { extractGiftInfo, resolveGiftAwareOracleText } from '../utils/gift.js';
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from '../state/modules/triggers/ability-activated.js';
 import { consumeNextSpellCostReductionAfterCast } from '../state/modules/nextSpellCostReduction.js';
+import { applySpellSelfTotalManaValueCostReduction } from '../state/modules/spellSelfTotalManaValueCostReduction.js';
 import {
   persistTargetedTriggeredStackItems,
   triggerPermanentTargetedTriggersFromSpell,
@@ -3441,7 +3443,7 @@ export function calculateCostReduction(
     }
     
     // "This spell costs {X} less to cast for each artifact you control"
-    // Handles: Metalwork Colossus, Frogmite, Myr Enforcer (affinity variant), etc.
+    // Handles: Frogmite / affinity-style fixed-per-artifact text (not total-MV patterns).
     const artifactReductionMatch = cardOracleText.match(/this spell costs \{?(\d+)\}? less to cast for each artifact/i);
     if (artifactReductionMatch) {
       const reductionPerArtifact = parseInt(artifactReductionMatch[1], 10);
@@ -3456,53 +3458,18 @@ export function calculateCostReduction(
       }
     }
     
-    // "This spell costs {X} less to cast, where X is the total mana value of historic permanents you control"
-    // Handles: Excalibur, Sword of Eden
-    // Historic = artifacts, legendaries, and sagas
-    const historicManaValueMatch = cardOracleText.match(/costs? \{?x\}? less.*where x is the total (?:mana value|mana cost) of historic/i);
-    if (historicManaValueMatch) {
-      let totalManaValue = 0;
-      for (const perm of battlefield) {
-        if (!perm || perm.controller !== playerId) continue;
-        
-        const permTypeLine = (perm.card?.type_line || "").toLowerCase();
-        const isHistoric = permTypeLine.includes("artifact") || 
-                          permTypeLine.includes("legendary") || 
-                          permTypeLine.includes("saga");
-        
-        if (isHistoric) {
-          // Get mana value from the card
-          const manaCost = perm.card?.mana_cost || "";
-          const cmc = perm.card?.cmc;
-          
-          // Use cmc if available, otherwise parse mana cost
-          let manaValue = 0;
-          if (typeof cmc === "number") {
-            manaValue = cmc;
-          } else if (manaCost) {
-            // Parse mana cost to calculate CMC
-            const symbols = manaCost.match(/\{[^}]+\}/g) || [];
-            for (const symbol of symbols) {
-              const inner = symbol.slice(1, -1);
-              const numeric = parseInt(inner, 10);
-              if (!isNaN(numeric)) {
-                manaValue += numeric;
-              } else if (inner.length === 1 && /[WUBRGC]/.test(inner)) {
-                manaValue += 1; // Colored mana symbols count as 1
-              } else if (inner.includes("/")) {
-                manaValue += 1; // Hybrid symbols count as 1
-              }
-              // X, Y, Z symbols don't count toward CMC
-            }
-          }
-          
-          totalManaValue += manaValue;
-        }
-      }
-      
-      if (totalManaValue > 0) {
-        reduction.generic += totalManaValue;
-        reduction.messages.push(`${cardName}: -{${totalManaValue}} (historic mana value)`);
+    // "This spell costs {X} less to cast, where X is the total mana value of [filter] you control"
+    // Handles: Metalwork Colossus (noncreature artifacts), Excalibur / Sword of Eden (historic), etc.
+    {
+      const totalMvSelfReduction = applySpellSelfTotalManaValueCostReduction({
+        oracleText: cardOracleText,
+        cardName,
+        battlefield,
+        playerId,
+      });
+      if (totalMvSelfReduction.generic > 0) {
+        reduction.generic += totalMvSelfReduction.generic;
+        reduction.messages.push(...totalMvSelfReduction.messages);
       }
     }
 
@@ -8583,6 +8550,9 @@ export async function requestCastSpellForSocket(
         extraAlternateCosts: warpPaymentExtras.extraAlternateCosts,
         preferredAlternateCostId: warpPaymentExtras.preferredAlternateCostId,
         fromZone: castSourceZone,
+        // Required for Vibranium/Powerstone no_nonartifact_spells (Vehicles/Equipment/etc.).
+        typeLine: String(cardForCast?.type_line || cardInHand?.type_line || ''),
+        type_line: String(cardForCast?.type_line || cardInHand?.type_line || ''),
       } as any);
 
       persistQueuedSpellCastStepContinuation(gameId, game, {
@@ -14089,6 +14059,34 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check for "When you cast this spell" triggers on the spell itself (Kozilek, Ulamog, etc.)
       try {
+        // Capture the cast spell's stack id BEFORE pushing on-cast triggers on top of it.
+        // Deferred this_spell copies (Storm suite / Hatut) need triggeringStackItemId to find the original.
+        const onCastStackArr: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+        let onCastTriggeringStackItemId = '';
+        for (let i = onCastStackArr.length - 1; i >= 0; i -= 1) {
+          const item = onCastStackArr[i];
+          if (!item) continue;
+          if (String(item.type || '').trim() === 'triggered_ability') continue;
+          if (String(item.controller || '') !== String(playerId)) continue;
+          const itemCardId = String(item?.card?.id || '').trim();
+          if (itemCardId && itemCardId === String(cardId || '').trim()) {
+            onCastTriggeringStackItemId = String(item.id || '').trim();
+            break;
+          }
+        }
+        if (!onCastTriggeringStackItemId) {
+          for (let i = onCastStackArr.length - 1; i >= 0; i -= 1) {
+            const item = onCastStackArr[i];
+            if (!item) continue;
+            if (String(item.type || '').trim() === 'triggered_ability') continue;
+            if (String(item.controller || '') !== String(playerId)) continue;
+            if (String(item.type || '').trim() === 'spell' || item.card) {
+              onCastTriggeringStackItemId = String(item.id || '').trim();
+              break;
+            }
+          }
+        }
+
         const onCastTriggers = resolveOnCastSpellTriggerDescriptions(cardInHand);
         for (const onCastTrigger of onCastTriggers) {
           debug(2, `[castSpellFromHand] On-cast trigger matching: ${cardInHand.name} - ${onCastTrigger.description}`);
@@ -14116,6 +14114,12 @@ export function registerGameActions(io: Server, socket: Socket) {
             triggerType: 'triggered_ability',
             effect: onCastTrigger.effect,
             mandatory: !isOptionalMay,
+            ...(onCastTriggeringStackItemId
+              ? {
+                  triggeringStackItemId: onCastTriggeringStackItemId,
+                  effectData: { triggeringStackItemId: onCastTriggeringStackItemId },
+                }
+              : null),
             card: {
               ...cardInHand,
               owner: cardInHand.owner || playerId,

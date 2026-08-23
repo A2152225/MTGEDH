@@ -14,6 +14,7 @@ import {
   getTotalManaProduction,
   getManaPerActivation,
   getSourceAvailableQuantity,
+  parseManaSpendRestrictionFromOracleText,
   type ManaPool,
   type ManaPaymentSource,
 } from './manaUtils';
@@ -405,11 +406,8 @@ function getSourceManaAmount(
 }
 
 function normalizeInlinePaymentAbilityId(ability: InlineSelectedPaymentAbility): string {
-  if (/-ability-\d+$/i.test(String(ability.id || ''))) {
-    return String(ability.id);
-  }
-
-  const normalizedEffect = String(ability.effect || '').trim().toLowerCase();
+  const normalizedEffect = String(ability.effect || '').trim().toLowerCase().replace(/\.+$/, '');
+  // Prefer stable semantic ids for simple tap-mana so identical lands collapse across printings.
   if (ability.cost === '{T}' && normalizedEffect === 'add {w}') return 'native_w';
   if (ability.cost === '{T}' && normalizedEffect === 'add {u}') return 'native_u';
   if (ability.cost === '{T}' && normalizedEffect === 'add {b}') return 'native_b';
@@ -426,6 +424,11 @@ function normalizeInlinePaymentAbilityId(ability: InlineSelectedPaymentAbility):
     return String(ability.id);
   }
   if (ability.cost === '{T}' && /add\s+.+mana\s+of\s+the\s+chosen\s+colou?r/i.test(ability.effect)) return 'native_chosen_color';
+
+  // Preserve indexed printed ability ids when no semantic mapping applies.
+  if (/-ability-\d+$/i.test(String(ability.id || ''))) {
+    return String(ability.id);
+  }
 
   return String(ability.id);
 }
@@ -572,6 +575,21 @@ function permanentHasAttachments(perm: BattlefieldPermanent, battlefield: Battle
   if (!permId) return false;
   return battlefield.some((candidate) => String((candidate as { attachedTo?: string }).attachedTo || '').trim() === permId);
 }
+/**
+ * Ability ids are often cardId-ability-N or cardId-chosen-basic-land.
+ * Collapse identity must ignore the cardId prefix so identical lands from different
+ * printings stack together. Semantic ids (native_w, etc.) pass through unchanged.
+ */
+function semanticManaSourceAbilityKey(abilityId: string | undefined): string {
+  const id = String(abilityId || '').trim();
+  if (!id) return '';
+  const indexed = id.match(/(-ability-\d+)$/i);
+  if (indexed) return indexed[1].toLowerCase();
+  const chosenBasic = id.match(/(-chosen-basic-land)$/i);
+  if (chosenBasic) return chosenBasic[1].toLowerCase();
+  return id.toLowerCase();
+}
+
 function buildManaSourceStackKey(source: ManaPaymentSource): string | null {
   // Do not collapse sacrifice / consumable / multi-instance sacrifice repeats.
   if (source.keepSeparate) return null;
@@ -583,10 +601,13 @@ function buildManaSourceStackKey(source: ManaPaymentSource): string | null {
   const optionsKey = (source.options || []).join(',');
   const producedKey = Array.isArray(source.producedColors) ? source.producedColors.join(',') : '';
   const amountKey = typeof source.amount === 'number' && source.amount > 0 ? String(source.amount) : '1';
-  const abilityKey = String(source.abilityId || '');
+  const abilityKey = semanticManaSourceAbilityKey(source.abilityId);
   const nameKey = String(source.name || '');
   const labelKey = String(source.label || '');
-  return [nameKey, labelKey, abilityKey, optionsKey, producedKey, amountKey].join('||');
+  const restrictionKey = source.spendRestriction
+    ? `${source.spendRestriction.restriction}:${source.spendRestriction.restrictedTo || ''}`
+    : '';
+  return [nameKey, labelKey, abilityKey, optionsKey, producedKey, amountKey, restrictionKey].join('||');
 }
 
 /**
@@ -721,6 +742,10 @@ function buildInlineManaSourcesForPermanent(
     for (let index = 0; index < instanceCount; index += 1) {
       const sourceId = instanceCount > 1 ? `${sourceBaseId}#${index}` : sourceBaseId;
       const keepSeparate = permanentHasAttachments(perm, globalBattlefield);
+      const spendRestriction = parseManaSpendRestrictionFromOracleText(
+        [String(ability.effect || ''), String(ability.description || ''), String((card as any).oracle_text || '')].join('\n'),
+      ) || undefined;
+
       sources.push({
         id: sourceId,
         sourcePermanentId: actualSourceId,
@@ -734,6 +759,7 @@ function buildInlineManaSourcesForPermanent(
         ...(computedAmount > 1 ? { amount: computedAmount } : {}),
         ...(groupedQuantity > 1 ? { availableQuantity: groupedQuantity } : {}),
         ...(keepSeparate ? { keepSeparate: true } : {}),
+        ...(spendRestriction ? { spendRestriction } : {}),
       });
     }
   }

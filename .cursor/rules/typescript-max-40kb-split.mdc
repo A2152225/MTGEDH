@@ -1,0 +1,35 @@
+---
+description: Keep TypeScript logic files under ~40KB - split into new descriptive modules instead of growing large files
+alwaysApply: true
+---
+
+# TypeScript file size: max ~40KB (split instead of grow)
+
+Agents and LLMs need to ingest game-logic modules. Large TypeScript files are hard to edit safely.
+
+## Rule
+
+If an addition or edit to any **TypeScript logic** file (especially `server/`, `rules-engine/`, game-logic, resolution, triggers, casts, combat, undo, oracle IR) would push that file **over ~40KB**, do **not** keep growing it.
+
+Instead:
+
+1. Extract the new or related logic into a **new smaller module**
+2. Use a **descriptive filename** that hints at contents (e.g. `resolutionLibrarySearchHandlers.ts`, not `utils2.ts`)
+3. Keep each resulting file **under ~40KB** when practical
+4. Re-export from the parent/barrel when needed so existing imports keep working
+5. Prefer cohesive domain splits over tiny one-function files
+
+## Applies to
+
+- New features and bug fixes
+- Refactors of existing megabytes-scale files (`resolution.ts`, `game-actions.ts`, `oracleIRParserPostprocess.ts`, etc.)
+- Both human and agent/Cursor Cloud Agent edits
+
+## Does not require
+
+- Boiling the ocean on unrelated UI/client files unless they are already oversized and you are editing them
+- Splitting purely for aesthetics when a file is already under ~40KB
+
+## Soft target
+
+~40KB is the ceiling to respect. Smaller cohesive modules (~10–40KB) are preferred for agent-edited game logic.

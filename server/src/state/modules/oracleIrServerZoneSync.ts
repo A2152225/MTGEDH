@@ -709,14 +709,32 @@ export function applyMillReplacementEffectsToSteps(
 }
 
 function normalizeTopLibraryPromptCard(card: any): Record<string, unknown> {
+  // Preserve Scryfall image fields the client LibrarySearchModal expects (image_uris),
+  // matching enqueueLibrarySearchStep / toAvailableLibraryCard. imageUrl alone is not enough —
+  // IR tutors (e.g. Sword of the Animist) otherwise render as blank/black card backs while
+  // fetchlands (Terramorphic) that keep image_uris show real land art.
+  const nested = card?.card && typeof card.card === 'object' ? card.card : null;
+  const imageUris = card?.image_uris || nested?.image_uris || undefined;
+  const imageUrl =
+    imageUris?.normal
+    || imageUris?.small
+    || card?.imageUrl
+    || nested?.imageUrl
+    || undefined;
   return {
     id: String(card?.id || ''),
-    name: String(card?.name || card?.card?.name || card?.id || 'Unknown Card'),
-    type_line: card?.type_line || card?.card?.type_line,
-    oracle_text: card?.oracle_text || card?.card?.oracle_text,
-    imageUrl: card?.image_uris?.normal || card?.imageUrl,
-    mana_cost: card?.mana_cost || card?.card?.mana_cost,
-    cmc: card?.cmc ?? card?.card?.cmc,
+    name: String(card?.name || nested?.name || card?.id || 'Unknown Card'),
+    type_line: card?.type_line || nested?.type_line,
+    oracle_text: card?.oracle_text || nested?.oracle_text,
+    ...(imageUris ? { image_uris: imageUris } : {}),
+    ...(imageUrl
+      ? {
+          imageUrl,
+          ...(!imageUris ? { image_uris: { normal: imageUrl, small: imageUrl } } : {}),
+        }
+      : {}),
+    mana_cost: card?.mana_cost || nested?.mana_cost,
+    cmc: card?.cmc ?? nested?.cmc,
   };
 }
 

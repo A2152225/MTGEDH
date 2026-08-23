@@ -64,6 +64,7 @@ export interface CardContextMenuProps {
   isOwnTurn?: boolean;
   isMainPhase?: boolean;
   stackEmpty?: boolean;
+  currentStep?: string;
   hasThousandYearElixirEffect?: boolean;
 }
 
@@ -129,6 +130,7 @@ export function CardContextMenu({
   isOwnTurn = false,
   isMainPhase = false,
   stackEmpty = true,
+  currentStep,
   hasThousandYearElixirEffect = false,
 }: CardContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -154,8 +156,9 @@ export function CardContextMenu({
       isMainPhase,
       isOwnTurn,
       stackEmpty,
+      currentStep,
     });
-  }, [battlefield, hasPriority, hasThousandYearElixirEffect, isMainPhase, isOwnTurn, isTapped, permanent, stackEmpty]);
+  }, [battlefield, currentStep, hasPriority, hasThousandYearElixirEffect, isMainPhase, isOwnTurn, isTapped, permanent, stackEmpty]);
   const tapMenuDisabled = !canActivate || (!isTapped && tapActionDecision.kind === 'disabled');
   const tapMenuLabel = isTapped
     ? 'Untap'
@@ -175,7 +178,8 @@ export function CardContextMenu({
     isMainPhase,
     isOwnTurn,
     stackEmpty,
-  }), [battlefield, hasPriority, hasThousandYearElixirEffect, isMainPhase, isOwnTurn, isTapped, permanent, stackEmpty]);
+    currentStep,
+  }), [battlefield, currentStep, hasPriority, hasThousandYearElixirEffect, isMainPhase, isOwnTurn, isTapped, permanent, stackEmpty]);
   
   // Adjust position to keep menu on screen
   useEffect(() => {

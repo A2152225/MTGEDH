@@ -19,6 +19,7 @@ import { processDrawTriggers, persistDrawCardsEvent } from "./state/modules/zone
 import { applyEmptyLibraryDrawConsequences } from "./state/modules/game-state-effects.js";
 import { createGameIfNotExists, getEvents, gameExistsInDb } from "./db"; // NEW: import getEvents for replay, gameExistsInDb for deleted game check
 import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
+import { markGameRestoring, clearGameRestoring } from "./gameRestoreState.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
 import { BOOT_ID } from "./utils/bootId.js";
 
@@ -820,6 +821,7 @@ class GameManagerClass {
     // rebuilding and replaying the same game again.
     this.games.set(gameId, game);
     this.restoringGames.add(gameId);
+    markGameRestoring(gameId);
 
     // NEW: replay persisted events into a fresh game instance for this gameId
     try {
@@ -860,6 +862,7 @@ class GameManagerClass {
       );
     } finally {
       this.restoringGames.delete(gameId);
+      clearGameRestoring(gameId);
       this.publishResumeProgress(gameId, 0, 0, true);
     }
 
@@ -926,6 +929,7 @@ class GameManagerClass {
     const game = this.createFreshGameInstance(gameId);
     this.games.set(gameId, game);
     this.restoringGames.add(gameId);
+    markGameRestoring(gameId);
 
     try {
       const events = getEvents(gameId);
@@ -981,6 +985,7 @@ class GameManagerClass {
       );
     } finally {
       this.restoringGames.delete(gameId);
+      clearGameRestoring(gameId);
       this.publishResumeProgress(gameId, 0, 0, true);
     }
 

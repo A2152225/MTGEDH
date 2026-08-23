@@ -1,5 +1,6 @@
 import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
+import { aOrAnSpellType } from '../../../../../rules-engine/src/indefiniteArticle.js';
 import type { SpellCastTrigger, SpellCastUntapEffect } from "./types.js";
 
 export type { SpellCastTrigger, SpellCastUntapEffect } from "./types.js";
@@ -56,7 +57,7 @@ export function detectSpellCastUntapEffects(card: any, permanent: any): SpellCas
       permanentId,
       cardName,
       controllerId,
-      description: `Whenever you cast a ${spellType} spell, untap`,
+      description: `Whenever you cast ${aOrAnSpellType(spellType)}, untap`,
       effectType: 'untap_all_nonland',
       spellCondition,
     });
@@ -264,7 +265,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           permanentId,
           cardName,
           controllerId,
-          description: `Whenever you cast a ${tribalType || spellType} spell, ${effectText}`,
+          description: `Whenever you cast ${aOrAnSpellType(tribalType || spellType)}, ${effectText}`,
           effect: effectText,
           spellCondition,
           tribalType,
@@ -333,7 +334,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
       permanentId,
       cardName,
       controllerId,
-      description: `Whenever you cast a ${spellType} spell, put a loyalty counter on ${cardName}`,
+      description: `Whenever you cast ${aOrAnSpellType(spellType)}, put a loyalty counter on ${cardName}`,
       effect: `put ${loyaltyCount} loyalty counter${loyaltyCount > 1 ? 's' : ''} on ${cardName}`,
       spellCondition,
       addsLoyaltyCounters: loyaltyCount,
@@ -355,7 +356,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: `Whenever you cast a ${chosenType} spell, ${effect}`,
+        description: `Whenever you cast ${aOrAnSpellType(chosenType)}, ${effect}`,
         effect,
         spellCondition: 'tribal_type',
         tribalType: chosenType,

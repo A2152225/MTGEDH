@@ -1256,6 +1256,14 @@ function buildExactHandCandidates(state: any, playerId: PlayerID): ExactHandCand
 
 type ExactManaSpendPurpose = {
   isCreature?: boolean;
+  isArtifact?: boolean;
+  isAbility?: boolean;
+  isActivatedAbility?: boolean;
+  isInstantOrSorcery?: boolean;
+  isLegendary?: boolean;
+  isMulticolored?: boolean;
+  isColorless?: boolean;
+  isCommander?: boolean;
   spellCard?: any;
 };
 
@@ -1269,12 +1277,26 @@ function attachChosenTypeSpendRestrictionIfNeeded(
   producedText: string,
   option: ExactManaSourceOption,
 ): ExactManaSourceOption {
-  if (!/one mana of any color|mana of any color/i.test(String(producedText || ''))) {
-    return option;
+  let next = option;
+  if (/one mana of any color|mana of any color/i.test(String(producedText || ''))) {
+    const chosenTypeRestriction = getChosenTypeManaSpendRestriction(permanent);
+    if (chosenTypeRestriction) {
+      next = { ...next, spendRestriction: chosenTypeRestriction };
+    }
   }
-  const spendRestriction = getChosenTypeManaSpendRestriction(permanent);
-  if (!spendRestriction) return option;
-  return { ...option, spendRestriction };
+  if (!next.spendRestriction) {
+    const oracleRestriction = parseManaSpendRestrictionFromOracle(String(permanent?.card?.oracle_text || ''));
+    if (oracleRestriction) {
+      next = {
+        ...next,
+        spendRestriction: {
+          restriction: oracleRestriction.restriction,
+          restrictedTo: oracleRestriction.restrictedTo,
+        },
+      };
+    }
+  }
+  return next;
 }
 
 function exactManaSpendRestrictionAllowsPurpose(
@@ -1292,8 +1314,46 @@ function exactManaSpendRestrictionAllowsPurpose(
     case 'chosen_type_spell':
       if (!spendRestriction.restrictedTo) return true;
       return Boolean(purpose.spellCard && cardHasCreatureType(purpose.spellCard, spendRestriction.restrictedTo));
-    default:
+    case 'no_nonartifact_spells': {
+      // Vibranium / Powerstone: cannot cast nonartifact spells; OK for abilities / artifact spells.
+      // Artifact includes Vehicle, Equipment, Fortification — not only Artifact Creature.
+      if (purpose.isActivatedAbility === true || purpose.isAbility === true) return true;
+      if (purpose.isArtifact === true) return true;
+      const spellTypeLine = String(purpose.spellCard?.type_line || '').trim();
+      if (spellTypeLine) {
+        return /\bartifact\b/i.test(spellTypeLine);
+      }
+      if (
+        purpose.isCreature === true
+        || purpose.isInstantOrSorcery === true
+        || purpose.isLegendary === true
+        || purpose.isMulticolored === true
+        || purpose.isColorless === true
+        || purpose.isCommander === true
+      ) {
+        return false;
+      }
       return true;
+    }
+    case 'creatures':
+      return purpose.isCreature === true;
+    case 'artifacts':
+      return purpose.isArtifact === true;
+    case 'activated_abilities':
+      return purpose.isActivatedAbility === true;
+    case 'instant_sorcery':
+      return purpose.isInstantOrSorcery === true;
+    case 'legendary':
+      return purpose.isLegendary === true;
+    case 'multicolored':
+      return purpose.isMulticolored === true;
+    case 'colorless_spells':
+      return purpose.isColorless === true;
+    case 'abilities':
+      return purpose.isAbility === true;
+    default:
+      // Unknown restriction: do not treat as unrestricted free mana.
+      return false;
   }
 }
 
@@ -1805,8 +1865,11 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
         const colorFixSignature = option.batteryColorFix ? 'colorfix' : 'none';
         const repeatableSignature = option.repeatable ? 'repeatable' : 'single';
         const productionSignature = normalizePoolSignature(option.produced);
+        const restrictionSignature = option.spendRestriction
+          ? `${option.spendRestriction.restriction}:${option.spendRestriction.restrictedTo || ''}`
+          : 'none';
         dedupedOptions.set(
-          `${activationSignature}|${lifeSignature}|${handSignature}|${sacrificeSignature}|${returnToHandSignature}|${removeCounterSignature}|${colorFixSignature}|${repeatableSignature}|${productionSignature}`,
+          `${activationSignature}|${lifeSignature}|${handSignature}|${sacrificeSignature}|${returnToHandSignature}|${removeCounterSignature}|${colorFixSignature}|${repeatableSignature}|${productionSignature}|${restrictionSignature}`,
           option,
         );
       }
@@ -2666,7 +2729,14 @@ export function canPayManaCostWithAvailableSources(
     source.options.some((option) => option.removeCounterCost || option.batteryColorFix),
   );
   const hasBranchingSource = sources.some((source) => source.options.length > 1);
+  const restrictedSpendPurpose = options?.restrictedSpendPurpose;
+  const hasRestrictedSpendSource = sources.some((source) =>
+    source.options.some((option) => Boolean(option.spendRestriction?.restriction)),
+  );
 
+  // Fast path ignores per-source spendRestrictions (Vibranium/Powerstone). When a cast/ability
+  // purpose is provided and any source is restricted, force the exact search so illegal mana
+  // is not counted toward the cost.
   if (
     !hasActivationCostSource &&
     !hasLifeCostSource &&
@@ -2674,12 +2744,12 @@ export function canPayManaCostWithAvailableSources(
     !hasSacrificeCostSource &&
     !hasReturnToHandCostSource &&
     !hasRemoveCounterOrBatteryFixSource &&
-    !hasBranchingSource
+    !hasBranchingSource &&
+    !(hasRestrictedSpendSource && restrictedSpendPurpose)
   ) {
     return canPayManaCost(getAvailableMana(state, playerId), parsedCost, effectiveLifeAvailable);
   }
 
-  const restrictedSpendPurpose = options?.restrictedSpendPurpose;
   const memo = new Map<string, boolean>();
   const visiting = new Set<string>();
   const manaSourcePermanentIds = new Set(
