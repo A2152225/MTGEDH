@@ -1,0 +1,84 @@
+﻿        }
+      }
+    }
+
+    // Validate PONDER_EFFECT selections before completing the step.
+    // The handler assumes shape; if we completed first, malformed selections would consume the step.
+    if (step.type === ResolutionStepType.PONDER_EFFECT) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid ponder selection format' });
+          return;
+        }
+
+        const shouldShuffle = Boolean((raw as any).shouldShuffle);
+        const newOrderRaw = (raw as any).newOrder;
+        const toHandRaw = (raw as any).toHand;
+
+        if ((raw as any).shouldShuffle != null && typeof (raw as any).shouldShuffle !== 'boolean') {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid ponder shuffle selection' });
+          return;
+        }
+
+        if (!shouldShuffle) {
+          if (!Array.isArray(newOrderRaw) || !newOrderRaw.every((x: any) => typeof x === 'string')) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid ponder order selection' });
+            return;
+          }
+        } else {
+          if (newOrderRaw != null && (!Array.isArray(newOrderRaw) || !newOrderRaw.every((x: any) => typeof x === 'string'))) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid ponder order selection' });
+            return;
+          }
+        }
+
+        if (toHandRaw != null && (!Array.isArray(toHandRaw) || !toHandRaw.every((x: any) => typeof x === 'string'))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid ponder to-hand selection' });
+          return;
+        }
+
+        const cardCount = Number(stepAny.cardCount || (Array.isArray(stepAny.cards) ? stepAny.cards.length : 0) || 0);
+        const stepCards: any[] = Array.isArray(stepAny.cards) ? stepAny.cards : [];
+        const allowedIds = new Set(stepCards.map((c: any) => String(c?.id)).filter(Boolean));
+
+        // Best-effort: when step.cards is present, ensure selections reference only those cards.
+        if (allowedIds.size > 0) {
+          const toHand = Array.isArray(toHandRaw) ? toHandRaw.map(String) : [];
+          const newOrder = Array.isArray(newOrderRaw) ? newOrderRaw.map(String) : [];
+
+          const allIds = [...toHand, ...newOrder];
+          const seen = new Set(allIds);
+          if (seen.size !== allIds.length) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate card id in ponder selection' });
+            return;
+          }
+
+          if (allIds.some((id) => !allowedIds.has(String(id)))) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Ponder selection contains invalid card id' });
+            return;
+          }
+
+          if (!shouldShuffle) {
+            const expectedRemaining = Math.max(0, allowedIds.size - toHand.length);
+            if (newOrder.length !== expectedRemaining) {
+              socket.emit('error', { code: 'INVALID_SELECTION', message: 'Ponder selection must order all remaining cards' });
+              return;
+            }
+          }
+        } else {
+          // If step.cards is missing, still require a reasonable cardCount.
+          if (!Number.isFinite(cardCount) || cardCount <= 0) {
+            socket.emit('error', { code: 'INVALID_STEP', message: 'Invalid ponder step' });
+            return;
+          }
+        }
+      }
+    }

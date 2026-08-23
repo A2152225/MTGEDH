@@ -1,0 +1,121 @@
+﻿    case ResolutionStepType.HIDEAWAY_CHOICE:
+      handleHideawayChoiceResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.REPEATED_ZONE_DRAFT:
+      handleRepeatedZoneDraftResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.ACTIVATED_ABILITY:
+      await handleActivatedAbilityResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.CASCADE:
+      await handleCascadeResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.SCRY:
+      handleScryResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.SURVEIL:
+      handleSurveilResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.BOTTOM_ORDER:
+      getResolutionHandlerDeps().handleBottomOrderResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.LIM_DULS_VAULT:
+      handleLimDulsVaultResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.DANCE_WITH_CALAMITY:
+      handleDanceWithCalamityResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.DANCE_WITH_CALAMITY_CAST:
+      handleDanceWithCalamityCastSelectionResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.PROLIFERATE:
+      handleProliferateResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.LIFE_REDISTRIBUTION:
+      handleLifeRedistributionResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.FATESEAL:
+      getResolutionHandlerDeps().handleFatesealResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.CLASH:
+      getResolutionHandlerDeps().handleClashResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.VOTE:
+      handleVoteResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.PONDER_EFFECT:
+      getResolutionHandlerDeps().handlePonderEffectResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.TWO_PILE_SPLIT:
+      await getResolutionHandlerDeps().handleTwoPileSplitResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.LIBRARY_SEARCH:
+      await handleLibrarySearchResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.DEVOUR_SELECTION:
+      handleDevourSelectionResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.SUSPEND_CAST:
+      await handleSuspendCastResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.MORPH_TURN_FACE_UP:
+      handleMorphTurnFaceUpResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.PLAYER_CHOICE:
+      await handlePlayerChoiceResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.OPTION_CHOICE:
+      await handleOptionChoiceResponse(io, game, gameId, step, response);
+      break;
+    
+    case ResolutionStepType.MODAL_CHOICE:
+      await getResolutionHandlerDeps().handleModalChoiceResponse(io, game, gameId, step, response);
+      break;
+    
+    case ResolutionStepType.COLOR_CHOICE:
+      await handleColorChoiceResponse(io, game, gameId, step, response);
+      break;
+    
+    case ResolutionStepType.CREATURE_TYPE_CHOICE:
+      await handleCreatureTypeChoiceResponse(io, game, gameId, step, response);
+      break;
+    
+    case ResolutionStepType.CARD_NAME_CHOICE:
+      await handleCardNameChoiceResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.BASIC_LAND_TYPE_CHOICE:
+      await handleBasicLandTypeChoiceResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.RIOT_CHOICE:
+      handleRiotChoiceResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.UNLEASH_CHOICE:
+      handleUnleashChoiceResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.FABRICATE_CHOICE:

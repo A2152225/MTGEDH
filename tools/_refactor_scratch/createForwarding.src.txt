@@ -1,0 +1,20 @@
+﻿function createForwardingGameActionSocket(
+  io: Server,
+  gameId: string,
+  playerId: string,
+): { socket: any; handlers: Map<string, (...args: any[]) => any> } {
+  const handlers = new Map<string, (...args: any[]) => any>();
+  const socket: any = {
+    data: { gameId, playerId },
+    rooms: new Set([gameId]),
+    emit: (event: string, payload: any) => {
+      emitToPlayer(io, playerId as any, event as any, payload);
+    },
+    on: (event: string, handler: (...args: any[]) => any) => {
+      handlers.set(event, handler);
+      return socket;
+    },
+  };
+
+  return { socket, handlers };
+}

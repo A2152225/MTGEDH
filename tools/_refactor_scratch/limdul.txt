@@ -1,0 +1,92 @@
+﻿function handleLimDulsVaultResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  const action = String(selections?.action || 'finish');
+  const orderedIds = Array.isArray(selections?.orderedIds)
+    ? selections.orderedIds.map((value: any) => String(value || '')).filter(Boolean)
+    : [];
+  const vaultStep = step as any;
+  const cards: any[] = Array.isArray(vaultStep.cards) ? vaultStep.cards : [];
+  const byId = new Map<string, any>(cards.map((card: any) => [String(card?.id || ''), card]));
+  const orderedCards = orderedIds.map((id: string) => byId.get(id)).filter(Boolean);
+
+  const originalLib = (game as any).libraries?.get(pid) || [];
+  const lib = Array.isArray(originalLib) ? originalLib.map((card: any) => ({ ...card })) : [];
+  const extracted = orderedIds.map((id: string) => {
+    const idx = lib.findIndex((card: any) => String(card?.id || '') === id);
+    if (idx < 0) return null;
+    const [removed] = lib.splice(idx, 1);
+    return removed;
+  }).filter(Boolean) as any[];
+  const extractedById = new Map<string, any>(extracted.map((card: any) => [String(card?.id || ''), card]));
+  const orderedResolvedCards = orderedIds.map((id: string) => extractedById.get(id)).filter(Boolean);
+  const pendingEntry = ((game.state as any)?.pendingLimDulsVault || {})[pid] || {};
+  const totalLifePaidBefore = Number(pendingEntry?.totalLifePaid || vaultStep.totalLifePaid || 0);
+
+  if (action === 'continue') {
+    appendGameEvent(game, gameId, 'limDulsVaultContinue', {
+      playerId: pid,
+      effectId: vaultStep.effectId,
+      sourceName: vaultStep.sourceName,
+      sourceImage: vaultStep.sourceImage,
+      orderedBottomIds: orderedIds,
+      lifePaid: 1,
+      totalLifePaid: totalLifePaidBefore + 1,
+    });
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} pays 1 life and continues with ${vaultStep.sourceName || "Lim-Dul's Vault"}.`,
+      ts: Date.now(),
+    });
+
+    processPendingLimDulsVault(io, game, gameId);
+    return;
+  }
+
+  let shuffledRemainder = lib.map((card: any) => ({ ...card }));
+  if (typeof (game as any).shuffleLibrary === 'function') {
+    const shadowGame = {
+      ...(game as any),
+      libraries: new Map((game as any).libraries || []),
+    };
+    shadowGame.libraries.set(pid, shuffledRemainder);
+    shadowGame.shuffleLibrary(pid);
+    const shuffled = shadowGame.libraries.get(pid);
+    shuffledRemainder = Array.isArray(shuffled)
+      ? shuffled.map((card: any) => ({ ...card }))
+      : shuffledRemainder;
+  } else {
+    for (let i = shuffledRemainder.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffledRemainder[i], shuffledRemainder[j]] = [shuffledRemainder[j], shuffledRemainder[i]];
+    }
+  }
+
+  appendGameEvent(game, gameId, 'limDulsVaultResolve', {
+    playerId: pid,
+    effectId: vaultStep.effectId,
+    sourceName: vaultStep.sourceName,
+    sourceImage: vaultStep.sourceImage,
+    orderedTopIds: orderedIds,
+    shuffledRemainderIds: shuffledRemainder.map((card: any) => String(card?.id || '')).filter(Boolean),
+    totalLifePaid: totalLifePaidBefore,
+  });
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${getPlayerName(game, pid)} finishes resolving ${vaultStep.sourceName || "Lim-Dul's Vault"}.`,
+    ts: Date.now(),
+  });
+}
+

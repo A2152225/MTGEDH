@@ -1,0 +1,103 @@
+﻿        }
+      }
+    }
+
+    // Validate CLASH selections before completing the step.
+    // If we complete first, malformed input would permanently consume the step.
+    if (step.type === ResolutionStepType.CLASH) {
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        const isValid =
+          typeof raw === 'boolean' ||
+          (typeof raw === 'string' && (raw === 'top' || raw === 'bottom' || raw === 'true' || raw === 'false')) ||
+          (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.putOnBottom === 'boolean');
+
+        if (!isValid) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid clash selection' });
+          return;
+        }
+      }
+    }
+
+    // Validate TWO_PILE_SPLIT selections before completing the step.
+    // The handler can currently normalize/fallback; reject malformed/partial assignments so the step is not consumed.
+    if (step.type === ResolutionStepType.TWO_PILE_SPLIT) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const items: any[] = Array.isArray(stepAny?.items) ? stepAny.items : [];
+        const itemIds = items.map((it: any) => String(it?.id || '')).filter(Boolean);
+        const allowed = new Set(itemIds);
+
+        const raw: any = response.selections as any;
+        const pileCount = Math.max(2, Math.floor(Number(stepAny.pileCount ?? 2)));
+        let pilesIn: any[][] | null = null;
+
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          if (
+            Array.isArray(raw.piles)
+            && raw.piles.length === pileCount
+            && raw.piles.every((pile: any) => Array.isArray(pile))
+          ) {
+            pilesIn = raw.piles;
+          } else if (pileCount === 2 && Array.isArray(raw.pileA) && Array.isArray(raw.pileB)) {
+            pilesIn = [raw.pileA, raw.pileB];
+          } else if (
+            pileCount === 3
+            && Array.isArray(raw.pileA)
+            && Array.isArray(raw.pileB)
+            && Array.isArray(raw.pileC)
+          ) {
+            pilesIn = [raw.pileA, raw.pileB, raw.pileC];
+          }
+        }
+
+        if (!pilesIn) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: `Invalid ${pileCount}-pile split format` });
+          return;
+        }
+
+        const normalizeIds = (arr: any[]): string[] =>
+          arr
+            .map((x: any) => (typeof x === 'string' ? x : x?.id))
+            .filter(Boolean)
+            .map((x: any) => String(x))
+            .filter((x: string) => x.trim().length > 0);
+
+        const piles = pilesIn.map(normalizeIds);
+        const all = piles.flat();
+        const seen = new Set(all);
+        if (seen.size !== all.length) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate item assigned in pile split' });
+          return;
+        }
+        if (all.some((id) => !allowed.has(String(id)))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Pile split contains invalid item id' });
+          return;
+        }
+        if (itemIds.length !== seen.size) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Pile split must assign all items' });
+          return;
+        }
+
+        const minPerPile = Number(stepAny.minPerPile ?? 0);
+        if (
+          Number.isFinite(minPerPile)
+          && minPerPile > 0
+          && piles.some((pile) => pile.length < minPerPile)
+        ) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: `Each pile must contain at least ${minPerPile} item(s)` });
+          return;
+        }
+      }
+    }

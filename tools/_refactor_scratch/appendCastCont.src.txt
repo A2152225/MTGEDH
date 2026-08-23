@@ -1,0 +1,11 @@
+﻿function appendCastSpellContinuationEvent(
+  gameId: string,
+  game: any,
+  payload: Record<string, unknown>
+): void {
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'castSpellContinuation', payload);
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(castSpellContinuation) failed:', err);
+  }
+}

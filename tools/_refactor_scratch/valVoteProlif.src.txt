@@ -1,0 +1,154 @@
+﻿      }
+    }
+
+    // Validate VOTE selections before completing the step.
+    // If we complete first, invalid input would permanently consume the step and skip the vote.
+    if (step.type === ResolutionStepType.VOTE) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        const choice = typeof raw === 'string' ? raw : raw && typeof raw === 'object' ? raw.choice : undefined;
+        const voteCountRaw = raw && typeof raw === 'object' ? raw.voteCount : undefined;
+        const voteCount = voteCountRaw == null ? 1 : Number(voteCountRaw);
+
+        const choices: any[] = Array.isArray(stepAny?.choices) ? stepAny.choices : [];
+        if (!choice || typeof choice !== 'string' || !choices.includes(choice)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid vote choice' });
+          return;
+        }
+        if (!Number.isFinite(voteCount) || voteCount < 1 || Math.floor(voteCount) !== voteCount) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid vote count' });
+          return;
+        }
+      }
+    }
+
+    // Validate JOIN_FORCES mana contribution before completing the step.
+    // The handler early-returns on invalid contributions; if we completed first we'd consume the step.
+    if (step.type === ResolutionStepType.JOIN_FORCES) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const selection = response.selections as any;
+
+        let contribution = 0;
+        if (typeof selection === 'number') {
+          contribution = Math.max(0, Math.floor(selection));
+        } else if (typeof selection === 'object' && selection !== null && !Array.isArray(selection)) {
+          contribution = Math.max(0, Math.floor((selection as any).amount || 0));
+        } else if (typeof selection === 'string' && selection.trim()) {
+          const n = Number(selection);
+          if (Number.isFinite(n)) contribution = Math.max(0, Math.floor(n));
+        }
+
+        if (!Number.isFinite(contribution) || contribution < 0) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid mana contribution' });
+          return;
+        }
+
+        const availableMana = Number(stepAny.availableMana ?? 0);
+        if (Number.isFinite(availableMana) && contribution > availableMana) {
+          socket.emit('error', {
+            code: 'INSUFFICIENT_MANA',
+            message: `Contribution ${contribution} exceeds available mana ${availableMana}`,
+          });
+          return;
+        }
+      }
+    }
+
+    // Validate TEMPTING_OFFER selections before completing the step.
+    // If we complete first, malformed input would permanently consume the step and force an unintended accept/decline.
+    if (step.type === ResolutionStepType.TEMPTING_OFFER) {
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        const okString = (s: string) => ['accept', 'decline', 'true', 'false'].includes(s);
+
+        const isValid =
+          typeof raw === 'boolean' ||
+          (typeof raw === 'string' && okString(raw)) ||
+          (raw && typeof raw === 'object' && !Array.isArray(raw) && (typeof raw.accept === 'boolean' || typeof raw.accepted === 'boolean'));
+
+        if (!isValid) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid tempting offer selection' });
+          return;
+        }
+      }
+    }
+
+    // Validate CASCADE selections before completing the step.
+    // If we complete first, malformed input would permanently consume the step and force an unintended cast/decline.
+    if (step.type === ResolutionStepType.CASCADE) {
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        const isValid =
+          typeof raw === 'boolean' ||
+          (typeof raw === 'string' && (raw === 'cast' || raw === 'decline')) ||
+          (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.cast === 'boolean');
+
+        if (!isValid) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid cascade selection' });
+          return;
+        }
+      }
+    }
+
+    // Validate PROLIFERATE selections before completing the step.
+    // If we complete first, malformed input (or invalid IDs) would permanently consume the step.
+    if (step.type === ResolutionStepType.PROLIFERATE) {
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const stepAny = step as any;
+        const raw: any = response.selections as any;
+        const rawIds = Array.isArray(raw)
+          ? raw
+          : raw && typeof raw === 'object' && !Array.isArray(raw)
+            ? (raw as any).selectedTargetIds
+            : null;
+
+        if (rawIds != null && (!Array.isArray(rawIds) || !rawIds.every((x: any) => typeof x === 'string'))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid proliferate selection format' });
+          return;
+        }
+
+        const selectedIds: string[] = Array.isArray(rawIds) ? rawIds.map(String) : [];
+        const unique = Array.from(new Set(selectedIds));
+        if (unique.length !== selectedIds.length) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate proliferate target selected' });
+          return;
+        }
+
+        const availableTargets: any[] = Array.isArray(stepAny?.availableTargets) ? stepAny.availableTargets : [];
+        const allowed = new Set(availableTargets.map((t: any) => String(t?.id)).filter(Boolean));
+        if (selectedIds.some((id: string) => !allowed.has(String(id)))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'One or more selected proliferate targets are not valid' });
+          return;
+        }
+      }
+    }
+

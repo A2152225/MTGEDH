@@ -1,0 +1,98 @@
+﻿/**
+ * Handle Proliferate resolution response
+ * 
+ * Player chooses any number of permanents and/or players with counters
+ * and adds one counter of each kind already there.
+ * 
+ * Reference: Rule 701.28 - Proliferate
+ */
+function handleProliferateResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: string[] (array of target IDs to proliferate)
+  const selectedTargetIds = Array.isArray(selections) ? selections : (selections?.selectedTargetIds || []);
+  
+  const proliferateStep = step as any;
+  const proliferateId = proliferateStep.proliferateId;
+  
+  debug(2, `[Resolution] Proliferate response: player=${pid}, targets=${selectedTargetIds.length}`);
+  
+  const battlefield = game.state?.battlefield || [];
+  const proliferatedTargets: string[] = [];
+  
+  // Process each selected target
+  for (const targetId of selectedTargetIds) {
+    // Check if it's a permanent
+    const permanent = battlefield.find((p: any) => p?.id === targetId);
+    if (permanent && permanent.counters) {
+      // Add one counter of each kind the permanent has
+      const counters = permanent.counters as Record<string, number>;
+      const deltas: Record<string, number> = {};
+      for (const counterType of Object.keys(counters)) {
+        if (counters[counterType] > 0) {
+          deltas[counterType] = 1;
+          (permanent.counters as any)[counterType] = counters[counterType] + 1;
+        }
+      }
+      if (Object.keys(deltas).length > 0) {
+        trackCountersPlacedThisTurn(game.state, permanent, String(targetId), deltas);
+      }
+      proliferatedTargets.push(permanent.card?.name || 'permanent');
+      continue;
+    }
+    
+    // Check if it's a player
+    const players = game.state?.players || [];
+    const player = players.find((p: any) => p.id === targetId);
+    if (player && player.counters) {
+      // Add one counter of each kind the player has
+      const counters = player.counters as Record<string, number>;
+      for (const counterType of Object.keys(counters)) {
+        if (counters[counterType] > 0) {
+          player.counters[counterType] = counters[counterType] + 1;
+        }
+      }
+      proliferatedTargets.push(getPlayerName(game, targetId));
+    }
+  }
+  
+  // Emit chat message
+  let message = `${getPlayerName(game, pid)} proliferates`;
+  if (proliferatedTargets.length > 0) {
+    message += `: ${proliferatedTargets.join(', ')}`;
+  } else {
+    message += ` (no targets chosen)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "proliferateResolve", { 
+      playerId: pid, 
+      resolvedStepId: String((step as any).id || ''),
+      targetIds: selectedTargetIds,
+      proliferateId,
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+

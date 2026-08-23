@@ -1,0 +1,25 @@
+﻿async function restartPlayerCastRequest(
+  io: Server,
+  gameId: string,
+  playerId: string,
+  payload: {
+    cardId: string;
+    faceIndex?: number;
+    fromZone?: 'hand' | 'exile' | 'graveyard' | 'library' | 'command';
+  },
+): Promise<void> {
+  const { socket, handlers } = createForwardingGameActionSocket(io, gameId, playerId);
+  registerGameActions(io, socket as any);
+
+  const requestCastSpell = handlers.get('requestCastSpell');
+  if (typeof requestCastSpell !== 'function') {
+    throw new Error('Synthetic player socket missing requestCastSpell handler');
+  }
+
+  await requestCastSpell({
+    gameId,
+    cardId: payload.cardId,
+    faceIndex: payload.faceIndex,
+    fromZone: payload.fromZone,
+  });
+}

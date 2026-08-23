@@ -1,0 +1,197 @@
+﻿/**
+ * Handle Vote resolution response
+ * 
+ * Player votes for one of the available choices. Votes are collected in APNAP order.
+ * 
+ * Reference: Rule 701.38 - Vote
+ */
+function handleVoteResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: string (the chosen option) or { choice: string, voteCount?: number }
+  const choice = typeof selections === 'string' ? selections : selections?.choice;
+  const voteCount = typeof selections === 'object' ? (selections?.voteCount || 1) : 1;
+  
+  const voteStep = step as any;
+  const voteId = voteStep.voteId;
+  const choices = voteStep.choices || [];
+  const votesSubmitted = Array.isArray(voteStep.votesSubmitted) ? [...voteStep.votesSubmitted] : [];
+  const voterOrder: string[] = Array.isArray(voteStep.oracleIrVoterOrder)
+    ? voteStep.oracleIrVoterOrder.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const secret = Boolean(voteStep.secret);
+  
+  debug(2, `[Resolution] Vote response: player=${pid}, choice=${choice}, voteCount=${voteCount}`);
+  
+  if (!choice || !choices.includes(choice)) {
+    debugWarn(2, `[Resolution] Invalid vote choice: ${choice}`);
+    return;
+  }
+  
+  // Store the vote (this would be used when all votes are collected)
+  const voteResult = {
+    playerId: pid,
+    choice,
+    voteCount,
+  };
+  votesSubmitted.push(voteResult);
+  
+  // Update game state with the vote
+  const voteState = (game.state as any).activeVotes = (game.state as any).activeVotes || {};
+  if (!voteState[voteId]) {
+    voteState[voteId] = {
+      choices,
+      votes: [],
+    };
+  }
+  voteState[voteId].votes.push(voteResult);
+  
+  // Emit chat message (hide secret votes until the ballot closes)
+  let message = secret
+    ? `${getPlayerName(game, pid)} has voted`
+    : `${getPlayerName(game, pid)} votes for "${choice}"`;
+  if (!secret && voteCount > 1) {
+    message += ` (${voteCount} votes)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "voteSubmit", { 
+      playerId: pid, 
+      resolvedStepId: String((step as any).id || ''),
+      voteId,
+      choices,
+      choice,
+      voteCount,
+      secret,
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+
+  const submittedPlayerIds = new Set(votesSubmitted.map((v: any) => String(v?.playerId || '').trim()));
+  const remainingVoters = voterOrder.filter((id) => !submittedPlayerIds.has(id));
+  if (remainingVoters.length > 0) {
+    const nextVoter = String(remainingVoters[0] || '').trim();
+    // Rebuild voter-relative ballots (Secret council "another player" excludes the voter).
+    let nextChoices = choices;
+    try {
+      const parsed = JSON.parse(String(voteStep.oracleIrChoiceStepJson || '[]'));
+      const voteIrStep = Array.isArray(parsed) ? parsed[0] : null;
+      const ballot = String(voteIrStep?.ballot || '').trim();
+      const ballotFilter = String(voteIrStep?.ballotFilter || '').toLowerCase();
+      if (ballot === 'players' && nextVoter) {
+        const players = Array.isArray(game.state?.players)
+          ? game.state.players.map((p: any) => String(p?.id || '').trim()).filter(Boolean)
+          : [];
+        nextChoices = players.filter((id: string) => {
+          if (/\banother\s+player\b|\beach\s+other\s+player\b/i.test(ballotFilter) && id === nextVoter) {
+            return false;
+          }
+          return true;
+        });
+      }
+    } catch {
+      // keep prior choices
+    }
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.VOTE,
+      playerId: nextVoter,
+      description: String(voteStep.description || 'Vote'),
+      mandatory: true,
+      sourceId: voteStep.sourceId,
+      sourceName: voteStep.sourceName,
+      voteId,
+      choices: nextChoices,
+      votesSubmitted,
+      secret,
+      oracleIrVoterOrder: voterOrder,
+      oracleIrChoiceStepJson: voteStep.oracleIrChoiceStepJson,
+      oracleIrControllerId: voteStep.oracleIrControllerId,
+      oracleIrSourceId: voteStep.oracleIrSourceId,
+      oracleIrSourceName: voteStep.oracleIrSourceName,
+      oracleIrResumeStepsJson: voteStep.oracleIrResumeStepsJson,
+      oracleIrXValue: voteStep.oracleIrXValue,
+    } as any);
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    return;
+  }
+
+  // All votes in â€” tally and resume Oracle IR with counts.
+  const voteChoiceCounts: Record<string, number> = {};
+  for (const entry of votesSubmitted) {
+    const key = String(entry?.choice || '').trim().toLowerCase();
+    if (!key) continue;
+    voteChoiceCounts[key] = (voteChoiceCounts[key] || 0) + (Number(entry?.voteCount) || 1);
+  }
+  let winningVoteChoice: string | null | undefined = undefined;
+  {
+    let max = -1;
+    let winner: string | null = null;
+    let tie = false;
+    for (const [key, count] of Object.entries(voteChoiceCounts)) {
+      if (count > max) {
+        max = count;
+        winner = key;
+        tie = false;
+      } else if (count === max) {
+        tie = true;
+      }
+    }
+    if (max >= 0) winningVoteChoice = tie ? null : winner;
+  }
+
+  (game.state as any).lastVoteResults = voteChoiceCounts;
+  (game.state as any).voteResults = voteChoiceCounts;
+  (game.state as any).votesReceivedByPlayer = { ...voteChoiceCounts };
+  voteState[voteId].complete = true;
+  voteState[voteId].voteChoiceCounts = voteChoiceCounts;
+
+  if (secret) {
+    const revealParts = Object.entries(voteChoiceCounts)
+      .map(([key, count]) => `${key}: ${count}`)
+      .join(', ');
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `Votes revealed${revealParts ? ` (${revealParts})` : ''}`,
+      ts: Date.now(),
+    });
+  }
+
+  if (String(voteStep.oracleIrResumeStepsJson || '').trim()) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const resumeStep = {
+      ...voteStep,
+      oracleIrVoteChoiceCounts: voteChoiceCounts,
+      oracleIrWinningVoteChoice: winningVoteChoice,
+      response,
+    };
+    maybeResumeOracleIRStepsAfterResolution(ctx, resumeStep);
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+

@@ -1,0 +1,204 @@
+﻿      }
+    }
+
+    // Validate SCRY selections before completing the step.
+    // If we complete first, invalid input would permanently consume the step and potentially desync the library.
+    if (step.type === ResolutionStepType.SCRY) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+        return;
+      }
+
+      const raw: any = response.selections as any;
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid scry selection format' });
+        return;
+      }
+
+      const normalizeIdList = (v: any): string[] | null => {
+        if (!Array.isArray(v)) return null;
+        return v
+          .map((x: any) => (typeof x === 'string' ? x : x?.id))
+          .filter(Boolean)
+          .map((x: any) => String(x));
+      };
+
+      const keepTopIds = normalizeIdList(raw.keepTopOrder);
+      const bottomIds = normalizeIdList(raw.bottomOrder);
+      if (!keepTopIds || !bottomIds) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid scry selection format' });
+        return;
+      }
+
+      const cards: any[] = Array.isArray(stepAny.cards) ? stepAny.cards : [];
+      const stepCardIds = cards.map((c: any) => String(c?.id)).filter(Boolean);
+      const expected = stepCardIds.length;
+
+      const allIds = [...keepTopIds, ...bottomIds];
+      if (allIds.length !== expected) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Scry selection must account for all cards' });
+        return;
+      }
+      const seen = new Set(allIds);
+      if (seen.size !== allIds.length) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate card selected' });
+        return;
+      }
+      const stepSet = new Set(stepCardIds);
+      if (!allIds.every((id) => stepSet.has(String(id)))) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Scry selection contains invalid card(s)' });
+        return;
+      }
+    }
+
+    // Validate SURVEIL selections before completing the step.
+    if (step.type === ResolutionStepType.SURVEIL) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+        return;
+      }
+
+      const raw: any = response.selections as any;
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid surveil selection format' });
+        return;
+      }
+
+      const normalizeIdList = (v: any): string[] | null => {
+        if (!Array.isArray(v)) return null;
+        return v
+          .map((x: any) => (typeof x === 'string' ? x : x?.id))
+          .filter(Boolean)
+          .map((x: any) => String(x));
+      };
+
+      const keepTopIds = normalizeIdList(raw.keepTopOrder);
+      const toGraveyardIds = normalizeIdList(raw.toGraveyard);
+      if (!keepTopIds || !toGraveyardIds) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid surveil selection format' });
+        return;
+      }
+
+      const cards: any[] = Array.isArray(stepAny.cards) ? stepAny.cards : [];
+      const stepCardIds = cards.map((c: any) => String(c?.id)).filter(Boolean);
+      const expected = stepCardIds.length;
+
+      const allIds = [...keepTopIds, ...toGraveyardIds];
+      if (allIds.length !== expected) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Surveil selection must account for all cards' });
+        return;
+      }
+      const seen = new Set(allIds);
+      if (seen.size !== allIds.length) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate card selected' });
+        return;
+      }
+      const stepSet = new Set(stepCardIds);
+      if (!allIds.every((id) => stepSet.has(String(id)))) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Surveil selection contains invalid card(s)' });
+        return;
+      }
+    }
+
+    // Validate FATESEAL selections before completing the step.
+    if (step.type === ResolutionStepType.FATESEAL) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+        return;
+      }
+
+      const raw: any = response.selections as any;
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid fateseal selection format' });
+        return;
+      }
+
+      const normalizeIdList = (v: any): string[] | null => {
+        if (!Array.isArray(v)) return null;
+        return v
+          .map((x: any) => (typeof x === 'string' ? x : x?.id))
+          .filter(Boolean)
+          .map((x: any) => String(x));
+      };
+
+      const keepTopIds = normalizeIdList(raw.keepTopOrder);
+      const bottomIds = normalizeIdList(raw.bottomOrder);
+      if (!keepTopIds || !bottomIds) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid fateseal selection format' });
+        return;
+      }
+
+      const cards: any[] = Array.isArray(stepAny.cards) ? stepAny.cards : [];
+      const stepCardIds = cards.map((c: any) => String(c?.id)).filter(Boolean);
+      const expected = stepCardIds.length;
+
+      const allIds = [...keepTopIds, ...bottomIds];
+      if (allIds.length !== expected) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Fateseal selection must account for all cards' });
+        return;
+      }
+      const seen = new Set(allIds);
+      if (seen.size !== allIds.length) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate card selected' });
+        return;
+      }
+      const stepSet = new Set(stepCardIds);
+      if (!allIds.every((id) => stepSet.has(String(id)))) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Fateseal selection contains invalid card(s)' });
+        return;
+      }
+    }
+
+    // Validate BOTTOM_ORDER selections before completing the step.
+    // The handler returns early on invalid permutations; completing first would permanently consume the step.
+    if (step.type === ResolutionStepType.BOTTOM_ORDER) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        const rawBottomOrder =
+          raw && typeof raw === 'object' && !Array.isArray(raw) && 'bottomOrder' in raw
+            ? (raw as any).bottomOrder
+            : raw;
+
+        if (!Array.isArray(rawBottomOrder)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid bottom order format' });
+          return;
+        }
+
+        const bottomIds = rawBottomOrder
+          .map((x: any) => (typeof x === 'string' ? x : x?.id))
+          .filter(Boolean)
+          .map((x: any) => String(x));
+
+        const cards: any[] = Array.isArray(stepAny.cards) ? stepAny.cards : [];
+        const stepCardIds = cards.map((c: any) => String(c?.id)).filter(Boolean);
+
+        if (bottomIds.length !== stepCardIds.length) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Bottom order must include all cards' });
+          return;
+        }
+        const seen = new Set(bottomIds);
+        if (seen.size !== bottomIds.length) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate card selected' });
+          return;
+        }
+        const stepSet = new Set(stepCardIds);
+        if (!bottomIds.every((id) => stepSet.has(String(id)))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Bottom order contains invalid card(s)' });
+          return;
+        }
+      }
+    }
+

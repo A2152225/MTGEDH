@@ -1,0 +1,261 @@
+﻿    }
+
+    if (step.type === ResolutionStepType.LIM_DULS_VAULT) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+        return;
+      }
+
+      const raw: any = response.selections as any;
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid Lim-Dul\'s Vault selection format' });
+        return;
+      }
+
+      const action = String(raw.action || '').trim();
+      if (action !== 'continue' && action !== 'finish') {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid Lim-Dul\'s Vault action' });
+        return;
+      }
+
+      const orderedIds = Array.isArray(raw.orderedIds)
+        ? raw.orderedIds.map((value: any) => String(value || '')).filter(Boolean)
+        : [];
+      const cards: any[] = Array.isArray(stepAny.cards) ? stepAny.cards : [];
+      const stepCardIds = cards.map((card: any) => String(card?.id || '')).filter(Boolean);
+
+      if (orderedIds.length !== stepCardIds.length) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Lim-Dul\'s Vault order must include all revealed cards' });
+        return;
+      }
+      const seen = new Set(orderedIds);
+      if (seen.size !== orderedIds.length) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate card selected' });
+        return;
+      }
+      const stepSet = new Set(stepCardIds);
+      if (!orderedIds.every((id: string) => stepSet.has(id))) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Lim-Dul\'s Vault selection contains invalid card(s)' });
+        return;
+      }
+
+      if (action === 'continue') {
+        const currentLife = Number((game.state as any)?.life?.[pid] ?? (game.state as any)?.startingLife ?? 40);
+        if (!Number.isFinite(currentLife) || currentLife <= 1) {
+          socket.emit('error', { code: 'INSUFFICIENT_LIFE', message: 'You do not have enough life to continue with Lim-Dul\'s Vault' });
+          return;
+        }
+      }
+    }
+
+    // Validate PLAYER_CHOICE selections before completing the step.
+    // The handler can early-return on invalid/unsupported selection formats.
+    if (step.type === ResolutionStepType.PLAYER_CHOICE) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        let selectedPlayerId = '';
+        if (typeof raw === 'string') selectedPlayerId = raw;
+        else if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'string') selectedPlayerId = raw[0];
+
+        selectedPlayerId = String(selectedPlayerId || '').trim();
+        if (!selectedPlayerId) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid player choice selection' });
+          return;
+        }
+
+        const stepPlayers: any[] = Array.isArray(stepAny.players) ? stepAny.players : [];
+        const statePlayers: any[] = Array.isArray((game.state as any)?.players) ? (game.state as any).players : [];
+        const candidates = stepPlayers.length > 0 ? stepPlayers : statePlayers;
+        const validIds = new Set(candidates.map((p: any) => String(p?.id)).filter(Boolean));
+
+        if (validIds.size > 0 && !validIds.has(selectedPlayerId)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected player is not a valid choice' });
+          return;
+        }
+
+        const opponentOnly = Boolean(stepAny.opponentOnly);
+        if (opponentOnly && String(selectedPlayerId) === String(pid)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Must choose an opponent' });
+          return;
+        }
+
+        // If this step references a permanent, ensure it still exists.
+        const permanentId = String(stepAny.permanentId || '').trim();
+        if (permanentId) {
+          const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+          const perm = battlefield.find((p: any) => p && String(p.id) === permanentId);
+          if (!perm) {
+            socket.emit('error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+            return;
+          }
+        }
+      }
+    }
+
+    // Validate COLOR_CHOICE selections before completing the step.
+    // The handler returns early on missing/invalid colors or missing referenced objects.
+    if (step.type === ResolutionStepType.COLOR_CHOICE) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        const selection = Array.isArray(raw) ? raw[0] : raw;
+        if (!selection || typeof selection !== 'string') {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid color selection' });
+          return;
+        }
+
+        const stepColors = Array.isArray(stepAny.colors) && stepAny.colors.length > 0
+          ? stepAny.colors.map((c: any) => String(c).toLowerCase())
+          : ['white', 'blue', 'black', 'red', 'green'];
+        const colorLower = String(selection).toLowerCase();
+        if (!stepColors.includes(colorLower)) {
+          socket.emit('error', { code: 'INVALID_COLOR', message: `Invalid color selection (${selection})` });
+          return;
+        }
+
+        const spellId = String(stepAny.spellId || '').trim();
+        const permanentId = String(stepAny.permanentId || stepAny.sourceId || '').trim();
+        const stateAny = game.state as any;
+
+        if (spellId) {
+          const stack: any[] = Array.isArray(stateAny?.stack) ? stateAny.stack : [];
+          const spellOnStack = stack.find((s: any) => s && (
+            String(s.id) === spellId
+            || String(s.cardId) === spellId
+            || String(s.card?.id) === spellId
+          ));
+          if (!spellOnStack) {
+            socket.emit('error', { code: 'INVALID_STEP', message: 'Spell no longer on stack' });
+            return;
+          }
+        } else if (permanentId) {
+          const battlefield: any[] = Array.isArray(stateAny?.battlefield) ? stateAny.battlefield : [];
+          const perm = battlefield.find((p: any) => p && String(p.id) === permanentId);
+          if (!perm) {
+            socket.emit('error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+            return;
+          }
+        }
+      }
+    }
+
+    // Validate CREATURE_TYPE_CHOICE selections before completing the step.
+    if (step.type === ResolutionStepType.CREATURE_TYPE_CHOICE) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        const selection = Array.isArray(raw) ? raw[0] : raw;
+        if (!selection || typeof selection !== 'string' || !String(selection).trim()) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid creature type selection' });
+          return;
+        }
+
+        const offeredCreatureTypes = Array.isArray(stepAny.offeredCreatureTypes)
+          ? stepAny.offeredCreatureTypes.map((type: any) => String(type || '').trim()).filter(Boolean)
+          : [];
+        if (
+          offeredCreatureTypes.length > 0
+          && !offeredCreatureTypes.some((type: string) => type.toLowerCase() === String(selection).trim().toLowerCase())
+        ) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected creature type is not among the offered choices' });
+          return;
+        }
+
+        const spellId = String(stepAny.spellId || '').trim();
+        if (spellId) {
+          const stack: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+          const stackItem = stack.find((item: any) => item && (String(item.id || '') === spellId || String(item.cardId || '') === spellId));
+          if (!stackItem) {
+            socket.emit('error', { code: 'SPELL_NOT_FOUND', message: 'Spell is no longer on the stack' });
+            return;
+          }
+        }
+
+        const permanentId = String(stepAny.permanentId || stepAny.sourceId || '').trim();
+        if (permanentId && !spellId) {
+          const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+          const perm = battlefield.find((p: any) => p && String(p.id) === permanentId);
+          if (!perm) {
+            socket.emit('error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+            return;
+          }
+        }
+      }
+    }
+
+    // Validate CARD_NAME_CHOICE selections before completing the step.
+    if (step.type === ResolutionStepType.CARD_NAME_CHOICE) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        const selection = Array.isArray(raw) ? raw[0] : raw;
+        if (!selection || typeof selection !== 'string' || !String(selection).trim()) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid card name selection' });
+          return;
+        }
+
+        const canonicalSelection = canonicalizeCardNameChoiceSelection(selection, stepAny.candidateNames);
+        if (!canonicalSelection) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid card name selection' });
+          return;
+        }
+
+        (response as any).selections = canonicalSelection;
+
+        const permanentId = String(stepAny.permanentId || stepAny.sourceId || '').trim();
+        if (permanentId) {
+          const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+          const perm = battlefield.find((p: any) => p && String(p.id) === permanentId);
+          if (!perm) {
+            socket.emit('error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+            return;
+          }
+        }
+      }
+    }
+
+    // Validate activation-cost mana/life before completing the step.
+    // If we complete first, we could consume a cost-step and then fail due to insufficient mana,
+    // leaving the game in a partial-cost state.
+    if (!cancelled) {
+      const stepAny = step as any;
+
+      const validateManaAndLifeForActivationCost = async (controllerId: string, manaCost: string, lifeToPayForCost: number) => {
+        const manaSymbols = String(manaCost || '').match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
+        const manaOnly = manaSymbols
+          .filter((s) => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}')
+          .join('');
+
+        if (/\{[^}]*\/P\}/i.test(manaOnly) || /\{[^}]*X[^}]*\}/i.test(manaOnly)) {
+          socket.emit('error', { code: 'UNSUPPORTED_COST', message: `Unsupported activation cost (${manaOnly || 'complex cost'})` });
+          return false;
+        }
+
+        if (manaOnly) {

@@ -1,0 +1,94 @@
+﻿        }
+      }
+    }
+
+    // Validate MODAL_CHOICE selections before completing the step.
+    // If we complete first, invalid input would permanently consume the step and strand the player.
+    if (step.type === ResolutionStepType.MODAL_CHOICE) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const minSelections = Number(stepAny?.minSelections ?? 0);
+        const maxSelections = Number(stepAny?.maxSelections ?? Infinity);
+
+        const normalizeSelections = (raw: any): string[] | null => {
+          if (raw == null) return [];
+          if (typeof raw === 'string') return raw === 'decline' ? [] : [raw];
+          if (Array.isArray(raw)) {
+            const strings = raw.filter((s: any) => typeof s === 'string') as string[];
+            if (strings.includes('decline')) return [];
+            return strings;
+          }
+          return null;
+        };
+
+        const selectionIds = normalizeSelections(response.selections);
+        if (!selectionIds) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid modal selection format' });
+          return;
+        }
+
+        const unique = Array.from(new Set(selectionIds));
+        if (unique.length !== selectionIds.length) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate option selected' });
+          return;
+        }
+
+        if ((Number.isFinite(minSelections) ? selectionIds.length : 0) < (Number.isFinite(minSelections) ? minSelections : 0) ||
+            (Number.isFinite(maxSelections) ? selectionIds.length : 0) > (Number.isFinite(maxSelections) ? maxSelections : Infinity)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid number of selections' });
+          return;
+        }
+
+        const extractOptionId = (opt: any): string | null => {
+          if (typeof opt === 'string') return opt;
+          if (opt && typeof opt === 'object') {
+            const id = (opt as any).id;
+            if (typeof id === 'string' && id.trim()) return id;
+            const value = (opt as any).value;
+            if (typeof value === 'string' && value.trim()) return value;
+          }
+          return null;
+        };
+
+        const rawOptions = Array.isArray(stepAny?.options) ? stepAny.options : [];
+        const optionIds = rawOptions.map(extractOptionId).filter(Boolean) as string[];
+        const optionIdSet = new Set(optionIds);
+
+        // Put-from-hand modal: additionally enforce chosen id is one of the precomputed validCardIds.
+        const putFromHandData = stepAny?.putFromHandData;
+        if (putFromHandData && selectionIds.length > 0) {
+          const validCardIds = new Set((putFromHandData.validCardIds || []).map((x: any) => String(x)));
+          if (!validCardIds.has(String(selectionIds[0]))) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected card is not a valid choice' });
+            return;
+          }
+        }
+
+        // Keyword counter modals: enforce the configured allowed set (defense-in-depth).
+        if (stepAny?.keywordCounterChoiceData && selectionIds.length > 0) {
+          const keywordMap = new Map<string, string>();
+          for (const keyword of Array.isArray(stepAny.keywordCounterChoiceData?.allowedKeywords)
+            ? stepAny.keywordCounterChoiceData.allowedKeywords
+            : []) {
+            const canonical = String(keyword).toLowerCase().trim();
+            if (!canonical) continue;
+            keywordMap.set(canonical.replace(/\s+/g, '_'), canonical);
+          }
+          if (keywordMap.size > 0 && !keywordMap.has(String(selectionIds[0]).toLowerCase().trim())) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid counter choice' });
+            return;
+          }
+        }
+
+        if (optionIds.length > 0 && selectionIds.some((id) => !optionIdSet.has(String(id)))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected option is not valid' });
+          return;
+        }
+      }
+    }
