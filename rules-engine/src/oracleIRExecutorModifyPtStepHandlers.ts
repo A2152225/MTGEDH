@@ -16,6 +16,7 @@ import type { LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import { getCounterCountOnObject } from './oracleIRExecutorModifyPtWhereUtils';
 import { tryResolveForEachReferenceAmount } from './oracleIRExecutorForEachQuantity';
+import { resolveCommanderCastsFromCommandZoneThisGame } from './oracleIRExecutorCommanderCastCount';
 import {
   applyTemporaryPowerToughnessModifier,
   applyTemporarySetBasePowerToughness,
@@ -430,9 +431,8 @@ function resolveReferenceScalerScale(
     const colors = Number((state as any)?.manaSpentToCastLastSpellColors?.[controllerId] ?? (ctx as any)?.manaSpentToCastLastSpellColors ?? 2);
     return Number.isFinite(colors) ? Math.max(0, colors) : 0;
   }
-  if (/^for each time you've cast a commander from the command zone this game$/.test(normalized)) {
-    const casts = Number((state as any)?.commanderCastsFromCommandZoneThisGame?.[controllerId] ?? 0);
-    return Number.isFinite(casts) ? Math.max(0, casts) : 0;
+  if (/^for each time you've cast (?:a|your) commander from the command zone this game$/.test(normalized)) {
+    return resolveCommanderCastsFromCommandZoneThisGame(state, controllerId);
   }
   if (/^for each card you'?ve drawn this turn$/.test(normalized) || /^for each card you have drawn this turn$/.test(normalized)) {
     const drawn = Number((state as any)?.cardsDrawnThisTurn?.[controllerId] ?? ctx?.referenceAmount ?? 1);

@@ -145,6 +145,20 @@ export type OracleGraveyardAdditionalCost =
 
 export type OracleBattlefieldObjectCondition =
   | {
+      /**
+       * The next spell you cast this turn costs {N} less for each counter
+       * removed this way (Mutated Cultist-style deferred cost reduction).
+       */
+      readonly kind: 'grant_next_spell_cost_reduction';
+      readonly mana: string;
+      readonly perCountersRemoved?: boolean;
+      readonly amount?: number;
+      readonly duration?: string;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'mana_value_compare';
       readonly comparator: 'lte' | 'gte';
       readonly value: number;
@@ -225,7 +239,7 @@ export type OracleEffectStep =
         readonly kind: 'gain_control';
         readonly what: OracleObjectSelector;
         readonly newController: OraclePlayerSelector;
-        readonly duration: 'until_end_of_turn' | 'indefinite' | 'as_long_as_attached' | 'as_long_as_control_source';
+        readonly duration: 'until_end_of_turn' | 'indefinite' | 'as_long_as_attached' | 'as_long_as_control_source' | 'during_that_players_next_turn';
         readonly optional?: boolean;
         readonly sequence?: 'then';
         readonly raw: string;
@@ -1721,6 +1735,11 @@ export type OracleEffectStep =
   readonly rememberChosenModes?: boolean;
   /** When true, max mode count becomes 2 if teamworkWasPaid is set on the execution context. */
   readonly teamworkChooseBoth?: boolean;
+  /**
+   * When true, if the source was kicked, both modes resolve (forced).
+   * Unkicked: choose exactly one. Matches "If it was kicked, choose both instead."
+   */
+  readonly kickerChooseBoth?: boolean;
   /** When true, each chosen mode must target a different player (Shadrix-style). */
   readonly distinctPlayerTargets?: boolean;
   /**
@@ -1777,6 +1796,36 @@ export type OracleEffectStep =
       readonly kind: 'unless_discards';
       readonly who: OraclePlayerSelector;
       readonly amount: number;
+      readonly steps: readonly OracleEffectStep[];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * Wrapper for effects that only happen if a referenced player doesn't or
+       * can't sacrifice a matching permanent, e.g. "counter it unless you
+       * sacrifice a land" (Mana Vortex).
+       */
+      /**
+       * Any player may make an optional payment; if someone does, nested steps
+       * apply (typically counter this spell). Dash Hopes / Brain Gorgers-style.
+       */
+      readonly kind: 'any_player_may';
+      readonly payment:
+        | { readonly kind: 'life'; readonly amount: number }
+        | { readonly kind: 'half_life_rounded_up' }
+        | { readonly kind: 'discard'; readonly amount: number }
+        | { readonly kind: 'sacrifice'; readonly what: string };
+      readonly steps: readonly OracleEffectStep[];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'unless_sacrifices';
+      readonly who: OraclePlayerSelector;
+      readonly what: { readonly kind: 'raw'; readonly text: string };
       readonly steps: readonly OracleEffectStep[];
       readonly optional?: boolean;
       readonly sequence?: 'then';

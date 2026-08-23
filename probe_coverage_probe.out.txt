@@ -1,0 +1,108 @@
+1|import fs from 'fs';
+2|import path from 'path';
+3|import { detectCastTrigger, extractSelfCastEffectClauses } from '../../rules-engine/src/cards/castTriggers.ts';
+4|import { resolveOnCastSpellTriggerDescriptions } from '../src/state/modules/onCastSpellTriggerUtils.ts';
+5|import { inferTriggeredAbilityTargetMetadata } from '../src/state/modules/inferTriggeredAbilityTargetMetadata.ts';
+6|import { isTriggerEffectFullyIrWired, collectOracleEffectSteps } from '../src/state/modules/oracleIrTriggerLegacyRouting.ts';
+7|
+8|// collectOracleEffectSteps is from trigger-runtime-wiring; isTriggerEffectFullyIrWired from routing
+9|import { collectOracleEffectSteps as collectSteps } from '../src/state/modules/trigger-runtime-wiring.ts';
+10|import { isTriggerEffectFullyIrWired as irWiredFn } from '../src/state/modules/oracleIrTriggerLegacyRouting.ts';
+11|
+12|const root = path.resolve('..');
+13|const raw = JSON.parse(fs.readFileSync(path.join(root, 'tools/_oncast_audit/scryfall.json'), 'utf8'));
+14|const uniq = new Map();
+15|for (const c of raw.data) {
+16|  const oid = c.oracle_id || c.id;
+17|  if (!uniq.has(oid)) uniq.set(oid, c);
+18|}
+19|function getOracle(c) {
+20|  if (c.oracle_text) return c.oracle_text;
+21|  return (c.card_faces || []).map((f) => f.oracle_text || '').join('\n');
+22|}
+23|function classify(body) {
+24|  const s = body.toLowerCase();
+25|  const pats = [];
+26|  const add = (p, cond) => { if (cond) pats.push(p); };
+27|  add('return_from_graveyard', /return .+ from (your|a) graveyard|return all cards named .+ from your graveyard|return a creature card from your graveyard/.test(s));
+28|  add('create_tokens', /create .+ token|create a number of|create x |create two|create three/.test(s));
+29|  add('draw', /draw (a card|two cards|three cards|four cards|cards equal|half x cards)/.test(s));
+30|  add('exile_library_top', /exile.+top|exiles the top/.test(s));
+31|  add('exile_target_permanent', /exile (two )?target|exile up to|exile target/.test(s));
+32|  add('copy_spell_or_permanent', /copy (it|this spell|target)|that's a copy|copy it for each|copy it x|copy it if|copy this spell/.test(s));
+33|  add('put_counters', /put .+ counters?|stun counter|takeover counter/.test(s));
+34|  add('pump', /gets? [+-]\d+\/[+-]\d+|get \+2\/\+2/.test(s));
+35|  add('sacrifice', /sacrifice/.test(s));
+36|  add('mill_amass', /\bmill\b|amass /.test(s));
+37|  add('search_library', /search your library/.test(s));
+38|  add('destroy', /destroy target/.test(s));
+39|  add('gain_life', /gain \d+ life|gains? half|you gain/.test(s));
+40|  add('lose_life', /loses? \d+ life|lose half|loses half/.test(s));
+41|  add('counter_related', /counter (target|it)|any player may.*(pay|sacrifice|discard)/.test(s));
+42|  add('modal', /choose one/.test(s) || body.includes('\u2022'));
+43|  add('tap', /tap (up to|target)/.test(s));
+44|  add('untap', /untap/.test(s));
+45|  add('gain_control', /gain control/.test(s));
+46|  add('discard', /discard/.test(s));
+47|  add('put_onto_battlefield', /put .+ onto the battlefield|put any number of land|manifest/.test(s));
+48|  add('put_on_library_top', /put target .+ on top of/.test(s));
+49|  add('extra_turn', /extra turn/.test(s));
+50|  add('optional_you_may', /you may /.test(s));
+51|  add('intervening_if', /if it was kicked|if \{c\} wasn't|if you have fewer|if a creature died|if you've cast|if there are eight|if you gained|if you control|if a player does|if yo
+52|  add('any_player_may_tax', /any player may/.test(s));
+53|  add('commander_cast_copy', /for each time you've cast your commander/.test(s));
+54|  add('remove_counters_cost_reduce', /remove all counters/.test(s));
+55|  add('reveal_library', /reveal (cards|the top)/.test(s));
+56|  if (!pats.filter((p) => p !== 'optional_you_may' && p !== 'intervening_if').length) pats.push('other');
+57|  return pats;
+58|}
+59|
+60|const rows = [];
+61|for (const c of uniq.values()) {
+62|  const oracle = getOracle(c);
+63|  const clauses = extractSelfCastEffectClauses(oracle);
+64|  const resolvedAll = resolveOnCastSpellTriggerDescriptions({ name: c.name, type_line: c.type_line, oracle_text: oracle });
+65|  const primary = resolvedAll[0]?.description || '';
+66|  const meta = inferTriggeredAbilityTargetMetadata(primary, { controllerId: 'p1', sourceName: c.name });
+67|  const body = primary.replace(/^when you cast this spell,\s*/i, '');
+68|  let irWired = false;
+69|  let irKinds = [];
+70|  try {
+71|    const steps = collectSteps(body, c.name);
+72|    irKinds = (steps || []).map((s) => s.kind);
+73|    irWired = irWiredFn(body, c.name) || irWiredFn(primary, c.name);
+74|  } catch {
+75|    irWired = false;
+76|  }
+77|  const full = (resolvedAll.map((r) => r.description).join(' | ')) || clauses.join(' | ');
+78|  rows.push({
+79|    name: c.name,
+80|    type_line: c.type_line,
+81|    clauses,
+82|    resolvedAll: resolvedAll.map((r) => r.description),
+83|    patterns: classify(full),
+84|    meta: {
+85|      requiresTarget: !!meta.requiresTarget,
+86|      targetType: meta.targetType || null,
+87|      targetZone: meta.targetZone || null,
+88|      targetDestination: meta.targetDestination || null,
+89|      targetGraveyardScope: meta.targetGraveyardScope || null,
+90|      minTargets: meta.minTargets ?? null,
+91|      maxTargets: meta.maxTargets ?? null,
+92|      targetFilterTypes: meta.targetFilterTypes || null,
+93|    },
+94|    irWired,
+95|    irKinds,
+96|    multi: resolvedAll.length > 1,
+97|  });
+98|}
+99|fs.writeFileSync(path.join(root, 'tools/_oncast_audit/probe-post.json'), JSON.stringify(rows, null, 2));
+100|console.log('TOTAL', rows.length);
+101|console.log('multi', rows.filter((r) => r.multi).map((r) => r.name));
+102|const bearer = rows.find((r) => r.name === 'Bearer of Silence');
+103|console.log('Bearer', bearer?.resolvedAll?.[0]);
+104|const wb = rows.find((r) => r.name === 'World Breaker');
+105|console.log('World Breaker meta', wb?.meta);
+106|const ed = rows.find((r) => r.name === 'Elder Deep-Fiend');
+107|console.log('Elder Deep-Fiend meta', ed?.meta);
+108|console.log('irWired', rows.filter((r) => r.irWired).length);

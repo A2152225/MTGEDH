@@ -1,0 +1,61 @@
+31|export function isTriggerEffectFullyIrWired(
+40|  if (steps.some((step) => step.kind === 'unknown')) return false;
+51|  return isTriggerEffectFullyIrWired(effectText, sourceName);
+31|export function isTriggerEffectFullyIrWired(
+32|  effectText: string,
+33|  sourceName: string,
+34|): boolean {
+35|  const text = String(effectText || '').trim();
+36|  if (!text) return false;
+37|
+38|  const steps = collectOracleEffectSteps(text, sourceName);
+39|  if (steps.length === 0) return false;
+40|  if (steps.some((step) => step.kind === 'unknown')) return false;
+41|
+42|  return steps.every((step) => isTriggerStepRuntimeWired(step as OracleEffectStep));
+43|}
+44|
+45|export function isTriggerEffectOwnedByOracleIrPrimary(
+46|  effectText: string,
+47|  sourceName: string,
+48|): boolean {
+49|  if (!isOracleIrTriggerPrimaryEnabled()) return false;
+50|  if (isJoinForcesEffectText(effectText)) return false;
+51|  return isTriggerEffectFullyIrWired(effectText, sourceName);
+52|}
+53|
+54|export function shouldSkipTriggerUncategorizedFallback(
+55|  effectText: string,
+56|  sourceName: string,
+57|): boolean {
+58|  return isTriggerEffectOwnedByOracleIrPrimary(effectText, sourceName);
+59|}
+60|
+61|export function shouldSkipLegacyTriggerRegexHandlers(
+62|  effectText: string,
+63|  sourceName: string,
+64|): boolean {
+65|  return isTriggerEffectOwnedByOracleIrPrimary(effectText, sourceName);
+66|}
+67|
+68|/**
+69| * Defense-in-depth for individual legacy regex handlers.
+70| * Always returns false: orchestrators (tryResolveTriggerViaOracleIR early return,
+71| * tail IR fallback early return) already prevent double-apply when IR succeeds.
+72| * Skipping on static "ownership" alone caused silent no-ops when IR failed to handle.
+73| */
+74|export function skipRetiredTriggerLegacyHandler(_desc: string, _sourceName = ''): boolean {
+75|  return false;
+76|}
+77|
+78|/**
+79| * Orchestrator-level skip: when IR primary owns the effect, bypass the legacy
+80| * body handler chain entirely. Tail still runs for copy_permanent bridge and
+81| * parity logging via shouldSkipLegacyTriggerRegexHandlers.
+82| */
+83|export function shouldSkipLegacyTriggerBodyHandlers(
+84|  effectText: string,
+85|  sourceName: string,
+86|): boolean {
+87|  return shouldSkipLegacyTriggerRegexHandlers(effectText, sourceName);
+88|}

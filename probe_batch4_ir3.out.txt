@@ -1,0 +1,110 @@
+﻿==== Distended Mindbender FULL ====
+{
+  "normalizedOracleText": "Emerge {5}{B}{B} (You may cast this spell by sacrificing a creature and paying the emerge cost reduced by that creature's mana value.)\nWhen you cast this spell, target opponent reveals their hand. You choose from it a nonland card with mana value 3 or less and a card with mana value 4 or greater. That player discards those cards.",
+  "abilities": [
+    {
+      "type": "triggered",
+      "text": "When you cast this spell, target opponent reveals their hand. You choose from it a nonland card with mana value 3 or less and a card with mana value 4 or greater. That player discards those cards.",
+      "triggerCondition": "you cast this spell",
+      "effectText": "target opponent reveals their hand. You choose from it a nonland card with mana value 3 or less and a card with mana value 4 or greater. That player discards those cards.",
+      "steps": [
+        {
+          "kind": "reveal_hand",
+          "who": {
+            "kind": "target_opponent"
+          },
+          "raw": "target opponent reveals their hand"
+        },
+        {
+          "kind": "grant_static_ability",
+          "target": {
+            "kind": "raw",
+            "text": "you"
+          },
+          "effectText": [
+            "You choose from it a nonland card with mana value 3 or less and a card with mana value 4 or greater"
+          ],
+          "duration": "static",
+          "raw": "You choose from it a nonland card with mana value 3 or less and a card with mana value 4 or greater"
+        },
+        {
+          "kind": "discard",
+          "who": {
+            "kind": "target_player"
+          },
+          "amount": {
+            "kind": "number",
+            "value": 1
+          },
+          "target": {
+            "kind": "raw",
+            "text": "those cards"
+          },
+          "raw": "That player discards those cards"
+        }
+      ]
+    }
+  ],
+  "keywords": [
+    "emerge"
+  ]
+}
+
+==== Mana Vortex FULL ====
+{
+  "normalizedOracleText": "When you cast this spell, counter it unless you sacrifice a land.\nAt the beginning of each player's upkeep, that player sacrifices a land of their choice.\nWhen there are no lands on the battlefield, sacrifice this enchantment.",
+  "abilities": [
+    {
+      "type": "triggered",
+      "text": "When you cast this spell, counter it unless you sacrifice a land.",
+      "triggerCondition": "you cast this spell",
+      "effectText": "counter it unless you sacrifice a land.",
+      "steps": [
+        {
+          "kind": "unknown",
+          "raw": "counter it unless you sacrifice a land"
+        }
+      ]
+    },
+    {
+      "type": "triggered",
+      "text": "At the beginning of each player's upkeep, that player sacrifices a land of their choice.",
+      "triggerCondition": "the beginning of each player's upkeep",
+      "effectText": "that player sacrifices a land of their choice.",
+      "steps": [
+        {
+          "kind": "sacrifice",
+          "who": {
+            "kind": "target_player"
+          },
+          "what": {
+            "kind": "raw",
+            "text": "a land of their choice"
+          },
+          "raw": "that player sacrifices a land of their choice"
+        }
+      ]
+    },
+    {
+      "type": "triggered",
+      "text": "When there are no lands on the battlefield, sacrifice this enchantment.",
+      "triggerCondition": "there are no lands on the battlefield",
+      "effectText": "sacrifice this enchantment.",
+      "steps": [
+        {
+          "kind": "sacrifice",
+          "who": {
+            "kind": "you"
+          },
+          "what": {
+            "kind": "raw",
+            "text": "this enchantment"
+          },
+          "raw": "sacrifice this enchantment"
+        }
+      ]
+    }
+  ],
+  "keywords": []
+}
+

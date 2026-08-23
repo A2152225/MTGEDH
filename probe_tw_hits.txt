@@ -1,0 +1,45 @@
+rules-engine\src\oracleIR.ts:1722|/** When true, max mode count becomes 2 if teamworkWasPaid is set on the execution context. */
+rules-engine\src\oracleIRExecutionTypes.ts:237|readonly teamworkWasPaid?: boolean;
+rules-engine\src\oracleIRExecutionTypes.ts:347|readonly teamworkWasPaid?: boolean;
+rules-engine\src\oracleIRExecutorChooseModeStepHandlers.ts:89|if (Boolean((step as any).teamworkChooseBoth) && ctx.teamworkWasPaid === true) {
+rules-engine\src\oracleIRExecutorConditionalStepSupport.ts:163|ctx.teamworkWasPaid ??
+rules-engine\src\oracleIRExecutorConditionalStepSupport.ts:1225|ctx.teamworkWasPaid ??
+server\src\socket\game-actions.ts:7579|(cardInHand as any).teamworkWasPaid = false;
+server\src\socket\game-actions.ts:7583|pendingCast.teamworkWasPaid = false;
+server\src\socket\game-actions.ts:8370|(cardInHand as any).teamworkWasPaid = false;
+server\src\socket\game-actions.ts:8374|pendingCast.teamworkWasPaid = false;
+server\src\socket\game-actions.ts:10258|teamworkMarker?.teamworkWasPaid ??
+server\src\socket\game-actions.ts:10259|(targets as any)?.teamworkWasPaid ??
+server\src\socket\game-actions.ts:10260|(cardInHand as any)?.teamworkWasPaid;
+server\src\socket\game-actions.ts:10261|let teamworkWasPaid = typeof rawTeamworkWasPaid === 'boolean' ? rawTeamworkWasPaid : null;
+server\src\socket\game-actions.ts:10442|(targets as any).teamworkWasPaid = false;
+server\src\socket\game-actions.ts:10444|teamworkWasPaid = false;
+server\src\socket\game-actions.ts:13181|...(teamworkResolved === true && typeof teamworkWasPaid === 'boolean'
+server\src\socket\game-actions.ts:13184|teamworkWasPaid,
+server\src\socket\game-actions.ts:13483|if (teamworkResolved === true && typeof teamworkWasPaid === 'boolean') {
+server\src\socket\game-actions.ts:13485|(topStackItem as any).teamworkWasPaid = teamworkWasPaid;
+server\src\socket\game-actions.ts:13488|(topStackItem as any).card.teamworkWasPaid = teamworkWasPaid;
+server\src\socket\game-actions.ts:13616|if (teamworkResolved === true && typeof teamworkWasPaid === 'boolean') {
+server\src\socket\game-actions.ts:13618|(topStackItem as any).teamworkWasPaid = teamworkWasPaid;
+server\src\socket\game-actions.ts:13621|(topStackItem as any).card.teamworkWasPaid = teamworkWasPaid;
+server\src\socket\resolution.ts:15234|(spellCard as any).teamworkWasPaid = false;
+server\src\socket\resolution.ts:15239|requestCastPending.teamworkWasPaid = false;
+server\src\socket\resolution.ts:15253|teamworkWasPaid: false,
+server\src\socket\resolution.ts:15589|(spellCard as any).teamworkWasPaid = paid;
+server\src\socket\resolution.ts:15592|requestCastPending.teamworkWasPaid = paid;
+server\src\socket\resolution.ts:15680|teamworkWasPaid: (spellCard as any)?.teamworkWasPaid === true,
+server\src\state\effects\effectProgramResolutionService.ts:266|if ((oracleIrBridge?.irCtx as any)?.teamworkWasPaid !== true) {
+server\src\state\effects\effectProgramResolutionService.ts:284|teamworkWasPaid: true,
+server\src\state\modules\applyEvent.ts:3852|(e as any).teamworkWasPaid ??
+server\src\state\modules\applyEvent.ts:3853|(e as any).card?.teamworkWasPaid ??
+server\src\state\modules\applyEvent.ts:3854|(e as any).card?.card?.teamworkWasPaid;
+server\src\state\modules\applyEvent.ts:3856|applyToStackItem('teamworkWasPaid', rawTeamworkWasPaid);
+server\src\state\modules\oracleIrAbilityExecution.ts:286|teamworkWasPaid?: boolean;
+server\src\state\modules\oracleIrAbilityExecution.ts:349|...(typeof params.teamworkWasPaid === 'boolean' ? { teamworkWasPaid: params.teamworkWasPaid } : {}),
+server\src\state\modules\oracleIrSpellExecution.ts:58|readonly teamworkWasPaid?: boolean;
+server\src\state\modules\oracleIrSpellExecution.ts:114|...(typeof params.teamworkWasPaid === 'boolean' ? { teamworkWasPaid: params.teamworkWasPaid } : {}),
+server\src\state\modules\stackResolveAbilityLateHandlersUtils.ts:387|teamworkWasPaid: Boolean(item?.teamworkWasPaid ?? item?.card?.teamworkWasPaid),
+server\src\state\modules\stackResolveSpellLegacyModalUtils.ts:99|const teamworkWasPaid = Boolean(options.item?.teamworkWasPaid ?? options.item?.card?.teamworkWasPaid);
+server\src\state\modules\stackResolveSpellLegacyModalUtils.ts:100|const resolvedMaxModes = teamworkChooseBoth && teamworkWasPaid
+server\src\state\modules\stackResolveSpellLegacyModalUtils.ts:129|teamworkWasPaid,
+server\src\state\modules\stackResolveSpellOracleIrUtils.ts:51|teamworkWasPaid: Boolean(item?.teamworkWasPaid ?? item?.card?.teamworkWasPaid),

@@ -184,7 +184,7 @@ import {
 } from "../state/modules/triggers/targeted.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
-import { resolveOracleIrOptionalPaymentPromptFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution, processPendingOracleIrCompoundResumeOnContext, syncAllOracleIRPlayerZonesAfterResolution } from '../state/modules/oracleIrServerZoneSync.js';
+import { resolveOracleIrOptionalPaymentPromptFromResolution, resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution, processPendingOracleIrCompoundResumeOnContext, syncAllOracleIRPlayerZonesAfterResolution } from '../state/modules/oracleIrServerZoneSync.js';
 import { refreshCounterPlacementResolutionStepForClient } from '../state/modules/triggerCounterPlacementPromptUtils.js';
 import { refreshKynaiosLandPlayResolutionStepForClient } from '../state/modules/triggerLandPlayPromptUtils.js';
 import { tryApplyStationChargeCountersViaOracleIR } from '../state/modules/oracleIrAbilityExecution.js';
@@ -192,7 +192,7 @@ import { readOracleIrLedgerPersistFields, readOracleIrCompoundResumePersistField
 import { maybeResumeDeferredOracleIrStackSpellOnGame } from '../state/modules/oracleIrDeferredStackFinalize.js';
 import { applyJoinForcesPaidManaPowerPump } from '../state/modules/joinForcesResolutionQueue.js';
 import { persistBattlefieldPermanentPatchAfterMutation } from '../state/effects/battlefieldPermanentReplayPersistence.js';
-import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
+import { cardMatchesReflexiveGraveyardExileType, collectOpponentOwnedExileCardTargets, consumeReflexiveManaAmountFromPool, formatReflexiveExileToOwnersGraveyardLabel, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { advanceStepPersistingEvent } from "./step-advance.js";
 import { tryAutoStartGameFromPreGame } from "./pregame-auto-start.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
@@ -1148,6 +1148,16 @@ function applyCancelledResolutionStepSideEffects(
         ts: Date.now(),
       });
     }
+  }
+
+  if ((cancelledStep as any)?.oracleIrAnyPlayerMayPaymentSelection === true) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution(ctx, cancelledStep, {
+      cancelled: true,
+      selections: [],
+    });
   }
 
   restorePriorityAfterResolutionRecovery(game, gameId);
@@ -3222,7 +3232,7 @@ function activatedAbilityPermanentTargetMatches(
     return false;
   }
   if (Array.isArray((targetReqs as any).targetFilterRequiredTypeWords)
-    && !(targetReqs as any).targetFilterRequiredTypeWords.every((word: any) => typeLine.includes(String(word || '').toLowerCase()))) {
+    && !matchesRequiredTypeWords(typeLine, (targetReqs as any).targetFilterRequiredTypeWords)) {
     return false;
   }
 
@@ -16398,6 +16408,26 @@ function pushExertTriggeredAbilityOntoStack(
   }
 }
 
+function matchesRequiredTypeWords(typeLineRaw: string, requiredWords: readonly any[]): boolean {
+  const typeLine = String(typeLineRaw || '').toLowerCase();
+  const words = (requiredWords || [])
+    .map((typeWord) => String(typeWord || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (words.length === 0) return true;
+  // "Angel or Human" is OR of groups; groups themselves are AND of words.
+  if (words.includes('or')) {
+    const groups: string[][] = [[]];
+    for (const word of words) {
+      if (word === 'or') groups.push([]);
+      else groups[groups.length - 1].push(word);
+    }
+    return groups
+      .filter((group) => group.length > 0)
+      .some((group) => group.every((word) => typeLine.includes(word)));
+  }
+  return words.every((word) => typeLine.includes(word));
+}
+
 function matchesTriggeredGraveyardTargetForExert(card: any, metadata: ReturnType<typeof inferTriggeredAbilityTargetMetadata>): boolean {
   const typeLine = String(card?.type_line || '').toLowerCase();
   if (!typeLine) {
@@ -16419,8 +16449,7 @@ function matchesTriggeredGraveyardTargetForExert(card: any, metadata: ReturnType
   }
 
   if (Array.isArray(metadata.targetFilterRequiredTypeWords) && metadata.targetFilterRequiredTypeWords.length > 0) {
-    const matchesAllRequiredWords = metadata.targetFilterRequiredTypeWords.every((typeWord) => typeLine.includes(String(typeWord || '').toLowerCase()));
-    if (!matchesAllRequiredWords) {
+    if (!matchesRequiredTypeWords(typeLine, metadata.targetFilterRequiredTypeWords)) {
       return false;
     }
   }
@@ -17351,6 +17380,30 @@ async function handleDiscardResponse(
       });
     }
 
+    if ((step as any)?.oracleIrAnyPlayerMayPaymentSelection === true) {
+      const ctx = ((game as any).ctx || game) as any;
+      ctx.gameId = gameId;
+      ctx.state = game.state;
+      resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution(ctx, step, {
+        cancelled: true,
+        selections: [],
+      });
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+    }
+
+    return;
+  }
+
+  if ((step as any)?.oracleIrAnyPlayerMayPaymentSelection === true) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const handled = resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution(ctx, step, response);
+    if (handled) {
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+    }
     return;
   }
 
@@ -18765,6 +18818,34 @@ async function handleTargetSelectionResponse(
 ): Promise<void> {
   const pid = response.playerId;
   const selections = response.selections as string[];
+
+  if ((step as any)?.oracleIrAnyPlayerMayPaymentSelection === true) {
+    if (response.cancelled) {
+      const ctx = ((game as any).ctx || game) as any;
+      ctx.gameId = gameId;
+      ctx.state = game.state;
+      resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution(ctx, step, {
+        cancelled: true,
+        selections: [],
+      });
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    if (!Array.isArray(selections) || selections.length === 0) {
+      debugWarn(1, `[Resolution] Invalid any-player-may sacrifice selections`);
+      return;
+    }
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const handled = resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution(ctx, step, response);
+    if (handled) {
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+    }
+    return;
+  }
   
   if (!Array.isArray(selections)) {
     debugWarn(1, `[Resolution] Invalid target selections: not an array`);
@@ -19038,6 +19119,35 @@ async function handleTargetSelectionResponse(
         message: `${cardName}: ${getPlayerName(game, controllerId)} cancelled the activation.`,
         ts: Date.now(),
       });
+      return;
+    }
+
+    // Up-to-N triggered abilities: cancel == choose zero targets, then resolve.
+    if (stepAny?.targetedTriggeredAbility === true && Number(stepAny?.minTargets ?? 1) === 0) {
+      const sourceName = String(stepAny?.targetedTriggeredAbilitySourceName || step.sourceName || stepAny?.triggerItem?.sourceName || 'Triggered ability');
+      const description = String(stepAny?.targetedTriggeredAbilityDescription || stepAny?.triggerItem?.description || '');
+      const controller = String(stepAny?.targetedTriggeredAbilityController || stepAny?.triggerItem?.controller || pid);
+      const triggerStackItemId = String(step.sourceId || stepAny?.triggerItem?.id || '').trim();
+      if (triggerStackItemId && Array.isArray(game.state?.stack)) {
+        const stackItem = game.state.stack.find((item: any) => item && String(item.id || '') === triggerStackItemId);
+        if (stackItem) stackItem.targets = [];
+      }
+      const triggerItem = {
+        ...(stepAny.triggerItem || {}),
+        sourceName,
+        description,
+        controller,
+        targets: [],
+        triggerType: stepAny?.triggerItem?.triggerType || stepAny?.targetedTriggeredAbilityTriggerType,
+      };
+      const effectText = resolveTriggerStackItemEffectText(triggerItem, { state: game.state });
+      const ctx = ((game as any).ctx || game) as any;
+      ctx.gameId = ctx.gameId || gameId;
+      ctx.io = ctx.io || io;
+      ctx.state = game.state;
+      executeTriggerEffect(ctx as any, controller as PlayerID, sourceName, effectText, triggerItem);
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      broadcastGame(io, game, gameId);
       return;
     }
 
@@ -34521,6 +34631,229 @@ async function handleOptionChoiceResponse(
       });
 
       if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    return;
+  }
+
+
+  // ===== GENERIC: "You may put N cards ... from exile into ... graveyard. If/When you do, ..." (processors) =====
+  if (stepData?.reflexiveExileToOwnersGraveyardWhenYouDo === true) {
+    const choiceId = String(extractId(selectedOption) || (response.cancelled ? 'decline' : '') || '').trim().toLowerCase();
+    const stage = String(stepData.reflexiveExileToOwnersGraveyardWhenYouDoStage || 'ask');
+    const controllerId = String(stepData.reflexiveExileToOwnersGraveyardWhenYouDoController || playerId);
+    const sourceName = String(stepData.reflexiveExileToOwnersGraveyardWhenYouDoSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String(stepData.reflexiveExileToOwnersGraveyardWhenYouDoSourcePermanentId || step.sourceId || '').trim();
+    const sourcePermanentSnapshot = getResolutionSourcePermanentSnapshot(game, stepData, sourcePermanentId || undefined);
+    const putCount = Math.max(1, Math.floor(Number(stepData.reflexiveExileToOwnersGraveyardWhenYouDoCount || 1)));
+    const followupDescription = String(stepData.reflexiveExileToOwnersGraveyardWhenYouDoFollowupDescription || '').trim();
+    const putLabel = formatReflexiveExileToOwnersGraveyardLabel(putCount);
+
+    if (stage === 'ask') {
+      if (!choiceId || choiceId === 'decline' || choiceId === 'dont' || choiceId === 'no' || response.cancelled) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} declined to put cards from exile into graveyards.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      const validTargets = Array.isArray(stepData.reflexiveExileToOwnersGraveyardWhenYouDoValidTargets)
+        ? stepData.reflexiveExileToOwnersGraveyardWhenYouDoValidTargets
+        : collectOpponentOwnedExileCardTargets(game.state, controllerId);
+
+      if (!Array.isArray(validTargets) || validTargets.length < putCount) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} does not have enough opponent-owned cards in exile.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      const options = validTargets.map((target: any) => ({
+        id: String(target.id),
+        label: String(target.name || target.id),
+        description: String(target.typeLine || ''),
+        imageUrl: target.imageUrl,
+      }));
+
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: controllerId as PlayerID,
+        sourceId: sourcePermanentId || undefined,
+        sourceName,
+        description: `${sourceName}: Choose ${putCount === 1 ? 'a card' : putCount + ' cards'} to put into owners' graveyards.`,
+        mandatory: true,
+        options,
+        minSelections: putCount,
+        maxSelections: putCount,
+        reflexiveExileToOwnersGraveyardWhenYouDo: true,
+        reflexiveExileToOwnersGraveyardWhenYouDoStage: 'select',
+        reflexiveExileToOwnersGraveyardWhenYouDoCount: putCount,
+        reflexiveExileToOwnersGraveyardWhenYouDoController: controllerId,
+        reflexiveExileToOwnersGraveyardWhenYouDoSourceName: sourceName,
+        reflexiveExileToOwnersGraveyardWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
+        reflexiveExileToOwnersGraveyardWhenYouDoFollowupDescription: followupDescription,
+        reflexiveExileToOwnersGraveyardWhenYouDoValidTargets: validTargets,
+        ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+      } as any);
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: controllerId,
+        sourceId: sourcePermanentId,
+        queuedResolutionStep,
+      });
+      return;
+    }
+
+    if (stage === 'select') {
+      const selectedIds = Array.isArray(response?.selections)
+        ? response.selections.map((entry: any) => String(extractId(entry) || entry || '').trim()).filter(Boolean)
+        : choiceId
+          ? [choiceId]
+          : [];
+      const uniqueSelected = Array.from(new Set(selectedIds));
+      if (uniqueSelected.length !== putCount) {
+        emitToPlayer(io, controllerId as any, 'error', {
+          code: 'INVALID_CHOICE',
+          message: `Select exactly ${putCount} card${putCount === 1 ? '' : 's'} from exile.`,
+        });
+        return;
+      }
+
+      const validTargets: Array<any> = Array.isArray(stepData.reflexiveExileToOwnersGraveyardWhenYouDoValidTargets)
+        ? stepData.reflexiveExileToOwnersGraveyardWhenYouDoValidTargets
+        : collectOpponentOwnedExileCardTargets(game.state, controllerId);
+      const byId = new Map<string, any>(validTargets.map((t: any) => [String(t.id), t]));
+      const movedNames: string[] = [];
+
+      for (const cardId of uniqueSelected) {
+        const meta: any = byId.get(cardId);
+        if (!meta) {
+          emitToPlayer(io, controllerId as any, 'error', {
+            code: 'INVALID_CHOICE',
+            message: 'One or more selected cards are no longer valid exile targets.',
+          });
+          return;
+        }
+        const zoneOwnerId = String(meta.zoneOwnerId || meta.ownerId || '').trim();
+        const ownerId = String(meta.ownerId || zoneOwnerId).trim();
+        const zones = ((game.state as any).zones = (game.state as any).zones || {});
+        const zoneEntry = (zones[zoneOwnerId] = zones[zoneOwnerId] || {});
+        const exile: any[] = Array.isArray(zoneEntry.exile) ? zoneEntry.exile : (zoneEntry.exile = []);
+        const idx = exile.findIndex((c: any) => String(c?.id || '') === cardId);
+        if (idx < 0) {
+          emitToPlayer(io, controllerId as any, 'error', {
+            code: 'INVALID_CHOICE',
+            message: 'Selected card is no longer in exile.',
+          });
+          return;
+        }
+        const [card] = exile.splice(idx, 1);
+        zoneEntry.exileCount = exile.length;
+        const ownerZones = (zones[ownerId] = zones[ownerId] || {});
+        ownerZones.graveyard = Array.isArray(ownerZones.graveyard) ? ownerZones.graveyard : [];
+        const gyCtx = {
+          state: game.state,
+          gameId,
+          bumpSeq: () => {
+            if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+          },
+        } as any;
+        pushCardToPlayerGraveyardWithReplacements(gyCtx, ownerId, card, ownerZones.graveyard);
+        movedNames.push(String(card?.name || meta.name || cardId));
+      }
+
+      const effectText = materializeReflexiveSourceText(followupDescription, sourceName);
+      const sourceContext = buildTriggeredAbilitySourceContext(sourcePermanentSnapshot);
+      const targetMetadata = inferFollowupTargetMetadata(
+        game,
+        controllerId,
+        sourceName,
+        sourcePermanentId || undefined,
+        effectText,
+        sourcePermanentSnapshot,
+      );
+      const triggerId = uid('trigger');
+      const effectData = {
+        putCount,
+        movedCardIds: uniqueSelected.slice(),
+        movedCardNames: movedNames.slice(),
+      };
+      const stackItem: any = {
+        id: triggerId,
+        type: 'triggered_ability',
+        controller: controllerId,
+        source: sourcePermanentId || null,
+        ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+        sourceName,
+        description: effectText,
+        effect: effectText,
+        triggerType: 'reflexive_exile_to_owners_graveyard',
+        mandatory: true,
+        ...targetMetadata,
+        ...sourceContext,
+        effectData,
+      };
+      game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
+      game.state.stack.push(stackItem);
+
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'reflexiveExileToOwnersGraveyardResolve', {
+          playerId: controllerId,
+          sourceId: sourcePermanentId || undefined,
+          sourceName,
+          resolvedStepId: String((step as any)?.id || '').trim() || undefined,
+          cardIds: uniqueSelected.slice(),
+          followupText: followupDescription,
+          effect: effectText,
+          triggerId,
+          ...effectData,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(reflexiveExileToOwnersGraveyardResolve) failed:', err);
+      }
+
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+          triggerId,
+          sourceId: sourcePermanentId || null,
+          ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+          sourceName,
+          controllerId,
+          description: effectText,
+          effect: effectText,
+          triggerType: 'reflexive_exile_to_owners_graveyard',
+          mandatory: true,
+          ...targetMetadata,
+          ...sourceContext,
+          effectData,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility reflexive exile-to-GY) failed:', err);
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} put ${movedNames.join(', ') || putLabel} into owners' graveyards.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      broadcastGame(io, game, gameId);
       return;
     }
 

@@ -1,0 +1,10 @@
+﻿p=r'D:\Git\MTGEDH\server\src\state\modules\oracleIrServerZoneSync.ts'
+t=open(p,encoding='utf-8',errors='ignore').read()
+i=t.find('function resumeOracleIRUnlessPayFromResolution')
+print(t[i:i+1200])
+print('==== remaining ====')
+i2=t.find('function resumeOracleIRRemainingStepsFromResolution')
+print(t[i2:i2+1200])
+print('==== my bad insert ====')
+i3=t.find('oracleIrAnyPlayerMayChoice === true')
+print(t[i3-100:i3+800])

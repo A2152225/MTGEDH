@@ -1,0 +1,114 @@
+﻿==== Depth Defiler FULL ====
+{
+  "normalizedOracleText": "Devoid (This card has no color.)\nKicker {C} (You may pay an additional {C} as you cast this spell.)\nWhen you cast this spell, choose one. If it was kicked, choose both instead.\nΓÇó Return target creature to its owner's hand.\nΓÇó Target player draws two cards, then discards a card.",
+  "abilities": [
+    {
+      "type": "static",
+      "text": "Devoid",
+      "effectText": "Devoid",
+      "steps": [
+        {
+          "kind": "grant_static_ability",
+          "target": {
+            "kind": "raw",
+            "text": "this card"
+          },
+          "abilities": [
+            "devoid"
+          ],
+          "duration": "static",
+          "raw": "Devoid"
+        }
+      ]
+    },
+    {
+      "type": "triggered",
+      "text": "When you cast this spell, choose one. If it was kicked, choose both instead.\nΓÇó Return target creature to its owner's hand.\nΓÇó Target player draws two cards, then discards a card.",
+      "triggerCondition": "you cast this spell",
+      "effectText": "choose one. If it was kicked, choose both instead.\nΓÇó Return target creature to its owner's hand.\nΓÇó Target player draws two cards, then discards a card.",
+      "steps": [
+        {
+          "kind": "choose_mode",
+          "minModes": 1,
+          "maxModes": 2,
+          "canRepeatModes": false,
+          "modes": [
+            {
+              "label": "Mode 1",
+              "raw": "Return target creature to its owner's hand.",
+              "steps": [
+                {
+                  "kind": "move_zone",
+                  "what": {
+                    "kind": "raw",
+                    "text": "target creature"
+                  },
+                  "to": "hand",
+                  "toRaw": "its owner's hand",
+                  "raw": "Return target creature to its owner's hand"
+                }
+              ]
+            },
+            {
+              "label": "Mode 2",
+              "raw": "Target player draws two cards, then discards a card.",
+              "steps": [
+                {
+                  "kind": "draw",
+                  "who": {
+                    "kind": "target_player"
+                  },
+                  "amount": {
+                    "kind": "number",
+                    "value": 2
+                  },
+                  "raw": "Target player draws two cards"
+                },
+                {
+                  "kind": "discard",
+                  "who": {
+                    "kind": "you"
+                  },
+                  "amount": {
+                    "kind": "number",
+                    "value": 1
+                  },
+                  "raw": "then discards a card",
+                  "sequence": "then"
+                }
+              ]
+            }
+          ],
+          "raw": "Return target creature to its owner's hand.\nΓÇó Target player draws two cards, then discards a card."
+        }
+      ]
+    }
+  ],
+  "keywords": [
+    "kicker"
+  ]
+}
+--- cast clauses [
+  'choose one. If it was kicked, choose both instead.\n' +
+    "ΓÇó Return target creature to its owner's hand.\n" +
+    'ΓÇó Target player draws two cards, then discards a card'
+]
+node.exe : D:\Git\MTGEDH\rules-engine\src\cards\castTriggers.ts:71
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\A2\AppData\Roaming\npm ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\Git\MTGEDH\r...tTriggers.ts:71:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  const text = oracleText.toLowerCase();
+                          ^
+
+
+TypeError: oracleText.toLowerCase is not a function
+    at detectCastTrigger (D:\Git\MTGEDH\rules-engine\src\cards\castTriggers.ts:71:27)
+    at <anonymous> (D:\Git\MTGEDH\probe_batch4_ir2.mts:22:29)
+    at ModuleJob.run (node:internal/modules/esm/module_job:345:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+
+Node.js v22.20.0

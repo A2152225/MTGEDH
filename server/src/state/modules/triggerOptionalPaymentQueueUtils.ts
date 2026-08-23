@@ -12,6 +12,7 @@ import { applyTriggeredReanimationEntryRiders } from './triggerReanimationRiders
 import { markEchoPaid, sacrificePermanent } from './upkeep-triggers.js';
 import type { ReflexiveTriggerEffectRunner } from './triggerReflexiveWhenYouDoQueueUtils.js';
 import { tryDeferTriggeredAbilityTargetSelection } from './stackResolveTriggeredAbilityTargetPromptUtils.js';
+import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 
 const OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES = new Set([
   'rhystic_study',
@@ -44,7 +45,7 @@ function isOpponentMayPaySpellCastTrigger(item: any): boolean {
   return Boolean(String(item?.effectData?.paymentCost || '').trim());
 }
 
-const OPTIONAL_TRIGGER_MANA_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*([\s\S]+)$/i;
+const OPTIONAL_TRIGGER_MANA_PAYMENT_PATTERN = /^(?:when you cast this spell,?\s*)?you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*(?:if|when) you do,?\s*([\s\S]+)$/i;
 const ECHO_TRIGGER_MANA_PAYMENT_PATTERN = /^pay (\{[^}]+\}(?:\{[^}]+\})*) or sacrifice(?:\b|$)/i;
 
 function resolveOpponentMayPayDeclineEffectFromStackItem(item: any): string {
@@ -289,9 +290,8 @@ function maybeQueueControllerMayPayTriggeredAbility(
     /\breturn\s+a\s+creature\s+card\s+at\s+random\s+from\s+your\s+graveyard\s+to\s+the\s+battlefield\b/i.test(paidEffect);
   const hasReturnTargetPermanentToHand =
     /\breturn\s+target\s+permanent\s+to\s+its\s+owner'?s?\s+hand\b/i.test(paidEffect);
-  if (!(hasBoundGraveyardReturn || hasRandomCreatureGraveyardReturn || hasReturnTargetPermanentToHand)) {
-    return false;
-  }
+  // Generic optional mana payment: any "you may pay {cost}. If/When you do, <effect>".
+  // Specialized GY / return-to-hand helpers below remain for richer metadata.
 
   if ((ctx as any).isReplaying) {
     return true;
@@ -335,11 +335,17 @@ function maybeQueueControllerMayPayTriggeredAbility(
           ? ((((ctx as any).state as any).battlefield as any[]).map((permanent: any) => String(permanent?.id || '')))
           : []
       );
+      const paidTargetMetadata = inferTriggeredAbilityTargetMetadata(paidEffect, {
+        gameState: (ctx as any).state,
+        controllerId: String(triggerController),
+        sourceName,
+      });
       const resolvedTriggerItem = {
         ...(item as any),
         description: paidEffect,
         effect: paidEffect,
         optionalPaymentResolved: true,
+        ...paidTargetMetadata,
       } as any;
 
       if (hasRandomCreatureGraveyardReturn && !String(resolvedTriggerItem.boundGraveyardCardId || '').trim()) {

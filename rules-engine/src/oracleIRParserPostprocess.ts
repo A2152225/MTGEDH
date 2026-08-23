@@ -39,6 +39,9 @@ import {
   splitIntoClauses,
 } from './oracleIRParserUtils';
 import { isStandardOracleFragmentOnly } from './oracleReminderText';
+import { repairAnyPlayerMayTaxSteps } from './oracleIRAnyPlayerMay';
+import { repairGainControlCompoundRiderSteps } from './oracleIRGainControlCompoundRepair';
+import { repairRemoveCountersCostReduceSteps } from './oracleIRRemoveCountersCostReduce';
 
 type GlobalExiledWithSourceImpulsePermission = {
   readonly duration: 'as_long_as_control_source';
@@ -31024,8 +31027,99 @@ function mergeAdjacentCreateTokenFollowupSteps(steps: readonly OracleEffectStep[
   return out;
 }
 
+
+/** "Target player draws N, then discards" — elided then-discard keeps that player. */
+export function repairTargetPlayerDrawThenDiscardSteps(
+  steps: readonly OracleEffectStep[],
+): OracleEffectStep[] {
+  if (steps.length < 2) return [...steps];
+  const out: OracleEffectStep[] = [];
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
+    const next = steps[index + 1];
+    if (
+      step?.kind === 'draw'
+      && next?.kind === 'discard'
+      && (step.who as any)?.kind === 'target_player'
+      && (next.who as any)?.kind === 'you'
+      && (/^then\b/i.test(String(next.raw || '')) || next.sequence === 'then')
+    ) {
+      out.push(step);
+      out.push({
+        ...next,
+        who: parsePlayerSelector('target player'),
+      } as OracleEffectStep);
+      index += 1;
+      continue;
+    }
+    out.push(step);
+  }
+  return out;
+}
+
+/**
+ * Distended Mindbender-style: reveal hand + "You choose from it A and B" grant_static
+ * + discard those cards → drop the static grant and stamp dual-filter discard target.
+ */
+export function repairRevealHandChooseFromItDiscardSteps(
+  steps: readonly OracleEffectStep[],
+): OracleEffectStep[] {
+  if (steps.length < 2) return [...steps];
+  const out: OracleEffectStep[] = [];
+  let index = 0;
+  while (index < steps.length) {
+    const step = steps[index];
+    const mid = steps[index + 1];
+    const end = steps[index + 2];
+    const chooseRaw = String((mid as any)?.raw || (mid as any)?.effectText?.[0] || '').replace(/\u2019/g, "'");
+    const chooseMatch = chooseRaw.match(/^you choose from it (.+)$/i);
+    if (
+      step?.kind === 'reveal_hand'
+      && mid?.kind === 'grant_static_ability'
+      && chooseMatch
+      && end?.kind === 'discard'
+      && /those cards/i.test(String((end as any)?.target?.text || end.raw || ''))
+    ) {
+      const filterText = String(chooseMatch[1] || '').trim().replace(/\.$/, '');
+      const andParts = filterText.split(/\s+and\s+/i).map((part: string) => part.trim()).filter(Boolean);
+      const amountValue = Math.max(1, andParts.length || 2);
+      out.push(step);
+      out.push({
+        ...end,
+        who: (step as any).who?.kind === 'target_opponent'
+          ? { kind: 'target_opponent' }
+          : ((end as any).who || { kind: 'target_player' }),
+        amount: { kind: 'number', value: amountValue },
+        target: { kind: 'raw', text: filterText },
+        raw: String(end.raw || 'That player discards those cards'),
+      } as OracleEffectStep);
+      index += 3;
+      continue;
+    }
+    out.push(step);
+    index += 1;
+  }
+  return out;
+}
+
+function mapChooseModeNestedRepairs(
+  steps: readonly OracleEffectStep[],
+  repair: (inner: readonly OracleEffectStep[]) => OracleEffectStep[],
+): OracleEffectStep[] {
+  return steps.map((step) => {
+    if (step.kind !== 'choose_mode' || !Array.isArray((step as any).modes)) return step;
+    let changed = false;
+    const modes = (step as any).modes.map((mode: any) => {
+      const nested = repair(mode.steps || []);
+      if (nested !== mode.steps) changed = true;
+      return nested === mode.steps ? mode : { ...mode, steps: nested };
+    });
+    return changed ? { ...step, modes } : step;
+  });
+}
+
 function repairAbilityExecutionSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
-  return mergeAdjacentCreateTokenFollowupSteps(
+  const repairedFlat = mergeAdjacentCreateTokenFollowupSteps(
     repairFightDamageSourceSteps(
     repairFroghemothCounterAndLifeSteps(
       repairEmblemWithNestedConditionalSteps(
@@ -31033,8 +31127,18 @@ function repairAbilityExecutionSteps(steps: readonly OracleEffectStep[]): Oracle
           repairCompoundExileLookSteps(
             repairGraveyardChooseThenReturnSteps(
               repairCopyRetargetTailSteps(
-                repairThatPlayerHandBottomThenDrawSteps(
-                  repairMoveZoneSelectorSteps(steps),
+                repairRevealHandChooseFromItDiscardSteps(
+                  repairTargetPlayerDrawThenDiscardSteps(
+                    repairThatPlayerHandBottomThenDrawSteps(
+                      repairRemoveCountersCostReduceSteps(
+                        repairGainControlCompoundRiderSteps(
+                          repairAnyPlayerMayTaxSteps(
+                            repairMoveZoneSelectorSteps(steps),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -31043,6 +31147,10 @@ function repairAbilityExecutionSteps(steps: readonly OracleEffectStep[]): Oracle
       ),
     ),
   ),
+  );
+  // Choose-mode bullets are parsed in isolation; re-run draw-then-discard repair inside modes.
+  return mapChooseModeNestedRepairs(repairedFlat, (inner) =>
+    repairTargetPlayerDrawThenDiscardSteps(inner),
   );
 }
 

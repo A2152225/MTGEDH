@@ -33,6 +33,7 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
   targetTotalPowerLimit?: number;
   targetCastWithoutPayingManaCost?: boolean;
   targetCastIsOptional?: boolean;
+  targetFilterRequiresOneOrMoreColors?: boolean;
   minTargets?: number;
   maxTargets?: number;
 } {
@@ -60,6 +61,7 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
   let targetTotalPowerLimit: number | undefined;
   let targetCastWithoutPayingManaCost = false;
   let targetCastIsOptional = false;
+  let targetFilterRequiresOneOrMoreColors = false;
   let minTargets: number | undefined;
   let maxTargets: number | undefined;
 
@@ -204,9 +206,27 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
       }
     }
 
+    // Non-GY put-on-library destinations (battlefield bounce-to-library, e.g. Lashweed Lurker).
+    if (!targetDestination) {
+      if (/on top of (?:its|their) owner['\u2019]?s library/.test(lower)) {
+        targetDestination = 'library_top';
+        destinationUsesSelectedCardOwner = true;
+      } else if (lower.includes('on top of your library') || lower.includes('on the top of your library')) {
+        targetDestination = 'library_top';
+      } else if (/on the bottom of (?:its|their) owner['\u2019]?s library/.test(lower)) {
+        targetDestination = 'library_bottom';
+        destinationUsesSelectedCardOwner = true;
+      } else if (lower.includes('on the bottom of your library')) {
+        targetDestination = 'library_bottom';
+      }
+    }
+
     if (lower.includes('target creature or planeswalker')) targetType = 'creature or planeswalker';
     else if (/\btarget aura or equipment\b/.test(lower) || /\btarget equipment or aura\b/.test(lower)) targetType = 'aura or equipment';
     else if (lower.includes('target artifact or enchantment')) targetType = 'artifact or enchantment';
+    else if (/target artifact, enchantment, or land\b/.test(lower) || /target artifact, land, or enchantment\b/.test(lower) || /target enchantment, artifact, or land\b/.test(lower)) {
+      targetType = 'artifact, enchantment, or land';
+    }
     else if (lower.includes('target noncreature artifact')) targetType = 'noncreature artifact';
     else if (/target\s+non-[a-z0-9'-]+(?:\s+[a-z0-9'-]+)*\s+creature\b/.test(lower)) targetType = 'creature';
     // "target attacking creature" / "target blocking creature" / "target attacking or blocking creature"
@@ -214,6 +234,7 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
     else if (/\btarget\s+(?:attacking(?:\s+or\s+blocking)?|blocking)\s+(?:[a-z0-9'-]+\s+)*creature\b/.test(lower)) targetType = 'creature';
     else if (lower.includes('target creature')) targetType = 'creature';
     else if (lower.includes('target player') || lower.includes('target opponent')) targetType = 'player';
+    else if (/target permanent or opponent\b/.test(lower) || /target opponent or permanent\b/.test(lower)) targetType = 'permanent or player';
     else if (lower.includes('target permanent')) targetType = 'permanent';
     else if (lower.includes('target land')) targetType = 'land';
     else if (lower.includes('target artifact')) targetType = 'artifact';
@@ -223,6 +244,40 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
     else if (lower.includes('target nonland')) targetType = 'nonland permanent';
     else if (lower.includes('target noncreature')) targetType = 'noncreature permanent';
     else if (lower.includes('any target')) targetType = 'any';
+  }
+
+  // Non-GY "up to N target" / "N target" counts (GY branch already sets these when applicable).
+  if (requiresTarget && minTargets === undefined && maxTargets === undefined) {
+    if (lower.includes('any number of target')) {
+      minTargets = 0;
+      maxTargets = 99;
+    } else if (/\bfor each opponent\b/.test(lower) && /\bup to one target\b/.test(lower)) {
+      minTargets = 0;
+      const players = Array.isArray(context?.gameState?.players) ? context!.gameState.players : [];
+      const controllerId = String(context?.controllerId || '').trim();
+      const opponentCount = players.filter((pl: any) => {
+        const id = String(pl?.id || '').trim();
+        return id && id !== controllerId;
+      }).length;
+      maxTargets = Math.max(1, opponentCount || 3);
+    } else if (/\bup to one target\b/.test(lower)) {
+      minTargets = 0;
+      maxTargets = 1;
+    } else if (/\bup to three target\b/.test(lower)) {
+      minTargets = 0;
+      maxTargets = 3;
+    } else if (/\bup to four target\b/.test(lower)) {
+      minTargets = 0;
+      maxTargets = 4;
+    } else if (/\btwo target\b/.test(lower)) {
+      minTargets = 2;
+      maxTargets = 2;
+    }
+  }
+
+  // Colored-permanent riders (Ugin Eye of the Storms, etc.).
+  if (requiresTarget && /\b(?:that(?:'s| is)|which (?:are|is)) one or more colors\b/i.test(lower)) {
+    targetFilterRequiresOneOrMoreColors = true;
   }
 
   let targetConstraint: 'opponent' | 'you' | undefined;
@@ -267,6 +322,7 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
     targetTotalPowerLimit,
     targetCastWithoutPayingManaCost,
     targetCastIsOptional,
+    targetFilterRequiresOneOrMoreColors,
     minTargets,
     maxTargets,
   };

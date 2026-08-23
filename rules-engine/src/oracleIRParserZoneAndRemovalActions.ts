@@ -6,6 +6,7 @@ import {
   splitSacrificeObjectAndCondition,
 } from './oracleIRParserSacrificeHelpers';
 import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
+import { tryParseAnyPlayerMayCompoundClause } from './oracleIRAnyPlayerMay';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
@@ -199,7 +200,33 @@ export function tryParseZoneAndRemovalClause(args: {
     return withMeta({ kind: 'destroy', target: parseObjectSelector(destroyMatch[1]), raw: rawClause });
   }
 
-  const counterUnlessPaysMatch = clause.match(/^counter\s+target\s+spell\s+unless\s+its\s+controller\s+pays\s+(\{[^}]+\})$/i);
+  const anyPlayerMayCompound = tryParseAnyPlayerMayCompoundClause(clause);
+  if (anyPlayerMayCompound) {
+    return withMeta(anyPlayerMayCompound as any);
+  }
+
+  const counterSelfUnlessSacrificeMatch = clause.match(
+    /^counter\s+(it|this spell)\s+unless\s+(you|its controller)\s+sacrifices?\s+(.+)$/i
+  );
+  if (counterSelfUnlessSacrificeMatch) {
+    const whoText = String(counterSelfUnlessSacrificeMatch[2] || 'you').trim();
+    const whatText = String(counterSelfUnlessSacrificeMatch[3] || '').trim().replace(/\.$/, '');
+    return withMeta({
+      kind: 'unless_sacrifices',
+      who: parsePlayerSelector(whoText),
+      what: { kind: 'raw', text: whatText },
+      steps: [
+        withMeta({
+          kind: 'counter_spell',
+          target: parseObjectSelector(String(counterSelfUnlessSacrificeMatch[1] || 'this spell').trim()),
+          raw: rawClause,
+        }),
+      ],
+      raw: rawClause,
+    });
+  }
+
+    const counterUnlessPaysMatch = clause.match(/^counter\s+target\s+spell\s+unless\s+its\s+controller\s+pays\s+(\{[^}]+\})$/i);
   if (counterUnlessPaysMatch) {
     return withMeta({
       kind: 'unless_pays_mana',

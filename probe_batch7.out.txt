@@ -1,0 +1,182 @@
+﻿
+==== Emrakul, the Promised End ====
+steps: [
+  {
+    "kind": "gain_control",
+    "what": {
+      "kind": "raw",
+      "text": "target opponent"
+    },
+    "newController": {
+      "kind": "you"
+    },
+    "duration": "during_that_players_next_turn",
+    "raw": "you gain control of target opponent during that player's next turn"
+  },
+  {
+    "kind": "take_extra_turn",
+    "who": {
+      "kind": "target_player"
+    },
+    "raw": "After that turn, that player takes an extra turn"
+  }
+]
+meta: {
+  requiresTarget: true,
+  targetType: 'player',
+  targetConstraint: undefined,
+  targetZone: undefined,
+  targetDestination: undefined,
+  targetGraveyardScope: undefined,
+  destinationUsesSelectedCardOwner: false,
+  battlefieldControllerMode: undefined,
+  battlefieldCounters: undefined,
+  targetAction: undefined,
+  targetFilterTypes: undefined,
+  targetFilterRequiredTypeWords: undefined,
+  targetFilterExcludeTypes: undefined,
+  targetFilterPermanentOnly: false,
+  targetFilterExactManaValue: undefined,
+  targetFilterMinManaValue: undefined,
+  targetFilterMaxManaValue: undefined,
+  targetTotalPowerLimit: undefined,
+  targetCastWithoutPayingManaCost: false,
+  targetCastIsOptional: false,
+  targetFilterRequiresOneOrMoreColors: false,
+  minTargets: undefined,
+  maxTargets: undefined
+}
+irWired: true
+
+==== Emrakul, the World Anew ====
+steps: [
+  {
+    "kind": "gain_control",
+    "what": {
+      "kind": "raw",
+      "text": "all creatures target player controls"
+    },
+    "newController": {
+      "kind": "you"
+    },
+    "duration": "indefinite",
+    "raw": "gain control of all creatures target player controls"
+  }
+]
+meta: {
+  requiresTarget: true,
+  targetType: 'player',
+  targetConstraint: undefined,
+  targetZone: undefined,
+  targetDestination: undefined,
+  targetGraveyardScope: undefined,
+  destinationUsesSelectedCardOwner: false,
+  battlefieldControllerMode: undefined,
+  battlefieldCounters: undefined,
+  targetAction: undefined,
+  targetFilterTypes: undefined,
+  targetFilterRequiredTypeWords: undefined,
+  targetFilterExcludeTypes: undefined,
+  targetFilterPermanentOnly: false,
+  targetFilterExactManaValue: undefined,
+  targetFilterMinManaValue: undefined,
+  targetFilterMaxManaValue: undefined,
+  targetTotalPowerLimit: undefined,
+  targetCastWithoutPayingManaCost: false,
+  targetCastIsOptional: false,
+  targetFilterRequiresOneOrMoreColors: false,
+  minTargets: undefined,
+  maxTargets: undefined
+}
+irWired: true
+
+==== Lashweed Lurker ====
+steps: [
+  {
+    "kind": "move_zone",
+    "what": {
+      "kind": "raw",
+      "text": "target nonland permanent"
+    },
+    "to": "library",
+    "toRaw": "top of its owner's library",
+    "raw": "you may put target nonland permanent on top of its owner's library",
+    "optional": true
+  }
+]
+meta: {
+  requiresTarget: true,
+  targetType: 'nonland permanent',
+  targetConstraint: undefined,
+  targetZone: undefined,
+  targetDestination: 'library_top',
+  targetGraveyardScope: undefined,
+  destinationUsesSelectedCardOwner: true,
+  battlefieldControllerMode: undefined,
+  battlefieldCounters: undefined,
+  targetAction: undefined,
+  targetFilterTypes: undefined,
+  targetFilterRequiredTypeWords: undefined,
+  targetFilterExcludeTypes: undefined,
+  targetFilterPermanentOnly: false,
+  targetFilterExactManaValue: undefined,
+  targetFilterMinManaValue: undefined,
+  targetFilterMaxManaValue: undefined,
+  targetTotalPowerLimit: undefined,
+  targetCastWithoutPayingManaCost: false,
+  targetCastIsOptional: false,
+  targetFilterRequiresOneOrMoreColors: false,
+  minTargets: undefined,
+  maxTargets: undefined
+}
+irWired: true
+
+==== Brain Gorgers ====
+steps: [
+  {
+    "kind": "grant_static_ability",
+    "target": {
+      "kind": "raw",
+      "text": "choice"
+    },
+    "effectText": [
+      "any player may sacrifice a creature of their choice"
+    ],
+    "duration": "static",
+    "raw": "any player may sacrifice a creature of their choice"
+  },
+  {
+    "kind": "counter_spell",
+    "target": {
+      "kind": "raw",
+      "text": "this permanent"
+    },
+    "raw": "If a player does, counter this permanent"
+  }
+]
+meta: {
+  requiresTarget: false,
+  targetType: undefined,
+  targetConstraint: undefined,
+  targetZone: undefined,
+  targetDestination: undefined,
+  targetGraveyardScope: undefined,
+  destinationUsesSelectedCardOwner: false,
+  battlefieldControllerMode: undefined,
+  battlefieldCounters: undefined,
+  targetAction: undefined,
+  targetFilterTypes: undefined,
+  targetFilterRequiredTypeWords: undefined,
+  targetFilterExcludeTypes: undefined,
+  targetFilterPermanentOnly: false,
+  targetFilterExactManaValue: undefined,
+  targetFilterMinManaValue: undefined,
+  targetFilterMaxManaValue: undefined,
+  targetTotalPowerLimit: undefined,
+  targetCastWithoutPayingManaCost: false,
+  targetCastIsOptional: false,
+  targetFilterRequiresOneOrMoreColors: false,
+  minTargets: undefined,
+  maxTargets: undefined
+}
+irWired: true

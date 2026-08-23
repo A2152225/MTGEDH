@@ -46,9 +46,21 @@ export function applyChooseModeStep(
   options: OracleIRExecutionOptions,
   applyNestedSteps: ApplyNestedSteps
 ): ChooseModeStepResult {
-  const rawSelectedModeIds = Array.isArray(options.selectedModeIds)
+  const modeById = new Map(
+    ((step as any).modes || []).map((mode: any) => [String(mode?.label || '').trim(), mode] as const)
+  );
+  const allModeLabels = Array.from(modeById.keys()).filter(Boolean);
+  const sourceWasKicked = ctx.wasKicked === true
+    || (ctx as any).selectorContext?.wasKicked === true;
+  const kickerChooseBoth = Boolean((step as any).kickerChooseBoth);
+  const forceBothFromKicker = kickerChooseBoth && sourceWasKicked && allModeLabels.length > 0;
+
+  let rawSelectedModeIds = Array.isArray(options.selectedModeIds)
     ? options.selectedModeIds
     : null;
+  if (!rawSelectedModeIds && forceBothFromKicker) {
+    rawSelectedModeIds = allModeLabels;
+  }
   if (!rawSelectedModeIds) {
     return {
       kind: 'recorded_skip',
@@ -65,9 +77,6 @@ export function applyChooseModeStep(
   const normalizedSelectedModeIds = rawSelectedModeIds
     .map(id => (typeof id === 'string' ? id.trim() : ''))
     .filter(Boolean);
-  const modeById = new Map(
-    ((step as any).modes || []).map((mode: any) => [String(mode?.label || '').trim(), mode] as const)
-  );
   const rememberChosenModes = Boolean((step as any).rememberChosenModes);
   const modeMemoryKey = String(ctx.sourceId || ctx.sourceName || (step as any).raw || 'choose-mode').trim();
   const priorModeChoices = rememberChosenModes
@@ -83,12 +92,17 @@ export function applyChooseModeStep(
   const selectedModes = normalizedSelectedModeIds
     .map(id => modeById.get(id))
     .filter((mode): mode is { label: string; steps: readonly OracleEffectStep[]; pCost?: number } => Boolean(mode));
-  const minModes = Math.max(0, Number((step as any).minModes ?? 0) || 0);
+  let minModes = Math.max(0, Number((step as any).minModes ?? 0) || 0);
   const maxModesRaw = Number((step as any).maxModes ?? -1);
   let maxModes = Number.isFinite(maxModesRaw) && maxModesRaw >= 0 ? maxModesRaw : Infinity;
   if (Boolean((step as any).teamworkChooseBoth) && ctx.teamworkWasPaid === true) {
     const modeCount = Array.isArray((step as any).modes) ? (step as any).modes.length : 0;
     maxModes = Math.min(2, modeCount > 0 ? modeCount : 2);
+  }
+  if (forceBothFromKicker) {
+    const modeCount = allModeLabels.length;
+    minModes = modeCount;
+    maxModes = modeCount;
   }
   const pBudgetRaw = Number((step as any).pBudget ?? NaN);
   const hasPBudget = Number.isFinite(pBudgetRaw) && pBudgetRaw > 0;

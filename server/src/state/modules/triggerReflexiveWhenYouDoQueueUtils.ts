@@ -28,6 +28,9 @@ import {
   parseReflexiveConvertWhenYouDo,
   parseReflexiveDiscardWhenYouDo,
   parseReflexiveFixedPaymentWhenYouDo,
+  parseReflexiveExileToOwnersGraveyardWhenYouDo,
+  formatReflexiveExileToOwnersGraveyardLabel,
+  collectOpponentOwnedExileCardTargets,
   parseReflexiveGraveyardExileWhenYouDo,
   parseReflexiveSacrificeWhenYouDo,
   permanentMatchesReflexiveSacrificeType,
@@ -787,6 +790,73 @@ function maybeQueueReflexiveGraveyardExileWhenYouDo(
   return true;
 }
 
+
+function maybeQueueReflexiveExileToOwnersGraveyardWhenYouDo(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  description: string,
+): boolean {
+  const parsed = parseReflexiveExileToOwnersGraveyardWhenYouDo(description);
+  if (!parsed) return false;
+
+  if ((ctx as any).isReplaying) {
+    debug(2, `[resolveTopOfStack] Reflexive exile-to-GY processor for ${sourceName}: skipping prompt discovery during replay`);
+    return true;
+  }
+
+  const validTargets = collectOpponentOwnedExileCardTargets((ctx as any).state, String(triggerController));
+  if (validTargets.length < parsed.putCount) {
+    debug(2, `[resolveTopOfStack] Reflexive exile-to-GY processor for ${sourceName}: not enough opponent-owned exile cards`);
+    return true;
+  }
+
+  const sourcePermanentId = String((item as any).source || (item as any).permanentId || '').trim();
+  const promptSourceId = sourcePermanentId || String(sourceId || '').trim();
+  const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(getTriggerSourcePermanent((ctx as any).state, item));
+  const followupDescription = materializeReflexiveSourceText(parsed.followupText, sourceName);
+  const putLabel = formatReflexiveExileToOwnersGraveyardLabel(parsed.putCount);
+
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: triggerController as PlayerID,
+    sourceId: promptSourceId || undefined,
+    sourceName,
+    sourceImage: (item as any)?.card?.image_uris?.small || (item as any)?.card?.image_uris?.normal,
+    description: `${sourceName}: You may put ${putLabel}.`,
+    mandatory: false,
+    options: [
+      {
+        id: 'put',
+        label: `Put ${putLabel}`,
+        description: followupDescription,
+      },
+      {
+        id: 'decline',
+        label: 'Decline',
+        description: 'Do not put cards from exile into graveyards.',
+      },
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    reflexiveExileToOwnersGraveyardWhenYouDo: true,
+    reflexiveExileToOwnersGraveyardWhenYouDoStage: 'ask',
+    reflexiveExileToOwnersGraveyardWhenYouDoCount: parsed.putCount,
+    reflexiveExileToOwnersGraveyardWhenYouDoController: String(triggerController),
+    reflexiveExileToOwnersGraveyardWhenYouDoSourceName: sourceName,
+    reflexiveExileToOwnersGraveyardWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
+    reflexiveExileToOwnersGraveyardWhenYouDoFollowupDescription: followupDescription,
+    reflexiveExileToOwnersGraveyardWhenYouDoOriginalEffect: description,
+    reflexiveExileToOwnersGraveyardWhenYouDoValidTargets: validTargets,
+    ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+  } as any);
+
+  debug(2, `[resolveTopOfStack] Deferred reflexive exile-to-GY processor for ${sourceName} (${triggerController})`);
+  return true;
+}
+
 export function tryDeferReflexiveWhenYouDoTriggers(
   ctx: GameContext,
   item: any,
@@ -805,6 +875,10 @@ export function tryDeferReflexiveWhenYouDoTriggers(
   }
   if (maybeQueueReflexiveFixedPaymentWhenYouDo(ctx, item, triggerController, sourceName, sourceId, description)) {
     debug(2, `[resolveTopOfStack] Deferred reflexive fixed payment trigger for ${sourceName} (${triggerController})`);
+    return true;
+  }
+  if (maybeQueueReflexiveExileToOwnersGraveyardWhenYouDo(ctx, item, triggerController, sourceName, sourceId, description)) {
+    debug(2, `[resolveTopOfStack] Deferred reflexive exile-to-GY processor for ${sourceName} (${triggerController})`);
     return true;
   }
   if (maybeQueueReflexiveDiscardWhenYouDo(ctx, item, triggerController, sourceName, sourceId, description)) {

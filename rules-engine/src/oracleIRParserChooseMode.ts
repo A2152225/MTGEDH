@@ -48,6 +48,7 @@ function resolveChooseModeLimits(headerText: string): {
   readonly canRepeatModes: boolean;
   readonly rememberChosenModes: boolean;
   readonly teamworkChooseBoth?: boolean;
+  readonly kickerChooseBoth?: boolean;
   readonly optional?: boolean;
   readonly distinctPlayerTargets?: boolean;
 } {
@@ -57,10 +58,11 @@ function resolveChooseModeLimits(headerText: string): {
   const canRepeatModes = /you may choose the same mode more than once/i.test(headerText);
   const rememberChosenModes = /choose\s+one\s+that\s+has(?:n't| not)\s+been\s+chosen/i.test(headerText);
   const teamworkChooseBoth = /if this spell was cast using teamwork,\s*choose both instead/i.test(headerText);
+  const kickerChooseBoth = /if it was kicked,\s*choose both instead/i.test(headerText);
   const optional = /^you\s+may\s+choose\b/i.test(normalizedHeaderText);
   const distinctPlayerTargets = /each mode must target a different player/i.test(headerText);
   const chooseHeaderText = normalizedHeaderText.replace(/^you\s+may\s+/i, '');
-  const chooseBothInstead = !teamworkChooseBoth && /(?:you may\s+)?choose both instead/i.test(headerText);
+  const chooseBothInstead = !teamworkChooseBoth && !kickerChooseBoth && /(?:you may\s+)?choose both instead/i.test(headerText);
   const chooseAnyNumberInstead = /(?:you may\s+)?choose any number instead/i.test(headerText);
   const oneOrBothMatch = chooseHeaderText.match(/^choose\s+one\s+or\s+both\b/i);
   const oneOrMoreMatch = chooseHeaderText.match(/^choose\s+one\s+or\s+more\b/i);
@@ -74,6 +76,10 @@ function resolveChooseModeLimits(headerText: string): {
   } else if (oneOrBothMatch || chooseBothInstead) {
     minModes = 1;
     maxModes = 2;
+  } else if (kickerChooseBoth) {
+    // Unkicked: exactly one. Kicked: executor forces both via kickerChooseBoth + wasKicked.
+    minModes = 1;
+    maxModes = 1;
   } else if (oneOrMoreMatch || chooseAnyNumberInstead) {
     minModes = 1;
     maxModes = 99;
@@ -95,6 +101,7 @@ function resolveChooseModeLimits(headerText: string): {
     canRepeatModes,
     rememberChosenModes,
     ...(teamworkChooseBoth ? { teamworkChooseBoth: true } : {}),
+    ...(kickerChooseBoth ? { kickerChooseBoth: true } : {}),
     ...(optional ? { optional: true } : {}),
     ...(distinctPlayerTargets ? { distinctPlayerTargets: true } : {}),
   };
@@ -261,6 +268,7 @@ export function tryParseChooseModeBlock(
     canRepeatModes,
     rememberChosenModes,
     teamworkChooseBoth,
+    kickerChooseBoth,
     optional,
     distinctPlayerTargets,
   } = resolveChooseModeLimits(headerText);
@@ -288,6 +296,7 @@ export function tryParseChooseModeBlock(
     canRepeatModes,
     ...(rememberChosenModes ? { rememberChosenModes: true } : {}),
     ...(teamworkChooseBoth ? { teamworkChooseBoth: true } : {}),
+    ...(kickerChooseBoth ? { kickerChooseBoth: true } : {}),
     ...(optional ? { optional: true } : {}),
     ...(distinctPlayerTargets ? { distinctPlayerTargets: true } : {}),
     modes,
@@ -308,6 +317,7 @@ export function tryParseChooseModeHeaderOnly(
     canRepeatModes,
     rememberChosenModes,
     teamworkChooseBoth,
+    kickerChooseBoth,
     optional,
     distinctPlayerTargets,
   } = resolveChooseModeLimits(normalized);
@@ -319,6 +329,7 @@ export function tryParseChooseModeHeaderOnly(
     canRepeatModes,
     ...(rememberChosenModes ? { rememberChosenModes: true } : {}),
     ...(teamworkChooseBoth ? { teamworkChooseBoth: true } : {}),
+    ...(kickerChooseBoth ? { kickerChooseBoth: true } : {}),
     ...(optional ? { optional: true } : {}),
     ...(distinctPlayerTargets ? { distinctPlayerTargets: true } : {}),
     modes: [],

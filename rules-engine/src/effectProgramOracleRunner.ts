@@ -1260,6 +1260,12 @@ function createOracleIRContextWithEffectProgramBindings(
     ...(derived.selectorContext?.unlessPaysLifeChoice === 'pay' || derived.selectorContext?.unlessPaysLifeChoice === 'decline'
       ? { unlessPaysLifeChoice: derived.selectorContext.unlessPaysLifeChoice }
       : {}),
+    ...(derived.selectorContext?.unlessDiscardsChoice === 'discard' || derived.selectorContext?.unlessDiscardsChoice === 'decline'
+      ? { unlessDiscardsChoice: derived.selectorContext.unlessDiscardsChoice }
+      : {}),
+    ...(derived.selectorContext?.unlessSacrificesChoice === 'sacrifice' || derived.selectorContext?.unlessSacrificesChoice === 'decline'
+      ? { unlessSacrificesChoice: derived.selectorContext.unlessSacrificesChoice }
+      : {}),
     selectorContext: {
       ...(ctx.selectorContext || {}),
       ...(derived.selectorContext || {}),
@@ -1449,6 +1455,16 @@ function deriveOracleIRContextFromEffectProgramBindings(
       } else {
         selectorContext.unlessPaysLifeChoice = payChoice ? 'pay' : 'decline';
       }
+      continue;
+    }
+
+    if (oracleStepKind === 'unless_discards') {
+      selectorContext.unlessDiscardsChoice = firstSelection === 'discard' ? 'discard' : 'decline';
+      continue;
+    }
+
+    if (oracleStepKind === 'unless_sacrifices') {
+      selectorContext.unlessSacrificesChoice = firstSelection === 'sacrifice' ? 'sacrifice' : 'decline';
       continue;
     }
 

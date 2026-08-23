@@ -6,6 +6,7 @@ import { appendEvent } from '../../db/index.js';
 import { mergeRetainedCountersForBattlefieldEntry } from '../../../../shared/src/zoneRetainedCounters.js';
 import { detectEntersWithCounters } from './detectEntersWithCounters.js';
 import { deriveSelfEntryCountersFromOracleIR } from '../../../../rules-engine/src/oracleIRSelfEntryCounters.js';
+import { resolveCommanderCastsFromCommandZoneThisGame } from '../../../../rules-engine/src/oracleIRExecutorCommanderCastCount.js';
 import { checkPermanentEntersTapped } from './triggerPermanentEntersTapped.js';
 import { creatureWillHaveHaste } from './creatureEntryHasteUtils.js';
 import { applyCounterModifications } from './counters_tokens.js';
@@ -345,20 +346,9 @@ export function resolvePermanentSpellBattlefieldEntry(
     oracleTextLower.includes("for each time") && 
     oracleTextLower.includes("commander from the command zone")
   )) {
-    // Count commander casts from tax
-    // Per MTG rules, commander tax increases by {2} for each time the commander has been cast
-    // from the command zone. Therefore, tax / 2 = number of times cast from command zone.
-    const commandZone = (state as any).commandZone?.[controller];
-    let totalCommanderCasts = 0;
-    
-    if (commandZone?.taxById) {
-      // Sum up all commander casts: (tax / 2) for each commander in the command zone
-      for (const [, tax] of Object.entries(commandZone.taxById)) {
-        const taxNumber = typeof tax === 'number' ? tax : 0;
-        // Commander tax = 2 * number_of_casts, so casts = tax / 2
-        totalCommanderCasts += Math.floor(taxNumber / 2);
-      }
-    }
+    // Same authoritative CZ-cast count as Hatut-style "copy it for each time you've cast your commander..."
+    // (taxById sum / 2, with explicit commanderCastsFromCommandZoneThisGame fallback).
+    const totalCommanderCasts = resolveCommanderCastsFromCommandZoneThisGame(state as any, controller);
     
     // Add loyalty for each commander cast (including Jeska herself if she was just cast from command zone)
     if (totalCommanderCasts > 0) {

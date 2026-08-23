@@ -1,0 +1,2930 @@
+{
+  "audited_at": "2026-08-22T21:55:00-04:00",
+  "query": "oracle:\"When you cast this spell, \" (game:paper) prefer:best",
+  "total_unique": 85,
+  "fixes": [
+    "extractSelfCastEffectClauses full-line + multi + bullets",
+    "resolveOnCastSpellTriggerDescriptions + game-actions loop",
+    "inferrer compound type + up-to-N",
+    "matchesRequiredTypeWords OR groups",
+    "generic control-next-turn (during_that_players_next_turn + preface rename off Emrakul)",
+    "World Anew-style all creatures target player controls gain_control",
+    "non-GY library_top destination metadata (Lashweed)",
+    {
+      "id": 13,
+      "title": "Any-player-may tax windows",
+      "detail": "Generic any_player_may (life/half-life/discard/sacrifice) + APNAP prompts; Brain Gorgers / Dash Hopes / Temporal Extortion / Phantasmagorian."
+    },
+    {
+      "id": 14,
+      "title": "Targeted gain-control on-cast",
+      "detail": "Obligator compound rider repair; Flayer/Beast transfer; Taskmaster for-each-opponent maxTargets."
+    },
+    {
+      "id": 15,
+      "title": "Mutated Cultist remove-counters cost-reduce",
+      "detail": "remove-all-counters + next-spell cost reduce for counters removed this way."
+    }
+  ],
+  "clusters": {
+    "create_tokens": {
+      "count": 11,
+      "status": "partial",
+      "gap_notes": "Token creation generally IR/legacy wired; X-from-mana-spent (Prossh/Abby) and processor-style optional payment gates are higher risk.",
+      "cards": [
+        "Abby, Merciless Soldier",
+        "Benthic Anomaly",
+        "Blight Herder",
+        "Desolation Twin",
+        "Drowner of Truth // Drowned Jungle",
+        "It of the Horrid Swarm",
+        "Osgood, Operation Double",
+        "Prossh, Skyraider of Kher",
+        "Spawn-Gang Commander",
+        "Vile Redeemer",
+        "Writhing Chrysalis"
+      ],
+      "examples": [
+        "Abby, Merciless Soldier",
+        "Benthic Anomaly",
+        "Blight Herder",
+        "Desolation Twin",
+        "Drowner of Truth // Drowned Jungle"
+      ]
+    },
+    "gain_life": {
+      "count": 3,
+      "status": "partial",
+      "gap_notes": "Simple gain-life OK; Breaker-of-Creation for-each and Hydroid Krasis half-X are value-expression sensitive.",
+      "cards": [
+        "Abundant Maw",
+        "Breaker of Creation",
+        "Ruin Processor"
+      ],
+      "examples": [
+        "Abundant Maw",
+        "Breaker of Creation",
+        "Ruin Processor"
+      ]
+    },
+    "return_from_graveyard": {
+      "count": 5,
+      "status": "wired",
+      "gap_notes": "On-cast path uses inferTriggeredAbilityTargetMetadata (GY zone/destination). Artisan-class fix already landed; Bruna Angel-or-Human OR matching fixed in resolution.",
+      "cards": [
+        "Artisan of Kozilek",
+        "Bruna, the Fading Light",
+        "Demigod of Revenge",
+        "Sauron, Lord of the Rings",
+        "Vexing Scuttler"
+      ],
+      "examples": [
+        "Artisan of Kozilek",
+        "Bruna, the Fading Light",
+        "Demigod of Revenge",
+        "Sauron, Lord of the Rings",
+        "Vexing Scuttler"
+      ]
+    },
+    "sacrifice": {
+      "count": 4,
+      "status": "wired",
+      "gap_notes": "Bearer optional pay->opponent sacrifice wired via generic pay/If-you-do path. Mana Vortex uses generic unless_sacrifices. Brain Gorgers uses generic any_player_may sacrifice payment window.",
+      "cards": [
+        "Bearer of Silence",
+        "Brain Gorgers",
+        "Gluttonous Hellkite",
+        "Mana Vortex"
+      ],
+      "examples": [
+        "Bearer of Silence",
+        "Brain Gorgers",
+        "Gluttonous Hellkite",
+        "Mana Vortex"
+      ]
+    },
+    "copy_spell_or_permanent": {
+      "count": 8,
+      "status": "partial",
+      "gap_notes": "Spell-copy stack IR exists; creature token-copy and conditional copies (Sage/Bygone/Malicious) vary.",
+      "cards": [
+        "Brass Knuckles",
+        "Bygone Marvels",
+        "Lumaret's Favor",
+        "Mentor's Guidance",
+        "Photon Blast Barrage",
+        "Sage of the Skies",
+        "Show of Confidence",
+        "Storm of Forms"
+      ],
+      "examples": [
+        "Brass Knuckles",
+        "Bygone Marvels",
+        "Lumaret's Favor",
+        "Mentor's Guidance",
+        "Photon Blast Barrage"
+      ]
+    },
+    "search_library": {
+      "count": 1,
+      "status": "partial",
+      "gap_notes": "Conduit of Ruin / Sowing Mycospawn use library search infra; optional + put-on-top vs put-onto-battlefield differ.",
+      "cards": [
+        "Conduit of Ruin"
+      ],
+      "examples": [
+        "Conduit of Ruin"
+      ]
+    },
+    "any_player_may_tax": {
+      "count": 2,
+      "status": "wired",
+      "gap_notes": "Generic any_player_may IR + server OPTION_CHOICE APNAP window covers Dash Hopes / Temporal Extortion / Phantasmagorian / Brain Gorgers (life / half-life / discard / sacrifice).",
+      "cards": [
+        "Dash Hopes",
+        "Temporal Extortion"
+      ],
+      "examples": [
+        "Dash Hopes",
+        "Temporal Extortion"
+      ]
+    },
+    "pump": {
+      "count": 1,
+      "status": "wired",
+      "gap_notes": "Decimator mass pump until EOT is a common continuous-effect pattern under IR.",
+      "cards": [
+        "Decimator of the Provinces"
+      ],
+      "examples": [
+        "Decimator of the Provinces"
+      ]
+    },
+    "discard": {
+      "count": 3,
+      "status": "partial",
+      "gap_notes": "Distended Mindbender reveal+dual CMV choose-from-it discard repaired (no grant_static). Depth Defiler kickerChooseBoth + then-discard who fixed. Phantasmagorian on-cast tax uses generic any_player_may discard window.",
+      "cards": [
+        "Depth Defiler",
+        "Distended Mindbender",
+        "Phantasmagorian"
+      ],
+      "examples": [
+        "Depth Defiler",
+        "Distended Mindbender",
+        "Phantasmagorian"
+      ]
+    },
+    "exile_target_permanent": {
+      "count": 7,
+      "status": "partial",
+      "gap_notes": "Detection + targeting metadata improved (compound type for World Breaker; up-to-N for Ugin). Effect execution via oracle IR exile steps likely, but colored-permanent / rider clauses (Thief of Existence) need playtest.",
+      "cards": [
+        "Devourer of Destiny",
+        "Sowing Mycospawn",
+        "Thief of Existence",
+        "Ugin, Eye of the Storms",
+        "Ulamog, the Ceaseless Hunger",
+        "Wastescape Battlemage",
+        "World Breaker"
+      ],
+      "examples": [
+        "Devourer of Destiny",
+        "Sowing Mycospawn",
+        "Thief of Existence",
+        "Ugin, Eye of the Storms",
+        "Ulamog, the Ceaseless Hunger"
+      ]
+    },
+    "commander_cast_copy": {
+      "count": 6,
+      "status": "partial",
+      "gap_notes": "Hatut commander-CZ copy path recently fixed (tax/2 + stack copies). Other *Storm commander-copy spells share the pattern but need retest per card.",
+      "cards": [
+        "Echo Storm",
+        "Empyrial Storm",
+        "Fury Storm",
+        "Genesis Storm",
+        "Hatut Zeraze Strike Force",
+        "Skull Storm"
+      ],
+      "examples": [
+        "Echo Storm",
+        "Empyrial Storm",
+        "Fury Storm",
+        "Genesis Storm",
+        "Hatut Zeraze Strike Force"
+      ]
+    },
+    "tap": {
+      "count": 4,
+      "status": "partial",
+      "gap_notes": "up-to-N min/max now inferred (Elder Deep-Fiend, Supernatural Rescue). Stun-counter riders (Petrifying/Twisted) need counter placement verification.",
+      "cards": [
+        "Elder Deep-Fiend",
+        "Petrifying Meddler",
+        "Supernatural Rescue",
+        "Twisted Riddlekeeper"
+      ],
+      "examples": [
+        "Elder Deep-Fiend",
+        "Petrifying Meddler",
+        "Supernatural Rescue",
+        "Twisted Riddlekeeper"
+      ]
+    },
+    "gain_control": {
+      "count": 6,
+      "status": "wired",
+      "gap_notes": "Targeted gain-control (Obligator/Flayer/Beast) prompts + until-EOT transfer via repaired gain_control steps. Hideous Taskmaster for-each-opponent sets multi maxTargets. Promised End / World Anew remain on generic control-next-turn / bulk handlers.",
+      "cards": [
+        "Eldrazi Obligator",
+        "Emrakul, the Promised End",
+        "Emrakul, the World Anew",
+        "Flayer of Loyalties",
+        "Hideous Taskmaster",
+        "The Beast, Deathless Prince"
+      ],
+      "examples": [
+        "Eldrazi Obligator",
+        "Emrakul, the Promised End",
+        "Emrakul, the World Anew",
+        "Flayer of Loyalties",
+        "Hideous Taskmaster"
+      ]
+    },
+    "extra_turn": {
+      "count": 1,
+      "status": "wired",
+      "gap_notes": "Emrakul Aeons Torn shorthand remains. Promised End uses generic control-next-turn + take_extra_turn after-that-turn parse.",
+      "cards": [
+        "Emrakul, the Aeons Torn"
+      ],
+      "examples": [
+        "Emrakul, the Aeons Torn"
+      ]
+    },
+    "put_onto_battlefield": {
+      "count": 3,
+      "status": "partial",
+      "gap_notes": "Library/reveal-into-battlefield patterns (Genesis Hydra, Hatchery Spider, Oblivion Sower) are multi-step.",
+      "cards": [
+        "Genesis Hydra",
+        "Hatchery Spider",
+        "Wumpus Aberration"
+      ],
+      "examples": [
+        "Genesis Hydra",
+        "Hatchery Spider",
+        "Wumpus Aberration"
+      ]
+    },
+    "draw": {
+      "count": 7,
+      "status": "wired",
+      "gap_notes": "Queued on cast; Kozilek draw-four covered by eldrazi-cast-trigger-resolution.integration.test.ts + oracle IR draw steps.",
+      "cards": [
+        "Herigast, Erupting Nullkite",
+        "Hydroid Krasis",
+        "Kozilek, Butcher of Truth",
+        "Kozilek, the Broken Reality",
+        "Kozilek, the Great Distortion",
+        "Nulldrifter",
+        "Wretched Gryff"
+      ],
+      "examples": [
+        "Herigast, Erupting Nullkite",
+        "Hydroid Krasis",
+        "Kozilek, Butcher of Truth",
+        "Kozilek, the Broken Reality",
+        "Kozilek, the Great Distortion"
+      ]
+    },
+    "counter_related": {
+      "count": 1,
+      "status": "partial",
+      "gap_notes": "Hope-Ender Coatl counter-target may work; Mana Vortex counter-unless-sacrifice is IR unknown.",
+      "cards": [
+        "Hope-Ender Coatl"
+      ],
+      "examples": [
+        "Hope-Ender Coatl"
+      ]
+    },
+    "put_on_library_top": {
+      "count": 1,
+      "status": "wired",
+      "gap_notes": "Non-GY put-on-library sets targetDestination library_top + destinationUsesSelectedCardOwner.",
+      "cards": [
+        "Lashweed Lurker"
+      ],
+      "examples": [
+        "Lashweed Lurker"
+      ]
+    },
+    "other": {
+      "count": 2,
+      "status": "unknown",
+      "gap_notes": "Residual unique effects.",
+      "cards": [
+        "Malicious Affliction",
+        "Naya Soulbeast"
+      ],
+      "examples": [
+        "Malicious Affliction",
+        "Naya Soulbeast"
+      ]
+    },
+    "destroy": {
+      "count": 2,
+      "status": "wired",
+      "gap_notes": "Ulamog destroy target permanent: detection + target metadata + game-actions action map destroy_target_permanent; integration test present.",
+      "cards": [
+        "Mockery of Nature",
+        "Ulamog, the Infinite Gyre"
+      ],
+      "examples": [
+        "Mockery of Nature",
+        "Ulamog, the Infinite Gyre"
+      ]
+    },
+    "remove_counters_cost_reduce": {
+      "count": 1,
+      "status": "wired",
+      "gap_notes": "Generic remove-all-counters from up-to-one permanent/opponent + grant_next_spell_cost_reduction deferred via nextSpellCostReduction grants.",
+      "cards": [
+        "Mutated Cultist"
+      ],
+      "examples": [
+        "Mutated Cultist"
+      ]
+    },
+    "exile_library_top": {
+      "count": 2,
+      "status": "partial",
+      "gap_notes": "Oblivion Sower / Ulamog Defiler involve multi-step exile + optional put-lands; IR may parse but UX/choice flows are complex.",
+      "cards": [
+        "Oblivion Sower",
+        "Ulamog, the Defiler"
+      ],
+      "examples": [
+        "Oblivion Sower",
+        "Ulamog, the Defiler"
+      ]
+    },
+    "reveal_library": {
+      "count": 2,
+      "status": "partial",
+      "gap_notes": "Reveal-until / put Doctor cards / X creatures patterns are bespoke.",
+      "cards": [
+        "Old Stickfingers",
+        "The Fourteenth Doctor"
+      ],
+      "examples": [
+        "Old Stickfingers",
+        "The Fourteenth Doctor"
+      ]
+    },
+    "lose_life": {
+      "count": 1,
+      "status": "partial",
+      "gap_notes": "Abundant Maw opponent-lose+gain; Scourge kicked half-life needs kicker intervening-if.",
+      "cards": [
+        "Scourge of the Skyclaves"
+      ],
+      "examples": [
+        "Scourge of the Skyclaves"
+      ]
+    },
+    "put_counters": {
+      "count": 1,
+      "status": "partial",
+      "gap_notes": "Stun/takeover counters may need specialized counter handlers.",
+      "cards": [
+        "The Master, Formed Anew"
+      ],
+      "examples": [
+        "The Master, Formed Anew"
+      ]
+    }
+  },
+  "cards": [
+    {
+      "name": "Abby, Merciless Soldier",
+      "type_line": "Legendary Creature — Human Survivor",
+      "clauses": [
+        "create a number of 1/1 black Fungus Zombie creature tokens named Cordyceps Infected equal to the amount of mana spent to cast it"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, create a number of 1/1 black Fungus Zombie creature tokens named Cordyceps Infected equal to the amount of mana spent to cast it"
+      ],
+      "patterns": [
+        "create_tokens"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "create_token"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Abundant Maw",
+      "type_line": "Creature — Eldrazi Leech",
+      "clauses": [
+        "target opponent loses 3 life and you gain 3 life"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, target opponent loses 3 life and you gain 3 life"
+      ],
+      "patterns": [
+        "gain_life",
+        "lose_life"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "player",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "lose_life",
+        "gain_life"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Artisan of Kozilek",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "you may return target creature card from your graveyard to the battlefield"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you may return target creature card from your graveyard to the battlefield"
+      ],
+      "patterns": [
+        "return_from_graveyard",
+        "optional_you_may"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "creature",
+        "targetZone": "graveyard",
+        "targetDestination": "battlefield",
+        "targetGraveyardScope": "your",
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": [
+          "creature"
+        ]
+      },
+      "irWired": true,
+      "irKinds": [
+        "move_zone"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Bearer of Silence",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "you may pay {1}{C}. If you do, target opponent sacrifices a creature"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you may pay {1}{C}. If you do, target opponent sacrifices a creature"
+      ],
+      "patterns": [
+        "sacrifice",
+        "optional_you_may",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "player",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "pay_mana",
+        "conditional"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Benthic Anomaly",
+      "type_line": "Creature — Eldrazi Serpent",
+      "clauses": [
+        "for each opponent, choose a creature that player controls. Create a token that's a copy of one of those creatures, except its power is equal to the total power of those creatures, its toughness is equal to the total toughness of those creatures, and it's a colorless Eldrazi creature"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, for each opponent, choose a creature that player controls. Create a token that's a copy of one of those creatures, except its power is equal to the total power of those creatures, its toughness is equal to the total toughness of those creatures, and it's a colorless Eldrazi creature"
+      ],
+      "patterns": [
+        "create_tokens",
+        "copy_spell_or_permanent"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "create_token"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Blight Herder",
+      "type_line": "Creature — Eldrazi Processor",
+      "clauses": [
+        "you may put two cards your opponents own from exile into their owners' graveyards. If you do, create three 1/1 colorless Eldrazi Scion creature tokens. They have \"Sacrifice this token: Add {C}.\""
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you may put two cards your opponents own from exile into their owners' graveyards. If you do, create three 1/1 colorless Eldrazi Scion creature tokens. They have \"Sacrifice this token: Add {C}.\""
+      ],
+      "patterns": [
+        "create_tokens",
+        "sacrifice",
+        "optional_you_may",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Brain Gorgers",
+      "type_line": "Creature — Zombie",
+      "clauses": [
+        "any player may sacrifice a creature of their choice. If a player does, counter Brain Gorgers"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, any player may sacrifice a creature of their choice. If a player does, counter Brain Gorgers"
+      ],
+      "patterns": [
+        "sacrifice",
+        "counter_related",
+        "intervening_if",
+        "any_player_may_tax"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability",
+        "counter_spell"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Brass Knuckles",
+      "type_line": "Artifact — Equipment",
+      "clauses": [
+        "copy it"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, copy it"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "copy_spell"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Breaker of Creation",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "you gain 1 life for each colorless permanent you control"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you gain 1 life for each colorless permanent you control"
+      ],
+      "patterns": [
+        "gain_life"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "gain_life"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Bruna, the Fading Light",
+      "type_line": "Legendary Creature — Angel Horror",
+      "clauses": [
+        "you may return target Angel or Human creature card from your graveyard to the battlefield"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you may return target Angel or Human creature card from your graveyard to the battlefield"
+      ],
+      "patterns": [
+        "return_from_graveyard",
+        "optional_you_may"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": null,
+        "targetZone": "graveyard",
+        "targetDestination": "battlefield",
+        "targetGraveyardScope": "your",
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": [
+          "creature"
+        ]
+      },
+      "irWired": true,
+      "irKinds": [
+        "move_zone"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Bygone Marvels",
+      "type_line": "Sorcery",
+      "clauses": [],
+      "resolvedAll": [
+        "When you cast this spell, if there are eight or more permanent cards in your graveyard, copy this spell twice. You may choose new targets for the copies"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "optional_you_may",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": null,
+        "targetZone": "graveyard",
+        "targetDestination": null,
+        "targetGraveyardScope": "your",
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "conditional"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Conduit of Ruin",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "you may search your library for a colorless creature card with mana value 7 or greater, reveal it, then shuffle and put that card on top"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you may search your library for a colorless creature card with mana value 7 or greater, reveal it, then shuffle and put that card on top"
+      ],
+      "patterns": [
+        "search_library",
+        "optional_you_may"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "search_library",
+        "grant_static_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Dash Hopes",
+      "type_line": "Instant",
+      "clauses": [
+        "any player may pay 5 life. If a player does, counter Dash Hopes"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, any player may pay 5 life. If a player does, counter Dash Hopes"
+      ],
+      "patterns": [
+        "counter_related",
+        "intervening_if",
+        "any_player_may_tax"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability",
+        "counter_spell"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Decimator of the Provinces",
+      "type_line": "Creature — Eldrazi Boar",
+      "clauses": [
+        "creatures you control get +2/+2 and gain trample until end of turn"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, creatures you control get +2/+2 and gain trample until end of turn"
+      ],
+      "patterns": [
+        "pump"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "modify_pt",
+        "grant_temporary_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Demigod of Revenge",
+      "type_line": "Creature — Spirit Avatar",
+      "clauses": [
+        "return all cards named Demigod of Revenge from your graveyard to the battlefield"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, return all cards named Demigod of Revenge from your graveyard to the battlefield"
+      ],
+      "patterns": [
+        "return_from_graveyard"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "move_zone"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Depth Defiler",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "choose one. If it was kicked, choose both instead.\n• Return target creature to its owner's hand.\n• Target player draws two cards, then discards a card"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, choose one. If it was kicked, choose both instead.\n• Return target creature to its owner's hand.\n• Target player draws two cards, then discards a card"
+      ],
+      "patterns": [
+        "modal",
+        "discard",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "choose_mode"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Desolation Twin",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "create a 10/10 colorless Eldrazi creature token"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, create a 10/10 colorless Eldrazi creature token"
+      ],
+      "patterns": [
+        "create_tokens"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "create_token"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Devourer of Destiny",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "exile target permanent that's one or more colors"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, exile target permanent that's one or more colors"
+      ],
+      "patterns": [
+        "exile_target_permanent"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "permanent",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "exile"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Distended Mindbender",
+      "type_line": "Creature — Eldrazi Insect",
+      "clauses": [
+        "target opponent reveals their hand. You choose from it a nonland card with mana value 3 or less and a card with mana value 4 or greater. That player discards those cards"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, target opponent reveals their hand. You choose from it a nonland card with mana value 3 or less and a card with mana value 4 or greater. That player discards those cards"
+      ],
+      "patterns": [
+        "discard"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "player",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "reveal_hand",
+        "grant_static_ability",
+        "discard"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Drowner of Truth // Drowned Jungle",
+      "type_line": "Creature — Eldrazi // Land",
+      "clauses": [
+        "if {C} was spent to cast it, create two 0/1 colorless Eldrazi Spawn creature tokens with \"Sacrifice this token: Add {C}.\""
+      ],
+      "resolvedAll": [
+        "When you cast this spell, if {C} was spent to cast it, create two 0/1 colorless Eldrazi Spawn creature tokens with \"Sacrifice this token: Add {C}.\""
+      ],
+      "patterns": [
+        "create_tokens",
+        "sacrifice"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "conditional"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Echo Storm",
+      "type_line": "Sorcery",
+      "clauses": [
+        "copy it for each time you've cast your commander from the command zone this game. You may choose new targets for the copies"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, copy it for each time you've cast your commander from the command zone this game. You may choose new targets for the copies"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "optional_you_may",
+        "commander_cast_copy"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "copy_spell"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Elder Deep-Fiend",
+      "type_line": "Creature — Eldrazi Octopus",
+      "clauses": [
+        "tap up to four target permanents"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, tap up to four target permanents"
+      ],
+      "patterns": [
+        "tap"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "permanent",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": 0,
+        "maxTargets": 4,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "tap_or_untap"
+      ],
+      "multi": false,
+      "playWired": true,
+      "playWiredNote": "2026-08-22 compound/up-to/two-target targeting UX + IR zero-choice"
+    },
+    {
+      "name": "Eldrazi Obligator",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "you may pay {1}{C}. If you do, gain control of target creature until end of turn, untap that creature, and it gains haste until end of turn"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you may pay {1}{C}. If you do, gain control of target creature until end of turn, untap that creature, and it gains haste until end of turn"
+      ],
+      "patterns": [
+        "untap",
+        "gain_control",
+        "optional_you_may",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "creature",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "pay_mana",
+        "conditional"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Empyrial Storm",
+      "type_line": "Sorcery",
+      "clauses": [
+        "copy it for each time you've cast your commander from the command zone this game"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, copy it for each time you've cast your commander from the command zone this game"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "commander_cast_copy"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "copy_spell"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Emrakul, the Aeons Torn",
+      "type_line": "Legendary Creature — Eldrazi",
+      "clauses": [
+        "take an extra turn after this one"
+      ],
+      "resolvedAll": [
+        "Take an extra turn after this one."
+      ],
+      "patterns": [
+        "extra_turn"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "take_extra_turn"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Emrakul, the Promised End",
+      "type_line": "Legendary Creature — Eldrazi",
+      "clauses": [
+        "you gain control of target opponent during that player's next turn. After that turn, that player takes an extra turn"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you gain control of target opponent during that player's next turn. After that turn, that player takes an extra turn"
+      ],
+      "patterns": [
+        "gain_life",
+        "gain_control",
+        "extra_turn"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "player",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "gain_control",
+        "grant_static_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Emrakul, the World Anew",
+      "type_line": "Legendary Creature — Eldrazi",
+      "clauses": [
+        "gain control of all creatures target player controls"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, gain control of all creatures target player controls"
+      ],
+      "patterns": [
+        "gain_control"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "player",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "gain_control"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Flayer of Loyalties",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "gain control of target creature until end of turn. Untap that creature. Until end of turn, it has base power and toughness 10/10 and gains trample, annihilator 2, and haste"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, gain control of target creature until end of turn. Untap that creature. Until end of turn, it has base power and toughness 10/10 and gains trample, annihilator 2, and haste"
+      ],
+      "patterns": [
+        "untap",
+        "gain_control"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "creature",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "gain_control",
+        "tap_or_untap",
+        "grant_temporary_ability",
+        "grant_temporary_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Fury Storm",
+      "type_line": "Instant",
+      "clauses": [
+        "copy it for each time you've cast your commander from the command zone this game. You may choose new targets for the copies"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, copy it for each time you've cast your commander from the command zone this game. You may choose new targets for the copies"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "optional_you_may",
+        "commander_cast_copy"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "copy_spell"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Genesis Hydra",
+      "type_line": "Creature — Plant Hydra",
+      "clauses": [
+        "reveal the top X cards of your library. You may put a nonland permanent card with mana value X or less from among them onto the battlefield. Then shuffle the rest into your library"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, reveal the top X cards of your library. You may put a nonland permanent card with mana value X or less from among them onto the battlefield. Then shuffle the rest into your library"
+      ],
+      "patterns": [
+        "put_onto_battlefield",
+        "optional_you_may",
+        "reveal_library"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "reveal_top",
+        "move_zone",
+        "move_zone"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Genesis Storm",
+      "type_line": "Sorcery",
+      "clauses": [
+        "copy it for each time you've cast your commander from the command zone this game"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, copy it for each time you've cast your commander from the command zone this game"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "commander_cast_copy"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "copy_spell"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Gluttonous Hellkite",
+      "type_line": "Creature — Dragon",
+      "clauses": [
+        "each player sacrifices X creatures. This creature enters with two +1/+1 counters on it for each creature sacrificed this way"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, each player sacrifices X creatures. This creature enters with two +1/+1 counters on it for each creature sacrificed this way"
+      ],
+      "patterns": [
+        "sacrifice"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "sacrifice",
+        "add_counter"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Hatchery Spider",
+      "type_line": "Creature — Spider",
+      "clauses": [],
+      "resolvedAll": [
+        "When you cast this spell, reveal the top X cards of your library, where X is the number of creature cards in your graveyard. You may put a green permanent card with mana value X or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order"
+      ],
+      "patterns": [
+        "put_onto_battlefield",
+        "optional_you_may",
+        "reveal_library"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "reveal_top",
+        "move_zone"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Hatut Zeraze Strike Force",
+      "type_line": "Creature — Human Spy Warrior",
+      "clauses": [
+        "copy it for each time you've cast your commander from the command zone this game"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, copy it for each time you've cast your commander from the command zone this game"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "commander_cast_copy"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "copy_spell"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Herigast, Erupting Nullkite",
+      "type_line": "Legendary Creature — Eldrazi Dragon",
+      "clauses": [
+        "you may exile your hand. If you do, draw three cards"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you may exile your hand. If you do, draw three cards"
+      ],
+      "patterns": [
+        "draw",
+        "optional_you_may",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "exile",
+        "conditional"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Hideous Taskmaster",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "for each opponent, gain control of up to one target creature that player controls until end of turn. Untap those creatures. They gain trample, haste, and annihilator 1 until end of turn"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, for each opponent, gain control of up to one target creature that player controls until end of turn. Untap those creatures. They gain trample, haste, and annihilator 1 until end of turn"
+      ],
+      "patterns": [
+        "untap",
+        "gain_control"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "creature",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": 0,
+        "maxTargets": 1,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "gain_control",
+        "tap_or_untap",
+        "grant_temporary_ability",
+        "grant_temporary_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Hope-Ender Coatl",
+      "type_line": "Creature — Eldrazi Snake",
+      "clauses": [
+        "counter target spell an opponent controls unless they pay {1}"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, counter target spell an opponent controls unless they pay {1}"
+      ],
+      "patterns": [
+        "counter_related"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "counter_spell"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Hydroid Krasis",
+      "type_line": "Creature — Jellyfish Hydra Beast",
+      "clauses": [
+        "you gain half X life and draw half X cards. Round down each time"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you gain half X life and draw half X cards. Round down each time"
+      ],
+      "patterns": [
+        "draw",
+        "gain_life"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "gain_life",
+        "draw"
+      ],
+      "multi": false
+    },
+    {
+      "name": "It of the Horrid Swarm",
+      "type_line": "Creature — Eldrazi Insect",
+      "clauses": [
+        "create two 1/1 green Insect creature tokens"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, create two 1/1 green Insect creature tokens"
+      ],
+      "patterns": [
+        "create_tokens"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "create_token"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Kozilek, Butcher of Truth",
+      "type_line": "Legendary Creature — Eldrazi",
+      "clauses": [
+        "draw four cards"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, draw four cards"
+      ],
+      "patterns": [
+        "draw"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "draw"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Kozilek, the Broken Reality",
+      "type_line": "Legendary Creature — Eldrazi",
+      "clauses": [
+        "up to two target players each manifest two cards from their hands. For each card manifested this way, you draw a card"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, up to two target players each manifest two cards from their hands. For each card manifested this way, you draw a card"
+      ],
+      "patterns": [
+        "draw",
+        "put_onto_battlefield"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "player",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": 0,
+        "maxTargets": 2,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability",
+        "draw"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Kozilek, the Great Distortion",
+      "type_line": "Legendary Creature — Eldrazi",
+      "clauses": [
+        "if you have fewer than seven cards in hand, draw cards equal to the difference"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, if you have fewer than seven cards in hand, draw cards equal to the difference"
+      ],
+      "patterns": [
+        "draw",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "conditional"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Lashweed Lurker",
+      "type_line": "Creature — Eldrazi Horror",
+      "clauses": [
+        "you may put target nonland permanent on top of its owner's library"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you may put target nonland permanent on top of its owner's library"
+      ],
+      "patterns": [
+        "put_on_library_top",
+        "optional_you_may"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "nonland permanent",
+        "targetZone": null,
+        "targetDestination": "library_top",
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "move_zone"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Lumaret's Favor",
+      "type_line": "Instant",
+      "clauses": [],
+      "resolvedAll": [
+        "When you cast this spell, copy it if you gained life this turn. You may choose new targets for the copy"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "gain_life",
+        "optional_you_may",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Malicious Affliction",
+      "type_line": "Instant",
+      "clauses": [],
+      "resolvedAll": [
+        "When you cast this spell, if a creature died this turn, you may copy Malicious Affliction and may choose a new target for the copy"
+      ],
+      "patterns": [
+        "optional_you_may",
+        "intervening_if",
+        "other"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Mana Vortex",
+      "type_line": "Enchantment",
+      "clauses": [
+        "counter it unless you sacrifice a land"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, counter it unless you sacrifice a land"
+      ],
+      "patterns": [
+        "sacrifice",
+        "counter_related"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "unknown"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Mentor's Guidance",
+      "type_line": "Sorcery",
+      "clauses": [
+        "copy it if you control a planeswalker, Cleric, Druid, Shaman, Warlock, or Wizard"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, copy it if you control a planeswalker, Cleric, Druid, Shaman, Warlock, or Wizard"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Mockery of Nature",
+      "type_line": "Creature — Eldrazi Beast",
+      "clauses": [
+        "you may destroy target artifact or enchantment"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you may destroy target artifact or enchantment"
+      ],
+      "patterns": [
+        "destroy",
+        "optional_you_may"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "artifact or enchantment",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "destroy"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Mutated Cultist",
+      "type_line": "Creature — Eldrazi Horror",
+      "clauses": [
+        "remove all counters from up to one target permanent or opponent. The next spell you cast this turn costs {1} less to cast for each counter removed this way"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, remove all counters from up to one target permanent or opponent. The next spell you cast this turn costs {1} less to cast for each counter removed this way"
+      ],
+      "patterns": [
+        "remove_counters_cost_reduce"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "permanent",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": 0,
+        "maxTargets": 1,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability",
+        "grant_static_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Naya Soulbeast",
+      "type_line": "Creature — Beast",
+      "clauses": [
+        "each player reveals the top card of their library. This creature enters with X +1/+1 counters on it, where X is the total mana value of all cards revealed this way"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, each player reveals the top card of their library. This creature enters with X +1/+1 counters on it, where X is the total mana value of all cards revealed this way"
+      ],
+      "patterns": [
+        "other"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "reveal_top",
+        "add_counter"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Nulldrifter",
+      "type_line": "Creature — Eldrazi Elemental",
+      "clauses": [
+        "draw two cards"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, draw two cards"
+      ],
+      "patterns": [
+        "draw"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "draw"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Oblivion Sower",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "target opponent exiles the top four cards of their library, then you may put any number of land cards that player owns from exile onto the battlefield under your control"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, target opponent exiles the top four cards of their library, then you may put any number of land cards that player owns from exile onto the battlefield under your control"
+      ],
+      "patterns": [
+        "exile_library_top",
+        "put_onto_battlefield",
+        "optional_you_may"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "player",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "exile_top",
+        "move_zone"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Old Stickfingers",
+      "type_line": "Legendary Creature — Horror",
+      "clauses": [
+        "reveal cards from the top of your library until you reveal X creature cards. Put all creature cards revealed this way into your graveyard, then put the rest on the bottom of your library in a random order"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, reveal cards from the top of your library until you reveal X creature cards. Put all creature cards revealed this way into your graveyard, then put the rest on the bottom of your library in a random order"
+      ],
+      "patterns": [
+        "reveal_library"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "reveal_top",
+        "move_zone"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Osgood, Operation Double",
+      "type_line": "Legendary Creature — Human Alien Shapeshifter",
+      "clauses": [
+        "create a token that's a copy of it, except it isn't legendary"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, create a token that's a copy of it, except it isn't legendary"
+      ],
+      "patterns": [
+        "create_tokens",
+        "copy_spell_or_permanent"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "create_token"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Petrifying Meddler",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "tap up to one target creature and put a stun counter on it"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, tap up to one target creature and put a stun counter on it"
+      ],
+      "patterns": [
+        "put_counters",
+        "tap"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "creature",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": 0,
+        "maxTargets": 1,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "tap_or_untap",
+        "add_counter"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Phantasmagorian",
+      "type_line": "Creature — Horror",
+      "clauses": [
+        "any player may discard three cards. If a player does, counter Phantasmagorian"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, any player may discard three cards. If a player does, counter Phantasmagorian"
+      ],
+      "patterns": [
+        "counter_related",
+        "discard",
+        "intervening_if",
+        "any_player_may_tax"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability",
+        "counter_spell"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Photon Blast Barrage",
+      "type_line": "Sorcery",
+      "clauses": [
+        "copy it X times. You may choose new targets for the copies"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, copy it X times. You may choose new targets for the copies"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "optional_you_may"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Prossh, Skyraider of Kher",
+      "type_line": "Legendary Creature — Dragon",
+      "clauses": [
+        "create X 0/1 red Kobold creature tokens named Kobolds of Kher Keep, where X is the amount of mana spent to cast it"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, create X 0/1 red Kobold creature tokens named Kobolds of Kher Keep, where X is the amount of mana spent to cast it"
+      ],
+      "patterns": [
+        "create_tokens"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "create_token"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Ruin Processor",
+      "type_line": "Creature — Eldrazi Processor",
+      "clauses": [
+        "you may put a card an opponent owns from exile into that player's graveyard. If you do, you gain 5 life"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you may put a card an opponent owns from exile into that player's graveyard. If you do, you gain 5 life"
+      ],
+      "patterns": [
+        "gain_life",
+        "optional_you_may",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "move_zone",
+        "conditional"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Sage of the Skies",
+      "type_line": "Creature — Human Monk",
+      "clauses": [
+        "if you've cast another spell this turn, copy this spell"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, if you've cast another spell this turn, copy this spell"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "conditional"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Sauron, Lord of the Rings",
+      "type_line": "Legendary Creature — Avatar Horror",
+      "clauses": [
+        "amass Orcs 5, mill five cards, then return a creature card from your graveyard to the battlefield"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, amass Orcs 5, mill five cards, then return a creature card from your graveyard to the battlefield"
+      ],
+      "patterns": [
+        "return_from_graveyard",
+        "mill_amass"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability",
+        "mill",
+        "move_zone"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Scourge of the Skyclaves",
+      "type_line": "Creature — Demon",
+      "clauses": [
+        "if it was kicked, each player loses half their life, rounded up"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, if it was kicked, each player loses half their life, rounded up"
+      ],
+      "patterns": [
+        "lose_life",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "conditional"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Show of Confidence",
+      "type_line": "Instant",
+      "clauses": [
+        "copy it for each other instant and sorcery spell you've cast this turn. You may choose new targets for the copies"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, copy it for each other instant and sorcery spell you've cast this turn. You may choose new targets for the copies"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "optional_you_may"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Skull Storm",
+      "type_line": "Sorcery",
+      "clauses": [
+        "copy it for each time you've cast your commander from the command zone this game"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, copy it for each time you've cast your commander from the command zone this game"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "commander_cast_copy"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "copy_spell"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Sowing Mycospawn",
+      "type_line": "Creature — Eldrazi Fungus",
+      "clauses": [
+        "search your library for a land card, put it onto the battlefield, then shuffle",
+        "if it was kicked, exile target land"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, search your library for a land card, put it onto the battlefield, then shuffle",
+        "When you cast this spell, if it was kicked, exile target land"
+      ],
+      "patterns": [
+        "exile_target_permanent",
+        "search_library",
+        "put_onto_battlefield",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "search_library"
+      ],
+      "multi": true,
+      "playWired": true,
+      "playWiredNote": "2026-08-22 multi-queue + kicker intervening-if ledger"
+    },
+    {
+      "name": "Spawn-Gang Commander",
+      "type_line": "Creature — Eldrazi Goblin",
+      "clauses": [
+        "create three 0/1 colorless Eldrazi Spawn creature tokens with \"Sacrifice this token: Add {C}.\""
+      ],
+      "resolvedAll": [
+        "When you cast this spell, create three 0/1 colorless Eldrazi Spawn creature tokens with \"Sacrifice this token: Add {C}.\""
+      ],
+      "patterns": [
+        "create_tokens",
+        "sacrifice"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "create_token"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Storm of Forms",
+      "type_line": "Instant",
+      "clauses": [
+        "copy it for each kind of counter among permanents you control. You may choose new targets for the copies"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, copy it for each kind of counter among permanents you control. You may choose new targets for the copies"
+      ],
+      "patterns": [
+        "copy_spell_or_permanent",
+        "optional_you_may"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Supernatural Rescue",
+      "type_line": "Enchantment — Aura",
+      "clauses": [
+        "tap up to two target creatures you don't control"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, tap up to two target creatures you don't control"
+      ],
+      "patterns": [
+        "tap"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "creature",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": 0,
+        "maxTargets": 2,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "tap_or_untap"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Temporal Extortion",
+      "type_line": "Sorcery",
+      "clauses": [
+        "any player may pay half their life, rounded up. If a player does, counter Temporal Extortion"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, any player may pay half their life, rounded up. If a player does, counter Temporal Extortion"
+      ],
+      "patterns": [
+        "counter_related",
+        "intervening_if",
+        "any_player_may_tax"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability",
+        "counter_spell"
+      ],
+      "multi": false
+    },
+    {
+      "name": "The Beast, Deathless Prince",
+      "type_line": "Legendary Creature — Demon",
+      "clauses": [
+        "gain control of target creature until end of turn. Untap it. It gains menace and haste until end of turn"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, gain control of target creature until end of turn. Untap it. It gains menace and haste until end of turn"
+      ],
+      "patterns": [
+        "untap",
+        "gain_control"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "creature",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "gain_control",
+        "tap_or_untap",
+        "grant_temporary_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "The Fourteenth Doctor",
+      "type_line": "Legendary Creature — Time Lord Doctor",
+      "clauses": [
+        "reveal the top fourteen cards of your library. Put all Doctor cards revealed this way into your graveyard and the rest on the bottom of your library in a random order"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, reveal the top fourteen cards of your library. Put all Doctor cards revealed this way into your graveyard and the rest on the bottom of your library in a random order"
+      ],
+      "patterns": [
+        "reveal_library"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "reveal_top",
+        "move_zone"
+      ],
+      "multi": false
+    },
+    {
+      "name": "The Master, Formed Anew",
+      "type_line": "Legendary Creature — Time Lord Rogue",
+      "clauses": [],
+      "resolvedAll": [
+        "When you cast this spell, you may exile a creature you control and put a takeover counter on it"
+      ],
+      "patterns": [
+        "put_counters",
+        "optional_you_may"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "exile",
+        "add_counter"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Thief of Existence",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "exile up to one target noncreature, nonland permanent an opponent controls with mana value 4 or less. If you do, Thief of Existence gains \"When this creature leaves the battlefield, target opponent draws a card.\""
+      ],
+      "resolvedAll": [
+        "When you cast this spell, exile up to one target noncreature, nonland permanent an opponent controls with mana value 4 or less. If you do, Thief of Existence gains \"When this creature leaves the battlefield, target opponent draws a card.\""
+      ],
+      "patterns": [
+        "exile_target_permanent",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "player",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": 0,
+        "maxTargets": 1,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "exile",
+        "conditional"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Twisted Riddlekeeper",
+      "type_line": "Creature — Eldrazi Sphinx",
+      "clauses": [
+        "tap up to two target permanents. Put a stun counter on each of them"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, tap up to two target permanents. Put a stun counter on each of them"
+      ],
+      "patterns": [
+        "put_counters",
+        "tap"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "permanent",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": 0,
+        "maxTargets": 2,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "tap_or_untap",
+        "add_counter"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Ugin, Eye of the Storms",
+      "type_line": "Legendary Planeswalker — Ugin",
+      "clauses": [
+        "exile up to one target permanent that's one or more colors"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, exile up to one target permanent that's one or more colors"
+      ],
+      "patterns": [
+        "exile_target_permanent"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "permanent",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": 0,
+        "maxTargets": 1,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "exile"
+      ],
+      "multi": false,
+      "playWired": true,
+      "playWiredNote": "2026-08-22 compound/up-to/two-target targeting UX + IR zero-choice"
+    },
+    {
+      "name": "Ulamog, the Ceaseless Hunger",
+      "type_line": "Legendary Creature — Eldrazi",
+      "clauses": [
+        "exile two target permanents"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, exile two target permanents"
+      ],
+      "patterns": [
+        "exile_target_permanent"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "permanent",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": 2,
+        "maxTargets": 2,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "exile"
+      ],
+      "multi": false,
+      "playWired": true,
+      "playWiredNote": "2026-08-22 compound/up-to/two-target targeting UX + IR zero-choice"
+    },
+    {
+      "name": "Ulamog, the Defiler",
+      "type_line": "Legendary Creature — Eldrazi",
+      "clauses": [
+        "target opponent exiles the top half of their library, rounded up"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, target opponent exiles the top half of their library, rounded up"
+      ],
+      "patterns": [
+        "exile_library_top"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "player",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Ulamog, the Infinite Gyre",
+      "type_line": "Legendary Creature — Eldrazi",
+      "clauses": [
+        "destroy target permanent"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, destroy target permanent"
+      ],
+      "patterns": [
+        "destroy"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "permanent",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "destroy"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Vexing Scuttler",
+      "type_line": "Creature — Eldrazi Crab",
+      "clauses": [
+        "you may return target instant or sorcery card from your graveyard to your hand"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you may return target instant or sorcery card from your graveyard to your hand"
+      ],
+      "patterns": [
+        "return_from_graveyard",
+        "optional_you_may"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": null,
+        "targetZone": "graveyard",
+        "targetDestination": "hand",
+        "targetGraveyardScope": "your",
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": [
+          "instant",
+          "sorcery"
+        ]
+      },
+      "irWired": true,
+      "irKinds": [
+        "move_zone"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Vile Redeemer",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "you may pay {C}. If you do, create a 1/1 colorless Eldrazi Scion creature token for each nontoken creature that died under your control this turn. Those tokens have \"Sacrifice this token: Add {C}.\""
+      ],
+      "resolvedAll": [
+        "When you cast this spell, you may pay {C}. If you do, create a 1/1 colorless Eldrazi Scion creature token for each nontoken creature that died under your control this turn. Those tokens have \"Sacrifice this token: Add {C}.\""
+      ],
+      "patterns": [
+        "create_tokens",
+        "sacrifice",
+        "optional_you_may",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Wastescape Battlemage",
+      "type_line": "Creature — Eldrazi Wizard",
+      "clauses": [
+        "if it was kicked with its {G} kicker, exile target artifact or enchantment an opponent controls",
+        "if it was kicked with its {1}{U} kicker, return target creature an opponent controls to its owner's hand"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, if it was kicked with its {G} kicker, exile target artifact or enchantment an opponent controls",
+        "When you cast this spell, if it was kicked with its {1}{U} kicker, return target creature an opponent controls to its owner's hand"
+      ],
+      "patterns": [
+        "exile_target_permanent",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "artifact or enchantment",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "conditional"
+      ],
+      "multi": true,
+      "playWired": true,
+      "playWiredNote": "2026-08-22 multi-queue + kicker intervening-if ledger"
+    },
+    {
+      "name": "World Breaker",
+      "type_line": "Creature — Eldrazi",
+      "clauses": [
+        "exile target artifact, enchantment, or land"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, exile target artifact, enchantment, or land"
+      ],
+      "patterns": [
+        "exile_target_permanent"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "artifact, enchantment, or land",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "exile"
+      ],
+      "multi": false,
+      "playWired": true,
+      "playWiredNote": "2026-08-22 compound/up-to/two-target targeting UX + IR zero-choice"
+    },
+    {
+      "name": "Wretched Gryff",
+      "type_line": "Creature — Eldrazi Hippogriff",
+      "clauses": [
+        "draw a card"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, draw a card"
+      ],
+      "patterns": [
+        "draw"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "draw"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Writhing Chrysalis",
+      "type_line": "Creature — Eldrazi Drone",
+      "clauses": [
+        "create two 0/1 colorless Eldrazi Spawn creature tokens with \"Sacrifice this token: Add {C}.\""
+      ],
+      "resolvedAll": [
+        "When you cast this spell, create two 0/1 colorless Eldrazi Spawn creature tokens with \"Sacrifice this token: Add {C}.\""
+      ],
+      "patterns": [
+        "create_tokens",
+        "sacrifice"
+      ],
+      "meta": {
+        "requiresTarget": false,
+        "targetType": null,
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "create_token"
+      ],
+      "multi": false
+    },
+    {
+      "name": "Wumpus Aberration",
+      "type_line": "Creature — Eldrazi Beast",
+      "clauses": [
+        "if {C} wasn't spent to cast it, target opponent may put a creature card from their hand onto the battlefield"
+      ],
+      "resolvedAll": [
+        "When you cast this spell, if {C} wasn't spent to cast it, target opponent may put a creature card from their hand onto the battlefield"
+      ],
+      "patterns": [
+        "put_onto_battlefield",
+        "intervening_if"
+      ],
+      "meta": {
+        "requiresTarget": true,
+        "targetType": "player",
+        "targetZone": null,
+        "targetDestination": null,
+        "targetGraveyardScope": null,
+        "minTargets": null,
+        "maxTargets": null,
+        "targetFilterTypes": null
+      },
+      "irWired": true,
+      "irKinds": [
+        "grant_static_ability"
+      ],
+      "multi": false
+    }
+  ]
+}

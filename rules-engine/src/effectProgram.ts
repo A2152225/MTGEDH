@@ -1000,6 +1000,7 @@ function appendOracleStepToEffectProgram(args: {
     || kind === 'unless_pays_mana'
     || kind === 'unless_pays_life'
     || kind === 'unless_discards'
+    || kind === 'unless_sacrifices'
     || kind === 'pay_mana'
     || (kind === 'add_mana' && (step as any).requiresChosenMana === true);
   }
@@ -1010,10 +1011,10 @@ function oracleStepOptionalRequiresChoice(step: OracleEffectStep): boolean {
   if (isPerPlayerOptionalOracleStep(step)) return false;
 
   const kind = String((step as any).kind || '');
-  // unless_pays/unless_discards already queue their own pay-or-decline choice; a
+  // unless_pays/unless_discards/unless_sacrifices already queue their own pay-or-decline choice; a
   // preceding may-choice duplicates Rhystic Study-style "you may … unless … pays" as
   // two Always Yes prompts.
-  if (kind === 'unless_pays_mana' || kind === 'unless_pays_life' || kind === 'unless_discards') {
+  if (kind === 'unless_pays_mana' || kind === 'unless_pays_life' || kind === 'unless_discards' || kind === 'unless_sacrifices') {
     return false;
   }
 
@@ -1281,7 +1282,7 @@ function oracleStepNeedsChoice(
     return true;
   }
 
-  if (kind === 'unless_pays_mana' || kind === 'unless_pays_life' || kind === 'unless_discards') {
+  if (kind === 'unless_pays_mana' || kind === 'unless_pays_life' || kind === 'unless_discards' || kind === 'unless_sacrifices') {
     return true;
   }
 
@@ -1458,6 +1459,16 @@ function buildChoiceRequestPayloadForOracleStep(
       ...basePayload,
       discardAmount: Number((step as any).amount || 0),
       payChoiceId: 'discard',
+      declineChoiceId: 'decline',
+    };
+  }
+
+  if (kind === 'unless_sacrifices') {
+    const whatText = String((step as any).what?.text || (step as any).what || 'a permanent').trim();
+    return {
+      ...basePayload,
+      sacrificeFilter: whatText,
+      payChoiceId: 'sacrifice',
       declineChoiceId: 'decline',
     };
   }
@@ -1752,6 +1763,7 @@ function mapOracleStepKindToChoiceType(kind: string): ChoiceEventType {
     case 'unless_pays_mana':
     case 'unless_pays_life':
     case 'unless_discards':
+    case 'unless_sacrifices':
       return ChoiceEventType.OPTION_CHOICE;
     case 'fateseal':
       return ChoiceEventType.FATESEAL;

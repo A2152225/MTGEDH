@@ -8,111 +8,10 @@ import {
   buildTriggerSourcePermanentSnapshot,
   getTriggerSourcePermanent,
 } from './triggerSourceUtils.js';
-
-const PERMANENT_TRIGGER_TARGET_TYPES = new Set([
-  'creature',
-  'permanent',
-  'artifact',
-  'enchantment',
-  'land',
-  'planeswalker',
-  'battle',
-  'creature or planeswalker',
-  'artifact or enchantment',
-  'noncreature artifact',
-  'nonland permanent',
-  'noncreature permanent',
-  'any target',
-  'any_target',
-]);
-
-function isPermanentTypeLine(typeLine?: string): boolean {
-  if (!typeLine) return false;
-  const tl = typeLine.toLowerCase();
-  if (/\binstant\b/.test(tl) || /\bsorcery\b/.test(tl)) return false;
-  return /\b(creature|artifact|enchantment|planeswalker|battle)\b/.test(tl);
-}
-
-function matchesTriggeredBattlefieldTarget(targetType: string, typeLine: string, metadata?: {
-  targetFilterTypes?: string[];
-  targetFilterRequiredTypeWords?: string[];
-  targetFilterExcludeTypes?: string[];
-}): boolean {
-  let matchesBaseTargetType = false;
-  switch (targetType) {
-    case 'permanent':
-      matchesBaseTargetType = true;
-      break;
-    case 'any':
-    case 'any target':
-    case 'any_target':
-      matchesBaseTargetType = typeLine.includes('creature') || typeLine.includes('planeswalker') || typeLine.includes('battle');
-      break;
-    case 'creature':
-      matchesBaseTargetType = typeLine.includes('creature');
-      break;
-    case 'artifact':
-      matchesBaseTargetType = typeLine.includes('artifact');
-      break;
-    case 'enchantment':
-      matchesBaseTargetType = typeLine.includes('enchantment');
-      break;
-    case 'land':
-      matchesBaseTargetType = typeLine.includes('land');
-      break;
-    case 'planeswalker':
-      matchesBaseTargetType = typeLine.includes('planeswalker');
-      break;
-    case 'battle':
-      matchesBaseTargetType = typeLine.includes('battle');
-      break;
-    case 'creature or planeswalker':
-      matchesBaseTargetType = typeLine.includes('creature') || typeLine.includes('planeswalker');
-      break;
-    case 'artifact or enchantment':
-      matchesBaseTargetType = typeLine.includes('artifact') || typeLine.includes('enchantment');
-      break;
-    case 'noncreature artifact':
-      matchesBaseTargetType = typeLine.includes('artifact') && !typeLine.includes('creature');
-      break;
-    case 'nonland permanent':
-      matchesBaseTargetType = !typeLine.includes('land');
-      break;
-    case 'noncreature permanent':
-      matchesBaseTargetType = !typeLine.includes('creature');
-      break;
-    default:
-      matchesBaseTargetType = false;
-      break;
-  }
-
-  if (!matchesBaseTargetType) {
-    return false;
-  }
-
-  if (Array.isArray(metadata?.targetFilterTypes) && metadata.targetFilterTypes.length > 0) {
-    const matchesIncludedType = metadata.targetFilterTypes.some((type) => typeLine.includes(String(type || '').toLowerCase()));
-    if (!matchesIncludedType) {
-      return false;
-    }
-  }
-
-  if (Array.isArray(metadata?.targetFilterRequiredTypeWords) && metadata.targetFilterRequiredTypeWords.length > 0) {
-    const matchesRequiredWords = metadata.targetFilterRequiredTypeWords.every((word) => typeLine.includes(String(word || '').toLowerCase()));
-    if (!matchesRequiredWords) {
-      return false;
-    }
-  }
-
-  if (Array.isArray(metadata?.targetFilterExcludeTypes) && metadata.targetFilterExcludeTypes.length > 0) {
-    const matchesExcludedType = metadata.targetFilterExcludeTypes.some((type) => typeLine.includes(String(type || '').toLowerCase()));
-    if (matchesExcludedType) {
-      return false;
-    }
-  }
-
-  return true;
-}
+import {
+  PERMANENT_TRIGGER_TARGET_TYPES,
+  matchesTriggeredBattlefieldTarget,
+} from './triggeredAbilityBattlefieldTargetMatch.js';
 
 function matchesTriggeredGraveyardTarget(card: any, metadata: {
   targetFilterTypes?: string[];
@@ -243,7 +142,9 @@ export function tryDeferTriggeredAbilityTargetSelection(
     lowerDescription.includes('target creature you control') ||
     lowerDescription.includes('target permanent you control');
 
-  if (!isReplaying && !hasPersistedLockedTargets && targetZone === 'graveyard') {
+  // If targets were already chosen (ETB/on-cast Choice stamp), do not re-prompt;
+  // fall through so executeTriggerEffect can apply the GY return.
+  if (!isReplaying && !hasPersistedLockedTargets && existingTargets.length === 0 && targetZone === 'graveyard') {
     const zones = (state.zones || {}) as Record<string, any>;
     const graveyardScope = String((item as any).targetGraveyardScope || 'your').toLowerCase();
     const graveyardOwners = graveyardScope === 'any'
@@ -344,10 +245,17 @@ export function tryDeferTriggeredAbilityTargetSelection(
         battlefieldSuspected: (item as any).battlefieldSuspected === true,
         ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
         validTargets,
-        triggeredAbilityGraveyardSelection: true,
-        triggeredAbilityCastFromGraveyard: targetAction === 'cast',
-        triggeredAbilityCastWithoutPayingManaCost: (item as any).targetCastWithoutPayingManaCost === true,
-        triggeredAbilityMayCastFromGraveyard: (item as any).targetCastIsOptional === true,
+        ...(targetAction === 'cast'
+          ? {
+              triggeredAbilityGraveyardSelection: true,
+              triggeredAbilityCastFromGraveyard: true,
+              triggeredAbilityCastWithoutPayingManaCost: (item as any).targetCastWithoutPayingManaCost === true,
+              triggeredAbilityMayCastFromGraveyard: (item as any).targetCastIsOptional === true,
+            }
+          : {
+              triggeredAbilityGraveyardChoice: true,
+              triggerStackItemId: String((item as any).id || sourceId || ''),
+            }),
         triggeredAbilityEffectText: String((item as any).effect || description || ''),
         triggeredAbilitySourcePermanentId: String((item as any).source || (item as any).permanentId || ''),
         triggeredAbilityCardSnapshot: (item as any).card && typeof (item as any).card === 'object'
@@ -372,11 +280,18 @@ export function tryDeferTriggeredAbilityTargetSelection(
           .filter((permanent: any) => {
             if (!permanent) return false;
             const typeLine = String(permanent.card?.type_line || '').toLowerCase();
-            const matchesType = matchesTriggeredBattlefieldTarget(normalizedTargetType, typeLine, {
-              targetFilterTypes,
-              targetFilterRequiredTypeWords,
-              targetFilterExcludeTypes,
-            });
+            const matchesType = matchesTriggeredBattlefieldTarget(
+              normalizedTargetType,
+              typeLine,
+              {
+                targetFilterTypes,
+                targetFilterRequiredTypeWords,
+                targetFilterExcludeTypes,
+                targetFilterRequiresOneOrMoreColors: (item as any).targetFilterRequiresOneOrMoreColors === true,
+              },
+              permanent,
+              state,
+            );
             if (!matchesType) return false;
             if (String((item as any).targetConstraint || '').toLowerCase() === 'opponent') {
               return String(permanent.controller || '') !== String(triggerController);
@@ -423,7 +338,7 @@ export function tryDeferTriggeredAbilityTargetSelection(
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: triggerController as PlayerID,
         description: `${sourceName}: Choose ${targetDescription}`,
-        mandatory: true,
+        mandatory: minSelectionCount > 0,
         sourceId,
         sourceName,
         validTargets,

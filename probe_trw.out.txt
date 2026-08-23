@@ -1,0 +1,211 @@
+﻿71|  'counter_spell',
+72|  'goad',
+73|  'proliferate',
+74|  'redistribute_life_totals',
+75|  'populate',
+76|  'schedule_delayed_trigger',
+77|  'explore',
+78|  'connive',
+79|  'unless_pays_mana',
+80|  'unless_pays_life',
+81|  'unless_discards',
+82|  'conditional',
+83|  'search_library',
+84|  'shuffle_library',
+85|  'shuffle_zones_into_library',
+86|  'look_choose_from_top',
+87|  'look_select_top',
+88|  'look_top',
+89|  'reveal_top',
+90|  'choose_pile',
+91|  'change_target',
+92|  'choose_target_creature',
+93|  'grant_temporary_ability',
+94|  'grant_static_ability',
+95|  'grant_leave_battlefield_replacement',
+96|  'schedule_delayed_battlefield_action',
+97|  'animate_permanent',
+98|  'attach',
+99|  'fight',
+100|  'modify_pt',
+101|  'cant_block',
+102|  'remove_counter',
+103|  'regenerate',
+104|  'grant_graveyard_permission',
+105|  'grant_graveyard_keyword_ability',
+106|  'modify_graveyard_permissions',
+107|  'copy_spell',
+108|  'pay_mana',
+109|  'join_forces',
+110|  'add_extra_combat',
+111|  'take_extra_turn',
+112|  'end_turn',
+113|  'end_combat_phase',
+114|  'vote',
+115|  'repeated_zone_draft',
+116|  'separate_into_piles',
+117|  'library_chaos_exchange',
+118|]);
+119|
+120|/** Optional trigger steps with explicit runtime handlers outside the spell fallback. */
+==== isTriggerStepRuntimeWired ====
+291|
+292|/**
+293| * Uncategorized-spell fallback include check. Same wired surface as primary
+294| * ownership (`isTriggerStepRuntimeWired`) except unknown steps stay out so
+295| * all-or-nothing refuse still applies to mixed parses.
+296| */
+297|export function isUncategorizedFallbackExecutableStep(step: OracleEffectStep): boolean {
+298|  if (!step || step.kind === 'unknown') return false;
+299|  return isTriggerStepRuntimeWired(step);
+300|}
+301|
+302|export function isTriggerStepRuntimeWired(step: OracleEffectStep): boolean {
+303|  if (step.kind === 'unknown') return true;
+304|
+305|  if (TRIGGER_CHOICE_STEP_KINDS.has(String(step.kind))) {
+306|    return true;
+307|  }
+308|
+309|  if (ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS.has(String(step.kind))) {
+310|    return true;
+311|  }
+312|
+313|  if (step.kind === 'copy_permanent') {
+314|    return isSupportedCopyPermanentTriggerPattern(step);
+315|  }
+316|
+317|  if (isOptionalTriggerStep(step)) {
+318|    return (
+319|      TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS.has(step.kind)
+320|      || ORACLE_IR_FALLBACK_STEP_KINDS.has(step.kind)
+321|    );
+322|  }
+323|
+324|  return ORACLE_IR_FALLBACK_STEP_KINDS.has(step.kind);
+325|}
+326|
+327|export function parseTriggerEffectSteps(effectText: string, cardName: string): OracleEffectStep[] {
+328|  const rawText = String(effectText || '').trim();
+329|  if (!rawText) return [];
+330|
+331|  const bareFragment = parseBareTriggerEffectFragmentSteps(rawText);
+332|  if (bareFragment && bareFragment.length > 0) {
+333|    return [...bareFragment];
+334|  }
+335|
+336|  if (isExternallyHandledOracleFragmentText(rawText)) return [];
+337|
+338|  const parsed = parseOracleTextToIR(normalizeTriggerEffectForIrAudit(effectText), cardName);
+339|  const repairedAbilities = repairRandomChooseModeSagaAbilities(
+340|    repairGapClosureAbilitySteps(parsed.abilities || []),
+341|  );
+342|  const steps: OracleEffectStep[] = [];
+343|  for (const ability of repairedAbilities) {
+344|    for (const step of ability.steps || []) {
+345|      if (step) steps.push(step as OracleEffectStep);
+346|    }
+347|  }
+348|  return steps;
+349|}
+350|
+351|/**
+352| * Parse oracle/trigger effect text to IR steps. Trigger-fragment normalization
+353| * (bare upkeep/ETB clauses) wins over spell-style full-card IR so effects like
+354| * Cryptoplasm upkeep copy resolve to copy_permanent steps.
+355| */
+356|export function collectOracleEffectSteps(
+357|  oracleText: string,
+358|  sourceName: string,
+359|  options?: CollectOracleEffectStepsOptions,
+360|): OracleEffectStep[] {
+361|  const mergedOptions: CollectOracleEffectStepsOptions = {
+362|    ...options,
+363|    cardName: options?.cardName || sourceName,
+364|  };
+365|  const overlay = resolveCompiledOverlayForCard(mergedOptions);
+366|  if (overlay) {
+367|    return collectOracleEffectStepsWithOverlay(
+368|      oracleText,
+369|      sourceName,
+370|      overlay,
+371|      options?.overlayOptions,
+372|    );
+373|  }
+374|
+375|  const text = String(oracleText || '').trim();
+376|  if (!text) return [];
+377|
+378|  const triggerSteps = parseTriggerEffectSteps(text, sourceName);
+379|  if (triggerSteps.length > 0) {
+380|    return triggerSteps;
+381|  }
+382|
+383|  const ir = parseOracleTextToIR(text, sourceName);
+384|  const fromAbilities = (ir.abilities || []).flatMap((ability) => ability.steps || []);
+385|  if (fromAbilities.length > 0) {
+386|    return fromAbilities as OracleEffectStep[];
+387|  }
+388|
+389|  return [];
+390|}
+391|
+392|/**
+393| * Steps for resolving a spell on the stack only.
+394| * Excludes activated/triggered/static abilities printed on the same card
+395| * (e.g. Summon the School's "Tap four Merfolk: return this from your graveyard").
+396| */
+397|export function collectSpellResolutionEffectSteps(
+398|  oracleText: string,
+399|  sourceName: string,
+400|  options?: CollectOracleEffectStepsOptions,
+401|): OracleEffectStep[] {
+402|  const mergedOptions: CollectOracleEffectStepsOptions = {
+403|    ...options,
+404|    cardName: options?.cardName || sourceName,
+405|  };
+406|  const overlay = resolveCompiledOverlayForCard(mergedOptions);
+407|  const text = String(oracleText || '').trim();
+408|  if (!text) return [];
+409|
+410|  if (overlay) {
+411|    return collectSpellResolutionEffectStepsWithOverlay(
+412|      text,
+413|      sourceName,
+414|      overlay,
+415|      options?.overlayOptions,
+416|    );
+417|  }
+418|
+419|  const resolved = resolveOracleIRWithOverlay(text, sourceName, null, options?.overlayOptions);
+420|  const spellSteps = (resolved.abilities || [])
+421|    .filter((ability) => isOracleIRSpellResolutionAbility(ability))
+422|    .flatMap((ability) => [...(ability.steps || [])]) as OracleEffectStep[];
+423|  if (spellSteps.length > 0) return spellSteps;
+424|
+425|  // Fragment-only text (no ability framing) ù keep trigger-fragment fallback.
+426|  return parseTriggerEffectSteps(text, sourceName);
+427|}
+428|
+429|function collectUnwiredTriggerStepGaps(steps: readonly OracleEffectStep[]): string[] {
+430|  const gaps: string[] = [];
+431|  for (const step of steps) {
+432|    if (isTriggerStepRuntimeWired(step)) continue;
+433|    const optionalSuffix = isOptionalTriggerStep(step) ? ' (optional)' : '';
+434|    gaps.push(`${step.kind}${optionalSuffix}`);
+435|  }
+436|  return gaps;
+437|}
+438|
+439|/**
+440| * Returns trigger effects where parsed Oracle IR steps would rely on the runtime
+441| * Oracle IR fallback path but are not wired there. Ignores effects that only parse
+442| * to step kinds handled elsewhere in executeTriggerEffect.
+443| */
+444|export function getTriggerRuntimeWiringGaps(effectText: string, cardName: string): string[] {
+445|  const rawText = String(effectText || '').trim();
+446|  if (!rawText || isExternallyHandledOracleFragmentText(rawText)) return [];
+447|
+448|  const steps = parseTriggerEffectSteps(effectText, cardName);
+449|  if (steps.length === 0) return [];
+450|

@@ -393,6 +393,10 @@ function buildTriggerIrContext(
   const createdTokenIds = Array.isArray(params.triggerItem?.effectData?.createdTokenIds)
     ? params.triggerItem.effectData.createdTokenIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
     : [];
+  const wasKicked = (params.triggerItem as any)?.wasKicked === true
+    || (params.triggerItem as any)?.card?.wasKicked === true
+    || (params.triggerItem as any)?.stackItem?.wasKicked === true
+    || (params.triggerItem as any)?.sourceItem?.wasKicked === true;
   const irCtx = buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
@@ -400,6 +404,7 @@ function buildTriggerIrContext(
       sourceName: params.sourceName,
       sourceObjectType: 'ability',
       xValue: binding.xValue,
+      ...(wasKicked ? { wasKicked: true } : {}),
       ...(typeof binding.referenceAmount === 'number' ? { referenceAmount: binding.referenceAmount } : {}),
       ...(attackingPlayerId ? { attackingPlayerId } : {}),
       ...(createdTokenIds.length > 0
@@ -417,6 +422,7 @@ function buildTriggerIrContext(
         ...(chosenCreatureType ? { chosenCreatureType } : {}),
         ...(createdTokenIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: createdTokenIds } : {}),
         ...(attachedToId ? { attachedToId } : {}),
+        ...(wasKicked ? { wasKicked: true } : {}),
       },
       ...(resolvedTargetPermanentId ? { targetPermanentId: resolvedTargetPermanentId } : {}),
       ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),

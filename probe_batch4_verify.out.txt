@@ -1,0 +1,74 @@
+﻿DEPTH choose {
+  "min": 1,
+  "max": 1,
+  "kickerChooseBoth": true,
+  "mode2": [
+    {
+      "kind": "draw",
+      "who": {
+        "kind": "target_player"
+      }
+    },
+    {
+      "kind": "discard",
+      "who": {
+        "kind": "target_player"
+      },
+      "seq": "then"
+    }
+  ]
+}
+MIND wired true
+MIND steps [
+  {
+    "kind": "reveal_hand",
+    "who": {
+      "kind": "target_opponent"
+    },
+    "raw": "target opponent reveals their hand"
+  },
+  {
+    "kind": "discard",
+    "who": {
+      "kind": "target_opponent"
+    },
+    "amount": {
+      "kind": "number",
+      "value": 2
+    },
+    "target": {
+      "kind": "raw",
+      "text": "a nonland card with mana value 3 or less and a card with mana value 4 or greater"
+    },
+    "raw": "That player discards those cards"
+  }
+]
+VORTEX wired true
+VORTEX steps [
+  {
+    "kind": "unless_sacrifices",
+    "who": {
+      "kind": "you"
+    },
+    "what": {
+      "kind": "raw",
+      "text": "a land"
+    },
+    "steps": [
+      {
+        "kind": "counter_spell",
+        "target": {
+          "kind": "raw",
+          "text": "it"
+        },
+        "raw": "counter it unless you sacrifice a land"
+      }
+    ],
+    "raw": "counter it unless you sacrifice a land"
+  }
+]
+KICKED choose result applied [
+  'Resolved choose_mode step with 2 selected mode(s): Mode 1, Mode 2',
+  'Resolved mode: Mode 1',
+  'nested:1'
+]

@@ -13,6 +13,7 @@ import { getCurrentTurnNumber } from './oracleIRExecutorPlayerUtils';
 import { payManaCost } from './spellCasting';
 import { createEmptyManaPool, type ManaCost } from './types/mana';
 import { parseManaSymbols } from './types/numbers';
+import { resolveCommanderCastsFromCommandZoneThisGame } from './oracleIRExecutorCommanderCastCount';
 
 function normalizeCopyTargetText(target: OracleObjectSelector | undefined): string {
   return target?.kind === 'raw'
@@ -610,8 +611,7 @@ export function resolveCopySpellCount(
   if (step.copies.kind === 'reference_amount') {
     const raw = String(step.copies.raw || '').trim().toLowerCase();
     if (/commander.*command zone.*this game/.test(raw)) {
-      const count = Number((state as any)?.commanderCastsFromCommandZoneThisGame?.[controllerId]);
-      return Math.max(0, Number.isFinite(count) ? count : 0);
+      return resolveCommanderCastsFromCommandZoneThisGame(state, controllerId);
     }
     const otherCreaturesCount = resolveOtherCreaturesCopyCouldTargetCount(state, controllerId, step, ctx);
     if (otherCreaturesCount !== undefined) {

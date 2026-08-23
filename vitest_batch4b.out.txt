@@ -1,0 +1,23 @@
+﻿
+ RUN  v4.0.16 D:/Git/MTGEDH
+
+ Γ£ô server/tests/oracle-ir-hatut-commander-cz-copy.unit.test.ts > commander cast-from-CZ copy count (Hatut-style) > resolves tax=4 (two CZ casts) to count 2 via taxById / 2 1ms
+ Γ£ô server/tests/oracle-ir-hatut-commander-cz-copy.unit.test.ts > commander cast-from-CZ copy count (Hatut-style) > pushes that many this_spell copies onto the stack when deferred to server 4ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > 'Echo Storm' parses copy_spell reference_amount for CZ casts 455ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > 'Fury Storm' parses copy_spell reference_amount for CZ casts 36ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > 'Genesis Storm' parses copy_spell reference_amount for CZ casts 23ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > 'Empyrial Storm' parses copy_spell reference_amount for CZ casts 14ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > 'Skull Storm' parses copy_spell reference_amount for CZ casts 50ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > 'Hatut Zeraze Strike Force' parses copy_spell reference_amount for CZ casts 9ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > resolves tax=6 (three CZ casts) to count 3 for every Storm-suite copy_spell step 75ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > Echo Storm server bridge pushes CZ-count this_spell copies 3ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > Depth Defiler modal + kicker choose-both > stamps kickerChooseBoth with unkicked min=max=1 and fixes then-discard who 76ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > Depth Defiler modal + kicker choose-both > auto-resolves both modes when wasKicked without selectedModeIds 22ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > Distended Mindbender / Mana Vortex on-cast IR wiring > Distended Mindbender reveal+dual-filter discard is fully IR-wired 94ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > Distended Mindbender / Mana Vortex on-cast IR wiring > Mana Vortex counter-unless-sacrifice is fully IR-wired 8ms
+
+ Test Files  2 passed (2)
+      Tests  14 passed (14)
+   Start at  21:20:52
+   Duration  11.16s (transform 17.02s, setup 0ms, import 20.27s, tests 873ms, environment 0ms)
+

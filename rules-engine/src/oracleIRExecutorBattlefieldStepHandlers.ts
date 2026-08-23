@@ -8463,6 +8463,65 @@ export function applyGainControlStep(
     .replace(/\u2019/g, "'")
     .trim()
     .toLowerCase();
+
+  // Generic: gain control of target opponent during that player's next turn.
+  if (
+    /gain(?:s)?\s+control\s+of\s+target\s+opponent\s+during\s+that\s+(?:player|opponent)['\u2019]?s\s+next\s+turn/i.test(raw)
+    || step.duration === 'during_that_players_next_turn'
+  ) {
+    const targetOpponentId = String(
+      ctx.targetPlayerId ||
+        ctx.selectorContext?.targetOpponentId ||
+        ctx.selectorContext?.targetPlayerId ||
+        ''
+    ).trim();
+    const controllerId = String(ctx.controllerId || '').trim();
+    if (!targetOpponentId || !controllerId) {
+      return {
+        applied: false,
+        message: `Skipped gain-control (no target opponent for next-turn control): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+    const controlledPlayerNextTurn = {
+      ...(((state as any).controlledPlayerNextTurn || {}) as Record<string, string>),
+      [targetOpponentId]: controllerId,
+    };
+    return {
+      applied: true,
+      state: { ...(state as any), controlledPlayerNextTurn } as GameState,
+      log: [`${controllerId} gains control of ${targetOpponentId} during that player's next turn`],
+    };
+  }
+
+  // Generic: gain control of all creatures target player controls.
+  if (/gain(?:s)?\s+control\s+of\s+all\s+creatures\s+target\s+player\s+controls/i.test(raw)) {
+    const targetPlayerId = String(
+      ctx.targetPlayerId ||
+        ctx.selectorContext?.targetPlayerId ||
+        ctx.selectorContext?.targetOpponentId ||
+        ''
+    ).trim();
+    const controllerId = String(ctx.controllerId || '').trim();
+    if (!targetPlayerId || !controllerId) {
+      return {
+        applied: false,
+        message: `Skipped gain-control (no target player for bulk creature control): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+    const nextBattlefield = ((state.battlefield || []) as any[]).map((permanent: any) => {
+      if (!permanentMatchesType(permanent, 'creature')) return permanent;
+      if (String(permanent?.controller || '').trim() !== targetPlayerId) return permanent;
+      if (String(permanent?.controller || '').trim() === controllerId) return permanent;
+      return { ...permanent, controller: controllerId, summoningSickness: true };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: [`Gained control of all creatures controlled by ${targetPlayerId}`],
+    };
+  }
   if (/the attacking player gains control of this artifact and untaps it/.test(raw)) {
     const sourceId = String(ctx.sourceId || '').trim();
     const attackingPlayerId = String(
@@ -10330,6 +10389,60 @@ export function applyRemoveCounterStep(
     };
   }
 
+  // Mutated Cultist-style: remove all counters from a targeted player (opponent).
+  {
+    const effectiveTargetEarly = effectiveStepTarget(step) || step.target;
+    const targetTextEarly = effectiveTargetEarly?.kind === 'raw'
+      ? String((effectiveTargetEarly as any).text || '').toLowerCase()
+      : '';
+    const targetPlayerId = String(
+      ctx.targetPlayerId
+        || (ctx.selectorContext as any)?.targetPlayerId
+        || (ctx.selectorContext as any)?.targetOpponentId
+        || '',
+    ).trim();
+    const wantsPlayer = /\bopponent\b/.test(targetTextEarly) || /\bplayer\b/.test(targetTextEarly);
+    if (
+      wantsPlayer
+      && targetPlayerId
+      && (step.amount.kind === 'all' || step.amount.kind === 'any_number')
+      && (String(step.counter || '').toLowerCase() === 'any'
+        || String(step.counter || '').toLowerCase() === 'all'
+        || String(step.counter || '').toLowerCase() === 'counter')
+    ) {
+      const players = Array.isArray((state as any).players) ? [...(state as any).players] : [];
+      const idx = players.findIndex((pl: any) => String(pl?.id || '').trim() === targetPlayerId);
+      if (idx >= 0) {
+        const player = players[idx] as any;
+        const counters = { ...((player.counters || {}) as Record<string, number>) };
+        let removedTotal = 0;
+        for (const [key, value] of Object.entries(counters)) {
+          const n = Number(value);
+          if (Number.isFinite(n) && n > 0) {
+            removedTotal += n;
+            counters[key] = 0;
+          }
+        }
+        // Also clear common top-level counter fields if present.
+        const nextPlayer = { ...player, counters };
+        for (const key of ['poisonCounters', 'energyCounters', 'experienceCounters', 'radCounters']) {
+          const n = Number((player as any)[key] || 0);
+          if (n > 0) {
+            removedTotal += n;
+            (nextPlayer as any)[key] = 0;
+          }
+        }
+        players[idx] = nextPlayer;
+        (ctx as any).countersRemovedThisWay = Number((ctx as any).countersRemovedThisWay || 0) + removedTotal;
+        return {
+          applied: true,
+          state: { ...(state as any), players } as GameState,
+          log: [`Removed ${removedTotal} counter(s) from player ${targetPlayerId}`],
+        };
+      }
+    }
+  }
+
   const targets = resolveRemoveCounterTargets((state.battlefield || []) as BattlefieldPermanent[], {
     ...step,
     target: effectiveStepTarget(step) || step.target,
@@ -10338,6 +10451,9 @@ export function applyRemoveCounterStep(
   const normalizedTargetText = effectiveTarget.kind === 'raw'
     ? normalizeSelfReferenceText(effectiveTarget.text.trim()).toLowerCase()
     : '';
+  if (targets.length === 0 && (step as any).optional === true) {
+    return { applied: true, state, log: ['No target chosen for optional remove-counter'] };
+  }
   if (
     targets.length === 0 &&
     (normalizedTargetText === 'among creatures you control' ||
@@ -10368,6 +10484,29 @@ export function applyRemoveCounterStep(
   }
 
   const battlefieldTarget = targets[0] as any;
+  if ((counterName.toLowerCase() === 'any' || counterName.toLowerCase() === 'all') && battlefieldTarget) {
+    const counters = { ...(((battlefieldTarget as any).counters || {}) as Record<string, number>) };
+    let removedTotal = 0;
+    for (const [key, value] of Object.entries(counters)) {
+      const n = Number(value);
+      if (Number.isFinite(n) && n > 0) {
+        removedTotal += n;
+        counters[key] = 0;
+      }
+    }
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const idx = battlefield.findIndex((p) => String((p as any)?.id || '').trim() === String((battlefieldTarget as any).id || '').trim());
+    if (idx >= 0) {
+      battlefield[idx] = { ...(battlefield[idx] as any), counters } as BattlefieldPermanent;
+      (ctx as any).countersRemovedThisWay = Number((ctx as any).countersRemovedThisWay || 0) + removedTotal;
+      return {
+        applied: true,
+        state: { ...(state as any), battlefield } as GameState,
+        log: [`Removed ${removedTotal} counter(s) from ${String((battlefieldTarget as any).id || 'permanent')}`],
+      };
+    }
+  }
+
   if (counterName.toLowerCase() === 'counter' && battlefieldTarget && !allowMultipleDeterministicTargets) {
     const counterKeys = Object.keys((battlefieldTarget?.counters || {}) as Record<string, number>).filter(
       (key) => Number((battlefieldTarget?.counters || {})[key]) > 0
@@ -12261,6 +12400,50 @@ export function applyExileStep(
     return { applied: true, state: result.state, log: result.log };
   }
 
+  // Generic: exile up to N target permanents [that are one or more colors]
+  // (Ugin Eye of the Storms / similar). Empty bound set => legal no-op.
+  {
+    const upToExileMatch = normalizedExileTargetText.match(
+      /^up to (one|two|three|four|five|six|seven|eight|nine|ten|\d+) target permanents?(?:\s+that(?:'s| is) one or more colors)?$/i,
+    );
+    if (upToExileMatch) {
+      const wordToNumber: Record<string, number> = {
+        one: 1, two: 2, three: 3, four: 4, five: 5,
+        six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+      };
+      const rawCount = String(upToExileMatch[1] || '').toLowerCase();
+      const maxCount = wordToNumber[rawCount] ?? Number.parseInt(rawCount, 10);
+      const requiresOneOrMoreColors = /one or more colors/i.test(normalizedExileTargetText);
+      const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+      const boundIds = collectBoundBattlefieldIds(ctx);
+      const colorLetters = new Set(['W', 'U', 'B', 'R', 'G', 'w', 'u', 'b', 'r', 'g', 'white', 'blue', 'black', 'red', 'green']);
+      const permanentHasColor = (perm: any): boolean => {
+        const printed = Array.isArray(perm?.colors)
+          ? perm.colors
+          : Array.isArray(perm?.card?.colors)
+            ? perm.card.colors
+            : [];
+        const additions = Array.isArray(perm?.colorAdditions) ? perm.colorAdditions : [];
+        return [...printed, ...additions].some((c) => colorLetters.has(String(c || '').trim()));
+      };
+      const toRemove = battlefield
+        .filter((perm: any) => {
+          const permanentId = String((perm as any)?.id || '').trim();
+          if (!boundIds.includes(permanentId)) return false;
+          if (requiresOneOrMoreColors && !permanentHasColor(perm)) return false;
+          return true;
+        })
+        .slice(0, Number.isFinite(maxCount) ? Math.max(0, maxCount) : 0);
+      if (toRemove.length === 0) {
+        return { applied: true, state, log: ['No permanents chosen to exile (up to N)'] };
+      }
+      const removedIds = new Set<string>(toRemove.map((perm) => perm.id));
+      const kept = battlefield.filter((perm) => !removedIds.has(perm.id));
+      const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
+      return { applied: true, state: result.state, log: result.log };
+    }
+  }
+
   const manaValueMassMatch = normalizedExileTargetText.match(
     /^all artifacts and creatures with mana value (\d+) or less$/i
   );
@@ -12844,6 +13027,131 @@ function sacrificeStepResult(
   result: StepApplyResult,
 ): StepApplyResult {
   return bridgedZoneStepResult(ctx, result);
+}
+
+
+type UnlessSacrificesResult =
+  | { readonly applied: true; readonly shouldApplyNestedSteps: boolean; readonly state?: GameState; readonly log: readonly string[] }
+  | {
+      readonly applied: false;
+      readonly message: string;
+      readonly reason: string;
+      readonly options?: {
+        readonly classification?: 'unsupported' | 'ambiguous' | 'player_choice' | 'invalid_input';
+        readonly metadata?: Record<string, string | number | boolean | null | readonly string[]>;
+        readonly pending?: boolean;
+        readonly persist?: boolean;
+      };
+      readonly innerStep?: OracleEffectStep;
+      readonly state?: GameState;
+    };
+
+/**
+ * "counter it unless you sacrifice a land" — if the player can sacrifice a matching
+ * permanent they must choose; declining (or being unable) applies nested steps
+ * (typically counter_spell on this spell).
+ */
+export function evaluateUnlessSacrificesStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'unless_sacrifices' }>,
+  ctx: OracleIRExecutionContext,
+): UnlessSacrificesResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped unless-sacrifices step (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: {
+          selectorKind: step.who.kind,
+          candidateCount: players.length,
+        },
+      },
+    };
+  }
+
+  const sacrificerId = players[0];
+  const whatText = String((step.what as any)?.text || step.what || 'a permanent').trim().toLowerCase();
+  const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
+  const candidates = battlefield.filter((perm: any) => {
+    if (String(perm?.controller || '').trim() !== String(sacrificerId || '').trim()) return false;
+    const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+    if (/\bland\b/.test(whatText)) return /\bland\b/.test(typeLine);
+    if (/\bcreature\b/.test(whatText)) return /\bcreature\b/.test(typeLine);
+    if (/\bartifact\b/.test(whatText)) return /\bartifact\b/.test(typeLine);
+    if (/\benchantment\b/.test(whatText)) return /\benchantment\b/.test(typeLine);
+    return true;
+  });
+
+  const explicitChoice =
+    ctx.unlessSacrificesChoice === 'sacrifice' || ctx.unlessSacrificesChoice === 'decline'
+      ? ctx.unlessSacrificesChoice
+      : ((ctx as any).selectorContext?.unlessSacrificesChoice === 'sacrifice'
+          || (ctx as any).selectorContext?.unlessSacrificesChoice === 'decline'
+          ? (ctx as any).selectorContext.unlessSacrificesChoice
+          : undefined);
+
+  if (candidates.length === 0) {
+    return {
+      applied: true,
+      shouldApplyNestedSteps: true,
+      log: [`Resolved unless-sacrifices step (${sacrificerId} cannot sacrifice matching permanent): ${step.raw}`],
+    };
+  }
+
+  if (explicitChoice === 'sacrifice') {
+    const sacrificeStep = {
+      kind: 'sacrifice',
+      who: step.who,
+      what: step.what,
+      raw: step.raw,
+    } as Extract<OracleEffectStep, { kind: 'sacrifice' }>;
+    const sacrificeResult = applySacrificeStep(state, sacrificeStep, ctx);
+    if ((sacrificeResult as any).applied === false) {
+      return {
+        applied: false,
+        message: String((sacrificeResult as any).message || `Skipped unless-sacrifices sacrifice: ${step.raw}`),
+        reason: String((sacrificeResult as any).reason || 'player_choice_required'),
+        state: (sacrificeResult as any).state,
+        options: (sacrificeResult as any).options,
+        innerStep: sacrificeStep,
+      };
+    }
+    return {
+      applied: true,
+      shouldApplyNestedSteps: false,
+      state: (sacrificeResult as any).state ?? state,
+      log: [
+        ...(((sacrificeResult as any).log as string[]) || []),
+        `Resolved unless-sacrifices step (${sacrificerId} sacrificed): ${step.raw}`,
+      ],
+    };
+  }
+
+  if (explicitChoice === 'decline') {
+    return {
+      applied: true,
+      shouldApplyNestedSteps: true,
+      log: [`Resolved unless-sacrifices step (${sacrificerId} declined to sacrifice): ${step.raw}`],
+    };
+  }
+
+  return {
+    applied: false,
+    message: `Skipped unless-sacrifices step (player choice required): ${step.raw}`,
+    reason: 'player_choice_required',
+    options: {
+      classification: 'player_choice',
+      pending: true,
+      metadata: {
+        sacrificerId,
+        candidateCount: candidates.length,
+        what: whatText,
+      },
+    },
+  };
 }
 
 export function applySacrificeStep(

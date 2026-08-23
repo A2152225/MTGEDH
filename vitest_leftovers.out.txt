@@ -1,0 +1,11 @@
+﻿
+ RUN  v4.0.16 D:/Git/MTGEDH/server
+
+ Γ£ô tests/on-cast-any-player-may-gain-control-cultist.unit.test.ts (12 tests) 573ms
+     Γ£ô parses Dash Hopes-style any-player life tax as any_player_may + counter  374ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  21:55:16
+   Duration  9.79s (transform 7.71s, setup 123ms, import 8.96s, tests 573ms, environment 0ms)
+

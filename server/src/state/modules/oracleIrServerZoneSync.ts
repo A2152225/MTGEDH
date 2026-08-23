@@ -118,6 +118,8 @@ import type { GameContext } from '../context.js';
 import { registerLinkedExile } from './triggers/linked-exile.js';
 import { queueCastFromExileResolutionPrompt } from './triggerCastFromExileUtils.js';
 import { queueJoinForcesResolutionSteps } from './joinForcesResolutionQueue.js';
+import { grantNextSpellCostReduction } from './nextSpellCostReduction.js';
+import { describeAnyPlayerMayPayment, type AnyPlayerMayPayment } from '../../../../rules-engine/src/oracleIRAnyPlayerMay.js';
 
 type MutableOracleIRExecutionResult = {
   -readonly [K in keyof OracleIRExecutionResult]: OracleIRExecutionResult[K];
@@ -4746,6 +4748,33 @@ function persistUnqueuedPendingContinuationFromOracleIRResult(
   if (params.sourceName) state.oracleIrPendingResumeSourceName = params.sourceName;
 }
 
+
+function syncNextSpellCostReductionFromOracleIRResult(
+  state: any,
+  controllerId: PlayerID,
+  result: OracleIRExecutionResult,
+  irCtx?: OracleIRExecutionContext,
+): void {
+  const pending = (irCtx as any)?.pendingNextSpellCostReduction;
+  if (pending && Number(pending.genericAmount) > 0) {
+    grantNextSpellCostReduction(state, controllerId, Number(pending.genericAmount), String(pending.sourceName || ''));
+    return;
+  }
+  for (const step of result.appliedSteps || []) {
+    if ((step as any)?.kind !== 'grant_next_spell_cost_reduction') continue;
+    const per = Boolean((step as any).perCountersRemoved);
+    const countersRemoved = Number((irCtx as any)?.countersRemovedThisWay ?? 0);
+    const mana = String((step as any).mana || '{1}');
+    const perAmount = Number.parseInt(String((mana.match(/\{(\d+)\}/) || [])[1] || '1'), 10);
+    const amount = per
+      ? Math.max(0, countersRemoved) * (Number.isFinite(perAmount) ? perAmount : 1)
+      : Number((step as any).amount || perAmount || 0);
+    if (amount > 0) {
+      grantNextSpellCostReduction(state, controllerId, amount, String((irCtx as any)?.sourceName || ''));
+    }
+  }
+}
+
 function queueUnlessPayChoicePromptsFromOracleIRResult(
   ctx: GameContext,
   state: any,
@@ -4875,6 +4904,58 @@ function queueUnlessPayChoicePromptsFromOracleIRResult(
           || params.irCtx.targetSpellId
           || '',
         ).trim() || undefined,
+      } as any, result, params) as any);
+      continue;
+    }
+
+    if (stepKind === 'any_player_may' && skippedStep?.kind === 'any_player_may') {
+      const payment = (skippedStep as any).payment;
+      const paymentLabel = describeAnyPlayerMayPayment(payment);
+      const nextPlayerId = String(metadata.nextPlayerId || metadata.payerId || '').trim() as PlayerID;
+      const candidatePlayerIds = Array.isArray(metadata.candidatePlayerIds)
+        ? (metadata.candidatePlayerIds as string[]).map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+      const payerId = (nextPlayerId || candidatePlayerIds[0] || params.controller) as PlayerID;
+      if (!payerId) continue;
+
+      queuedKeys.add(queueKey);
+      const declinedPlayerIds = Array.isArray(metadata.declinedPlayerIds)
+        ? (metadata.declinedPlayerIds as string[])
+        : [];
+
+      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: payerId,
+        description: `${sourceName}: Any player may ${paymentLabel}. If a player does, counter this spell.`,
+        mandatory: false,
+        sourceId,
+        sourceName,
+        options: [
+          { id: 'pay', label: paymentLabel[0].toUpperCase() + paymentLabel.slice(1), description: paymentLabel },
+          { id: 'decline', label: 'Decline', description: 'Decline' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        optionalPaymentPrompt: true,
+        // Payment is applied by evaluateAnyPlayerMayStep on resume (avoid double-charge).
+        optionalPaymentValidationKind: 'none',
+        optionalPaymentPayChoiceId: 'pay',
+        optionalPaymentDeclineChoiceId: 'decline',
+        oracleIrAnyPlayerMayChoice: true,
+        oracleIrAnyPlayerMayPaymentJson: JSON.stringify(payment || {}),
+        oracleIrAnyPlayerMayStepsJson: JSON.stringify([(skippedStep as any)]),
+        oracleIrAnyPlayerMayCandidateIds: candidatePlayerIds,
+        oracleIrAnyPlayerMayDeclinedIds: declinedPlayerIds,
+        oracleIrControllerId: params.controller,
+        oracleIrSourceId: sourceId,
+        oracleIrSourceName: sourceName,
+        ...(params.irCtx?.targetSpellId || triggerItem?.triggeringStackItemId
+          ? {
+              oracleIrTargetSpellId: String(
+                params.irCtx?.targetSpellId || triggerItem?.triggeringStackItemId || '',
+              ).trim(),
+            }
+          : {}),
       } as any, result, params) as any);
       continue;
     }
@@ -5535,6 +5616,417 @@ export function syncAllOracleIRPlayerZonesAfterResolution(ctx: GameContext): voi
   }
 }
 
+
+function parseAnyPlayerMayPaymentJson(raw: unknown): AnyPlayerMayPayment | null {
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!parsed || typeof parsed !== 'object') return null;
+    const kind = String((parsed as any).kind || '').trim();
+    if (kind === 'life') {
+      const amount = Number((parsed as any).amount);
+      if (!Number.isFinite(amount) || amount <= 0) return null;
+      return { kind: 'life', amount };
+    }
+    if (kind === 'half_life_rounded_up') return { kind: 'half_life_rounded_up' };
+    if (kind === 'discard') {
+      const amount = Number((parsed as any).amount);
+      if (!Number.isFinite(amount) || amount <= 0) return null;
+      return { kind: 'discard', amount };
+    }
+    if (kind === 'sacrifice') {
+      const what = String((parsed as any).what || 'a creature').trim() || 'a creature';
+      return { kind: 'sacrifice', what };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function buildAnyPlayerMayPaymentSelectionBase(
+  stepData: any,
+  playerId: PlayerID,
+): {
+  controller: PlayerID;
+  sourceId?: string;
+  sourceName?: string;
+  targetSpellId?: string;
+  anySteps: OracleEffectStep[];
+  declined: string[];
+  candidates: string[];
+  payment: AnyPlayerMayPayment | null;
+} {
+  let anySteps: OracleEffectStep[] = [];
+  try {
+    const parsed = JSON.parse(String(stepData.oracleIrAnyPlayerMayStepsJson || '[]'));
+    anySteps = Array.isArray(parsed) ? parsed as OracleEffectStep[] : [];
+  } catch {
+    anySteps = [];
+  }
+  const declined = Array.isArray(stepData.oracleIrAnyPlayerMayDeclinedIds)
+    ? [...(stepData.oracleIrAnyPlayerMayDeclinedIds as string[])].map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const candidates = Array.isArray(stepData.oracleIrAnyPlayerMayCandidateIds)
+    ? [...(stepData.oracleIrAnyPlayerMayCandidateIds as string[])].map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  return {
+    controller: String(stepData.oracleIrControllerId || playerId).trim() as PlayerID,
+    sourceId: String(stepData.oracleIrSourceId || stepData.sourceId || '').trim() || undefined,
+    sourceName: String(stepData.oracleIrSourceName || stepData.sourceName || '').trim() || undefined,
+    targetSpellId: String(stepData.oracleIrTargetSpellId || '').trim() || undefined,
+    anySteps,
+    declined,
+    candidates,
+    payment: parseAnyPlayerMayPaymentJson(stepData.oracleIrAnyPlayerMayPaymentJson),
+  };
+}
+
+function resumeAnyPlayerMayAfterChoice(
+  ctx: GameContext,
+  params: {
+    controller: PlayerID;
+    sourceId?: string;
+    sourceName?: string;
+    targetSpellId?: string;
+    steps: readonly OracleEffectStep[];
+    playerId: PlayerID;
+    paid: boolean;
+    declined: string[];
+    discardCardIds?: readonly string[];
+    sacrificePermanentId?: string;
+  },
+): void {
+  if (params.paid) {
+    resumeOracleIRRemainingStepsFromResolution(ctx, {
+      controller: params.controller,
+      sourceId: params.sourceId,
+      sourceName: params.sourceName,
+      targetSpellId: params.targetSpellId,
+      steps: params.steps,
+      ...(params.sacrificePermanentId
+        ? { chosenObjectIds: [params.sacrificePermanentId] }
+        : {}),
+      selectorContext: {
+        anyPlayerMayChoice: 'pay',
+        anyPlayerMayPayerId: params.playerId,
+        ...(params.discardCardIds && params.discardCardIds.length > 0
+          ? { anyPlayerMayDiscardCardIds: [...params.discardCardIds] }
+          : {}),
+        ...(params.sacrificePermanentId
+          ? {
+              anyPlayerMaySacrificePermanentId: params.sacrificePermanentId,
+              chosenObjectIds: [params.sacrificePermanentId],
+            }
+          : {}),
+      },
+    });
+    return;
+  }
+
+  const declined = [...params.declined, String(params.playerId)].map((id) => String(id || '').trim()).filter(Boolean);
+  resumeOracleIRRemainingStepsFromResolution(ctx, {
+    controller: params.controller,
+    sourceId: params.sourceId,
+    sourceName: params.sourceName,
+    targetSpellId: params.targetSpellId,
+    steps: params.steps,
+    selectorContext: {
+      anyPlayerMayChoice: 'decline',
+      anyPlayerMayPayerId: params.playerId,
+      anyPlayerMayDeclinedPlayerIds: declined,
+    },
+  });
+}
+
+/**
+ * After Pay on an any_player_may discard/sacrifice window, queue a real picker
+ * for that player (or auto-finish when there is no meaningful choice).
+ * Returns true when the payment flow was handled (picker queued or pay resumed).
+ */
+function maybeQueueAnyPlayerMayPaymentSelection(
+  ctx: GameContext,
+  state: any,
+  stepData: any,
+  playerId: PlayerID,
+  base: ReturnType<typeof buildAnyPlayerMayPaymentSelectionBase>,
+): boolean {
+  const payment = base.payment;
+  if (!payment || (payment.kind !== 'discard' && payment.kind !== 'sacrifice')) {
+    return false;
+  }
+
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown') {
+    return false;
+  }
+  // During replay, discard/sac payment pickers are restored via queued prompt events.
+  // Do not auto-apply pay without selected object IDs.
+  if ((ctx as any).isReplaying) {
+    return true;
+  }
+
+  hydrateOracleIRPlayerZonesFromContext(ctx, state);
+
+  const sourceName = base.sourceName || 'Ability';
+  const sourceId = base.sourceId;
+  const payerCtx = buildOracleIRExecutionContext({
+    controllerId: playerId,
+    sourceId,
+    sourceName,
+  });
+
+  if (payment.kind === 'discard') {
+    const synthetic = {
+      kind: 'discard',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: payment.amount },
+      raw: `discard ${payment.amount} card${payment.amount === 1 ? '' : 's'}`,
+    } as Extract<OracleEffectStep, { kind: 'discard' }>;
+
+    const builtList = collectDiscardSelectionOptionsForStep(state, synthetic, payerCtx);
+    const built = builtList.find((entry) => String(entry.playerId) === String(playerId)) || builtList[0];
+
+    // No meaningful choice (hand size == amount): pay with every eligible card.
+    if (!built || built.options.length === 0) {
+      const player = ((state as any).players || []).find(
+        (p: any) => String(p?.id || '').trim() === String(playerId),
+      );
+      const handIds = (Array.isArray(player?.hand) ? player.hand : [])
+        .map((card: any) => String(card?.id || card?.card?.id || '').trim())
+        .filter(Boolean);
+      if (handIds.length < payment.amount) {
+        resumeAnyPlayerMayAfterChoice(ctx, {
+          controller: base.controller,
+          sourceId: base.sourceId,
+          sourceName: base.sourceName,
+          targetSpellId: base.targetSpellId,
+          steps: base.anySteps,
+          playerId,
+          paid: false,
+          declined: base.declined,
+        });
+        return true;
+      }
+      resumeAnyPlayerMayAfterChoice(ctx, {
+        controller: base.controller,
+        sourceId: base.sourceId,
+        sourceName: base.sourceName,
+        targetSpellId: base.targetSpellId,
+        steps: base.anySteps,
+        playerId,
+        paid: true,
+        declined: base.declined,
+        discardCardIds: handIds.slice(0, payment.amount),
+      });
+      return true;
+    }
+
+    if (built.options.length <= built.discardCount) {
+      resumeAnyPlayerMayAfterChoice(ctx, {
+        controller: base.controller,
+        sourceId: base.sourceId,
+        sourceName: base.sourceName,
+        targetSpellId: base.targetSpellId,
+        steps: base.anySteps,
+        playerId,
+        paid: true,
+        declined: base.declined,
+        discardCardIds: built.options.slice(0, built.discardCount).map((opt) => String(opt.id)),
+      });
+      return true;
+    }
+
+    const queuedDiscard = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.DISCARD_SELECTION,
+      playerId,
+      description: `${sourceName}: Choose ${built.discardCount} card${built.discardCount === 1 ? '' : 's'} to discard`,
+      mandatory: false,
+      sourceId,
+      sourceName,
+      hand: built.options,
+      discardCount: built.discardCount,
+      currentHandSize: built.currentHandSize,
+      maxHandSize: built.maxHandSize,
+      reason: 'any_player_may_payment',
+      oracleIrAnyPlayerMayPaymentSelection: true,
+      oracleIrAnyPlayerMayChoice: true,
+      oracleIrAnyPlayerMayPaymentJson: String(stepData.oracleIrAnyPlayerMayPaymentJson || ''),
+      oracleIrAnyPlayerMayStepsJson: String(stepData.oracleIrAnyPlayerMayStepsJson || '[]'),
+      oracleIrAnyPlayerMayCandidateIds: base.candidates,
+      oracleIrAnyPlayerMayDeclinedIds: base.declined,
+      oracleIrControllerId: base.controller,
+      oracleIrSourceId: sourceId,
+      oracleIrSourceName: sourceName,
+      ...(base.targetSpellId ? { oracleIrTargetSpellId: base.targetSpellId } : {}),
+    } as any);
+    appendQueuedResolutionPromptEvent(ctx, {
+      playerId,
+      sourceId,
+      queuedResolutionStep: queuedDiscard,
+    });
+    return true;
+  }
+
+  // sacrifice
+  const what = payment.what || 'a creature';
+  const syntheticSac = {
+    kind: 'sacrifice',
+    who: { kind: 'you' },
+    what: { kind: 'raw', text: what },
+    raw: `sacrifice ${what}`,
+  } as Extract<OracleEffectStep, { kind: 'sacrifice' }>;
+  const builtSac = buildSacrificeTargetSelectionOptions(state, syntheticSac, payerCtx);
+  if (!builtSac || builtSac.options.length === 0) {
+    resumeAnyPlayerMayAfterChoice(ctx, {
+      controller: base.controller,
+      sourceId: base.sourceId,
+      sourceName: base.sourceName,
+      targetSpellId: base.targetSpellId,
+      steps: base.anySteps,
+      playerId,
+      paid: false,
+      declined: base.declined,
+    });
+    return true;
+  }
+
+  const queuedSac = ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.TARGET_SELECTION,
+    playerId,
+    description: `${sourceName}: Choose a creature to sacrifice`,
+    mandatory: false,
+    sourceId,
+    sourceName,
+    validTargets: builtSac.options,
+    targetTypes: ['permanent'],
+    minTargets: Math.max(1, builtSac.minTargets || 1),
+    maxTargets: Math.max(1, builtSac.maxTargets || 1),
+    targetDescription: `Sacrifice ${what}`,
+    sacrificeSelection: true,
+    sacrificePermanentType: 'creature',
+    sacrificeCount: Math.max(1, builtSac.minTargets || 1),
+    sacrificeReason: `${sourceName}: any player may payment`,
+    sacrificeSourceName: sourceName,
+    oracleIrAnyPlayerMayPaymentSelection: true,
+    oracleIrAnyPlayerMayChoice: true,
+    oracleIrAnyPlayerMayPaymentJson: String(stepData.oracleIrAnyPlayerMayPaymentJson || ''),
+    oracleIrAnyPlayerMayStepsJson: String(stepData.oracleIrAnyPlayerMayStepsJson || '[]'),
+    oracleIrAnyPlayerMayCandidateIds: base.candidates,
+    oracleIrAnyPlayerMayDeclinedIds: base.declined,
+    oracleIrControllerId: base.controller,
+    oracleIrSourceId: sourceId,
+    oracleIrSourceName: sourceName,
+    ...(base.targetSpellId ? { oracleIrTargetSpellId: base.targetSpellId } : {}),
+  } as any);
+  appendQueuedResolutionPromptEvent(ctx, {
+    playerId,
+    sourceId,
+    queuedResolutionStep: queuedSac,
+  });
+  return true;
+}
+
+/**
+ * Resume any_player_may APNAP after a discard/sac payment picker resolves or is cancelled.
+ */
+export function resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution(
+  ctx: GameContext,
+  step: any,
+  response: {
+    readonly selections?: unknown;
+    readonly cancelled?: boolean;
+  },
+): boolean {
+  if (step?.oracleIrAnyPlayerMayPaymentSelection !== true) {
+    return false;
+  }
+
+  const playerId = String(step?.playerId || '').trim() as PlayerID;
+  if (!playerId) return false;
+
+  const base = buildAnyPlayerMayPaymentSelectionBase(step, playerId);
+  if (!base.anySteps.length) return false;
+
+  if (response.cancelled) {
+    resumeAnyPlayerMayAfterChoice(ctx, {
+      controller: base.controller,
+      sourceId: base.sourceId,
+      sourceName: base.sourceName,
+      targetSpellId: base.targetSpellId,
+      steps: base.anySteps,
+      playerId,
+      paid: false,
+      declined: base.declined,
+    });
+    return true;
+  }
+
+  const selectionIds = (Array.isArray(response.selections) ? response.selections : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+
+  const payment = base.payment;
+  if (payment?.kind === 'discard') {
+    if (selectionIds.length < payment.amount) {
+      resumeAnyPlayerMayAfterChoice(ctx, {
+        controller: base.controller,
+        sourceId: base.sourceId,
+        sourceName: base.sourceName,
+        targetSpellId: base.targetSpellId,
+        steps: base.anySteps,
+        playerId,
+        paid: false,
+        declined: base.declined,
+      });
+      return true;
+    }
+    resumeAnyPlayerMayAfterChoice(ctx, {
+      controller: base.controller,
+      sourceId: base.sourceId,
+      sourceName: base.sourceName,
+      targetSpellId: base.targetSpellId,
+      steps: base.anySteps,
+      playerId,
+      paid: true,
+      declined: base.declined,
+      discardCardIds: selectionIds.slice(0, payment.amount),
+    });
+    return true;
+  }
+
+  if (payment?.kind === 'sacrifice') {
+    const permanentId = selectionIds[0] || '';
+    if (!permanentId) {
+      resumeAnyPlayerMayAfterChoice(ctx, {
+        controller: base.controller,
+        sourceId: base.sourceId,
+        sourceName: base.sourceName,
+        targetSpellId: base.targetSpellId,
+        steps: base.anySteps,
+        playerId,
+        paid: false,
+        declined: base.declined,
+      });
+      return true;
+    }
+    resumeAnyPlayerMayAfterChoice(ctx, {
+      controller: base.controller,
+      sourceId: base.sourceId,
+      sourceName: base.sourceName,
+      targetSpellId: base.targetSpellId,
+      steps: base.anySteps,
+      playerId,
+      paid: true,
+      declined: base.declined,
+      sacrificePermanentId: permanentId,
+    });
+    return true;
+  }
+
+  return false;
+}
+
+
 export function resolveOracleIrOptionalPaymentPromptFromResolution(
   ctx: GameContext,
   params: {
@@ -5551,6 +6043,7 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
     && stepData.oracleIrOptionalPayManaChoice !== true
     && stepData.oracleIrOptionalMayChoice !== true
     && stepData.oracleIrUnlessDiscardsChoice !== true
+    && stepData.oracleIrAnyPlayerMayChoice !== true
   ) {
     return false;
   }
@@ -5592,6 +6085,66 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
         // best-effort
       }
     }
+  }
+
+  if (stepData.oracleIrAnyPlayerMayChoice === true) {
+    let anySteps: OracleEffectStep[] = [];
+    try {
+      const parsed = JSON.parse(String(stepData.oracleIrAnyPlayerMayStepsJson || '[]'));
+      anySteps = Array.isArray(parsed) ? parsed as OracleEffectStep[] : [];
+    } catch {
+      anySteps = [];
+    }
+    const declined = Array.isArray(stepData.oracleIrAnyPlayerMayDeclinedIds)
+      ? [...(stepData.oracleIrAnyPlayerMayDeclinedIds as string[])].map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const candidates = Array.isArray(stepData.oracleIrAnyPlayerMayCandidateIds)
+      ? [...(stepData.oracleIrAnyPlayerMayCandidateIds as string[])].map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+
+    const controller = String(stepData.oracleIrControllerId || playerId).trim() as PlayerID;
+    const sourceId = String(stepData.oracleIrSourceId || stepData.sourceId || '').trim() || undefined;
+    const sourceName = String(stepData.oracleIrSourceName || stepData.sourceName || '').trim() || undefined;
+    const targetSpellId = String(stepData.oracleIrTargetSpellId || '').trim() || undefined;
+
+    if (paid) {
+      const base = {
+        controller,
+        sourceId,
+        sourceName,
+        targetSpellId,
+        anySteps,
+        declined,
+        candidates,
+        payment: parseAnyPlayerMayPaymentJson(stepData.oracleIrAnyPlayerMayPaymentJson),
+      };
+      if (maybeQueueAnyPlayerMayPaymentSelection(ctx, state, stepData, playerId, base)) {
+        return true;
+      }
+      resumeAnyPlayerMayAfterChoice(ctx, {
+        controller,
+        sourceId,
+        sourceName,
+        targetSpellId,
+        steps: anySteps,
+        playerId,
+        paid: true,
+        declined,
+      });
+      return true;
+    }
+
+    resumeAnyPlayerMayAfterChoice(ctx, {
+      controller,
+      sourceId,
+      sourceName,
+      targetSpellId,
+      steps: anySteps,
+      playerId,
+      paid: false,
+      declined,
+    });
+    return true;
   }
 
   if (paid) {
@@ -6040,6 +6593,8 @@ export function applyOracleIRStepsOnServer(
     result,
     params?.triggerItem ?? params?.sourceItem,
   );
+  syncNextSpellCostReductionFromOracleIRResult(state as any, params.controller, result, params.irCtx);
+
   queueOracleIrDeferredReplacementPrompts(ctx, transitionHaltState, {
     controller: String(controller),
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',

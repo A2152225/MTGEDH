@@ -1,0 +1,6 @@
+D:\Git\MTGEDH\server\src\state\modules\oracleIrTriggerExecution.ts
+  5|buildOracleIRExecutionContext,
+  396|const irCtx = buildOracleIRExecutionContext(
+D:\Git\MTGEDH\server\src\state\modules\stackResolveTriggeredAbilityInterveningIfUtils.ts
+  115|// Always bind the resolving stack item so cast-time ledgers (wasKicked /
+  120|wasKicked: (item as any)?.wasKicked ?? (item as any)?.card?.wasKicked,

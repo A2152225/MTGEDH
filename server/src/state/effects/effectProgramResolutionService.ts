@@ -285,6 +285,33 @@ function buildTeamworkChooseBothQueueExtras(
   };
 }
 
+function buildKickerChooseBothQueueExtras(
+  pause: EffectProgramChoicePause<any>,
+  oracleIrBridge?: EffectProgramOracleIrBridgeConfig,
+): EffectProgramQueueExtraConfig {
+  if ((oracleIrBridge?.irCtx as any)?.wasKicked !== true) {
+    return {};
+  }
+  const payload = (pause.choiceEvent as any)?.payload || pause.step?.choiceRequest?.payload;
+  const oracleStepKind = String((payload as any)?.oracleStepKind || '');
+  const oracleStep = (payload as any)?.oracleStep as any;
+  if (oracleStepKind !== 'choose_mode' || !oracleStep?.kickerChooseBoth) {
+    return {};
+  }
+  const modes = Array.isArray((payload as any)?.modes)
+    ? (payload as any).modes
+    : Array.isArray(oracleStep?.modes)
+      ? oracleStep.modes
+      : [];
+  const modeCount = modes.length > 0 ? modes.length : 2;
+  return {
+    minModes: modeCount,
+    maxModes: modeCount,
+    kickerChooseBoth: true,
+    wasKicked: true,
+  };
+}
+
 function continueEffectProgramResolution(args: {
   readonly game: any;
   readonly gameId: string;
@@ -339,9 +366,11 @@ function continueEffectProgramResolution(args: {
     }
 
     const teamworkExtras = buildTeamworkChooseBothQueueExtras(runResult.pendingChoice, args.oracleIrBridge);
+    const kickerExtras = buildKickerChooseBothQueueExtras(runResult.pendingChoice, args.oracleIrBridge);
     const queuedStep = queueEffectProgramChoice(args.gameId, runResult.pendingChoice, {
       ...(args.queueExtraConfig || {}),
       ...teamworkExtras,
+      ...kickerExtras,
     });
     storeRuntimeForStep(args.gameId, queuedStep.id, {
       runtime: runResult.pendingChoice.runtime,

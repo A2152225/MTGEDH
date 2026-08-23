@@ -112,33 +112,35 @@ export function trySkipTriggeredAbilityForUnmetInterveningIf(
       ? (item as any).interveningIfSubjectSnapshot
       : null;
     const sourcePermanentForInterveningIf = interveningSubjectPermanent || interveningSubjectSnapshot || sourcePerm;
-    const refs = (needsThatPlayerRef || needsTheirTurnRef || needsManaAbilityRef || needsSingleTargetRef || needsCardTypeShareRef || wantsDamageSourceRefs)
-      ? {
-          ...(thatPlayerId && (needsThatPlayerRef || needsTheirTurnRef)
-            ? {
-                thatPlayerId,
-                referencedPlayerId: thatPlayerId,
-                theirPlayerId: thatPlayerId,
-              }
-            : {}),
-          ...(typeof activatedAbilityIsManaAbility === 'boolean'
-            ? { activatedAbilityIsManaAbility: activatedAbilityIsManaAbility }
-            : {}),
-          ...((needsSingleTargetRef || needsCardTypeShareRef) && triggeringStackItemId
-            ? { triggeringStackItemId: String(triggeringStackItemId) }
-            : {}),
-          ...(wantsDamageSourceRefs && Array.isArray(damageSourcePermanentIds)
-            ? {
-                damageSourcePermanentIds,
-                damageSourceCreatureIds: damageSourcePermanentIds,
-                damageSourceIds: damageSourcePermanentIds,
-              }
-            : {}),
-          ...(wantsDamageSourceRefs && typeof damageIncludedWarriorSource === 'boolean'
-            ? { damageIncludedWarriorSource }
-            : {}),
-        }
-      : undefined;
+    // Always bind the resolving stack item so cast-time ledgers (wasKicked /
+    // paidKickerCosts / timesKicked) are visible to intervening-if evaluators.
+    const refs: Record<string, unknown> = {
+      stackItem: item,
+      card: (item as any)?.card,
+      wasKicked: (item as any)?.wasKicked ?? (item as any)?.card?.wasKicked,
+      kickerPaidCount: (item as any)?.kickerPaidCount ?? (item as any)?.card?.kickerPaidCount,
+      timesKicked: (item as any)?.timesKicked ?? (item as any)?.card?.timesKicked,
+      paidKickerCosts: (item as any)?.paidKickerCosts ?? (item as any)?.card?.paidKickerCosts,
+    };
+    if (thatPlayerId && (needsThatPlayerRef || needsTheirTurnRef)) {
+      refs.thatPlayerId = thatPlayerId;
+      refs.referencedPlayerId = thatPlayerId;
+      refs.theirPlayerId = thatPlayerId;
+    }
+    if (typeof activatedAbilityIsManaAbility === 'boolean') {
+      refs.activatedAbilityIsManaAbility = activatedAbilityIsManaAbility;
+    }
+    if ((needsSingleTargetRef || needsCardTypeShareRef) && triggeringStackItemId) {
+      refs.triggeringStackItemId = String(triggeringStackItemId);
+    }
+    if (wantsDamageSourceRefs && Array.isArray(damageSourcePermanentIds)) {
+      refs.damageSourcePermanentIds = damageSourcePermanentIds;
+      refs.damageSourceCreatureIds = damageSourcePermanentIds;
+      refs.damageSourceIds = damageSourcePermanentIds;
+    }
+    if (wantsDamageSourceRefs && typeof damageIncludedWarriorSource === 'boolean') {
+      refs.damageIncludedWarriorSource = damageIncludedWarriorSource;
+    }
     const satisfied = isInterveningIfSatisfied(
       ctx as any,
       String(options.triggerController),

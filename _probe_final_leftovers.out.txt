@@ -1,0 +1,124 @@
+﻿
+==== Brain Gorgers ====
+[
+  {
+    "kind": "any_player_may",
+    "payment": {
+      "kind": "sacrifice",
+      "what": "a creature of their choice"
+    },
+    "steps": [
+      {
+        "kind": "counter_spell",
+        "target": {
+          "kind": "raw",
+          "text": "this spell"
+        },
+        "raw": "counter this spell"
+      }
+    ],
+    "raw": "any player may sacrifice a creature of their choice. If a player does, counter this permanent"
+  }
+]
+
+==== Dash Hopes ====
+[
+  {
+    "kind": "any_player_may",
+    "payment": {
+      "kind": "life",
+      "amount": 5
+    },
+    "steps": [
+      {
+        "kind": "counter_spell",
+        "target": {
+          "kind": "raw",
+          "text": "this spell"
+        },
+        "raw": "counter this spell"
+      }
+    ],
+    "raw": "any player may pay 5 life. If a player does, counter this permanent"
+  }
+]
+
+==== Eldrazi Obligator ====
+[
+  {
+    "kind": "pay_mana",
+    "who": {
+      "kind": "you"
+    },
+    "mana": "{1}{C}",
+    "optional": true,
+    "raw": "pay {1}{C}"
+  },
+  {
+    "kind": "conditional",
+    "condition": {
+      "kind": "if",
+      "raw": "you do"
+    },
+    "steps": [
+      {
+        "kind": "gain_control",
+        "what": {
+          "kind": "raw",
+          "text": "target creature"
+        },
+        "newController": {
+          "kind": "you"
+        },
+        "duration": "until_end_of_turn",
+        "raw": "gain control of target creature until end of turn"
+      },
+      {
+        "kind": "tap_or_untap",
+        "target": {
+          "kind": "raw",
+          "text": "that creature"
+        },
+        "mode": "untap",
+        "raw": "Untap that creature"
+      },
+      {
+        "kind": "grant_temporary_ability",
+        "target": {
+          "kind": "raw",
+          "text": "it"
+        },
+        "duration": "end_of_turn",
+        "abilities": [
+          "haste"
+        ],
+        "raw": "it gains haste until end of turn"
+      }
+    ],
+    "raw": "If you do, gain control of target creature until end of turn, untap that creature, and it gains haste until end of turn"
+  }
+]
+
+==== Mutated Cultist ====
+[
+  {
+    "kind": "remove_counter",
+    "amount": {
+      "kind": "all"
+    },
+    "counter": "any",
+    "target": {
+      "kind": "raw",
+      "text": "up to one target permanent or opponent"
+    },
+    "optional": true,
+    "raw": "remove all counters from up to one target permanent or opponent"
+  },
+  {
+    "kind": "grant_next_spell_cost_reduction",
+    "mana": "{1}",
+    "perCountersRemoved": true,
+    "duration": "until_end_of_turn",
+    "raw": "The next spell you cast this turn costs {1} less to cast for each counter removed this way"
+  }
+]

@@ -1,0 +1,1826 @@
+[
+  {
+    "name": "Abby, Merciless Soldier",
+    "type_line": "Legendary Creature — Human Survivor",
+    "sentences": [
+      "When you cast this spell, create a number of 1/1 black Fungus Zombie creature tokens named Cordyceps Infected equal to the amount of mana spent to cast it."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "create_tokens"
+    ],
+    "resolvedDescription": "When you cast this spell, create a number of 1/1 black fungus zombie creature tokens named cordyceps infected equal to the amount of mana spent to cast it",
+    "detectedEffect": "create a number of 1/1 black fungus zombie creature tokens named cordyceps infected equal to the amount of mana spent to cast it",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Abundant Maw",
+    "type_line": "Creature — Eldrazi Leech",
+    "sentences": [
+      "When you cast this spell, target opponent loses 3 life and you gain 3 life."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "gain_life",
+      "lose_life"
+    ],
+    "resolvedDescription": "When you cast this spell, target opponent loses 3 life and you gain 3 life",
+    "detectedEffect": "target opponent loses 3 life and you gain 3 life",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "player"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Artisan of Kozilek",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, you may return target creature card from your graveyard to the battlefield."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "return_from_graveyard",
+      "optional_you_may"
+    ],
+    "resolvedDescription": "When you cast this spell, you may return target creature card from your graveyard to the battlefield",
+    "detectedEffect": "you may return target creature card from your graveyard to the battlefield",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "creature",
+      "targetZone": "graveyard",
+      "targetDestination": "battlefield",
+      "targetGraveyardScope": "your",
+      "targetFilterTypes": [
+        "creature"
+      ]
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Bearer of Silence",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, you may pay {1}{C}. If you do, target opponent sacrifices a creature. ({C} represents colorless mana.)"
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "sacrifice",
+      "optional_you_may",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, you may pay {1}{c}",
+    "detectedEffect": "you may pay {1}{c}",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Benthic Anomaly",
+    "type_line": "Creature — Eldrazi Serpent",
+    "sentences": [
+      "When you cast this spell, for each opponent, choose a creature that player controls. Create a token that's a copy of one of those creatures, except its power is equal to the total power of those creatures, its toughness is equal to the total toughness of those creatures, and it's a colorless Eldrazi creature."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "create_tokens",
+      "copy_spell_or_permanent"
+    ],
+    "resolvedDescription": "When you cast this spell, for each opponent, choose a creature that player controls",
+    "detectedEffect": "for each opponent, choose a creature that player controls",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Blight Herder",
+    "type_line": "Creature — Eldrazi Processor",
+    "sentences": [
+      "When you cast this spell, you may put two cards your opponents own from exile into their owners' graveyards. If you do, create three 1/1 colorless Eldrazi Scion creature tokens. They have \"Sacrifice this token: Add {C}.\""
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "create_tokens",
+      "sacrifice",
+      "optional_you_may",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, you may put two cards your opponents own from exile into their owners' graveyards",
+    "detectedEffect": "you may put two cards your opponents own from exile into their owners' graveyards",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Brain Gorgers",
+    "type_line": "Creature — Zombie",
+    "sentences": [
+      "When you cast this spell, any player may sacrifice a creature of their choice. If a player does, counter Brain Gorgers."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "sacrifice",
+      "counter_related",
+      "intervening_if",
+      "any_player_may_tax"
+    ],
+    "resolvedDescription": "When you cast this spell, any player may sacrifice a creature of their choice",
+    "detectedEffect": "any player may sacrifice a creature of their choice",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Brass Knuckles",
+    "type_line": "Artifact — Equipment",
+    "sentences": [
+      "When you cast this spell, copy it. (The copy becomes a token.)"
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "copy_spell_or_permanent"
+    ],
+    "resolvedDescription": "When you cast this spell, copy it",
+    "detectedEffect": "copy it",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Breaker of Creation",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, you gain 1 life for each colorless permanent you control."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "gain_life"
+    ],
+    "resolvedDescription": "When you cast this spell, you gain 1 life for each colorless permanent you control",
+    "detectedEffect": "you gain 1 life for each colorless permanent you control",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Bruna, the Fading Light",
+    "type_line": "Legendary Creature — Angel Horror",
+    "sentences": [
+      "When you cast this spell, you may return target Angel or Human creature card from your graveyard to the battlefield."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "return_from_graveyard",
+      "optional_you_may"
+    ],
+    "resolvedDescription": "When you cast this spell, you may return target angel or human creature card from your graveyard to the battlefield",
+    "detectedEffect": "you may return target angel or human creature card from your graveyard to the battlefield",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetZone": "graveyard",
+      "targetDestination": "battlefield",
+      "targetGraveyardScope": "your",
+      "targetFilterTypes": [
+        "creature"
+      ],
+      "targetFilterRequiredTypeWords": [
+        "angel",
+        "or",
+        "human"
+      ]
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Bygone Marvels",
+    "type_line": "Sorcery",
+    "sentences": [],
+    "sentenceCount": 0,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, if there are eight or more permanent cards in your graveyard, copy this spell twice",
+    "detectedEffect": "if there are eight or more permanent cards in your graveyard, copy this spell twice",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Conduit of Ruin",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, you may search your library for a colorless creature card with mana value 7 or greater, reveal it, then shuffle and put that card on top."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "search_library",
+      "optional_you_may"
+    ],
+    "resolvedDescription": "When you cast this spell, you may search your library for a colorless creature card with mana value 7 or greater, reveal it, then shuffle and put that card on top",
+    "detectedEffect": "you may search your library for a colorless creature card with mana value 7 or greater, reveal it, then shuffle and put that card on top",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Dash Hopes",
+    "type_line": "Instant",
+    "sentences": [
+      "When you cast this spell, any player may pay 5 life. If a player does, counter Dash Hopes."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "counter_related",
+      "intervening_if",
+      "any_player_may_tax"
+    ],
+    "resolvedDescription": "When you cast this spell, any player may pay 5 life",
+    "detectedEffect": "any player may pay 5 life",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Decimator of the Provinces",
+    "type_line": "Creature — Eldrazi Boar",
+    "sentences": [
+      "When you cast this spell, creatures you control get +2/+2 and gain trample until end of turn."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "pump"
+    ],
+    "resolvedDescription": "When you cast this spell, creatures you control get +2/+2 and gain trample until end of turn",
+    "detectedEffect": "creatures you control get +2/+2 and gain trample until end of turn",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Demigod of Revenge",
+    "type_line": "Creature — Spirit Avatar",
+    "sentences": [
+      "When you cast this spell, return all cards named Demigod of Revenge from your graveyard to the battlefield."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "return_from_graveyard"
+    ],
+    "resolvedDescription": "When you cast this spell, return all cards named demigod of revenge from your graveyard to the battlefield",
+    "detectedEffect": "return all cards named demigod of revenge from your graveyard to the battlefield",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Depth Defiler",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, choose one. If it was kicked, choose both instead."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "modal",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, choose one",
+    "detectedEffect": "choose one",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Desolation Twin",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, create a 10/10 colorless Eldrazi creature token."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "create_tokens"
+    ],
+    "resolvedDescription": "When you cast this spell, create a 10/10 colorless eldrazi creature token",
+    "detectedEffect": "create a 10/10 colorless eldrazi creature token",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Devourer of Destiny",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, exile target permanent that's one or more colors."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "exile_target_permanent"
+    ],
+    "resolvedDescription": "When you cast this spell, exile target permanent that's one or more colors",
+    "detectedEffect": "exile target permanent that's one or more colors",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "permanent"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Distended Mindbender",
+    "type_line": "Creature — Eldrazi Insect",
+    "sentences": [
+      "When you cast this spell, target opponent reveals their hand. You choose from it a nonland card with mana value 3 or less and a card with mana value 4 or greater. That player discards those cards."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "discard"
+    ],
+    "resolvedDescription": "When you cast this spell, target opponent reveals their hand",
+    "detectedEffect": "target opponent reveals their hand",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "player"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Drowner of Truth // Drowned Jungle",
+    "type_line": "Creature — Eldrazi // Land",
+    "sentences": [
+      "When you cast this spell, if {C} was spent to cast it, create two 0/1 colorless Eldrazi Spawn creature tokens with \"Sacrifice this token: Add {C}.\""
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "create_tokens",
+      "sacrifice"
+    ],
+    "resolvedDescription": "When you cast this spell, if {c} was spent to cast it, create two 0/1 colorless eldrazi spawn creature tokens with \"sacrifice this token: add {c}",
+    "detectedEffect": "if {c} was spent to cast it, create two 0/1 colorless eldrazi spawn creature tokens with \"sacrifice this token: add {c}",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Echo Storm",
+    "type_line": "Sorcery",
+    "sentences": [
+      "When you cast this spell, copy it for each time you've cast your commander from the command zone this game. You may choose new targets for the copies."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "optional_you_may",
+      "commander_cast_copy"
+    ],
+    "resolvedDescription": "When you cast this spell, copy it for each time you've cast your commander from the command zone this game",
+    "detectedEffect": "copy it for each time you've cast your commander from the command zone this game",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Elder Deep-Fiend",
+    "type_line": "Creature — Eldrazi Octopus",
+    "sentences": [
+      "When you cast this spell, tap up to four target permanents."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "tap"
+    ],
+    "resolvedDescription": "When you cast this spell, tap up to four target permanents",
+    "detectedEffect": "tap up to four target permanents",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "permanent"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Eldrazi Obligator",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, you may pay {1}{C}. If you do, gain control of target creature until end of turn, untap that creature, and it gains haste until end of turn. ({C} represents colorless mana.)"
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "untap",
+      "gain_control",
+      "optional_you_may",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, you may pay {1}{c}",
+    "detectedEffect": "you may pay {1}{c}",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Empyrial Storm",
+    "type_line": "Sorcery",
+    "sentences": [
+      "When you cast this spell, copy it for each time you've cast your commander from the command zone this game."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "commander_cast_copy"
+    ],
+    "resolvedDescription": "When you cast this spell, copy it for each time you've cast your commander from the command zone this game",
+    "detectedEffect": "copy it for each time you've cast your commander from the command zone this game",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Emrakul, the Aeons Torn",
+    "type_line": "Legendary Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, take an extra turn after this one."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "extra_turn"
+    ],
+    "resolvedDescription": "Take an extra turn after this one.",
+    "detectedEffect": "take an extra turn after this one",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Emrakul, the Promised End",
+    "type_line": "Legendary Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, you gain control of target opponent during that player's next turn. After that turn, that player takes an extra turn."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "gain_life",
+      "gain_control",
+      "extra_turn"
+    ],
+    "resolvedDescription": "When you cast this spell, you gain control of target opponent during that player's next turn",
+    "detectedEffect": "you gain control of target opponent during that player's next turn",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "player"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Emrakul, the World Anew",
+    "type_line": "Legendary Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, gain control of all creatures target player controls."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "gain_control"
+    ],
+    "resolvedDescription": "When you cast this spell, gain control of all creatures target player controls",
+    "detectedEffect": "gain control of all creatures target player controls",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "player"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Flayer of Loyalties",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, gain control of target creature until end of turn. Untap that creature. Until end of turn, it has base power and toughness 10/10 and gains trample, annihilator 2, and haste."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "untap",
+      "gain_control"
+    ],
+    "resolvedDescription": "When you cast this spell, gain control of target creature until end of turn",
+    "detectedEffect": "gain control of target creature until end of turn",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "creature"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Fury Storm",
+    "type_line": "Instant",
+    "sentences": [
+      "When you cast this spell, copy it for each time you've cast your commander from the command zone this game. You may choose new targets for the copies."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "optional_you_may",
+      "commander_cast_copy"
+    ],
+    "resolvedDescription": "When you cast this spell, copy it for each time you've cast your commander from the command zone this game",
+    "detectedEffect": "copy it for each time you've cast your commander from the command zone this game",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Genesis Hydra",
+    "type_line": "Creature — Plant Hydra",
+    "sentences": [
+      "When you cast this spell, reveal the top X cards of your library. You may put a nonland permanent card with mana value X or less from among them onto the battlefield. Then shuffle the rest into your library."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "put_onto_battlefield",
+      "optional_you_may",
+      "reveal_library"
+    ],
+    "resolvedDescription": "When you cast this spell, reveal the top x cards of your library",
+    "detectedEffect": "reveal the top x cards of your library",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Genesis Storm",
+    "type_line": "Sorcery",
+    "sentences": [
+      "When you cast this spell, copy it for each time you've cast your commander from the command zone this game."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "commander_cast_copy"
+    ],
+    "resolvedDescription": "When you cast this spell, copy it for each time you've cast your commander from the command zone this game",
+    "detectedEffect": "copy it for each time you've cast your commander from the command zone this game",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Gluttonous Hellkite",
+    "type_line": "Creature — Dragon",
+    "sentences": [
+      "When you cast this spell, each player sacrifices X creatures. This creature enters with two +1/+1 counters on it for each creature sacrificed this way."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "sacrifice"
+    ],
+    "resolvedDescription": "When you cast this spell, each player sacrifices x creatures",
+    "detectedEffect": "each player sacrifices x creatures",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Hatchery Spider",
+    "type_line": "Creature — Spider",
+    "sentences": [],
+    "sentenceCount": 0,
+    "patterns": [
+      "reveal_library"
+    ],
+    "resolvedDescription": "When you cast this spell, reveal the top x cards of your library, where x is the number of creature cards in your graveyard",
+    "detectedEffect": "reveal the top x cards of your library, where x is the number of creature cards in your graveyard",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Hatut Zeraze Strike Force",
+    "type_line": "Creature — Human Spy Warrior",
+    "sentences": [
+      "When you cast this spell, copy it for each time you've cast your commander from the command zone this game."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "commander_cast_copy"
+    ],
+    "resolvedDescription": "When you cast this spell, copy it for each time you've cast your commander from the command zone this game",
+    "detectedEffect": "copy it for each time you've cast your commander from the command zone this game",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Herigast, Erupting Nullkite",
+    "type_line": "Legendary Creature — Eldrazi Dragon",
+    "sentences": [
+      "When you cast this spell, you may exile your hand. If you do, draw three cards."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "draw",
+      "optional_you_may",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, you may exile your hand",
+    "detectedEffect": "you may exile your hand",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Hideous Taskmaster",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, for each opponent, gain control of up to one target creature that player controls until end of turn. Untap those creatures. They gain trample, haste, and annihilator 1 until end of turn."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "untap",
+      "gain_control"
+    ],
+    "resolvedDescription": "When you cast this spell, for each opponent, gain control of up to one target creature that player controls until end of turn",
+    "detectedEffect": "for each opponent, gain control of up to one target creature that player controls until end of turn",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "creature"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Hope-Ender Coatl",
+    "type_line": "Creature — Eldrazi Snake",
+    "sentences": [
+      "When you cast this spell, counter target spell an opponent controls unless they pay {1}."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "counter_related"
+    ],
+    "resolvedDescription": "When you cast this spell, counter target spell an opponent controls unless they pay {1}",
+    "detectedEffect": "counter target spell an opponent controls unless they pay {1}",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Hydroid Krasis",
+    "type_line": "Creature — Jellyfish Hydra Beast",
+    "sentences": [
+      "When you cast this spell, you gain half X life and draw half X cards. Round down each time."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "draw",
+      "gain_life"
+    ],
+    "resolvedDescription": "When you cast this spell, you gain half x life and draw half x cards",
+    "detectedEffect": "you gain half x life and draw half x cards",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "It of the Horrid Swarm",
+    "type_line": "Creature — Eldrazi Insect",
+    "sentences": [
+      "When you cast this spell, create two 1/1 green Insect creature tokens."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "create_tokens"
+    ],
+    "resolvedDescription": "When you cast this spell, create two 1/1 green insect creature tokens",
+    "detectedEffect": "create two 1/1 green insect creature tokens",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Kozilek, Butcher of Truth",
+    "type_line": "Legendary Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, draw four cards."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "draw"
+    ],
+    "resolvedDescription": "When you cast this spell, draw four cards",
+    "detectedEffect": "draw four cards",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Kozilek, the Broken Reality",
+    "type_line": "Legendary Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, up to two target players each manifest two cards from their hands. For each card manifested this way, you draw a card. (To manifest a card, put it onto the battlefield face down as a 2/2 creature. Turn it face up any time for its mana cost if it's a creature card.)"
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "draw",
+      "put_onto_battlefield"
+    ],
+    "resolvedDescription": "When you cast this spell, up to two target players each manifest two cards from their hands",
+    "detectedEffect": "up to two target players each manifest two cards from their hands",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "player"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Kozilek, the Great Distortion",
+    "type_line": "Legendary Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, if you have fewer than seven cards in hand, draw cards equal to the difference."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "draw",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, if you have fewer than seven cards in hand, draw cards equal to the difference",
+    "detectedEffect": "if you have fewer than seven cards in hand, draw cards equal to the difference",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Lashweed Lurker",
+    "type_line": "Creature — Eldrazi Horror",
+    "sentences": [
+      "When you cast this spell, you may put target nonland permanent on top of its owner's library."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "put_on_library_top",
+      "optional_you_may"
+    ],
+    "resolvedDescription": "When you cast this spell, you may put target nonland permanent on top of its owner's library",
+    "detectedEffect": "you may put target nonland permanent on top of its owner's library",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "nonland permanent"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Lumaret's Favor",
+    "type_line": "Instant",
+    "sentences": [],
+    "sentenceCount": 0,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "gain_life",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, copy it if you gained life this turn",
+    "detectedEffect": "copy it if you gained life this turn",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Malicious Affliction",
+    "type_line": "Instant",
+    "sentences": [],
+    "sentenceCount": 0,
+    "patterns": [
+      "optional_you_may",
+      "intervening_if",
+      "other"
+    ],
+    "resolvedDescription": "When you cast this spell, if a creature died this turn, you may copy malicious affliction and may choose a new target for the copy",
+    "detectedEffect": "if a creature died this turn, you may copy malicious affliction and may choose a new target for the copy",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Mana Vortex",
+    "type_line": "Enchantment",
+    "sentences": [
+      "When you cast this spell, counter it unless you sacrifice a land."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "sacrifice",
+      "counter_related"
+    ],
+    "resolvedDescription": "When you cast this spell, counter it unless you sacrifice a land",
+    "detectedEffect": "counter it unless you sacrifice a land",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Mentor's Guidance",
+    "type_line": "Sorcery",
+    "sentences": [
+      "When you cast this spell, copy it if you control a planeswalker, Cleric, Druid, Shaman, Warlock, or Wizard."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, copy it if you control a planeswalker, cleric, druid, shaman, warlock, or wizard",
+    "detectedEffect": "copy it if you control a planeswalker, cleric, druid, shaman, warlock, or wizard",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Mockery of Nature",
+    "type_line": "Creature — Eldrazi Beast",
+    "sentences": [
+      "When you cast this spell, you may destroy target artifact or enchantment."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "destroy",
+      "optional_you_may"
+    ],
+    "resolvedDescription": "When you cast this spell, you may destroy target artifact or enchantment",
+    "detectedEffect": "you may destroy target artifact or enchantment",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "artifact or enchantment"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Mutated Cultist",
+    "type_line": "Creature — Eldrazi Horror",
+    "sentences": [
+      "When you cast this spell, remove all counters from up to one target permanent or opponent. The next spell you cast this turn costs {1} less to cast for each counter removed this way."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "remove_counters_cost_reduce"
+    ],
+    "resolvedDescription": "When you cast this spell, remove all counters from up to one target permanent or opponent",
+    "detectedEffect": "remove all counters from up to one target permanent or opponent",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "permanent"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Naya Soulbeast",
+    "type_line": "Creature — Beast",
+    "sentences": [
+      "When you cast this spell, each player reveals the top card of their library. This creature enters with X +1/+1 counters on it, where X is the total mana value of all cards revealed this way."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "other"
+    ],
+    "resolvedDescription": "When you cast this spell, each player reveals the top card of their library",
+    "detectedEffect": "each player reveals the top card of their library",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Nulldrifter",
+    "type_line": "Creature — Eldrazi Elemental",
+    "sentences": [
+      "When you cast this spell, draw two cards."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "draw"
+    ],
+    "resolvedDescription": "When you cast this spell, draw two cards",
+    "detectedEffect": "draw two cards",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Oblivion Sower",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, target opponent exiles the top four cards of their library, then you may put any number of land cards that player owns from exile onto the battlefield under your control."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "exile_library_top",
+      "put_onto_battlefield",
+      "optional_you_may"
+    ],
+    "resolvedDescription": "When you cast this spell, target opponent exiles the top four cards of their library, then you may put any number of land cards that player owns from exile onto the battlefield under your control",
+    "detectedEffect": "target opponent exiles the top four cards of their library, then you may put any number of land cards that player owns from exile onto the battlefield under your control",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "player"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Old Stickfingers",
+    "type_line": "Legendary Creature — Horror",
+    "sentences": [
+      "When you cast this spell, reveal cards from the top of your library until you reveal X creature cards. Put all creature cards revealed this way into your graveyard, then put the rest on the bottom of your library in a random order."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "reveal_library"
+    ],
+    "resolvedDescription": "When you cast this spell, reveal cards from the top of your library until you reveal x creature cards",
+    "detectedEffect": "reveal cards from the top of your library until you reveal x creature cards",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Osgood, Operation Double",
+    "type_line": "Legendary Creature — Human Alien Shapeshifter",
+    "sentences": [
+      "When you cast this spell, create a token that's a copy of it, except it isn't legendary."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "create_tokens",
+      "copy_spell_or_permanent"
+    ],
+    "resolvedDescription": "When you cast this spell, create a token that's a copy of it, except it isn't legendary",
+    "detectedEffect": "create a token that's a copy of it, except it isn't legendary",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Petrifying Meddler",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, tap up to one target creature and put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)"
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "put_counters",
+      "tap",
+      "untap"
+    ],
+    "resolvedDescription": "When you cast this spell, tap up to one target creature and put a stun counter on it",
+    "detectedEffect": "tap up to one target creature and put a stun counter on it",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "creature"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Phantasmagorian",
+    "type_line": "Creature — Horror",
+    "sentences": [
+      "When you cast this spell, any player may discard three cards. If a player does, counter Phantasmagorian."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "counter_related",
+      "discard",
+      "intervening_if",
+      "any_player_may_tax"
+    ],
+    "resolvedDescription": "When you cast this spell, any player may discard three cards",
+    "detectedEffect": "any player may discard three cards",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Photon Blast Barrage",
+    "type_line": "Sorcery",
+    "sentences": [
+      "When you cast this spell, copy it X times. You may choose new targets for the copies."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "optional_you_may"
+    ],
+    "resolvedDescription": "When you cast this spell, copy it x times",
+    "detectedEffect": "copy it x times",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Prossh, Skyraider of Kher",
+    "type_line": "Legendary Creature — Dragon",
+    "sentences": [
+      "When you cast this spell, create X 0/1 red Kobold creature tokens named Kobolds of Kher Keep, where X is the amount of mana spent to cast it."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "create_tokens"
+    ],
+    "resolvedDescription": "When you cast this spell, create x 0/1 red kobold creature tokens named kobolds of kher keep, where x is the amount of mana spent to cast it",
+    "detectedEffect": "create x 0/1 red kobold creature tokens named kobolds of kher keep, where x is the amount of mana spent to cast it",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Ruin Processor",
+    "type_line": "Creature — Eldrazi Processor",
+    "sentences": [
+      "When you cast this spell, you may put a card an opponent owns from exile into that player's graveyard. If you do, you gain 5 life."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "gain_life",
+      "optional_you_may",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, you may put a card an opponent owns from exile into that player's graveyard",
+    "detectedEffect": "you may put a card an opponent owns from exile into that player's graveyard",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Sage of the Skies",
+    "type_line": "Creature — Human Monk",
+    "sentences": [
+      "When you cast this spell, if you've cast another spell this turn, copy this spell. (The copy becomes a token.)"
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, if you've cast another spell this turn, copy this spell",
+    "detectedEffect": "if you've cast another spell this turn, copy this spell",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Sauron, Lord of the Rings",
+    "type_line": "Legendary Creature — Avatar Horror",
+    "sentences": [
+      "When you cast this spell, amass Orcs 5, mill five cards, then return a creature card from your graveyard to the battlefield."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "return_from_graveyard",
+      "mill_amass"
+    ],
+    "resolvedDescription": "When you cast this spell, amass orcs 5, mill five cards, then return a creature card from your graveyard to the battlefield",
+    "detectedEffect": "amass orcs 5, mill five cards, then return a creature card from your graveyard to the battlefield",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Scourge of the Skyclaves",
+    "type_line": "Creature — Demon",
+    "sentences": [
+      "When you cast this spell, if it was kicked, each player loses half their life, rounded up."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "lose_life",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, if it was kicked, each player loses half their life, rounded up",
+    "detectedEffect": "if it was kicked, each player loses half their life, rounded up",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Show of Confidence",
+    "type_line": "Instant",
+    "sentences": [
+      "When you cast this spell, copy it for each other instant and sorcery spell you've cast this turn. You may choose new targets for the copies."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "optional_you_may"
+    ],
+    "resolvedDescription": "When you cast this spell, copy it for each other instant and sorcery spell you've cast this turn",
+    "detectedEffect": "copy it for each other instant and sorcery spell you've cast this turn",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Skull Storm",
+    "type_line": "Sorcery",
+    "sentences": [
+      "When you cast this spell, copy it for each time you've cast your commander from the command zone this game."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "commander_cast_copy"
+    ],
+    "resolvedDescription": "When you cast this spell, copy it for each time you've cast your commander from the command zone this game",
+    "detectedEffect": "copy it for each time you've cast your commander from the command zone this game",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Sowing Mycospawn",
+    "type_line": "Creature — Eldrazi Fungus",
+    "sentences": [
+      "When you cast this spell, search your library for a land card, put it onto the battlefield, then shuffle.",
+      "When you cast this spell, if it was kicked, exile target land."
+    ],
+    "sentenceCount": 2,
+    "patterns": [
+      "exile_target_permanent",
+      "search_library",
+      "put_onto_battlefield",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, search your library for a land card, put it onto the battlefield, then shuffle",
+    "detectedEffect": "search your library for a land card, put it onto the battlefield, then shuffle",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": true,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Spawn-Gang Commander",
+    "type_line": "Creature — Eldrazi Goblin",
+    "sentences": [
+      "When you cast this spell, create three 0/1 colorless Eldrazi Spawn creature tokens with \"Sacrifice this token: Add {C}.\""
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "create_tokens",
+      "sacrifice"
+    ],
+    "resolvedDescription": "When you cast this spell, create three 0/1 colorless eldrazi spawn creature tokens with \"sacrifice this token: add {c}",
+    "detectedEffect": "create three 0/1 colorless eldrazi spawn creature tokens with \"sacrifice this token: add {c}",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Storm of Forms",
+    "type_line": "Instant",
+    "sentences": [
+      "When you cast this spell, copy it for each kind of counter among permanents you control. You may choose new targets for the copies."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "copy_spell_or_permanent",
+      "optional_you_may"
+    ],
+    "resolvedDescription": "When you cast this spell, copy it for each kind of counter among permanents you control",
+    "detectedEffect": "copy it for each kind of counter among permanents you control",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Supernatural Rescue",
+    "type_line": "Enchantment — Aura",
+    "sentences": [
+      "When you cast this spell, tap up to two target creatures you don't control."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "tap"
+    ],
+    "resolvedDescription": "When you cast this spell, tap up to two target creatures you don't control",
+    "detectedEffect": "tap up to two target creatures you don't control",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "creature"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Temporal Extortion",
+    "type_line": "Sorcery",
+    "sentences": [
+      "When you cast this spell, any player may pay half their life, rounded up. If a player does, counter Temporal Extortion."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "counter_related",
+      "intervening_if",
+      "any_player_may_tax"
+    ],
+    "resolvedDescription": "When you cast this spell, any player may pay half their life, rounded up",
+    "detectedEffect": "any player may pay half their life, rounded up",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "The Beast, Deathless Prince",
+    "type_line": "Legendary Creature — Demon",
+    "sentences": [
+      "When you cast this spell, gain control of target creature until end of turn. Untap it. It gains menace and haste until end of turn."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "untap",
+      "gain_control"
+    ],
+    "resolvedDescription": "When you cast this spell, gain control of target creature until end of turn",
+    "detectedEffect": "gain control of target creature until end of turn",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "creature"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "The Fourteenth Doctor",
+    "type_line": "Legendary Creature — Time Lord Doctor",
+    "sentences": [
+      "When you cast this spell, reveal the top fourteen cards of your library. Put all Doctor cards revealed this way into your graveyard and the rest on the bottom of your library in a random order."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "reveal_library"
+    ],
+    "resolvedDescription": "When you cast this spell, reveal the top fourteen cards of your library",
+    "detectedEffect": "reveal the top fourteen cards of your library",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "The Master, Formed Anew",
+    "type_line": "Legendary Creature — Time Lord Rogue",
+    "sentences": [],
+    "sentenceCount": 0,
+    "patterns": [
+      "put_counters",
+      "optional_you_may"
+    ],
+    "resolvedDescription": "When you cast this spell, you may exile a creature you control and put a takeover counter on it",
+    "detectedEffect": "you may exile a creature you control and put a takeover counter on it",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Thief of Existence",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, exile up to one target noncreature, nonland permanent an opponent controls with mana value 4 or less. If you do, Thief of Existence gains \"When this creature leaves the battlefield, target opponent draws a card.\""
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "exile_target_permanent",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, exile up to one target noncreature, nonland permanent an opponent controls with mana value 4 or less",
+    "detectedEffect": "exile up to one target noncreature, nonland permanent an opponent controls with mana value 4 or less",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "noncreature permanent"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Twisted Riddlekeeper",
+    "type_line": "Creature — Eldrazi Sphinx",
+    "sentences": [
+      "When you cast this spell, tap up to two target permanents. Put a stun counter on each of them. (If a permanent with a stun counter would become untapped, remove one from it instead.)"
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "put_counters",
+      "tap",
+      "untap"
+    ],
+    "resolvedDescription": "When you cast this spell, tap up to two target permanents",
+    "detectedEffect": "tap up to two target permanents",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "permanent"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Ugin, Eye of the Storms",
+    "type_line": "Legendary Planeswalker — Ugin",
+    "sentences": [
+      "When you cast this spell, exile up to one target permanent that's one or more colors."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "exile_target_permanent"
+    ],
+    "resolvedDescription": "When you cast this spell, exile up to one target permanent that's one or more colors",
+    "detectedEffect": "exile up to one target permanent that's one or more colors",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "permanent"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Ulamog, the Ceaseless Hunger",
+    "type_line": "Legendary Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, exile two target permanents."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "exile_target_permanent"
+    ],
+    "resolvedDescription": "When you cast this spell, exile two target permanents",
+    "detectedEffect": "exile two target permanents",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "permanent"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Ulamog, the Defiler",
+    "type_line": "Legendary Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, target opponent exiles the top half of their library, rounded up."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "exile_library_top"
+    ],
+    "resolvedDescription": "When you cast this spell, target opponent exiles the top half of their library, rounded up",
+    "detectedEffect": "target opponent exiles the top half of their library, rounded up",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "player"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Ulamog, the Infinite Gyre",
+    "type_line": "Legendary Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, destroy target permanent."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "destroy"
+    ],
+    "resolvedDescription": "When you cast this spell, destroy target permanent",
+    "detectedEffect": "destroy target permanent",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "permanent"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Vexing Scuttler",
+    "type_line": "Creature — Eldrazi Crab",
+    "sentences": [
+      "When you cast this spell, you may return target instant or sorcery card from your graveyard to your hand."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "return_from_graveyard",
+      "optional_you_may"
+    ],
+    "resolvedDescription": "When you cast this spell, you may return target instant or sorcery card from your graveyard to your hand",
+    "detectedEffect": "you may return target instant or sorcery card from your graveyard to your hand",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetZone": "graveyard",
+      "targetDestination": "hand",
+      "targetGraveyardScope": "your",
+      "targetFilterTypes": [
+        "instant",
+        "sorcery"
+      ]
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Vile Redeemer",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, you may pay {C}. If you do, create a 1/1 colorless Eldrazi Scion creature token for each nontoken creature that died under your control this turn. Those tokens have \"Sacrifice this token: Add {C}.\""
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "create_tokens",
+      "sacrifice",
+      "optional_you_may",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, you may pay {c}",
+    "detectedEffect": "you may pay {c}",
+    "hasCastTrigger": true,
+    "truncatedExtraction": true,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Wastescape Battlemage",
+    "type_line": "Creature — Eldrazi Wizard",
+    "sentences": [
+      "When you cast this spell, if it was kicked with its {G} kicker, exile target artifact or enchantment an opponent controls.",
+      "When you cast this spell, if it was kicked with its {1}{U} kicker, return target creature an opponent controls to its owner's hand."
+    ],
+    "sentenceCount": 2,
+    "patterns": [
+      "exile_target_permanent",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, if it was kicked with its {g} kicker, exile target artifact or enchantment an opponent controls",
+    "detectedEffect": "if it was kicked with its {g} kicker, exile target artifact or enchantment an opponent controls",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": true,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "artifact or enchantment"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "World Breaker",
+    "type_line": "Creature — Eldrazi",
+    "sentences": [
+      "When you cast this spell, exile target artifact, enchantment, or land."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "exile_target_permanent"
+    ],
+    "resolvedDescription": "When you cast this spell, exile target artifact, enchantment, or land",
+    "detectedEffect": "exile target artifact, enchantment, or land",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "artifact"
+    },
+    "needsTarget": true
+  },
+  {
+    "name": "Wretched Gryff",
+    "type_line": "Creature — Eldrazi Hippogriff",
+    "sentences": [
+      "When you cast this spell, draw a card."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "draw"
+    ],
+    "resolvedDescription": "When you cast this spell, draw a card",
+    "detectedEffect": "draw a card",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Writhing Chrysalis",
+    "type_line": "Creature — Eldrazi Drone",
+    "sentences": [
+      "When you cast this spell, create two 0/1 colorless Eldrazi Spawn creature tokens with \"Sacrifice this token: Add {C}.\""
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "create_tokens",
+      "sacrifice"
+    ],
+    "resolvedDescription": "When you cast this spell, create two 0/1 colorless eldrazi spawn creature tokens with \"sacrifice this token: add {c}",
+    "detectedEffect": "create two 0/1 colorless eldrazi spawn creature tokens with \"sacrifice this token: add {c}",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": false
+    },
+    "needsTarget": false
+  },
+  {
+    "name": "Wumpus Aberration",
+    "type_line": "Creature — Eldrazi Beast",
+    "sentences": [
+      "When you cast this spell, if {C} wasn't spent to cast it, target opponent may put a creature card from their hand onto the battlefield."
+    ],
+    "sentenceCount": 1,
+    "patterns": [
+      "put_onto_battlefield",
+      "intervening_if"
+    ],
+    "resolvedDescription": "When you cast this spell, if {c} wasn't spent to cast it, target opponent may put a creature card from their hand onto the battlefield",
+    "detectedEffect": "if {c} wasn't spent to cast it, target opponent may put a creature card from their hand onto the battlefield",
+    "hasCastTrigger": true,
+    "truncatedExtraction": false,
+    "multiOnCast": false,
+    "meta": {
+      "requiresTarget": true,
+      "targetType": "player"
+    },
+    "needsTarget": true
+  }
+]

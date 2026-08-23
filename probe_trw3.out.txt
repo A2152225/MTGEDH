@@ -1,0 +1,172 @@
+﻿119|
+120|/** Optional trigger steps with explicit runtime handlers outside the spell fallback. */
+121|export const TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS = new Set<string>(['copy_permanent']);
+122|
+123|/**
+124| * Spell/trigger steps orchestrated by Effect Program (not uncategorized fallback).
+125| * Treated as fully wired for isSpellEffectFullyIrWired / primary retirement checks.
+126| */
+127|export const ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS = new Set<string>([
+128|  'choose_mode',
+129|  'fateseal',
+130|  'clash',
+131|  'player_choice',
+132|  'vote',
+133|  'end_combat_phase',
+134|]);
+135|
+136|export function normalizeTriggerEffectDescriptionForExecution(effectText: string): string {
+137|  const raw = String(effectText || '').trim();
+138|  if (!raw) return raw;
+139|
+140|  const normalized = normalizeGameplayEffectText(raw);
+141|  // Legacy regex handlers historically matched without trailing punctuation.
+142|  const stripped = normalized.replace(/[.!?,;:]+$/g, '').trim();
+143|  return stripped || normalized || raw;
+144|}
+145|
+146|/**
+147| * True when the controller may decline the entire triggered ability (Rule 603.4 optional).
+148| * "Each player may à" is mandatory at trigger time ù per-player choices happen during resolution.
+149| */
+150|export function isControllerOptionalTriggeredAbilityEffect(effectText: string): boolean {
+151|  const lower = String(effectText || '').replace(/\u2019/g, "'").trim().toLowerCase();
+152|  if (!lower) return false;
+153|  if (/\beach player may\b/.test(lower)) return false;
+154|  if (/\bstarting with you, each player may\b/.test(lower)) return false;
+155|  if (/\bin turn order, each player may\b/.test(lower)) return false;
+156|  if (/\byou and (?:that player|target player) may each\b/.test(lower)) return false;
+157|  // "You may [effect] unless that player pays {C}" is an opponent-tax prompt, not a
+158|  // controller Yes/No may (Rhystic Study / Mystic Remora / Esper Sentinel).
+159|  if (/\bunless\b[\s\S]*\b(?:that player|that opponent|its controller|they)\b[\s\S]*\bpays?\b/.test(lower)) {
+160|    return false;
+161|  }
+162|  return /\byou may\b/.test(lower);
+163|}
+164|
+165|export function normalizeTriggerEffectForIrAudit(effectText: string): string {
+166|  const raw = String(effectText || '').trim();
+167|  if (!raw) return raw;
+168|
+169|  const executionNormalized = normalizeTriggerEffectDescriptionForExecution(raw);
+170|  const preserveModalBullets = /[\u2022ò]/.test(raw) && /\bchoose\b/i.test(raw);
+171|
+172|  let processed = executionNormalized
+173|    .replace(/\btap enchanted (?:land|creature|permanent):[\s\S]*$/i, ' ')
+174|    .replace(/\bactivate only if[\s\S]*$/i, ' ');
+175|
+176|  if (!preserveModalBullets) {
+177|    processed = processed.replace(/\s+/g, ' ').trim();
+178|  } else {
+179|    processed = processed
+180|      .replace(/[^\S\n]+/g, ' ')
+181|      .replace(/\s*([\u2022ò])\s*/g, '\nò ')
+182|      .replace(/\n{2,}/g, '\n')
+183|      .trim();
+184|  }
+185|
+186|  return processed.length >= 4 ? processed : raw;
+187|}
+188|
+189|export function oracleObjectSelectorText(selector: OracleObjectSelector | undefined): string {
+190|  if (!selector) return '';
+191|  const legacyBattlefieldSelector = (value: unknown): value is {
+192|    kind: 'battlefield_selector';
+193|    types?: readonly string[];
+194|    controllerFilter?: string;
+195|  } => {
+196|    if (!value || typeof value !== 'object') return false;
+197|    return (value as { kind?: unknown }).kind === 'battlefield_selector';
+198|  };
+199|  const runtimeSelector: unknown = selector;
+200|  if (legacyBattlefieldSelector(runtimeSelector)) {
+201|    const types = Array.isArray(runtimeSelector.types) ? runtimeSelector.types.join(' ') : '';
+202|    const controller = runtimeSelector.controllerFilter ? `${runtimeSelector.controllerFilter} ` : '';
+203|    return `${controller}${types}`.trim();
+204|  }
+205|  if (selector.kind === 'raw') return String(selector.text || '').trim();
+206|  return String((selector as { text?: string; raw?: string }).text || (selector as { raw?: string }).raw || '').trim();
+207|}
+208|
+209|export function wouldOracleIRFallbackPrefilterMatch(effectText: string): boolean {
+210|  const lower = String(effectText || '').trim().toLowerCase();
+211|  if (!lower) return false;
+212|  return (
+213|    lower.includes('draw') ||
+214|    (lower.includes('exile') && lower.includes('top') && lower.includes('library')) ||
+215|    (lower.includes('add') && lower.includes('{')) ||
+216|    lower.includes('scries') ||
+217|    lower.includes('scry') ||
+218|    lower.includes('surveils') ||
+219|    lower.includes('surveil') ||
+220|    lower.includes('gain') ||
+221|    /\bhave .+ until end of turn\b/.test(lower) ||
+222|    /\b(?:gets?|get) [+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)\b/.test(lower) ||
+223|    lower.includes('double') ||
+224|    lower.includes('lose') ||
+225|    lower.includes('discard') ||
+226|    lower.includes('mill') ||
+227|    lower.includes('create') ||
+228|    lower.includes('investigate') ||
+229|    lower.includes('blight') ||
+230|    (lower.includes('top') && lower.includes('library') && lower.includes('graveyard')) ||
+231|    lower.includes('damage') ||
+232|    lower.includes('prevent') ||
+233|    lower.includes('blocked') ||
+234|    /\bcan'?t block\b/.test(lower) ||
+235|    lower.includes('deal') ||
+236|    lower.includes('counter') ||
+237|    lower.includes('sacrifice') ||
+238|    lower.includes('destroy') ||
+239|    lower.includes('exile') ||
+240|    /\breturn\b/.test(lower) ||
+241|    (lower.includes('create') && lower.includes('token')) ||
+242|    lower.includes('copy') ||
+243|    lower.includes('become') ||
+244|    /\btap\b/.test(lower) ||
+245|    /\buntap\b/.test(lower) ||
+246|    lower.includes('goad') ||
+247|    lower.includes('proliferate') ||
+248|    lower.includes('populate') ||
+249|    lower.includes('blight') ||
+250|    lower.includes('explore') ||
+251|    lower.includes('connive') ||
+252|    lower.includes('additional combat') ||
+253|    lower.includes('extra combat') ||
+254|    lower.includes('search your library') ||
+255|    (lower.includes('top') && lower.includes('library')) ||
+256|    (lower.includes('cost') && (lower.includes('less') || lower.includes('more')))
+257|  );
+258|}
+259|
+260|function isOptionalTriggerStep(step: OracleEffectStep): boolean {
+261|  if (Boolean((step as { optional?: boolean }).optional)) return true;
+262|  return /^you may\b/i.test(String(step.raw || '').trim());
+263|}
+264|
+265|const TRIGGER_CHOICE_STEP_KINDS = new Set<string>([
+266|  'choose_creature_type',
+267|  'choose_color',
+268|  'choose_card_name',
+269|  'choose_basic_land_type',
+270|  'choose_opponent',
+271|  'choose_target_creature',
+272|]);
+273|
+274|/** gain_control steps with server executor + prepared-sync coverage in applyOracleIRStepsOnServer. */
+275|export function isSupportedGainControlTriggerPattern(
+276|  step: OracleEffectStep,
+277|): boolean {
+278|  if (step.kind !== 'gain_control') return false;
+279|  const raw = String(step.raw || '')
+280|    .replace(/\u2019/g, "'")
+281|    .trim()
+282|    .toLowerCase();
+283|  if (!raw) return false;
+284|  return (
+285|    /each player gains control of all creatures they own/.test(raw)
+286|    || /each player gains control of all permanents they own/.test(raw)
+287|    || /each player gains control of all nontoken permanents they own/.test(raw)
+288|    || /the attacking player gains control of this artifact and untaps it/.test(raw)
+289|  );
+290|}

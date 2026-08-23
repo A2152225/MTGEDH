@@ -1,0 +1,43 @@
+﻿==== mind wired= false
+[
+  {
+    "kind": "reveal_hand",
+    "raw": "target opponent reveals their hand",
+    "who": {
+      "kind": "target_opponent"
+    }
+  },
+  {
+    "kind": "grant_static_ability",
+    "raw": "You choose from it a nonland card with mana value 3 or less and a card with mana",
+    "target": {
+      "kind": "raw",
+      "text": "you"
+    }
+  },
+  {
+    "kind": "discard",
+    "raw": "That player discards those cards",
+    "who": {
+      "kind": "target_player"
+    },
+    "target": {
+      "kind": "raw",
+      "text": "those cards"
+    }
+  }
+]
+==== vortex wired= false
+[
+  {
+    "kind": "unknown",
+    "raw": "counter it unless you sacrifice a land"
+  }
+]
+==== depth wired= true
+[
+  {
+    "kind": "choose_mode",
+    "raw": "Return target creature to its owner's hand.\nΓÇó Target player draws two cards, the"
+  }
+]

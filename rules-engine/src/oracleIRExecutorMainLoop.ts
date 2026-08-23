@@ -66,6 +66,7 @@ import {
   applyRemoveCounterStep,
   applyMoveCountersStep,
   applySacrificeStep,
+  evaluateUnlessSacrificesStep,
   applyScheduleDelayedBattlefieldActionStep,
   applyScheduleDelayedTriggerStep,
   applySuspectStep,
@@ -106,6 +107,7 @@ import {
 } from './oracleIRExecutorModifyPtStepHandlers';
 import { applyMoveZoneStep } from './oracleIRExecutorMoveZoneStepHandlers';
 import { moveTargetedCardFromExile } from './oracleIRExecutorZoneOps';
+import { evaluateAnyPlayerMayStep } from './oracleIRExecutorAnyPlayerMayStep';
 import {
   applyAddManaStep,
   applyAddPlayerCounterStep,
@@ -3807,6 +3809,86 @@ export function applyOracleIRStepsToGameStateImpl(
         pendingOptionalSteps.push(...unlessDiscardsNestedResult.pendingOptionalSteps);
         absorbExecutionReplayMutations(unlessDiscardsNestedResult);
         mergeNestedExecutionOutcome(unlessDiscardsNestedResult);
+        appliedSteps.push(step);
+        break;
+      }
+      case 'grant_next_spell_cost_reduction': {
+        const per = Boolean((step as any).perCountersRemoved);
+        const countersRemoved = Number((currentCtx as any).countersRemovedThisWay ?? 0);
+        const mana = String((step as any).mana || '{1}').trim();
+        const genericFromMana = (mana.match(/\{(\d+)\}/) || [])[1];
+        const perAmount = Number.parseInt(String(genericFromMana || '1'), 10);
+        const amount = per
+          ? Math.max(0, countersRemoved) * (Number.isFinite(perAmount) ? perAmount : 1)
+          : Number((step as any).amount || perAmount || 0);
+        (currentCtx as any).pendingNextSpellCostReduction = {
+          genericAmount: amount,
+          mana,
+          sourceName: String(currentCtx.sourceName || ''),
+        };
+        appliedSteps.push(step);
+        log.push(`Granted next-spell cost reduction of {${amount}} (countersRemoved=${countersRemoved})`);
+        break;
+      }
+      case 'any_player_may': {
+        const result = evaluateAnyPlayerMayStep(nextState, step as any, currentCtx);
+        if (!('shouldApplyNestedSteps' in result)) {
+          recordSkippedStep((result as any).innerStep ?? step, result.message, result.reason, {
+            ...result.options,
+            metadata: normalizeSkipMetadata(result.options?.metadata),
+          });
+          break;
+        }
+
+        if (result.state) {
+          nextState = result.state;
+        }
+        log.push(...result.log);
+        if (!result.shouldApplyNestedSteps) {
+          appliedSteps.push(step);
+          break;
+        }
+
+        const anyPlayerMayNestedResult = recurse(nextState, (step as any).steps || [], currentCtx, options);
+        nextState = anyPlayerMayNestedResult.state;
+        log.push(...anyPlayerMayNestedResult.log);
+        appliedSteps.push(...anyPlayerMayNestedResult.appliedSteps);
+        skippedSteps.push(...anyPlayerMayNestedResult.skippedSteps);
+        automationGaps.push(...anyPlayerMayNestedResult.automationGaps);
+        pendingOptionalSteps.push(...anyPlayerMayNestedResult.pendingOptionalSteps);
+        absorbExecutionReplayMutations(anyPlayerMayNestedResult);
+        mergeNestedExecutionOutcome(anyPlayerMayNestedResult);
+        appliedSteps.push(step);
+        break;
+      }
+      case 'unless_sacrifices': {
+        const result = evaluateUnlessSacrificesStep(nextState, step, currentCtx);
+        if (!('shouldApplyNestedSteps' in result)) {
+          recordSkippedStep((result as any).innerStep ?? step, result.message, result.reason, {
+            ...result.options,
+            metadata: normalizeSkipMetadata(result.options?.metadata),
+          });
+          break;
+        }
+
+        if (result.state) {
+          nextState = result.state;
+        }
+        log.push(...result.log);
+        if (!result.shouldApplyNestedSteps) {
+          appliedSteps.push(step);
+          break;
+        }
+
+        const unlessSacrificesNestedResult = recurse(nextState, step.steps, currentCtx, options);
+        nextState = unlessSacrificesNestedResult.state;
+        log.push(...unlessSacrificesNestedResult.log);
+        appliedSteps.push(...unlessSacrificesNestedResult.appliedSteps);
+        skippedSteps.push(...unlessSacrificesNestedResult.skippedSteps);
+        automationGaps.push(...unlessSacrificesNestedResult.automationGaps);
+        pendingOptionalSteps.push(...unlessSacrificesNestedResult.pendingOptionalSteps);
+        absorbExecutionReplayMutations(unlessSacrificesNestedResult);
+        mergeNestedExecutionOutcome(unlessSacrificesNestedResult);
         appliedSteps.push(step);
         break;
       }

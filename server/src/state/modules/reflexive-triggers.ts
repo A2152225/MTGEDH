@@ -12,6 +12,13 @@ export interface ReflexiveFixedPaymentWhenYouDo {
   followupText: string;
 }
 
+/** Processor-style: put N opponent-owned cards from exile into owners' GYs, then followup. */
+export interface ReflexiveExileToOwnersGraveyardWhenYouDo {
+  putCount: number;
+  ownerScope: 'opponent' | 'opponents';
+  followupText: string;
+}
+
 export interface ReflexiveSacrificeWhenYouDo {
   sacrificeType: string;
   followupText: string;
@@ -81,14 +88,21 @@ const GENERIC_SPEND_ORDER: Array<'colorless' | 'white' | 'blue' | 'black' | 'red
   'green',
 ];
 
-export function parseReflexiveAnyAmountManaPayment(effectText: string): ReflexiveAnyAmountManaPayment | null {
-  const normalized = String(effectText || '')
-    .replace(/[’]/g, "'")
+/** Normalize oracle fragments for reflexive If/When-you-do matching. */
+export function normalizeReflexiveEffectText(effectText: string): string {
+  return String(effectText || '')
+    .replace(/[\u2018\u2019]/g, "'")
     .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(?:when|whenever)\s+you\s+cast\s+(?:this\s+spell|this\s+creature|~|this\s+card)\s*,?\s*/i, '')
     .trim();
+}
+
+export function parseReflexiveAnyAmountManaPayment(effectText: string): ReflexiveAnyAmountManaPayment | null {
+  const normalized = normalizeReflexiveEffectText(effectText);
   if (!normalized) return null;
 
-  const match = normalized.match(/^(?:you\s+may\s+)?pay\s+any\s+amount\s+of\s+(\{[WUBRGC]\}|mana)\.\s*when\s+you\s+do,?\s*([\s\S]+)$/i);
+  const match = normalized.match(/^(?:you\s+may\s+)?pay\s+any\s+amount\s+of\s+(\{[WUBRGC]\}|mana)\.\s*(?:when|if)\s+you\s+do,?\s*([\s\S]+)$/i);
   if (!match) return null;
 
   const rawUnit = String(match[1] || '').trim();
@@ -102,13 +116,10 @@ export function parseReflexiveAnyAmountManaPayment(effectText: string): Reflexiv
 }
 
 export function parseReflexiveFixedPaymentWhenYouDo(effectText: string): ReflexiveFixedPaymentWhenYouDo | null {
-  const normalized = String(effectText || '')
-    .replace(/[’]/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalized = normalizeReflexiveEffectText(effectText);
   if (!normalized || /\bpay\s+any\s+amount\b/i.test(normalized)) return null;
 
-  const match = normalized.match(/^(?:you\s+may\s+)?pay\s+((?:(?:\{[^}]+\})+|\d+\s+life)(?:\s+and\s+(?:(?:\{[^}]+\})+|\d+\s+life))?)\.\s*when\s+you\s+do,?\s*([\s\S]+)$/i);
+  const match = normalized.match(/^(?:you\s+may\s+)?pay\s+((?:(?:\{[^}]+\})+|\d+\s+life)(?:\s+and\s+(?:(?:\{[^}]+\})+|\d+\s+life))?)\.\s*(?:when|if)\s+you\s+do,?\s*([\s\S]+)$/i);
   if (!match) return null;
 
   const paymentText = String(match[1] || '').replace(/\s+/g, ' ').trim();
@@ -126,6 +137,79 @@ export function parseReflexiveFixedPaymentWhenYouDo(effectText: string): Reflexi
   if (manaCost) parsed.manaCost = manaCost;
   if (lifeAmount > 0) parsed.lifeAmount = lifeAmount;
   return parsed;
+}
+
+
+export function parseReflexiveExileToOwnersGraveyardWhenYouDo(
+  effectText: string,
+): ReflexiveExileToOwnersGraveyardWhenYouDo | null {
+  const normalized = normalizeReflexiveEffectText(effectText);
+  if (!normalized) return null;
+
+  const match = normalized.match(
+    /^(?:you\s+may\s+)?put\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\s+(an\s+opponent\s+owns|your\s+opponents\s+own)\s+from\s+exile\s+into\s+(?:that\s+player'?s\s+graveyard|their\s+owners'?\s+graveyards)\.\s*(?:if|when)\s+you\s+do,?\s*([\s\S]+)$/i,
+  );
+  if (!match) return null;
+
+  const rawCount = String(match[1] || '').trim().toLowerCase();
+  const putCount = /^\d+$/.test(rawCount)
+    ? Math.max(0, Math.floor(Number(rawCount)))
+    : Math.max(0, Math.floor(Number(REFLEXIVE_NUMBER_WORDS[rawCount] || 0)));
+  const ownerScopeRaw = String(match[2] || '').toLowerCase();
+  const ownerScope: 'opponent' | 'opponents' = /opponents/.test(ownerScopeRaw) ? 'opponents' : 'opponent';
+  const followupText = String(match[3] || '').trim();
+  if (putCount <= 0 || !followupText) return null;
+
+  return { putCount, ownerScope, followupText };
+}
+
+export function formatReflexiveExileToOwnersGraveyardLabel(putCount: number): string {
+  const count = Math.max(1, Math.floor(Number(putCount || 1)));
+  if (count === 1) return "a card an opponent owns from exile into that player's graveyard";
+  return `${count} cards your opponents own from exile into their owners' graveyards`;
+}
+
+export function collectOpponentOwnedExileCardTargets(
+  state: any,
+  controllerId: string,
+): Array<{ id: string; name: string; typeLine: string; manaCost: string; imageUrl?: string; zoneOwnerId: string; ownerId: string }> {
+  const controller = String(controllerId || '').trim();
+  const zones = (state?.zones || {}) as Record<string, any>;
+  const players = Array.isArray(state?.players) ? state.players : [];
+  const out: Array<{ id: string; name: string; typeLine: string; manaCost: string; imageUrl?: string; zoneOwnerId: string; ownerId: string }> = [];
+  const seen = new Set<string>();
+
+  const consider = (zonePlayerId: string, card: any) => {
+    const cardId = String(card?.id || '').trim();
+    if (!cardId || seen.has(cardId)) return;
+    const ownerId = String(card?.owner || card?.ownerId || zonePlayerId || '').trim() || zonePlayerId;
+    if (!ownerId || ownerId === controller) return;
+    seen.add(cardId);
+    out.push({
+      id: cardId,
+      name: String(card?.name || cardId),
+      typeLine: String(card?.type_line || ''),
+      manaCost: String(card?.mana_cost || ''),
+      imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+      zoneOwnerId: String(zonePlayerId),
+      ownerId,
+    });
+  };
+
+  for (const player of players) {
+    const pid = String(player?.id || '').trim();
+    if (!pid) continue;
+    const exile = Array.isArray(zones[pid]?.exile) ? zones[pid].exile : [];
+    for (const card of exile) consider(pid, card);
+  }
+
+  for (const [pid, entry] of Object.entries(zones)) {
+    if (players.some((p: any) => String(p?.id || '') === pid)) continue;
+    const exile = Array.isArray((entry as any)?.exile) ? (entry as any).exile : [];
+    for (const card of exile) consider(pid, card);
+  }
+
+  return out;
 }
 
 export function parseReflexiveSacrificeWhenYouDo(effectText: string): ReflexiveSacrificeWhenYouDo | null {
@@ -149,13 +233,10 @@ export function parseReflexiveSacrificeWhenYouDo(effectText: string): ReflexiveS
 }
 
 export function parseReflexiveDiscardWhenYouDo(effectText: string): ReflexiveDiscardWhenYouDo | null {
-  const normalized = String(effectText || '')
-    .replace(/[’]/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalized = normalizeReflexiveEffectText(effectText);
   if (!normalized) return null;
 
-  const match = normalized.match(/^(?:you\s+may\s+)?discard\s+(?:a|one|1)\s+card\.\s*when\s+you\s+do,?\s*([\s\S]+)$/i);
+  const match = normalized.match(/^(?:you\s+may\s+)?discard\s+(?:a|one|1)\s+card.\s*(?:when|if)\s+you\s+do,?\s*([\s\S]+)$/i);
   if (!match) return null;
 
   const followupText = String(match[1] || '').trim();
@@ -171,7 +252,7 @@ export function parseReflexiveConvertWhenYouDo(effectText: string): ReflexiveCon
     .trim();
   if (!normalized) return null;
 
-  const match = normalized.match(/^(you\s+may\s+)?convert\s+(.+?)\.\s*when\s+you\s+do,?\s*([\s\S]+)$/i);
+  const match = normalized.match(/^(you\s+may\s+)?convert\s+(.+?).\s*(?:when|if)\s+you\s+do,?\s*([\s\S]+)$/i);
   if (!match) return null;
 
   const subjectText = String(match[2] || '').replace(/\s+/g, ' ').trim();
@@ -193,7 +274,7 @@ export function parseReflexiveGraveyardExileWhenYouDo(effectText: string): Refle
   if (!normalized) return null;
 
   const typePattern = '(?:nonland|noncreature|legendary|artifact|creature|enchantment|land|instant|sorcery|planeswalker)(?:\\s+or\\s+(?:artifact|creature|enchantment|land|instant|sorcery|planeswalker))?';
-  const match = normalized.match(new RegExp(`^(?:you\\s+may\\s+)?exile\\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\\d+)\\s+(?:(` + typePattern + `)\\s+)?cards?\\s+from\\s+your\\s+graveyard\\.\\s*when\\s+you\\s+do,?\\s*([\\s\\S]+)$`, 'i'));
+  const match = normalized.match(new RegExp(`^(?:you\\s+may\\s+)?exile\\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\\d+)\\s+(?:(` + typePattern + `)\\s+)?cards?\\s+from\\s+your\\s+graveyard\\.\\s*(?:when|if)\\s+you\\s+do,?\\s*([\\s\\S]+)$`, 'i'));
   if (!match) return null;
 
   const rawCount = String(match[1] || '').trim().toLowerCase();

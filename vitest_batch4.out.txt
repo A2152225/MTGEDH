@@ -1,0 +1,62 @@
+﻿
+ RUN  v4.0.16 D:/Git/MTGEDH
+
+ Γ£ô server/tests/oracle-ir-hatut-commander-cz-copy.unit.test.ts > commander cast-from-CZ copy count (Hatut-style) > resolves tax=4 (two CZ casts) to count 2 via taxById / 2 1ms
+ ├ù server/tests/oracle-ir-hatut-commander-cz-copy.unit.test.ts > commander cast-from-CZ copy count (Hatut-style) > pushes that many this_spell copies onto the stack when deferred to server 5ms
+   ΓåÆ hintUnlessSacrificesChoice is not defined
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > 'Echo Storm' parses copy_spell reference_amount for CZ casts 428ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > 'Fury Storm' parses copy_spell reference_amount for CZ casts 36ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > 'Genesis Storm' parses copy_spell reference_amount for CZ casts 21ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > 'Empyrial Storm' parses copy_spell reference_amount for CZ casts 14ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > 'Skull Storm' parses copy_spell reference_amount for CZ casts 52ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > 'Hatut Zeraze Strike Force' parses copy_spell reference_amount for CZ casts 9ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > resolves tax=6 (three CZ casts) to count 3 for every Storm-suite copy_spell step 81ms
+ ├ù server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy counts (generic taxById/2) > Echo Storm server bridge pushes CZ-count this_spell copies 6ms
+   ΓåÆ hintUnlessSacrificesChoice is not defined
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > Depth Defiler modal + kicker choose-both > stamps kickerChooseBoth with unkicked min=max=1 and fixes then-discard who 77ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > Depth Defiler modal + kicker choose-both > auto-resolves both modes when wasKicked without selectedModeIds 23ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > Distended Mindbender / Mana Vortex on-cast IR wiring > Distended Mindbender reveal+dual-filter discard is fully IR-wired 96ms
+ Γ£ô server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > Distended Mindbender / Mana Vortex on-cast IR wiring > Mana Vortex counter-unless-sacrifice is fully IR-wired 7ms
+node.exe : 
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\A2\AppData\Roaming\npm ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Failed Tests 2 ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+ FAIL  server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts > commander Storm suite CZ copy 
+counts (generic taxById/2) > Echo Storm server bridge pushes CZ-count this_spell copies
+ReferenceError: hintUnlessSacrificesChoice is not defined
+ Γ¥» buildOracleIRExecutionContext rules-engine/src/oracleIRExecutorExecutionContext.ts:273:9
+    271|       ? { unlessDiscardsChoice: hintUnlessDiscardsChoice ?? baseUnlessΓÇª
+    272|       : {}),
+    273|     ...(hintUnlessSacrificesChoice || baseUnlessSacrificesChoice
+       |         ^
+    274|       ? { unlessSacrificesChoice: hintUnlessSacrificesChoice ?? baseUnΓÇª
+    275|       : {}),
+ Γ¥» server/tests/on-cast-commander-storm-depth-mindbender-vortex.unit.test.ts:135:19
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[1/2]ΓÄ»
+
+ FAIL  server/tests/oracle-ir-hatut-commander-cz-copy.unit.test.ts > commander cast-from-CZ copy count (Hatut-style) > 
+pushes that many this_spell copies onto the stack when deferred to server
+ReferenceError: hintUnlessSacrificesChoice is not defined
+ Γ¥» buildOracleIRExecutionContext rules-engine/src/oracleIRExecutorExecutionContext.ts:273:9
+    271|       ? { unlessDiscardsChoice: hintUnlessDiscardsChoice ?? baseUnlessΓÇª
+    272|       : {}),
+    273|     ...(hintUnlessSacrificesChoice || baseUnlessSacrificesChoice
+       |         ^
+    274|       ? { unlessSacrificesChoice: hintUnlessSacrificesChoice ?? baseUnΓÇª
+    275|       : {}),
+ Γ¥» server/tests/oracle-ir-hatut-commander-cz-copy.unit.test.ts:93:19
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[2/2]ΓÄ»
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 12 passed (14)
+   Start at  21:20:24
+   Duration  11.73s (transform 18.05s, setup 0ms, import 21.44s, tests 860ms, environment 0ms)
+

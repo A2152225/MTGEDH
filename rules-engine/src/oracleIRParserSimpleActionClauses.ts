@@ -10,6 +10,7 @@ import {
   tryParsePlayerMillClause,
 } from './oracleIRParserQuantityHelpers';
 import { normalizeClauseForParse, normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
+import { tryParseRemoveAllCountersFromTargetClause, tryParseNextSpellCostReduceForCountersRemovedClause } from './oracleIRRemoveCountersCostReduce';
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
 const PLAYER_SUBJECT_PREFIX =
@@ -2233,8 +2234,19 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const afterThatTurnExtra = clause.match(
+      /^after\s+that\s+turn,?\s+(that\s+player|that\s+opponent|they)\s+takes?\s+an?\s+extra\s+turn\b/i
+    );
+    if (afterThatTurnExtra) {
+      return withMeta({
+        kind: 'take_extra_turn',
+        who: parsePlayerSelector(String(afterThatTurnExtra[1] || 'that player').trim()),
+        raw: rawClause,
+      });
+    }
+
     const takeExtraTurn = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:take|takes)\\s+an?\\s+extra\\s+turn\\s+after\\s+this\\s+one\\b`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:take|takes)\\s+an?\\s+extra\\s+turn(?:\\s+after\\s+this\\s+one)?\\b`, 'i')
     );
     if (takeExtraTurn) {
       return withMeta({
@@ -2464,17 +2476,19 @@ export function tryParseSimpleActionClause(args: {
     }
 
     const gainControl = clause.match(
-      new RegExp(`^(?:for\\s+each\\s+opponent,\\s+)?${PLAYER_SUBJECT_PREFIX}gain(?:s)?\\s+control\\s+of\\s+(.+?)(?:\\s+(until\\s+end\\s+of\\s+turn|for\\s+as\\s+long\\s+as\\s+that\\s+aura\\s+is\\s+attached\\s+to\\s+it|for\\s+as\\s+long\\s+as\\s+you\\s+control\\s+[^.]+))?$`, 'i')
+      new RegExp(`^(?:for\\s+each\\s+opponent,\\s+)?${PLAYER_SUBJECT_PREFIX}gain(?:s)?\\s+control\\s+of\\s+(.+?)(?:\\s+(until\\s+end\\s+of\\s+turn|during\\s+that\\s+(?:player|opponent)['\\u2019]?s\\s+next\\s+turn|for\\s+as\\s+long\\s+as\\s+that\\s+aura\\s+is\\s+attached\\s+to\\s+it|for\\s+as\\s+long\\s+as\\s+you\\s+control\\s+[^.]+))?$`, 'i')
     );
     if (gainControl) {
       const durationRaw = String(gainControl[3] || '').trim().toLowerCase();
       const duration = /until\s+end\s+of\s+turn/i.test(durationRaw)
         ? 'until_end_of_turn'
-        : /aura\s+is\s+attached/i.test(durationRaw)
-          ? 'as_long_as_attached'
-          : /as\s+long\s+as\s+you\s+control/i.test(durationRaw)
-            ? 'as_long_as_control_source'
-            : 'indefinite';
+        : /during\s+that\s+(?:player|opponent)['\u2019]?s\s+next\s+turn/i.test(durationRaw)
+          ? 'during_that_players_next_turn'
+          : /aura\s+is\s+attached/i.test(durationRaw)
+            ? 'as_long_as_attached'
+            : /as\s+long\s+as\s+you\s+control/i.test(durationRaw)
+              ? 'as_long_as_control_source'
+              : 'indefinite';
       return withMeta({
         kind: 'gain_control',
         what: parseObjectSelector(gainControl[2]),
@@ -2821,6 +2835,16 @@ export function tryParseSimpleActionClause(args: {
         optional: true,
         raw: rawClause,
         });
+    }
+
+    const removeAllCountersTarget = tryParseRemoveAllCountersFromTargetClause(clause);
+    if (removeAllCountersTarget) {
+      return withMeta(removeAllCountersTarget as any);
+    }
+
+    const nextSpellCostReduceCounters = tryParseNextSpellCostReduceForCountersRemovedClause(clause);
+    if (nextSpellCostReduceCounters) {
+      return withMeta(nextSpellCostReduceCounters as any);
     }
 
     const removeCounters = clause.match(/^remove\s+((?:up\s+to\s+)?(?:a|an|\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|[a-z]+))\s+(.+?)\s+counters?\s+from\s+(.+)$/i);

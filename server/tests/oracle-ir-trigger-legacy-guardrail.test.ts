@@ -64,6 +64,11 @@ const delayedCleanupUtilsSource = readFileSync(
   'utf8',
 );
 const libraryHandlersPath = join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyLibraryHandlers.ts');
+
+const controlNextTurnSource = readFileSync(
+  join(serverRoot, 'src/state/modules/triggerControlNextTurnUtils.ts'),
+  'utf8',
+);
 const libraryHandlersSource = existsSync(libraryHandlersPath)
   ? readFileSync(libraryHandlersPath, 'utf8')
   : '';
@@ -661,6 +666,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(cardSpecificHandlersSource.includes('applyRetiredTriggerLegacyCurseDefendingPlayer')).toBe(false);
     expect(lifeAndGameHandlersSourceExists).toBe(false);
     expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyBothPlayersPutPermanentFromHand')).toBe(false);
+    expect(controlNextTurnSource.includes('applyControlOfTargetOpponentNextTurnFromTrigger')).toBe(true);
     expect(emrakulGainControlSource.includes('applyEmrakulGainControlOfTargetOpponentFromTrigger')).toBe(true);
     expect(gameStateBridgeSource.includes('bridgeGameStateOracleEffectsAfterOracleIR')).toBe(true);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttachToTargetCreatureYouControl')).toBe(false);
@@ -708,7 +714,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyExileTargetPlayerGraveyard')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyExileTopTwoPlayableChoice')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyGameStateOracleHooks')).toBe(false);
-    expect(stackExecuteTriggerEffectPrefaceUtilsSource.includes('applyEmrakulGainControlOfTargetOpponentFromTrigger')).toBe(true);
+    expect(stackExecuteTriggerEffectPrefaceUtilsSource.includes('applyControlOfTargetOpponentNextTurnFromTrigger')).toBe(true);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacySelfExileCreateToken')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttachToTargetCreatureYouControl')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyDiscardTriggeredCastFromGraveyard')).toBe(false);

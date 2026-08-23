@@ -1,0 +1,124 @@
+﻿237|  readonly teamworkWasPaid?: boolean;
+251|export interface OracleIRExecutionContext extends OracleIRSelectorContext {
+347|  readonly teamworkWasPaid?: boolean;
+251|export interface OracleIRExecutionContext extends OracleIRSelectorContext {
+252|  readonly controllerId: PlayerID;
+253|  readonly sourceId?: string;
+254|  readonly sourceName?: string;
+255|  /** Explicit X value for resolving X/X or similar effects when already known. */
+256|  readonly xValue?: number;
+257|  /** Whether the resolving source is a spell or an ability. */
+258|  readonly sourceObjectType?: 'spell' | 'ability';
+259|  /** Colors of the resolving source spell when relevant to source-sensitive checks. */
+260|  readonly sourceColors?: readonly string[];
+261|  /** Deterministic die-roll override for tests or pre-resolved event context. */
+262|  readonly dieRollResult?: number;
+263|  /** Source provenance for the resolving object when known. */
+264|  readonly castFromZone?: string;
+265|  /** Source provenance for the resolving object when known. */
+266|  readonly enteredFromZone?: string;
+267|  /** Parent spell steps available for nested copy-this-spell instructions. */
+268|  readonly copyReplaySteps?: readonly OracleEffectStep[];
+269|  /** Internal runtime carry-over for nested conditional follow-up steps that modify exiled cards. */
+270|  readonly lastExiledCards?: readonly any[];
+271|  /** Internal runtime carry-over for nested follow-up steps that reference cards moved by prior steps. */
+272|  readonly lastMovedCards?: readonly any[];
+273|  /** Internal runtime carry-over for nested follow-up steps that reference cards discarded by prior steps. */
+274|  readonly lastDiscardedCards?: readonly any[];
+275|  readonly lastDiscardedCardId?: string;
+276|  readonly lastRevealedCards?: readonly any[];
+277|  readonly lastRevealedCardCount?: number;
+278|  readonly lastSacrificedPermanents?: readonly any[];
+279|  readonly lastGreatestDiscardedCardCount?: number;
+280|  readonly lastCreatedTokenIds?: readonly string[];
+281|  readonly movedBattlefieldPermanentIds?: readonly string[];
+282|  readonly lastDamagePreventedThisWay?: number;
+283|  readonly lastReferenceAmount?: number;
+284|  /** Per-player reference amounts for multiplayer effects (e.g. Warp World's "that many" per player). */
+285|  readonly lastMovedCountByPlayer?: Readonly<Record<string, number>>;
+286|  readonly lastChosenCardName?: string;
+287|  /** Internal runtime carry-over for nested follow-up steps that reference permanents tapped this way. */
+288|  readonly lastTappedMatchingPermanentCount?: number;
+289|  /** Internal runtime carry-over for clash follow-up conditionals like "If you win". */
+290|  readonly lastClashWon?: boolean;
+291|  /** Internal runtime carry-over for collect-evidence follow-up conditionals like "If evidence was collected". */
+292|  readonly lastCollectedEvidence?: boolean;
+293|  /** Internal runtime carry-over for nested follow-up steps that reference battlefield permanents moved by prior steps. */
+294|  readonly lastMovedBattlefieldPermanentIds?: readonly string[];
+295|  /** Internal runtime carry-over for goad follow-ups that reference "those creatures". */
+296|  readonly lastGoadedBattlefieldPermanentIds?: readonly string[];
+297|  /** Battlefield permanents matched by the most recent "for each" / count antecedent (e.g. Inspiring Call draw). */
+298|  readonly lastAntecedentBattlefieldPermanentIds?: readonly string[];
+299|  /** Internal runtime carry-over for top-of-library references like "it" after a look/reveal-top step. */
+300|  readonly lastTopLibraryOwnerId?: PlayerID;
+301|  /** Internal runtime carry-over for scheme effects that refer to "that scheme". */
+302|  readonly lastSetInMotionScheme?: any;
+303|  /** Optional direct target creature binding used by modify_pt where-X evaluation and legacy tests/callers. */
+304|  readonly targetCreatureId?: string;
+305|  /** Optional direct target permanent binding used by targeted effects like Merrow Reejerey. */
+306|  readonly targetPermanentId?: string;
+307|  /** Most recent non-source permanent referenced by gain-control style steps in this resolution. */
+308|  readonly lastReferencedPermanentId?: string;
+309|  /** Optional direct target spell binding used by stack-targeted effects like counterspells. */
+310|  readonly targetSpellId?: string;
+311|  /** Choice for effects worded as "tap or untap target permanent." */
+312|  readonly tapOrUntapChoice?: 'tap' | 'untap';
+313|  /** Choice for unless-pays-life wrappers when already known. */
+314|  readonly unlessPaysLifeChoice?: 'pay' | 'decline';
+315|  /** Choice for unless-pays-mana wrappers when already known. */
+316|  readonly unlessPaysManaChoice?: 'pay' | 'decline';
+317|  /** Choice for unless-discards wrappers when already known. */
+318|  readonly unlessDiscardsChoice?: 'discard' | 'decline';
+319|  /** Normalized reference spell types used by some deterministic unknown-amount loops. */
+320|  readonly referenceSpellTypes?: readonly string[];
+321|  /** Reference spell mana value used by some deterministic unknown-amount loops. */
+322|  readonly referenceSpellManaValue?: number;
+323|  /** Result of a relevant coin flip when already known from runtime context. */
+324|  readonly wonCoinFlip?: boolean;
+325|  /** Winning vote choice when already known from runtime context. */
+326|  readonly winningVoteChoice?: string | null;
+327|  /** Numeric amount referenced by text like "that much" from trigger data or prior steps. */
+328|  readonly referenceAmount?: number;
+329|  readonly referenceCardName?: string;
+330|  readonly referencedCardName?: string;
+331|  readonly referencedPlayerId?: PlayerID;
+332|  readonly targetCardName?: string;
+333|  readonly otherSpellType?: string;
+334|  readonly presentVoteCount?: number;
+335|  readonly energyPaidThisWay?: number;
+336|  readonly lifePaidThisWay?: number;
+337|  readonly tributePaid?: boolean;
+338|  /** Number of spells the triggering player has cast this turn when relevant. */
+339|  readonly spellCastCountThisTurn?: number;
+340|  /** Number of noncreature spells the triggering player has cast this turn when relevant. */
+341|  readonly noncreatureSpellCastCountThisTurn?: number;
+342|  /** Explicit vote tallies keyed by choice text when already known from runtime context. */
+343|  readonly voteChoiceCounts?: Readonly<Record<string, number>>;
+344|  /** Whether a gift cost was paid / promised for gift-conditional spell text. */
+345|  readonly giftPromised?: boolean;
+346|  /** Whether a Teamwork additional cost was paid when casting this spell. */
+347|  readonly teamworkWasPaid?: boolean;
+348|  /** Whether an optional spell additional cost (e.g. waterbend) was paid when casting. */
+349|  readonly optionalAdditionalCostWasPaid?: boolean;
+350|  /** Whether the activated ability being copied/triggered is a mana ability. */
+351|  readonly activatedAbilityIsManaAbility?: boolean;
+352|  /** Whether a spell was cast via an alternate "this way" permission in the same resolution. */
+353|  readonly spellCastThisWay?: boolean;
+354|  /** Whether a creature spell was cast via an alternate "this way" permission in the same resolution. */
+355|  readonly creatureSpellCastThisWay?: boolean;
+356|  /** Whether mana from the resolving ability was spent to cast a creature spell. */
+357|  readonly manaSpentOnCreatureSpell?: boolean;
+358|  /** Whether the referenced spell was cast without paying mana. */
+359|  readonly noManaSpentToCast?: boolean;
+360|  /** Whether the controller would lose the game from the current event (replacement check). */
+361|  readonly wouldLoseTheGame?: boolean;
+362|  /** Quality satisfied by the most recent behold action in this resolution (e.g. dragon). */
+363|  readonly beheldQuality?: string;
+364|  /** Whether a Dragon card was revealed while casting the resolving spell. */
+365|  readonly revealedDragonAsCast?: boolean;
+366|  /** Whether a Dragon was controlled while casting the resolving spell. */
+367|  readonly controlledDragonAsCast?: boolean;
+368|  /** Whether the referenced creature died from the immediately preceding destroy/damage step. */
+369|  readonly creatureDiedThisWay?: boolean;
+370|  /** Whether the resolving permanent entered the battlefield because it was cast. */
+371|  readonly wasCast?: boolean;

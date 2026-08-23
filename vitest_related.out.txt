@@ -1,0 +1,19 @@
+﻿
+ RUN  v4.0.16 D:/Git/MTGEDH
+
+ Γ£ô server/tests/on-cast-kicker-intervening-if.unit.test.ts > kickerCostUtils > parses Wastescape and/or kicker options 1ms
+ Γ£ô server/tests/on-cast-kicker-intervening-if.unit.test.ts > kickerCostUtils > normalizes mana cost spacing/case 0ms
+ Γ£ô server/tests/on-cast-kicker-intervening-if.unit.test.ts > kickerCostUtils > matches specific paid kicker costs 0ms
+ Γ£ô server/tests/on-cast-kicker-intervening-if.unit.test.ts > on-cast kicker intervening-if > skips Mycospawn kicked clause when wasKicked is false 26ms
+ Γ£ô server/tests/on-cast-kicker-intervening-if.unit.test.ts > on-cast kicker intervening-if > allows Mycospawn kicked clause when wasKicked is true 4ms
+ Γ£ô server/tests/on-cast-kicker-intervening-if.unit.test.ts > on-cast kicker intervening-if > Wastescape G-kicker clause requires paid {G} 1ms
+ Γ£ô server/tests/on-cast-kicker-intervening-if.unit.test.ts > on-cast kicker intervening-if > queues both Wastescape clauses for later intervening-if filtering 1ms
+ Γ£ô server/tests/teamwork-choose-mode.socket.integration.test.ts > teamwork choose-both socket integration > queues MODE_SELECTION with maxModes=2 after paying teamwork and resolving the spell 969ms
+ Γ£ô server/tests/teamwork-choose-mode.socket.integration.test.ts > teamwork choose-both socket integration > queues MODE_SELECTION with maxModes=1 when teamwork is declined 106ms
+ Γ£ô server/tests/teamwork-choose-mode.socket.integration.test.ts > teamwork choose-both spell IR primary (Effect Program) > queues Effect Program MODE_SELECTION with maxModes=2 when teamworkWasPaid 104ms
+
+ Test Files  2 passed (2)
+      Tests  10 passed (10)
+   Start at  21:21:31
+   Duration  10.60s (transform 14.49s, setup 0ms, import 18.49s, tests 1.23s, environment 1ms)
+

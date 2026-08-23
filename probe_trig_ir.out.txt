@@ -1,0 +1,120 @@
+﻿361|  const defendingOpponentId = (explicitDefendingPlayerId && explicitDefendingPlayerId !== String(params.controller)
+362|    ? explicitDefendingPlayerId
+363|    : (binding.targetPlayerId && String(binding.targetPlayerId) !== String(params.controller)
+364|      ? binding.targetPlayerId
+365|      : undefined)) as PlayerID | undefined;
+366|  const sourcePermanentId = String(binding.sourcePermanentId || binding.sourceId || '').trim();
+367|  const sourcePermanent = sourcePermanentId
+368|    ? (state?.battlefield || []).find((entry: any) => entry && String(entry.id || '') === sourcePermanentId)
+369|    : undefined;
+370|  const chosenCreatureType = String(
+371|    params.triggerItem?.chosenCreatureType
+372|    || params.triggerItem?.card?.chosenCreatureType
+373|    || sourcePermanent?.chosenCreatureType
+374|    || '',
+375|  ).trim();
+376|  const attackingPlayerId = String(
+377|    params.triggerItem?.attackingPlayerId
+378|      || params.triggerItem?.effectData?.attackingPlayerId
+379|      || '',
+380|  ).trim();
+381|  const attachedToId = String(
+382|    params.triggerItem?.effectData?.attachedToId
+383|    || sourcePermanent?.attachedTo
+384|    || sourcePermanent?.enchanting
+385|    || '',
+386|  ).trim();
+387|  const resolvedTargetPermanentId = String(binding.targetPermanentId || attachedToId || '').trim();
+388|
+389|  const optionalTriggerAccepted = (params.triggerItem as any)?.optionalTriggeredAbilityDecisionApplied === true;
+390|  if (optionalTriggerAccepted) {
+391|    recordDoThisOnlyOnceEachTurnOnAccept(state, params.triggerItem);
+392|  }
+393|  const createdTokenIds = Array.isArray(params.triggerItem?.effectData?.createdTokenIds)
+394|    ? params.triggerItem.effectData.createdTokenIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+395|    : [];
+396|  const irCtx = buildOracleIRExecutionContext(
+397|    {
+398|      controllerId: params.controller,
+399|      sourceId: binding.sourcePermanentId || binding.sourceId,
+400|      sourceName: params.sourceName,
+401|      sourceObjectType: 'ability',
+402|      xValue: binding.xValue,
+403|      ...(typeof binding.referenceAmount === 'number' ? { referenceAmount: binding.referenceAmount } : {}),
+404|      ...(attackingPlayerId ? { attackingPlayerId } : {}),
+405|      ...(createdTokenIds.length > 0
+406|        ? {
+407|            lastCreatedTokenIds: createdTokenIds,
+408|            lastMovedBattlefieldPermanentIds: createdTokenIds,
+409|            lastAntecedentBattlefieldPermanentIds: createdTokenIds,
+410|          }
+411|        : {}),
+412|      selectorContext: {
+413|        ...(binding.chosenObjectIds ? { chosenObjectIds: binding.chosenObjectIds } : {}),
+414|        ...(binding.targetPlayerId ? { targetPlayerId: binding.targetPlayerId } : {}),
+415|        ...(defendingOpponentId ? { targetOpponentId: defendingOpponentId } : {}),
+416|        ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
+417|        ...(chosenCreatureType ? { chosenCreatureType } : {}),
+418|        ...(createdTokenIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: createdTokenIds } : {}),
+419|        ...(attachedToId ? { attachedToId } : {}),
+420|      },
+421|      ...(resolvedTargetPermanentId ? { targetPermanentId: resolvedTargetPermanentId } : {}),
+422|      ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
+423|    },
+424|    {
+425|      targetPermanentId: resolvedTargetPermanentId || binding.targetPermanentId,
+426|      targetPlayerId: (attackingPlayerId || binding.targetPlayerId) as PlayerID | undefined,
+427|      targetOpponentId: defendingOpponentId,
+428|      targetSpellId: binding.targetSpellId,
+429|      chosenObjectIds: binding.chosenObjectIds,
+430|      sourceObjectType: 'ability',
+431|      referenceAmount: binding.referenceAmount,
+432|      ...(chosenCreatureType ? { chosenCreatureType } : {}),
+433|    },
+434|  );
+435|  if (optionalTriggerAccepted) {
+436|    return { ...irCtx, optionalOfferAccepted: true } as typeof irCtx;
+437|  }
+438|  return irCtx;
+439|}
+440|
+441|function probeOracleIrTriggerShadow(
+442|  ctx: GameContext,
+443|  params: TryResolveTriggerViaOracleIRParams,
+444|  steps: readonly OracleEffectStep[],
+445|): OracleIRExecutionResult | null {
+446|  if (steps.length === 0) return null;
+447|
+448|  try {
+449|    const shadowCtx = buildShadowProbeContext(ctx);
+450|    const state = structuredClone((shadowCtx as any).state);
+451|    hydrateOracleIRPlayerZonesFromContext(shadowCtx, state);
+452|    const binding = resolveTriggerTargetBinding(shadowCtx, params.triggerItem, params.controller);
+453|    const irCtx = buildTriggerIrContext(params, binding, state);
+454|    const adjustedSteps = applyMillReplacementEffectsToSteps(
+455|      shadowCtx,
+456|      [...steps],
+457|      params.controller,
+458|      binding.targetPlayerId,
+459|      state,
+460|      irCtx,
+461|    );
+462|
+463|    return applyOracleIRStepsToGameState(state, adjustedSteps, {
+464|      ...irCtx,
+465|      interactivePlayerChoices: true,
+466|    }, {
+467|      allowOptional: true,
+468|      selectedModeIds: buildTriggerExecutionOptionsFromSteps(steps, params.triggerItem).selectedModeIds,
+469|      haltOnPlayerChoiceRequired: true,
+470|    });
+471|  } catch (err) {
+472|    debugWarn(1, `[oracleIR-shadow] Trigger probe failed for ${params.sourceName}:`, err);
+473|    return null;
+474|  }
+475|}
+476|
+477|function libraryCountForPlayer(ctx: GameContext, controller: PlayerID): number {
+478|  const fromMap = (ctx as any).libraries?.get?.(controller);
+479|  if (Array.isArray(fromMap)) return fromMap.length;
+480|  const player = ((ctx as any).state?.players || []).find(

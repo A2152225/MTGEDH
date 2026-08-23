@@ -334,7 +334,7 @@ function buildUndoBoundaryPreview(state: BoundaryStateSnapshot | undefined): Und
 
   return {
     ...state,
-    summary: summaryParts.filter(Boolean).join(' · ') || 'Current game state',
+    summary: summaryParts.filter(Boolean).join(' | ') || 'Current game state',
   };
 }
 
@@ -653,7 +653,8 @@ function buildTurnPhaseTargetLabel(opts: {
     // Prefer distinct step name when it adds info (e.g. Declare Attackers under Combat).
     const phaseNorm = phaseLabel.toLowerCase().replace(/\s+/g, '');
     const stepNorm = stepLabel.toLowerCase().replace(/\s+/g, '');
-    if (stepNorm === 'main' || stepNorm === phaseNorm || phaseNorm.includes(stepNorm)) {
+    const stepIsGenericMain = stepNorm === 'main' || stepNorm === 'main1' || stepNorm === 'main2';
+    if (stepIsGenericMain || stepNorm === phaseNorm || phaseNorm.includes(stepNorm) || stepNorm.includes(phaseNorm)) {
       parts.push(phaseLabel);
     } else {
       parts.push(`${phaseLabel} / ${stepLabel}`);
@@ -664,7 +665,7 @@ function buildTurnPhaseTargetLabel(opts: {
     parts.push(stepLabel);
   }
 
-  return parts.filter(Boolean).join(' ? ') || 'Earlier game state';
+  return parts.filter(Boolean).join(' | ') || 'Earlier game state';
 }
 
 function undoTargetDedupeKey(target: {

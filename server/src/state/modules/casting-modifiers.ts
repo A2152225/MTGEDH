@@ -3,6 +3,7 @@ import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js'
 import { parseManaCost } from './mana-check.js';
 import { cardHasCreatureType } from '../creatureTypeNow.js';
 import { parseNextChosenTypeSpellFlashGrant } from './chosen-creature-type.js';
+import { getActiveNextSpellCostReduction } from './nextSpellCostReduction.js';
 
 export type ConvokeGrantScope =
   | 'next_spell_this_turn'
@@ -361,6 +362,12 @@ export function getDynamicBattlefieldCostReduction(
   };
 
   if (!card) return reduction;
+
+  const deferredNextSpell = getActiveNextSpellCostReduction(state, playerId);
+  if (deferredNextSpell > 0) {
+    reduction.generic += deferredNextSpell;
+    reduction.messages.push(`Next-spell cost reduction: -{${deferredNextSpell}}`);
+  }
 
   const cardTypeLineValue = getCardTypeLine(card);
   const isCreature = cardTypeLineValue.includes('creature');

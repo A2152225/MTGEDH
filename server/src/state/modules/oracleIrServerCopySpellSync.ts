@@ -8,6 +8,7 @@ import {
   resolveCopiedTargetSpellStackItem,
   resolveCopySpellCount,
 } from '../../../../rules-engine/src/oracleIRExecutorCopySpellSupport.js';
+import { resolveCommanderCastsFromCommandZoneThisGame } from '../../../../rules-engine/src/oracleIRExecutorCommanderCastCount.js';
 import {
   applyRandomRetargetToStackSpells,
   changeTargetMentionsCopies,
@@ -169,6 +170,14 @@ function shouldDoubleCopyWhenCastFromGraveyard(
   return String(irCtx?.castFromZone || '').trim().toLowerCase() === 'graveyard';
 }
 
+function isCommanderCastFromCommandZoneCopyStep(
+  step: Extract<OracleEffectStep, { kind: 'copy_spell' }>,
+): boolean {
+  if (step.copies?.kind !== 'reference_amount') return false;
+  const raw = String(step.copies.raw || '').trim().toLowerCase();
+  return /commander.*command zone.*this game/.test(raw);
+}
+
 function resolveServerStackCopyCount(
   state: any,
   controller: PlayerID,
@@ -186,7 +195,7 @@ function resolveServerStackCopyCount(
   }
 
   const metadataCount = Number(params.gapMetadata?.copyCount);
-  if (Number.isFinite(metadataCount) && metadataCount >= 0) {
+  if (Number.isFinite(metadataCount) && metadataCount > 0) {
     let count = Math.max(0, metadataCount);
     if (count === 1 && shouldDoubleCopyWhenCastFromGraveyard(params, irCtx)) {
       count = 2;
@@ -194,7 +203,23 @@ function resolveServerStackCopyCount(
     return count;
   }
 
+  // Sticky copyCount:0 from a prior IR miss: re-resolve commander-CZ reference amounts from tax.
+  // Other copy steps keep an explicit 0 so we do not invent copies.
+  if (
+    Number.isFinite(metadataCount)
+    && metadataCount === 0
+    && !isCommanderCastFromCommandZoneCopyStep(step)
+  ) {
+    return 0;
+  }
+
   let count = Math.max(0, resolveCopySpellCount(state, controller, step, irCtx));
+  if (
+    count <= 0
+    && isCommanderCastFromCommandZoneCopyStep(step)
+  ) {
+    count = resolveCommanderCastsFromCommandZoneThisGame(state, controller);
+  }
   if (
     step.copies?.kind === 'spells_cast_before_this_turn'
     && count <= 0

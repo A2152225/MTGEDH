@@ -415,6 +415,13 @@ export function castCommander(ctx: GameContext, playerId: PlayerID, commanderId:
   if (state && state.commandZone) {
     (state.commandZone as any)[playerId] = info;
   }
+
+  // Keep explicit CZ-cast count in sync for oracle patterns ("copy it for each time you've cast your commander...").
+  // Authoritative fallback remains taxById sum / 2 (same as Jeska-style loyalty).
+  if (state) {
+    const castsMap = ((state as any).commanderCastsFromCommandZoneThisGame ||= {}) as Record<string, number>;
+    castsMap[playerId] = (Number(castsMap[playerId]) || 0) + 1;
+  }
   
   debug(1, `[castCommander] Updated tax for ${commanderId}: ${info.taxById[commanderId]}, total tax: ${info.tax}`);
   

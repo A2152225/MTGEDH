@@ -1,0 +1,15 @@
+﻿
+ RUN  v4.0.16 D:/Git/MTGEDH/server
+
+ Γ£ô tests/oracle-ir-unless-pay.integration.test.ts (2 tests) 697ms
+     Γ£ô queues sacrifice-unless-pay upkeep prompts for Phantasmal Forces style text under legacy-primary coexistence  457ms
+ Γ£ô tests/on-cast-any-player-may-gain-control-cultist.unit.test.ts (12 tests) 562ms
+     Γ£ô parses Dash Hopes-style any-player life tax as any_player_may + counter  371ms
+ Γ£ô tests/on-cast-control-next-turn-library-top.unit.test.ts (4 tests) 335ms
+ Γ£ô tests/reflexive-if-you-do-on-cast.unit.test.ts (5 tests) 110ms
+
+ Test Files  4 passed (4)
+      Tests  23 passed (23)
+   Start at  21:56:01
+   Duration  13.97s (transform 7.71s, setup 201ms, import 11.51s, tests 1.70s, environment 0ms)
+

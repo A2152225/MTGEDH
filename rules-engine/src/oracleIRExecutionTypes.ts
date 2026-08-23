@@ -77,6 +77,18 @@ export interface OracleIRSelectorContext {
   readonly unlessPaysManaChoice?: 'pay' | 'decline';
   /** Bound discard/decline choice for unless-discards wrappers when already known. */
   readonly unlessDiscardsChoice?: 'discard' | 'decline';
+  /** Choice for unless-sacrifices wrappers when already known. */
+  readonly unlessSacrificesChoice?: 'sacrifice' | 'decline';
+  /** Bound pay/decline for any-player-may tax windows when already known. */
+  readonly anyPlayerMayChoice?: 'pay' | 'decline';
+  /** Player who is answering / paid the any-player-may window. */
+  readonly anyPlayerMayPayerId?: PlayerID;
+  /** Players who already declined an any-player-may window. */
+  readonly anyPlayerMayDeclinedPlayerIds?: readonly PlayerID[];
+  /** Chosen permanent id when any-player-may payment is sacrifice. */
+  readonly anyPlayerMaySacrificePermanentId?: string;
+  /** Counters removed by the most recent remove_counter step in this execution. */
+  readonly countersRemovedThisWay?: number;
   /** Whether an optional spell additional cost was paid when casting. */
   readonly optionalAdditionalCostWasPaid?: boolean;
   /** Whether a waterbend additional cost was paid when casting. */
@@ -201,6 +213,8 @@ export interface OracleIRExecutionEventHint {
   readonly unlessPaysManaChoice?: 'pay' | 'decline';
   /** Explicit discard/decline choice for unless-discards wrappers when already known. */
   readonly unlessDiscardsChoice?: 'discard' | 'decline';
+  /** Choice for unless-sacrifices wrappers when already known. */
+  readonly unlessSacrificesChoice?: 'sacrifice' | 'decline';
   /** Explicit choice for "tap or untap" style effects when known. */
   readonly tapOrUntapChoice?: 'tap' | 'untap';
   /** Generic affected players for this event (may include non-opponents). */
@@ -235,6 +249,8 @@ export interface OracleIRExecutionEventHint {
   readonly giftPromised?: boolean;
   /** Whether a Teamwork additional cost was paid when casting this spell. */
   readonly teamworkWasPaid?: boolean;
+  /** Whether the resolving source was kicked (cast with kicker). */
+  readonly wasKicked?: boolean;
   /** Whether a library search step applied during this resolution. */
   readonly searchedLibraryThisWay?: boolean;
   readonly lastMilledCards?: readonly any[];
@@ -316,6 +332,8 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly unlessPaysManaChoice?: 'pay' | 'decline';
   /** Choice for unless-discards wrappers when already known. */
   readonly unlessDiscardsChoice?: 'discard' | 'decline';
+  /** Choice for unless-sacrifices wrappers when already known. */
+  readonly unlessSacrificesChoice?: 'sacrifice' | 'decline';
   /** Normalized reference spell types used by some deterministic unknown-amount loops. */
   readonly referenceSpellTypes?: readonly string[];
   /** Reference spell mana value used by some deterministic unknown-amount loops. */
@@ -345,6 +363,8 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly giftPromised?: boolean;
   /** Whether a Teamwork additional cost was paid when casting this spell. */
   readonly teamworkWasPaid?: boolean;
+  /** Whether the resolving source was kicked (cast with kicker). */
+  readonly wasKicked?: boolean;
   /** Whether an optional spell additional cost (e.g. waterbend) was paid when casting. */
   readonly optionalAdditionalCostWasPaid?: boolean;
   /** Whether the activated ability being copied/triggered is a mana ability. */

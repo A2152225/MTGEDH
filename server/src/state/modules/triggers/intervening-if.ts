@@ -2,6 +2,7 @@ import type { GameContext } from "../context.js";
 import { detectLinkedExileEffect } from "./linked-exile.js";
 import { calculateAllPTBonuses } from "../../utils.js";
 import { getEffectiveBasicLandTypes } from "../mana-abilities.js";
+import { sourceWasKicked, sourceWasKickedWithCost } from '../kickerCostUtils.js';
 
 function normalizeText(text: string): string {
   return String(text || "")
@@ -5096,33 +5097,9 @@ function evaluateInterveningIfClauseInternal(
 
   // "if it was kicked"
   if (/^if\s+it\s+was\s+kicked$/i.test(clause)) {
-    const explicit = (refs as any)?.wasKicked ?? (refs as any)?.card?.wasKicked;
-    if (typeof explicit === 'boolean') return explicit;
-
-    const item = (refs as any)?.stackItem ?? sourcePermanent;
-    if (!item) return null;
-
-    const v = (item as any)?.wasKicked ?? (item as any)?.card?.wasKicked;
-    if (typeof v === 'boolean') return v;
-
-    // Some implementations track "times kicked" rather than a boolean.
-    // Only use positive evidence to avoid replay-unsafe false negatives.
-    const count =
-      (refs as any)?.kickerPaidCount ??
-      (refs as any)?.timesKicked ??
-      (refs as any)?.kickedTimes ??
-      (refs as any)?.card?.kickerPaidCount ??
-      (refs as any)?.card?.timesKicked ??
-      (refs as any)?.card?.kickedTimes ??
-      (item as any)?.kickerPaidCount ??
-      (item as any)?.timesKicked ??
-      (item as any)?.kickedTimes ??
-      (item as any)?.card?.kickerPaidCount ??
-      (item as any)?.card?.timesKicked ??
-      (item as any)?.card?.kickedTimes;
-    if (typeof count === 'number') return count > 0 ? true : null;
-
-    return null;
+    const item = (refs as any)?.stackItem ?? sourcePermanent ?? refs;
+    const result = sourceWasKicked(item) ?? sourceWasKicked(refs);
+    return result;
   }
 
   // "if this creature wasn't kicked" / "if this creature was not kicked" (best-effort)
@@ -5159,33 +5136,17 @@ function evaluateInterveningIfClauseInternal(
     return null;
   }
 
-  // "if it was kicked with its {..} kicker" (recognize but we don't track which kicker)
-  if (/^if\s+it\s+was\s+kicked\s+with\s+its\s+(?:\{[^}]+\})+\s+kicker$/i.test(clause)) {
-    const explicit = (refs as any)?.wasKicked ?? (refs as any)?.card?.wasKicked;
-    if (explicit === true) return true;
-
-    const item = (refs as any)?.stackItem ?? sourcePermanent;
-    if (!item) return null;
-
-    const v = (item as any)?.wasKicked ?? (item as any)?.card?.wasKicked;
-    if (v === true) return true;
-
-    const count =
-      (refs as any)?.kickerPaidCount ??
-      (refs as any)?.timesKicked ??
-      (refs as any)?.kickedTimes ??
-      (refs as any)?.card?.kickerPaidCount ??
-      (refs as any)?.card?.timesKicked ??
-      (refs as any)?.card?.kickedTimes ??
-      (item as any)?.kickerPaidCount ??
-      (item as any)?.timesKicked ??
-      (item as any)?.kickedTimes ??
-      (item as any)?.card?.kickerPaidCount ??
-      (item as any)?.card?.timesKicked ??
-      (item as any)?.card?.kickedTimes;
-    if (typeof count === 'number' && count > 0) return true;
-
-    return null;
+  // "if it was kicked with its {..} kicker"
+  {
+    const specificKickerMatch = clause.match(
+      /^if\s+it\s+was\s+kicked\s+with\s+its\s+((?:\{[^}]+\})+)\s+kicker$/i,
+    );
+    if (specificKickerMatch) {
+      const costText = String(specificKickerMatch[1] || '');
+      const item = (refs as any)?.stackItem ?? sourcePermanent ?? refs;
+      const result = sourceWasKickedWithCost(item, costText) ?? sourceWasKickedWithCost(refs, costText);
+      return result;
+    }
   }
 
   // "if it was bargained" (best-effort)

@@ -9,8 +9,8 @@ vi.mock('../src/state/modules/turn.js', () => ({
 
 import { addExtraTurn } from '../src/state/modules/turn.js';
 
-describe('triggerEmrakulGainControlUtils', () => {
-  it('registers Emrakul-style opponent control and extra turn', () => {
+describe('triggerEmrakulGainControlUtils (compat shim)', () => {
+  it('compat alias still registers control-next-turn + drawback from full text', () => {
     const ctx = {} as any;
     const state = {} as any;
 
@@ -18,7 +18,7 @@ describe('triggerEmrakulGainControlUtils', () => {
       ctx,
       controller: 'p1' as PlayerID,
       sourceName: 'Emrakul',
-      description: 'You gain control of target opponent during that player\'s next turn.',
+      description: "You gain control of target opponent during that player's next turn. After that turn, that player takes an extra turn.",
       triggerItem: { targets: ['p2'] },
       state,
     })).toBe(true);

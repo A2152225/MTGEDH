@@ -106,13 +106,22 @@ export function resolveTapOrUntapTargetIds(
   const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
     ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
     : [];
+  // "up to N target ..." with empty chosen set => player chose zero targets; do not auto-select.
+  if (isMassTapSelector && /\btarget\b/.test(text) && chosenObjectIds.length === 0) {
+    return [];
+  }
   if (chosenObjectIds.length > 0 && (/\btarget\b/.test(text) || isMassTapSelector)) {
     const requiredType = parseSimplePermanentTypeFromText(text);
     const chosenMatches = battlefield.filter((perm: any) => {
       const permanentId = String((perm as any)?.id || '').trim();
       if (!chosenObjectIds.includes(permanentId)) return false;
       if (isAnotherTarget && sourceId && permanentId === sourceId) return false;
-      return permanentMatchesTapTargetType(perm, requiredType);
+      if (requiredType && !permanentMatchesTapTargetType(perm, requiredType)) {
+        // Compound "A, B, or C" collapses to first type in parseSimplePermanentTypeFromText;
+        // trust chosen ids already validated by targeting UX.
+        if (!/,|\bor\b/.test(text)) return false;
+      }
+      return true;
     });
     if (chosenMatches.length > 0) {
       const ids = chosenMatches.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean);

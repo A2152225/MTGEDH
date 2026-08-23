@@ -7,8 +7,8 @@ import {
   applyDelayedCleanupTriggersFromMetadata,
 } from './triggerDelayedCleanupUtils.js';
 import {
-  applyEmrakulGainControlOfTargetOpponentFromTrigger,
-} from './triggerEmrakulGainControlUtils.js';
+  applyControlOfTargetOpponentNextTurnFromTrigger,
+} from './triggerControlNextTurnUtils.js';
 import {
   applyBoundGraveyardReturnFromTriggerMetadata,
 } from './triggerBoundGraveyardReturnUtils.js';
@@ -44,7 +44,7 @@ export function tryApplyTriggerEffectPrefaceHandlers(
     return legacyPrefaceHandled('applyPlaneswalkerLoyaltyCountersFromTriggerMetadata');
   }
 
-  if (applyEmrakulGainControlOfTargetOpponentFromTrigger({
+  if (applyControlOfTargetOpponentNextTurnFromTrigger({
     ctx,
     controller,
     sourceName,
@@ -52,7 +52,7 @@ export function tryApplyTriggerEffectPrefaceHandlers(
     triggerItem,
     state,
   })) {
-    return legacyPrefaceHandled('applyEmrakulGainControlOfTargetOpponentFromTrigger');
+    return legacyPrefaceHandled('applyControlOfTargetOpponentNextTurnFromTrigger');
   }
 
   // Scheduled delayed effects (upkeep draw, end-step exile, etc.) must run before Oracle IR

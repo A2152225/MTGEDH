@@ -26,13 +26,14 @@ import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTrigge
 import { tryResolveTriggerViaOracleIR } from "../state/modules/oracleIrTriggerExecution.js";
 import { isOracleIrTriggerPrimaryEnabled } from "../state/modules/oracleIrFeatureFlags.js";
 import { isTriggerEffectOwnedByOracleIrPrimary } from "../state/modules/oracleIrTriggerLegacyRouting.js";
-import { resolveOnCastSpellTriggerDescription } from "../state/modules/onCastSpellTriggerUtils.js";
+import { isOnCastReflexiveCostGateEffect, resolveOnCastSpellTriggerDescriptions } from "../state/modules/onCastSpellTriggerUtils.js";
+import { parseKickerCostOptions, normalizeKickerManaCost } from "../state/modules/kickerCostUtils.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
 import { createToken, updateCounters } from "../state/modules/counters_tokens.js";
 import { hydrateCardOracleInPlace, hydrateGameStateOracleText } from "../state/modules/cardOracleHydration.js";
 import { resolveLandCardFaceForBattlefieldEntry } from "../state/modules/stackPlayLandUtils.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
-import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType, inferGenericTriggeredAbilityTargetMetadata } from "../state/modules/triggers/index.js";
+import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType } from "../state/modules/triggers/index.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
@@ -122,6 +123,7 @@ import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleI
 import { normalizeGameplayEffectText } from '../../../rules-engine/src/oracleReminderText.js';
 import { extractGiftInfo, resolveGiftAwareOracleText } from '../utils/gift.js';
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from '../state/modules/triggers/ability-activated.js';
+import { consumeNextSpellCostReductionAfterCast } from '../state/modules/nextSpellCostReduction.js';
 import {
   persistTargetedTriggeredStackItems,
   triggerPermanentTargetedTriggersFromSpell,
@@ -766,7 +768,7 @@ function buildAlternateCostPaymentExtrasForCast(
   }
 
   // Hand-cast payment extras only. Graveyard-only keywords (flashback, disturb,
-  // escape, retrace, harmonize, jump-start) must not appear here — those are
+  // escape, retrace, harmonize, jump-start) must not appear here ï¿½ those are
   // offered when casting from the graveyard via the shared GY cast path.
   const genericKeywordIds = [
     'dash', 'blitz', 'mutate', 'surge', 'spectacle', 'prowl', 'bestow', 'emerge', 'evoke',
@@ -831,7 +833,7 @@ function buildAlternateCostPaymentExtrasForCast(
     handKeywordAlternateCosts.push({
       id: 'web_slinging',
       label: 'Web-slinging',
-      description: 'Return a tapped creature you control to its owner’s hand',
+      description: 'Return a tapped creature you control to its ownerï¿½s hand',
       rawCost: webSlinging.cost,
     });
   }
@@ -1768,8 +1770,8 @@ function mapSpellTargetRefToDisplay(game: any, playerId: string, targetRef: any)
 function splitSpellTargetClauses(oracleText: string): string[] {
   const normalized = normalizeGameplayEffectText(
     String(oracleText || '')
-      .replace(/[’]/g, "'")
-      .replace(/[-–—]/g, '-')
+      .replace(/[ï¿½]/g, "'")
+      .replace(/[-ï¿½ï¿½]/g, '-')
       .replace(/\r\n?/g, '\n')
       .trim(),
   );
@@ -1778,7 +1780,7 @@ function splitSpellTargetClauses(oracleText: string): string[] {
 
   return normalized
     .split(/\n+/)
-    .map((line) => line.replace(/^(?:•|\*|-)\s*/, '').trim())
+    .map((line) => line.replace(/^(?:ï¿½|\*|-)\s*/, '').trim())
     .filter(Boolean)
     .flatMap((line) => line.split(/(?<=[.;])\s+/))
     .flatMap((chunk) => chunk.split(/\bthen\b/i).map((part, index) => (index === 0 ? part : `then ${part}`).trim()))
@@ -3434,7 +3436,7 @@ export function calculateCostReduction(
       const totalReduction = reductionPerCreature * creatureCount;
       if (totalReduction > 0) {
         reduction.generic += totalReduction;
-        reduction.messages.push(`${cardName}: -{${totalReduction}} (${creatureCount} creatures +ù {${reductionPerCreature}})`);
+        reduction.messages.push(`${cardName}: -{${totalReduction}} (${creatureCount} creatures +ï¿½ {${reductionPerCreature}})`);
       }
     }
     
@@ -3450,7 +3452,7 @@ export function calculateCostReduction(
       const totalReduction = reductionPerArtifact * artifactCount;
       if (totalReduction > 0) {
         reduction.generic += totalReduction;
-        reduction.messages.push(`${cardName}: -{${totalReduction}} (${artifactCount} artifacts +ù {${reductionPerArtifact}})`);
+        reduction.messages.push(`${cardName}: -{${totalReduction}} (${artifactCount} artifacts +ï¿½ {${reductionPerArtifact}})`);
       }
     }
     
@@ -3751,9 +3753,9 @@ export function extractCreatureTypes(typeLine: string): string[] {
   const lower = typeLine.toLowerCase();
   
   // Support normal em dash, mojibake fallback, and plain hyphen separators.
-  const dashIndex = lower.indexOf('—') !== -1
-    ? lower.indexOf('—')
-    : (lower.indexOf("GÇö") !== -1 ? lower.indexOf("GÇö") : lower.indexOf("-"));
+  const dashIndex = lower.indexOf('ï¿½') !== -1
+    ? lower.indexOf('ï¿½')
+    : (lower.indexOf("Gï¿½ï¿½") !== -1 ? lower.indexOf("Gï¿½ï¿½") : lower.indexOf("-"));
   if (dashIndex !== -1) {
     const subtypes = lower.slice(dashIndex + 1).trim().split(/\s+/);
     types.push(...subtypes.filter(t => t.length > 0));
@@ -4005,7 +4007,8 @@ export function recordSpellCastThisTurn(
         ...(castSourceZone ? { castSourceZone } : {}),
       },
     });
-    consumeConvokeGrantsAfterCast(game.state, casterId as PlayerID, spellCard, castSourceZone);
+    consumeNextSpellCostReductionAfterCast(game.state as any, playerId as any);
+      consumeConvokeGrantsAfterCast(game.state, casterId as PlayerID, spellCard, castSourceZone);
     consumeChosenTypeFlashGrantsAfterCast(game.state, casterId as PlayerID, spellCard);
   } catch (err) {
     debugWarn(2, '[recordSpellCastThisTurn] Failed to track spellsCastThisTurn:', err);
@@ -5115,10 +5118,10 @@ function getHeroicTriggers(game: any, casterId: string, targetIds: string[]): He
     const lowerOracle = oracleText.toLowerCase();
     const lowerCardName = String(permanent.card.name || '').toLowerCase();
     
-    // Check for heroic pattern: "Heroic GÇö Whenever you cast a spell that targets ~"
+    // Check for heroic pattern: "Heroic Gï¿½ï¿½ Whenever you cast a spell that targets ~"
     // Must match the specific keyword ability format with em-dash or colon
     // Also check for non-keyworded heroic: "Whenever you cast a spell that targets this creature"
-    const heroicKeywordMatch = /heroic\s*(?:—|–|:|-|GÇö)/i.test(oracleText);
+    const heroicKeywordMatch = /heroic\s*(?:ï¿½|ï¿½|:|-|Gï¿½ï¿½)/i.test(oracleText);
     const hasTargetTrigger = lowerOracle.includes('whenever you cast a spell that targets') && 
                  (lowerOracle.includes('this creature') || lowerOracle.includes('~') || (!!lowerCardName && lowerOracle.includes(`targets ${lowerCardName}`)));
     
@@ -5128,7 +5131,7 @@ function getHeroicTriggers(game: any, casterId: string, targetIds: string[]): He
       
       // Try to match heroic pattern with em-dash/colon - capture everything after the trigger condition
       // Use a more permissive pattern that captures until newline or end of text
-      const heroicMatch = oracleText.match(/heroic\s*(?:—|–|:|-|GÇö)\s*whenever you cast a spell that targets [^,\n]+,?\s*(.+?)(?:\n|$)/i);
+      const heroicMatch = oracleText.match(/heroic\s*(?:ï¿½|ï¿½|:|-|Gï¿½ï¿½)\s*whenever you cast a spell that targets [^,\n]+,?\s*(.+?)(?:\n|$)/i);
       if (heroicMatch) {
         effectText = heroicMatch[1].trim();
       } else {
@@ -5146,7 +5149,7 @@ function getHeroicTriggers(game: any, casterId: string, targetIds: string[]): He
           cardName: permanent.card.name || 'Unknown',
           controllerId: permanent.controller,
           effect: effectText,
-          description: `Heroic GÇö Whenever you cast a spell that targets ${permanent.card.name}, ${effectText}`,
+          description: `Heroic Gï¿½ï¿½ Whenever you cast a spell that targets ${permanent.card.name}, ${effectText}`,
         });
       }
     }
@@ -5942,7 +5945,7 @@ function checkMiracle(
     return { hasMiracle: false, miracleCost: null, source: null };
   }
 
-  const miracleMatch = oracleText.match(/miracle[—–\s]*(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  const miracleMatch = oracleText.match(/miracle[ï¿½ï¿½\s]*(\{[^}]+\}(?:\{[^}]+\})*)/i);
   if (miracleMatch) {
     return { hasMiracle: true, miracleCost: miracleMatch[1], source: 'native', sourceName: String(card?.name || '') };
   }
@@ -5957,7 +5960,7 @@ function checkMiracle(
 
 function getSuspendCastInfo(card: any): { hasSuspend: boolean; suspendCost: string; timeCounters: number } {
   const oracleText = String(card?.oracle_text || card?.oracleText || '');
-  const suspendMatch = oracleText.match(/\bsuspend\s+(\d+)[—\-]\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  const suspendMatch = oracleText.match(/\bsuspend\s+(\d+)[ï¿½\-]\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
   if (!suspendMatch) {
     return {
       hasSuspend: /\bsuspend\b/i.test(oracleText),
@@ -7026,7 +7029,7 @@ export async function requestCastSpellForSocket(
     const preferParsedTargetReqs = shouldPreferParsedTargetReqs(targetReqs);
 
     // Auras always choose exactly one host when cast (CR 303.4). Do not derive
-    // counts from instant/sorcery targetReqs — those are null for Auras and would
+    // counts from instant/sorcery targetReqs ï¿½ those are null for Auras and would
     // emit minTargets/maxTargets 0, which makes the client show not-allowed on every
     // host and blocks selection (Fertile Ground / Enchant land, etc.).
     const requiredMinTargets = isAura
@@ -7551,7 +7554,7 @@ export async function requestCastSpellForSocket(
               costType: 'teamwork',
               amount: 0,
               teamworkMinPower: minPower,
-              title: `Teamwork — ${cardName}`,
+              title: `Teamwork ï¿½ ${cardName}`,
               imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
               availableTargets: teamworkCreatures.map((p: any) => ({
                 id: p.id,
@@ -7716,7 +7719,7 @@ export async function requestCastSpellForSocket(
                   keywordBlightStage: 'cast_additional_cost',
                   keywordBlightController: playerId,
                   keywordBlightN: blightN,
-                  keywordBlightSourceName: `${cardName} — Additional Cost (Blight ${blightN})`,
+                  keywordBlightSourceName: `${cardName} ï¿½ Additional Cost (Blight ${blightN})`,
                   keywordBlightEffectId: effectId,
                   keywordBlightOptional: blightIsOptional,
                 } as any);
@@ -7938,7 +7941,7 @@ export async function requestCastSpellForSocket(
       }
     }
 
-    // No targets needed — still need to handle additional costs before payment.
+    // No targets needed ï¿½ still need to handle additional costs before payment.
     const paymentMetadata = buildPendingCastCostMetadata(game, playerId, cardForCast, castSourceZone);
     const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast, castSourceZone);
     const harmonizeOptions = calculateHarmonizeOptions(game, playerId, cardForCast);
@@ -8327,7 +8330,7 @@ export async function requestCastSpellForSocket(
           costType: 'teamwork',
           amount: 0,
           teamworkMinPower: minPower,
-          title: `Teamwork — ${cardName}`,
+          title: `Teamwork ï¿½ ${cardName}`,
           imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
           availableTargets: teamworkCreatures.map((p: any) => ({
             id: p.id,
@@ -8522,7 +8525,7 @@ export async function requestCastSpellForSocket(
           keywordBlightStage: 'cast_additional_cost',
           keywordBlightController: playerId,
           keywordBlightN: blightN,
-          keywordBlightSourceName: `${cardName} — Additional Cost (Blight ${blightN})`,
+          keywordBlightSourceName: `${cardName} ï¿½ Additional Cost (Blight ${blightN})`,
           keywordBlightEffectId: effectId,
           keywordBlightOptional: blightIsOptional,
         } as any);
@@ -8661,7 +8664,7 @@ function adjustModalSpellInfoForCurrentCast(
 ): ReturnType<typeof extractModalModesForSpellCast> {
   if (!modalSpellInfo) return modalSpellInfo;
 
-  const normalizedOracleText = String(oracleText || '').replace(/[’]/g, "'");
+  const normalizedOracleText = String(oracleText || '').replace(/[ï¿½]/g, "'");
   if (!/\bif you control a commander as you cast this spell, you may choose both instead\b/i.test(normalizedOracleText)) {
     return modalSpellInfo;
   }
@@ -8704,7 +8707,7 @@ function getEscalateAdditionalCost(oracleText: string, selectedModes?: unknown):
 
   if (selectedModeIds.length <= 1) return undefined;
 
-  const escalateMatch = String(oracleText || '').match(/\bEscalate\s*[—\-]?\s*((?:\{[^}]+\}\s*)+)\s*(?:\(|$)/i);
+  const escalateMatch = String(oracleText || '').match(/\bEscalate\s*[ï¿½\-]?\s*((?:\{[^}]+\}\s*)+)\s*(?:\(|$)/i);
   if (!escalateMatch) return undefined;
 
   const perModeCost = String(escalateMatch[1] || '').replace(/\s+/g, '').trim();
@@ -9221,7 +9224,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       clearHumanAutoPassPauseOnAction(game as any, playerId, 'requestCastSpell');
 
       // STEP_ADDED already emits resolutionStepPrompt via the per-socket queue handler.
-      // Avoid a second emit of the same step — it re-opens CastSpellModal during loop replay
+      // Avoid a second emit of the same step ï¿½ it re-opens CastSpellModal during loop replay
       // after the first prompt was already auto-answered.
       return;
     } catch (err: any) {
@@ -9543,6 +9546,27 @@ export function registerGameActions(io: Server, socket: Socket) {
             ...entryCounters,
           };
         }
+      }
+
+      // Regular (non-multi) kicker alternate cost: stamp kicked ledger for on-cast intervening-if.
+      if (alternateCostId === 'kicker' || (cardInHand as any).castWithKicker === true || (cardInHand as any).wasKicked === true) {
+        (cardInHand as any).wasKicked = true;
+        if (!Array.isArray((cardInHand as any).paidKickerCosts) || (cardInHand as any).paidKickerCosts.length === 0) {
+          const fromPayload = Array.isArray((payload as any)?.paidKickerCosts)
+            ? (payload as any).paidKickerCosts
+            : Array.isArray((cardInHand as any).paidKickerCosts)
+              ? (cardInHand as any).paidKickerCosts
+              : parseKickerCostOptions(String(cardInHand?.oracle_text || ''));
+          (cardInHand as any).paidKickerCosts = fromPayload
+            .map((cost: unknown) => normalizeKickerManaCost(String(cost || '')))
+            .filter(Boolean);
+        }
+        if (!(Number((cardInHand as any).kickerPaidCount) > 0)) {
+          (cardInHand as any).kickerPaidCount = Math.max(1, ((cardInHand as any).paidKickerCosts || []).length || 1);
+        }
+      } else if ((cardInHand as any).wasKicked !== true && !(Number((cardInHand as any).kickerPaidCount) > 0) && !(Number((cardInHand as any).timesKicked) > 0)) {
+        // Explicit unkicked so intervening-if "if it was kicked..." can return false (not null).
+        (cardInHand as any).wasKicked = false;
       }
       const sharedGraveyardCandidate = castSourceZone === 'graveyard' && !ignoreTimingRestrictions
         ? getRequestedSpellCastCandidate(
@@ -9939,9 +9963,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
       // Check if this spell is a modal spell (Choose one/two/three - e.g., Austere Command, Cryptic Command)
-      // Pattern: "Choose two GÇö" or "Choose one GÇö" followed by bullet points
+      // Pattern: "Choose two Gï¿½ï¿½" or "Choose one Gï¿½ï¿½" followed by bullet points
       // IMPORTANT: Only apply to INSTANTS and SORCERIES, not to permanents with triggered abilities
-      // Permanents like Glorious Sunrise have "At the beginning of combat on your turn, choose one GÇö" which is a TRIGGER, not a modal spell
+      // Permanents like Glorious Sunrise have "At the beginning of combat on your turn, choose one Gï¿½ï¿½" which is a TRIGGER, not a modal spell
       const modalSpellInfo = isInstantOrSorcery && !spellOracleUsesTeamworkChooseBoth(baseOracleText)
         ? adjustModalSpellInfoForCurrentCast(extractModalModesForSpellCast(baseOracleText, String(cardInHand.name || '')), game.state, String(playerId), baseOracleText)
         : undefined;
@@ -10298,7 +10322,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               costType: 'sacrifice',
               amount: 1,
               additionalCostKeyword: 'bargain',
-              title: `Bargain (optional) — ${cardInHand.name}`,
+              title: `Bargain (optional) ï¿½ ${cardInHand.name}`,
               imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
               availableTargets: validBargainTargets.map((p: any) => ({
                 id: p.id,
@@ -10443,7 +10467,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               costType: 'teamwork',
               amount: 0,
               teamworkMinPower: minPower,
-              title: `Teamwork — ${cardInHand.name}`,
+              title: `Teamwork ï¿½ ${cardInHand.name}`,
               imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
               availableTargets: teamworkCreatures.map((p: any) => ({
                 id: p.id,
@@ -10806,7 +10830,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             id: `m_${Date.now()}`,
             gameId,
             from: "system",
-            message: `${getPlayerName(game, playerId)} pays ${additionalCost.amount} life to cast ${cardInHand.name}. (${currentLife} GåÆ ${game.state.life[playerId]})`,
+            message: `${getPlayerName(game, playerId)} pays ${additionalCost.amount} life to cast ${cardInHand.name}. (${currentLife} Gï¿½ï¿½ ${game.state.life[playerId]})`,
             ts: Date.now(),
           });
           
@@ -12434,7 +12458,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
         debugWarn(
           1,
-          `[castSpellFromHand] Aborting cast of ${cardInHand.name} (${cardId}) — cast timing lost (priority=${String(game.state.priority)}, player=${playerId})`,
+          `[castSpellFromHand] Aborting cast of ${cardInHand.name} (${cardId}) ï¿½ cast timing lost (priority=${String(game.state.priority)}, player=${playerId})`,
         );
         socket.emit('error', {
           code: 'CAST_TIMING_LOST',
@@ -12813,7 +12837,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             cardId,
             cardName: cardInHand.name,
             manaCost: castSourceZone === 'command' ? (commandZoneManaCost || cardInHand.mana_cost) : cardInHand.mana_cost,
-            cardTypes: (cardInHand.type_line || '').split('GÇö').map((s: string) => s.trim()),
+            cardTypes: (cardInHand.type_line || '').split('Gï¿½ï¿½').map((s: string) => s.trim()),
             targets: targets || [],
           });
           
@@ -12850,7 +12874,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               cardId,
               cardName: cardInHand.name,
               manaCost: castSourceZone === 'command' ? (commandZoneManaCost || cardInHand.mana_cost) : cardInHand.mana_cost,
-              cardTypes: (cardInHand.type_line || '').split('GÇö').map((s: string) => s.trim()),
+              cardTypes: (cardInHand.type_line || '').split('Gï¿½ï¿½').map((s: string) => s.trim()),
               targets: targets || [],
               ...((targets as any)?.targetGrouping ? { targetGrouping: (targets as any).targetGrouping } : {}),
             });
@@ -13079,7 +13103,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               } catch { /* ignore */ }
               debugWarn(
                 1,
-                `[castSpellFromHand] Aborting applyEvent for ${cardInHand.name} (${cardId}) — cast timing lost before stack push`,
+                `[castSpellFromHand] Aborting applyEvent for ${cardInHand.name} (${cardId}) ï¿½ cast timing lost before stack push`,
               );
               socket.emit('error', {
                 code: 'CAST_TIMING_LOST',
@@ -13282,7 +13306,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 });
                 debugWarn(
                   1,
-                  `[castSpellFromHand] applyEvent was idempotent for ${cardInHand.name} (${cardId}) — already on battlefield; refunded payment`,
+                  `[castSpellFromHand] applyEvent was idempotent for ${cardInHand.name} (${cardId}) ï¿½ already on battlefield; refunded payment`,
                 );
                 return;
               }
@@ -14065,14 +14089,22 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check for "When you cast this spell" triggers on the spell itself (Kozilek, Ulamog, etc.)
       try {
-        const onCastTrigger = resolveOnCastSpellTriggerDescription(cardInHand);
-        if (onCastTrigger) {
+        const onCastTriggers = resolveOnCastSpellTriggerDescriptions(cardInHand);
+        for (const onCastTrigger of onCastTriggers) {
           debug(2, `[castSpellFromHand] On-cast trigger matching: ${cardInHand.name} - ${onCastTrigger.description}`);
 
           const triggerLower = onCastTrigger.description.toLowerCase();
           const description = onCastTrigger.description;
-          const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(description);
+          // Use the rich inferrer so GY return patterns (Artisan of Kozilek, etc.)
+          // get targetZone/targetDestination/filter metadata, not just battlefield "creature".
+          const targetMetadata = inferTriggeredAbilityTargetMetadata(description, {
+            gameState: game.state,
+            controllerId: String(playerId),
+            sourceName: String(cardInHand?.name || ''),
+          });
           const triggerId = uid('trigger');
+          const isOptionalMay = /\byou may\b/i.test(description)
+            && !isOnCastReflexiveCostGateEffect(onCastTrigger.effect || description);
 
           const triggerPayload: any = {
             id: triggerId,
@@ -14083,11 +14115,22 @@ export function registerGameActions(io: Server, socket: Socket) {
             description,
             triggerType: 'triggered_ability',
             effect: onCastTrigger.effect,
-            mandatory: true,
+            mandatory: !isOptionalMay,
             card: {
               ...cardInHand,
               owner: cardInHand.owner || playerId,
             },
+            // Kicker ledger for intervening-if ("if it was kicked" / "with its {G} kicker").
+            wasKicked: (cardInHand as any).wasKicked === true,
+            ...(Number((cardInHand as any).kickerPaidCount) > 0
+              ? { kickerPaidCount: Number((cardInHand as any).kickerPaidCount) }
+              : null),
+            ...(Number((cardInHand as any).timesKicked) > 0
+              ? { timesKicked: Number((cardInHand as any).timesKicked) }
+              : null),
+            ...(Array.isArray((cardInHand as any).paidKickerCosts) && (cardInHand as any).paidKickerCosts.length > 0
+              ? { paidKickerCosts: [...(cardInHand as any).paidKickerCosts] }
+              : null),
           };
 
           // Overwrite the description for Emrakul Extra Turn to match regex anchor
@@ -14096,24 +14139,81 @@ export function registerGameActions(io: Server, socket: Socket) {
             triggerPayload.effect = "Take an extra turn after this one.";
           }
 
-          // Attach inferred target metadata if it requires targeting!
-          if (targetMetadata && targetMetadata.requiresTarget) {
-            triggerPayload.requiresTarget = true;
-            triggerPayload.targetType = targetMetadata.targetType;
-            triggerPayload.needsTargetSelection = true;
-            triggerPayload.minTargets = targetMetadata.minTargets ?? 1;
-            triggerPayload.maxTargets = targetMetadata.maxTargets ?? 1;
-            
-            // Map the actions to proper socket selection actions
-            if (triggerLower.includes('destroy target permanent')) {
-              triggerPayload.action = 'destroy_target_permanent';
-            } else if (triggerLower.includes('exile two target permanents')) {
-              triggerPayload.action = 'exile_target_permanent';
-              triggerPayload.minTargets = 0; // up to two targeting can be blank if no targets exist
-              triggerPayload.maxTargets = 2;
-            } else if (triggerLower.includes('gain control of target opponent')) {
+          // Attach inferred target metadata if it requires targeting / GY selection
+          if (
+            targetMetadata.requiresTarget
+            || String(targetMetadata.targetZone || '').length > 0
+            || String(targetMetadata.targetAction || '').length > 0
+          ) {
+            if (targetMetadata.requiresTarget) {
+              triggerPayload.requiresTarget = true;
+              triggerPayload.needsTargetSelection = true;
+            }
+            if (targetMetadata.targetType) triggerPayload.targetType = targetMetadata.targetType;
+            if (targetMetadata.targetConstraint) triggerPayload.targetConstraint = targetMetadata.targetConstraint;
+            if (targetMetadata.targetZone) triggerPayload.targetZone = targetMetadata.targetZone;
+            if (targetMetadata.targetDestination) triggerPayload.targetDestination = targetMetadata.targetDestination;
+            if (targetMetadata.targetGraveyardScope) triggerPayload.targetGraveyardScope = targetMetadata.targetGraveyardScope;
+            if (targetMetadata.destinationUsesSelectedCardOwner === true) {
+              triggerPayload.destinationUsesSelectedCardOwner = true;
+            }
+            if (targetMetadata.battlefieldControllerMode) {
+              triggerPayload.battlefieldControllerMode = targetMetadata.battlefieldControllerMode;
+            }
+            if (targetMetadata.battlefieldCounters) {
+              triggerPayload.battlefieldCounters = targetMetadata.battlefieldCounters;
+            }
+            if (targetMetadata.targetAction) triggerPayload.targetAction = targetMetadata.targetAction;
+            if (Array.isArray(targetMetadata.targetFilterTypes)) {
+              triggerPayload.targetFilterTypes = targetMetadata.targetFilterTypes;
+            }
+            if (Array.isArray(targetMetadata.targetFilterRequiredTypeWords)) {
+              triggerPayload.targetFilterRequiredTypeWords = targetMetadata.targetFilterRequiredTypeWords;
+            }
+            if (Array.isArray(targetMetadata.targetFilterExcludeTypes)) {
+              triggerPayload.targetFilterExcludeTypes = targetMetadata.targetFilterExcludeTypes;
+            }
+            if (targetMetadata.targetFilterPermanentOnly === true) {
+              triggerPayload.targetFilterPermanentOnly = true;
+            }
+            if (typeof targetMetadata.targetFilterExactManaValue === 'number') {
+              triggerPayload.targetFilterExactManaValue = targetMetadata.targetFilterExactManaValue;
+            }
+            if (typeof targetMetadata.targetFilterMinManaValue === 'number') {
+              triggerPayload.targetFilterMinManaValue = targetMetadata.targetFilterMinManaValue;
+            }
+            if (typeof targetMetadata.targetFilterMaxManaValue === 'number') {
+              triggerPayload.targetFilterMaxManaValue = targetMetadata.targetFilterMaxManaValue;
+            }
+            if (typeof targetMetadata.targetTotalPowerLimit === 'number') {
+              triggerPayload.targetTotalPowerLimit = targetMetadata.targetTotalPowerLimit;
+            }
+            if (targetMetadata.targetCastWithoutPayingManaCost === true) {
+              triggerPayload.targetCastWithoutPayingManaCost = true;
+            }
+            if (targetMetadata.targetCastIsOptional === true) {
+              triggerPayload.targetCastIsOptional = true;
+            }
+            if (targetMetadata.targetFilterRequiresOneOrMoreColors === true) {
+              triggerPayload.targetFilterRequiresOneOrMoreColors = true;
+            }
+            triggerPayload.minTargets = typeof targetMetadata.minTargets === 'number' ? targetMetadata.minTargets : 1;
+            triggerPayload.maxTargets = typeof targetMetadata.maxTargets === 'number' ? targetMetadata.maxTargets : 1;
+
+            // Map actions for target-selection validation / UX.
+            // Prefer generic oracle patterns; keep inferred min/max (including "up to" = 0).
+            if (/\bgain control of target opponent\b/i.test(triggerLower)) {
               triggerPayload.action = 'gain_control_target_opponent';
               triggerPayload.targetType = 'opponent';
+            } else if (/\bgain control of all creatures target player controls\b/i.test(triggerLower)) {
+              triggerPayload.action = 'gain_control_all_creatures_target_player';
+              triggerPayload.targetType = 'player';
+            } else if (/\bdestroy\b[^.]*\btarget\b/i.test(triggerLower)) {
+              triggerPayload.action = 'destroy_target_permanent';
+            } else if (/\bexile\b[^.]*\btarget\b/i.test(triggerLower)) {
+              triggerPayload.action = 'exile_target_permanent';
+            } else if (/\btap\b[^.]*\btarget\b/i.test(triggerLower)) {
+              triggerPayload.action = 'tap_untap_target';
             }
           }
 
@@ -15044,7 +15144,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Resume pending phase skip incrementally after intermediate trigger stops resolve.
         tryResumePendingPhaseSkipAfterPass();
       } else if ((game.state as any).pendingPhaseSkip) {
-        // Stack already empty (e.g. trigger order finished) — continue pending skip without resolving.
+        // Stack already empty (e.g. trigger order finished) ï¿½ continue pending skip without resolving.
         tryResumePendingPhaseSkipAfterPass();
       }
 
@@ -15343,7 +15443,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `=ƒÄ¦ ${getPlayerName(game, randomPlayer.id)} was randomly selected to go first!`,
+          message: `=ï¿½Ä¦ ${getPlayerName(game, randomPlayer.id)} was randomly selected to go first!`,
           ts: Date.now(),
         });
         broadcastGame(io, game, gameId);
@@ -15565,7 +15665,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `=ƒÅ¦n+Å ${concededPlayerName}'s permanents have been removed from the game.`,
+          message: `=ï¿½Å¦n+ï¿½ ${concededPlayerName}'s permanents have been removed from the game.`,
           ts: Date.now(),
         });
 
@@ -16035,7 +16135,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
-  // Shuffle player's hand (server-authoritative) GÇö randomize order of cards in hand.
+  // Shuffle player's hand (server-authoritative) Gï¿½ï¿½ randomize order of cards in hand.
   socket.on("shuffleHand", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
@@ -17029,11 +17129,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `${targetName} ${actionType} ${actionAmount} life. (${currentLife} GåÆ ${newLife})`,
+        message: `${targetName} ${actionType} ${actionAmount} life. (${currentLife} Gï¿½ï¿½ ${newLife})`,
         ts: Date.now(),
       });
 
-      debug(2, `[adjustLife] ${targetName} ${actionType} ${actionAmount} life (${currentLife} GåÆ ${newLife}) in game ${gameId}`);
+      debug(2, `[adjustLife] ${targetName} ${actionType} ${actionAmount} life (${currentLife} Gï¿½ï¿½ ${newLife}) in game ${gameId}`);
 
       // Check for lifegain triggers (Ratchet, Ajani's Pridemate, etc.)
       if (delta > 0) {
@@ -17456,7 +17556,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `=ƒÅá ${getPlayerName(game, playerId)} updated house rules. ${rulesMessage}`,
+        message: `=ï¿½ï¿½ï¿½ ${getPlayerName(game, playerId)} updated house rules. ${rulesMessage}`,
         ts: Date.now(),
       });
 
@@ -17472,7 +17572,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
-  // Legacy Miracle socket handlers removed — Miracle is handled via the Resolution Queue.
+  // Legacy Miracle socket handlers removed ï¿½ Miracle is handled via the Resolution Queue.
 
   // Legacy modeSelectionConfirm handler removed - now handled via Resolution Queue (mode_selection).
 
@@ -17547,7 +17647,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         equipCost = `{${specialAttachMatch[1]}}`;
         debug(2, `[equipAbility] Detected special attach ability targeting opponent creatures: ${equipCost}`);
       } else {
-        // Supports patterns like: "Equip {2}", "Equip {1}{W}", "EquipGÇöPay 3 life"
+        // Supports patterns like: "Equip {2}", "Equip {1}{W}", "EquipGï¿½ï¿½Pay 3 life"
         const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
         equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
       }
@@ -17558,7 +17658,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const hasMetalcraftEquipReduction = !targetsOpponentCreatures && battlefield.some((p: any) => {
         if (p.controller !== playerId) return false;
         const pOracle = (p.card?.oracle_text || '').toLowerCase();
-        // Puresteel Paladin: "Metalcraft GÇö Equipment you control have equip {0}"
+        // Puresteel Paladin: "Metalcraft Gï¿½ï¿½ Equipment you control have equip {0}"
         return pOracle.includes('metalcraft') && 
                pOracle.includes('equipment') && 
                pOracle.includes('equip') && 
@@ -17881,7 +17981,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `=ƒö« ${getPlayerName(game, playerId)} foretells a card.`,
+        message: `=ï¿½ï¿½ï¿½ ${getPlayerName(game, playerId)} foretells a card.`,
         ts: Date.now(),
       });
 
@@ -18024,7 +18124,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `G£¿ ${getPlayerName(game, playerId)}'s permanents phase out: ${phasedOut.join(', ')}`,
+          message: `Gï¿½ï¿½ ${getPlayerName(game, playerId)}'s permanents phase out: ${phasedOut.join(', ')}`,
           ts: Date.now(),
         });
 
@@ -18491,7 +18591,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `=ƒöä Control of ${cardName} changed from ${oldControllerName} to ${newControllerName}${duration === 'eot' ? ' until end of turn' : ''}.`,
+        message: `=ï¿½ï¿½ï¿½ Control of ${cardName} changed from ${oldControllerName} to ${newControllerName}${duration === 'eot' ? ' until end of turn' : ''}.`,
         ts: Date.now(),
       });
 
@@ -18597,7 +18697,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `=ƒÅ¦n+Å ${playerName} has conceded the game immediately.`,
+          message: `=ï¿½Å¦n+ï¿½ ${playerName} has conceded the game immediately.`,
           ts: Date.now(),
         });
 
@@ -18697,7 +18797,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `=ƒÅ¦n+Å ${playerName} has conceded the game.`,
+        message: `=ï¿½Å¦n+ï¿½ ${playerName} has conceded the game.`,
         ts: Date.now(),
       });
 

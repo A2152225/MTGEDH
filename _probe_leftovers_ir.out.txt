@@ -1,0 +1,389 @@
+﻿
+==== Dash Hopes ====
+steps: [
+  {
+    "kind": "grant_static_ability",
+    "target": {
+      "kind": "raw",
+      "text": "any player"
+    },
+    "effectText": [
+      "any player may pay 5 life"
+    ],
+    "duration": "static",
+    "raw": "any player may pay 5 life"
+  },
+  {
+    "kind": "counter_spell",
+    "target": {
+      "kind": "raw",
+      "text": "this permanent"
+    },
+    "raw": "If a player does, counter this permanent"
+  }
+]
+meta: {
+  "requiresTarget": false,
+  "destinationUsesSelectedCardOwner": false,
+  "targetFilterPermanentOnly": false,
+  "targetCastWithoutPayingManaCost": false,
+  "targetCastIsOptional": false,
+  "targetFilterRequiresOneOrMoreColors": false
+}
+irWired: true
+
+==== Temporal Extortion ====
+steps: [
+  {
+    "kind": "grant_static_ability",
+    "target": {
+      "kind": "raw",
+      "text": "any player"
+    },
+    "effectText": [
+      "any player may pay half their life, rounded up"
+    ],
+    "duration": "static",
+    "raw": "any player may pay half their life, rounded up"
+  },
+  {
+    "kind": "counter_spell",
+    "target": {
+      "kind": "raw",
+      "text": "this permanent"
+    },
+    "raw": "If a player does, counter this permanent"
+  }
+]
+meta: {
+  "requiresTarget": false,
+  "destinationUsesSelectedCardOwner": false,
+  "targetFilterPermanentOnly": false,
+  "targetCastWithoutPayingManaCost": false,
+  "targetCastIsOptional": false,
+  "targetFilterRequiresOneOrMoreColors": false
+}
+irWired: true
+
+==== Phantasmagorian ====
+steps: [
+  {
+    "kind": "grant_static_ability",
+    "target": {
+      "kind": "raw",
+      "text": "any player"
+    },
+    "effectText": [
+      "any player may discard three cards"
+    ],
+    "duration": "static",
+    "raw": "any player may discard three cards"
+  },
+  {
+    "kind": "counter_spell",
+    "target": {
+      "kind": "raw",
+      "text": "this permanent"
+    },
+    "raw": "If a player does, counter this permanent"
+  }
+]
+meta: {
+  "requiresTarget": false,
+  "destinationUsesSelectedCardOwner": false,
+  "targetFilterPermanentOnly": false,
+  "targetCastWithoutPayingManaCost": false,
+  "targetCastIsOptional": false,
+  "targetFilterRequiresOneOrMoreColors": false
+}
+irWired: true
+
+==== Eldrazi Obligator ====
+steps: [
+  {
+    "kind": "pay_mana",
+    "who": {
+      "kind": "you"
+    },
+    "mana": "{1}{C}",
+    "optional": true,
+    "raw": "pay {1}{C}"
+  },
+  {
+    "kind": "conditional",
+    "condition": {
+      "kind": "if",
+      "raw": "you do"
+    },
+    "steps": [
+      {
+        "kind": "gain_control",
+        "what": {
+          "kind": "raw",
+          "text": "target creature until end of turn, untap that creature, and it gains haste"
+        },
+        "newController": {
+          "kind": "you"
+        },
+        "duration": "until_end_of_turn",
+        "raw": "gain control of target creature until end of turn, untap that creature, and it gains haste until end of turn"
+      }
+    ],
+    "raw": "If you do, gain control of target creature until end of turn, untap that creature, and it gains haste until end of turn"
+  }
+]
+meta: {
+  "requiresTarget": true,
+  "targetType": "creature",
+  "destinationUsesSelectedCardOwner": false,
+  "targetFilterPermanentOnly": false,
+  "targetCastWithoutPayingManaCost": false,
+  "targetCastIsOptional": false,
+  "targetFilterRequiresOneOrMoreColors": false
+}
+irWired: true
+
+==== Flayer of Loyalties ====
+steps: [
+  {
+    "kind": "gain_control",
+    "what": {
+      "kind": "raw",
+      "text": "target creature"
+    },
+    "newController": {
+      "kind": "you"
+    },
+    "duration": "until_end_of_turn",
+    "raw": "gain control of target creature until end of turn"
+  },
+  {
+    "kind": "tap_or_untap",
+    "target": {
+      "kind": "raw",
+      "text": "that creature"
+    },
+    "mode": "untap",
+    "raw": "Untap that creature"
+  },
+  {
+    "kind": "grant_temporary_ability",
+    "target": {
+      "kind": "raw",
+      "text": "it"
+    },
+    "duration": "end_of_turn",
+    "abilities": [
+      "trample",
+      "haste"
+    ],
+    "effectText": [
+      "has base power and toughness 10/10"
+    ],
+    "raw": "Until end of turn, it has base power and toughness 10/10 and gains trample, annihilator 2, and haste"
+  },
+  {
+    "kind": "grant_temporary_ability",
+    "target": {
+      "kind": "raw",
+      "text": "it"
+    },
+    "duration": "end_of_turn",
+    "abilities": [
+      "annihilator 2"
+    ],
+    "effectText": [
+      "Whenever this creature attacks, defending player sacrifices 2 permanents of their choice."
+    ],
+    "steps": [
+      {
+        "kind": "sacrifice",
+        "who": {
+          "kind": "target_opponent"
+        },
+        "what": {
+          "kind": "raw",
+          "text": "2 permanents of their choice"
+        },
+        "raw": "Defending player sacrifices 2 permanents of their choice."
+      }
+    ],
+    "raw": "annihilator 2"
+  }
+]
+meta: {
+  "requiresTarget": true,
+  "targetType": "creature",
+  "destinationUsesSelectedCardOwner": false,
+  "targetFilterPermanentOnly": false,
+  "targetCastWithoutPayingManaCost": false,
+  "targetCastIsOptional": false,
+  "targetFilterRequiresOneOrMoreColors": false
+}
+irWired: true
+
+==== The Beast, Deathless Prince ====
+steps: [
+  {
+    "kind": "gain_control",
+    "what": {
+      "kind": "raw",
+      "text": "target creature"
+    },
+    "newController": {
+      "kind": "you"
+    },
+    "duration": "until_end_of_turn",
+    "raw": "gain control of target creature until end of turn"
+  },
+  {
+    "kind": "tap_or_untap",
+    "target": {
+      "kind": "raw",
+      "text": "it"
+    },
+    "mode": "untap",
+    "raw": "Untap it"
+  },
+  {
+    "kind": "grant_temporary_ability",
+    "target": {
+      "kind": "raw",
+      "text": "It"
+    },
+    "duration": "end_of_turn",
+    "abilities": [
+      "menace",
+      "haste"
+    ],
+    "raw": "It gains menace and haste until end of turn"
+  }
+]
+meta: {
+  "requiresTarget": true,
+  "targetType": "creature",
+  "destinationUsesSelectedCardOwner": false,
+  "targetFilterPermanentOnly": false,
+  "targetCastWithoutPayingManaCost": false,
+  "targetCastIsOptional": false,
+  "targetFilterRequiresOneOrMoreColors": false
+}
+irWired: true
+
+==== Hideous Taskmaster ====
+steps: [
+  {
+    "kind": "gain_control",
+    "what": {
+      "kind": "raw",
+      "text": "up to one target creature that player controls"
+    },
+    "newController": {
+      "kind": "you"
+    },
+    "duration": "until_end_of_turn",
+    "raw": "for each opponent, gain control of up to one target creature that player controls until end of turn"
+  },
+  {
+    "kind": "tap_or_untap",
+    "target": {
+      "kind": "raw",
+      "text": "those creatures"
+    },
+    "mode": "untap",
+    "raw": "Untap those creatures"
+  },
+  {
+    "kind": "grant_temporary_ability",
+    "target": {
+      "kind": "raw",
+      "text": "They"
+    },
+    "duration": "end_of_turn",
+    "abilities": [
+      "trample",
+      "haste"
+    ],
+    "raw": "They gain trample, haste, and annihilator 1 until end of turn"
+  },
+  {
+    "kind": "grant_temporary_ability",
+    "target": {
+      "kind": "raw",
+      "text": "They"
+    },
+    "duration": "end_of_turn",
+    "abilities": [
+      "annihilator 1"
+    ],
+    "effectText": [
+      "Whenever this creature attacks, defending player sacrifices a permanent of their choice."
+    ],
+    "steps": [
+      {
+        "kind": "sacrifice",
+        "who": {
+          "kind": "target_opponent"
+        },
+        "what": {
+          "kind": "raw",
+          "text": "a permanent of their choice"
+        },
+        "raw": "Defending player sacrifices a permanent of their choice."
+      }
+    ],
+    "raw": "annihilator 1"
+  }
+]
+meta: {
+  "requiresTarget": true,
+  "targetType": "creature",
+  "destinationUsesSelectedCardOwner": false,
+  "targetFilterPermanentOnly": false,
+  "targetCastWithoutPayingManaCost": false,
+  "targetCastIsOptional": false,
+  "targetFilterRequiresOneOrMoreColors": false,
+  "minTargets": 0,
+  "maxTargets": 1
+}
+irWired: true
+
+==== Mutated Cultist ====
+steps: [
+  {
+    "kind": "grant_static_ability",
+    "target": {
+      "kind": "raw",
+      "text": "pass40 residual"
+    },
+    "effectText": [
+      "remove all counters from up to one target permanent or opponent"
+    ],
+    "duration": "static",
+    "raw": "remove all counters from up to one target permanent or opponent"
+  },
+  {
+    "kind": "grant_static_ability",
+    "target": {
+      "kind": "raw",
+      "text": "trigger effect"
+    },
+    "effectText": [
+      "The next spell you cast this turn costs {1} less to cast for each counter removed this way"
+    ],
+    "duration": "static",
+    "raw": "The next spell you cast this turn costs {1} less to cast for each counter removed this way"
+  }
+]
+meta: {
+  "requiresTarget": true,
+  "targetType": "permanent",
+  "destinationUsesSelectedCardOwner": false,
+  "targetFilterPermanentOnly": false,
+  "targetCastWithoutPayingManaCost": false,
+  "targetCastIsOptional": false,
+  "targetFilterRequiresOneOrMoreColors": false,
+  "minTargets": 0,
+  "maxTargets": 1
+}
+irWired: true

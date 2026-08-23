@@ -112,6 +112,9 @@ function buildSpellIrContext(
       sourceColors: params.sourceColors,
       ...(typeof params.giftPromised === 'boolean' ? { giftPromised: params.giftPromised } : {}),
       ...(typeof params.teamworkWasPaid === 'boolean' ? { teamworkWasPaid: params.teamworkWasPaid } : {}),
+      ...((params.sourceItem as any)?.wasKicked === true || (params.card as any)?.wasKicked === true || (params.effectiveCard as any)?.wasKicked === true
+        ? { wasKicked: true }
+        : {}),
       ...(params.castFromGraveyard ? { castFromZone: 'graveyard' } : {}),
       ...oracleIrTargetBindingToBaseContext(targetBinding),
       selectorContext: {
