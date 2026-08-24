@@ -2,8 +2,13 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { isCreatureNow, permanentHasCreatureTypeNow } from '../creatureTypeNow.js';
-import { countControlledCreaturesOfChosenType, isMetallicMimicOracle } from './chosen-creature-type.js';
-import { drawCards as drawCardsFromZone } from './zones.js';
+import {
+  cardMatchesChosenTypeFilter,
+  countControlledCreaturesOfChosenType,
+  isMetallicMimicOracle,
+  parseChosenTypeTopCardRevealToHand,
+} from './chosen-creature-type.js';
+import { drawCards as drawCardsFromZone, drawCardsByIds } from './zones.js';
 
 export function applyMetallicMimicEntryBonus(ctx: GameContext, enteringPermanent: any, controller: PlayerID): void {
   if (!enteringPermanent || !isCreatureNow(enteringPermanent)) return;
@@ -37,4 +42,32 @@ export function resolveChosenTypeDrawPerCreature(
   const drawn = drawCardsFromZone(ctx, controller, drawCount);
   debug(2, `[resolveChosenTypeDrawPerCreature] ${sourceName}: ${controller} drew ${drawn.length} card(s) for ${chosenType} creatures`);
   return drawn.length;
+}
+
+export function resolveChosenTypeTopCardRevealToHand(
+  ctx: GameContext,
+  controller: PlayerID,
+  chosenType: string,
+  effectText: string,
+  sourceName: string,
+): boolean {
+  const parsed = parseChosenTypeTopCardRevealToHand(effectText);
+  if (!parsed || !String(chosenType || '').trim()) return false;
+
+  const library = (ctx as any).libraries?.get?.(controller)
+    || (ctx as any).state?.zones?.[controller]?.library
+    || [];
+  const topCard = Array.isArray(library) ? library[0] : undefined;
+  if (!topCard) return true;
+
+  if (!cardMatchesChosenTypeFilter(topCard, chosenType, parsed.creatureCardsOnly)) {
+    debug(2, `[resolveChosenTypeTopCardRevealToHand] ${sourceName}: top card is not a ${chosenType}`);
+    return true;
+  }
+
+  const cardId = String(topCard.id || '').trim();
+  if (!cardId) return true;
+  drawCardsByIds(ctx, controller, [cardId]);
+  debug(2, `[resolveChosenTypeTopCardRevealToHand] ${sourceName}: put ${topCard.name || cardId} into hand`);
+  return true;
 }

@@ -88,14 +88,20 @@ export function bridgeGameStateOracleEffectsAfterOracleIR(
   }
 
   const thassaConditionalWin = /if x is greater than or equal to the number of cards in your library.*you win the game/i.test(desc);
-  if (!kinds.has('win_game')) {
-    if (thassaConditionalWin || String(params.sourceName || '').toLowerCase().includes("thassa's oracle")) {
-      tryResolveThassasOracleWin(ctx, params.controller, params.sourceName);
-    } else if (desc.includes('you win the game') && !state.gameOver) {
-      state.winner = params.controller;
+  if (kinds.has('win_game')) {
+    // IR win_game sets winner/status but the server UI and tests use gameOver.
+    if (state.winner && !state.gameOver) {
       state.gameOver = true;
-      state.winCondition = `${params.sourceName}: you win the game`;
+      if (!state.winCondition) {
+        state.winCondition = `${params.sourceName}: you win the game`;
+      }
     }
+  } else if (thassaConditionalWin || String(params.sourceName || '').toLowerCase().includes("thassa's oracle")) {
+    tryResolveThassasOracleWin(ctx, params.controller, params.sourceName);
+  } else if (desc.includes('you win the game') && !state.gameOver) {
+    state.winner = params.controller;
+    state.gameOver = true;
+    state.winCondition = `${params.sourceName}: you win the game`;
   }
 
   if (!desc.includes('transform')) return;

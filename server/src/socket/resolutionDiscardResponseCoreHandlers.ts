@@ -498,9 +498,9 @@ export async function handleDiscardResponse(
   }
 
   // Planeswalker helper: "You may discard a card. If you do, draw a card."
-  const afterDiscardDrawCount = (step as any)?.afterDiscardDrawCount;
+  const afterDiscardDrawCount = Math.max(0, Math.floor(Number((step as any)?.afterDiscardDrawCount || 0)));
   let followupDrawCount = 0;
-  if (afterDiscardDrawCount && typeof afterDiscardDrawCount === 'number' && afterDiscardDrawCount > 0) {
+  if (afterDiscardDrawCount > 0) {
     if (typeof (game as any).drawCards === 'function') {
       (game as any).drawCards(pid, afterDiscardDrawCount);
     } else {
@@ -528,13 +528,15 @@ export async function handleDiscardResponse(
   }
 
   // Planeswalker helper: discard, draw, and if a land was discarded, draw extra.
-  const afterDiscardDrawCountIfDiscardedLand = (step as any)?.afterDiscardDrawCountIfDiscardedLand;
-  if (
-    afterDiscardDrawCountIfDiscardedLand &&
-    typeof afterDiscardDrawCountIfDiscardedLand === 'number' &&
-    afterDiscardDrawCountIfDiscardedLand > 0
-  ) {
-    const discardedALand = movedCards.some((c: any) => String(c?.type_line || '').toLowerCase().includes('land'));
+  const afterDiscardDrawCountIfDiscardedLand = Math.max(
+    0,
+    Math.floor(Number((step as any)?.afterDiscardDrawCountIfDiscardedLand || 0)),
+  );
+  if (afterDiscardDrawCountIfDiscardedLand > 0) {
+    const discardedALand = movedCards.some((c: any) => {
+      const typeLine = String(c?.type_line || c?.typeLine || c?.card?.type_line || '').toLowerCase();
+      return typeLine.includes('land');
+    });
     if (discardedALand) {
       if (typeof (game as any).drawCards === 'function') {
         (game as any).drawCards(pid, afterDiscardDrawCountIfDiscardedLand);
@@ -563,7 +565,11 @@ export async function handleDiscardResponse(
   }
 
 
-  if ((step as any)?.reflexiveDiscardWhenYouDo === true && movedCards.length > 0) {
+  // Rummage-style followups ("draw a card" ± land rider) already applied via
+  // afterDiscardDrawCount*; do not also push a reflexive stack trigger.
+  const rummageFollowupAlreadyApplied = afterDiscardDrawCount > 0
+    || afterDiscardDrawCountIfDiscardedLand > 0;
+  if ((step as any)?.reflexiveDiscardWhenYouDo === true && movedCards.length > 0 && !rummageFollowupAlreadyApplied) {
     const controllerId = String((step as any)?.reflexiveDiscardWhenYouDoController || pid);
     const sourceName = String((step as any)?.reflexiveDiscardWhenYouDoSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = String((step as any)?.reflexiveDiscardWhenYouDoSourcePermanentId || step.sourceId || '').trim();

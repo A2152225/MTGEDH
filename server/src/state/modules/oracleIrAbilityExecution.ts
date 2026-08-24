@@ -176,6 +176,16 @@ export function tryApplyStationChargeCountersViaOracleIR(
     return { handled: true, countersAdded: 0 };
   }
 
+  const state = (ctx as any).state;
+  const stationBefore = (Array.isArray(state?.battlefield) ? state.battlefield : [])
+    .find((permanent: any) => String(permanent?.id || '') === params.sourcePermanentId);
+  const chargeBefore = Number(stationBefore?.counters?.charge || 0);
+  const readCountersAdded = (): number => {
+    const stationAfter = (Array.isArray(state?.battlefield) ? state.battlefield : [])
+      .find((permanent: any) => String(permanent?.id || '') === params.sourcePermanentId);
+    return Math.max(0, Number(stationAfter?.counters?.charge || 0) - chargeBefore);
+  };
+
   try {
     const effectOracle = resolveStationChargeCounterEffectText(params);
     const steps = collectActivatedAbilitySteps(effectOracle, params.sourceName);
@@ -190,11 +200,6 @@ export function tryApplyStationChargeCountersViaOracleIR(
     if (!isActivatedAbilityEffectFullyWired(steps)) {
       return { handled: false, countersAdded: 0 };
     }
-
-    const state = (ctx as any).state;
-    const stationBefore = (Array.isArray(state?.battlefield) ? state.battlefield : [])
-      .find((permanent: any) => String(permanent?.id || '') === params.sourcePermanentId);
-    const chargeBefore = Number(stationBefore?.counters?.charge || 0);
 
     const irCtx = buildOracleIRExecutionContext(
       {
@@ -228,13 +233,14 @@ export function tryApplyStationChargeCountersViaOracleIR(
       resolutionQueueStepsBefore: queueBefore,
       resolutionQueueStepsAfter: queueAfter,
     });
-
-    const stationAfter = (Array.isArray(state?.battlefield) ? state.battlefield : [])
-      .find((permanent: any) => String(permanent?.id || '') === params.sourcePermanentId);
-    const chargeAfter = Number(stationAfter?.counters?.charge || 0);
-    const countersAdded = Math.max(0, chargeAfter - chargeBefore);
+    const countersAdded = readCountersAdded();
 
     if (!handled) {
+      // IR may have mutated charge before all-or-nothing refused. Treat that
+      // mutation as handled so the legacy station path does not add again.
+      if (countersAdded > 0) {
+        return { handled: true, countersAdded };
+      }
       logOracleIrAllOrNothingFailure(
         'activated',
         params.sourceName,
@@ -255,6 +261,10 @@ export function tryApplyStationChargeCountersViaOracleIR(
     return { handled: true, countersAdded };
   } catch (err) {
     debugWarn(1, `[oracleIR] Station charge counter execution failed for ${params.sourceName}:`, err);
+    const countersAdded = readCountersAdded();
+    if (countersAdded > 0) {
+      return { handled: true, countersAdded };
+    }
     return { handled: false, countersAdded: 0 };
   }
 }
@@ -269,7 +279,6 @@ export function readStationChargeThresholdFromActivatedOracleText(
   const threshold = ir.abilities.find((ability) => ability.stationChargeThreshold != null)?.stationChargeThreshold;
   return threshold != null ? Number(threshold) : undefined;
 }
-
 
 export function tryApplyOracleIRToActivatedAbility(
   ctx: GameContext,

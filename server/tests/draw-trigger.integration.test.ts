@@ -100,7 +100,7 @@ describe('draw triggers (integration)', () => {
     const stack = (((game.state as any).stack || []) as any[]).filter((item: any) => item?.source === 'psychosis_perm');
     expect(stack).toHaveLength(2);
     expect(stack[0]).toEqual(expect.objectContaining({
-      effect: 'each opponent loses 1 life',
+      effect: 'each opponent loses 1 life.',
       triggerType: 'you_draw',
       triggeringPlayer: p1,
     }));

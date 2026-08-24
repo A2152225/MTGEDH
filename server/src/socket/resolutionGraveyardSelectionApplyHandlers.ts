@@ -13,8 +13,6 @@ import {
   type ResolutionStep,
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
-import type { PlayerID } from "../../../shared/src/types.js";
-import { executeTriggerEffect } from "../state/modules/stackExecuteTriggerEffectUtils.js";
 import { appendEvent } from "../db/index.js";
 import { parseTargetRequirements } from "../rules-engine/targeting";
 import { cardManaValue, parsePT, uid } from "../state/utils.js";
@@ -42,6 +40,7 @@ import {
   finishGraveyardSelectionAfterApply,
   type GraveyardSelectionApplyResult,
 } from "./resolutionGraveyardSelectionResumeHandlers.js";
+import { tryApplyTriggeredAbilityGraveyardSelectionViaExecute } from "./resolutionGraveyardSelectionTriggerExecute.js";
 
 export async function handleGraveyardSelectionResponse(
   io: Server,
@@ -233,77 +232,28 @@ export async function handleGraveyardSelectionResponse(
         && String(item?.controller || '') === String(pid)
         && String(item?.sourceName || '') === String(step.sourceName || '')
       );
-    if (!stackItem) {
-      // The trigger may have already been resolved or removed; treat as a benign no-op.
-      debug(2, `[Resolution] triggeredAbilityGraveyardChoice: stack item ${triggerStackItemId} not found, dropping selection`);
+    if (stackItem) {
+      stackItem.targets = selectedCardIds.slice();
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'assignTriggeredAbilityTargets', {
+          triggerStackItemId,
+          targets: selectedCardIds.slice(),
+          ...(String((step as any).id || '').trim()
+            ? { resolvedStepId: String((step as any).id).trim() }
+            : {}),
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(assignTriggeredAbilityTargets) failed:', err);
+      }
+      debug(2, `[Resolution] Stamped graveyard target [${selectedCardIds.join(', ')}] onto trigger ${triggerStackItemId}`);
       if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
       broadcastGame(io, game, gameId);
       return;
     }
-    stackItem.targets = selectedCardIds.slice();
-    try {
-      appendEvent(gameId, (game as any).seq ?? 0, 'assignTriggeredAbilityTargets', {
-        triggerStackItemId,
-        targets: selectedCardIds.slice(),
-        ...(String((step as any).id || '').trim()
-          ? { resolvedStepId: String((step as any).id).trim() }
-          : {}),
-      });
-    } catch (err) {
-      debugWarn(1, '[Resolution] appendEvent(assignTriggeredAbilityTargets) failed:', err);
-    }
-    debug(2, `[Resolution] Stamped graveyard target [${selectedCardIds.join(', ')}] onto trigger ${triggerStackItemId}`);
-    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-    broadcastGame(io, game, gameId);
-    return;
+    // Trigger already left the stack (resolve-then-choose). Apply the destination move below.
   }
 
-  if (
-    stepData?.triggeredAbilityGraveyardSelection === true
-    && !stepData?.triggeredAbilityCastFromGraveyard
-    && !(typeof stepData?.destination === 'string' && String(stepData.destination).trim().length > 0)
-  ) {
-    const effectText = String(stepData?.triggeredAbilityEffectText || '').trim();
-    const sourcePermanentId = String(stepData?.triggeredAbilitySourcePermanentId || '').trim();
-    const sourceName = String(step.sourceName || stepData.cardName || 'Ability');
-    if (!effectText) {
-      emitToPlayer(io, pid, 'error', {
-        code: 'INVALID_TRIGGER_TARGET',
-        message: 'Triggered ability effect text missing for graveyard selection.',
-      });
-      return;
-    }
-
-    const syntheticTriggerItem = {
-      id: effectId || uid('triggered_graveyard_selection'),
-      type: 'triggered_ability',
-      controller: pid,
-      source: sourcePermanentId || undefined,
-      permanentId: sourcePermanentId || undefined,
-      sourceName,
-      description: effectText,
-      effect: effectText,
-      card: stepData?.triggeredAbilityCardSnapshot && typeof stepData.triggeredAbilityCardSnapshot === 'object'
-        ? { ...(stepData.triggeredAbilityCardSnapshot as any) }
-        : undefined,
-      targets: selectedCardIds.slice(),
-    } as any;
-
-    const ctx = {
-      state: game.state,
-      gameId,
-      libraries: (game as any).libraries,
-      commandZone: (game as any).commandZone,
-      bumpSeq: () => {
-        if (typeof (game as any).bumpSeq === 'function') {
-          (game as any).bumpSeq();
-        }
-      },
-    } as any;
-
-    executeTriggerEffect(ctx as any, String(pid) as PlayerID, sourceName, effectText, syntheticTriggerItem);
-    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-    broadcastGame(io, game, gameId);
+  if (tryApplyTriggeredAbilityGraveyardSelectionViaExecute(io, game, gameId, step, pid, selectedCardIds, effectId)) {
     return;
   }
 

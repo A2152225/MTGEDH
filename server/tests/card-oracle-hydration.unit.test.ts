@@ -16,17 +16,26 @@ const ZULAPORT_ORACLE =
   'Whenever Zulaport Cutthroat or another creature you control dies, each opponent loses 1 life and you gain 1 life.';
 
 describe('hydrateCardOracleText', () => {
-  it('skips tokens and cards that already have oracle text', () => {
+  it('skips tokens and fully populated cards, but repairs thin stubs that lost cast fields', () => {
     expect(
       cardShouldHydrateOracleText(
         { name: 'Soldier', type_line: 'Token Creature — Soldier', oracle_text: '' },
         { isToken: true },
       ),
     ).toBe(false);
+    // oracle_text alone is not enough — missing mana_cost / type_line still hydrates.
     expect(
       cardShouldHydrateOracleText({
         name: 'Lightning Bolt',
         oracle_text: 'Deal 3 damage.',
+      }),
+    ).toBe(true);
+    expect(
+      cardShouldHydrateOracleText({
+        name: 'Lightning Bolt',
+        oracle_text: 'Deal 3 damage.',
+        type_line: 'Instant',
+        mana_cost: '{R}',
       }),
     ).toBe(false);
   });

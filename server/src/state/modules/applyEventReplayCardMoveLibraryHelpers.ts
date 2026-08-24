@@ -513,7 +513,7 @@ export function applyOpponentMayPayResolve(ctx: GameContext, e: any): void {
       undefined,
       {
         colors: [],
-        typeLine: 'Token Artifact â€” Treasure',
+        typeLine: 'Token Artifact — Treasure',
         abilities: ['{T}, Sacrifice this artifact: Add one mana of any color.'],
         isArtifact: true,
         skipEventPersistence: true,

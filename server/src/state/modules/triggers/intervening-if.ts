@@ -4505,8 +4505,11 @@ function evaluateInterveningIfClauseInternal(
 
   // "if no creatures died this turn"
   if (/^if\s+no\s+creatures\s+died\s+this\s+turn$/i.test(clause)) {
-    const morbid = isCreatureDiedThisTurn(ctx);
-    if (typeof morbid === 'boolean') return !morbid;
+    // Only the explicit boolean is authoritative. An empty
+    // creaturesDiedThisTurnByController map is not "no deaths" — it is
+    // incomplete tracking and must stay unknown (null).
+    const diedFlag = (ctx as any).state?.creatureDiedThisTurn;
+    if (typeof diedFlag === 'boolean') return !diedFlag;
 
     const stateAny: any = (ctx as any).state || {};
     const map = stateAny?.creaturesDiedThisTurnByController;

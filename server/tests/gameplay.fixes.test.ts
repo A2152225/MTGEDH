@@ -216,6 +216,12 @@ describe('Gameplay fixes - land play, commander casting, priority, win condition
       ];
       
       g.importDeckResolved(p1, cards);
+
+      // Isolate commander-from-library removal. setCommander also performs the
+      // pre_game opening draw when the hand is empty, which would empty this
+      // three-card fixture after the commander is pulled out.
+      (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+      (g.state as any).turnPlayer = p1;
       
       const libraryCountBefore = g.state.zones?.[p1]?.libraryCount || 0;
       expect(libraryCountBefore).toBe(3);

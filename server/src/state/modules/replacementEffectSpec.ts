@@ -162,18 +162,6 @@ export const BUILTIN_REPLACEMENT_EFFECT_SPECS: readonly ReplacementEffectSpec[] 
     reason: 'cast_with_ability_exiles_after_resolution',
   },
   {
-    id: 'builtin-commander-zone-replacement-choice',
-    event: 'zone-change',
-    match: {
-      destinationZoneIn: ['graveyard', 'exile', 'hand', 'library'],
-      objectIsCommander: true,
-    },
-    instead: { choiceRequired: true },
-    effectId: 'commander-zone-replacement-choice',
-    reason: 'commander_zone_replacement_choice',
-    metadata: { commandZoneChoice: true },
-  },
-  {
     id: 'builtin-token-ceases-to-exist',
     event: 'zone-change',
     match: {
@@ -186,6 +174,9 @@ export const BUILTIN_REPLACEMENT_EFFECT_SPECS: readonly ReplacementEffectSpec[] 
     reason: 'token_left_battlefield',
     metadata: { ceasesToExist: true },
   },
+  // CR 616.1a: self-replacement effects apply before other replacements. A
+  // "if this would leave the battlefield, exile it instead" stamp must redirect
+  // to exile before the commander zone-change choice (CR 903.9) is offered.
   {
     id: 'builtin-leave-battlefield-exile-instead',
     event: 'zone-change',
@@ -210,6 +201,18 @@ export const BUILTIN_REPLACEMENT_EFFECT_SPECS: readonly ReplacementEffectSpec[] 
     instead: { redirectZone: 'exile' },
     effectId: 'finality-counter-exile-instead',
     reason: 'finality_counter',
+  },
+  {
+    id: 'builtin-commander-zone-replacement-choice',
+    event: 'zone-change',
+    match: {
+      destinationZoneIn: ['graveyard', 'exile', 'hand', 'library'],
+      objectIsCommander: true,
+    },
+    instead: { choiceRequired: true },
+    effectId: 'commander-zone-replacement-choice',
+    reason: 'commander_zone_replacement_choice',
+    metadata: { commandZoneChoice: true },
   },
 ];
 

@@ -338,18 +338,24 @@ function processKeywordTrigger(
   }
 }
 
-function getAttackingCreatures(ctx: KeywordTriggerContext): any[] {
-  if (Array.isArray(ctx.attackingCreatures) && ctx.attackingCreatures.length > 0) {
-    return ctx.attackingCreatures.filter(Boolean);
-  }
+function numericCombatPower(permanent: any): number {
+  const raw = permanent?.effectivePower ?? permanent?.power ?? permanent?.basePower ?? permanent?.card?.power;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
-  return Array.isArray(ctx.battlefield)
+function getAttackingCreatures(ctx: KeywordTriggerContext): any[] {
+  const fromSnapshot = Array.isArray(ctx.attackingCreatures)
+    ? ctx.attackingCreatures.filter(Boolean)
+    : [];
+  const fromBattlefield = Array.isArray(ctx.battlefield)
     ? ctx.battlefield.filter((entry: any) => {
         if (!entry) return false;
         const typeLine = String(entry?.card?.type_line || '').toLowerCase();
-        return typeLine.includes('creature') && Boolean(entry?.attacking);
+        return typeLine.includes('creature') && Boolean(entry?.attacking || entry?.attackedThisTurn);
       })
     : [];
+  return fromBattlefield.length > fromSnapshot.length ? fromBattlefield : (fromSnapshot.length > 0 ? fromSnapshot : fromBattlefield);
 }
 
 function getBlockingCreatureIds(ctx: KeywordTriggerContext): string[] {
@@ -589,14 +595,13 @@ function handleBattleCry(ctx: KeywordTriggerContext, keyword: DetectedKeyword): 
 function handleMentor(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Creature';
   const attackingCreatures = getAttackingCreatures(ctx);
-  const mentorPower = ctx.permanent?.power ?? ctx.permanent?.card?.power ?? 0;
+  const mentorPower = numericCombatPower(ctx.permanent);
   
   // Find valid targets (attacking creatures with lesser power)
   const validTargets = attackingCreatures.filter((c: any) => {
     if (c.id === ctx.permanent?.id) return false;
     if (c.controller !== ctx.controller) return false;
-    const theirPower = c.power ?? c.card?.power ?? 0;
-    return theirPower < mentorPower;
+    return numericCombatPower(c) < mentorPower;
   });
   
   if (validTargets.length === 0) {

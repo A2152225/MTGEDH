@@ -9,14 +9,14 @@ describe('oracle IR trigger legacy search handlers', () => {
       'search your library for any number of creature cards with total mana value 6 or less and put them onto the battlefield. Then shuffle.',
       'Protean Hulk',
     );
-    expect(steps).toHaveLength(2);
+    expect(steps).toHaveLength(1);
     expect(steps[0]).toMatchObject({
       kind: 'search_library',
       destination: 'battlefield',
       maxResults: 'any_number',
       criteria: { kind: 'raw', text: 'creature with total mana value 6 or less' },
+      shuffle: true,
     });
-    expect(steps[1]?.kind).toBe('shuffle_library');
   });
 
   it('parses optional basic-land tutor triggers as wired search_library IR', () => {
@@ -30,8 +30,8 @@ describe('oracle IR trigger legacy search handlers', () => {
       optional: true,
       entersTapped: true,
       criteria: { kind: 'raw', text: 'basic land' },
+      shuffle: true,
     });
-    expect(steps[1]?.kind).toBe('shuffle_library');
   });
 
   it('parses reveal-until-equipment exert triggers as wired look_choose_from_top IR', () => {

@@ -21,6 +21,9 @@ function setupBanneretCastScenario(options: {
   (game.state as any).startingLife = 40;
   (game.state as any).life = { [p1]: 40 };
   (game.state as any).phase = 'main1';
+  (game.state as any).step = 'MAIN';
+  (game.state as any).turnPlayer = p1;
+  (game.state as any).activePlayer = p1;
   (game.state as any).priority = p1;
   (game.state as any).battlefield = [
     {

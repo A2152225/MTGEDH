@@ -59,12 +59,13 @@ function playerCanAfford(
   );
   if (!player) return false;
 
+  const lifeTotal = player.life == null ? 40 : Number(player.life);
   if (payment.kind === 'life') {
-    return Number(player.life) >= payment.amount;
+    return Number.isFinite(lifeTotal) && lifeTotal >= payment.amount;
   }
   if (payment.kind === 'half_life_rounded_up') {
-    const amount = resolveHalfLifeRoundedUp(Number(player.life));
-    return amount > 0 && Number(player.life) >= amount;
+    const amount = resolveHalfLifeRoundedUp(lifeTotal);
+    return amount > 0 && Number.isFinite(lifeTotal) && lifeTotal >= amount;
   }
   if (payment.kind === 'discard') {
     const handSize = Array.isArray(player.hand) ? player.hand.length : 0;
@@ -91,16 +92,17 @@ function applyPayment(
     const player = ((state as any).players || []).find(
       (p: any) => String(p?.id || '').trim() === String(playerId),
     );
+    const lifeTotal = player?.life == null ? 40 : Number(player.life);
     const amount =
       payment.kind === 'life'
         ? payment.amount
-        : resolveHalfLifeRoundedUp(Number(player?.life));
+        : resolveHalfLifeRoundedUp(lifeTotal);
     if (!Number.isFinite(amount) || amount <= 0) {
       return { state, log: [], ok: false, message: 'invalid life payment' };
     }
     const players = ((state as any).players || []).map((p: any) => {
       if (String(p?.id || '').trim() !== String(playerId)) return p;
-      return { ...p, life: Number(p.life) - amount };
+      return { ...p, life: (p.life == null ? 40 : Number(p.life)) - amount };
     });
     return {
       state: { ...(state as any), players } as GameState,
@@ -202,6 +204,7 @@ export function evaluateAnyPlayerMayStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'any_player_may' }>,
   ctx: OracleIRExecutionContext,
+  options?: { readonly allowOptional?: boolean },
 ): AnyPlayerMayResult {
   const payment = (step as any).payment as AnyPlayerMayPayment;
   if (!payment || !payment.kind) {
@@ -221,7 +224,7 @@ export function evaluateAnyPlayerMayStep(
           ? (ctx.selectorContext as any).anyPlayerMayChoice
           : undefined);
 
-  const declinedIds = new Set(
+  const declinedIds = new Set<string>(
     (
       Array.isArray((ctx as any).anyPlayerMayDeclinedPlayerIds)
         ? (ctx as any).anyPlayerMayDeclinedPlayerIds
@@ -244,7 +247,7 @@ export function evaluateAnyPlayerMayStep(
     };
   }
 
-  if (explicitChoice === 'pay') {
+  if (explicitChoice === 'pay' || (options?.allowOptional === true && explicitChoice !== 'decline')) {
     const payerId = String(
       (ctx as any).anyPlayerMayPayerId
         || (ctx.selectorContext as any)?.anyPlayerMayPayerId

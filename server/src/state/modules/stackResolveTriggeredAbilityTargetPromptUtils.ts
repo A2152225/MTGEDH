@@ -14,6 +14,7 @@ import {
   type TriggeredBattlefieldTargetFilterMetadata,
 } from './triggeredAbilityBattlefieldTargetMatch.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
+import { isPermanentCardTypeLine } from './stackResolvePermanentSpellTypeUtils.js';
 
 function resolveTriggeredTargetCombatRole(item: any): TriggeredBattlefieldTargetFilterMetadata['targetCombatRole'] {
   const explicit = String(item?.targetCombatRole || '').trim();
@@ -56,7 +57,7 @@ function matchesTriggeredGraveyardTarget(card: any, metadata: {
     }
   }
 
-  if (metadata.targetFilterPermanentOnly === true && !isPermanentTypeLine(typeLine)) {
+  if (metadata.targetFilterPermanentOnly === true && !isPermanentCardTypeLine(typeLine)) {
     return false;
   }
 
@@ -134,6 +135,11 @@ export function tryDeferTriggeredAbilityTargetSelection(
   }
 
   if (!requiresTarget || String((item as any).type || '') !== 'triggered_ability') {
+    return false;
+  }
+
+  // Mentor owns MENTOR_TARGET. Generic TARGET_SELECTION leaves an empty list.
+  if (String(triggerType || '').toLowerCase() === 'mentor') {
     return false;
   }
 
@@ -263,9 +269,19 @@ export function tryDeferTriggeredAbilityTargetSelection(
               triggeredAbilityCastWithoutPayingManaCost: (item as any).targetCastWithoutPayingManaCost === true,
               triggeredAbilityMayCastFromGraveyard: (item as any).targetCastIsOptional === true,
             }
-          : {
-              triggeredAbilityGraveyardChoice: true,
-              triggerStackItemId: String((item as any).id || sourceId || ''),
+          : targetDestination
+            ? {
+                // Stamp Choice so live-stack ETB/mutate paths can assign targets.
+                // Also stamp Selection so resolve-then-choose (Ratchet reflexive)
+                // apply+persist still matches GRAVEYARD_SELECTION consumers.
+                triggeredAbilityGraveyardChoice: true,
+                triggeredAbilityGraveyardSelection: true,
+              }
+            : {
+              // Apply via executeTriggerEffect (IR uncategorized fallback / keyword grants).
+              // Do not use stamp-and-return: the trigger is already popped, and an empty
+              // destination would otherwise default to moving the card to hand.
+              triggeredAbilityGraveyardSelection: true,
             }),
         triggeredAbilityEffectText: String((item as any).effect || description || ''),
         triggeredAbilitySourcePermanentId: String((item as any).source || (item as any).permanentId || ''),

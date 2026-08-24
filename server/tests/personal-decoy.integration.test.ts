@@ -403,11 +403,12 @@ describe('Personal Decoy (integration)', () => {
         controller: opponentId,
         source: 'hand',
         card: {
-          id: 'swords_to_plowshares_card_1',
-          name: 'Swords to Plowshares',
+          id: 'utter_end_card_1',
+          name: 'Utter End',
           type_line: 'Instant',
-          mana_cost: '{W}',
-          oracle_text: 'Exile target creature. Its controller gains life equal to its power.',
+          mana_cost: '{2}{W}{B}',
+          // CR 115.1a / 608.2b: Swords to Plowshares cannot legally exile a planeswalker.
+          oracle_text: 'Exile target permanent.',
         },
         targets: ['personal_decoy_perm_1'],
       },

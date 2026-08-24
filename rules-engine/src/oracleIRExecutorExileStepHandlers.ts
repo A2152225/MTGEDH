@@ -20,6 +20,11 @@ import {
   splitExiledForShuffleRest,
   isCardExiledWithSource,
 } from './oracleIRExecutorPlayerUtils';
+import {
+  detectFaceDownExileFromRaw,
+  detectFlexibleImpulseManaSpending,
+  stampFaceDownExileExamination,
+} from './oracleIRExecutorImpulseExileFaceDown';
 import { cardMatchesExileSelectorText } from './oracleIRExecutorZoneOps';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
@@ -43,9 +48,13 @@ type StepApplyResult = {
 type StepSkipResult = {
   readonly applied: false;
   readonly message: string;
-  readonly reason: 'unsupported_player_selector' | 'unknown_amount' | 'missing_permission';
+  readonly reason:
+    | 'unsupported_player_selector'
+    | 'unknown_amount'
+    | 'missing_permission'
+    | 'player_choice_required';
   readonly options?: {
-    readonly classification?: 'ambiguous';
+    readonly classification?: 'ambiguous' | 'player_choice';
   };
 };
 
@@ -260,6 +269,12 @@ export function applyExileTopStep(
     exiledCardsThisStep.push(...(result.exiled as any[]));
     log.push(...result.log);
     if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
+    if (detectFaceDownExileFromRaw(String(step.raw || ''))) {
+      nextState = stampFaceDownExileExamination(nextState, playerId, result.exiled, {
+        faceDown: true,
+        examinerId: String(ctx.controllerId || ''),
+      });
+    }
   }
 
   return withExileTopLedgerFlags({
@@ -284,6 +299,26 @@ export function applyImpulseExileTopStep(
       message: `Skipped impulse exile top (unsupported player selector): ${step.raw}`,
       reason: 'unsupported_player_selector',
     };
+  }
+
+  // resolvePlayers falls back to the only opponent for an unbound target_player, which would exile
+  // from a library nobody targeted. Whose library is looked at is decided when the target is chosen,
+  // so defer to the resolution queue instead of guessing.
+  if (String((step.who as any)?.kind || '') === 'target_player') {
+    const boundTargetPlayerId = String(
+      (ctx as any).targetPlayerId ||
+        (ctx as any).targetOpponentId ||
+        ctx.selectorContext?.targetPlayerId ||
+        ''
+    ).trim();
+    if (!boundTargetPlayerId) {
+      return {
+        applied: false,
+        message: `Skipped impulse exile top (targeting-dependent player): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
   }
 
   const coercedAmount = coerceDiscoverImpulseAmount(step.amount, ctx, state, players[0] as PlayerID);
@@ -313,9 +348,20 @@ export function applyImpulseExileTopStep(
   const returnUncastToBottom = shouldReturnUncastExiledToBottom(impulseStep as any);
   const shuffleRestIntoLibrary = shouldShuffleRestIntoLibrary(impulseStep as any);
   const requiresChooseOne = impulseExileTopRequiresChooseOne(impulseStep);
-  const spendManaAsThoughAnyType = /mana of any type can be spent to cast those spells/i.test(String(step.raw || ''));
+  const spendManaAsThoughAnyType = detectFlexibleImpulseManaSpending(String(step.raw || ''));
   const permissionRecipientForWho = (libraryOwnerId: PlayerID): PlayerID => {
+    const raw = String(step.raw || '');
     const whoKind = String((step.who as any)?.kind || '').trim();
+    if (/\byou may (?:play|cast)\b/i.test(raw)) {
+      return String(ctx.controllerId || libraryOwnerId) as PlayerID;
+    }
+    if (
+      /\b(?:look at|looks at)\b/i.test(raw)
+      && /\b(?:that player|that opponent|target (?:player|opponent))'s library\b/i.test(raw)
+      && /\b(?:you|they) may (?:play|cast)\b/i.test(raw)
+    ) {
+      return String(ctx.controllerId || libraryOwnerId) as PlayerID;
+    }
     if (whoKind === 'each_player' || whoKind === 'each_opponent') {
       return String(ctx.controllerId || libraryOwnerId) as PlayerID;
     }
@@ -375,6 +421,13 @@ export function applyImpulseExileTopStep(
       nextState = stampExiledCardsForDeferredChoice(nextState, playerId, keptExiled, String(exiledBy || '').trim());
     }
 
+    if (detectFaceDownExileFromRaw(String(step.raw || ''))) {
+      nextState = stampFaceDownExileExamination(nextState, playerId, keptExiled, {
+        faceDown: true,
+        examinerId: String(ctx.controllerId || permissionRecipientForWho(playerId) || ''),
+      });
+    }
+
     if (returnUncastToBottom && result.exiled.length > 0) {
       const bottomResult = putSpecificExiledCardsOnLibraryBottom(nextState, playerId, result.exiled);
       nextState = bottomResult.state;
@@ -410,12 +463,23 @@ export function applyModifyExilePermissionsStep(
       .filter(Boolean)
   );
 
-  if (step.scope !== 'last_exiled_cards' || exiledIds.size === 0) {
+  if (step.scope !== 'last_exiled_cards') {
     return {
       applied: false,
       message: `Skipped exile permission modifier (no exiled cards in context): ${step.raw}`,
       reason: 'failed_to_apply',
       options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  if (exiledIds.size === 0) {
+    // Discover with no legal hit exiles the whole library and bottoms it again, so "you may cast that
+    // card" has no referent. The clause still resolved; reporting a gap here would send the server
+    // back to the legacy path for an effect that finished correctly.
+    return {
+      applied: true,
+      state,
+      log: [`No exiled cards to grant permissions for: ${step.raw}`],
     };
   }
 

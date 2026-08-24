@@ -2,11 +2,11 @@
 import type { GameContext } from '../context.js';
 import type { EngineEffect } from '../../rules-engine/targeting.js';
 import { uid, triggerLifeGainEffects } from '../utils.js';
-import { calculateModifiedDamage, processLifeChange, resolveOpponentDirectedDamage, applyMillReplacements } from './game-state-effects.js';
+import { calculateModifiedDamage, processLifeChange, resolveOpponentDirectedDamage } from './game-state-effects.js';
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from './triggers/damage-received.js';
 import { queueBecomesUntappedTriggers } from './triggers/tap-untap.js';
-import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
-import { drawCards as drawCardsFromZone, movePermanentToHand, processMillTriggers } from './zones.js';
+import { drawCards as drawCardsFromZone, movePermanentToHand } from './zones.js';
+import { applyMillCardsSpellEffect } from './executeSpellEffectMillCards.js';
 import { createToken, destroyPermanent, movePermanentToExile, updateCounters, runSBA } from './counters_tokens.js';
 import { applyCreatureDamageFromSource, resolvePlayerDamage } from './combat-damage-processing.js';
 import { addExtraCombat } from './turn.js';
@@ -20,7 +20,6 @@ import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { detectEntersWithCounters } from './detectEntersWithCounters.js';
 import { processSpellCounteredTriggers } from './spellCounteredTriggerUtils.js';
 import { debug, debugWarn } from '../../utils/debug.js';
-import { appendEvent } from '../../db/index.js';
 /**
  * Execute a single spell effect
  */
@@ -742,62 +741,7 @@ export function executeSpellEffect(
       break;
     }
     case 'MillCards': {
-      const playerId = (effect as any).playerId as PlayerID;
-      const count = Math.max(0, Number((effect as any).count ?? 0));
-      if (!playerId || count <= 0) break;
-
-      const { finalCount } = applyMillReplacements(ctx, count, String(caster), String(playerId));
-      const millCount = Math.max(0, Number(finalCount ?? count));
-      if (millCount <= 0) break;
-
-      const ctxLibraries = (ctx as any).libraries as Map<string, any[]> | undefined;
-      let lib: any[] | undefined;
-      if (ctxLibraries && typeof ctxLibraries.get === 'function') {
-        lib = ctxLibraries.get(playerId);
-      }
-
-      const zones = (state as any).zones || ((state as any).zones = {});
-      const z = (zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 });
-      z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
-      const milledCards: any[] = [];
-
-      if (lib && Array.isArray(lib)) {
-        for (let i = 0; i < millCount && lib.length > 0; i++) {
-          const milled = lib.shift();
-          if (milled) {
-            pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), milled, z.graveyard);
-            milledCards.push({ ...milled, zone: 'graveyard' });
-          }
-        }
-        if (ctxLibraries && typeof ctxLibraries.set === 'function') {
-          ctxLibraries.set(playerId, lib);
-        }
-        z.libraryCount = lib.length;
-        z.graveyardCount = z.graveyard.length;
-        processMillTriggers(ctx, playerId, milledCards, caster);
-        if (!(ctx as any)?.isReplaying && milledCards.length > 0) {
-          const gameId = String((ctx as any).gameId || '').trim();
-          if (gameId && gameId !== 'unknown') {
-            try {
-              appendEvent(
-                gameId,
-                Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (state as any)?.seq ?? 0),
-                'mill',
-                {
-                  playerId,
-                  count: milledCards.length,
-                  cardIds: milledCards.map((c: any) => c.id).filter(Boolean),
-                  sourceName: spellName,
-                },
-              );
-            } catch (err) {
-              debugWarn(1, '[MillCards] appendEvent(mill) failed:', err);
-            }
-          }
-        }
-        ctx.bumpSeq();
-        debug(2, `[resolveSpell] ${spellName} milled ${millCount} card(s) for ${playerId}`);
-      }
+      applyMillCardsSpellEffect(ctx, effect as any, caster, spellName);
       break;
     }
     case 'GoadPermanent': {

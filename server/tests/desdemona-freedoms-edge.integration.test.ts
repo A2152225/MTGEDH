@@ -258,6 +258,9 @@ describe("Desdemona, Freedom's Edge", () => {
       cancelled: false,
     });
 
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'MAIN';
+
     await handlers['activateGraveyardAbility']({
       gameId,
       cardId: 'artifact_target_1',

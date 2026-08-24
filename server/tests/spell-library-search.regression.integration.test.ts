@@ -93,7 +93,7 @@ describe('spell library search regressions', () => {
     (game.state as any).battlefield = [];
     (game as any).libraries = new Map([
       [playerId, [
-        { id: 'forest_dual', name: 'Highland Forest', type_line: 'Snow Land — Forest Mountain', oracle_text: '', image_uris: { normal: 'forest_dual.png' } },
+        { id: 'forest_dual', name: 'Tropical Island', type_line: 'Land — Forest Island', oracle_text: '', image_uris: { normal: 'forest_dual.png' } },
         { id: 'plains_only', name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '', image_uris: { normal: 'plains.png' } },
         { id: 'forest_basic', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '', image_uris: { normal: 'forest.png' } },
         { id: 'spell_c', name: 'Cultivate', type_line: 'Sorcery', oracle_text: '', image_uris: { normal: 'cultivate.png' } },

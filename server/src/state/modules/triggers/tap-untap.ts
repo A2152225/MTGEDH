@@ -421,7 +421,7 @@ export function executeUntapTrigger(
       break;
   }
   
-  ctx.bumpSeq();
+  if (typeof ctx.bumpSeq === 'function') ctx.bumpSeq();
 }
 
 // ============================================================================

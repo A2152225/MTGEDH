@@ -155,12 +155,18 @@ describe('Oracle IR gap batch 22 support', () => {
     const ir = parseOracleTextToIR(text, 'Golgari Thug');
     const steps = ir.abilities.flatMap(ability => ability.steps ?? []);
 
+    // The reminder parenthetical is pruned. "Dredge 4" itself is a real keyword (CR 702.52) and
+    // stays as grant_static_ability rather than disappearing with the reminder.
     expect(collectUnknowns(ir.abilities)).toEqual([]);
-    expect(steps).toHaveLength(1);
+    expect(steps).toHaveLength(2);
     expect(steps[0]).toMatchObject({
       kind: 'move_zone',
       what: { kind: 'raw', text: 'target creature card from your graveyard' },
       to: 'library',
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'grant_static_ability',
+      abilities: ['dredge 4'],
     });
   });
 });

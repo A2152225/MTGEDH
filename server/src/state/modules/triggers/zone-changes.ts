@@ -172,7 +172,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   // Generic "when ~ dies" or "when this creature dies" triggers
   // Use shared utility function for regex escaping
   const cardNameEscaped = escapeCardNameForRegex(cardName);
-  const selfDiesPattern = new RegExp(`when(?:ever)?\\s+(?:~|this creature|${cardNameEscaped})\\s+dies,?\\s*([^.]+)`, 'i');
+  const selfDiesPattern = new RegExp(`when(?:ever)?\\s+(?:~|this creature|${cardNameEscaped})(?:\\s+or\\s+another\\s+(?:nontoken\\s+)?creature(?:s)?(?:\\s+you\\s+control)?)?\\s+dies,?\\s*([^.]+)`, 'i');
   const diesMatch = oracleText.match(selfDiesPattern);
   if (diesMatch && !triggers.some(t => t.triggerType === 'dies')) {
     triggers.push({
@@ -537,7 +537,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         triggerType: 'etb',
         description: effectText,
         effect: effectText,
-        mandatory: true,
+        mandatory: !/\byou may\b/i.test(effectText),
       };
       
       // Check if this trigger requires targeting

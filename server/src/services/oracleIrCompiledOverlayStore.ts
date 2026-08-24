@@ -1,10 +1,7 @@
 import type { OracleIRCompilerEnvelope } from '../../../rules-engine/src/oracleIRCompilerEnvelope.js';
 import { validateCompiledOverlayEnvelope } from '../../../rules-engine/src/oracleIRCompilerEnvelope.js';
 
-import {
-  ensureLocalCardLookupIndexSync,
-  getLocalCardLookupDatabase,
-} from './localCardLookup.js';
+import { getCompiledOracleIROverlayDatabase } from './oracleIrCompiledOverlayDatabase.js';
 import { debugWarn } from '../utils/debug.js';
 
 export interface CompiledOracleIROverlayLookupInput {
@@ -46,8 +43,7 @@ export function upsertCompiledOracleIROverlaySync(input: {
   readonly name?: string;
   readonly envelope: OracleIRCompilerEnvelope;
 }): void {
-  ensureLocalCardLookupIndexSync();
-  const database = getLocalCardLookupDatabase();
+  const database = getCompiledOracleIROverlayDatabase();
   const cardId = normalizeCardId(input.cardId || input.envelope.card_id);
   const normalizedName = normalizeOverlayName(input.name);
   const overlayKey = normalizeOverlayKey(cardId || normalizedName);
@@ -74,8 +70,7 @@ export function upsertCompiledOracleIROverlaySync(input: {
 }
 
 export function deleteCompiledOracleIROverlaySync(input: CompiledOracleIROverlayLookupInput): boolean {
-  ensureLocalCardLookupIndexSync();
-  const database = getLocalCardLookupDatabase();
+  const database = getCompiledOracleIROverlayDatabase();
   const cardId = normalizeCardId(input.cardId);
   const normalizedName = normalizeOverlayName(input.name);
   const overlayKey = normalizeOverlayKey(cardId || normalizedName);
@@ -87,8 +82,7 @@ export function deleteCompiledOracleIROverlaySync(input: CompiledOracleIROverlay
 export function lookupCompiledOracleIROverlaySync(
   input: CompiledOracleIROverlayLookupInput,
 ): OracleIRCompilerEnvelope | null {
-  ensureLocalCardLookupIndexSync();
-  const database = getLocalCardLookupDatabase();
+  const database = getCompiledOracleIROverlayDatabase();
   const cardId = normalizeCardId(input.cardId);
   const normalizedName = normalizeOverlayName(input.name);
 
@@ -124,8 +118,7 @@ export function lookupCompiledOracleIROverlaySync(
 export function peekCompiledOracleIROverlayPayloadSync(
   input: CompiledOracleIROverlayLookupInput,
 ): string | null {
-  ensureLocalCardLookupIndexSync();
-  const database = getLocalCardLookupDatabase();
+  const database = getCompiledOracleIROverlayDatabase();
   const cardId = normalizeCardId(input.cardId);
   const normalizedName = normalizeOverlayName(input.name);
 
@@ -153,7 +146,6 @@ export function peekCompiledOracleIROverlayPayloadSync(
 }
 
 export function resetCompiledOracleIROverlayTableForTests(): void {
-  ensureLocalCardLookupIndexSync();
-  const database = getLocalCardLookupDatabase();
+  const database = getCompiledOracleIROverlayDatabase();
   database.exec('DELETE FROM oracle_ir_compiled_overlay');
 }

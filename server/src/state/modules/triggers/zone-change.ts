@@ -685,22 +685,26 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
   }
 
   const matches = oracleText.matchAll(
-    /(?:whenever|or) (?:a|one or more) ((?:nonblack\s+)?(?:creature\s+)?cards?) (?:is|are) put into (?:an opponent's|a player's|a|any|your )?graveyards? from anywhere( other than the battlefield)?,?\s*([^.]+)/gi,
+    /(?:whenever|or) (?:a|one or more) ((?:nonblack\s+)?(?:creature\s+)?cards?) (?:is|are) put into (?:an opponent's|a player's|a|any|your )?\s*graveyards? from anywhere( other than the battlefield)?,?\s*([^.]+)/gi,
   );
   for (const match of matches) {
     const subject = String(match[1] || '').toLowerCase();
-    const clauseText = String(match[0] || '').toLowerCase();
+    const capturedEffect = String(match[3] || '');
+    const fullMatch = String(match[0] || '');
+    const clauseHead = fullMatch
+      .slice(0, Math.max(0, fullMatch.length - capturedEffect.length))
+      .toLowerCase();
     let effect = timingTriggerEffect(oracleText, match, 3).replace(/\s+/g, ' ');
     if (/^or\b/i.test(effect) && effect.includes(',')) {
       effect = effect.slice(effect.lastIndexOf(',') + 1).trim();
     }
     if (!effect) continue;
 
-    const graveyardScope: PutIntoGraveyardTrigger['graveyardScope'] = clauseText.includes("opponent's")
+    const graveyardScope: PutIntoGraveyardTrigger['graveyardScope'] = clauseHead.includes("opponent's")
       ? 'opponent'
-      : clauseText.includes('your ')
+      : clauseHead.includes('your ')
         ? 'your'
-        : clauseText.includes("player's")
+        : clauseHead.includes("player's")
           ? 'player'
           : 'any';
 

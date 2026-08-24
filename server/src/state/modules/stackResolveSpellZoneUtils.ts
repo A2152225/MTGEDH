@@ -140,7 +140,12 @@ export function applyResolvedInstantSorceryInitiativeVentureRiders(
   const spellSourceId = String(item?.id || card?.id || '').trim();
   if (oracleTextLower.includes('take the initiative') || oracleTextLower.includes('you take the initiative')) {
     (state as any).initiative = controller;
-    queueInitiativeVentureTrigger(ctx, controller, spellSourceId);
+    const alreadyQueued = (Array.isArray((state as any).stack) ? (state as any).stack : []).some(
+      (entry: any) => entry?.initiativeVentureTrigger === true && String(entry?.controller || '') === String(controller),
+    );
+    if (!alreadyQueued) {
+      queueInitiativeVentureTrigger(ctx, controller, spellSourceId);
+    }
   } else if (oracleTextLower.includes('venture into undercity')) {
     resolveVentureProgress(ctx, controller, effectiveCard?.name || 'Spell', spellSourceId, 'undercity');
   } else if (oracleTextLower.includes('venture into the dungeon')) {

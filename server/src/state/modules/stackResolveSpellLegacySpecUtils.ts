@@ -18,6 +18,41 @@ import {
 import { parseNumberWord } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { persistBattlefieldPermanentPatchAfterMutation } from '../effects/battlefieldPermanentReplayPersistence.js';
 
+function applyLegacyResolvedSpellRiders(
+  ctx: GameContext,
+  options: {
+    controller: PlayerID;
+    card: any;
+    effectiveCard: any;
+    item: any;
+    oracleText: string;
+    targetSpellControllerForSupplemental: PlayerID | null;
+    targetSpellNameForSupplemental: string;
+    targetControllerForTokenCreation: PlayerID | null;
+  },
+): void {
+  applySupplementalOracleIRForResolvedSpell(
+    ctx,
+    options.oracleText,
+    options.controller,
+    options.effectiveCard?.name || 'spell',
+    String((options.item as any).source || (options.item as any).permanentId || ''),
+    String((options.item as any).id || (options.card as any)?.id || ''),
+    {
+      targetPlayerId: options.targetSpellControllerForSupplemental || undefined,
+      referenceSpellName: options.targetSpellNameForSupplemental || undefined,
+      sourceImage: options.effectiveCard.image_uris?.small || options.effectiveCard.image_uris?.normal,
+      skipRawSteps: ['Counter target spell'],
+    },
+  );
+
+  applyInstantSorceryItsControllerCreatesToken(ctx, {
+    effectiveCard: options.effectiveCard,
+    oracleText: options.oracleText,
+    targetControllerForTokenCreation: options.targetControllerForTokenCreation,
+  });
+}
+
 export function executeInstantSorceryLegacyCategorizedSpell(
   ctx: GameContext,
   options: {
@@ -45,6 +80,7 @@ export function executeInstantSorceryLegacyCategorizedSpell(
   // P1a: resolveSpell cases deleted — always skip (including SPELL_LEGACY).
   if (isCategorizeOpcodeDeletedFromResolveSpell(spellOp)) {
     debug(1, `[spell] skip deleted resolve categorize op: ${spellOp} (${spellName})`);
+    applyLegacyResolvedSpellRiders(ctx, options);
     return;
   }
   // Defense-in-depth: retired categorize ops never execute opcodes under IR primary,
@@ -204,24 +240,5 @@ export function executeInstantSorceryLegacyCategorizedSpell(
     debug(2, `[resolveTopOfStack] ${effectiveCard.name} granted ${controller} ${landBonus} additional land play(s) this turn`);
   }
 
-  applySupplementalOracleIRForResolvedSpell(
-    ctx,
-    oracleText,
-    controller as PlayerID,
-    effectiveCard.name || 'spell',
-    String((item as any).source || (item as any).permanentId || ''),
-    String((item as any).id || (card as any)?.id || ''),
-    {
-      targetPlayerId: options.targetSpellControllerForSupplemental || undefined,
-      referenceSpellName: options.targetSpellNameForSupplemental || undefined,
-      sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
-      skipRawSteps: ['Counter target spell'],
-    },
-  );
-
-  applyInstantSorceryItsControllerCreatesToken(ctx, {
-    effectiveCard,
-    oracleText,
-    targetControllerForTokenCreation: options.targetControllerForTokenCreation,
-  });
+  applyLegacyResolvedSpellRiders(ctx, options);
 }

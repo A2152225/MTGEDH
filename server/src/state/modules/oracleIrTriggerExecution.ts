@@ -214,6 +214,7 @@ function resolveTriggerTargetBinding(
     || '',
   ).trim();
   const lifeLostReference = Number(triggerItem?.effectData?.lifeLost ?? 0);
+  const lifePaidReference = Number(triggerItem?.effectData?.lifePaid ?? 0);
   const countersPlacedReference = Number(triggerItem?.effectData?.countersPlaced ?? 0);
   const snapshottedReference = Number(
     triggerItem?.referenceAmount
@@ -274,10 +275,17 @@ function resolveTriggerTargetBinding(
   const createdTokenIds = Array.isArray(triggerItem?.effectData?.createdTokenIds)
     ? triggerItem.effectData.createdTokenIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
     : [];
+  // Becomes-untapped watchers retain the object that untapped in effectData.
+  // Bind it as the pronoun antecedent for "that permanent's controller mills".
+  const untappedPermanentId = String(triggerItem?.effectData?.untappedPermanentId || '').trim();
+  const untappedPermanentController = String(
+    triggerItem?.effectData?.untappedPermanentController || '',
+  ).trim() as PlayerID;
   const chosenObjectIds = Array.from(new Set([
     ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...normalizedTargetIds,
     ...(damagedPermanentId ? [damagedPermanentId] : []),
+    ...(untappedPermanentId ? [untappedPermanentId] : []),
     ...(discardedCardId ? [discardedCardId] : []),
     ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),
     ...createdTokenIds,
@@ -295,6 +303,19 @@ function resolveTriggerTargetBinding(
     && battlefield.some((permanent: any) => String(permanent?.id || '') === damagedPermanentId)
   ) {
     targetPermanentId = damagedPermanentId;
+  }
+  if (
+    !targetPermanentId
+    && untappedPermanentId
+    && battlefield.some((permanent: any) => String(permanent?.id || '') === untappedPermanentId)
+  ) {
+    targetPermanentId = untappedPermanentId;
+  }
+  if (!targetPlayerId && untappedPermanentController) {
+    const playerIds = new Set(players.map((player: any) => String(player?.id || '')).filter(Boolean));
+    if (playerIds.has(untappedPermanentController)) {
+      targetPlayerId = untappedPermanentController;
+    }
   }
   if (!targetPermanentId) {
     const dyingId = String(triggerItem?.dyingCreature?.id || triggerItem?.value?.dyingPermanentId || '').trim();
@@ -330,13 +351,15 @@ function resolveTriggerTargetBinding(
     referenceAmount:
       Number.isFinite(lifeLostReference) && lifeLostReference > 0
         ? lifeLostReference
-        : Number.isFinite(countersPlacedReference) && countersPlacedReference > 0
-          ? countersPlacedReference
-          : Number.isFinite(snapshottedReference) && snapshottedReference > 0
-            ? snapshottedReference
-            : Number.isFinite(damageReference) && damageReference > 0
-              ? damageReference
-              : undefined,
+        : Number.isFinite(lifePaidReference) && lifePaidReference > 0
+          ? lifePaidReference
+          : Number.isFinite(countersPlacedReference) && countersPlacedReference > 0
+            ? countersPlacedReference
+            : Number.isFinite(snapshottedReference) && snapshottedReference > 0
+              ? snapshottedReference
+              : Number.isFinite(damageReference) && damageReference > 0
+                ? damageReference
+                : undefined,
     xValue,
   };
 }

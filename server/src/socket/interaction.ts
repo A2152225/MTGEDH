@@ -6115,16 +6115,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     "activateBattlefieldAbility",
     async (payload?: { gameId?: unknown; permanentId?: unknown; abilityId?: unknown; xValue?: unknown }) => {
     const gameIdRaw = payload?.gameId;
-    let permanentId = payload?.permanentId;
+    const permanentIdRaw = payload?.permanentId;
     const abilityId = payload?.abilityId;
     const selectedXValue = normalizeSelectedXValue(payload?.xValue);
 
-    debug(1, `[activateBattlefieldAbility] received permanentId=${String(permanentId)} abilityId=${String(abilityId)} gameId=${String(gameIdRaw)}`);
+    debug(1, `[activateBattlefieldAbility] received permanentId=${String(permanentIdRaw)} abilityId=${String(abilityId)} gameId=${String(gameIdRaw)}`);
 
-    if (typeof permanentId !== "string") {
-      debugWarn(1, `[activateBattlefieldAbility] rejected: permanentId is not a string (${typeof permanentId})`);
+    if (typeof permanentIdRaw !== "string") {
+      debugWarn(1, `[activateBattlefieldAbility] rejected: permanentId is not a string (${typeof permanentIdRaw})`);
       return;
     }
+
+    let permanentId: string = permanentIdRaw;
 
     const ctx = ensureInRoomAndSeated(gameIdRaw);
     if (!ctx) return;

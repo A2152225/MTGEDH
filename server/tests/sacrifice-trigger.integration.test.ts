@@ -97,7 +97,7 @@ describe('sacrifice triggers (integration)', () => {
       triggerType: 'you_sacrifice',
       sourceName: 'Mirkwood Bats',
       triggeringPlayer: p1,
-      effect: 'each opponent loses 1 life',
+      effect: 'each opponent loses 1 life.',
     }));
     expect(sacrificeStackItems[0]?.effectData?.sacrificedPermanentId).toBe('treasure_token_1');
     expect(sacrificeStackItems[0]?.effectData?.sacrificedPermanentWasToken).toBe(true);
@@ -163,7 +163,7 @@ describe('sacrifice triggers (integration)', () => {
       controllerId: p1,
       description: 'each opponent loses 1 life',
       triggerType: 'you_sacrifice',
-      effect: 'each opponent loses 1 life',
+      effect: 'each opponent loses 1 life.',
       mandatory: true,
       targetPlayer: p1,
       triggeringPlayer: p1,

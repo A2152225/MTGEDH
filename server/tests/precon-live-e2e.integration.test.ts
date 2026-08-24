@@ -8,6 +8,7 @@ import { initializeAIResolutionHandler } from '../src/socket/resolution.js';
 import { registerAIPlayer, scheduleAIGameFlow, unregisterAIPlayer } from '../src/socket/ai.js';
 import { games, priorityTimers } from '../src/socket/socket.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
+import { readOracleCardsSync } from '../src/services/oracleCardsIndex.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -163,8 +164,7 @@ function toAtomicCardData(name: string, raw: any): LoadedCard {
 function ensureOracleIndex(): Map<string, LoadedCard> {
   if (oracleIndexCache) return oracleIndexCache;
 
-  const oracleCardsPath = path.join(repoRoot, 'oracle-cards.json');
-  const oracleCards = JSON.parse(fs.readFileSync(oracleCardsPath, 'utf8')) as any[];
+  const oracleCards = readOracleCardsSync(repoRoot) as any[];
   const index = new Map<string, LoadedCard>();
 
   for (const rawCard of oracleCards) {
@@ -195,10 +195,14 @@ function ensureAtomicIndex(): Map<string, LoadedCard> {
   if (atomicIndexCache) return atomicIndexCache;
 
   const atomicCardsPath = path.join(repoRoot, 'AtomicCards.json');
+  const index = new Map<string, LoadedCard>();
+  if (!fs.existsSync(atomicCardsPath)) {
+    atomicIndexCache = index;
+    return index;
+  }
   const atomicCards = JSON.parse(fs.readFileSync(atomicCardsPath, 'utf8')) as {
     data?: Record<string, any[]>;
   };
-  const index = new Map<string, LoadedCard>();
 
   for (const [name, printings] of Object.entries(atomicCards.data || {})) {
     const bestPrinting = Array.isArray(printings)

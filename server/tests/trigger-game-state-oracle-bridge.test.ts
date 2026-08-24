@@ -72,6 +72,6 @@ describe('triggerGameStateOracleBridgeUtils', () => {
       effectText: 'transform.',
     });
 
-    expect(transformPermanentToFace).toHaveBeenCalledWith(permanent, 1);
+    expect(transformPermanentToFace).toHaveBeenCalledWith(permanent, 1, expect.anything());
   });
 });

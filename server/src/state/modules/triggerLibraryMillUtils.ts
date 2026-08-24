@@ -72,20 +72,26 @@ export function millCardsFromLibrary(
   let milled = 0;
 
   for (let idx = 0; idx < Math.max(0, count | 0); idx += 1) {
-    // Prefer the authoritative libraries Map when present; re-fetch each card so
-    // Eldrazi (and similar) GY→library shuffles mid-mill are respected.
+    // Prefer the libraries Map when it actually has cards. An empty Map is not
+    // more authoritative than a populated `state.zones[player].library` (tests
+    // and some socket paths only seed the zone store).
     let card: any = null;
     if (libraries) {
       const lib = libraries.get(String(playerId)) || [];
-      if (!Array.isArray(lib) || lib.length === 0) break;
-      card = lib.shift();
-      libraries.set(String(playerId), lib);
-      zones.library = lib;
-      zones.libraryCount = lib.length;
-    } else {
+      if (Array.isArray(lib) && lib.length > 0) {
+        card = lib.shift();
+        libraries.set(String(playerId), lib);
+        zones.library = lib;
+        zones.libraryCount = lib.length;
+      }
+    }
+    if (!card) {
       if (zones.library.length === 0) break;
       card = zones.library.shift();
       zones.libraryCount = zones.library.length;
+      if (libraries) {
+        libraries.set(String(playerId), zones.library);
+      }
     }
     if (!card) break;
     if (ctx) {
@@ -98,8 +104,16 @@ export function millCardsFromLibrary(
 
   if (libraries) {
     const lib = libraries.get(String(playerId)) || [];
-    zones.library = lib;
-    zones.libraryCount = Array.isArray(lib) ? lib.length : 0;
+    if (Array.isArray(lib) && lib.length > 0) {
+      zones.library = lib;
+      zones.libraryCount = lib.length;
+    } else if (zones.library.length > 0) {
+      libraries.set(String(playerId), zones.library);
+      zones.libraryCount = zones.library.length;
+    } else {
+      zones.library = Array.isArray(lib) ? lib : [];
+      zones.libraryCount = zones.library.length;
+    }
   } else {
     zones.libraryCount = zones.library.length;
   }

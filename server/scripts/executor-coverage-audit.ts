@@ -18823,8 +18823,8 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
 export function buildAuditExecutionContext(cardName: string): ReturnType<typeof buildOracleIRExecutionContext> {
   const controllerId = 'p1' as PlayerID;
   const selectorContext = {
-    targetCreatureId: 'bf-legendary-creature',
-    targetPermanentId: 'bf-legendary-creature',
+    targetCreatureId: 'bf-creature-1',
+    targetPermanentId: 'bf-creature-1',
     targetSpellId: 'stack-spell-1',
     combatOpponentCreatureId: 'bf-opponent-creature',
     targetOpponentId: 'p2' as PlayerID,
@@ -18944,8 +18944,8 @@ export function buildAuditExecutionContext(cardName: string): ReturnType<typeof 
         yes: 2,
         no: 2,
       },
-      targetCreatureId: 'bf-legendary-creature',
-      targetPermanentId: 'bf-legendary-creature',
+      targetCreatureId: 'bf-creature-1',
+      targetPermanentId: 'bf-creature-1',
       targetSpellId: 'stack-spell-1',
       unlessPaysLifeChoice: 'decline',
       unlessPaysManaChoice: 'decline',

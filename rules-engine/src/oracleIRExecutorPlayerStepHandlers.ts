@@ -64,6 +64,7 @@ import {
 import { countManaSymbolsInManaCost } from './oracleIRExecutorManaUtils';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import { resolveSingleCreatureTargetId, resolveCreatureTargetIds } from './oracleIRExecutorCreatureStepUtils';
+import { resolveBoundSelfOrSourceCreatureTargetId } from './oracleIRExecutorBoundSelfCreatureTarget';
 import {
   resolveControllerSpellCastCountThisTurn,
   resolveOracleQuantity,
@@ -81,6 +82,14 @@ import {
 import { buildEffectBridgeOptions } from './oracleIRExecutorDamageTransitionCommit';
 import { resolveBattlefieldEntryFromOracleIrContext } from './oracleIRExecutorBattlefieldEntryCommit';
 import { inferSplitLibrarySearchPlan } from './oracleIRSplitLibrarySearch';
+import {
+  cardIsBasicLandForLibrarySearch,
+  parseBasicLandLibrarySearchCriteria,
+  parseLandTypeLibrarySearchCriteria,
+  cardIsLandTypeForLibrarySearch,
+  resolvePlayerLibraryCardsForSearch,
+  withLibrarySearchFrontFace,
+} from './oracleIRExecutorLibrarySearchCardUtils';
 import {
   collectRevealedThisWayCardsLedgerFirst,
   resolveAntecedentContextualCards,
@@ -1848,6 +1857,16 @@ export function applyVentureIntoDungeonStep(
   completedThisTurn[playerId] = false;
 
   const existing = currentProgress[playerId];
+  // Server / interactive path must choose a dungeon (and apply room effects) via
+  // resolveVentureProgress. Auto-entering Lost Mine is only for non-interactive RE tests.
+  if (ctx.interactivePlayerChoices === true) {
+    return {
+      applied: false,
+      message: `Skipped venture into the dungeon (requires server dungeon progress): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
   if (!existing) {
     const chosenDungeonId = getNormalizedChosenDungeonId(ctx);
     const dungeon = getDungeonDefinition(chosenDungeonId || 'lost_mine') || getDungeonDefinition('lost_mine');
@@ -2157,7 +2176,7 @@ function getSearchLibraryMatches(
   state: GameState,
   ctx: OracleIRExecutionContext
 ): any[] | null {
-  const cards = Array.isArray(library) ? [...library] : [];
+  const cards = Array.isArray(library) ? library.map(withLibrarySearchFrontFace) : [];
 
   if (step.criteria.kind === 'same_mana_value_as_source') {
     const criteria = step.criteria;
@@ -2180,6 +2199,16 @@ function getSearchLibraryMatches(
 
   const normalizedText = normalizeOracleText(criteria.text);
   if (!normalizedText || normalizedText === 'card' || normalizedText === 'cards') return cards;
+
+  const basicLandSearch = parseBasicLandLibrarySearchCriteria(normalizedText);
+  if (basicLandSearch) {
+    return cards.filter((card) => cardIsBasicLandForLibrarySearch(card, basicLandSearch.requiredBasicType));
+  }
+
+  const landTypeSearch = parseLandTypeLibrarySearchCriteria(normalizedText);
+  if (landTypeSearch) {
+    return cards.filter((card) => cardIsLandTypeForLibrarySearch(card, landTypeSearch.landType));
+  }
 
   const structuredCriteria = parseMoveZoneSingleTargetCriteria(normalizedText);
   if (structuredCriteria) {
@@ -2293,7 +2322,7 @@ export function buildSearchLibrarySelectionOptions(
   const player = state.players.find((entry) => entry.id === playerId) as any;
   if (!player) return null;
 
-  const library = Array.isArray(player.library) ? player.library : [];
+  const library = resolvePlayerLibraryCardsForSearch(state, playerId, player);
   const matches = getSearchLibraryMatches(library, step, state, ctx);
   if (!matches || matches.length === 0) return null;
 
@@ -2654,9 +2683,13 @@ function buildGraveyardPermissionCriteria(text: string): MoveZoneSingleTargetCri
     if (parsedType && parsedType !== 'creature') {
       return { cardType: parsedType };
     }
+    // "creature spell" names the card type itself and "Dragon creature spell" names a subtype plus
+    // the card type; neither describes a creature type literally called "creature".
+    const subtypeName = typeName.replace(/\s*\bcreature\b\s*$/i, '').trim();
+    if (!subtypeName) return { cardType: 'creature' };
     return {
       cardType: 'creature',
-      creatureTypesAnyOf: [typeName.replace(/\b\w/g, (character) => character.toUpperCase())],
+      creatureTypesAnyOf: [subtypeName.replace(/\b\w/g, (character) => character.toUpperCase())],
     };
   }
 
@@ -2949,7 +2982,15 @@ export function applyCreateEmblemStep(
     };
   }
 
-  const emblemName = String(step.name || ctx.sourceName || 'Emblem').trim() || 'Emblem';
+  // An emblem is named after the card that made it ("Liliana, Waker of the Dead Emblem"), so the
+  // source name alone is not a usable emblem name. The parser supplies step.name already suffixed
+  // when it knows the card, and this covers the case where it does not.
+  const parsedEmblemName = String(step.name || '').trim();
+  const sourceEmblemName = String(ctx.sourceName || '').trim();
+  const emblemName =
+    parsedEmblemName ||
+    (sourceEmblemName ? (/\bemblem$/i.test(sourceEmblemName) ? sourceEmblemName : `${sourceEmblemName} Emblem`) : '') ||
+    'Emblem';
   const result = createCustomEmblem(
     controllerId,
     emblemName,
@@ -3792,11 +3833,9 @@ export function applyScryStep(
     ? { ctx, stepIndex: Number(ctx.currentStepIndex), stepKind: step.kind }
     : undefined;
 
-  const wouldNeedChoice = players.some(playerId => {
-    const player = state.players.find(p => p.id === playerId) as any;
-    const libraryLength = Array.isArray(player?.library) ? player.library.length : 0;
-    return libraryLength > 0;
-  });
+  // Empty library: Scry N is a no-op (same as surveil). Do not block later
+  // independent instructions such as "scry 1 and you gain 1 life".
+  const wouldNeedChoice = observedCards.length > 0;
 
   if (wouldNeedChoice) {
     if (bridgeOptions && observedCards.length > 0 && Number.isFinite(bridgeOptions.stepIndex)) {
@@ -4220,10 +4259,12 @@ export function applySearchLibraryStep(
       && (
         matches.length > maxResults
         || step.maxResults === 'any_number'
+        // "Up to N" is a choice even when exactly N cards match — the player may take fewer.
+        || isOptionalSearchLibraryStep(step)
         // Live / interactive (explicit true): always pause for LIBRARY_SEARCH UI even when only
         // one card matches. Default / non-interactive paths auto-pick unique fixed-count matches
         // (e.g. Transmute with a single same-mana-value hit).
-        || (ctx.interactivePlayerChoices === true && !isOptionalSearchLibraryStep(step))
+        || ctx.interactivePlayerChoices === true
       )
     ) {
       return {
@@ -4736,6 +4777,15 @@ export function applyShuffleLibraryStep(
   step: Extract<OracleEffectStep, { kind: 'shuffle_library' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
+  if (step.optional === true && ctx.interactivePlayerChoices === true) {
+    return {
+      applied: false,
+      message: `Skipped optional shuffle (requires player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
   let players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0 && step.who.kind === 'target_player') {
     const spellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
@@ -6659,7 +6709,7 @@ export function buildExploreDecisionFromStep(
   };
   readonly isLand: boolean;
 } | null {
-  let targetId = resolveSingleCreatureTargetId(state, step.target, ctx);
+  let targetId = resolveBoundSelfOrSourceCreatureTargetId(state, step.target, ctx);
   if (!targetId) {
     const targetIds = resolveCreatureTargetIds(state, step.target, ctx);
     targetId = targetIds[0];
@@ -6703,7 +6753,7 @@ export function applyExploreStep(
 ): PlayerStepHandlerResult {
   let targetIds = resolveCreatureTargetIds(state, step.target, ctx);
   if (targetIds.length === 0) {
-    const singleTargetId = resolveSingleCreatureTargetId(state, step.target, ctx);
+    const singleTargetId = resolveBoundSelfOrSourceCreatureTargetId(state, step.target, ctx);
     if (singleTargetId) targetIds = [singleTargetId];
   }
   if (targetIds.length === 0) {
@@ -6780,7 +6830,11 @@ export function applyExploreStep(
     };
   }
 
-  const exploreToGraveyard = ctx.selectorContext?.exploreToGraveyard;
+  // Keeping the revealed nonland card on top is the no-op branch of the choice, so it is the safe
+  // default when the caller asked for deterministic resolution instead of a prompt - matching how
+  // scry, surveil and look_select_top treat interactivePlayerChoices === false.
+  const exploreToGraveyard =
+    ctx.selectorContext?.exploreToGraveyard ?? (ctx.interactivePlayerChoices === false ? false : undefined);
   if (typeof exploreToGraveyard !== 'boolean') {
     return {
       applied: false,
@@ -6917,7 +6971,7 @@ export function applyConniveStep(
   ctx: OracleIRExecutionContext,
   runtime?: ModifyPtRuntime
 ): PlayerStepHandlerResult {
-  const targetId = resolveSingleCreatureTargetId(state, step.target, ctx);
+  const targetId = resolveBoundSelfOrSourceCreatureTargetId(state, step.target, ctx);
   const controllerId = (String(ctx.controllerId || 'p1').trim() || 'p1') as PlayerID;
 
   let amount =
@@ -8146,6 +8200,9 @@ export function applyRetainManaStep(
     }
   }
 
+  // Duration-limited "this mana" (Tanuki, Birgi, firebending) is tracked in
+  // temporaryRetainedMana. Do not stamp pool.doesNotEmpty — that is pool-wide and
+  // would keep expired combat/EOT mana through later phase changes (CR 106.4).
   return {
     applied: true,
     state: {

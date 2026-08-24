@@ -73,7 +73,7 @@ export function detectMillTriggers(card: any, permanent: any): MillTrigger[] {
     }
   }
 
-  const matches = oracleText.matchAll(/whenever (a player|an opponent|you) mill(?:s)? ([^,]+?),?\s*([^.]+)/gi);
+  const matches = oracleText.matchAll(/whenever (a player|an opponent|you) mill(?:s)? ([^,]+),?\s*([^.]+)/gi);
   for (const match of matches) {
     const subject = String(match[1] || '').trim().toLowerCase();
     const parsedCondition = parseMillCondition(String(match[2] || ''));

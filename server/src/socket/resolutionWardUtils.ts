@@ -11,6 +11,22 @@ import { counterStackItem } from "../state/modules/stack-mechanics.js";
 import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { getPlayerName } from "./util.js";
 
+export function resolveWardCasterForTargetSelection(
+  game: any,
+  sourceId: string,
+  fallbackPlayerId: string,
+): { casterId: string; stackItem: any } | null {
+  const pendingCast = (game?.state as any)?.pendingSpellCasts?.[sourceId];
+  const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
+  const stackItem = stack.find((item: any) => item && item.id === sourceId);
+  if (!stackItem && !pendingCast) return null;
+  const casterId = String(
+    stackItem?.controller || pendingCast?.playerId || pendingCast?.controller || fallbackPlayerId || '',
+  );
+  if (!casterId) return null;
+  return { casterId, stackItem };
+}
+
 export function getWardTargetName(game: any, triggeredBy: string): string {
   const stackItem = (game.state?.stack || []).find((entry: any) => entry && String(entry.id || '') === String(triggeredBy || ''));
   if (stackItem) {

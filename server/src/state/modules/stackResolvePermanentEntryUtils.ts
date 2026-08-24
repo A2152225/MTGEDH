@@ -19,6 +19,7 @@ import {
   spellWasCastWithDashPaid,
 } from './keywordCastDelayedEffects.js';
 import { applySneakPermanentBattlefieldEntry } from './sneakCastUtils.js';
+import { selfLeaveBattlefieldReplacementDestination } from './leaveBattlefieldReplacementHint.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
 import {
   createMutatedPermanent,
@@ -48,10 +49,37 @@ function readPrintedLoyalty(source: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function getEnteringPlaneswalkerLoyaltyValue(_state: unknown, _controller: unknown, card: any): number | undefined {
+function readControllerLifeTotal(state: unknown, controller: unknown): number | undefined {
+  const stateAny = state as { life?: Record<string, unknown>; players?: Array<{ id?: unknown; life?: unknown }> } | undefined;
+  const id = String(controller || '').trim();
+  if (!id || !stateAny) return undefined;
+
+  const fromMap = Number(stateAny.life?.[id]);
+  if (Number.isFinite(fromMap)) return Math.floor(fromMap);
+
+  const player = Array.isArray(stateAny.players)
+    ? stateAny.players.find((entry) => String(entry?.id || '').trim() === id)
+    : undefined;
+  const fromPlayer = Number(player?.life);
+  return Number.isFinite(fromPlayer) ? Math.floor(fromPlayer) : undefined;
+}
+
+function loyaltyEqualsControllerLifeTotal(card: any): boolean {
+  const oracleText = String(card?.oracle_text || card?.oracleText || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return /loyalty counters?\s+on (?:it|him|her)\s+equal to (?:your|its controller'?s) life total/i.test(oracleText);
+}
+
+function getEnteringPlaneswalkerLoyaltyValue(state: unknown, controller: unknown, card: any): number | undefined {
   if (!card || typeof card !== 'object') return undefined;
 
   hydrateCardOracleInPlace(card);
+
+  if (loyaltyEqualsControllerLifeTotal(card)) {
+    const lifeTotal = readControllerLifeTotal(state, controller);
+    if (typeof lifeTotal === 'number' && Number.isFinite(lifeTotal)) return Math.max(0, lifeTotal);
+  }
 
   const direct = readPrintedLoyalty(card);
   if (direct != null) return direct;
@@ -486,7 +514,10 @@ export function resolvePermanentSpellBattlefieldEntry(
   const leaveBattlefieldReplacementLifeGain = Number(
     (effectiveCard as any)?.leaveBattlefieldReplacementLifeGain || (item as any)?.card?.leaveBattlefieldReplacementLifeGain || 0
   );
-  if (leaveBattlefieldReplacementDestination === 'exile') {
+  const fromSelfReplacement = selfLeaveBattlefieldReplacementDestination(
+    String((effectiveCard as any)?.oracle_text || (effectiveCard as any)?.oracleText || ''),
+  );
+  if (leaveBattlefieldReplacementDestination === 'exile' || fromSelfReplacement === 'exile') {
     (newPermanent as any).leaveBattlefieldReplacementDestination = 'exile';
     (newPermanent.card as any).leaveBattlefieldReplacementDestination = 'exile';
     if (leaveBattlefieldReplacementSourceName) {

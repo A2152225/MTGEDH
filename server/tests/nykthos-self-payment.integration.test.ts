@@ -134,9 +134,12 @@ describe('Nykthos devotion ability self-payment guard', () => {
       },
     });
 
+    // Newer payment prevalidation rejects the activating permanent as a mana source
+    // (INVALID_PAYMENT_SOURCE) before the generic insufficient-mana check. The
+    // ability still cannot resolve and Nykthos stays untapped.
     const errorEvent = emitted.find((entry) => entry.event === 'error');
-    expect(errorEvent?.payload?.code).toBe('INVALID_PAYMENT');
-    expect(String(errorEvent?.payload?.message || '')).toMatch(/cannot pay for its own activated ability/i);
+    expect(errorEvent?.payload?.code).toBe('INVALID_PAYMENT_SOURCE');
+    expect(String(errorEvent?.payload?.message || '')).toMatch(/cannot use .+ to pay for its own activation cost/i);
 
     const nykthos = (game.state as any).battlefield.find((entry: any) => entry.id === 'nykthos_1');
     expect(Boolean(nykthos?.tapped)).toBe(false);

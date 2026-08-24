@@ -28,6 +28,7 @@ import {
   tryApplyDeclarativeLeaveBattlefieldDestinationReplacement,
 } from "./zone-manipulation.js";
 import { registerLinkedExile } from "./triggers/linked-exile.js";
+import { inferCommanderExileFollowup } from "./commanderExileFollowup.js";
 import { queueCounterPlacedTriggers, queueCounterRemovedTriggers } from "./triggers/counters.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { drawCards as drawCardsFromZone } from './zones.js';
@@ -1514,7 +1515,11 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     } catch (err) {
       debugWarn(1, '[movePermanentToGraveyard] Failed to recalculate player effects after replacement:', err);
     }
-    return true;
+    // Tokens still die (CR 700.4) even though they cease to exist. Do not skip
+    // death-trigger emission for token-ceases-to-exist replacements.
+    if (!graveyardReplacement.ceasesToExist) {
+      return true;
+    }
   }
 
   try {
@@ -2082,6 +2087,16 @@ export function movePermanentToExile(
       ...(options?.exiledWithSourceName ? { exiledWithSourceName: options.exiledWithSourceName } : {}),
     };
 
+    const inferredFollowup = (!options?.linkedExileData && !options?.flickerReturnData)
+      ? inferCommanderExileFollowup({
+          state,
+          destPermanent: perm,
+          sourceId: options?.exiledWithSourceId,
+          sourceName: options?.exiledWithSourceName,
+        })
+      : {};
+    const linkedExileData = options?.linkedExileData || inferredFollowup.linkedExileData;
+    const flickerReturnData = options?.flickerReturnData || inferredFollowup.flickerReturnData;
     ResolutionQueueManager.addStep(ctx.gameId, {
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: owner,
@@ -2101,8 +2116,8 @@ export function movePermanentToExile(
       commanderName: card.name,
       fromZone: 'exile',
       exileTag,
-      ...(options?.linkedExileData ? { linkedExileData: options.linkedExileData } : null),
-      ...(options?.flickerReturnData ? { flickerReturnData: options.flickerReturnData } : null),
+      ...(linkedExileData ? { linkedExileData } : null),
+      ...(flickerReturnData ? { flickerReturnData } : null),
       card: {
         id: card.id,
         name: card.name,

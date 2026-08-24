@@ -17,6 +17,23 @@ function makeLibrary(prefix: string, count: number) {
   }));
 }
 
+/**
+ * Spec conflict: CR 103.7a skips the starting player's first draw, so a fixed
+ * nextStep count no longer lands on DECLARE_BLOCKERS. Walk to that step, then
+ * assign attackers before the DAMAGE transition.
+ */
+function normalizeStepName(step: string): string {
+  return String(step || '').toUpperCase().replace(/_/g, '');
+}
+
+function advanceToStep(game: ReturnType<typeof createInitialGameState>, targetStep: string, maxSteps = 20) {
+  const wanted = normalizeStepName(targetStep);
+  for (let i = 0; i < maxSteps; i += 1) {
+    if (normalizeStepName(String((game.state as any).step || '')) === wanted) return;
+    game.applyEvent!({ type: 'nextStep' } as any);
+  }
+}
+
 function addMindskinner(game: ReturnType<typeof createInitialGameState>, controller: PlayerID) {
   (game.state as any).battlefield.push({
     id: 'mindskinner_perm',
@@ -104,10 +121,6 @@ describe('Mindskinner damage replacement (integration)', () => {
     game.importDeckResolved(p1, makeLibrary('p1', 10) as any);
     game.importDeckResolved(p2, makeLibrary('p2', 10) as any);
 
-    game.applyEvent!({ type: 'nextStep' } as any);
-    game.applyEvent!({ type: 'nextStep' } as any);
-    game.applyEvent!({ type: 'nextStep' } as any);
-
     const active = game.state.turnPlayer as PlayerID;
     const defending = active === p1 ? p2 : p1;
 
@@ -119,14 +132,13 @@ describe('Mindskinner damage replacement (integration)', () => {
     ) as any;
     expect(attacker).toBeTruthy();
 
-    game.applyEvent!({ type: 'nextStep' } as any);
-    game.applyEvent!({ type: 'nextStep' } as any);
-    game.applyEvent!({ type: 'nextStep' } as any);
-
+    advanceToStep(game, 'DECLARE_ATTACKERS');
     attacker.attacking = defending;
     attacker.blockedBy = [];
+    (game.state as any).attackersDeclaredBy = [active];
 
     const startDefendingLife = game.state.life[defending];
+    game.applyEvent!({ type: 'nextStep' } as any);
     game.applyEvent!({ type: 'nextStep' } as any);
 
     expect(game.state.life[defending]).toBe(startDefendingLife);
@@ -209,10 +221,6 @@ describe('Mindskinner damage replacement (integration)', () => {
     game.importDeckResolved(p1, makeLibrary('p1', 10) as any);
     game.importDeckResolved(p2, makeLibrary('p2', 10) as any);
 
-    game.applyEvent!({ type: 'nextStep' } as any);
-    game.applyEvent!({ type: 'nextStep' } as any);
-    game.applyEvent!({ type: 'nextStep' } as any);
-
     const active = game.state.turnPlayer as PlayerID;
     const defending = active === p1 ? p2 : p1;
 
@@ -226,14 +234,13 @@ describe('Mindskinner damage replacement (integration)', () => {
     attacker.card.oracle_text =
       'Whenever this creature deals combat damage to a player, draw a card.';
 
-    game.applyEvent!({ type: 'nextStep' } as any);
-    game.applyEvent!({ type: 'nextStep' } as any);
-    game.applyEvent!({ type: 'nextStep' } as any);
-
+    advanceToStep(game, 'DECLARE_ATTACKERS');
     attacker.attacking = defending;
     attacker.blockedBy = [];
+    (game.state as any).attackersDeclaredBy = [active];
 
     const startHand = game.state.zones?.[active]?.handCount ?? 0;
+    game.applyEvent!({ type: 'nextStep' } as any);
     game.applyEvent!({ type: 'nextStep' } as any);
 
     const drawTriggers = ((game.state as any).stack || []).filter(

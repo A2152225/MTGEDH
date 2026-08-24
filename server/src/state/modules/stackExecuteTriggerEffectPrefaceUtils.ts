@@ -18,6 +18,7 @@ import {
 import {
   applySagaLoreCounterFromTrigger,
 } from './triggerSagaLoreUtils.js';
+import { tryApplyUntapAllYouControlTrigger } from './triggerUntapAllUtils.js';
 import {
   legacyPrefaceHandled,
   legacyPrefaceNotHandled,
@@ -95,6 +96,10 @@ export function tryApplyTriggerEffectPrefaceHandlers(
     triggerItem,
   })) {
     return legacyPrefaceHandled('applySagaLoreCounterFromTrigger');
+  }
+
+  if (tryApplyUntapAllYouControlTrigger(ctx, controller, description, triggerItem)) {
+    return legacyPrefaceHandled('tryApplyUntapAllYouControlTrigger');
   }
 
   return legacyPrefaceNotHandled();

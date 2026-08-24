@@ -90,7 +90,9 @@ describe('CARD_NAME_CHOICE local validation fallback (integration)', () => {
       // ignore cleanup failures
     }
 
-    delete process.env.CARD_LOOKUP_SQLITE_FILE;
+    const canonicalLookup = path.resolve(process.cwd(), 'data', 'card-lookup.sqlite');
+    process.env.CARD_LOOKUP_SQLITE_FILE = canonicalLookup;
+    process.env.CARD_LOOKUP_SQLITE_READONLY_FILE = canonicalLookup;
     delete process.env.CARD_LOOKUP_ORACLE_FILE;
     delete process.env.CARD_LOOKUP_ATOMIC_FILE;
 
@@ -107,14 +109,18 @@ describe('CARD_NAME_CHOICE local validation fallback (integration)', () => {
           id: 'black-lotus',
           name: 'Black Lotus',
           type_line: 'Artifact',
+          oracle_text: '{T}, Sacrifice this artifact: Add three mana of any one color.',
         },
         {
           id: 'sol-ring',
           name: 'Sol Ring',
           type_line: 'Artifact',
+          oracle_text: '{T}: Add {C}{C}.',
         },
       ],
     });
+    const localLookup = await import('../src/services/localCardLookup.js');
+    localLookup.resetLocalCardLookupForTests();
 
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

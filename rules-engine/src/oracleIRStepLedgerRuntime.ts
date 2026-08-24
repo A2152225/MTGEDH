@@ -140,6 +140,7 @@ export function flushStepLedgerFromAppliedResult(args: {
 }): void {
   const existingSnapshots = args.ledger.get(args.stepIndex);
   if (Array.isArray(existingSnapshots) && existingSnapshots.length > 0) {
+    trackAppliedStepKind(args.appliedStepKinds, args.stepIndex, args.step);
     return;
   }
 

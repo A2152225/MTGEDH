@@ -2764,7 +2764,11 @@ export function millSpecifiedPlayers(
     seen.add(opponentId);
     let milled = 0;
 
-    const lib = ctx.libraries?.get?.(opponentId);
+    const zones = (ctx as any).state?.zones || {};
+    const playerRow = ((ctx as any).state?.players || []).find((p: any) => String(p?.id || '') === opponentId);
+    const lib = ctx.libraries?.get?.(opponentId)
+      || (Array.isArray(playerRow?.library) ? playerRow.library : null)
+      || (Array.isArray(zones?.[opponentId]?.library) ? zones[opponentId].library : null);
     if (lib && Array.isArray(lib)) {
       const milledCards: any[] = [];
       for (let i = 0; i < millCount && lib.length > 0; i += 1) {
@@ -3111,11 +3115,8 @@ export function applyCombatDamageReplacement(
     effectsApplied: [],
   };
 
-  const sourceSelf = detectSourceSelfCombatDamageReplacement(attackerCard, attackerPermanent);
-  const detected = sourceSelf
-    || detectTypeRestrictedCombatMillReplacement(ctx, attackerController, attackerCard, attackerPermanent)
-    || detectPreventDamageMillReplacementForController(ctx, attackerController);
-  if (!detected) {
+  const effect = detectCombatDamageReplacement(ctx, attackerCard, attackerPermanent);
+  if (!effect) {
     return empty;
   }
 
@@ -3123,8 +3124,8 @@ export function applyCombatDamageReplacement(
     sourceControllerId: attackerController,
     targetPlayerId: defendingPlayerId,
     damageAmount,
-    replacement: detected.effect,
-    replacementSourceName: detected.sourceName,
+    replacement: effect,
+    replacementSourceName: String(attackerCard?.name || attackerPermanent?.card?.name || 'Replacement'),
     sourceCard: attackerCard,
   });
 

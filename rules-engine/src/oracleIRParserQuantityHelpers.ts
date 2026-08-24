@@ -166,6 +166,7 @@ export function isSimpleCardQuantityTail(quantityTail: string): boolean {
   // Any remaining "and …" is a compound effect, not a card quantity.
   if (/\sand\b/i.test(normalized)) return false;
   if (/\sif\s+/i.test(normalized)) return false;
+  if (/\bunless\b/i.test(normalized)) return false;
   if (/^until you exile/i.test(normalized)) return false;
   if (/,/.test(normalized)) return false;
   return true;

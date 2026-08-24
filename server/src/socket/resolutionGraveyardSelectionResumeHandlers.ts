@@ -226,7 +226,11 @@ export async function finishGraveyardSelectionAfterApply(
         }
       },
     } as any;
-    if ((step as any)?.triggeredAbilityGraveyardSelection === true && destination === 'battlefield' && triggeredAbilityEffectText) {
+    if (
+      destination === 'battlefield'
+      && triggeredAbilityEffectText
+      && ((step as any)?.triggeredAbilityGraveyardSelection === true || (step as any)?.triggeredAbilityGraveyardChoice === true)
+    ) {
       applyTriggeredReanimationEntryRiders(
         ctx,
         entry.permanent,

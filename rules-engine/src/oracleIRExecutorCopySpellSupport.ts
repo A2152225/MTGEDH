@@ -14,6 +14,7 @@ import { payManaCost } from './spellCasting';
 import { createEmptyManaPool, type ManaCost } from './types/mana';
 import { parseManaSymbols } from './types/numbers';
 import { resolveCommanderCastsFromCommandZoneThisGame } from './oracleIRExecutorCommanderCastCount';
+import { resolveAntecedentMovedCards } from './oracleIRLedgerCardAccess';
 
 function normalizeCopyTargetText(target: OracleObjectSelector | undefined): string {
   return target?.kind === 'raw'
@@ -670,6 +671,46 @@ export function getCopiedChapterAbilityReplaySteps(card: any, chapter: number): 
   return [];
 }
 
+function findCardInExileOrGraveyard(state: GameState, cardId: string): any | undefined {
+  const targetId = String(cardId || '').trim();
+  if (!targetId) return undefined;
+
+  const consider = (card: any): any | undefined => {
+    if (!card) return undefined;
+    if (String(card?.id || card?.cardId || '').trim() === targetId) return card;
+    if (String(card?.card?.id || '').trim() === targetId) return card;
+    return undefined;
+  };
+
+  for (const player of (state.players || []) as any[]) {
+    for (const card of Array.isArray(player?.exile) ? player.exile : []) {
+      const hit = consider(card);
+      if (hit) return hit;
+    }
+    for (const card of Array.isArray(player?.graveyard) ? player.graveyard : []) {
+      const hit = consider(card);
+      if (hit) return hit;
+    }
+  }
+
+  const zones = (state as any)?.zones;
+  if (zones && typeof zones === 'object') {
+    for (const ownerId of Object.keys(zones)) {
+      const playerZones = zones[ownerId] || {};
+      for (const card of Array.isArray(playerZones.exile) ? playerZones.exile : []) {
+        const hit = consider(card);
+        if (hit) return hit;
+      }
+      for (const card of Array.isArray(playerZones.graveyard) ? playerZones.graveyard : []) {
+        const hit = consider(card);
+        if (hit) return hit;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 export function resolveCopiedSpellSourceCards(params: {
   state: GameState;
   step: Extract<OracleEffectStep, { kind: 'copy_spell' }>;
@@ -683,12 +724,30 @@ export function resolveCopiedSpellSourceCards(params: {
   const { state, step, ctx, lastMovedCards } = params;
 
   if (step.subject === 'last_moved_card') {
+    const hydrateMoved = (card: any): any => {
+      const cardId = String(card?.id || card?.objectId || card?.cardId || card?.card?.id || '').trim();
+      return (cardId && findCardInExileOrGraveyard(state, cardId)) || card;
+    };
     if (lastMovedCards.length === 1) {
-      return { cards: [lastMovedCards[0]] };
+      return { cards: [hydrateMoved(lastMovedCards[0])] };
     }
-    const ctxMoved = Array.isArray((params.ctx as any)?.lastMovedCards) ? (params.ctx as any).lastMovedCards : [];
+    const ctxMoved = Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : [];
     if (ctxMoved.length === 1) {
-      return { cards: [ctxMoved[0]] };
+      return { cards: [hydrateMoved(ctxMoved[0])] };
+    }
+    const ledgerMoved = resolveAntecedentMovedCards(ctx, { lastMovedCards, lastExiledCards: ctx.lastExiledCards });
+    if (ledgerMoved.length === 1) {
+      return { cards: [hydrateMoved(ledgerMoved[0])] };
+    }
+    const chosenIds = Array.from(new Set([
+      ...(Array.isArray(ctx.chosenObjectIds) ? ctx.chosenObjectIds : []),
+      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : []),
+    ].map((id) => String(id || '').trim()).filter(Boolean)));
+    if (chosenIds.length === 1) {
+      const chosenCard = findCardInExileOrGraveyard(state, chosenIds[0]);
+      if (chosenCard) {
+        return { cards: [chosenCard] };
+      }
     }
     return { reason: 'invalid_source' };
   }
@@ -844,8 +903,26 @@ export function createCastableCopiedSpellCards(params: {
     return { ...player, exile };
   });
 
+  const zones = (stateAny.zones && typeof stateAny.zones === 'object') ? stateAny.zones : {};
+  const controllerZones = (zones[controllerId] = zones[controllerId] || {
+    hand: [],
+    graveyard: [],
+    exile: [],
+    handCount: 0,
+    graveyardCount: 0,
+    exileCount: 0,
+  });
+  controllerZones.exile = Array.isArray(controllerZones.exile) ? controllerZones.exile : [];
+  for (const copiedCard of createdCards) {
+    if (!controllerZones.exile.some((card: any) => String(card?.id || '') === String(copiedCard?.id || ''))) {
+      controllerZones.exile.push(copiedCard);
+    }
+  }
+  controllerZones.exileCount = controllerZones.exile.length;
+  stateAny.zones = zones;
+
   return {
-    state: { ...(stateAny as any), players: updatedPlayers as any } as any,
+    state: { ...(stateAny as any), players: updatedPlayers as any, zones: stateAny.zones } as any,
     createdCards,
     log: createdCards.length > 0
       ? [`[oracle-ir] Created ${createdCards.length} castable copied spell${createdCards.length === 1 ? '' : 's'} in exile`]

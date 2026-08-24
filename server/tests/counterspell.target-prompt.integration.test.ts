@@ -2,16 +2,21 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
+import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
 import '../src/state/modules/priority.js';
 
-function createNoopIo() {
+function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>, sockets: any[] = []) {
   return {
-    to: (_room: string) => ({ emit: (_event: string, _payload: any) => {} }),
-    emit: (_event: string, _payload: any) => {},
-    sockets: { sockets: new Map() },
+    to: (room: string) => ({
+      emit: (event: string, payload: any) => emitted.push({ room, event, payload }),
+    }),
+    emit: (event: string, payload: any) => emitted.push({ event, payload }),
+    sockets: {
+      sockets: new Map(sockets.map((s, idx) => [`s_${idx}`, s])),
+    },
   } as any;
 }
 
@@ -70,8 +75,12 @@ describe('Counterspell target prompt metadata (integration)', () => {
     ];
     (game.state as any).startingLife = 40;
     (game.state as any).life = { [p1]: 40, [p2]: 40 };
-    (game.state as any).phase = 'main1';
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
     (game.state as any).priority = p1;
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 2, black: 0, red: 0, green: 0, colorless: 0 },
+    };
     (game.state as any).battlefield = [];
     (game.state as any).zones = {
       [p1]: {
@@ -116,9 +125,10 @@ describe('Counterspell target prompt metadata (integration)', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, testGameId, emitted);
-    const io = createNoopIo();
+    const io = createMockIo(emitted, [socket]);
 
     registerGameActions(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
 
     await handlers['requestCastSpell']({ gameId: testGameId, cardId: 'counterspell_1' });
 
@@ -129,7 +139,8 @@ describe('Counterspell target prompt metadata (integration)', () => {
     expect(stackTarget?.id).toBe('stack_spell_1');
     expect(stackTarget?.label).toBe('Lightning Bolt');
     expect(stackTarget?.imageUrl).toBe('https://example.com/lightning-bolt.jpg');
-    expect(stackTarget?.type).toBe('card');
+    // Newer target list types stack objects as `stack` (not a battlefield `card`).
+    expect(stackTarget?.type).toBe('stack');
     expect(stackTarget?.description).toBe('stack');
 
     const queuedCastEvent = [...getEvents(testGameId)].reverse().find((event) => event.type === 'castSpellContinuation') as any;

@@ -775,6 +775,51 @@ export function isAdditionalDrawOnlyDrawStepOracle(oracleText: string): boolean 
   return Boolean(match && isAdditionalDrawOnlyEffect(String(match[1] || '')));
 }
 
+/**
+ * Collect additional-draw-only draw-step abilities for diagnostics.
+ * Those effects stay off detectDrawStepTriggers (turn-based extra draws via
+ * calculateAdditionalDraws) and are not a phase-skip DRAW stop.
+ */
+export function collectAdditionalDrawOnlyDrawStepTriggers(
+  ctx: GameContext,
+  activePlayerId: string,
+): DrawStepTrigger[] {
+  const triggers: DrawStepTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    const oracleText = String(permanent.card.oracle_text || '');
+    if (!isAdditionalDrawOnlyDrawStepOracle(oracleText)) continue;
+
+    const controllerId = String(permanent.controller || '');
+    if (!shouldQueuePhaseTriggerForActivePlayer({
+      whose: inferDrawStepWhoseTurn(oracleText),
+      activePlayerId,
+      controllerId,
+      sourcePermanent: permanent,
+      state: (ctx as any).state,
+    })) {
+      continue;
+    }
+
+    const match = oracleText.match(
+      /at the beginning of (?:your|each(?: player's)?|each of your) draw steps?,?\s*([^.]+)/i,
+    );
+    const effect = String(match?.[1] || 'draw an additional card').trim();
+    triggers.push({
+      permanentId: String(permanent.id || ''),
+      cardName: permanent.card.name || 'Unknown',
+      controllerId,
+      description: effect,
+      effect,
+      mandatory: true,
+    });
+  }
+
+  return triggers;
+}
+
 export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigger[] {
   const triggers: DrawStepTrigger[] = [];
   const oracleText = (card?.oracle_text || "");

@@ -100,17 +100,18 @@ describe('Combat-damage-to-you regressions', () => {
     addPlayer(game, p2, 'P2');
     setupToMain1(game, [p1, p2]);
 
+    const active = game.state.turnPlayer as PlayerID;
+    const defending = active === p1 ? p2 : p1;
+
     const attacker = {
       id: 'attacker_1',
-      controller: p1,
-      owner: p1,
+      controller: active,
+      owner: active,
       tapped: false,
       counters: {},
       summoningSickness: false,
       basePower: 2,
       baseToughness: 2,
-      attacking: p2,
-      blockedBy: [],
       card: {
         id: 'attacker_card_1',
         name: 'Test Attacker',
@@ -122,8 +123,8 @@ describe('Combat-damage-to-you regressions', () => {
     };
     const gameBall = {
       id: 'game_ball_1',
-      controller: p2,
-      owner: p2,
+      controller: defending,
+      owner: defending,
       tapped: true,
       counters: {},
       summoningSickness: false,
@@ -137,12 +138,16 @@ describe('Combat-damage-to-you regressions', () => {
 
     (game.state.battlefield as any[]).push(attacker as any, gameBall as any);
 
-    game.applyEvent({ type: 'nextStep' });
-    game.applyEvent({ type: 'nextStep' });
-    game.applyEvent({ type: 'nextStep' });
-    (attacker as any).attacking = p2;
-    (attacker as any).blockedBy = [];
-    game.applyEvent({ type: 'nextStep' });
+    // CR 508.1: nextStep cannot leave DECLARE_ATTACKERS until attackers are declared.
+    game.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
+    game.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
+    game.applyEvent({
+      type: 'declareAttackers',
+      playerId: active,
+      attackers: [{ attackerId: 'attacker_1', defendingPlayer: defending }],
+    });
+    game.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
+    game.applyEvent({ type: 'nextStep' }); // DAMAGE
 
     const trigger = ((game.state as any).stack || []).find(
       (item: any) => item?.type === 'triggered_ability' && item?.source === 'game_ball_1'
@@ -152,7 +157,7 @@ describe('Combat-damage-to-you regressions', () => {
     game.resolveTopOfStack();
 
     const permanent = ((game.state as any).battlefield || []).find((perm: any) => perm?.id === 'game_ball_1');
-    expect(permanent?.controller).toBe(p1);
+    expect(permanent?.controller).toBe(active);
     expect(permanent?.tapped).toBe(false);
   });
 

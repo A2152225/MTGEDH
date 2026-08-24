@@ -235,6 +235,9 @@ import {
   mergeRevealFollowupAbilities,
   mergeSagaChapterCopyFollowupAbilities,
 } from './oracleIRParserPostprocess';
+import { repairIntraAbilityInsteadConditionalSteps } from './oracleIRParserPostprocessInsteadReplacementSteps';
+import { extractQuotedAbilityRiderSteps } from './oracleIRParserPostprocessQuotedAbilityRiders';
+import { repairCurrentBatchSurfaceSteps } from './oracleIRParserPostprocessCurrentBatchSurfaces';
 import { buildAbilityClauses } from './oracleIRParserAbilityClauses';
 import {
   abilityEffectText,
@@ -1593,8 +1596,20 @@ function mergeSplitChooseModeParsedAbilities(parsed: OracleTextParseResult): Ora
     const current = parsed.abilities[index];
     const currentText = String(current.text || '').trim();
     const isPWorthHeader = /^choose\s+up\s+to\s+\w+\s*\{P\}\s*worth\s+of\s+modes\b/i.test(currentText);
+    const chooseHeaderPattern =
+      /choose\s+(?:one\s+or\s+both|one\s+or\s+more|one|two|three|four|up\s+to\s+\w+|any\s+number)/i;
+    // When newlines have been collapsed to spaces (audit paths do this), a saga chapter prefix hides
+    // the header at the start of the line and the first bullet is glued onto it:
+    // "I, II, III - Choose one at random - • Combine Powers! - ...".
+    // The same collapse hides the header behind any lead-in, not just a saga chapter: a reflexive
+    // trigger does it too ("you may sacrifice another creature. When you do, choose two - • Create...").
+    const chooseHeaderMatch = isPWorthHeader ? null : currentText.match(chooseHeaderPattern);
+    const headerHasInlineBullet =
+      chooseHeaderMatch !== null &&
+      currentText.slice((chooseHeaderMatch.index ?? 0) + chooseHeaderMatch[0].length).search(/[\u2022•]/) >= 0;
     if (
       !isPWorthHeader &&
+      !headerHasInlineBullet &&
       !/^choose\s+(?:one\s+or\s+both|one\s+or\s+more|one|two|three|four|up\s+to\s+\w+|any\s+number)/i.test(currentText)
     ) {
       merged.push(current);
@@ -1602,6 +1617,9 @@ function mergeSplitChooseModeParsedAbilities(parsed: OracleTextParseResult): Ora
     }
 
     const modeAbilities: ParsedAbility[] = [];
+    // The first mode lives inside the header when bullets were inlined, so tails seen before any
+    // bullet ability belong to the header rather than to a preceding mode.
+    let headerTailText = currentText;
     let nextIndex = index + 1;
     while (nextIndex < parsed.abilities.length) {
       const next = parsed.abilities[nextIndex];
@@ -1613,14 +1631,20 @@ function mergeSplitChooseModeParsedAbilities(parsed: OracleTextParseResult): Ora
         nextIndex += 1;
         continue;
       }
-      // Season `{P}` modes are often sentence-split ("Choose artifact…. Destroy all…").
+      // Season `{P}` modes are often sentence-split ("Choose artifact…. Destroy all…"), as are
+      // bullet modes whose newlines were collapsed ("• Defense! - Put a shield counter…. You gain 3 life.").
       // Fold non-mode tails into the preceding mode line before breaking the block.
       if (
-        isPWorthHeader &&
-        modeAbilities.length > 0 &&
+        (isPWorthHeader || headerHasInlineBullet) &&
+        (modeAbilities.length > 0 || headerHasInlineBullet) &&
         nextText &&
         !/^(?:choose\s+up\s+to|when|whenever|at\s+the)\b/i.test(nextText)
       ) {
+        if (modeAbilities.length === 0) {
+          headerTailText = `${headerTailText} ${nextText}`.trim();
+          nextIndex += 1;
+          continue;
+        }
         const previous = modeAbilities[modeAbilities.length - 1];
         const combinedModeText = `${String(previous.text || '').trim()} ${nextText}`.trim();
         modeAbilities[modeAbilities.length - 1] = {
@@ -1639,7 +1663,7 @@ function mergeSplitChooseModeParsedAbilities(parsed: OracleTextParseResult): Ora
       continue;
     }
 
-    const combinedText = [currentText, ...modeAbilities.map((ability) => String(ability.text || '').trim())]
+    const combinedText = [headerTailText, ...modeAbilities.map((ability) => String(ability.text || '').trim())]
       .filter(Boolean)
       .join('\n');
     const combinedTargets = Array.from(new Set(modeAbilities.flatMap((ability) => ability.targets || [])));
@@ -1882,6 +1906,8 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeSearchLibraryShuffleFollowupAbilities(abilities);
   abilities = repairRandomChooseModeSagaAbilities(abilities);
   abilities = repairMonarchInsteadConditionalAbilities(abilities);
+  abilities = repairIntraAbilityInsteadConditionalSteps(abilities);
+  abilities = extractQuotedAbilityRiderSteps(abilities);
   abilities = enrichAnnihilatorGrantMetadataAbilities(abilities);
   abilities = enrichWardGrantMetadataAbilities(abilities);
   abilities = pruneRedundantTriggerEffectFragmentUnknownAbilities(abilities);
@@ -2048,9 +2074,13 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
       .map((ability) => ({
         ...ability,
         type:
-          /^as an additional cost to cast this spell/i.test(text) ||
-          parsedAbility.type === AbilityType.SPELL ||
-          isSpellInstructionLine(text)
+          // A recovered ability that kept its trigger condition ("Landfall - Whenever a land you
+          // control enters, ...") is triggered no matter how the surrounding line reads; downgrading
+          // it to a spell effect loses the trigger for every consumer downstream.
+          !ability.triggerCondition &&
+          (/^as an additional cost to cast this spell/i.test(text) ||
+            parsedAbility.type === AbilityType.SPELL ||
+            isSpellInstructionLine(text))
             ? AbilityType.SPELL
             : ability.type,
         steps: ability.steps.filter(
@@ -2117,6 +2147,8 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   // Recovery above can reintroduce unknowns after the main residual pass
   // (e.g. multi-sentence aura statics with "instead as long as…" riders).
   abilities = lowerCurrentResidualUnknownAbilities(abilities);
+  abilities = extractQuotedAbilityRiderSteps(abilities);
+  abilities = repairCurrentBatchSurfaceSteps(abilities, parsingOracleText);
   abilities = lowerRecruitKeywordAbilities(abilities);
   abilities = expandKeywordActionUnknownAbilities(abilities);
 

@@ -9,6 +9,10 @@ import type {
   OracleIRSelectorContext,
 } from './oracleIRExecutionTypes';
 import { applyOracleIRStepsToGameStateImpl } from './oracleIRExecutorMainLoop';
+import {
+  popActiveOracleIrBattlefieldRemovalContext,
+  pushActiveOracleIrBattlefieldRemovalContext,
+} from './oracleIRExecutorBattlefieldOps';
 
 export type {
   OracleIRExecutionContext,
@@ -50,11 +54,16 @@ export function applyOracleIRStepsToGameState(
   ctx: OracleIRExecutionContext,
   options: OracleIRExecutionOptions = {}
 ): OracleIRExecutionResult {
-  return applyOracleIRStepsToGameStateImpl(
-    state,
-    steps,
-    ctx,
-    options,
-    applyOracleIRStepsToGameState
-  );
+  pushActiveOracleIrBattlefieldRemovalContext(ctx);
+  try {
+    return applyOracleIRStepsToGameStateImpl(
+      state,
+      steps,
+      ctx,
+      options,
+      applyOracleIRStepsToGameState
+    );
+  } finally {
+    popActiveOracleIrBattlefieldRemovalContext();
+  }
 }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
-import { movePermanentToGraveyard } from '../src/state/modules/counters_tokens.js';
+import { movePermanentToGraveyard, resolveLegendRuleChoice } from '../src/state/modules/counters_tokens.js';
+import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 import { handleElixirShuffle } from '../src/state/modules/zone-manipulation.js';
 import { movePermanentToHand, movePermanentToLibrary } from '../src/state/modules/zones.js';
@@ -214,6 +215,20 @@ describe('leave-battlefield replacement helper convergence', () => {
     ];
 
     game.runSBA();
+
+    // Newer spec: CR 704.5j queues a keep-one choice instead of auto-picking.
+    const legendStep = ResolutionQueueManager.getQueue('lbr_legend_rule').steps.find(
+      (step: any) => step?.legendRuleChoice === true,
+    ) as any;
+    expect(legendStep).toBeDefined();
+    const choice = resolveLegendRuleChoice(game as any, {
+      batchId: String(legendStep.legendRuleBatchId || ''),
+      groupKey: String(legendStep.legendRuleGroupKey || ''),
+      playerId: 'p1',
+      selectedPermanentId: 'legendary_replacement_1',
+    });
+    expect(choice.accepted).toBe(true);
+    expect(choice.complete).toBe(true);
 
     const battlefieldCopies = (((game.state as any).battlefield || []) as any[]).filter((entry: any) => String(entry?.card?.name || '') === 'Mirror Legend');
     expect(battlefieldCopies).toHaveLength(1);

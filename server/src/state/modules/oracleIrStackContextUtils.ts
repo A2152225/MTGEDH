@@ -9,6 +9,7 @@ export function buildStackOracleIRContext(
   options?: {
     xValue?: number;
     sourceId?: string;
+    sourceName?: string;
     targetPlayerId?: PlayerID;
     targetOpponentId?: PlayerID;
     targetPermanentId?: string;
@@ -29,6 +30,7 @@ export function buildStackOracleIRContext(
     {
       controllerId: caster,
       sourceId: options?.sourceId,
+      sourceName: options?.sourceName,
       xValue: options?.xValue,
       ...(options?.targetPermanentId ? { targetPermanentId: options.targetPermanentId } : {}),
       ...(options?.targetCreatureId ? { targetCreatureId: options.targetCreatureId } : {}),

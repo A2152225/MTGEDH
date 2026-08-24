@@ -18,6 +18,11 @@ import { applyKeywordTriggerFallbackFromOracle } from './triggerKeywordFallbackU
 import { tryApplyPresetTriggerChosenTypeEffects } from './stackExecuteTriggerChosenTypeUtils.js';
 import { applyStackParadigmTrigger, applyStackReboundTrigger } from './stackSpecialTriggerHandlers.js';
 import { processDetectedFirebendingResolvedTriggers } from './triggerEmissionFamilyUtils.js';
+import { applyTemporaryGraveyardKeywordGrantFromText } from './graveyard-permissions.js';
+import { tryApplyCastingModifierGrantsFromText } from './casting-modifiers.js';
+import { tryApplyTakeExtraTurnFromTriggerText } from './triggerTakeExtraTurnUtils.js';
+import { tryApplyWinTheGameFromTriggerText } from './triggerWinGameUtils.js';
+import { tryApplyTargetedDamageFromEffectText } from './triggerLifeDamageUtils.js';
 
 /** Retirement triage (D2): tag legacy trigger executions while IR primary is enabled. */
 function recordLegacyTriggerHandled(
@@ -81,6 +86,28 @@ export function executeTriggerEffect(
     return;
   }
 
+  if (applyTemporaryGraveyardKeywordGrantFromText(ctx, controller, sourceName, normalizedDescription, triggerItem) > 0) {
+    recordLegacyTriggerHandled(
+      ctx,
+      sourceName,
+      normalizedDescription,
+      'graveyard_keyword_grant',
+      'applyTemporaryGraveyardKeywordGrantFromText',
+    );
+    return;
+  }
+
+  if (tryApplyCastingModifierGrantsFromText(state, controller, normalizedDescription, sourceName, triggerItem)) {
+    recordLegacyTriggerHandled(
+      ctx,
+      sourceName,
+      normalizedDescription,
+      'casting_modifier_grant',
+      'tryApplyCastingModifierGrantsFromText',
+    );
+    return;
+  }
+
   if (applyStackReboundTrigger({
     ctx,
     controller,
@@ -112,6 +139,39 @@ export function executeTriggerEffect(
   if (triggerIrOutcome.handled) {
     tryApplyRoomDoorStateFromResolvedEffect(ctx, controller, normalizedDescription, triggerItem);
     emitFirebendingResolved(ctx, controller, triggerItem);
+    return;
+  }
+
+  if (tryApplyTargetedDamageFromEffectText(ctx, controller, normalizedDescription, triggerItem)) {
+    recordLegacyTriggerHandled(
+      ctx,
+      sourceName,
+      normalizedDescription,
+      'targeted_damage',
+      'tryApplyTargetedDamageFromEffectText',
+    );
+    return;
+  }
+
+  if (tryApplyTakeExtraTurnFromTriggerText(ctx, controller, normalizedDescription, sourceName)) {
+    recordLegacyTriggerHandled(
+      ctx,
+      sourceName,
+      normalizedDescription,
+      'extra_turn',
+      'tryApplyTakeExtraTurnFromTriggerText',
+    );
+    return;
+  }
+
+  if (tryApplyWinTheGameFromTriggerText(ctx, controller, normalizedDescription, sourceName)) {
+    recordLegacyTriggerHandled(
+      ctx,
+      sourceName,
+      normalizedDescription,
+      'win_game',
+      'tryApplyWinTheGameFromTriggerText',
+    );
     return;
   }
 

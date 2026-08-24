@@ -642,11 +642,13 @@ describe('exertChoice replay coverage', () => {
 
     game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
+    // CR 603.12 “If you do” is a reflexive discard prompt, not the older
+    // planeswalker optionalDiscardThenDrawChoice helper.
     const discardChoiceStep = ResolutionQueueManager.getStepsForPlayer(gameId, attackerId).find(
-      (entry: any) => entry?.type === ResolutionStepType.OPTION_CHOICE && entry?.optionalDiscardThenDrawChoice === true,
+      (entry: any) => entry?.type === ResolutionStepType.OPTION_CHOICE && entry?.reflexiveDiscardWhenYouDo === true,
     ) as any;
     expect(discardChoiceStep).toBeDefined();
-    expect((discardChoiceStep.options || []).map((option: any) => option.id)).toEqual(['discard', 'dont']);
+    expect((discardChoiceStep.options || []).map((option: any) => option.id)).toEqual(['discard', 'decline']);
 
     await attackerHandlers.submitResolutionResponse({
       gameId,
@@ -658,13 +660,15 @@ describe('exertChoice replay coverage', () => {
       (entry: any) => entry?.type === ResolutionStepType.DISCARD_SELECTION && entry?.sourceName === 'Battlefield Scavenger',
     ) as any;
     expect(discardStep).toBeDefined();
-    expect(discardStep?.afterDiscardDrawCount).toBe(1);
+    expect(discardStep?.reflexiveDiscardWhenYouDo).toBe(true);
 
     await attackerHandlers.submitResolutionResponse({
       gameId,
       stepId: String(discardStep.id),
       selections: ['discard_spell'],
     });
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
     const scavenger = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'battlefield_scavenger') as any;
     const attackerZones = (game.state as any).zones[attackerId] as any;

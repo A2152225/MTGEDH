@@ -1,0 +1,39 @@
+---
+description: Extraction playbook for MTG logic modules - where new code goes, folder naming, module map upkeep
+globs: server/src/socket/**/*.ts,server/src/state/**/*.ts,rules-engine/src/**/*.ts
+alwaysApply: false
+---
+
+# MTG logic split playbook
+
+Applies when adding to or splitting logic under `server/src/socket/`, `server/src/state/`, or `rules-engine/src/`. Size ceiling and dual-barrel definitions live in `.cursor/rules/typescript-max-40kb-split.mdc`; the full playbook and paste prompts are in `.cursor/skills/split-ts-module/SKILL.md`.
+
+## Where new code goes
+
+1. Check `docs/mtg-logic-module-map.md` for the module that already owns the mechanic. Extend that module if it is under ~36KB.
+2. Otherwise create a sibling in the domain's existing family: `resolution*Handlers.ts` / `resolution-handlers/`, `triggers/`, `oracleIRParser*`, `oracleIRExecutor*`.
+3. For a mega parent with **no** extract family yet (`game-actions.ts`, `interaction.ts`, `ai.ts`, `applyEvent.ts`), create `<parent>-handlers/index.ts` on the first extract.
+
+**Never** create `X/` next to `X.ts` (`socket/resolution/`, `socket/game-actions/`). The folder is `X-handlers/` — or the existing `triggers/`.
+
+## Do not grow an oversized file
+
+`node tools/ts-logic-file-sizes.mjs` lists everything over 40960 bytes. If the target is already over, put the new logic in a new descriptive module and import it. The parent may gain **import/re-export lines only**, and only when the same session removes more than it adds.
+
+Also do not append to a sibling already at ~36–40KB — add a new sibling.
+
+## Extract sequence
+
+1. Grep a TOC of the parent (`^(export )?(async )?function`, `case ResolutionStepType`, `case '`) and note start/end lines. Do not Read the whole parent.
+2. Grep the symbol for a **dual copy** in a folder submodule. If one exists, merge into the folder copy instead of creating a third.
+3. Pick one self-contained cluster. If it closes over many parent helpers, extract those helpers first into a `*Utils.ts`.
+4. Create the module with a header comment (origin parent, cluster, public entry symbols). Prefer `import type` for types. Add a named re-export plus a one-line comment to the folder `index.ts`.
+5. Wire it: resolution uses the `resolutionHandlerDeps.ts` seam (extracted files must not import `resolution.ts`, and each extracted step type also needs pre-complete validation); other domains use parent re-export or direct leaf import. Lazy `await import(...)` is a last resort for cycles.
+6. Delete the moved body from the parent.
+7. Re-read changed import lines and neighbors in both files, typecheck the workspace, run targeted tests, then add the module-map row.
+
+Move code only — no card fixes, renames, or cleanup in an extract diff.
+
+## Session scope
+
+One cluster per session. Stop when the new file approaches 40KB and split the cluster rather than packing more cases in. Never two writers on the same parent file.

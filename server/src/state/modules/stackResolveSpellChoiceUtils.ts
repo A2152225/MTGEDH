@@ -309,6 +309,21 @@ export function tryResolveInstantSorceryPreResolutionChoices(
       oracleTextLower,
       existingChosenColor,
     });
+    const spellSteps = collectSpellResolutionEffectSteps(
+      oracleText,
+      String(effectiveCard.name || 'Spell'),
+      buildOracleOverlayCollectOptions({
+        cardName: String(effectiveCard.name || 'Spell'),
+        card,
+        effectiveCard,
+        sourceItem: item,
+      }),
+    );
+    // Effect Program already queued the choose_color prompt. After applyEvent stamps
+    // chosenColor, finish here so fallback does not start a second program.
+    if (requiresEffectProgramOrchestration(spellSteps)) {
+      return true;
+    }
   }
 
   return false;

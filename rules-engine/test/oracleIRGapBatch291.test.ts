@@ -33,7 +33,7 @@ describe('Oracle IR gap batch 291 — selector cluster fixes', () => {
         kind: 'raw',
         text: "a creature card of target opponent's choice from target opponent's graveyard",
       })
-    ).toEqual({ cardType: 'creature' });
+    ).toEqual({ cardType: 'creature', fromHandOrGraveyardOwner: 'target_player' });
   });
 
   it('parses Soulquake compound battlefield and graveyard return', () => {

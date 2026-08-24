@@ -10067,7 +10067,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         triggerType: isSelfEntersOrAttacks ? 'self_enters_or_attacks' : 'etb',
         description: effectText,
         effect: effectText,
-        mandatory: true,
+        mandatory: !effectText.toLowerCase().includes('you may'),
         requiresTarget,
         targetType,
         targetConstraint,
@@ -12081,6 +12081,21 @@ function appendDetectedSelfDeathTriggers(
       pushDetectedDeathTrigger(results, trigger, dyingController);
       continue;
     }
+    // "This/NAME or another creature you control dies" is a self-and-other
+    // trigger. The live self-dies scan only matches NAME immediately before
+    // "dies", so queue these here when the dying creature is the source.
+    if (
+      triggerType === 'this_or_another_creature_dies'
+      || triggerType === 'this_or_another_creature_dies_any'
+      || triggerType === 'this_or_another_typed_creature_dies'
+      || triggerType === 'this_or_another_typed_creature_dies_any'
+      || triggerType === 'named_or_another_creature_dies'
+      || triggerType === 'named_or_another_typed_creature_dies'
+      || triggerType === 'named_or_another_keyword_creature_dies'
+    ) {
+      pushDetectedDeathTrigger(results, trigger, dyingController);
+      continue;
+    }
     // Artifact/enchantment "enters or is put into a graveyard" uses triggerType `dies`.
     // Creature "When this creature dies" is already collected by the live self-dies scan.
     if (triggerType === 'dies' && !isCreature) {
@@ -12209,14 +12224,15 @@ export function getDeathTriggers(
     return inlineOptions.length > 0 ? inlineOptions : undefined;
   };
   const selfDiesPattern = new RegExp(
-    `when(?:ever)?\\s+(?:~|this creature|${escapeCardNameForRegex(dyingCardName)})\\s+dies,?\\s*([^.]+)`,
+    `when(?:ever)?\\s+(?:~|this creature|${escapeCardNameForRegex(dyingCardName)})(?:\\s+or\\s+another\\s+(?:nontoken\\s+)?creature(?:s)?(?:\\s+you\\s+control)?)?\\s+dies,?\\s*([^.]+)`,
     'ig'
   );
   const seenSelfEffects = new Set<string>();
   for (const rulesText of getPermanentRulesTextFragments(dyingCreature)) {
-    const matches = rulesText.matchAll(selfDiesPattern);
+    const textForScan = stripReminderParentheticals(rulesText);
+    const matches = textForScan.matchAll(selfDiesPattern);
     for (const match of matches) {
-      let effect = collectDeathTriggerEffectText(rulesText, match as RegExpMatchArray, 1);
+      let effect = collectDeathTriggerEffectText(textForScan, match as RegExpMatchArray, 1);
       if (/^choose one\b/i.test(effect)) {
         const matchText = String(match?.[0] || '');
         const matchIndex = typeof match?.index === 'number' ? match.index : -1;
@@ -13302,11 +13318,20 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
       if (
         lowerMatchText.includes('spell of the chosen type') ||
         lowerMatchText.includes('spell of that type') ||
-        lowerMatchText.includes('spell with the chosen name')
+        lowerMatchText.includes('spell with the chosen name') ||
+        lowerMatchText.includes('spell from your library') ||
+        lowerMatchText.includes('spell from your graveyard') ||
+        lowerMatchText.includes('spell from exile') ||
+        lowerMatchText.includes('spell from anywhere other than your hand')
       ) {
         continue;
       }
       const effectText = extractSpellCastEffect(oracleText, match, 1);
+      // Name-specific "that targets ~" clauses are heroic / dedicated detectors.
+      // Untyped "whenever you cast a spell, …" must not swallow them as the effect.
+      if (/^that targets\b/i.test(String(effectText || '').trim())) {
+        continue;
+      }
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'any')) {
         triggers.push({
           permanentId,

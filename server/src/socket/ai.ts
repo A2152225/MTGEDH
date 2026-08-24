@@ -67,6 +67,7 @@ import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal
 import { type AdditionalCostResult } from "./land-helpers.js";
 import { advanceStepPersistingEvent } from "./step-advance.js";
 import { tryAutoStartGameFromPreGame } from "./pregame-auto-start.js";
+import { chooseAIReflexiveExileToOwnersGraveyardSelection } from "./aiReflexiveExileToOwnersGraveyardChoice.js";
 import { syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getOptionalPaymentValidationFailure } from "./optional-payment-prompts.js";
 import {
@@ -88,7 +89,7 @@ export function chooseAIXValueSelection(game: any, playerId: PlayerID, step: any
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
 const AI_FAST_CONTINUE_MS = 75;
-const AI_PASSIVE_STEP_DELAY_MS = 0;
+const AI_PASSIVE_STEP_DELAY_MS = 300;
 const AI_REACTION_DELAY_MS = 300;
 
 /** Maximum cards to retrieve when searching the entire library for commander selection */
@@ -1307,8 +1308,9 @@ export async function handleAIGameFlow(
   }
   
   if (hasPriority || (isCleanupStep && isAITurn)) {
-    // Small delay before AI takes action
-    scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
+    // Broadcast/gameFlow already waited AI_REACTION_DELAY_MS. A second delay
+    // stacked the UNTAP→UPKEEP handoff outside the 600ms window.
+    scheduleAIPriority(io, gameId, playerId, 0);
   }
   });
 }
@@ -3976,6 +3978,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.reflexiveBoundGraveyardSelfExileWhenYouDo === true && String(step?.reflexiveBoundGraveyardSelfExileWhenYouDoStage || '') === 'ask') {
     return chooseAIReflexiveBoundGraveyardSelfExileSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.reflexiveExileToOwnersGraveyardWhenYouDo === true && String(step?.reflexiveExileToOwnersGraveyardWhenYouDoStage || '') === 'ask') {
+    return chooseAIReflexiveExileToOwnersGraveyardSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.reflexiveConvertWhenYouDo === true) {
@@ -11707,6 +11713,11 @@ export async function handleAIResolutionStep(
         if ((step as any)?.oracleIrLibraryChaosTargetSelection === true) {
           const { resolveLibraryChaosTargetSelectionForAI } = await import('./resolution.js');
           await resolveLibraryChaosTargetSelectionForAI(io, game, gameId, step, targetResponse);
+        } else if ((step as any)?.planeswalkerAbility) {
+          // completeStep only records the choice. Loyalty cost + stack item live in
+          // applyResolutionStepSideEffects (same path as a human target response).
+          const { applyResolutionStepSideEffects } = await import('./resolution.js');
+          await applyResolutionStepSideEffects(io, game, gameId, step, targetResponse);
         }
         debug(1, `[AI] Target selection: Selected ${targetsToSelect.length} target(s)`);
         break;
@@ -11715,12 +11726,12 @@ export async function handleAIResolutionStep(
       case 'mutate_target_selection': {
         const validTargets: any[] = Array.isArray((step as any)?.validTargets) ? (step as any).validTargets : [];
         const targetPermanentId = String(validTargets[0]?.id || '').trim();
+        const mutateResponse = createResponse({ targetPermanentId, onTop: true }, !targetPermanentId);
 
-        ResolutionQueueManager.completeStep(
-          gameId,
-          step.id,
-          createResponse({ targetPermanentId, onTop: true }, !targetPermanentId),
-        );
+        ResolutionQueueManager.completeStep(gameId, step.id, mutateResponse);
+        // completeStep alone does not stamp pendingSpellCasts.mutateTarget.
+        const { applyResolutionStepSideEffects } = await import('./resolution.js');
+        await applyResolutionStepSideEffects(io, game, gameId, step, mutateResponse);
         debug(1, `[AI] Mutate target selection: ${targetPermanentId || 'no valid target found'}`);
         break;
       }
@@ -11782,14 +11793,14 @@ export async function handleAIResolutionStep(
             toHand: (step as any)?.toHand === 'rest' ? 'rest' : Number((step as any)?.toHand),
           },
         );
-        ResolutionQueueManager.completeStep(
-          gameId,
-          step.id,
-          {
-            ...createResponse(librarySearch.selections),
-            ...(librarySearch.splitAssignments ? { splitAssignments: librarySearch.splitAssignments } : {}),
-          },
-        );
+        const libraryResponse = {
+          ...createResponse(librarySearch.selections),
+          ...(librarySearch.splitAssignments ? { splitAssignments: librarySearch.splitAssignments } : {}),
+        };
+        if (ResolutionQueueManager.completeStep(gameId, step.id, libraryResponse)) {
+          const { applyResolutionStepSideEffects } = await import('./resolution.js');
+          await applyResolutionStepSideEffects(io, game, gameId, step, libraryResponse);
+        }
         debug(1, `[AI] library_search: Selected ${librarySearch.selections.join(', ') || 'none'}`);
         break;
       }

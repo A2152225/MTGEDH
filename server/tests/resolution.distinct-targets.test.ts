@@ -11,12 +11,15 @@ async function resetGame(gameId: string) {
   await deleteGame(gameId);
 }
 
-function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
+function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>, sockets: any[] = []) {
   return {
     to: (room: string) => ({
       emit: (event: string, payload: any) => emitted.push({ room, event, payload }),
     }),
     emit: (event: string, payload: any) => emitted.push({ event, payload }),
+    sockets: {
+      sockets: new Map(sockets.map((socket, index) => [socket.id || `s_${index}`, socket])),
+    },
   } as any;
 }
 
@@ -82,8 +85,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     (game.state as any).stack = [{ id: 'spell_1', type: 'spell' }];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket('p1', emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -153,8 +156,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     (game.state as any).stack = [{ id: 'spell_1', type: 'spell' }];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket('p1', emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -211,8 +214,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     (game.state as any).stack = [{ id: 'spell_1', type: 'spell' }];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket('p1', emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -277,8 +280,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     (game.state as any).stack = [{ id: 'spell_1', type: 'spell' }];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket('p1', emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -343,8 +346,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     (game.state as any).stack = [{ id: 'spell_1', type: 'spell' }];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket('p1', emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -409,8 +412,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     (game.state as any).stack = [{ id: 'spell_1', type: 'spell' }];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket('p1', emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -477,8 +480,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     (game.state as any).stack = [{ id: 'spell_1', type: 'spell' }];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket('p1', emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -543,8 +546,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     (game.state as any).stack = [{ id: 'spell_1', type: 'spell' }];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket('p1', emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -609,8 +612,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     (game.state as any).stack = [{ id: 'spell_1', type: 'spell' }];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket('p1', emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -675,8 +678,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     (game.state as any).stack = [{ id: 'spell_1', type: 'spell' }];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket('p1', emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -740,8 +743,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     (game.state as any).players = [{ id: 'p1', name: 'P1', spectator: false }];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket('p1', emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
     const step = ResolutionQueueManager.addStep(gameId, {

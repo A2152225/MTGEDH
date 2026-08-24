@@ -223,7 +223,7 @@ describe('oracleIRExecutorConditionalStepSupport', () => {
     expect(exiledThisWay).toBe(true);
   });
 
-  it('evaluates spell mana value thresholds and bare you-don\'t defaults', () => {
+  it('evaluates spell mana value thresholds and leaves a bare you-don\'t unevaluable', () => {
     const spellMv = evaluateConditionalWrapperCondition({
       condition: { kind: 'if', raw: "that spell's mana value is 5 or greater" } as any,
       nextState: { stack: [{ id: 'stack-spell-1', card: { cmc: 5 } }] } as any,
@@ -240,7 +240,10 @@ describe('oracleIRExecutorConditionalStepSupport', () => {
       ctx: { controllerId: 'p1' } as any,
       lastActionOutcome: null,
     });
-    expect(youDont).toBe(true);
+    // Without an antecedent there is nothing the player could have declined, so this stays null and
+    // the wrapper is reported as an unsupported-condition gap. Defaulting to true fired punisher
+    // branches unprompted ("If you don't, sacrifice this artifact").
+    expect(youDont).toBeNull();
   });
 
   it('evaluates hand-size, graveyard replacement, experience, and dice-doubles checks', () => {

@@ -51,7 +51,7 @@ export function sourceWasKicked(source: any): boolean | null {
     ?? source.card?.timesKicked
     ?? source.card?.kickedTimes,
   );
-  if (Number.isFinite(count)) return count > 0;
+  if (Number.isFinite(count)) return count > 0 ? true : null;
   const paid = collectPaidKickerCosts(source);
   if (paid.length > 0) return true;
   return null;

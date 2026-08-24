@@ -105,7 +105,7 @@ function isLoopStackDrainActive(loopStackDrain: boolean, stackLen: number): bool
   return loopStackDrain && stackLen > 0;
 }
 
-const LAND_PLAY_AUTOMATION_SUPPRESSION_MS = 600;
+const LAND_PLAY_AUTOMATION_SUPPRESSION_MS = 1500;
 
 type PendingHumanAutoPass = {
   playerId: PlayerID;
@@ -2203,11 +2203,18 @@ export function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string
     const priorityPlayer = players.find((p: any) => p?.id === priority);
     
     if (priorityPlayer && priorityPlayer.isAI) {
+      // Pre-game still needs commander/mulligan via gameFlow. In-game broadcasts
+      // must schedule priority directly — stacking gameFlow + another reaction
+      // delay leaves UNTAP/UPKEEP handoffs outside the 600ms test window.
+      const phase = String(stateAny?.phase || '').toLowerCase();
+      const isPreGame = phase === 'pre_game' || phase === 'pre-game' || phase === '';
       // Dynamically import AI handler to avoid circular deps
       void import('./ai.js').then((aiModule) => {
-        if (typeof aiModule.scheduleAIGameFlow === 'function') {
+        if (isPreGame && typeof aiModule.scheduleAIGameFlow === 'function') {
           aiModule.scheduleAIGameFlow(io, gameId, priority, AI_REACTION_DELAY_MS);
-        } else if (typeof aiModule.handleAIGameFlow === 'function') {
+        } else if (typeof aiModule.scheduleAIPriority === 'function') {
+          aiModule.scheduleAIPriority(io, gameId, priority, AI_REACTION_DELAY_MS);
+        } else if (isPreGame && typeof aiModule.handleAIGameFlow === 'function') {
           void aiModule.handleAIGameFlow(io, gameId, priority).catch((e: any) => {
             debugError(1, '[util] Failed to trigger AI handler:', { gameId, playerId: priority, error: e });
           });

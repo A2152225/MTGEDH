@@ -22,6 +22,7 @@ import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
 import { markGameRestoring, clearGameRestoring } from "./gameRestoreState.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
 import { BOOT_ID } from "./utils/bootId.js";
+import { ResolutionQueueManager } from "./state/resolution/index.js";
 
 type PersistOptions = { gameId: string; format?: string; startingLife?: number };
 
@@ -638,6 +639,7 @@ class GameManagerClass {
   createGame(opts: CreateGameOptions = {}): any {
     const id = opts.id || `g_${randomUUID()}`;
     if (this.games.has(id)) throw new Error(`Game ${id} already exists`);
+    ResolutionQueueManager.removeQueue(id);
 
     let game: any = null;
 
@@ -1034,6 +1036,7 @@ class GameManagerClass {
 
   deleteGame(gameId: string): boolean {
     // also remove persisted row? intentionally don't delete DB row here to preserve event history.
+    ResolutionQueueManager.removeQueue(gameId);
     this.disposeRulesBridge(gameId);
     return this.games.delete(gameId);
   }

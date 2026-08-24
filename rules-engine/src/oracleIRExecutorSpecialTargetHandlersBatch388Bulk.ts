@@ -364,19 +364,9 @@ export function tryBatch388SacrificeStep(
     return sacrificePermanents(victims);
   }
 
-  if (/each player sacrifices a creature of their choice/i.test(raw)) {
-    const victims = (state.players || [])
-      .map((player: any) => String(player?.id || '').trim())
-      .filter(Boolean)
-      .map((playerId) =>
-        battlefield.find(
-          (perm: any) =>
-            String(perm?.controller || '').trim() === playerId && permanentMatchesType(perm, 'creature')
-        )
-      )
-      .filter(Boolean) as BattlefieldPermanent[];
-    return sacrificePermanents(victims);
-  }
+  // "each player sacrifices a creature of their choice" is deliberately absent: picking the first
+  // creature ignores both the player's choice and any bound selection. applySacrificeStep resolves it
+  // generically - honouring chosenObjectIds and deferring to the resolution queue when ambiguous.
 
   return null;
 }

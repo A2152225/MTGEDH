@@ -359,7 +359,7 @@ export function setCommander(
       try {
         const stateAny = state as any;
         const phase = String(stateAny?.phase || '').trim().toLowerCase();
-        const isPreGame = phase === '' || phase === 'pre_game' || phase.includes('pre');
+        const isPreGame = phase === '' || phase === 'pre_game' || phase === 'pre-game' || phase === 'pregame';
         if (isPreGame) {
           const z = zones[playerId] || null;
           const handCount = z

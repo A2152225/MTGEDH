@@ -7,6 +7,15 @@ alwaysApply: true
 
 Agents and LLMs need to ingest game-logic modules. Large TypeScript files are hard to edit safely.
 
+## Measure bytes, not lines
+
+The ceiling is **40960 bytes on disk**, not a line count. `oracleIRParser.ts` is ~2.1k lines and ~863 KB of dense regex and literals.
+
+```bash
+node tools/ts-logic-file-sizes.mjs            # files over the ceiling
+node tools/ts-logic-file-sizes.mjs --all --top 40
+```
+
 ## Rule
 
 If an addition or edit to any **TypeScript logic** file (especially `server/`, `rules-engine/`, game-logic, resolution, triggers, casts, combat, undo, oracle IR) would push that file **over ~40KB**, do **not** keep growing it.
@@ -18,6 +27,44 @@ Instead:
 3. Keep each resulting file **under ~40KB** when practical
 4. Re-export from the parent/barrel when needed so existing imports keep working
 5. Prefer cohesive domain splits over tiny one-function files
+
+## Find before you read
+
+Never ingest a megafile to make an edit. Grep a table of contents first — `^(export )?(async )?function`, `case ResolutionStepType`, `case '` — then Read only the cluster's line range. `docs/mtg-logic-module-map.md` says which module already owns a mechanic.
+
+## Naming
+
+`domain + mechanic + role`, e.g. `resolutionGraveyardSelectionResumeHandlers.ts`, `oracleIRParserPostprocessLookChooseFromTop.ts`.
+
+Forbidden: `utils2.ts`, `helpers.ts`, and `BatchNNN` / `Bulk` ordinals (`oracleIRExecutorConditionalStepSupportBatch368Bulk.ts`).
+
+Every extract starts with a header comment naming its origin parent, the cluster that moved, and the public entry symbols, so agents can grep headers instead of opening the parent.
+
+## Dual barrel: public `X.ts`, internal `X-handlers/index.ts`
+
+| Barrel | Job | Imported by |
+| --- | --- | --- |
+| Public / compatibility: `X.ts` | Stable path (`./resolution.js`, `./triggered-abilities.js`). Eventually only registration/emit entry points plus named re-exports. Target under 40KB. | The rest of the app, tests |
+| Internal / agent TOC: `X-handlers/index.ts` (or the existing `triggers/index.ts`) | Named re-exports of extracted modules, one-line comment each. Under ~10KB so an agent can ingest the whole TOC. | Extracted siblings, tests, agents |
+
+- **Never `X.ts` and `X/index.ts` in the same directory** — resolution is ambiguous. The folder takes a different name: `resolution-handlers/`, `game-actions-handlers/`, `triggers/`. Never create `resolution/` or `game-actions/`.
+- Index files hold **named re-exports only**: no `export *` (hides the TOC, reintroduces cycles), no implementations.
+- Create the `*-handlers/` folder on **extract #1** of a new mega parent, so we do not accumulate another 35 flat prefixes.
+- **Cycle rule:** the public parent may import leaves or the deps factory; a leaf must never import the public parent, nor the index that re-exports it.
+
+## Dual-copy check (before extracting)
+
+Grep the symbol first. If the same export already lives in a folder submodule (this happened with `detectDeathTriggers` / `detectETBTriggers` / `detectAttackTriggers` in `triggered-abilities.ts` vs `triggers/`), **merge into the folder copy and re-export** — do not create a third implementation.
+
+## Temporary parent overshoot
+
+A parent may grow **only** by import/re-export lines while a cluster is being wired, and only if the same session's deleted body more than pays for it. Newly created files must start **under 40KB**. Do not append to a sibling already at ~36–40KB; add a new sibling instead.
+
+## Verify after extracting
+
+Re-read every new or changed import line **plus 2–3 neighbors** in both files for CRLF junk, stray backticks, doubled backslashes, and merged lines (see `.cursor/rules/verify-edited-lines.mdc`), then typecheck the workspace and run targeted tests. Update `docs/mtg-logic-module-map.md` at the end of the session.
+
+Full playbook and paste prompts: `.cursor/skills/split-ts-module/SKILL.md`.
 
 ## Applies to
 
@@ -33,3 +80,7 @@ Instead:
 ## Soft target
 
 ~40KB is the ceiling to respect. Smaller cohesive modules (~10–40KB) are preferred for agent-edited game logic.
+
+## No behavior changes while splitting
+
+Extracts move code. Do not fix cards, rename APIs, or tidy logic in the same edit — a split diff that also changes behavior cannot be reviewed. Do not revive `tools/_refactor_scratch/*.mjs` dump-and-cut scripts as the extraction method; they produced mixed CRLF and reconstruction bugs.

@@ -36,8 +36,10 @@ describe('AI resume kick after reconnect', () => {
     const io = { to: () => ({ emit: () => undefined }) } as any;
 
     const aiModule = await import('../src/socket/ai.js');
-    const originalSchedule = aiModule.scheduleAIGameFlow;
-    vi.spyOn(aiModule, 'scheduleAIGameFlow').mockImplementation(((_io, _gameId, playerId) => {
+    // In-game join-style sync uses scheduleAIPriority. scheduleAIGameFlow is
+    // pre-game commander/mulligan only (stacking both added a second 300ms hop).
+    const originalSchedule = aiModule.scheduleAIPriority;
+    vi.spyOn(aiModule, 'scheduleAIPriority').mockImplementation(((_io, _gameId, playerId) => {
       scheduleCalls.push({ playerId: String(playerId) });
     }) as any);
 

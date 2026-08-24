@@ -25,6 +25,7 @@ import {
   resolveCopiedSpellSourceCards,
   resolveThisSpellCopyReplaySteps,
   shouldDeferStackSpellCopyToServer,
+  createCastableCopiedSpellCards,
 } from './oracleIRExecutorCopySpellSupport';
 import { performDieRoll, performMultipleDieRolls } from './dieRoll';
 import { applyAttachStep } from './oracleIRExecutorAttachStepHandlers';
@@ -723,6 +724,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'search_library',
   'surveil',
   'tap_matching_permanents',
+  'venture_into_dungeon',
   // Council / Secret council — resume must re-run vote + follow-on votes_received effects.
   'vote',
 ]);
@@ -794,6 +796,11 @@ export function applyOracleIRStepsToGameStateImpl(
   } | null = null;
   let lastConditionalEvaluation: boolean | null = null;
   let replayMutations: OracleIRReplayMutation[] = [];
+  // A conditional whose condition was false contributes no effect, so it is only worth recording in
+  // `appliedSteps` when nothing else in the sequence fired - it is then the sole record that the
+  // clause was evaluated. Once any conditional does produce effects these markers are dropped.
+  const falseConditionalMarkers = new Set<OracleEffectStep>();
+  let anyConditionalProducedSteps = false;
 
   let nextState = state;
   const pendingOptionalSteps: OracleEffectStep[] = [];
@@ -3276,6 +3283,18 @@ export function applyOracleIRStepsToGameStateImpl(
         let appliedCopyCount = 0;
 
         for (const copiedCard of sourceResolution.cards) {
+          if (step.optional === true) {
+            const created = createCastableCopiedSpellCards({
+              state: workingState,
+              controllerId,
+              cards: [copiedCard],
+              step,
+            });
+            workingState = created.state;
+            combinedLog.push(...created.log);
+            appliedCopyCount += created.createdCards.length;
+            continue;
+          }
           const replayableSteps = getCopiedSpellReplaySteps(copiedCard);
           if (replayableSteps.length === 0) {
             recordSkippedStep(
@@ -3625,7 +3644,8 @@ export function applyOracleIRStepsToGameStateImpl(
             appliedSteps.push(step);
             break;
           }
-          appliedSteps.push(step);
+          falseConditionalMarkers.add(step);
+          if (appliedSteps.length === 0) appliedSteps.push(step);
           log.push(`Skipped conditional step (condition false): ${step.raw}`);
           break;
         }
@@ -3746,7 +3766,8 @@ export function applyOracleIRStepsToGameStateImpl(
         pendingOptionalSteps.push(...result.pendingOptionalSteps);
         absorbExecutionReplayMutations(result);
         mergeNestedExecutionOutcome(result);
-        appliedSteps.push(step);
+        if (result.appliedSteps.length === 0) appliedSteps.push(step);
+        else anyConditionalProducedSteps = true;
         break;
       }
       case 'unless_pays_life': {
@@ -3830,7 +3851,9 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       case 'any_player_may': {
-        const result = evaluateAnyPlayerMayStep(nextState, step as any, currentCtx);
+        const result = evaluateAnyPlayerMayStep(nextState, step as any, currentCtx, {
+          allowOptional: options.allowOptional,
+        });
         if (!('shouldApplyNestedSteps' in result)) {
           recordSkippedStep((result as any).innerStep ?? step, result.message, result.reason, {
             ...result.options,
@@ -3969,7 +3992,10 @@ export function applyOracleIRStepsToGameStateImpl(
   return {
     state: nextState,
     log,
-    appliedSteps,
+    appliedSteps:
+      anyConditionalProducedSteps && falseConditionalMarkers.size > 0
+        ? appliedSteps.filter((entry) => !falseConditionalMarkers.has(entry))
+        : appliedSteps,
     skippedSteps,
     automationGaps,
     pendingOptionalSteps,

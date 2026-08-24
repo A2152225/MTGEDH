@@ -1,12 +1,12 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
-import { games } from '../src/socket/socket.js';
+import { resetIntegrationGame } from './helpers/integrationGameReset.js';
 
 function createNoopIo() {
   return {
@@ -102,9 +102,7 @@ describe('venture and initiative support (integration)', () => {
   ];
 
   async function resetGame(gameId: string) {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
-    await deleteGame(gameId);
+    await resetIntegrationGame(gameId);
   }
 
   beforeAll(async () => {

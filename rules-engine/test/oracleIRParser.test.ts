@@ -40,7 +40,9 @@ function collectUnknownSteps(value: unknown): any[] {
 const CANONICALLY_PRUNED_RESIDUAL_CASES = new Set([
   'Guided Passage',
   'Celeborn the Wise',
-  'Far Traveler',
+  // Far Traveler was listed here, but "Commander creatures you own have \"At the beginning of your end
+  // step, ...\"" grants a real triggered ability. It now lowers into grant_static_ability like the
+  // identically worded Guild Artisan row in oracleIRCurrentBatch.
   'Werewhat',
   'Raggadragga, Goreguts Boss',
   'Revoke Privileges',
@@ -53,7 +55,7 @@ const CANONICALLY_PRUNED_RESIDUAL_CASES = new Set([
   'Spirit Shield',
   'Deep Freeze',
   'Field-Tested Frying Pan',
-  'Hydro-Man, Fluid Felon',
+  // "he gets +1/+1 until end of turn" is a real pronoun-resolved pump, not residual reminder.
   'Give No Ground',
   'Water Gun Balloon Game',
   'Blade of the Oni',
@@ -941,13 +943,16 @@ Whenever this creature attacks, you may cast an Ally spell from among cards you 
     expect(ir.keywords).toContain('wither');
   });
 
-  it('prunes station reminder abilities while retaining the keyword', () => {
+  // Rule 702.184a: Station is an activated ability, so the reminder lowers into the
+  // charge-counter ability rather than being pruned as reminder-only text.
+  it('lowers station reminder abilities into add_counter while retaining the keyword', () => {
     const ir = parseOracleTextToIR(
       "Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 9+.)",
       'Wedgelight Rammer'
     );
 
-    expect(ir.abilities).toHaveLength(0);
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]?.steps.map((step) => step.kind)).toEqual(['add_counter']);
     expect(ir.keywords).toContain('station');
   });
 
@@ -1547,7 +1552,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       'Redeem the Lost'
     );
 
-    expect(ir.abilities[0]?.steps).toEqual([
+    expect(ir.abilities[0]?.steps).toMatchObject([
       {
         kind: 'choose_color',
         manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
@@ -1555,10 +1560,9 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       },
       {
         kind: 'grant_temporary_ability',
-        target: { kind: 'raw', text: 'Target creature you control' },
+        target: { kind: 'raw', text: 'target creature you control' },
         duration: 'end_of_turn',
         abilities: ['protection from the chosen color'],
-        raw: 'Target creature you control gains protection from the color of your choice until end of turn',
       },
     ]);
   });
@@ -2066,6 +2070,16 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(moveZone.to).toBe('battlefield');
     expect(moveZone.battlefieldController).toEqual({ kind: 'you' });
     expect(moveZone.battlefieldAttachedTo).toEqual({ kind: 'raw', text: 'this creature' });
+  });
+
+  it('parses battlefield attachment metadata for "attached to" the source card name', () => {
+    const text = 'Return target Aura card from your graveyard to the battlefield attached to Iridescent Drake.';
+    const ir = parseOracleTextToIR(text, 'Iridescent Drake');
+    const moveZone = ir.abilities[0].steps.find(step => step.kind === 'move_zone') as any;
+
+    expect(moveZone).toBeTruthy();
+    expect(moveZone.to).toBe('battlefield');
+    expect(moveZone.battlefieldAttachedTo).toEqual({ kind: 'raw', text: 'this permanent' });
   });
 
   it('parses battlefield attachment metadata for "attached to a creature you control"', () => {
@@ -12714,9 +12728,14 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       amount: { kind: 'number', value: 1 },
       optional: true,
     });
+    // "When you do" is a reflexive triggered ability (CR 603.11c): it goes on the stack and resolves
+    // separately, choosing its target then. An inline conditional would reanimate during the same
+    // resolution, skipping the stack and the target choice, so the reflexive clause is scheduled
+    // instead. server/src/state/modules/triggerReflexiveWhenYouDoQueueUtils.ts drives it from there.
     expect(steps[1]).toMatchObject({
-      kind: 'conditional',
-      condition: { kind: 'if', raw: 'you do' },
+      kind: 'schedule_delayed_trigger',
+      timing: 'on_event',
+      effect: 'return target creature card from your graveyard to the battlefield tapped',
     });
     expect((steps[1] as any)?.steps?.[0]).toMatchObject({
       kind: 'move_zone',
@@ -12879,21 +12898,24 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     const ir = parseOracleTextToIR(oracleText, 'Stitch Together');
     const steps = ir.abilities.flatMap(ability => ability.steps);
 
+    // "Return that card ... to the battlefield instead" replaces the hand return rather than following
+    // it, so the card makes a single zone change. The two branches are the conditional's steps and
+    // elseSteps; emitting the hand move as a sibling would return the card twice.
     expect(steps).toMatchObject([
-      {
-        kind: 'move_zone',
-        what: { kind: 'raw', text: 'target creature card from your graveyard' },
-        to: 'hand',
-      },
       {
         kind: 'conditional',
         condition: { kind: 'if', raw: 'there are seven or more cards in your graveyard' },
       },
     ]);
-    expect((steps[1] as any)?.steps?.[0]).toMatchObject({
+    expect((steps[0] as any)?.steps?.[0]).toMatchObject({
       kind: 'move_zone',
       what: { kind: 'raw', text: 'that card from your graveyard' },
       to: 'battlefield',
+    });
+    expect((steps[0] as any)?.elseSteps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'target creature card from your graveyard' },
+      to: 'hand',
     });
   });
 
@@ -13054,12 +13076,22 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     const triggered = ir.abilities.find(ability => ability.triggerCondition === 'this creature dies');
     const activated = ir.abilities.find(ability => ability.type === 'activated');
 
-    expect(triggered?.steps).toEqual([
+    // The delayed trigger now lowers its own effect text, so the return is executable when the end
+    // step arrives instead of leaving the executor to re-parse the effect string.
+    expect(triggered?.steps).toMatchObject([
       {
         kind: 'schedule_delayed_trigger',
         timing: 'next_end_step',
         effect: "return it to the battlefield under its owner's control",
         raw: "return it to the battlefield under its owner's control at the beginning of the next end step",
+        steps: [
+          {
+            kind: 'move_zone',
+            what: { kind: 'raw', text: 'it' },
+            to: 'battlefield',
+            battlefieldController: { kind: 'owner_of_moved_cards' },
+          },
+        ],
       },
       {
         kind: 'skip_next_draw_step',

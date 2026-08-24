@@ -23,6 +23,8 @@ import {
   processDiscoverTriggers,
 } from './triggerDiscoverUtils.js';
 import { debugWarn } from '../../utils/debug.js';
+import { queueDealsDamageToPlayerTriggersFromPermanent } from './triggerLifeDamageUtils.js';
+import { processMillTriggers } from './zones.js';
 
 export type BattlefieldTriggerSnapshot = {
   readonly lifeByPlayer: ReadonlyMap<string, number>;
@@ -117,13 +119,14 @@ export function emitTriggersAfterOracleIRApply(
   state: any,
   result: OracleIRExecutionResult,
   before: BattlefieldTriggerSnapshot,
-  options?: { controller?: string },
+  options?: { controller?: string; sourcePermanentId?: string },
 ): void {
   if ((ctx as any)?.isReplaying) return;
 
   try {
     const kinds = appliedKinds(result);
     const irController = String(options?.controller || '').trim();
+    const sourcePermanentId = String(options?.sourcePermanentId || '').trim();
 
     // Life gain / loss
     const playerIds = new Set<string>([
@@ -140,7 +143,16 @@ export function emitTriggersAfterOracleIRApply(
       if (delta > 0) {
         queueLifegainTriggers(ctx, playerId, delta);
       } else if (delta < 0) {
-        queueLifeLossTriggers(ctx, playerId, -delta);
+        const lost = -delta;
+        queueLifeLossTriggers(ctx, playerId, lost);
+        if (kinds.has('deal_damage')) {
+          state.damageTakenThisTurnByPlayer = state.damageTakenThisTurnByPlayer || {};
+          state.damageTakenThisTurnByPlayer[playerId] =
+            Number(state.damageTakenThisTurnByPlayer[playerId] || 0) + lost;
+          if (sourcePermanentId) {
+            queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermanentId, playerId, lost);
+          }
+        }
       }
     }
 
@@ -223,7 +235,26 @@ export function emitTriggersAfterOracleIRApply(
       }
     }
 
-    // Discard — cards that left hand and appear newly in graveyard when discard applied.
+    // Mill — new graveyard cards that did not come from hand.
+    if (kinds.has('mill')) {
+      for (const player of Array.isArray(state?.players) ? state.players : []) {
+        const playerId = String(player?.id || '').trim();
+        if (!playerId) continue;
+        const beforeHand = new Set(before.handCardIdsByPlayer.get(playerId) || []);
+        const beforeGy = before.graveyardCardIdsByPlayer.get(playerId) || new Set<string>();
+        const afterGyCards = Array.isArray(player?.graveyard) && player.graveyard.length > 0
+          ? player.graveyard
+          : (state?.zones?.[playerId]?.graveyard || []);
+        const milledCards = afterGyCards.filter((card: any) => {
+          const cardId = String(card?.id || '').trim();
+          return cardId && !beforeGy.has(cardId) && !beforeHand.has(cardId);
+        });
+        if (milledCards.length > 0) {
+          processMillTriggers(ctx, playerId, milledCards, irController || undefined);
+        }
+      }
+    }
+
     if (kinds.has('discard')) {
       for (const player of Array.isArray(state?.players) ? state.players : []) {
         const playerId = String(player?.id || '').trim();

@@ -162,6 +162,9 @@ describe('Roaming Throne + Kumena tribal socket integration', () => {
     });
 
     const refreshed = games.get(gameId)!;
+    // COUNTER_TARGET puts the add-counter ability on the stack so opponents can
+    // respond (see gwafa-bribery-counter). Solo tests still need to resolve it.
+    refreshed.resolveTopOfStack();
     const throne = refreshed.state.battlefield.find((perm: any) => perm.id === 'roaming_throne_1');
     expect(throne?.counters?.['+1+1']).toBe(1);
     expect(refreshed.state.battlefield.find((perm: any) => perm.id === 'kumena_1')?.tapped).toBe(true);

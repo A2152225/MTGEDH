@@ -224,6 +224,7 @@ describe('sacrifice another permanent for benefit (integration)', () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
+    (game as any).gameId = gameId;
 
     const p1 = 'p1' as any;
     (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];

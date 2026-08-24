@@ -1,20 +1,11 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import { getPlayableUntilTurnForImpulseDuration } from '../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
+export {
+  detectFaceDownExileFromRaw,
+  detectFlexibleImpulseManaSpending,
+} from '../../../../rules-engine/src/oracleIRExecutorImpulseExileFaceDown.js';
 
 export { getPlayableUntilTurnForImpulseDuration };
-
-export function detectFaceDownExileFromRaw(raw: string): boolean {
-  return /\bface\s*down\b/i.test(String(raw || ''));
-}
-
-export function detectFlexibleImpulseManaSpending(text: string): boolean {
-  const normalized = String(text || '');
-  return (
-    /mana\s+of\s+any\s+type\s+can\s+be\s+spent\s+to\s+cast/i.test(normalized)
-    || /you\s+may\s+spend\s+mana\s+as\s+though\s+it\s+were\s+mana\s+of\s+any\s+(?:type|color)\s+to\s+cast/i.test(normalized)
-    || /they\s+may\s+spend\s+mana\s+as\s+though\s+it\s+were\s+mana\s+of\s+any\s+(?:type|color)\s+to\s+cast/i.test(normalized)
-  );
-}
 
 export function viewerCanExamineExiledCard(
   card: any,

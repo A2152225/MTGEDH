@@ -110,6 +110,7 @@ export type MoveZoneSingleTargetCriteria = {
   readonly multicoloredOnly?: boolean;
   readonly manaValueEqReferenceChargeCounters?: boolean;
   readonly timeCountersEqualManaValue?: boolean;
+  readonly graveyardOwner?: 'opponent';
 };
 
 type BattlefieldAttachmentTarget = BattlefieldPermanent;
@@ -366,6 +367,21 @@ export function parseSimpleCardTypeFromText(text: string): SimpleCardType | null
   if (/\bsaga(s)?\b/i.test(lower)) return 'saga';
   return null;
 }
+
+// The tail of parseSimpleCardTypeFromText matches on a type word appearing anywhere in the text, so
+// these results carry no guarantee that the rest of the text was understood. Every other return
+// above is an exact-string match on a specific (possibly combined) type.
+const LOOSE_TYPE_WORD_FALLBACKS: ReadonlySet<SimpleCardType> = new Set<SimpleCardType>([
+  'creature',
+  'equipment',
+  'artifact',
+  'enchantment',
+  'land',
+  'instant',
+  'sorcery',
+  'planeswalker',
+  'saga',
+]);
 
 export function cardMatchesType(card: any, type: SimpleCardType): boolean {
   const typeLine = getExecutorTypeLineLower(card);
@@ -655,6 +671,13 @@ export function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSin
     ...(manaValueLtReferenceLoyalty ? { manaValueLtReferenceLoyalty: true } : {}),
   };
 
+  // "noncreature, nonland card" (Narset, Enlightened Exile) spans instants and sorceries, so it must
+  // not collapse into the noncreature_nonland_permanent type those same words carry when the noun is
+  // "permanent".
+  if (/^noncreature,?\s+nonland$/i.test(normalizedTypeText) && /\bcards?$/i.test(baseTypeText)) {
+    return { cardType: 'any', typeLineTermsNoneOf: ['creature', 'land'], ...sharedCriteriaExtras };
+  }
+
   if (/^(?:card|permanent card) of the chosen type$/i.test(normalizedTypeText)) {
     return { cardType: 'any', usesChosenCreatureType: true, ...sharedCriteriaExtras };
   }
@@ -761,8 +784,21 @@ export function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSin
     };
   }
 
+  const splitTerms = splitTypeCriteriaList(normalizedTypeText);
   const parsedCardType = parseSimpleCardTypeFromText(normalizedTypeText.replace(/\s+card$/i, '').trim());
-  if (parsedCardType) {
+  // "Equipment or Vehicle" would otherwise collapse to whichever type word the loose fallbacks test
+  // first, silently dropping every other alternative. Combined types ("artifact or creature") come
+  // back as a dedicated *_or_* type from an exact match, so they still win here.
+  //
+  // Only single-word alternatives are diverted: the typeLineTermsAnyOf fallback below matches each
+  // term as a type-line substring, which a phrase like "Dragon creature card" never satisfies, so
+  // multi-word disjunctions are still better served by the loose single-type reading.
+  const collapsesDisjunction =
+    splitTerms.length > 1 &&
+    parsedCardType !== null &&
+    LOOSE_TYPE_WORD_FALLBACKS.has(parsedCardType) &&
+    splitTerms.every(term => !/\s/.test(normalizeTypeCriteriaTerm(term)));
+  if (parsedCardType && !collapsesDisjunction) {
     return {
       cardType: parsedCardType,
       ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
@@ -776,7 +812,6 @@ export function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSin
     };
   }
 
-  const splitTerms = splitTypeCriteriaList(normalizedTypeText);
   if (splitTerms.length > 0) {
     const negatedTypeTerms = splitTerms
       .map(term => normalizeTypeCriteriaTerm(term))
@@ -1550,6 +1585,10 @@ export function parseMoveZoneSingleTargetFromYourGraveyard(what: {
 
     if (!/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+/i.test(lower)) continue;
     if (!/\bfrom your graveyard\b/i.test(lower)) continue;
+    // "target X and all other cards with the same name as that card" is a compound selector owned by
+    // parseMoveZoneTargetAndSameNamedFromYourGraveyard. Matching it here moves only the one target
+    // and silently drops the same-named cards, because the type text still reads as a plain type.
+    if (/\band all other cards with the same name\b/i.test(lower)) continue;
 
     if (/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+cards?\s+from\s+your\s+graveyard$/i.test(lower)) {
       return { cardType: 'any' };
@@ -1905,13 +1944,14 @@ export function parseMoveZoneSingleTargetFromAGraveyard(what: {
     const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
     if (!/^(?:up to one\s+)?(?:other\s+)?target\s+/i.test(lower)) continue;
-    if (!/\b(?:from|in) a graveyard\b/i.test(lower)) continue;
+    const opponentGraveyard = /\b(?:from|in) (?:an|target) opponent'?s graveyard\b/i.test(lower);
+    if (!/\b(?:from|in) (?:a|(?:an|target) opponent'?s) graveyard\b/i.test(lower)) continue;
 
-    if (/^(?:up to one\s+)?(?:other\s+)?target\s+cards?\s+(?:from|in) a\s+graveyard$/i.test(lower)) {
-      return { cardType: 'any' };
+    if (/^(?:up to one\s+)?(?:other\s+)?target\s+cards?\s+(?:from|in) (?:a|(?:an|target) opponent'?s)\s+graveyard$/i.test(lower)) {
+      return { cardType: 'any', ...(opponentGraveyard ? { graveyardOwner: 'opponent' as const } : {}) };
     }
 
-    const m = cleaned.match(/^(?:up to one\s+)?(?:other\s+)?target\s+(.+?)\s+(?:from|in) a\s+graveyard$/i);
+    const m = cleaned.match(/^(?:up to one\s+)?(?:other\s+)?target\s+(.+?)\s+(?:from|in) (?:a|(?:an|target) opponent'?s)\s+graveyard$/i);
     if (!m) continue;
 
     const typeText = String(m[1] || '').trim();
@@ -1920,6 +1960,7 @@ export function parseMoveZoneSingleTargetFromAGraveyard(what: {
     if (!parsed) continue;
     return {
       ...parsed,
+      ...(opponentGraveyard ? { graveyardOwner: 'opponent' as const } : {}),
       ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
       ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
     };
@@ -2438,12 +2479,27 @@ export function moveTargetedCardFromGraveyard(
     }
 
     const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+    const nextExile = [...exile, card];
     const updatedPlayers = state.players.map(p =>
-      p.id === playerId ? ({ ...(p as any), graveyard: kept, exile: [...exile, card] } as any) : p
+      p.id === playerId ? ({ ...(p as any), graveyard: kept, exile: nextExile } as any) : p
     );
+    const nextState: any = { ...state, players: updatedPlayers as any };
+    if (nextState.zones && typeof nextState.zones === 'object') {
+      const ownerZones = nextState.zones[playerId] || {};
+      nextState.zones = {
+        ...nextState.zones,
+        [playerId]: {
+          ...ownerZones,
+          graveyard: kept,
+          graveyardCount: kept.length,
+          exile: nextExile,
+          exileCount: nextExile.length,
+        },
+      };
+    }
     return {
       kind: 'applied',
-      state: { ...state, players: updatedPlayers as any } as any,
+      state: nextState as any,
       log: [`${playerId} exiles 1 card from graveyard`],
       movedCards: [card],
     };
@@ -2826,8 +2882,24 @@ export function moveTargetedCardFromAnyGraveyard(
   if (!wantedId) return { kind: 'impossible' };
 
   for (const player of (state.players || []) as any[]) {
-    const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
+    const playerId = String(player?.id || '').trim();
+    const zoneGraveyard = Array.isArray((state as any).zones?.[playerId]?.graveyard)
+      ? (state as any).zones[playerId].graveyard
+      : [];
+    const graveyard = [
+      ...(Array.isArray(player?.graveyard) ? player.graveyard : []),
+      ...zoneGraveyard,
+    ];
     if (graveyard.some((card: any) => String(card?.id || '').trim() === wantedId)) {
+      if (
+        playerId
+        && !(Array.isArray(player?.graveyard) ? player.graveyard : []).some(
+          (card: any) => String(card?.id || '').trim() === wantedId,
+        )
+      ) {
+        const found = zoneGraveyard.find((card: any) => String(card?.id || '').trim() === wantedId);
+        player.graveyard = [...(Array.isArray(player.graveyard) ? player.graveyard : []), found];
+      }
       return moveTargetedCardFromGraveyard(
         state,
         player.id as PlayerID,
@@ -2865,6 +2937,8 @@ export function attachExistingBattlefieldPermanentToTarget(
 
   const typeLine = getCardTypeLineLower(attachment);
   const isEquipment = typeLine.includes('equipment');
+  // CR 303.4: attaching a non-Aura enchantment (Necromancy, Animate Dead) makes it an Aura.
+  const becomesAura = typeLine.includes('enchantment') && !typeLine.includes('aura') && !isEquipment;
   const previousTargetId = String((attachment as any)?.attachedTo || '').trim();
 
   const updatedBattlefield = battlefield.map((perm: any) => {
@@ -2872,10 +2946,22 @@ export function attachExistingBattlefieldPermanentToTarget(
     if (!permId) return perm;
 
     if (permId === attachmentId) {
+      const currentTypeLine = String(perm?.card?.type_line || perm?.type_line || '').trim();
+      const nextTypeLine = becomesAura
+        ? (/\u2014|—/.test(currentTypeLine) ? `${currentTypeLine} Aura` : `${currentTypeLine} \u2014 Aura`)
+        : currentTypeLine;
       return {
         ...perm,
         attachedTo: targetId,
         ...(isEquipment ? { isEquipped: true } : {}),
+        ...(becomesAura
+          ? {
+              card: {
+                ...(perm.card || {}),
+                type_line: nextTypeLine,
+              },
+            }
+          : {}),
       };
     }
 
@@ -7397,7 +7483,20 @@ export function resolveCardIdsFromAnyGraveyard(
   preferredIds: readonly string[] = [],
   maxCount = 1
 ): Array<{ readonly playerId: PlayerID; readonly cardId: string }> {
-  const preferred = new Set(preferredIds.map(id => String(id || '').trim()).filter(Boolean));
+  const requested = new Set(preferredIds.map(id => String(id || '').trim()).filter(Boolean));
+  // Selections made earlier in the same effect (a created token, a tapped permanent) also live in
+  // chosenObjectIds. Only ids that name a card in some graveyard narrow this search; the rest belong
+  // to another zone and would otherwise filter every candidate away.
+  const preferred = new Set<string>();
+  if (requested.size > 0) {
+    for (const player of state.players || []) {
+      const graveyard = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
+      for (const card of graveyard) {
+        const cardId = String((card as any)?.id || '').trim();
+        if (cardId && requested.has(cardId)) preferred.add(cardId);
+      }
+    }
+  }
   const matches: Array<{ readonly playerId: PlayerID; readonly cardId: string }> = [];
 
   for (const player of state.players || []) {

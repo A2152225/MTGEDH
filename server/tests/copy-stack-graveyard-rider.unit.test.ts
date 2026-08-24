@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { applyInstantSorceryCopyStackSpellRiders } from '../src/state/modules/stackResolveSpellPostCategorizeRidersUtils.js';
 import { wasSpellCastFromGraveyard } from '../src/state/modules/stackResolveSpellCopyChoiceUtils.js';
+import { collectSpellResolutionEffectSteps } from '../src/state/modules/trigger-runtime-wiring.js';
+import { buildOracleOverlayCollectOptions } from '../src/state/modules/oracleIrCompiledOverlayLookup.js';
 
 describe('copy stack graveyard rider', () => {
-  it('copies targeted instant twice when cast from graveyard via flashback', () => {
+  it('skips the legacy copy rider when Oracle IR already owns copy_spell', () => {
     const playerId = 'p1';
+    // Official Increasing Vengeance: copy once, or twice if this spell was cast from a graveyard.
     const oracleText =
       'Copy target instant or sorcery spell you control. If this spell was cast from a graveyard, copy that spell twice instead. You may choose new targets for the copies.\nFlashback {3}{R}{R}';
 
@@ -39,6 +42,13 @@ describe('copy stack graveyard rider', () => {
 
     expect(wasSpellCastFromGraveyard(item)).toBe(true);
 
+    const steps = collectSpellResolutionEffectSteps(
+      oracleText,
+      'Increasing Vengeance',
+      buildOracleOverlayCollectOptions({ cardName: 'Increasing Vengeance', sourceName: 'Increasing Vengeance' }),
+    );
+    expect(steps.some((step) => step.kind === 'copy_spell')).toBe(true);
+
     applyInstantSorceryCopyStackSpellRiders(ctx, {
       controller: playerId,
       card: item.card,
@@ -51,7 +61,9 @@ describe('copy stack graveyard rider', () => {
       uncategorizedSpellFallbackApplied: 0,
     });
 
+    // Newer spec: IR copy_spell + graveyard double-copy (oracle-ir-copy-spell-stack).
+    // Legacy rider returns early so flashback does not create four copies.
     const copies = ctx.state.stack.filter((s: any) => s?.copiedFromStackItemId === 'stack_target_1');
-    expect(copies).toHaveLength(2);
+    expect(copies).toHaveLength(0);
   });
 });

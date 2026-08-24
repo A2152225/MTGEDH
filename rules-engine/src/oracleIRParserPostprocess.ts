@@ -69,6 +69,12 @@ export {
   lowerAmongThemChoosePlayerChoiceAbilities,
   mergeAddManaRestrictionFollowupAbilities,
 } from './oracleIRParserPostprocessAmongThemAndManaRestriction';
+
+export {
+  pruneRedundantProliferateReminderUnknownAbilities,
+  expandRepeatedProliferateUnknownAbilities,
+  clearKeywordActionRepetitionReplacementSteps,
+} from './oracleIRParserPostprocessRepeatedProliferate';
 import {
   counterRecordFromAddCounterStep,
   parseBattlefieldEntryCounterFollowupStep,
@@ -1012,7 +1018,7 @@ function isKeywordOnlyStaticAbilityText(text: string): boolean {
   if (/\b(?:when|whenever|at the beginning|choose|destroy|create|draw|exile|sacrifice)\b/i.test(withoutParens)) {
     return false;
   }
-  return /\b(?:flying|trample|haste|vigilance|lifelink|deathtouch|menace|reach|first strike|double strike|hexproof|indestructible|prowess|ward\s+\{|protection from|toxic\s+\d+|convoke|shadow|shroud|flash|defender|banding|riot|provoke|haunt|firebending\s+\d+)\b/i.test(
+  return /\b(?:flying|trample|haste|vigilance|lifelink|deathtouch|menace|reach|first strike|double strike|hexproof|indestructible|prowess|ward\s+\{|protection from|toxic\s+\d+|convoke|shadow|shroud|flash|defender|banding|riot|flanking|provoke|haunt|firebending\s+\d+)\b/i.test(
     withoutParens
   );
 }
@@ -1717,7 +1723,7 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
   }
 
   if (
-    /^(?:when you do, )?untap all other creatures you control and after this phase, there is an additional combat phase\.?$/i.test(
+    /^(?:\{t\}:\s*)?(?:when you do, )?untap all other creatures you control and after this phase, there is an additional combat phase\.?$/i.test(
       normalized,
     )
   ) {
@@ -16846,7 +16852,13 @@ function parseExilePermissionUnknownStep(
     who: parsePlayerSelector(String(match[1] || '').trim()),
     permission: String(match[2] || '').trim().toLowerCase() === 'play' ? 'play' : 'cast',
     what: parseObjectSelector(String(match[3] || '').trim()),
-    duration: abilityType === 'static' ? 'as_long_as_control_source' : 'during_resolution',
+    // "cards exiled with this creature" can only be granted by a permanent, so a standalone sentence
+    // is a static permission that lasts while you control the source (Intrepid Paleontologist). Only a
+    // trigger or activation wraps it in a one-shot resolution (Boiling Rock Rioter's attack trigger).
+    duration:
+      abilityType === 'triggered' || abilityType === 'activated'
+        ? 'during_resolution'
+        : 'as_long_as_control_source',
     linkedToSource: true,
     ...(match[4] ? { ownedByWho: 'granted_player' as const } : {}),
     optional: true,
@@ -18532,7 +18544,10 @@ function isRedundantArtifactTokenReminderUnknownStep(step: OracleEffectStep): bo
 
   return (
     /^(?:(?:it(?:'|’)s|it is)|(?:an?\s+[a-z0-9 ,.'’-]+?\s+token\s+is))\s+an artifact with\s+"[^"]+"$/i.test(normalized) ||
-    /^(?:they(?:'|’)re|they are)\s+artifacts with\s+"[^"]+"$/i.test(normalized)
+    /^(?:they(?:'|’)re|they are)\s+artifacts with\s+"[^"]+"$/i.test(normalized) ||
+    // Residue left when the "(It's an artifact" lead of a Treasure/Clue reminder is consumed upstream
+    // but its quoted ability tail is split off into its own step.
+    /^with\s+"[^"]+"$/i.test(normalized)
   );
 }
 
@@ -18566,7 +18581,13 @@ export function pruneRedundantArtifactTokenReminderUnknownAbilities(
       .trim();
     const isUnknownOnlyAbility = ability.steps.length > 0 && ability.steps.every((step) => step.kind === 'unknown');
 
-    if (!ability.steps.some(
+    // A granted ability ("...gains \"When this creature dies, ... create a Treasure token.\"") creates the
+    // token inside a grant step rather than a create_token step, so the ability text is checked too.
+    const mentionsArtifactTokenCreation =
+      /\bcreates?\b[^.]*\b(?:clue|food|blood|treasure|gold|powerstone|junk|map|mutagen|lander)\s+tokens?\b/i.test(
+        normalizedAbilityText
+      );
+    if (!mentionsArtifactTokenCreation && !ability.steps.some(
       (step) =>
         step.kind === 'create_token' ||
         step.kind === 'investigate' ||
@@ -19171,6 +19192,18 @@ export function pruneLateKeywordReminderOnlyAbilities(
         .replace(/\s+/g, ' ')
         .trim();
 
+      const isUnknownOnlyAbility = ability.steps.length === 0 || ability.steps.every((step) => step.kind === 'unknown');
+      // Keyword lines often lower into grant_static_ability (+ optional "If you do" conditional
+      // reminder tails) after parenthetical stripping; still prune those reminder-only abilities.
+      const isStructuredKeywordReminderAbility = ability.steps.length > 0 && ability.steps.every((step) => {
+        if (step.kind === 'unknown' || step.kind === 'grant_static_ability') return true;
+        if (step.kind === 'conditional') {
+          const raw = String(step.raw || '').trim();
+          return /^if you do,/i.test(raw);
+        }
+        return false;
+      });
+
       const withoutCommanderEligibility = ability.steps.filter((step) => {
         if (step.kind !== 'unknown') return true;
         const normalizedStep = normalizeReminderStepRaw(step);
@@ -19194,15 +19227,11 @@ export function pruneLateKeywordReminderOnlyAbilities(
         });
 
         if (dredgeStartIndex >= 0) {
+          // Keep the grant_static_ability itself. Only the reminder tail ("If you would draw a
+          // card, you may mill... return this card") is platform boilerplate.
           const nextSteps = ability.steps.filter((step, index) => {
             if (index < dredgeStartIndex) return true;
-            if (step.kind === 'grant_static_ability') {
-              const granted = Array.isArray((step as any).abilities) ? (step as any).abilities : [];
-              return !(
-                granted.some((entry: unknown) => /^dredge\s+\d+$/i.test(String(entry || '')))
-                || /^dredge\s+\d+$/i.test(String(step.raw || ''))
-              );
-            }
+            if (step.kind === 'grant_static_ability') return true;
             if (step.kind === 'unknown') {
               return !/^dredge\s+\d+(?:\s*\(if you would draw a card\b)?/i.test(normalizeReminderStepRaw(step));
             }
@@ -19212,10 +19241,8 @@ export function pruneLateKeywordReminderOnlyAbilities(
           return nextSteps.length > 0 ? [{ ...ability, steps: nextSteps }] : [];
         }
 
-        // Standalone "Dredge N" ability after reminder stripping.
-        if (/^dredge\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) && isStructuredKeywordReminderAbility) {
-          return [];
-        }
+        // Standalone "Dredge N" after reminder stripping is a real keyword grant, not pruneable
+        // reminder. Unknown-only leftovers of the parenthetical still drop.
       }
 
       if (/^warp\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText)) {
@@ -19224,7 +19251,6 @@ export function pruneLateKeywordReminderOnlyAbilities(
 
       if (
         /^plot\s+(?:\{[^}]+\})+\s*\(/i.test(normalizedText) ||
-        /^station\s*\(/i.test(normalizedText) ||
         /^flanking\s*\(/i.test(normalizedText)
       ) {
         return [];
@@ -19260,17 +19286,6 @@ export function pruneLateKeywordReminderOnlyAbilities(
         return [];
       }
 
-      const isUnknownOnlyAbility = ability.steps.length === 0 || ability.steps.every((step) => step.kind === 'unknown');
-      // Keyword lines often lower into grant_static_ability (+ optional "If you do" conditional
-      // reminder tails) after parenthetical stripping; still prune those reminder-only abilities.
-      const isStructuredKeywordReminderAbility = ability.steps.length > 0 && ability.steps.every((step) => {
-        if (step.kind === 'unknown' || step.kind === 'grant_static_ability') return true;
-        if (step.kind === 'conditional') {
-          const raw = String(step.raw || '').trim();
-          return /^if you do,/i.test(raw);
-        }
-        return false;
-      });
       const isPrunableKeywordReminderAbility = isUnknownOnlyAbility || isStructuredKeywordReminderAbility;
 
       if (
@@ -19292,7 +19307,6 @@ export function pruneLateKeywordReminderOnlyAbilities(
           /^enlist(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^evoke\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^aggressive(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
-          (/^flanking(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) && !/^[a-z]/.test(originalText)) ||
           /^graft\s+\d+\s*\(this creature enters with .+? \+1\/\+1 counters? on it[.)]*$/i.test(normalizedText) ||
           /^hideaway\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^improvise(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
@@ -19312,9 +19326,7 @@ export function pruneLateKeywordReminderOnlyAbilities(
           /^station(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^squad\b.*$/i.test(normalizedText) ||
           /^umbra armor(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
-          /^toxic\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^unleash(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
-          /^riot(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
           /^sunburst(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^vanishing\s+\d+(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
           /^wither(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
@@ -19461,7 +19473,6 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^spend this mana only to cast .+ spells?$/i.test(normalizedText) ||
     /^spend this mana only to cast .+ spell or activate an ability of .+ source$/i.test(normalizedText) ||
     /^the next time you would draw a card this turn, .+ instead$/i.test(normalizedText) ||
-    /^(?:that player )?draws? an additional card$/i.test(normalizedText) ||
     /^spells you cast from exile this turn cost .+ less to cast(?:, where .+)?$/i.test(normalizedText) ||
     /^spend this mana only to cast spells? .+$/i.test(normalizedText) ||
     /^you may spend mana as though it were mana of any color to cast .+$/i.test(normalizedText) ||
@@ -19799,7 +19810,10 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^enchanted creature can'?t .+$/i.test(normalizedText) ||
     /^enchanted creature has .+$/i.test(normalizedText) ||
     /^enchanted creature is an? .+$/i.test(normalizedText) ||
-    /^enchanted creature loses .+$/i.test(normalizedText) ||
+    // "Enchanted creature loses all abilities and is ..." (Frogify, Kasmina's Transmutation, Ichthyomorphosis)
+    // is a real layer-shifting grant, not reminder text, so it is excluded from this prune list.
+    (/^enchanted creature loses .+$/i.test(normalizedText) &&
+      !/^enchanted creature loses all abilities\b/i.test(normalizedText)) ||
     /^equipped creature gets [^.]+$/i.test(normalizedText) ||
     /^equipped creature can'?t .+$/i.test(normalizedText) ||
     /^nonbasic lands are mountains\.?$/i.test(normalizedText) ||
@@ -19939,7 +19953,7 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^put the bottom card of your library into your graveyard\. if it'?s .+$/i.test(normalizedText) ||
     /^each dinosaur card in your graveyard has escape\b.+/i.test(normalizedText) ||
     /^during your turn, equipped creature has hexproof and can'?t be blocked\.?$/i.test(normalizedText) ||
-    /^commander creatures you own have .+$/i.test(normalizedText) ||
+    /^if you discard a card with madness, discard it into exile\.?$/i.test(normalizedText) ||
     /^target creature an opponent controls blocks this turn if able\.?$/i.test(normalizedText) ||
     /^choose a creature at random, then destroy the rest\.?$/i.test(normalizedText) ||
     /^this land becomes a copy of target land, except it has this ability\.?$/i.test(normalizedText) ||
@@ -20005,7 +20019,11 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^target .+ until your next turn\b/i.test(normalizedText) ||
     /^untap .+ target\b/i.test(normalizedText) ||
     /^you draw .+ cards,.+lose .+ life\b/i.test(normalizedText) ||
-    /^this permanent(?:'|')?s (?:toughness|power)\b/i.test(normalizedText) ||
+    // Characteristic-defining abilities ("This permanent's power is equal to the number of artifacts
+    // you control") are real layer-7b grants. The specific CDAs the platform handles elsewhere are
+    // pruned by name in pruneExternallyHandledStaticUnknownAbilities instead.
+    (/^this permanent(?:'|')?s (?:toughness|power)\b/i.test(normalizedText) &&
+      !/\b(?:is|are)\s+(?:each\s+)?equal to\b/i.test(normalizedText)) ||
     /^this equipment(?:'|')?s equip\b/i.test(normalizedText) ||
     /^this land is\b/i.test(normalizedText) ||
     /^the (?:blitz|flashback|madness|plot|this permanent) cost is equal\b/i.test(normalizedText) ||
@@ -20093,7 +20111,8 @@ function isOrphanReminderOnlyAbilityText(raw: string): boolean {
     /^damage causes loss of life\.?$/i.test(normalizedText) ||
     /^you may cast this card from your graveyard for its (?:flashback|escape|retrace|jump-start|harmonize) cost(?: this turn)?(?:\. then exile it)?\.?$/i.test(normalizedText) ||
     /^then exile it\.?$/i.test(normalizedText) ||
-    /^partner with \[name\]\.?$/i.test(normalizedText)
+    /^partner with \[name\]\.?$/i.test(normalizedText) ||
+    /^\d+\s+points?\s+each\s*[→>-]\s*\+1\/\+1$/i.test(normalizedText)
   );
 }
 
@@ -20104,6 +20123,31 @@ function isReminderGrantStaticAbilityStep(step: OracleEffectStep): boolean {
 }
 
 function isPlatformReminderOnlyExecutableStep(step: OracleEffectStep): boolean {
+  // An attached grant that resolved to named keywords ("Equipped creature has flying and ward {4}")
+  // carries real structure, so it is kept even though the blanket "equipped creature has ..." entry in
+  // the reminder-text prune list matches its wording.
+  if (
+    step.kind === 'grant_static_ability' &&
+    step.duration === 'while_attached' &&
+    (step.abilities?.length || 0) > 0
+  ) {
+    return false;
+  }
+  // A grant that lowered its quoted ability into nested steps ("Commander creatures you own have
+  // \"Whenever this creature attacks a player, ... create two Treasure tokens.\"") carries real
+  // structure that the reminder-text prune list would otherwise discard.
+  if (
+    step.kind === 'grant_static_ability' &&
+    (step.steps || []).some((nested) => nested.kind !== 'unknown')
+  ) {
+    return false;
+  }
+  if (
+    step.kind === 'move_zone'
+    && /^then exile it\.?$/i.test(String((step as { raw?: string }).raw || '').replace(/^[()\s]+/, '').replace(/[.)\s]+$/g, '').trim())
+  ) {
+    return true;
+  }
   return (
     step.kind === 'grant_static_ability' ||
     step.kind === 'grant_exile_permission' ||
@@ -20124,6 +20168,13 @@ function isStrictReminderOrPlatformOnlyTextForPruning(raw: string): boolean {
     .trim()
     .toLowerCase();
   if (!normalizedText) return false;
+  if (
+    /^you may cast this card from your graveyard for its (?:flashback|escape|retrace|jump-start|harmonize) cost(?: this turn)?(?:\. then exile it)?\.?$/i.test(normalizedText)
+    || /^if you discard a card with madness, discard it into exile\.?$/i.test(normalizedText)
+    || /^then exile it\.?$/i.test(normalizedText)
+  ) {
+    return true;
+  }
   if (
     /^(?:put|draw|return|exile|destroy|shuffle|look|reveal|search|create|mill|discard|counter|fight|regenerate|sacrifice|tap|untap)\b/.test(
       normalizedText
@@ -20214,6 +20265,16 @@ export function pruneCurrentBatchReminderUnknownAbilities(
       .trim();
     const mentionsRoleToken = /\brole token\b/i.test(normalizedAbilityText);
 
+    if (
+      /^you may cast this card from your graveyard for its (?:flashback|escape|retrace|jump-start|harmonize) cost(?: this turn)?(?:\. then exile it)?\.?$/i.test(normalizedAbilityText)
+      || /^\(you may cast this card from your graveyard for its flashback cost\. then exile it\.?\)$/i.test(normalizedAbilityText)
+      || /^if you discard a card with madness, discard it into exile\.?$/i.test(normalizedAbilityText)
+      || /^then exile it\.?$/i.test(normalizedAbilityText)
+      || /^\d+\s+points?\s+each\s*[→>-]\s*\+1\/\+1$/i.test(normalizedAbilityText)
+    ) {
+      return [];
+    }
+
     if (isUnknownOnlyAbility && /^flash(?:\s*\([^)]*\))?$/i.test(normalizedAbilityText)) {
       return [{ ...ability, steps: [] }];
     }
@@ -20242,7 +20303,22 @@ export function pruneCurrentBatchReminderUnknownAbilities(
       return [];
     }
 
+    // Text that grants a quoted ability outside a reminder parenthetical is a real grant, not platform
+    // boilerplate: "Commander creatures you own have \"Whenever this creature attacks a player, ...\"".
+    // Reminder text that quotes an ability is always parenthesised, so it still prunes.
+    const quotedGrantStep = ability.steps.length === 1 && ability.steps[0]?.kind === 'grant_static_ability'
+      ? ability.steps[0]
+      : null;
+    const grantsQuotedAbility =
+      quotedGrantStep !== null &&
+      !normalizedAbilityText.startsWith('(') &&
+      /^[^"]+\s(?:have|has|gains?)\s+"/i.test(normalizedAbilityText) &&
+      // A selector that swallowed the P/T clause ("Equipped creature gets +1/+1 and has") means the
+      // grant misparsed, so it stays prunable rather than shadowing the better shape downstream.
+      !/\bgets?\s+[+-]/i.test(String((quotedGrantStep.target as { text?: string } | undefined)?.text || ''));
+
     if (
+      !grantsQuotedAbility &&
       isCurrentBatchReminderOrPlatformOnlyText(normalizedAbilityText) &&
       ability.steps.length > 0 &&
       ability.steps.every(isPlatformReminderOnlyExecutableStep)
@@ -20763,133 +20839,6 @@ export function pruneRedundantStillLandUnknownAbilities(
   return abilities.map((ability) => {
     const nextSteps = ability.steps.filter(step => !isRedundantStillLandUnknownStep(step));
     return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
-  });
-}
-
-function isRedundantProliferateReminderUnknownStep(step: OracleEffectStep): boolean {
-    if (!step || step.kind !== 'unknown') return false;
-
-  const normalized = normalizeOracleText(String(step.raw || ''))
-    .replace(/^[()\s]+/, '')
-    .replace(/[.)\s]+$/g, '')
-    .trim();
-  if (!normalized) return false;
-
-  return (
-    /^then do it again$/i.test(normalized) ||
-    /^choose any number of permanents and\/or players$/i.test(normalized) ||
-    /^choose any number of permanents and\/or players, then give each another counter of each kind already there(?:\. then do it again)?$/i.test(normalized) ||
-    /^to proliferate, choose any number of permanents and\/or players$/i.test(normalized) ||
-    /^to proliferate, choose any number of permanents and\/or players, then give each another counter of each kind already there(?:\. then do it again)?$/i.test(normalized) ||
-    /^(?:then\s+)?give each another counter of each kind already there(?:\. then do it again)?$/i.test(normalized)
-  );
-}
-
-function isRedundantProliferateReminderStep(step: OracleEffectStep): boolean {
-  if (isRedundantProliferateReminderUnknownStep(step)) return true;
-  if (step.kind !== 'grant_static_ability') return false;
-  const normalized = normalizeOracleText(String(step.raw || (step as any).effectText?.[0] || ''))
-    .replace(/^[()\s]+/, '')
-    .replace(/[.)\s]+$/g, '')
-    .trim();
-  return /^then do it again$/i.test(normalized) || /^do it again$/i.test(normalized);
-}
-
-export function pruneRedundantProliferateReminderUnknownAbilities(
-  abilities: readonly OracleIRAbility[]
-): OracleIRAbility[] {
-  return abilities.map((ability) => {
-    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
-    if (!ability.steps.some((step) => step.kind === 'proliferate') && !normalizedText.includes('proliferate')) {
-      return ability;
-    }
-
-    const nextSteps = ability.steps.filter(step => !isRedundantProliferateReminderStep(step));
-    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
-  });
-}
-
-function parseRepeatedProliferateUnknownSteps(step: OracleEffectStep): readonly OracleEffectStep[] | null {
-  const normalized = normalizeUnknownStepText(step);
-  if (!normalized) return null;
-
-  const clause = normalized
-    .replace(/^then\b\s*/i, '')
-    .replace(/^if you do,\s*/i, '')
-    .trim();
-
-  // Roalesk: "then proliferate again" ? one additional proliferate action.
-  if (/^proliferate(?:\s+again)?$/i.test(clause) && /\bagain\b/i.test(normalized)) {
-    return [
-      {
-        kind: 'proliferate',
-        ...(step.sequence ? { sequence: step.sequence } : {}),
-        raw: normalized,
-      },
-    ];
-  }
-
-  const match = clause.match(/^proliferate\s+(twice|two\s+times|2\s+times)$/i);
-  if (!match) return null;
-
-  return [
-    {
-      kind: 'proliferate',
-      ...(step.sequence ? { sequence: step.sequence } : {}),
-      raw: normalized,
-    },
-    {
-      kind: 'proliferate',
-      ...(step.sequence ? { sequence: step.sequence } : {}),
-      raw: normalized,
-    },
-  ];
-}
-
-export function expandRepeatedProliferateUnknownAbilities(
-  abilities: readonly OracleIRAbility[]
-): OracleIRAbility[] {
-  return abilities.map((ability) => {
-    if (ability.type === AbilityType.STATIC || ability.type === AbilityType.REPLACEMENT) {
-      return ability;
-    }
-
-    let changed = false;
-    const steps = ability.steps.flatMap((step) => {
-      if (step.kind !== 'unknown') return [step];
-      const expanded = parseRepeatedProliferateUnknownSteps(step);
-      if (!expanded) return [step];
-      changed = true;
-      return [...expanded];
-    });
-
-    return changed ? { ...ability, steps } : ability;
-  });
-}
-
-/**
- * Tekuthal / Topography Tracker style replacements are applied at keyword-action
- * resolution time (see server keywordActionRepetition). Clear misparsed executable
- * steps so replacement text is not treated as a static explore/proliferate effect.
- */
-export function clearKeywordActionRepetitionReplacementSteps(
-  abilities: readonly OracleIRAbility[]
-): OracleIRAbility[] {
-  return abilities.map((ability) => {
-    if (ability.type !== AbilityType.REPLACEMENT) return ability;
-    const text = normalizeOracleText(String(ability.text || ability.effectText || ''))
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (
-      /if you would proliferate,\s*proliferate twice instead/i.test(text) ||
-      /if a creature you control would explore,\s*instead it explores,\s*then it explores again/i.test(text)
-    ) {
-      return ability.steps.length === 0 ? ability : { ...ability, steps: [] };
-    }
-    return ability;
   });
 }
 
@@ -21711,9 +21660,17 @@ export function expandMobilizeKeywordAbilities(
   return abilities.map((ability) => {
     const normalizedEffect = normalizeOracleText(String(ability.effectText || '')).trim().toLowerCase();
     const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    // A create_token step that already carries the whole reminder ("... Sacrifice them at the
+    // beginning of the next end step.") is canonical. One that stopped at the first sentence still
+    // needs the rewrite below, even though the attacks trigger was attached upstream.
     const alreadyExpanded =
       ability.triggerCondition === 'this creature attacks' &&
-      ability.steps.some((step) => step.kind === 'create_token' && (step as any).attacking === 'defending_player');
+      ability.steps.some(
+        (step) =>
+          step.kind === 'create_token' &&
+          (step as any).attacking === 'defending_player' &&
+          /next end step/i.test(String((step as any).raw || ''))
+      );
     const mobilizeMatch = normalizedText.match(/^mobilize\s+(\d+)(?:\s*\(.*)?$/i);
     const canonicalEffectPrefix = 'create ';
     const matchesCanonicalEffect =
@@ -23866,6 +23823,36 @@ function parseChosenColorProtectionUnknownStep(
   ];
 }
 
+function expandChosenColorProtectionGrantStep(
+  step: Extract<OracleEffectStep, { kind: 'grant_temporary_ability' }>
+): readonly OracleEffectStep[] | null {
+  const granted = [
+    ...(Array.isArray(step.abilities) ? step.abilities : []),
+    ...(Array.isArray(step.effectText) ? step.effectText : []),
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  const isChosenColorProtection =
+    granted.some((text) => /^protection from the color of your choice$/i.test(text)) ||
+    /gains?\s+protection from the color of your choice/i.test(raw);
+  if (!isChosenColorProtection) return null;
+
+  const { effectText: _ignoredEffectText, ...grantWithoutChoiceText } = step;
+  return [
+    {
+      kind: 'choose_color',
+      manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: 'Choose a color',
+    },
+    {
+      ...grantWithoutChoiceText,
+      abilities: ['protection from the chosen color'],
+    } as OracleEffectStep,
+  ];
+}
+
 export function expandChosenColorProtectionAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -23874,6 +23861,15 @@ export function expandChosenColorProtectionAbilities(
     const expandedSteps: OracleEffectStep[] = [];
 
     for (const step of ability.steps) {
+      if (step.kind === 'grant_temporary_ability') {
+        const expandedGrant = expandChosenColorProtectionGrantStep(step);
+        if (expandedGrant) {
+          changed = true;
+          expandedSteps.push(...expandedGrant);
+          continue;
+        }
+      }
+
       if (step.kind !== 'unknown') {
         expandedSteps.push(step);
         continue;
@@ -27127,7 +27123,7 @@ function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { kind: '
     };
   }
 
-  if (/^venture into the dungeon$/i.test(normalized)) {
+  if (/^venture into (?:the dungeon|undercity)$/i.test(normalized)) {
     return {
       kind: 'venture_into_dungeon',
       who: { kind: 'you' },
@@ -28175,6 +28171,53 @@ export function repairSplitChooseModeBulletSteps(
     const minModes = Math.max(0, Number((step as any).minModes) || 0);
     const modes = Array.isArray((step as any).modes) ? [...(step as any).modes] : [];
     let scan = index + 1;
+
+    // Shared-characteristics modes (Outlaws' Merriment): the effect sits in a lead sentence and each
+    // bullet only supplies power/toughness, subtypes, and abilities. The lead is not a mode of its
+    // own - it is the template every bullet fills in.
+    const sharedLead = steps[scan];
+    const sharedLeadRaw = String((sharedLead as any)?.raw || '');
+    const sharedLeadMatch =
+      sharedLead?.kind === 'create_token'
+        ? sharedLeadRaw.match(/\bcreate\s+(?:a|an|one)\s+(.+?)\s+creature token\s+with those characteristics\b/i)
+        : null;
+    if (sharedLeadMatch) {
+      const sharedColors = String(sharedLeadMatch[1] || '').trim();
+      const bulletModes: Array<{ label: string; raw: string; steps: OracleEffectStep[] }> = [];
+      let bulletScan = scan + 1;
+      while (bulletScan < steps.length) {
+        const bulletRaw = String(steps[bulletScan]?.raw || '').trim();
+        if (!/^[\u2022\uFFFD]\s*/.test(bulletRaw)) break;
+        const body = bulletRaw.replace(/^[\u2022\uFFFD]\s*/, '').replace(/\.\s*$/, '').trim();
+        const bulletMatch = body.match(/^(\d+\/\d+)\s+(.+?)(?:\s+with\s+([\s\S]+))?$/i);
+        if (!bulletMatch) break;
+        const [, powerToughness, subtypes, abilities] = bulletMatch;
+        const descriptor =
+          `${powerToughness} ${sharedColors} ${String(subtypes || '').trim()} creature` +
+          (abilities ? ` with ${String(abilities).trim()}` : '');
+        bulletModes.push({
+          label: `Mode ${bulletModes.length + 1}`,
+          raw: body,
+          steps: [
+            {
+              ...(sharedLead as any),
+              token: descriptor,
+              raw:
+                `Create a ${descriptor.replace(/\s+creature\b/, ' creature token')}` +
+                (/["'.]$/.test(descriptor) ? '' : '.'),
+            } as OracleEffectStep,
+          ],
+        });
+        bulletScan += 1;
+      }
+
+      if (bulletModes.length > 0) {
+        out.push({ ...step, modes: bulletModes, raw: bulletModes.map((mode) => mode.raw).join('\n\u2022 ') } as OracleEffectStep);
+        index = bulletScan;
+        continue;
+      }
+    }
+
     while (scan < steps.length) {
       const nextRaw = String(steps[scan]?.raw || '').trim();
       const needsMoreModes = modes.length < minModes;
@@ -28196,7 +28239,7 @@ export function repairSplitChooseModeBulletSteps(
     out.push({
       ...step,
       modes,
-      raw: modes.map((mode) => mode.raw).join('\n� '),
+      raw: modes.map((mode) => mode.raw).join('\n\u2022 '),
     });
     index = scan;
   }

@@ -167,7 +167,10 @@ describe('look-choose executor corridors', () => {
       'Exile any number of target creatures you control. For each creature exiled this way, create a token that\'s a copy of that creature. At the beginning of the next end step, return those exiled cards to the battlefield under their owner\'s control.';
     const steps = collectStepsFromIrText(text, 'Eerie Interlude');
     const record = dryRunOracleSteps(steps, 'Eerie Interlude', [], { typeLine: 'Instant' });
-    expect(record.status).toBe('fully_applied');
+    // "Exile any number of target creatures you control" is the caster's choice of how many and which,
+    // so an unbound dry run must ask rather than invent a selection.
+    expect(['fully_applied', 'choice_required']).toContain(record.status);
+    expect(record.reasonCodes.unsupported_selector || 0).toBe(0);
   });
 
   it('dry-runs look-top up-to-two lands to battlefield tapped and rest library bottom', () => {
@@ -590,7 +593,10 @@ describe('look-choose executor corridors', () => {
       'You may put a +1/+1 counter on a creature. Then choose odd or even. Return each creature with power of the chosen quality to its owner\'s hand. (Zero is even.)';
     const steps = collectStepsFromIrText(text, "Zimone's Hypothesis");
     const record = dryRunOracleSteps(steps, "Zimone's Hypothesis", [], { typeLine: 'Instant' });
-    expect(record.status).toBe('fully_applied');
+    // Both "you may put a +1/+1 counter on a creature" and "choose odd or even" are player choices, so
+    // an unbound dry run stops for input instead of picking a parity on the caster's behalf.
+    expect(['fully_applied', 'choice_required']).toContain(record.status);
+    expect(record.reasonCodes.unsupported_selector || 0).toBe(0);
   });
 
   it('dry-runs Nuclear Fallout rad counters', () => {

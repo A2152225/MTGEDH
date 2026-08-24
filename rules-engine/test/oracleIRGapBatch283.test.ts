@@ -44,6 +44,7 @@ describe('Oracle IR gap batch 283 — surveil reminder disposal', () => {
     const result = applyOracleIRStepsToGameState(libraryState(4), steps, {
       controllerId,
       sourceId: 'bf-source',
+      interactivePlayerChoices: false,
     });
     expect(result.automationGaps?.some((gap) => gap.reasonCode === 'unsupported_selector')).toBe(false);
     expect(result.appliedSteps?.length).toBe(1);

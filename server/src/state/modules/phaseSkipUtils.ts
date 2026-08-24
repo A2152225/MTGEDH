@@ -171,7 +171,10 @@ function performUntapStepTurnActionDuringPhaseSkip(ctx: PhaseSkipContext): strin
 }
 
 /** Rule 504.1: perform draw step turn action once while skipping through DRAW. */
-function performDrawStepTurnActionDuringPhaseSkip(ctx: PhaseSkipContext): unknown[] {
+function performDrawStepTurnActionDuringPhaseSkip(
+  ctx: PhaseSkipContext,
+  options?: { skipAdditionalDraws?: boolean },
+): unknown[] {
   const { game, gameId, turnPlayer } = ctx;
   if (!turnPlayer) return [];
 
@@ -190,7 +193,9 @@ function performDrawStepTurnActionDuringPhaseSkip(ctx: PhaseSkipContext): unknow
     debugWarn(1, '[phaseSkip] Failed to recalculate player effects before draw:', err);
   }
 
-  const additionalDraws = (game as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
+  const additionalDraws = options?.skipAdditionalDraws
+    ? 0
+    : (game as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
   const totalDraws = 1 + additionalDraws;
   let drawn: unknown[] = [];
 
@@ -511,9 +516,11 @@ export function processPhaseSkipTriggerStops(ctx: PhaseSkipContext): PhaseSkipTr
 
   if (isSkippingThroughDraw && turnPlayer) {
     try {
+      // Additional-draw-only effects (Howling Mine / Immortal Sun) apply via
+      // calculateAdditionalDraws during the turn-based draw. They are not a skip stop.
       performDrawStepTurnActionDuringPhaseSkip(ctx);
 
-      const drawTriggers = getDrawStepTriggers(game, turnPlayer);
+      const drawTriggers = getDrawStepTriggers(game, turnPlayer) || [];
       if (drawTriggers?.length > 0) {
         const stopResult = persistAndStop('beginning', 'DRAW', drawTriggers, 'draw_step');
         if (stopResult === 'stopped') return 'stopped';

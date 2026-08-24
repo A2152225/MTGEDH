@@ -82,7 +82,7 @@ describe('token-created triggers (integration)', () => {
       triggerType: 'token_created',
       source: 'mirkwood_bats_perm',
       triggeringPlayer: p1,
-      effect: 'each opponent loses 1 life',
+      effect: 'each opponent loses 1 life.',
     }));
     expect(queued?.effectData).toEqual(expect.objectContaining({
       tokenControllerId: p1,
@@ -152,7 +152,7 @@ describe('token-created triggers (integration)', () => {
       controllerId: p1,
       description: 'each opponent loses 1 life',
       triggerType: 'token_created',
-      effect: 'each opponent loses 1 life',
+      effect: 'each opponent loses 1 life.',
       mandatory: true,
       triggeringPlayer: p1,
       effectData: {

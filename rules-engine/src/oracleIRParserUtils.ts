@@ -63,6 +63,21 @@ export function splitIntoClauses(line: string): string[] {
       }
     }
 
+    // A whole-clause reminder parenthetical ends its own clause. Its inner period is skipped above by
+    // the ".)" guard, so without this "(You may cast a legendary sorcery only if ... .) Return all
+    // legendary permanent cards ..." stays one clause and the reminder swallows the real effect.
+    if (!inQuotes && ch === ')' && current.trimStart().startsWith('(')) {
+      const next = line[i + 1] ?? '';
+      if (next && /\s/.test(next)) {
+        current += ch;
+        pushCurrent();
+        while (i + 1 < line.length && /\s/.test(line[i + 1] ?? '')) {
+          i += 1;
+        }
+        continue;
+      }
+    }
+
     current += ch;
   }
   pushCurrent();
@@ -97,6 +112,9 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   const trimmed = raw.trim();
   if (!trimmed) return { kind: 'unknown' };
   if (/^that$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'that' };
+  if (/^those(?:\s+tokens?(?:\s+plus\s+an\s+additional\s+treasure\s+token)?)?$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
   if (/^this$/i.test(trimmed)) return { kind: 'number', value: 1 };
   if (/^twice that much$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^that many$/i.test(trimmed) || /^that much$/i.test(trimmed)) {
@@ -448,6 +466,12 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   }
   if (/^a\s+number\s+equal\s+to\s+the\s+amount\s+of\s+mana\s+spent\s+to\s+cast\s+it$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: 'the amount of mana spent to cast it' };
+  }
+  if (/^(?:a\s+)?number\s+equal\s+to\s+this\s+permanent(?:'|')?s\s+power$/i.test(trimmed)) {
+    return { kind: 'object_stat', subject: 'this_permanent', stat: 'power' };
+  }
+  if (/^(?:a\s+)?number\s+equal\s+to\s+this\s+creature(?:'|')?s\s+power$/i.test(trimmed)) {
+    return { kind: 'object_stat', subject: 'this_creature', stat: 'power' };
   }
   if (/^(?:a\s+)?number\s+equal\s+to\s+.+$/i.test(trimmed) || /^a\s+equal\s+to\s+.+$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: trimmed.toLowerCase().replace(/^a\s+equal\s+to\s+/i, 'equal to ') };

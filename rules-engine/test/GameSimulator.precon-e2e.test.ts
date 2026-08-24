@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { AIStrategy } from '../src/AIEngine';
 import { GameSimulator, type CardData, PlayerType, type SimulationPlayer } from '../src/GameSimulator';
+import { lookupCorpusCards } from './helpers/cardCorpus.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,9 +21,7 @@ const CARD_ALIASES: Record<string, string> = {
 };
 
 let oracleIndexCache: Map<string, CardData> | null = null;
-let atomicIndexCache: Map<string, CardData> | null = null;
 const oracleLoadedNames = new Set<string>();
-const atomicLoadedNames = new Set<string>();
 
 function normalizeCardName(value: string): string {
   return String(value || '')
@@ -73,46 +72,26 @@ function toOracleCardData(raw: any): CardData | null {
   };
 }
 
-function toAtomicCardData(name: string, raw: any): CardData {
-  return {
-    name,
-    mana_cost: typeof raw?.manaCost === 'string' ? raw.manaCost : undefined,
-    cmc: typeof raw?.manaValue === 'number' ? raw.manaValue : undefined,
-    type_line: typeof raw?.type === 'string' ? raw.type : undefined,
-    oracle_text: typeof raw?.text === 'string' ? raw.text : undefined,
-    power: typeof raw?.power === 'string' ? raw.power : undefined,
-    toughness: typeof raw?.toughness === 'string' ? raw.toughness : undefined,
-    loyalty: typeof raw?.loyalty === 'string' ? raw.loyalty : undefined,
-    id: typeof raw?.uuid === 'string' ? raw.uuid : undefined,
-  };
-}
-
-function loadOracleIndex(requiredNames: Set<string>): Map<string, CardData> {
+/**
+ * The lookup database is built from both the Scryfall oracle dump and AtomicCards, so one query
+ * covers what used to be two separate index loaders over the raw JSON files.
+ */
+async function loadCardIndex(requiredNames: Set<string>): Promise<Map<string, CardData>> {
   if (!oracleIndexCache) {
     oracleIndexCache = new Map();
   }
 
   const missingNames = [...requiredNames].filter((name) => !oracleLoadedNames.has(name));
   if (missingNames.length > 0) {
-    const missingSet = new Set(missingNames);
-    const oracleCardsPath = path.join(repoRoot, 'oracle-cards.json');
-    const oracleCards = JSON.parse(fs.readFileSync(oracleCardsPath, 'utf8')) as any[];
+    const { cards } = await lookupCorpusCards(missingNames);
 
-    for (const rawCard of oracleCards) {
+    for (const [normalizedName, rawCard] of cards) {
       const cardData = toOracleCardData(rawCard);
       if (!cardData) continue;
 
-      const candidateNames = [rawCard?.name, ...(Array.isArray(rawCard?.card_faces) ? rawCard.card_faces.map((face: any) => face?.name) : [])]
-        .filter((name): name is string => typeof name === 'string' && name.trim().length > 0);
-
-      for (const candidateName of candidateNames) {
-        const normalizedName = normalizeCardName(candidateName);
-        if (!normalizedName || !missingSet.has(normalizedName)) continue;
-
-        const existing = oracleIndexCache.get(normalizedName);
-        if (!existing || cardScore(cardData, rawCard?.layout) > cardScore(existing)) {
-          oracleIndexCache.set(normalizedName, cardData);
-        }
+      const existing = oracleIndexCache.get(normalizedName);
+      if (!existing || cardScore(cardData, (rawCard as any)?.layout) > cardScore(existing)) {
+        oracleIndexCache.set(normalizedName, cardData);
       }
     }
 
@@ -124,43 +103,6 @@ function loadOracleIndex(requiredNames: Set<string>): Map<string, CardData> {
   return new Map([...oracleIndexCache].filter(([key]) => requiredNames.has(key)));
 }
 
-function loadAtomicIndex(requiredNames: Set<string>): Map<string, CardData> {
-  if (!atomicIndexCache) {
-    atomicIndexCache = new Map();
-  }
-
-  const missingNames = [...requiredNames].filter((name) => !atomicLoadedNames.has(name));
-  if (missingNames.length > 0) {
-    const missingSet = new Set(missingNames);
-    const atomicCardsPath = path.join(repoRoot, 'AtomicCards.json');
-    const atomicCards = JSON.parse(fs.readFileSync(atomicCardsPath, 'utf8')) as {
-      data?: Record<string, any[]>;
-    };
-
-    for (const [name, printings] of Object.entries(atomicCards.data || {})) {
-      const normalizedName = normalizeCardName(name);
-      if (!missingSet.has(normalizedName)) continue;
-
-      const bestPrinting = Array.isArray(printings)
-        ? printings.find((printing) => printing?.text || printing?.type || printing?.manaCost) ?? printings[0]
-        : undefined;
-      if (!bestPrinting) continue;
-
-      const cardData = toAtomicCardData(name, bestPrinting);
-      const existing = atomicIndexCache.get(normalizedName);
-      if (!existing || cardScore(cardData) > cardScore(existing)) {
-        atomicIndexCache.set(normalizedName, cardData);
-      }
-    }
-
-    for (const normalizedName of missingNames) {
-      atomicLoadedNames.add(normalizedName);
-    }
-  }
-
-  return new Map([...atomicIndexCache].filter(([key]) => requiredNames.has(key)));
-}
-
 function readDeckFile(relativePath: string): string[] {
   const deckPath = path.join(repoRoot, relativePath);
   return fs
@@ -170,20 +112,18 @@ function readDeckFile(relativePath: string): string[] {
     .filter(Boolean);
 }
 
-function resolveDeckCards(deckCards: string[]): { resolved: CardData[]; unresolved: string[] } {
+async function resolveDeckCards(deckCards: string[]): Promise<{ resolved: CardData[]; unresolved: string[] }> {
   const requiredNames = new Set(
     deckCards.map((cardName) => CARD_ALIASES[normalizeCardName(cardName)] ?? normalizeCardName(cardName)),
   );
-  const oracleIndex = loadOracleIndex(requiredNames);
-  const unresolvedKeys = [...requiredNames].filter((name) => !oracleIndex.has(name));
-  const atomicIndex = unresolvedKeys.length > 0 ? loadAtomicIndex(new Set(unresolvedKeys)) : new Map<string, CardData>();
+  const cardIndex = await loadCardIndex(requiredNames);
 
   const resolved: CardData[] = [];
   const unresolved = new Set<string>();
 
   for (const deckCard of deckCards) {
     const normalizedName = CARD_ALIASES[normalizeCardName(deckCard)] ?? normalizeCardName(deckCard);
-    const cardData = oracleIndex.get(normalizedName) ?? atomicIndex.get(normalizedName);
+    const cardData = cardIndex.get(normalizedName);
     if (!cardData) {
       unresolved.add(deckCard);
       continue;
@@ -199,20 +139,26 @@ function resolveDeckCards(deckCards: string[]): { resolved: CardData[]; unresolv
 
 describe('GameSimulator - precon text deck end-to-end', () => {
   it('runs a full 3-player commander simulation from the txt decklists', async () => {
-    const loadedDecks = DECK_FILES.map((relativePath) => {
+    const loadedDecks: Array<{
+      relativePath: string;
+      commander: string;
+      cards: string[];
+      cardData: CardData[];
+    }> = [];
+    for (const relativePath of DECK_FILES) {
       const rawCards = readDeckFile(relativePath);
-      const { resolved, unresolved } = resolveDeckCards(rawCards);
+      const { resolved, unresolved } = await resolveDeckCards(rawCards);
 
       expect(unresolved, `${relativePath} contains unresolved cards`).toEqual([]);
       expect(resolved.length, `${relativePath} should produce a meaningful deck`).toBeGreaterThan(60);
 
-      return {
+      loadedDecks.push({
         relativePath,
         commander: resolved[0].name,
         cards: resolved.map((card) => card.name),
         cardData: resolved,
-      };
-    });
+      });
+    }
 
     const cardDatabase = new Map<string, CardData>();
     for (const deck of loadedDecks) {

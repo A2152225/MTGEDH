@@ -184,7 +184,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
       floatingMana.restricted.forEach((entry, restrictedIndex) => {
         if (!canUseRestrictedManaClient(entry as any, restrictedPurpose)) return;
         const poolKey = String(entry.type || 'colorless');
-        const symbol = ({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G', colorless: 'C' } as Record<string, string>)[poolKey] || 'C';
+        const symbol = manaSymbols[poolKey] || 'C';
         const amount = Number(entry.amount || 0);
         if (amount <= 0) return;
         entries.push({

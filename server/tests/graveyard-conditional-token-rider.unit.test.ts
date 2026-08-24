@@ -359,6 +359,11 @@ describe('graveyard conditional token rider', () => {
     };
     (game.state as any).stack = [];
     (game.state as any).battlefield = [];
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'MAIN';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
     (game.state as any).manaPool = { [playerId]: { white: 0, blue: 0, black: 2, red: 0, green: 0, colorless: 3 } };
 
     const emitted: any[] = [];

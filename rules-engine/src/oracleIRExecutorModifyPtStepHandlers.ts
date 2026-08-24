@@ -14,7 +14,8 @@ import {
 } from './oracleIRLedgerCardAccess';
 import type { LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
-import { getCounterCountOnObject } from './oracleIRExecutorModifyPtWhereUtils';
+import { findObjectByIdInState, getCounterCountOnObject } from './oracleIRExecutorModifyPtWhereUtils';
+import { getAmountOfSpecificManaSymbolSpent } from './oracleIRExecutorManaUtils';
 import { tryResolveForEachReferenceAmount } from './oracleIRExecutorForEachQuantity';
 import { resolveCommanderCastsFromCommandZoneThisGame } from './oracleIRExecutorCommanderCastCount';
 import {
@@ -860,9 +861,19 @@ export function applyModifyPtStep(
   }
 
   if (/\{e\} paid this way/i.test(String(step.raw || ''))) {
+    // The {E} is paid as part of casting the source, so when the caller did not pre-compute the
+    // amount it can still be read off the source spell's recorded payment.
+    const energyFromSource = (() => {
+      const sourceId = String(ctx.sourceId || '').trim();
+      if (!sourceId) return null;
+      const sourceObject = findObjectByIdInState(state, ((state as any).battlefield || []) as any[], sourceId);
+      if (!sourceObject) return null;
+      const paid = getAmountOfSpecificManaSymbolSpent(sourceObject, 'E');
+      return Number.isFinite(paid as number) && (paid as number) > 0 ? (paid as number) : null;
+    })();
     const energyPaid = Math.max(
       1,
-      Number((ctx as any)?.energyPaidThisWay ?? ctx.referenceAmount ?? ctx.xValue ?? 1)
+      Number((ctx as any)?.energyPaidThisWay ?? ctx.referenceAmount ?? ctx.xValue ?? energyFromSource ?? 1)
     );
     const powerBonus = (Number(step.power) || 0) * energyPaid;
     const toughnessBonus = (Number(step.toughness) || 0) * energyPaid;
@@ -1149,12 +1160,18 @@ export function applyModifyPtStep(
     const powerBonus = basePower * effectiveScale;
     const toughnessBonus = baseToughness * effectiveScale;
     if (powerBonus === 0 && toughnessBonus === 0) {
-      if (usesWhereForX && targetWhereX !== null) {
-        appliedCount += 1;
-      } else if (!usesWhereForX && (step.scaler || perTargetScaler)) {
-        appliedCount += 1;
+      // Per-target scaling ("for each counter on it") leaves a permanent with zero instances
+      // untouched. A global X that resolved to zero still creates a +0/+0 continuous effect on its
+      // target, so fall through and record the modifier for that case only.
+      const resolvedGlobalZero = !perTargetWhereX && !perTargetScaler && usesWhereForX && targetWhereX !== null;
+      if (!resolvedGlobalZero) {
+        if (usesWhereForX && targetWhereX !== null) {
+          appliedCount += 1;
+        } else if (!usesWhereForX && (step.scaler || perTargetScaler)) {
+          appliedCount += 1;
+        }
+        continue;
       }
-      continue;
     }
 
     nextState = applyTemporaryPowerToughnessModifier(

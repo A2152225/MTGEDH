@@ -224,7 +224,7 @@ class ResolutionQueueManagerClass {
   addStep(
     gameId: string,
     config: CreateResolutionStepConfig,
-    options?: { allowDuringReplay?: boolean },
+    options?: { allowDuringReplay?: boolean; skipEmit?: boolean },
   ): ResolutionStep {
     const queue = this.getQueue(gameId);
     const step = createResolutionStep(config);
@@ -232,6 +232,9 @@ class ResolutionQueueManagerClass {
       return step;
     }
     addStep(queue, step);
+    if (options?.skipEmit) {
+      return step;
+    }
     if (this.shouldDeferStepAddedEvents(gameId)) {
       this.enqueueDeferredStepAdded(gameId, step);
       return step;

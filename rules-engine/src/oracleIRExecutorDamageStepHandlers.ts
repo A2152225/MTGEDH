@@ -1027,26 +1027,31 @@ export function applyPreventDamageStep(
     step.recipientTarget?.kind === 'raw' &&
     /any target/i.test(String(step.recipientTarget.text || ''))
   ) {
-    const targetPermanentId = String(
-      ctx.targetCreatureId ||
-        ctx.targetPermanentId ||
-        ctx.selectorContext?.targetCreatureId ||
-        'bf-opponent-creature'
+    const boundPermanentId = String(
+      ctx.targetCreatureId || ctx.targetPermanentId || ctx.selectorContext?.targetCreatureId || ''
     ).trim();
+    // "Any target" covers players as well as permanents, so a bound target player takes the shield
+    // when no permanent was chosen. Without this the shield lands on a creature the caller never
+    // named and never fires for the damage it was cast to stop.
+    const boundPlayerId = boundPermanentId
+      ? ''
+      : String(ctx.targetPlayerId || ctx.selectorContext?.targetPlayerId || '').trim();
+    const targetPermanentId = boundPlayerId ? '' : boundPermanentId || 'bf-opponent-creature';
+    const shieldedRef = boundPlayerId || targetPermanentId;
     const shieldAmount = quantityToNumber(step.amount, ctx) ?? 3;
     const effect = createTargetDamagePreventionEffect({
       state,
       sourceId: ctx.sourceId,
       sourceName: ctx.sourceName,
       controllerId: ctx.controllerId,
-      targetPermanentId,
+      ...(boundPlayerId ? { targetPlayerId: boundPlayerId as PlayerID } : { targetPermanentId }),
       amount: Math.max(0, Number(shieldAmount) || 0),
-      description: `Prevent the next ${shieldAmount} damage to ${targetPermanentId} this turn`,
+      description: `Prevent the next ${shieldAmount} damage to ${shieldedRef} this turn`,
     });
     return {
       applied: true,
       state: registerDamagePreventionEffect(state, effect),
-      log: [`Prevent the next ${shieldAmount} damage to ${targetPermanentId} this turn`],
+      log: [`Prevent the next ${shieldAmount} damage to ${shieldedRef} this turn`],
     };
   }
 

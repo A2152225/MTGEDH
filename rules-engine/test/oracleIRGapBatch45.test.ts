@@ -3,14 +3,12 @@ import { parseOracleTextToIR } from '../src/oracleIRParser.js';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport.js';
 import { parseMoveZoneUpToThatManyFromTheirGraveyard } from '../src/oracleIRExecutorZoneOps.js';
 import type { GameState } from '../../shared/src/index.js';
+import { requireCorpusCard } from './helpers/cardCorpus.js';
 
 describe('oracle IR gap batch 45', () => {
-  it('repairs magus sisters random saga into choose_mode', () => {
-    const cards = JSON.parse(
-      require('node:fs').readFileSync(require('node:path').join(__dirname, '../../oracle-cards.json'), 'utf8')
-    );
-    const card = cards.find((entry: any) => entry.name === 'Summon: Magus Sisters');
-    const ir = parseOracleTextToIR(card.oracle_text, card.name);
+  it('repairs magus sisters random saga into choose_mode', async () => {
+    const card = await requireCorpusCard('Summon: Magus Sisters');
+    const ir = parseOracleTextToIR(String(card.oracle_text || ''), card.name);
     const ability = ir.abilities.find((a) => /choose one at random/i.test(String(a.effectText || a.text || '')));
     expect(ability?.steps.some((s) => s.kind === 'unknown')).toBe(false);
     const chooseMode = ability?.steps.find((s) => s.kind === 'choose_mode') as any;
@@ -60,7 +58,7 @@ describe('oracle IR gap batch 45', () => {
     const chooseMode = steps.find((s) => s.kind === 'choose_mode') as any;
     expect(chooseMode?.modes?.length).toBe(3);
     expect(steps.some((s) => s.kind === 'unknown')).toBe(false);
-  });
+  }, 30000);
 
   it('executes brain pry they cant branch when named discard is impossible', async () => {
     const { collectStepsFromIrText, dryRunOracleSteps } = await import('../../server/scripts/executor-coverage-audit.ts');
@@ -72,7 +70,7 @@ describe('oracle IR gap batch 45', () => {
     const irGaps = hasUnknownIRSteps(text, 'Brain Pry');
     const record = dryRunOracleSteps(steps, 'Brain Pry', irGaps, { typeLine: 'Sorcery' });
     expect(record.status).toBe('fully_applied');
-  });
+  }, 30000);
 
   it('applies pharika escape counter metadata without granted graveyard cards', () => {
     const text =

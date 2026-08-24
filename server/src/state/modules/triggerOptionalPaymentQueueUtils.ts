@@ -9,10 +9,12 @@ import { drawCards as drawCardsFromZone } from './zones.js';
 import { createToken } from './counters_tokens.js';
 import { buildOpponentMayPayRecordedOutcome } from './opponent-may-pay-utils.js';
 import { applyTriggeredReanimationEntryRiders } from './triggerReanimationRiders.js';
+import { applyBattlefieldReturnCharacteristicMetadata } from './triggerDelayedEffectUtils.js';
 import { markEchoPaid, sacrificePermanent } from './upkeep-triggers.js';
 import type { ReflexiveTriggerEffectRunner } from './triggerReflexiveWhenYouDoQueueUtils.js';
 import { tryDeferTriggeredAbilityTargetSelection } from './stackResolveTriggeredAbilityTargetPromptUtils.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
+import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
 
 const OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES = new Set([
   'rhystic_study',
@@ -104,7 +106,7 @@ function applyLiveOpponentMayPayOutcome(
       undefined,
       {
         colors: [],
-        typeLine: 'Token Artifact â€” Treasure',
+        typeLine: 'Token Artifact — Treasure',
         abilities: ['{T}, Sacrifice this artifact: Add one mana of any color.'],
         isArtifact: true,
       }
@@ -274,6 +276,12 @@ function maybeQueueControllerMayPayTriggeredAbility(
     return false;
   }
 
+  // IR Effect Program already owns "you may pay {C}. If you do, …" (Agrus multi-copy).
+  // Do not also queue a legacy mana-payment OPTION_CHOICE.
+  if (isTriggerEffectOwnedByOracleIrPrimary(String(description || '').trim(), sourceName)) {
+    return false;
+  }
+
   const manaCost = String(match[1] || '').trim();
   const paidEffect = String(match[2] || '').trim();
   const gameId = String((ctx as any).gameId || '').trim();
@@ -345,8 +353,12 @@ function maybeQueueControllerMayPayTriggeredAbility(
         description: paidEffect,
         effect: paidEffect,
         optionalPaymentResolved: true,
-        ...paidTargetMetadata,
       } as any;
+      for (const [key, value] of Object.entries(paidTargetMetadata)) {
+        if (value !== undefined) {
+          resolvedTriggerItem[key] = value;
+        }
+      }
 
       if (hasRandomCreatureGraveyardReturn && !String(resolvedTriggerItem.boundGraveyardCardId || '').trim()) {
         const zones = (((ctx as any).state as any)?.zones || {}) as Record<string, any>;
@@ -410,6 +422,7 @@ function maybeQueueControllerMayPayTriggeredAbility(
           && String(permanent?.card?.id || '').trim() === String(resolvedTriggerItem.boundGraveyardCardId || '').trim()
         ));
         if (returnedPermanent) {
+          applyBattlefieldReturnCharacteristicMetadata(returnedPermanent, resolvedTriggerItem);
           applyTriggeredReanimationEntryRiders(
             ctx,
             returnedPermanent,

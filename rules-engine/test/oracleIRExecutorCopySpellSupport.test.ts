@@ -214,4 +214,23 @@ describe('oracleIRExecutorCopySpellSupport', () => {
     });
     expect(resolution.stackItem?.id).toBe('stack-ability-1');
   });
+
+  it('resolves last_moved_card from selectorContext when the server bridge stripped carry-over', () => {
+    const exiled = {
+      id: 'gy_opt',
+      name: 'Opt',
+      type_line: 'Instant',
+      oracle_text: 'Scry 1.',
+    };
+    const resolution = resolveCopiedSpellSourceCards({
+      state: {
+        players: [{ id: 'p1', exile: [], graveyard: [] }, { id: 'p2', exile: [exiled], graveyard: [] }],
+        zones: { p2: { exile: [exiled], graveyard: [] } },
+      } as any,
+      step: { kind: 'copy_spell', subject: 'last_moved_card', optional: true, raw: 'copy it' } as any,
+      ctx: { controllerId: 'p1', selectorContext: { chosenObjectIds: ['gy_opt'] } } as any,
+      lastMovedCards: [],
+    });
+    expect(resolution.cards?.[0]?.id).toBe('gy_opt');
+  });
 });

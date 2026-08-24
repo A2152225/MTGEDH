@@ -5,6 +5,16 @@ import { getUpkeepTriggersForPlayer } from '../src/state/modules/upkeep-triggers
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 
+/**
+ * Spec conflict: `nextTurn` from pre_game starts the designated starting player
+ * (p1, CR 103.3). Older tests treated the first nextTurn as "skip to p2 at UNTAP".
+ * A second nextTurn advances to p2 so opponent-upkeep / "your upkeep" fixtures apply.
+ */
+function startGameOnSecondPlayer(g: ReturnType<typeof createInitialGameState>) {
+  g.applyEvent({ type: 'nextTurn' });
+  g.applyEvent({ type: 'nextTurn' });
+}
+
 describe('Intervening-if upkeep triggers', () => {
   beforeEach(() => {
     // Avoid cross-test leakage (these suites interact with the Resolution Queue).
@@ -159,8 +169,8 @@ describe('Intervening-if upkeep triggers', () => {
       tapped: false,
     });
 
-    // Start the game so turn/step logic runs.
-    g.applyEvent({ type: 'nextTurn' });
+    // Start the game so turn/step logic runs on p2's upkeep.
+    startGameOnSecondPlayer(g);
     expect(g.state.turnPlayer).toBe(p2);
 
     // Advance into upkeep (this pushes upkeep triggers).
@@ -194,8 +204,8 @@ describe('Intervening-if upkeep triggers', () => {
     g.importDeckResolved(p1, sampleDeck);
     g.importDeckResolved(p2, sampleDeck);
 
-    // Start the game: turnPlayer becomes p2 at UNTAP.
-    g.applyEvent({ type: 'nextTurn' });
+    // Start the game, then advance so turnPlayer is p2 at UNTAP.
+    startGameOnSecondPlayer(g);
     expect(g.state.turnPlayer).toBe(p2);
 
     // Put Emeria on the battlefield for p2.
@@ -256,8 +266,8 @@ describe('Intervening-if upkeep triggers', () => {
     g.importDeckResolved(p1, sampleDeck);
     g.importDeckResolved(p2, sampleDeck);
 
-    // Start the game: turnPlayer becomes p2 at UNTAP.
-    g.applyEvent({ type: 'nextTurn' });
+    // Start the game, then advance so turnPlayer is p2 at UNTAP.
+    startGameOnSecondPlayer(g);
     expect(g.state.turnPlayer).toBe(p2);
 
     // Ophiomancer (triggers at beginning of each upkeep, if you control no Snakes...)
@@ -315,8 +325,8 @@ describe('Intervening-if upkeep triggers', () => {
     g.importDeckResolved(p1, sampleDeck);
     g.importDeckResolved(p2, sampleDeck);
 
-    // Start the game: turnPlayer becomes p2 at UNTAP.
-    g.applyEvent({ type: 'nextTurn' });
+    // Start the game, then advance so turnPlayer is p2 at UNTAP.
+    startGameOnSecondPlayer(g);
     expect(g.state.turnPlayer).toBe(p2);
 
     // Put a synthetic upkeep trigger on the battlefield for p2.
@@ -377,7 +387,7 @@ describe('Intervening-if upkeep triggers', () => {
     g.importDeckResolved(p1, sampleDeck);
     g.importDeckResolved(p2, sampleDeck);
 
-    g.applyEvent({ type: 'nextTurn' });
+    startGameOnSecondPlayer(g);
     expect(g.state.turnPlayer).toBe(p2);
 
     (g.state.battlefield as any).push({

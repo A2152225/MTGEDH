@@ -240,7 +240,13 @@ function countControlledMatchingDescriptor(nextState: GameState, controllerId: P
   const battlefield = getProcessedBattlefield(nextState) as any[];
   return battlefield.filter((perm: any) => {
     if (String(perm?.controller || '').trim() !== String(controllerId || '').trim()) return false;
-    return parts.some(part => objectHasType(perm, part.replace(/^an?\s+/, '')));
+    return parts.some(part => {
+      const term = part.replace(/^an?\s+/, '');
+      if (objectHasType(perm, term)) return true;
+      // "you control four or more artifacts" captures the plural noun, but type lines are singular.
+      // Subtypes that already end in "s" (Pegasus, Homunculus) are matched by the check above first.
+      return /s$/i.test(term) ? objectHasType(perm, term.replace(/s$/i, '')) : false;
+    });
   }).length;
 }
 

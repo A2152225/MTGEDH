@@ -125,7 +125,7 @@ export function tryApplyInstantSorceryLegacyBodyHandlers(
     oracleTextLower,
   });
 
-  if (!preface.oracleIrSpellHandled) {
+  if (!preface.oracleIrSpellHandled && uncategorizedSpellFallbackApplied <= 0) {
     const riderResult = applyInstantSorcerySpecialAndRemovalRiders(ctx, {
       controller,
       effectiveCard,

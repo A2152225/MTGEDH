@@ -11,6 +11,7 @@ function pushTapTriggerOntoStackCore(
   seq: number,
   trigger: any,
   tappedPermanentId: string,
+  extras?: { optionalTriggeredAbilityDecisionApplied?: boolean },
 ): void {
   state.stack = state.stack || [];
   const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -21,6 +22,9 @@ function pushTapTriggerOntoStackCore(
     ? state.battlefield.find((perm: any) => String(perm?.id || '') === String(trigger?.permanentId || ''))
     : undefined;
   const stackItem = buildTapTriggeredStackItem(trigger, tappedPermanentId, triggerId, tappedPermanent, sourcePermanent);
+  if (extras?.optionalTriggeredAbilityDecisionApplied) {
+    (stackItem as any).optionalTriggeredAbilityDecisionApplied = true;
+  }
 
   state.stack.push(stackItem);
 
@@ -39,8 +43,9 @@ function pushTapTriggerOntoStack(
   gameId: string,
   trigger: any,
   tappedPermanentId: string,
+  extras?: { optionalTriggeredAbilityDecisionApplied?: boolean },
 ): void {
-  pushTapTriggerOntoStackCore(game.state, gameId, (game as any).seq ?? 0, trigger, tappedPermanentId);
+  pushTapTriggerOntoStackCore(game.state, gameId, (game as any).seq ?? 0, trigger, tappedPermanentId, extras);
 
   io.to(gameId).emit('chat', {
     id: `m_${Date.now()}`,
@@ -123,9 +128,8 @@ export function queueTapTriggersForTappedPermanents(
     })),
   );
 
-  // Push optional tap triggers as mandatory=false stack items so the single
-  // may decision happens at resolve (stack deferral / IR Effect Program).
-  // A pre-stack may prompt previously doubled when resolve deferred again.
+  // Optional tap triggers go straight onto the stack. Resolve-time optional
+  // deferral owns the single may prompt (no pre-stack mayAbilityPrompt).
   let addedStackTrigger = false;
   for (const entry of orderedTapTriggerEntries) {
     pushTapTriggerOntoStack(io, game, gameId, entry.trigger, entry.tappedPermanentId);

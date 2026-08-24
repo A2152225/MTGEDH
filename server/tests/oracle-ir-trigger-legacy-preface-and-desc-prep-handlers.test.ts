@@ -9,8 +9,13 @@ import { applyPlaneswalkerLoyaltyCountersFromTriggerMetadata } from '../src/stat
 describe('oracleIrTriggerLegacyPrefaceAndDescPrepHandlers', () => {
   it('adds loyalty counters to a planeswalker permanent', () => {
     const perm = { id: 'pw-1', counters: { loyalty: 3 } };
+    const ctx = {
+      state: { battlefield: [perm] },
+      bumpSeq: () => undefined,
+    } as any;
 
     expect(applyPlaneswalkerLoyaltyCountersFromTriggerMetadata({
+      ctx,
       sourceName: 'Chandra',
       triggerItem: { permanentId: 'pw-1', addsLoyaltyCounters: 1 },
       battlefield: [perm],

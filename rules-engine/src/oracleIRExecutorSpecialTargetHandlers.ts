@@ -48,6 +48,7 @@ import {
   tryBatch389SacrificeStep,
 } from './oracleIRExecutorSpecialTargetHandlersBatch389Bulk';
 import { tryBatch391DealDamageStep } from './oracleIRExecutorSpecialTargetHandlersBatch391Bulk';
+import { tryApplyExileOneOfThemLookedCards } from './oracleIRExecutorExileOneOfThemHandlers.js';
 
 type SpecialTargetAppliedResult = {
   readonly applied: true;
@@ -587,48 +588,12 @@ export function trySpecialExileStep(
     };
   }
 
-  if (target === 'one of them' || normalizedExileTarget === 'one of them') {
-    const contextual = readContextualCardsFromCtx(ctx);
-    if (contextual.length === 0) {
-      return { applied: true, state, log: ['No contextual cards to exile'] };
-    }
-    const faceDown = /\bface\s+down\b/i.test(target) || /\bface\s+down\b/i.test(raw);
-    const ownerId = String(
-      ctx.lastTopLibraryOwnerId || ctx.targetPlayerId || ctx.selectorContext?.targetPlayerId || ctx.controllerId || 'p1'
-    ).trim() as PlayerID;
-    const chosenId = String(
-      (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds[0] : '') ||
-        contextual[0]?.id ||
-        ''
-    ).trim();
-    const picked =
-      contextual.find((card: any) => String(card?.id || '').trim() === chosenId) || contextual[0];
-    const pickedId = String(picked?.id || '').trim();
-    const updatedPlayers = (state.players || []).map((entry: any) => {
-      if (String(entry?.id || '').trim() !== ownerId) return entry;
-      const library = Array.isArray(entry?.library) ? [...entry.library] : [];
-      const exile = Array.isArray(entry?.exile) ? [...entry.exile] : [];
-      const exiledCard = {
-        ...(library.find((card: any) => String(card?.id || '').trim() === pickedId) || picked),
-        zone: 'exile',
-        faceDown,
-      };
-      return {
-        ...entry,
-        library: library.filter((card: any) => String(card?.id || '').trim() !== pickedId),
-        exile: [...exile, exiledCard],
-      };
-    });
-    const restCards = contextual.filter((card: any) => String(card?.id || '').trim() !== pickedId);
-    return {
-      applied: true,
-      state: { ...(state as any), players: updatedPlayers as any } as GameState,
-      log: [`Exiled one looked-at card${faceDown ? ' face down' : ''}`],
-      lastMovedCards: restCards,
-      lastExiledCards: [{ ...(picked as any), zone: 'exile', faceDown }],
-      lastExiledCardCount: 1,
-    };
-  }
+  const oneOfThem = tryApplyExileOneOfThemLookedCards(state, ctx, {
+    target,
+    raw,
+    normalizedExileTarget,
+  });
+  if (oneOfThem) return oneOfThem;
 
   if (target === 'any number of those cards' || /exile any number of those cards/.test(raw)) {
     return exileContextualCardsFromCtx(state, ctx, 'any number of those cards');
@@ -2824,35 +2789,6 @@ export function trySpecialCopyPermanentStep(
   }
 
   return null;
-}
-
-export function trySpecialMonstrosityStep(
-  state: GameState,
-  step: Extract<OracleEffectStep, { kind: 'monstrosity' }>,
-  ctx: OracleIRExecutionContext,
-  runtime?: unknown
-): SpecialTargetStepResult | null {
-  void runtime;
-  if (!/^monstrosity \d+$/.test(normalizeRaw(step))) return null;
-  const sourceId = String(ctx.sourceId || '').trim();
-  if (!sourceId) return null;
-  const amount = Number(String(step.raw || '').match(/monstrosity (\d+)/i)?.[1] || 1);
-  const battlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
-    if (String(perm?.id || '').trim() !== sourceId) return perm;
-    return {
-      ...perm,
-      counters: {
-        ...((perm?.counters || {}) as Record<string, number>),
-        '+1/+1': Math.max(0, Number(((perm?.counters || {}) as any)['+1/+1'] || 0)) + amount,
-      },
-      isMonstrous: true,
-    };
-  });
-  return {
-    applied: true,
-    state: { ...(state as any), battlefield } as GameState,
-    log: [`${sourceId} became monstrous`],
-  };
 }
 
 export function trySpecialExertStep(

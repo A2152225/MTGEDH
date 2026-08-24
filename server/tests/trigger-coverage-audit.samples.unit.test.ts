@@ -21,7 +21,7 @@ const SAMPLES: Array<{ name: string; oracle_text: string; expectParsedCastTrigge
   {
     name: 'Jin-Gitaxias, Progress Tyrant',
     oracle_text: 'Whenever you cast an artifact, instant, or sorcery spell, copy that spell. You may choose new targets for the copy. This ability triggers only once each turn. (A copy of a permanent spell becomes a token.)\nWhenever an opponent casts an artifact, instant, or sorcery spell, counter that spell. This ability triggers only once each turn.',
-    expectParsedCastTriggers: 1,
+    expectParsedCastTriggers: 2,
     expectDetection: true,
   },
   {

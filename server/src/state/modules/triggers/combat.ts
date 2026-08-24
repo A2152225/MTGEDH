@@ -1723,6 +1723,14 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
         continue;
       }
 
+      // Optional may-pay attack triggers (Casal, energy payments, etc.) must keep
+      // manaCost/energyCost + mandatory:false so combat queues an OPTION_CHOICE.
+      // The known-card table is an optimization cache and must not swallow that.
+      const tableEffect = String(info.effect || '');
+      if (optionalPaymentPattern.test(tableEffect) || optionalPaymentPattern.test(oracleText)) {
+        continue;
+      }
+
       triggers.push({
         permanentId,
         cardName,

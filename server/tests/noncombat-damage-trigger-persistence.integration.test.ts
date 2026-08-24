@@ -93,7 +93,7 @@ describe('noncombat damage-to-player triggers (integration)', () => {
       permanentId: 'pinger_perm',
       targetPlayer: p2,
       defendingPlayer: p2,
-      effect: 'draw a card',
+      effect: 'draw a card.',
     }));
     expect(damageTriggers[0]?.card?.name).toBe('Test Pinger');
     expect(damageTriggers[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({

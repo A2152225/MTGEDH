@@ -110,7 +110,7 @@ describe('mill triggers (integration)', () => {
     const zellixTriggers = (((game.state as any).stack || []) as any[]).filter((item: any) => item?.source === 'zellix_perm');
     expect(zellixTriggers).toHaveLength(1);
     expect(zellixTriggers[0]).toEqual(expect.objectContaining({
-      effect: 'you create a 1/1 black Horror creature token',
+      effect: 'you create a 1/1 black Horror creature token.',
       triggerType: 'player_mills',
       triggeringPlayer: p2,
       targetPlayer: p2,

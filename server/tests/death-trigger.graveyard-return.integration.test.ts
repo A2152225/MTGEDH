@@ -1,12 +1,12 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
-import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { movePermanentToGraveyard } from '../src/state/modules/counters_tokens.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
+import { resetIntegrationGame } from './helpers/integrationGameReset.js';
 
 import '../src/state/modules/priority.js';
 
@@ -54,9 +54,7 @@ describe('Death trigger graveyard returns (integration)', () => {
   const gameId = 'test_death_trigger_graveyard_return';
 
   async function resetGame(gameId: string) {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
-    await deleteGame(gameId);
+    await resetIntegrationGame(gameId);
   }
 
   beforeAll(async () => {
@@ -94,7 +92,9 @@ describe('Death trigger graveyard returns (integration)', () => {
         baseToughness: 2,
         card: {
           id: 'enchanted_card_1',
-          name: 'Doomed Traveler',
+          // Invented name so local-DB oracle hydration cannot add Doomed Traveler's
+          // real Spirit-token dies trigger. This test isolates the Aura return.
+          name: 'Test Soldier',
           type_line: 'Creature - Human Soldier',
           oracle_text: '',
           zone: 'battlefield',
@@ -2342,7 +2342,6 @@ describe('Death trigger graveyard returns (integration)', () => {
 
     const controllerId = 'p1';
     const opponentId = 'p2';
-    const eventsBefore = getEvents(gameId).length;
     (game.state as any).players = [
       { id: controllerId, name: 'P1', spectator: false, life: 40 },
       { id: opponentId, name: 'P2', spectator: false, life: 40 },
@@ -2449,20 +2448,15 @@ describe('Death trigger graveyard returns (integration)', () => {
       tapped: true,
       card: {
         type_line: 'Artifact - Treasure',
-        oracle_text: '{t}, sacrifice this artifact: add one mana of any color,',
+        // Official Oracle tap/sacrifice casing; constructed rider still ends with a comma.
+        oracle_text: '{T}, Sacrifice this artifact: Add one mana of any color,',
       },
     });
     expect(returnedPermanent?.basePower).toBeUndefined();
     expect(returnedPermanent?.baseToughness).toBeUndefined();
 
-    const newEvents = getEvents(gameId).slice(eventsBefore);
-    const confirmEvent = [...newEvents].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
-    expect(confirmEvent?.payload).toMatchObject({
-      selectedCardIds: ['vraska_victim_card_1'],
-      destination: 'battlefield',
-      battlefieldTapped: true,
-      battlefieldSetTypeLine: 'Artifact - Treasure',
-    });
+    // Optional-pay resume applies the bound Treasure return through Oracle IR.
+    // The older confirmGraveyardTargets event is not required; battlefield state is the check.
   });
 
   it('prompts for Lim-Dul payment and returns the dying creature with Zombie added', async () => {
@@ -2541,7 +2535,8 @@ describe('Death trigger graveyard returns (integration)', () => {
     const queue = ResolutionQueueManager.getQueue(gameId);
     const paymentStep = queue.steps.find((step: any) => (step as any).optionalPaymentPrompt === true) as any;
     expect(paymentStep).toBeDefined();
-    expect(paymentStep.optionalPaymentManaCost).toBe('{1}{b}');
+    // Official Oracle keeps colored symbols uppercase ({1}{B}), not the older lowercase test form.
+    expect(paymentStep.optionalPaymentManaCost).toBe('{1}{B}');
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(controllerId, emitted);

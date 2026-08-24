@@ -617,7 +617,9 @@ function matchesCardTypeDescriptor(card: any, descriptorRaw: string): boolean {
     .replace(/^an?\s+/i, '')
     .replace(/\s+cards?$/i, '')
     .trim();
-  if (!descriptor) return true;
+  // "If a card is put into exile this way" carries no type restriction. The strip above only removes
+  // a trailing " card" that follows another word, so the bare descriptor arrives here intact.
+  if (!descriptor || descriptor === 'card' || descriptor === 'cards') return true;
 
   const orParts = descriptor.split(/\s+or\s+/i).map(part => part.trim()).filter(Boolean);
   if (orParts.length > 1) {
@@ -1258,9 +1260,11 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   {
-    const isPermanentCardClause =
-      normalizedRaw === "it's a permanent card" || normalizedRaw === 'it is a permanent card';
-    if (isPermanentCardClause) {
+    // "Reveal the top card of your library. If it's a creature card, ..." reads the same way for
+    // every card type, so the descriptor is captured rather than hard-coded to "permanent".
+    const cardTypeClauseMatch = normalizedRaw.match(/^it(?:'s|\s+is)\s+an?\s+(.+?)\s+cards?$/i);
+    const cardTypeDescriptor = cardTypeClauseMatch ? String(cardTypeClauseMatch[1] || '').trim() : '';
+    if (cardTypeDescriptor) {
       const revealed = collectRevealedThisWayCardsLedgerFirst(ctx, params.step);
       const movedCards = movedCardsFromCtx(ctx, lastMovedCards);
       const revealedCtx = Array.isArray((ctx as any)?.lastRevealedCards) ? (ctx as any).lastRevealedCards : [];
@@ -1269,6 +1273,11 @@ export function evaluateConditionalWrapperCondition(params: {
         (revealedCtx.length > 0 ? revealedCtx[revealedCtx.length - 1] : null) ??
         (movedCards.length > 0 ? movedCards[movedCards.length - 1] : null);
       if (!subject) {
+        // "return that card ... if it's a Samurai card" binds "it" to the dying permanent's card rather
+        // than to anything revealed or moved, so the bound object is consulted before guessing the
+        // library top (which only fits the "reveal the top card, if it's a ..." templates).
+        const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+        if (referencedObject) return matchesCardTypeDescriptor(referencedObject, cardTypeDescriptor);
         const ownerId = String(
           ctx.lastTopLibraryOwnerId || (ctx as any).targetPlayerId || ctx.selectorContext?.targetPlayerId || controllerId || '',
         ).trim();
@@ -1277,9 +1286,9 @@ export function evaluateConditionalWrapperCondition(params: {
         ) as any;
         const library = Array.isArray(player?.library) ? player.library : [];
         const topCard = library.length > 0 ? library[0] : null;
-        return topCard ? matchesCardTypeDescriptor(topCard, 'permanent') : false;
+        return topCard ? matchesCardTypeDescriptor(topCard, cardTypeDescriptor) : false;
       }
-      return matchesCardTypeDescriptor(subject, 'permanent');
+      return matchesCardTypeDescriptor(subject, cardTypeDescriptor);
     }
   }
 
@@ -2259,7 +2268,9 @@ export function evaluateConditionalWrapperCondition(params: {
     if (lastActionOutcome?.kind === 'impossible') return true;
     if (lastActionOutcome?.kind === 'applied') return false;
     if (lastActionOutcome) return true;
-    if (normalizedRaw === "you don't" || normalizedRaw === 'you do not') return true;
+    // With no antecedent in the sequence there is nothing to have declined, so "you don't" is
+    // unevaluable. Defaulting it to true fires the punisher branch unprompted - "If you don't,
+    // sacrifice this artifact" would sacrifice on its own.
     return null;
   }
 
@@ -2270,7 +2281,10 @@ export function evaluateConditionalWrapperCondition(params: {
     normalizedRaw.startsWith('you can not,')
   ) {
     const antecedent = getAffirmativeAntecedentOutcome();
-    if (antecedent?.kind === 'applied') return false;
+    // An antecedent waiting on a choice is still possible - "exile two cards from your graveyard"
+    // with three cards there can be done, the player just has not picked which two. Treating that
+    // as "you can't" fires the punisher branch (sacrifice Egon, draw) while the exile is pending.
+    if (antecedent?.kind === 'applied' || antecedent?.kind === 'choice_required') return false;
     if (antecedent) return true;
     return null;
   }

@@ -865,7 +865,7 @@ describe('cast-reanimate-spell integration (cast-side graveyard reanimation)', (
     expect(reanimated.counters?.['+1/+1']).toBe(2);
   });
 
-  it('Pulse of Murasa: returns target creature/land card from a graveyard to its owner\'s hand and gains 4 life', async () => {
+  it('Pulse of Murasa: returns target creature/land card from a graveyard to its owner\'s hand and gains 6 life', async () => {
     const testGameId = `${baseId}_pulse`;
     const game = await setupGame(testGameId, playerId, opponentId);
     (game.state as any).manaPool = {
@@ -881,7 +881,8 @@ describe('cast-reanimate-spell integration (cast-side graveyard reanimation)', (
             mana_cost: '{2}{G}',
             manaCost: '{2}{G}',
             type_line: 'Instant',
-            oracle_text: "Return target creature or land card from a graveyard to its owner's hand. You gain 4 life.",
+            // Official Oracle: "You gain 6 life." (older printings / tests used 4).
+            oracle_text: "Return target creature or land card from a graveyard to its owner's hand. You gain 6 life.",
             colors: ['G'],
           },
         ],
@@ -965,7 +966,7 @@ describe('cast-reanimate-spell integration (cast-side graveyard reanimation)', (
     const p1Life =
       (game.state as any).life?.[playerId] ??
       (game.state as any).players?.find((p: any) => p?.id === playerId)?.life;
-    expect(p1Life).toBe(44);
+    expect(p1Life).toBe(46);
   });
 
   it("Kenrith-style: 'under its owner's control' reanimates the targeted creature back to its original owner", async () => {

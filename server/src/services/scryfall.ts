@@ -803,16 +803,30 @@ export async function fetchCardsFromSetByColorIdentity(
 //
 // Deck legality (format-level)
 //
-export function validateDeck(format: string, cards: ScryfallCard[]): { illegal: { name: string; reason: string }[]; warnings: string[] } {
+export function validateDeck(
+  format: string,
+  cards: ScryfallCard[],
+  options?: {
+    formatRestrictions?: {
+      banned?: Set<string>;
+      restricted?: Set<string>;
+    };
+  },
+): { illegal: { name: string; reason: string }[]; warnings: string[] } {
   const illegal: { name: string; reason: string }[] = [];
   const warnings: string[] = [];
   const fmt = (format || "").toLowerCase();
+  const banned = options?.formatRestrictions?.banned;
 
-  // Format legality flags (from Scryfall)
+  // Format legality flags (from Scryfall) plus live ban-list overlay.
   for (const c of cards) {
     const status = c.legalities?.[fmt];
     if (status && status !== "legal") {
       illegal.push({ name: c.name, reason: `not legal in ${format} (${status})` });
+    }
+    const bannedKey = String(c.name || '').toLowerCase();
+    if (banned?.has(bannedKey)) {
+      illegal.push({ name: c.name, reason: `banned in ${format} (Scryfall ban list)` });
     }
   }
 

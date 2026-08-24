@@ -1450,29 +1450,59 @@ export function getProcessedBattlefield(state: GameState): BattlefieldPermanent[
   return applyStaticAbilitiesToBattlefield((state.battlefield || []) as BattlefieldPermanent[]) as BattlefieldPermanent[];
 }
 
-export function readPermanentPower(permanent: any): number | null {
-  for (const value of [permanent?.effectivePower, permanent?.basePower, permanent?.card?.power, permanent?.power]) {
+function readPrintedOrEffectiveStat(
+  permanent: any,
+  effectiveKey: 'effectivePower' | 'effectiveToughness',
+  fallbacks: readonly unknown[]
+): number | null {
+  const effective = Number(permanent?.[effectiveKey]);
+  if (Number.isFinite(effective)) return effective;
+
+  let printed: number | null = null;
+  for (const value of fallbacks) {
     const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
+    if (Number.isFinite(parsed)) {
+      printed = parsed;
+      break;
+    }
   }
-  return null;
+  if (printed === null) return null;
+
+  const plus = getCounterCountOnObject(permanent, '+1/+1');
+  const minus = getCounterCountOnObject(permanent, '-1/-1');
+  return printed + Math.max(0, plus) - Math.max(0, minus);
+}
+
+export function readPermanentPower(permanent: any): number | null {
+  return readPrintedOrEffectiveStat(permanent, 'effectivePower', [
+    permanent?.basePower,
+    permanent?.card?.power,
+    permanent?.power,
+  ]);
 }
 
 export function readPermanentToughness(permanent: any): number | null {
-  for (const value of [
-    permanent?.effectiveToughness,
+  return readPrintedOrEffectiveStat(permanent, 'effectiveToughness', [
     permanent?.baseToughness,
     permanent?.card?.toughness,
     permanent?.toughness,
-  ]) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
+  ]);
 }
 
 export function permanentIsCreature(permanent: any): boolean {
   return isExecutorCreature(permanent);
+}
+
+/**
+ * Mass tap/untap instructions ("all/each/every …") still resolve when no
+ * permanents match. Targeted instructions must keep failing so later
+ * instructions are not applied after an illegal empty target.
+ */
+export function isMassTapOrUntapSelectorText(text: string): boolean {
+  const normalized = String(text || '').replace(/[.!?,;:]+$/g, '').trim().toLowerCase();
+  if (!normalized) return false;
+  if (/\btarget\b/.test(normalized)) return false;
+  return /\b(?:all|each|every)\b/.test(normalized);
 }
 
 export function permanentHasSubtype(permanent: any, subtype: string | undefined): boolean {

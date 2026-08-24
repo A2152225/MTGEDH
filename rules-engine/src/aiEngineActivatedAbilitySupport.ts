@@ -329,10 +329,14 @@ export function evaluateActivatedAbilityValue(
   const battlefield = readProcessedBattlefield(deps, gameState);
   const hasRetention = battlefieldHasManaRetention(battlefield, playerId);
 
-  // Standalone mana taps are never useful as an activate-ability decision. Floating mana
-  // empties between steps/phases; retention (Omnath/Upwelling/etc.) and spell payment use
-  // dedicated paths that activate mana abilities directly.
-  if (isPureManaAbility) {
+  // Standalone mana taps are not useful as an activate-ability decision: floating mana
+  // empties between steps/phases, and spell payment activates mana abilities on its own.
+  // Exception: a power-scaled green tap under retention (Omnath/Upwelling) banks a large
+  // persistent pool, so it must outrank a one-mana dork on this path.
+  if (
+    isPureManaAbility
+    && !(hasRetention && isTapAbility && isPowerScaledGreenManaAbilityText(lowerText))
+  ) {
     return 0;
   }
 

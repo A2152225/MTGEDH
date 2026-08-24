@@ -71,6 +71,7 @@ import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcu
 import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, parseWarpCost, parseKeywordAlternateManaCost, getValidMutateTargets, hasSelfWUBRGAlternateCost, getExternalWUBRGSource, buildCommanderFreeCastPaymentExtras, getForceOfWillAlternateCost, cardIsBlueForPitchCost } from "../state/modules/alternate-costs.js";
 import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
 import { calculateSneakOptions, canCastWithSneakAtCurrentTiming, validateSneakReturnedCreature, applySneakReturnedCreatureCost, parseSneakCost } from "../state/modules/sneakCastUtils.js";
+import { requestCastSpellGrantsFlash } from "./requestCastSpellTimingGate.js";
 import {
   applyWebSlingingReturnedCreatureCost,
   calculateWebSlingingOptions,
@@ -86,6 +87,7 @@ import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlaya
 import {
   buildPersistedCastPermissionFields,
   buildPersistedFreeCastIntentFields,
+  buildPersistedSacrificedPermanentFields,
   buildPersistedWebSlingingCastIntentFields,
   isFreeCastIntent,
   preferCandidateByCastPermissionId,
@@ -101,6 +103,11 @@ import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from ".
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { buildCostAdjustmentPlan, buildLiveSpellCostAdjustment } from "../state/modules/cost-adjustments.js";
 import { resolveGroupedPermanentRef } from "./tokenGroupResolve.js";
+import {
+  addUnselectedFloatingPoolRemainder,
+  castSpellPaymentHasExplicitFloatingRefs,
+  reserveCastSpellPaymentPermanentId,
+} from "./castSpellPaymentSelectionUtils.js";
 import { adjustActivationManaCostForPayment } from "../state/modules/ability-cost-adjustments.js";
 import { buildNormalizedManaPaymentModel, stringifyParsedManaCost, type NormalizedManaPaymentModel } from "../state/modules/mana-check.js";
 import {
@@ -1180,17 +1187,6 @@ function consumeExplicitSelectedCastSpellMana(
     return { error: validationError };
   }
 
-  if (purpose) {
-    const { consumed } = consumeManaFromPoolForPurpose(
-      pool,
-      coloredCost,
-      genericCost,
-      purpose,
-      '[castSpellFromHand][selectedPayment]',
-    );
-    return { consumed };
-  }
-
   const selectedPool = snapshotCastSpellManaPool(selectedAvailable);
   const manaConsumption = consumeManaFromPool(
     selectedPool,
@@ -1323,7 +1319,6 @@ function validateCastSpellPaymentPermanentUsage(
     if (!permanentId || parseFloatingPaymentPermanentId(permanentId)) {
       return `Payment source ${rawPermanentId} is not on the battlefield.`;
     }
-    usedIds.add(permanentId);
 
     const permanent = battlefield.find((entry: any) => entry?.id === permanentId && entry?.controller === playerId);
     if (!permanent) {
@@ -1334,6 +1329,7 @@ function validateCastSpellPaymentPermanentUsage(
       permanent,
       resolvePaymentManaAbilityActivationCost(permanent, String(item?.mana || ''), item?.abilityId),
     );
+    reserveCastSpellPaymentPermanentId(usedIds, permanentId, activationCostInfo.taps);
 
     if (!activationCostInfo.taps) continue;
 
@@ -3153,12 +3149,10 @@ export function calculateCostReduction(
         reduction.messages.push(`Stinkdrinker Daredevil: -{2}`);
       }
       
-      const banneretReduction = permName.includes("banneret")
-        ? detectBanneretTypeReduction(permOracle)
-        : null;
-      if (banneretReduction && banneretReduction.types.some((type) => cardTypeLine.includes(type))) {
-        reduction.generic += banneretReduction.reduction;
-        reduction.messages.push(`${perm.card?.name || 'Banneret'}: -{${banneretReduction.reduction}}`);
+      const typePairReduction = detectBanneretTypeReduction(permOracle);
+      if (typePairReduction && typePairReduction.types.some((type) => cardTypeLine.includes(type))) {
+        reduction.generic += typePairReduction.reduction;
+        reduction.messages.push(`${perm.card?.name || 'Permanent'}: -{${typePairReduction.reduction}}`);
       }
       
       // ============================================
@@ -3719,10 +3713,8 @@ export function extractCreatureTypes(typeLine: string): string[] {
   const types: string[] = [];
   const lower = typeLine.toLowerCase();
   
-  // Support normal em dash, mojibake fallback, and plain hyphen separators.
-  const dashIndex = lower.indexOf('�') !== -1
-    ? lower.indexOf('�')
-    : (lower.indexOf("G��") !== -1 ? lower.indexOf("G��") : lower.indexOf("-"));
+  // Support em/en dash, leftover mojibake, and plain hyphen separators.
+  const dashIndex = lower.search(/[\u2014\u2013\u2012\uFFFD-]/);
   if (dashIndex !== -1) {
     const subtypes = lower.slice(dashIndex + 1).trim().split(/\s+/);
     types.push(...subtypes.filter(t => t.length > 0));
@@ -3974,8 +3966,8 @@ export function recordSpellCastThisTurn(
         ...(castSourceZone ? { castSourceZone } : {}),
       },
     });
-    consumeNextSpellCostReductionAfterCast(game.state as any, playerId as any);
-      consumeConvokeGrantsAfterCast(game.state, casterId as PlayerID, spellCard, castSourceZone);
+    consumeNextSpellCostReductionAfterCast(game.state as any, casterId as PlayerID);
+    consumeConvokeGrantsAfterCast(game.state, casterId as PlayerID, spellCard, castSourceZone);
     consumeChosenTypeFlashGrantsAfterCast(game.state, casterId as PlayerID, spellCard);
   } catch (err) {
     debugWarn(2, '[recordSpellCastThisTurn] Failed to track spellsCastThisTurn:', err);
@@ -5927,7 +5919,7 @@ function checkMiracle(
 
 function getSuspendCastInfo(card: any): { hasSuspend: boolean; suspendCost: string; timeCounters: number } {
   const oracleText = String(card?.oracle_text || card?.oracleText || '');
-  const suspendMatch = oracleText.match(/\bsuspend\s+(\d+)[�\-]\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  const suspendMatch = oracleText.match(/\bsuspend\s+(\d+)\s*[-–—−]\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
   if (!suspendMatch) {
     return {
       hasSuspend: /\bsuspend\b/i.test(oracleText),
@@ -6501,6 +6493,7 @@ export async function requestCastSpellForSocket(
       return;
     }
 
+    let topLibraryPermission: ReturnType<typeof canCastFromTop> | undefined;
     if (castSourceZone === 'library') {
       const validation = validateLibrarySpellCastAccess(
         game,
@@ -6517,7 +6510,7 @@ export async function requestCastSpellForSocket(
         return;
       }
 
-      const topLibraryPermission = canCastFromTop({ state: game.state } as any, String(playerId), cardForCast);
+      topLibraryPermission = canCastFromTop({ state: game.state } as any, String(playerId), cardForCast);
       const sharedLibraryCandidate = getRequestedSpellCastCandidate(
         game,
         String(playerId),
@@ -6565,11 +6558,15 @@ export async function requestCastSpellForSocket(
     {
       const typeForTiming = String(faceTypeLine || effectiveTypeLine || typeLine || '').toLowerCase();
       const oracleForTiming = String(cardForCast?.oracle_text || cardInHand?.oracle_text || '').toLowerCase();
-      const grantsFlash =
-        (castSourceZone === 'command' && commanderCandidate?.grantsFlash === true)
-        || ignoreTimingRestrictions
-        || typeForTiming.includes('instant')
-        || /\bflash\b/i.test(oracleForTiming);
+      const grantsFlash = requestCastSpellGrantsFlash({
+        castSourceZone,
+        commanderGrantsFlash: commanderCandidate?.grantsFlash === true,
+        ignoreTimingRestrictions,
+        typeLine: typeForTiming,
+        oracleText: oracleForTiming,
+        sneakGrantsTiming: canCastWithSneakAtCurrentTiming(game, playerId, cardForCast),
+        topLibraryGrantsFlash: topLibraryPermission?.grantsFlash === true,
+      });
       if (!grantsFlash) {
         const stepStr = String(game.state?.step || '').toUpperCase().trim();
         const isMainPhase = phaseStr.includes('MAIN') || stepStr.includes('MAIN');
@@ -11689,7 +11686,6 @@ export function registerGameActions(io: Server, socket: Socket) {
           if (!resolvedPermanentId || parseFloatingPaymentPermanentId(resolvedPermanentId)) {
             continue;
           }
-          usedPaymentPermanentIds.add(resolvedPermanentId);
 
           const permanent = globalBattlefield.find((p: any) => p?.id === resolvedPermanentId && p?.controller === playerId);
           if (permanent) {
@@ -11697,6 +11693,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               permanent,
               resolvePaymentManaAbilityActivationCost(permanent, String(mana || ''), abilityId)
             );
+            reserveCastSpellPaymentPermanentId(usedPaymentPermanentIds, resolvedPermanentId, activationCostInfo.taps);
             if (activationCostInfo.taps) {
               const tapPermanentId = String(resolvedPermanentId || '');
               if (projectedTapPermanentIds.has(tapPermanentId)) {
@@ -11770,15 +11767,10 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
 
-        // Explicit payment selects tap/floating sources; mana already floating in the pool
-        // can still pay the remainder (e.g. tap a Swamp for {B} while spending {1} from pool).
-        for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
-          const poolAmount = Number(existingPool[key] || 0);
-          const fromFloatingRef = Number(selectedFloatingMana[key] || 0);
-          const remainder = Math.max(0, poolAmount - fromFloatingRef);
-          if (remainder > 0) {
-            totalAvailable[key] = Number(totalAvailable[key] || 0) + remainder;
-          }
+        // Implicit leftover pool can still pay remainder (tap a Swamp for {B}, spend {1} from pool).
+        // Explicit __pool__:color picks are exclusive — do not pull in unselected floating colors.
+        if (!castSpellPaymentHasExplicitFloatingRefs(payment)) {
+          addUnselectedFloatingPoolRemainder(totalAvailable, existingPool, selectedFloatingMana);
         }
       }
       
@@ -11996,6 +11988,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const selectedPaymentAvailableTotals: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
       const tappedPaymentPermanents = new Set<string>();
       const sacrificedPaymentPermanents = new Set<string>();
+      let persistedSacrificedPermanentFields: ReturnType<typeof buildPersistedSacrificedPermanentFields> = {};
 
       if (!isForceAltCostPaid && payment && payment.length > 0) {
         debug(2, `[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
@@ -12042,7 +12035,6 @@ export function registerGameActions(io: Server, socket: Socket) {
             });
             return;
           }
-          usedPaymentPermanentIds.add(resolvedPermanentId);
           permanentId = resolvedPermanentId;
           payment[paymentIdx].permanentId = resolvedPermanentId;
 
@@ -12067,6 +12059,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             permanent,
             activationCostText
           );
+          reserveCastSpellPaymentPermanentId(usedPaymentPermanentIds, resolvedPermanentId, activationCostInfo.taps);
           const activationManaCost = getSupportedPaymentActivationManaCost(activationCostText);
           const manaGrantsCreatureSpellHasteUntilEndOfTurn = paymentManaAbilityGrantsCreatureSpellHasteUntilEndOfTurn(permanent, abilityId);
 
@@ -12407,11 +12400,12 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
 
-      if (explicitPaymentSelected) {
-        const poolAfterExplicitPayment = snapshotCastSpellManaPool(getOrInitManaPool(game.state, playerId));
-        for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
-          selectedPaymentAvailableTotals[key] = Number(poolAfterExplicitPayment[key] || 0);
-        }
+      if (explicitPaymentSelected && !castSpellPaymentHasExplicitFloatingRefs(payment)) {
+        addUnselectedFloatingPoolRemainder(
+          selectedPaymentAvailableTotals,
+          snapshotCastSpellManaPool(getOrInitManaPool(game.state, playerId)),
+          selectedPaymentAvailableTotals,
+        );
       }
 
       const poolBeforeSpellPayment = { ...getOrInitManaPool(game.state, playerId) } as any;
@@ -13056,6 +13050,11 @@ export function registerGameActions(io: Server, socket: Socket) {
               copyRetargetTargetDescription: String(targetDescription || 'target'),
             };
           })();
+
+          persistedSacrificedPermanentFields = buildPersistedSacrificedPermanentFields(
+            sacrificedPaymentPermanents,
+            (cardInHand as any)?.pendingAdditionalCostSacrificeIds,
+          );
           
           if (typeof game.applyEvent === 'function') {
             if (!canCompleteSpellCastAtCurrentTiming(game, playerId, allowResolutionModeCompletion)) {
@@ -13199,20 +13198,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                     tappedPermanents: Array.from(tappedPaymentPermanents),
                   }
                 : {}),
-              ...((() => {
-                const pendingAdditionalCostSacrificeIds = (
-                  Array.isArray((cardInHand as any)?.pendingAdditionalCostSacrificeIds)
-                    ? ((cardInHand as any).pendingAdditionalCostSacrificeIds as any[])
-                    : []
-                ).map((id: any) => String(id || '').trim()).filter(Boolean);
-                const mergedSacrificeIds = Array.from(new Set([
-                  ...Array.from(sacrificedPaymentPermanents),
-                  ...pendingAdditionalCostSacrificeIds,
-                ]));
-                return mergedSacrificeIds.length > 0
-                  ? { sacrificedPermanents: mergedSacrificeIds }
-                  : {};
-              })()),
+              ...persistedSacrificedPermanentFields,
               ...(additionalCost && typeof additionalCostPaid === 'boolean'
                 ? {
                     additionalCostPaidKnown: true,
@@ -13957,20 +13943,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 tappedPermanents: Array.from(tappedPaymentPermanents),
               }
             : {}),
-          ...((() => {
-            const pendingAdditionalCostSacrificeIds = (
-              Array.isArray((cardInHand as any)?.pendingAdditionalCostSacrificeIds)
-                ? ((cardInHand as any).pendingAdditionalCostSacrificeIds as any[])
-                : []
-            ).map((id: any) => String(id || '').trim()).filter(Boolean);
-            const mergedSacrificeIds = Array.from(new Set([
-              ...Array.from(sacrificedPaymentPermanents),
-              ...pendingAdditionalCostSacrificeIds,
-            ]));
-            return mergedSacrificeIds.length > 0
-              ? { sacrificedPermanents: mergedSacrificeIds }
-              : {};
-          })()),
+          ...persistedSacrificedPermanentFields,
           ...(Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0
             ? {
                 convokeTappedCreatures: convokeTappedCreatures.slice(),

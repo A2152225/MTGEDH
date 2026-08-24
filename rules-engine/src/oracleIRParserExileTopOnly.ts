@@ -147,7 +147,7 @@ export function tryParseExileTopOnly(params: {
 
     const lookMany = firstClean.match(
       new RegExp(
-        `^look at the top ${quantityPattern} cards? of ${sourcePattern} librar(?:y|ies)(?:,)? and exile (?:them|those cards|the cards)(?: face down)?\\s*$`,
+        `^look at the top ${quantityPattern} cards? of ${sourcePattern} librar(?:y|ies)(?:,)? (?:and|then) exile (?:them|those cards|the cards)(?: face down)?\\s*$`,
         'i'
       )
     );
@@ -159,7 +159,7 @@ export function tryParseExileTopOnly(params: {
     if (!amount) {
       const lookOne = firstClean.match(
         new RegExp(
-          `^look at the top card of ${sourcePattern} librar(?:y|ies)(?:,)? and exile (?:it|that card|them|those cards|the cards)(?: face down)?\\s*$`,
+          `^look at the top card of ${sourcePattern} librar(?:y|ies)(?:,)? (?:and|then) exile (?:it|that card|them|those cards|the cards)(?: face down)?\\s*$`,
           'i'
         )
       );

@@ -522,7 +522,12 @@ export function tryBatch386SuspectStep(
     ctx.targetCreatureId || ctx.targetPermanentId || contextualBattlefieldIds(ctx, false)[0] || ''
   ).trim();
   if (!targetId) return null;
-  const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) =>
+  const battlefield = (state.battlefield || []) as any[];
+  // After "return it to the battlefield ... and suspect it" the card comes back as a new permanent,
+  // so the pre-move id no longer resolves. Decline instead of reporting a no-op as applied, and let
+  // the generic handler match the recently moved permanent.
+  if (!battlefield.some((perm: any) => String(perm?.id || '').trim() === targetId)) return null;
+  const nextBattlefield = battlefield.map((perm: any) =>
     String(perm?.id || '').trim() === targetId ? { ...perm, isSuspected: true } : perm
   );
   return {

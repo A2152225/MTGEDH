@@ -27,6 +27,24 @@ function setupToMain1(game: ReturnType<typeof createInitialGameState>, p1: Playe
   game.applyEvent({ type: 'nextStep' });
 }
 
+/** CR 508.1 / 509: nextStep cannot leave DECLARE_ATTACKERS until attackers are declared. */
+function advanceUnblockedCombatToDamage(
+  game: ReturnType<typeof createInitialGameState>,
+  active: PlayerID,
+  defending: PlayerID,
+  attackerId: string,
+) {
+  game.applyEvent({ type: 'nextStep' });
+  game.applyEvent({ type: 'nextStep' });
+  game.applyEvent({
+    type: 'declareAttackers',
+    playerId: active,
+    attackers: [{ attackerId, defendingPlayer: defending }],
+  });
+  game.applyEvent({ type: 'nextStep' });
+  game.applyEvent({ type: 'nextStep' });
+}
+
 describe('Sokrates combat damage replacement', () => {
   it('prevents combat damage from a granted ability and makes both players draw half that much, rounded down', () => {
     const game = createInitialGameState('sokrates_combat_replacement');
@@ -74,14 +92,7 @@ describe('Sokrates combat damage replacement', () => {
     const attackerHandBefore = Number((game.state as any).zones?.[active]?.handCount ?? 0);
     const defendingHandBefore = Number((game.state as any).zones?.[defending]?.handCount ?? 0);
 
-    game.applyEvent({ type: 'nextStep' });
-    game.applyEvent({ type: 'nextStep' });
-    game.applyEvent({ type: 'nextStep' });
-
-    (attacker as any).attacking = defending;
-    (attacker as any).blockedBy = [];
-
-    game.applyEvent({ type: 'nextStep' });
+    advanceUnblockedCombatToDamage(game, active, defending, attacker.id);
 
     const defendingLifeAfter = Number((game.state as any).life?.[defending] ?? 40);
     const attackerHandAfter = Number((game.state as any).zones?.[active]?.handCount ?? 0);

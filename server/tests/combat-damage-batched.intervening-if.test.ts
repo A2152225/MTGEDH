@@ -22,6 +22,24 @@ function setupToMain1(g: ReturnType<typeof createInitialGameState>, p1: PlayerID
   g.applyEvent({ type: 'nextStep' }); // MAIN1
 }
 
+/** CR 508.1 / 509: nextStep cannot leave DECLARE_ATTACKERS until attackers are declared. */
+function advanceUnblockedCombatToDamage(
+  g: ReturnType<typeof createInitialGameState>,
+  active: PlayerID,
+  defending: PlayerID,
+  attackerId: string,
+) {
+  g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
+  g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
+  g.applyEvent({
+    type: 'declareAttackers',
+    playerId: active,
+    attackers: [{ attackerId, defendingPlayer: defending }],
+  });
+  g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
+  g.applyEvent({ type: 'nextStep' }); // DAMAGE
+}
+
 describe('Combat damage batched triggers - intervening-if at trigger time', () => {
   it('does not execute batched trigger when recognized intervening-if is false', () => {
     const g = createInitialGameState('batched_cd_if_false');
@@ -67,15 +85,7 @@ describe('Combat damage batched triggers - intervening-if at trigger time', () =
     const attacker = g.state.battlefield.find((p: any) => p?.card?.name === 'Test Attacker' && p?.controller === active) as any;
     expect(attacker).toBeTruthy();
 
-    // Go to DECLARE_BLOCKERS, then set attacking and advance into DAMAGE
-    g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
-
-    attacker.attacking = defending;
-    attacker.blockedBy = [];
-
-    g.applyEvent({ type: 'nextStep' }); // DAMAGE (combat damage is dealt here)
+    advanceUnblockedCombatToDamage(g, active, defending, String(attacker.id));
 
     const triggerStack = ((g.state as any).stack || []).filter((item: any) =>
       item?.type === 'triggered_ability' && item?.sourceName === 'Test Batched Trigger'
@@ -138,14 +148,7 @@ describe('Combat damage batched triggers - intervening-if at trigger time', () =
     const attacker = g.state.battlefield.find((p: any) => p?.card?.name === 'Test Attacker' && p?.controller === active) as any;
     expect(attacker).toBeTruthy();
 
-    g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
-
-    attacker.attacking = defending;
-    attacker.blockedBy = [];
-
-    g.applyEvent({ type: 'nextStep' }); // DAMAGE
+    advanceUnblockedCombatToDamage(g, active, defending, String(attacker.id));
 
     const triggerStack = ((g.state as any).stack || []).filter((item: any) =>
       item?.type === 'triggered_ability' && item?.sourceName === 'Test Batched Trigger'
@@ -205,14 +208,7 @@ describe('Combat damage batched triggers - intervening-if at trigger time', () =
     const attacker = g.state.battlefield.find((p: any) => p?.card?.name === 'Test Attacker' && p?.controller === active) as any;
     expect(attacker).toBeTruthy();
 
-    g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
-
-    attacker.attacking = defending;
-    attacker.blockedBy = [];
-
-    g.applyEvent({ type: 'nextStep' }); // DAMAGE
+    advanceUnblockedCombatToDamage(g, active, defending, String(attacker.id));
 
     const triggerStack = ((g.state as any).stack || []).filter((item: any) =>
       item?.type === 'triggered_ability' && item?.sourceName === 'Test Batched Trigger'
@@ -270,14 +266,7 @@ describe('Combat damage batched triggers - intervening-if at trigger time', () =
     const attacker = g.state.battlefield.find((p: any) => p?.card?.name === 'Test Attacker' && p?.controller === active) as any;
     expect(attacker).toBeTruthy();
 
-    g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
-
-    attacker.attacking = defending;
-    attacker.blockedBy = [];
-
-    g.applyEvent({ type: 'nextStep' }); // DAMAGE
+    advanceUnblockedCombatToDamage(g, active, defending, String(attacker.id));
 
     const triggerStack = ((g.state as any).stack || []).filter((item: any) =>
       item?.type === 'triggered_ability' && item?.sourceName === 'Test Batched Trigger'
@@ -326,7 +315,7 @@ describe('Combat damage batched triggers - intervening-if at trigger time', () =
         id: 'natures_will_card',
         name: "Nature's Will",
         type_line: 'Enchantment',
-        oracle_text: 'Whenever one or more creatures you control deal combat damage to a player, untap all lands you control and tap all lands that player controls.',
+        oracle_text: 'Whenever one or more creatures you control deal combat damage to a player, tap all lands that player controls and untap all lands you control.',
       },
     };
 
@@ -336,14 +325,7 @@ describe('Combat damage batched triggers - intervening-if at trigger time', () =
     const attacker = g.state.battlefield.find((p: any) => p?.card?.name === 'Test Attacker' && p?.controller === active) as any;
     expect(attacker).toBeTruthy();
 
-    g.applyEvent({ type: 'nextStep' });
-    g.applyEvent({ type: 'nextStep' });
-    g.applyEvent({ type: 'nextStep' });
-
-    attacker.attacking = defending;
-    attacker.blockedBy = [];
-
-    g.applyEvent({ type: 'nextStep' });
+    advanceUnblockedCombatToDamage(g, active, defending, String(attacker.id));
 
     const triggerStack = ((g.state as any).stack || []).filter((item: any) =>
       item?.type === 'triggered_ability' && item?.sourceName === "Nature's Will"

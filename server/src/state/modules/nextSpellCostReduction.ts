@@ -2,7 +2,7 @@
  * Deferred "next spell you cast this turn costs N less" grants driven by
  * counters-removed (Mutated Cultist) or fixed amounts.
  */
-import type { PlayerID } from '../../../shared/src';
+import type { PlayerID } from '../../../../shared/src';
 
 export interface NextSpellCostReductionGrant {
   id: string;

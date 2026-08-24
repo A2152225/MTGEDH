@@ -192,3 +192,18 @@ export function resolveDurablePermissionForCastReplay(
     ...(fallbackPermission && typeof fallbackPermission === 'object' ? fallbackPermission : {}),
   };
 }
+
+/** Merge mana-payment sacs with deferred additional-cost sacs for replay. */
+export function buildPersistedSacrificedPermanentFields(
+  sacrificedPaymentPermanentIds?: Iterable<unknown>,
+  pendingAdditionalCostSacrificeIds?: unknown,
+): { sacrificedPermanents: string[] } | Record<string, never> {
+  const pending = (Array.isArray(pendingAdditionalCostSacrificeIds) ? pendingAdditionalCostSacrificeIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  const fromPayment = Array.from(sacrificedPaymentPermanentIds || [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  const sacrificedPermanents = Array.from(new Set([...fromPayment, ...pending]));
+  return sacrificedPermanents.length > 0 ? { sacrificedPermanents } : {};
+}

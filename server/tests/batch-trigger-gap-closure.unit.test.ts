@@ -223,9 +223,12 @@ const GAP_CASES: GapCase[] = [
     detect: () => detectETBTriggers({ name: 'Jailbreak', oracle_text: "Return target permanent card in an opponent's graveyard to the battlefield under their control. When that permanent enters, return up to one target permanent card with equal or lesser mana value from your graveyard to the battlefield." }, permanent).some((t) => (t as any).triggerType === 'delayed_etb'),
   },
   {
-    name: 'Etherium-Horn Sorcerer (cascade self-cast)',
+    // CR 702.85a: cascade functions while the spell is on the stack, not as a
+    // battlefield "whenever you cast a spell" watcher. detectSpellCastTriggers
+    // must stay empty so a resolved Etherium-Horn does not re-cascade later casts.
+    name: 'Etherium-Horn Sorcerer (cascade self-cast is not a battlefield watcher)',
     oracle_text: '{1}{U}{R}: Return this creature to its owner\'s hand.\nCascade (When you cast this spell, exile cards from the top of your library until you exile a nonland card that costs less. You may cast it without paying its mana cost. Put the exiled cards on the bottom in a random order.)',
-    detect: () => detectSpellCastTriggers({ name: 'Etherium-Horn Sorcerer', oracle_text: '{1}{U}{R}: Return this creature to its owner\'s hand.\nCascade (When you cast this spell, exile cards from the top of your library until you exile a nonland card that costs less. You may cast it without paying its mana cost. Put the exiled cards on the bottom in a random order.)' }, permanent).length > 0,
+    detect: () => detectSpellCastTriggers({ name: 'Etherium-Horn Sorcerer', oracle_text: '{1}{U}{R}: Return this creature to its owner\'s hand.\nCascade (When you cast this spell, exile cards from the top of your library until you exile a nonland card that costs less. You may cast it without paying its mana cost. Put the exiled cards on the bottom in a random order.)' }, permanent).length === 0,
   },
   {
     name: 'Skyfire Phoenix (when you cast your commander)',

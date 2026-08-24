@@ -69,27 +69,9 @@ export function tryBatch391DealDamageStep(
     };
   }
 
-  if (/equal to that card's mana value/.test(raw) || /equal to that spell's power/.test(raw)) {
-    const moved = [
-      ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
-      ...(Array.isArray(ctx.lastExiledCards) ? ctx.lastExiledCards : []),
-    ];
-    const latest = moved.length > 0 ? moved[moved.length - 1] : null;
-    if (latest) {
-      const resolved =
-        /equal to that spell's power/.test(raw)
-          ? Number((latest as any)?.power ?? (latest as any)?.card?.power)
-          : Number(
-              (latest as any)?.manaValue ??
-                (latest as any)?.cmc ??
-                (latest as any)?.mana_value ??
-                0
-            );
-      if (Number.isFinite(resolved)) {
-        return { applied: true, state, log: [`Dealt ${resolved} damage (${step.raw})`] };
-      }
-    }
-  }
+  // "deals damage equal to that card's mana value" is deliberately absent: it reported a damage total
+  // in the log without marking any permanent. The generic deal_damage handler resolves the same
+  // object_stat amount from lastMovedCards and actually applies it.
 
   if (/equal to the creature's power/.test(raw)) {
     const destroyed = [

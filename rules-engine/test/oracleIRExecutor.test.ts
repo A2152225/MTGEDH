@@ -1192,7 +1192,12 @@ describe('Oracle IR Executor', () => {
 
     expect(p2.life).toBe(40);
     expect(battlesphere.modifiers || []).toHaveLength(0);
-    expect(result.skippedSteps.map(step => step.kind)).toEqual(['conditional']);
+    // Every Myr is already tapped, so the optional tap resolves for zero creatures and the "if you
+    // do" follow-up never fires - no damage and no pump, as asserted above. Nothing is skipped:
+    // a mandatory step left in skippedSteps would mark the ability incomplete and send the server
+    // back to the legacy handler (see describeOracleIrMandatoryExecutionIncomplete).
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['tap_matching_permanents']);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual([]);
   });
 
   it('applies draw steps for "you"', () => {
@@ -9236,8 +9241,10 @@ describe('Oracle IR Executor', () => {
 
     const pool = (result.state as any).manaPool?.['p1'];
     expect(pool.red).toBe(1);
-    expect(pool.doesNotEmpty).toBe(true);
-    expect(pool.noEmptySourceIds).toContain('birgi');
+    // Official Birgi: "Until end of turn, you don't lose this mana…" — duration-limited
+    // bucket, not pool-wide doesNotEmpty (that would keep the mana after the turn).
+    expect(pool.doesNotEmpty).toBeUndefined();
+    expect((result.state as any).temporaryRetainedMana?.p1?.untilEndTurn?.red).toBe(1);
     expect((result.state as any).manaRetentionEffects).toEqual(expect.arrayContaining([
       expect.objectContaining({
         playerId: 'p1',
@@ -9765,7 +9772,8 @@ describe('Oracle IR Executor', () => {
     const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
     const p1 = result.state.players.find(player => player.id === 'p1') as any;
 
-    expect(result.appliedSteps.map(step => step.kind)).toEqual(['conditional']);
+    // The condition held, so appliedSteps records the concrete effect rather than the wrapper.
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['lose_game']);
     expect(p1?.hasLost).toBe(true);
     expect((result.state as any).winner).toBe('p2');
   });
@@ -10246,7 +10254,9 @@ describe('Oracle IR Executor', () => {
       selectorContext: { castFromZone: 'graveyard' },
     });
     expect((fromGraveyard.state.battlefield || []).length).toBe(10);
-    expect(fromGraveyard.appliedSteps.filter((step) => step.kind === 'create_token')).toHaveLength(2);
+    // "Create ten of those tokens instead" replaces the base creation rather than adding to it, so
+    // the two clauses fold into one conditional and exactly one create_token resolves per cast.
+    expect(fromGraveyard.appliedSteps.filter((step) => step.kind === 'create_token')).toHaveLength(1);
   });
 
   it('applies deal_damage to "that player" via target_player selector context binding', () => {
@@ -24929,7 +24939,10 @@ describe('Oracle IR Executor', () => {
     const modifiers = Array.isArray(creature?.modifiers) ? creature.modifiers : [];
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
-    expect(result.skippedSteps.some(s => s.kind === 'conditional')).toBe(true);
+    // A false condition is a fully resolved conditional, not a skip: the server treats any mandatory
+    // step in skippedSteps as "IR did not handle this" and falls back to the legacy handler.
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['conditional']);
+    expect(result.skippedSteps).toHaveLength(0);
     expect(modifiers.some((m: any) => m?.type === 'powerToughness')).toBe(false);
   });
 
@@ -25478,7 +25491,11 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         {
-          id: 'thisCreaturePowerTarget', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 6, toughness: 2,
+          id: 'thisCreaturePowerSource', ownerId: 'p1', controller: 'p1', name: 'Source Bear', cardType: 'Creature', power: 6, toughness: 6,
+          tapped: false, summoningSick: false, counters: {},
+        } as any,
+        {
+          id: 'thisCreaturePowerTarget', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2,
           tapped: false, summoningSick: false, counters: {},
         } as any,
       ],
@@ -25486,7 +25503,13 @@ describe('Oracle IR Executor', () => {
       turnPlayer: 'p1',
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    // "this creature" is the ability's source, not the target, so the source must differ from the
+    // target for this to prove anything: X is the source's 6 power, not the target's 2.
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'thisCreaturePowerSource',
+      selectorContext: { targetCreatureId: 'thisCreaturePowerTarget' },
+    } as any);
     const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'thisCreaturePowerTarget') as any;
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
@@ -25932,7 +25955,10 @@ Whenever one or more +1/+1 counters are put on this creature, put a creature car
     const source = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'adapt-source') as any;
     expect(source?.counters).toEqual({ '+1/+1': 1 });
     expect(result.appliedSteps.some(step => step.kind === 'add_counter')).toBe(false);
-    expect(result.skippedSteps.map(step => step.kind)).toEqual(['conditional']);
+    // Adapt with a counter already present resolves to no effect. That is a completed resolution,
+    // not a skipped step, so the conditional is recorded as applied.
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['conditional']);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual([]);
   });
 
   it("applies The Spot, Living Portal's linked-exile ETB", () => {
@@ -43131,13 +43157,19 @@ This creature has protection from each of the exiled card's card types. (Artifac
     );
 
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
-    const revived = (result.state.battlefield as any[]).find((perm: any) => String(perm?.card?.id || '') === 'zombie');
 
-    expect(result.appliedSteps.map(s => s.kind)).toEqual(['discard', 'move_zone']);
+    // "When you do" is a reflexive trigger (CR 603.11c): the discard resolves now, and the
+    // reanimation goes on the stack to resolve separately with its own target choice. The executor
+    // schedules it and stops; triggerReflexiveWhenYouDoQueueUtils.ts on the server runs it.
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['discard', 'schedule_delayed_trigger']);
+    expect((result.appliedSteps[1] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      to: 'battlefield',
+      entersTapped: true,
+    });
     expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
     expect((p1.graveyard || []).map((c: any) => c.id)).toContain('pitch');
-    expect((p1.graveyard || []).map((c: any) => c.id)).not.toContain('zombie');
-    expect(revived?.tapped).toBe(true);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toContain('zombie');
   });
 
   it('applies Consumed by Greed gift branch after the opponent sacrifice resolves deterministically', () => {
@@ -43235,7 +43267,9 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
 
-    expect(result.appliedSteps).toEqual([]);
+    // Intervening-if is false, so the ability resolves without returning anything. The conditional
+    // still counts as resolved (see the Myr Battlesphere note); what matters is that no card moved.
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['conditional']);
     expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
     expect((p1.graveyard || []).map((c: any) => c.id)).toEqual(['angel']);
   });
@@ -43311,7 +43345,8 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
 
-    expect(result.appliedSteps).toEqual([]);
+    // Intervening-if is false, so nothing is returned; the conditional still resolved.
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['conditional']);
     expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
     expect((p1.graveyard || []).map((c: any) => c.id)).toEqual(['cleric']);
     expect((result.state.battlefield || []).map((perm: any) => perm.card?.id || perm.id)).not.toContain('cleric');
@@ -43443,7 +43478,9 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
     const returned = (result.state.battlefield || []).find((perm: any) => String(perm?.card?.id || perm?.id || '') === 'ghoul');
 
-    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'move_zone']);
+    // The threshold branch replaces the hand return, so the card moves once - graveyard straight to
+    // the battlefield - rather than being returned to hand and then moved again.
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone']);
     expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
     expect((p1.graveyard || []).map((c: any) => c.id)).not.toContain('ghoul');
     expect(returned).toBeTruthy();
@@ -43538,9 +43575,16 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
 
-    expect(result.appliedSteps.map(step => step.kind)).toEqual(['exile', 'move_zone']);
-    expect((p1.hand || []).map((c: any) => c.id)).toEqual(['ghoul']);
-    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual([]);
+    // "When you do" is a reflexive trigger (CR 603.11c). The exile is the cost being paid during this
+    // resolution; the return goes on the stack and picks its target there, so the ghoul is still in
+    // the graveyard when this call returns.
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['exile', 'schedule_delayed_trigger']);
+    expect((result.appliedSteps[1] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      to: 'hand',
+    });
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual(['ghoul']);
     expect((p1.exile || []).map((c: any) => c.id)).toEqual(['butler']);
   });
 
@@ -48235,7 +48279,9 @@ This creature has protection from each of the exiled card's card types. (Artifac
       return name === 'Forest';
     }) as any;
 
-    expect(result.appliedSteps.map(step => step.kind)).toEqual(['search_library', 'shuffle_library']);
+    // A trailing ", then shuffle" is folded into the search_library step (the shuffle still runs, as
+    // the log assertion below checks). Only a separate sentence produces a standalone shuffle_library.
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['search_library']);
     expect((player.library || []).map((card: any) => card.id)).not.toContain('forest');
     expect(permanent).toBeTruthy();
     expect(permanent.tapped).toBe(true);
@@ -48281,7 +48327,8 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const battlefield = ((result.state as any).battlefield || []) as any[];
     const battlefieldNames = battlefield.map((perm: any) => String(perm?.card?.name || perm?.name || '').trim());
 
-    expect(result.appliedSteps.map(step => step.kind)).toEqual(['search_library', 'shuffle_library']);
+    // See the singular tutor above: the trailing shuffle is folded into search_library.
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['search_library']);
     expect((player.library || []).map((card: any) => card.id)).toEqual(['spell']);
     expect(battlefieldNames).toEqual(expect.arrayContaining(['Forest', 'Island']));
     expect(battlefield.every((perm: any) => perm?.tapped === true)).toBe(true);
@@ -48369,6 +48416,9 @@ This creature has protection from each of the exiled card's card types. (Artifac
           controllerId: 'p1',
           sourceId: 'imperial-seal',
           sourceName: 'Imperial Seal',
+          // "Search your library for a card" matches everything, so which card is found is a real
+          // choice; the executor only auto-picks when exactly one card is legal.
+          selectorContext: { chosenObjectIds: ['seal-1'] },
         },
         { allowOptional: true }
       );
@@ -48974,6 +49024,9 @@ This creature has protection from each of the exiled card's card types. (Artifac
         controllerId: 'p1',
         sourceId: 'explore-source',
         sourceName: 'Pathfinder',
+        // Explore ends with "put that card back on top of your library or into your graveyard",
+        // which is a choice, so the executor defers unless deterministic resolution is requested.
+        interactivePlayerChoices: false,
       }
     );
 
@@ -50275,7 +50328,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
       selectorContext: { chosenObjectIds: ['spell-to-discard'] },
       interactivePlayerChoices: true,
     });
-    expect(nonlandResult.appliedSteps.map((step) => step.kind)).toEqual(['draw', 'discard', 'create_token', 'conditional']);
+    expect(nonlandResult.appliedSteps.map((step) => step.kind)).toEqual(['draw', 'discard', 'create_token']);
     expect((nonlandResult.state.battlefield || [])).toHaveLength(1);
 
     const landResult = applyOracleIRStepsToGameState(baseState, steps, {
@@ -50284,7 +50337,10 @@ This creature has protection from each of the exiled card's card types. (Artifac
       selectorContext: { chosenObjectIds: ['land-to-keep'] },
       interactivePlayerChoices: true,
     });
-    expect(landResult.appliedSteps.map((step) => step.kind)).toEqual(['draw', 'discard', 'conditional']);
+    // appliedSteps lists steps that produced an effect. The token conditional was false, so it
+    // contributes nothing here; the wrapper is only recorded when a sequence applies nothing at all
+    // (see 'skips conditional lose_game when controller is below 1,000 life').
+    expect(landResult.appliedSteps.map((step) => step.kind)).toEqual(['draw', 'discard']);
     expect((landResult.state.battlefield || [])).toHaveLength(0);
   });
 
@@ -52857,12 +52913,15 @@ This creature has protection from each of the exiled card's card types. (Artifac
       controllerId: 'p1',
       sourceName: 'Corpse Appraiser',
       targetPermanentId: 'corpse-target',
+      interactivePlayerChoices: false,
     });
 
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
 
-    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'draw', 'mill']);
+    // The follow-up is one look_select_top step, not draw + mill: "put one of those cards into your
+    // hand" lets you pick among the three and is not a draw, so it must not fire draw triggers.
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'look_select_top']);
     expect((p2.exile || []).map((entry: any) => entry.id)).toContain('corpse-target');
     expect((p1.hand || []).map((entry: any) => entry.id)).toEqual(['corpse-top-1']);
     expect((p1.graveyard || []).map((entry: any) => entry.id)).toEqual(['corpse-top-2', 'corpse-top-3']);
@@ -54002,6 +54061,9 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const result = applyOracleIRStepsToGameState(start, steps, {
       controllerId: 'p1',
       sourceName: 'Testament Bearer',
+      // "Put one of them into your hand" is a real choice, so the executor defers to the resolution
+      // queue by default. Opt into the deterministic path this test is asserting.
+      interactivePlayerChoices: false,
     });
 
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
@@ -54250,12 +54312,14 @@ This creature has protection from each of the exiled card's card types. (Artifac
       controllerId: 'p1',
       sourceName: 'Corpse Appraiser',
       targetPermanentId: 'corpse-target',
+      interactivePlayerChoices: false,
     });
 
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
 
-    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'draw', 'mill']);
+    // One look_select_top step, not draw + mill - see the sibling Corpse Appraiser test.
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'look_select_top']);
     expect((p2.exile || []).map((entry: any) => entry.id)).toEqual(['corpse-target']);
     expect((p1.hand || []).map((entry: any) => entry.id)).toEqual(['corpse-top-1']);
     expect((p1.graveyard || []).map((entry: any) => entry.id)).toEqual(['corpse-top-2', 'corpse-top-3']);

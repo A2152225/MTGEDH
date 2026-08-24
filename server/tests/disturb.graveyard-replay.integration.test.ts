@@ -1,15 +1,24 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
-import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+import { resetIntegrationGame } from './helpers/integrationGameReset.js';
 
 async function resetGame(gameId: string) {
-  games.delete(gameId as any);
-  await deleteGame(gameId);
+  await resetIntegrationGame(gameId);
+}
+
+function seedLegalSorceryWindow(game: any, playerId: string) {
+  // Disturb casts the back face using that face's normal timing.
+  // Older fixtures omitted this window and expected activations to ignore sorcery speed.
+  (game.state as any).turnPlayer = playerId;
+  (game.state as any).activePlayer = playerId;
+  (game.state as any).priority = playerId;
+  (game.state as any).phase = 'main';
+  (game.state as any).step = 'MAIN1';
 }
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
@@ -57,6 +66,7 @@ describe('disturb graveyard replay semantics (integration)', () => {
 
     const playerId = 'p1';
     (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    seedLegalSorceryWindow(game, playerId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [],
@@ -117,6 +127,7 @@ describe('disturb graveyard replay semantics (integration)', () => {
 
     const playerId = 'p1';
     (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    seedLegalSorceryWindow(game, playerId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [],
@@ -173,6 +184,7 @@ describe('disturb graveyard replay semantics (integration)', () => {
 
     const playerId = 'p1';
     (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    seedLegalSorceryWindow(game, playerId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [],
@@ -259,6 +271,7 @@ describe('disturb graveyard replay semantics (integration)', () => {
 
     const playerId = 'p1';
     (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    seedLegalSorceryWindow(game, playerId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [],
@@ -361,6 +374,7 @@ describe('disturb graveyard replay semantics (integration)', () => {
 
     const playerId = 'p1';
     (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    seedLegalSorceryWindow(game, playerId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [],
@@ -476,6 +490,7 @@ describe('disturb graveyard replay semantics (integration)', () => {
 
     const playerId = 'p1';
     (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    seedLegalSorceryWindow(game, playerId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [],

@@ -101,9 +101,15 @@ describe('AI shared battlefield ability surface', () => {
 
     return {
       async drain(maxPasses: number = 20) {
+        let ran = 0;
+        const maxCallbacks = 40;
         for (let pass = 0; pass < maxPasses; pass += 1) {
-          while (callbacks.length > 0) {
-            const callback = callbacks.shift();
+          const batch = callbacks.splice(0);
+          for (const callback of batch) {
+            if (ran >= maxCallbacks) {
+              throw new Error('Exceeded scheduled timeout callback limit');
+            }
+            ran += 1;
             callback?.();
           }
 
@@ -394,7 +400,7 @@ describe('AI shared battlefield ability surface', () => {
     expect(getEvents(localGameId).some((event: any) => event?.type === 'activateAbility')).toBe(false);
   });
 
-  it('persists legacy fallback activations through activateBattlefieldAbility when shared activation does not progress', async () => {
+  it('does not use the legacy activator when the shared battlefield path already ran', async () => {
     const { localGameId, game } = await setupTestGame();
 
     (game.state as any).players = [
@@ -455,21 +461,20 @@ describe('AI shared battlefield ability surface', () => {
       setTimeoutSpy.mockRestore();
     }
 
-    expect((game.state as any).battlefield[0]?.tapped).toBe(true);
+    // Shared activateBattlefieldAbility was invoked (handler mocked to a no-op) but did not
+    // progress. Newer spec refuses the legacy AI activator in that case: it treats full-card
+    // oracle as a mana ability and can grant unpaid mana after INSUFFICIENT_MANA
+    // (Gemstone Array charge loops). Real Encyclopedia activations use the shared path
+    // (see the generic stack-based draw test above).
+    expect((game.state as any).battlefield[0]?.tapped).toBe(false);
 
     const stack = (game.state as any).stack || [];
-    expect(stack).toHaveLength(1);
-    expect(String(stack[0]?.type || '')).toBe('ability');
-    expect(String(stack[0]?.source || '')).toBe('fallback_tome_1');
-    expect(String(stack[0]?.activatedAbilityText || '').toLowerCase()).toBe('{3}, {t}: draw a card.');
+    expect(stack).toHaveLength(0);
 
-    const persisted = [...getEvents(localGameId)].reverse().find((event: any) =>
+    expect(getEvents(localGameId).some((event: any) =>
       event?.type === 'activateBattlefieldAbility'
       && event?.payload?.permanentId === 'fallback_tome_1'
-    ) as any;
-    expect(persisted).toBeTruthy();
-    expect(String(persisted?.payload?.abilityType || '')).toBe('generic');
-    expect(Boolean(persisted?.payload?.usesStack)).toBe(true);
+    )).toBe(false);
     expect(getEvents(localGameId).some((event: any) => event?.type === 'activateAbility')).toBe(false);
   });
 

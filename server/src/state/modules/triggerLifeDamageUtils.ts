@@ -2,6 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { uid, triggerLifeGainEffects } from '../utils.js';
 import { resolveOpponentDirectedDamage } from './game-state-effects.js';
+import { applyDamageToPermanentWithCounterEffects } from './counter-common-effects.js';
 import { detectCombatDamageTriggers } from './triggers/index.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
 import { buildTriggerSourcePermanentSnapshot } from './triggerSourceUtils.js';
@@ -95,6 +96,175 @@ export function applyTriggerOpponentDamageFromPermanent(
     }
   }
   return actualDamage;
+}
+
+const EACH_OPPONENT_DAMAGE_PATTERN = /deals? (\d+) damage to each opponent/i;
+
+/**
+ * Generic "deals N damage to each opponent" trigger clause.
+ * Routes through resolveOpponentDirectedDamage so prevent-and-mill replacements apply.
+ */
+export function tryApplyEachOpponentDamageTrigger(
+  ctx: GameContext,
+  controller: PlayerID,
+  description: string,
+  sourcePermanentId?: string,
+): number {
+  const match = String(description || '').match(EACH_OPPONENT_DAMAGE_PATTERN);
+  if (!match) return 0;
+  const amount = Math.max(0, parseInt(match[1], 10) || 0);
+  if (amount <= 0) return 0;
+
+  const state = (ctx as any).state;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const opponents = (Array.isArray(state?.players) ? state.players : [])
+    .map((player: any) => String(player?.id || '').trim())
+    .filter((id: string) => id && id !== String(controller || ''));
+  if (opponents.length === 0) return 0;
+
+  for (const opponentId of opponents) {
+    applyTriggerOpponentDamageFromPermanent(
+      ctx,
+      controller,
+      state,
+      battlefield,
+      opponentId,
+      amount,
+      sourcePermanentId,
+    );
+  }
+  const gainMatch = String(description || '').match(/you gain (\d+) life/i);
+  if (gainMatch) {
+    applyTriggerLifeGain(
+      state,
+      String(controller || ''),
+      Math.max(0, parseInt(gainMatch[1], 10) || 0),
+      'each-opponent-damage rider',
+    );
+  }
+  // Same-clause rider: "put a +1/+1 counter on ~ and it deals N damage to each opponent".
+  if (
+    sourcePermanentId
+    && /\bput a \+1\/\+1 counter on (?!target\b)/i.test(String(description || ''))
+  ) {
+    const source = battlefield.find((permanent: any) => String(permanent?.id || '') === String(sourcePermanentId));
+    if (source) {
+      source.counters = source.counters && typeof source.counters === 'object' ? source.counters : {};
+      source.counters['+1/+1'] = Number(source.counters['+1/+1'] || 0) + 1;
+    }
+  }
+  return opponents.length;
+}
+
+const TARGETED_DAMAGE_PATTERN =
+  /\bdeals? (\d+) damage to (?:any )?target(?: creature| player| opponent| permanent)?(?:\b|$)/i;
+const THAT_PLAYER_DAMAGE_PATTERN = /\bdeals? (\d+) damage to that player\b/i;
+
+function collectEffectTargetIds(triggerItem: any): string[] {
+  const raw = triggerItem?.targets;
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry: any) => (typeof entry === 'string' ? entry : String(entry?.id || '')))
+      .map((id: string) => id.trim())
+      .filter(Boolean);
+  }
+  const single = String(raw || triggerItem?.targetId || '').trim();
+  return single ? [single] : [];
+}
+
+function isPlayerTargetId(state: any, id: string): boolean {
+  if (!id) return false;
+  const players = Array.isArray(state?.players) ? state.players : [];
+  if (players.some((player: any) => String(player?.id || '') === id)) return true;
+  if (state?.life && Object.prototype.hasOwnProperty.call(state.life, id)) return true;
+  return false;
+}
+
+function notePermanentDamageThisTurn(permanent: any, amount: number): void {
+  if (!permanent || amount <= 0) return;
+  permanent.damageThisTurn = Number(permanent.damageThisTurn || 0) + amount;
+  permanent.tookDamageThisTurn = true;
+}
+
+/**
+ * Generic "deals N damage to target / any target / that player" trigger or
+ * activated-ability clause. Used when IR trigger primary is off.
+ */
+export function tryApplyTargetedDamageFromEffectText(
+  ctx: GameContext,
+  controller: PlayerID,
+  description: string,
+  triggerItem?: any,
+): boolean {
+  const text = String(description || '').replace(/\s+/g, ' ').trim();
+  if (!text || /to each opponent/i.test(text)) return false;
+
+  const thatPlayerMatch = text.match(THAT_PLAYER_DAMAGE_PATTERN);
+  const targetedMatch = !thatPlayerMatch ? text.match(TARGETED_DAMAGE_PATTERN) : null;
+  const amount = Math.max(0, parseInt(String(thatPlayerMatch?.[1] || targetedMatch?.[1] || ''), 10) || 0);
+  if (amount <= 0) return false;
+
+  const state = (ctx as any).state;
+  if (!state) return false;
+  const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+  const sourcePermanentId = String(
+    triggerItem?.source || triggerItem?.permanentId || triggerItem?.sourceId || '',
+  ).trim();
+  const targetIds = collectEffectTargetIds(triggerItem);
+  const thatPlayerId = String(
+    triggerItem?.targetPlayer
+    || triggerItem?.thatPlayerId
+    || triggerItem?.effectData?.shuffledPlayerId
+    || triggerItem?.effectData?.thatPlayerId
+    || triggerItem?.effectData?.payingPlayerId
+    || '',
+  ).trim();
+
+  const playerIds = new Set<string>();
+  const permanentIds = new Set<string>();
+  const qualifier = String(targetedMatch?.[0] || '').toLowerCase();
+  const playersOnly = Boolean(thatPlayerMatch) || /\btarget player\b|\btarget opponent\b/.test(qualifier);
+  const permanentsOnly = /\btarget creature\b|\btarget permanent\b/.test(qualifier);
+
+  if (thatPlayerId && isPlayerTargetId(state, thatPlayerId)) {
+    playerIds.add(thatPlayerId);
+  }
+  for (const id of targetIds) {
+    if (!permanentsOnly && isPlayerTargetId(state, id)) playerIds.add(id);
+    else if (!playersOnly) permanentIds.add(id);
+  }
+
+  let applied = false;
+  for (const playerId of playerIds) {
+    const dealt = applyTriggerOpponentDamageFromPermanent(
+      ctx,
+      controller,
+      state,
+      battlefield,
+      playerId,
+      amount,
+      sourcePermanentId || undefined,
+    );
+    if (dealt > 0 && sourcePermanentId) {
+      queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermanentId, playerId, dealt);
+    }
+    if (dealt > 0) applied = true;
+  }
+
+  for (const permanentId of permanentIds) {
+    const permanent = battlefield.find((entry: any) => String(entry?.id || '') === permanentId);
+    if (!permanent) continue;
+    const result = applyDamageToPermanentWithCounterEffects(permanent, amount, 'damageMarked', {
+      state,
+      sourceId: sourcePermanentId || undefined,
+      targetPlayerId: String(permanent.controller || ''),
+    });
+    if (result.prevented || result.appliedAmount <= 0) continue;
+    notePermanentDamageThisTurn(permanent, result.appliedAmount);
+    applied = true;
+  }
+
+  return applied;
 }
 
 export function getTriggerEffectHandSize(state: any, playerId: string): number {

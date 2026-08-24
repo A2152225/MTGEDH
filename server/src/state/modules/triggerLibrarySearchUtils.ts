@@ -46,7 +46,15 @@ export function enqueueLibrarySearchStep(
   options: EnqueueLibrarySearchStepOptions,
 ): void {
   const gameId = (ctx as any).gameId || 'unknown';
-  const lib = ctx.libraries?.get(controller) || [];
+  const libFromMap = ctx.libraries?.get(controller);
+  const libFromZones = (ctx as any).state?.zones?.[controller]?.library;
+  const libFromPlayer = ((ctx as any).state?.players || []).find((player: any) => String(player?.id || '') === String(controller))?.library;
+  const lib = (
+    (Array.isArray(libFromMap) && libFromMap.length > 0 && libFromMap)
+    || (Array.isArray(libFromZones) && libFromZones.length > 0 && libFromZones)
+    || (Array.isArray(libFromPlayer) && libFromPlayer.length > 0 && libFromPlayer)
+    || []
+  );
   if (!lib.length) {
     debug(2, `[enqueueLibrarySearchStep] Player ${controller} has empty library, skipping search`);
     return;
@@ -90,6 +98,7 @@ export function enqueueLibrarySearchStep(
     power: (card as any).power,
     toughness: (card as any).toughness,
     loyalty: (card as any).loyalty,
+    card_faces: card.card_faces,
   }));
 
   const gameStateForCDA = {

@@ -45,6 +45,8 @@ function createTestGameId(label: string): string {
 }
 
 describe('AI response-window integration', () => {
+  // requestCastSpellForSocket now takes (io, socket, payload, options). Assertions
+  // accept the 4th argument; the payload shape is unchanged.
   beforeAll(async () => {
     await initDb();
   });
@@ -157,6 +159,8 @@ describe('AI response-window integration', () => {
         cardId: 'opt_hand',
         fromZone: 'hand',
       }),
+      // Newer AI cast path passes kick/options as a 4th argument.
+      expect.anything(),
     );
   });
 
@@ -247,6 +251,8 @@ describe('AI response-window integration', () => {
         cardId: 'opt_free_hand',
         fromZone: 'hand',
       }),
+      // Newer AI cast path passes kick/options as a 4th argument.
+      expect.anything(),
     );
   });
 
@@ -438,6 +444,8 @@ describe('AI response-window integration', () => {
         cardId: 'opt_hand',
         fromZone: 'hand',
       }),
+      // Newer AI cast path passes kick/options as a 4th argument.
+      expect.anything(),
     );
   });
 
@@ -549,6 +557,8 @@ describe('AI response-window integration', () => {
         cardId: 'counterspell_hand',
         fromZone: 'hand',
       }),
+      // Newer AI cast path passes kick/options as a 4th argument.
+      expect.anything(),
     );
   });
 
@@ -674,6 +684,8 @@ describe('AI response-window integration', () => {
         cardId: 'counterspell_hand',
         fromZone: 'hand',
       }),
+      // Newer AI cast path passes kick/options as a 4th argument.
+      expect.anything(),
     );
   });
 
@@ -866,6 +878,8 @@ describe('AI response-window integration', () => {
         cardId: 'opt_hand',
         fromZone: 'hand',
       }),
+      // Newer AI cast path passes kick/options as a 4th argument.
+      expect.anything(),
     );
   });
 
@@ -982,6 +996,8 @@ describe('AI response-window integration', () => {
         cardId: 'opt_top',
         fromZone: 'library',
       }),
+      // Newer AI cast path passes kick/options as a 4th argument.
+      expect.anything(),
     );
   });
 
@@ -1081,6 +1097,8 @@ describe('AI response-window integration', () => {
         cardId: 'think_twice_1',
         fromZone: 'graveyard',
       }),
+      // Newer AI cast path passes kick/options as a 4th argument.
+      expect.anything(),
     );
   });
 
@@ -1186,6 +1204,8 @@ describe('AI response-window integration', () => {
         cardId: 'exile_opt_1',
         fromZone: 'exile',
       }),
+      // Newer AI cast path passes kick/options as a 4th argument.
+      expect.anything(),
     );
   });
 
@@ -1284,6 +1304,8 @@ describe('AI response-window integration', () => {
         cardId: 'exile_divination_response_1',
         fromZone: 'exile',
       }),
+      // Newer AI cast path passes kick/options as a 4th argument.
+      expect.anything(),
     );
   });
 
@@ -1386,6 +1408,8 @@ describe('AI response-window integration', () => {
         cardId: 'library_divination_response_1',
         fromZone: 'library',
       }),
+      // Newer AI cast path passes kick/options as a 4th argument.
+      expect.anything(),
     );
   });
 
@@ -1490,6 +1514,8 @@ describe('AI response-window integration', () => {
         cardId: 'cmd_response_timing',
         fromZone: 'command',
       }),
+      // Newer AI cast path passes kick/options as a 4th argument.
+      expect.anything(),
     );
   });
 });

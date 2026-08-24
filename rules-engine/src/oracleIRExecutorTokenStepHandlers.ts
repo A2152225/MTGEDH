@@ -2461,20 +2461,35 @@ export function applyCreateTokenStep(
         const createdTokenIds = Array.isArray(runtime?.lastCreatedTokenIds)
           ? runtime.lastCreatedTokenIds.map((id) => String(id || '').trim()).filter(Boolean)
           : [];
-        const attachmentTargetId =
+        const battlefieldIds = new Set(
+          ((nextState.battlefield || []) as any[])
+            .map((perm: any) => String(perm?.id || '').trim())
+            .filter(Boolean)
+        );
+        const isSelfReference =
+          attachmentTargetText === 'that creature' ||
+          attachmentTargetText === 'it' ||
+          attachmentTargetText === 'enchanted creature' ||
+          attachmentTargetText === 'enchanted permanent';
+        // "return it to the battlefield, then create a token attached to it" gives the card a fresh
+        // permanent id, so the recently moved id is tried before the now-stale bound target id.
+        const attachmentCandidateIds =
           attachmentTargetText === 'this permanent twin'
-            ? (createdTokenIds.length === 1 ? createdTokenIds[0] : priorMovedIds.length === 1 ? priorMovedIds[0] : '')
-            : attachmentTargetText === 'that creature' ||
-                attachmentTargetText === 'it' ||
-                attachmentTargetText === 'enchanted creature' ||
-                attachmentTargetText === 'enchanted permanent'
-              ? String(
-                  ctx.targetPermanentId ||
-                    ctx.targetCreatureId ||
-                    (priorMovedIds.length === 1 ? priorMovedIds[0] : '') ||
-                    ''
-                ).trim()
-              : '';
+            ? [
+                createdTokenIds.length === 1 ? createdTokenIds[0] : '',
+                priorMovedIds.length === 1 ? priorMovedIds[0] : '',
+              ]
+            : isSelfReference
+              ? [
+                  priorMovedIds.length === 1 ? priorMovedIds[0] : '',
+                  String(ctx.targetPermanentId || ''),
+                  String(ctx.targetCreatureId || ''),
+                ]
+              : [];
+        const attachmentTargetId =
+          attachmentCandidateIds
+            .map((id) => String(id || '').trim())
+            .find((id) => id.length > 0 && battlefieldIds.has(id)) || '';
 
         if (!attachmentTargetId) {
           return {

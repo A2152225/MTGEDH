@@ -46,6 +46,19 @@ async function resetGame(gameId: string) {
   await deleteGame(gameId);
 }
 
+/** CR 702.6a: Equip can be activated only any time you could cast a sorcery. */
+function setSorcerySpeedWindow(game: any, playerId: string): void {
+  (game.state as any).turnPlayer = playerId;
+  (game.state as any).priority = playerId;
+  (game.state as any).phase = 'precombatMain';
+  (game.state as any).step = 'MAIN1';
+  (game.state as any).stack = Array.isArray((game.state as any).stack) ? (game.state as any).stack : [];
+}
+
+function applyPersistedEvent(game: any, event: any): void {
+  game.applyEvent({ type: event.type, ...(event.payload || {}) } as any);
+}
+
 const trackedGameIds: string[] = [];
 
 async function cleanupTrackedGames() {
@@ -83,6 +96,7 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     (game.state as any).life = { [playerId]: 40 };
     (game.state as any).turnPlayer = playerId;
     (game.state as any).priority = playerId;
+    setSorcerySpeedWindow(game, playerId);
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 3 },
     };
@@ -221,6 +235,7 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     (game.state as any).life = { [playerId]: 40 };
     (game.state as any).turnPlayer = playerId;
     (game.state as any).priority = playerId;
+    setSorcerySpeedWindow(game, playerId);
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
     };
@@ -324,8 +339,17 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     expect(stack[0]?.abilityType).toBe('equip');
     expect(stack[0]?.equipParams?.targetCreatureId).toBe('commander_1');
 
-    const activationEvent = [...getEvents(treasureGameId)].reverse().find((event: any) => event.type === 'activateBattlefieldAbility') as any;
-    expect(activationEvent?.payload?.paymentManaDelta).toEqual({ colorless: -2 });
+    // Newer persist: pool deltas are discrete removeManaFromPool events
+    // (paymentMutationsPersistedSeparately). Sacrifice evidence stays on the
+    // stack-push activateBattlefieldAbility so applyEvent can rebuild the ability.
+    const persistedEvents = getEvents(treasureGameId);
+    const activationEvent = [...persistedEvents].reverse().find((event: any) =>
+      event.type === 'activateBattlefieldAbility' && !event.payload?.queuedResolutionStep
+    ) as any;
+    const manaRemoves = persistedEvents.filter((event: any) =>
+      event.type === 'removeManaFromPool' && event.payload?.reason === 'resolution_mana_payment'
+    );
+    expect(manaRemoves.some((event: any) => event.payload?.color === 'colorless' && Number(event.payload?.amount) === 2)).toBe(true);
     expect((activationEvent?.payload?.sacrificedPermanents || []).map(String)).toContain('treasure_1');
 
     const replayGame = createInitialGameState('test_blackblade_reforged_legendary_equip_treasure_replay');
@@ -334,6 +358,7 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     (replayGame.state as any).life = { [playerId]: 40 };
     (replayGame.state as any).turnPlayer = playerId;
     (replayGame.state as any).priority = playerId;
+    setSorcerySpeedWindow(replayGame, playerId);
     (replayGame.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
     };
@@ -391,7 +416,8 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
       },
     };
 
-    replayGame.applyEvent({ type: 'activateBattlefieldAbility', ...(activationEvent?.payload || {}) } as any);
+    for (const event of manaRemoves) applyPersistedEvent(replayGame, event);
+    applyPersistedEvent(replayGame, activationEvent);
     console.log('DEBUG_REPLAY_BATTLEFIELD', JSON.stringify((replayGame.state as any).battlefield, null, 2));
     console.log('DEBUG_REPLAY_GRAVEYARD', JSON.stringify((replayGame.state as any).zones?.[playerId]?.graveyard, null, 2));
 
@@ -422,6 +448,7 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     (game.state as any).life = { [playerId]: 40 };
     (game.state as any).turnPlayer = playerId;
     (game.state as any).priority = playerId;
+    setSorcerySpeedWindow(game, playerId);
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
     };
@@ -505,6 +532,7 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
 
     const replayGame = createInitialGameState(`${persistentGameId}_replay`);
     replayGame.applyEvent({ type: 'join', playerId, name: 'P1' } as any);
+    setSorcerySpeedWindow(replayGame, playerId);
     console.log('DEBUG_REPLAY_BATTLEFIELD', JSON.stringify((replayGame.state as any).battlefield, null, 2));
     console.log('DEBUG_REPLAY_GRAVEYARD', JSON.stringify((replayGame.state as any).zones?.[playerId]?.graveyard, null, 2));
     (replayGame.state as any).battlefield = [
@@ -566,6 +594,7 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     (game.state as any).life = { [playerId]: 40 };
     (game.state as any).turnPlayer = playerId;
     (game.state as any).priority = playerId;
+    setSorcerySpeedWindow(game, playerId);
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
     };
@@ -663,11 +692,20 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
       },
     });
 
-    const persisted = [...getEvents(persistentGameId)].reverse().find((event: any) => event.type === 'activateBattlefieldAbility') as any;
-    expect(persisted?.payload?.tappedPermanents || []).toEqual(expect.arrayContaining(['wastes_1', 'wastes_2']));
+    // Newer persist: payment taps are discrete permanent_tapped events, not
+    // fields on the queued/stack-push activateBattlefieldAbility.
+    const tapEvents = getEvents(persistentGameId).filter((event: any) =>
+      event.type === 'permanent_tapped' && event.payload?.reason === 'resolution_mana_payment'
+    );
+    const tappedIds = tapEvents.flatMap((event: any) => Array.isArray(event.payload?.permanentIds) ? event.payload.permanentIds : []);
+    expect(tappedIds).toEqual(expect.arrayContaining(['wastes_1', 'wastes_2']));
+    const persisted = [...getEvents(persistentGameId)].reverse().find((event: any) =>
+      event.type === 'activateBattlefieldAbility' && !event.payload?.queuedResolutionStep
+    ) as any;
 
     const replayGame = createInitialGameState(`${persistentGameId}_replay`);
     replayGame.applyEvent({ type: 'join', playerId, name: 'P1' } as any);
+    setSorcerySpeedWindow(replayGame, playerId);
     console.log('DEBUG_REPLAY_BATTLEFIELD', JSON.stringify((replayGame.state as any).battlefield, null, 2));
     console.log('DEBUG_REPLAY_GRAVEYARD', JSON.stringify((replayGame.state as any).zones?.[playerId]?.graveyard, null, 2));
     (replayGame.state as any).battlefield = [
@@ -731,7 +769,8 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
       },
     ];
 
-    replayGame.applyEvent({ type: 'activateBattlefieldAbility', ...(persisted?.payload || {}) } as any);
+    for (const event of tapEvents) applyPersistedEvent(replayGame, event);
+    if (persisted) applyPersistedEvent(replayGame, persisted);
     console.log('DEBUG_REPLAY_BATTLEFIELD', JSON.stringify((replayGame.state as any).battlefield, null, 2));
     console.log('DEBUG_REPLAY_GRAVEYARD', JSON.stringify((replayGame.state as any).zones?.[playerId]?.graveyard, null, 2));
 

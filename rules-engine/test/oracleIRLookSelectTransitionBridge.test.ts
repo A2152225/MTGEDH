@@ -164,6 +164,7 @@ describe('oracleIR look select top transition bridge', () => {
       transitionHaltState: haltState,
       stepLedger: ledger,
       appliedStepKinds: new Map(),
+      interactivePlayerChoices: false,
     });
 
     const result = applyOracleIRStepsToGameState(state, steps, ctx, { allowOptional: true });

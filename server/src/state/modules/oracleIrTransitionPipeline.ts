@@ -22,10 +22,12 @@ import {
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import type { GameContext } from '../context.js';
 import { movePermanentToExile, movePermanentToGraveyard } from './counters_tokens.js';
-import { calculateModifiedDamage } from './game-state-effects.js';
+import { inferCommanderExileFollowup } from './commanderExileFollowup.js';
+import { calculateModifiedDamage, resolveOpponentDirectedDamage } from './game-state-effects.js';
 
 export interface OracleIRTransitionInterceptorOptions {
   readonly interactivePlayerChoices: boolean;
+  readonly ctx?: GameContext;
 }
 
 function toReplacementEvent(
@@ -202,6 +204,7 @@ function applyOraclePatternDamageAmountReplacements(
   state: unknown,
   transition: OracleIRPendingTransition,
   existing: ReplacementEffectResult,
+  ctx?: GameContext,
 ): ReplacementEffectResult {
   if (transition.kind !== 'damage') return existing;
   if (existing.choiceRequired) return existing;
@@ -240,6 +243,33 @@ function applyOraclePatternDamageAmountReplacements(
     Boolean((payload.metadata as { isCombatDamage?: boolean } | undefined)?.isCombatDamage),
     targetPermanentId || undefined,
   );
+
+  if (targetPlayerId) {
+    const preventMill = resolveOpponentDirectedDamage(ctx || ({ state } as GameContext), {
+      sourceControllerId: dealer,
+      targetPlayerId,
+      damageAmount: amount,
+      sourceCard: (sourcePermanent as { card?: unknown } | undefined)?.card,
+      sourcePermanentId: sourceId || undefined,
+    });
+    if (preventMill.prevented) {
+      return {
+        applied: true,
+        eventType: 'damage',
+        effectId: existing.effectId || 'prevent-damage-mill',
+        sourceName: existing.sourceName || preventMill.effectsApplied?.[0],
+        originalAmount,
+        replacementAmount: preventMill.damageDealt,
+        preventedAmount: Math.max(0, originalAmount - preventMill.damageDealt),
+        reason: existing.reason || 'prevent_damage_mill_replacement',
+        metadata: {
+          ...(existing.metadata || {}),
+          appliedEffects: [...modifiers, ...(preventMill.effectsApplied || [])],
+        },
+      };
+    }
+  }
+
   if (amount === baseAmount) return existing;
 
   return {
@@ -276,6 +306,7 @@ export function interceptOracleIRTransitions(
       state,
       transition,
       evaluateReplacementEvent(toReplacementEvent(state, transition)),
+      options.ctx,
     );
     replacementLog.push(result);
 
@@ -315,11 +346,13 @@ export function createOracleIRServerExecutionBridge(args: {
   interactivePlayerChoices: boolean;
   haltState: OracleIRTransitionHaltState;
   onDeferred?: (deferred: readonly OracleIRPendingTransition[]) => void;
+  ctx?: GameContext;
 }): OracleIRServerExecutionBridge {
   return {
     proposeTransitions(transitions) {
       const { ready, deferred } = interceptOracleIRTransitions(args.state, transitions, {
         interactivePlayerChoices: args.interactivePlayerChoices,
+        ctx: args.ctx,
       });
 
       if (deferred.length > 0) {
@@ -558,6 +591,7 @@ export function queueOracleIrDeferredReplacementPrompts(
     controller: string;
     sourceName?: string;
     sourceId?: string;
+    sourceOracle?: string;
     continuationSteps?: readonly unknown[];
   },
 ): boolean {
@@ -580,7 +614,20 @@ export function queueOracleIrDeferredReplacementPrompts(
         // CZ vs GY (sacrifice/destroy) or CZ vs exile (true exile effects).
         const destinationZone = String(transition.event.destinationZone || 'graveyard').trim().toLowerCase();
         if (destinationZone === 'exile') {
-          movePermanentToExile(ctx, permanentId);
+          const state = (ctx as any).state;
+          const destPermanent = (Array.isArray(state?.battlefield) ? state.battlefield : [])
+            .find((permanent: any) => String(permanent?.id || '').trim() === permanentId);
+          const sourcePermanent = (Array.isArray(state?.battlefield) ? state.battlefield : [])
+            .find((permanent: any) => String(permanent?.id || '').trim() === String(params.sourceId || '').trim());
+          const followup = inferCommanderExileFollowup({
+            state,
+            destPermanent: destPermanent || transition.event.object,
+            sourceId: params.sourceId,
+            sourceName: params.sourceName,
+            sourceOracle: String(params.sourceOracle || sourcePermanent?.card?.oracle_text || '').trim(),
+            continuationSteps: params.continuationSteps,
+          });
+          movePermanentToExile(ctx, permanentId, followup);
         } else {
           // graveyard / hand / library / unknown: queue the graveyard commander choice.
           // Hand/library commander prompts are handled by dedicated zone helpers elsewhere;

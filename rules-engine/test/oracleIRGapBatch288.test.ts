@@ -87,12 +87,22 @@ describe('Oracle IR gap batch 288 — selector cluster fixes', () => {
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId,
       sourceId: 'reborn-hope',
+      targetPermanentId: 'gy-1',
     });
 
     expect(result.automationGaps?.some((gap) => gap.reasonCode === 'unsupported_selector')).toBe(false);
     const player = result.state?.players.find((entry) => entry.id === controllerId) as any;
     expect(player.hand.length).toBe(1);
     expect(player.hand[0]?.name).toBe('Boros Charm');
+
+    // The multicolored selector must reject a mono-colored bound target.
+    const monoColored = applyOracleIRStepsToGameState(state, steps, {
+      controllerId,
+      sourceId: 'reborn-hope',
+      targetPermanentId: 'gy-2',
+    });
+    const monoPlayer = monoColored.state?.players.find((entry) => entry.id === controllerId) as any;
+    expect(monoPlayer.hand.length).toBe(0);
   });
 
   it('executes Vessel of Malignity exile two cards from opponent hand', () => {

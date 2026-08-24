@@ -19,11 +19,13 @@ function collectUnknowns(value: unknown): unknown[] {
 describe('Oracle IR gap batch 227 support', () => {
   it('prunes standalone platform reminder fragments that leaked executable shells', () => {
     const fragments = [
-      parseOracleTextToIR('You may cast the copy without paying its mana cost.', 'Gap Probe'),
-      parseOracleTextToIR('Spend this mana only on costs that contain {X}.', 'Gap Probe'),
+      // "Spend this mana only on costs that contain {X}" is a real mana-use restriction
+      // (Elementalist's Palette), not a leaked reminder shell.
       parseOracleTextToIR('Spend this mana only to cast creature spells.', 'Gap Probe'),
-      parseOracleTextToIR('Draw an additional card.', 'Gap Probe'),
-      parseOracleTextToIR('Activated abilities cost {1} less to activate.', 'Gap Probe'),
+      parseOracleTextToIR('Spend this mana only to cast spells.', 'Gap Probe'),
+      // "You may cast the copy without paying its mana cost", "Draw an additional card", and
+      // "Activated abilities cost {1} less to activate" are real instructions, not leaked
+      // reminder shells.
     ];
 
     expect(collectUnknowns(fragments)).toEqual([]);

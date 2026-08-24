@@ -61,9 +61,15 @@ function createScheduledTimeoutDrain() {
 
   return {
     async drain(maxPasses: number = 20) {
+      let ran = 0;
+      const maxCallbacks = 40;
       for (let pass = 0; pass < maxPasses; pass += 1) {
-        while (callbacks.length > 0) {
-          const callback = callbacks.shift();
+        const batch = callbacks.splice(0);
+        for (const callback of batch) {
+          if (ran >= maxCallbacks) {
+            throw new Error('Exceeded scheduled timeout callback limit');
+          }
+          ran += 1;
           callback?.();
         }
 

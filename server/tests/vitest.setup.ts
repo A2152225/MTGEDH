@@ -3,15 +3,18 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, afterAll, beforeEach } from 'vitest';
 import { getOracleIrGapTelemetrySnapshot, loadOracleIrGapTelemetrySnapshotFromAppendLog } from '../src/state/modules/oracleIrGapTelemetry.js';
-import { ensureLocalCardLookupIndexSync } from '../src/services/localCardLookup.js';
+import { ensureLocalCardLookupIndexSync, resetLocalCardLookupForTests } from '../src/services/localCardLookup.js';
+import { resetCompiledOracleIROverlayDatabaseForTests } from '../src/services/oracleIrCompiledOverlayDatabase.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const workerId =
   (process.env.VITEST_WORKER_ID || process.env.VITEST_POOL_ID || '').trim() ||
   String(process.pid);
 const testDbFile = path.resolve(__dirname, '..', 'data', `mtgedh.test.${workerId}.sqlite`);
-const testCardLookupDbFile = path.resolve(__dirname, '..', 'data', `card-lookup.test.${workerId}.sqlite`);
 const canonicalCardLookupDbFile = path.resolve(__dirname, '..', 'data', 'card-lookup.sqlite');
+// Only the compiled-overlay table is written during tests, so it gets its own small
+// per-worker database and the 137 MB card corpus is shared read-only instead of copied.
+const testOverlayDbFile = path.resolve(__dirname, '..', 'data', `oracle-ir-overlay.test.${workerId}.sqlite`);
 
 function rmIfExists(filePath: string) {
   try {
@@ -21,17 +24,38 @@ function rmIfExists(filePath: string) {
   }
 }
 
-function seedTestCardLookupFromCanonical(): void {
-  rmIfExists(testCardLookupDbFile);
-  rmIfExists(`${testCardLookupDbFile}-wal`);
-  rmIfExists(`${testCardLookupDbFile}-shm`);
+function rmDbFamily(filePath: string) {
+  rmIfExists(filePath);
+  rmIfExists(`${filePath}-wal`);
+  rmIfExists(`${filePath}-shm`);
+}
 
-  if (!fs.existsSync(canonicalCardLookupDbFile)) return;
+/**
+ * Windows keeps the SQLite handle open past `afterAll`, so per-worker files used to
+ * survive every run and accumulate indefinitely. Sweep leftovers that are too old to
+ * belong to a concurrently running worker.
+ */
+const STALE_TEST_DB_AGE_MS = 2 * 60 * 60 * 1000;
 
+function sweepStaleTestDatabases(): void {
+  const dataDir = path.resolve(__dirname, '..', 'data');
+  let entries: string[];
   try {
-    fs.copyFileSync(canonicalCardLookupDbFile, testCardLookupDbFile);
+    entries = fs.readdirSync(dataDir);
   } catch {
-    // Fall back to rebuild via ensureLocalCardLookupIndexSync.
+    return;
+  }
+
+  const cutoff = Date.now() - STALE_TEST_DB_AGE_MS;
+  for (const entry of entries) {
+    if (!/\.test\.[^.]+\.sqlite(?:-wal|-shm)?$/.test(entry)) continue;
+    const fullPath = path.join(dataDir, entry);
+    try {
+      if (fs.statSync(fullPath).mtimeMs > cutoff) continue;
+    } catch {
+      continue;
+    }
+    rmIfExists(fullPath);
   }
 }
 
@@ -46,12 +70,13 @@ beforeEach(() => {
 
 beforeAll(() => {
   process.env.SQLITE_FILE = testDbFile;
-  process.env.CARD_LOOKUP_SQLITE_FILE = testCardLookupDbFile;
+  process.env.CARD_LOOKUP_SQLITE_FILE = canonicalCardLookupDbFile;
+  process.env.CARD_LOOKUP_SQLITE_READONLY_FILE = canonicalCardLookupDbFile;
+  process.env.ORACLE_IR_OVERLAY_SQLITE_FILE = testOverlayDbFile;
   // Ensure a clean slate (WAL leaves sidecar files)
-  rmIfExists(testDbFile);
-  rmIfExists(`${testDbFile}-wal`);
-  rmIfExists(`${testDbFile}-shm`);
-  seedTestCardLookupFromCanonical();
+  rmDbFamily(testDbFile);
+  rmDbFamily(testOverlayDbFile);
+  sweepStaleTestDatabases();
   // Warm card lookup once per worker so integration tests do not pay rebuild cost mid-test.
   ensureLocalCardLookupIndexSync();
 });
@@ -71,11 +96,12 @@ afterAll(() => {
     }
   }
 
-  // Best-effort cleanup; DB handle may keep WAL around on Windows.
-  rmIfExists(testDbFile);
-  rmIfExists(`${testDbFile}-wal`);
-  rmIfExists(`${testDbFile}-shm`);
-  rmIfExists(testCardLookupDbFile);
-  rmIfExists(`${testCardLookupDbFile}-wal`);
-  rmIfExists(`${testCardLookupDbFile}-shm`);
+  // Close our own handles first so the files are actually deletable on Windows.
+  resetCompiledOracleIROverlayDatabaseForTests();
+  resetLocalCardLookupForTests();
+
+  // Best-effort cleanup; the game DB handle may keep WAL around on Windows. Anything that
+  // survives is reclaimed by sweepStaleTestDatabases() on a later run.
+  rmDbFamily(testDbFile);
+  rmDbFamily(testOverlayDbFile);
 });

@@ -6,6 +6,7 @@ import { parseOracleTextToIR } from '../../../../rules-engine/src/oracleIRParser
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import {
+  collectOracleEffectSteps,
   collectSpellResolutionEffectSteps,
   isUncategorizedFallbackExecutableStep,
   wouldOracleIRFallbackPrefilterMatch,
@@ -79,7 +80,12 @@ function requiresUncategorizedFallbackEffectProgram(
   return false;
 }
 
-function collectSpellSteps(oracleText: string, spellName: string, sourceItem?: any): OracleEffectStep[] {
+function collectSpellSteps(
+  oracleText: string,
+  spellName: string,
+  sourceItem?: any,
+  sourceObjectType: 'spell' | 'ability' = 'spell',
+): OracleEffectStep[] {
   const overlayOptions = buildOracleOverlayCollectOptions({
     cardName: spellName,
     sourceName: spellName,
@@ -87,6 +93,9 @@ function collectSpellSteps(oracleText: string, spellName: string, sourceItem?: a
     card: sourceItem?.card,
     effectiveCard: sourceItem?.card,
   });
+  if (sourceObjectType === 'ability') {
+    return collectOracleEffectSteps(oracleText, spellName, overlayOptions);
+  }
   const fromShared = collectSpellResolutionEffectSteps(oracleText, spellName, overlayOptions);
   if (fromShared.length > 0) return fromShared;
 
@@ -131,7 +140,7 @@ export function applyOracleIRUncategorizedSpellFallback(
       return 0;
     }
 
-    const allSteps = collectSpellSteps(text, spellName, sourceItem);
+    const allSteps = collectSpellSteps(text, spellName, sourceItem, sourceObjectType);
     let fallbackSteps = allSteps.filter(shouldIncludeUncategorizedSpellFallbackStep);
     const hasGraveyardTokenInsteadRider = Boolean(
       castFromGraveyard

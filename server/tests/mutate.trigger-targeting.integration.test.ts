@@ -175,7 +175,8 @@ describe('Mutate trigger targeting (integration)', () => {
     expect(step.type).toBe('graveyard_selection');
     expect(step.targetPlayerId).toBe(playerId);
     expect(step.destination).toBe('hand');
-    expect(step.triggeredAbilityGraveyardSelection).toBe(true);
+    // Return-to-zone GY prompts stamp Choice; Selection is reserved for free-cast.
+    expect(step.triggeredAbilityGraveyardChoice).toBe(true);
     expect(step.validTargets.map((target: any) => String(target.id))).toEqual(['gy_perm_1']);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -304,7 +305,8 @@ describe('Mutate trigger targeting (integration)', () => {
     expect(step.type).toBe('graveyard_selection');
     expect(step.targetPlayerId).toBe(playerId);
     expect(step.destination).toBe('hand');
-    expect(step.triggeredAbilityGraveyardSelection).toBe(true);
+    // Return-to-zone GY prompts stamp Choice; Selection is reserved for free-cast.
+    expect(step.triggeredAbilityGraveyardChoice).toBe(true);
     expect(step.validTargets.map((target: any) => String(target.id))).toEqual(['gy_battle_1']);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -586,7 +588,8 @@ describe('Mutate trigger targeting (integration)', () => {
     expect(step.type).toBe('graveyard_selection');
     expect(step.targetPlayerId).toBe(opponentId);
     expect(step.destination).toBe('battlefield');
-    expect(step.triggeredAbilityGraveyardSelection).toBe(true);
+    // Return-to-zone GY prompts stamp Choice; Selection is reserved for free-cast.
+    expect(step.triggeredAbilityGraveyardChoice).toBe(true);
     expect(step.validTargets.map((target: any) => String(target.id))).toEqual(['opp_gy_creature_1']);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -714,7 +717,7 @@ describe('Mutate trigger targeting (integration)', () => {
       type: 'triggered_ability',
       source: 'host_dragon_gy_1',
       sourceName: 'Broodcaller Lurker',
-      description: 'return target dragon creature card from your graveyard to your hand.',
+      description: 'return target Dragon creature card from your graveyard to your hand.',
       requiresTarget: true,
       targetZone: 'graveyard',
       targetDestination: 'hand',
@@ -730,7 +733,8 @@ describe('Mutate trigger targeting (integration)', () => {
     expect(step.type).toBe('graveyard_selection');
     expect(step.targetPlayerId).toBe(playerId);
     expect(step.destination).toBe('hand');
-    expect(step.triggeredAbilityGraveyardSelection).toBe(true);
+    // Return-to-zone GY prompts stamp Choice; Selection is reserved for free-cast.
+    expect(step.triggeredAbilityGraveyardChoice).toBe(true);
     expect(step.validTargets.map((target: any) => String(target.id))).toEqual(['gy_dragon_1']);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];

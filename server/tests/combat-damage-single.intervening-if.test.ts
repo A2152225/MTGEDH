@@ -22,6 +22,24 @@ function setupToMain1(g: ReturnType<typeof createInitialGameState>, p1: PlayerID
   g.applyEvent({ type: 'nextStep' }); // MAIN1
 }
 
+/** CR 508.1 / 509: nextStep cannot leave DECLARE_ATTACKERS until attackers are declared. */
+function advanceUnblockedCombatToDamage(
+  g: ReturnType<typeof createInitialGameState>,
+  active: PlayerID,
+  defending: PlayerID,
+  attackerId: string,
+) {
+  g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
+  g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
+  g.applyEvent({
+    type: 'declareAttackers',
+    playerId: active,
+    attackers: [{ attackerId, defendingPlayer: defending }],
+  });
+  g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
+  g.applyEvent({ type: 'nextStep' }); // DAMAGE
+}
+
 describe('Combat damage (per-attacker) triggers - intervening-if at trigger time', () => {
   it('does not queue per-attacker combat damage trigger when intervening-if (that player hand size) is false', () => {
     const g = createInitialGameState('single_cd_thatplayer_hand_false');
@@ -62,14 +80,7 @@ describe('Combat damage (per-attacker) triggers - intervening-if at trigger time
     };
     (g.state.battlefield as any[]).push(attacker);
 
-    g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
-
-    attacker.attacking = defending;
-    attacker.blockedBy = [];
-
-    g.applyEvent({ type: 'nextStep' }); // DAMAGE
+    advanceUnblockedCombatToDamage(g, active, defending, attacker.id);
 
     const stack = (g.state as any).stack || [];
     const queued = stack.some(
@@ -117,14 +128,7 @@ describe('Combat damage (per-attacker) triggers - intervening-if at trigger time
     };
     (g.state.battlefield as any[]).push(attacker);
 
-    g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
-
-    attacker.attacking = defending;
-    attacker.blockedBy = [];
-
-    g.applyEvent({ type: 'nextStep' }); // DAMAGE
+    advanceUnblockedCombatToDamage(g, active, defending, attacker.id);
 
     const stack = (g.state as any).stack || [];
     const queued = stack.some(
@@ -172,14 +176,7 @@ describe('Combat damage (per-attacker) triggers - intervening-if at trigger time
     };
     (g.state.battlefield as any[]).push(attacker);
 
-    g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
-
-    attacker.attacking = defending;
-    attacker.blockedBy = [];
-
-    g.applyEvent({ type: 'nextStep' }); // DAMAGE
+    advanceUnblockedCombatToDamage(g, active, defending, attacker.id);
 
     const afterDamage = (g.state as any).stack || [];
     const hasTrigger = afterDamage.some(

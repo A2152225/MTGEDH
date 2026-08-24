@@ -354,11 +354,23 @@ export function tryParseTemporaryAbilityClause(args: {
       /^(?:until end of turn,\s+)?(.+?)\s+can't be blocked(?:\s+this turn)?\s+except\s+by\s+(.+?)(?:\s+this turn)?$/i,
     );
     if (m) {
+      const hasDuration = /^until end of turn,/i.test(workingClause) || /\bthis turn\b/i.test(workingClause);
+      const effectText = [`can't be blocked except by ${String(m[2] || '').trim()}`];
+      const target = parseObjectSelector(String(m[1] || '').trim());
+      if (hasDuration) {
+        return withMeta({
+          kind: 'grant_temporary_ability',
+          target,
+          duration: 'this_turn',
+          effectText,
+          raw: rawClause,
+        });
+      }
       return withMeta({
-        kind: 'grant_temporary_ability',
-        target: parseObjectSelector(String(m[1] || '').trim()),
-        duration: 'this_turn',
-        effectText: [`can't be blocked except by ${String(m[2] || '').trim()}`],
+        kind: 'grant_static_ability',
+        target,
+        duration: 'static',
+        effectText,
         raw: rawClause,
       });
     }

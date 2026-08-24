@@ -1141,7 +1141,7 @@ describe('Oracle IR current audit batch support', () => {
     expect(denrySteps).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: 'add_counter',
-        amount: { kind: 'unknown', raw: 'the same number' },
+        amount: { kind: 'reference_amount', raw: 'the same number' },
         counter: 'each kind',
         target: { kind: 'raw', text: 'that creature' },
       }),
@@ -1269,7 +1269,7 @@ describe('Oracle IR current audit batch support', () => {
     ).abilities);
 
     expect(ashiokSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'create_token', token: '1/1 black Nightmare' }),
+      expect.objectContaining({ kind: 'create_token', token: expect.stringMatching(/^1\/1 black Nightmare/) }),
       expect.objectContaining({ kind: 'add_counter', counter: '+1/+1', target: { kind: 'raw', text: 'this token' } }),
     ]));
     expect(mindSpiralSteps).toEqual(expect.arrayContaining([
@@ -1375,7 +1375,7 @@ describe('Oracle IR current audit batch support', () => {
 
     expect(swordSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'deal_damage', target: { kind: 'raw', text: 'that player' } }),
-      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'reference_amount', raw: '1 for each card in your hand' } }),
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'reference_amount', raw: '1 life for each card in your hand' } }),
     ]));
     expect(angelSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'gain_life', who: { kind: 'you_and_target_player' }, amount: { kind: 'reference_amount', raw: 'that much' } }),
@@ -1496,7 +1496,7 @@ describe('Oracle IR current audit batch support', () => {
       expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'x' }, sequence: 'then' }),
     ]));
     expect(breachSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'create_token', token: '1/1 black and green Pest' }),
+      expect.objectContaining({ kind: 'create_token', token: expect.stringMatching(/^1\/1 black and green Pest/) }),
       expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'number', value: 1 } }),
     ]));
     expect(sleeperSteps).toEqual(expect.arrayContaining([

@@ -126,12 +126,6 @@ describe('Blasphemous Act spell resolution', () => {
     ctx.gameId = gameId;
     ResolutionQueueManager.removeQueue(gameId);
 
-    g.createToken!(p1, 'Goblin', 1, 2, 2);
-    g.createToken!(p2, 'Bear', 1, 2, 2);
-    expect(((g.state as any).battlefield || []).filter((p: any) =>
-      String(p?.card?.type_line || '').toLowerCase().includes('creature'),
-    ).length).toBe(2);
-
     g.importDeckResolved(p1, [{
       id: 'blasphemous_1',
       name: 'Blasphemous Act',
@@ -141,6 +135,14 @@ describe('Blasphemous Act spell resolution', () => {
     }] as any);
     g.drawCards(p1, 1);
     ensureZonesForPlayer(g, p1);
+    ensureZonesForPlayer(g, p2);
+
+    // importDeckResolved clears that player's battlefield — create tokens after.
+    g.createToken!(p1, 'Goblin', 1, 2, 2);
+    g.createToken!(p2, 'Bear', 1, 2, 2);
+    expect(((g.state as any).battlefield || []).filter((p: any) =>
+      String(p?.card?.type_line || '').toLowerCase().includes('creature'),
+    ).length).toBe(2);
 
     (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
     (g.state as any).turnPlayer = p1;

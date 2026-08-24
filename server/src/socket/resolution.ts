@@ -181,6 +181,7 @@ import {
   triggerPermanentTargetedTriggersFromAbility,
 } from "../state/modules/triggers/targeted.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
+export { clearMayCallback, clearMayCallbacks, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
 import { resolveOracleIrOptionalPaymentPromptFromResolution, resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution, processPendingOracleIrCompoundResumeOnContext, syncAllOracleIRPlayerZonesAfterResolution } from '../state/modules/oracleIrServerZoneSync.js';
 import { refreshCounterPlacementResolutionStepForClient } from '../state/modules/triggerCounterPlacementPromptUtils.js';
@@ -215,6 +216,9 @@ import {
 import { pushWheneverYouExertTriggersOntoStack } from "./exert-triggers.js";
 
 import {
+  extractResolutionChoiceId,
+  appendKeywordPromptResolveEvent,
+  emitKeywordChoiceChat,
   getResolutionSourcePermanentSnapshot,
   buildTriggeredAbilitySourceContext,
   pushExertTriggeredAbilityOntoStack,
@@ -239,6 +243,7 @@ import {
 import {
   tryCounterByWard,
   emitWardCounterOutcome,
+  resolveWardCasterForTargetSelection,
 } from "./resolutionWardUtils.js";
 import {
   normalizeResolutionCardId,
@@ -274,6 +279,7 @@ import {
   calculateResolutionManaPoolDelta,
   MANA_POOL_KEY_BY_SYMBOL as EXTRACTED_MANA_POOL_KEY_BY_SYMBOL,
 } from "./resolutionPaymentManaUtils.js";
+export { persistResolutionPaymentManaMutations };
 import {
   cloneCascadeZoneCard,
   cloneCascadeLibrary,
@@ -1572,11 +1578,6 @@ function validateWardManaPaymentSelection(
 }
 
 
-type ResolutionManaPaymentPersistOptions = {
-  /** When true, do not append tap/mana events (validation clones / callers that already parent-cover). */
-  skipEventPersistence?: boolean;
-};
-
 function applyWardManaPaymentSelection(
   game: any,
   playerId: string,
@@ -2242,7 +2243,19 @@ async function handleAIResolutionStep(
         queuedStep.id === step.id
         && queuedStep.status === ResolutionStepStatus.PENDING,
     );
-    if (!stillPending) return;
+    if (!stillPending) {
+      // Another AI listener may have completeStep'd mutate without applying
+      // pendingSpellCasts.mutateTarget / the payment queue.
+      if (step.type === ResolutionStepType.MUTATE_TARGET_SELECTION) {
+        const completed = ResolutionQueueManager.getQueue(gameId).completedSteps.find(
+          (entry) => entry.id === step.id && entry.response,
+        );
+        if (completed?.response) {
+          await applyResolutionStepSideEffects(io, game, gameId, step, completed.response);
+        }
+      }
+      return;
+    }
     
     const player = (game.state?.players || []).find((p: any) => p.id === step.playerId);
     const isAI = player && (player as any).isAI;
@@ -2552,7 +2565,19 @@ async function handleAIResolutionStep(
       case ResolutionStepType.MUTATE_TARGET_SELECTION: {
         const stepData = step as any;
         const validTargets: any[] = Array.isArray(stepData.validTargets) ? stepData.validTargets : [];
-        const targetPermanentId = String(validTargets[0]?.id || '').trim();
+        const pendingCast = (game.state as any)?.pendingSpellCasts?.[String(stepData.effectId || '').trim()];
+        const targetPermanentId = String(
+          validTargets[0]?.id || pendingCast?.validTargetIds?.[0] || '',
+        ).trim();
+
+        // Stamp before completeStep. applyResolutionStepSideEffects can lose the
+        // race with a leftover AI handler that already completed the step.
+        if (pendingCast && targetPermanentId) {
+          pendingCast.targets = [targetPermanentId];
+          pendingCast.mutateTarget = targetPermanentId;
+          pendingCast.mutateOnTop = true;
+          pendingCast.forcedAlternateCostId = 'mutate';
+        }
 
         response = {
           stepId: step.id,
@@ -5000,6 +5025,20 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         if (manaCost) {
           const validationGame = cloneGameForResolutionPaymentValidation(game, pid);
           const payment = extractResolutionPaymentItems(response.selections as any);
+          const activatingPermanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
+          if (
+            stepAny.activationPaymentChoice === true
+            && stepAny.requiresTap === true
+            && activatingPermanentId
+            && Array.isArray(payment)
+            && payment.some((item) => String(item?.permanentId || '').trim() === activatingPermanentId)
+          ) {
+            socket.emit('error', {
+              code: 'INVALID_PAYMENT_SOURCE',
+              message: `Cannot use ${String(stepAny.cardName || step.sourceName || 'this permanent')} to pay for its own activation cost.`,
+            });
+            return;
+          }
           const prevalidatePurpose = stepAny.activationPaymentChoice === true
             ? (() => {
                 const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
@@ -8888,8 +8927,6 @@ async function handleStepResponse(
         }
         for (const id of tappedSet) tappedPermanentsForCost.push(id);
 
-        queueTapTriggersForTappedPermanents(io, game, gameId, tappedPermanentsForCost, controllerId);
-
         const targetReqs = parseTargetRequirements(abilityText, {
           gameState: game.state,
           controllerId: String(controllerId),
@@ -9041,6 +9078,10 @@ async function handleStepResponse(
           message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}'s ability: ${abilityText}`,
           ts: Date.now(),
         });
+
+        if (tappedPermanentsForCost.length > 0) {
+          queueTapTriggersForTappedPermanents(io, game, gameId, tappedPermanentsForCost, controllerId);
+        }
 
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
 
@@ -10730,6 +10771,7 @@ async function handleStepResponse(
               tappedPermanents: requiresTap ? [permanentId] : undefined,
               sacrificedPermanents: Array.from(new Set([...sacrificedPermanentsForCost, ...sacrificedPaymentPermanents])),
               paymentMutationsPersistedSeparately: true,
+              ...(paymentManaDelta && Object.keys(paymentManaDelta).length > 0 ? { paymentManaDelta } : {}),
             });
           } catch {
             // ignore persistence failures
@@ -10820,9 +10862,13 @@ async function handleStepResponse(
                 abilityText,
                 activatedAbilityText: activatedAbilityText || undefined,
                 xValue,
-                tappedPermanents: requiresTap ? [permanentId] : undefined,
+                tappedPermanents: Array.from(new Set([
+                  ...(requiresTap ? [permanentId] : []),
+                  ...tappedPaymentPermanents,
+                ])),
                 sacrificedPermanents: Array.from(new Set([...sacrificedPermanentsForCost, ...sacrificedPaymentPermanents])),
                 paymentMutationsPersistedSeparately: true,
+                ...(paymentManaDelta && Object.keys(paymentManaDelta).length > 0 ? { paymentManaDelta } : {}),
               });
             } catch {
               // ignore persistence failures
@@ -16748,13 +16794,13 @@ async function handleTargetSelectionResponse(
   // ward costs like "Ward—Discard a card", "Ward—Pay 3 life", "Ward—Sacrifice a permanent".
   if (!(step as any)?.keywordBlight && step.type === ResolutionStepType.TARGET_SELECTION) {
     const sourceId = (step as any)?.sourceId as string | undefined;
-    if (!sourceId || !game.state?.stack) {
+    const wardSource = sourceId
+      ? resolveWardCasterForTargetSelection(game, sourceId, String(pid || ''))
+      : null;
+    if (!wardSource) {
       // Non-stack target-selection steps do not participate in Ward handling.
     } else {
-
-      const stackItem = game.state.stack.find((item: any) => item && item.id === sourceId);
-      const casterId = String(stackItem?.controller || pid);
-      if (!casterId) return;
+      const { casterId, stackItem } = wardSource;
 
       const battlefield = game.state?.battlefield || [];
       const queuedWardSteps: ResolutionStep[] = [];
@@ -18980,6 +19026,17 @@ export async function resolveLibraryChaosTargetSelectionForAI(
   response: ResolutionStepResponse,
 ): Promise<void> {
   await handleTargetSelectionResponse(io, game, gameId, step, response);
+}
+
+/** Apply a library-chaos free-cast choice after an AI completes its queue step. */
+export async function resolveLibraryChaosCastChoiceForAI(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+): Promise<void> {
+  await handleOptionChoiceResponse(io, game, gameId, step, response);
 }
 
 async function handlePlayerChoiceResponse(
@@ -22160,6 +22217,14 @@ async function handleOptionChoiceResponse(
         reflexiveDiscardWhenYouDoSourceName: sourceName,
         reflexiveDiscardWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
         reflexiveDiscardWhenYouDoFollowupDescription: followupDescription,
+        ...(Number(stepData.afterDiscardDrawCount) > 0 || /^draw a card\b/i.test(followupDescription)
+          ? { afterDiscardDrawCount: Math.max(1, Number(stepData.afterDiscardDrawCount) || 1) }
+          : null),
+        ...(Number(stepData.afterDiscardDrawCountIfDiscardedLand) > 0
+          ? { afterDiscardDrawCountIfDiscardedLand: Number(stepData.afterDiscardDrawCountIfDiscardedLand) }
+          : /if a land card was discarded this way/i.test(followupDescription)
+            ? { afterDiscardDrawCountIfDiscardedLand: 1 }
+            : null),
         ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       } as any);
 
@@ -24262,7 +24327,18 @@ async function handleMutateTargetSelectionResponse(
   const onTop = Boolean(sel.onTop);
 
   const validTargets: any[] = Array.isArray(stepData.validTargets) ? stepData.validTargets : [];
-  if (!targetPermanentId || !validTargets.some((t: any) => String(t?.id) === targetPermanentId)) {
+  let pendingCast = (game.state as any)?.pendingSpellCasts?.[effectId];
+  if (!pendingCast) {
+    const casts = ((game.state as any)?.pendingSpellCasts || {}) as Record<string, any>;
+    pendingCast = Object.values(casts).find((cast: any) =>
+      String(cast?.cardId || '') === cardId && String(cast?.playerId || '') === String(pid),
+    );
+  }
+  const validTargetIds = new Set<string>([
+    ...validTargets.map((entry: any) => String(entry?.id || '')).filter(Boolean),
+    ...((pendingCast as any)?.validTargetIds || []).map((id: any) => String(id || '')).filter(Boolean),
+  ]);
+  if (!targetPermanentId || (validTargetIds.size > 0 && !validTargetIds.has(targetPermanentId))) {
     emitToPlayer(io, pid as any, 'error', {
       code: 'INVALID_TARGET',
       message: 'Invalid mutate target selection',
@@ -24270,10 +24346,17 @@ async function handleMutateTargetSelectionResponse(
     return;
   }
 
-  const pendingCast = (game.state as any)?.pendingSpellCasts?.[effectId];
   if (!pendingCast) {
-    emitToPlayer(io, pid as any, 'error', { code: 'NO_PENDING_CAST', message: 'No pending spell cast found' });
-    return;
+    (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+    pendingCast = {
+      cardId,
+      cardName,
+      playerId: pid,
+      validTargetIds: [targetPermanentId],
+      targets: [],
+      manaCost: String(stepData.mutateCost || ''),
+    };
+    (game.state as any).pendingSpellCasts[effectId] = pendingCast;
   }
 
   pendingCast.targets = [targetPermanentId];

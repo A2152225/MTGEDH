@@ -372,18 +372,28 @@ export function resolveOracleQuantity(
     const multiplier = Number.isFinite(Number((qty as any).multiplier)) ? Math.max(0, Number((qty as any).multiplier)) : 1;
     const readStat = (entry: any): number | null => {
       if (qty.stat === 'power') {
-        if (typeof entry?.effectivePower === 'number' && Number.isFinite(entry.effectivePower)) {
-          return Math.max(0, Math.floor(entry.effectivePower * multiplier));
-        }
-        const basePower = readPermanentPower(entry);
-        if (basePower === null) return null;
-        const plusOne = getCounterCountOnObject(entry, '+1/+1') ?? 0;
-        const minusOne = getCounterCountOnObject(entry, '-1/-1') ?? 0;
-        return Math.max(0, (basePower + plusOne - minusOne) * multiplier);
+        // readPermanentPower already includes +1/+1 and -1/-1. Adding them
+        // again made "deals damage equal to its power" after a +1/+1 counter
+        // deal printed + 2×counters (Archdruid's Charm: 1+1+1 = 3).
+        const power = readPermanentPower(entry);
+        if (power === null) return null;
+        return Math.max(0, power * multiplier);
       }
       const value = readObjectStat(entry, qty.stat);
       return value === null ? null : Math.max(0, value * multiplier);
     };
+
+    const stepRaw = String(step?.raw || '').toLowerCase();
+    if (
+      /this\s+(?:permanent|creature)(?:'|')?s\s+(?:power|toughness)/i.test(stepRaw)
+      && (subject === 'it' || subject === 'this_permanent' || subject === 'this_creature' || subject === 'source')
+    ) {
+      const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
+      if (sourcePermanent) {
+        const sourceAmount = readStat(sourcePermanent);
+        if (sourceAmount !== null) return sourceAmount;
+      }
+    }
 
     const contextualCards = collectContextualCardsLedgerFirst(ctx, runtime);
     if (subject === 'the_milled_card') {
@@ -541,6 +551,19 @@ export function resolveOracleQuantity(
           const antecedentAmount = readStat(antecedentPermanent);
           if (antecedentAmount !== null) return antecedentAmount;
         }
+      }
+
+      // Station: "its power" is the tapped creature, not the spacecraft/planet source
+      // (those often have a printed P/T for the stationed-creature side).
+      const stationedCreaturePower = Number((ctx as any)?.stationedCreaturePower);
+      const stepRawForStation = String(step?.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
+      if (
+        qty.stat === 'power'
+        && /equal to its power/.test(stepRawForStation)
+        && Number.isFinite(stationedCreaturePower)
+        && stationedCreaturePower > 0
+      ) {
+        return Math.max(0, Math.floor(stationedCreaturePower * multiplier));
       }
 
       const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);

@@ -692,8 +692,9 @@ describe('combat trigger persistence', () => {
     expect((triggerEvent as any).payload).toMatchObject({
       sourceName: 'Damage Scout',
       controllerId: p1,
-      description: 'draw a card',
-      effect: 'draw a card',
+      // Newer spec: extractTriggerEffectAfterPrefix keeps the clause-ending period.
+      description: 'draw a card.',
+      effect: 'draw a card.',
       triggerType: 'deals_combat_damage',
       targetPlayer: p2,
       defendingPlayer: p2,

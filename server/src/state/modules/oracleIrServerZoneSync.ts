@@ -9,6 +9,7 @@ import {
   type OracleIRExecutionResult,
 } from '../../../../rules-engine/src/oracleIRExecutor.js';
 import { resolveSingleCreatureTargetId } from '../../../../rules-engine/src/oracleIRExecutorCreatureStepUtils.js';
+import { resolveBoundSelfOrSourceCreatureTargetId } from '../../../../rules-engine/src/oracleIRExecutorBoundSelfCreatureTarget.js';
 import { resolveOracleQuantity, resolveOracleQuantityForPlayer } from '../../../../rules-engine/src/oracleIRExecutorResolveQuantity.js';
 import { tryEvaluateCombatDamageReferenceCount } from '../../../../rules-engine/src/oracleIRExecutorCombatDamageCounts.js';
 import { normalizeOracleManaCostString } from '../../../../rules-engine/src/oracleIRExecutorManaUtils.js';
@@ -28,11 +29,19 @@ import {
   buildPlayerChoiceAmongThemSelectionOptions,
   buildSearchLibrarySelectionOptions,
 } from '../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
-import { getProliferateChoiceTargets, buildPopulateTargetSelectionOptions, collectBlightTargetSelectionConfigs } from '../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
+import { getProliferateChoiceTargets, buildPopulateTargetSelectionOptions } from '../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
 import { getExploreActionCount, getProliferateActionCount } from './keywordActionRepetition.js';
 import { queueFlipCoinLifeStakesLoop } from './flipCoinLifeStakes.js';
 import { ResolutionQueueManager, ResolutionStepStatus, ResolutionStepType } from '../resolution/index.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
+import {
+  attachOracleIrResumeMetadata,
+  findSkippedOracleStep,
+  isOracleIrPlayerChoiceGap,
+  normalizeTopLibraryPromptCard,
+} from './oracleIrServerPromptResumeUtils.js';
+import { queueTopLibraryChoicePromptsFromOracleIRResult } from './oracleIrServerScrySurveilPromptUtils.js';
+import { queueBlightChoicePromptsFromOracleIRResult } from './oracleIrServerBlightPromptUtils.js';
 import { isOracleIrTriggerPrimaryEnabled } from './oracleIrTriggerExecution.js';
 import { processSpellCounteredTriggers } from './spellCounteredTriggerUtils.js';
 import {
@@ -53,7 +62,7 @@ import {
   applyCopyPermanentTriggerStep,
   copyPermanentTriggerStepNeedsTargetSelectionQueue,
 } from './trigger-copy-permanent.js';
-import { queueCopySpellStackPushFromOracleIRResult } from './oracleIrServerCopySpellSync.js';
+import { queueCopySpellStackPushFromOracleIRResult, queueCastableCopiedSpellPromptsFromOracleIRResult } from './oracleIrServerCopySpellSync.js';
 import { appendCopyTriggeredAbilityResolveEvent } from './triggerAbilityCopyUtils.js';
 import { payManaCostWithAvailableSources } from '../../socket/util.js';
 import {
@@ -231,19 +240,22 @@ export function hydrateOracleIRPlayerZonesFromContext(ctx: GameContext, state: a
   hydrateOracleIREmblemsFromState(state);
 
   const libraries = (ctx as any).libraries as Map<string, any[]> | undefined;
-  if (!libraries || typeof libraries.get !== 'function') return;
-
+  const canSyncLibraries = Boolean(libraries && typeof libraries.get === 'function');
   // Rules-engine zone ops can read/write through this map when player.library is empty.
-  (state as any).__serverLibraries = libraries;
+  if (canSyncLibraries) {
+    (state as any).__serverLibraries = libraries;
+  }
 
   const zones = state.zones || {};
   for (const player of state.players || []) {
     const playerId = String(player?.id || '').trim();
     if (!playerId) continue;
 
-    const library = libraries.get(playerId as PlayerID);
-    if (Array.isArray(library)) {
-      player.library = library.map((card: any) => ({ ...card, zone: card?.zone || 'library' }));
+    if (canSyncLibraries) {
+      const library = libraries.get(playerId as PlayerID);
+      if (Array.isArray(library)) {
+        player.library = library.map((card: any) => ({ ...card, zone: card?.zone || 'library' }));
+      }
     }
 
     const playerZones = zones[playerId] || {};
@@ -708,36 +720,6 @@ export function applyMillReplacementEffectsToSteps(
   });
 }
 
-function normalizeTopLibraryPromptCard(card: any): Record<string, unknown> {
-  // Preserve Scryfall image fields the client LibrarySearchModal expects (image_uris),
-  // matching enqueueLibrarySearchStep / toAvailableLibraryCard. imageUrl alone is not enough �
-  // IR tutors (e.g. Sword of the Animist) otherwise render as blank/black card backs while
-  // fetchlands (Terramorphic) that keep image_uris show real land art.
-  const nested = card?.card && typeof card.card === 'object' ? card.card : null;
-  const imageUris = card?.image_uris || nested?.image_uris || undefined;
-  const imageUrl =
-    imageUris?.normal
-    || imageUris?.small
-    || card?.imageUrl
-    || nested?.imageUrl
-    || undefined;
-  return {
-    id: String(card?.id || ''),
-    name: String(card?.name || nested?.name || card?.id || 'Unknown Card'),
-    type_line: card?.type_line || nested?.type_line,
-    oracle_text: card?.oracle_text || nested?.oracle_text,
-    ...(imageUris ? { image_uris: imageUris } : {}),
-    ...(imageUrl
-      ? {
-          imageUrl,
-          ...(!imageUris ? { image_uris: { normal: imageUrl, small: imageUrl } } : {}),
-        }
-      : {}),
-    mana_cost: card?.mana_cost || nested?.mana_cost,
-    cmc: card?.cmc ?? nested?.cmc,
-  };
-}
-
 function isOpponentDrawIfDidntPutLandConditional(step: OracleEffectStep): boolean {
   if (step.kind !== 'conditional') return false;
   const raw = String(step.condition?.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
@@ -877,173 +859,6 @@ function queueBothPlayersMayPutPermanentFromHandPromptsFromOracleIRResult(
     sourceName: String(params.sourceName || 'Ability').trim() || 'Ability',
     triggerItem: params.triggerItem,
   });
-}
-
-function filterNonExecutableOracleIrResumeSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
-  return steps.filter((step) => {
-    if (step.kind !== 'grant_static_ability') return true;
-    const targetText = String((step.target as any)?.text || '').trim();
-    if (targetText !== 'pass36 residual') return true;
-    return !/^if x is \d+ or more, instead put the chosen cards/i.test(String(step.raw || '').trim());
-  });
-}
-
-function unwrapYouDoResumeSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
-  const unwrapped = (() => {
-    if (steps.length === 1 && steps[0]?.kind === 'conditional') {
-      const conditionRaw = String((steps[0] as any)?.condition?.raw || '')
-        .replace(/\u2019/g, "'")
-        .trim()
-        .toLowerCase();
-      if (conditionRaw === 'you do' || conditionRaw.startsWith('you do,')) {
-        const nested = (steps[0] as any)?.steps;
-        if (Array.isArray(nested) && nested.length > 0) {
-          return nested as OracleEffectStep[];
-        }
-      }
-    }
-    return [...steps];
-  })();
-  return filterNonExecutableOracleIrResumeSteps(unwrapped);
-}
-
-function attachOracleIrResumeMetadata(
-  payload: Record<string, unknown>,
-  result: OracleIRExecutionResult,
-  params: {
-    controller: PlayerID;
-    sourceId?: string;
-    sourceName?: string;
-    irCtx?: OracleIRExecutionContext;
-  },
-): Record<string, unknown> {
-  const xValue = Number(params.irCtx?.xValue);
-  const xValuePayload = Number.isFinite(xValue) ? { oracleIrXValue: xValue } : {};
-  const pending = result.pendingContinuationSteps;
-  if (!Array.isArray(pending) || pending.length === 0) {
-    return {
-      ...payload,
-      ...xValuePayload,
-    };
-  }
-
-  return {
-    ...payload,
-    ...xValuePayload,
-    oracleIrResumeStepsJson: JSON.stringify(unwrapYouDoResumeSteps(pending)),
-    oracleIrControllerId: params.controller,
-    oracleIrSourceId: params.sourceId,
-    oracleIrSourceName: params.sourceName,
-  };
-}
-
-function queueTopLibraryChoicePromptsFromOracleIRResult(
-  ctx: GameContext,
-  state: any,
-  result: OracleIRExecutionResult,
-  params: {
-    controller: PlayerID;
-    sourceName?: string;
-    sourceId?: string;
-    irCtx: OracleIRExecutionContext;
-  }
-): void {
-  const gameId = String((ctx as any).gameId || '').trim();
-  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
-
-  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
-  const sourceId = String(params.sourceId || '').trim() || undefined;
-  const queuedKeys = new Set<string>();
-
-  for (const gap of result.automationGaps || []) {
-    if (!isOracleIrPlayerChoiceGap(gap)) continue;
-    const kind = String(gap.stepKind || '');
-    if (kind !== 'scry' && kind !== 'surveil') continue;
-
-    const step = (result.skippedSteps || []).find(
-      (candidate) =>
-        String(candidate.kind || '') === kind &&
-        String((candidate as any).raw || '') === String(gap.raw || '')
-    ) as OracleEffectStep | undefined;
-    if (!step) continue;
-
-    const playerIds = [...resolvePlayers(state, (step as any).who, params.irCtx)];
-    for (const playerId of playerIds) {
-      const count = resolveOracleQuantityForPlayer(
-        state,
-        params.controller,
-        (step as any).amount as OracleQuantity,
-        params.irCtx,
-        playerId,
-        { whereX: (step as any).whereX },
-      );
-      if (count === null || count <= 0) continue;
-
-      const queueKey = `${kind}:${playerId}:${String((step as any).raw || '')}`;
-      if (queuedKeys.has(queueKey)) continue;
-      queuedKeys.add(queueKey);
-
-      const libraries = (ctx as any).libraries as Map<string, any[]> | undefined;
-      const library = Array.isArray(libraries?.get?.(playerId))
-        ? libraries.get(playerId)!
-        : Array.isArray(
-            (state.players || []).find((player: any) => String(player?.id || '') === playerId)?.library
-          )
-          ? (state.players || []).find((player: any) => String(player?.id || '') === playerId).library
-          : [];
-      const actualCount = Math.min(count, library.length);
-      if (actualCount <= 0) continue;
-
-      const cards = library.slice(0, actualCount).map(normalizeTopLibraryPromptCard);
-
-      if (kind === 'scry') {
-        const queuedStep = ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
-          type: ResolutionStepType.SCRY,
-          playerId,
-          description: `${sourceName}: Scry ${actualCount}`,
-          mandatory: true,
-          sourceId,
-          sourceName,
-          scryCount: actualCount,
-          cards,
-          persistOracleIrScryResolve: true,
-          persistOracleIrScryResolveReason: 'stack_resolution',
-          oracleIrChoiceStepJson: JSON.stringify([step]),
-          oracleIrControllerId: params.controller,
-          oracleIrSourceId: sourceId,
-          oracleIrSourceName: sourceName,
-        } as any, result, params) as any);
-        appendQueuedResolutionPromptEvent(ctx, {
-          playerId,
-          sourceId,
-          queuedResolutionStep: queuedStep,
-        });
-        continue;
-      }
-
-      const queuedStep = ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
-        type: ResolutionStepType.SURVEIL,
-        playerId,
-        description: `${sourceName}: Surveil ${actualCount}`,
-        mandatory: true,
-        sourceId,
-        sourceName,
-        surveilCount: actualCount,
-        cards,
-        persistOracleIrSurveilResolve: true,
-        persistOracleIrSurveilResolveReason: 'stack_resolution',
-        oracleIrChoiceStepJson: JSON.stringify([step]),
-        oracleIrControllerId: params.controller,
-        oracleIrSourceId: sourceId,
-        oracleIrSourceName: sourceName,
-      } as any, result, params) as any);
-      appendQueuedResolutionPromptEvent(ctx, {
-        playerId,
-        sourceId,
-        queuedResolutionStep: queuedStep,
-      });
-    }
-  }
 }
 
 function mergeOracleIrContinuationResult(
@@ -1527,85 +1342,6 @@ function queueExploreChoicePromptsFromOracleIRResult(
         oracleIrSourceName: sourceName,
       } as any, result, params) as any);
     }
-  }
-}
-
-function queueBlightChoicePromptsFromOracleIRResult(
-  ctx: GameContext,
-  state: any,
-  result: OracleIRExecutionResult,
-  params: {
-    controller: PlayerID;
-    sourceName?: string;
-    sourceId?: string;
-    irCtx: OracleIRExecutionContext;
-  }
-): void {
-  const gameId = String((ctx as any).gameId || '').trim();
-  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
-
-  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
-  const sourceId = String(params.sourceId || '').trim() || undefined;
-  const queuedKeys = new Set<string>();
-
-  for (const gap of result.automationGaps || []) {
-    if (!isOracleIrPlayerChoiceGap(gap)) continue;
-    if (String(gap.stepKind || '') !== 'blight') continue;
-
-    const step = findSkippedOracleStep(result, gap);
-    if (!step || step.kind !== 'blight') continue;
-
-    const configs = collectBlightTargetSelectionConfigs(state, step, params.irCtx);
-    if (configs.length === 0) continue;
-
-    const stepConfigs = configs.map((config) => {
-      const queueKey = `blight:${String((step as any).raw || '')}:${config.playerId}`;
-      if (queuedKeys.has(queueKey)) return null;
-      queuedKeys.add(queueKey);
-
-      return attachOracleIrResumeMetadata({
-        type: ResolutionStepType.TARGET_SELECTION,
-        playerId: config.playerId,
-        description: `${sourceName}: Blight ${config.count} — choose a creature you control to put ${config.count} -1/-1 counter${config.count === 1 ? '' : 's'} on it.`,
-        mandatory: (step as any).optional !== true,
-        sourceId,
-        sourceName,
-        validTargets: [...config.validTargets],
-        targetTypes: ['creature'],
-        minTargets: 1,
-        maxTargets: 1,
-        targetDescription: 'creature you control',
-        keywordBlight: true,
-        keywordBlightStage: 'select_target',
-        keywordBlightController: config.playerId,
-        keywordBlightN: config.count,
-        keywordBlightSourceName: `${sourceName}: Blight ${config.count}`,
-      } as any, result, params) as any;
-    }).filter(Boolean) as any[];
-
-    if (stepConfigs.length === 0) continue;
-
-    if (stepConfigs.length === 1) {
-      ResolutionQueueManager.addStep(gameId, stepConfigs[0]);
-      continue;
-    }
-
-    const players = (state as any).players || [];
-    const turnOrder: PlayerID[] = players
-      .map((player: any) => player?.id)
-      .filter((id: unknown) => typeof id === 'string') as PlayerID[];
-    const activePlayerId: PlayerID =
-      (state as any).turnPlayer ||
-      (state as any).activePlayerId ||
-      players[(state as any).activePlayerIndex || 0]?.id ||
-      params.controller;
-
-    ResolutionQueueManager.addStepsWithAPNAP(
-      gameId,
-      stepConfigs,
-      turnOrder,
-      activePlayerId,
-    );
   }
 }
 
@@ -2356,7 +2092,7 @@ function buildConniveDiscardPrompt(
   step: Extract<OracleEffectStep, { kind: 'connive' }>,
   irCtx: OracleIRExecutionContext,
 ): { playerId: PlayerID; discardCount: number; hand: any[] } | null {
-  const targetId = resolveSingleCreatureTargetId(state, step.target, irCtx);
+  const targetId = resolveBoundSelfOrSourceCreatureTargetId(state, step.target, irCtx);
   if (!targetId) return null;
 
   const target = (state.battlefield || []).find((perm: any) => String(perm?.id || '').trim() === targetId);
@@ -2970,7 +2706,7 @@ function queueConniveChoicePromptsFromOracleIRResult(
     const built = buildConniveDiscardPrompt(state, step as Extract<OracleEffectStep, { kind: 'connive' }>, params.irCtx);
     if (!built || built.hand.length <= built.discardCount) continue;
 
-    const targetId = resolveSingleCreatureTargetId(state, (step as any).target, params.irCtx) || undefined;
+    const targetId = resolveBoundSelfOrSourceCreatureTargetId(state, (step as any).target, params.irCtx) || undefined;
     const queueKey = `connive:${String((step as any).raw || '')}:${built.playerId}`;
     if (queuedKeys.has(queueKey)) continue;
     queuedKeys.add(queueKey);
@@ -3149,22 +2885,6 @@ function syncIrPendingDiscardFromOracleIRResult(
       };
     }
   }
-}
-
-function findSkippedOracleStep(
-  result: OracleIRExecutionResult,
-  gap: { readonly stepKind?: string; readonly raw?: string }
-): OracleEffectStep | undefined {
-  return (result.skippedSteps || []).find(
-    (candidate) =>
-      String(candidate.kind || '') === String(gap.stepKind || '') &&
-      String((candidate as any).raw || '') === String(gap.raw || '')
-  ) as OracleEffectStep | undefined;
-}
-
-function isOracleIrPlayerChoiceGap(gap: { reasonCode?: string }): boolean {
-  const reason = String(gap.reasonCode || '');
-  return reason === 'player_choice_required' || reason === 'optional_step_requires_player_choice';
 }
 
 function buildVoteBallotChoices(
@@ -5365,7 +5085,7 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
     return null;
   }
   // Optional pay-life / pay-mana prompts carry oracleIrChoiceStepJson for resume,
-  // but the selection is pay/decline — not an object choice.
+  // but the selection is pay/decline ? not an object choice.
   if (step?.optionalPaymentPrompt === true) {
     return null;
   }
@@ -5446,7 +5166,7 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
 
   if (firstStep?.kind === 'connive') {
     targetPermanentId = targetPermanentId
-      || resolveSingleCreatureTargetId((ctx as any).state, (firstStep as any).target, probeCtx)
+      || resolveBoundSelfOrSourceCreatureTargetId((ctx as any).state, (firstStep as any).target, probeCtx)
       || undefined;
   }
 
@@ -6275,7 +5995,7 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
       });
     }
   } else if (stepData.oracleIrOptionalMayChoice === true) {
-    // "You may pay. If you do, …" — declining the payment must not run the follow-up.
+    // "You may pay. If you do, ?" ? declining the payment must not run the follow-up.
     if (stepData.optionalPaymentPrompt !== true) {
       maybeResumeOracleIRStepsAfterResolution(ctx, step);
     }
@@ -6507,6 +6227,7 @@ export function applyOracleIRStepsOnServer(
     ledger: stepLedger,
     interactivePlayerChoices: irCtx.interactivePlayerChoices ?? true,
     haltState: transitionHaltState,
+    ctx,
   });
   const deferOptionalLookChoices = gameId !== 'unknown'
     && !(ctx as any).isReplaying
@@ -6593,14 +6314,15 @@ export function applyOracleIRStepsOnServer(
       }
     }
   } catch {
-    // best-effort — do not fail IR resolution for trigger emission
+    // best-effort ? do not fail IR resolution for trigger emission
   }
   try {
     emitTriggersAfterOracleIRApply(ctx, state, result, triggerEmissionBefore, {
       controller: String(controller || ''),
+      sourcePermanentId: String(irCtx?.sourceId || ''),
     });
   } catch {
-    // best-effort — do not fail IR resolution for trigger emission
+    // best-effort ? do not fail IR resolution for trigger emission
   }
   syncGraveyardCastFreeExilePermissionsFromOracleIR(state, adjustedSteps, result, irCtx);
   mirrorGraveyardCastingPermissionsToDurable(state);
@@ -6611,12 +6333,18 @@ export function applyOracleIRStepsOnServer(
     result,
     params?.triggerItem ?? params?.sourceItem,
   );
-  syncNextSpellCostReductionFromOracleIRResult(state as any, params.controller, result, params.irCtx);
+  syncNextSpellCostReductionFromOracleIRResult(state as any, params.controller, result, irCtx);
 
   queueOracleIrDeferredReplacementPrompts(ctx, transitionHaltState, {
     controller: String(controller),
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    sourceOracle: String(
+      params?.oracleText
+      || params?.triggerItem?.card?.oracle_text
+      || params?.sourceItem?.card?.oracle_text
+      || '',
+    ).trim() || undefined,
     continuationSteps: result.pendingContinuationSteps,
   });
   enrichBattlefieldTokenImages(state);
@@ -6750,6 +6478,11 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
   });
   queueDiscoverCastOrHandPromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+  });
+  queueCastableCopiedSpellPromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
@@ -7342,49 +7075,95 @@ function syncIrReanimationRidersFromOracleIRResult(
   }
 }
 
+function stampHasteTempAbilityOnPermanent(perm: any): void {
+  if (!perm || typeof perm !== 'object') return;
+  const granted = (Array.isArray(perm.grantedAbilities) ? perm.grantedAbilities : [])
+    .map((ability: unknown) => String(ability || '').trim().toLowerCase());
+  if (!granted.includes('haste')) return;
+  perm.summoningSickness = false;
+  perm.tempAbilities = Array.isArray(perm.tempAbilities) ? perm.tempAbilities : [];
+  if (!perm.tempAbilities.some((ability: unknown) => String(ability || '').toLowerCase() === 'haste')) {
+    perm.tempAbilities.push('haste');
+  }
+}
+
 function syncIrAtNextEndStepTokenSacrificeFromOracleIRResult(
   state: any,
   result: OracleIRExecutionResult,
   params: { controller: PlayerID; sourceName: string },
 ): void {
-  const scheduledSacrifice = (result.appliedSteps || []).some(
-    (step) => step.kind === 'create_token' && (step as { atNextEndStep?: string }).atNextEndStep === 'sacrifice',
+  const createTokenSteps = (result.appliedSteps || []).filter((step) => step.kind === 'create_token');
+  const scheduledSacrifice = createTokenSteps.some(
+    (step) => (step as { atNextEndStep?: string }).atNextEndStep === 'sacrifice',
   );
-  if (!scheduledSacrifice) return;
+  const scheduledExile = createTokenSteps.some(
+    (step) => (step as { atNextEndStep?: string }).atNextEndStep === 'exile',
+  );
+  const grantedHaste = createTokenSteps.some((step) => Boolean((step as { grantsHaste?: string }).grantsHaste));
+  if (grantedHaste) {
+    for (const perm of state.battlefield || []) {
+      if (perm?.isToken) stampHasteTempAbilityOnPermanent(perm);
+    }
+  }
+  if (!scheduledSacrifice && !scheduledExile) return;
 
   const registry = state.delayedTriggerRegistry as { triggers?: Record<string, unknown> } | undefined;
   const triggers = registry?.triggers ? Object.values(registry.triggers) : [];
   if (triggers.length === 0) return;
 
-  state.pendingSacrificeAtNextEndStep = Array.isArray(state.pendingSacrificeAtNextEndStep)
-    ? state.pendingSacrificeAtNextEndStep
-    : [];
-
   const fireAtTurnNumber = getNextEndStepFireTurnNumber(state);
+
+  if (scheduledSacrifice) {
+    state.pendingSacrificeAtNextEndStep = Array.isArray(state.pendingSacrificeAtNextEndStep)
+      ? state.pendingSacrificeAtNextEndStep
+      : [];
+  }
+  if (scheduledExile) {
+    state.pendingExileAtNextEndStep = Array.isArray(state.pendingExileAtNextEndStep)
+      ? state.pendingExileAtNextEndStep
+      : [];
+  }
 
   for (const delayed of triggers) {
     const effect = String((delayed as any)?.effect || '');
-    if (!/sacrifice (?:that|those) tokens?\.?/i.test(effect)) continue;
-
     const timing = String((delayed as any)?.timing || '').toUpperCase();
     if (!timing.includes('END_STEP')) continue;
 
     const targetIds = Array.isArray((delayed as any)?.targets)
       ? (delayed as any).targets.map((id: unknown) => String(id || '').trim()).filter(Boolean)
       : [];
-    for (const permanentId of targetIds) {
-      const alreadyScheduled = (state.pendingSacrificeAtNextEndStep as any[]).some(
-        (entry: any) => String(entry?.permanentId || '').trim() === permanentId,
-      );
-      if (alreadyScheduled) continue;
 
-      state.pendingSacrificeAtNextEndStep.push({
-        permanentId,
-        fireAtTurnNumber,
-        maxManaValue: 0,
-        sourceName: params.sourceName,
-        createdBy: String(params.controller),
-      });
+    if (scheduledSacrifice && /sacrifice (?:that|those) tokens?\.?/i.test(effect)) {
+      for (const permanentId of targetIds) {
+        const alreadyScheduled = (state.pendingSacrificeAtNextEndStep as any[]).some(
+          (entry: any) => String(entry?.permanentId || '').trim() === permanentId,
+        );
+        if (alreadyScheduled) continue;
+
+        state.pendingSacrificeAtNextEndStep.push({
+          permanentId,
+          fireAtTurnNumber,
+          maxManaValue: 0,
+          sourceName: params.sourceName,
+          createdBy: String(params.controller),
+        });
+      }
+    }
+
+    if (scheduledExile && /\bexile\b/i.test(effect.toLowerCase())) {
+      for (const permanentId of targetIds) {
+        const alreadyScheduled = (state.pendingExileAtNextEndStep as any[]).some(
+          (entry: any) => String(entry?.permanentId || '').trim() === permanentId,
+        );
+        if (alreadyScheduled) continue;
+
+        state.pendingExileAtNextEndStep.push({
+          permanentId,
+          fireAtTurnNumber,
+          sourceName: params.sourceName,
+          createdBy: String(params.controller),
+        });
+      }
     }
   }
 }

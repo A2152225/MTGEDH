@@ -93,6 +93,9 @@ export function tryDispatchResolvedStackItem(
       spellXValue,
       executeTriggerEffect,
     })) {
+      // Permanents already finalize here. Instants/sorceries must as well so
+      // lethal damage (Blasphemous Act) and similar SBAs fire after IR apply.
+      finalizeResolveTopOfStackAfterEffects(ctx);
       return true;
     }
   }

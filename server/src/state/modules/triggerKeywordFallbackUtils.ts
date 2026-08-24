@@ -23,6 +23,50 @@ export interface TriggerKeywordFallbackParams {
   readonly battlefield: readonly any[];
 }
 
+function normalizeKeywordEffectText(text: string): string {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/^you may\s+/i, '')
+    .replace(/[.]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isKeywordEventStubClause(text: string): boolean {
+  return /^(?:enters the battlefield|leaves the battlefield|dies|attacks|blocks|deals combat damage)$/i.test(
+    String(text || '').trim(),
+  );
+}
+
+function triggerTypeOwnsKeywordFallback(triggerType: unknown): boolean {
+  const requested = String(triggerType || '').trim().toLowerCase();
+  return (
+    requested === 'dethrone'
+    || requested === 'training'
+    || requested === 'bushido'
+    || requested === 'mentor'
+    || requested === 'exalted'
+    || requested === 'melee'
+    || requested === 'myriad'
+    || requested === 'annihilator'
+    || requested === 'afflict'
+    || requested === 'flanking'
+    || requested === 'rampage'
+    || requested === 'battle_cry'
+    || requested === 'prowess'
+    || requested === 'firebending'
+  );
+}
+
+function isolatedEffectMatchesKeywordEffect(isolated: string, keywordEffect: string): boolean {
+  const isolatedNorm = normalizeKeywordEffectText(isolated);
+  const keywordNorm = normalizeKeywordEffectText(keywordEffect);
+  if (!isolatedNorm || !keywordNorm) return false;
+  return isolatedNorm === keywordNorm
+    || isolatedNorm.includes(keywordNorm)
+    || keywordNorm.includes(isolatedNorm);
+}
+
 function resolveKeywordTriggerTiming(
   triggerType: unknown,
 ): 'attacks' | 'blocks' | 'etb' | 'dies' | 'combat_damage' | 'cast' | 'noncreature_cast' {
@@ -104,6 +148,27 @@ export function applyKeywordTriggerFallbackFromOracle(
   const cardOracleKeywords = cardOracle && oracleText !== cardOracle
     ? detectKeywords(cardOracle, cardNameForKeyword)
     : detectedKeywords;
+  // Isolated effect clauses (exile/copy/grant) are not keyword lines. Do not
+  // fall back to the source card's static keywords (e.g. Prowess) or the
+  // trigger is treated as handled and the real effect never applies.
+  // Exception: the isolated clause is the expanded text of a keyword on the
+  // card (Soulshift → "Return target Spirit…"), so that keyword still owns it.
+  const isolatedMatchingKeywordNames = useEffectClauseOnly && detectedKeywords.keywords.length === 0
+    ? new Set(
+        cardOracleKeywords.keywords
+          .filter((keyword) => isolatedEffectMatchesKeywordEffect(effectText, keyword.effect))
+          .map((keyword) => keyword.keyword),
+      )
+    : null;
+  if (
+    useEffectClauseOnly
+    && detectedKeywords.keywords.length === 0
+    && (!isolatedMatchingKeywordNames || isolatedMatchingKeywordNames.size === 0)
+    && !isKeywordEventStubClause(effectText)
+    && !triggerTypeOwnsKeywordFallback(params.triggerItem?.triggerType)
+  ) {
+    return false;
+  }
   const mergedKeywords = detectedKeywords.keywords.length > 0
     ? detectedKeywords
     : cardOracleKeywords;
@@ -143,9 +208,11 @@ export function applyKeywordTriggerFallbackFromOracle(
 
   const rawResults = processKeywordTriggers(keywordCtx, timing);
   const requestedKeyword = typeof triggerType === 'string' ? String(triggerType).trim().toLowerCase() : '';
-  const results = requestedKeyword && rawResults.some((result) => result.keyword === requestedKeyword)
-    ? rawResults.filter((result) => result.keyword === requestedKeyword)
-    : rawResults;
+  const results = isolatedMatchingKeywordNames && isolatedMatchingKeywordNames.size > 0
+    ? rawResults.filter((result) => isolatedMatchingKeywordNames.has(result.keyword))
+    : requestedKeyword && rawResults.some((result) => result.keyword === requestedKeyword)
+      ? rawResults.filter((result) => result.keyword === requestedKeyword)
+      : rawResults;
 
   for (const result of results) {
     debug(2, `[executeTriggerEffect] Keyword ${result.keyword} processed: ${result.chatMessage || result.effect}`);

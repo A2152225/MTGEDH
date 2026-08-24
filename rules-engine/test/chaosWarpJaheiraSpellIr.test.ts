@@ -153,7 +153,6 @@ describe('Chaos Warp and Jaheira Respite spell IR', () => {
       'move_zone',
       'reveal_top',
       'move_zone',
-      'conditional',
     ]);
     expect(result.skippedSteps).toHaveLength(0);
     expect(haltState.halted).toBe(false);

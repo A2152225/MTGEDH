@@ -52,8 +52,9 @@ export function createResolutionQueue(gameId: string): ResolutionQueue {
  * Create a resolution step from configuration
  */
 export function createResolutionStep(config: CreateResolutionStepConfig): ResolutionStep {
+  const providedId = String((config as { id?: string }).id || '').trim();
   const step: BaseResolutionStep = {
-    id: generateStepId(),
+    id: providedId || generateStepId(),
     type: config.type,
     playerId: config.playerId,
     status: ResolutionStepStatus.PENDING,
@@ -71,7 +72,7 @@ export function createResolutionStep(config: CreateResolutionStepConfig): Resolu
   // Copy over type-specific fields
   const typeSpecificFields: Record<string, any> = {};
   const baseKeys = new Set([
-    'type', 'playerId', 'description', 'mandatory', 'sourceId', 
+    'id', 'type', 'playerId', 'description', 'mandatory', 'sourceId',
     'sourceName', 'sourceImage', 'timeoutMs', 'priority', 'choiceEvent'
   ]);
   

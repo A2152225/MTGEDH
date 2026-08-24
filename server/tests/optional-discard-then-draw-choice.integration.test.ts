@@ -254,13 +254,13 @@ describe('optional discard then draw choice (integration)', () => {
 
     expect(((game.state as any).zones[p1].hand || []).map((card: any) => card.id)).toEqual(['land_1', 'spell_1']);
 
-    const askStep = ResolutionQueueManager.getQueue(gameId).steps.find((step: any) => step?.optionalDiscardThenDrawChoice === true) as any;
+    const askStep = ResolutionQueueManager.getQueue(gameId).steps.find((step: any) => step?.reflexiveDiscardWhenYouDo === true) as any;
     expect(askStep).toMatchObject({
       type: ResolutionStepType.OPTION_CHOICE,
       sourceId: 'source_perm',
       sourceName: 'Rummaging Source',
-      optionalDiscardThenDrawCount: 1,
-      optionalDiscardThenDrawCountIfDiscardedLand: 1,
+      reflexiveDiscardWhenYouDo: true,
+      afterDiscardDrawCountIfDiscardedLand: 1,
     });
 
     await handlers['submitResolutionResponse']({ gameId, stepId: askStep.id, selections: 'discard' });
@@ -270,7 +270,7 @@ describe('optional discard then draw choice (integration)', () => {
       type: ResolutionStepType.DISCARD_SELECTION,
       sourceName: 'Rummaging Source',
       discardCount: 1,
-      afterDiscardDrawCount: 1,
+      reflexiveDiscardWhenYouDo: true,
       afterDiscardDrawCountIfDiscardedLand: 1,
     });
 
@@ -281,7 +281,7 @@ describe('optional discard then draw choice (integration)', () => {
     expect(promptEvent?.payload?.queuedResolutionStep).toMatchObject({
       type: ResolutionStepType.DISCARD_SELECTION,
       sourceName: 'Rummaging Source',
-      afterDiscardDrawCount: 1,
+      reflexiveDiscardWhenYouDo: true,
       afterDiscardDrawCountIfDiscardedLand: 1,
     });
 
@@ -295,7 +295,9 @@ describe('optional discard then draw choice (integration)', () => {
     expect((zones.hand || []).map((card: any) => card.id)).toEqual(['spell_1', 'draw_1', 'draw_2']);
     expect((zones.graveyard || []).map((card: any) => card.id)).toEqual(['land_1']);
 
-    const drawEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'drawCards') as any;
-    expect(drawEvent?.payload).toEqual({ playerId: p1, count: 2 });
+    const drawnCount = getEvents(gameId)
+      .filter((event: any) => event.type === 'drawCards' && event.payload?.playerId === p1)
+      .reduce((sum: number, event: any) => sum + Number(event.payload?.count || 0), 0);
+    expect(drawnCount).toBe(2);
   });
 });

@@ -39,6 +39,7 @@ describe('becomes-untapped triggers (integration)', () => {
     createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
+    (game as any).gameId = gameId;
 
     (game.state as any).players = [
       { id: p1, name: 'P1', spectator: false, life: 40 },
@@ -98,7 +99,7 @@ describe('becomes-untapped triggers (integration)', () => {
       triggerType: 'untap',
       sourceName: 'Mesmeric Orb',
       triggeringPermanentId: 'elves_perm',
-      effect: "that permanent's controller mills a card",
+      effect: "that permanent's controller mills a card.",
     }));
     expect(stackItems[0]?.effectData).toEqual(expect.objectContaining({
       untappedPermanentId: 'elves_perm',

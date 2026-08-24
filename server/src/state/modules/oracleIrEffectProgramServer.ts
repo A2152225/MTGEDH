@@ -450,6 +450,10 @@ export function startOracleEffectProgramOnServer(
       params.executionOptions || { allowOptional: true },
     );
 
+    const cardInstanceId = String(triggerItem?.card?.id || '').trim();
+    const stackItemId = String(triggerItem?.id || params.sourceId || '').trim();
+    const spellResolutionPrompt = String(params.metadata?.family || '') === 'spell_resolution';
+
     const result = startEffectProgramResolution({
       game: ctx,
       gameId,
@@ -458,9 +462,10 @@ export function startOracleEffectProgramOnServer(
       persistPrompt: true,
       initialBindings,
       queueExtraConfig: {
-        sourceId: params.sourceId,
+        sourceId: cardInstanceId || params.sourceId,
         sourceName: params.sourceName,
         sourceImage: params.sourceImage,
+        ...(spellResolutionPrompt && stackItemId ? { spellId: stackItemId } : {}),
       },
       oracleIrBridge: {
         irCtx: serverIrCtx,
@@ -473,6 +478,21 @@ export function startOracleEffectProgramOnServer(
 
     if (result.status === 'completed') {
       syncCompletedEffectProgramState(ctx, resolvedController as any, graveyardBefore);
+    }
+
+    // Legacy color/type choice re-pushed the popped stack item until the player answered.
+    // Effect Program must do the same so applyEvent(colorChoice) can stamp chosenColor.
+    if (
+      result.status === 'waiting_for_choice'
+      && spellResolutionPrompt
+      && triggerItem
+      && String(triggerItem.id || '').trim()
+    ) {
+      const stack = Array.isArray(state.stack) ? state.stack : (state.stack = []);
+      const stackItemId = String(triggerItem.id || '').trim();
+      if (!stack.some((entry: any) => String(entry?.id || '').trim() === stackItemId)) {
+        stack.push(triggerItem);
+      }
     }
 
     const handled = result.status === 'waiting_for_choice' || result.status === 'completed';

@@ -176,6 +176,7 @@ import {
 
 import { join, leave as leaveModule } from "./join";
 import { resolveSpell } from "../../rules-engine/targeting";
+import { effectsFromDeletedResolveSpellSpec } from "./applyEventResolveSpellDeletedOpEffects.js";
 import { evaluateAction } from "../../rules-engine/index";
 import { mulberry32 } from "../../utils/rng";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
@@ -1328,7 +1329,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // (or counterStackItem / applyEvent effect switch when those effects are emitted).
         if (spec && typeof resolveSpell === 'function') {
           try {
-            const effects = resolveSpell(spec, chosen, ctx.state, caster);
+            const categorizedEffects = resolveSpell(spec, chosen, ctx.state, caster);
+            const effects = categorizedEffects.length > 0
+              ? categorizedEffects
+              : effectsFromDeletedResolveSpellSpec(spec, chosen, ctx.state, caster);
             // Apply each effect
             for (const eff of effects) {
               switch (eff.kind) {
@@ -11480,7 +11484,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   imageUrl: card?.imageUrl,
                 })) : [],
                 landPlayOrFallbackOptions: Array.isArray((rawStep as any).landPlayOrFallbackOptions) ? (rawStep as any).landPlayOrFallbackOptions.map((option: any) => String(option)) : [],
-              } as any);
+              } as any, { allowDuringReplay: true, skipEmit: true });
             }
           } else if ((e as any).type === 'kynaiosChoiceResponse') {
             const playerId = String((e as any).playerId || '').trim();

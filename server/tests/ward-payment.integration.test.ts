@@ -391,11 +391,21 @@ describe('ward mana payment flow', () => {
     expect((((game.state as any).zones?.[casterId]?.graveyard) || []).some((card: any) => card?.name === 'Treasure')).toBe(true);
     expect((game.state as any).manaPool?.[casterId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
 
+    // Newer persist: tap/pool deltas are child events (permanent_tapped / removeManaFromPool).
+    // Parent wardPaymentResolve keeps sacrifice evidence only so replay does not double-apply mana.
     const wardResolveEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'wardPaymentResolve') as any;
     expect(wardResolveEvent?.payload?.stepId).toBe(String(wardStep.id));
-    expect(wardResolveEvent?.payload?.paymentManaDelta).toEqual({ colorless: -1 });
-    expect((wardResolveEvent?.payload?.tappedPermanents || []).map(String)).toContain('treasure_1');
+    expect(wardResolveEvent?.payload?.paymentMutationsPersistedSeparately).toBe(true);
     expect((wardResolveEvent?.payload?.sacrificedPermanents || []).map(String)).toContain('treasure_1');
+    const poolDeltaEvent = [...getEvents(gameId)].reverse().find(
+      (event: any) => event.type === 'removeManaFromPool' && event.payload?.color === 'colorless',
+    ) as any;
+    expect(poolDeltaEvent?.payload).toMatchObject({
+      playerId: casterId,
+      color: 'colorless',
+      amount: 1,
+      reason: 'resolution_mana_payment',
+    });
   });
 
   it('persists discard ward payment resolution after paying ward by discarding a card', async () => {
@@ -635,10 +645,12 @@ describe('ward mana payment flow', () => {
       sourceId: 'spell_ward_madness_1',
       wardPaymentType: 'discard',
     });
-    expect(discardEffectEvent?.payload).toEqual({
+    expect(discardEffectEvent?.payload).toMatchObject({
       playerId: casterId,
       cardIds: ['ward_madness_card_1'],
       destination: 'exile',
+      resolvedStepId: String(wardStep.id),
+      sourceId: 'spell_ward_madness_1',
     });
     expect((promptEvent?.payload?.queuedResolutionSteps || []).some((step: any) => String(step?.castFromExileCardId || '') === 'ward_madness_card_1')).toBe(true);
   });

@@ -46,9 +46,9 @@ describe('Oracle IR gap batch 225 support', () => {
       'Evolutionary Leap'
     );
     expect(collectUnknowns(evolutionaryLeap)).toEqual([]);
+    // Reveal-until-creature + put-in-hand/rest-on-bottom is the look_choose_from_top shape.
     expect(evolutionaryLeap.abilities[0]?.steps.map((step) => step.kind)).toEqual([
-      'reveal_top',
-      'move_zone',
+      'look_choose_from_top',
     ]);
   });
 });

@@ -87,7 +87,7 @@ describe('put-into-graveyard triggers (integration)', () => {
       type: 'triggered_ability',
       triggerType: 'card_put_into_graveyard',
       sourceName: 'Vulturous Zombie',
-      effect: 'put a +1/+1 counter on this creature',
+      effect: 'put a +1/+1 counter on this creature.',
     }));
     expect(stackItems[0]?.effectData).toEqual(expect.objectContaining({
       graveyardCardId: 'milled_card',
@@ -265,7 +265,7 @@ describe('put-into-graveyard triggers (integration)', () => {
       type: 'triggered_ability',
       triggerType: 'card_put_into_graveyard',
       sourceName: 'Syr Konrad, the Grim',
-      effect: 'Syr Konrad deals 1 damage to each opponent',
+      effect: 'Syr Konrad deals 1 damage to each opponent.',
     }));
     expect(stackItems[0]?.effectData).toEqual(expect.objectContaining({
       graveyardCardId: 'milled_creature_card',

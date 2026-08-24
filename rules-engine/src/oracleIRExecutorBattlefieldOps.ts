@@ -492,14 +492,24 @@ export type FinalizeBattlefieldRemovalOptions = {
   readonly cause?: string;
 };
 
+const activeBattlefieldRemovalContexts: OracleIRExecutionContext[] = [];
+
+export function pushActiveOracleIrBattlefieldRemovalContext(ctx: OracleIRExecutionContext): void {
+  activeBattlefieldRemovalContexts.push(ctx);
+}
+
+export function popActiveOracleIrBattlefieldRemovalContext(): void {
+  activeBattlefieldRemovalContexts.pop();
+}
+
 export function oracleIrBattlefieldRemovalBridgeOptions(
   ctx: OracleIRExecutionContext,
   stepKind: string,
 ): FinalizeBattlefieldRemovalOptions | undefined {
-  if (!ctx.serverBridge || ctx.currentStepIndex === undefined) return undefined;
+  if (!ctx.serverBridge) return undefined;
   return {
     ctx,
-    stepIndex: ctx.currentStepIndex,
+    stepIndex: ctx.currentStepIndex ?? 0,
     stepKind,
     cause: `oracle_ir:${stepKind}`,
   };
@@ -619,7 +629,11 @@ export function finalizeBattlefieldRemoval(
   verbPastTense: string,
   options?: FinalizeBattlefieldRemovalOptions,
 ): { state: GameState; log: string[] } {
-  if (options?.ctx?.serverBridge) {
+  const activeCtx = activeBattlefieldRemovalContexts[activeBattlefieldRemovalContexts.length - 1];
+  const resolvedOptions = options?.ctx?.serverBridge
+    ? options
+    : (activeCtx ? oracleIrBattlefieldRemovalBridgeOptions(activeCtx, options?.stepKind || destination) : options);
+  if (resolvedOptions?.ctx?.serverBridge) {
     return finalizeBattlefieldRemovalViaServerBridge(
       state,
       removed,
@@ -627,7 +641,7 @@ export function finalizeBattlefieldRemoval(
       kept,
       destination,
       verbPastTense,
-      options,
+      resolvedOptions,
     );
   }
 

@@ -218,6 +218,22 @@ function resolveLookupDbFile(): string {
   return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured);
 }
 
+/**
+ * Names one database file that must be opened read-only, with the rebuild path disabled.
+ * Test runs share the prebuilt card-lookup database instead of cloning it, so this
+ * guarantees a suite can never rewrite or wipe the corpus. Scoped to a path rather than a
+ * boolean so tests that point `CARD_LOOKUP_SQLITE_FILE` at their own fixture database
+ * still get a writable connection.
+ */
+function isReadonlyLookupFile(resolvedDbFile: string): boolean {
+  const configured = String(process.env.CARD_LOOKUP_SQLITE_READONLY_FILE || '').trim();
+  if (!configured || resolvedDbFile === ':memory:') return false;
+  const resolvedReadonly = path.isAbsolute(configured)
+    ? configured
+    : path.resolve(process.cwd(), configured);
+  return path.normalize(resolvedReadonly).toLowerCase() === path.normalize(resolvedDbFile).toLowerCase();
+}
+
 function getSourceSignature(filePath: string): string {
   if (!fs.existsSync(filePath)) return 'missing';
   const stat = fs.statSync(filePath);
@@ -245,6 +261,13 @@ function getDatabase(): DB {
   if (resolvedDbFile !== ':memory:') {
     const dir = path.dirname(resolvedDbFile);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  }
+
+  if (isReadonlyLookupFile(resolvedDbFile)) {
+    db = new Database(resolvedDbFile, { readonly: true });
+    dbFilePath = resolvedDbFile;
+    db.pragma('busy_timeout = 5000');
+    return db;
   }
 
   db = new Database(resolvedDbFile);
@@ -666,6 +689,15 @@ function rebuildLookupIndexSync(database: DB, options?: LocalCardLookupOptions):
   cardNameChoiceCache.clear();
 }
 
+function assertRebuildAllowed(): void {
+  const resolvedDbFile = resolveLookupDbFile();
+  if (!isReadonlyLookupFile(resolvedDbFile)) return;
+  throw new Error(
+    `[card-lookup] ${resolvedDbFile} is stale but opened read-only via CARD_LOOKUP_SQLITE_READONLY_FILE, ` +
+      'so it cannot be rebuilt here. Run "npm run card-lookup:refresh" in server/ to update it.',
+  );
+}
+
 export async function ensureLocalCardLookupIndex(options: LocalCardLookupOptions = {}): Promise<void> {
   if (ensurePromise) {
     return ensurePromise;
@@ -680,6 +712,7 @@ export async function ensureLocalCardLookupIndex(options: LocalCardLookupOptions
       return;
     }
 
+    assertRebuildAllowed();
     emitStatus(options, { phase: 'building', message: 'Building local card lookup table from oracle-cards and AtomicCards.json' });
     await rebuildLookupIndex(database, options);
     emitStatus(options, { phase: 'ready', message: 'Local card lookup table is ready' });
@@ -702,6 +735,7 @@ export function ensureLocalCardLookupIndexSync(options: LocalCardLookupOptions =
     return;
   }
 
+  assertRebuildAllowed();
   emitStatus(options, { phase: 'building', message: 'Building local card lookup table from oracle-cards and AtomicCards.json' });
   rebuildLookupIndexSync(database, options);
   emitStatus(options, { phase: 'ready', message: 'Local card lookup table is ready' });

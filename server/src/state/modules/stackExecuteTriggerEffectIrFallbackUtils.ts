@@ -9,6 +9,7 @@ import { applyCopyPermanentTriggerStep, queueOptionalSelfCopyFromControlledCreat
 import { resolveTriggeredAbilityTargetPlayerId } from './triggerSourceUtils.js';
 import { buildStackOracleIRContext } from './oracleIrStackContextUtils.js';
 import { inferOracleIrTargetBinding } from '../../../../rules-engine/src/oracleIrTargetBinding.js';
+import { tryApplyEachOpponentDamageTrigger, tryApplyTargetedDamageFromEffectText } from './triggerLifeDamageUtils.js';
 import {
   createEquippedCreatureCopyTokenFromEquipment as createEquippedCreatureCopyTokenCore,
 } from './oracleIrTriggerLegacyTokenHandlers.js';
@@ -46,6 +47,23 @@ export function applyOracleIRFallbackForTriggeredEffect(
   const text = String(description || '').trim();
   if (!text) return 0;
 
+  const sourcePermanentId = String(
+    triggerItem?.source || triggerItem?.permanentId || '',
+  ).trim();
+  const eachOpponentDamageApplied = tryApplyEachOpponentDamageTrigger(
+    ctx,
+    controller,
+    text,
+    sourcePermanentId || undefined,
+  );
+  if (eachOpponentDamageApplied > 0) {
+    return eachOpponentDamageApplied;
+  }
+
+  if (tryApplyTargetedDamageFromEffectText(ctx, controller, text, triggerItem)) {
+    return 1;
+  }
+
   if (options?.skipUncategorizedSpellFallback) {
     return applyTriggerIrSpecialHandlersOnly(
       ctx,
@@ -69,9 +87,6 @@ export function applyOracleIRFallbackForTriggeredEffect(
     }
   }
 
-  const sourcePermanentId = String(
-    triggerItem?.source || triggerItem?.permanentId || ''
-  ).trim();
   if (!targetPlayerId && sourcePermanentId) {
     const sourcePermanent = ((ctx as any).state?.battlefield || []).find(
       (permanent: any) => String(permanent?.id || '').trim() === sourcePermanentId
@@ -99,6 +114,7 @@ export function applyOracleIRFallbackForTriggeredEffect(
     .map((targetRef: any) => (typeof targetRef === 'string' ? targetRef : String(targetRef?.id || '')))
     .filter(Boolean);
   const lifeLostReference = Number((triggerItem as any)?.effectData?.lifeLost ?? 0);
+  const lifePaidReference = Number((triggerItem as any)?.effectData?.lifePaid ?? 0);
   const countersPlacedReference = Number((triggerItem as any)?.effectData?.countersPlaced ?? 0);
   const damageReference = Number(
     (triggerItem as any)?.damageAmount ?? (triggerItem as any)?.effectData?.damageAmount ?? 0,
@@ -135,9 +151,17 @@ export function applyOracleIRFallbackForTriggeredEffect(
   ).trim();
   const discardedCardId = String((triggerItem as any)?.effectData?.discardedCardId || '').trim();
   const boundGraveyardCardId = String((triggerItem as any)?.boundGraveyardCardId || '').trim();
+  const untappedPermanentId = String((triggerItem as any)?.effectData?.untappedPermanentId || '').trim();
+  const untappedPermanentController = String(
+    (triggerItem as any)?.effectData?.untappedPermanentController || '',
+  ).trim();
+  if (!targetPlayerId && untappedPermanentController && playerIds.has(untappedPermanentController)) {
+    targetPlayerId = untappedPermanentController as PlayerID;
+  }
   const chosenObjectIds = Array.from(new Set([
     ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...normalizedTargetIds,
+    ...(untappedPermanentId ? [untappedPermanentId] : []),
     ...(discardedCardId ? [discardedCardId] : []),
     ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),
   ]));
@@ -146,6 +170,7 @@ export function applyOracleIRFallbackForTriggeredEffect(
   const irCtx = buildStackOracleIRContext(controller, {
     xValue: typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined,
     sourceId: sourcePermanentId || sourceId,
+    sourceName,
     targetPlayerId: (targetPlayerId || losingPlayerId || undefined) as PlayerID | undefined,
     targetOpponentId: (
       targetPlayerId && String(targetPlayerId) !== String(controller)
@@ -155,18 +180,20 @@ export function applyOracleIRFallbackForTriggeredEffect(
           : undefined
     ) as PlayerID | undefined,
     targetPermanentId:
-      targetBinding.targetPermanentId || interveningSubjectPermanentId || undefined,
+      targetBinding.targetPermanentId || interveningSubjectPermanentId || untappedPermanentId || undefined,
     targetCreatureId: targetBinding.targetCreatureId,
     targetSpellId: targetBinding.targetSpellId,
     chosenObjectIds: chosenObjectIds.length > 0 ? chosenObjectIds : undefined,
     referenceAmount:
       Number.isFinite(lifeLostReference) && lifeLostReference > 0
         ? lifeLostReference
-        : Number.isFinite(countersPlacedReference) && countersPlacedReference > 0
-          ? countersPlacedReference
-          : Number.isFinite(damageReference) && damageReference > 0
-            ? damageReference
-            : undefined,
+        : Number.isFinite(lifePaidReference) && lifePaidReference > 0
+          ? lifePaidReference
+          : Number.isFinite(countersPlacedReference) && countersPlacedReference > 0
+            ? countersPlacedReference
+            : Number.isFinite(damageReference) && damageReference > 0
+              ? damageReference
+              : undefined,
     ...(lastAntecedentBattlefieldPermanentIds.length > 0
       ? { lastAntecedentBattlefieldPermanentIds }
       : interveningSubjectPermanentId

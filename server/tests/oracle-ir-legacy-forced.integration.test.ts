@@ -70,6 +70,10 @@ function castAndResolve(
 }
 
 describe('oracle IR legacy forced integration', () => {
+  // P1a still means resolveSpell() no-ops deleted categorize ops when PRIMARY=0.
+  // Stack resolve now applies those effects via IR uncategorized fallback
+  // (Wrath-style mass destroy, Divination, etc.). Older soaks that expected a
+  // full-pipeline no-op were updated to the MTG-correct outcome.
   const previousSpellPrimary = process.env.ORACLE_IR_SPELL_PRIMARY;
   const previousSpellLegacy = process.env.ORACLE_IR_SPELL_LEGACY;
   const previousTriggerPrimary = process.env.ORACLE_IR_TRIGGER_PRIMARY;
@@ -128,7 +132,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(isOracleIrTriggerLegacyForced()).toBe(false);
   });
 
-  it('draw categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('draw deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Draw two cards.';
@@ -160,9 +164,9 @@ describe('oracle IR legacy forced integration', () => {
     const player = (g.state as any).players.find((entry: any) => entry.id === p1);
     const handCount = (g.state as any).zones?.[p1]?.hand?.length ?? player?.hand?.length ?? 0;
     const libraryCount = ctx.libraries?.get(p1)?.length ?? player?.library?.length ?? 0;
-    // Stack resolve uses deleted categorize op — no draw under SPELL_LEGACY.
-    expect(handCount).toBe(0);
-    expect(libraryCount).toBe(3);
+    // resolveSpell() still no-ops DRAW_CARDS; IR fallback draws two.
+    expect(handCount).toBe(2);
+    expect(libraryCount).toBe(1);
   });
 
   it('applies draw triggers through legacy regex when trigger legacy is forced', () => {
@@ -219,7 +223,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(playerAfter?.life ?? (game.state as any).life?.[p1]).toBe(lifeBefore + 1);
   });
 
-  it('gain-life categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('gain-life deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'You gain 3 life.';
@@ -251,7 +255,7 @@ describe('oracle IR legacy forced integration', () => {
     }, ['lib-1']);
 
     const playerAfter = (g.state as any).players.find((entry: any) => entry.id === p1);
-    expect(playerAfter?.life ?? (g.state as any).life?.[p1]).toBe(lifeBefore);
+    expect(playerAfter?.life ?? (g.state as any).life?.[p1]).toBe(lifeBefore + 3);
   });
 
   it('applies lose-life triggers through legacy regex when trigger legacy is forced', () => {
@@ -550,7 +554,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(0);
   });
 
-  it('scry categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('scry deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Scry 2.';
@@ -581,12 +585,11 @@ describe('oracle IR legacy forced integration', () => {
 
     const scrySteps = ResolutionQueueManager.getStepsForPlayer(gameId, p1)
       .filter((step) => step.type === ResolutionStepType.SCRY);
-    expect(scrySteps).toHaveLength(0);
-    expect((g.state as any).pendingScry?.[p1]).toBeUndefined();
+    expect(scrySteps).toHaveLength(1);
     expect((g.state as any).zones?.[p1]?.libraryCount ?? 0).toBe(3);
   });
 
-  it('surveil categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('surveil deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Surveil 2.';
@@ -617,11 +620,11 @@ describe('oracle IR legacy forced integration', () => {
 
     const surveilSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p1)
       .filter((step) => step.type === ResolutionStepType.SURVEIL);
-    expect(surveilSteps).toHaveLength(0);
+    expect(surveilSteps).toHaveLength(1);
     expect((g.state as any).zones?.[p1]?.libraryCount ?? 0).toBe(3);
   });
 
-  it('discard categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('discard deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Target player discards two cards.';
@@ -682,7 +685,7 @@ describe('oracle IR legacy forced integration', () => {
 
     const discardSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p2)
       .filter((step) => step.type === ResolutionStepType.DISCARD_SELECTION);
-    expect(discardSteps).toHaveLength(0);
+    expect(discardSteps).toHaveLength(1);
     expect((g.state as any).zones[p2]?.hand?.length ?? 0).toBe(3);
   });
 
@@ -1029,7 +1032,7 @@ describe('oracle IR legacy forced integration', () => {
     }
   });
 
-  it('destroy categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('destroy deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Destroy target creature.';
@@ -1093,10 +1096,10 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(1);
     g.resolveTopOfStack();
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(true);
+    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(false);
   });
 
-  it('mill categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('mill deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Target player mills three cards.';
@@ -1147,11 +1150,11 @@ describe('oracle IR legacy forced integration', () => {
     g.resolveTopOfStack();
 
     const gy2 = (g.state as any).zones?.[p2]?.graveyard || [];
-    expect(gy2.length).toBe(0);
-    expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(4);
+    expect(gy2.length).toBe(3);
+    expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(1);
   });
 
-  it('each-opponent discard categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('each-opponent discard deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each opponent discards two cards.';
@@ -1195,11 +1198,11 @@ describe('oracle IR legacy forced integration', () => {
 
     const discardSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p2)
       .filter((step) => step.type === ResolutionStepType.DISCARD_SELECTION);
-    expect(discardSteps).toHaveLength(0);
+    expect(discardSteps).toHaveLength(1);
     expect((g.state as any).zones[p2]?.hand?.length ?? 0).toBe(3);
   });
 
-  it('each-opponent mill categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('each-opponent mill deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each opponent mills two cards.';
@@ -1233,11 +1236,11 @@ describe('oracle IR legacy forced integration', () => {
     }, ['lib-1']);
 
     const gy2 = (g.state as any).zones?.[p2]?.graveyard || [];
-    expect(gy2.length).toBe(0);
-    expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(4);
+    expect(gy2.length).toBe(2);
+    expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(2);
   });
 
-  it('each-player discard categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('each-player discard deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each player discards two cards.';
@@ -1296,13 +1299,11 @@ describe('oracle IR legacy forced integration', () => {
     for (const playerId of [p1, p2]) {
       const discardSteps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId)
         .filter((step) => step.type === ResolutionStepType.DISCARD_SELECTION);
-      expect(discardSteps).toHaveLength(0);
+      expect(discardSteps.length).toBeGreaterThan(0);
     }
-    expect((g.state as any).zones[p1]?.hand?.length ?? 0).toBe(3);
-    expect((g.state as any).zones[p2]?.hand?.length ?? 0).toBe(3);
   });
 
-  it('each-player mill categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('each-player mill deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each player mills two cards.';
@@ -1339,8 +1340,8 @@ describe('oracle IR legacy forced integration', () => {
 
     for (const playerId of [p1, p2]) {
       const gy = (g.state as any).zones?.[playerId]?.graveyard || [];
-      expect(gy.length).toBe(playerId === p1 ? 1 : 0);
-      expect((g.state as any).zones?.[playerId]?.libraryCount ?? 0).toBe(4);
+      expect(gy.length).toBe(playerId === p1 ? 3 : 2);
+      expect((g.state as any).zones?.[playerId]?.libraryCount ?? 0).toBe(2);
     }
   });
 
@@ -1402,7 +1403,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(p2After?.life ?? (game.state as any).life?.[p2]).toBe(38);
   });
 
-  it('gain-life target-player categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('gain-life target-player deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Target player gains 3 life.';
@@ -1451,10 +1452,10 @@ describe('oracle IR legacy forced integration', () => {
     g.resolveTopOfStack();
 
     const p2After = (g.state as any).players.find((entry: any) => entry.id === p2);
-    expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(40);
+    expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(43);
   });
 
-  it('each-opponent gain-life categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('each-opponent gain-life deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each opponent gains 1 life.';
@@ -1488,10 +1489,10 @@ describe('oracle IR legacy forced integration', () => {
     const p1After = (g.state as any).players.find((entry: any) => entry.id === p1);
     const p2After = (g.state as any).players.find((entry: any) => entry.id === p2);
     expect(p1After?.life ?? (g.state as any).life?.[p1]).toBe(40);
-    expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(40);
+    expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(41);
   });
 
-  it('each-player gain-life categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('each-player gain-life deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each player gains 2 life.';
@@ -1523,8 +1524,8 @@ describe('oracle IR legacy forced integration', () => {
 
     const p1After = (g.state as any).players.find((entry: any) => entry.id === p1);
     const p2After = (g.state as any).players.find((entry: any) => entry.id === p2);
-    expect(p1After?.life ?? (g.state as any).life?.[p1]).toBe(40);
-    expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(40);
+    expect(p1After?.life ?? (g.state as any).life?.[p1]).toBe(42);
+    expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(42);
   });
 
   it('applies gain-life target-player triggers through legacy regex when trigger legacy is forced', () => {
@@ -1639,7 +1640,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(p2After?.life ?? (game.state as any).life?.[p2]).toBe(38);
   });
 
-  it('create-token categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('create-token deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Create a Treasure token.';
@@ -1671,11 +1672,11 @@ describe('oracle IR legacy forced integration', () => {
     }, [], (game) => setupPlayerLibrary(game, p1, ['lib-1']));
 
     const battlefield = (g.state as any).battlefield || [];
-    expect(battlefield.length).toBe(battlefieldBefore);
-    expect(battlefield.some((perm: any) => perm?.card?.name === 'Treasure')).toBe(false);
+    expect(battlefield.length).toBe(battlefieldBefore + 1);
+    expect(battlefield.some((perm: any) => perm?.card?.name === 'Treasure')).toBe(true);
   });
 
-  it('damage-target-player categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('damage-target-player deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Deal 3 damage to target player.';
@@ -1723,10 +1724,10 @@ describe('oracle IR legacy forced integration', () => {
     g.resolveTopOfStack();
 
     const p2After = (g.state as any).players.find((entry: any) => entry.id === p2);
-    expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(40);
+    expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(37);
   });
 
-  it('each-opponent damage categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('each-opponent damage deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Deal 2 damage to each opponent.';
@@ -1759,10 +1760,10 @@ describe('oracle IR legacy forced integration', () => {
     const p1After = (g.state as any).players.find((entry: any) => entry.id === p1);
     const p2After = (g.state as any).players.find((entry: any) => entry.id === p2);
     expect(p1After?.life ?? (g.state as any).life?.[p1]).toBe(40);
-    expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(40);
+    expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(38);
   });
 
-  it('each-player damage categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('each-player damage deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Deal 1 damage to each player.';
@@ -1794,8 +1795,8 @@ describe('oracle IR legacy forced integration', () => {
 
     const p1After = (g.state as any).players.find((entry: any) => entry.id === p1);
     const p2After = (g.state as any).players.find((entry: any) => entry.id === p2);
-    expect(p1After?.life ?? (g.state as any).life?.[p1]).toBe(40);
-    expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(40);
+    expect(p1After?.life ?? (g.state as any).life?.[p1]).toBe(39);
+    expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(39);
   });
 
   it('creates a Treasure token via IR uncategorized fallback when trigger legacy is forced', () => {
@@ -1910,7 +1911,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(p2After?.life ?? (game.state as any).life?.[p2]).toBe(37);
   });
 
-  it('creature-token categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('creature-token deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Create a 1/1 white Soldier creature token.';
@@ -1942,11 +1943,11 @@ describe('oracle IR legacy forced integration', () => {
     }, [], (game) => setupPlayerLibrary(game, p1, ['lib-1']));
 
     const battlefield = (g.state as any).battlefield || [];
-    expect(battlefield.length).toBe(battlefieldBefore);
-    expect(battlefield.some((perm: any) => String(perm?.card?.name || '').includes('Soldier'))).toBe(false);
+    expect(battlefield.length).toBe(battlefieldBefore + 1);
+    expect(battlefield.some((perm: any) => String(perm?.card?.name || '').includes('Soldier'))).toBe(true);
   });
 
-  it('any-target damage categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('any-target damage deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Lightning Bolt deals 3 damage to any target.';
@@ -2009,10 +2010,14 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(1);
     g.resolveTopOfStack();
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(true);
+    const boltTarget = (g.state as any).battlefield.find((perm: any) => perm?.id === 'c1');
+    expect(
+      !boltTarget
+      || (boltTarget.damageThisTurn ?? boltTarget.damageMarked ?? boltTarget.damage ?? 0) >= 3,
+    ).toBe(true);
   });
 
-  it('damage-target categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('damage-target deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Deal 3 damage to target creature.';
@@ -2075,7 +2080,11 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(1);
     g.resolveTopOfStack();
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(true);
+    const shockTarget = (g.state as any).battlefield.find((perm: any) => perm?.id === 'c1');
+    expect(
+      !shockTarget
+      || (shockTarget.damageThisTurn ?? shockTarget.damageMarked ?? shockTarget.damage ?? 0) >= 3,
+    ).toBe(true);
   });
 
   it('creates a creature token via IR uncategorized fallback when trigger legacy is forced', () => {
@@ -2191,7 +2200,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(perm?.damageThisTurn ?? perm?.damageMarked ?? perm?.damage ?? 0).toBeGreaterThanOrEqual(3);
   });
 
-  it('each-creature damage categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('each-creature damage deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Deal 1 damage to each creature.';
@@ -2222,7 +2231,8 @@ describe('oracle IR legacy forced integration', () => {
     });
 
     const battlefield = (g.state as any).battlefield || [];
-    expect(battlefield.length).toBe(2);
+    expect(battlefield.length).toBe(1);
+    expect(battlefield[0]?.card?.name).toMatch(/Knight/i);
   });
 
   it('routes each-creature damage triggers through IR uncategorized fallback when trigger legacy is forced', () => {
@@ -2254,7 +2264,7 @@ describe('oracle IR legacy forced integration', () => {
     }
   });
 
-  it('each-creature-you-control damage categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('each-creature-you-control damage deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Deal 1 damage to each creature you control.';
@@ -2288,7 +2298,7 @@ describe('oracle IR legacy forced integration', () => {
       game.createToken!(p2, 'P2 Token', 1, 1, 1);
     });
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p1)).toBe(true);
+    expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p1)).toBe(false);
     expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p2)).toBe(true);
   });
 
@@ -2324,7 +2334,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(p2Perm?.damageMarked ?? p2Perm?.damage ?? p2Perm?.counters?.damage ?? 0).toBe(0);
   });
 
-  it('destroy-all-creatures categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('destroy-all-creatures deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Destroy all creatures.';
@@ -2357,7 +2367,7 @@ describe('oracle IR legacy forced integration', () => {
       game.createToken!(p2, 'Knight', 1, 1, 1);
     });
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.card?.type_line?.includes('Creature'))).toBe(true);
+    expect((g.state as any).battlefield.some((perm: any) => perm?.card?.type_line?.includes('Creature'))).toBe(false);
   });
 
   it('routes destroy-all-creatures triggers through IR uncategorized fallback when trigger legacy is forced', () => {
@@ -2387,7 +2397,7 @@ describe('oracle IR legacy forced integration', () => {
     expect((game.state as any).battlefield.some((perm: any) => perm?.card?.type_line?.includes('Creature'))).toBe(false);
   });
 
-  it('destroy-each-creature categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('destroy-each-creature deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Destroy each creature.';
@@ -2420,7 +2430,7 @@ describe('oracle IR legacy forced integration', () => {
       game.createToken!(p2, 'Knight', 1, 1, 1);
     });
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.card?.type_line?.includes('Creature'))).toBe(true);
+    expect((g.state as any).battlefield.some((perm: any) => perm?.card?.type_line?.includes('Creature'))).toBe(false);
   });
 
   it('routes destroy-each-creature triggers through IR uncategorized fallback when trigger legacy is forced', () => {
@@ -2450,7 +2460,7 @@ describe('oracle IR legacy forced integration', () => {
     expect((game.state as any).battlefield.some((perm: any) => perm?.card?.type_line?.includes('Creature'))).toBe(false);
   });
 
-  it('exile-target-creature categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('exile-target-creature deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Exile target creature.';
@@ -2511,7 +2521,7 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(1);
     g.resolveTopOfStack();
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(true);
+    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(false);
   });
 
   it('applies exile-target-creature triggers through legacy regex when trigger legacy is forced', () => {
@@ -2562,7 +2572,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(exile2.some((card: any) => card?.id === 'c1_card')).toBe(true);
   });
 
-  it('exile-all-creatures categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('exile-all-creatures deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Exile all creatures.';
@@ -2595,7 +2605,7 @@ describe('oracle IR legacy forced integration', () => {
       game.createToken!(p2, 'Knight', 1, 1, 1);
     });
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.card?.type_line?.includes('Creature'))).toBe(true);
+    expect((g.state as any).battlefield.some((perm: any) => perm?.card?.type_line?.includes('Creature'))).toBe(false);
   });
 
   it('routes exile-all-creatures triggers through IR uncategorized fallback when trigger legacy is forced', () => {
@@ -2687,7 +2697,7 @@ describe('oracle IR legacy forced integration', () => {
     expect((game.state as any).battlefield.some((perm: any) => perm?.card?.type_line?.includes('Creature'))).toBe(false);
   });
 
-  it('opponent-scoped exile-all categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('opponent-scoped exile-all deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Exile all creatures your opponents control.';
@@ -2722,7 +2732,7 @@ describe('oracle IR legacy forced integration', () => {
     });
 
     expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p1)).toBe(true);
-    expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p2)).toBe(true);
+    expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p2)).toBe(false);
   });
 
   it('routes opponent-scoped exile-all-creatures triggers through IR uncategorized fallback when trigger legacy is forced', () => {
@@ -2753,7 +2763,7 @@ describe('oracle IR legacy forced integration', () => {
     expect((game.state as any).battlefield.some((perm: any) => perm?.controller === p2)).toBe(false);
   });
 
-  it('exile-target-nonland categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('exile-target-nonland deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Exile target nonland permanent.';
@@ -2815,7 +2825,7 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(1);
     g.resolveTopOfStack();
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'a1')).toBe(true);
+    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'a1')).toBe(false);
   });
 
   it('applies exile-target-nonland-permanent triggers through legacy regex when trigger legacy is forced', () => {
@@ -2866,7 +2876,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(exile2.some((card: any) => card?.id === 'a1_card')).toBe(true);
   });
 
-  it('flicker categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('flicker deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = "Exile target creature you control, then return it to the battlefield under its owner's control.";
@@ -2927,12 +2937,14 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(1);
     g.resolveTopOfStack();
 
-    const perm = (g.state as any).battlefield.find((entry: any) => entry?.id === 'c1');
-    expect(perm).toBeDefined();
-    expect(perm?.tapped).toBe(true);
+    const flickered = (g.state as any).battlefield.find((entry: any) =>
+      entry?.id === 'c1' || entry?.card?.id === 'c1_card' || entry?.card?.name === 'Target Creature',
+    );
+    expect(flickered).toBeDefined();
+    expect(flickered?.tapped).toBe(false);
   });
 
-  it('delayed flicker categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('delayed flicker deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = "Exile target creature. Return it to the battlefield under its owner's control at the beginning of the next end step.";
@@ -2997,13 +3009,13 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(1);
     g.resolveTopOfStack();
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(true);
+    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(false);
     const exile2 = (g.state as any).zones?.[p2]?.exile || [];
-    expect(exile2.some((card: any) => card?.id === 'c1_card')).toBe(false);
-    expect(((g.state as any).pendingFlickerReturns || []) as any[]).toHaveLength(0);
+    expect(exile2.some((card: any) => card?.id === 'c1_card')).toBe(true);
+    expect(((g.state as any).pendingFlickerReturns || []).length).toBeGreaterThan(0);
   });
 
-  it('bounce-target categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('bounce-target deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = "Return target creature to its owner's hand.";
@@ -3068,8 +3080,8 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(1);
     g.resolveTopOfStack();
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(true);
-    expect((g.state as any).zones?.[p2]?.hand?.some((card: any) => card?.id === 'c1_card')).toBe(false);
+    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(false);
+    expect((g.state as any).zones?.[p2]?.hand?.some((card: any) => card?.id === 'c1_card')).toBe(true);
   });
 
   it('routes bounce-target-creature triggers through IR uncategorized fallback when trigger legacy is forced', () => {
@@ -3231,7 +3243,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(gy1.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('counter-target-spell categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('counter-target-spell deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Counter target spell.';
@@ -3302,14 +3314,13 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(2);
     g.resolveTopOfStack();
 
-    // Counterspell resolved without effect; bolt remains on stack.
-    expect((g.state as any).stack?.length || 0).toBe(1);
-    expect((g.state as any).stack?.[0]?.id).toBe(stackBoltId);
+    // IR fallback counters the bolt; stack is empty and the bolt hits the graveyard.
+    expect((g.state as any).stack?.length || 0).toBe(0);
     const gy2 = (g.state as any).zones?.[p2]?.graveyard || [];
-    expect(gy2.some((card: any) => card?.id === 'bolt_card')).toBe(false);
+    expect(gy2.some((card: any) => card?.id === 'bolt_card')).toBe(true);
   });
 
-  it('counter-target-ability categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('counter-target-ability deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Counter target activated ability.';
@@ -3375,9 +3386,8 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(2);
     g.resolveTopOfStack();
 
-    // Stifle resolved without effect; ability remains on stack.
-    expect((g.state as any).stack?.length || 0).toBe(1);
-    expect((g.state as any).stack?.[0]?.id).toBe(stackAbilityId);
+    // IR fallback counters the activated ability.
+    expect((g.state as any).stack?.length || 0).toBe(0);
   });
 
   it('routes counter-target-spell triggers through IR uncategorized fallback when trigger legacy is forced', () => {
@@ -3430,7 +3440,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(gy2.some((card: any) => card?.id === 'bolt_card')).toBe(true);
   });
 
-  it('tap-target categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('tap-target deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Tap target creature.';
@@ -3496,7 +3506,7 @@ describe('oracle IR legacy forced integration', () => {
     g.resolveTopOfStack();
 
     const perm = (g.state as any).battlefield.find((entry: any) => entry?.id === 'c1');
-    expect(perm?.tapped).toBe(false);
+    expect(perm?.tapped).toBe(true);
   });
 
   it('routes tap-target-creature triggers through IR uncategorized fallback when trigger legacy is forced', () => {
@@ -3545,7 +3555,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(perm?.tapped).toBe(true);
   });
 
-  it('add-counters-target categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('add-counters-target deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Put a +1/+1 counter on target creature.';
@@ -3617,10 +3627,10 @@ describe('oracle IR legacy forced integration', () => {
     g.resolveTopOfStack();
 
     const perm = (g.state as any).battlefield.find((entry: any) => entry?.id === 'c1');
-    expect(perm?.counters?.['+1/+1']).toBeUndefined();
+    expect(perm?.counters?.['+1/+1']).toBe(1);
   });
 
-  it('add-counters-each categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('add-counters-each deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Put a +1/+1 counter on each creature you control.';
@@ -3660,11 +3670,11 @@ describe('oracle IR legacy forced integration', () => {
     const p1Creatures = (g.state as any).battlefield.filter((entry: any) => entry?.controller === p1);
     const p2Creature = (g.state as any).battlefield.find((entry: any) => entry?.controller === p2);
     expect(p1Creatures.length).toBe(2);
-    expect(p1Creatures.every((entry: any) => !entry?.counters?.['+1/+1'])).toBe(true);
+    expect(p1Creatures.every((entry: any) => entry?.counters?.['+1/+1'] === 1)).toBe(true);
     expect(p2Creature?.counters?.['+1/+1']).toBeUndefined();
   });
 
-  it('draw-target-player categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('draw-target-player deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Target player draws two cards.';
@@ -3712,11 +3722,11 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(1);
     g.resolveTopOfStack();
 
-    expect((g.state as any).zones?.[p2]?.hand?.length ?? 0).toBe(0);
-    expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(3);
+    expect((g.state as any).zones?.[p2]?.hand?.length ?? 0).toBe(2);
+    expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(1);
   });
 
-  it('each-opponent draw categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('each-opponent draw deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each opponent draws two cards.';
@@ -3748,11 +3758,11 @@ describe('oracle IR legacy forced integration', () => {
       setupPlayerLibrary(game, p2, ['opp-draw-1', 'opp-draw-2', 'opp-draw-3']);
     });
 
-    expect((g.state as any).zones?.[p2]?.hand?.length ?? 0).toBe(0);
-    expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(3);
+    expect((g.state as any).zones?.[p2]?.hand?.length ?? 0).toBe(2);
+    expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(1);
   });
 
-  it('each-player draw categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('each-player draw deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each player draws a card.';
@@ -3787,12 +3797,12 @@ describe('oracle IR legacy forced integration', () => {
     for (const playerId of [p1, p2]) {
       const handCount = (g.state as any).zones?.[playerId]?.hand?.length ?? 0;
       const libraryCount = (g.state as any).zones?.[playerId]?.libraryCount ?? 0;
-      expect(handCount).toBe(0);
-      expect(libraryCount).toBe(2);
+      expect(handCount).toBe(1);
+      expect(libraryCount).toBe(1);
     }
   });
 
-  it('mill-self categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('mill-self deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Mill two cards.';
@@ -3839,8 +3849,8 @@ describe('oracle IR legacy forced integration', () => {
     g.resolveTopOfStack();
 
     const gy = (g.state as any).zones?.[p1]?.graveyard || [];
-    expect(gy.length).toBe(1);
-    expect((g.state as any).zones?.[p1]?.libraryCount ?? 0).toBe(4);
+    expect(gy.length).toBe(3);
+    expect((g.state as any).zones?.[p1]?.libraryCount ?? 0).toBe(2);
   });
 
   it('routes add-counters-each triggers through IR uncategorized fallback when trigger legacy is forced', () => {
@@ -3922,7 +3932,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(perm?.counters?.['+1/+1']).toBe(1);
   });
 
-  it('each-player scry categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('each-player scry deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each player scries 1.';
@@ -3957,17 +3967,15 @@ describe('oracle IR legacy forced integration', () => {
       setupPlayerLibrary(game, p2, ['p2-lib-1', 'p2-lib-2']);
     });
 
-    expect((g.state as any).pendingScry).toBeUndefined();
-
     const scrySteps = ResolutionQueueManager.getStepsForPlayer(gameId, p1)
       .concat(ResolutionQueueManager.getStepsForPlayer(gameId, p2))
       .filter((step) => step.type === ResolutionStepType.SCRY);
-    expect(scrySteps).toHaveLength(0);
+    expect(scrySteps).toHaveLength(2);
     expect((g.state as any).zones?.[p1]?.libraryCount ?? 0).toBe(2);
     expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(2);
   });
 
-  it('each-opponent scry categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('each-opponent scry deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each opponent scries 2.';
@@ -4002,17 +4010,15 @@ describe('oracle IR legacy forced integration', () => {
       setupPlayerLibrary(game, p2, ['p2-lib-1', 'p2-lib-2', 'p2-lib-3']);
     });
 
-    expect((g.state as any).pendingScry).toBeUndefined();
-
     const scrySteps = ResolutionQueueManager.getStepsForPlayer(gameId, p2)
       .filter((step) => step.type === ResolutionStepType.SCRY);
-    expect(scrySteps).toHaveLength(0);
+    expect(scrySteps).toHaveLength(1);
     expect(ResolutionQueueManager.getStepsForPlayer(gameId, p1)
       .filter((step) => step.type === ResolutionStepType.SCRY)).toHaveLength(0);
     expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(3);
   });
 
-  it('each-player surveil categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('each-player surveil deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each player surveils 1.';
@@ -4050,13 +4056,12 @@ describe('oracle IR legacy forced integration', () => {
     const surveilSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p1)
       .concat(ResolutionQueueManager.getStepsForPlayer(gameId, p2))
       .filter((step) => step.type === ResolutionStepType.SURVEIL);
-    expect(surveilSteps).toHaveLength(0);
-    expect((g.state as any).pendingSurveil).toBeUndefined();
+    expect(surveilSteps).toHaveLength(2);
     expect((g.state as any).zones?.[p1]?.libraryCount ?? 0).toBe(2);
     expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(2);
   });
 
-  it('each-opponent surveil categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('each-opponent surveil deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each opponent surveils 2.';
@@ -4091,15 +4096,13 @@ describe('oracle IR legacy forced integration', () => {
       setupPlayerLibrary(game, p2, ['p2-lib-1', 'p2-lib-2', 'p2-lib-3']);
     });
 
-    expect((g.state as any).pendingSurveil).toBeUndefined();
-
     const surveilSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p2)
       .filter((step) => step.type === ResolutionStepType.SURVEIL);
-    expect(surveilSteps).toHaveLength(0);
+    expect(surveilSteps).toHaveLength(1);
     expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(3);
   });
 
-  it('investigate categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('investigate deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Investigate.';
@@ -4131,8 +4134,8 @@ describe('oracle IR legacy forced integration', () => {
     }, ['lib-1']);
 
     const battlefield = (g.state as any).battlefield || [];
-    expect(battlefield.length).toBe(battlefieldBefore);
-    expect(battlefield.some((perm: any) => perm?.card?.name === 'Clue')).toBe(false);
+    expect(battlefield.length).toBe(battlefieldBefore + 1);
+    expect(battlefield.some((perm: any) => perm?.card?.name === 'Clue')).toBe(true);
   });
 
   it('applies each-player scry triggers through IR uncategorized fallback when trigger legacy is forced', () => {
@@ -4194,7 +4197,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(battlefield.some((perm: any) => perm?.card?.name === 'Clue')).toBe(true);
   });
 
-  it('surveil-target-player categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('surveil-target-player deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Target player surveils two.';
@@ -4246,11 +4249,11 @@ describe('oracle IR legacy forced integration', () => {
 
     const surveilSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p2)
       .filter((step) => step.type === ResolutionStepType.SURVEIL);
-    expect(surveilSteps).toHaveLength(0);
+    expect(surveilSteps).toHaveLength(1);
     expect((g.state as any).zones?.[p2]?.libraryCount ?? 0).toBe(3);
   });
 
-  it('goad categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('goad deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Goad target creature.';
@@ -4308,10 +4311,10 @@ describe('oracle IR legacy forced integration', () => {
     g.resolveTopOfStack();
 
     const perm = (g.state as any).battlefield.find((entry: any) => entry?.id === creatureId);
-    expect(Array.isArray(perm?.goadedBy) ? perm.goadedBy.includes(p1) : false).toBe(false);
+    expect(Array.isArray(perm?.goadedBy) ? perm.goadedBy.includes(p1) : false).toBe(true);
   });
 
-  it('tap-all categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('tap-all deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Tap all creatures.';
@@ -4347,7 +4350,7 @@ describe('oracle IR legacy forced integration', () => {
     }, ['lib-1']);
 
     const creatures = (g.state as any).battlefield.filter((entry: any) => entry?.card?.type_line?.includes('Creature'));
-    expect(creatures.every((entry: any) => entry?.tapped === false)).toBe(true);
+    expect(creatures.every((entry: any) => entry?.tapped === true)).toBe(true);
   });
 
   it('goads target creature via IR uncategorized fallback when trigger legacy is forced', () => {
@@ -4379,7 +4382,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(Array.isArray(perm?.goadedBy) ? perm.goadedBy.includes(p1) : false).toBe(true);
   });
 
-  it('destroy-all-target-player categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('destroy-all-target-player deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Destroy all creatures target player controls.';
@@ -4428,11 +4431,11 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(1);
     g.resolveTopOfStack();
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p2)).toBe(true);
+    expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p2)).toBe(false);
     expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p1)).toBe(true);
   });
 
-  it('exile-all-target-player categorize ops no-op at resolve when spell legacy is forced (P1a)', () => {
+  it('exile-all-target-player deleted categorize still no-ops; IR fallback applies when primary is off (P1a)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Exile all creatures target player controls.';
@@ -4481,7 +4484,7 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(1);
     g.resolveTopOfStack();
 
-    expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p2)).toBe(true);
+    expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p2)).toBe(false);
     expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p1)).toBe(true);
   });
 
@@ -4514,7 +4517,7 @@ describe('oracle IR legacy forced integration', () => {
     expect((game.state as any).battlefield.some((perm: any) => perm?.controller === p1)).toBe(true);
   });
 
-  it('blight categorize ops no-op at resolve when spell legacy is forced (P1a deleted resolve)', () => {
+  it('blight deleted categorize still no-ops; IR fallback applies when primary is off (P1a deleted resolve)', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
 
     const oracleText = 'Each opponent blights 1.';
@@ -4550,7 +4553,7 @@ describe('oracle IR legacy forced integration', () => {
 
     const blightSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p2)
       .filter((step) => step.type === ResolutionStepType.TARGET_SELECTION && (step as any)?.keywordBlight === true);
-    expect(blightSteps).toHaveLength(0);
+    expect(blightSteps).toHaveLength(1);
   });
 
   it('queues each-opponent blight via IR uncategorized fallback when trigger legacy is forced', () => {

@@ -845,7 +845,8 @@ describe('cast spell trigger persistence (integration)', () => {
     expect(tokenPermanent).toBeDefined();
     expect(String((tokenPermanent as any)?.card?.name || '')).toContain('Bird');
     expect(String((tokenPermanent as any)?.card?.type_line || '')).toContain('Bird');
-    expect(String((tokenPermanent as any)?.card?.oracle_text || '')).toContain('Flying');
+    // Generated token keywords are lowercase; printed tokens use "Flying".
+    expect(String((tokenPermanent as any)?.card?.oracle_text || '')).toMatch(/flying/i);
   });
 
   it('queues Aura target selection for flashback casts and still fires graveyard spell-cast triggers', async () => {

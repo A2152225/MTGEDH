@@ -11,11 +11,16 @@ import { createInitialGameState } from '../src/state/gameState.js';
 import { applyOracleIRStepsOnServer } from '../src/state/modules/oracleIrServerZoneSync.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
+function collectStepKinds(steps: readonly { kind?: string; steps?: readonly any[] }[] | undefined): string[] {
+  return (steps || []).flatMap((step) => [
+    String(step.kind || ''),
+    ...collectStepKinds(step.steps),
+  ]);
+}
+
 function stepKinds(cardName: string, text: string): string[] {
   const ir = parseOracleTextToIR(text, cardName);
-  return (ir.abilities || []).flatMap((ability) =>
-    (ability.steps || []).map((step) => String(step.kind)),
-  );
+  return (ir.abilities || []).flatMap((ability) => collectStepKinds(ability.steps));
 }
 
 describe('keyword action again / twice families', () => {

@@ -30,9 +30,15 @@ function findCardInPlayerZones(state: any, cardId: string): any | null {
   const normalizedId = String(cardId || '').trim();
   if (!normalizedId) return null;
   for (const player of state?.players || []) {
+    const playerId = String(player?.id || '').trim();
     for (const zone of ['hand', 'graveyard', 'exile', 'library'] as const) {
-      const cards = Array.isArray(player?.[zone]) ? player[zone] : [];
-      const found = cards.find((card: any) => String(card?.id || '').trim() === normalizedId);
+      const fromPlayer = Array.isArray(player?.[zone]) ? player[zone] : [];
+      const fromZones = playerId && Array.isArray(state?.zones?.[playerId]?.[zone])
+        ? state.zones[playerId][zone]
+        : [];
+      const found = [...fromPlayer, ...fromZones].find(
+        (card: any) => String(card?.id || '').trim() === normalizedId,
+      );
       if (found) return found;
     }
   }

@@ -432,6 +432,24 @@ export function tryParseStaticAbilityGrantClause(args: {
     });
   }
 
+  // Frogify / Kasmina's Transmutation: "Enchanted creature loses all abilities and is a blue Frog
+  // creature with base power and toughness 1/1." A layer-shifting grant with no duration word, so it
+  // lasts as long as the Aura stays attached.
+  const losesAllAbilitiesMatch = normalized.match(
+    /^((?:enchanted|equipped)\s+\w+)\s+loses?\s+all\s+abilities(?:\s+and\s+(?:is|becomes?|has)\s+(.+?))?$/i
+  );
+  if (losesAllAbilitiesMatch && !/\buntil\b/i.test(normalized)) {
+    const targetText = String(losesAllAbilitiesMatch[1] || '').trim();
+    const becomesText = String(losesAllAbilitiesMatch[2] || '').trim();
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(targetText),
+      effectText: ['loses all abilities', ...(becomesText ? [becomesText] : [])],
+      duration: /^(?:equipped|enchanted)\b/i.test(targetText) ? 'while_attached' : 'static',
+      raw: rawClause,
+    });
+  }
+
   const equippedGrantMatch = normalized.match(
     /^(equipped creature|enchanted creature|equipped land|this creature|this saga)\s+(?:(?:gets\s+([+-]?\d+)\s*\/\s*([+-]?\d+)\s+and\s+)?(?:has|have|gains?|gain)\s+(.+))$/i
   );

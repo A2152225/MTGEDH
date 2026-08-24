@@ -32,3 +32,5 @@ MagicCompRules *.txt
 /server/scripts/out/
 .mtg_data.db
 mtg_data.db
+mtg_data.db.bak
+.vitest*.json

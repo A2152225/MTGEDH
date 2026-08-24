@@ -47,6 +47,7 @@ import {
   resolveMentorTargetCreatureIdFromBattlefield,
   resolveSingleCreatureTargetId,
   applyTemporarySetBasePowerToughness,
+  isMassTapOrUntapSelectorText,
 } from './oracleIRExecutorCreatureStepUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import {
@@ -70,6 +71,7 @@ import {
   resolveNonlandCountDiscardedThisWay,
 } from './oracleIRThisWayResolver';
 import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
+import { tryApplyExileTargetCardFromGraveyard } from './oracleIRExecutorExileGraveyardCardHandlers';
 import { resolveOracleIrBoundTargetSpellId } from './oracleIrTargetBinding';
 import { getStackItems } from './stackOperations';
 import { canTargetPermanent } from './permanentTargeting';
@@ -79,7 +81,6 @@ import {
   trySpecialDestroyStep,
   trySpecialDoubleCountersStep,
   trySpecialExileStep,
-  trySpecialMonstrosityStep,
   trySpecialMoveCountersStep,
   trySpecialRegenerateStep,
   trySpecialRemoveCounterStep,
@@ -3257,14 +3258,15 @@ function resolveSubtypeOrCompoundBattlefieldPermanents(
 
 function filterIllegalDirectTargetPermanents(
   permanents: readonly BattlefieldPermanent[],
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  state?: GameState
 ): BattlefieldPermanent[] {
   return permanents.filter((perm: any) =>
     canTargetPermanent(perm, {
       controllerId: ctx.controllerId,
       colors: ctx.sourceColors,
       objectType: ctx.sourceObjectType,
-    }).canTarget
+    }, state).canTarget
   );
 }
 
@@ -4128,6 +4130,15 @@ export function applyTapOrUntapStep(
         };
       }
     }
+    if (isMassTapOrUntapSelectorText(`${targetText} ${String(step.raw || '')}`)) {
+      return {
+        applied: true,
+        state,
+        log: ['No permanents to tap/untap'],
+        lastTappedMatchingPermanentCount: 0,
+        lastTappedMatchingPermanentIds: [],
+      };
+    }
     return {
       applied: false,
       message: `Skipped tap/untap (no deterministic target): ${step.raw}`,
@@ -4912,12 +4923,33 @@ export function applyGrantTemporaryDiesTriggerStep(
     );
   }
 
+  const effectText = String(step.effect || '').trim();
+  const abilityText = effectText
+    ? (/^when this creature dies\b/i.test(effectText)
+      ? effectText
+      : `when this creature dies, ${effectText}`)
+    : '';
+  const nextState = abilityText
+    ? applyTemporaryEffectToPermanents(
+        {
+          ...(state as any),
+          delayedTriggerRegistry: registry,
+        } as GameState,
+        targets,
+        ctx,
+        {
+          descriptions: [abilityText],
+          expiresAt: step.duration === 'until_end_of_turn' ? 'end_of_turn' : 'leaves_battlefield',
+        }
+      )
+    : ({
+        ...(state as any),
+        delayedTriggerRegistry: registry,
+      } as GameState);
+
   return {
     applied: true,
-    state: {
-      ...(state as any),
-      delayedTriggerRegistry: registry,
-    } as GameState,
+    state: nextState,
     log,
   };
 }
@@ -5726,6 +5758,14 @@ export function applyGrantTemporaryAbilityStep(
       expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
       ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
     });
+    // Color-qualified targeting shields ("creatures you control can't be the targets of blue or
+    // black spells") apply to creatures that enter after the grant as well, so the same text is
+    // kept as a continuous static grant after the snapshot stamp.
+    if (descriptions.some((text) => /can(?:not|'t)\s+be\s+the\s+targets?\b/i.test(text))) {
+      return registerTemporaryStaticAbilityGrant(nextState, step, ctx, {
+        duration: step.duration === 'until_next_turn' ? 'until_next_turn' : 'end_of_turn',
+      });
+    }
     return {
       applied: true,
       state: nextState,
@@ -7999,9 +8039,6 @@ export function applyMonstrosityStep(
   ctx: OracleIRExecutionContext,
   runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
-  const special = trySpecialMonstrosityStep(state, step, ctx, runtime);
-  if (special) return special;
-
   const amountValue =
     step.amount.kind === 'number'
       ? step.amount.value
@@ -11731,7 +11768,13 @@ export function applyDestroyStep(
   if (special) return special;
 
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
-  const toRemove = resolveDestroyTargets(battlefield, step, ctx);
+  const resolvedTargets = resolveDestroyTargets(battlefield, step, ctx);
+  const targetText = String((step.target as any)?.text || step.raw || '');
+  // "Destroy target creature" is a targeted spell/ability, so hexproof, protection, and
+  // color-qualified shields (Autumn's Veil, Spellbane Centaur) can make the bound object illegal.
+  const toRemove = /\btarget\b/i.test(targetText)
+    ? filterIllegalDirectTargetPermanents(resolvedTargets, ctx, state)
+    : resolvedTargets;
   if (toRemove.length === 0) {
     const rawTargetText = String((step.target as any)?.text || step.raw || '');
     let targetText = normalizeBattlefieldTargetReferenceText(rawTargetText)
@@ -11982,6 +12025,9 @@ export function applyExileStep(
   step: Extract<OracleEffectStep, { kind: 'exile' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
+  const graveyardTargetExile = tryApplyExileTargetCardFromGraveyard(state, step, ctx);
+  if (graveyardTargetExile) return graveyardTargetExile;
+
   const special = trySpecialExileStep(state, step, ctx);
   if (special) return special;
 

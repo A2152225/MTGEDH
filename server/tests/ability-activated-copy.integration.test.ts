@@ -852,6 +852,9 @@ describe('ability-activated copy triggers (integration)', () => {
     (game.state as any).life = { [playerId]: 40 };
     (game.state as any).turnPlayer = playerId;
     (game.state as any).priority = playerId;
+    // CR 702.6a: Equip is sorcery speed. Newly created games stay in pre_game.
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'precombatMain';
     (game.state as any).manaPool = {
       [playerId]: {
         white: 0,

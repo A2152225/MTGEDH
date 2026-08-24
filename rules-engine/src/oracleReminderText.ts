@@ -476,7 +476,9 @@ export function extractCreateTokenGrantedAbilities(createClauseOrOracleFragment:
   if (hasCreateToken) {
     // Same-sentence ability tails attached to create … token (skip pure counter clauses).
     const withTail = new RegExp(
-      String.raw`\bcreates?\b[^.?\n]*?\btokens?(?:\s+named\s+(?:"[^"]+"|'[^']+'|[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)*))?(?:\s+with\s+(?!\d+(?:\s+\+|\s+-)|a\s+(?:\+|-)|an\s+(?:\+|-)|one\s+(?:\+|-)|two\s+(?:\+|-)|three\s+(?:\+|-)|x\b)((?:(?!\band\s+create\b)[^.?\n(])*))`,
+      // A quoted ability may itself contain sentence punctuation, so consume quoted spans whole
+      // instead of letting the first `.` end the tail.
+      String.raw`\bcreates?\b[^.?\n]*?\btokens?(?:\s+named\s+(?:"[^"]+"|'[^']+'|[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)*))?(?:\s+with\s+(?!\d+(?:\s+\+|\s+-)|a\s+(?:\+|-)|an\s+(?:\+|-)|one\s+(?:\+|-)|two\s+(?:\+|-)|three\s+(?:\+|-)|x\b)((?:"[^"]*"|(?!\band\s+create\b)[^.?\n(])*))`,
       'gi',
     );
     for (const match of source.matchAll(withTail)) {

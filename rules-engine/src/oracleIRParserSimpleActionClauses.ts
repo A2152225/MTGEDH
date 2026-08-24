@@ -91,11 +91,13 @@ function parseAddManaAmountExpression(
 
   switch (normalized) {
     case 'its power':
-    case "this creature's power":
-    case "this permanent's power":
       return { kind: 'object_stat', subject: 'it', stat: 'power' };
+    case "this creature's power":
+      return { kind: 'object_stat', subject: 'this_creature', stat: 'power' };
+    case "this permanent's power":
+      return { kind: 'object_stat', subject: 'this_permanent', stat: 'power' };
     case "this permanent's toughness":
-      return { kind: 'object_stat', subject: 'it', stat: 'toughness' };
+      return { kind: 'object_stat', subject: 'this_permanent', stat: 'toughness' };
     case 'the greatest power among creatures you control':
       return { kind: 'greatest_power_among_creatures_you_control' };
     case 'the number of art counters on this permanent plus one':
@@ -155,14 +157,19 @@ function normalizeDrawClauseForParse(rawClause: string): string {
     .replace(/^\d+\s*(?:[-–—]\s*\d+)?\s*\|\s*/i, '')
     .trim();
 
-  clause = clause.replace(/^([a-z][a-z0-9 ',/-]{0,60})[-—]\s+(?=(?:you|target|each|any number|draw)\b.*\bdraws?\b|draw\b)/i, '');
+  clause = clause.replace(/^([a-z][a-z0-9 ',/-]{0,60})[-—]\s+(?=(?:you|target|each|any number|draw|if you would draw)\b)/i, '');
 
   const triggerBody = clause.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
   if (triggerBody && /\bdraws?\b/i.test(String(triggerBody[1] || ''))) {
     clause = String(triggerBody[1] || '').trim();
   }
 
-  const replacementDrawBody = clause.match(/^if\b[\s\S]*?\bwould\s+draw\b[\s\S]*?,\s+(?:instead\s+)?((?:you\s+and\s+.+?\s+each\s+draws?\b[\s\S]+)|(?:(?:you|target player|target opponent|that player|that opponent|each player|each opponent|any number of target opponents|each of that player's opponents|its controller)\s+)?(?:may\s+)?draws?\b[\s\S]+)(?:\s+instead)?$/i);
+  // Keep "if you would draw a card, draw N instead" intact so the draw parser can stamp
+  // replacementOf: 'draw_card'. Stripping it to a bare "draw N" loses the replacement.
+  const isWouldDrawReplacement = /\bif you would draw a card\b/i.test(clause);
+  const replacementDrawBody = isWouldDrawReplacement
+    ? null
+    : clause.match(/^if\b[\s\S]*?\bwould\s+draw\b[\s\S]*?,\s+(?:instead\s+)?((?:you\s+and\s+.+?\s+each\s+draws?\b[\s\S]+)|(?:(?:you|target player|target opponent|that player|that opponent|each player|each opponent|any number of target opponents|each of that player's opponents|its controller)\s+)?(?:may\s+)?draws?\b[\s\S]+)(?:\s+instead)?$/i);
   if (replacementDrawBody) {
     clause = String(replacementDrawBody[1] || '').replace(/\s+instead$/i, '').trim();
   }
@@ -175,7 +182,9 @@ function normalizeDrawClauseForParse(rawClause: string): string {
   const conditionalDrawBody = clause.match(/^if\b(?!\s+[^,]*\bwould\s+draw\b).+?,\s+((?:you\s+may\s+have\s+)?(?:(?:you|target player|target opponent|that player|that opponent|defending player|the defending player|the attacking player|any number of target opponents|any number of target players(?: other than that player)?|each of that player's opponents|its controller)\s+)?draws?\b[\s\S]+|you\s+and\s+.+?\s+each\s+draws?\b[\s\S]+)$/i);
   if (conditionalDrawBody) clause = String(conditionalDrawBody[1] || '').trim();
 
-  const trailingCommaDraw = clause.match(/,\s*((?:you\s+may\s+have\s+)?(?:(?:you|its controller|that player|that opponent|target player|target opponent|each player|each opponent|any number of target opponents|any number of target players(?: other than that player)?|each of that player's opponents|defending player|the defending player|the attacking player)\s+)?(?:may\s+)?draws?\b[\s\S]+|you\s+and\s+.+?\s+each\s+draws?\b[\s\S]+)$/i);
+  const trailingCommaDraw = isWouldDrawReplacement
+    ? null
+    : clause.match(/,\s*((?:you\s+may\s+have\s+)?(?:(?:you|its controller|that player|that opponent|target player|target opponent|each player|each opponent|any number of target opponents|any number of target players(?: other than that player)?|each of that player's opponents|defending player|the defending player|the attacking player)\s+)?(?:may\s+)?draws?\b[\s\S]+|you\s+and\s+.+?\s+each\s+draws?\b[\s\S]+)$/i);
   if (
     trailingCommaDraw &&
     !/^\s*(?:whenever|when|if)\b/i.test(String(trailingCommaDraw[1] || '')) &&
@@ -466,6 +475,37 @@ export function tryParseSimpleActionClause(args: {
         duration: /\buntil\s+end\s+of\s+turn\b/i.test(clause) ? 'end_of_turn' : 'static',
         raw: rawClause,
       });
+    }
+  }
+
+  {
+    if (/^if you would lose the game,\s+instead exile this creature and your life total becomes equal to your starting life total$/i.test(clause)) {
+      return withMeta({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you would lose the game' },
+        steps: [{
+          kind: 'move_zone',
+          what: parseObjectSelector('this creature'),
+          to: 'exile',
+          raw: 'exile this creature',
+        } as OracleEffectStep],
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+
+    if (/^if you cast a creature spell this way,\s+it gains haste until end of turn$/i.test(clause)) {
+      return withMeta({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you cast a creature spell this way' },
+        steps: [{
+          kind: 'grant_temporary_ability',
+          target: parseObjectSelector('it'),
+          effectText: ['haste'],
+          duration: 'end_of_turn',
+          raw: 'it gains haste until end of turn',
+        } as OracleEffectStep],
+        raw: rawClause,
+      } as OracleEffectStep);
     }
   }
 
@@ -2106,7 +2146,7 @@ export function tryParseSimpleActionClause(args: {
     }
 
     const drawReplacement = drawClause.match(
-      /^until end of turn,\s+if you would draw a card,\s+draw\s+(.+?)\s+instead\.?["']?$/i
+      /^(?:until end of turn,\s+)?if you would draw a card,\s+draw\s+(.+?)\s+instead\.?["']?$/i
     );
     if (drawReplacement) {
       return withMeta({
@@ -2740,11 +2780,20 @@ export function tryParseSimpleActionClause(args: {
       const equalText = String(addNumberOfCounters[3] || addNumberOfCounters[5] || '').trim();
       const cardStatAmount = equalText.match(/^that\s+card(?:'|’)?s\s+(power|toughness)$/i);
       const creatureStatAmount = equalText.match(/^that\s+creature(?:'|’)?s\s+(power|toughness)$/i);
+      const thisSourceStatAmount = equalText.match(
+        /^this\s+(permanent|creature)(?:'|’)?s\s+(power|toughness)$/i,
+      );
       const amount = cardStatAmount
         ? { kind: 'object_stat' as const, subject: 'that_card' as const, stat: String(cardStatAmount[1] || '').toLowerCase() as 'power' | 'toughness' }
+        : thisSourceStatAmount
+          ? {
+              kind: 'object_stat' as const,
+              subject: String(thisSourceStatAmount[1] || '').toLowerCase() === 'creature' ? 'this_creature' as const : 'this_permanent' as const,
+              stat: String(thisSourceStatAmount[2] || '').toLowerCase() as 'power' | 'toughness',
+            }
         : creatureStatAmount
           ? { kind: 'reference_amount' as const, raw: `equal to ${equalText}` }
-          : equalText ? parseQuantity(`a number equal to ${equalText}`) : { kind: 'unknown' as const, raw: 'a number' };
+          : equalText ? parseQuantity(equalText) : { kind: 'unknown' as const, raw: 'a number' };
       return withMeta({
         kind: 'add_counter',
         amount: amount.kind === 'unknown' && equalText ? { kind: 'unknown', raw: `equal to ${equalText}` } : amount,
@@ -2757,6 +2806,19 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addThatManyEnergy = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}get(?:s)?\\s+that\\s+many\\s+\\{e\\}(?:\\s*\\(?energy counters?\\)?)?\\s*$`, 'i'),
+    );
+    if (addThatManyEnergy) {
+      return withMeta({
+        kind: 'add_player_counter',
+        who: parsePlayerSelector(addThatManyEnergy[1]),
+        amount: { kind: 'reference_amount', raw: 'that many' },
+        counter: 'energy',
+        raw: rawClause,
+      });
+    }
+
     const addEnergyCounters = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}get(?:s)?\\s+((?:\\{E\\})+)(?:\\s*\\(([^)]*energy counters?)\\))?\\s*$`, 'i'));
     if (addEnergyCounters) {
       const energyCount = countEnergySymbols(String(addEnergyCounters[2] || addEnergyCounters[1] || ''));
@@ -3626,7 +3688,7 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const ventureMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}venture(?:s)?\\s+into\\s+the\\s+dungeon$`, 'i'));
+    const ventureMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}venture(?:s)?\\s+into\\s+(?:the\\s+dungeon|undercity)$`, 'i'));
     if (ventureMatch) {
       return withMeta({
         kind: 'venture_into_dungeon',
@@ -4301,6 +4363,34 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const discardUnless = clause.match(
+      /^(?:then\s+)?discard\s+a\s+card\s+unless\s+(.+)$/i,
+    );
+    if (discardUnless) {
+      return withMeta({
+        kind: 'discard',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        unlessCondition: { kind: 'if', raw: String(discardUnless[1] || '').trim() },
+        raw: rawClause,
+      });
+    }
+
+    const discardUnlessTyped = clause.match(
+      /^discard\s+(two cards unless you discard an instant or sorcery card or a creature card with flying)$/i,
+    );
+    if (discardUnlessTyped) {
+      return withMeta({
+        kind: 'discard',
+        who: { kind: 'you' },
+        amount: {
+          kind: 'reference_amount',
+          raw: String(discardUnlessTyped[1] || '').trim().toLowerCase(),
+        },
+        raw: rawClause,
+      });
+    }
+
     const discardHand = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?discards?\\s+(?:your|their)\\s+hand\\b`, 'i')
     );
@@ -4907,6 +4997,19 @@ export function tryParseSimpleActionClause(args: {
         kind: 'cant_activate_abilities',
         target: parseObjectSelector(String(activatedAbilitiesCantBeActivated[1] || '').trim()),
         duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const thosePlusAdditionalTreasure = clause.match(
+      /^if you would create one or more treasure tokens,\s+instead create those tokens plus an additional treasure token$/i,
+    );
+    if (thosePlusAdditionalTreasure) {
+      return withMeta({
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'reference_amount', raw: 'those tokens plus an additional Treasure token' },
+        token: 'Treasure',
         raw: rawClause,
       });
     }

@@ -14,6 +14,7 @@ import {
   collectRevealedThisWayCardsLedgerFirst,
 } from './oracleIRLedgerCardAccess';
 import { parseSimpleBattlefieldSelector } from './oracleIRExecutorBattlefieldParser';
+import { isUndecidedLibraryPlacementChoice } from './oracleIRExecutorMoveZoneLibraryPlacementChoice';
 import { getCardManaValue, getCurrentTurnNumber } from './oracleIRExecutorPlayerUtils';
 import { resolveReferencedPlayerZone, resolveReferencedPlayerZoneFromSuffix } from './oracleIRExecutorReferenceUtils';
 import { evaluateConditionalWrapperCondition } from './oracleIRExecutorConditionalStepSupport';
@@ -1029,7 +1030,10 @@ function resolveUniqueChosenAnyGraveyardTargetId(
   const matches: any[] = [];
   const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
   for (const player of state.players || []) {
-    const graveyard = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
+    const playerId = String((player as any)?.id || '').trim() as PlayerID;
+    const graveyard = playerId
+      ? readPlayerOrZoneCards(state, player, playerId, 'graveyard')
+      : (Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : []);
     for (const card of graveyard) {
       const cardId = String((card as any)?.id || '').trim();
       if (!cardId || excluded.has(cardId)) continue;
@@ -1044,7 +1048,10 @@ function resolveUniqueChosenAnyGraveyardTargetId(
   if (chosen.size === 0) {
     const allMatches: any[] = [];
     for (const player of state.players || []) {
-      const graveyard = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
+      const playerId = String((player as any)?.id || '').trim() as PlayerID;
+      const graveyard = playerId
+        ? readPlayerOrZoneCards(state, player, playerId, 'graveyard')
+        : (Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : []);
       for (const card of graveyard) {
         const cardId = String((card as any)?.id || '').trim();
         if (!cardId || excluded.has(cardId)) continue;
@@ -1070,7 +1077,10 @@ function resolveBoundGraveyardTargetObjectId(
 
   const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
   for (const player of state.players || []) {
-    const graveyard = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
+    const playerId = String((player as any)?.id || '').trim() as PlayerID;
+    const graveyard = playerId
+      ? readPlayerOrZoneCards(state, player, playerId, 'graveyard')
+      : (Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : []);
     const card = graveyard.find((entry: any) => String(entry?.id || '').trim() === bound);
     if (!card) continue;
     if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, currentTurn, referencePower)) {
@@ -1093,8 +1103,6 @@ function isContextualBoundCardReference(what: unknown): boolean {
     text === 'that spell' ||
     text === 'the card' ||
     text === 'the chosen card' ||
-    text === 'target card from a graveyard' ||
-    text === 'target card from your graveyard' ||
     /^one of those cards(?: back)?$/.test(text) ||
     /^that card from a graveyard$/.test(text) ||
     /^that (?:(?:[a-z0-9+'/-]+\s+)*(?:card|creature|permanent|spell))(?: from (?:(?:the |your |their |target player's |target opponent's |an opponent's |its owner's |its controller's |that player's |one of your opponents' )?(?:graveyard|hand|exile)))?$/.test(
@@ -1189,18 +1197,45 @@ function collectBothCardsZoneEntries(
   return results.slice(0, 2);
 }
 
+function readPlayerOrZoneCards(
+  state: GameState,
+  player: any,
+  playerId: PlayerID,
+  zone: 'graveyard' | 'hand' | 'exile' | 'library',
+): any[] {
+  const fromPlayer = Array.isArray(player?.[zone]) ? player[zone] : [];
+  const fromZones = Array.isArray((state as any).zones?.[playerId]?.[zone])
+    ? (state as any).zones[playerId][zone]
+    : [];
+  if (fromPlayer.length === 0) return fromZones;
+  if (fromZones.length === 0) return fromPlayer;
+  const seen = new Set(fromPlayer.map((card: any) => String(card?.id || '').trim()).filter(Boolean));
+  const merged = [...fromPlayer];
+  for (const card of fromZones) {
+    const cardId = String(card?.id || '').trim();
+    if (cardId && seen.has(cardId)) continue;
+    if (cardId) seen.add(cardId);
+    merged.push(card);
+  }
+  return merged;
+}
+
 function findBoundCardZoneLocation(state: GameState, targetCardId: string): BoundCardZoneLocation | null {
   const wantedId = String(targetCardId || '').trim();
   if (!wantedId) return null;
 
   const matches: BoundCardZoneLocation[] = [];
+  const seen = new Set<string>();
   for (const player of state.players || []) {
     const playerId = String((player as any)?.id || '').trim() as PlayerID;
     if (!playerId) continue;
 
     for (const zone of ['graveyard', 'hand', 'exile', 'library'] as const) {
-      const cards = Array.isArray((player as any)?.[zone]) ? (player as any)[zone] : [];
+      const cards = readPlayerOrZoneCards(state, player, playerId, zone);
       if (cards.some((card: any) => String(card?.id || '').trim() === wantedId)) {
+        const key = `${playerId}:${zone}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         matches.push({ playerId, zone });
       }
     }
@@ -1235,6 +1270,15 @@ function inferPreferredSourceCardZones(stepRaw: string | undefined): readonly ('
     return [];
   }
   return null;
+}
+
+function isSourcePermanentOnBattlefield(state: GameState, ctx: OracleIRExecutionContext): boolean {
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) return false;
+  return ((state.battlefield || []) as any[]).some(
+    (permanent: any) =>
+      String(permanent?.id || '').trim() === sourceId || String(permanent?.card?.id || '').trim() === sourceId
+  );
 }
 
 function collectSourceCardZoneMatches(
@@ -1294,8 +1338,16 @@ function resolveSourceCardZoneLocation(
   if (!selfReference && !matchesSourceName) return null;
 
   const preferredZones = inferPreferredSourceCardZones(stepRaw);
-  if (preferredZones && preferredZones.length === 0) return null;
-  const zonesToSearch = preferredZones || (['graveyard', 'hand', 'exile'] as const);
+  // "Return this creature to its owner's hand" with no source zone normally bounces the permanent,
+  // which the battlefield path owns. On a dies trigger the card is already in a graveyard, so fall
+  // back to that zone rather than declaring the selector unsupported.
+  const zonesToSearch =
+    preferredZones && preferredZones.length === 0
+      ? isSourcePermanentOnBattlefield(state, ctx)
+        ? null
+        : (['graveyard'] as const)
+      : preferredZones || (['graveyard', 'hand', 'exile'] as const);
+  if (!zonesToSearch) return null;
   const controllerId = getControllerId(ctx);
   const sourceId = String(ctx.sourceId || '').trim();
   if (sourceId) {
@@ -1460,15 +1512,31 @@ function resolveBattlefieldAttachment(
     )
   );
 
-  if (normalized === 'this creature') {
+  if (isSelfBattlefieldReference(normalized) || isSelfBattlefieldReference(selectorText)) {
+    const sourceId = resolveSelfBattlefieldPermanentId(state, selectorText || normalized, ctx);
+    if (!sourceId) {
+      return { kind: 'impossible', selector: selectorText || normalized };
+    }
+    return { kind: 'resolved', permanentId: sourceId };
+  }
+
+  {
     const sourceId = String(ctx.sourceId || '').trim();
     const sourcePermanent = sourceId
       ? battlefield.find(perm => String((perm as any)?.id || '').trim() === sourceId)
       : undefined;
-    if (!sourcePermanent || !hasExecutorClass(sourcePermanent as any, 'creature')) {
-      return { kind: 'impossible', selector: selectorText || normalized };
+    const sourceNameAliases = new Set([
+      ...buildNameReferenceAliases(ctx.sourceName),
+      ...buildNameReferenceAliases((sourcePermanent as any)?.card?.name),
+    ]);
+    const hostNameAliases = new Set(buildNameReferenceAliases(selectorText));
+    const namesSource = [...hostNameAliases].some((alias) => sourceNameAliases.has(alias));
+    if (namesSource) {
+      if (!sourcePermanent) {
+        return { kind: 'impossible', selector: selectorText || normalized };
+      }
+      return { kind: 'resolved', permanentId: sourceId };
     }
-    return { kind: 'resolved', permanentId: sourceId };
   }
 
   if (normalized === 'a creature you control') {
@@ -1529,6 +1597,12 @@ function resolveBattlefieldAttachment(
     const enchantedPermanentId = resolveEnchantedCreaturePermanentId(state, ctx);
     if (!enchantedPermanentId) return { kind: 'impossible', selector: selectorText || normalized };
     return { kind: 'resolved', permanentId: enchantedPermanentId };
+  }
+
+  // Named host that is not the source (or a known pronoun): still move the Aura,
+  // but do not invent an attachment. "attached to Other Permanent" stays unattached.
+  if (selectorText) {
+    return { kind: 'none' };
   }
 
   return { kind: 'unsupported', selector: selectorText || normalized };
@@ -3217,6 +3291,16 @@ export function applyMoveZoneStep(
   }
   const parsedOneOfThemSplit = getOneOfThemSplitKind(step);
   const parsedOnePileSplit = getOnePileSplitKind(step);
+  // No branch below can settle "on your choice of the top or bottom" - the position is chosen on
+  // resolution, so skip and let the resolution queue prompt rather than defaulting to top.
+  if (isUndecidedLibraryPlacementChoice(step, ctx)) {
+    return {
+      applied: false,
+      message: `Skipped move zone (library placement is a player choice): ${step.raw}`,
+      reason: 'unsupported_destination',
+    };
+  }
+
   const contextualBoundCardZone = resolveContextualBoundCardZone(nextState, step, ctx, runtime);
   const sourceCardZone = resolveSourceCardZoneLocation(nextState, step.what as any, ctx, step.raw);
   const topCardLibraryOwnerId = getTopCardLibraryOwnerId(nextState, (step as any)?.what, ctx);
@@ -4083,6 +4167,15 @@ export function applyMoveZoneStep(
           reason: 'impossible_action',
           options: { persist: false },
         };
+      }
+
+      // "Reveal cards until you reveal a land card, then put those cards into your graveyard" mills
+      // them on the reveal step, so by now they are already where they belong. The zone helpers below
+      // take no graveyard/exile destination and would fall through to their battlefield branch,
+      // reanimating the cards instead. Library is excluded because top/bottom is a real reposition.
+      if (exactZone.zone === activeStep.to && activeStep.to !== 'library') {
+        movedCardIds.push(targetObjectId);
+        continue;
       }
 
       const destination =
@@ -9212,6 +9305,7 @@ export function applyMoveZoneStep(
     }
     let workingState = nextState;
     const combinedLog: string[] = [];
+    const movedCards: any[] = [];
     for (const match of matches) {
       const result = moveTargetedCardFromGraveyard(
         workingState,
@@ -9223,10 +9317,12 @@ export function applyMoveZoneStep(
       if (result.kind !== 'applied') continue;
       workingState = result.state;
       combinedLog.push(...(result.log || []));
+      movedCards.push(...(result.movedCards || []));
     }
-    return buildAppliedResult({
+    return finalizeAppliedResult({
       state: workingState,
       log: combinedLog.length > 0 ? combinedLog : [`Exiled cards from a single graveyard: ${step.raw}`],
+      movedCards,
     });
   }
 
@@ -12003,7 +12099,11 @@ export function applyMoveZoneStep(
         options: { persist: false },
       };
     }
-    const bfController = String(step.battlefieldController?.kind === 'you' ? controllerId : controllerId);
+    // "under its owner's control" hands the permanent to the owner of the zone it came from, not to
+    // the controller of the ability that returned it.
+    const bfController = String(
+      step.battlefieldController?.kind === 'owner_of_moved_cards' ? location.playerId : controllerId
+    );
     const result =
       location.zone === 'graveyard'
         ? moveTargetedCardFromGraveyard(
@@ -12072,7 +12172,11 @@ export function applyMoveZoneStep(
   if (
     (parsedThatCardReference || /\bthat card\b/i.test(String((step.what as any)?.text || ''))) &&
     step.to === 'hand' &&
-    !/\bonto the battlefield or into your hand\b/i.test(String(step.raw || ''))
+    !/\bonto the battlefield or into your hand\b/i.test(String(step.raw || '')) &&
+    // In "all other cards with the same name as that card", "that card" names the target being
+    // compared against rather than the thing being moved, so this catch-all would return only the
+    // one target and drop the same-named cards the dedicated selector below collects.
+    !parsedSameNamedFromYourGraveyard
   ) {
     const preferredIds = getChosenObjectIds(ctx);
     const contextual = Array.isArray(runtime?.lastMovedCards) ? [...runtime.lastMovedCards] : [];
@@ -13372,22 +13476,66 @@ export function applyMoveZoneStep(
   }
 
   if (parsedSingleTargetFromAnyGraveyard) {
+    // "target ... from a graveyard" is an explicit target, so a single legal candidate is not a
+    // licence to auto-pick it: without a bound target or an explicit choice the move stays
+    // targeting-dependent and must be skipped.
+    const boundAnyGraveyardTargetId = resolveBoundGraveyardTargetObjectId(
+      nextState,
+      boundTargetObjectId,
+      parsedSingleTargetFromAnyGraveyard,
+      ctx.sourceName,
+      sourcePermanentPower
+    );
+    // A bound id that fails strict criteria matching (e.g. the "other" qualifier needs a source the
+    // caller did not supply) still counts as someone having chosen a target, so the unique-candidate
+    // resolver may run. What must not happen is auto-picking when nothing was targeted at all.
+    const boundTargetRaw = String(getTargetObjectId(ctx) || '').trim();
+    const callerSuppliedATarget = hasExplicitChosenObjectIds(ctx) || Boolean(boundTargetRaw);
+    // getTargetObjectId also surfaces ids the caller bound as permanents, which is how a graveyard
+    // card gets named for "target ... from a graveyard". boundTargetObjectId ignores those fields, so
+    // validate the raw id against the selector here rather than reading legality off that result.
+    const validatedBoundTargetId = boundTargetRaw
+      ? resolveBoundGraveyardTargetObjectId(
+          nextState,
+          boundTargetRaw,
+          parsedSingleTargetFromAnyGraveyard,
+          ctx.sourceName,
+          sourcePermanentPower
+        )
+      : '';
+    // A bound id naming a card that sits in a graveyard yet fails the selector is an illegal target,
+    // not an invitation to substitute the one card that does qualify.
+    const boundTargetIsIllegalGraveyardCard =
+      !hasExplicitChosenObjectIds(ctx) &&
+      Boolean(boundTargetRaw) &&
+      !validatedBoundTargetId &&
+      findBoundCardZoneLocation(nextState, boundTargetRaw)?.zone === 'graveyard';
     const targetObjectId =
-      resolveUniqueChosenAnyGraveyardTargetId(
-        nextState,
-        parsedSingleTargetFromAnyGraveyard,
-        ctx,
-        runtime,
-        ctx.sourceName,
-        sourcePermanentPower
-      ) ||
-      resolveBoundGraveyardTargetObjectId(
-        nextState,
-        boundTargetObjectId,
-        parsedSingleTargetFromAnyGraveyard,
-        ctx.sourceName,
-        sourcePermanentPower
-      );
+      boundAnyGraveyardTargetId ||
+      validatedBoundTargetId ||
+      (callerSuppliedATarget && !boundTargetIsIllegalGraveyardCard
+        ? resolveUniqueChosenAnyGraveyardTargetId(
+            nextState,
+            parsedSingleTargetFromAnyGraveyard,
+            ctx,
+            runtime,
+            ctx.sourceName,
+            sourcePermanentPower
+          )
+        : '');
+    if (
+      targetObjectId
+      && parsedSingleTargetFromAnyGraveyard.graveyardOwner === 'opponent'
+    ) {
+      const loc = findBoundCardZoneLocation(nextState, targetObjectId);
+      if (loc?.playerId && loc.playerId === controllerId) {
+        return {
+          applied: false,
+          message: `Skipped move zone (illegal opponent-graveyard target): ${step.raw}`,
+          reason: 'unsupported_selector',
+        };
+      }
+    }
     const libraryPlacement = getLibraryPlacement(step);
     if (!targetObjectId) {
       if (isUpToOneTargetReference(step.what)) return buildNoOpOptionalSingleTargetResult(nextState, step);
@@ -13912,23 +14060,29 @@ export function applyMoveZoneStep(
 
   if (parsedSingleTargetFromYourGraveyard) {
     const effectiveCriteria = resolveMoveZoneSingleTargetCriteriaWithX(parsedSingleTargetFromYourGraveyard, ctx);
+    // This selector is always an explicit "target ... from your graveyard" reference, so a legal
+    // candidate alone is not enough: without a bound target or an explicit choice the move stays
+    // targeting-dependent and must be skipped rather than auto-picked.
+    const boundGraveyardTargetId = resolveBoundGraveyardTargetObjectId(
+      nextState,
+      boundTargetObjectId,
+      effectiveCriteria,
+      ctx.sourceName,
+      sourcePermanentPower
+    );
     const targetObjectId =
-      resolveUniqueChosenGraveyardTargetId(
-        nextState,
-        controllerId,
-        effectiveCriteria,
-        ctx,
-        runtime,
-        ctx.sourceName,
-        sourcePermanentPower
-      ) ||
-      resolveBoundGraveyardTargetObjectId(
-        nextState,
-        boundTargetObjectId,
-        effectiveCriteria,
-        ctx.sourceName,
-        sourcePermanentPower
-      );
+      boundGraveyardTargetId ||
+      (hasExplicitChosenObjectIds(ctx)
+        ? resolveUniqueChosenGraveyardTargetId(
+            nextState,
+            controllerId,
+            effectiveCriteria,
+            ctx,
+            runtime,
+            ctx.sourceName,
+            sourcePermanentPower
+          )
+        : '');
     const libraryPlacement = getLibraryPlacement(step);
     if (!targetObjectId) {
       if (isUpToOneTargetReference(step.what)) return buildNoOpOptionalSingleTargetResult(nextState, step);

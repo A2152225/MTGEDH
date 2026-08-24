@@ -145,20 +145,6 @@ export type OracleGraveyardAdditionalCost =
 
 export type OracleBattlefieldObjectCondition =
   | {
-      /**
-       * The next spell you cast this turn costs {N} less for each counter
-       * removed this way (Mutated Cultist-style deferred cost reduction).
-       */
-      readonly kind: 'grant_next_spell_cost_reduction';
-      readonly mana: string;
-      readonly perCountersRemoved?: boolean;
-      readonly amount?: number;
-      readonly duration?: string;
-      readonly optional?: boolean;
-      readonly sequence?: 'then';
-      readonly raw: string;
-    }
-  | {
       readonly kind: 'mana_value_compare';
       readonly comparator: 'lte' | 'gte';
       readonly value: number;
@@ -183,6 +169,20 @@ export type OracleZone =
   | 'unknown';
 
 export type OracleEffectStep =
+  | {
+      /**
+       * The next spell you cast this turn costs {N} less for each counter
+       * removed this way (Mutated Cultist-style deferred cost reduction).
+       */
+      readonly kind: 'grant_next_spell_cost_reduction';
+      readonly mana: string;
+      readonly perCountersRemoved?: boolean;
+      readonly amount?: number;
+      readonly duration?: string;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
   | {
       readonly kind: 'flip_coin';
       readonly who: OraclePlayerSelector;

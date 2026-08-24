@@ -39,6 +39,7 @@ export type ManaRestrictionType =
   | 'abilities'           // Can only be spent on abilities
   | 'colorless_spells'    // Can only be spent on colorless spells
   | 'artifacts'           // Can only be spent on artifacts
+  | 'no_nonartifact_spells' // Powerstone/Vibranium: cannot cast nonartifact spells; OK for artifact spells, activated abilities, other costs
   | 'legendary'           // Can only be spent on legendary spells
   | 'multicolored'        // Can only be spent on multicolored spells
   | 'commander'           // Can only be spent on commander costs

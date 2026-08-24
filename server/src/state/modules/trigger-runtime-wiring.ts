@@ -56,6 +56,8 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'flip_coin',
   'phase_out',
   'venture_into_dungeon',
+  'take_initiative',
+  'become_monarch',
   'exchange_control',
   'add_types',
   'cant_activate_abilities',
@@ -94,6 +96,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'change_target',
   'choose_target_creature',
   'grant_temporary_ability',
+  'grant_temporary_dies_trigger',
   'grant_static_ability',
   'grant_leave_battlefield_replacement',
   'schedule_delayed_battlefield_action',
@@ -241,6 +244,8 @@ export function wouldOracleIRFallbackPrefilterMatch(effectText: string): boolean
     lower.includes('destroy') ||
     lower.includes('exile') ||
     /\breturn\b/.test(lower) ||
+    /\bput\b/.test(lower) ||
+    /\bonto the battlefield\b/.test(lower) ||
     (lower.includes('create') && lower.includes('token')) ||
     lower.includes('copy') ||
     lower.includes('become') ||
@@ -256,7 +261,11 @@ export function wouldOracleIRFallbackPrefilterMatch(effectText: string): boolean
     lower.includes('extra combat') ||
     lower.includes('search your library') ||
     (lower.includes('top') && lower.includes('library')) ||
-    (lower.includes('cost') && (lower.includes('less') || lower.includes('more')))
+    (lower.includes('cost') && (lower.includes('less') || lower.includes('more'))) ||
+    lower.includes('venture') ||
+    lower.includes('initiative') ||
+    lower.includes('monarch') ||
+    lower.includes("city's blessing")
   );
 }
 
@@ -392,6 +401,43 @@ export function collectOracleEffectSteps(
   return [];
 }
 
+function normalizeSpellResolutionStepRaw(step: OracleEffectStep): string {
+  return String((step as { raw?: string }).raw || '')
+    .replace(/[\u2019]/g, "'")
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function isPrintedGraveyardKeywordGrantStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'grant_graveyard_permission' && step.kind !== 'modify_graveyard_permissions') {
+    return false;
+  }
+  const raw = normalizeSpellResolutionStepRaw(step);
+  return (
+    /(?:flashback|escape|retrace|jump-start|harmonize) cost/.test(raw)
+    || /^you may cast this card from your graveyard for its (?:flashback|escape|retrace|jump-start|harmonize) cost/.test(raw)
+    || /^cast from your graveyard for \{/.test(raw)
+  );
+}
+
+function isPrintedGraveyardKeywordThenExileStep(step: OracleEffectStep): boolean {
+  const raw = normalizeSpellResolutionStepRaw(step);
+  return (step.kind === 'exile' || step.kind === 'move_zone') && /^then exile it$/.test(raw);
+}
+
+/** Flashback/escape/retrace/jump-start/harmonize reminder steps are not spell effects. */
+function omitPrintedGraveyardKeywordReminderSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const hasGrant = steps.some(isPrintedGraveyardKeywordGrantStep);
+  return steps.filter((step) => {
+    if (isPrintedGraveyardKeywordGrantStep(step)) return false;
+    if (hasGrant && isPrintedGraveyardKeywordThenExileStep(step)) return false;
+    return true;
+  });
+}
+
 /**
  * Steps for resolving a spell on the stack only.
  * Excludes activated/triggered/static abilities printed on the same card
@@ -411,11 +457,13 @@ export function collectSpellResolutionEffectSteps(
   if (!text) return [];
 
   if (overlay) {
-    return collectSpellResolutionEffectStepsWithOverlay(
-      text,
-      sourceName,
-      overlay,
-      options?.overlayOptions,
+    return omitPrintedGraveyardKeywordReminderSteps(
+      collectSpellResolutionEffectStepsWithOverlay(
+        text,
+        sourceName,
+        overlay,
+        options?.overlayOptions,
+      ),
     );
   }
 
@@ -423,10 +471,10 @@ export function collectSpellResolutionEffectSteps(
   const spellSteps = (resolved.abilities || [])
     .filter((ability) => isOracleIRSpellResolutionAbility(ability))
     .flatMap((ability) => [...(ability.steps || [])]) as OracleEffectStep[];
-  if (spellSteps.length > 0) return spellSteps;
+  if (spellSteps.length > 0) return omitPrintedGraveyardKeywordReminderSteps(spellSteps);
 
   // Fragment-only text (no ability framing) — keep trigger-fragment fallback.
-  return parseTriggerEffectSteps(text, sourceName);
+  return omitPrintedGraveyardKeywordReminderSteps(parseTriggerEffectSteps(text, sourceName));
 }
 
 function collectUnwiredTriggerStepGaps(steps: readonly OracleEffectStep[]): string[] {

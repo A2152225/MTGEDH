@@ -124,6 +124,11 @@ describe('COUNTER_TARGET validate-before-complete (integration)', () => {
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
 
+    // CR 602.2: the activated ability goes on the stack; the counter is put on resolution.
+    const stacked = (((game.state as any).stack || []) as any[]).find((item) => item?.abilityType === 'add_counter');
+    expect(stacked).toBeTruthy();
+    game.resolveTopOfStack();
+
     const bf = (game.state as any).battlefield as any[];
     const perm = bf.find(p => p.id === targetId);
     expect(Number(perm?.counters?.charge || 0)).toBe(1);

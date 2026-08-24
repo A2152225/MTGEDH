@@ -38,7 +38,7 @@ describe('Oracle IR Agent of the Shadow Thieves attack trigger', () => {
     const perm = (result.state as GameState).battlefield?.find((entry) => entry.id === 'commander');
 
     expect(result.appliedSteps?.map((step) => step.kind)).toEqual(
-      expect.arrayContaining(['add_counter', 'grant_temporary_ability', 'conditional']),
+      expect.arrayContaining(['add_counter', 'grant_temporary_ability']),
     );
     expect(perm?.counters?.['+1/+1']).toBe(1);
     const tempEffects = (perm as any)?.temporaryEffects ?? [];

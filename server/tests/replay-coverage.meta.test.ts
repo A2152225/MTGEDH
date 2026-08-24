@@ -200,6 +200,8 @@ const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {
   scheduleDelayedGraveyardReturn: 'covered by targeted applyEvent tests in delayed-graveyard-return.applyEvent.test.ts rather than replay-named guard files',
   skipToPhaseCleanup: 'nextStep reason marker captured by the appendEvent meta regex, not a standalone persisted event type',
   unkeepHand: 'opening-hand progression primitive; the replay guard focuses on completion events instead',
+  basicLandTypeChoice: 'applyEvent already clears BASIC_LAND_TYPE_CHOICE; covered by color/type choice replay siblings rather than a dedicated replay-named file',
+  reflexiveExileToOwnersGraveyardResolve: 'follow-up stack object is persisted as pushTriggeredAbility; this event is the prompt-response companion without a standalone replay contract yet',
 };
 
 const PROMPT_RESPONSE_CLEANUP_EVENT_TYPES = [

@@ -19,6 +19,28 @@ function createTestContext(state: any): GameContext {
   } as any;
 }
 
+/** CR 601.2c: "any target" needs a legal player or permanent. */
+const LEGAL_ANY_TARGET_CONTEXT = {
+  players: [
+    { id: 'p1', name: 'P1' },
+    { id: 'p2', name: 'P2' },
+  ],
+  battlefield: [] as any[],
+};
+
+/** CR 115.4 / 601.2c: Counter target spell is illegal on an empty stack. */
+const LEGAL_COUNTERSPELL_STACK = [
+  {
+    id: 'opp_spell',
+    type: 'spell',
+    controller: 'p2',
+    card: {
+      name: 'Sol Ring',
+      type_line: 'Artifact',
+    },
+  },
+];
+
 function createConditionGatedPermanent(id: string, oracleText: string, extras?: Record<string, unknown>) {
   return {
     id,
@@ -76,6 +98,7 @@ describe('canCastAnySpell', () => {
 
   it('should return true when hand has instant with available mana', () => {
     const ctx = createTestContext({
+      ...LEGAL_ANY_TARGET_CONTEXT,
       zones: {
         p1: {
           hand: [
@@ -99,6 +122,7 @@ describe('canCastAnySpell', () => {
 
   it('should return true when the active plane reduces a red hand spell by a colored mana symbol', () => {
     const ctx = createTestContext({
+      ...LEGAL_ANY_TARGET_CONTEXT,
       activePlane: {
         id: 'feeding_grounds_plane',
         name: 'Feeding Grounds',
@@ -747,6 +771,10 @@ describe('canCastAnySpell', () => {
 
   it('should return true for Force of Will with blue card in hand and 1 life', () => {
     const ctx = createTestContext({
+      players: [
+        { id: 'p1', name: 'P1' },
+        { id: 'p2', name: 'P2' },
+      ],
       zones: {
         p1: {
           hand: [
@@ -775,6 +803,9 @@ describe('canCastAnySpell', () => {
       life: {
         p1: 20,
       },
+      // Spec conflict: older fixture used an empty stack. Counter target spell is
+      // illegal with no spell to target (same as the Fierce Guardianship case).
+      stack: LEGAL_COUNTERSPELL_STACK,
     });
     
     expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
@@ -3079,6 +3110,10 @@ describe('canRespond', () => {
 
   it('should return true when player has foretell instant in exile with mana', () => {
     const ctx = createTestContext({
+      players: [
+        { id: 'p1', name: 'P1' },
+        { id: 'p2', name: 'P2' },
+      ],
       zones: {
         p1: {
           hand: [],
@@ -3099,6 +3134,9 @@ describe('canRespond', () => {
       manaPool: {
         p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
       },
+      // Spec conflict: older fixture used an empty stack. Counter target spell
+      // requires a legal stack target.
+      stack: LEGAL_COUNTERSPELL_STACK,
     });
     
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
@@ -3106,6 +3144,7 @@ describe('canRespond', () => {
 
   it('should return true when player has playable instant from exile via impulse draw', () => {
     const ctx = createTestContext({
+      ...LEGAL_ANY_TARGET_CONTEXT,
       zones: {
         p1: {
           hand: [],
@@ -3136,6 +3175,7 @@ describe('canRespond', () => {
 
   it('should honor numeric playable-from-exile entries for the current turn', () => {
     const ctx = createTestContext({
+      ...LEGAL_ANY_TARGET_CONTEXT,
       zones: {
         p1: {
           hand: [],

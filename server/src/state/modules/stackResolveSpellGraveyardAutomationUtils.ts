@@ -88,6 +88,9 @@ export function applyInstantSorceryGraveyardZoneChangeAutomation(
     for (const sentence of sentences) {
       if (!/from\s+(?:your|a|any|an\s+opponent['']?s?)\s+graveyard/i.test(sentence)) continue;
       if (!/^(?:return|put|exile)\b/i.test(sentence)) continue;
+      // Cast-side IR already applied exile-from-graveyard clauses. Re-running them
+      // as trigger effects can resolve the same bound id through a different selector.
+      if (/^exile\b/i.test(sentence)) continue;
       options.executeTriggerEffect(
         ctx,
         controller,
@@ -95,6 +98,22 @@ export function applyInstantSorceryGraveyardZoneChangeAutomation(
         sentence,
         fakeTriggerItem,
       );
+    }
+
+    const gainLifeMatch = /you\s+gain\s+(\d+)\s+life/i.exec(graveyardEffectiveOracleText);
+    if (gainLifeMatch) {
+      const lifeGain = Number(gainLifeMatch[1] || 0);
+      if (lifeGain > 0) {
+        executeSpellEffect(
+          ctx,
+          { kind: 'GainLife', playerId: controller, amount: lifeGain } as any,
+          controller,
+          effectiveCard.name || 'spell',
+          String(item?.source || item?.permanentId || ''),
+          String(item?.id || card?.id || ''),
+        );
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} gained ${lifeGain} life`);
+      }
     }
 
     if (

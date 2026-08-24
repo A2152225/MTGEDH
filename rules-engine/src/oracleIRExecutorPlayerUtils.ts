@@ -47,6 +47,12 @@ export function writePlayerZoneCards(
 ): any[] {
   const next = [...cards];
   player[zone] = next;
+  const zones = (state as any).zones;
+  if (zones && typeof zones === 'object' && playerId) {
+    const ownerZones = zones[playerId] || (zones[playerId] = {});
+    ownerZones[zone] = next;
+    ownerZones[`${zone}Count`] = next.length;
+  }
   if (zone === 'library') {
     const serverLibs = getAttachedServerLibraries(state);
     if (serverLibs?.set) serverLibs.set(playerId, [...next]);
@@ -944,7 +950,7 @@ export function resolvePlayers(
 
   const controllerId = normalizeId(ctx.controllerId) ?? ctx.controllerId;
   const hasValidController = (state.players || []).some((player: any) => normalizeId(player?.id) === controllerId);
-  const opponents = hasValidController
+  const opponents = controllerId
     ? (state.players || [])
         .map((player: any) => normalizeId(player?.id))
         .filter((id: PlayerID | undefined): id is PlayerID => Boolean(id) && id !== controllerId)
@@ -1850,11 +1856,15 @@ export function adjustLife(state: GameState, playerId: PlayerID, delta: number):
   const currentLife = typeof (player as any).life === 'number' ? (player as any).life : 0;
   const nextLife = currentLife + delta;
   const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, life: nextLife } : p));
+  const nextLifeByPlayer = {
+    ...(((state as any).life && typeof (state as any).life === 'object') ? (state as any).life : {}),
+    [playerId]: nextLife,
+  };
 
   const verb = delta >= 0 ? 'gains' : 'loses';
   log.push(`${playerId} ${verb} ${Math.abs(delta)} life`);
 
-  return { state: { ...state, players: updatedPlayers as any }, log };
+  return { state: { ...state, players: updatedPlayers as any, life: nextLifeByPlayer } as GameState, log };
 }
 
 function normalizePlayerCounterName(counter: string): string {

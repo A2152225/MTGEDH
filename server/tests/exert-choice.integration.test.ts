@@ -465,7 +465,7 @@ describe('supported exert attack automation (integration)', () => {
     });
 
     expect(((game.state as any).battlefield || []).some((perm: any) => perm?.card?.id === 'hand_beast')).toBe(true);
-    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '0';
   });
 
   it('replays exertChoice state and the persisted reflexive trigger deterministically', () => {
@@ -966,18 +966,20 @@ describe('supported exert attack automation (integration)', () => {
 
     game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
-    const discardChoiceStep = findOptionChoiceStep(gameId, attackerId, (entry: any) => entry?.optionalDiscardThenDrawChoice === true) as any;
+    // Newer spec: CR 603.12 “If you do” is a reflexive discard prompt, not the
+    // older planeswalker optionalDiscardThenDrawChoice helper.
+    const discardChoiceStep = findOptionChoiceStep(gameId, attackerId, (entry: any) => entry?.reflexiveDiscardWhenYouDo === true) as any;
     expect(discardChoiceStep).toBeDefined();
     expect(discardChoiceStep).toMatchObject({
       sourceName: 'Battlefield Scavenger',
-      optionalDiscardThenDrawChoice: true,
-      optionalDiscardThenDrawCount: 1,
+      reflexiveDiscardWhenYouDo: true,
+      reflexiveDiscardWhenYouDoCount: 1,
     });
-    expect((discardChoiceStep.options || []).map((option: any) => option.id)).toEqual(['discard', 'dont']);
+    expect((discardChoiceStep.options || []).map((option: any) => option.id)).toEqual(['discard', 'decline']);
 
     const promptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
       event.type === 'resolveTopOfStackPrompt' &&
-      event.payload?.queuedResolutionStep?.optionalDiscardThenDrawChoice === true
+      event.payload?.queuedResolutionStep?.reflexiveDiscardWhenYouDo === true
     ) as any;
     expect(promptEvent).toBeDefined();
 
@@ -989,7 +991,7 @@ describe('supported exert attack automation (integration)', () => {
 
     const discardStep = findDiscardSelectionStep(gameId, attackerId, (entry: any) => entry?.sourceName === 'Battlefield Scavenger') as any;
     expect(discardStep).toBeDefined();
-    expect(discardStep?.afterDiscardDrawCount).toBe(1);
+    expect(discardStep?.reflexiveDiscardWhenYouDo).toBe(true);
     expect((discardStep.hand || []).map((card: any) => card.id)).toEqual(['discard_spell', 'keep_spell']);
 
     await attackerHandlers.submitResolutionResponse({
@@ -997,6 +999,8 @@ describe('supported exert attack automation (integration)', () => {
       stepId: String(discardStep.id),
       selections: ['discard_spell'],
     });
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
     const attackerZones = (game.state as any).zones[attackerId] as any;
     expect((attackerZones.hand || []).map((card: any) => card.id)).toEqual(['keep_spell', 'draw_spell']);
@@ -1125,7 +1129,7 @@ describe('supported exert attack automation (integration)', () => {
     const remainingLibraryIds = (((game.state as any).zones[attackerId] as any).library || []).map((card: any) => card.id).sort();
     expect(remainingLibraryIds).toEqual(['miss_after', 'miss_before']);
     expect((((game.state as any).zones[attackerId] as any).libraryCount)).toBe(2);
-    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '0';
   });
 
   it('queues target selection for target-based exert rewards like Ahn-Crop Crasher and persists the chosen target on the reflexive trigger', async () => {

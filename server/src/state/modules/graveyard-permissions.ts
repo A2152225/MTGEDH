@@ -3,7 +3,7 @@ import type { DurablePermission, PlayerID } from "../../../../shared/src";
 import { isActivatableStationThresholdEffect } from "../../../../rules-engine/src/stationPermanentUtils.js";
 import { collectStaticEffectSources } from "./static-effect-sources";
 import { cardManaValue } from "../utils";
-import { buildDurableGraveyardActivationPermission, buildDurableGraveyardPermission, clearTemporaryDurableGraveyardPermissions, getActiveDurablePermissions, getDurableGraveyardActivationPermissionForCard, upsertDurablePermission } from "./durable-permissions";
+import { buildDurableGraveyardActivationPermission, buildDurableGraveyardPermission, clearTemporaryDurableGraveyardPermissions, getActiveDurablePermissions, getDurableGraveyardActivationPermissionForCard, removeDurablePermissionsWhere, upsertDurablePermission } from "./durable-permissions";
 
 export interface GrantedFlashbackInfo {
   hasIt: boolean;
@@ -1241,6 +1241,89 @@ function getGraveyardCardsForTemporaryGrant(state: any, playerId: PlayerID, qual
   });
 }
 
+function stripGenericGraveyardCastPermissionForCard(
+  state: any,
+  playerId: PlayerID,
+  cardId: string,
+  source?: { sourceId?: string; sourceName?: string },
+): void {
+  if (!state || !playerId || !cardId) return;
+
+  if (state.playableFromGraveyard?.[playerId]?.[cardId] !== undefined) {
+    delete state.playableFromGraveyard[playerId][cardId];
+    if (Object.keys(state.playableFromGraveyard[playerId]).length === 0) {
+      delete state.playableFromGraveyard[playerId];
+    }
+  }
+
+  const stripMarkers = (card: any) => {
+    if (!card || getCardId(card) !== cardId) return card;
+    if (
+      card.canBePlayedBy == null
+      && card.playableUntilTurn == null
+      && card.graveyardCastCost == null
+      && card.graveyardCastCostRaw == null
+      && card.graveyardAdditionalCost == null
+    ) {
+      return card;
+    }
+    const next = { ...card };
+    delete next.canBePlayedBy;
+    delete next.playableUntilTurn;
+    delete next.graveyardCastCost;
+    delete next.graveyardCastCostRaw;
+    delete next.graveyardAdditionalCost;
+    return next;
+  };
+
+  const player = Array.isArray(state.players)
+    ? state.players.find((entry: any) => String(entry?.id || '') === String(playerId))
+    : undefined;
+  if (player && Array.isArray(player.graveyard)) {
+    player.graveyard = player.graveyard.map(stripMarkers);
+  }
+  if (state.zones?.[playerId] && Array.isArray(state.zones[playerId].graveyard)) {
+    state.zones[playerId].graveyard = state.zones[playerId].graveyard.map(stripMarkers);
+  }
+
+  const sourceId = String(source?.sourceId || '').trim();
+  const sourceName = String(source?.sourceName || '').trim().toLowerCase();
+
+  if (Array.isArray(state.graveyardCastingPermissions)) {
+    state.graveyardCastingPermissions = state.graveyardCastingPermissions.filter((permission: any) => {
+      if (String(permission?.playerId || '') !== String(playerId)) return true;
+      if (String(permission?.cardId || '') === cardId) return false;
+      if (sourceId && String(permission?.sourceId || '').trim() === sourceId) return false;
+      if (sourceName && String(permission?.sourceName || '').trim().toLowerCase() === sourceName) return false;
+      const ids = Array.isArray(permission?.cardIds)
+        ? permission.cardIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+        : Array.isArray(permission?.cardFilter?.cardIds)
+          ? permission.cardFilter.cardIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+          : [];
+      if (ids.length === 1 && ids[0] === cardId) return false;
+      if (/\bgains?\s+escape\b/i.test(String(permission?.sourceText || ''))) return false;
+      return true;
+    });
+    if (state.graveyardCastingPermissions.length === 0) {
+      delete state.graveyardCastingPermissions;
+    }
+  }
+
+  removeDurablePermissionsWhere(state, (permission) => {
+    if (String(permission?.kind || '') !== 'graveyard_permission') return false;
+    if (String(permission?.allowedAction || '') === 'activate') return false;
+    if (String(permission?.grantedTo || '') !== String(playerId)) return false;
+    if (sourceId && String(permission?.sourceId || '').trim() === sourceId) return true;
+    if (sourceName && String(permission?.sourceName || '').trim().toLowerCase() === sourceName) return true;
+    const affected = Array.isArray(permission?.cardFilter?.affectedCardIds)
+      ? permission.cardFilter.affectedCardIds
+      : [];
+    if (affected.map((id) => String(id || '').trim()).includes(cardId)) return true;
+    const sourceText = String(permission?.debug?.sourceText || '');
+    return /\bgains?\s+escape\b/i.test(sourceText);
+  });
+}
+
 function addTemporaryGraveyardKeywordGrant(
   state: any,
   playerId: PlayerID,
@@ -1276,6 +1359,13 @@ function addTemporaryGraveyardKeywordGrant(
     turnApplied: Number(state.turnNumber ?? state.turn ?? 0) || 0,
   });
 
+  if (options.keyword === 'escape') {
+    stripGenericGraveyardCastPermissionForCard(state, playerId, cardId, {
+      sourceId: options.sourceId,
+      sourceName: options.sourceName,
+    });
+  }
+
   if (options.keyword === 'unearth' || options.keyword === 'embalm') {
     upsertDurablePermission(state, buildDurableGraveyardActivationPermission({
       playerId,
@@ -1296,17 +1386,35 @@ function addTemporaryGraveyardKeywordGrant(
 export function clearTemporaryGraveyardKeywordGrants(state: any): number {
   if (!state || !Array.isArray(state.temporaryGraveyardKeywordGrants)) return 0;
 
-  const before = state.temporaryGraveyardKeywordGrants.length;
-  state.temporaryGraveyardKeywordGrants = state.temporaryGraveyardKeywordGrants.filter((entry: any) => {
+  const remaining: TemporaryGraveyardKeywordGrant[] = [];
+  const cleared: TemporaryGraveyardKeywordGrant[] = [];
+  for (const entry of state.temporaryGraveyardKeywordGrants as TemporaryGraveyardKeywordGrant[]) {
     const expiresAt = String(entry?.expiresAt || '').trim().toLowerCase();
-    return expiresAt !== 'end_of_turn' && expiresAt !== 'this_turn';
-  });
-
-  if (state.temporaryGraveyardKeywordGrants.length === 0) {
-    delete state.temporaryGraveyardKeywordGrants;
+    if (expiresAt === 'end_of_turn' || expiresAt === 'this_turn') {
+      cleared.push(entry);
+    } else {
+      remaining.push(entry);
+    }
   }
 
-  return before - (Array.isArray(state.temporaryGraveyardKeywordGrants) ? state.temporaryGraveyardKeywordGrants.length : 0);
+  if (remaining.length === 0) {
+    delete state.temporaryGraveyardKeywordGrants;
+  } else {
+    state.temporaryGraveyardKeywordGrants = remaining;
+  }
+
+  for (const entry of cleared) {
+    if (String(entry?.keyword || '') !== 'escape') continue;
+    const cardId = String(entry?.cardId || '').trim();
+    const playerId = String(entry?.playerId || '').trim() as PlayerID;
+    if (!cardId || !playerId) continue;
+    stripGenericGraveyardCastPermissionForCard(state, playerId, cardId, {
+      sourceId: entry.sourceId,
+      sourceName: entry.sourceName,
+    });
+  }
+
+  return cleared.length;
 }
 
 export function clearTemporaryPlayableFromGraveyardPermissions(state: any): number {
@@ -1372,8 +1480,8 @@ export function applyTemporaryGraveyardKeywordGrantFromText(
       : [];
 
     const grantPatterns = [
-      { targetMode: 'each', pattern: /(?:^|[.,]\s*)(?:until end of turn,\s*)?each\s+(.+?)\s+cards?\s+in\s+your\s+graveyard(?:\s+that(?:'s| is)\s+[^.]+?)?\s+gains?\s+(?:"([^"]+)"|([a-z][a-z-]*)(?:\s+((?:\{[^}]+\}\s*)+))?)(?:\s+until end of turn)?/gi },
-      { targetMode: 'target', pattern: /(?:^|[.,]\s*)target\s+(.+?)\s+cards?\s+in\s+your\s+graveyard(?:\s+that(?:'s| is)\s+[^.]+?)?\s+gains?\s+(?:"([^"]+)"|([a-z][a-z-]*)(?:\s+((?:\{[^}]+\}\s*)+))?)(?:\s+until end of turn)?/gi },
+      { targetMode: 'each', pattern: /(?:^|[.,:]\s*)(?:until end of turn,\s*)?each\s+(.+?)\s+cards?\s+in\s+your\s+graveyard(?:\s+that(?:'s| is)\s+[^.]+?)?\s+gains?\s+(?:"([^"]+)"|([a-z][a-z-]*)(?:\s+((?:\{[^}]+\}\s*)+))?)(?:\s+until end of turn)?/gi },
+      { targetMode: 'target', pattern: /(?:^|[.,:]\s*)target\s+(.+?)\s+cards?\s+in\s+your\s+graveyard(?:\s+that(?:'s| is)\s+[^.]+?)?\s+gains?\s+(?:"([^"]+)"|([a-z][a-z-]*)(?:\s+((?:\{[^}]+\}\s*)+))?)(?:\s+until end of turn)?/gi },
     ];
 
     let applied = 0;

@@ -1,20 +1,18 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
-import { games } from '../src/socket/socket.js';
 import { ensureGame, transformDbEventsForReplay } from '../src/socket/util.js';
 import { getCastableSpellCandidates } from '../src/state/modules/can-respond.js';
 import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
 import { nextStep } from '../src/state/modules/turn.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+import { resetIntegrationGame } from './helpers/integrationGameReset.js';
 
 async function resetGame(gameId: string) {
-  ResolutionQueueManager.removeQueue(gameId);
-  games.delete(gameId as any);
-  await deleteGame(gameId);
+  await resetIntegrationGame(gameId);
 }
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
@@ -49,6 +47,13 @@ async function seedGame(gameId: string, cardId: string, oracleText: string, opti
   const playerId = 'p1';
   (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: options?.life ?? 40 }];
   (game.state as any).life = { [playerId]: options?.life ?? 40 };
+  // Jump-start / retrace / escape / flashback use the card's normal timing (CR 702.34a).
+  // Older tests omitted this window and expected activations to ignore sorcery speed.
+  (game.state as any).turnPlayer = playerId;
+  (game.state as any).activePlayer = playerId;
+  (game.state as any).priority = playerId;
+  (game.state as any).phase = 'main';
+  (game.state as any).step = 'MAIN1';
   (game.state as any).zones = {
     [playerId]: {
       hand: options?.hand || [],

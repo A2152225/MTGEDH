@@ -19,6 +19,7 @@ import { getStackItems } from '../../../../rules-engine/src/stackOperations.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
+import { queueCastFromExileResolutionPrompt } from './triggerCastFromExileUtils.js';
 import {
   appendCopyTriggeredAbilityResolveEvent,
   queueAbilityCopyRetargetPrompt,
@@ -573,4 +574,64 @@ export function queueCopySpellStackPushFromOracleIRResult(
   }
 
   return bridged;
+}
+
+/**
+ * After IR applies optional copy_spell ("you may cast the copy"), queue a
+ * cast-from-exile choice for each newly created playable copy.
+ */
+export function queueCastableCopiedSpellPromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const appliedOptionalCopy = (result.appliedSteps || []).some(
+    (step) => step.kind === 'copy_spell' && (step as any).optional === true,
+  );
+  if (!appliedOptionalCopy) return;
+
+  const controllerId = String(params.controller || '').trim();
+  if (!controllerId) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const zoneExile = Array.isArray(state?.zones?.[controllerId]?.exile)
+    ? state.zones[controllerId].exile
+    : [];
+  const playerExile = Array.isArray(
+    (state?.players || []).find((player: any) => String(player?.id || '') === controllerId)?.exile,
+  )
+    ? (state.players || []).find((player: any) => String(player?.id || '') === controllerId)?.exile
+    : [];
+  const copies = [...zoneExile, ...playerExile].filter((card: any) => {
+    if (!card || card.isCopy !== true) return false;
+    return String(card.canBePlayedBy || '') === controllerId;
+  });
+  const seen = new Set<string>();
+  for (const copy of copies) {
+    const copyId = String(copy?.id || '').trim();
+    if (!copyId || seen.has(copyId)) continue;
+    seen.add(copyId);
+    queueCastFromExileResolutionPrompt(
+      ctx,
+      gameId,
+      controllerId as PlayerID,
+      sourceName,
+      sourceId,
+      undefined,
+      copy,
+      {
+        declineDestination: 'exile',
+        description: `${sourceName}: You may cast ${String(copy?.name || 'the copy')} without paying its mana cost.`,
+      },
+    );
+  }
 }

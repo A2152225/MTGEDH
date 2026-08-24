@@ -562,19 +562,19 @@ export function exitResolutionMode(ctx: GameContext): void {
       if (blocking.length > 0) {
         debugWarn(
           1,
-          `[priority] Refusing to exit resolution mode â€” ${blocking.length} blocking step(s) still pending ` +
+          `[priority] Refusing to exit resolution mode ? ${blocking.length} blocking step(s) still pending ` +
             `(${blocking.map((s: any) => s.type).join(', ')})`,
         );
         return;
       }
     } catch (err) {
       // Fail closed: if we cannot verify the queue, keep resolution mode.
-      debugWarn(1, '[priority] Refusing to exit resolution mode — queue guard failed:', err);
+      debugWarn(1, '[priority] Refusing to exit resolution mode ? queue guard failed:', err);
       return;
     }
   } else if (state.priority == null) {
-    // No gameId available to verify the queue — do not restore priority blind.
-    debugWarn(1, '[priority] Refusing to exit resolution mode — missing gameId while priority is null');
+    // No gameId available to verify the queue ? do not restore priority blind.
+    debugWarn(1, '[priority] Refusing to exit resolution mode ? missing gameId while priority is null');
     return;
   }
   

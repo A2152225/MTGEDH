@@ -7,7 +7,11 @@ import {
   oracleIrTargetBindingToEventHint,
 } from '../../../../rules-engine/src/oracleIrTargetBinding.js';
 import { applyOracleIRUncategorizedSpellFallback } from './oracleIrUncategorizedSpellFallback.js';
-import { isCategorizeOpcodeRetiredUnderOracleIrPrimary, shouldSkipSpellUncategorizedFallback } from './oracleIrSpellLegacyRouting.js';
+import {
+  isCategorizeOpcodeDeletedFromResolveSpell,
+  isCategorizeOpcodeRetiredUnderOracleIrPrimary,
+  shouldSkipSpellUncategorizedFallback,
+} from './oracleIrSpellLegacyRouting.js';
 import { wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
 import type { categorizeSpell } from '../../rules-engine/targeting.js';
 import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
@@ -77,11 +81,16 @@ export function tryApplyInstantSorceryUncategorizedSpellFallback(
   }
 
   if (options.spellSpec) {
+    const specOp = String(options.spellSpec.op || '');
+    // Deleted resolve ops never execute via categorize (including SPELL_LEGACY).
+    // When primary is off, categorizeSpell still returns those specs, so the
+    // fallback must apply the IR steps or the spell becomes a no-op.
+    const allowDeletedResolveFallback = isCategorizeOpcodeDeletedFromResolveSpell(specOp);
     const allowRetiredLegacySupplement =
       !isOracleIrSpellPrimaryEnabled()
-      && isCategorizeOpcodeRetiredUnderOracleIrPrimary(String(options.spellSpec.op || ''))
+      && isCategorizeOpcodeRetiredUnderOracleIrPrimary(specOp)
       && legacyCategorizeSpecMissesZoneIntent(options.oracleText, options.spellSpec);
-    if (!allowRetiredLegacySupplement) {
+    if (!allowDeletedResolveFallback && !allowRetiredLegacySupplement) {
       return 0;
     }
   }

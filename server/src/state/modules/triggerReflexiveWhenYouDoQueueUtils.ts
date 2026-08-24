@@ -5,7 +5,6 @@ import { appendEvent } from '../../db/index.js';
 import { ResolutionStepType } from '../resolution/index.js';
 import { uid } from '../utils.js';
 import { getOrInitManaPool, parseManaCost, resolveManaCostForPoolPayment } from '../../socket/util.js';
-import { executeSpellEffect } from './executeSpellEffect.js';
 import { movePermanentToExile } from './counters_tokens.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import {
@@ -14,6 +13,7 @@ import {
 } from './triggerSourceUtils.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { permanentIsCommanderCard, wasPermanentCardMovedToExile } from './triggerPermanentUtils.js';
+import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
 import {
   buildReflexivePaymentAmountOptions,
   cardMatchesReflexiveGraveyardExileType,
@@ -35,31 +35,7 @@ import {
   parseReflexiveSacrificeWhenYouDo,
   permanentMatchesReflexiveSacrificeType,
 } from './reflexive-triggers.js';
-
-const WORD_TO_NUMBER: Record<string, number> = {
-  a: 1,
-  an: 1,
-  one: 1,
-  two: 2,
-  three: 3,
-  four: 4,
-  five: 5,
-  six: 6,
-  seven: 7,
-  eight: 8,
-  nine: 9,
-  ten: 10,
-};
-
-function parseNumberWord(word: string | undefined, defaultValue: number = 1): number {
-  if (!word) return defaultValue;
-  const lower = word.toLowerCase();
-  if (WORD_TO_NUMBER[lower] !== undefined) {
-    return WORD_TO_NUMBER[lower];
-  }
-  const num = parseInt(lower, 10);
-  return Number.isNaN(num) ? defaultValue : num;
-}
+import { executeReflexiveBoundSelfExilePrelude } from './triggerReflexiveBoundSelfExilePreludeUtils.js';
 
 export type ReflexiveTriggerEffectRunner = (
   ctx: GameContext,
@@ -134,6 +110,12 @@ function maybeQueueReflexiveFixedPaymentWhenYouDo(
 ): boolean {
   const parsed = parseReflexiveFixedPaymentWhenYouDo(description);
   if (!parsed) return false;
+
+  // IR Effect Program owns "you may pay {C}. If you do, …" (Agrus multi-copy).
+  // Do not intercept with a legacy pay/decline prompt.
+  if (isTriggerEffectOwnedByOracleIrPrimary(description, sourceName)) {
+    return false;
+  }
 
   if ((ctx as any).isReplaying) {
     debug(2, `[resolveTopOfStack] Reflexive fixed payment for ${sourceName}: skipping prompt discovery during replay`);
@@ -215,6 +197,12 @@ function maybeQueueReflexiveSacrificeWhenYouDo(
 ): boolean {
   const parsed = parseReflexiveSacrificeWhenYouDo(description);
   if (!parsed) return false;
+
+  // IR Effect Program owns "you may sacrifice …. If you do, …" (yes/no then target).
+  // Do not intercept with the legacy sacrifice/decline prompt.
+  if (isTriggerEffectOwnedByOracleIrPrimary(description, sourceName)) {
+    return false;
+  }
 
   if ((ctx as any).isReplaying) {
     debug(2, `[resolveTopOfStack] Reflexive sacrifice trigger for ${sourceName}: skipping prompt discovery during replay`);
@@ -331,6 +319,12 @@ function maybeQueueReflexiveDiscardWhenYouDo(
     reflexiveDiscardWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
     reflexiveDiscardWhenYouDoFollowupDescription: followupDescription,
     reflexiveDiscardWhenYouDoOriginalEffect: description,
+    ...(/^draw a card\b/i.test(followupDescription)
+      ? { afterDiscardDrawCount: 1 }
+      : null),
+    ...(/if a land card was discarded this way/i.test(`${followupDescription} ${description}`)
+      ? { afterDiscardDrawCountIfDiscardedLand: 1 }
+      : null),
     ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
   } as any);
 
@@ -429,48 +423,6 @@ function findBoundReflexiveGraveyardCard(state: any, cardId: string, preferredOw
   }
 
   return null;
-}
-
-function executeReflexiveBoundSelfExilePrelude(
-  ctx: GameContext,
-  preludeText: string | undefined,
-  triggerController: PlayerID,
-  sourceName: string,
-  sourcePermanentId: string,
-): boolean {
-  const normalizedPrelude = String(preludeText || '').replace(/\s+/g, ' ').trim();
-  if (!normalizedPrelude) return true;
-
-  const eachPlayerMillsMatch = normalizedPrelude.match(/^each player mills? (?:a card|([a-z]+|\d+) cards?)$/i);
-  if (!eachPlayerMillsMatch) {
-    debug(2, `[resolveTopOfStack] Reflexive bound graveyard exile prelude for ${sourceName} is not automated: ${normalizedPrelude}`);
-    return false;
-  }
-
-  const millCount = eachPlayerMillsMatch[1]
-    ? parseNumberWord(eachPlayerMillsMatch[1], 1)
-    : 1;
-  if (millCount <= 0) return false;
-
-  const stateAny = (ctx as any).state || {};
-  const players = Array.isArray(stateAny.players) ? stateAny.players : [];
-  const playerIds = players
-    .filter((player: any) => player && player.id && player.hasLost !== true)
-    .map((player: any) => String(player.id));
-  const gameId = String((ctx as any).gameId || '').trim();
-
-  for (const playerId of playerIds) {
-    executeSpellEffect(
-      ctx,
-      { kind: 'MillCards', playerId: playerId as PlayerID, count: millCount } as any,
-      triggerController,
-      sourceName,
-      sourcePermanentId || null,
-    );
-
-  }
-
-  return true;
 }
 
 function normalizeReflexiveCounterTypeName(counterType: string): string {

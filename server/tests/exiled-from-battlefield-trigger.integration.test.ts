@@ -148,7 +148,8 @@ describe('exiled-from-battlefield triggers (integration)', () => {
       triggerType: 'creature_exiled_from_battlefield',
       sourceName: 'Soulherder',
       triggeringPermanent: 'bear_perm',
-      effect: 'put a +1/+1 counter on this creature',
+      // Oracle sentence terminator is kept (CR 603.2 extracted effect clause).
+      effect: 'put a +1/+1 counter on this creature.',
     }));
     expect(stackItems[0]?.effectData).toEqual(expect.objectContaining({
       exiledPermanentId: 'bear_perm',
@@ -298,7 +299,8 @@ describe('exiled-from-battlefield triggers (integration)', () => {
       triggerType: 'creature_exiled_from_battlefield',
       sourceName: 'Soulherder',
       triggeringPermanent: 'replacement_bear_perm',
-      effect: 'put a +1/+1 counter on this creature',
+      // Oracle sentence terminator is kept (CR 603.2 extracted effect clause).
+      effect: 'put a +1/+1 counter on this creature.',
     }));
   });
 
@@ -373,7 +375,8 @@ describe('exiled-from-battlefield triggers (integration)', () => {
       triggerType: 'creature_exiled_from_battlefield',
       sourceName: 'Soulherder',
       triggeringPermanent: 'commander_bear_perm',
-      effect: 'put a +1/+1 counter on this creature',
+      // Oracle sentence terminator is kept (CR 603.2 extracted effect clause).
+      effect: 'put a +1/+1 counter on this creature.',
     }));
   });
 });

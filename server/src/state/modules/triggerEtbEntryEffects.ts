@@ -1,22 +1,20 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
-import { matchesGraveyardCardTargetType } from '../../rules-engine/targeting.js';
 import { appendEvent } from '../../db/index.js';
 import { debug, debugWarn } from '../../utils/debug.js';
-import { uid, cardManaValue, getActualPowerToughness } from '../utils.js';
+import { uid, getActualPowerToughness } from '../utils.js';
+import { queueSelfEtbGraveyardTargetPrompt } from './triggerEtbGraveyardTargetPrompt.js';
 import { getETBTriggersForPermanent } from './triggered-abilities.js';
 import { isFaceUpTriggerType } from './triggerEmissionFamilyUtils.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
 import { orderTriggersByAPNAP } from './triggers/ordering.js';
 import { stampPermanentControlEntryForEcho } from './upkeep-triggers.js';
-import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { permanentHasCreatureTypeNow } from '../creatureTypeNow.js';
 import {
   buildInterveningIfSubjectSnapshot,
   buildTriggerSourcePermanentSnapshot,
 } from './triggerSourceUtils.js';
 import { inferTriggeredAbilityTargetMetadata, isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetadata.js';
-import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 import { handleRoomDoorStateOnEnter } from './triggers/room.js';
 import { pushTriggerDoublerCopies } from './triggers/combat.js';
 import {
@@ -294,74 +292,6 @@ export function matchesRequiredTypePhrase(typeLine: string, requiredPhrase: stri
   return typeLineHasAllWords(typeLine, phrase);
 }
 
-function buildTriggeredAbilityGraveyardValidTargets(
-  ctx: GameContext,
-  controllerId: string,
-  metadata: ReturnType<typeof inferTriggeredAbilityTargetMetadata>,
-): Array<{ id: string; name: string; typeLine: string; manaCost?: string; imageUrl?: string; zoneOwnerId: string }> {
-  const state = (ctx as any).state || {};
-  const zones = (state.zones || {}) as Record<string, any>;
-  const graveyardScope = String((metadata as any).targetGraveyardScope || 'your').toLowerCase();
-  const owners = graveyardScope === 'any'
-    ? Object.keys(zones).filter((pid) => Array.isArray(zones[pid]?.graveyard))
-    : graveyardScope === 'opponent'
-      ? Object.keys(zones).filter((pid) => String(pid) !== String(controllerId) && Array.isArray(zones[pid]?.graveyard))
-      : [String(controllerId)];
-
-  // Reconstruct the graveyard target type token using the same naming the
-  // matchesGraveyardCardTargetType helper expects. Prefer the most specific
-  // representation available on the metadata bundle.
-  const filterTypes = Array.isArray(metadata.targetFilterTypes) ? metadata.targetFilterTypes : [];
-  const excludeTypes = Array.isArray(metadata.targetFilterExcludeTypes) ? metadata.targetFilterExcludeTypes : [];
-  const requiredTypeWords = Array.isArray((metadata as any).targetFilterRequiredTypeWords) ? (metadata as any).targetFilterRequiredTypeWords : [];
-  let baseToken: string;
-  if (excludeTypes.length === 1 && filterTypes.length === 1) {
-    baseToken = `graveyard_non-${String(excludeTypes[0]).toLowerCase()}_${String(filterTypes[0]).toLowerCase()}_card`;
-  } else if (excludeTypes.length === 1 && filterTypes.length === 0) {
-    baseToken = `graveyard_non-${String(excludeTypes[0]).toLowerCase()}_card`;
-  } else if (filterTypes.length === 1) {
-    baseToken = `graveyard_${String(filterTypes[0]).toLowerCase()}_card`;
-  } else if ((metadata as any).targetFilterPermanentOnly === true) {
-    baseToken = 'graveyard_permanent_card';
-  } else {
-    baseToken = 'graveyard_card';
-  }
-
-  const typeTokens = filterTypes.length > 1
-    ? filterTypes.map((typeName) => `graveyard_${String(typeName).toLowerCase()}_card`)
-    : [baseToken];
-
-  const exactMV = typeof (metadata as any).targetFilterExactManaValue === 'number' ? Number((metadata as any).targetFilterExactManaValue) : undefined;
-  const minMV = typeof (metadata as any).targetFilterMinManaValue === 'number' ? Number((metadata as any).targetFilterMinManaValue) : undefined;
-  const maxMV = typeof metadata.targetFilterMaxManaValue === 'number' ? Number(metadata.targetFilterMaxManaValue) : undefined;
-
-  const results: Array<{ id: string; name: string; typeLine: string; manaCost?: string; imageUrl?: string; zoneOwnerId: string }> = [];
-  for (const ownerId of owners) {
-    const graveyard = Array.isArray(zones[ownerId]?.graveyard) ? zones[ownerId].graveyard : [];
-    for (const card of graveyard) {
-      if (!typeTokens.some((token) => matchesGraveyardCardTargetType(card, token))) continue;
-      // Required-type words must all appear in the type line (e.g. "Dragon" for
-      // "target Dragon creature card from your graveyard"). Hyphens are tolerated.
-      if (requiredTypeWords.length > 0) {
-        const typeLine = String(card?.type_line || '').toLowerCase();
-        if (!requiredTypeWords.every((word: string) => typeLine.includes(String(word).toLowerCase()))) continue;
-      }
-      const mv = cardManaValue(card);
-      if (typeof exactMV === 'number' && Number.isFinite(exactMV) && mv !== exactMV) continue;
-      if (typeof minMV === 'number' && Number.isFinite(minMV) && mv < minMV) continue;
-      if (typeof maxMV === 'number' && Number.isFinite(maxMV) && mv > maxMV) continue;
-      results.push({
-        id: String(card?.id || ''),
-        name: String(card?.name || card?.id || 'Card'),
-        typeLine: String(card?.type_line || ''),
-        manaCost: String(card?.mana_cost || ''),
-        imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
-        zoneOwnerId: String(ownerId),
-      });
-    }
-  }
-  return results.filter((entry) => Boolean(entry.id));
-}
 
 export function queueSelfETBTriggersForPermanent(
   ctx: GameContext,
@@ -595,63 +525,16 @@ export function queueSelfETBTriggersForPermanent(
       }
     }
 
-    // ETB-trigger graveyard target selection wiring (Coalstoke Gearhulk,
-    // Iridescent Drake, etc.). When the just-pushed self-ETB triggered ability
-    // requires targeting a graveyard card, queue a GRAVEYARD_SELECTION step so
-    // the player can pick before the trigger resolves. The response handler in
-    // socket/resolution.ts (triggeredAbilityGraveyardChoice branch) will stamp
-    // the chosen card id onto stackItem.targets, after which normal trigger
-    // resolution proceeds via executeTriggerEffect's graveyardToBattlefieldMatch
-    // (and friends).
-    try {
-      const gameIdLocal = String((ctx as any).gameId || '').trim();
-      const isReplayingLocal = !!(ctx as any).isReplaying;
-      const requiresGraveyardTarget =
-        gameIdLocal && gameIdLocal !== 'unknown' && !isReplayingLocal &&
-        trigger.requiresTarget === true &&
-        String((enrichedMetadata as any).targetZone || '').toLowerCase() === 'graveyard';
-      if (requiresGraveyardTarget) {
-        const validTargets = buildTriggeredAbilityGraveyardValidTargets(
-          ctx,
-          String(controller),
-          enrichedMetadata as any,
-        );
-        if (validTargets.length > 0) {
-          const graveyardScope = String((enrichedMetadata as any).targetGraveyardScope || 'your').toLowerCase();
-          const targetPlayerId = graveyardScope === 'your' ? String(controller) : '';
-          const minTargets = typeof enrichedMetadata.minTargets === 'number' ? enrichedMetadata.minTargets : 1;
-          const maxTargets = typeof enrichedMetadata.maxTargets === 'number' ? enrichedMetadata.maxTargets : 1;
-          const sourceName = String(trigger.cardName || permanent.card?.name || 'Triggered ability');
-          const queueStep = ResolutionQueueManager.addStep(gameIdLocal, {
-            type: ResolutionStepType.GRAVEYARD_SELECTION,
-            playerId: controller as any,
-            sourceId: triggerId,
-            sourceName,
-            description: `${sourceName}: choose target card from a graveyard.`,
-            mandatory: trigger.mandatory !== false,
-            validTargets,
-            minTargets,
-            maxTargets,
-            targetPlayerId,
-            destination: String(enrichedMetadata.targetDestination || 'battlefield').toLowerCase(),
-            destinationUsesSelectedCardOwner: enrichedMetadata.destinationUsesSelectedCardOwner === true,
-            ...(enrichedMetadata.battlefieldControllerMode ? { battlefieldControllerMode: enrichedMetadata.battlefieldControllerMode } : null),
-            ...(enrichedMetadata.battlefieldCounters ? { battlefieldCounters: enrichedMetadata.battlefieldCounters } : null),
-            triggeredAbilityGraveyardChoice: true,
-            triggerStackItemId: triggerId,
-            triggerSourcePermanentId: String(permanent.id || ''),
-          } as any);
-          appendQueuedResolutionPromptEvent(ctx, {
-            playerId: String(controller),
-            sourceId: triggerId,
-            queuedResolutionStep: queueStep,
-          });
-          debug(2, `[queueSelfETBTriggersForPermanent] queued GRAVEYARD_SELECTION for ETB trigger ${sourceName} (${validTargets.length} valid targets)`);
-        }
-      }
-    } catch (err) {
-      debugWarn(1, '[queueSelfETBTriggersForPermanent] graveyard target selection wiring failed:', err);
-    }
+    queueSelfEtbGraveyardTargetPrompt(ctx, {
+      controller,
+      triggerId,
+      permanentId: String(permanent.id || ''),
+      sourceName: String(trigger.cardName || permanent.card?.name || 'Triggered ability'),
+      effectText: String(trigger.effect || trigger.description || ''),
+      mandatory: trigger.mandatory !== false,
+      requiresTarget: trigger.requiresTarget === true,
+      enrichedMetadata,
+    });
   }
 
   handleRoomDoorStateOnEnter(ctx, permanent, controller);
@@ -917,7 +800,7 @@ export function recordBattlefieldEntryTurnTracking(
       try {
         const typeLineRaw = String(permanent?.card?.type_line || '');
         const typeLineLower = typeLineRaw.toLowerCase();
-        const dashSplit = typeLineLower.split(/â€”|\s-\s/);
+        const dashSplit = typeLineLower.split(/\s*(?:[\u2014\u2013\u2012]|-|â€”)\s*/);
         const subtypePart = dashSplit.length > 1 ? dashSplit.slice(1).join(' ') : '';
         const subtypeTokens = subtypePart
           .split(/\s+/)

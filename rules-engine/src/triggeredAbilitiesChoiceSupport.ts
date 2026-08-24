@@ -257,6 +257,26 @@ export function buildEnrichedTriggerExecutionEventData(
     }
     return Object.keys(out).length > 0 ? out : undefined;
   })();
+  // Type-filtered trigger conditions ("a creature enters", "an artifact you control dies") read the
+  // triggering object's types from permanentTypes/creatureTypes rather than from the game state.
+  // triggersHandler.ts splits them off the type line when it raises an event; callers that hand an
+  // event straight to this seam have no such step, so the same tokens are derived here.
+  const inferredTriggeringTypeTokens = (() => {
+    if (
+      (normalizedEventData.permanentTypes?.length || 0) > 0 ||
+      (normalizedEventData.creatureTypes?.length || 0) > 0
+    ) {
+      return undefined;
+    }
+    const triggeringObject = findObjectById(
+      inferredTargetPermanentId ?? normalizedEventData.sourceId ?? eventData?.sourceId
+    );
+    const tokens = String(triggeringObject?.type_line || triggeringObject?.card?.type_line || '')
+      .split(/[\s\u2014-]+/)
+      .map((part: string) => part.trim())
+      .filter(Boolean);
+    return tokens.length > 0 ? tokens : undefined;
+  })();
 
   const hasBaseEventData = Boolean(eventData) || Object.keys(normalizedEventData).length > 0;
   if (
@@ -282,6 +302,9 @@ export function buildEnrichedTriggerExecutionEventData(
       : {}),
     ...(typeof inferredSourceRenowned === 'boolean' ? { sourceRenowned: inferredSourceRenowned } : {}),
     ...(inferredPlayerLifeTotals ? { playerLifeTotals: inferredPlayerLifeTotals } : {}),
+    ...(inferredTriggeringTypeTokens
+      ? { permanentTypes: inferredTriggeringTypeTokens, creatureTypes: inferredTriggeringTypeTokens }
+      : {}),
   } as TriggerEventData;
 }
 

@@ -274,6 +274,7 @@ describe('AI top-library integration', () => {
     await handleAIPriority(createNoopIo(), gameId, playerId as any);
 
     expect(requestCastSpellForSocket).toHaveBeenCalledTimes(1);
+    // Newer requestCastSpellForSocket takes an optional 4th options bag (kicker, sneak, etc.).
     expect(requestCastSpellForSocket).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
@@ -282,6 +283,7 @@ describe('AI top-library integration', () => {
         cardId: 'opt_top',
         fromZone: 'library',
       }),
+      expect.anything(),
     );
     expect(
       debugWarn.mock.calls.some((call) => String(call[1] || '').includes('Shared cast request produced no state change')),

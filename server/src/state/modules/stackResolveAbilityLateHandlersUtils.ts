@@ -11,6 +11,7 @@ import {
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import { ResolutionStepType } from '../resolution/index.js';
 import { tryApplyOracleIRToActivatedAbility } from './oracleIrAbilityExecution.js';
+import { applyTemporaryGraveyardKeywordGrantFromText } from './graveyard-permissions.js';
 import { extractOracleCardLookupKeys } from './oracleIrCompiledOverlayLookup.js';
 import { markOnceDuringEachActivatedAbilityUsedThisTurn } from '../../../../rules-engine/src/stationPermanentUtils.js';
 import { resolveChosenTypeDrawPerCreature } from './triggerChosenTypeSpellUtils.js';
@@ -351,13 +352,33 @@ export function tryResolveStackActivatedAbilityLateHandlers(
     return true;
   }
 
-  resolveTextDrivenActivatedControlChange(
+  const resolvedControlTargets = (Array.isArray(targets) && targets.length > 0)
+    ? targets
+    : (Array.isArray(item?.targets) ? item.targets : []);
+  const appliedActivatedControlChange = resolveTextDrivenActivatedControlChange(
     state,
     String(controller || ''),
-    targets,
+    resolvedControlTargets,
     [activatedAbilityText, description],
     String(sourceName || 'Activated ability'),
   );
+  // Text-driven exchange/donate already mutated the live battlefield. Running IR
+  // afterwards would apply the same swap a second time and restore the originals.
+  if (appliedActivatedControlChange) {
+    applyTemporaryGraveyardKeywordGrantFromText(
+      ctx,
+      controller as PlayerID,
+      sourceName,
+      [description, activatedAbilityText].filter(Boolean).join(' '),
+      {
+        ...item,
+        targets: Array.isArray(item?.targets) && item.targets.length > 0 ? item.targets : resolvedControlTargets,
+      },
+    );
+    markResolvedOncePerTurnActivatedAbility(state, item);
+    bumpSeq();
+    return true;
+  }
 
   const activatedOracleForIR = (() => {
     const scoped = String(activatedAbilityText || '').trim();
@@ -394,6 +415,16 @@ export function tryResolveStackActivatedAbilityLateHandlers(
     });
     if (irResult.handled) {
       debug(2, `[tryResolveStackActivatedAbilityLateHandlers] Oracle IR resolved activated ability from ${sourceName} (${irResult.applied} step(s))`);
+      applyTemporaryGraveyardKeywordGrantFromText(
+        ctx,
+        controller as PlayerID,
+        sourceName,
+        [description, activatedAbilityText].filter(Boolean).join(' '),
+        {
+          ...item,
+          targets: Array.isArray(item?.targets) && item.targets.length > 0 ? item.targets : targets,
+        },
+      );
       markResolvedOncePerTurnActivatedAbility(state, item);
       bumpSeq();
       return true;

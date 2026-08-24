@@ -249,7 +249,7 @@ function normalizeLibrarySearchCard(card: unknown): KnownCardRef | null {
     || '',
   ).trim();
   return {
-    ...(entry as KnownCardRef),
+    ...(entry as unknown as KnownCardRef),
     id,
     ...(imageUrl && !existingUris
       ? { image_uris: { normal: imageUrl, small: imageUrl } }

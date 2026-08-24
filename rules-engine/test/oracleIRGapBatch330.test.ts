@@ -45,7 +45,7 @@ describe('Oracle IR gap batch 330 — Valigarmanda / Flamewar / Balan', () => {
       '(As this Saga enters and after your draw step, add a lore counter. Sacrifice after IV.)\nI — Exile an instant or sorcery card from each graveyard.\nII, III, IV — Add {R} for each lore counter on this Saga.',
       'Summon: Esper Valigarmanda'
     );
-    const step = ir.abilities[1]?.steps?.find((entry) => entry.kind === 'move_zone');
+    const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
     const state = {
       players: [
