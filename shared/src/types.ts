@@ -2,100 +2,20 @@
 // Canonical shared types and enums used by client and server.
 // Full expanded version, merged with PRE_GAME support.
 
-export type GameID = string;
-export type PlayerID = string;
-export type SeatIndex = number;
+import type { GameFormat, GameID, PlayerID } from './types-handlers/identityTypes.js';
+import type { CardFace, CardRef, ImageUris, KnownCardRef } from './types-handlers/cardRefTypes.js';
+import type { PlayerRef } from './types-handlers/playerRef.js';
+import type { BattlefieldPermanent } from './types-handlers/battlefieldPermanent.js';
+import type { ManaPool } from './types-handlers/manaPoolTypes.js';
 
-export type GameFormat = 'commander' | 'standard' | 'modern' | 'vintage' | 'legacy' | 'pauper' | 'custom';
+export type { GameID, PlayerID, SeatIndex, GameFormat } from './types-handlers/identityTypes.js';
 
-/* Image URIs used by Scryfall */
-export interface ImageUris {
-  small?: string;
-  normal?: string;
-  art_crop?: string;
-}
 
-/* Card face for double-faced/transform/split cards */
-export interface CardFace {
-  name?: string;
-  mana_cost?: string;
-  type_line?: string;
-  oracle_text?: string;
-  image_uris?: ImageUris;
-  power?: string;
-  toughness?: string;
-  loyalty?: string; // For MDFC planeswalkers
-}
+export type { ImageUris, CardFace, KnownCardRef, HiddenCardRef, CardRef } from './types-handlers/cardRefTypes.js';
 
-/* Known card shape (non-secret) */
-export interface KnownCardRef {
-  id: string;
-  name: string;
-  type_line?: string;
-  oracle_text?: string;
-  image_uris?: ImageUris;
-  mana_cost?: string;
-  power?: string | number;
-  toughness?: string | number;
-  loyalty?: string | number; // for planeswalkers - starting loyalty value
-  zone?: string;
-  faceDown?: boolean;
-  knownTo?: PlayerID[]; // who knows the card face/identity
-  card_faces?: CardFace[]; // for double-faced/transform/split cards
-  layout?: string; // card layout type (e.g., 'transform', 'modal_dfc', 'split')
-  colors?: readonly string[]; // color identifiers ('W', 'U', 'B', 'R', 'G')
-  color_identity?: readonly string[]; // commander legality color identity
-  cmc?: number; // converted mana cost
-  putIntoGraveyardTurn?: number;
-}
 
-/* Hidden card representation for face-down and private zones */
-export interface HiddenCardRef {
-  id: string;
-  faceDown: true;
-  zone: 'battlefield' | 'exile' | 'stack' | 'library' | 'hand' | 'graveyard' | 'command';
-  visibility: 'owner' | 'controller' | 'public' | 'none';
-  // Optional properties for compatibility with KnownCardRef (when card is revealed)
-  name?: string;
-  type_line?: string;
-  oracle_text?: string;
-  image_uris?: ImageUris;
-  mana_cost?: string;
-  power?: string | number;
-  toughness?: string | number;
-  loyalty?: string | number; // for planeswalkers - starting loyalty value
-  putIntoGraveyardTurn?: number;
-}
+export type { PlayerRef } from './types-handlers/playerRef.js';
 
-/* Generic CardRef used across the app */
-export type CardRef = KnownCardRef | HiddenCardRef;
-
-/* Player reference visible to clients */
-export interface PlayerRef {
-  id: PlayerID;
-  name: string;
-  seat: SeatIndex;
-  isSpectator?: boolean;
-  inactive?: boolean;
-  eliminated?: boolean;
-  // Optional server-side properties
-  life?: number;
-  // Additional optional properties used by rules-engine
-  hand?: any[];
-  library?: any[];
-  graveyard?: any[];
-  sideboard?: any[];
-  attractionDeck?: any[];
-  contraptionDeck?: any[];
-  // battlefield removed - use state.battlefield filtered by controller
-  exile?: any[];
-  commandZone?: any[];
-  counters?: Record<string, number>;
-  hasLost?: boolean;
-  lostReason?: string; // Reason why player lost (e.g., "Life total reached 0 or less")
-  commanderDamage?: Record<string, number>;
-  manaPool?: ManaPool;
-}
 
 /* Full server-side Player shape (subset exported for server) */
 export interface Player {
@@ -183,167 +103,15 @@ export interface CommanderInfo {
   inCommandZone?: readonly string[];
 }
 
-/* Modifier applied to a permanent (power/toughness, abilities, etc.) */
-export interface PermanentModifier {
-  readonly type: 'powerToughness' | 'POWER_TOUGHNESS' | 'ability' | 'ABILITY' | string;
-  readonly power?: number;
-  readonly toughness?: number;
-  readonly setPower?: number;
-  readonly setToughness?: number;
-  readonly ability?: string;
-  readonly sourceId?: string;
-  readonly duration?: 'permanent' | 'end_of_turn' | 'end_of_combat';
-}
+export type {
+  PermanentModifier,
+  PTBonusSource,
+  BattlefieldPermanent,
+  MutatedCardInStack,
+  MutatedCardStack,
+  TemporaryEffect,
+} from './types-handlers/battlefieldPermanent.js';
 
-/**
- * Source of a P/T bonus for display in tooltips.
- * Used to show players where their creature's stats come from.
- */
-export interface PTBonusSource {
-  name: string;           // Name of the source (card name, "Counters", etc.)
-  power: number;          // Power bonus from this source
-  toughness: number;      // Toughness bonus from this source
-  type: 'equipment' | 'aura' | 'enchantment' | 'creature' | 'artifact' | 'counter' | 'modifier' | 'emblem' | 'other';
-}
-
-/* Battlefield permanent shape */
-export interface BattlefieldPermanent {
-  id: string;
-  controller: PlayerID;
-  owner: PlayerID;
-  leaveBattlefieldReplacement?: 'exile';
-  tapped?: boolean;
-  /** CR 701.64b designation. It is not copiable and clears when this object leaves the battlefield. */
-  harnessed?: boolean;
-  counters?: Readonly<Record<string, number>>;
-  basePower?: number;
-  baseToughness?: number;
-  attachedTo?: string;
-  attachments?: string[];           // IDs of permanents attached to this one (auras, equipment)
-  modifiers?: readonly PermanentModifier[]; // Power/toughness and other modifiers from effects
-  effectivePower?: number;
-  effectiveToughness?: number;
-  trepanationBonus?: number;
-  lastTrepanationBonus?: number;
-  /** Sources contributing to P/T bonuses, for tooltip display */
-  ptSources?: PTBonusSource[];
-  isCommander?: boolean;
-  grantedAbilities?: string[];
-  posX?: number;
-  posY?: number;
-  posZ?: number;
-  /** Text-changing effects may override oracle text on the permanent */
-  oracle_text?: string;
-  card: CardRef;
-  // Combat state
-  attacking?: PlayerID | string;  // Player ID being attacked, or permanent ID if attacking a planeswalker
-  blocking?: string[];            // Array of creature IDs this creature is blocking
-  blockedBy?: string[];           // Array of creature IDs blocking this creature
-  // Planeswalker fields
-  baseLoyalty?: number;           // Starting loyalty
-  loyalty?: number;               // Current loyalty counter value
-  // Targeting state (for visual indicators)
-  targetedBy?: string[];          // IDs of spells/abilities targeting this permanent
-  // Temporary effects applied to this permanent (e.g., "exile if dies this turn", "gains +1/+1 until end of turn")
-  temporaryEffects?: readonly TemporaryEffect[];
-  // Creature type choice for changeling/tribal effects (e.g., Mistform Ultimus)
-  chosenCreatureType?: string;
-  // Class cards use battlefield state to track their current level designation
-  level?: number;
-  // Phasing support
-  phasedOut?: boolean;
-  phaseOutController?: PlayerID;
-  // Teferi's Protection and similar effects
-  teferisProtection?: boolean;
-  // Echo paid tracking
-  echoPaid?: boolean;
-  // Token flag
-  isToken?: boolean;
-  // Provenance for token-linked delayed cleanup/reference effects
-  createdBySourceId?: string;
-  createdBySourceName?: string;
-  // Summoning sickness
-  summoningSickness?: boolean;
-  // Track if this permanent entered this turn (combat/trigger helpers)
-  enteredThisTurn?: boolean;
-  // Damage marked for state-based actions
-  damageMarked?: number;
-  // Mobilize tokens - sacrifice at end step
-  sacrificeAtEndStep?: boolean;
-  // Is currently attacking (for tokens created attacking)
-  isAttacking?: boolean;
-  // Equipment tracking
-  attachedEquipment?: string[];     // IDs of equipment attached to this creature
-  isEquipped?: boolean;             // True if this creature has equipment attached
-  // Goad mechanic (Rule 701.15)
-  goadedBy?: string[];              // Player IDs who have goaded this creature
-  goadedUntil?: Readonly<Record<string, number>>; // Map of player ID -> turn number when goad expires
-  // Soulbond pairing (Rule 702.95) — bilateral partner permanent id
-  pairedWith?: string;
-  // Mutate support (Rule 702.140)
-  mutatedStack?: MutatedCardStack;  // Stack of cards in a mutated creature (presence indicates mutation)
-  mutationCount?: number;           // Number of times this creature has been mutated
-  // Monstrosity support (Rule 701.37)
-  isMonstrous?: boolean;
-  monstrosityX?: number;
-  // Control change mechanics (Xantcha, Vislor Turlough, Akroan Horse)
-  mustAttackEachCombat?: boolean;   // Xantcha-style: creature must attack each combat if able
-  cantAttackOwner?: boolean;        // Xantcha-style: creature can't attack its owner
-  ownerId?: PlayerID;               // Original owner for cantAttackOwner restriction
-  pendingControlChange?: {          // ETB control change pending opponent selection
-    type: 'enters_under_opponent_control' | 'may_give_opponent' | 'opponent_gains';
-    originalOwner: PlayerID;
-    isOptional?: boolean;
-    goadsOnChange?: boolean;
-    mustAttackEachCombat?: boolean;
-    cantAttackOwner?: boolean;
-  };
-  // Token grouping optimization - when many identical tokens exist, server groups them
-  isGroupedTokens?: boolean;        // True if this represents multiple identical tokens
-  tokenCount?: number;              // Number of tokens in this group (only if isGroupedTokens)
-  groupedTokenIds?: string[];       // Original IDs of all tokens in this group
-  originalId?: string;              // First token's ID (for consistent group identification)
-}
-
-/**
- * Represents a card in a mutated permanent's stack
- * Rule 702.140e: Mutated permanents are represented by multiple cards
- */
-export interface MutatedCardInStack {
-  id: string;
-  name: string;
-  typeLine: string;
-  oracleText?: string;
-  power?: string;
-  toughness?: string;
-  manaCost?: string;
-  isOriginal: boolean;    // True if this was the original creature (not from mutating)
-  isCommander?: boolean;  // True if this card is a commander
-  imageUrl?: string;
-}
-
-/**
- * The stack of cards that make up a mutated permanent
- * Rule 702.140e: Top card determines characteristics, all cards provide abilities
- */
-export type MutatedCardStack = readonly MutatedCardInStack[];
-
-/* Temporary effect applied to a permanent or player */
-export interface TemporaryEffect {
-  id: string;
-  description: string;           // Human-readable description
-  icon?: string;                 // Icon/emoji for the effect
-  expiresAt?: 'end_of_turn' | 'end_of_combat' | 'next_upkeep' | 'leaves_battlefield';
-  /** Effects like detain expire as the named player's next turn begins. */
-  expiresOnControllerTurn?: PlayerID;
-  sourceId?: string;             // ID of the permanent/spell that created this effect
-  sourceName?: string;           // Name of the source
-  /**
-   * Optional keyword abilities granted while this effect remains active.
-   * Used so cleanup can remove transient granted abilities cleanly.
-   */
-  grantedAbilities?: readonly string[];
-}
 
 export interface DamagePreventionEffect {
   id: string;
@@ -957,101 +725,8 @@ export interface StateDiff<T> {
   seq: number;
 }
 
-/**
- * Mana restriction type - specifies how restricted mana can be spent
- * Rule 106.6: Some abilities produce mana that can be spent only on certain things
- */
-export type ManaRestrictionType = 
-  | 'creatures'           // Can only be spent on creatures (e.g., Beastcaller Savant)
-  | 'abilities'           // Can only be spent on abilities (e.g., Metalworker with Training Grounds)
-  | 'colorless_spells'    // Can only be spent on colorless spells (e.g., Eldrazi Temple)
-  | 'artifacts'           // Can only be spent on artifacts
-  | 'no_nonartifact_spells' // Powerstone/Vibranium: cannot cast nonartifact spells; OK for artifact spells, activated abilities, other costs
-  | 'legendary'           // Can only be spent on legendary spells (e.g., Reki, History of Kamigawa)
-  | 'multicolored'        // Can only be spent on multicolored spells
-  | 'commander'           // Can only be spent on commander costs (e.g., Command Tower in some interpretations)
-  | 'activated_abilities' // Can only be spent to activate abilities of a specific permanent type
-  | 'instant_sorcery'     // Can only be spent on instants and sorceries
-  | 'chosen_type_creature_spell' // Cavern of Souls, Unclaimed Territory, etc.
-  | 'chosen_type_creature_source' // Secluded Courtyard — creature spells + creature-source abilities
-  | 'chosen_type_spell'   // Echoing Cavern — any spell of the chosen type
-  | 'creature_spells_mv_or_x' // Helga: creature spells with MV >= N (restrictedTo) or {X} in cost
-  | 'specific_card';      // Can only be spent on a specific card or permanent (stored in restrictedTo)
+export type { ManaRestrictionType, RestrictedManaEntry, ManaPool } from './types-handlers/manaPoolTypes.js';
 
-/**
- * Represents a single unit of restricted mana in the mana pool
- * Rule 106.6: Some effects produce mana with restrictions on what it can be spent on
- */
-export interface RestrictedManaEntry {
-  /** The type of the mana (primary field for identifying the mana color) */
-  type: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-  /** Amount of mana with this restriction */
-  amount: number;
-  /** Type of restriction on this mana */
-  restriction: ManaRestrictionType;
-  /** Optional: specific card/permanent ID this mana can be spent on */
-  restrictedTo?: string;
-  /** Source permanent that produced this mana (for tracking) */
-  sourceId?: string;
-  /** Source permanent name (for display) */
-  sourceName?: string;
-}
-
-/**
- * Enhanced mana pool for a player - supports both regular and restricted mana
- * 
- * Rule 106.4: A player's mana pool is where mana is stored.
- * Rule 106.6: Some mana can only be spent in specific ways.
- * Rule 106.4a: If unused mana remains in a player's mana pool after mana is spent to pay
- * a cost, that player announces what mana is left. If unused mana remains in a player's 
- * mana pool at the end of a step or phase, that mana empties (unless the player has an 
- * effect preventing it, like Horizon Stone or Omnath, Locus of Mana).
- */
-export interface ManaPool {
-  /** Regular unrestricted mana counts */
-  white: number;
-  blue: number;
-  black: number;
-  red: number;
-  green: number;
-  colorless: number;
-  generic?: number;
-  
-  /** 
-   * Restricted mana entries - mana that can only be spent on specific things
-   * Each entry represents mana with a specific restriction type
-   * Readonly to match rules-engine types
-   */
-  readonly restricted?: readonly RestrictedManaEntry[];
-  
-  /**
-   * Flag indicating this player's mana pool doesn't empty at end of phases/steps
-   * Set by effects like Horizon Stone, Omnath Locus of Mana, Kruphix God of Horizons
-   */
-  readonly doesNotEmpty?: boolean;
-  
-  /**
-   * If mana doesn't empty but converts to a specific color, specify that color
-   * Examples:
-   * - 'colorless' for Kruphix, God of Horizons and Horizon Stone
-   * - 'black' for Omnath, Locus of All
-   * - 'red' for Ozai, the Phoenix King
-   * If undefined and doesNotEmpty is true, mana is preserved as-is
-   */
-  readonly convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-  
-  /**
-   * @deprecated Use convertsTo instead. Kept for backwards compatibility.
-   * If mana doesn't empty but converts to colorless, specify that transformation
-   */
-  readonly convertsToColorless?: boolean;
-  
-  /**
-   * Source permanent(s) providing the "doesn't empty" effect
-   * Used to track when the effect should be removed
-   */
-  readonly noEmptySourceIds?: readonly string[];
-}
 
 /* Payment item for mana payment during spell casting */
 export type ManaColor = 'W' | 'U' | 'B' | 'R' | 'G' | 'C';

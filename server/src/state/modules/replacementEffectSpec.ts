@@ -574,6 +574,7 @@ function readOverlayReplacementSpecs(ability: {
 export function collectReplacementEffectSpecsFromState(state: unknown): ReplacementEffectSpec[] {
   const specs: ReplacementEffectSpec[] = [];
   const battlefield = Array.isArray((state as any)?.battlefield) ? (state as any).battlefield : [];
+  const overlayByLookupKey = new Map<string, ReturnType<typeof resolveCompiledOverlayForCard>>();
 
   for (const perm of battlefield) {
     if (!perm?.card || perm?.phasedOut === true) continue;
@@ -583,8 +584,16 @@ export function collectReplacementEffectSpecsFromState(state: unknown): Replacem
     const sourceName = String(perm.card?.name || perm.name || 'Unknown').trim();
     if (!sourcePermanentId) continue;
 
-    const lookupKeys = extractOracleCardLookupKeys({ card: perm.card, effectiveCard: perm.card });
-    const overlay = resolveCompiledOverlayForCard(lookupKeys);
+    const oracleId = String(perm.card?.oracle_id || perm.card?.oracleId || '').trim();
+    const cacheKey = oracleId
+      ? `id:${oracleId.toLowerCase()}`
+      : `name:${sourceName.toLowerCase()}`;
+    let overlay = overlayByLookupKey.get(cacheKey);
+    if (overlay === undefined) {
+      const lookupKeys = extractOracleCardLookupKeys({ card: perm.card, effectiveCard: perm.card });
+      overlay = resolveCompiledOverlayForCard(lookupKeys);
+      overlayByLookupKey.set(cacheKey, overlay);
+    }
     if (!overlay?.abilities?.length) continue;
 
     for (const ability of overlay.abilities) {

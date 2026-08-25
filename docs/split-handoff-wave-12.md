@@ -10,7 +10,7 @@ These two are disjoint. One writer per parent.
 | BU | `triggerReflexiveWhenYouDoQueueUtils.ts` **37.7 KB** (done) | `maybeQueueReflexiveAnyAmountManaPayment` (2.4 KB) — parent is only **124 B** over |
 | BV | `AIEngine.ts` **38.1 KB** (done) | peel one class-method cluster with `--allow-nested`; class stays. Parent is only **77 B** over |
 
-Wave 12 complete. Remaining overs are client UI and `shared/src/types.ts` only (skipped unless requested).
+Wave 12 complete. Next unused overs: `docs/split-handoff-wave-13.md`.
 
 **Reflexive (BU):** existing sibling `triggerReflexiveBoundSelfExilePreludeUtils.ts` stays put — do not append.
 

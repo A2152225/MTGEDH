@@ -1,0 +1,26 @@
+
+  return {
+    openSplitCardChoice,
+    handleUseTopOfLibrary,
+    handleSplitCardChoose,
+    handleSplitCardCancel,
+    handleViewGraveyard,
+    handleViewExile,
+    handleGraveyardAbility,
+    handleExileAbility,
+    handleJoinForcesContribute,
+    handleTemptingOfferRespond,
+    handleKynaiosChoiceRespond,
+    handleOptionChoiceRespond,
+    expandGroupedTokens,
+    myCreatures,
+    myBlockerCreatures,
+    attackingCreatures,
+    defenders,
+    defenderInfoMap,
+    combatModalAttackersAvailableCreatures,
+    combatModalAttackersDefenders,
+    combatControlEffect,
+    combatModalInitialAttackTargets,
+  };
+}

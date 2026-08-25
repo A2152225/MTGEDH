@@ -8,26 +8,16 @@ import type { GameID } from '../../../shared/src/types';
 import { PreconBrowser } from './PreconBrowser';
 import { useIsTouch } from '../hooks/useIsTouch';
 import { colors, fontSize, radii, safeArea, spacing, touch, z } from '../theme';
+import { fetchServerDeckSummaries } from '../utils/serverDeckApi';
 import {
-  deleteServerDeckViaApi,
-  fetchServerDeckDetail,
-  fetchServerDeckSummaries,
-  renameServerDeckViaApi,
-  saveServerDeckViaApi,
-  updateServerDeckViaApi,
-} from '../utils/serverDeckApi';
-import {
-  describeRandomDeckSource,
-  executeRandomDeckPick,
-} from '../utils/randomDeckSelection';
-import {
-  createLocalDeckId,
   loadLocalSavedDecks,
   saveLocalSavedDecks,
 } from '../utils/localDeckStorage';
 import { DeckResolvePreviewPanel } from './DeckResolvePreviewPanel';
 import { DeckListTextarea } from './DeckListTextarea';
 import { useDeckResolvePreview } from '../hooks/useDeckResolvePreview';
+import { useDeckManagerModalRandomImportHandlers } from './DeckManagerModal-handlers/deckManagerModalRandomImportHandlers';
+import { createDeckManagerModalSaveCacheHandlers } from './DeckManagerModal-handlers/deckManagerModalSaveCacheHandlers';
 
 type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };
 
@@ -321,114 +311,23 @@ export function DeckManagerModal({
     return serverDecks.filter(d => d.name.toLowerCase().includes(q));
   }, [serverDecks, serverFilter]);
 
-  const initialActionHandledRef = useRef(false);
-
-  const importPreconDeck = React.useCallback((
-    commanders: string[],
-    deckName: string,
-    setName: string,
-    year: number,
-    setCode: string,
-    colorIdentity: string,
-  ) => {
-    if (!gameId) {
-      setLocalErr('Join a game to import precon decks.');
-      return;
-    }
-    socket.emit('importPreconDeck', {
-      gameId,
-      commanders,
-      deckName,
-      setName,
-      year,
-      setCode,
-      colorIdentity,
-      cacheCards,
-    });
-    onClose();
-  }, [cacheCards, gameId, onClose]);
-
-  const handleRandomDeck = React.useCallback(() => {
-    setPickingRandomDeck(true);
-    setLocalErr(null);
-
-    const result = executeRandomDeckPick({
-      localDecks: localList,
-      serverDecks,
-      includeServer: !!canServer,
-      includePrecons: !!gameId,
-      handlers: {
-        onImportLocal: (text, name) => {
-          onImportText(text, name, cacheCards);
-          if (alsoSaveToServer && canServer && gameId) {
-            socket.emit('saveDeck', {
-              gameId,
-              name: name || 'Deck',
-              list: text,
-              cacheCards,
-            });
-          }
-        },
-        onUseServerDeck: (deckId) => {
-          if (onUseSavedDeck) {
-            onUseSavedDeck(deckId);
-          } else if (gameId) {
-            socket.emit('useSavedDeck', { gameId, deckId });
-          }
-        },
-        onImportPrecon: ({
-          commanders,
-          deckName,
-          setName,
-          year,
-          setCode,
-          colorIdentity,
-        }) => {
-          importPreconDeck(commanders, deckName, setName, year, setCode, colorIdentity);
-        },
-      },
-    });
-
-    if (!result.ok) {
-      setRandomDeckMessage(null);
-      setLocalErr(result.error);
-      setPickingRandomDeck(false);
-      return;
-    }
-
-    setRandomDeckMessage(`Random pick: ${result.choice.label} (${describeRandomDeckSource(result.choice)})`);
-
-    if (result.choice.source !== 'precon') {
-      onClose();
-    }
-
-    setPickingRandomDeck(false);
-  }, [
-    alsoSaveToServer,
-    cacheCards,
-    canServer,
+  const { importPreconDeck, handleRandomDeck } = useDeckManagerModalRandomImportHandlers({
+    open,
     gameId,
-    importPreconDeck,
+    cacheCards,
     onClose,
     onImportText,
     onUseSavedDeck,
+    canServer,
+    alsoSaveToServer,
     localList,
     serverDecks,
-  ]);
-
-  useEffect(() => {
-    if (!open) {
-      initialActionHandledRef.current = false;
-      return;
-    }
-    if (initialAction !== 'random' || initialActionHandledRef.current) return;
-    initialActionHandledRef.current = true;
-    const timer = window.setTimeout(() => {
-      handleRandomDeck();
-      onInitialActionConsumed?.();
-    }, 200);
-    return () => window.clearTimeout(timer);
-  }, [open, initialAction, handleRandomDeck, onInitialActionConsumed]);
+    setLocalErr,
+    setPickingRandomDeck,
+    setRandomDeckMessage,
+    initialAction,
+    onInitialActionConsumed,
+  });
 
   if (!open) return null;
 
@@ -436,216 +335,55 @@ export function DeckManagerModal({
     e.stopPropagation();
   };
 
-  const saveLocal = () => {
-    if (!localText.trim()) { setLocalErr('Empty list'); return; }
-    if (!localName.trim()) { setLocalErr('Name required'); return; }
-    if (editingLocalId) {
-      const next = localList.map((entry) => (
-        entry.id === editingLocalId
-          ? { ...entry, name: localName.trim(), text: localText, savedAt: Date.now() }
-          : entry
-      ));
-      saveLocalSavedDecks(next);
-      setLocalList(next);
-      clearEditMode();
-      setLocalName('');
-      setLocalText('');
-      clearPreview();
-      setLocalErr(null);
-      return;
-    }
-    const deck: SavedLocalDeck = { id: createLocalDeckId('l'), name: localName.trim(), text: localText, savedAt: Date.now() };
-    const next = [deck, ...localList].slice(0, 200);
-    saveLocalSavedDecks(next);
-    setLocalList(next);
-    setLocalName('');
-    setLocalText('');
-    clearPreview();
-    setLocalErr(null);
-  };
-
-  const beginEditLocal = (deck: SavedLocalDeck) => {
-    setLocalName(deck.name);
-    setLocalText(deck.text);
-    void resolveAllFromText(deck.text);
-    setEditingLocalId(deck.id);
-    setEditingServerDeckId(null);
-    setPendingServerEditId(null);
-    setLocalErr(null);
-    setTab('local');
-  };
-
-  const beginEditServer = (deckId: string) => {
-    setPendingServerEditId(deckId);
-    setEditingLocalId(null);
-    setServerErr(null);
-    requestDetail(deckId);
-  };
-
-  const saveLocalDeckToServer = async (name: string, text: string) => {
-    if (!canServer) return;
-    if (gameId) {
-      socket.emit('saveDeck', { gameId, name, list: text, cacheCards });
-      return;
-    }
-    if (!useRestServer) return;
-    setSaving(true);
-    try {
-      await saveServerDeckViaApi({
-        name,
-        text,
-        playerId,
-        playerName,
-        cacheCards,
-      });
-      await refreshRestServerDecks();
-      setServerErr(null);
-    } catch (err) {
-      setServerErr(err instanceof Error ? err.message : 'Failed to save deck');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const importLocal = (d: SavedLocalDeck) => {
-    onImportText(d.text, d.name, cacheCards);
-    if (alsoSaveToServer && canServer) {
-      void saveLocalDeckToServer(d.name || 'Deck', d.text);
-    }
-  };
-
-  const importPastedText = () => {
-    if (!localText.trim()) { setLocalErr('Paste a decklist first'); return; }
-    setLocalErr(null);
-    onImportText(localText, localName.trim() || undefined, cacheCards);
-    if (alsoSaveToServer && canServer && localName.trim()) {
-      void saveLocalDeckToServer(localName.trim(), localText);
-    }
-  };
-
-  // Use server deck: if parent provided onUseSavedDeck, call it; otherwise emit directly.
-  const importServer = (deckId: string) => {
-    if (onUseSavedDeck) {
-      onUseSavedDeck(deckId);
-    } else {
-      if (gameId) socket.emit('useSavedDeck', { gameId, deckId });
-    }
-  };
-  const requestDetail = (deckId: string) => {
-    if (gameId) {
-      socket.emit('getSavedDeck', { gameId, deckId });
-      return;
-    }
-    if (!useRestServer) return;
-    void (async () => {
-      try {
-        const deck = await fetchServerDeckDetail(deckId);
-        applyServerDeckDetail(deck);
-        setServerErr(null);
-      } catch (err) {
-        setServerErr(err instanceof Error ? err.message : 'Failed to load deck');
-        setPendingServerEditId(null);
-      }
-    })();
-  };
-  const saveServer = () => {
-    if (!canServer) return;
-    if (!localText.trim() || !localName.trim()) { setServerErr('Name & text required'); return; }
-    if (gameId) {
-      setSaving(true);
-      socket.emit('saveDeck', { gameId, name: localName.trim(), list: localText, cacheCards });
-      return;
-    }
-    if (!useRestServer) {
-      setServerErr('Join a game or use localhost to save server decks.');
-      return;
-    }
-    void saveLocalDeckToServer(localName.trim(), localText);
-  };
-  const updateServerDeck = () => {
-    if (!canServer || !editingServerDeckId) return;
-    if (!localText.trim() || !localName.trim()) { setServerErr('Name & text required'); return; }
-    if (gameId) {
-      setUpdatingServer(true);
-      socket.emit('updateSavedDeck', {
-        gameId,
-        deckId: editingServerDeckId,
-        name: localName.trim(),
-        list: localText,
-        cacheCards,
-      });
-      return;
-    }
-    if (!useRestServer) {
-      setServerErr('Join a game or use localhost to edit server decks.');
-      return;
-    }
-    setUpdatingServer(true);
-    void (async () => {
-      try {
-        await updateServerDeckViaApi(editingServerDeckId, {
-          name: localName.trim(),
-          text: localText,
-          playerId,
-          cacheCards,
-        });
-        clearEditMode();
-        setLocalName('');
-        setLocalText('');
-        clearPreview();
-        await refreshRestServerDecks();
-        setServerErr(null);
-      } catch (err) {
-        setServerErr(err instanceof Error ? err.message : 'Failed to update deck');
-      } finally {
-        setUpdatingServer(false);
-      }
-    })();
-  };
-  const renameServerDeck = (deck: SavedDeckSummary) => {
-    const newName = prompt('Rename deck', deck.name) || deck.name;
-    if (gameId) {
-      socket.emit('renameSavedDeck', { gameId, deckId: deck.id, name: newName });
-      return;
-    }
-    if (!useRestServer) return;
-    void (async () => {
-      try {
-        const updated = await renameServerDeckViaApi(deck.id, newName, playerId);
-        setServerDecks(prev => prev.map(d => (d.id === updated.id ? updated : d)));
-        if (detail?.id === updated.id) {
-          setDetail(prev => (prev ? { ...prev, name: updated.name } : prev));
-        }
-        setServerErr(null);
-      } catch (err) {
-        setServerErr(err instanceof Error ? err.message : 'Failed to rename deck');
-      }
-    })();
-  };
-  const deleteServerDeck = (deck: SavedDeckSummary) => {
-    if (!confirm(`Delete server deck "${deck.name}"?`)) return;
-    if (gameId) {
-      socket.emit('deleteSavedDeck', { gameId, deckId: deck.id });
-      return;
-    }
-    if (!useRestServer) return;
-    void (async () => {
-      try {
-        await deleteServerDeckViaApi(deck.id, playerId);
-        setServerDecks(prev => prev.filter(d => d.id !== deck.id));
-        if (detail?.id === deck.id) setDetail(null);
-        if (editingServerDeckId === deck.id) clearEditMode();
-        setServerErr(null);
-      } catch (err) {
-        setServerErr(err instanceof Error ? err.message : 'Failed to delete deck');
-      }
-    })();
-  };
-  const cacheDeck = (deckId: string) => {
-    if (!gameId) return;
-    setCachingDeckId(deckId);
-    socket.emit('cacheSavedDeck', { gameId, deckId });
-  };
+  const {
+    saveLocal,
+    beginEditLocal,
+    beginEditServer,
+    importLocal,
+    importPastedText,
+    importServer,
+    requestDetail,
+    saveServer,
+    updateServerDeck,
+    renameServerDeck,
+    deleteServerDeck,
+    cacheDeck,
+  } = createDeckManagerModalSaveCacheHandlers({
+    localText,
+    setLocalErr,
+    localName,
+    editingLocalId,
+    localList,
+    setLocalList,
+    clearEditMode,
+    setLocalName,
+    setLocalText,
+    clearPreview,
+    resolveAllFromText,
+    setEditingLocalId,
+    setEditingServerDeckId,
+    setPendingServerEditId,
+    setTab,
+    canServer,
+    gameId,
+    cacheCards,
+    useRestServer,
+    setSaving,
+    playerId,
+    playerName,
+    refreshRestServerDecks,
+    setServerErr,
+    onImportText,
+    alsoSaveToServer,
+    onUseSavedDeck,
+    applyServerDeckDetail,
+    setUpdatingServer,
+    editingServerDeckId,
+    setServerDecks,
+    detail,
+    setDetail,
+    setCachingDeckId,
+  });
 
   const backdropStyle: React.CSSProperties = {
     position: 'fixed',

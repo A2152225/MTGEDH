@@ -1,170 +1,10 @@
-import React, { useMemo, useRef, useState, useEffect } from "react";
-import { socket } from "./socket";
-import type {
-  ClientGameView,
-  PlayerID,
-  PlayerRef,
-  KnownCardRef,
-  CardFace,
-  ChatMsg,
-  BattlefieldPermanent,
-  CardRef,
-  ManaPool,
-  PaymentCostAdjustment,
-} from "../../shared/src";
-import { buildOptionalEffectKey } from "../../shared/src/optionalEffectKey";
-import { TableLayout } from "./components/TableLayout";
-import { CardPreviewLayer, PreviewSizeControl } from "./components/CardPreviewLayer";
-import CommanderConfirmModal from "./components/CommanderConfirmModal";
-import { CommanderSelectModal } from "./components/CommanderSelectModal";
-import NameInUseModal from "./components/NameInUseModal";
-import { ZonesPanel } from "./components/ZonesPanel";
-import { ScrySurveilModal } from "./components/ScrySurveilModal";
-import { FatesealModal } from "./components/FatesealModal";
-import { ClashModal } from "./components/ClashModal";
-import { VoteModal } from "./components/VoteModal";
-import { CastSpellModal, type AlternateCost } from "./components/CastSpellModal";
-import { buildBattlefieldSpellAlternateCosts } from "./utils/battlefieldSpellAlternateCosts";
-import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
-import { CombatControlModal, type CombatControlDeclarations } from "./components/CombatControlModal";
-import { ReturnControlledPermanentChoiceModal } from "./components/ReturnControlledPermanentChoiceModal";
-import { CardSelectionModal } from "./components/CardSelectionModal";
-import { TriggeredAbilityModal, type TriggerPromptData } from "./components/TriggeredAbilityModal";
-import { MulliganBottomModal } from "./components/MulliganBottomModal";
-import { DiscardSelectionModal } from "./components/DiscardSelectionModal";
-import { OpeningHandActionsModal } from "./components/OpeningHandActionsModal";
-import { LibrarySearchModal } from "./components/LibrarySearchModal";
-import { TargetSelectionModal, type TargetOption, type TargetSelectionGroup } from "./components/TargetSelectionModal";
-import { ProliferateModal, type ProliferateTarget } from "./components/ProliferateModal";
-import { LifeRedistributionModal, type LifeRedistributionPlayer } from "./components/LifeRedistributionModal";
-import { UndoRequestModal, type UndoBoundaryPreview, type UndoRequestData } from "./components/UndoRequestModal";
-import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
-import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
-import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
-import { LifePaymentModal } from "./components/LifePaymentModal";
-import { ColorChoiceModal } from "./components/ColorChoiceModal";
-import { CardNameChoiceModal } from "./components/CardNameChoiceModal";
-import { AnyColorManaModal } from "./components/AnyColorManaModal";
-import { ManaDistributionModal } from "./components/ManaDistributionModal";
-import { CounterDistributionModal } from "./components/CounterDistributionModal";
-import { AdditionalCostModal } from "./components/AdditionalCostModal";
-import { SquadCostModal } from "./components/SquadCostModal";
-import { PhyrexianManaChoiceModal } from "./components/PhyrexianManaChoiceModal";
-import { CastingModeSelectionModal, type CastingMode } from "./components/CastingModeSelectionModal";
-import { ModalSpellSelectionModal, type SpellMode } from "./components/ModalSpellSelectionModal";
-import { ReplacementEffectOrderModal, type ReplacementEffectItem, type OrderingMode } from "./components/ReplacementEffectOrderModal";
-import { ReplacementEffectSettingsPanel } from "./components/ReplacementEffectSettingsPanel";
-import { GraveyardViewModal } from "./components/GraveyardViewModal";
-import { ExileViewModal } from "./components/ExileViewModal";
-import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
-import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
-import { KynaiosChoiceModal, type KynaiosChoiceRequest } from "./components/KynaiosChoiceModal";
-import { OptionChoiceModal, type OptionChoiceRequest } from "./components/OptionChoiceModal";
-import { TwoPileSplitModal, type TwoPileSplitRequest } from "./components/TwoPileSplitModal";
-import { TapUntapTargetModal } from "./components/TapUntapTargetModal";
-import { CounterMovementModal } from "./components/CounterMovementModal";
-import { StationCreatureSelectionModal, type StationCreature, type StationInfo } from "./components/StationCreatureSelectionModal";
-import { PlayerTargetSelectionModal, type PlayerTarget } from "./components/PlayerTargetSelectionModal";
-import { PonderModal, type PeekCard, type PonderVariant } from "./components/PonderModal";
-import { DanceWithCalamityCastModal, DanceWithCalamityModal } from "./components/DanceWithCalamityModal";
-import { LimDulsVaultModal } from "./components/LimDulsVaultModal";
-import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
-import { BatchExploreModal, type ExploreResult } from "./components/BatchExploreModal";
-import { CascadeModal } from "./components/CascadeModal";
-import { OpponentMayPayModal, type OpponentMayPayPrompt } from "./components/OpponentMayPayModal";
-import {
-  LoopShortcutConsentModal,
-  type LoopShortcutConsentPrompt,
-} from "./components/LoopShortcutConsentModal";
-import { MayAbilityModal, type MayAbilityModalData } from "./components/MayAbilityModal";
-import { ResolutionMinimizedChip, ResolutionPromptMinimizeButton } from "./components/ResolutionMinimizedChip";
-import { isResolutionStepMandatory } from "./utils/resolutionStepUtils";
-import {
-  buildGenericOptionChoiceRequestFromStep,
-  buildLibrarySearchModalStateFromStep,
-  buildPendingSpellXSelectionFromStep,
-  isGenericNumberChoiceStep,
-  isGenericOptionChoiceFallbackStep,
-  isNamedGenericOptionChoiceStep,
-} from "./utils/resolutionChoicePrimitives";
-import { MutateTargetModal, type MutateTarget } from "./components/MutateTargetModal";
-import { GraveyardSelectionModal, type GraveyardCard } from "./components/GraveyardSelectionModal";
-import { XValueSelectionModal } from "./components/XValueSelectionModal";
-import { IgnoredCardsPanel, type IgnoredCard, type IgnoredCardZone } from "./components/IgnoredCardsPanel";
-import { type ImagePref } from "./components/BattlefieldGrid";
-import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
-import { useViewport } from "./hooks/useViewport";
-import { useIsTouch } from "./hooks/useIsTouch";
-import { useMobilePlayLayout } from "./hooks/useMobilePlayLayout";
-import { useGameStateLog } from "./hooks/useGameStateLog";
-import { useRandomDeckPicker } from "./hooks/useRandomDeckPicker";
-import { GameCommunicationsPanel } from "./components/GameCommunicationsPanel";
-import { MobileActionDock } from "./components/MobileActionDock";
-import { SeatStrip } from "./components/SeatStrip";
-import { YourTurnBanner } from "./components/YourTurnBanner";
-import { MobileHandStrip } from "./components/MobileHandStrip";
-import { MobilePlaySheets, type MobilePlaySheet } from "./components/MobilePlaySheets";
-import { toast } from "./components/ToastHost";
-import type { PaymentItem, ManaColor, TriggerShortcut } from "../../shared/src";
-import { GameStatusIndicator } from "./components/GameStatusIndicator";
-import { CreateGameModal, type GameCreationConfig } from "./components/CreateGameModal";
-import { PhaseNavigator } from "./components/PhaseNavigator";
-import { DeckManagerModal } from "./components/DeckManagerModal";
-import {
-  type AppearanceSettings,
-  loadAppearanceSettings,
-  saveAppearanceSettings,
-  getBackgroundStyle,
-  getTextColorsForBackground,
-} from "./utils/appearanceSettings";
-import { prettyPhase, prettyStep, isLandTypeLine, readPlayerLife, lifeTotalColor } from "./utils/gameDisplayHelpers";
-import { canCreatureAttackNow, canCreatureBlockNow, isCurrentlyCreature } from "./utils/creatureUtils";
-import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
-import { MayAutoPreferencesPanel } from "./components/MayAutoPreferencesPanel";
-import { PriorityModal } from "./components/PriorityModal";
-import { AutoPassSettingsPanel } from "./components/AutoPassSettingsPanel";
-import { TriggerShortcutsPanel } from "./components/TriggerShortcutsPanel";
-import { DraggableSettingsPanel } from "./components/DraggableSettingsPanel";
-import { LoopShortcutPanel } from "./components/LoopShortcutPanel";
-import { debug, debugWarn, debugError } from "./utils/debug";
-import { buildAvailableManaSourcesForPlayer } from "./utils/manaSourceBuilder";
-import {
-  buildResolutionResponsePayload,
-  clearLoopShortcutDraft,
-  clampLoopShortcutIterations,
-  createRecordedEmitItem,
-  createRecordedResolutionResponseItem,
-  deleteSavedLoopShortcut,
-  loadLoopShortcutDraft,
-  loadSavedLoopShortcuts,
-  matchesPromptFingerprint,
-  canAdvanceLoopShortcutAfterState,
-  shouldLoopShortcutAutoPassPriority,
-  buildLoopShortcutStackPassKey,
-  noteLoopShortcutCastSettleStack,
-  isLoopShortcutPhaseAdvanceEmit,
-  sanitizeLoopShortcutItems,
-  saveLoopShortcutDraft,
-  type SavedLoopShortcut,
-  type LoopShortcutSequenceItem,
-  type LoopShortcutCastSettleState,
-  upsertSavedLoopShortcut,
-} from "./utils/loopShortcuts";
-
-const LOOP_SHORTCUT_RECORDABLE_EVENTS = new Set([
-  'activateBattlefieldAbility',
-  'activateGraveyardAbility',
-  'requestCastSpell',
-  'castSpellFromHand',
-  'completeCastSpell',
-  'castCommander',
-  // passPriority is intentionally NOT recorded: replaying it with an empty stack
-  // advances the phase (main → combat). While waitingForState, the loop auto-passes
-  // only when the stack is non-empty (see shouldLoopShortcutAutoPassPriority).
-  'playLand',
-]);
-
+import { useAppAutoPassHandlers } from "./App-handlers/appAutoPassHandlers";
+import { useAppPlayStateEarly } from "./App-handlers/appPlayStateEarly";
+import { useAppPlayStateLate } from "./App-handlers/appPlayStateLate";
+import { useAppPlayLeftoverHandlers } from "./App-handlers/appPlayLeftoverHandlers";
+import { useAppPlayRuntime } from "./App-handlers/appPlayRuntime";
+import { renderAppPlayShell } from "./App-handlers/appPlayShell";
 
 /* App component */
 export function App() {
@@ -218,9585 +58,1245 @@ export function App() {
     openConfirmFromResolutionStep,
   } = useGameSocket();
 
-  const [imagePref, setImagePref] = useState<ImagePref>(
-    () =>
-      (localStorage.getItem("mtgedh:imagePref") as ImagePref) || "normal"
-  );
-  const [layout, setLayout] = useState<"rows" | "table">(
-    () =>
-      (localStorage.getItem("mtgedh:layout") as "rows" | "table") || "table"
-  );
-
-  // Appearance settings state (cached in localStorage)
-  const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>(
-    () => loadAppearanceSettings()
-  );
-  const [appearanceModalOpen, setAppearanceModalOpen] = useState(false);
-
-  // Handle appearance settings update
-  const handleAppearanceSettingsApply = (settings: AppearanceSettings) => {
-    setAppearanceSettings(settings);
-    // Already saved in modal, but ensure sync
-    saveAppearanceSettings(settings);
-  };
-
-  const [peek, setPeek] = useState<{
-    mode: "scry" | "surveil" | "bottom_order";
-    cards: any[];
-    stepId?: string; // For resolution queue
-  } | null>(null);
-
-  // Explore modal state
-  const [explorePrompt, setExplorePrompt] = useState<{
-    stepId: string; // Resolution queue step id
-    permanentId: string;
-    permanentName: string;
-    revealedCard: ExploreCard;
-    isLand: boolean;
-  } | null>(null);
-
-  // Batch explore modal state
-  const [batchExplorePrompt, setBatchExplorePrompt] = useState<{
-    stepId: string; // Resolution queue step id
-    explores: ExploreResult[];
-  } | null>(null);
-
-  // Optional: resolve batch explore decisions one-by-one client-side, then submit once.
-  const [batchExploreIndividual, setBatchExploreIndividual] = useState<{
-    stepId: string;
-    explores: ExploreResult[];
-    index: number;
-    decisions: Array<{ permanentId: string; toGraveyard: boolean }>;
-  } | null>(null);
-
-  // Opponent may pay modal state
-  const [opponentMayPayPrompt, setOpponentMayPayPrompt] = useState<OpponentMayPayPrompt | null>(null);
-  const [opponentMayPayStepId, setOpponentMayPayStepId] = useState<string | null>(null);
-
-  const [showNameInUseModal, setShowNameInUseModal] = useState(false);
-  const [nameInUsePayload, setNameInUsePayload] = useState<any | null>(null);
-
-  // Cast spell modal state - shared between hand casting and commander casting
-  const [castSpellModalOpen, setCastSpellModalOpen] = useState(false);
-  const [spellToCast, setSpellToCast] = useState<{ 
-    cardId: string; 
-    cardName: string; 
-    manaCost?: string;
-    typeLine?: string;
-    isActivatedAbilityPayment?: boolean;
-    fromZone?: 'hand' | 'graveyard' | 'exile' | 'library' | 'command';
-    oracleText?: string;  // Oracle text for parsing alternate costs (Overload, Flashback, Surge, etc.)
-    forcedAlternateCostId?: string;
-    title?: string;
-    confirmLabel?: string;
-    manualFloatingManaSelection?: boolean;
-    tax?: number;
-    isCommander?: boolean;
-    targets?: string[];  // Targets selected via requestCastSpell flow
-    effectId?: string;   // Effect ID for MTG-compliant flow
-    paymentStepId?: string;
-    activatingPermanentId?: string;
-    excludeActivatingPermanentFromPayment?: boolean;
-    xValue?: number;
-    costAdjustment?: PaymentCostAdjustment;
-    convokeOptions?: {
-      availableCreatures: Array<{
-        id: string;
-        name: string;
-        colors: string[];
-        canTapFor: string[];
-      }>;
-      messages: string[];
-    };
-    sneakOptions?: {
-      availableCreatures: Array<{
-        id: string;
-        name: string;
-        attackTarget: string;
-        imageUrl?: string;
-      }>;
-      messages: string[];
-    };
-    extraAlternateCosts?: AlternateCost[];
-  } | null>(null);
-    const battlefieldAlternateCosts = useMemo(() => {
-      if (!safeView || !you || !spellToCast) return [] as AlternateCost[];
-      return buildBattlefieldSpellAlternateCosts({
-        spellToCast,
-        controllerId: you,
-        battlefield: safeView.battlefield,
-        emblems: (safeView as any).emblems,
-      }) as AlternateCost[];
-    }, [safeView, spellToCast, you]);
-
-  const [pendingSpellXSelection, setPendingSpellXSelection] = useState<{
-    stepId: string;
-    cardName: string;
-    description?: string;
-    minValue: number;
-    maxValue: number;
-    xCount?: number;
-    affordableXHint?: number;
-  } | null>(null);
-
-  // Accordion state for Join / Active Games
-  const [joinCollapsed, setJoinCollapsed] = useState(false);
-
-  // Create Game modal state
-  const [createGameModalOpen, setCreateGameModalOpen] = useState(false);
-  const [savedDecks, setSavedDecks] = useState<any[]>([]);
-
-  // Deck Builder modal state (standalone, outside of game)
-  const [deckBuilderOpen, setDeckBuilderOpen] = useState(false);
-  const [deckBuilderInitialAction, setDeckBuilderInitialAction] = useState<'random' | null>(null);
-
-  // Combat selection modal state
-  const [combatModalOpen, setCombatModalOpen] = useState(false);
-  const [combatModalMinimized, setCombatModalMinimized] = useState(false);
-  const [combatMode, setCombatMode] = useState<'attackers' | 'blockers'>('attackers');
-  const [combatModalReadOnly, setCombatModalReadOnly] = useState(false);
-  const [combatModalError, setCombatModalError] = useState<string | null>(null);
-  const lastCombatErrorSeenRef = useRef<string | null>(null);
-  const [combatPreviewAttackTargets, setCombatPreviewAttackTargets] = useState<Record<string, string> | null>(null);
-  const [combatControlModalOpen, setCombatControlModalOpen] = useState(false);
-  const [combatControlMode, setCombatControlMode] = useState<'attackers' | 'blockers'>('attackers');
-  const combatPreviewEmitTimerRef = useRef<any>(null);
-  const combatPreviewPendingRef = useRef<Record<string, string> | null>(null);
-
-  React.useEffect(() => {
-    if (safeView) return;
-    setCombatModalOpen(false);
-    setCombatModalMinimized(false);
-    setCombatModalReadOnly(false);
-    setCombatModalError(null);
-    setCombatControlModalOpen(false);
-    setCombatPreviewAttackTargets(null);
-  }, [safeView]);
-  
-  // NOTE: Mox Diamond replacement-effect interaction is now handled by the
-  // Resolution Queue via a generic option-choice step.
-  
-  // Return-controlled-permanent prompt state (currently used by bounce-land choice)
-  const [returnControlledPermanentModalOpen, setReturnControlledPermanentModalOpen] = useState(false);
-  const [returnControlledPermanentData, setReturnControlledPermanentData] = useState<{
-    sourceId: string;
-    sourceName: string;
-    imageUrl?: string;
-    optionsToChoose: Array<{ permanentId: string; cardName: string; imageUrl?: string; leaveBattlefieldReplacementDestination?: 'exile'; leaveBattlefieldReplacementSourceName?: string; leaveBattlefieldReplacementLifeGain?: number }>;
-    title?: string;
-    subtitle?: string;
-    oracleText?: string;
-    confirmButtonText?: string;
-    stackItemId?: string;
-    stepId?: string;  // Resolution queue step ID
-  } | null>(null);
-
-  const [hideawayChoiceModalOpen, setHideawayChoiceModalOpen] = useState(false);
-  const [hideawayChoiceData, setHideawayChoiceData] = useState<{
-    sourceName: string;
-    imageUrl?: string;
-    cards: Array<{ cardId: string; cardName: string; imageUrl?: string }>;
-    title?: string;
-    subtitle?: string;
-    oracleText?: string;
-    confirmButtonText?: string;
-    mandatory: boolean;
-    stepId?: string;
-  } | null>(null);
-
-  // Proliferate modal state
-  const [proliferateModalOpen, setProliferateModalOpen] = useState(false);
-  const [proliferateData, setProliferateData] = useState<{
-    proliferateId: string;
-    sourceName: string;
-    imageUrl?: string;
-    sourceImageUrl?: string;
-    validTargets: ProliferateTarget[];
-    stepId?: string; // For resolution queue
-  } | null>(null);
-
-  const [lifeRedistributionModalOpen, setLifeRedistributionModalOpen] = useState(false);
-  const [lifeRedistributionData, setLifeRedistributionData] = useState<{
-    redistributionId: string;
-    sourceName: string;
-    imageUrl?: string;
-    players: LifeRedistributionPlayer[];
-    stepId?: string;
-  } | null>(null);
-  
-  // Fateseal modal state
-  const [fatesealModalOpen, setFatesealModalOpen] = useState(false);
-  const [fatesealData, setFatesealData] = useState<{
-    opponentId: string;
-    opponentName: string;
-    cards: any[];
-    stepId: string;
-    sourceName: string;
-  } | null>(null);
-  
-  // Clash modal state
-  const [clashModalOpen, setClashModalOpen] = useState(false);
-  const [clashData, setClashData] = useState<{
-    revealedCard: any;
-    opponentId?: string;
-    stepId: string;
-    sourceName: string;
-  } | null>(null);
-  
-  // Vote modal state
-  const [voteModalOpen, setVoteModalOpen] = useState(false);
-  const [voteData, setVoteData] = useState<{
-    voteId: string;
-    choices: string[];
-    votesSubmitted: any[];
-    stepId: string;
-    sourceName: string;
-  } | null>(null);
-  
-  // NOTE: sacrifice-unless-pay and reveal-land ETB interactions are now handled
-  // by the Resolution Queue via generic option-choice steps.
-  
-  // Triggered ability modal state
-  const [triggerModalOpen, setTriggerModalOpen] = useState(false);
-  const [pendingTriggers, setPendingTriggers] = useState<TriggerPromptData[]>([]);
-  const [triggerOrderStepId, setTriggerOrderStepId] = useState<string | null>(null);
-  // Track sources that the player wants to auto-resolve (shortcut)
-  // Map from sourceKey to { sourceName, count, effect }
-  const [ignoredTriggerSources, setIgnoredTriggerSources] = useState<Map<string, { 
-    sourceId?: string;
-    sourceName: string; 
-    count: number; 
-    effect: string;
-    imageUrl?: string;
-  }>>(new Map());
-  
-  // Mulligan bottom selection modal state (London Mulligan)
-  const [mulliganBottomModalOpen, setMulliganBottomModalOpen] = useState(false);
-  const [mulliganBottomCount, setMulliganBottomCount] = useState(0);
-  const [mulliganBottomStepId, setMulliganBottomStepId] = useState<string | null>(null);
-  const [mulliganBottomLastSubmittedStepId, setMulliganBottomLastSubmittedStepId] = useState<string | null>(null);
-
-   // Cleanup discard selection modal state
-  const [discardModalOpen, setDiscardModalOpen] = useState(false);
-  const [discardCount, setDiscardCount] = useState(0);
-  const [discardMinCount, setDiscardMinCount] = useState(0);
-  const [discardMaxCount, setDiscardMaxCount] = useState(0);
-  const [discardAnyNumber, setDiscardAnyNumber] = useState(false);
-  const [discardMaxHandSize, setDiscardMaxHandSize] = useState(7);
-  const [discardCurrentHandSize, setDiscardCurrentHandSize] = useState<number | null>(null);
-  const [discardResolutionStepId, setDiscardResolutionStepId] = useState<string | null>(null);
-  const [discardResolutionReason, setDiscardResolutionReason] = useState<'cleanup' | 'effect'>('cleanup');
-  const [discardResolutionTitle, setDiscardResolutionTitle] = useState<string | null>(null);
-  const [discardResolutionDescription, setDiscardResolutionDescription] = useState<string | null>(null);
-  const [discardResolutionHand, setDiscardResolutionHand] = useState<KnownCardRef[]>([]);
-  
-  // Game over notification state
-  const [gameOverModalOpen, setGameOverModalOpen] = useState(false);
-  const [gameOverData, setGameOverData] = useState<{
-    type: 'victory' | 'defeat' | 'eliminated' | 'draw';
-    message: string;
-    winnerId?: string;
-    winnerName?: string;
-  } | null>(null);
-  
-  // Opening hand actions modal state (Leylines)
-  const [openingHandActionsModalOpen, setOpeningHandActionsModalOpen] = useState(false);
-  const [openingHandActionsStepId, setOpeningHandActionsStepId] = useState<string | null>(null);
-  
-  // Library search modal state (Tutors)
-  const [librarySearchModalOpen, setLibrarySearchModalOpen] = useState(false);
-  const [librarySearchData, setLibrarySearchData] = useState<{
-    cards: KnownCardRef[];
-    nonSelectableCards?: KnownCardRef[];
-    revealedCards?: KnownCardRef[];
-    castableWhileSearchingCards?: KnownCardRef[];
-    title: string;
-    description?: string;
-    filter?: { types?: string[]; subtypes?: string[]; maxCmc?: number };
-    minSelections: number;
-    maxSelections: number;
-    maxTotalManaValue?: number;
-    moveTo: 'hand' | 'battlefield' | 'top' | 'graveyard' | 'exile' | 'split';
-    mandatory: boolean;
-    shuffleAfter: boolean;
-    targetPlayerId?: string; // Whose library we're searching (for Gitaxian Probe, etc.)
-    // Split destination props
-    splitDestination?: boolean;
-    toBattlefield?: number;
-    toHand?: number;
-    entersTapped?: boolean;
-    stepId?: string; // For resolution queue system
-  } | null>(null);
-  
-  // Target selection modal state
-  const [targetModalOpen, setTargetModalOpen] = useState(false);
-  const [targetModalData, setTargetModalData] = useState<{
-    title: string;
-    description?: string;
-    source?: { name: string; imageUrl?: string };
-    contextSteps?: string[];
-    selectedMode?: { name: string; description?: string };
-    targets: TargetOption[];
-    minTargets: number;
-    maxTargets: number;
-    targetGroups?: TargetSelectionGroup[];
-    perOpponent?: boolean;
-    opponents?: Array<{ id: string; name: string }>;
-    targetsPerOpponent?: Record<string, TargetOption[]>;
-    minTargetsPerOpponent?: number;
-    maxTargetsPerOpponent?: number;
-    effectId?: string; // For tracking which effect requested the targets
-    cardId?: string; // The card that is being targeted for
-    // Resolution Queue support
-    stepId?: string;
-    useResolutionQueue?: boolean;
-  } | null>(null);
-  
-  // Creature type selection modal state (for Cavern of Souls, Kindred Discovery, etc.)
-  const [creatureTypeModalOpen, setCreatureTypeModalOpen] = useState(false);
-  const [creatureTypeModalData, setCreatureTypeModalData] = useState<{
-     permanentId?: string;
-    cardName: string;
-    reason: string;
-     stepId: string;
-     mandatory: boolean;
-     offeredCreatureTypes?: string[];
-  } | null>(null);
-  
-  // Ability sacrifice selection modal state (for Ashnod's Altar, Phyrexian Altar, Mondrak, etc.)
-  // (Legacy abilitySacrificeRequest flow removed; sacrifice-as-cost uses Resolution Queue TARGET_SELECTION)
-  
-  // Undo request modal state
-  const [undoModalOpen, setUndoModalOpen] = useState(false);
-  const [undoRequestData, setUndoRequestData] = useState<UndoRequestData | null>(null);
-  const [availableUndoCount, setAvailableUndoCount] = useState<number>(0); // Available events to undo
-  
-  // Smart undo counts (step, phase, turn)
-  const [smartUndoCounts, setSmartUndoCounts] = useState<{
-    stepCount: number;
-    phaseCount: number;
-    previousPhaseCount: number;
-    turnCount: number;
-    semanticStepCount?: number;
-    semanticPhaseCount?: number;
-    previews?: {
-      step?: UndoBoundaryPreview;
-      phase?: UndoBoundaryPreview;
-      previousPhase?: UndoBoundaryPreview;
-      turn?: UndoBoundaryPreview;
-    };
-  }>({ stepCount: 0, phaseCount: 0, previousPhaseCount: 0, turnCount: 0, previews: {} });
-
-  const [undoTurnPhaseTargets, setUndoTurnPhaseTargets] = useState<Array<{
-    turnNumber?: number;
-    phase: string;
-    step?: string;
-    turnPlayer?: string;
-    turnPlayerName?: string;
-    round?: number;
-    label: string;
-    eventsToUndo: number;
-  }>>([]);
-  
-  // AI control state (for autopilot mode)
-  const [aiControlEnabled, setAiControlEnabled] = useState(false);
-  const [aiStrategy, setAiStrategy] = useState<string>('basic');
-  
-  // Split/Adventure card choice modal state
-  const [splitCardModalOpen, setSplitCardModalOpen] = useState(false);
-  const [splitCardData, setSplitCardData] = useState<{
-    cardId: string;
-    cardName: string;
-    layout: string;
-    faces: CardFaceOption[];
-    canFuse: boolean;
-    sourceZone?: 'hand' | 'graveyard' | 'exile' | 'library' | 'command';
-  } | null>(null);
-  
-  // Deck validation state
-  const [deckValidation, setDeckValidation] = useState<{
-    format: string;
-    cardCount: number;
-    illegal: { name: string; reason: string }[];
-    warnings: string[];
-    valid: boolean;
-  } | null>(null);
-
-  // Track if we should prompt for deck import (for new players without a deck)
-  const [showDeckImportPrompt, setShowDeckImportPrompt] = useState(false);
-  const hasPromptedDeckImport = React.useRef(false);
-  // Track if we've already auto-skipped attackers for this combat step
-  const hasAutoSkippedAttackers = React.useRef<string | null>(null);
-  // Track if we've already shown the attackers modal for this combat step (prevents re-opening after selection)
-  // Track if we've already shown the blockers modal for this defend step (prevents re-opening after selection)
-  const hasShownBlockersModal = React.useRef<string | null>(null);
-  // External control for deck manager visibility in TableLayout
-  const [tableDeckMgrOpen, setTableDeckMgrOpen] = useState(false);
-  const [topDeckMgrAnchorEl, setTopDeckMgrAnchorEl] = useState<HTMLButtonElement | null>(null);
-  const [focusedPlayerId, setFocusedPlayerId] = useState<string | null>(null);
-  const [mobilePlaySheet, setMobilePlaySheet] = useState<MobilePlaySheet>(null);
-  const [utilityRailCollapsed, setUtilityRailCollapsed] = useState(false);
-  const [yourTurnBannerVisible, setYourTurnBannerVisible] = useState(false);
-  const previousTurnRef = useRef<{ gameId?: string; turnPlayer?: string | null }>({});
-  const { width: viewportWidth } = useViewport();
-  const isTouch = useIsTouch();
-  const mobilePlayLayout = useMobilePlayLayout();
-  
-  // Graveyard View Modal state
-  const [graveyardModalOpen, setGraveyardModalOpen] = useState(false);
-  const [graveyardModalPlayerId, setGraveyardModalPlayerId] = useState<string | null>(null);
-  
-  const [exileModalOpen, setExileModalOpen] = useState(false);
-  const [exileModalPlayerId, setExileModalPlayerId] = useState<string | null>(null);
-  
-  // Ignored cards state (for auto-pass and playability checks)
-  const [ignoredCards, setIgnoredCards] = useState<IgnoredCard[]>([]);
-  const ignoredCardIds = useMemo(() => new Set(ignoredCards.map(c => c.cardId || c.permanentId)), [ignoredCards]);
-
-  const mayAutoPreferenceEntries = useMemo(() => {
-    if (!safeView || !you) return [];
-    const prefs = (safeView as any).mayAutoPreferences?.[you];
-    if (!prefs || typeof prefs !== 'object') return [];
-    return Object.entries(prefs)
-      .filter(([, value]) => value !== undefined && value !== null)
-      .map(([effectKey, value]) => ({
-        effectKey,
-        value: value as 'yes' | 'no' | number | string,
-      }));
-  }, [safeView, you]);
-  
-  // Join Forces Modal state (Collective Voyage, Minds Aglow, etc.)
-  const [joinForcesModalOpen, setJoinForcesModalOpen] = useState(false);
-  const [joinForcesRequest, setJoinForcesRequest] = useState<JoinForcesRequest | null>(null);
-  const [joinForcesContributions, setJoinForcesContributions] = useState<Record<string, number>>({});
-  const [joinForcesResponded, setJoinForcesResponded] = useState<string[]>([]);
-  
-  // Tempting Offer Modal state (Tempt with Reflections, Tempt with Discovery, etc.)
-  const [temptingOfferModalOpen, setTemptingOfferModalOpen] = useState(false);
-  const [temptingOfferRequest, setTemptingOfferRequest] = useState<TemptingOfferRequest | null>(null);
-  const [temptingOfferResponded, setTemptingOfferResponded] = useState<string[]>([]);
-  const [temptingOfferAcceptedBy, setTemptingOfferAcceptedBy] = useState<string[]>([]);
-  
-  // Kynaios Choice Modal state (Kynaios and Tiro of Meletis style land/draw choice)
-  const [kynaiosChoiceModalOpen, setKynaiosChoiceModalOpen] = useState(false);
-  const [kynaiosChoiceRequest, setKynaiosChoiceRequest] = useState<KynaiosChoiceRequest | null>(null);
-
-  // Option Choice Modal state (Generic option selection like Agitator Ant)
-  const [optionChoiceModalOpen, setOptionChoiceModalOpen] = useState(false);
-  const [optionChoiceRequest, setOptionChoiceRequest] = useState<OptionChoiceRequest | null>(null);
-
-  // Two-pile split Modal state ("separate into two piles" effects)
-  const [twoPileSplitModalOpen, setTwoPileSplitModalOpen] = useState(false);
-  const [twoPileSplitRequest, setTwoPileSplitRequest] = useState<TwoPileSplitRequest | null>(null);
-
-  // Ponder Modal state (Ponder, Index, Telling Time, etc.)
-  const [ponderModalOpen, setPonderModalOpen] = useState(false);
-  const [ponderRequest, setPonderRequest] = useState<{
-    effectId: string;
-    cardName: string;
-    cardImageUrl?: string;
-    cards: PeekCard[];
-    variant: PonderVariant;
-    canShuffle: boolean;
-    drawAfter: boolean;
-    pickToHand: number;
-    targetPlayerId?: string;
-    targetPlayerName?: string;
-    isOwnLibrary: boolean;
-    stepId?: string;  // For resolution queue integration
-  } | null>(null);
-  const [limDulsVaultModalOpen, setLimDulsVaultModalOpen] = useState(false);
-  const [limDulsVaultRequest, setLimDulsVaultRequest] = useState<{
-    cardName: string;
-    cardImageUrl?: string;
-    cards: PeekCard[];
-    currentLife: number;
-    totalLifePaid: number;
-    stepId: string;
-  } | null>(null);
-  const [danceWithCalamityModalOpen, setDanceWithCalamityModalOpen] = useState(false);
-  const [danceWithCalamityRequest, setDanceWithCalamityRequest] = useState<{
-    cardName: string;
-    cardImageUrl?: string;
-    exiledCards: PeekCard[];
-    totalManaValue: number;
-    canContinue: boolean;
-    stepId: string;
-  } | null>(null);
-  const [danceWithCalamityCastModalOpen, setDanceWithCalamityCastModalOpen] = useState(false);
-  const [danceWithCalamityCastRequest, setDanceWithCalamityCastRequest] = useState<{
-    cardName: string;
-    cardImageUrl?: string;
-    exiledCards: PeekCard[];
-    spellCards: PeekCard[];
-    totalManaValue: number;
-    stepId: string;
-  } | null>(null);
-  
-  // Cascade modal state
-  const [cascadeModalOpen, setCascadeModalOpen] = useState(false);
-  const [cascadePrompt, setCascadePrompt] = useState<{
-    effectId: string;
-    sourceName: string;
-    cascadeNumber: number;
-    totalCascades: number;
-    hitCard: KnownCardRef;
-    exiledCards: KnownCardRef[];
-    stepId: string;  // Resolution queue step ID
-    gameId?: string;
-    playerId?: string;
-  } | null>(null);
-
-  // Priority Modal state - shows when player receives priority and can respond
-  const [priorityModalOpen, setPriorityModalOpen] = useState(false);
-  const lastPriorityStep = React.useRef<string | null>(null);
-  const hadPriorityRef = React.useRef(false);
-  const lastCanRespond = React.useRef<boolean | null>(null);
-  
-  // Life Payment Modal state - for spells like Toxic Deluge that require paying X life
-  const [lifePaymentModalOpen, setLifePaymentModalOpen] = useState(false);
-  const [lifePaymentModalData, setLifePaymentModalData] = useState<{
-    stepId: string;
-    mandatory: boolean;
-    cardId: string;
-    cardName: string;
-    description: string;
-    imageUrl?: string;
-    currentLife: number;
-    minPayment: number;
-    maxPayment: number;
-  } | null>(null);
-  
-  // Mana Payment Trigger Modal state - for attack triggers with optional mana payment (e.g., Casal)
-  
-  // Modal Spell Selection Modal state - for Spree, Choose One/Two, etc.
-  const [modalSpellModalOpen, setModalSpellModalOpen] = useState(false);
-  const [modalSpellModalData, setModalSpellModalData] = useState<{
-    cardId: string;
-    cardName: string;
-    title?: string;
-    description?: string;
-    imageUrl?: string;
-    modes: SpellMode[];
-    modeCount: number;
-    canChooseAny?: boolean;
-    minModes?: number;
-    isSpree?: boolean;
-    pBudget?: number;
-    canRepeatModes?: boolean;
-    effectId?: string;
-    // If present, this modal answers a Resolution Queue step.
-    resolutionStepId?: string;
-    mandatory?: boolean;
-  } | null>(null);
-  
-  // Replacement Effect Order Modal state - for custom ordering of damage/life/counter effects
-  const [replacementEffectModalOpen, setReplacementEffectModalOpen] = useState(false);
-  const [replacementEffectModalData, setReplacementEffectModalData] = useState<{
-    effectType: 'damage' | 'life_gain' | 'counters' | 'tokens';
-    effects: ReplacementEffectItem[];
-    baseAmount: number;
-    initialMode?: OrderingMode;
-    effectId?: string;
-  } | null>(null);
-  
-  // Replacement Effect Settings Panel state
-  const [replacementEffectSettingsOpen, setReplacementEffectSettingsOpen] = useState(false);
-
-  // Replacement effect ordering (persisted preference) - used for the PhaseNavigator quick toggle.
-  type ReplacementEffectMode = 'minimize' | 'maximize' | 'custom' | 'auto';
-  const [damageReplacementMode, setDamageReplacementMode] = useState<ReplacementEffectMode>('minimize');
-  
-  // Color Choice Modal state - for Caged Sun, Gauntlet of Power, etc.
-  const [colorChoiceModalOpen, setColorChoiceModalOpen] = useState(false);
-  const [colorChoiceModalData, setColorChoiceModalData] = useState<{
-    confirmId: string;
-    stepId: string;
-    permanentId?: string;
-    spellId?: string;
-    cardName: string;
-    reason: string;
-    imageUrl?: string;
-    colors?: ('white' | 'blue' | 'black' | 'red' | 'green')[];
-    mandatory: boolean;
-  } | null>(null);
-
-  // Card Name Choice Modal state - for Pithing Needle, Nevermore, etc.
-  const [cardNameChoiceModalOpen, setCardNameChoiceModalOpen] = useState(false);
-  const [cardNameChoiceModalData, setCardNameChoiceModalData] = useState<{
-    stepId: string;
-    cardName: string;
-    reason: string;
-    imageUrl?: string;
-    mandatory: boolean;
-    restrictionText?: string;
-    candidateNames?: string[];
-  } | null>(null);
-  
-  // Any Color Mana Modal state - for Birds of Paradise, Chromatic Lantern, etc.
-  const [anyColorManaModalOpen, setAnyColorManaModalOpen] = useState(false);
-  const [anyColorManaModalData, setAnyColorManaModalData] = useState<{
-    // If present, this modal is answering a ResolutionQueue step.
-    stepId?: string;
-    mandatory?: boolean;
-    activationId?: string;
-    permanentId: string;
-    cardName: string;
-    amount: number;
-    allowedColors?: string[]; // Array of allowed color codes (e.g., ['W', 'U'])
-    amountByColor?: Partial<Record<'W' | 'U' | 'B' | 'R' | 'G', number>>;
-    dynamicAmountSource?: 'devotion' | 'creature_type_count';
-    chosenCreatureType?: string;
-    cardImageUrl?: string;
-  } | null>(null);
-
-  // Tracks pending resolution steps assigned to this player (from resolutionQueueChanged).
-  const [myPendingResolutionCount, setMyPendingResolutionCount] = useState(0);
-  const [minimizedResolutionStep, setMinimizedResolutionStep] = useState<{ stepId: string; title: string } | null>(null);
-  const [activeResolutionPrompt, setActiveResolutionPrompt] = useState<{ stepId: string; title: string } | null>(null);
-  const resolutionPromptNudgeTimerRef = React.useRef<number | null>(null);
-
-  const minimizeResolutionStep = React.useCallback((stepId: string, title: string) => {
-    setMinimizedResolutionStep({ stepId: String(stepId), title: title || 'Pending choice' });
-  }, []);
-  const restoreResolutionStep = React.useCallback(() => {
-    setMinimizedResolutionStep(null);
-  }, []);
-  const isResolutionStepMinimized = React.useCallback((stepId?: string | null) => {
-    return !!stepId && minimizedResolutionStep?.stepId === String(stepId);
-  }, [minimizedResolutionStep]);
-  const resolutionPromptOpen = React.useCallback((
-    modalOpen: boolean,
-    stepId?: string | null,
-  ) => {
-    const id = stepId ?? activeResolutionPrompt?.stepId ?? null;
-    return modalOpen && !isResolutionStepMinimized(id);
-  }, [activeResolutionPrompt?.stepId, isResolutionStepMinimized]);
-
-  const scheduleResolutionPromptNudge = React.useCallback((gameId: string) => {
-    if (resolutionPromptNudgeTimerRef.current) {
-      clearTimeout(resolutionPromptNudgeTimerRef.current);
-    }
-    resolutionPromptNudgeTimerRef.current = window.setTimeout(() => {
-      socket.emit('getMyNextResolutionStep', { gameId });
-    }, 100);
-  }, []);
-  
-  // Phyrexian Mana Choice Modal state - for cards with {W/P}, {U/P}, etc. costs
-  const [phyrexianManaModalOpen, setPhyrexianManaModalOpen] = useState(false);
-  const [phyrexianManaModalData, setPhyrexianManaModalData] = useState<{
-    // If present, this modal is answering a ResolutionQueue step.
-    stepId?: string;
-    mandatory?: boolean;
-    pendingId: string;
-    permanentId?: string;
-    cardId?: string;
-    castSpellArgs?: {
-      gameId: string;
-      cardId: string;
-      targets?: any[];
-      payment?: any[];
-      skipInteractivePrompts?: boolean;
-      xValue?: number;
-      alternateCostId?: string;
-      convokeTappedCreatures?: string[];
-      phyrexianChoices?: any;
-    };
-    cardName: string;
-    abilityText: string;
-    totalManaCost: string;
-    genericCost: number;
-    phyrexianChoices: Array<{
-      index: number;
-      colorOption: string;
-      colorName: string;
-      lifeAmount: number;
-      hasColorMana: boolean;
-      symbol: string;
-    }>;
-    playerLife: number;
-    cardImageUrl?: string;
-  } | null>(null);
-  
-  // Tap/Untap Target Modal state - for Saryth, Merrow Reejerey, Argothian Elder, etc.
-  const [tapUntapTargetModalOpen, setTapUntapTargetModalOpen] = useState(false);
-  const [tapUntapTargetModalData, setTapUntapTargetModalData] = useState<{
-    stepId: string;
-    sourceId: string;
-    sourceName: string;
-    sourceImageUrl?: string;
-    action: 'tap' | 'untap' | 'both';
-    targetFilter: {
-      types?: ('creature' | 'land' | 'artifact' | 'enchantment' | 'planeswalker' | 'permanent')[];
-      controller?: 'you' | 'opponent' | 'any';
-      tapStatus?: 'tapped' | 'untapped' | 'any';
-      excludeSource?: boolean;
-    };
-    targetCount: number;
-    title?: string;
-    description?: string;
-  } | null>(null);
-
-  const resolutionPlayerNames = React.useMemo(() => {
-    const names: Record<string, string> = {};
-    if (safeView?.players) {
-      for (const p of safeView.players) {
-        names[p.id] = p.name || p.id;
-      }
-    }
-    return names;
-  }, [safeView?.players]);
-
-  // Fight Target Modal state - for Brash Taunter, etc.
-  const [fightTargetModalOpen, setFightTargetModalOpen] = useState(false);
-  const [fightTargetModalData, setFightTargetModalData] = useState<{
-    stepId: string;
-    sourceId: string;
-    sourceName: string;
-    sourceImageUrl?: string;
-    title?: string;
-    description?: string;
-    targetFilter?: {
-      types?: string[];
-      controller?: 'you' | 'opponent' | 'any';
-      excludeSource?: boolean;
-    };
-  } | null>(null);
-  
-  // Counter Movement Modal state - for Nesting Grounds, etc.
-  const [counterMovementModalOpen, setCounterMovementModalOpen] = useState(false);
-  const [counterMovementModalData, setCounterMovementModalData] = useState<{
-    stepId: string;
-    sourceId: string;
-    sourceName: string;
-    sourceImageUrl?: string;
-    sourceFilter?: {
-      controller?: 'you' | 'any';
-    };
-    targetFilter?: {
-      controller?: 'you' | 'any';
-      excludeSource?: boolean;
-    };
-    title?: string;
-    description?: string;
-  } | null>(null);
-  
-  // Station Creature Selection Modal state (Rule 702.184a)
-  const [stationCreatureSelectionOpen, setStationCreatureSelectionOpen] = useState(false);
-  const [stationCreatureSelectionData, setStationCreatureSelectionData] = useState<{
-    stepId: string;
-    station: StationInfo;
-    creatures: StationCreature[];
-    title: string;
-    description: string;
-  } | null>(null);
-  
-  // Resolution Queue Player Choice modal state
-  const [resolutionPlayerChoiceModalOpen, setResolutionPlayerChoiceModalOpen] = useState(false);
-  const [resolutionPlayerChoiceModalData, setResolutionPlayerChoiceModalData] = useState<{
-    stepId: string;
-    title: string;
-    description?: string;
-    source?: {
-      name: string;
-      imageUrl?: string;
-    };
-    players: PlayerTarget[];
-    opponentOnly?: boolean;
-    isOptional?: boolean;
-  } | null>(null);
-  
-  // Mana Distribution Modal state - for Selvala, Heart of the Wilds, etc.
-  const [manaDistributionModalOpen, setManaDistributionModalOpen] = useState(false);
-  const [manaDistributionModalData, setManaDistributionModalData] = useState<{
-    // If present, this modal is answering a ResolutionQueue step.
-    stepId?: string;
-    mandatory?: boolean;
-    gameId: string;
-    permanentId: string;
-    cardName: string;
-    cardImageUrl?: string;
-    totalAmount: number;
-    availableColors: string[];
-    message?: string;
-  } | null>(null);
-
-  const [counterDistributionModalOpen, setCounterDistributionModalOpen] = useState(false);
-  const [counterDistributionModalData, setCounterDistributionModalData] = useState<{
-    stepId?: string;
-    mandatory?: boolean;
-    gameId: string;
-    cardName: string;
-    cardImageUrl?: string;
-    counterType: string;
-    totalAmount: number;
-    minPerTarget?: number;
-    targets: Array<{ id: string; label: string }>;
-    message?: string;
-  } | null>(null);
-  
-  // Additional Cost Modal state - for discard/sacrifice as additional costs
-  const [additionalCostModalOpen, setAdditionalCostModalOpen] = useState(false);
-  const [additionalCostModalData, setAdditionalCostModalData] = useState<{
-    cardId: string;
-    cardName: string;
-    costType: 'discard' | 'sacrifice' | 'remove_counters';
-    amount: number;
-    title: string;
-    description: string;
-    imageUrl?: string;
-    availableCards?: Array<{ id: string; name: string; imageUrl?: string }>;
-    availableTargets?: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string; leaveBattlefieldReplacementDestination?: 'exile'; leaveBattlefieldReplacementSourceName?: string; leaveBattlefieldReplacementLifeGain?: number }>;
-    availableCounters?: Array<{ id: string; permanentId: string; permanentName: string; counterType: string; counterIndex: number; name: string; imageUrl?: string; typeLine?: string }>;
-    effectId?: string;
-    // If present, this modal is being used to answer a ResolutionQueue step.
-    resolutionStepId?: string;
-    resolutionStepType?: string;
-    // Whether the resolution step is mandatory (if false, cancel is allowed).
-    resolutionStepMandatory?: boolean;
-    // Special target id that represents "sacrifice the source" (if allowed by the step).
-    resolutionSourceChoiceId?: string;
-  } | null>(null);
-  
-  // Squad Cost Modal state - for paying squad costs multiple times
-  const [squadCostModalOpen, setSquadCostModalOpen] = useState(false);
-  const [squadCostModalData, setSquadCostModalData] = useState<{
-    cardId: string;
-    cardName: string;
-    squadCost: string;
-    imageUrl?: string;
-    effectId?: string;
-    // If present, this modal answers a Resolution Queue step.
-    resolutionStepId?: string;
-    mandatory?: boolean;
-  } | null>(null);
-  
-  // Casting Mode Selection Modal state - for overload, abundant harvest, etc.
-  const [castingModeModalOpen, setCastingModeModalOpen] = useState(false);
-  const [castingModeModalData, setCastingModeModalData] = useState<{
-    cardId: string;
-    cardName: string;
-    source?: string;
-    title: string;
-    description: string;
-    imageUrl?: string;
-    modes: CastingMode[];
-    effectId?: string;
-    // If present, this modal answers a Resolution Queue step.
-    resolutionStepId?: string;
-    resolutionStepMandatory?: boolean;
-  } | null>(null);
-
-  // "You may" optional-ability modal state
-  const [mayAbilityModalOpen, setMayAbilityModalOpen] = useState(false);
-  const [mayAbilityModalData, setMayAbilityModalData] = useState<MayAbilityModalData | null>(null);
-  
-  // Mana Pool state - tracks floating mana for the current player
-  const [manaPool, setManaPool] = useState<ManaPool | null>(null);
-  
-  // Mutate target selection modal state
-  const [mutateModalOpen, setMutateModalOpen] = useState(false);
-  const [mutateModalData, setMutateModalData] = useState<{
-    cardId: string;
-    cardName: string;
-    imageUrl?: string;
-    power?: string;
-    toughness?: string;
-    mutateCost: string;
-    targets: MutateTarget[];
-    stepId?: string;
-    mandatory?: boolean;
-  } | null>(null);
-
-  // Graveyard selection modal state (Resolution Queue)
-  const [graveyardSelectionModalOpen, setGraveyardSelectionModalOpen] = useState(false);
-  const [graveyardSelectionModalData, setGraveyardSelectionModalData] = useState<{
-    stepId: string;
-    mandatory: boolean;
-    title: string;
-    description: string;
-    sourceCard?: { name: string; imageUrl?: string };
-    validTargets: GraveyardCard[];
-    minTargets: number;
-    maxTargets: number;
-  } | null>(null);
-  
-  // Auto-pass steps - which steps to automatically pass priority on
-  const [autoPassSteps, setAutoPassSteps] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem('mtgedh:autoPassSteps');
-      if (stored) {
-        return new Set(JSON.parse(stored));
-      }
-    } catch {
-      /* ignore */
-    }
-    return new Set();
-  });
-  
-  // Toggle auto-pass for a specific step
-  const handleToggleAutoPass = React.useCallback((step: string, enabled: boolean) => {
-    setAutoPassSteps(prev => {
-      const next = new Set(prev);
-      if (enabled) {
-        next.add(step);
-      } else {
-        next.delete(step);
-      }
-
-      try {
-        localStorage.setItem('mtgedh:autoPassSteps', JSON.stringify([...next]));
-      } catch {
-        /* ignore */
-      }
-
-      // Sync with server: auto-pass is enabled if ANY step is enabled
-      if (safeView?.id) {
-        socket.emit('setAutoPass', {
-          gameId: safeView.id,
-          enabled: next.size > 0,
-        });
-      }
-
-      return next;
-    });
-  }, [safeView?.id, socket]);
-  
-  // Clear all auto-pass settings
-  const handleClearAllAutoPass = React.useCallback(() => {
-    setAutoPassSteps(new Set());
-    try {
-      localStorage.removeItem('mtgedh:autoPassSteps');
-    } catch {
-      /* ignore */
-    }
-
-    // Sync with server: auto-pass is now disabled
-    if (safeView?.id) {
-      socket.emit('setAutoPass', {
-        gameId: safeView.id,
-        enabled: false,
-      });
-    }
-  }, [safeView?.id, socket]);
-
-  // Select all auto-pass settings
-  const handleSelectAllAutoPass = React.useCallback(() => {
-    const allSteps = new Set([
-      'upkeep', 'draw', 'main1', 'begincombat', 'declareattackers',
-      'declareblockers', 'damage', 'endcombat', 'main2', 'end'
-    ]);
-    setAutoPassSteps(allSteps);
-    try {
-      localStorage.setItem('mtgedh:autoPassSteps', JSON.stringify([...allSteps]));
-    } catch {
-      /* ignore */
-    }
-
-    // Sync with server: auto-pass is now enabled
-    if (safeView?.id) {
-      socket.emit('setAutoPass', {
-        gameId: safeView.id,
-        enabled: true,
-      });
-    }
-  }, [safeView?.id, socket]);
-
-  // Auto-pass for rest of turn setting
-  // When enabled, forces auto-pass for all remaining priority windows this turn
-  const [autoPassForTurn, setAutoPassForTurn] = useState(false);
-  const [autoPassEmptyStackOnOpponentsTurn, setAutoPassEmptyStackOnOpponentsTurn] = useState(() => {
-    try {
-      return localStorage.getItem('mtgedh:autoPassEmptyStackOnOpponentsTurn') === '1';
-    } catch {
-      return false;
-    }
-  });
-
-  const [autoYesOptional, setAutoYesOptional] = useState(() => {
-    try {
-      return localStorage.getItem('mtgedh:autoYesOptional') === '1';
-    } catch {
-      return false;
-    }
-  });
-
-  const handleToggleAutoYesOptional = React.useCallback((enabled: boolean) => {
-    setAutoYesOptional(enabled);
-    try {
-      if (enabled) {
-        localStorage.setItem('mtgedh:autoYesOptional', '1');
-      } else {
-        localStorage.removeItem('mtgedh:autoYesOptional');
-      }
-    } catch {
-      /* ignore */
-    }
-
-    if (safeView?.id) {
-      socket.emit('setAutoYesOptional', {
-        gameId: safeView.id,
-        enabled,
-      });
-    }
-  }, [safeView?.id, socket]);
-  
-  // Toggle auto-pass for rest of turn
-  const handleToggleAutoPassForTurn = React.useCallback(() => {
-    setAutoPassForTurn(prev => {
-      const newValue = !prev;
-      // Sync to server
-      if (safeView?.id) {
-        socket.emit('setAutoPassForTurn', {
-          gameId: safeView.id,
-          enabled: newValue,
-        });
-      }
-      return newValue;
-    });
-  }, [safeView?.id, socket]);
-
-  const handleToggleAutoPassEmptyStackOnOpponentsTurn = React.useCallback((enabled: boolean) => {
-    setAutoPassEmptyStackOnOpponentsTurn(enabled);
-    try {
-      if (enabled) {
-        localStorage.setItem('mtgedh:autoPassEmptyStackOnOpponentsTurn', '1');
-      } else {
-        localStorage.removeItem('mtgedh:autoPassEmptyStackOnOpponentsTurn');
-      }
-    } catch {
-      /* ignore */
-    }
-
-    if (safeView?.id) {
-      socket.emit('setAutoPassEmptyStackOnOpponentsTurn', {
-        gameId: safeView.id,
-        enabled,
-      });
-    }
-  }, [safeView?.id, socket]);
-  
-  // Reset auto-pass for turn when turn changes
-  React.useEffect(() => {
-    if (safeView?.turnPlayer) {
-      // Reset when turn player changes (new turn started)
-      setAutoPassForTurn(false);
-      // Also sync to server
-      if (safeView?.id) {
-        socket.emit('setAutoPassForTurn', {
-          gameId: safeView.id,
-          enabled: false,
-        });
-      }
-    }
-  }, [safeView?.turnPlayer, safeView?.id, socket]);
-  
-  // Sync auto-pass settings with server when joining/loading a game
-  // We need a ref to capture the current autoPassSteps without adding it as a dependency
-  const autoPassStepsRef = React.useRef(autoPassSteps);
-  React.useEffect(() => {
-    autoPassStepsRef.current = autoPassSteps;
-  }, [autoPassSteps]);
-  
-  const syncAutoPassToServer = React.useCallback((gameId?: string) => {
-    const targetGameId = gameId || safeView?.id;
-    if (!targetGameId || !you || !socket.connected) return;
-    const hasAutoPass = autoPassStepsRef.current.size > 0;
-    socket.emit('setAutoPass', {
-      gameId: targetGameId,
-      enabled: hasAutoPass,
-      syncOnly: true,
-    } as any);
-    socket.emit('setAutoYesOptional', {
-      gameId: targetGameId,
-      enabled: autoYesOptional,
-      syncOnly: true,
-    } as any);
-    socket.emit('setAutoPassEmptyStackOnOpponentsTurn', {
-      gameId: targetGameId,
-      enabled: autoPassEmptyStackOnOpponentsTurn,
-      syncOnly: true,
-    } as any);
-  }, [safeView?.id, you, socket, autoYesOptional, autoPassEmptyStackOnOpponentsTurn]);
-
-  // Sync when game/player identity is ready and whenever step preferences change.
-  React.useEffect(() => {
-    syncAutoPassToServer();
-  }, [syncAutoPassToServer, autoPassSteps]);
-
-  // Re-sync after join completes (socket may not be in the room when safeView.id first appears).
-  React.useEffect(() => {
-    const onJoined = ({ gameId: joinedGameId }: { gameId: string }) => {
-      window.setTimeout(() => syncAutoPassToServer(joinedGameId), 0);
-    };
-    socket.on('joined', onJoined);
-    return () => {
-      socket.off('joined', onJoined);
-    };
-  }, [socket, syncAutoPassToServer]);
-
-  // Listen for auto-pass toggle confirmation from server
-  // This updates the client UI when auto-pass is enabled/disabled
-  React.useEffect(() => {
-    const handleAutoPassToggled = (data: { 
-      gameId: string; 
-      playerId: string; 
-      enabled: boolean; 
-      success: boolean; 
-    }) => {
-      // Only update if it's for this game and this player
-      if (data.gameId === safeView?.id && data.playerId === you && data.success) {
-        debug(2, '[AutoPass] Server confirmed toggle:', data.enabled ? 'enabled' : 'disabled');
-        // The UI state is already updated from the user action
-        // This confirms the server processed it correctly
-        // If the server state doesn't match, we could sync here
-      }
-    };
-
-    socket.on('autoPassToggled', handleAutoPassToggled);
-    return () => {
-      socket.off('autoPassToggled', handleAutoPassToggled);
-    };
-  }, [safeView?.id, you]);
-
-  // Auto-advance phases/steps setting
-  // When enabled, automatically passes priority during untap, draw, and cleanup phases
-  // if the player has nothing to do
-  const [autoAdvancePhases, setAutoAdvancePhases] = useState(() => {
-    try {
-      const stored = localStorage.getItem('mtgedh:autoAdvancePhases');
-      return stored === 'true';
-    } catch {
-      return false;
-    }
-  });
-  
-  // Toggle auto-advance and persist to localStorage
-  const handleToggleAutoAdvance = React.useCallback(() => {
-    setAutoAdvancePhases(prev => {
-      const next = !prev;
-      try {
-        localStorage.setItem('mtgedh:autoAdvancePhases', String(next));
-      } catch { /* ignore */ }
-      return next;
-    });
-  }, []);
-  
-  // Track when PhaseNavigator is actively advancing through phases
-  // This prevents auto-advance from interfering with manual phase navigation
-  const [phaseNavigatorAdvancing, setPhaseNavigatorAdvancing] = useState(false);
-
-  // Trigger shortcuts panel state
-  const [showTriggerShortcuts, setShowTriggerShortcuts] = useState(false);
-  const [showLoopShortcutPanel, setShowLoopShortcutPanel] = useState(false);
-  const [loopShortcutName, setLoopShortcutName] = useState('Loop Shortcut');
-  const [loopShortcutItems, setLoopShortcutItems] = useState<LoopShortcutSequenceItem[]>([]);
-  const [savedLoopShortcuts, setSavedLoopShortcuts] = useState<SavedLoopShortcut[]>([]);
-  const [loopShortcutIterations, setLoopShortcutIterations] = useState(1);
-  const [loopShortcutStatusText, setLoopShortcutStatusText] = useState('Idle.');
-  const [isLoopShortcutRecording, setIsLoopShortcutRecording] = useState(false);
-  const [isLoopShortcutRunning, setIsLoopShortcutRunning] = useState(false);
-  const [loopShortcutConsentPrompt, setLoopShortcutConsentPrompt] = useState<LoopShortcutConsentPrompt | null>(null);
-  const [loopShortcutAwaitingConsent, setLoopShortcutAwaitingConsent] = useState(false);
-  const loopShortcutProposerAwaitingRef = useRef(false);
-
-  const safeViewRef = useRef<ClientGameView | null>(safeView);
-  const youRef = useRef<PlayerID | null>(you);
-  const loopShortcutItemsRef = useRef<LoopShortcutSequenceItem[]>([]);
-  const isLoopShortcutRecordingRef = useRef(false);
-  const isLoopShortcutRunningRef = useRef(false);
-  const lastResolutionStepsRef = useRef<Map<string, any>>(new Map());
-  const originalSocketEmitRef = useRef<((event: string, ...args: any[]) => any) | null>(null);
-  const loopShortcutReplayRef = useRef<{
-    running: boolean;
-    index: number;
-    iteration: number;
-    totalIterations: number;
-    waitingForState: boolean;
-    waitingForCastCardId: string | null;
-    castSettle: LoopShortcutCastSettleState | null;
-    waitingPrompt: Extract<LoopShortcutSequenceItem, { kind: 'resolution_response' }> | null;
-  }>({
-    running: false,
-    index: 0,
-    iteration: 0,
-    totalIterations: 0,
-    waitingForState: false,
-    waitingForCastCardId: null,
-    castSettle: null,
-    waitingPrompt: null,
-  });
-  const loopShortcutLastErrorRef = useRef<string | null>(null);
-  const loopShortcutLoadedGameIdRef = useRef<string | null>(null);
-  /** Dedupes stack-drain passPriority emits for the same priority/stack snapshot. */
-  const loopShortcutStackPassKeyRef = useRef<string | null>(null);
-  const loopShortcutStackPassAtRef = useRef<number>(0);
-  /** Step ids the loop already auto-answered — ignore duplicate resolutionStepPrompt emits. */
-  const loopAutoAnsweredStepIdsRef = useRef<Set<string>>(new Set());
-
-  React.useEffect(() => {
-    safeViewRef.current = safeView;
-  }, [safeView]);
-
-  React.useEffect(() => {
-    youRef.current = you;
-  }, [you]);
-
-  const priorityRef = useRef<PlayerID | null>(priority);
-  React.useEffect(() => {
-    priorityRef.current = priority;
-  }, [priority]);
-
-  React.useEffect(() => {
-    loopShortcutItemsRef.current = loopShortcutItems;
-  }, [loopShortcutItems]);
-
-  React.useEffect(() => {
-    isLoopShortcutRecordingRef.current = isLoopShortcutRecording;
-  }, [isLoopShortcutRecording]);
-
-  React.useEffect(() => {
-    isLoopShortcutRunningRef.current = isLoopShortcutRunning;
-  }, [isLoopShortcutRunning]);
-
-  React.useEffect(() => {
-    const activeGameId = safeView?.id || null;
-    if (!activeGameId) {
-      loopShortcutLoadedGameIdRef.current = null;
-      setSavedLoopShortcuts([]);
-      return;
-    }
-
-    if (loopShortcutLoadedGameIdRef.current === activeGameId) {
-      return;
-    }
-
-    loopShortcutLoadedGameIdRef.current = activeGameId;
-    const saved = loadSavedLoopShortcuts(localStorage, activeGameId);
-    const draft = loadLoopShortcutDraft(localStorage, activeGameId);
-
-    setSavedLoopShortcuts(saved);
-    lastResolutionStepsRef.current.clear();
-
-    if (draft) {
-      setLoopShortcutName(draft.name);
-      setLoopShortcutItems(draft.items);
-      setLoopShortcutIterations(clampLoopShortcutIterations(draft.iterationCount));
-      setLoopShortcutStatusText(`Restored loop shortcut draft "${draft.name}".`);
-    } else {
-      setLoopShortcutName('Loop Shortcut');
-      setLoopShortcutItems([]);
-      setLoopShortcutIterations(1);
-      setLoopShortcutStatusText('Idle.');
-    }
-  }, [safeView?.id]);
-
-  React.useEffect(() => {
-    const activeGameId = safeView?.id;
-    if (!activeGameId) {
-      return;
-    }
-
-    if (loopShortcutItems.length === 0) {
-      clearLoopShortcutDraft(localStorage, activeGameId);
-      return;
-    }
-
-    saveLoopShortcutDraft(localStorage, activeGameId, {
-      name: loopShortcutName.trim() || 'Loop Shortcut',
-      items: loopShortcutItems,
-      iterationCount: clampLoopShortcutIterations(loopShortcutIterations),
-      updatedAt: Date.now(),
-    });
-  }, [safeView?.id, loopShortcutItems, loopShortcutIterations, loopShortcutName]);
-
-  // Fetch saved decks when create game modal opens
-  const refreshSavedDecks = React.useCallback(() => {
-    fetch('/api/decks')
-      .then(res => res.ok ? res.json() : { decks: [] })
-      .then(data => setSavedDecks(data.decks || []))
-      .catch(() => setSavedDecks([]));
-  }, []);
-
-  React.useEffect(() => {
-    if (createGameModalOpen) {
-      refreshSavedDecks();
-    }
-  }, [createGameModalOpen, refreshSavedDecks]);
-
-  const stopLoopShortcutReplay = React.useCallback((message: string) => {
-    const activeGameId = safeViewRef.current?.id;
-    if (activeGameId) {
-      socket.emit('setLoopShortcutStackDrain', { gameId: activeGameId, enabled: false });
-    }
-    loopShortcutReplayRef.current = {
-      running: false,
-      index: 0,
-      iteration: 0,
-      totalIterations: 0,
-      waitingForState: false,
-      waitingForCastCardId: null,
-      castSettle: null,
-      waitingPrompt: null,
-    };
-    loopAutoAnsweredStepIdsRef.current.clear();
-    loopShortcutStackPassKeyRef.current = null;
-    loopShortcutStackPassAtRef.current = 0;
-    isLoopShortcutRunningRef.current = false;
-    setIsLoopShortcutRunning(false);
-    setLoopShortcutStatusText(message);
-  }, []);
-
-  const advanceLoopShortcutReplay = React.useCallback(() => {
-    const replayState = loopShortcutReplayRef.current;
-    const currentView = safeViewRef.current;
-
-    // Always use the live socket. Do not depend on originalSocketEmitRef — if that
-    // ref is null (effect timing), the loop would sit on "Running…" forever.
-    if (!replayState.running || !currentView?.id) {
-      return;
-    }
-
-    const items = loopShortcutItemsRef.current;
-
-    while (replayState.running) {
-      if (replayState.index >= items.length) {
-        if (replayState.iteration + 1 >= replayState.totalIterations) {
-          stopLoopShortcutReplay('Loop replay complete.');
-          return;
-        }
-
-        replayState.iteration += 1;
-        replayState.index = 0;
-      }
-
-      const nextItem = items[replayState.index];
-      if (!nextItem) {
-        stopLoopShortcutReplay('Loop replay stopped: no recorded actions remain.');
-        return;
-      }
-
-      // Legacy recordings may include passPriority; never emit it during a loop.
-      // Wait for a quiet board instead so empty-stack passes cannot advance the phase.
-      if (isLoopShortcutPhaseAdvanceEmit(nextItem)) {
-        replayState.index += 1;
-        replayState.waitingForState = true;
-        replayState.waitingPrompt = null;
-        setLoopShortcutStatusText(
-          `Waiting for stack/prompts to clear (iteration ${replayState.iteration + 1} of ${replayState.totalIterations})...`
-        );
-        return;
-      }
-
-      if (nextItem.kind === 'resolution_response') {
-        replayState.waitingPrompt = nextItem;
-        replayState.waitingForState = false;
-        setLoopShortcutStatusText(`Waiting for ${nextItem.label}...`);
-        // Nudge server in case we missed the original resolutionStepPrompt emit.
-        socket.emit('getMyNextResolutionStep', { gameId: currentView.id });
-        return;
-      }
-
-      const payload = JSON.parse(JSON.stringify(nextItem.payload || {}));
-      payload.gameId = currentView.id;
-      socket.emit(nextItem.event, payload);
-      replayState.index += 1;
-
-      const followingItem = items[replayState.index];
-      if (followingItem?.kind === 'resolution_response') {
-        replayState.waitingPrompt = followingItem;
-        replayState.waitingForState = false;
-        setLoopShortcutStatusText(`Waiting for ${followingItem.label}...`);
-        socket.emit('getMyNextResolutionStep', { gameId: currentView.id });
-        return;
-      }
-
-      replayState.waitingForState = true;
-      replayState.waitingPrompt = null;
-      setLoopShortcutStatusText(
-        `Running iteration ${replayState.iteration + 1} of ${replayState.totalIterations}...`
-      );
-      return;
-    }
-  }, [stopLoopShortcutReplay]);
-
-  const handleStartLoopShortcutRecording = React.useCallback(() => {
-    setLoopShortcutItems([]);
-    lastResolutionStepsRef.current.clear();
-    setIsLoopShortcutRecording(true);
-    setLoopShortcutStatusText('Recording in progress. Perform the loop once.');
-  }, []);
-
-  const handleStopLoopShortcutRecording = React.useCallback(() => {
-    setIsLoopShortcutRecording(false);
-    const sanitized = sanitizeLoopShortcutItems(loopShortcutItemsRef.current);
-    if (sanitized.removedPassPriorityCount > 0) {
-      setLoopShortcutItems(sanitized.items);
-      setLoopShortcutStatusText(
-        `Recorded ${sanitized.items.length} step${sanitized.items.length === 1 ? '' : 's'} ` +
-        `(removed ${sanitized.removedPassPriorityCount} passPriority — those advance the phase).`
-      );
-      return;
-    }
-    setLoopShortcutStatusText(
-      loopShortcutItemsRef.current.length > 0
-        ? `Recorded ${loopShortcutItemsRef.current.length} step${loopShortcutItemsRef.current.length === 1 ? '' : 's'}.`
-        : 'Recording stopped with no captured actions.'
-    );
-  }, []);
-
-  const handleClearLoopShortcut = React.useCallback(() => {
-    stopLoopShortcutReplay('Idle.');
-    setIsLoopShortcutRecording(false);
-    setLoopShortcutItems([]);
-    lastResolutionStepsRef.current.clear();
-    setLoopShortcutStatusText('Idle.');
-  }, [stopLoopShortcutReplay]);
-
-  const handleSaveLoopShortcut = React.useCallback(() => {
-    const activeGameId = safeViewRef.current?.id;
-    if (!activeGameId || loopShortcutItemsRef.current.length === 0) return;
-
-    const normalizedName = loopShortcutName.trim() || 'Loop Shortcut';
-    const existing = savedLoopShortcuts.find(
-      item => item.name.trim().toLowerCase() === normalizedName.toLowerCase()
-    );
-
-    const sanitized = sanitizeLoopShortcutItems(loopShortcutItemsRef.current);
-    if (sanitized.items.length === 0) return;
-
-    const nextSaved = upsertSavedLoopShortcut(localStorage, activeGameId, {
-      id: existing?.id || `loop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      name: normalizedName,
-      items: sanitized.items,
-      iterationCount: clampLoopShortcutIterations(loopShortcutIterations),
-      updatedAt: Date.now(),
-    });
-
-    setSavedLoopShortcuts(nextSaved);
-    setLoopShortcutName(normalizedName);
-    if (sanitized.removedPassPriorityCount > 0) {
-      setLoopShortcutItems(sanitized.items);
-      setLoopShortcutStatusText(
-        `Saved shortcut "${normalizedName}" (removed ${sanitized.removedPassPriorityCount} passPriority).`
-      );
-      return;
-    }
-    setLoopShortcutStatusText(`Saved shortcut "${normalizedName}".`);
-  }, [loopShortcutIterations, loopShortcutName, savedLoopShortcuts]);
-
-  const handleLoadSavedLoopShortcut = React.useCallback((shortcutId: string) => {
-    const activeGameId = safeViewRef.current?.id;
-    if (!activeGameId) return;
-
-    const shortcuts = loadSavedLoopShortcuts(localStorage, activeGameId);
-    setSavedLoopShortcuts(shortcuts);
-
-    const shortcut = shortcuts.find(item => item.id === shortcutId);
-    if (!shortcut) return;
-
-    stopLoopShortcutReplay('Idle.');
-    setIsLoopShortcutRecording(false);
-    setLoopShortcutName(shortcut.name);
-    const sanitized = sanitizeLoopShortcutItems(shortcut.items);
-    setLoopShortcutItems(sanitized.items);
-    setLoopShortcutIterations(clampLoopShortcutIterations(shortcut.iterationCount));
-    setLoopShortcutStatusText(
-      sanitized.removedPassPriorityCount > 0
-        ? `Loaded "${shortcut.name}" (removed ${sanitized.removedPassPriorityCount} passPriority).`
-        : `Loaded saved shortcut "${shortcut.name}".`
-    );
-  }, [stopLoopShortcutReplay]);
-
-  const handleDeleteSavedLoopShortcut = React.useCallback((shortcutId: string) => {
-    const activeGameId = safeViewRef.current?.id;
-    if (!activeGameId) return;
-
-    const shortcuts = deleteSavedLoopShortcut(localStorage, activeGameId, shortcutId);
-    setSavedLoopShortcuts(shortcuts);
-    setLoopShortcutStatusText('Deleted saved shortcut.');
-  }, []);
-
-  const startLoopShortcutReplay = React.useCallback((totalIterations: number) => {
-    if (!safeViewRef.current?.id || loopShortcutItemsRef.current.length === 0) return;
-
-    const sanitized = sanitizeLoopShortcutItems(loopShortcutItemsRef.current);
-    if (sanitized.removedPassPriorityCount > 0) {
-      setLoopShortcutItems(sanitized.items);
-    }
-    if (sanitized.items.length === 0) {
-      setLoopShortcutStatusText('Loop has no runnable steps after removing passPriority.');
-      return;
-    }
-
-    const iterations = clampLoopShortcutIterations(totalIterations);
-    loopShortcutItemsRef.current = sanitized.items;
-    isLoopShortcutRunningRef.current = true;
-    setIsLoopShortcutRunning(true);
-    setLoopShortcutAwaitingConsent(false);
-    setLoopShortcutStatusText(`Batching ${iterations} iteration(s) on server...`);
-
-    socket.emit('executeLoopShortcutBatch', {
-      gameId: safeViewRef.current.id,
-      name: loopShortcutName.trim() || 'Loop Shortcut',
-      items: sanitized.items,
-      iterationCount: iterations,
-    });
-  }, [loopShortcutName]);
-
-  const handleRunLoopShortcut = React.useCallback(() => {
-    if (!safeViewRef.current?.id || loopShortcutItemsRef.current.length === 0) return;
-    if (loopShortcutAwaitingConsent || isLoopShortcutRunning) return;
-
-    const sanitized = sanitizeLoopShortcutItems(loopShortcutItemsRef.current);
-    if (sanitized.removedPassPriorityCount > 0) {
-      setLoopShortcutItems(sanitized.items);
-    }
-    if (sanitized.items.length === 0) {
-      setLoopShortcutStatusText('Loop has no runnable steps after removing passPriority.');
-      return;
-    }
-    loopShortcutItemsRef.current = sanitized.items;
-
-    const requested = clampLoopShortcutIterations(loopShortcutIterations);
-    const players = Array.isArray((safeViewRef.current as any)?.players)
-      ? ((safeViewRef.current as any).players as any[])
-      : [];
-    const humanOpponents = players.filter((p: any) => {
-      const id = String(p?.id || '').trim();
-      if (!id || id === String(youRef.current || '')) return false;
-      if (p?.spectator === true || p?.isSpectator === true) return false;
-      if (p?.isAI === true || p?.ai === true) return false;
-      return true;
-    });
-
-    // Solo / all-AI tables: batch immediately.
-    if (humanOpponents.length === 0) {
-      startLoopShortcutReplay(requested);
-      return;
-    }
-
-    setLoopShortcutAwaitingConsent(true);
-    loopShortcutProposerAwaitingRef.current = true;
-    setLoopShortcutStatusText(
-      `Waiting for ${humanOpponents.length} opponent${humanOpponents.length === 1 ? '' : 's'} to allow or interrupt the loop...`,
-    );
-    socket.emit('proposeLoopShortcut', {
-      gameId: safeViewRef.current.id,
-      name: loopShortcutName.trim() || 'Loop Shortcut',
-      summary: `${sanitized.items.length} step(s) × up to ${requested} iteration(s)`,
-      iterationCount: requested,
-    });
-  }, [
-    isLoopShortcutRunning,
-    loopShortcutAwaitingConsent,
-    loopShortcutIterations,
-    loopShortcutName,
-    startLoopShortcutReplay,
-  ]);
-
-  React.useEffect(() => {
-    const onConsentPrompt = (payload: any) => {
-      if (!payload || String(payload.gameId || '') !== String(safeViewRef.current?.id || '')) return;
-      if (String(payload.proposerId || '') === String(youRef.current || '')) return;
-      setLoopShortcutConsentPrompt({
-        gameId: String(payload.gameId),
-        proposalId: String(payload.proposalId),
-        proposerId: String(payload.proposerId),
-        proposerName: String(payload.proposerName || 'Opponent'),
-        name: String(payload.name || 'Loop Shortcut'),
-        summary: String(payload.summary || ''),
-        requestedIterations: clampLoopShortcutIterations(payload.requestedIterations),
-      });
-    };
-
-    const onConsentWaiting = (payload: any) => {
-      if (!payload || String(payload.gameId || '') !== String(safeViewRef.current?.id || '')) return;
-      setLoopShortcutAwaitingConsent(true);
-      setLoopShortcutStatusText('Waiting for opponents to allow or interrupt the loop...');
-    };
-
-    const onConsentResult = (payload: any) => {
-      if (!payload || String(payload.gameId || '') !== String(safeViewRef.current?.id || '')) return;
-      setLoopShortcutConsentPrompt(null);
-      setLoopShortcutAwaitingConsent(false);
-
-      if (payload.cancelled || payload.approved === false) {
-        loopShortcutProposerAwaitingRef.current = false;
-        setLoopShortcutStatusText('Loop shortcut cancelled.');
-        return;
-      }
-
-      const effective = clampLoopShortcutIterations(payload.effectiveIterations);
-      const interrupted = payload.interrupted === true;
-      if (loopShortcutProposerAwaitingRef.current) {
-        loopShortcutProposerAwaitingRef.current = false;
-        setLoopShortcutStatusText(
-          interrupted
-            ? `Opponents capped the loop at ${effective} iteration(s). Batching...`
-            : `Opponents allowed the full loop (${effective}). Batching...`,
-        );
-        startLoopShortcutReplay(effective);
-      }
-    };
-
-    const onBatchProgress = (payload: any) => {
-      if (!payload || String(payload.gameId || '') !== String(safeViewRef.current?.id || '')) return;
-      setIsLoopShortcutRunning(true);
-      setLoopShortcutStatusText(String(payload.message || 'Batching loop...'));
-    };
-
-    const onBatchResult = (payload: any) => {
-      if (!payload || String(payload.gameId || '') !== String(safeViewRef.current?.id || '')) return;
-      // Observers get a status ping; only the runner clears the running flag.
-      if (payload.observer === true) {
-        setLoopShortcutStatusText(String(payload.message || 'Opponent finished a loop shortcut.'));
-        // Still resync — opponent loops also mutate the shared board.
-        try {
-          socket.emit('requestState', { gameId: payload.gameId });
-        } catch {
-          // best-effort
-        }
-        return;
-      }
-      setIsLoopShortcutRunning(false);
-      isLoopShortcutRunningRef.current = false;
-      loopShortcutReplayRef.current.running = false;
-      if (safeViewRef.current?.id) {
-        socket.emit('setLoopShortcutStackDrain', { gameId: safeViewRef.current.id, enabled: false });
-      }
-      setLoopShortcutStatusText(String(payload.message || (payload.ok ? 'Loop batch complete.' : 'Loop batch stopped.')));
-      // Final batch broadcast can be dropped/oversized after huge token deltas;
-      // explicitly resync so the board updates without a manual refresh.
-      try {
-        socket.emit('requestState', { gameId: payload.gameId });
-      } catch {
-        // best-effort
-      }
-    };
-
-    socket.on('loopShortcutConsentPrompt', onConsentPrompt);
-    socket.on('loopShortcutConsentWaiting', onConsentWaiting);
-    socket.on('loopShortcutConsentResult', onConsentResult);
-    socket.on('loopShortcutBatchProgress', onBatchProgress);
-    socket.on('loopShortcutBatchResult', onBatchResult);
-    return () => {
-      socket.off('loopShortcutConsentPrompt', onConsentPrompt);
-      socket.off('loopShortcutConsentWaiting', onConsentWaiting);
-      socket.off('loopShortcutConsentResult', onConsentResult);
-      socket.off('loopShortcutBatchProgress', onBatchProgress);
-      socket.off('loopShortcutBatchResult', onBatchResult);
-    };
-  }, [startLoopShortcutReplay]);
-
-  React.useEffect(() => {
-    const originalEmit = socket.emit.bind(socket);
-    originalSocketEmitRef.current = originalEmit as any;
-
-    (socket as any).emit = ((event: string, ...args: any[]) => {
-      const payload = args[0];
-      const activeGameId = safeViewRef.current?.id;
-
-      if (
-        !loopShortcutReplayRef.current.running &&
-        isLoopShortcutRecordingRef.current &&
-        activeGameId &&
-        payload &&
-        typeof payload === 'object' &&
-        String((payload as any).gameId || '') === String(activeGameId)
-      ) {
-        if (event === 'submitResolutionResponse') {
-          const stepId = String((payload as any).stepId || '');
-          const step = lastResolutionStepsRef.current.get(stepId);
-          if (step) {
-            const item = createRecordedResolutionResponseItem(
-              step,
-              (payload as any).selections,
-              safeViewRef.current,
-              youRef.current
-            );
-            if (item) {
-              setLoopShortcutItems(prev => [...prev, item]);
-            }
-          }
-        } else if (LOOP_SHORTCUT_RECORDABLE_EVENTS.has(event)) {
-          setLoopShortcutItems(prev => [...prev, createRecordedEmitItem(event, payload as any, activeGameId)]);
-        }
-      }
-
-      return originalEmit(event, ...args);
-    }) as any;
-
-    return () => {
-      (socket as any).emit = originalEmit as any;
-      originalSocketEmitRef.current = null;
-    };
-  }, []);
-
-  React.useEffect(() => {
-    const replayState = loopShortcutReplayRef.current;
-    if (!safeView || !replayState.running) {
-      return;
-    }
-
-    const playerId = youRef.current;
-    const hasActiveResolutionPrompt = Boolean(activeResolutionPrompt || minimizedResolutionStep);
-    const waitingForCastCardId = replayState.waitingForCastCardId;
-    replayState.castSettle = noteLoopShortcutCastSettleStack(replayState.castSettle, safeView);
-
-    // Drain Summon / Reflections / Aura Shards whenever the loop is running — not only
-    // while waitingForState (GY prompt wait still needs stack cleared first).
-    if (shouldLoopShortcutAutoPassPriority({
-      view: safeView,
-      playerId,
-      priorityPlayerId: priority,
-      myPendingResolutionCount,
-      hasActiveResolutionPrompt,
-      waitingForCastCardId,
-    })) {
-      const passKey = buildLoopShortcutStackPassKey(safeView, playerId, priority);
-      const now = Date.now();
-      const sameKeyRecently =
-        loopShortcutStackPassKeyRef.current === passKey
-        && (now - loopShortcutStackPassAtRef.current) < 750;
-      if (!sameKeyRecently) {
-        if (safeView.id && playerId) {
-          socket.emit('passPriority', { gameId: safeView.id, by: playerId });
-          loopShortcutStackPassKeyRef.current = passKey;
-          loopShortcutStackPassAtRef.current = now;
-          setPriorityModalOpen(false);
-          setLoopShortcutStatusText(
-            `Passing to resolve stack (iteration ${replayState.iteration + 1} of ${replayState.totalIterations})...`
-          );
-        }
-      }
-      return;
-    }
-
-    if (!replayState.waitingForState) {
-      return;
-    }
-
-    if (!canAdvanceLoopShortcutAfterState({
-      view: safeView,
-      myPendingResolutionCount,
-      hasActiveResolutionPrompt,
-      waitingForCastCardId,
-      playerId,
-      castSettle: replayState.castSettle,
-    })) {
-      setLoopShortcutStatusText(
-        `Waiting for stack/prompts to clear (iteration ${replayState.iteration + 1} of ${replayState.totalIterations})...`
-      );
-      return;
-    }
-
-    loopShortcutStackPassKeyRef.current = null;
-    loopShortcutStackPassAtRef.current = 0;
-    replayState.waitingForState = false;
-    replayState.waitingForCastCardId = null;
-    replayState.castSettle = null;
-    advanceLoopShortcutReplay();
-  }, [
-    safeView,
-    priority,
-    advanceLoopShortcutReplay,
-    myPendingResolutionCount,
-    activeResolutionPrompt,
-    minimizedResolutionStep,
-  ]);
-
-  // Re-check cast-settle timeout / stack drain while the loop is active.
-  React.useEffect(() => {
-    if (!isLoopShortcutRunning) return;
-    const id = window.setInterval(() => {
-      const replayState = loopShortcutReplayRef.current;
-      if (!replayState.running) return;
-
-      const view = safeViewRef.current;
-      const playerId = youRef.current;
-      if (!view || !playerId) return;
-
-      // If we're waiting on a recorded prompt, keep asking the server for it.
-      if (replayState.waitingPrompt) {
-        socket.emit('getMyNextResolutionStep', { gameId: view.id });
-        return;
-      }
-
-      const hasActiveResolutionPrompt = Boolean(activeResolutionPrompt || minimizedResolutionStep);
-      replayState.castSettle = noteLoopShortcutCastSettleStack(replayState.castSettle, view);
-      const priorityPlayerId = priorityRef.current;
-
-      if (shouldLoopShortcutAutoPassPriority({
-        view,
-        playerId,
-        priorityPlayerId,
-        myPendingResolutionCount,
-        hasActiveResolutionPrompt,
-        waitingForCastCardId: replayState.waitingForCastCardId,
-      })) {
-        const passKey = buildLoopShortcutStackPassKey(view, playerId, priorityPlayerId);
-        const now = Date.now();
-        const sameKeyRecently =
-          loopShortcutStackPassKeyRef.current === passKey
-          && (now - loopShortcutStackPassAtRef.current) < 750;
-        if (!sameKeyRecently && view.id) {
-          socket.emit('passPriority', { gameId: view.id, by: playerId });
-          loopShortcutStackPassKeyRef.current = passKey;
-          loopShortcutStackPassAtRef.current = now;
-          setPriorityModalOpen(false);
-          setLoopShortcutStatusText(
-            `Passing to resolve stack (iteration ${replayState.iteration + 1} of ${replayState.totalIterations})...`
-          );
-        }
-        return;
-      }
-
-      if (!replayState.waitingForState) return;
-      if (!canAdvanceLoopShortcutAfterState({
-        view,
-        myPendingResolutionCount,
-        hasActiveResolutionPrompt,
-        waitingForCastCardId: replayState.waitingForCastCardId,
-        playerId,
-        castSettle: replayState.castSettle,
-      })) {
-        setLoopShortcutStatusText(
-          `Waiting for stack/prompts to clear (iteration ${replayState.iteration + 1} of ${replayState.totalIterations})...`
-        );
-        return;
-      }
-
-      loopShortcutStackPassKeyRef.current = null;
-      loopShortcutStackPassAtRef.current = 0;
-      replayState.waitingForState = false;
-      replayState.waitingForCastCardId = null;
-      replayState.castSettle = null;
-      advanceLoopShortcutReplay();
-    }, 400);
-    return () => window.clearInterval(id);
-  }, [
-    isLoopShortcutRunning,
-    advanceLoopShortcutReplay,
-    myPendingResolutionCount,
-    activeResolutionPrompt,
-    minimizedResolutionStep,
-  ]);
-
-  React.useEffect(() => {
-    if (!lastError || lastError === loopShortcutLastErrorRef.current) {
-      loopShortcutLastErrorRef.current = lastError;
-      return;
-    }
-
-    loopShortcutLastErrorRef.current = lastError;
-    if (loopShortcutReplayRef.current.running) {
-      stopLoopShortcutReplay(`Loop replay stopped: ${lastError}`);
-    }
-  }, [lastError, stopLoopShortcutReplay]);
-
-  React.useEffect(() => {
-    if (!safeView?.id && loopShortcutReplayRef.current.running) {
-      stopLoopShortcutReplay('Loop replay stopped: no active game.');
-    }
-  }, [safeView?.id, stopLoopShortcutReplay]);
-
-  // Handle game creation
-  const handleCreateGame = (config: GameCreationConfig) => {
-    if (config.includeAI && config.aiOpponents && config.aiOpponents.length > 0) {
-      // Create game with multiple AI opponents
-      socket.emit('createGameWithMultipleAI' as any, {
-        gameId: config.gameId,
-        playerName: config.playerName,
-        format: config.format,
-        startingLife: config.startingLife,
-        seed: config.seed,
-        aiOpponents: config.aiOpponents,
-      });
-    } else if (config.includeAI) {
-      // Legacy: Create game with single AI opponent
-      socket.emit('createGameWithAI' as any, {
-        gameId: config.gameId,
-        playerName: config.playerName,
-        format: config.format,
-        startingLife: config.startingLife,
-        seed: config.seed,
-        aiName: config.aiName,
-        aiDifficulty: config.aiDifficulty,
-        aiDeckId: config.aiDeckId,
-        aiDeckText: config.aiDeckText,
-        aiDeckName: config.aiDeckName,
-      });
-    } else {
-      // Create game without AI (human players only)
-      socket.emit('createGame' as any, {
-        gameId: config.gameId,
-        format: config.format,
-        startingLife: config.startingLife,
-        seed: config.seed,
-      });
-    }
-    
-    // Update the input fields and join the game
-    setGameIdInput(config.gameId);
-    setNameInput(config.playerName);
-    
-    // Join the game after a short delay to allow server processing
-    setTimeout(() => {
-      socket.emit('joinGame', {
-        gameId: config.gameId,
-        playerName: config.playerName,
-        spectator: false,
-      });
-      
-      // If house rules are configured, send them after joining
-      if (config.houseRules && Object.keys(config.houseRules).length > 0) {
-        setTimeout(() => {
-          socket.emit('setHouseRules' as any, {
-            gameId: config.gameId,
-            houseRules: config.houseRules,
-          });
-        }, 200);
-      }
-    }, 100);
-  };
-
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      setNameInUsePayload(payload);
-      setShowNameInUseModal(true);
-    };
-    socket.on("nameInUse", handler);
-    return () => {
-      socket.off("nameInUse", handler);
-    };
-  }, []);
-
-  // Combat phase detection - auto-open combat modal when step changes
-  React.useEffect(() => {
-    if (!safeView) return;
-    
-    const step = String((safeView as any).step || "").toLowerCase();
-    const turnPlayer = safeView.turnPlayer;
-    const isYourTurn = you != null && turnPlayer != null && turnPlayer === you;
-    const stackLength = (safeView as any).stack?.length || 0;
-    const combatControl = ((safeView as any)?.combat?.combatControl || (safeView as any)?.combatControl) as any;
-    const isCombatController = !!you && !!combatControl && combatControl.controllerId === you;
-    // Include combatNumber to handle multiple combat phases per turn (Aurelia, Combat Celebrant, etc.)
-    const combatNumber = (safeView as any).combatNumber || 1;
-    const turnId = `${safeView.turn}-${combatNumber}-${step}`; // Unique ID for this combat step
-    
-    // Declare attackers
-    if (step === "declareattackers" || step === "declare_attackers") {
-      if (isCombatController && !!combatControl?.controlsAttackers) {
-        setCombatControlMode('attackers');
-        setCombatControlModalOpen(true);
-        setCombatModalOpen(false);
-        setCombatModalError(null);
-        setCombatModalReadOnly(false);
-        return;
-      }
-
-      if (isYourTurn) {
-        const attackersDeclaredBy: string[] = Array.isArray((safeView as any).attackersDeclaredBy)
-          ? (safeView as any).attackersDeclaredBy
-          : [];
-        const ownedCreaturesAttacking = (safeView.battlefield || []).some(
-          (p: BattlefieldPermanent) => p.controller === you && !!(p as any).attacking,
-        );
-        const youAlreadyDeclaredAttackers =
-          !!you && attackersDeclaredBy.includes(you) && ownedCreaturesAttacking;
-        const awaitingAttackCostChoice =
-          myPendingResolutionCount > 0 || !!activeResolutionPrompt || !!minimizedResolutionStep;
-
-        // Check if there are any valid creatures that can attack
-        const validAttackers = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
-          if (!you) return false;
-          if (p.controller !== you) return false;
-          // Check if it's currently a creature (handles reconfigure/bestow)
-          if (!isCurrentlyCreature(p)) return false;
-          // Check if creature can attack (not tapped, no summoning sickness unless haste, no defender)
-          if (p.tapped) return false;
-          return canCreatureAttack(p);
-        });
-        
-        if (validAttackers.length === 0) {
-          // No valid attackers - auto-skip declare attackers
-          // Only skip if stack is empty and we haven't already skipped for this step
-          if (stackLength === 0 && hasAutoSkippedAttackers.current !== turnId) {
-            hasAutoSkippedAttackers.current = turnId;
-            socket.emit("skipDeclareAttackers", { gameId: safeView.id });
-          }
-          // Don't show the modal either way
-          setCombatModalOpen(false);
-          setCombatModalReadOnly(false);
-        } else if (awaitingAttackCostChoice) {
-          setCombatModalOpen(false);
-          setCombatModalMinimized(false);
-          setCombatModalError(null);
-          setCombatModalReadOnly(false);
-        } else if (youAlreadyDeclaredAttackers) {
-          setCombatModalOpen(false);
-          setCombatModalMinimized(false);
-          setCombatModalError(null);
-          setCombatModalReadOnly(false);
-        } else {
-          setCombatMode('attackers');
-          setCombatModalReadOnly(false);
-          setCombatModalOpen(true);
-        }
-      } else {
-        const battlefield = (safeView.battlefield || []) as BattlefieldPermanent[];
-        const anyPreviewTargets = !!combatPreviewAttackTargets && Object.keys(combatPreviewAttackTargets).length > 0;
-        const anyAttackersDeclared = battlefield.some((p: any) => !!p?.attacking);
-        const activePlayerHasCombatCreatures = battlefield.some((p: BattlefieldPermanent) => {
-          if (p.controller !== turnPlayer) return false;
-          if (!isCurrentlyCreature(p)) return false;
-          return canCreatureAttack(p) || !!(p as any).attacking;
-        });
-
-        if (anyPreviewTargets || anyAttackersDeclared || activePlayerHasCombatCreatures) {
-          setCombatMode('attackers');
-          setCombatModalReadOnly(true);
-          setCombatModalError(null);
-          setCombatModalOpen(true);
-        } else {
-          setCombatModalOpen(false);
-          setCombatModalError(null);
-          setCombatModalReadOnly(false);
-        }
-      }
-    }
-    // Show blocker modal when you're being attacked during declare blockers step
-    else if (step === "declareblockers" || step === "declare_blockers") {
-      if (isCombatController && !!combatControl?.controlsBlockers) {
-        setCombatControlMode('blockers');
-        setCombatControlModalOpen(true);
-        setCombatModalOpen(false);
-        setCombatModalError(null);
-        setCombatModalReadOnly(false);
-        return;
-      }
-
-      // Spectators (or clients without an assigned player id) only ever get a read-only view.
-      if (!you) {
-        const anyAttackersDeclared = (safeView.battlefield || []).some((p: any) => !!p?.attacking);
-        if (anyAttackersDeclared) {
-          setCombatMode('blockers');
-          setCombatModalReadOnly(true);
-          setCombatModalOpen(true);
-        } else {
-          setCombatModalOpen(false);
-          setCombatModalError(null);
-          setCombatModalReadOnly(false);
-        }
-        return;
-      }
-
-      // Note: attackers can target either a playerId OR a permanentId (planeswalker/battle).
-      // If a planeswalker/battle you control is being attacked, you are still the defending player
-      // and must be prompted to declare blockers.
-      const battlefield = (safeView.battlefield || []) as any[];
-      const attackersTargetingYou = battlefield.filter((p: any) => {
-        const target = p?.attacking;
-        if (!target) return false;
-        if (target === you) return true;
-
-        // If the target is a permanent you control (planeswalker/battle), treat as defending.
-        if (typeof target === 'string') {
-          const targetPerm = battlefield.find((perm: any) => perm?.id === target);
-          if (!targetPerm) return false;
-          if (targetPerm.controller !== you) return false;
-          const typeLine = String(targetPerm.card?.type_line || '').toLowerCase();
-          return typeLine.includes('planeswalker') || typeLine.includes('battle');
-        }
-
-        return false;
-      });
-
-      // IMPORTANT: Do not use a purely client-side "shown once" guard here.
-      // If the server rejects an illegal block (e.g. flying/shadow/menace), we must
-      // allow the modal to reopen so the player can correct their blockers.
-      // Use server-authoritative state: once the player is recorded in blockersDeclaredBy,
-      // we stop prompting for blockers.
-      const blockersDeclaredBy: string[] = Array.isArray((safeView as any).blockersDeclaredBy)
-        ? (safeView as any).blockersDeclaredBy
-        : [];
-
-      const youAlreadyDeclared = blockersDeclaredBy.includes(you);
-      if (attackersTargetingYou.length > 0 && !youAlreadyDeclared) {
-        setCombatMode('blockers');
-        setCombatModalReadOnly(false);
-        setCombatModalOpen(true);
-      } else if (youAlreadyDeclared && combatMode === 'blockers' && combatModalOpen) {
-        // Server accepted declaration/skip; ensure the modal is closed.
-        setCombatModalOpen(false);
-        setCombatModalError(null);
-        setCombatModalReadOnly(false);
-      } else {
-        // Not the defending player (or not being attacked): keep a read-only blockers view open
-        // so everyone can see attackers during the blockers window.
-        const anyAttackersDeclared = (safeView.battlefield || []).some((p: any) => !!p?.attacking);
-        if (anyAttackersDeclared) {
-          setCombatMode('blockers');
-          setCombatModalReadOnly(true);
-          setCombatModalOpen(true);
-        } else {
-          setCombatModalOpen(false);
-          setCombatModalError(null);
-          setCombatModalReadOnly(false);
-        }
-      }
-    }
-    else {
-      setCombatControlModalOpen(false);
-      setCombatModalOpen(false);
-      setCombatModalMinimized(false);
-      setCombatModalError(null);
-      setCombatModalReadOnly(false);
-      // Reset auto-skip tracker when we leave combat steps
-      if (hasAutoSkippedAttackers.current) {
-        hasAutoSkippedAttackers.current = null;
-      }
-      // Reset shown blockers modal tracker when we leave combat steps
-      if (hasShownBlockersModal.current) {
-        hasShownBlockersModal.current = null;
-      }
-    }
-  }, [safeView, you, myPendingResolutionCount, activeResolutionPrompt, minimizedResolutionStep]);
-
-  // Live attacker allocation preview from the active player (read-only viewers)
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      const gameId = payload?.gameId;
-      if (!gameId || gameId !== safeView?.id) return;
-
-      const attackerPlayerId = payload?.attackerPlayerId;
-      // Only accept preview for the current turn player
-      if (!attackerPlayerId || attackerPlayerId !== safeView?.turnPlayer) return;
-
-      const targets = payload?.targets;
-      if (!targets || typeof targets !== 'object') return;
-
-      setCombatPreviewAttackTargets(targets as Record<string, string>);
-    };
-
-    socket.on('combatPreviewAttackers', handler);
-    return () => {
-      socket.off('combatPreviewAttackers', handler);
-    };
-  }, [safeView?.id, safeView?.turnPlayer]);
-
-  // Clear preview when leaving declare attackers
-  React.useEffect(() => {
-    const step = String((safeView as any)?.step || '').toLowerCase();
-    if (step !== 'declareattackers' && step !== 'declare_attackers') {
-      setCombatPreviewAttackTargets(null);
-    }
-  }, [safeView]);
-
-  // If the server rejects an illegal combat declaration, re-open the modal and surface the message.
-  React.useEffect(() => {
-    if (!safeView || !you) return;
-    if (!lastError) return;
-    if (lastCombatErrorSeenRef.current === lastError) return;
-    lastCombatErrorSeenRef.current = lastError;
-
-    const step = String((safeView as any).step || "").toLowerCase();
-    const isDeclareBlockers = step === "declareblockers" || step === "declare_blockers";
-    const isDeclareAttackers = step === "declareattackers" || step === "declare_attackers";
-    if (!isDeclareBlockers && !isDeclareAttackers) return;
-
-    if (isDeclareAttackers) {
-      const attackersDeclaredBy: string[] = Array.isArray((safeView as any).attackersDeclaredBy)
-        ? (safeView as any).attackersDeclaredBy
-        : [];
-      if (!attackersDeclaredBy.includes(you)) {
-        setCombatMode('attackers');
-        setCombatModalError(lastError);
-        setCombatModalReadOnly(false);
-        setCombatModalMinimized(false);
-        setCombatModalOpen(true);
-      }
-      return;
-    }
-
-    const battlefield = (safeView.battlefield || []) as any[];
-    const attackersTargetingYou = battlefield.filter((p: any) => {
-      const target = p?.attacking;
-      if (!target) return false;
-      if (target === you) return true;
-
-      if (typeof target === 'string') {
-        const targetPerm = battlefield.find((perm: any) => perm?.id === target);
-        if (!targetPerm) return false;
-        if (targetPerm.controller !== you) return false;
-        const typeLine = String(targetPerm.card?.type_line || '').toLowerCase();
-        return typeLine.includes('planeswalker') || typeLine.includes('battle');
-      }
-
-      return false;
-    });
-
-    const blockersDeclaredBy: string[] = Array.isArray((safeView as any).blockersDeclaredBy)
-      ? (safeView as any).blockersDeclaredBy
-      : [];
-    const youAlreadyDeclared = blockersDeclaredBy.includes(you);
-
-    if (attackersTargetingYou.length > 0 && !youAlreadyDeclared) {
-      setCombatMode('blockers');
-      setCombatModalError(lastError);
-      setCombatModalReadOnly(false);
-      setCombatModalOpen(true);
-    }
-  }, [lastError, safeView, you]);
-
-  // Priority modal logic - show when you gain priority on step changes
-  React.useEffect(() => {
-    if (!safeView || !you) return;
-    
-    const step = String((safeView as any).step || "").toLowerCase();
-    const phaseStr = String((safeView as any).phase || "").toUpperCase();
-    const priority = (safeView as any).priority;
-    const youHavePriority = priority === you;
-    const stackLength = (safeView as any).stack?.length || 0;
-    
-    // Don't show priority modal during pre-game phase
-    // Note: Using same logic as isPreGame memo (uppercase comparison)
-    const isPreGamePhase = phaseStr === "" || phaseStr === "PRE_GAME";
-    if (isPreGamePhase) {
-      setPriorityModalOpen(false);
-      return;
-    }
-    
-    // Show priority modal when all of these conditions are met:
-    // 1. You have priority
-    // 2. The stack is empty (not responding to something)
-    // 3. The step changed since last time we showed the modal
-    // 4. We're not in a combat modal already
-    // 5. Either: auto-pass is NOT enabled for this step, 
-    //    OR: it's your turn and you're not using phase navigator,
-    //    OR: there are pending triggers to handle
-    
-    // Check for pending triggers in the game state
-    const hasPendingTriggers = pendingTriggers.length > 0;
-    
-    // Normalize step key - remove underscores and convert to lowercase for consistent comparison
-    const stepKey = step.replace(/_/g, '').toLowerCase();
-    const autoPassStepEnabled = autoPassSteps.has(stepKey) || autoPassSteps.has(step.toLowerCase());
-    
-    // Auto-pass activates when:
-    // 1. Auto-pass is enabled for this step, AND
-    // 2. Either: you are NOT the active player (not your turn), OR you're using phase navigator during a NON-action phase, AND
-    // 3. There are no pending triggers to handle
-    // 
-    // IMPORTANT: The turn player should NEVER auto-pass during their own "action phases":
-    // - Main Phase 1 (MAIN1) - can play lands, cast sorcery-speed spells
-    // - Main Phase 2 (MAIN2) - can play lands, cast sorcery-speed spells
-    // These are the phases where the turn player typically wants to take actions.
-    // Even with phaseNavigatorAdvancing=true, we should stop at main phases on your turn.
-    const turnPlayer = (safeView as any).turnPlayer;
-    const isYourTurn = turnPlayer !== null && turnPlayer !== undefined && turnPlayer === you;
-    
-    // Action phases are main phases where the turn player can play lands and cast sorcery-speed spells
-    // Use stepKey (normalized, lowercase, no underscores) for precise detection
-    const isActionPhase = stepKey.includes('main');
-    
-    // Get action/response capabilities from server (preferred) or calculate from playableCards (fallback)
-    // canAct: Can take sorcery-speed actions (play lands, cast sorceries, etc.)
-    // canRespond: Can take instant-speed actions (cast instants, activate abilities, etc.)
-    const playableCards = (safeView as any).playableCards || [];
-    const canAct = (safeView as any).canAct ?? (playableCards.length > 0);
-    const canRespond = (safeView as any).canRespond ?? canAct;
-    
-    // Check if player has creatures for combat (must be untapped and not have summoning sickness)
-    const battlefield = safeView.battlefield || [];
-    const playerCreatures = battlefield.filter((p: any) => {
-      if (p.controller !== you) return false;
-      if (!isCurrentlyCreature(p)) return false;
-      if (p.tapped) return false;
-      return canCreatureAttackNow(p, battlefield);
-    });
-    const hasCreaturesToAttack = playerCreatures.length > 0;
-    
-    // Combat phases detection
-    const COMBAT_STEPS = ['combat', 'attack', 'block', 'damage'];
-    const isCombatPhase = COMBAT_STEPS.some(phase => stepKey.includes(phase));
-    
-    // NOTE: Auto-pass logic has been moved to server-side (doAutoPass in util.ts)
-    // The server will auto-pass after timeout if player has no actions (canAct/canRespond)
-    // This ensures authoritative game state and prevents race conditions.
-    //
-    // Client-side auto-pass is DISABLED to prevent:
-    // 1. Race conditions where client auto-passes before canAct/canRespond is calculated
-    // 2. Client/server state desync
-    // 3. Priority passing before user can see their options
-    //
-    // TODO: If we want to support user preferences for auto-pass, those should be sent
-    // to the server and the server should handle auto-passing based on those preferences.
-    
-    // Show priority modal when you gain priority and can take instant-speed actions.
-    // Suppress only during YOUR main phase when you also have sorcery-speed plays (canAct),
-    // so normal land/spell turns stay uninterrupted. Opponent main phases with flash
-    // use the same popup as upkeep/combat/end steps instead of only Phase Navigator.
-    const blockingCombatModalOpen = combatModalOpen && !combatModalReadOnly;
-
-    const isMainPhase = step.includes('main') || step === 'main1' || step === 'main2';
-    const suppressForMainPhasePlay = isMainPhase && isYourTurn && canAct === true;
-
-    const gainedPriority = youHavePriority && !hadPriorityRef.current;
-    const stepChangedWhileYouHavePriority =
-      youHavePriority && lastPriorityStep.current !== step;
-
-    const shouldShowModal =
-      !hasPendingTriggers &&
-      canRespond === true &&
-      !suppressForMainPhasePlay &&
-      (gainedPriority || stepChangedWhileYouHavePriority);
-
-    if (youHavePriority && stackLength === 0 && !blockingCombatModalOpen) {
-      if (shouldShowModal) {
-        setPriorityModalOpen(true);
-      }
-      if (stepChangedWhileYouHavePriority) {
-        lastPriorityStep.current = step;
-      }
-    } else {
-      setPriorityModalOpen(false);
-      if (!youHavePriority) {
-        lastCanRespond.current = null;
-      }
-    }
-
-    hadPriorityRef.current = youHavePriority;
-  }, [safeView, you, combatModalOpen, combatModalReadOnly, autoPassSteps, autoPassForTurn, phaseNavigatorAdvancing, pendingTriggers]);
-
-  // Mulligan bottom selection prompt listener (London Mulligan)
-  // (Legacy mulliganBottomPrompt removed; mulligan bottom uses Resolution Queue HAND_TO_BOTTOM)
-
-  // Listen for batch trigger resolution summary to update auto-resolve counts
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id && payload.playerId === you) {
-        // Update counts for each resolved source that we have in ignoredTriggerSources
-        setIgnoredTriggerSources(prev => {
-          const next = new Map(prev);
-          for (const source of (payload.sources || [])) {
-            const existing = next.get(source.sourceKey);
-            if (existing) {
-              // Increment count by number resolved
-              next.set(source.sourceKey, {
-                ...existing,
-                count: existing.count + source.count,
-              });
-            }
-          }
-          return next;
-        });
-      }
-    };
-    socket.on("triggersResolved", handler);
-    return () => {
-      socket.off("triggersResolved", handler);
-    };
-  }, [safeView?.id, you]);
-
-  // Deck validation result listener
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setDeckValidation({
-          format: payload.format,
-          cardCount: payload.cardCount,
-          illegal: payload.illegal || [],
-          warnings: payload.warnings || [],
-          valid: payload.valid,
-        });
-      }
-    };
-    socket.on("deckValidationResult", handler);
-    return () => {
-      socket.off("deckValidationResult", handler);
-    };
-  }, [safeView?.id]);
-
-  // Ignored cards update listener (for auto-pass and playability checks)
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id && payload.playerId === you) {
-        setIgnoredCards(payload.ignoredCards || []);
-      }
-    };
-    socket.on("ignoredCardsUpdated" as any, handler);
-    return () => {
-      socket.off("ignoredCardsUpdated" as any, handler);
-    };
-  }, [safeView?.id, you]);
-
-  // Drop stale ignored-card UI while disconnected; server resyncs on rejoin.
-  React.useEffect(() => {
-    if (!connected) {
-      setIgnoredCards([]);
-    }
-  }, [connected]);
-
-  // Replacement effect preference sync (used by PhaseNavigator)
-  React.useEffect(() => {
-    if (!safeView?.id || !you) return;
-    socket.emit('getReplacementEffectOrder', { gameId: safeView.id, effectType: 'damage' });
-  }, [safeView?.id, you]);
-
-  React.useEffect(() => {
-    const coerceDamageMode = (pref: any): ReplacementEffectMode => {
-      if (pref?.mode) return pref.mode;
-      // Back-compat: older server/client used a boolean toggle for damage.
-      return pref?.useCustomOrder ? 'maximize' : 'minimize';
-    };
-
-    const handleResponse = (data: any) => {
-      if (data?.gameId !== safeView?.id) return;
-      // Server can return either a single preference or an object of preferences.
-      if (data?.effectType === 'damage' && data?.preference) {
-        setDamageReplacementMode(coerceDamageMode(data.preference));
-        return;
-      }
-      if (data?.preferences?.damage) {
-        setDamageReplacementMode(coerceDamageMode(data.preferences.damage));
-      }
-    };
-
-    const handleUpdated = (data: any) => {
-      if (data?.gameId !== safeView?.id) return;
-      if (data?.effectType !== 'damage') return;
-      if (data?.mode) {
-        setDamageReplacementMode(data.mode);
-        return;
-      }
-      // Back-compat
-      setDamageReplacementMode(data?.useCustomOrder ? 'maximize' : 'minimize');
-    };
-
-    socket.on('replacementEffectOrderResponse', handleResponse);
-    socket.on('replacementEffectOrderUpdated', handleUpdated);
-    return () => {
-      socket.off('replacementEffectOrderResponse', handleResponse);
-      socket.off('replacementEffectOrderUpdated', handleUpdated);
-    };
-  }, [safeView?.id]);
-
-  // Legacy targetSelectionRequest listener removed - target selection is Resolution Queue-only.
-
-  // Payment required listener (for MTG-compliant spell casting: targets first, then payment)
-  // Legacy paymentRequired listener removed - spell payment is handled via Resolution Queue.
-
-  // Opening hand actions prompt is handled via Resolution Queue (opening_hand_actions).
-
-  // Life payment request listener (for Toxic Deluge, Hatred, etc.)
-  // Legacy lifePaymentRequest listener removed - now handled via Resolution Queue (life_payment).
-
-
-  // Legacy MDFC face selection request listener removed - now handled via Resolution Queue (resolutionStepPrompt).
-
-  // Legacy modalSpellRequest listener removed - now handled via Resolution Queue (mode_selection with multi-select).
-
-  // Replacement Effect Order Request listener - allows player to override damage/life effect ordering
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      effectType: 'damage' | 'life_gain' | 'counters' | 'tokens';
-      effects: ReplacementEffectItem[];
-      baseAmount: number;
-      initialMode?: OrderingMode;
-      effectId?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setReplacementEffectModalData({
-          effectType: payload.effectType,
-          effects: payload.effects,
-          baseAmount: payload.baseAmount,
-          initialMode: payload.initialMode,
-          effectId: payload.effectId,
-        });
-        setReplacementEffectModalOpen(true);
-      }
-    };
-    socket.on("replacementEffectOrderRequest", handler);
-    return () => {
-      socket.off("replacementEffectOrderRequest", handler);
-    };
-  }, [safeView?.id]);
-
-  // Mana choice prompts are handled via Resolution Queue (resolutionStepPrompt).
-
-  // Legacy additionalCostRequest listener removed - now handled via Resolution Queue (additional_cost_payment).
-
-  // Legacy squadCostRequest listener removed - now handled via Resolution Queue (squad_cost_payment).
-
-  // Legacy modeSelectionRequest listener removed - now handled via Resolution Queue (mode_selection).
-
-  // Mana pool update listener - update local mana pool state when server sends updates
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      playerId: string;
-      manaPool: {
-        white: number;
-        blue: number;
-        black: number;
-        red: number;
-        green: number;
-        colorless: number;
-        restricted?: Array<{
-          type?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-          amount: number;
-          restriction: string;
-          restrictedTo?: string;
-          sourceId?: string;
-          sourceName?: string;
-        }>;
-        doesNotEmpty?: boolean;
-      };
-      totalMana: number;
-      reason?: string;
-    }) => {
-      // Only update if this is for the current player
-      if (payload.gameId === safeView?.id && payload.playerId === you) {
-        setManaPool(payload.manaPool as ManaPool);
-      }
-    };
-    socket.on("manaPoolUpdate", handler);
-    return () => {
-      socket.off("manaPoolUpdate", handler);
-    };
-  }, [safeView?.id, you]);
-
-  // Also sync mana pool from state when it changes (fallback for when broadcastGame includes manaPool)
-  React.useEffect(() => {
-    if (!safeView || !you) return;
-    
-    const statePool = (safeView as any).manaPool?.[you];
-    if (statePool) {
-      setManaPool(statePool);
-    }
-  }, [safeView, you]);
-
-  // Undo request listener
-  React.useEffect(() => {
-    const handleUndoRequest = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setUndoRequestData({
-          undoId: payload.undoId,
-          requesterId: payload.requesterId,
-          requesterName: payload.requesterName,
-          description: payload.description,
-          undoScope: payload.undoScope,
-          actionsToUndo: payload.actionsToUndo,
-          boundaryPreview: payload.boundaryPreview,
-          expiresAt: payload.expiresAt,
-          approvals: payload.approvals || {},
-          playerIds: payload.playerIds || [],
-          playerNames: payload.playerNames || {},
-        });
-        setUndoModalOpen(true);
-      }
-    };
-
-    const handleUndoUpdate = (payload: any) => {
-      if (payload.gameId === safeView?.id && undoRequestData?.undoId === payload.undoId) {
-        setUndoRequestData(prev => prev ? {
-          ...prev,
-          approvals: payload.approvals || prev.approvals,
-        } : null);
-      }
-    };
-
-    const handleUndoCancelled = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setUndoModalOpen(false);
-        setUndoRequestData(null);
-      }
-    };
-
-    const handleUndoConfirmed = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setUndoModalOpen(false);
-        setUndoRequestData(null);
-        window.setTimeout(() => {
-          socket.emit('getMyNextResolutionStep', { gameId: payload.gameId });
-        }, 0);
-      }
-    };
-
-    socket.on("undoRequest", handleUndoRequest);
-    socket.on("undoUpdate", handleUndoUpdate);
-    socket.on("undoCancelled", handleUndoCancelled);
-    socket.on("undoConfirmed", handleUndoConfirmed);
-
-    return () => {
-      socket.off("undoRequest", handleUndoRequest);
-      socket.off("undoUpdate", handleUndoUpdate);
-      socket.off("undoCancelled", handleUndoCancelled);
-      socket.off("undoConfirmed", handleUndoConfirmed);
-    };
-  }, [safeView?.id, undoRequestData?.undoId]);
-
-  // Listen for undo count updates
-  React.useEffect(() => {
-    const handleUndoCountUpdate = (payload: { gameId: string; eventCount: number }) => {
-      if (payload.gameId === safeView?.id) {
-        setAvailableUndoCount(payload.eventCount);
-      }
-    };
-
-    const handleUndoTurnPhaseTargetsUpdate = (payload: {
-      gameId: string;
-      targets?: Array<{
-        turnNumber?: number;
-        phase: string;
-        step?: string;
-        turnPlayer?: string;
-        turnPlayerName?: string;
-        round?: number;
-        label: string;
-        eventsToUndo: number;
-      }>;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setUndoTurnPhaseTargets(Array.isArray(payload.targets) ? payload.targets : []);
-      }
-    };
-
-    const handleSmartUndoCountsUpdate = (payload: { 
-      gameId: string; 
-      stepCount: number; 
-      phaseCount: number; 
-      previousPhaseCount: number;
-      turnCount: number;
-      semanticStepCount?: number;
-      semanticPhaseCount?: number;
-      previews?: {
-        step?: UndoBoundaryPreview;
-        phase?: UndoBoundaryPreview;
-        previousPhase?: UndoBoundaryPreview;
-        turn?: UndoBoundaryPreview;
-      };
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setSmartUndoCounts({
-          stepCount: payload.stepCount,
-          phaseCount: payload.phaseCount,
-          previousPhaseCount: payload.previousPhaseCount,
-          turnCount: payload.turnCount,
-          semanticStepCount: payload.semanticStepCount,
-          semanticPhaseCount: payload.semanticPhaseCount,
-          previews: payload.previews || {},
-        });
-      }
-    };
-
-    socket.on("undoCountUpdate", handleUndoCountUpdate);
-    socket.on("smartUndoCountsUpdate", handleSmartUndoCountsUpdate);
-    socket.on("undoTurnPhaseTargetsUpdate", handleUndoTurnPhaseTargetsUpdate);
-
-    return () => {
-      socket.off("undoCountUpdate", handleUndoCountUpdate);
-      socket.off("smartUndoCountsUpdate", handleSmartUndoCountsUpdate);
-      socket.off("undoTurnPhaseTargetsUpdate", handleUndoTurnPhaseTargetsUpdate);
-    };
-  }, [safeView?.id]);
-
-  // AI control socket event handlers
-  React.useEffect(() => {
-    const handleAiControlToggled = (payload: { 
-      gameId: string; 
-      playerId: string; 
-      enabled: boolean;
-      strategy?: string;
-      difficulty?: number;
-    }) => {
-      if (payload.gameId === safeView?.id && payload.playerId === you) {
-        setAiControlEnabled(payload.enabled);
-        if (payload.strategy) {
-          setAiStrategy(payload.strategy);
-        }
-      }
-    };
-
-    socket.on("aiControlToggled", handleAiControlToggled);
-
-    return () => {
-      socket.off("aiControlToggled", handleAiControlToggled);
-    };
-  }, [safeView?.id, you]);
-
-  // Handler to toggle AI control
-  const handleToggleAIControl = React.useCallback((enable: boolean, difficulty?: number) => {
-    if (!safeView?.id) return;
-    
-    socket.emit("toggleAIControl", {
-      gameId: safeView.id,
-      enable,
-      difficulty: difficulty ?? 0.5,
-    });
-  }, [safeView?.id]);
-
-  // Request total undo count on game state changes (no polling to reduce overhead)
-  React.useEffect(() => {
-    if (!safeView?.id) return;
-    
-    // Request only the cheap total count here. Smart counts are computed on demand.
-    socket.emit("getUndoCount", { gameId: safeView.id });
-  }, [safeView]);
-
-  React.useEffect(() => {
-    if (!safeView?.id) return;
-    if (availableUndoCount <= 0) return;
-    if ((smartUndoCounts.stepCount || 0) > 0 || (smartUndoCounts.phaseCount || 0) > 0 || (smartUndoCounts.previousPhaseCount || 0) > 0 || (smartUndoCounts.turnCount || 0) > 0) {
-      return;
-    }
-    socket.emit("getSmartUndoCounts", { gameId: safeView.id });
-  }, [availableUndoCount, safeView?.id, smartUndoCounts.phaseCount, smartUndoCounts.previousPhaseCount, smartUndoCounts.stepCount, smartUndoCounts.turnCount]);
-
-  const handleOpenUndoMenu = React.useCallback(() => {
-    if (!safeView?.id) return;
-    socket.emit("getSmartUndoCounts", { gameId: safeView.id });
-  }, [safeView?.id]);
-
-  const handleRequestUndoTurnPhaseTargets = React.useCallback(() => {
-    if (!safeView?.id) return;
-    socket.emit("getUndoTurnPhaseTargets", { gameId: safeView.id, includeSteps: true });
-  }, [safeView?.id]);
-
-  const handleUndoToTurnPhase = React.useCallback((target: { turnNumber?: number; phase: string; step?: string }) => {
-    if (!safeView?.id || !target?.phase) return;
-    socket.emit("requestUndoToTurnPhase", {
-      gameId: safeView.id,
-      turnNumber: target.turnNumber,
-      phase: target.phase,
-      step: target.step,
-    });
-  }, [safeView?.id]);
-
-  const dismissResolutionStepUi = React.useCallback(() => {
-    setReturnControlledPermanentModalOpen(false);
-    setHideawayChoiceModalOpen(false);
-    setProliferateModalOpen(false);
-    setLifeRedistributionModalOpen(false);
-    setLifeRedistributionData(null);
-    setFatesealModalOpen(false);
-    setClashModalOpen(false);
-    setVoteModalOpen(false);
-    setTriggerModalOpen(false);
-    setPendingTriggers([]);
-    setTriggerOrderStepId(null);
-    setMulliganBottomModalOpen(false);
-    setMulliganBottomStepId(null);
-    setDiscardModalOpen(false);
-    setDiscardCount(0);
-    setDiscardMaxHandSize(7);
-    setDiscardCurrentHandSize(null);
-    setDiscardResolutionStepId(null);
-    setDiscardResolutionReason('cleanup');
-    setDiscardResolutionTitle(null);
-    setDiscardResolutionDescription(null);
-    setDiscardResolutionHand([]);
-    setOpeningHandActionsModalOpen(false);
-    setOpeningHandActionsStepId(null);
-    setLibrarySearchModalOpen(false);
-    setTargetModalOpen(false);
-    setCreatureTypeModalOpen(false);
-    setJoinForcesModalOpen(false);
-    setTemptingOfferModalOpen(false);
-    setKynaiosChoiceModalOpen(false);
-    setOptionChoiceModalOpen(false);
-    setTwoPileSplitModalOpen(false);
-    setPonderModalOpen(false);
-    setPonderRequest(null);
-    setLimDulsVaultModalOpen(false);
-    setLimDulsVaultRequest(null);
-    setDanceWithCalamityModalOpen(false);
-    setDanceWithCalamityRequest(null);
-    setDanceWithCalamityCastModalOpen(false);
-    setDanceWithCalamityCastRequest(null);
-    setCascadeModalOpen(false);
-    setCascadePrompt(null);
-    setTapUntapTargetModalOpen(false);
-    setFightTargetModalOpen(false);
-    setCounterMovementModalOpen(false);
-    setStationCreatureSelectionOpen(false);
-    setResolutionPlayerChoiceModalOpen(false);
-    setManaDistributionModalOpen(false);
-    setAdditionalCostModalOpen(false);
-    setSquadCostModalOpen(false);
-    setCastingModeModalOpen(false);
-    setMayAbilityModalOpen(false);
-    setLifePaymentModalOpen(false);
-    setColorChoiceModalOpen(false);
-    setCardNameChoiceModalOpen(false);
-    setAnyColorManaModalOpen(false);
-    setPhyrexianManaModalOpen(false);
-    setModalSpellModalOpen(false);
-    setReplacementEffectModalOpen(false);
-    setMutateModalOpen(false);
-    setGraveyardSelectionModalOpen(false);
-    setMinimizedResolutionStep(null);
-    setActiveResolutionPrompt(null);
-    // Spell payment modal is opened from mana_payment_choice prompts; always clear it
-    // when the resolution queue is dismissed so loop replay cannot leave it stuck open.
-    setCastSpellModalOpen(false);
-    setSpellToCast(null);
-  }, []);
-
-  React.useEffect(() => {
-    if (!discardModalOpen || discardResolutionReason !== 'cleanup') return;
-
-    const phase = String(safeView?.phase || '').toUpperCase();
-    const hand = you ? (safeView?.zones?.[you]?.hand || []) : [];
-    const handSize = Array.isArray(hand) ? hand.length : 0;
-
-    if (phase === 'PRE_GAME' || handSize <= discardMaxHandSize) {
-      dismissResolutionStepUi();
-    }
-  }, [discardModalOpen, discardMaxHandSize, discardResolutionReason, dismissResolutionStepUi, safeView, you]);
-  
-  // Resolution Queue system handler for Kynaios, Join Forces, Tempting Offer, and Bounce Land
-  // Listens for resolution step prompts and opens the appropriate modals
-  React.useEffect(() => {
-    const handleResolutionStepPrompt = (payload: { gameId: string; step: any }) => {
-      if (payload.gameId !== safeView?.id) return;
-      
-      const step = payload.step;
-      const stepId = String(step.id || '');
-
-      // requestCastSpell double-emits the same payment step (STEP_ADDED + explicit).
-      // Ignore duplicates the loop already auto-answered so CastSpellModal cannot re-open.
-      if (
-        loopShortcutReplayRef.current.running
-        && stepId
-        && loopAutoAnsweredStepIdsRef.current.has(stepId)
-      ) {
-        return;
-      }
-
-      // Server batch still used to leak resolutionStepPrompt while answering
-      // payment/triggers. Never open cast-cost / choice UI mid-batch.
-      if (isLoopShortcutRunningRef.current) {
-        if (stepId) {
-          lastResolutionStepsRef.current.set(stepId, step);
-        }
-        return;
-      }
-
-      lastResolutionStepsRef.current.set(stepId, step);
-      setMinimizedResolutionStep((prev) =>
-        prev && prev.stepId !== stepId ? null : prev
-      );
-      if (!you || !step.playerId || String(step.playerId) === String(you)) {
-        setActiveResolutionPrompt({
-          stepId,
-          title: String(step.sourceName || step.description || 'Pending choice').slice(0, 100),
-        });
-      }
-
-      const replayState = loopShortcutReplayRef.current;
-      if (replayState.running && replayState.waitingPrompt) {
-        const expectedPrompt = replayState.waitingPrompt;
-        if (!matchesPromptFingerprint(expectedPrompt.fingerprint, step)) {
-          stopLoopShortcutReplay('Loop replay paused: an unexpected prompt appeared.');
-        } else {
-          const response = buildResolutionResponsePayload(
-            expectedPrompt.template,
-            step,
-            safeViewRef.current,
-            youRef.current
-          );
-
-          if (response) {
-            if (stepId) {
-              loopAutoAnsweredStepIdsRef.current.add(stepId);
-            }
-            // Must use live socket.emit — originalSocketEmitRef can be null and would
-            // silently skip payment, leaving the loop stuck on "Running…".
-            socket.emit('submitResolutionResponse', {
-              gameId: payload.gameId,
-              stepId,
-              selections: response.selections,
-              cancelled: false,
-            });
-            // Keep payment / choice UI closed even if a duplicate prompt arrives later.
-            setCastSpellModalOpen(false);
-            setSpellToCast(null);
-            setActiveResolutionPrompt(null);
-            setMinimizedResolutionStep(null);
-            replayState.index += 1;
-            replayState.waitingPrompt = null;
-
-            const paymentCardId = String(step?.cardId || '').trim();
-            if (step?.type === 'mana_payment_choice' && (step as any)?.spellPaymentRequired === true && paymentCardId) {
-              replayState.waitingForCastCardId = paymentCardId;
-              replayState.castSettle = {
-                cardId: paymentCardId,
-                sawNonEmptyStack: false,
-                startedAt: Date.now(),
-              };
-            }
-
-            const nextItem = loopShortcutItemsRef.current[replayState.index];
-            if (nextItem?.kind === 'resolution_response') {
-              replayState.waitingPrompt = nextItem;
-              setLoopShortcutStatusText(`Waiting for ${nextItem.label}...`);
-              socket.emit('getMyNextResolutionStep', { gameId: payload.gameId });
-            } else {
-              replayState.waitingForState = true;
-              setLoopShortcutStatusText(
-                `Waiting for stack/prompts to clear (iteration ${replayState.iteration + 1} of ${replayState.totalIterations})...`
-              );
-            }
-            return;
-          }
-
-          stopLoopShortcutReplay('Loop replay paused: a recorded prompt choice is no longer legal.');
-        }
-      }
-
-      // Handle Discard Selection resolution step (cleanup discard and discard effects)
-      if (step.type === 'discard_selection') {
-        if (you && step.playerId && String(step.playerId) !== String(you)) {
-          return;
-        }
-        const anyNumberDiscard = (step as any).anyNumberDiscard === true;
-        const discardCount = Number(step.discardCount || 0);
-        if (anyNumberDiscard || discardCount > 0) {
-          // Treat anything other than explicit cleanup as an effect-style prompt.
-          // This includes activation-cost prompts which use reason: 'activation_cost'.
-          const reason: 'cleanup' | 'effect' = step.reason === 'cleanup' ? 'cleanup' : 'effect';
-          if (reason === 'cleanup') {
-            const maxHandSize = Number(step.maxHandSize || 7);
-            const currentHand = you ? (safeViewRef.current?.zones?.[you]?.hand || []) : [];
-            const currentHandSize = Array.isArray(currentHand) ? currentHand.length : 0;
-            if (currentHandSize <= maxHandSize) {
-              setDiscardModalOpen(false);
-              setDiscardCount(0);
-              setDiscardMinCount(0);
-              setDiscardMaxCount(0);
-              setDiscardAnyNumber(false);
-              setDiscardMaxHandSize(7);
-              setDiscardCurrentHandSize(null);
-              setDiscardResolutionStepId(null);
-              setDiscardResolutionReason('cleanup');
-              setDiscardResolutionTitle(null);
-              setDiscardResolutionDescription(null);
-              setDiscardResolutionHand([]);
-              return;
-            }
-          }
-          setDiscardAnyNumber(anyNumberDiscard);
-          setDiscardMinCount(anyNumberDiscard ? Number((step as any).minDiscardCount ?? 0) : discardCount);
-          setDiscardMaxCount(
-            anyNumberDiscard
-              ? Number((step as any).maxDiscardCount ?? (Array.isArray((step as any).hand) ? (step as any).hand.length : 0))
-              : discardCount
-          );
-          setDiscardCount(discardCount);
-          setDiscardMaxHandSize(Number(step.maxHandSize || 7));
-          setDiscardCurrentHandSize(
-            Number.isFinite(Number((step as any).currentHandSize))
-              ? Number((step as any).currentHandSize)
-              : (Array.isArray((step as any).hand) ? (step as any).hand.length : null)
-          );
-          setDiscardResolutionStepId(String(step.id));
-          setDiscardResolutionReason(reason);
-          setDiscardResolutionTitle(
-            reason === 'cleanup'
-              ? 'Cleanup Step - Discard to Hand Size'
-              : String(step.sourceName || 'Discard')
-          );
-          setDiscardResolutionDescription(String(step.description || ''));
-          // Server discard steps use ChoiceOption { id, label, imageUrl }; map to KnownCardRef-like.
-          setDiscardResolutionHand(
-            Array.isArray((step as any).hand)
-              ? ((step as any).hand as any[])
-                  .map((card) => {
-                    if (!card || !card.id) return null;
-                    const name = String(card.name || card.label || '').trim();
-                    const imageUrl = card.imageUrl || card.image_url || card.image_uris?.normal || card.image_uris?.small;
-                    return {
-                      ...card,
-                      id: String(card.id),
-                      name: name || 'Unknown',
-                      ...(imageUrl && !card.image_uris
-                        ? { image_uris: { normal: imageUrl, small: imageUrl } }
-                        : {}),
-                    } as KnownCardRef;
-                  })
-                  .filter((card): card is KnownCardRef => Boolean(card && card.id))
-              : []
-          );
-          setDiscardModalOpen(true);
-        }
-      }
-
-      // Handle London mulligan bottom selection via Resolution Queue
-      else if (step.type === 'hand_to_bottom' && step.reason === 'mulligan') {
-        const cardsToBottom = Number(step.cardsToBottom || 0);
-        if (cardsToBottom > 0) {
-          const incomingStepId = String(step.id || '');
-          if (incomingStepId && mulliganBottomLastSubmittedStepId === incomingStepId) {
-            return;
-          }
-          setMulliganBottomCount(cardsToBottom);
-          setMulliganBottomStepId(incomingStepId || String(step.id));
-          setMulliganBottomModalOpen(true);
-        }
-      }
-      
-      // Handle Kynaios choice resolution step
-      else if (step.type === 'kynaios_choice') {
-        // Convert resolution step to KynaiosChoiceRequest format
-        const landsInHand = Array.isArray((step as any).landPlayOrFallbackLandsInHand)
-          ? (step as any).landPlayOrFallbackLandsInHand
-          : (step.landsInHand || []);
-        const options = Array.isArray((step as any).landPlayOrFallbackOptions)
-          ? (step as any).landPlayOrFallbackOptions
-          : (step.options || []);
-        const request: KynaiosChoiceRequest = {
-          gameId: payload.gameId,
-          sourceController: (step as any).landPlayOrFallbackSourceController || step.sourceController,
-          sourceName: step.sourceName || 'Kynaios and Tiro of Meletis',
-          isController: (step as any).landPlayOrFallbackIsController ?? step.isController,
-          canPlayLand: (step as any).landPlayOrFallbackCanPlayLand ?? step.canPlayLand,
-          landsInHand,
-          options,
-          stepId: step.id,  // Store the step ID for the response
-        };
-        
-        setKynaiosChoiceRequest(request);
-        setKynaiosChoiceModalOpen(true);
-      }
-      
-      // Handle Option Choice resolution step (named primitives + generic fallback)
-      else if (isNamedGenericOptionChoiceStep(step) || isGenericOptionChoiceFallbackStep(step)) {
-        // Deck import wipe confirmations are handled via the existing confirm modal UI.
-        if (step.importWipeConfirm === true || step.judgeConfirm === true) {
-          openConfirmFromResolutionStep(step);
-          return;
-        }
-
-        if (step.opponentMayPayChoice === true) {
-          const prompt: OpponentMayPayPrompt = {
-            promptId: String(step.promptId || ''),
-            sourceName: String(step.sourceName || 'Triggered Ability'),
-            sourceController: String(step.sourceController || ''),
-            decidingPlayer: String(step.decidingPlayer || you || ''),
-            manaCost: String(step.manaCost || ''),
-            declineEffect: String(step.declineEffect || ''),
-            triggerText: String(step.triggerText || step.description || ''),
-            availableMana: step.availableMana,
-          };
-          setOpponentMayPayPrompt(prompt);
-          setOpponentMayPayStepId(String(step.id));
-          return;
-        }
-
-        if (step.counterPlacementTrigger === true || step.agitatorAntTrigger === true) {
-          const request: OptionChoiceRequest = buildGenericOptionChoiceRequestFromStep(
-            step,
-            payload.gameId,
-            isResolutionStepMandatory(step),
-          );
-          setOptionChoiceRequest(request);
-          setOptionChoiceModalOpen(true);
-          return;
-        }
-
-        const isMayAbilityPrompt = (step as any).mayAbilityPrompt === true;
-        const isOptionalTriggeredAbilityPrompt =
-          (step as any).optionalTriggeredAbilityPrompt === true ||
-          ((step as any).effectProgramPrompt === true && (
-            (step as any).effectProgramFamily === 'optional_triggered_ability' ||
-            (
-              (step as any).effectProgramFamily === 'trigger_resolution' &&
-              !isResolutionStepMandatory(step)
-            )
-          ));
-
-        if (isMayAbilityPrompt || isOptionalTriggeredAbilityPrompt) {
-          const optionalEffectText = String(
-            (step as any).effectText
-            || step.description?.replace(/^[^:]+:\s*/i, '').replace(/^you may[:\s]*/i, '').trim()
-            || step.description
-            || ''
-          );
-          const normalizedSourceName = String(step.sourceName || 'Ability');
-          const effectKey = String(
-            (step as any).effectKey
-            || buildOptionalEffectKey(normalizedSourceName, optionalEffectText),
-          );
-          setMayAbilityModalData({
-            stepId: step.id,
-            sourceName: normalizedSourceName,
-            sourceImage: step.sourceImage,
-            effectText: optionalEffectText,
-            fullAbilityText: (step as any).fullAbilityText || step.description,
-            effectKey,
-            gameId: (safeViewRef.current as any)?.id || payload.gameId || '',
-            shortcutCardName: normalizedSourceName,
-            persistMayAutoPreference: true,
-            persistTriggerShortcut: isOptionalTriggeredAbilityPrompt,
-          });
-          setMayAbilityModalOpen(true);
-          return;
-        }
-
-        // Generic option choice modal (Agitator Ant, future IR steps, and similar)
-        const request: OptionChoiceRequest = buildGenericOptionChoiceRequestFromStep(
-          step,
-          payload.gameId,
-          isResolutionStepMandatory(step),
-        );
-
-        setOptionChoiceRequest(request);
-        setOptionChoiceModalOpen(true);
-      }
-
-      // Mana color selection (any color / distribution) via Resolution Queue
-      else if (step.type === 'mana_color_selection') {
-        const selectionKind = String(step.selectionKind || 'any_color');
-
-        if (selectionKind === 'distribution') {
-          setManaDistributionModalData({
-            gameId: payload.gameId,
-            stepId: String(step.id),
-            mandatory: isResolutionStepMandatory(step),
-            permanentId: String(step.permanentId || step.sourceId || ''),
-            cardName: String(step.cardName || step.sourceName || 'Mana'),
-            cardImageUrl: step.sourceImage,
-            totalAmount: Number(step.totalAmount ?? step.amount ?? 0),
-            availableColors: Array.isArray(step.availableColors) ? step.availableColors : (Array.isArray(step.allowedColors) ? step.allowedColors : ['W','U','B','R','G']),
-            message: step.message,
-          });
-          setManaDistributionModalOpen(true);
-        } else {
-          setAnyColorManaModalData({
-            stepId: String(step.id),
-            mandatory: isResolutionStepMandatory(step),
-            activationId: '',
-            permanentId: String(step.permanentId || step.sourceId || ''),
-            cardName: String(step.cardName || step.sourceName || 'Mana'),
-            amount: Number(step.amount || 1),
-            allowedColors: Array.isArray(step.allowedColors) ? step.allowedColors : undefined,
-            amountByColor: step.amountByColor && typeof step.amountByColor === 'object'
-              ? step.amountByColor
-              : undefined,
-            dynamicAmountSource: step.dynamicAmountSource === 'devotion' || step.dynamicAmountSource === 'creature_type_count'
-              ? step.dynamicAmountSource
-              : undefined,
-            chosenCreatureType: typeof step.chosenCreatureType === 'string' ? step.chosenCreatureType : undefined,
-            cardImageUrl: step.sourceImage,
-          });
-          setAnyColorManaModalOpen(true);
-        }
-      }
-
-      else if (step.type === 'counter_distribution') {
-        const validTargets = Array.isArray(step.validTargets)
-          ? step.validTargets.map((entry: any) => ({
-              id: String(entry?.id || '').trim(),
-              label: String(entry?.label || entry?.name || entry?.id || 'Target').trim(),
-            })).filter((entry: { id: string }) => entry.id)
-          : [];
-        setCounterDistributionModalData({
-          gameId: payload.gameId,
-          stepId: String(step.id),
-          mandatory: isResolutionStepMandatory(step),
-          cardName: String(step.sourceName || step.cardName || 'Ability'),
-          cardImageUrl: step.sourceImage,
-          counterType: String(step.counterType || '+1/+1'),
-          totalAmount: Number(step.totalAmount ?? 0),
-          minPerTarget: Number(step.minPerTarget ?? 1),
-          targets: validTargets,
-          message: typeof step.message === 'string' ? step.message : step.description,
-        });
-        setCounterDistributionModalOpen(true);
-      }
-
-      else if (isGenericNumberChoiceStep(step)) {
-        setPendingSpellXSelection(buildPendingSpellXSelectionFromStep(step));
-      }
-
-      // Phyrexian mana payment choice via Resolution Queue
-      else if (step.type === 'mana_payment_choice' && (step.spellPaymentRequired === true || (step as any).wardPayment === true)) {
-        const ca = (step as any).costAdjustment as PaymentCostAdjustment | undefined;
-        const co = (step as any).convokeOptions;
-        const so = (step as any).sneakOptions;
-        const wo = (step as any).webSlingingOptions;
-        const isWardPayment = (step as any).wardPayment === true;
-
-        setSpellToCast({
-          cardId: String((step as any).cardId || step.sourceId || ''),
-          cardName: isWardPayment
-            ? String((step as any).wardPermanentName || (step as any).cardName || step.sourceName || 'Ward')
-            : String((step as any).cardName || step.sourceName || 'Spell'),
-          manaCost: String((step as any).wardCost || (step as any).manaCost || ''),
-          typeLine: isWardPayment
-            ? undefined
-            : (() => {
-                const fromStep = String((step as any).typeLine || (step as any).type_line || '').trim();
-                if (fromStep) return fromStep;
-                const cardId = String((step as any).cardId || step.sourceId || '');
-                const zoneKey = String((step as any).fromZone || 'hand');
-                const zones = you && safeView?.zones ? (safeView.zones as any)[you] : null;
-                const zoneCards =
-                  zoneKey === 'graveyard' ? zones?.graveyard
-                  : zoneKey === 'exile' ? zones?.exile
-                  : zoneKey === 'command' ? zones?.command
-                  : zones?.hand;
-                const fromZoneCard = Array.isArray(zoneCards)
-                  ? zoneCards.find((c: any) => String(c?.id || '') === cardId)
-                  : null;
-                return String(
-                  fromZoneCard?.type_line
-                  || fromZoneCard?.typeLine
-                  || (step as any).card?.type_line
-                  || '',
-                ).trim();
-              })(),
-          isActivatedAbilityPayment: false,
-          // Default hand so CastSpellModal hides graveyard-only alts (flashback, etc.)
-          // even if a payment step omitted fromZone.
-          fromZone: isWardPayment
-            ? undefined
-            : ((String((step as any).fromZone || 'hand') as 'hand' | 'graveyard' | 'exile' | 'library' | 'command')),
-          oracleText: isWardPayment
-            ? String(step.description || '')
-            : String((step as any).oracleText || ''),
-          extraAlternateCosts: isWardPayment
-            ? []
-            : (Array.isArray((step as any).extraAlternateCosts) ? (step as any).extraAlternateCosts : undefined),
-          targets: Array.isArray((step as any).targets) ? (step as any).targets : undefined,
-          effectId: isWardPayment ? undefined : String((step as any).effectId || ''),
-          xValue: isWardPayment ? undefined : (Number.isFinite((step as any).xValue) ? Math.max(0, Number((step as any).xValue)) : undefined),
-          costAdjustment: isWardPayment ? undefined : ca,
-          convokeOptions: isWardPayment ? undefined : co,
-          sneakOptions: isWardPayment ? undefined : so,
-          webSlingingOptions: isWardPayment ? undefined : wo,
-          forcedAlternateCostId: isWardPayment ? undefined : ((step as any).forcedAlternateCostId != null ? String((step as any).forcedAlternateCostId) : undefined),
-          preferredAlternateCostId: isWardPayment ? undefined : ((step as any).preferredAlternateCostId != null ? String((step as any).preferredAlternateCostId) : undefined),
-          // Track the resolution step id so confirm/cancel responds via the queue.
-          paymentStepId: String(step.id),
-          title: isWardPayment
-            ? `Pay Ward for ${String((step as any).wardPermanentName || (step as any).cardName || step.sourceName || 'Ward')}`
-            : `Pay for ${String((step as any).cardName || step.sourceName || 'Spell')}`,
-          confirmLabel: isWardPayment ? 'Pay Ward' : 'Pay Cost',
-          manualFloatingManaSelection: !isWardPayment,
-        } as any);
-        setCastSpellModalOpen(true);
-      }
-
-      else if (step.type === 'mana_payment_choice' && (step as any).activationPaymentChoice === true) {
-        setSpellToCast({
-          cardId: String((step as any).cardId || step.sourceId || ''),
-          cardName: String((step as any).cardName || step.sourceName || 'Ability'),
-          manaCost: String((step as any).manaCost || ''),
-          typeLine: String((step as any).typeLine || (step as any).type_line || ''),
-          isActivatedAbilityPayment: true,
-          oracleText: String((step as any).abilityText || step.description || ''),
-          // Explicit empty — do not fall back to Fist of Suns / Omniscience spell alts.
-          extraAlternateCosts: [],
-          paymentStepId: String(step.id),
-          activatingPermanentId: String((step as any).permanentId || step.sourceId || ''),
-          // Always exclude the permanent being activated — its {T} (or other cost)
-          // cannot also pay the activation's mana cost (e.g. Three Tree City {2}{T}).
-          excludeActivatingPermanentFromPayment: true,
-          title: `Pay for ${String((step as any).cardName || step.sourceName || 'Ability')}`,
-          confirmLabel: String((step as any).confirmLabel || 'Pay and Continue'),
-          manualFloatingManaSelection: true,
-        } as any);
-        setCastSpellModalOpen(true);
-      }
-
-      else if (step.type === 'extort_payment') {
-        setSpellToCast({
-          cardId: String((step as any).cardId || step.sourceId || ''),
-          cardName: String((step as any).cardName || step.sourceName || 'Extort'),
-          manaCost: String((step as any).manaCost || '{W/B}'),
-          oracleText: String((step as any).effectText || step.description || ''),
-          extraAlternateCosts: [],
-          paymentStepId: String(step.id),
-          title: `Pay Extort for ${String((step as any).cardName || step.sourceName || 'Extort')}`,
-          confirmLabel: String((step as any).confirmLabel || 'Pay Extort'),
-          manualFloatingManaSelection: true,
-        } as any);
-        setCastSpellModalOpen(true);
-      }
-
-      // Phyrexian mana payment choice via Resolution Queue
-      else if (step.type === 'mana_payment_choice' && step.phyrexianManaChoice === true) {
-        setPhyrexianManaModalData({
-          stepId: String(step.id),
-          mandatory: isResolutionStepMandatory(step),
-          pendingId: String(step.pendingId || ''),
-          permanentId: step.permanentId,
-          cardId: step.cardId,
-          castSpellArgs: step.castSpellArgs,
-          cardName: String(step.cardName || step.sourceName || ''),
-          abilityText: String(step.abilityText || step.description || ''),
-          totalManaCost: String(step.totalManaCost || step.manaCost || ''),
-          genericCost: Number(step.genericCost || 0),
-          phyrexianChoices: step.phyrexianChoices || [],
-          playerLife: Number(step.playerLife || 40),
-          cardImageUrl: step.sourceImage,
-        });
-        setPhyrexianManaModalOpen(true);
-      }
-
-      // Mutate target selection via Resolution Queue
-      else if (step.type === 'mutate_target_selection') {
-        setMutateModalData({
-          cardId: String(step.cardId || step.sourceId || ''),
-          cardName: String(step.cardName || step.sourceName || 'Mutate'),
-          imageUrl: step.imageUrl || step.sourceImage,
-          mutateCost: String(step.mutateCost || ''),
-          targets: Array.isArray(step.validTargets) ? step.validTargets : [],
-          stepId: String(step.id),
-          mandatory: isResolutionStepMandatory(step),
-        });
-        setMutateModalOpen(true);
-      }
-
-      // Graveyard card selection via Resolution Queue
-      else if (step.type === 'graveyard_selection' || step.type === 'soulshift_target') {
-        const rawTargets = step.type === 'soulshift_target'
-          ? ((step as any).spirits || [])
-          : (Array.isArray(step.validTargets) ? step.validTargets : []);
-        const validTargets: GraveyardCard[] = Array.isArray(rawTargets)
-          ? rawTargets.map((t: any) => ({
-              id: String(t?.id || ''),
-              name: String(t?.name || 'Unknown'),
-              typeLine: t?.typeLine,
-              manaCost: t?.manaCost,
-              imageUrl: t?.imageUrl,
-            }))
-          : [];
-
-        setGraveyardSelectionModalData({
-          stepId: String(step.id),
-          mandatory: isResolutionStepMandatory(step),
-          title: String(step.title || step.cardName || step.sourceName || (step.type === 'soulshift_target' ? 'Select a Spirit Card' : 'Select from Graveyard')),
-          description: String(step.description || ''),
-          sourceCard: {
-            name: String(step.cardName || step.sourceName || 'Effect'),
-            imageUrl: step.imageUrl || step.sourceImage,
-          },
-          validTargets,
-          minTargets: Math.max(0, Number(step.minTargets ?? 0)),
-          maxTargets: Math.max(0, Number(step.maxTargets ?? (step.minTargets ?? 0))),
-        });
-        setGraveyardSelectionModalOpen(true);
-      }
-
-      // Handle Two-pile split resolution step
-      else if (step.type === 'two_pile_split') {
-        const request: TwoPileSplitRequest = {
-          gameId: payload.gameId,
-          stepId: step.id,
-          sourceName: step.sourceName || 'Separate Into Two Piles',
-          sourceImage: step.sourceImage,
-          description: step.description || '',
-          items: step.items || [],
-          minPerPile: step.minPerPile ?? 0,
-          pileCount: step.pileCount ?? 2,
-          mandatory: isResolutionStepMandatory(step),
-        };
-        setTwoPileSplitRequest(request);
-        setTwoPileSplitModalOpen(true);
-      }
-
-      // Tap/Untap target selection via Resolution Queue
-      else if (step.type === 'tap_untap_target') {
-        setTapUntapTargetModalData({
-          stepId: String(step.id),
-          sourceId: String(step.sourceId || ''),
-          sourceName: String(step.sourceName || 'Ability'),
-          sourceImageUrl: step.sourceImage,
-          action: step.action || 'tap',
-          targetFilter: step.targetFilter || {},
-          targetCount: Number(step.targetCount || 1),
-          title: step.title,
-          description: step.description,
-        });
-        setTapUntapTargetModalOpen(true);
-      }
-
-      // Fight target selection via Resolution Queue
-      else if (step.type === 'fight_target') {
-        setFightTargetModalData({
-          stepId: String(step.id),
-          sourceId: String(step.sourceId || ''),
-          sourceName: String(step.sourceName || 'Creature'),
-          sourceImageUrl: step.sourceImage,
-          title: step.title,
-          description: step.description,
-          targetFilter: step.targetFilter,
-        });
-        setFightTargetModalOpen(true);
-      }
-
-      // Counter target selection via Resolution Queue
-      else if (step.type === 'counter_target') {
-        const validTargets: TargetOption[] = (step.validTargets || []).map((t: any) => ({
-          id: t.id,
-          type: 'permanent',
-          name: t.label || t.name || 'Unknown',
-          displayName: t.label || t.name,
-          imageUrl: t.imageUrl,
-          controller: t.controller,
-          typeLine: t.typeLine,
-          life: t.life,
-          zone: t.zone,
-          owner: t.owner,
-          card: t.card,
-        }));
-
-        setTargetModalData({
-          cardId: step.sourceId || step.id,
-          source: { name: step.sourceName || 'Add Counter', imageUrl: step.sourceImage },
-          title: step.title || step.description || 'Choose target',
-          description: step.description || '',
-          targets: validTargets,
-          minTargets: step.minTargets || 1,
-          maxTargets: step.maxTargets || 1,
-          effectId: step.sourceId,
-          stepId: step.id,
-          useResolutionQueue: true,
-        });
-        setTargetModalOpen(true);
-      }
-
-      // Counter movement via Resolution Queue
-      else if (step.type === 'counter_movement') {
-        setCounterMovementModalData({
-          stepId: String(step.id),
-          sourceId: String(step.sourceId || ''),
-          sourceName: String(step.sourceName || 'Move Counter'),
-          sourceImageUrl: step.sourceImage,
-          sourceFilter: step.sourceFilter,
-          targetFilter: step.targetFilter,
-          title: step.title,
-          description: step.description,
-        });
-        setCounterMovementModalOpen(true);
-      }
-
-      // Station creature selection via Resolution Queue
-      else if (step.type === 'station_creature_selection') {
-        setStationCreatureSelectionData({
-          stepId: String(step.id),
-          station: step.station,
-          creatures: step.creatures || [],
-          title: step.title || 'Station',
-          description: step.description || '',
-        });
-        setStationCreatureSelectionOpen(true);
-      }
-
-      // Life payment (Toxic Deluge, Hatred, etc.) via Resolution Queue
-      else if (step.type === 'life_payment') {
-        setLifePaymentModalData({
-          stepId: String(step.id),
-          mandatory: isResolutionStepMandatory(step),
-          cardId: String(step.cardId || step.sourceId || ''),
-          cardName: String(step.cardName || step.sourceName || 'Spell'),
-          description: String(step.description || 'Choose an amount of life to pay.'),
-          imageUrl: step.sourceImage,
-          currentLife: Number(step.currentLife ?? 40),
-          minPayment: Number(step.minPayment ?? 0),
-          maxPayment: Number(step.maxPayment ?? 0),
-        });
-        setLifePaymentModalOpen(true);
-      }
-
-      // Handle Bounce Land choice resolution step
-      else if (step.type === 'return_controlled_permanent_choice') {
-        debug(2, '[BounceLand] Received bounce land choice from resolution queue:', step);
-        const optionsToChoose = step.returnControlledPermanentOptions || [];
-        const sourceName = step.returnControlledPermanentSourceName || step.sourceName || 'Return Controlled Permanent';
-        setReturnControlledPermanentData({
-          sourceId: step.sourceId || step.id,
-          sourceName,
-          imageUrl: step.sourceImage || step.sourceImageUrl,
-          optionsToChoose,
-          title: `${sourceName} Enters the Battlefield`,
-          subtitle: step.returnControlledPermanentChoice
-            ? 'Choose a permanent to return to your hand'
-            : 'Choose a land to return to your hand',
-          oracleText: step.returnControlledPermanentChoice
-            ? `When ${sourceName} resolves, return a permanent you control to its owner's hand.`
-            : `When ${sourceName} enters the battlefield, return a land you control to its owner's hand.`,
-          confirmButtonText: step.returnControlledPermanentChoice
-            ? 'Return Selected Permanent'
-            : 'Return Selected Land',
-          stackItemId: step.stackItemId,
-          stepId: step.id,  // Store the step ID for resolution response
-        });
-        setReturnControlledPermanentModalOpen(true);
-      }
-
-      else if (step.type === 'hideaway_choice') {
-        const sourceName = step.sourceName || 'Hideaway';
-        const cards = Array.isArray(step.hideawayCards) ? step.hideawayCards : [];
-        setHideawayChoiceData({
-          sourceName,
-          imageUrl: step.sourceImage || step.sourceImageUrl,
-          cards,
-          title: `${sourceName} Hideaway`,
-          subtitle: 'Choose a card to exile face down',
-          oracleText: step.description || `Choose a card to exile face down with ${sourceName}.`,
-          confirmButtonText: 'Hide Away Selected Card',
-          mandatory: isResolutionStepMandatory(step),
-          stepId: step.id,
-        });
-        setHideawayChoiceModalOpen(true);
-      }
-      else if (step.type === 'repeated_zone_draft') {
-        const sourceName = step.sourceName || 'Draft';
-        const cards = Array.isArray(step.cards)
-          ? step.cards
-          : (Array.isArray(step.remainingCardIds) ? step.remainingCardIds.map((id: string) => ({ id, name: id })) : []);
-        setHideawayChoiceData({
-          sourceName,
-          imageUrl: step.sourceImage || step.sourceImageUrl,
-          cards,
-          title: `${sourceName}: Choose a permanent`,
-          subtitle: 'Put it onto the battlefield tapped under your control',
-          oracleText: step.description || 'Choose one of the remaining exiled cards.',
-          confirmButtonText: 'Choose Card',
-          mandatory: isResolutionStepMandatory(step),
-          stepId: step.id,
-        });
-        setHideawayChoiceModalOpen(true);
-      }
-
-      // Handle Join Forces resolution step
-      else if (step.type === 'join_forces') {
-        const allPlayers = (safeView?.players || []).map(p => p.id);
-        const initiatorPlayer = (safeView?.players || []).find(p => p.id === step.initiator);
-
-        // Convert to JoinForcesRequest and open the modal
-        const request: JoinForcesRequest = {
-          id: step.id,
-          gameId: payload.gameId,
-          initiator: step.initiator,
-          initiatorName: step.isInitiator ? 'You' : (initiatorPlayer?.name || step.initiator),
-          cardName: step.cardName || step.sourceName || 'Join Forces',
-          effectDescription: step.effectDescription || step.description || '',
-          cardImageUrl: step.cardImageUrl || step.sourceImage,
-          players: allPlayers,
-          timeoutMs: step.timeoutMs || 60000,
-        };
-        
-        // Store stepId for resolution response
-        (request as any).stepId = step.id;
-        (request as any).isInitiator = step.isInitiator;
-        (request as any).availableMana = step.availableMana;
-        
-        setJoinForcesRequest(request);
-        setJoinForcesContributions({});
-        setJoinForcesResponded([]);
-        setJoinForcesModalOpen(true);
-      }
-      
-      // Handle Tempting Offer resolution step
-      else if (step.type === 'tempting_offer') {
-        const opponents = (safeView?.players || []).map(p => p.id).filter(pid => pid !== step.initiator);
-        const initiatorPlayer = (safeView?.players || []).find(p => p.id === step.initiator);
-
-        // Convert to TemptingOfferRequest and open the modal
-        const request: TemptingOfferRequest = {
-          id: step.id,
-          gameId: payload.gameId,
-          initiator: step.initiator,
-          initiatorName: step.initiator === you ? 'You' : (initiatorPlayer?.name || step.initiator),
-          cardName: step.cardName || step.sourceName || 'Tempting Offer',
-          effectDescription: step.effectDescription || step.description || '',
-          cardImageUrl: step.cardImageUrl || step.sourceImage,
-          opponents,
-          timeoutMs: step.timeoutMs || 60000,
-        };
-        
-        // Store stepId for resolution response
-        (request as any).stepId = step.id;
-        (request as any).isOpponent = step.isOpponent;
-        
-        setTemptingOfferRequest(request);
-        setTemptingOfferResponded([]);
-        setTemptingOfferAcceptedBy([]);
-        setTemptingOfferModalOpen(true);
-      }
-
-      // Handle Player Choice resolution step (generic player selection)
-      else if (step.type === 'player_choice') {
-        setResolutionPlayerChoiceModalData({
-          stepId: step.id,
-          title: step.sourceName || 'Choose Player',
-          description: step.description || '',
-          source: {
-            name: step.sourceName || 'Choose Player',
-            imageUrl: step.sourceImage,
-          },
-          players: (step.players || []).map((p: any) => ({
-            id: p.id,
-            name: p.name || p.id,
-            life: p.life ?? 0,
-            libraryCount: p.libraryCount,
-            isOpponent: Boolean(p.isOpponent),
-            isSelf: Boolean(p.isSelf),
-          })),
-          opponentOnly: Boolean(step.opponentOnly),
-          isOptional: Boolean(step.isOptional) || !isResolutionStepMandatory(step),
-        });
-        setResolutionPlayerChoiceModalOpen(true);
-      }
-      
-      // Handle Cascade resolution step
-      else if (step.type === 'cascade') {  // Uses ResolutionStepType.CASCADE on server
-        setCascadePrompt({
-          gameId: payload.gameId,
-          effectId: step.effectId,
-          playerId: step.playerId,
-          sourceName: step.sourceName || 'Cascade',
-          cascadeNumber: step.cascadeNumber || 1,
-          totalCascades: step.totalCascades || 1,
-          hitCard: step.hitCard,
-          exiledCards: step.exiledCards || [],
-          stepId: step.id,  // Store the step ID for resolution response
-        });
-        setCascadeModalOpen(true);
-      }
-      
-      // Handle Scry resolution step
-      else if (step.type === 'scry') {
-        setPeek({
-          mode: 'scry',
-          cards: step.cards || [],
-          stepId: step.id,
-        });
-      }
-      
-      // Handle Surveil resolution step
-      else if (step.type === 'surveil') {
-        setPeek({
-          mode: 'surveil',
-          cards: step.cards || [],
-          stepId: step.id,
-        });
-      }
-
-      // Handle Bottom Order resolution step
-      else if (step.type === 'bottom_order') {
-        setPeek({
-          mode: 'bottom_order',
-          cards: step.cards || [],
-          stepId: step.id,
-        });
-      }
-      
-      // Handle Proliferate resolution step
-      else if (step.type === 'proliferate') {
-        setProliferateData({
-          proliferateId: step.proliferateId || step.id,
-          sourceName: step.sourceName || 'Proliferate',
-          sourceImageUrl: step.sourceImage || step.sourceImageUrl,
-          validTargets: step.availableTargets || [],
-          stepId: step.id,
-        });
-        setProliferateModalOpen(true);
-      }
-
-      else if (step.type === 'life_redistribution') {
-        setLifeRedistributionData({
-          redistributionId: step.redistributionId || step.id,
-          sourceName: step.sourceName || 'Redistribute Life Totals',
-          imageUrl: step.sourceImage || step.sourceImageUrl,
-          players: (step.players || []).map((player: any) => ({
-            id: String(player.id || ''),
-            name: String(player.name || player.id || 'Player'),
-            life: Number(player.life ?? 0),
-          })),
-          stepId: step.id,
-        });
-        setLifeRedistributionModalOpen(true);
-      }
-      
-      // Handle Fateseal resolution step
-      else if (step.type === 'fateseal') {
-        setFatesealData({
-          opponentId: step.opponentId,
-          opponentName: step.opponentName || 'opponent',
-          cards: step.cards || [],
-          stepId: step.id,
-          sourceName: step.sourceName || 'Fateseal',
-        });
-        setFatesealModalOpen(true);
-      }
-      
-      // Handle Clash resolution step
-      else if (step.type === 'clash') {
-        setClashData({
-          revealedCard: step.revealedCard,
-          opponentId: step.opponentId,
-          stepId: step.id,
-          sourceName: step.sourceName || 'Clash',
-        });
-        setClashModalOpen(true);
-      }
-      
-      // Handle Vote resolution step
-      else if (step.type === 'vote') {
-        setVoteData({
-          voteId: step.voteId || step.id,
-          choices: step.choices || [],
-          votesSubmitted: step.votesSubmitted || [],
-          stepId: step.id,
-          sourceName: step.sourceName || 'Vote',
-        });
-        setVoteModalOpen(true);
-      }
-      
-      // Handle Ponder Effect resolution step
-      else if (step.type === 'ponder_effect') {
-        setPonderRequest({
-          effectId: step.id,
-          cardName: step.sourceName || 'Ponder',
-          cardImageUrl: step.sourceImage,
-          cards: step.cards || [],
-          variant: step.variant || 'ponder',
-          canShuffle: step.mayShuffleAfter !== false,
-          drawAfter: step.drawAfter || false,
-          pickToHand: 0,  // Will be determined by variant
-          targetPlayerId: step.targetPlayerId || step.playerId,
-          targetPlayerName: step.targetPlayerName,
-          isOwnLibrary: step.playerId === (step.targetPlayerId || step.playerId),
-          stepId: step.id,  // Store for resolution response
-        });
-        setPonderModalOpen(true);
-      }
-
-      else if (step.type === 'lim_duls_vault') {
-        setLimDulsVaultRequest({
-          cardName: step.sourceName || "Lim-Dul's Vault",
-          cardImageUrl: step.sourceImage,
-          cards: step.cards || [],
-          currentLife: Number(step.currentLife || 0),
-          totalLifePaid: Number(step.totalLifePaid || 0),
-          stepId: step.id,
-        });
-        setLimDulsVaultModalOpen(true);
-      }
-
-      else if (step.type === 'dance_with_calamity') {
-        setDanceWithCalamityRequest({
-          cardName: step.sourceName || 'Dance with Calamity',
-          cardImageUrl: step.sourceImage,
-          exiledCards: step.exiledCards || [],
-          totalManaValue: Number(step.totalManaValue || 0),
-          canContinue: step.canContinue === true,
-          stepId: step.id,
-        });
-        setDanceWithCalamityModalOpen(true);
-      }
-
-      else if (step.type === 'dance_with_calamity_cast') {
-        setDanceWithCalamityCastRequest({
-          cardName: step.sourceName || 'Dance with Calamity',
-          cardImageUrl: step.sourceImage,
-          exiledCards: step.exiledCards || [],
-          spellCards: step.spellCards || [],
-          totalManaValue: Number(step.totalManaValue || 0),
-          stepId: step.id,
-        });
-        setDanceWithCalamityCastModalOpen(true);
-      }
-      
-      // Handle Library Search resolution step
-      else if (step.type === 'library_search') {
-        const built = buildLibrarySearchModalStateFromStep(step as Record<string, unknown>);
-        setLibrarySearchData(built);
-        setLibrarySearchModalOpen(true);
-      }
-
-      // Handle Opening Hand Actions resolution step (Leylines)
-      else if (step.type === 'opening_hand_actions') {
-        setOpeningHandActionsStepId(step.id);
-        setOpeningHandActionsModalOpen(true);
-      }
-      // Handle color choice via resolution queue (Throne of Eldraine, Caged Sun, etc.)
-      else if (step.type === 'color_choice') {
-        setColorChoiceModalData({
-          stepId: step.id,
-          confirmId: step.id,
-          permanentId: (step as any).permanentId || step.sourceId,
-          spellId: (step as any).spellId,
-          cardName: (step as any).cardName || step.sourceName || 'Permanent',
-          reason: (step as any).reason || step.description || 'Choose a color',
-          imageUrl: step.sourceImage,
-          colors: (step as any).colors || ['white', 'blue', 'black', 'red', 'green'],
-          mandatory: isResolutionStepMandatory(step),
-        });
-        setColorChoiceModalOpen(true);
-      }
-      // Handle card name choice via resolution queue
-      else if (step.type === 'card_name_choice') {
-        setCardNameChoiceModalData({
-          stepId: step.id,
-          cardName: (step as any).cardName || step.sourceName || 'Permanent',
-          reason: (step as any).reason || step.description || 'Choose a card name',
-          imageUrl: step.sourceImage,
-          mandatory: isResolutionStepMandatory(step),
-          restrictionText: (step as any).restrictionText,
-          candidateNames: Array.isArray((step as any).candidateNames) ? (step as any).candidateNames : undefined,
-        });
-        setCardNameChoiceModalOpen(true);
-      }
-      // Handle creature type choice via resolution queue
-      else if (step.type === 'creature_type_choice') {
-        setCreatureTypeModalData({
-          stepId: step.id,
-          permanentId: (step as any).permanentId,
-          cardName: (step as any).cardName || step.sourceName,
-          reason: (step as any).reason || step.description,
-          mandatory: isResolutionStepMandatory(step),
-          offeredCreatureTypes: Array.isArray((step as any).offeredCreatureTypes)
-            ? (step as any).offeredCreatureTypes
-            : undefined,
-        });
-        setCreatureTypeModalOpen(true);
-      }
-      // Handle "you may" optional effects via resolution queue option_choice metadata
-      else if ((step.type === 'option_choice' || step.type === 'modal_choice') && (step as any).mayAbilityPrompt === true) {
-        setMayAbilityModalData({
-          stepId: step.id,
-          sourceName: step.sourceName || 'Ability',
-          sourceImage: step.sourceImage,
-          effectText: (step as any).effectText || step.description,
-          fullAbilityText: (step as any).fullAbilityText,
-          effectKey: (step as any).effectKey || '',
-          gameId: (safeView as any)?.id || '',
-          shortcutCardName: step.sourceName || undefined,
-          persistMayAutoPreference: true,
-          persistTriggerShortcut: false,
-        });
-        setMayAbilityModalOpen(true);
-      }
-      // Handle mode selection via resolution queue (modal spells / choice events)
-      else if (step.type === 'mode_selection') {
-        const minModes = Number(step.minModes ?? 1);
-        const maxModes = Number(step.maxModes ?? 1);
-        const purpose = String((step as any).modeSelectionPurpose || '');
-        const pBudgetRaw = Number((step as any).pBudget);
-        const pBudget = Number.isFinite(pBudgetRaw) && pBudgetRaw > 0 ? Math.floor(pBudgetRaw) : undefined;
-        const canRepeatModes = Boolean((step as any).canRepeatModes || (step as any).allowDuplicates);
-        const isMultiSelect =
-          maxModes < 0 ||
-          maxModes > 1 ||
-          minModes > 1 ||
-          purpose === 'modalSpell' ||
-          purpose === 'spree' ||
-          Boolean(pBudget);
-
-        if (isMultiSelect) {
-          const spellModes: SpellMode[] = (step.modes || []).map((m: any, idx: number) => {
-            const modePCost = Number(m.pCost);
-            return {
-              id: String(m.id ?? `mode_${idx + 1}`),
-              name: String(m.label ?? `Mode ${idx + 1}`),
-              description: String(m.description ?? ''),
-              ...(Number.isFinite(modePCost) && modePCost > 0 ? { pCost: Math.floor(modePCost) } : {}),
-            };
-          });
-
-          setModalSpellModalData({
-            cardId: step.sourceId || step.id,
-            cardName: step.sourceName || 'Spell',
-            description: step.description,
-            imageUrl: step.sourceImage,
-            modes: spellModes,
-            modeCount: maxModes,
-            canChooseAny: maxModes < 0 || Boolean(pBudget),
-            minModes: minModes,
-            isSpree: purpose === 'spree',
-            ...(pBudget ? { pBudget, canRepeatModes } : {}),
-            effectId: step.sourceId,
-            resolutionStepId: String(step.id),
-            mandatory: isResolutionStepMandatory(step),
-          });
-          setModalSpellModalOpen(true);
-          return;
-        }
-
-        const modes: CastingMode[] = (step.modes || []).map((m: any, idx: number) => ({
-          id: String(m.id ?? `mode_${idx + 1}`),
-          name: String(m.label ?? `Mode ${idx + 1}`),
-          description: String(m.description ?? ''),
-          cost: null,
-        }));
-
-        setCastingModeModalData({
-          cardId: step.sourceId || step.id,
-          cardName: step.sourceName || 'Spell',
-          source: step.sourceName,
-          title: step.description || 'Choose a mode',
-          description: 'Choose a mode before selecting targets.',
-          imageUrl: step.sourceImage,
-          modes,
-          effectId: step.sourceId,
-          resolutionStepId: step.id,
-          resolutionStepMandatory: isResolutionStepMandatory(step),
-        });
-        setCastingModeModalOpen(true);
-      }
-
-      // Additional cost payment (discard/sacrifice) via Resolution Queue
-      else if (step.type === 'additional_cost_payment') {
-        setAdditionalCostModalData({
-          cardId: String(step.cardId || step.sourceId || step.id),
-          cardName: String(step.cardName || step.sourceName || 'Spell'),
-          costType: (step.costType === 'remove_counters' ? 'remove_counters' : (step.costType === 'sacrifice' ? 'sacrifice' : 'discard')),
-          amount: Number(step.amount || 0),
-          title: String(step.title || step.description || 'Pay additional cost'),
-          description: String(step.description || ''),
-          imageUrl: step.imageUrl || step.sourceImage,
-          availableCards: step.availableCards,
-          availableTargets: step.availableTargets,
-          availableCounters: step.availableCounters,
-          effectId: step.sourceId,
-          resolutionStepId: String(step.id),
-          resolutionStepType: 'additional_cost_payment',
-          resolutionStepMandatory: isResolutionStepMandatory(step),
-        });
-        setAdditionalCostModalOpen(true);
-      }
-
-      // Squad cost payment via Resolution Queue
-      else if (step.type === 'squad_cost_payment') {
-        setSquadCostModalData({
-          cardId: String(step.cardId || step.sourceId || step.id),
-          cardName: String(step.cardName || step.sourceName || 'Spell'),
-          squadCost: String(step.squadCost || ''),
-          imageUrl: step.imageUrl || step.sourceImage,
-          effectId: step.sourceId,
-          resolutionStepId: String(step.id),
-          mandatory: isResolutionStepMandatory(step),
-        });
-        setSquadCostModalOpen(true);
-      }
-
-      // Explore (single) via Resolution Queue
-      else if (step.type === 'explore_decision') {
-        setBatchExploreIndividual(null);
-        setExplorePrompt({
-          stepId: String(step.id),
-          permanentId: String(step.permanentId || step.sourceId || ''),
-          permanentName: String(step.permanentName || step.sourceName || 'Creature'),
-          revealedCard: step.revealedCard,
-          isLand: Boolean(step.isLand),
-        });
-      }
-
-      // Batch Explore via Resolution Queue
-      else if (step.type === 'batch_explore_decision') {
-        setBatchExploreIndividual(null);
-        setBatchExplorePrompt({
-          stepId: String(step.id),
-          explores: step.explores || [],
-        });
-      }
-      // Handle target selection via resolution queue (spell casting, planeswalker abilities, etc.)
-      else if (step.type === 'target_selection' || step.type === 'mentor_target' || step.type === 'modular_choice' || step.type === 'exploit_choice' || step.type === 'haunt_target') {
-        const selectedModeRaw = (step as any).selectedMode as { label?: string; description?: string } | undefined;
-        const selectedModeUi = selectedModeRaw ? {
-          name: String(selectedModeRaw.label || 'Selected mode'),
-          description: String(selectedModeRaw.description || ''),
-        } : undefined;
-
-        // Convert resolution queue step to target modal format
-        const rawTargets = (step.type === 'mentor_target' || step.type === 'modular_choice' || step.type === 'haunt_target')
-          ? ((step as any).targets || [])
-          : step.type === 'exploit_choice'
-            ? ((step as any).creatures || [])
-          : (step.validTargets || []);
-        const battlefieldById = new Map(
-          (safeView?.battlefield || []).map((perm: any) => [String(perm.id), perm]),
-        );
-        const mapTargetOption = (t: any): TargetOption => {
-          const perm = battlefieldById.get(String(t?.id || ''));
-          const card = t.card || perm?.card;
-          const controllerId = t.controller || perm?.controller;
-          const ownerId = t.owner || perm?.owner;
-          const imageUrl = t.imageUrl
-            || t.image
-            || card?.image_uris?.small
-            || card?.image_uris?.normal
-            || card?.card_faces?.[0]?.image_uris?.small
-            || card?.card_faces?.[0]?.image_uris?.normal;
-          const controllerName = t.controllerName
-            || (controllerId ? resolutionPlayerNames[controllerId] : undefined)
-            || controllerId;
-          const ownerName = t.ownerName
-            || (ownerId ? resolutionPlayerNames[ownerId] : undefined)
-            || ownerId;
-          return {
-            id: t.id,
-            type: (t.type as any)
-              || (t.description === 'stack' || t.kind === 'stack' ? 'stack'
-                : (t.description === 'player' || t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent')),
-            name: t.label || t.name || card?.name || 'Unknown',
-            displayName: t.displayName,
-            imageUrl,
-            controller: controllerId,
-            controllerName,
-            typeLine: t.typeLine || card?.type_line,
-            tapped: typeof t.tapped === 'boolean' ? t.tapped : (typeof perm?.tapped === 'boolean' ? perm.tapped : undefined),
-            life: t.life,
-            zone: t.zone || (t.type === 'stack' || t.description === 'stack' || t.kind === 'stack' ? 'stack' : undefined),
-            owner: ownerId,
-            ownerName,
-            card,
-          };
-        };
-        const validTargets: TargetOption[] = rawTargets.map(mapTargetOption);
-
-        const perOpponent = (step as any).perOpponent === true;
-        const targetsPerOpponentRaw = (step as any).targetsPerOpponent as Record<string, any[]> | undefined;
-        const targetsPerOpponent = targetsPerOpponentRaw
-          ? Object.fromEntries(
-              Object.entries(targetsPerOpponentRaw).map(([opponentId, opponentTargets]) => [
-                opponentId,
-                (opponentTargets || []).map(mapTargetOption),
-              ]),
-            )
-          : undefined;
-        const targetGroupingRaw = (step as any).targetGrouping;
-        const targetGroups: TargetSelectionGroup[] | undefined =
-          targetGroupingRaw?.groupBy === 'controller' && Array.isArray(targetGroupingRaw.groups)
-            ? targetGroupingRaw.groups.map((group: any) => ({
-                playerId: String(group.playerId || ''),
-                label: String(group.label || group.playerId || 'Player'),
-                required: group.required === true,
-                minTargets: Number(group.minTargets ?? targetGroupingRaw.minTargetsPerGroup ?? 0),
-                maxTargets: Number(group.maxTargets ?? targetGroupingRaw.maxTargetsPerGroup ?? 1),
-                targets: (Array.isArray(group.targets) ? group.targets : []).map(mapTargetOption),
-              }))
-            : undefined;
-        
-        setTargetModalData({
-          cardId: step.sourceId || '',
-          source: { name: step.sourceName || 'Effect', imageUrl: step.sourceImage },
-          title: step.description || `Choose target`,
-          description: (selectedModeUi?.description && (!step.targetDescription || step.targetDescription === 'target')
-            ? selectedModeUi.description
-            : (step.targetDescription || (step.type === 'mentor_target'
-              ? 'Choose an attacking creature with lesser power.'
-              : step.type === 'modular_choice'
-                ? 'Choose an artifact creature to receive the modular counters.'
-                : step.type === 'exploit_choice'
-                  ? 'Choose a creature you control to sacrifice.'
-                : step.type === 'haunt_target'
-                  ? 'Choose a creature to haunt.'
-                : ''))),
-          contextSteps: (step.oracleContext?.steps || step.spellCastContext?.oracleContext?.steps || undefined) as any,
-          selectedMode: selectedModeUi,
-          targets: validTargets,
-          // Auras must always require exactly one host. Treat 0 as missing so a bad
-          // server payload cannot lock the modal into not-allowed / unselectable hosts.
-          minTargets: Array.isArray((step as any).targetTypes) && (step as any).targetTypes.includes('aura_target')
-            ? Math.max(1, Number(step.minTargets ?? 1))
-            : (step.minTargets ?? 1),
-          maxTargets: Array.isArray((step as any).targetTypes) && (step as any).targetTypes.includes('aura_target')
-            ? Math.max(1, Number(step.maxTargets ?? 1))
-            : (step.maxTargets ?? 1),
-          targetGroups,
-          perOpponent,
-          opponents: Array.isArray((step as any).opponents) ? (step as any).opponents : undefined,
-          targetsPerOpponent,
-          minTargetsPerOpponent: Number((step as any).minTargetsPerOpponent ?? 0),
-          maxTargetsPerOpponent: Number((step as any).maxTargetsPerOpponent ?? 1),
-          effectId: step.sourceId,
-          stepId: step.id,  // Store step ID for resolution response
-          useResolutionQueue: true,  // Flag to indicate this came from Resolution Queue
-        });
-        setTargetModalOpen(true);
-      }
-
-      // Handle upkeep sacrifice via resolution queue (Eldrazi Monument, Smokestack, and generic "sacrifice a creature" effects)
-      else if (step.type === 'upkeep_sacrifice') {
-        const creatures = (step.creatures || []) as Array<{ id: string; name: string; imageUrl?: string }>;
-        const allowSourceSacrifice = (step as any).allowSourceSacrifice !== false;
-        const sourceToSacrifice = (step as any).sourceToSacrifice as { id: string; name: string; imageUrl?: string } | undefined;
-
-        const resolutionSourceChoiceId = '__SACRIFICE_SOURCE__';
-        const availableTargets: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string; leaveBattlefieldReplacementDestination?: 'exile'; leaveBattlefieldReplacementSourceName?: string; leaveBattlefieldReplacementLifeGain?: number }> = creatures.map(c => ({
-          id: c.id,
-          name: c.name,
-          imageUrl: c.imageUrl,
-          typeLine: 'Creature',
-        }));
-
-        if (allowSourceSacrifice && sourceToSacrifice) {
-          availableTargets.push({
-            id: resolutionSourceChoiceId,
-            name: sourceToSacrifice.name || step.sourceName || 'Source',
-            imageUrl: sourceToSacrifice.imageUrl,
-            typeLine: 'Source',
-          });
-        }
-
-        setAdditionalCostModalData({
-          cardId: step.sourceId || step.id,
-          cardName: step.sourceName || 'Sacrifice',
-          costType: 'sacrifice',
-          amount: 1,
-          title: step.sourceName || 'Sacrifice',
-          description: step.description || 'Choose a permanent to sacrifice',
-          imageUrl: step.sourceImage,
-          availableTargets,
-          effectId: step.id,
-          resolutionStepId: step.id,
-          resolutionStepType: 'upkeep_sacrifice',
-          resolutionStepMandatory: isResolutionStepMandatory(step),
-          resolutionSourceChoiceId: allowSourceSacrifice && sourceToSacrifice ? resolutionSourceChoiceId : undefined,
-        });
-        setAdditionalCostModalOpen(true);
-      }
-
-      // Handle trigger ordering via resolution queue
-      else if (step.type === 'trigger_order') {
-        const triggers: any[] = (step.triggers || []) as any[];
-        const promptTriggers: TriggerPromptData[] = triggers.map((t: any) => ({
-          id: t.id,
-          sourceId: t.sourceId || '',
-          sourceName: t.sourceName || 'Triggered Ability',
-          effect: t.effect || t.description || '',
-          type: 'order',
-          imageUrl: t.imageUrl,
-        }));
-
-        setTriggerOrderStepId(step.id);
-        setPendingTriggers(promptTriggers);
-        setTriggerModalOpen(true);
-      }
-    };
-
-    const handleResolutionStepCancelled = (payload: { gameId: string; stepId?: string }) => {
-      if (payload.gameId !== safeView?.id) return;
-      lastResolutionStepsRef.current.delete(String(payload.stepId || ''));
-      setActiveResolutionPrompt(null);
-      dismissResolutionStepUi();
-    };
-
-    const handleNoResolutionStep = (payload: { gameId?: string }) => {
-      if (payload.gameId !== safeView?.id) return;
-      // During reconnect / before join completes, the server may emit noResolutionStep
-      // with NOT_IN_GAME. Dismissing here closes choice/payment UI that is still pending.
-      if (!socket.connected) return;
-      setMyPendingResolutionCount(0);
-      setActiveResolutionPrompt(null);
-      dismissResolutionStepUi();
-    };
-
-    const handleResolutionQueueChanged = (payload: {
-      gameId?: string;
-      hasPending?: boolean;
-      myPendingCount?: number;
-    }) => {
-      if (payload.gameId !== safeView?.id) return;
-      const pendingForMe = Number(payload.myPendingCount ?? 0);
-      setMyPendingResolutionCount(pendingForMe);
-      if (pendingForMe === 0) {
-        // Same reconnect race: an empty count while disconnected is not authoritative.
-        if (!socket.connected) return;
-        setActiveResolutionPrompt(null);
-        dismissResolutionStepUi();
-      }
-      if (pendingForMe > 0) {
-        scheduleResolutionPromptNudge(payload.gameId!);
-      }
-    };
-    
-    socket.on("resolutionStepPrompt", handleResolutionStepPrompt);
-    socket.on("resolutionStepCancelled", handleResolutionStepCancelled);
-    socket.on("noResolutionStep", handleNoResolutionStep);
-    socket.on("resolutionQueueChanged", handleResolutionQueueChanged);
-    
-    return () => {
-      socket.off("resolutionStepPrompt", handleResolutionStepPrompt);
-      socket.off("resolutionStepCancelled", handleResolutionStepCancelled);
-      socket.off("noResolutionStep", handleNoResolutionStep);
-      socket.off("resolutionQueueChanged", handleResolutionQueueChanged);
-    };
-  }, [safeView?.id, openConfirmFromResolutionStep, you, mulliganBottomLastSubmittedStepId, dismissResolutionStepUi, scheduleResolutionPromptNudge]);
-
-  // Explore prompt handler
-  // Legacy explorePrompt / batchExplorePrompt listeners removed - now handled via Resolution Queue.
-
-  // Interaction request handlers
-  useEffect(() => {
-    // Tap/Untap Target Request handler
-    // tap/untap target selection is handled via Resolution Queue (resolutionStepPrompt)
-
-    return () => {
-    };
-  }, [safeView?.id]);
-
-  // Scry/Surveil peek handlers
-  useEffect(() => {
-    const handleScryPeek = (data: { gameId: string; cards: any[] }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      setPeek({ mode: "scry", cards: data.cards });
-    };
-
-    const handleSurveilPeek = (data: { gameId: string; cards: any[] }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      setPeek({ mode: "surveil", cards: data.cards });
-    };
-
-    socket.on("scryPeek", handleScryPeek);
-    socket.on("surveilPeek", handleSurveilPeek);
-    return () => {
-      socket.off("scryPeek", handleScryPeek);
-      socket.off("surveilPeek", handleSurveilPeek);
-    };
-  }, [safeView?.id]);
-
-  // Game over notification listener
-  useEffect(() => {
-    const handleGameOver = (data: { 
-      gameId: string; 
-      type: 'victory' | 'defeat' | 'eliminated' | 'draw';
-      winnerId?: string;
-      winnerName?: string;
-      loserId?: string;
-      loserName?: string;
-      message?: string;
-    }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      
-      let notificationType: 'victory' | 'defeat' | 'eliminated' | 'draw' = data.type;
-      let message = data.message || '';
-      
-      // Determine notification type based on who we are
-      if (data.type === 'victory' && data.winnerId === you) {
-        notificationType = 'victory';
-        message = message || "You've Won!";
-      } else if (data.type === 'defeat' && data.loserId === you) {
-        notificationType = 'defeat';
-        message = message || "Defeated";
-      } else if (data.type === 'eliminated' && data.loserId === you) {
-        notificationType = 'eliminated';
-        message = message || "Eliminated";
-      } else if (data.type === 'draw') {
-        notificationType = 'draw';
-        message = message || "Draw!";
-      } else if (data.winnerId && data.winnerId !== you) {
-        // Someone else won
-        notificationType = 'defeat';
-        message = `${data.winnerName || 'Opponent'} has won the game`;
-      }
-      
-      setGameOverData({
-        type: notificationType,
-        message,
-        winnerId: data.winnerId,
-        winnerName: data.winnerName,
-      });
-      setGameOverModalOpen(true);
-      
-      // Auto-close after 3 seconds
-      setTimeout(() => {
-        setGameOverModalOpen(false);
-        setGameOverData(null);
-      }, 3000);
-    };
-
-    const handlePlayerEliminated = (data: { 
-      gameId: string; 
-      playerId: string;
-      playerName: string;
-      reason?: string;
-    }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      
-      if (data.playerId === you) {
-        setGameOverData({
-          type: 'eliminated',
-          message: 'Eliminated',
-        });
-        setGameOverModalOpen(true);
-        
-        setTimeout(() => {
-          setGameOverModalOpen(false);
-          setGameOverData(null);
-        }, 3000);
-      }
-    };
-
-    const handlePlayerConceded = (data: {
-      gameId: string;
-      playerId: string;
-      playerName: string;
-      message?: string;
-    }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      
-      // If you conceded, show a brief notification
-      if (data.playerId === you) {
-        setGameOverData({
-          type: 'eliminated',
-          message: 'You Conceded',
-        });
-        setGameOverModalOpen(true);
-        
-        setTimeout(() => {
-          setGameOverModalOpen(false);
-          setGameOverData(null);
-        }, 2000);
-      }
-    };
-
-    socket.on("gameOver", handleGameOver);
-    socket.on("playerEliminated", handlePlayerEliminated);
-    socket.on("playerConceded", handlePlayerConceded);
-    return () => {
-      socket.off("gameOver", handleGameOver);
-      socket.off("playerEliminated", handlePlayerEliminated);
-      socket.off("playerConceded", handlePlayerConceded);
-    };
-  }, [safeView?.id, you]);
-
-  const isTable = layout === "table";
-  const showUtilityRail =
-    isTable &&
-    !!safeView &&
-    !!you &&
-    viewportWidth >= 900 &&
-    !mobilePlayLayout.showMobileChrome;
-  const showExpandedUtilityRail = showUtilityRail && !utilityRailCollapsed;
-  const playerFocusOrder = useMemo(() => {
-    if (!safeView?.players || safeView.players.length === 0) return [];
-    const activePlayers = [...safeView.players]
-      .filter((player: any) => !player.spectator && !player.inactive)
-      .sort((a: any, b: any) => a.seat - b.seat);
-    const startIdx = safeView.turnPlayer
-      ? activePlayers.findIndex((player: any) => player.id === safeView.turnPlayer)
-      : -1;
-    if (startIdx < 0) return activePlayers;
-    return [...activePlayers.slice(startIdx), ...activePlayers.slice(0, startIdx)];
-  }, [safeView]);
-  const yourLibraryCount = useMemo(() => {
-    if (!safeView || !you) return 0;
-    const yourZones = safeView.zones?.[you] as any;
-    if (!yourZones) return 0;
-    if (typeof yourZones.libraryCount === 'number') return yourZones.libraryCount;
-    if (Array.isArray(yourZones.library)) return yourZones.library.length;
-    return 0;
-  }, [safeView, you]);
-  const canPass = !!safeView && !!you && safeView.priority === you;
-  const isYouPlayer =
-    !!safeView && !!you && Array.isArray(safeView.players) && safeView.players.some((p) => p.id === you);
-  const showMobileChrome =
-    isTable && mobilePlayLayout.showMobileChrome && !!safeView && !!you && isYouPlayer;
-  const needsDeckImport = yourLibraryCount === 0;
-  const yourHandCards = useMemo((): KnownCardRef[] => {
-    if (!safeView || !you) return [];
-    const hand = safeView.zones?.[you]?.hand;
-    if (!Array.isArray(hand)) return [];
-    return hand.filter((c): c is KnownCardRef => !!c && typeof c === 'object' && 'id' in c);
-  }, [safeView, you]);
-  const yourHandCount = useMemo(() => {
-    if (!safeView || !you) return 0;
-    const zones = safeView.zones?.[you] as any;
-    if (!zones) return 0;
-    if (typeof zones.handCount === 'number') return zones.handCount;
-    if (Array.isArray(zones.hand)) return zones.hand.length;
-    return 0;
-  }, [safeView, you]);
-
-  useEffect(() => {
-    if (!showMobileChrome || !you) return;
-    setJoinCollapsed(true);
-  }, [showMobileChrome, you]);
-
-  const handleFocusPlayer = React.useCallback((playerId: string) => {
-    setFocusedPlayerId((prev) => (prev === playerId ? null : playerId));
-  }, []);
-
-  const clearPlayerFocus = React.useCallback(() => {
-    setFocusedPlayerId(null);
-  }, []);
-
-  useEffect(() => {
-    if (!showMobileChrome) setMobilePlaySheet(null);
-  }, [showMobileChrome]);
-
-  // Pre-game and mulligan state
-  const isPreGame = useMemo(() => {
-    if (!safeView) return false;
-    const phaseStr = String(safeView.phase || "").toUpperCase();
-    return phaseStr === "" || phaseStr === "PRE_GAME";
-  }, [safeView]);
-
-  useEffect(() => {
-    const gameId = safeView?.id;
-    const turnPlayer = safeView?.turnPlayer ?? null;
-    const prev = previousTurnRef.current;
-    const becameYourTurn =
-      !!you &&
-      !!turnPlayer &&
-      turnPlayer === you &&
-      !isPreGame &&
-      prev.gameId === gameId &&
-      prev.turnPlayer != null &&
-      prev.turnPlayer !== turnPlayer;
-
-    previousTurnRef.current = { gameId, turnPlayer };
-
-    if (becameYourTurn) {
-      setYourTurnBannerVisible(true);
-    }
-  }, [safeView?.id, safeView?.turnPlayer, you, isPreGame]);
-
-  useEffect(() => {
-    if (!yourTurnBannerVisible) return;
-    const timeoutId = window.setTimeout(() => setYourTurnBannerVisible(false), 1500);
-    return () => window.clearTimeout(timeoutId);
-  }, [yourTurnBannerVisible]);
-
-  const mulliganState = useMemo(() => {
-    if (!safeView || !you) return null;
-    return (safeView as any).mulliganState?.[you] || null;
-  }, [safeView, you]);
-
-  const hasKeptHand = mulliganState?.hasKeptHand || false;
-  const mulligansTaken = mulliganState?.mulligansTaken || 0;
-  const pendingBottomCount = mulliganState?.pendingBottomCount || 0;
-
-  // Auto-open mulligan bottom modal when pending bottom selection detected (from state)
-  React.useEffect(() => {
-    if (pendingBottomCount <= 0 || hasKeptHand) return;
-
-    const stepIdFromState = (mulliganState as any)?.pendingBottomStepId;
-    if (typeof stepIdFromState === 'string' && stepIdFromState.length > 0) {
-      if (mulliganBottomLastSubmittedStepId && stepIdFromState === mulliganBottomLastSubmittedStepId) {
-        return;
-      }
-      setMulliganBottomCount(pendingBottomCount);
-      setMulliganBottomStepId(stepIdFromState);
-      if (!mulliganBottomModalOpen) {
-        setMulliganBottomModalOpen(true);
-      }
-      return;
-    }
-
-    // If we don't have a step id yet, request it; don't open a modal the user can't submit.
-    if (safeView?.id) {
-      socket.emit('getMyNextResolutionStep', { gameId: safeView.id });
-    }
-  }, [
-    pendingBottomCount,
-    hasKeptHand,
-    mulliganState,
-    safeView?.id,
-    mulliganBottomLastSubmittedStepId,
+  const {
+    imagePref,
+    setImagePref,
+    layout,
+    setLayout,
+    appearanceSettings,
+    setAppearanceSettings,
+    appearanceModalOpen,
+    setAppearanceModalOpen,
+    handleAppearanceSettingsApply,
+    peek,
+    setPeek,
+    explorePrompt,
+    setExplorePrompt,
+    batchExplorePrompt,
+    setBatchExplorePrompt,
+    batchExploreIndividual,
+    setBatchExploreIndividual,
+    opponentMayPayPrompt,
+    setOpponentMayPayPrompt,
+    opponentMayPayStepId,
+    setOpponentMayPayStepId,
+    showNameInUseModal,
+    setShowNameInUseModal,
+    nameInUsePayload,
+    setNameInUsePayload,
+    castSpellModalOpen,
+    setCastSpellModalOpen,
+    spellToCast,
+    setSpellToCast,
+    battlefieldAlternateCosts,
+    pendingSpellXSelection,
+    setPendingSpellXSelection,
+    joinCollapsed,
+    setJoinCollapsed,
+    createGameModalOpen,
+    setCreateGameModalOpen,
+    savedDecks,
+    setSavedDecks,
+    deckBuilderOpen,
+    setDeckBuilderOpen,
+    deckBuilderInitialAction,
+    setDeckBuilderInitialAction,
+    combatModalOpen,
+    setCombatModalOpen,
+    combatModalMinimized,
+    setCombatModalMinimized,
+    combatMode,
+    setCombatMode,
+    combatModalReadOnly,
+    setCombatModalReadOnly,
+    combatModalError,
+    setCombatModalError,
+    lastCombatErrorSeenRef,
+    combatPreviewAttackTargets,
+    setCombatPreviewAttackTargets,
+    combatControlModalOpen,
+    setCombatControlModalOpen,
+    combatControlMode,
+    setCombatControlMode,
+    combatPreviewEmitTimerRef,
+    combatPreviewPendingRef,
+    returnControlledPermanentModalOpen,
+    setReturnControlledPermanentModalOpen,
+    returnControlledPermanentData,
+    setReturnControlledPermanentData,
+    hideawayChoiceModalOpen,
+    setHideawayChoiceModalOpen,
+    hideawayChoiceData,
+    setHideawayChoiceData,
+    proliferateModalOpen,
+    setProliferateModalOpen,
+    proliferateData,
+    setProliferateData,
+    lifeRedistributionModalOpen,
+    setLifeRedistributionModalOpen,
+    lifeRedistributionData,
+    setLifeRedistributionData,
+    fatesealModalOpen,
+    setFatesealModalOpen,
+    fatesealData,
+    setFatesealData,
+    clashModalOpen,
+    setClashModalOpen,
+    clashData,
+    setClashData,
+    voteModalOpen,
+    setVoteModalOpen,
+    voteData,
+    setVoteData,
+    triggerModalOpen,
+    setTriggerModalOpen,
+    pendingTriggers,
+    setPendingTriggers,
+    triggerOrderStepId,
+    setTriggerOrderStepId,
+    ignoredTriggerSources,
+    setIgnoredTriggerSources,
     mulliganBottomModalOpen,
-  ]);
-
-  // Auto-close mulligan bottom modal once the server clears the pending state.
-  React.useEffect(() => {
-    if (!mulliganBottomModalOpen) return;
-    if (hasKeptHand || pendingBottomCount === 0) {
-      setMulliganBottomModalOpen(false);
-      setMulliganBottomCount(0);
-      setMulliganBottomStepId(null);
-    }
-  }, [mulliganBottomModalOpen, hasKeptHand, pendingBottomCount]);
-
-  // Show mulligan buttons if player hasn't kept their hand yet
-  // This should work even if we've moved past PRE_GAME (e.g., to UNTAP)
-  // because the player still needs to keep their hand before continuing
-  const needsToKeepHand = isYouPlayer && !hasKeptHand && pendingBottomCount === 0;
+    setMulliganBottomModalOpen,
+    mulliganBottomCount,
+    setMulliganBottomCount,
+    mulliganBottomStepId,
+    setMulliganBottomStepId,
+    mulliganBottomLastSubmittedStepId,
+    setMulliganBottomLastSubmittedStepId,
+    discardModalOpen,
+    setDiscardModalOpen,
+    discardCount,
+    setDiscardCount,
+    discardMinCount,
+    setDiscardMinCount,
+    discardMaxCount,
+    setDiscardMaxCount,
+    discardAnyNumber,
+    setDiscardAnyNumber,
+    discardMaxHandSize,
+    setDiscardMaxHandSize,
+    discardCurrentHandSize,
+    setDiscardCurrentHandSize,
+    discardResolutionStepId,
+    setDiscardResolutionStepId,
+    discardResolutionReason,
+    setDiscardResolutionReason,
+    discardResolutionTitle,
+    setDiscardResolutionTitle,
+    discardResolutionDescription,
+    setDiscardResolutionDescription,
+    discardResolutionHand,
+    setDiscardResolutionHand,
+    gameOverModalOpen,
+    setGameOverModalOpen,
+    gameOverData,
+    setGameOverData,
+    openingHandActionsModalOpen,
+    setOpeningHandActionsModalOpen,
+    openingHandActionsStepId,
+    setOpeningHandActionsStepId,
+    librarySearchModalOpen,
+    setLibrarySearchModalOpen,
+    librarySearchData,
+    setLibrarySearchData,
+    targetModalOpen,
+    setTargetModalOpen,
+    targetModalData,
+    setTargetModalData,
+    creatureTypeModalOpen,
+    setCreatureTypeModalOpen,
+    creatureTypeModalData,
+    setCreatureTypeModalData,
+    undoModalOpen,
+    setUndoModalOpen,
+    undoRequestData,
+    setUndoRequestData,
+    availableUndoCount,
+    setAvailableUndoCount,
+    smartUndoCounts,
+    setSmartUndoCounts,
+    undoTurnPhaseTargets,
+    setUndoTurnPhaseTargets,
+    aiControlEnabled,
+    setAiControlEnabled,
+    aiStrategy,
+    setAiStrategy,
+    splitCardModalOpen,
+    setSplitCardModalOpen,
+    splitCardData,
+    setSplitCardData,
+    deckValidation,
+    setDeckValidation,
+    showDeckImportPrompt,
+    setShowDeckImportPrompt,
+    hasPromptedDeckImport,
+    hasAutoSkippedAttackers,
+    hasShownBlockersModal,
+    tableDeckMgrOpen,
+    setTableDeckMgrOpen,
+    topDeckMgrAnchorEl,
+    setTopDeckMgrAnchorEl,
+    focusedPlayerId,
+    setFocusedPlayerId,
+    mobilePlaySheet,
+    setMobilePlaySheet,
+    utilityRailCollapsed,
+    setUtilityRailCollapsed,
+    yourTurnBannerVisible,
+    setYourTurnBannerVisible,
+    previousTurnRef,
+  } = useAppPlayStateEarly({
+    safeView,
+    you,
+  });
+  const {
+    viewportWidth,
+    isTouch,
+    mobilePlayLayout,
+    minimizedResolutionStep,
+    setMinimizedResolutionStep,
+    activeResolutionPrompt,
+    setActiveResolutionPrompt,
+    minimizeResolutionStep,
+    restoreResolutionStep,
+    isResolutionStepMinimized,
+    resolutionPromptOpen,
+    scheduleResolutionPromptNudge,
+    graveyardModalOpen,
+    setGraveyardModalOpen,
+    graveyardModalPlayerId,
+    setGraveyardModalPlayerId,
+    exileModalOpen,
+    setExileModalOpen,
+    exileModalPlayerId,
+    setExileModalPlayerId,
+    ignoredCards,
+    setIgnoredCards,
+    ignoredCardIds,
+    mayAutoPreferenceEntries,
+    joinForcesModalOpen,
+    setJoinForcesModalOpen,
+    joinForcesRequest,
+    setJoinForcesRequest,
+    joinForcesContributions,
+    setJoinForcesContributions,
+    joinForcesResponded,
+    setJoinForcesResponded,
+    temptingOfferModalOpen,
+    setTemptingOfferModalOpen,
+    temptingOfferRequest,
+    setTemptingOfferRequest,
+    temptingOfferResponded,
+    setTemptingOfferResponded,
+    temptingOfferAcceptedBy,
+    setTemptingOfferAcceptedBy,
+    kynaiosChoiceModalOpen,
+    setKynaiosChoiceModalOpen,
+    kynaiosChoiceRequest,
+    setKynaiosChoiceRequest,
+    optionChoiceModalOpen,
+    setOptionChoiceModalOpen,
+    optionChoiceRequest,
+    setOptionChoiceRequest,
+    twoPileSplitModalOpen,
+    setTwoPileSplitModalOpen,
+    twoPileSplitRequest,
+    setTwoPileSplitRequest,
+    ponderModalOpen,
+    setPonderModalOpen,
+    ponderRequest,
+    setPonderRequest,
+    limDulsVaultModalOpen,
+    setLimDulsVaultModalOpen,
+    limDulsVaultRequest,
+    setLimDulsVaultRequest,
+    danceWithCalamityModalOpen,
+    setDanceWithCalamityModalOpen,
+    danceWithCalamityRequest,
+    setDanceWithCalamityRequest,
+    danceWithCalamityCastModalOpen,
+    setDanceWithCalamityCastModalOpen,
+    danceWithCalamityCastRequest,
+    setDanceWithCalamityCastRequest,
+    cascadeModalOpen,
+    setCascadeModalOpen,
+    cascadePrompt,
+    setCascadePrompt,
+    priorityModalOpen,
+    setPriorityModalOpen,
+    lastPriorityStep,
+    hadPriorityRef,
+    lastCanRespond,
+    lifePaymentModalOpen,
+    setLifePaymentModalOpen,
+    lifePaymentModalData,
+    setLifePaymentModalData,
+    modalSpellModalOpen,
+    setModalSpellModalOpen,
+    modalSpellModalData,
+    setModalSpellModalData,
+    replacementEffectModalOpen,
+    setReplacementEffectModalOpen,
+    replacementEffectModalData,
+    setReplacementEffectModalData,
+    replacementEffectSettingsOpen,
+    setReplacementEffectSettingsOpen,
+    damageReplacementMode,
+    setDamageReplacementMode,
+    colorChoiceModalOpen,
+    setColorChoiceModalOpen,
+    colorChoiceModalData,
+    setColorChoiceModalData,
+    cardNameChoiceModalOpen,
+    setCardNameChoiceModalOpen,
+    cardNameChoiceModalData,
+    setCardNameChoiceModalData,
+    anyColorManaModalOpen,
+    setAnyColorManaModalOpen,
+    anyColorManaModalData,
+    setAnyColorManaModalData,
+    myPendingResolutionCount,
+    setMyPendingResolutionCount,
+    phyrexianManaModalOpen,
+    setPhyrexianManaModalOpen,
+    phyrexianManaModalData,
+    setPhyrexianManaModalData,
+    tapUntapTargetModalOpen,
+    setTapUntapTargetModalOpen,
+    tapUntapTargetModalData,
+    setTapUntapTargetModalData,
+    resolutionPlayerNames,
+    fightTargetModalOpen,
+    setFightTargetModalOpen,
+    fightTargetModalData,
+    setFightTargetModalData,
+    counterMovementModalOpen,
+    setCounterMovementModalOpen,
+    counterMovementModalData,
+    setCounterMovementModalData,
+    stationCreatureSelectionOpen,
+    setStationCreatureSelectionOpen,
+    stationCreatureSelectionData,
+    setStationCreatureSelectionData,
+    resolutionPlayerChoiceModalOpen,
+    setResolutionPlayerChoiceModalOpen,
+    resolutionPlayerChoiceModalData,
+    setResolutionPlayerChoiceModalData,
+    manaDistributionModalOpen,
+    setManaDistributionModalOpen,
+    manaDistributionModalData,
+    setManaDistributionModalData,
+    counterDistributionModalOpen,
+    setCounterDistributionModalOpen,
+    counterDistributionModalData,
+    setCounterDistributionModalData,
+    additionalCostModalOpen,
+    setAdditionalCostModalOpen,
+    additionalCostModalData,
+    setAdditionalCostModalData,
+    squadCostModalOpen,
+    setSquadCostModalOpen,
+    squadCostModalData,
+    setSquadCostModalData,
+    castingModeModalOpen,
+    setCastingModeModalOpen,
+    castingModeModalData,
+    setCastingModeModalData,
+    mayAbilityModalOpen,
+    setMayAbilityModalOpen,
+    mayAbilityModalData,
+    setMayAbilityModalData,
+    manaPool,
+    setManaPool,
+    mutateModalOpen,
+    setMutateModalOpen,
+    mutateModalData,
+    setMutateModalData,
+    graveyardSelectionModalOpen,
+    setGraveyardSelectionModalOpen,
+    graveyardSelectionModalData,
+    setGraveyardSelectionModalData,
+  } = useAppPlayStateLate({
+    confirmId,
+    priority,
+    safeView,
+    you,
+  });
+  const {
+    autoPassSteps,
+    handleToggleAutoPass,
+    handleClearAllAutoPass,
+    handleSelectAllAutoPass,
+    autoPassForTurn,
+    autoPassEmptyStackOnOpponentsTurn,
+    autoYesOptional,
+    handleToggleAutoYesOptional,
+    handleToggleAutoPassForTurn,
+    handleToggleAutoPassEmptyStackOnOpponentsTurn,
+    autoAdvancePhases,
+    handleToggleAutoAdvance,
+  } = useAppAutoPassHandlers({
+    safeView,
+    you,
+  });
   
-  // Can mulligan if haven't kept and haven't hit max mulligans
-  const canMulligan = needsToKeepHand && mulligansTaken < 6;
-  const canKeepHand = needsToKeepHand;
-  
-  // Show the mulligan UI if in pre-game OR if hand hasn't been kept yet
-  const showMulliganUI = (isPreGame || !hasKeptHand) && isYouPlayer;
-
-  // Check if all players have kept their hands
-  const allPlayersKeptHands = useMemo(() => {
-    if (!safeView) return false;
-    const players = safeView.players || [];
-    const mulliganStateAll = (safeView as any).mulliganState || {};
-    
-    for (const player of players) {
-      if ((player as any).spectator) continue;
-      const state = mulliganStateAll[player.id];
-      if (!state || !state.hasKeptHand) {
-        return false;
-      }
-    }
-    return players.length > 0;
-  }, [safeView]);
-
-  const canUnkeepHand = isPreGame && hasKeptHand && !allPlayersKeptHands && pendingBottomCount === 0;
-
-  // Check if all players have imported decks (library + hand > 0)
-  const allPlayersHaveDecks = useMemo(() => {
-    if (!safeView) return false;
-    const players = safeView.players || [];
-    const zones = safeView.zones || {};
-    
-    for (const player of players) {
-      if ((player as any).spectator) continue;
-      const playerZones = zones[player.id];
-      const libraryCount = playerZones?.libraryCount ?? 0;
-      const handCount = playerZones?.handCount ?? 0;
-      if (libraryCount === 0 && handCount === 0) {
-        return false;
-      }
-    }
-    return players.length > 0;
-  }, [safeView]);
-
-  // Determine reason why phase advancement might be blocked (only during pregame)
-  const phaseAdvanceBlockReason = useMemo(() => {
-    if (!isPreGame) return null; // Only block during pregame
-    if (!allPlayersHaveDecks) return 'Waiting for all players to import decks';
-    if (!allPlayersKeptHands) return 'Waiting for all players to keep hands';
-    return 'Starting game…';
-  }, [isPreGame, allPlayersHaveDecks, allPlayersKeptHands]);
-
-  const showTopPanelPregameActions = isYouPlayer && isPreGame && showMulliganUI;
+  const {
+    phaseNavigatorAdvancing,
+    setPhaseNavigatorAdvancing,
+    showTriggerShortcuts,
+    setShowTriggerShortcuts,
+    showLoopShortcutPanel,
+    setShowLoopShortcutPanel,
+    loopShortcutName,
+    setLoopShortcutName,
+    loopShortcutItems,
+    savedLoopShortcuts,
+    loopShortcutIterations,
+    setLoopShortcutIterations,
+    loopShortcutStatusText,
+    setLoopShortcutStatusText,
+    isLoopShortcutRecording,
+    isLoopShortcutRunning,
+    loopShortcutConsentPrompt,
+    setLoopShortcutConsentPrompt,
+    loopShortcutAwaitingConsent,
+    refreshSavedDecks,
+    handleStartLoopShortcutRecording,
+    handleStopLoopShortcutRecording,
+    handleClearLoopShortcut,
+    handleSaveLoopShortcut,
+    handleLoadSavedLoopShortcut,
+    handleDeleteSavedLoopShortcut,
+    handleRunLoopShortcut,
+    stopLoopShortcutReplay,
+    safeViewRef,
+    youRef,
+    loopShortcutItemsRef,
+    isLoopShortcutRunningRef,
+    lastResolutionStepsRef,
+    loopShortcutReplayRef,
+    loopAutoAnsweredStepIdsRef,
+    handleCreateGame,
+    canCreatureAttack,
+    handleToggleAIControl,
+    handleOpenUndoMenu,
+    handleRequestUndoTurnPhaseTargets,
+    handleUndoToTurnPhase,
+  } = useAppPlayLeftoverHandlers({
+    activeResolutionPrompt,
+    autoPassForTurn,
+    autoPassSteps,
+    availableUndoCount,
+    combatModalOpen,
+    combatModalReadOnly,
+    combatMode,
+    combatPreviewAttackTargets,
+    connected,
+    createGameModalOpen,
+    hadPriorityRef,
+    hasAutoSkippedAttackers,
+    hasShownBlockersModal,
+    lastCanRespond,
+    lastCombatErrorSeenRef,
+    lastError,
+    lastPriorityStep,
+    minimizedResolutionStep,
+    myPendingResolutionCount,
+    pendingTriggers,
+    priority,
+    safeView,
+    setAiControlEnabled,
+    setAiStrategy,
+    setAvailableUndoCount,
+    setCombatControlModalOpen,
+    setCombatControlMode,
+    setCombatModalError,
+    setCombatModalMinimized,
+    setCombatModalOpen,
+    setCombatModalReadOnly,
+    setCombatMode,
+    setCombatPreviewAttackTargets,
+    setDamageReplacementMode,
+    setDeckValidation,
+    setGameIdInput,
+    setIgnoredCards,
+    setIgnoredTriggerSources,
+    setManaPool,
+    setNameInUsePayload,
+    setNameInput,
+    setPriorityModalOpen,
+    setReplacementEffectModalData,
+    setReplacementEffectModalOpen,
+    setSavedDecks,
+    setShowNameInUseModal,
+    setSmartUndoCounts,
+    setUndoModalOpen,
+    setUndoRequestData,
+    setUndoTurnPhaseTargets,
+    smartUndoCounts,
+    undoRequestData,
+    you,
+  });
 
   const {
+    dismissResolutionStepUi,
+    isTable,
+    showUtilityRail,
+    showExpandedUtilityRail,
+    playerFocusOrder,
+    yourLibraryCount,
+    canPass,
+    isYouPlayer,
+    showMobileChrome,
+    needsDeckImport,
+    yourHandCards,
+    yourHandCount,
+    handleFocusPlayer,
+    clearPlayerFocus,
+    isPreGame,
+    mulliganState,
+    hasKeptHand,
+    mulligansTaken,
+    pendingBottomCount,
+    needsToKeepHand,
+    canMulligan,
+    canKeepHand,
+    showMulliganUI,
+    allPlayersKeptHands,
+    canUnkeepHand,
+    allPlayersHaveDecks,
+    phaseAdvanceBlockReason,
+    showTopPanelPregameActions,
+    showTableMulliganUI,
+    damageReplacementEffectActiveCount,
+    handleDeckMgrOpenChange,
+    canAdvanceStep,
+    canAdvanceTurn,
+    effectiveGameId,
+    showCommanderGallery,
+    phaseLabel,
+    stepLabelRaw,
+    stepLabel,
+    sendChat,
+    resolvePlayerName,
+    gameLogEntries,
     pickRandomDeck,
     pickingRandomDeck,
-    randomDeckMessage,
     randomDeckError,
-  } = useRandomDeckPicker({
-    gameId: safeView?.id,
-    canServer: isYouPlayer,
-    onImportText: requestImportDeck,
-    onUseSavedDeck: requestUseSavedDeck,
+    randomDeckMessage,
+    getHandPlayableTypeLine,
+    reasonCannotPlayLand,
+    reasonCannotCast,
+    checkMetalcraft,
+    getAvailableManaSourcesForPlayer,
+    castSpellPaymentSources,
+    handleCastSpellConfirm,
+    handleCastSpellCancel,
+    handleCastCommander,
+    handleDeclareAttackers,
+    handleDeclareBlockers,
+    handleSkipCombat,
+    handleDeclareControlledCombat,
+    handleReturnControlledPermanentSelect,
+    handleHideawayChoiceConfirm,
+    handleHideawayChoiceCancel,
+    handleProliferateConfirm,
+    handleLifeRedistributionConfirm,
+    handleFatesealConfirm,
+    handleClashConfirm,
+    handleVoteConfirm,
+    handleIgnoreTriggerSourceFromStack,
+    handleStopIgnoringSource,
+    handleOrderTriggersConfirm,
+    handleLibrarySearchConfirm,
+    handleLibrarySearchCancel,
+    handleLibrarySearchCastWhileSearching,
+    handleTargetConfirm,
+    handleTargetCancel,
+    handleOpeningHandActionsConfirm,
+    handleOpeningHandActionsSkip,
+    handleUndoApprove,
+    handleUndoReject,
+    handleUndoCancel,
+    handleRequestUndo,
+    requestCastSpellWithPromptSync,
+    playLandWithPromptSync,
+    openSplitCardChoice,
+    handleUseTopOfLibrary,
+    handleSplitCardChoose,
+    handleSplitCardCancel,
+    handleViewGraveyard,
+    handleViewExile,
+    handleGraveyardAbility,
+    handleExileAbility,
+    handleJoinForcesContribute,
+    handleTemptingOfferRespond,
+    handleKynaiosChoiceRespond,
+    handleOptionChoiceRespond,
+    expandGroupedTokens,
+    myCreatures,
+    myBlockerCreatures,
+    attackingCreatures,
+    defenders,
+    defenderInfoMap,
+    combatModalAttackersAvailableCreatures,
+    combatModalAttackersDefenders,
+    combatControlEffect,
+    combatModalInitialAttackTargets,
+    textColors,
+  } = useAppPlayRuntime({
+    appearanceSettings,
+    autoAdvancePhases,
+    batchExplorePrompt,
+    canCreatureAttack,
+    chat,
+    clashData,
+    cmdModalOpen,
+    cmdSuggestedGameId,
+    combatControlMode,
+    combatMode,
+    confirmId,
+    connected,
+    discardCount,
+    discardMaxHandSize,
+    discardModalOpen,
+    discardResolutionReason,
+    explorePrompt,
+    fatesealData,
+    gameIdInput,
+    hasPromptedDeckImport,
+    hideawayChoiceData,
+    ignoredTriggerSources,
+    importedCandidates,
+    isLoopShortcutRunningRef,
+    joinForcesRequest,
+    kynaiosChoiceRequest,
+    lastResolutionStepsRef,
+    layout,
+    librarySearchData,
+    lifeRedistributionData,
+    loopAutoAnsweredStepIdsRef,
+    loopShortcutItemsRef,
+    loopShortcutReplayRef,
+    mobilePlayLayout,
+    mulliganBottomLastSubmittedStepId,
+    mulliganBottomModalOpen,
+    openConfirmFromResolutionStep,
+    openingHandActionsStepId,
+    optionChoiceRequest,
+    peek,
+    phaseNavigatorAdvancing,
+    previousTurnRef,
+    priority,
+    proliferateData,
+    requestImportDeck,
+    requestUseSavedDeck,
+    resolutionPlayerNames,
+    returnControlledPermanentData,
+    safeView,
+    safeViewRef,
+    scheduleResolutionPromptNudge,
+    setActiveResolutionPrompt,
+    setAdditionalCostModalData,
+    setAdditionalCostModalOpen,
+    setAnyColorManaModalData,
+    setAnyColorManaModalOpen,
+    setBatchExploreIndividual,
+    setBatchExplorePrompt,
+    setCardNameChoiceModalData,
+    setCardNameChoiceModalOpen,
+    setCascadeModalOpen,
+    setCascadePrompt,
+    setCastSpellModalOpen,
+    setCastingModeModalData,
+    setCastingModeModalOpen,
+    setChat,
+    setClashData,
+    setClashModalOpen,
+    setColorChoiceModalData,
+    setColorChoiceModalOpen,
+    setCombatControlModalOpen,
+    setCombatModalError,
+    setCombatModalMinimized,
+    setCounterDistributionModalData,
+    setCounterDistributionModalOpen,
+    setCounterMovementModalData,
+    setCounterMovementModalOpen,
+    setCreatureTypeModalData,
+    setCreatureTypeModalOpen,
+    setDanceWithCalamityCastModalOpen,
+    setDanceWithCalamityCastRequest,
+    setDanceWithCalamityModalOpen,
+    setDanceWithCalamityRequest,
+    setDiscardAnyNumber,
+    setDiscardCount,
+    setDiscardCurrentHandSize,
+    setDiscardMaxCount,
+    setDiscardMaxHandSize,
+    setDiscardMinCount,
+    setDiscardModalOpen,
+    setDiscardResolutionDescription,
+    setDiscardResolutionHand,
+    setDiscardResolutionReason,
+    setDiscardResolutionStepId,
+    setDiscardResolutionTitle,
+    setExileModalOpen,
+    setExileModalPlayerId,
+    setExplorePrompt,
+    setFatesealData,
+    setFatesealModalOpen,
+    setFightTargetModalData,
+    setFightTargetModalOpen,
+    setFocusedPlayerId,
+    setGameOverData,
+    setGameOverModalOpen,
+    setGraveyardModalOpen,
+    setGraveyardModalPlayerId,
+    setGraveyardSelectionModalData,
+    setGraveyardSelectionModalOpen,
+    setHideawayChoiceData,
+    setHideawayChoiceModalOpen,
+    setIgnoredTriggerSources,
+    setJoinCollapsed,
+    setJoinForcesContributions,
+    setJoinForcesModalOpen,
+    setJoinForcesRequest,
+    setJoinForcesResponded,
+    setKynaiosChoiceModalOpen,
+    setKynaiosChoiceRequest,
+    setLibrarySearchData,
+    setLibrarySearchModalOpen,
+    setLifePaymentModalData,
+    setLifePaymentModalOpen,
+    setLifeRedistributionData,
+    setLifeRedistributionModalOpen,
+    setLimDulsVaultModalOpen,
+    setLimDulsVaultRequest,
+    setLoopShortcutStatusText,
+    setManaDistributionModalData,
+    setManaDistributionModalOpen,
+    setMayAbilityModalData,
+    setMayAbilityModalOpen,
+    setMinimizedResolutionStep,
+    setMobilePlaySheet,
+    setModalSpellModalData,
+    setModalSpellModalOpen,
+    setMulliganBottomCount,
+    setMulliganBottomModalOpen,
+    setMulliganBottomStepId,
+    setMutateModalData,
+    setMutateModalOpen,
+    setMyPendingResolutionCount,
+    setOpeningHandActionsModalOpen,
+    setOpeningHandActionsStepId,
+    setOpponentMayPayPrompt,
+    setOpponentMayPayStepId,
+    setOptionChoiceModalOpen,
+    setOptionChoiceRequest,
+    setPeek,
+    setPendingSpellXSelection,
+    setPendingTriggers,
+    setPhyrexianManaModalData,
+    setPhyrexianManaModalOpen,
+    setPonderModalOpen,
+    setPonderRequest,
+    setProliferateData,
+    setProliferateModalOpen,
+    setReplacementEffectModalOpen,
+    setResolutionPlayerChoiceModalData,
+    setResolutionPlayerChoiceModalOpen,
+    setReturnControlledPermanentData,
+    setReturnControlledPermanentModalOpen,
+    setShowDeckImportPrompt,
+    setSpellToCast,
+    setSplitCardData,
+    setSplitCardModalOpen,
+    setSquadCostModalData,
+    setSquadCostModalOpen,
+    setStationCreatureSelectionData,
+    setStationCreatureSelectionOpen,
+    setTableDeckMgrOpen,
+    setTapUntapTargetModalData,
+    setTapUntapTargetModalOpen,
+    setTargetModalData,
+    setTargetModalOpen,
+    setTemptingOfferAcceptedBy,
+    setTemptingOfferModalOpen,
+    setTemptingOfferRequest,
+    setTemptingOfferResponded,
+    setTriggerModalOpen,
+    setTriggerOrderStepId,
+    setTwoPileSplitModalOpen,
+    setTwoPileSplitRequest,
+    setUndoModalOpen,
+    setUndoRequestData,
+    setVoteData,
+    setVoteModalOpen,
+    setYourTurnBannerVisible,
+    showDeckImportPrompt,
+    spellToCast,
+    splitCardData,
+    stopLoopShortcutReplay,
+    targetModalData,
+    temptingOfferRequest,
+    triggerOrderStepId,
+    undoRequestData,
+    utilityRailCollapsed,
+    view,
+    viewportWidth,
+    voteData,
+    you,
+    youRef,
+    yourTurnBannerVisible,
   });
-  const showTableMulliganUI = showMulliganUI && !isPreGame;
 
-  const damageReplacementEffectActiveCount = useMemo(() => {
-    const n = Number((safeView as any)?.replacementEffectHints?.damageActiveCount ?? 0);
-    return Number.isFinite(n) ? n : 0;
-  }, [safeView]);
-
-  // Auto-collapse join panel once you're an active player
-  React.useEffect(() => {
-    if (isYouPlayer) {
-      setJoinCollapsed(true);
-    }
-  }, [isYouPlayer]);
-
-  // Auto-show deck import prompt for players without a deck (when joining in pre-game)
-  React.useEffect(() => {
-    if (!isYouPlayer || !isPreGame || !you || !safeView) return;
-    if (hasPromptedDeckImport.current) return;
-
-    // Check if player has no cards in library yet
-    const zones = safeView.zones?.[you];
-    const libraryCount = zones?.libraryCount ?? 0;
-    const handCount = zones?.handCount ?? 0;
-
-    // If no deck loaded (library + hand both empty), prompt for deck import
-    if (libraryCount === 0 && handCount === 0) {
-      hasPromptedDeckImport.current = true;
-      setShowDeckImportPrompt(true);
-    }
-  }, [isYouPlayer, isPreGame, you, safeView]);
-
-  // Open the full deck manager (local / server / precons) when auto-prompt fires.
-  React.useEffect(() => {
-    if (showDeckImportPrompt) {
-      setTableDeckMgrOpen(true);
-    }
-  }, [showDeckImportPrompt]);
-
-  const handleDeckMgrOpenChange = React.useCallback((open: boolean) => {
-    setTableDeckMgrOpen(open);
-    if (!open) {
-      setShowDeckImportPrompt(false);
-    }
-  }, []);
-
-  // Reset prompt state when leaving game
-  React.useEffect(() => {
-    if (!you) {
-      hasPromptedDeckImport.current = false;
-      setShowDeckImportPrompt(false);
-    }
-  }, [you]);
-
-  // Auto-advance phases effect
-  // Automatically passes priority during phases where the player can't do much:
-  // - Untap step (nothing to do during untap except special abilities)
-  // - Draw step (after drawing, usually just pass)
-  // - Cleanup step (unless special abilities like Sundial of the Infinite)
-  React.useEffect(() => {
-    if (!autoAdvancePhases || !safeView || !you) return;
-    // Don't auto-advance if PhaseNavigator is actively advancing through phases
-    // This prevents interference when user clicks to advance to a specific phase
-    if (phaseNavigatorAdvancing) return;
-    // Only auto-advance if it's our turn and we have priority
-    if (safeView.priority !== you) return;
-    if (safeView.turnPlayer == null || safeView.turnPlayer !== you) return;
-    
-    // Only auto-advance during certain phases/steps
-    const step = String(safeView.step || '').toLowerCase();
-    const phase = String(safeView.phase || '').toLowerCase();
-    
-    // Don't auto-advance if there's something on the stack
-    if ((safeView as any).stack?.length > 0) return;
-    
-    // Don't auto-advance during cleanup if we have pending discard selection
-    const isCleanup = step === 'cleanup' || phase.includes('cleanup');
-    if (isCleanup && discardModalOpen && discardCount > 0) return;
-    
-    // Phases/steps that can be auto-advanced:
-    // - untap step (no player usually needs to respond)
-    // - cleanup step (usually just pass unless special abilities like Sundial of the Infinite)
-    // Note: Not auto-advancing draw step as the player may want to cast instants after drawing
-    const autoAdvanceableSteps = ['untap', 'cleanup'];
-    
-    // Check if we're in an auto-advance step
-    const shouldAutoAdvance = 
-      autoAdvanceableSteps.includes(step) ||
-      phase.includes('untap') ||
-      isCleanup;
-    
-    if (shouldAutoAdvance) {
-      // Small delay to allow any animations/updates
-      const timer = setTimeout(() => {
-        socket.emit('nextStep', { gameId: safeView.id });
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [autoAdvancePhases, safeView, you, phaseNavigatorAdvancing]);
-
-  const canAdvanceStep = useMemo(() => {
-    if (!safeView || !you) return false;
-    // During pregame, must have all players ready before advancing
-    if (isPreGame && (!allPlayersHaveDecks || !allPlayersKeptHands)) return false;
-    if (safeView.turnPlayer != null && safeView.turnPlayer === you) return true;
-    const phaseStr = String(safeView.phase || "").toUpperCase();
-    if (phaseStr === "PRE_GAME" && safeView.players?.[0]?.id === you)
-      return true;
-    return false;
-  }, [safeView, you, isPreGame, allPlayersHaveDecks, allPlayersKeptHands]);
-
-  const canAdvanceTurn = canAdvanceStep;
-
-  const effectiveGameId = safeView?.id ?? gameIdInput;
-
-  const showCommanderGallery =
-    cmdModalOpen && cmdSuggestedGameId && importedCandidates.length > 0;
-
-  const phaseLabel = prettyPhase(safeView?.phase);
-  const stepLabelRaw = safeView?.step ? String(safeView.step) : "";
-  const stepLabel = prettyStep(stepLabelRaw);
-
-  const sendChat = (txt: string) => {
-    if (!safeView) return;
-    const trimmed = txt.trim();
-
-    // Slash command: /judge
-    if (trimmed.toLowerCase() === "/judge") {
-      socket.emit("requestJudge", { gameId: safeView.id });
-      return;
-    }
-
-    if (!view) return;
-    const payload: ChatMsg = {
-      id: `m_${Date.now()}`,
-      gameId: view.id,
-      from: you ?? "you",
-      message: txt,
-      ts: Date.now(),
-    };
-    socket.emit("chat", payload);
-    setChat((prev) => [...prev, payload]);
-  };
-
-  const resolvePlayerName = React.useCallback((playerId: string) => {
-    const player = safeView?.players?.find((p: any) => String(p.id) === String(playerId));
-    return player?.name || playerId;
-  }, [safeView?.players]);
-
-  const gameLogEntries = useGameStateLog(safeView, resolvePlayerName);
-
-  // Hand interaction helpers: used to gate client UI; server still validates rules.
-  const getHandPlayableTypeLine = (card: {
-    type_line?: string | null;
-    layout?: string | null;
-    card_faces?: Array<{ type_line?: string | null }> | null;
-  }) => {
-    const layout = String(card?.layout || '').toLowerCase();
-    if (layout === 'transform' && Array.isArray(card?.card_faces) && card.card_faces.length > 0) {
-      return card.card_faces[0]?.type_line || card.type_line || '';
-    }
-    if (layout === 'modal_dfc' && Array.isArray(card?.card_faces) && card.card_faces.length > 0) {
-      const spellFace = card.card_faces.find((face) => !isLandTypeLine(String(face?.type_line || '')));
-      if (spellFace?.type_line) {
-        return spellFace.type_line;
-      }
-    }
-    return card.type_line || '';
-  };
-
-  const reasonCannotPlayLand = (card: {
-    type_line?: string | null;
-    layout?: string | null;
-    card_faces?: Array<{ type_line?: string | null }> | null;
-  }) => {
-    if (!safeView || !you) return "No game state";
-    if (!isLandTypeLine(getHandPlayableTypeLine(card))) return "Not a land";
-
-    const turnPlayer = safeView.turnPlayer;
-    const phase = safeView.phase;
-    const landsPlayedThisTurn =
-      (safeView as any).landsPlayedThisTurn?.[you] || 0;
-    // Get max lands per turn from game state, default to 1 if not set
-    const maxLandsPerTurn =
-      (safeView as any).maxLandsPerTurn?.[you] || 1;
-
-    if (turnPlayer == null || turnPlayer !== you) return "Not your turn";
-    if (!phase || !String(phase).toLowerCase().includes("main")) {
-      return "Can only play lands during your main phase";
-    }
-    if (landsPlayedThisTurn >= maxLandsPerTurn) {
-      return maxLandsPerTurn > 1
-        ? `You have already played ${landsPlayedThisTurn} land(s) this turn (max ${maxLandsPerTurn})`
-        : "You have already played a land this turn";
-    }
-
-    return null;
-  };
-
-  const reasonCannotCast = (card: {
-    type_line?: string | null;
-    layout?: string | null;
-    card_faces?: Array<{ type_line?: string | null }> | null;
-  }) => {
-    if (!safeView || !you) return "No game state";
-    if (isLandTypeLine(getHandPlayableTypeLine(card))) return "Lands are played, not cast";
-    // Check priority instead of turn - you can cast instants on other players' turns
-    if (safeView.priority !== you) return "You don't have priority";
-    return null;
-  };
-
-  // Check if an artifact meets metalcraft requirement (3+ artifacts on battlefield)
-  const checkMetalcraft = (playerId: string): boolean => {
-    if (!safeView) return false;
-    const battlefield = (safeView.battlefield || []).filter(perm => perm.controller === playerId);
-    const artifactCount = battlefield.filter(perm => {
-      const card = perm.card;
-      if (!card || !('type_line' in card)) return false;
-      return ((card as any).type_line || '').toLowerCase().includes('artifact');
-    }).length;
-    return artifactCount >= 3;
-  };
-
-  // Get available mana sources (untapped lands and mana-producing artifacts/creatures)
-  const getAvailableManaSourcesForPlayer = (
-    playerId: string,
-    options?: { excludePermanentIds?: string[] },
-  ) => {
-    if (!safeView) return [];
-    const battlefield = (safeView.battlefield || []) as BattlefieldPermanent[];
-    const buildSources = () => buildAvailableManaSourcesForPlayer(playerId, battlefield, options);
-
-    if (checkMetalcraft(playerId)) {
-      return buildSources();
-    }
-
-    return buildSources().filter((source) => {
-      const sourcePermanent = battlefield.find((perm) => String(perm.id || '') === String(source.sourcePermanentId || source.id || ''));
-      const oracleText = String((sourcePermanent?.card as any)?.oracle_text || '').toLowerCase();
-      if (!oracleText.includes('metalcraft')) return true;
-      return false;
-    });
-  };
-
-  const castSpellPaymentSources = useMemo(() => {
-    if (!you) return [];
-    const excludePermanentIds = spellToCast?.activatingPermanentId
-      && (spellToCast?.excludeActivatingPermanentFromPayment !== false)
-      ? [spellToCast.activatingPermanentId]
-      : undefined;
-    return getAvailableManaSourcesForPlayer(you, excludePermanentIds ? { excludePermanentIds } : undefined);
-  }, [spellToCast, you, safeView?.battlefield]);
-
-  // Handle cast spell confirmation from modal - works for both hand and commander spells
-  const handleCastSpellConfirm = (
-    payment: PaymentItem[],
-    alternateCostId?: string,
-    xValue?: number,
-    convokeTappedCreatures?: string[],
-    sneakReturnedCreatureId?: string,
-    webSlingingReturnedCreatureId?: string,
-  ) => {
-    if (!safeView || !spellToCast) return;
-
-    // Resolution Queue spell payment: respond to the step instead of emitting payment completion directly.
-    const paymentStepId = (spellToCast as any).paymentStepId as string | undefined;
-    if (paymentStepId) {
-      socket.emit('submitResolutionResponse', {
-        gameId: safeView.id,
-        stepId: paymentStepId,
-        selections: {
-          payment: payment.length > 0 ? payment : undefined,
-          xValue,
-          alternateCostId,
-          convokeTappedCreatures,
-          sneakReturnedCreatureId,
-          webSlingingReturnedCreatureId,
-        },
-        cancelled: false,
-      });
-      setCastSpellModalOpen(false);
-      setSpellToCast(null);
-      return;
-    }
-    
-    debug(2, `[Client] Casting ${spellToCast.isCommander ? 'commander' : 'spell'}: ${spellToCast.cardName} with payment:`, payment);
-    if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
-      debug(2, `[Client] Convoke: tapping ${convokeTappedCreatures.length} creature(s):`, convokeTappedCreatures);
-    }
-    
-    if (spellToCast.isCommander) {
-      // Cast commander from command zone
-      socket.emit("castCommander", {
-        gameId: safeView.id,
-        commanderNameOrId: spellToCast.cardId,
-        payment: payment.length > 0 ? payment : undefined,
-      });
-    } else if (spellToCast.effectId) {
-      // MTG-compliant flow: targets were already selected, now completing with payment
-      // Use completeCastSpell to finalize
-      const payload = {
-        gameId: safeView.id,
-        cardId: spellToCast.cardId,
-        targets: spellToCast.targets,
-        payment: payment.length > 0 ? payment : undefined,
-        effectId: spellToCast.effectId,
-        xValue,
-        alternateCostId,
-        convokeTappedCreatures,
-        sneakReturnedCreatureId,
-        webSlingingReturnedCreatureId,
-      };
-      socket.emit("completeCastSpell", payload);
-    } else {
-      // Legacy flow: direct cast from hand (will check targets on server)
-      const payload = {
-        gameId: safeView.id,
-        cardId: spellToCast.cardId,
-        payment: payment.length > 0 ? payment : undefined,
-        xValue,
-        alternateCostId,
-        sneakReturnedCreatureId,
-        webSlingingReturnedCreatureId,
-        convokeTappedCreatures,
-      };
-      socket.emit("castSpellFromHand", payload);
-    }
-    
-    setCastSpellModalOpen(false);
-    setSpellToCast(null);
-  };
-
-  const handleCastSpellCancel = () => {
-    // If this was a Resolution Queue spell payment step, cancel via submitResolutionResponse.
-    if (safeView && spellToCast && (spellToCast as any).paymentStepId) {
-      socket.emit('submitResolutionResponse', {
-        gameId: safeView.id,
-        stepId: String((spellToCast as any).paymentStepId),
-        selections: {},
-        cancelled: true,
-      });
-    }
-    setCastSpellModalOpen(false);
-    setSpellToCast(null);
-  };
-
-  // Handle casting commander through the shared spell-cast request flow
-  const handleCastCommander = (commanderId: string, commanderName: string, _manaCost?: string, _tax?: number) => {
-    // Defensive validation: ensure commanderId is not undefined or empty
-    if (!commanderId || (typeof commanderId === 'string' && commanderId.trim() === '')) {
-      console.error('[handleCastCommander] Invalid commanderId:', { commanderId, commanderName });
-      alert(`Cannot cast commander: Invalid commander ID. This may be a bug - please refresh and try again.`);
-      return;
-    }
-
-    if (!safeView) return;
-
-    requestCastSpellWithPromptSync({
-      gameId: safeView.id,
-      cardId: commanderId,
-      fromZone: 'command',
-    });
-  };
-
-  // Combat handlers
-  const handleDeclareAttackers = (attackers: AttackerSelection[]) => {
-    if (!safeView) return;
-    socket.emit("declareAttackers", {
-      gameId: safeView.id,
-      attackers,
-    });
-    // Keep the modal open until the server either commits attackers or queues attack-tax payment.
-    setCombatModalMinimized(false);
-  };
-
-  const handleDeclareBlockers = (blockers: BlockerSelection[]) => {
-    if (!safeView) return;
-    setCombatModalError(null);
-    socket.emit("declareBlockers", {
-      gameId: safeView.id,
-      blockers,
-    });
-    // Do not close immediately. If the server rejects the blocks, we need to keep (or re-open)
-    // the modal so the defending player can correct them.
-  };
-
-  const handleSkipCombat = () => {
-    if (!safeView) return;
-    if (combatMode === 'attackers') {
-      socket.emit("skipDeclareAttackers", { gameId: safeView.id });
-      // Keep the modal open until the server advances the step. Skip is rejected
-      // when goaded / must-attack creatures are able to attack.
-    } else {
-      setCombatModalError(null);
-      socket.emit("skipDeclareBlockers", { gameId: safeView.id });
-      // Same rationale as handleDeclareBlockers: let the server close this via blockersDeclaredBy.
-    }
-  };
-
-  const handleDeclareControlledCombat = (selections: CombatControlDeclarations) => {
-    if (!safeView) return;
-
-    if (combatControlMode === 'attackers') {
-      socket.emit('declareControlledAttackers', {
-        gameId: safeView.id,
-        attackers: selections.attackers || [],
-      });
-    } else {
-      socket.emit('declareControlledBlockers', {
-        gameId: safeView.id,
-        blockers: selections.blockers || [],
-      });
-    }
-
-    setCombatControlModalOpen(false);
-  };
-
-  // Return-controlled-permanent handler - player selects which permanent to return
-  const handleReturnControlledPermanentSelect = (permanentId: string) => {
-    if (!safeView || !returnControlledPermanentData) return;
-    
-    const stepId = (returnControlledPermanentData as any).stepId;
-    if (!stepId) {
-      debug(1, '[ReturnControlledPermanent] Missing stepId - prompt must use resolution queue');
-      return;
-    }
-    
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId,
-      selections: permanentId,
-      cancelled: false,
-    });
-    debug(2, '[ReturnControlledPermanent] Completed resolution step via resolution queue');
-    
-    setReturnControlledPermanentModalOpen(false);
-    setReturnControlledPermanentData(null);
-  };
-
-  const handleHideawayChoiceConfirm = (selectedIds: string[]) => {
-    if (!safeView || !hideawayChoiceData) return;
-
-    const stepId = hideawayChoiceData.stepId;
-    if (!stepId || selectedIds.length === 0) {
-      debug(1, '[HideawayChoice] Missing stepId or selection - prompt must use resolution queue');
-      return;
-    }
-
-    socket.emit('submitResolutionResponse', {
-      gameId: safeView.id,
-      stepId,
-      selections: selectedIds[0],
-      cancelled: false,
-    });
-    debug(2, '[HideawayChoice] Completed resolution step via resolution queue');
-
-    setHideawayChoiceModalOpen(false);
-    setHideawayChoiceData(null);
-  };
-
-  const handleHideawayChoiceCancel = () => {
-    if (!safeView || !hideawayChoiceData?.stepId) return;
-
-    socket.emit('submitResolutionResponse', {
-      gameId: safeView.id,
-      stepId: hideawayChoiceData.stepId,
-      selections: [],
-      cancelled: true,
-    });
-
-    setHideawayChoiceModalOpen(false);
-    setHideawayChoiceData(null);
-  };
-
-  // Proliferate handler - player selects targets to proliferate
-  const handleProliferateConfirm = (selectedIds: string[]) => {
-    if (!safeView || !proliferateData) return;
-    
-    // Use the resolution queue system
-    if (!proliferateData.stepId) {
-      console.error('[Proliferate] Missing stepId - must use resolution queue');
-      return;
-    }
-    
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId: proliferateData.stepId,
-      selections: selectedIds,
-      cancelled: false,
-    });
-    
-    setProliferateModalOpen(false);
-    setProliferateData(null);
-  };
-  
-  const handleLifeRedistributionConfirm = (payload: { lifeByPlayerId: Record<string, number> }) => {
-    if (!safeView || !lifeRedistributionData) return;
-
-    if (!lifeRedistributionData.stepId) {
-      console.error('[LifeRedistribution] Missing stepId - must use resolution queue');
-      return;
-    }
-
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId: lifeRedistributionData.stepId,
-      selections: payload,
-      cancelled: false,
-    });
-
-    setLifeRedistributionModalOpen(false);
-    setLifeRedistributionData(null);
-  };
-  
-  // Fateseal handler - player orders opponent's library
-  const handleFatesealConfirm = (payload: { keepTopOrder: string[]; bottomOrder: string[] }) => {
-    if (!safeView || !fatesealData) return;
-    
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId: fatesealData.stepId,
-      selections: payload,
-      cancelled: false,
-    });
-    
-    setFatesealModalOpen(false);
-    setFatesealData(null);
-  };
-  
-  // Clash handler - player chooses whether to put card on bottom
-  const handleClashConfirm = (putOnBottom: boolean) => {
-    if (!safeView || !clashData) return;
-    
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId: clashData.stepId,
-      selections: putOnBottom,
-      cancelled: false,
-    });
-    
-    setClashModalOpen(false);
-    setClashData(null);
-  };
-  
-  // Vote handler - player submits their vote
-  const handleVoteConfirm = (choice: string) => {
-    if (!safeView || !voteData) return;
-    
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId: voteData.stepId,
-      selections: choice,
-      cancelled: false,
-    });
-    
-    setVoteModalOpen(false);
-    setVoteData(null);
-  };
-
-  // Handle "ignore this source" from stack UI - for triggers already on stack
-  const handleIgnoreTriggerSourceFromStack = (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => {
-    if (!safeView) return;
-    const sourceKey = sourceId || sourceName;
-    setIgnoredTriggerSources(prev => {
-      const next = new Map(prev);
-      next.set(sourceKey, { sourceId: sourceId || undefined, sourceName, count: 0, effect, imageUrl });
-      return next;
-    });
-
-    if (sourceId) {
-      socket.emit('yieldToTriggerSource', {
-        gameId: safeView.id,
-        sourceId,
-        sourceName,
-      });
-    }
-  };
-
-  // Stop ignoring a trigger source
-  const handleStopIgnoringSource = (sourceKey: string) => {
-    if (!safeView) {
-      setIgnoredTriggerSources(prev => {
-        const next = new Map(prev);
-        next.delete(sourceKey);
-        return next;
-      });
-      return;
-    }
-
-    const entry = ignoredTriggerSources.get(sourceKey);
-    const sourceId = entry?.sourceId;
-    if (sourceId) {
-      socket.emit('unyieldToTriggerSource', {
-        gameId: safeView.id,
-        sourceId,
-      });
-    }
-    setIgnoredTriggerSources(prev => {
-      const next = new Map(prev);
-      next.delete(sourceKey);
-      return next;
-    });
-  };
-
-  // Handle ordering of multiple simultaneous triggers
-  const handleOrderTriggersConfirm = (orderedTriggerIds: string[]) => {
-    if (!safeView) return;
-
-    // Trigger ordering is handled via Resolution Queue now.
-    if (triggerOrderStepId) {
-      socket.emit('submitResolutionResponse', {
-        gameId: safeView.id,
-        stepId: triggerOrderStepId,
-        selections: orderedTriggerIds,
-        cancelled: false,
-      });
-      setTriggerOrderStepId(null);
-      setPendingTriggers(prev => prev.filter(t => !orderedTriggerIds.includes(t.id)));
-      setTriggerModalOpen(false);
-      return;
-    }
-
-    // No active trigger-order resolution step; just close ordering UI.
-    setPendingTriggers(prev => prev.filter(t => !orderedTriggerIds.includes(t.id)));
-    setTriggerModalOpen(false);
-  };
-
-  // Library search handlers (Tutor effects)
-  const handleLibrarySearchConfirm = (
-    selectedCardIds: string[], 
-    moveTo: string,
-    splitAssignments?: { toBattlefield: string[]; toHand: string[] }
-  ) => {
-    if (!safeView || !librarySearchData) return;
-    const resolvedMoveTo = librarySearchData.splitDestination ? moveTo : librarySearchData.moveTo;
-    
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId: (librarySearchData as any).stepId,
-      selections: selectedCardIds,
-      cancelled: false,
-      // Include split assignments for Cultivate/Kodama's Reach effects
-      splitAssignments,
-      moveTo: resolvedMoveTo,
-    });
-    setLibrarySearchModalOpen(false);
-    setLibrarySearchData(null);
-  };
-
-  const handleLibrarySearchCancel = () => {
-    if (!safeView || !librarySearchData) return;
-    
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId: (librarySearchData as any).stepId,
-      selections: [],
-      cancelled: true,
-    });
-    setLibrarySearchModalOpen(false);
-    setLibrarySearchData(null);
-  };
-
-  const handleLibrarySearchCastWhileSearching = (cardId: string) => {
-    if (!safeView || !librarySearchData) return;
-
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId: (librarySearchData as any).stepId,
-      selections: {
-        action: 'cast_panglacial_wurm',
-        cardId,
-      },
-      cancelled: false,
-    });
-    setLibrarySearchModalOpen(false);
-    setLibrarySearchData(null);
-  };
-
-  // Target selection handlers
-  const handleTargetConfirm = (selectedTargetIds: string[]) => {
-    if (!safeView || !targetModalData) return;
-
-    if (targetModalData.stepId) {
-      socket.emit("submitResolutionResponse", {
-        gameId: safeView.id,
-        stepId: targetModalData.stepId,
-        selections: selectedTargetIds,
-        cancelled: false,
-      });
-    }
-    setTargetModalOpen(false);
-    setTargetModalData(null);
-  };
-
-  const handleTargetCancel = () => {
-    if (!safeView) return;
-
-    if (targetModalData?.stepId) {
-      socket.emit("cancelResolutionStep", {
-        gameId: safeView.id,
-        stepId: targetModalData.stepId,
-      });
-    }
-    setTargetModalOpen(false);
-    setTargetModalData(null);
-  };
-
-  // Opening hand actions handlers (Leylines)
-  const handleOpeningHandActionsConfirm = (selectedCardIds: string[]) => {
-    if (!safeView) return;
-    if (!openingHandActionsStepId) return;
-
-    socket.emit('submitResolutionResponse', {
-      gameId: safeView.id,
-      stepId: openingHandActionsStepId,
-      selections: selectedCardIds,
-      cancelled: false,
-    });
-    setOpeningHandActionsModalOpen(false);
-    setOpeningHandActionsStepId(null);
-  };
-
-  const handleOpeningHandActionsSkip = () => {
-    if (!safeView) return;
-    if (!openingHandActionsStepId) return;
-
-    socket.emit('submitResolutionResponse', {
-      gameId: safeView.id,
-      stepId: openingHandActionsStepId,
-      selections: [],
-      cancelled: true,
-    });
-    setOpeningHandActionsModalOpen(false);
-    setOpeningHandActionsStepId(null);
-  };
-
-  // Undo handlers
-  const handleUndoApprove = () => {
-    if (!safeView || !undoRequestData) return;
-    socket.emit("respondUndo", {
-      gameId: safeView.id,
-      undoId: undoRequestData.undoId,
-      approved: true,
-    });
-  };
-
-  const handleUndoReject = () => {
-    if (!safeView || !undoRequestData) return;
-    socket.emit("respondUndo", {
-      gameId: safeView.id,
-      undoId: undoRequestData.undoId,
-      approved: false,
-    });
-    setUndoModalOpen(false);
-    setUndoRequestData(null);
-  };
-
-  const handleUndoCancel = () => {
-    if (!safeView || !undoRequestData) return;
-    socket.emit("cancelUndo", {
-      gameId: safeView.id,
-      undoId: undoRequestData.undoId,
-    });
-    setUndoModalOpen(false);
-    setUndoRequestData(null);
-  };
-
-  const handleRequestUndo = (scope: 'step' | 'phase' | 'previousPhase' | 'turn') => {
-    if (!safeView) return;
-
-    switch (scope) {
-      case 'step':
-        socket.emit('requestUndoToStep', { gameId: safeView.id });
-        break;
-      case 'phase':
-        socket.emit('requestUndoToPhase', { gameId: safeView.id });
-        break;
-      case 'previousPhase':
-        socket.emit('requestUndoToPreviousPhase', { gameId: safeView.id });
-        break;
-      case 'turn':
-        socket.emit('requestUndoToTurn', { gameId: safeView.id });
-        break;
-    }
-  };
-
-  const requestCastSpellWithPromptSync = React.useCallback((payload: {
-    gameId: string;
-    cardId: string;
-    faceIndex?: number;
-    fromZone?: 'exile' | 'hand' | 'graveyard' | 'library' | 'command';
-  }) => {
-    socket.emit('requestCastSpell', payload);
-
-    window.setTimeout(() => {
-      socket.emit('getMyNextResolutionStep', { gameId: payload.gameId });
-    }, 0);
-  }, []);
-
-  const playLandWithPromptSync = React.useCallback((payload: {
-    gameId: string;
-    cardId: string;
-    selectedFace?: number;
-    fromZone?: 'exile' | 'hand' | 'graveyard' | 'library';
-  }) => {
-    socket.emit('playLand', payload);
-
-    window.setTimeout(() => {
-      socket.emit('getMyNextResolutionStep', { gameId: payload.gameId });
-    }, 0);
-  }, []);
-
-  const openSplitCardChoice = React.useCallback((
-    cardId: string,
-    card: KnownCardRef,
-    sourceZone: 'hand' | 'graveyard' | 'exile' | 'library' | 'command' = 'hand',
-  ) => {
-    const layout = String((card as any).layout || '');
-    const cardFaces = (card as any).card_faces as CardFace[] | undefined;
-    if (!cardFaces || cardFaces.length < 2) {
-      return;
-    }
-
-    const oracleText = String((card as any).oracle_text || '').toLowerCase();
-    const canFuse = sourceZone === 'hand' && layout === 'split' && oracleText.includes('fuse');
-    const faces: CardFaceOption[] = cardFaces.map((face, idx) => ({
-      id: `face_${idx}`,
-      name: (face as any).name || `Face ${idx + 1}`,
-      manaCost: (face as any).mana_cost ?? (face as any).manaCost,
-      typeLine: (face as any).type_line ?? (face as any).typeLine,
-      oracleText: (face as any).oracle_text ?? (face as any).oracleText,
-      imageUrl: (face as any).image_uris?.small || (face as any).image_uris?.normal || (face as any).imageUrl,
-      isDefault: layout === 'adventure' && idx === 0,
-    }));
-
-    setSplitCardData({
-      cardId,
-      cardName: card.name || 'Card',
-      layout,
-      faces,
-      canFuse,
-      sourceZone,
-    });
-    setSplitCardModalOpen(true);
-  }, []);
-
-  const handleUseTopOfLibrary = React.useCallback(() => {
-    if (!safeView || !you) return;
-
-    const libraryTop = safeView.zones?.[you]?.libraryTop as KnownCardRef | undefined;
-    if (!libraryTop || !libraryTop.id) return;
-
-    const layout = String((libraryTop as any).layout || '');
-    const cardFaces = (libraryTop as any).card_faces as CardFace[] | undefined;
-    const hasFaces = Array.isArray(cardFaces) && cardFaces.length >= 2;
-    const needsFaceChoice = hasFaces && (
-      layout === 'split'
-      || layout === 'adventure'
-      || layout === 'modal_dfc'
-    );
-
-    if (needsFaceChoice) {
-      openSplitCardChoice(libraryTop.id, libraryTop, 'library');
-      return;
-    }
-
-    const typeLine = String((libraryTop as any).type_line || (libraryTop as any).typeLine || '');
-    if (/\bland\b/i.test(typeLine)) {
-      playLandWithPromptSync({
-        gameId: safeView.id,
-        cardId: libraryTop.id,
-        fromZone: 'library',
-      });
-      return;
-    }
-
-    requestCastSpellWithPromptSync({
-      gameId: safeView.id,
-      cardId: libraryTop.id,
-      fromZone: 'library',
-    });
-  }, [openSplitCardChoice, playLandWithPromptSync, requestCastSpellWithPromptSync, safeView, you]);
-
-  // Split/Adventure card choice handler
-  const handleSplitCardChoose = (faceId: string, fused?: boolean) => {
-    if (!splitCardData || !safeView || !you) return;
-    const sourceZone = splitCardData.sourceZone || 'hand';
-    const zones = safeView.zones?.[you];
-    const sourceCards = sourceZone === 'graveyard'
-      ? ((zones?.graveyard || []) as KnownCardRef[])
-      : sourceZone === 'exile'
-        ? ((((zones as any)?.exile) || []) as KnownCardRef[])
-        : sourceZone === 'library'
-          ? (zones?.libraryTop ? [zones.libraryTop as KnownCardRef] : [])
-          : ((zones?.hand || []) as KnownCardRef[]);
-    const card = sourceCards.find((c: any) => c?.id === splitCardData.cardId) as KnownCardRef | undefined;
-    if (!card) {
-      setSplitCardModalOpen(false);
-      setSplitCardData(null);
-      return;
-    }
-    
-    const cardFaces = (card as any).card_faces as CardFace[] | undefined;
-    
-    // Close split card modal
-    setSplitCardModalOpen(false);
-    setSplitCardData(null);
-    
-    // Determine face index for MTG-compliant flow
-    let faceIndex: number | undefined;
-    
-    if (fused && sourceZone === 'hand' && cardFaces && cardFaces.length >= 2) {
-      // Fuse: special case - for now use legacy flow
-      // TODO: Implement fuse handling in requestCastSpell
-      const manaCost =
-        (cardFaces[0]?.mana_cost || '') +
-        (cardFaces[1]?.mana_cost || '');
-      const displayName = `${cardFaces[0]?.name || 'Left'} // ${cardFaces[1]?.name || 'Right'}`;
-      setSpellToCast({
-        cardId: splitCardData.cardId,
-        cardName: displayName,
-        manaCost: manaCost || (card as any).mana_cost,
-        title: `Cast ${displayName}`,
-        manualFloatingManaSelection: true,
-      });
-      setCastSpellModalOpen(true);
-      return;
-    } else if (faceId.startsWith('face_') && cardFaces) {
-      faceIndex = parseInt(faceId.replace('face_', ''), 10);
-      // Validate faceIndex bounds
-      if (faceIndex < 0 || faceIndex >= cardFaces.length) {
-        debugError(1, `[handleSplitCardChoose] Invalid faceIndex: ${faceIndex}`);
-        return;
-      }
-    }
-
-    const selectedFace = typeof faceIndex === 'number' && Array.isArray(cardFaces)
-      ? cardFaces[faceIndex]
-      : undefined;
-    const selectedFaceTypeLine = String((selectedFace as any)?.type_line ?? (selectedFace as any)?.typeLine ?? '');
-    if (sourceZone === 'library' && /\bland\b/i.test(selectedFaceTypeLine)) {
-      playLandWithPromptSync({
-        gameId: safeView.id,
-        cardId: splitCardData.cardId,
-        selectedFace: faceIndex,
-        fromZone: 'library',
-      });
-      return;
-    }
-    
-    // Use MTG-compliant flow: request targets first if needed
-    requestCastSpellWithPromptSync({
-      gameId: safeView.id,
-      cardId: splitCardData.cardId,
-      faceIndex,
-      ...(sourceZone !== 'hand' ? { fromZone: sourceZone } : {}),
-    });
-  };
-
-  const handleSplitCardCancel = () => {
-    setSplitCardModalOpen(false);
-    setSplitCardData(null);
-  };
-
-  const handleViewGraveyard = (playerId: string) => {
-    setGraveyardModalPlayerId(playerId);
-    setGraveyardModalOpen(true);
-  };
-
-  const handleViewExile = (playerId: string) => {
-    setExileModalPlayerId(playerId);
-    setExileModalOpen(true);
-  };
-
-  const handleGraveyardAbility = (cardId: string, abilityId: string) => {
-    if (!safeView?.id) return;
-
-    if (abilityId === 'graveyard-cast') {
-      socket.emit('requestCastSpell', {
-        gameId: safeView.id,
-        cardId,
-        fromZone: 'graveyard',
-      });
-      return;
-    }
-
-    socket.emit('activateGraveyardAbility', {
-      gameId: safeView.id,
-      cardId,
-      abilityId,
-    });
-  };
-
-  const handleExileAbility = (cardId: string, abilityId: string, card: KnownCardRef) => {
-    if (!safeView?.id) return;
-
-    if (abilityId === 'foretell-cast') {
-      socket.emit('castForetold', {
-        gameId: safeView.id,
-        cardId,
-      });
-      return;
-    }
-
-    const isLand = /\bland\b/i.test(String((card as any)?.type_line || (card as any)?.typeLine || ''));
-
-    if (isLand) {
-      playLandWithPromptSync({
-        gameId: safeView.id,
-        cardId,
-        fromZone: 'exile',
-      });
-      return;
-    }
-
-    // Most "cast/play from exile" permissions are handled via the normal cast request.
-    // On-adventure cards cast the permanent face (faceIndex 0).
-    requestCastSpellWithPromptSync({
-      gameId: safeView.id,
-      cardId,
-      fromZone: 'exile',
-      ...((abilityId === 'adventure-creature' || abilityId === 'adventure')
-        ? { faceIndex: 0 }
-        : {}),
-    });
-  };
-
-  // Join Forces contribution handler
-  // Now uses the unified Resolution Queue system when stepId is present
-  const handleJoinForcesContribute = (amount: number) => {
-    if (!safeView || !joinForcesRequest) return;
-    
-    // Check if this is using the new resolution system (has stepId)
-    const stepId = (joinForcesRequest as any).stepId;
-    
-    if (!stepId) return;
-
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId,
-      selections: { amount },
-      cancelled: false,
-    });
-    // Close modal after responding
-    setJoinForcesModalOpen(false);
-    setJoinForcesRequest(null);
-  };
-
-  // Tempting Offer response handler
-  // Now uses the unified Resolution Queue system when stepId is present
-  const handleTemptingOfferRespond = (accept: boolean) => {
-    if (!safeView || !temptingOfferRequest) return;
-    
-    // Check if this is using the new resolution system (has stepId)
-    const stepId = (temptingOfferRequest as any).stepId;
-    
-    if (!stepId) return;
-
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId,
-      selections: { accept },
-      cancelled: false,
-    });
-    // Close modal after responding
-    setTemptingOfferModalOpen(false);
-    setTemptingOfferRequest(null);
-  };
-  
-  // Kynaios Choice response handler (Kynaios and Tiro of Meletis style)
-  // Now uses the unified Resolution Queue system
-  const handleKynaiosChoiceRespond = (choice: 'play_land' | 'draw_card' | 'decline', landCardId?: string) => {
-    if (!safeView || !kynaiosChoiceRequest) return;
-    
-    // Check if this is using the new resolution system (has stepId)
-    const stepId = kynaiosChoiceRequest.stepId;
-
-    if (!stepId) return;
-
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId,
-      selections: { choice, landCardId },
-      cancelled: false,
-    });
-
-    // Close modal after responding
-    setKynaiosChoiceModalOpen(false);
-    setKynaiosChoiceRequest(null);
-  };
-
-  const handleOptionChoiceRespond = (selections: string[]) => {
-    if (!safeView?.id || !optionChoiceRequest) return;
-
-    socket.emit('submitResolutionResponse', {
-      gameId: safeView.id,
-      stepId: optionChoiceRequest.stepId,
-      selections,
-      cancelled: false,
-    });
-
-    setOptionChoiceModalOpen(false);
-    setOptionChoiceRequest(null);
-  };
-
-  const canCreatureAttack = (perm: BattlefieldPermanent): boolean => {
-    return canCreatureAttackNow(perm, safeView?.battlefield || []);
-  };
-
-  // Expand server-grouped tokens (broadcast optimization) into individual permanent entries
-  // so the combat modal can show and select each token independently. Each entry uses
-  // its real permanent ID from groupedTokenIds so server-side validation succeeds.
-  const expandGroupedTokens = (permanents: BattlefieldPermanent[]): BattlefieldPermanent[] => {
-    const expanded: BattlefieldPermanent[] = [];
-    for (const perm of permanents) {
-      const groupedIds = (perm as any).groupedTokenIds as string[] | undefined;
-      const tokenCount = Number((perm as any).tokenCount || 0);
-      if ((perm as any).isGroupedTokens && tokenCount > 1) {
-        const groupId = String(perm.id || `group_${(perm as any).originalId || 'token'}`);
-        for (let i = 0; i < tokenCount; i += 1) {
-          const tokenId = groupedIds && i < groupedIds.length ? groupedIds[i] : `${groupId}_virtual_${i}`;
-          expanded.push({
-            ...perm,
-            id: tokenId,
-            isGroupedTokens: false,
-            tokenCount: 1,
-            groupedTokenIds: undefined,
-            _virtualFromGroup: groupId,
-            _virtualIndex: i,
-          } as BattlefieldPermanent);
-        }
-      } else {
-        expanded.push(perm);
-      }
-    }
-    return expanded;
-  };
-
-  // Get creatures for combat modal - filter to only those that can attack
-  const myCreatures = useMemo(() => {
-    if (!safeView || !you) return [];
-    const filtered = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
-      if (p.controller !== you) return false;
-      // Check if it's currently a creature (handles reconfigure/bestow)
-      if (!isCurrentlyCreature(p)) return false;
-      
-      // Filter out creatures that cannot attack (summoning sickness without haste, or defender)
-      return canCreatureAttack(p);
-    });
-    return expandGroupedTokens(filtered);
-  }, [safeView, you]);
-
-  // Get creatures that can block - different rules than attacking
-  // Creatures with summoning sickness CAN block
-  // Creatures with defender CAN block  
-  // Only tapped creatures cannot block
-  const myBlockerCreatures = useMemo(() => {
-    if (!safeView || !you) return [];
-    const filtered = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
-      if (p.controller !== you) return false;
-      // Check if it's currently a creature (handles reconfigure/bestow)
-      if (!isCurrentlyCreature(p)) return false;
-      // Tapped creatures cannot block
-      if (p.tapped) return false;
-      // All untapped creatures can block (even with summoning sickness or defender)
-      return canCreatureBlockNow(p, safeView.battlefield || []);
-    });
-    return expandGroupedTokens(filtered);
-  }, [safeView, you]);
-
-  const attackingCreatures = useMemo(() => {
-    if (!safeView) return [];
-    const filtered = (safeView.battlefield || []).filter((p: any) =>
-      p.attacking &&
-      isCurrentlyCreature(p)
-    );
-    // Safety net: if emit still grouped attacking tokens as group_*, expand so
-    // blocker declarations send real permanent ids the server can validate.
-    return expandGroupedTokens(filtered);
-  }, [safeView]);
-
-  const defenders = useMemo(() => {
-    if (!safeView || !you) return [];
-    return (safeView.players || []).filter((p: any) => p.id !== you);
-  }, [safeView, you]);
-
-  // Per-defender attack info: untapped creature count and attack tax per attacker.
-  // The tax is parsed from pillow-fort enchantments (Ghostly Prison, Propaganda, etc.)
-  const defenderInfoMap = useMemo(() => {
-    if (!safeView || !you) return undefined;
-
-    const KNOWN_ATTACK_TAX_BY_NAME: Record<string, number> = {
-      'windborn muse': 2,
-      'ghostly prison': 2,
-      'propaganda': 2,
-      'baird, steward of argive': 1,
-    };
-
-    const getAttackTaxPerCreature = (perm: BattlefieldPermanent): number => {
-      const oracle = ((perm.card as any)?.oracle_text || '').toLowerCase();
-      const name = ((perm.card as any)?.name || '').toLowerCase();
-
-      const strictMatch = oracle.match(
-        /creatures can't attack you (?:or a planeswalker you control )?unless their controller pays \{(\d+)\}/i,
-      );
-      if (strictMatch) return parseInt(strictMatch[1], 10);
-
-      const genericMatch = oracle.match(
-        /creatures?\s+can't\s+attack\s+you\s+unless\s+.*pays?\s+\{(\d+)\}/i,
-      );
-      if (genericMatch) return parseInt(genericMatch[1], 10);
-
-      for (const [knownName, cost] of Object.entries(KNOWN_ATTACK_TAX_BY_NAME)) {
-        if (name.includes(knownName)) return cost;
-      }
-      return 0;
-    };
-
-    const resolveDefendingPlayerId = (defenderId: string): string => {
-      const battlefield: BattlefieldPermanent[] = safeView.battlefield || [];
-      const players = safeView.players || [];
-      const playerIds = new Set(players.map((player: any) => String(player.id)));
-      if (playerIds.has(defenderId)) return defenderId;
-      const targetPerm = battlefield.find((perm) => String(perm.id) === defenderId);
-      return targetPerm?.controller ? String(targetPerm.controller) : defenderId;
-    };
-
-    const result: Record<string, { untappedCreatureCount: number; attackTaxPerCreature: number }> = {};
-    const battlefield: BattlefieldPermanent[] = safeView.battlefield || [];
-    for (const defender of defenders) {
-      const defId = String(defender.id);
-      const defendingPlayerId = resolveDefendingPlayerId(defId);
-
-      // Count untapped creatures controlled by this opponent
-      const untappedCreatureCount = battlefield.filter((p: BattlefieldPermanent) => {
-        if (p.controller !== defendingPlayerId) return false;
-        if (p.tapped) return false;
-        const tl = ((p.card as any)?.type_line || '').toLowerCase();
-        return /\bcreature\b/.test(tl);
-      }).length;
-
-      // Compute attack tax from pillow-fort permanents controlled by the defending player
-      let attackTaxPerCreature = 0;
-      for (const perm of battlefield) {
-        if (perm.controller !== defendingPlayerId) continue;
-        attackTaxPerCreature = Math.max(attackTaxPerCreature, getAttackTaxPerCreature(perm));
-      }
-
-      result[defId] = { untappedCreatureCount, attackTaxPerCreature };
-    }
-    return result;
-  }, [safeView, you, defenders]);
-
-  const combatModalAttackersAvailableCreatures = useMemo(() => {
-    if (!safeView) return [];
-    const turnPlayer = safeView.turnPlayer;
-    if (!turnPlayer) return [];
-
-    // For read-only viewers, show the active player's combat-relevant creatures
-    // (include currently-attacking creatures even if they are tapped).
-    return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
-      if (p.controller !== turnPlayer) return false;
-      if (!isCurrentlyCreature(p)) return false;
-      return canCreatureAttack(p) || !!(p as any).attacking;
-    });
-  }, [safeView]);
-
-  const combatModalAttackersDefenders = useMemo(() => {
-    if (!safeView) return [];
-    const turnPlayer = safeView.turnPlayer;
-    if (!turnPlayer) return [];
-    return (safeView.players || []).filter((p: any) => p.id !== turnPlayer);
-  }, [safeView]);
-
-  const combatControlEffect = useMemo(() => {
-    if (!safeView) return null;
-    return ((safeView as any)?.combat?.combatControl || (safeView as any)?.combatControl || null) as any;
-  }, [safeView]);
-
-  const combatModalInitialAttackTargets = useMemo(() => {
-    if (!safeView) return undefined;
-    const turnPlayer = safeView.turnPlayer;
-    if (!turnPlayer) return undefined;
-
-    const battlefield = (safeView.battlefield || []) as any[];
-    const players = (safeView.players || []) as any[];
-    const playerIds = new Set(players.map((p: any) => p.id));
-
-    const initialTargets: Record<string, string> = {};
-    for (const perm of battlefield) {
-      if (!perm || perm.controller !== turnPlayer) continue;
-      if (!isCurrentlyCreature(perm)) continue;
-
-      const target = perm.attacking;
-      if (!target || typeof target !== 'string') continue;
-
-      // If targeting a player, keep as-is
-      if (playerIds.has(target)) {
-        initialTargets[String(perm.id)] = target;
-        continue;
-      }
-
-      // If targeting a planeswalker/battle permanent, map to its controller (defending player)
-      const targetPerm = battlefield.find((p: any) => p?.id === target);
-      if (targetPerm?.controller) {
-        initialTargets[String(perm.id)] = String(targetPerm.controller);
-      }
-    }
-
-    return initialTargets;
-  }, [safeView]);
-
-  // Get text colors based on current background setting
-  const textColors = getTextColorsForBackground(appearanceSettings.tableBackground);
-
-  return (
-    <div
-      style={{
-        padding: 8,
-        fontFamily: "system-ui",
-        display: "grid",
-        gridTemplateColumns: isTable
-          ? (showUtilityRail
-            ? `minmax(0, 1fr) ${utilityRailCollapsed ? '84px' : '320px'}`
-            : "1fr")
-          : "1.2fr 380px",
-        gap: 8,
-        minHeight: '100vh',
-        ...getBackgroundStyle(appearanceSettings.tableBackground),
-      }}
-    >
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {/* JOIN / ACTIVE GAMES (collapsible/accordion) - at very top */}
-        <div
-          style={{
-            border: "1px solid rgba(255,255,255,0.15)",
-            borderRadius: 6,
-            padding: joinCollapsed ? "4px 8px" : 8,
-            background: "rgba(30, 30, 40, 0.95)",
-            backdropFilter: "blur(8px)",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              cursor: "pointer",
-            }}
-            onClick={() => setJoinCollapsed((c) => !c)}
-          >
-            <div style={{ fontWeight: 600, fontSize: 12, color: "#e5e5e5", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ color: "#a78bfa" }}>🎮</span>
-              Join / Active Games
-            </div>
-            <div style={{ fontSize: 14, color: "#a78bfa" }}>
-              {joinCollapsed ? "▸" : "▾"}
-            </div>
-          </div>
-
-          {!joinCollapsed && (
-            <>
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  marginTop: 8,
-                }}
-              >
-                <input
-                  value={gameIdInput}
-                  onChange={(e) => setGameIdInput(e.target.value as any)}
-                  placeholder="Game ID"
-                  style={{
-                    padding: "4px 8px",
-                    borderRadius: 4,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(0,0,0,0.3)",
-                    color: "#e5e5e5",
-                    fontSize: 12,
-                  }}
-                />
-                <input
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                  placeholder="Name"
-                  style={{
-                    padding: "4px 8px",
-                    borderRadius: 4,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(0,0,0,0.3)",
-                    color: "#e5e5e5",
-                    fontSize: 12,
-                  }}
-                />
-                <button 
-                  onClick={handleJoin} 
-                  disabled={!connected}
-                  style={{
-                    padding: "4px 12px",
-                    borderRadius: 4,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(59, 130, 246, 0.3)",
-                    color: "#93c5fd",
-                    fontSize: 12,
-                    cursor: connected ? "pointer" : "not-allowed",
-                  }}
-                >
-                  Join
-                </button>
-                <button
-                  onClick={() => setCreateGameModalOpen(true)}
-                  disabled={!connected}
-                  style={{
-                    backgroundColor: "#10b981",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 4,
-                    padding: "4px 12px",
-                    fontSize: 12,
-                    cursor: connected ? "pointer" : "not-allowed",
-                  }}
-                >
-                  + Create Game
-                </button>
-                <button
-                  onClick={() => setDeckBuilderOpen(true)}
-                  style={{
-                    backgroundColor: "#6366f1",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 4,
-                    padding: "4px 12px",
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
-                >
-                  🗂️ Deck Builder
-                </button>
-                <button
-                  onClick={() =>
-                    socket.emit("requestState", { gameId: gameIdInput })
-                  }
-                  disabled={!connected}
-                  style={{
-                    padding: "4px 12px",
-                    borderRadius: 4,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(0,0,0,0.3)",
-                    color: "#9ca3af",
-                    fontSize: 12,
-                    cursor: connected ? "pointer" : "not-allowed",
-                  }}
-                >
-                  Refresh
-                </button>
-                <button
-                  onClick={() => fetchDebug()}
-                  disabled={!connected || !safeView}
-                  style={{
-                    padding: "4px 12px",
-                    borderRadius: 4,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(0,0,0,0.3)",
-                    color: "#9ca3af",
-                    fontSize: 12,
-                    cursor: connected && safeView ? "pointer" : "not-allowed",
-                  }}
-                >
-                  Debug
-                </button>
-                <button
-                  onClick={() => setAppearanceModalOpen(true)}
-                  style={{
-                    backgroundColor: "#6366f1",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 4,
-                    padding: "4px 12px",
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
-                  title="Customize table and play area colors"
-                >
-                  🎨 Appearance
-                </button>
-              </div>
-
-              <div style={{ marginTop: 8 }}>
-                <GameList onJoin={joinFromList} currentPlayerId={you} />
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* HEADER (game id, format) — compact on mobile play */}
-        {!showMobileChrome ? (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <div>
-              <h1 style={{ margin: 0, color: textColors.primary }}>MTGEDH</h1>
-              <div style={{ fontSize: 12, color: textColors.secondary }}>
-                Game: {effectiveGameId} • Format:{" "}
-                {String(safeView?.format ?? "")}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div style={{ fontSize: 11, color: textColors.secondary, padding: '0 2px' }}>
-            {String(safeView?.format ?? "Commander")} • {effectiveGameId}
-          </div>
-        )}
-
-        {/* GAME STATUS INDICATOR - Shows turn, phase, step, priority, special designations, and control buttons */}
-        {safeView && (
-          <GameStatusIndicator
-            compact={showMobileChrome}
-            turn={safeView.turn}
-            phase={safeView.phase}
-            step={safeView.step}
-            turnPlayer={safeView.turnPlayer}
-            priority={safeView.priority}
-            players={safeView.players || []}
-            you={you || undefined}
-            combat={(safeView as any).combat}
-            monarch={(safeView as any).monarch}
-            initiative={(safeView as any).initiative}
-            dayNight={(safeView as any).dayNight}
-            cityBlessing={(safeView as any).cityBlessing}
-            isYouPlayer={isYouPlayer}
-            gameOver={(safeView as any).gameOver}
-            immediateConcede={Boolean((safeView as any).houseRules?.immediateConcede)}
-            onConcede={() => socket.emit("concede", { gameId: safeView.id })}
-            onLeaveGame={() => leaveGame(() => setJoinCollapsed(false))}
-            onUndo={(scope) => handleRequestUndo(scope)}
-            onOpenUndoMenu={handleOpenUndoMenu}
-            availableUndoCount={availableUndoCount}
-            smartUndoCounts={smartUndoCounts}
-            undoTurnPhaseTargets={undoTurnPhaseTargets}
-            onRequestUndoTurnPhaseTargets={handleRequestUndoTurnPhaseTargets}
-            onUndoToTurnPhase={handleUndoToTurnPhase}
-            onRollDie={(sides: number) => socket.emit("rollDie", { gameId: safeView.id, sides })}
-            onFlipCoin={() => socket.emit("flipCoin", { gameId: safeView.id })}
-            extraActions={isYouPlayer ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', width: '100%' }}>
-                <button
-                  ref={setTopDeckMgrAnchorEl}
-                  type="button"
-                  onClick={() => setTableDeckMgrOpen(true)}
-                  style={{
-                    padding: '4px 10px',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    background: yourLibraryCount === 0
-                      ? 'linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)'
-                      : 'rgba(59, 130, 246, 0.18)',
-                    border: yourLibraryCount === 0
-                      ? '1px solid rgba(167, 139, 250, 0.8)'
-                      : '1px solid rgba(59, 130, 246, 0.35)',
-                    borderRadius: 4,
-                    color: '#fff',
-                    cursor: 'pointer',
-                    boxShadow: yourLibraryCount === 0
-                      ? '0 0 16px rgba(124, 58, 237, 0.35)'
-                      : 'none',
-                  }}
-                  title={yourLibraryCount === 0 ? 'Import or select a deck' : 'Open deck manager'}
-                >
-                  📚 {yourLibraryCount === 0 ? 'Import Deck' : 'Decks'}
-                </button>
-
-                {isPreGame && (
-                  <button
-                    type="button"
-                    onClick={() => { void pickRandomDeck(); }}
-                    disabled={pickingRandomDeck}
-                    style={{
-                      padding: '4px 10px',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      background: yourLibraryCount === 0
-                        ? 'rgba(76, 29, 149, 0.35)'
-                        : 'rgba(139, 92, 246, 0.18)',
-                      border: yourLibraryCount === 0
-                        ? '1px solid rgba(167, 139, 250, 0.55)'
-                        : '1px solid rgba(167, 139, 250, 0.35)',
-                      borderRadius: 4,
-                      color: '#fff',
-                      cursor: pickingRandomDeck ? 'wait' : 'pointer',
-                      opacity: pickingRandomDeck ? 0.7 : 1,
-                    }}
-                    title={
-                      randomDeckError
-                      || randomDeckMessage
-                      || 'Pick a random deck from local saves, server decks, or precons'
-                    }
-                  >
-                    {pickingRandomDeck ? 'Rolling…' : '🎲 Random Deck'}
-                  </button>
-                )}
-
-                {showTopPanelPregameActions && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      flexWrap: 'wrap',
-                      padding: '6px 10px',
-                      borderRadius: 8,
-                      border: '1px solid rgba(167, 139, 250, 0.45)',
-                      background: 'rgba(45, 27, 105, 0.2)',
-                      flex: '1 1 420px',
-                      minWidth: 0,
-                    }}
-                  >
-                    <span style={{ fontSize: 12, color: '#ddd6fe', fontWeight: 600 }}>
-                      Mulligans: {mulligansTaken}
-                    </span>
-                    {pendingBottomCount > 0 ? (
-                      <span style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600 }}>
-                        Bottom {pendingBottomCount} card{pendingBottomCount === 1 ? '' : 's'}
-                      </span>
-                    ) : hasKeptHand ? (
-                      <span style={{ fontSize: 12, color: '#86efac', fontWeight: 600 }}>
-                        Hand kept
-                      </span>
-                    ) : null}
-                    <button
-                      onClick={() => {
-                        if (hasKeptHand && canUnkeepHand) {
-                          socket.emit("unkeepHand", { gameId: safeView.id });
-                          return;
-                        }
-                        socket.emit("keepHand", { gameId: safeView.id });
-                      }}
-                      disabled={!canKeepHand && !canUnkeepHand}
-                      style={{
-                        background: hasKeptHand
-                          ? (canUnkeepHand ? '#059669' : '#4b5563')
-                          : (canKeepHand ? '#10b981' : '#4b5563'),
-                        color: 'white',
-                        border: hasKeptHand ? '1px solid rgba(167, 243, 208, 0.55)' : 'none',
-                        borderRadius: 4,
-                        padding: '6px 12px',
-                        cursor: canKeepHand || canUnkeepHand ? 'pointer' : 'not-allowed',
-                        opacity: canKeepHand || canUnkeepHand ? 1 : 0.55,
-                        fontSize: 12,
-                        fontWeight: 600,
-                      }}
-                      title={hasKeptHand && canUnkeepHand ? 'Click again to unlock your hand before the table is fully ready' : undefined}
-                    >
-                      {hasKeptHand ? '✓ Keep Hand' : 'Keep Hand'}
-                    </button>
-                    <button
-                      onClick={() => socket.emit("mulligan", { gameId: safeView.id })}
-                      disabled={!canMulligan}
-                      style={{
-                        background: canMulligan ? '#f59e0b' : '#4b5563',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: 4,
-                        padding: '6px 12px',
-                        cursor: canMulligan ? 'pointer' : 'not-allowed',
-                        opacity: canMulligan ? 1 : 0.55,
-                        fontSize: 12,
-                        fontWeight: 600,
-                      }}
-                    >
-                      Mulligan
-                    </button>
-                    <button
-                      onClick={() => socket.emit("randomizeStartingPlayer", { gameId: safeView.id })}
-                      style={{
-                        background: '#8b5cf6',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: 4,
-                        padding: '6px 12px',
-                        cursor: 'pointer',
-                        fontSize: 12,
-                        fontWeight: 600,
-                      }}
-                      title="Randomly select which player goes first"
-                    >
-                      🎲 Random Start
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : undefined}
-            aiControlEnabled={aiControlEnabled}
-            aiStrategy={aiStrategy}
-            onToggleAIControl={handleToggleAIControl}
-          />
-        )}
-
-        {/* IMPORT WARNINGS */}
-        {missingImport && missingImport.length > 0 && (
-          <div
-            role="alert"
-            style={{
-              background: "rgba(69, 26, 3, 0.96)",
-              color: "#fef3c7",
-              padding: "10px 12px",
-              border: "1px solid #f59e0b",
-              borderRadius: 6,
-              lineHeight: 1.45,
-            }}
-          >
-            <strong style={{ color: "#fde68a" }}>Import warning</strong>: Could not resolve these names:{" "}
-            <span style={{ color: "#fff7ed" }}>
-              {missingImport.slice(0, 10).join(", ")}
-              {missingImport.length > 10 ? ", …" : ""}.
-            </span>
-            <button
-              type="button"
-              onClick={() => setMissingImport(null)}
-              style={{
-                marginLeft: 12,
-                padding: "4px 10px",
-                borderRadius: 4,
-                border: "1px solid #fbbf24",
-                background: "rgba(245, 158, 11, 0.2)",
-                color: "#fffbeb",
-                cursor: "pointer",
-              }}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {/* Mobile deck access — local, server, and precon tabs via DeckManagerModal */}
-        {showMobileChrome && needsDeckImport && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 10,
-              flexWrap: "wrap",
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(167, 139, 250, 0.55)",
-              background: "linear-gradient(90deg, rgba(76, 29, 149, 0.35), rgba(37, 99, 235, 0.25))",
-              boxShadow: "0 4px 16px rgba(124, 58, 237, 0.25)",
-            }}
-          >
-            <div style={{ fontSize: 13, color: "#ede9fe", lineHeight: 1.4 }}>
-              <strong>Import a deck to play.</strong> Choose from local saves, server decks, or Commander precons.
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => handleDeckMgrOpenChange(true)}
-                style={{
-                  minHeight: 44,
-                  padding: "8px 16px",
-                  borderRadius: 8,
-                  border: "1px solid rgba(167, 139, 250, 0.8)",
-                  background: "linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)",
-                  color: "#fff",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                Open Deck Manager
-              </button>
-              <button
-                type="button"
-                onClick={() => { void pickRandomDeck(); }}
-                disabled={pickingRandomDeck}
-                style={{
-                  minHeight: 44,
-                  padding: "8px 16px",
-                  borderRadius: 8,
-                  border: "1px solid rgba(167, 139, 250, 0.55)",
-                  background: "rgba(76, 29, 149, 0.35)",
-                  color: "#ede9fe",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: pickingRandomDeck ? "wait" : "pointer",
-                  whiteSpace: "nowrap",
-                  opacity: pickingRandomDeck ? 0.7 : 1,
-                }}
-              >
-                {pickingRandomDeck ? 'Rolling…' : 'Random Deck'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {safeView && myPendingResolutionCount > 0 && priority === null && !minimizedResolutionStep && (
-          <div
-            style={{
-              marginBottom: 8,
-              padding: '10px 14px',
-              borderRadius: 8,
-              border: '1px solid #f59e0b',
-              background: 'rgba(245, 158, 11, 0.12)',
-              color: '#fde68a',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-              fontSize: 13,
-            }}
-          >
-            <span>
-              You have a pending choice while the game is resolving. Complete it to continue.
-            </span>
-            <button
-              type="button"
-              onClick={() => scheduleResolutionPromptNudge(safeView.id)}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 6,
-                border: '1px solid #f59e0b',
-                background: '#b45309',
-                color: '#fff',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Resume choice
-            </button>
-          </div>
-        )}
-
-        {minimizedResolutionStep && (
-          <ResolutionMinimizedChip
-            title={minimizedResolutionStep.title}
-            onRestore={() => {
-              restoreResolutionStep();
-              // Re-fetch so options whose affordability changed while minimized
-              // (e.g. after tapping lands for a "you may pay" prompt) are refreshed.
-              if (safeView?.id) scheduleResolutionPromptNudge(safeView.id);
-            }}
-          />
-        )}
-
-        {activeResolutionPrompt
-          && !isResolutionStepMinimized(activeResolutionPrompt.stepId)
-          && myPendingResolutionCount > 0 && (
-          <div
-            style={{
-              position: 'fixed',
-              top: 12,
-              right: 12,
-              zIndex: 10005,
-            }}
-          >
-            <ResolutionPromptMinimizeButton
-              onMinimize={() => minimizeResolutionStep(
-                activeResolutionPrompt.stepId,
-                activeResolutionPrompt.title,
-              )}
-            />
-          </div>
-        )}
-
-        {showMobileChrome && safeView && (
-          <SeatStrip
-            players={safeView.players || []}
-            you={you || undefined}
-            turnPlayer={safeView.turnPlayer}
-            focusedPlayerId={focusedPlayerId}
-            monarch={(safeView as any).monarch}
-            initiative={(safeView as any).initiative}
-            life={safeView.life}
-            onFocusPlayer={handleFocusPlayer}
-            onClearFocus={clearPlayerFocus}
-          />
-        )}
-
-        {/* TABLE / PLAYING FIELD (chat handled as overlay inside TableLayout) */}
-        <div
-          style={{
-            border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: 6,
-            padding: 4,
-          }}
-        >
-          {safeView ? (
-            <TableLayout
-              players={safeView.players || []}
-              permanentsByPlayer={
-                new Map(
-                  (safeView.players || []).map((p: any) => [
-                    p.id,
-                    (safeView.battlefield || []).filter(
-                      (perm: any) => perm.controller === p.id
-                    ),
-                  ])
-                )
-              }
-              imagePref={imagePref}
-              isYouPlayer={isYouPlayer}
-              splitLands
-              enableReorderForYou={isYouPlayer}
-              you={you || undefined}
-              zones={safeView.zones}
-              commandZone={safeView.commandZone as any}
-              format={String(safeView.format || "")}
-              life={safeView.life}
-              commanderDamage={(safeView as any).commanderDamage}
-              poisonCounters={(safeView as any).poisonCounters}
-              experienceCounters={(safeView as any).experienceCounters}
-              energyCounters={(safeView as any).energyCounters}
-              speed={(safeView as any).speed}
-              enduringStory={(safeView as any).enduringStory}
-              showYourHandBelow
-              onReorderHand={(order) =>
-                safeView &&
-                socket.emit("reorderHand", {
-                  gameId: safeView.id,
-                  order,
-                })
-              }
-              onShuffleHand={() =>
-                safeView &&
-                socket.emit("shuffleHand", { gameId: safeView.id })
-              }
-              onPlayLandFromHand={(cardId) =>
-                safeView &&
-                playLandWithPromptSync({ gameId: safeView.id, cardId })
-              }
-              onCastFromHand={(cardId) => {
-                if (!safeView || !you) return;
-                // Find the card in hand to get its name and mana cost
-                const zones = safeView.zones?.[you];
-                const hand = zones?.hand || [];
-                const card = hand.find((c: any) => c?.id === cardId) as KnownCardRef | undefined;
-                if (!card) return;
-                
-                // Check if this is a split/adventure/modal card that needs face selection
-                const layout = (card as any).layout || '';
-                const cardFaces = (card as any).card_faces as CardFace[] | undefined;
-                const hasFaces = cardFaces && cardFaces.length >= 2;
-                const needsFaceChoice = hasFaces && (
-                  layout === 'split' || 
-                  layout === 'adventure' || 
-                  layout === 'modal_dfc'
-                );
-                
-                if (needsFaceChoice && cardFaces) {
-                  openSplitCardChoice(cardId, card, 'hand');
-                } else {
-                  // Regular card - use MTG-compliant flow: request targets first, then payment
-                  // Server will check if targets are needed and respond appropriately
-                  requestCastSpellWithPromptSync({
-                    gameId: safeView.id,
-                    cardId,
-                  });
-                }
-              }}
-              onUseTopOfLibrary={handleUseTopOfLibrary}
-              onCastCommander={handleCastCommander}
-              reasonCannotPlayLand={reasonCannotPlayLand}
-              reasonCannotCast={reasonCannotCast}
-              enablePanZoom
-              tableCloth={{ imageUrl: "" }}
-              worldSize={12000}
-              appearanceSettings={appearanceSettings}
-              onViewGraveyard={handleViewGraveyard}
-              onViewExile={handleViewExile}
-              onUpdatePermPos={(id: string, x: number, y: number, z: number) =>
-                safeView &&
-                socket.emit("updatePermanentPos", {
-                  gameId: safeView.id,
-                  permanentId: id,
-                  x,
-                  y,
-                  z,
-                })
-              }
-              onImportDeckText={(txt, nm) => requestImportDeck(txt, nm)}
-              onUseSavedDeck={(deckId) => requestUseSavedDeck(deckId)}
-              onLocalImportConfirmChange={handleLocalImportConfirmChange}
-              externalDeckMgrOpen={tableDeckMgrOpen}
-              onDeckMgrOpenChange={handleDeckMgrOpenChange}
-              externalDeckMgrAnchorEl={topDeckMgrAnchorEl}
-              focusedPlayerId={focusedPlayerId}
-              monarch={(safeView as any).monarch}
-              initiative={(safeView as any).initiative}
-              dayNight={(safeView as any).dayNight}
-              cityBlessing={(safeView as any).cityBlessing}
-              embedYourHand={!showMobileChrome}
-              playAreaBottomInset={showMobileChrome ? mobilePlayLayout.playAreaBottomInset : 0}
-              gameId={safeView.id}
-              stackItems={safeView.stack as any}
-              importedCandidates={importedCandidates}
-              chatView={view || undefined}
-              priority={safeView.priority}
-              phase={String(safeView.phase || '')}
-              step={String(safeView.step || '')}
-              turnPlayer={safeView.turnPlayer}
-              ignoredTriggerSources={ignoredTriggerSources}
-              onIgnoreTriggerSource={handleIgnoreTriggerSourceFromStack}
-              onStopIgnoringSource={handleStopIgnoringSource}
-              manaPool={manaPool}
-              manaPools={(safeView as any).manaPool || null}
-              // Mulligan UI props
-              showMulliganUI={showTableMulliganUI}
-              hasKeptHand={hasKeptHand}
-              mulligansTaken={mulligansTaken}
-              pendingBottomCount={pendingBottomCount}
-              canKeepHand={canKeepHand}
-              canMulligan={canMulligan}
-              isPreGame={isPreGame}
-              allPlayersKeptHands={allPlayersKeptHands}
-              onKeepHand={() => socket.emit("keepHand", { gameId: safeView?.id })}
-              onMulligan={() => socket.emit("mulligan", { gameId: safeView?.id })}
-              onRandomizeStart={() => socket.emit("randomizeStartingPlayer", { gameId: safeView?.id })}
-              playableCards={(safeView as any)?.playableCards}
-              costAdjustments={(safeView as any)?.costAdjustments}
-              ignoredCardIds={ignoredCardIds}
-              onIgnoreForAutoPass={(permanentId, cardName, imageUrl) => {
-                if (safeView?.id) {
-                  socket.emit('ignoreCardForAutoPass' as any, {
-                    gameId: safeView.id,
-                    permanentId,
-                    cardName,
-                    zone: 'battlefield',
-                    imageUrl,
-                  });
-                }
-              }}
-              onUnignoreForAutoPass={(permanentId) => {
-                if (safeView?.id) {
-                  socket.emit('unignoreCardForAutoPass' as any, {
-                    gameId: safeView.id,
-                    permanentId,
-                  });
-                }
-              }}
-            />
-          ) : (
-            <div style={{ padding: 20, color: "#666" }}>
-              No game state yet. Join a game to view table.
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* RIGHT COLUMN: docked utilities on wider screens */}
-      <div>
-        {showUtilityRail && safeView && you && (
-          <div
-            style={{
-              position: 'sticky',
-              top: 8,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-            }}
-          >
-            <div
-              style={{
-                padding: utilityRailCollapsed ? '10px 8px' : '10px 12px',
-                borderRadius: 10,
-                background: 'linear-gradient(90deg, rgba(15,15,25,0.95), rgba(25,25,40,0.95))',
-                border: '1px solid rgba(99,102,241,0.3)',
-                color: '#e5e7eb',
-                fontSize: 12,
-                fontWeight: 600,
-                letterSpacing: '0.03em',
-                textTransform: 'uppercase',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: utilityRailCollapsed ? 'center' : 'space-between',
-                gap: 8,
-              }}
-            >
-              <span>{utilityRailCollapsed ? 'Rail' : 'Utility Rail'}</span>
-              <button
-                type="button"
-                onClick={() => setUtilityRailCollapsed((prev) => !prev)}
-                style={{
-                  borderRadius: 6,
-                  border: '1px solid rgba(255,255,255,0.16)',
-                  background: 'rgba(255,255,255,0.06)',
-                  color: '#fff',
-                  padding: utilityRailCollapsed ? '8px 6px' : '6px 10px',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  minWidth: utilityRailCollapsed ? 48 : undefined,
-                }}
-                title={utilityRailCollapsed ? 'Expand utility rail' : 'Collapse utility rail'}
-              >
-                {utilityRailCollapsed ? 'Expand' : 'Collapse'}
-              </button>
-            </div>
-
-            {utilityRailCollapsed ? (
-              <div
-                style={{
-                  borderRadius: 10,
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  background: 'rgba(20,20,30,0.95)',
-                  padding: '10px 8px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                  alignItems: 'center',
-                  color: '#e5e7eb',
-                  textAlign: 'center',
-                }}
-              >
-                <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#93c5fd' }}>
-                  {playerFocusOrder.length} Seats
-                </div>
-                <div style={{ fontSize: 10, color: '#9ca3af', lineHeight: 1.4 }}>
-                  Expand for focus, phase, auto-pass, and shortcuts.
-                </div>
-                <div style={{ width: '100%', height: 1, background: 'rgba(255,255,255,0.08)' }} />
-                <div style={{ fontSize: 10, color: '#34d399', lineHeight: 1.3 }}>Turn</div>
-                <div style={{ fontSize: 11, fontWeight: 600, wordBreak: 'break-word' }}>
-                  {playerFocusOrder.find((player: any) => player.id === safeView.turnPlayer)?.name || 'Waiting'}
-                </div>
-                {safeView.turnPlayer && (
-                  <div
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: lifeTotalColor(readPlayerLife(safeView.life, safeView.turnPlayer)),
-                    }}
-                  >
-                    {readPlayerLife(safeView.life, safeView.turnPlayer)} life
-                  </div>
-                )}
-              </div>
-            ) : (
-              <>
-                <div
-                  style={{
-                    borderRadius: 10,
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    background: 'rgba(20,20,30,0.95)',
-                    padding: 10,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                    color: '#e5e7eb',
-                  }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Player Focus
-                  </div>
-                  <div style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.4 }}>
-                    Turn-order view switcher. Click a player to center on their board. Click again or use Table overview to pan freely.
-                  </div>
-                  <button
-                    type="button"
-                    onClick={clearPlayerFocus}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: 8,
-                      border: focusedPlayerId
-                        ? '1px solid rgba(59,130,246,0.85)'
-                        : '1px solid rgba(255,255,255,0.08)',
-                      background: focusedPlayerId
-                        ? 'rgba(255,255,255,0.04)'
-                        : 'rgba(30,64,175,0.28)',
-                      color: '#fff',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      fontSize: 12,
-                      fontWeight: 600,
-                    }}
-                    title="Zoom out and pan the full table without snapping to a player board"
-                  >
-                    Table overview
-                  </button>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {playerFocusOrder.map((player: any, index: number) => {
-                      const isTurnPlayer = safeView.turnPlayer === player.id;
-                      const isFocused = focusedPlayerId === player.id;
-                      const isYouPlayerFocus = you === player.id;
-                      const playerLife = readPlayerLife(safeView.life, player.id);
-                      return (
-                        <button
-                          key={player.id}
-                          type="button"
-                          onClick={() => handleFocusPlayer(player.id)}
-                          style={{
-                            width: '100%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 8,
-                            padding: '8px 10px',
-                            borderRadius: 8,
-                            border: isFocused
-                              ? '1px solid rgba(59,130,246,0.85)'
-                              : '1px solid rgba(255,255,255,0.08)',
-                            background: isFocused
-                              ? 'rgba(30,64,175,0.28)'
-                              : 'rgba(255,255,255,0.04)',
-                            color: '#fff',
-                            cursor: 'pointer',
-                            textAlign: 'left',
-                          }}
-                          title={`Center on ${player.name}`}
-                        >
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                            <span style={{ fontSize: 10, color: '#9ca3af', minWidth: 18 }}>{index + 1}.</span>
-                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {player.name}{isYouPlayerFocus ? ' (You)' : ''}
-                            </span>
-                            <span
-                              style={{
-                                flexShrink: 0,
-                                fontSize: 12,
-                                fontWeight: 700,
-                                color: lifeTotalColor(playerLife),
-                                fontVariantNumeric: 'tabular-nums',
-                              }}
-                              title={`${player.name}: ${playerLife} life`}
-                            >
-                              {playerLife}
-                            </span>
-                          </span>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                            {isTurnPlayer && <span style={{ fontSize: 10, color: '#34d399' }}>Turn</span>}
-                            {isFocused && <span style={{ fontSize: 10, color: '#93c5fd' }}>Focused</span>}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <PhaseNavigator
-                  docked
-                  currentPhase={safeView.phase}
-                  currentStep={safeView.step}
-                  turnPlayer={safeView.turnPlayer}
-                  you={you}
-                  isYourTurn={safeView.turnPlayer != null && safeView.turnPlayer === you}
-                  hasPriority={safeView.priority === you}
-                  stackEmpty={!((safeView as any).stack?.length > 0)}
-                  allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
-                  phaseAdvanceBlockReason={phaseAdvanceBlockReason}
-                  showDamageReplacementToggle={damageReplacementEffectActiveCount > 1}
-                  damageReplacementMode={damageReplacementMode}
-                  onSetDamageReplacementMode={(mode) => {
-                    if (!safeView?.id) return;
-                    setDamageReplacementMode(mode);
-                    socket.emit('setReplacementEffectOrder', {
-                      gameId: safeView.id,
-                      effectType: 'damage',
-                      mode,
-                      customOrder: [],
-                    });
-                  }}
-                  onOpenReplacementEffectSettings={() => setReplacementEffectSettingsOpen(true)}
-                  onAdvanceOneStep={() => socket.emit("nextStep", { gameId: safeView.id })}
-                  onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
-                  onAdvancingChange={setPhaseNavigatorAdvancing}
-                  onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })}
-                />
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <AutoPassSettingsPanel
-                    docked
-                    defaultCollapsed
-                    autoPassSteps={autoPassSteps}
-                    onToggleAutoPass={handleToggleAutoPass}
-                    onClearAll={handleClearAllAutoPass}
-                    onSelectAll={handleSelectAllAutoPass}
-                    isSinglePlayer={
-                      !isPreGame &&
-                      (safeView.players || []).filter((p: any) => !p.spectator && !p.inactive).length === 1
-                    }
-                    onToggleAutoPassForTurn={handleToggleAutoPassForTurn}
-                    autoPassForTurnEnabled={autoPassForTurn}
-                    autoPassEmptyStackOnOpponentsTurnEnabled={autoPassEmptyStackOnOpponentsTurn}
-                    onToggleAutoPassEmptyStackOnOpponentsTurn={handleToggleAutoPassEmptyStackOnOpponentsTurn}
-                    autoYesOptionalEnabled={autoYesOptional}
-                    onToggleAutoYesOptional={handleToggleAutoYesOptional}
-                  />
-
-                  <button
-                    onClick={() => setShowTriggerShortcuts(true)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid #444',
-                      backgroundColor: '#2a2a2a',
-                      color: '#fff',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      fontSize: 13,
-                    }}
-                    title="Configure auto-responses for Smothering Tithe, Rhystic Study, etc."
-                  >
-                    ⚡ Trigger Shortcuts
-                  </button>
-
-                  <button
-                    onClick={() => setShowLoopShortcutPanel(prev => !prev)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid #444',
-                      backgroundColor: showLoopShortcutPanel ? '#1e3a8a' : '#2a2a2a',
-                      color: '#fff',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      fontSize: 13,
-                    }}
-                    title="Record and replay a manual action line against live legal targets"
-                  >
-                    ↻ Loop Shortcuts
-                  </button>
-
-                  <LoopShortcutPanel
-                    open={showLoopShortcutPanel}
-                    onClose={() => setShowLoopShortcutPanel(false)}
-                    isRecording={isLoopShortcutRecording}
-                    isRunning={isLoopShortcutRunning}
-                    items={loopShortcutItems}
-                    shortcutName={loopShortcutName}
-                    savedShortcuts={savedLoopShortcuts}
-                    iterationCount={loopShortcutIterations}
-                    onShortcutNameChange={setLoopShortcutName}
-                    onIterationCountChange={(count) => setLoopShortcutIterations(clampLoopShortcutIterations(count))}
-                    onStartRecording={handleStartLoopShortcutRecording}
-                    onStopRecording={handleStopLoopShortcutRecording}
-                    onRun={handleRunLoopShortcut}
-                    onClear={handleClearLoopShortcut}
-                    onSaveShortcut={handleSaveLoopShortcut}
-                    onLoadShortcut={handleLoadSavedLoopShortcut}
-                    onDeleteShortcut={handleDeleteSavedLoopShortcut}
-                    statusText={loopShortcutStatusText}
-                  />
-
-                  <PreviewSizeControl />
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      <YourTurnBanner open={yourTurnBannerVisible} />
-      <CardPreviewLayer controlMode={showExpandedUtilityRail ? 'hidden' : 'floating'} />
-
-      {/* Mobile bottom action dock — only on touch devices with narrow
-          viewports during an active table. Surfaces the most-used Pass action
-          where the desktop utility rail is hidden. Desktop is unaffected
-          because the gate requires both touch input AND viewport < 900. */}
-      {showMobileChrome && (
-        <>
-          <MobileHandStrip
-            cards={yourHandCards}
-            handCount={yourHandCount}
-            imagePref={imagePref}
-            thumbWidth={mobilePlayLayout.handStripThumbWidth}
-            playableCards={(safeView as any)?.playableCards}
-            costAdjustments={(safeView as any)?.costAdjustments}
-            appearanceSettings={appearanceSettings}
-            onPlayLand={(cardId) =>
-              safeView && playLandWithPromptSync({ gameId: safeView.id, cardId })
-            }
-            onCast={(cardId) => {
-              if (!safeView || !you) return;
-              const zones = safeView.zones?.[you];
-              const hand = zones?.hand || [];
-              const card = hand.find((c: any) => c?.id === cardId) as KnownCardRef | undefined;
-              if (!card) return;
-              const layout = (card as any).layout || '';
-              const cardFaces = (card as any).card_faces as CardFace[] | undefined;
-              const hasFaces = cardFaces && cardFaces.length >= 2;
-              const needsFaceChoice = hasFaces && (
-                layout === 'split' ||
-                layout === 'adventure' ||
-                layout === 'modal_dfc'
-              );
-              if (needsFaceChoice && cardFaces) {
-                openSplitCardChoice(cardId, card, 'hand');
-              } else {
-                requestCastSpellWithPromptSync({ gameId: safeView.id, cardId });
-              }
-            }}
-            reasonCannotPlayLand={reasonCannotPlayLand}
-            reasonCannotCast={reasonCannotCast}
-            onExpandHand={() => setMobilePlaySheet('hand')}
-            dockHeight={mobilePlayLayout.orientation === 'portrait' ? 56 : 52}
-          />
-          <MobileActionDock
-            onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
-            passDisabled={!canPass}
-            highlightPass={safeView.priority === you}
-            handCount={yourHandCount}
-            stackCount={safeView.stack?.length ?? 0}
-            onOpenHand={() => setMobilePlaySheet('hand')}
-            onOpenStack={() => setMobilePlaySheet('stack')}
-            onOpenMana={() => setMobilePlaySheet('mana')}
-            onOpenMore={() => setMobilePlaySheet('more')}
-            onOpenDeck={() => handleDeckMgrOpenChange(true)}
-            highlightDeck={needsDeckImport}
-            deckLabel={needsDeckImport ? "Import" : "Deck"}
-          />
-          <MobilePlaySheets
-            activeSheet={mobilePlaySheet}
-            onClose={() => setMobilePlaySheet(null)}
-            handCards={yourHandCards}
-            handCount={yourHandCount}
-            imagePref={imagePref}
-            playableCards={(safeView as any)?.playableCards}
-            costAdjustments={(safeView as any)?.costAdjustments}
-            appearanceSettings={appearanceSettings}
-            onPlayLand={(cardId) =>
-              safeView && playLandWithPromptSync({ gameId: safeView.id, cardId })
-            }
-            onCast={(cardId) => {
-              if (!safeView || !you) return;
-              const zones = safeView.zones?.[you];
-              const hand = zones?.hand || [];
-              const card = hand.find((c: any) => c?.id === cardId) as KnownCardRef | undefined;
-              if (!card) return;
-              const layout = (card as any).layout || '';
-              const cardFaces = (card as any).card_faces as CardFace[] | undefined;
-              const hasFaces = cardFaces && cardFaces.length >= 2;
-              const needsFaceChoice = hasFaces && (
-                layout === 'split' ||
-                layout === 'adventure' ||
-                layout === 'modal_dfc'
-              );
-              if (needsFaceChoice && cardFaces) {
-                openSplitCardChoice(cardId, card, 'hand');
-              } else {
-                requestCastSpellWithPromptSync({ gameId: safeView.id, cardId });
-              }
-            }}
-            onReorderHand={(order) =>
-              safeView && socket.emit("reorderHand", { gameId: safeView.id, order })
-            }
-            reasonCannotPlayLand={reasonCannotPlayLand}
-            reasonCannotCast={reasonCannotCast}
-            stack={(safeView.stack as any) || []}
-            battlefield={safeView?.battlefield}
-            players={safeView.players}
-            you={you || undefined}
-            priority={safeView.priority}
-            onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
-            onResolveAllTriggers={() => safeView && socket.emit("resolveAllTriggers", { gameId: safeView.id })}
-            ignoredTriggerSources={ignoredTriggerSources}
-            onIgnoreTriggerSource={handleIgnoreTriggerSourceFromStack}
-            onStopIgnoringSource={handleStopIgnoringSource}
-            manaPool={manaPool}
-            phase={String(safeView.phase || '')}
-            step={String(safeView.step || '')}
-            turnPlayer={safeView.turnPlayer}
-            isYourTurn={safeView.turnPlayer != null && safeView.turnPlayer === you}
-            hasPriority={safeView.priority === you}
-            stackEmpty={!((safeView as any).stack?.length > 0)}
-            allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
-            phaseAdvanceBlockReason={phaseAdvanceBlockReason}
-            onAdvanceOneStep={() => socket.emit("nextStep", { gameId: safeView.id })}
-            onSkipToPhase={(targetPhase, targetStep) =>
-              socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })
-            }
-            onConcede={() => socket.emit("concede", { gameId: safeView.id })}
-            onLeaveGame={() => leaveGame(() => setJoinCollapsed(false))}
-          />
-        </>
-      )}
-
-      {/* Phase Navigator - Floating component for quick phase navigation */}
-      {!showUtilityRail && !showMobileChrome && safeView && you && (
-        <PhaseNavigator
-          currentPhase={safeView.phase}
-          currentStep={safeView.step}
-          turnPlayer={safeView.turnPlayer}
-          you={you}
-          isYourTurn={safeView.turnPlayer != null && safeView.turnPlayer === you}
-          hasPriority={safeView.priority === you}
-          stackEmpty={!((safeView as any).stack?.length > 0)}
-          allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
-          phaseAdvanceBlockReason={phaseAdvanceBlockReason}
-          showDamageReplacementToggle={damageReplacementEffectActiveCount > 1}
-          damageReplacementMode={damageReplacementMode}
-          onSetDamageReplacementMode={(mode) => {
-            if (!safeView?.id) return;
-            setDamageReplacementMode(mode);
-            socket.emit('setReplacementEffectOrder', {
-              gameId: safeView.id,
-              effectType: 'damage',
-              mode,
-              customOrder: [],
-            });
-          }}
-          onOpenReplacementEffectSettings={() => setReplacementEffectSettingsOpen(true)}
-          onAdvanceOneStep={() => socket.emit("nextStep", { gameId: safeView.id })}
-          onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
-          onAdvancingChange={setPhaseNavigatorAdvancing}
-          onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })}
-        />
-      )}
-
-      {/* Commander selection UI */}
-      {effectiveGameId &&
-        cmdModalOpen &&
-        cmdSuggestedGameId === effectiveGameId &&
-        (showCommanderGallery ? (
-          <CommanderSelectModal
-            open={cmdModalOpen}
-            onClose={() => setCmdModalOpen(false)}
-            deckList={importedCandidates.map((c) => c.name).join("\n")}
-            candidates={importedCandidates}
-            max={2}
-            onConfirm={(names, ids) => {
-              handleCommanderConfirm(names, ids);
-              setCmdModalOpen(false);
-            }}
-          />
-        ) : (
-          <CommanderConfirmModal
-            open={cmdModalOpen}
-            gameId={effectiveGameId}
-            initialNames={cmdSuggestedNames}
-            onClose={() => setCmdModalOpen(false)}
-            onConfirm={(names) => {
-              handleCommanderConfirm(names);
-              setCmdModalOpen(false);
-            }}
-          />
-        ))}
-
-      {/* Debug modal */}
-      {debugOpen && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.6)",
-            zIndex: 6000,
-          }}
-        >
-          <div
-            style={{
-              width: 900,
-              maxHeight: "80vh",
-              overflow: "auto",
-              background: "#1e1e1e",
-              color: "#fff",
-              padding: 12,
-              borderRadius: 8,
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <strong>Debug Output</strong>
-              <div>
-                <button
-                  onClick={() => {
-                    setDebugOpen(false);
-                  }}
-                >
-                  Close
-                </button>
-                <button
-                  onClick={() => fetchDebug()}
-                  disabled={debugLoading}
-                  style={{ marginLeft: 8 }}
-                >
-                  Refresh
-                </button>
-              </div>
-            </div>
-            <div style={{ marginTop: 8, fontSize: 12 }}>
-              {debugLoading ? (
-                <div>Loading...</div>
-              ) : (
-                <pre
-                  style={{
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    fontSize: 11,
-                  }}
-                >
-                  {JSON.stringify(debugData, null, 2)}
-                </pre>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Import / Judge confirmation modal */}
-      {confirmOpen && confirmPayload && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.6)",
-            zIndex: 7000,
-          }}
-        >
-          <div
-            style={{
-              width: 560,
-              background: "#1e1e1e",
-              color: "#fff",
-              padding: 16,
-              borderRadius: 8,
-            }}
-          >
-            <h3 style={{ marginTop: 0 }}>
-              {confirmPayload.kind === "judge"
-                ? "Judge request"
-                : "Confirm importing deck (wipes table)"}
-            </h3>
-            <div
-              style={{
-                fontSize: 13,
-                opacity: 0.9,
-                marginBottom: 8,
-              }}
-            >
-              {confirmPayload.kind === "judge" ? (
-                <>
-                  Player <strong>{confirmPayload.initiator}</strong> is
-                  requesting to become judge (full hand visibility). All active
-                  players must approve.
-                </>
-              ) : (
-                <>
-                  Player <strong>{confirmPayload.initiator}</strong> is
-                  importing a deck
-                  {confirmPayload.deckName
-                    ? `: ${confirmPayload.deckName}`
-                    : ""}
-                  .
-                </>
-              )}
-            </div>
-
-            {confirmPayload.kind !== "judge" && (
-              <div
-                style={{
-                  display: "flex",
-                  gap: 12,
-                  marginBottom: 8,
-                }}
-              >
-                <div>Resolved cards: {confirmPayload.resolvedCount}</div>
-                <div>Declared deck size: {confirmPayload.expectedCount}</div>
-              </div>
-            )}
-
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Votes</div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                {confirmVotes ? (
-                  Object.entries(confirmVotes).map(([pid, v]) => (
-                    <div
-                      key={pid}
-                      style={{
-                        padding: 8,
-                        background: "#0f0f0f",
-                        borderRadius: 6,
-                        minWidth: 120,
-                      }}
-                    >
-                      <div style={{ fontSize: 12 }}>
-                        {safeView?.players?.find((p: any) => p.id === pid)
-                          ?.name ?? pid}
-                        {pid === you ? " (you)" : ""}
-                      </div>
-                      <div
-                        style={{
-                          fontWeight: 700,
-                          color:
-                            v === "yes"
-                              ? "#8ef58e"
-                              : v === "no"
-                              ? "#f58e8e"
-                              : "#ddd",
-                        }}
-                      >
-                        {v}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div>No votes yet</div>
-                )}
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: 8,
-                marginTop: 12,
-              }}
-            >
-              <button
-                onClick={() => {
-                  // only dismiss locally; actual cancel must come from server
-                  // to keep everyone in sync
-                }}
-              >
-                Dismiss
-              </button>
-              <button
-                onClick={() => respondToConfirm(false)}
-                style={{ background: "#a00", color: "#fff" }}
-              >
-                Decline
-              </button>
-              <button
-                onClick={() => respondToConfirm(true)}
-                style={{ background: "#0a8", color: "#fff" }}
-              >
-                Accept
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Scry/Surveil */}
-      {peek && resolutionPromptOpen(true, peek.stepId) && (
-        <ScrySurveilModal
-          mode={peek.mode}
-          cards={peek.cards}
-          imagePref={imagePref}
-          onCancel={() => setPeek(null)}
-          onConfirm={(res) => {
-            if (!view) return;
-            
-            // Use the resolution queue system
-            if (!peek.stepId) {
-              console.error('[Scry/Surveil] Missing stepId - must use resolution queue');
-              return;
-            }
-
-            const selections =
-              peek.mode === "bottom_order"
-                ? { bottomOrder: res.bottomOrder || [] }
-                : peek.mode === "scry"
-                  ? { keepTopOrder: res.keepTopOrder || [], bottomOrder: res.bottomOrder || [] }
-                  : { keepTopOrder: res.keepTopOrder || [], toGraveyard: res.toGraveyard || [] };
-            
-            socket.emit("submitResolutionResponse", {
-              gameId: view.id,
-              stepId: peek.stepId,
-              selections,
-              cancelled: false,
-            });
-            
-            setPeek(null);
-          }}
-        />
-      )}
-
-      {/* Explore */}
-      {explorePrompt && view && resolutionPromptOpen(true, explorePrompt.stepId) && (
-        <ExploreModal
-          exploringCreature={{
-            id: explorePrompt.permanentId,
-            name: explorePrompt.permanentName,
-          }}
-          revealedCard={explorePrompt.revealedCard}
-          isLand={explorePrompt.isLand}
-          imagePref={imagePref}
-          onConfirm={(result) => {
-            if (!explorePrompt.stepId) {
-              console.warn('[Explore] Missing stepId - must use resolution queue');
-              return;
-            }
-
-            // If we're resolving a batch explore individually, accumulate decisions client-side
-            // and submit them all at the end.
-            if (batchExploreIndividual && batchExploreIndividual.stepId === explorePrompt.stepId) {
-              const nextDecisions = [...batchExploreIndividual.decisions, {
-                permanentId: explorePrompt.permanentId,
-                toGraveyard: Boolean(result.toGraveyard),
-              }];
-
-              const nextIndex = batchExploreIndividual.index + 1;
-              if (nextIndex < batchExploreIndividual.explores.length) {
-                const nextExplore = batchExploreIndividual.explores[nextIndex];
-                setBatchExploreIndividual({
-                  ...batchExploreIndividual,
-                  decisions: nextDecisions,
-                  index: nextIndex,
-                });
-                setExplorePrompt({
-                  stepId: batchExploreIndividual.stepId,
-                  permanentId: nextExplore.permanentId,
-                  permanentName: nextExplore.permanentName,
-                  revealedCard: nextExplore.revealedCard,
-                  isLand: nextExplore.isLand,
-                });
-                return;
-              }
-
-              socket.emit('submitResolutionResponse', {
-                gameId: view.id,
-                stepId: batchExploreIndividual.stepId,
-                selections: { decisions: nextDecisions },
-                cancelled: false,
-              });
-
-              setBatchExploreIndividual(null);
-              setExplorePrompt(null);
-              return;
-            }
-
-            // Single explore step
-            socket.emit('submitResolutionResponse', {
-              gameId: view.id,
-              stepId: explorePrompt.stepId,
-              selections: {
-                permanentId: explorePrompt.permanentId,
-                toGraveyard: Boolean(result.toGraveyard),
-              },
-              cancelled: false,
-            });
-
-            setExplorePrompt(null);
-          }}
-        />
-      )}
-
-      {/* Batch Explore */}
-      {batchExplorePrompt && view && resolutionPromptOpen(true, batchExplorePrompt.stepId) && (
-        <BatchExploreModal
-          explores={batchExplorePrompt.explores}
-          imagePref={imagePref}
-          onResolveAll={(decisions) => {
-            if (!batchExplorePrompt.stepId) {
-              console.warn('[BatchExplore] Missing stepId - must use resolution queue');
-              return;
-            }
-
-            socket.emit('submitResolutionResponse', {
-              gameId: view.id,
-              stepId: batchExplorePrompt.stepId,
-              selections: { decisions },
-              cancelled: false,
-            });
-            setBatchExplorePrompt(null);
-          }}
-          onResolveIndividually={() => {
-            if (!batchExplorePrompt.stepId) {
-              console.warn('[BatchExplore] Missing stepId - must use resolution queue');
-              return;
-            }
-
-            // Resolve locally one-by-one, then submit once.
-            const explores = batchExplorePrompt.explores || [];
-            if (explores.length > 0) {
-              setBatchExploreIndividual({
-                stepId: batchExplorePrompt.stepId,
-                explores,
-                index: 0,
-                decisions: [],
-              });
-
-              const firstExplore = explores[0];
-              setExplorePrompt({
-                stepId: batchExplorePrompt.stepId,
-                permanentId: firstExplore.permanentId,
-                permanentName: firstExplore.permanentName,
-                revealedCard: firstExplore.revealedCard,
-                isLand: firstExplore.isLand,
-              });
-            }
-            setBatchExplorePrompt(null);
-          }}
-        />
-      )}
-
-      {/* Opponent May Pay */}
-      {opponentMayPayPrompt && view && resolutionPromptOpen(true, opponentMayPayStepId) && (
-        <OpponentMayPayModal
-          prompt={opponentMayPayPrompt}
-          onPay={() => {
-            if (!opponentMayPayStepId) {
-              console.warn('[opponentMayPay] Missing resolution stepId; cannot submit response.');
-              return;
-            }
-            socket.emit('submitResolutionResponse', {
-              gameId: view.id,
-              stepId: opponentMayPayStepId,
-              selections: 'pay',
-              cancelled: false,
-            });
-            setOpponentMayPayPrompt(null);
-            setOpponentMayPayStepId(null);
-          }}
-          onDecline={() => {
-            if (!opponentMayPayStepId) {
-              console.warn('[opponentMayPay] Missing resolution stepId; cannot submit response.');
-              return;
-            }
-            socket.emit('submitResolutionResponse', {
-              gameId: view.id,
-              stepId: opponentMayPayStepId,
-              selections: 'decline',
-              cancelled: false,
-            });
-            setOpponentMayPayPrompt(null);
-            setOpponentMayPayStepId(null);
-          }}
-          onSetShortcut={(preference) => {
-            socket.emit("setOpponentMayPayShortcut", {
-              gameId: view.id,
-              sourceName: opponentMayPayPrompt.sourceName,
-              preference,
-            });
-            setOpponentMayPayPrompt(null);
-            setOpponentMayPayStepId(null);
-          }}
-        />
-      )}
-
-      <LoopShortcutConsentModal
-        prompt={loopShortcutConsentPrompt}
-        onAllow={() => {
-          if (!loopShortcutConsentPrompt) return;
-          socket.emit('respondLoopShortcut', {
-            gameId: loopShortcutConsentPrompt.gameId,
-            proposalId: loopShortcutConsentPrompt.proposalId,
-            interrupt: false,
-          });
-          setLoopShortcutConsentPrompt(null);
-        }}
-        onInterrupt={(afterIterations) => {
-          if (!loopShortcutConsentPrompt) return;
-          socket.emit('respondLoopShortcut', {
-            gameId: loopShortcutConsentPrompt.gameId,
-            proposalId: loopShortcutConsentPrompt.proposalId,
-            interrupt: true,
-            afterIterations,
-          });
-          setLoopShortcutConsentPrompt(null);
-        }}
-      />
-
-      {/* Tap/Untap Target Modal - for abilities that tap/untap targets */}
-      <TapUntapTargetModal
-        open={resolutionPromptOpen(tapUntapTargetModalOpen, tapUntapTargetModalData?.stepId)}
-        title={tapUntapTargetModalData?.title || tapUntapTargetModalData?.sourceName || "Tap/Untap Target"}
-        description={tapUntapTargetModalData?.description}
-        source={{
-          id: tapUntapTargetModalData?.sourceId || "",
-          name: tapUntapTargetModalData?.sourceName || "",
-          imageUrl: tapUntapTargetModalData?.sourceImageUrl,
-        }}
-        action={tapUntapTargetModalData?.action || 'untap'}
-        targetFilter={tapUntapTargetModalData?.targetFilter || {}}
-        targetCount={tapUntapTargetModalData?.targetCount || 1}
-        availablePermanents={safeView?.battlefield || []}
-        playerId={you || ""}
-        playerNames={resolutionPlayerNames}
-        onConfirm={(selectedPermanentIds, action) => {
-          if (tapUntapTargetModalData && safeView) {
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: tapUntapTargetModalData.stepId,
-              selections: { targetIds: selectedPermanentIds, action },
-              cancelled: false,
-            });
-            setTapUntapTargetModalOpen(false);
-            setTapUntapTargetModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (tapUntapTargetModalData && safeView) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: tapUntapTargetModalData.stepId,
-            });
-          }
-          setTapUntapTargetModalOpen(false);
-          setTapUntapTargetModalData(null);
-        }}
-      />
-
-      {/* Fight Target Modal - for Brash Taunter and similar fight abilities */}
-      <TapUntapTargetModal
-        open={resolutionPromptOpen(fightTargetModalOpen, fightTargetModalData?.stepId)}
-        title={fightTargetModalData?.title || `${fightTargetModalData?.sourceName || 'Creature'} - Fight`}
-        description={fightTargetModalData?.description}
-        source={{
-          id: fightTargetModalData?.sourceId || "",
-          name: fightTargetModalData?.sourceName || "",
-          imageUrl: fightTargetModalData?.sourceImageUrl,
-        }}
-        action='tap' // Reuse tap UI but it's for fight selection
-        targetFilter={{
-          types: (fightTargetModalData?.targetFilter?.types || ['creature']) as ('creature' | 'land' | 'artifact' | 'enchantment' | 'planeswalker' | 'permanent')[],
-          controller: fightTargetModalData?.targetFilter?.controller || 'any',
-          tapStatus: 'any', // Fight can target tapped or untapped creatures
-          excludeSource: fightTargetModalData?.targetFilter?.excludeSource !== false,
-        }}
-        targetCount={1}
-        availablePermanents={safeView?.battlefield || []}
-        playerId={you || ""}
-        playerNames={resolutionPlayerNames}
-        enforceActionAvailability={false}
-        onConfirm={(selectedPermanentIds) => {
-          if (fightTargetModalData && safeView && selectedPermanentIds.length > 0) {
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: fightTargetModalData.stepId,
-              selections: [selectedPermanentIds[0]],
-              cancelled: false,
-            });
-            setFightTargetModalOpen(false);
-            setFightTargetModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (fightTargetModalData && safeView) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: fightTargetModalData.stepId,
-            });
-          }
-          setFightTargetModalOpen(false);
-          setFightTargetModalData(null);
-        }}
-      />
-
-      {/* Counter Movement Modal - for Nesting Grounds and similar abilities */}
-      <CounterMovementModal
-        open={resolutionPromptOpen(counterMovementModalOpen, counterMovementModalData?.stepId)}
-        title={counterMovementModalData?.title || counterMovementModalData?.sourceName || "Move Counter"}
-        description={counterMovementModalData?.description}
-        source={{
-          id: counterMovementModalData?.sourceId || "",
-          name: counterMovementModalData?.sourceName || "",
-          imageUrl: counterMovementModalData?.sourceImageUrl,
-        }}
-        sourceFilter={counterMovementModalData?.sourceFilter}
-        targetFilter={counterMovementModalData?.targetFilter}
-        availablePermanents={safeView?.battlefield || []}
-        playerId={you || ""}
-        onConfirm={(sourcePermanentId, targetPermanentId, counterType) => {
-          if (counterMovementModalData && safeView) {
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: counterMovementModalData.stepId,
-              selections: {
-                sourcePermanentId,
-                targetPermanentId,
-                counterType,
-              },
-              cancelled: false,
-            });
-            setCounterMovementModalOpen(false);
-            setCounterMovementModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (counterMovementModalData && safeView) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: counterMovementModalData.stepId,
-            });
-          }
-          setCounterMovementModalOpen(false);
-          setCounterMovementModalData(null);
-        }}
-      />
-
-      {/* Station Creature Selection Modal (Rule 702.184a) */}
-      <StationCreatureSelectionModal
-        open={resolutionPromptOpen(stationCreatureSelectionOpen, stationCreatureSelectionData?.stepId)}
-        gameId={safeView?.id || ""}
-        activationId={stationCreatureSelectionData?.stepId || ""}
-        station={stationCreatureSelectionData?.station || { id: "", name: "", threshold: 0, currentCounters: 0 }}
-        creatures={stationCreatureSelectionData?.creatures || []}
-        title={stationCreatureSelectionData?.title || "Station"}
-        description={stationCreatureSelectionData?.description || ""}
-        onConfirm={(creatureId) => {
-          if (stationCreatureSelectionData && safeView) {
-            socket.emit("submitResolutionResponse", {
-              gameId: safeView.id,
-              stepId: stationCreatureSelectionData.stepId,
-              selections: [creatureId],
-              cancelled: false,
-            });
-            setStationCreatureSelectionOpen(false);
-            setStationCreatureSelectionData(null);
-          }
-        }}
-        onCancel={() => {
-          if (stationCreatureSelectionData && safeView) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: stationCreatureSelectionData.stepId,
-            });
-          }
-          setStationCreatureSelectionOpen(false);
-          setStationCreatureSelectionData(null);
-        }}
-      />
-
-      {/* Resolution Queue Player Choice Modal */}
-      <PlayerTargetSelectionModal
-        open={resolutionPromptOpen(resolutionPlayerChoiceModalOpen, resolutionPlayerChoiceModalData?.stepId)}
-        title={resolutionPlayerChoiceModalData?.title || 'Choose Player'}
-        description={resolutionPlayerChoiceModalData?.description}
-        source={{
-          name: resolutionPlayerChoiceModalData?.source?.name || '',
-          imageUrl: resolutionPlayerChoiceModalData?.source?.imageUrl,
-        }}
-        players={resolutionPlayerChoiceModalData?.players || []}
-        opponentOnly={Boolean(resolutionPlayerChoiceModalData?.opponentOnly)}
-        minTargets={resolutionPlayerChoiceModalData?.isOptional ? 0 : 1}
-        maxTargets={1}
-        onConfirm={(selectedPlayerIds) => {
-          if (!safeView || !resolutionPlayerChoiceModalData) return;
-          const stepId = resolutionPlayerChoiceModalData.stepId;
-
-          if (selectedPlayerIds.length === 0) {
-            if (resolutionPlayerChoiceModalData.isOptional) {
-              socket.emit('cancelResolutionStep', {
-                gameId: safeView.id,
-                stepId,
-              });
-              setResolutionPlayerChoiceModalOpen(false);
-              setResolutionPlayerChoiceModalData(null);
-            }
-            return;
-          }
-
-          socket.emit('submitResolutionResponse', {
-            gameId: safeView.id,
-            stepId,
-            selections: selectedPlayerIds,
-            cancelled: false,
-          });
-
-          setResolutionPlayerChoiceModalOpen(false);
-          setResolutionPlayerChoiceModalData(null);
-        }}
-        onCancel={() => {
-          if (!safeView || !resolutionPlayerChoiceModalData) return;
-          if (!resolutionPlayerChoiceModalData.isOptional) return;
-
-          socket.emit('cancelResolutionStep', {
-            gameId: safeView.id,
-            stepId: resolutionPlayerChoiceModalData.stepId,
-          });
-
-          setResolutionPlayerChoiceModalOpen(false);
-          setResolutionPlayerChoiceModalData(null);
-        }}
-      />
-
-      {/* Name-in-use */}
-      <NameInUseModal
-        open={showNameInUseModal}
-        payload={nameInUsePayload}
-        onClose={() => {
-          setShowNameInUseModal(false);
-          setNameInUsePayload(null);
-        }}
-        onReconnect={(fixedPlayerId: string, seatToken?: string) => {
-          const gid = nameInUsePayload?.gameId || gameIdInput;
-          const pname = nameInUsePayload?.playerName || nameInput;
-          const token =
-            seatToken ??
-            sessionStorage.getItem(`mtgedh:seatToken:${gid}:${pname}`);
-          // eslint-disable-next-line no-console
-          console.debug("[JOIN_EMIT] reconnect click", {
-            gameId: gid,
-            playerName: pname,
-            fixedPlayerId,
-            seatToken: token,
-          });
-          socket.emit("joinGame", {
-            gameId: gid,
-            playerName: pname,
-            spectator: false, // Always join as player when reconnecting
-            seatToken: token || undefined,
-            fixedPlayerId,
-          });
-          setShowNameInUseModal(false);
-          setNameInUsePayload(null);
-        }}
-        onNewName={(newName: string) => {
-          const gid = nameInUsePayload?.gameId || gameIdInput;
-          setNameInput(newName);
-          const token =
-            sessionStorage.getItem(
-              `mtgedh:seatToken:${gid}:${newName}`
-            ) || undefined;
-          // eslint-disable-next-line no-console
-          console.debug("[JOIN_EMIT] new-name join", {
-            gameId: gid,
-            playerName: newName,
-            seatToken: token,
-          });
-          socket.emit("joinGame", {
-            gameId: gid,
-            playerName: newName,
-            spectator: false, // Always join as player when using new name
-            seatToken: token,
-          });
-          setShowNameInUseModal(false);
-          setNameInUsePayload(null);
-        }}
-      />
-
-      {/* Cast Spell Payment Modal */}
-      <CastSpellModal
-        open={castSpellModalOpen}
-        cardName={spellToCast?.cardName || ''}
-        manaCost={spellToCast?.manaCost}
-        typeLine={spellToCast?.typeLine}
-        isActivatedAbilityPayment={spellToCast?.isActivatedAbilityPayment === true}
-        castFromZone={spellToCast?.fromZone ?? 'hand'}
-        oracleText={spellToCast?.oracleText}
-        forcedAlternateCostId={spellToCast?.forcedAlternateCostId}
-        preferredAlternateCostId={(spellToCast as any)?.preferredAlternateCostId}
-        extraAlternateCosts={spellToCast?.extraAlternateCosts ?? battlefieldAlternateCosts}
-        availableSources={castSpellPaymentSources}
-        battlefieldPermanents={you ? ((safeView?.battlefield || []).filter((perm: any) => perm.controller === you) as BattlefieldPermanent[]) : []}
-        otherCardsInHand={useMemo(() => {
-          if (!safeView || !you || !spellToCast) return [];
-          const zones = safeView.zones?.[you];
-          const hand = zones?.hand || [];
-          // Filter out the card being cast and lands
-          return hand
-            .filter((c: any) => c?.id !== spellToCast.cardId && c?.name && !(/\bland\b/i.test(c?.type_line || '')))
-            .map((c: any) => ({
-              id: c.id,
-              name: c.name,
-              mana_cost: c.mana_cost
-            }));
-        }, [safeView, you, spellToCast])}
-        floatingMana={manaPool || undefined}
-        title={spellToCast?.title}
-        confirmLabel={spellToCast?.confirmLabel}
-        manualFloatingManaSelection={spellToCast?.manualFloatingManaSelection === true}
-        initialXValue={spellToCast?.xValue}
-        costAdjustment={spellToCast?.costAdjustment}
-        convokeOptions={spellToCast?.convokeOptions}
-        sneakOptions={spellToCast?.sneakOptions}
-        webSlingingOptions={(spellToCast as any)?.webSlingingOptions}
-        currentStep={String((safeView as any)?.step || '')}
-        onConfirm={handleCastSpellConfirm}
-        onCancel={handleCastSpellCancel}
-      />
-
-      <XValueSelectionModal
-        isOpen={resolutionPromptOpen(pendingSpellXSelection !== null, pendingSpellXSelection?.stepId)}
-        cardName={pendingSpellXSelection?.cardName || ''}
-        abilityText={pendingSpellXSelection?.description}
-        minValue={pendingSpellXSelection?.minValue ?? 0}
-        maxValue={pendingSpellXSelection?.maxValue ?? 20}
-        xCount={pendingSpellXSelection?.xCount}
-        affordableXHint={pendingSpellXSelection?.affordableXHint}
-        onSelect={(xValue) => {
-          if (!safeView || !pendingSpellXSelection) return;
-          socket.emit('submitResolutionResponse', {
-            gameId: safeView.id,
-            stepId: pendingSpellXSelection.stepId,
-            selections: { xValue },
-            cancelled: false,
-          });
-          setPendingSpellXSelection(null);
-        }}
-        onClose={() => {
-          setPendingSpellXSelection(null);
-        }}
-        onCancel={() => {
-          if (!safeView || !pendingSpellXSelection) {
-            setPendingSpellXSelection(null);
-            return;
-          }
-          socket.emit('cancelResolutionStep', {
-            gameId: safeView.id,
-            stepId: pendingSpellXSelection.stepId,
-          });
-          setPendingSpellXSelection(null);
-        }}
-      />
-
-      {/* Create Game Modal */}
-      <CreateGameModal
-        open={createGameModalOpen}
-        onClose={() => setCreateGameModalOpen(false)}
-        onCreateGame={handleCreateGame}
-        savedDecks={savedDecks}
-        onRefreshDecks={refreshSavedDecks}
-      />
-
-      {/* Standalone Deck Builder Modal */}
-      <DeckManagerModal
-        open={deckBuilderOpen}
-        onClose={() => setDeckBuilderOpen(false)}
-        onImportText={(text, name) => {
-          // In standalone mode, we just close the modal
-          // The deck is saved locally or to server within the modal
-          setDeckBuilderOpen(false);
-        }}
-        gameId={safeView?.id}
-        playerId={you ?? undefined}
-        playerName={nameInput || undefined}
-        canServer={true}
-        wide
-        initialAction={deckBuilderInitialAction}
-        onInitialActionConsumed={() => setDeckBuilderInitialAction(null)}
-      />
-
-      {/* Appearance Settings Modal */}
-      <AppearanceSettingsModal
-        open={appearanceModalOpen}
-        onClose={() => setAppearanceModalOpen(false)}
-        onApply={handleAppearanceSettingsApply}
-      />
-
-      {/* Combat Selection Modal */}
-      <CombatSelectionModal
-        open={combatModalOpen && !!safeView}
-        minimized={combatModalMinimized}
-        onMinimize={() => setCombatModalMinimized(true)}
-        onRestore={() => setCombatModalMinimized(false)}
-        mode={combatMode}
-        readOnly={combatModalReadOnly}
-        availableCreatures={
-          combatMode === 'attackers'
-            ? (combatModalReadOnly ? combatModalAttackersAvailableCreatures : myCreatures)
-            : (combatModalReadOnly ? [] : myBlockerCreatures)
-        }
-        attackingCreatures={attackingCreatures}
-        battlefield={(safeView?.battlefield || []) as BattlefieldPermanent[]}
-        players={(safeView?.players || []) as PlayerRef[]}
-        defenders={combatMode === 'attackers' && combatModalReadOnly ? combatModalAttackersDefenders : defenders}
-        initialAttackTargets={
-          combatMode === 'attackers' && combatModalReadOnly
-            ? (combatPreviewAttackTargets ?? combatModalInitialAttackTargets)
-            : undefined
-        }
-        onAttackTargetsChange={
-          combatMode === 'attackers' && !combatModalReadOnly && safeView?.id
-            ? (targets) => {
-                // Throttle to reduce spam while still feeling real-time.
-                combatPreviewPendingRef.current = targets;
-                if (combatPreviewEmitTimerRef.current) return;
-                combatPreviewEmitTimerRef.current = setTimeout(() => {
-                  const pending = combatPreviewPendingRef.current;
-                  combatPreviewEmitTimerRef.current = null;
-                  combatPreviewPendingRef.current = null;
-                  if (!pending) return;
-                  socket.emit('combatPreviewAttackers', { gameId: safeView.id, targets: pending });
-                }, 120);
-              }
-            : undefined
-        }
-        errorMessage={combatModalError}
-        isYourTurn={safeView != null && safeView.turnPlayer != null && safeView.turnPlayer === you}
-        defenderInfoMap={combatMode === 'attackers' ? defenderInfoMap : undefined}
-        onConfirm={(selections) => {
-          if (combatMode === 'attackers') {
-            handleDeclareAttackers(selections as AttackerSelection[]);
-          } else {
-            handleDeclareBlockers(selections as BlockerSelection[]);
-          }
-        }}
-        onSkip={handleSkipCombat}
-        // Minimize (not close) so the player can reopen during the same combat step
-        onCancel={
-          combatModalOpen && !combatModalReadOnly
-            ? () => setCombatModalMinimized(true)
-            : undefined
-        }
-      />
-
-      {/* Combat Control Modal (Master Warcraft / Odric) */}
-      {safeView && you && combatControlEffect && (
-        <CombatControlModal
-          open={combatControlModalOpen && combatControlEffect.controllerId === you}
-          mode={combatControlMode}
-          combatControl={combatControlEffect}
-          allCreatures={(safeView.battlefield || []) as BattlefieldPermanent[]}
-          currentAttackers={attackingCreatures as BattlefieldPermanent[]}
-          defenders={combatModalAttackersDefenders as any}
-          players={(safeView.players || []) as any}
-          currentPlayerId={you}
-          onConfirm={handleDeclareControlledCombat}
-        />
-      )}
-
-      {/* Return Controlled Permanent Modal */}
-      <ReturnControlledPermanentChoiceModal
-        open={resolutionPromptOpen(returnControlledPermanentModalOpen, returnControlledPermanentData?.stepId)}
-        sourceName={returnControlledPermanentData?.sourceName || ''}
-        sourceImageUrl={returnControlledPermanentData?.imageUrl}
-        optionsToChoose={returnControlledPermanentData?.optionsToChoose || []}
-        title={returnControlledPermanentData?.title}
-        subtitle={returnControlledPermanentData?.subtitle}
-        oracleText={returnControlledPermanentData?.oracleText}
-        confirmButtonText={returnControlledPermanentData?.confirmButtonText}
-        onSelectPermanent={handleReturnControlledPermanentSelect}
-      />
-
-      <CardSelectionModal
-        open={resolutionPromptOpen(hideawayChoiceModalOpen, hideawayChoiceData?.stepId)}
-        title={hideawayChoiceData?.title || 'Hideaway'}
-        subtitle={hideawayChoiceData?.subtitle}
-        sourceCardName={hideawayChoiceData?.sourceName}
-        sourceCardImageUrl={hideawayChoiceData?.imageUrl}
-        oracleText={hideawayChoiceData?.oracleText}
-        options={(hideawayChoiceData?.cards || []).map((card) => ({
-          id: card.cardId,
-          name: card.cardName,
-          imageUrl: card.imageUrl,
-        }))}
-        minSelections={1}
-        maxSelections={1}
-        confirmButtonText={hideawayChoiceData?.confirmButtonText || 'Hide Away Selected Card'}
-        canCancel={hideawayChoiceData?.mandatory === false}
-        onConfirm={handleHideawayChoiceConfirm}
-        onCancel={handleHideawayChoiceCancel}
-      />
-
-      {/* Proliferate Modal */}
-      <ProliferateModal
-        open={resolutionPromptOpen(proliferateModalOpen, proliferateData?.stepId)}
-        sourceName={proliferateData?.sourceName || ''}
-        imageUrl={proliferateData?.imageUrl}
-        validTargets={proliferateData?.validTargets || []}
-        onConfirm={handleProliferateConfirm}
-      />
-
-      <LifeRedistributionModal
-        open={resolutionPromptOpen(lifeRedistributionModalOpen, lifeRedistributionData?.stepId)}
-        sourceName={lifeRedistributionData?.sourceName || 'Redistribute Life Totals'}
-        imageUrl={lifeRedistributionData?.imageUrl}
-        players={lifeRedistributionData?.players || []}
-        onConfirm={handleLifeRedistributionConfirm}
-      />
-      
-      {/* Fateseal Modal */}
-      {fatesealModalOpen && fatesealData && view && resolutionPromptOpen(true, fatesealData.stepId) && (
-        <FatesealModal
-          opponentName={fatesealData.opponentName}
-          cards={fatesealData.cards}
-          imagePref={imagePref}
-          sourceName={fatesealData.sourceName}
-          onCancel={() => {
-            setFatesealModalOpen(false);
-            setFatesealData(null);
-          }}
-          onConfirm={handleFatesealConfirm}
-        />
-      )}
-      
-      {/* Clash Modal */}
-      {clashModalOpen && clashData && view && resolutionPromptOpen(true, clashData.stepId) && (
-        <ClashModal
-          revealedCard={clashData.revealedCard}
-          imagePref={imagePref}
-          sourceName={clashData.sourceName}
-          opponentName={clashData.opponentId ? safeView?.players?.find((p: any) => p.id === clashData.opponentId)?.name : undefined}
-          onConfirm={handleClashConfirm}
-        />
-      )}
-      
-      {/* Vote Modal */}
-      {voteModalOpen && voteData && view && (
-        <VoteModal
-          open={resolutionPromptOpen(voteModalOpen, voteData?.stepId)}
-          sourceName={voteData.sourceName}
-          choices={voteData.choices}
-          votesSubmitted={voteData.votesSubmitted}
-          playerNames={useMemo(() => {
-            const names: Record<string, string> = {};
-            safeView?.players?.forEach((p: any) => {
-              names[p.id] = p.username || p.id;
-            });
-            return names;
-          }, [safeView?.players])}
-          onConfirm={handleVoteConfirm}
-        />
-      )}
-
-      {/* Game Over Overlay */}
-      {gameOverModalOpen && gameOverData && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10000,
-          }}
-        >
-          <div
-            style={{
-              textAlign: 'center',
-              color: gameOverData.type === 'victory' ? '#ffd700' : 
-                     gameOverData.type === 'draw' ? '#60a5fa' : '#ef4444',
-              transform: 'scale(1)',
-              opacity: 1,
-            }}
-          >
-            <div
-              style={{
-                fontSize: gameOverData.type === 'victory' ? '5rem' : '4rem',
-                fontWeight: 'bold',
-                textShadow: gameOverData.type === 'victory' 
-                  ? '0 0 30px rgba(255, 215, 0, 0.8), 0 0 60px rgba(255, 215, 0, 0.4)'
-                  : gameOverData.type === 'draw'
-                  ? '0 0 30px rgba(96, 165, 250, 0.8)'
-                  : '0 0 30px rgba(239, 68, 68, 0.8)',
-                marginBottom: '1rem',
-              }}
-            >
-              {gameOverData.type === 'victory' ? '🏆' : 
-               gameOverData.type === 'draw' ? '🤝' : '💀'}
-            </div>
-            <div
-              style={{
-                fontSize: '3rem',
-                fontWeight: 'bold',
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-              }}
-            >
-              {gameOverData.message}
-            </div>
-            {gameOverData.winnerName && gameOverData.type !== 'victory' && (
-              <div
-                style={{
-                  fontSize: '1.5rem',
-                  marginTop: '1rem',
-                  opacity: 0.8,
-                }}
-              >
-                Winner: {gameOverData.winnerName}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Triggered Ability Modal */}
-      <TriggeredAbilityModal
-        open={resolutionPromptOpen(triggerModalOpen, triggerOrderStepId)}
-        triggers={pendingTriggers}
-        onOrderConfirm={handleOrderTriggersConfirm}
-      />
-
-      {/* Mulligan Bottom Selection Modal (London Mulligan) */}
-      <MulliganBottomModal
-        open={resolutionPromptOpen(mulliganBottomModalOpen, mulliganBottomStepId)}
-        hand={useMemo(() => {
-          if (!safeView || !you) return [];
-          const zones = safeView.zones?.[you];
-          const hand = zones?.hand || [];
-          return hand.filter((c: any) => c && c.name) as KnownCardRef[];
-        }, [safeView, you])}
-        cardsToBottom={mulliganBottomCount}
-        onConfirm={(cardIds) => {
-          if (safeView) {
-            if (!mulliganBottomStepId) {
-              console.warn('[mulligan] Missing resolution stepId; cannot submit HAND_TO_BOTTOM selection.');
-              return;
-            }
-            setMulliganBottomLastSubmittedStepId(mulliganBottomStepId);
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: mulliganBottomStepId,
-              selections: cardIds,
-              cancelled: false,
-            });
-          }
-          setMulliganBottomModalOpen(false);
-          setMulliganBottomCount(0);
-          setMulliganBottomStepId(null);
-        }}
-        onCancel={() => {
-          // Can't cancel - must select cards
-          // But allow closing to re-open later if needed
-          setMulliganBottomModalOpen(false);
-        }}
-      />
-
-      {/* Cleanup Step Discard Selection Modal */}
-      <DiscardSelectionModal
-        open={resolutionPromptOpen(discardModalOpen, discardResolutionStepId)}
-        hand={useMemo(() => {
-          if (discardResolutionHand.length > 0) {
-            return discardResolutionHand;
-          }
-          if (!safeView || !you) return [];
-          const zones = safeView.zones?.[you];
-          const hand = zones?.hand || [];
-          // Accept ChoiceOption-shaped zone cards (label/imageUrl) as well as full KnownCardRefs.
-          return hand
-            .map((c: any) => {
-              if (!c || !c.id) return null;
-              const name = String(c.name || c.label || '').trim();
-              if (!name) return null;
-              const imageUrl = c.imageUrl || c.image_url || c.image_uris?.normal || c.image_uris?.small;
-              return {
-                ...c,
-                name,
-                ...(imageUrl && !c.image_uris
-                  ? { image_uris: { normal: imageUrl, small: imageUrl } }
-                  : {}),
-              } as KnownCardRef;
-            })
-            .filter((c: KnownCardRef | null): c is KnownCardRef => Boolean(c));
-        }, [discardResolutionHand, safeView, you])}
-        discardCount={discardCount}
-        minDiscardCount={discardMinCount}
-        maxDiscardCount={discardMaxCount}
-        anyNumberDiscard={discardAnyNumber}
-        maxHandSize={discardMaxHandSize}
-        currentHandSize={discardCurrentHandSize ?? undefined}
-        reason={discardResolutionReason}
-        title={discardResolutionTitle ?? undefined}
-        description={discardResolutionDescription ?? undefined}
-        onConfirm={(cardIds) => {
-          if (safeView) {
-            if (!discardResolutionStepId) {
-              console.warn('[discard] Missing resolution stepId; cannot submit discard selection.');
-              return;
-            }
-
-            socket.emit("submitResolutionResponse", {
-              gameId: safeView.id,
-              stepId: discardResolutionStepId,
-              selections: cardIds,
-              cancelled: false,
-            });
-          }
-          setDiscardModalOpen(false);
-          setDiscardCount(0);
-          setDiscardMinCount(0);
-          setDiscardMaxCount(0);
-          setDiscardAnyNumber(false);
-          setDiscardMaxHandSize(7);
-          setDiscardCurrentHandSize(null);
-          setDiscardResolutionHand([]);
-          setDiscardResolutionStepId(null);
-          setDiscardResolutionReason('cleanup');
-          setDiscardResolutionTitle(null);
-          setDiscardResolutionDescription(null);
-        }}
-      />
-
-      {/* Opening Hand Actions Modal (Leylines) */}
-      <OpeningHandActionsModal
-        open={resolutionPromptOpen(openingHandActionsModalOpen, openingHandActionsStepId)}
-        hand={useMemo(() => {
-          if (!safeView || !you) return [];
-          const zones = safeView.zones?.[you];
-          const hand = zones?.hand || [];
-          return hand.filter((c: any) => c && c.name) as KnownCardRef[];
-        }, [safeView, you])}
-        onConfirm={handleOpeningHandActionsConfirm}
-        onSkip={handleOpeningHandActionsSkip}
-      />
-
-      {/* Library Search Modal (Tutors) */}
-      <LibrarySearchModal
-        open={resolutionPromptOpen(librarySearchModalOpen, librarySearchData?.stepId)}
-        cards={librarySearchData?.cards || []}
-        nonSelectableCards={librarySearchData?.nonSelectableCards || []}
-        revealedCards={librarySearchData?.revealedCards || []}
-        castableWhileSearchingCards={librarySearchData?.castableWhileSearchingCards || []}
-        playerId={librarySearchData?.targetPlayerId || you || ''}
-        title={librarySearchData?.title || 'Search Library'}
-        description={librarySearchData?.description}
-        filter={librarySearchData?.filter}
-        minSelections={librarySearchData?.minSelections ?? 1}
-        maxSelections={librarySearchData?.maxSelections || 1}
-        maxTotalManaValue={librarySearchData?.maxTotalManaValue}
-        moveTo={librarySearchData?.moveTo || 'hand'}
-        mandatory={librarySearchData?.mandatory ?? true}
-        shuffleAfter={librarySearchData?.shuffleAfter ?? true}
-        splitDestination={librarySearchData?.splitDestination}
-        toBattlefield={librarySearchData?.toBattlefield}
-        toHand={librarySearchData?.toHand}
-        entersTapped={librarySearchData?.entersTapped}
-        onConfirm={handleLibrarySearchConfirm}
-        onCastWhileSearching={handleLibrarySearchCastWhileSearching}
-        onCancel={handleLibrarySearchCancel}
-      />
-
-      {/* Target Selection Modal */}
-      <TargetSelectionModal
-        open={resolutionPromptOpen(targetModalOpen, targetModalData?.stepId)}
-        title={targetModalData?.title || 'Select Targets'}
-        description={targetModalData?.description}
-        contextSteps={targetModalData?.contextSteps}
-        selectedMode={targetModalData?.selectedMode}
-        viewerPlayerId={you || undefined}
-        source={targetModalData?.source}
-        targets={targetModalData?.targets || []}
-        minTargets={targetModalData?.minTargets ?? 1}
-        maxTargets={targetModalData?.maxTargets ?? 1}
-        targetGroups={targetModalData?.targetGroups}
-        perOpponent={targetModalData?.perOpponent}
-        opponents={targetModalData?.opponents}
-        targetsPerOpponent={targetModalData?.targetsPerOpponent}
-        minTargetsPerOpponent={targetModalData?.minTargetsPerOpponent}
-        maxTargetsPerOpponent={targetModalData?.maxTargetsPerOpponent}
-        onConfirm={handleTargetConfirm}
-        onCancel={handleTargetCancel}
-      />
-
-      {/* Undo Request Modal */}
-      <UndoRequestModal
-        open={undoModalOpen}
-        you={you || ''}
-        request={undoRequestData}
-        onApprove={handleUndoApprove}
-        onReject={handleUndoReject}
-        onCancel={handleUndoCancel}
-      />
-
-      {/* Split/Adventure Card Choice Modal */}
-      <SplitCardChoiceModal
-        open={splitCardModalOpen}
-        cardName={splitCardData?.cardName || ''}
-        layout={splitCardData?.layout || ''}
-        faces={splitCardData?.faces || []}
-        canFuse={splitCardData?.canFuse}
-        onChoose={handleSplitCardChoose}
-        onCancel={handleSplitCardCancel}
-      />
-
-      {/* Creature Type Selection Modal */}
-      <CreatureTypeSelectModal
-        open={resolutionPromptOpen(creatureTypeModalOpen, creatureTypeModalData?.stepId)}
-        title={`Choose a Creature Type for ${creatureTypeModalData?.cardName || 'this card'}`}
-        description={creatureTypeModalData?.reason}
-        cardName={creatureTypeModalData?.cardName}
-        offeredCreatureTypes={creatureTypeModalData?.offeredCreatureTypes}
-        canCancel={!creatureTypeModalData?.mandatory}
-        allowCustom={!creatureTypeModalData?.offeredCreatureTypes?.length}
-        onSelect={(creatureType) => {
-          if (creatureTypeModalData && safeView?.id) {
-            socket.emit("submitResolutionResponse", {
-              gameId: safeView.id,
-              stepId: creatureTypeModalData.stepId,
-              selections: creatureType,
-              cancelled: false,
-            });
-            setCreatureTypeModalOpen(false);
-            setCreatureTypeModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (creatureTypeModalData?.mandatory) {
-            return;
-          }
-
-          if (safeView?.id && creatureTypeModalData?.stepId) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: creatureTypeModalData.stepId,
-            });
-          }
-          setCreatureTypeModalOpen(false);
-          setCreatureTypeModalData(null);
-        }}
-      />
-
-      {/* Life Payment Modal (Toxic Deluge, Hatred, etc.) */}
-      <LifePaymentModal
-        open={resolutionPromptOpen(lifePaymentModalOpen, lifePaymentModalData?.stepId)}
-        cardName={lifePaymentModalData?.cardName || ''}
-        description={lifePaymentModalData?.description || ''}
-        cardImageUrl={lifePaymentModalData?.imageUrl}
-        currentLife={lifePaymentModalData?.currentLife || 40}
-        minPayment={lifePaymentModalData?.minPayment || 0}
-        maxPayment={lifePaymentModalData?.maxPayment || 0}
-        onConfirm={(lifePayment) => {
-          if (safeView?.id && lifePaymentModalData) {
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: lifePaymentModalData.stepId,
-              selections: Number(lifePayment),
-              cancelled: false,
-            });
-            setLifePaymentModalOpen(false);
-            setLifePaymentModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (lifePaymentModalData?.mandatory) {
-            alert('You must choose a life payment amount to continue.');
-            return;
-          }
-
-          if (safeView?.id && lifePaymentModalData?.stepId) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: lifePaymentModalData.stepId,
-            });
-          }
-          setLifePaymentModalOpen(false);
-          setLifePaymentModalData(null);
-        }}
-      />
-
-      {/* Color Choice Modal (Caged Sun, Gauntlet of Power, etc.) */}
-      <ColorChoiceModal
-        open={resolutionPromptOpen(colorChoiceModalOpen, colorChoiceModalData?.stepId)}
-        confirmId={colorChoiceModalData?.confirmId || ''}
-        cardName={colorChoiceModalData?.cardName || ''}
-        reason={colorChoiceModalData?.reason || ''}
-        cardImageUrl={colorChoiceModalData?.imageUrl}
-        colors={colorChoiceModalData?.colors}
-        canCancel={!colorChoiceModalData?.mandatory}
-        onConfirm={(selectedColor) => {
-          if (safeView?.id && colorChoiceModalData) {
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: colorChoiceModalData.stepId,
-              selections: selectedColor,
-              cancelled: false,
-            });
-            setColorChoiceModalOpen(false);
-            setColorChoiceModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (colorChoiceModalData?.mandatory) {
-            return;
-          }
-
-          if (safeView?.id && colorChoiceModalData?.stepId) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: colorChoiceModalData.stepId,
-            });
-          }
-          setColorChoiceModalOpen(false);
-          setColorChoiceModalData(null);
-        }}
-      />
-
-      {/* Card Name Choice Modal (Pithing Needle, Nevermore, etc.) */}
-      <CardNameChoiceModal
-        open={resolutionPromptOpen(cardNameChoiceModalOpen, cardNameChoiceModalData?.stepId)}
-        title={cardNameChoiceModalData ? `Choose a Card Name for ${cardNameChoiceModalData.cardName}` : 'Choose a Card Name'}
-        description={cardNameChoiceModalData?.reason}
-        cardName={cardNameChoiceModalData?.cardName}
-        sourceImageUrl={cardNameChoiceModalData?.imageUrl}
-        mandatory={cardNameChoiceModalData?.mandatory ?? true}
-        restrictionText={cardNameChoiceModalData?.restrictionText}
-        candidateNames={cardNameChoiceModalData?.candidateNames}
-        onConfirm={(chosenName) => {
-          if (safeView?.id && cardNameChoiceModalData) {
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: cardNameChoiceModalData.stepId,
-              selections: chosenName,
-              cancelled: false,
-            });
-            setCardNameChoiceModalOpen(false);
-            setCardNameChoiceModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (safeView?.id && cardNameChoiceModalData && cardNameChoiceModalData.mandatory === false) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: cardNameChoiceModalData.stepId,
-            });
-            setCardNameChoiceModalOpen(false);
-            setCardNameChoiceModalData(null);
-          }
-        }}
-      />
-
-      {/* Any Color Mana Modal (Birds of Paradise, Chromatic Lantern, etc.) */}
-      <AnyColorManaModal
-        open={resolutionPromptOpen(anyColorManaModalOpen, anyColorManaModalData?.stepId)}
-        activationId={anyColorManaModalData?.activationId || ''}
-        permanentId={anyColorManaModalData?.permanentId || ''}
-        cardName={anyColorManaModalData?.cardName || ''}
-        amount={anyColorManaModalData?.amount || 1}
-        allowedColors={anyColorManaModalData?.allowedColors}
-        amountByColor={anyColorManaModalData?.amountByColor}
-        dynamicAmountSource={anyColorManaModalData?.dynamicAmountSource}
-        chosenCreatureType={anyColorManaModalData?.chosenCreatureType}
-        cardImageUrl={anyColorManaModalData?.cardImageUrl}
-        canCancel={anyColorManaModalData?.mandatory === false}
-        onConfirm={(chosenColor) => {
-          if (safeView?.id && anyColorManaModalData) {
-            if (anyColorManaModalData.stepId) {
-              socket.emit('submitResolutionResponse', {
-                gameId: safeView.id,
-                stepId: anyColorManaModalData.stepId,
-                selections: chosenColor,
-                cancelled: false,
-              });
-            }
-            setAnyColorManaModalOpen(false);
-            setAnyColorManaModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (anyColorManaModalData?.mandatory !== false) return;
-          if (safeView?.id && anyColorManaModalData?.stepId) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: anyColorManaModalData.stepId,
-            });
-          }
-          setAnyColorManaModalOpen(false);
-          setAnyColorManaModalData(null);
-        }}
-      />
-
-      {/* Phyrexian Mana Choice Modal (Mite Overseer, K'rrik, etc.) */}
-      <PhyrexianManaChoiceModal
-        open={resolutionPromptOpen(phyrexianManaModalOpen, phyrexianManaModalData?.stepId)}
-        cardName={phyrexianManaModalData?.cardName || ''}
-        abilityText={phyrexianManaModalData?.abilityText || ''}
-        totalManaCost={phyrexianManaModalData?.totalManaCost || ''}
-        genericCost={phyrexianManaModalData?.genericCost || 0}
-        phyrexianChoices={phyrexianManaModalData?.phyrexianChoices || []}
-        playerLife={phyrexianManaModalData?.playerLife || 40}
-        cardImageUrl={phyrexianManaModalData?.cardImageUrl}
-        onConfirm={(choices) => {
-          if (safeView?.id && phyrexianManaModalData) {
-            // If this prompt came from spell casting, re-emit castSpellFromHand with the choices.
-            // Otherwise, it's for an activated ability and we use the existing confirm event.
-            if (phyrexianManaModalData.castSpellArgs) {
-              socket.emit('castSpellFromHand', {
-                ...phyrexianManaModalData.castSpellArgs,
-                phyrexianChoices: choices,
-              });
-            } else if (phyrexianManaModalData.stepId) {
-              socket.emit('submitResolutionResponse', {
-                gameId: safeView.id,
-                stepId: phyrexianManaModalData.stepId,
-                selections: choices,
-                cancelled: false,
-              });
-            }
-            setPhyrexianManaModalOpen(false);
-            setPhyrexianManaModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (safeView?.id && phyrexianManaModalData?.stepId && phyrexianManaModalData.mandatory === false) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: phyrexianManaModalData.stepId,
-            });
-          }
-          setPhyrexianManaModalOpen(false);
-          setPhyrexianManaModalData(null);
-        }}
-      />
-
-      {/* Mana Distribution Modal (Selvala, Heart of the Wilds, etc.) */}
-      <ManaDistributionModal
-        open={resolutionPromptOpen(manaDistributionModalOpen, manaDistributionModalData?.stepId)}
-        cardName={manaDistributionModalData?.cardName || ''}
-        cardImageUrl={manaDistributionModalData?.cardImageUrl}
-        totalAmount={manaDistributionModalData?.totalAmount || 0}
-        availableColors={manaDistributionModalData?.availableColors || []}
-        message={manaDistributionModalData?.message}
-        canCancel={manaDistributionModalData?.mandatory === false}
-        onConfirm={(distribution) => {
-          if (safeView?.id && manaDistributionModalData) {
-            if (manaDistributionModalData.stepId) {
-              socket.emit('submitResolutionResponse', {
-                gameId: safeView.id,
-                stepId: manaDistributionModalData.stepId,
-                selections: distribution,
-                cancelled: false,
-              });
-            }
-            setManaDistributionModalOpen(false);
-            setManaDistributionModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (manaDistributionModalData?.mandatory !== false) return;
-          if (safeView?.id && manaDistributionModalData?.stepId) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: manaDistributionModalData.stepId,
-            });
-          }
-          setManaDistributionModalOpen(false);
-          setManaDistributionModalData(null);
-        }}
-      />
-
-      <CounterDistributionModal
-        open={resolutionPromptOpen(counterDistributionModalOpen, counterDistributionModalData?.stepId)}
-        cardName={counterDistributionModalData?.cardName || ''}
-        cardImageUrl={counterDistributionModalData?.cardImageUrl}
-        counterType={counterDistributionModalData?.counterType || '+1/+1'}
-        totalAmount={counterDistributionModalData?.totalAmount || 0}
-        minPerTarget={counterDistributionModalData?.minPerTarget ?? 1}
-        targets={counterDistributionModalData?.targets || []}
-        message={counterDistributionModalData?.message}
-        canCancel={counterDistributionModalData?.mandatory === false}
-        onConfirm={(distribution) => {
-          if (safeView?.id && counterDistributionModalData?.stepId) {
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: counterDistributionModalData.stepId,
-              selections: distribution,
-              cancelled: false,
-            });
-          }
-          setCounterDistributionModalOpen(false);
-          setCounterDistributionModalData(null);
-        }}
-        onCancel={() => {
-          if (counterDistributionModalData?.mandatory !== false) return;
-          if (safeView?.id && counterDistributionModalData?.stepId) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: counterDistributionModalData.stepId,
-            });
-          }
-          setCounterDistributionModalOpen(false);
-          setCounterDistributionModalData(null);
-        }}
-      />
-
-      {/* Additional Cost Modal (Discard/Sacrifice as additional cost) */}
-      <AdditionalCostModal
-        open={resolutionPromptOpen(additionalCostModalOpen, additionalCostModalData?.resolutionStepId)}
-        cardId={additionalCostModalData?.cardId || ''}
-        cardName={additionalCostModalData?.cardName || ''}
-        costType={additionalCostModalData?.costType || 'discard'}
-        amount={additionalCostModalData?.amount || 0}
-        title={additionalCostModalData?.title || ''}
-        description={additionalCostModalData?.description || ''}
-        imageUrl={additionalCostModalData?.imageUrl}
-        availableCards={additionalCostModalData?.availableCards}
-        availableTargets={additionalCostModalData?.availableTargets}
-        availableCounters={additionalCostModalData?.availableCounters}
-        effectId={additionalCostModalData?.effectId}
-        canCancel={
-          additionalCostModalData?.resolutionStepId
-            ? additionalCostModalData?.resolutionStepMandatory === false
-            : true
-        }
-        onConfirm={(selectedIds) => {
-          if (safeView?.id && additionalCostModalData) {
-            if (additionalCostModalData.resolutionStepId) {
-              const chosen = selectedIds[0];
-              const selections =
-                additionalCostModalData.resolutionSourceChoiceId && chosen === additionalCostModalData.resolutionSourceChoiceId
-                  ? { type: 'source' }
-                  : (additionalCostModalData.resolutionStepType === 'additional_cost_payment' ? selectedIds : chosen);
-
-              socket.emit('submitResolutionResponse', {
-                gameId: safeView.id,
-                stepId: additionalCostModalData.resolutionStepId,
-                selections,
-                cancelled: false,
-              });
-            }
-            setAdditionalCostModalOpen(false);
-            setAdditionalCostModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (safeView?.id && additionalCostModalData?.resolutionStepId && additionalCostModalData?.resolutionStepMandatory === false) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: additionalCostModalData.resolutionStepId,
-            });
-          }
-          setAdditionalCostModalOpen(false);
-          setAdditionalCostModalData(null);
-        }}
-      />
-
-      {/* Squad Cost Modal (Pay squad cost multiple times) */}
-      <SquadCostModal
-        open={resolutionPromptOpen(squadCostModalOpen, squadCostModalData?.resolutionStepId)}
-        cardId={squadCostModalData?.cardId || ''}
-        cardName={squadCostModalData?.cardName || ''}
-        squadCost={squadCostModalData?.squadCost || ''}
-        imageUrl={squadCostModalData?.imageUrl}
-        effectId={squadCostModalData?.effectId}
-        availableMana={(manaPool as unknown as Record<string, number>) || undefined}
-        onConfirm={(timesPaid) => {
-          if (safeView?.id && squadCostModalData?.resolutionStepId) {
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: squadCostModalData.resolutionStepId,
-              selections: timesPaid,
-              cancelled: false,
-            });
-            setSquadCostModalOpen(false);
-            setSquadCostModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (safeView?.id && squadCostModalData?.resolutionStepId && squadCostModalData.mandatory === false) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: squadCostModalData.resolutionStepId,
-            });
-          }
-          setSquadCostModalOpen(false);
-          setSquadCostModalData(null);
-        }}
-      />
-
-      {/* "You may" optional ability modal */}
-      <MayAbilityModal
-        open={resolutionPromptOpen(mayAbilityModalOpen, mayAbilityModalData?.stepId)}
-        data={mayAbilityModalData}
-        onMinimize={
-          mayAbilityModalData?.stepId
-            ? () => minimizeResolutionStep(
-                mayAbilityModalData.stepId,
-                mayAbilityModalData.sourceName
-                  ? `${mayAbilityModalData.sourceName}: optional ability`
-                  : 'Optional ability',
-              )
-            : undefined
-        }
-        onYes={(stepId) => {
-          if (safeView?.id) {
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId,
-              selections: ['yes'],
-              cancelled: false,
-            });
-          }
-          setMinimizedResolutionStep(null);
-          setMayAbilityModalOpen(false);
-          setMayAbilityModalData(null);
-        }}
-        onNo={(stepId) => {
-          if (safeView?.id) {
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId,
-              selections: ['no'],
-              cancelled: true,
-            });
-          }
-          setMinimizedResolutionStep(null);
-          setMayAbilityModalOpen(false);
-          setMayAbilityModalData(null);
-        }}
-      />
-
-      {/* Casting Mode Selection Modal (Overload, Abundant Harvest, etc.) */}
-      <CastingModeSelectionModal
-        open={resolutionPromptOpen(castingModeModalOpen, castingModeModalData?.resolutionStepId)}
-        cardId={castingModeModalData?.cardId || ''}
-        cardName={castingModeModalData?.cardName || ''}
-        source={castingModeModalData?.source}
-        title={castingModeModalData?.title || ''}
-        description={castingModeModalData?.description || ''}
-        imageUrl={castingModeModalData?.imageUrl}
-        modes={castingModeModalData?.modes || []}
-        effectId={castingModeModalData?.effectId}
-        onConfirm={(selectedMode) => {
-          if (safeView?.id && castingModeModalData) {
-            if (castingModeModalData.resolutionStepId) {
-              socket.emit('submitResolutionResponse', {
-                gameId: safeView.id,
-                stepId: castingModeModalData.resolutionStepId,
-                selections: selectedMode,
-                cancelled: false,
-              });
-            }
-            setCastingModeModalOpen(false);
-            setCastingModeModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (safeView?.id && castingModeModalData?.resolutionStepId && castingModeModalData?.resolutionStepMandatory === false) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: castingModeModalData.resolutionStepId,
-            });
-          }
-          setCastingModeModalOpen(false);
-          setCastingModeModalData(null);
-        }}
-      />
-
-      {/* Modal Spell Selection Modal (Spree, Choose One/Two, Charms, etc.) */}
-      <ModalSpellSelectionModal
-        open={resolutionPromptOpen(modalSpellModalOpen, modalSpellModalData?.resolutionStepId)}
-        cardName={modalSpellModalData?.cardName || ''}
-        imageUrl={modalSpellModalData?.imageUrl}
-        description={modalSpellModalData?.description}
-        modes={modalSpellModalData?.modes || []}
-        modeCount={modalSpellModalData?.modeCount || 1}
-        canChooseAny={modalSpellModalData?.canChooseAny || modalSpellModalData?.isSpree}
-        minModes={modalSpellModalData?.minModes}
-        pBudget={modalSpellModalData?.pBudget}
-        canRepeatModes={modalSpellModalData?.canRepeatModes}
-        onConfirm={(selectedModeIds) => {
-          if (safeView?.id && modalSpellModalData) {
-            if (modalSpellModalData.resolutionStepId) {
-              socket.emit('submitResolutionResponse', {
-                gameId: safeView.id,
-                stepId: modalSpellModalData.resolutionStepId,
-                selections: selectedModeIds,
-                cancelled: false,
-              });
-            }
-            setModalSpellModalOpen(false);
-            setModalSpellModalData(null);
-          }
-        }}
-        onCancel={() => {
-          if (safeView?.id && modalSpellModalData?.resolutionStepId && modalSpellModalData?.mandatory === false) {
-            socket.emit('cancelResolutionStep', {
-              gameId: safeView.id,
-              stepId: modalSpellModalData.resolutionStepId,
-            });
-          }
-          setModalSpellModalOpen(false);
-          setModalSpellModalData(null);
-        }}
-      />
-
-      {/* Replacement Effect Order Modal (Minimize/Maximize/Custom) */}
-      <ReplacementEffectOrderModal
-        open={replacementEffectModalOpen}
-        effectType={replacementEffectModalData?.effectType || 'damage'}
-        effects={replacementEffectModalData?.effects || []}
-        baseAmount={replacementEffectModalData?.baseAmount || 0}
-        initialMode={replacementEffectModalData?.initialMode}
-        onConfirm={(orderedEffects, mode) => {
-          if (safeView?.id && replacementEffectModalData) {
-            socket.emit("setReplacementEffectOrder", {
-              gameId: safeView.id,
-              effectType: replacementEffectModalData.effectType,
-              effectIds: orderedEffects.map(e => e.id),
-              mode,
-              effectId: replacementEffectModalData.effectId,
-            });
-            setReplacementEffectModalOpen(false);
-            setReplacementEffectModalData(null);
-          }
-        }}
-        onCancel={() => {
-          setReplacementEffectModalOpen(false);
-          setReplacementEffectModalData(null);
-        }}
-      />
-
-      {/* Graveyard View Modal */}
-      <GraveyardViewModal
-        open={graveyardModalOpen}
-        cards={useMemo(() => {
-          if (!safeView || !graveyardModalPlayerId) return [];
-          const zones = safeView.zones?.[graveyardModalPlayerId];
-          const graveyard = zones?.graveyard || [];
-          return graveyard.filter((c: any) => c && c.name) as KnownCardRef[];
-        }, [safeView, graveyardModalPlayerId])}
-        playerId={graveyardModalPlayerId || ''}
-        canActivate={you === graveyardModalPlayerId}
-        onClose={() => {
-          setGraveyardModalOpen(false);
-          setGraveyardModalPlayerId(null);
-        }}
-        onActivateAbility={handleGraveyardAbility}
-        playableCards={you === graveyardModalPlayerId ? (safeView as any)?.playableCards : undefined}
-        graveyardAbilityHints={you === graveyardModalPlayerId ? (safeView as any)?.graveyardAbilityHints?.[graveyardModalPlayerId || ''] : undefined}
-        appearanceSettings={appearanceSettings}
-        onIgnoreForPlayability={(cardId, cardName, imageUrl) => {
-          if (safeView?.id) {
-            socket.emit('ignoreCardForAutoPass' as any, {
-              gameId: safeView.id,
-              cardId,
-              cardName,
-              zone: 'graveyard',
-              imageUrl,
-            });
-          }
-        }}
-        onUnignoreForPlayability={(cardId) => {
-          if (safeView?.id) {
-            socket.emit('unignoreCardForAutoPass' as any, {
-              gameId: safeView.id,
-              cardId,
-            });
-          }
-        }}
-        ignoredCardIds={ignoredCardIds}
-      />
-
-      {/* Exile View Modal */}
-      <ExileViewModal
-        open={exileModalOpen}
-        cards={useMemo(() => {
-          if (!safeView || !exileModalPlayerId) return [];
-          const zones = safeView.zones?.[exileModalPlayerId];
-          const exile = zones?.exile || [];
-          return Array.isArray(exile) ? (exile.filter((c: any) => c && c.name) as KnownCardRef[]) : [];
-        }, [safeView, exileModalPlayerId])}
-        playerId={exileModalPlayerId || ''}
-        canActivate={you === exileModalPlayerId}
-        onClose={() => {
-          setExileModalOpen(false);
-          setExileModalPlayerId(null);
-        }}
-        onActivateAbility={handleExileAbility}
-        playableCards={you === exileModalPlayerId ? (safeView as any)?.playableCards : undefined}
-        appearanceSettings={appearanceSettings}
-        onIgnoreForPlayability={(cardId, cardName, imageUrl) => {
-          if (safeView?.id) {
-            socket.emit('ignoreCardForAutoPass' as any, {
-              gameId: safeView.id,
-              cardId,
-              cardName,
-              zone: 'exile',
-              imageUrl,
-            });
-          }
-        }}
-        onUnignoreForPlayability={(cardId) => {
-          if (safeView?.id) {
-            socket.emit('unignoreCardForAutoPass' as any, {
-              gameId: safeView.id,
-              cardId,
-            });
-          }
-        }}
-        ignoredCardIds={ignoredCardIds}
-      />
-
-      {/* Join Forces Modal (Collective Voyage, Minds Aglow, etc.) */}
-      <JoinForcesModal
-        open={resolutionPromptOpen(joinForcesModalOpen, joinForcesRequest?.id)}
-        request={joinForcesRequest}
-        currentPlayerId={you || ''}
-        playerNames={useMemo(() => {
-          const names: Record<string, string> = {};
-          if (safeView?.players) {
-            for (const p of safeView.players) {
-              names[p.id] = p.name || p.id;
-            }
-          }
-          return names;
-        }, [safeView?.players])}
-        responded={joinForcesResponded}
-        contributions={joinForcesContributions}
-        availableMana={useMemo(() => {
-          if (!safeView || !you) return 0;
-          // Count untapped lands as available mana
-          const battlefield = safeView.battlefield || [];
-          const isLandPermanent = (perm: any): boolean => {
-            const card = perm?.card as any;
-            if (!card) return false;
-            const faces = Array.isArray(card.card_faces) ? (card.card_faces as any[]) : null;
-            const layout = String(card.layout || '').toLowerCase();
-            if (faces && faces.length >= 2) {
-              const backOracle = String(faces[1]?.oracle_text || '');
-              const isTransformLike = layout === 'transform' || /transforms from/i.test(backOracle);
-              if (isTransformLike) {
-                const isTransformed = Boolean(perm.transformed);
-                const face = isTransformed ? faces[1] : faces[0];
-                return /\bland\b/i.test(String(face?.type_line || ''));
-              }
-              if (layout === 'modal_dfc') {
-                const selected = card.selectedMDFCFace;
-                if (typeof selected === 'number' && faces[selected]) {
-                  return /\bland\b/i.test(String(faces[selected]?.type_line || ''));
-                }
-              }
-            }
-            return /\bland\b/i.test(String(card.type_line || ''));
-          };
-          return battlefield.filter((p: any) => 
-            p.controller === you && 
-            !p.tapped &&
-            isLandPermanent(p)
-          ).length;
-        }, [safeView, you])}
-        onContribute={handleJoinForcesContribute}
-        onClose={() => setJoinForcesModalOpen(false)}
-      />
-
-      {/* Tempting Offer Modal (Tempt with Reflections, Tempt with Discovery, etc.) */}
-      <TemptingOfferModal
-        open={resolutionPromptOpen(temptingOfferModalOpen, temptingOfferRequest?.id)}
-        request={temptingOfferRequest}
-        currentPlayerId={you || ''}
-        playerNames={useMemo(() => {
-          const names: Record<string, string> = {};
-          if (safeView?.players) {
-            for (const p of safeView.players) {
-              names[p.id] = p.name || p.id;
-            }
-          }
-          return names;
-        }, [safeView?.players])}
-        responded={temptingOfferResponded}
-        acceptedBy={temptingOfferAcceptedBy}
-        onRespond={handleTemptingOfferRespond}
-        onClose={() => setTemptingOfferModalOpen(false)}
-      />
-      
-      {/* Kynaios Choice Modal (Kynaios and Tiro of Meletis style land/draw choice) */}
-      <KynaiosChoiceModal
-        open={resolutionPromptOpen(kynaiosChoiceModalOpen, kynaiosChoiceRequest?.stepId)}
-        request={kynaiosChoiceRequest}
-        controllerName={useMemo(() => {
-          if (!kynaiosChoiceRequest || !safeView?.players) return '';
-          const controller = safeView.players.find(p => p.id === kynaiosChoiceRequest.sourceController);
-          return controller?.name || kynaiosChoiceRequest.sourceController;
-        }, [kynaiosChoiceRequest, safeView?.players])}
-        onRespond={handleKynaiosChoiceRespond}
-      />
-
-      {/* Generic Option Choice Modal (Agitator Ant and similar effects) */}
-      <OptionChoiceModal
-        open={resolutionPromptOpen(optionChoiceModalOpen, optionChoiceRequest?.stepId)}
-        request={optionChoiceRequest}
-        onMinimize={
-          optionChoiceRequest?.stepId
-            ? () => minimizeResolutionStep(
-                optionChoiceRequest.stepId,
-                optionChoiceRequest.sourceName
-                  ? `${optionChoiceRequest.sourceName}: choice`
-                  : 'Pending choice',
-              )
-            : undefined
-        }
-        onRespond={handleOptionChoiceRespond}
-      />
-
-      {/* Two-pile split Modal (separate into two piles) */}
-      <TwoPileSplitModal
-        open={resolutionPromptOpen(twoPileSplitModalOpen, twoPileSplitRequest?.stepId)}
-        request={twoPileSplitRequest}
-        onRespond={(payload) => {
-          if (!safeView?.id || !twoPileSplitRequest) return;
-          socket.emit('submitResolutionResponse', {
-            gameId: safeView.id,
-            stepId: twoPileSplitRequest.stepId,
-            selections: payload,
-            cancelled: false,
-          });
-          setTwoPileSplitModalOpen(false);
-          setTwoPileSplitRequest(null);
-        }}
-      />
-
-      {/* Ponder Modal (Ponder, Index, Telling Time, etc.) */}
-      {resolutionPromptOpen(ponderModalOpen, ponderRequest?.stepId) && ponderRequest && (
-        <PonderModal
-          cards={ponderRequest.cards}
-          cardName={ponderRequest.cardName}
-          cardImageUrl={ponderRequest.cardImageUrl}
-          imagePref={appearanceSettings.imagePref || 'normal'}
-          variant={ponderRequest.variant}
-          canShuffle={ponderRequest.canShuffle}
-          drawAfter={ponderRequest.drawAfter}
-          pickToHand={ponderRequest.pickToHand}
-          targetPlayerId={ponderRequest.targetPlayerId}
-          targetPlayerName={ponderRequest.targetPlayerName}
-          isOwnLibrary={ponderRequest.isOwnLibrary}
-          onConfirm={(payload) => {
-            if (!safeView?.id || !ponderRequest) return;
-            
-            // Use the resolution queue system
-            if (!ponderRequest.stepId) {
-              console.error('[Ponder] Missing stepId - must use resolution queue');
-              return;
-            }
-            
-            socket.emit("submitResolutionResponse", {
-              gameId: safeView.id,
-              stepId: ponderRequest.stepId,
-              selections: {
-                newOrder: payload.newOrder,
-                shouldShuffle: payload.shouldShuffle,
-                toHand: payload.toHand,
-              },
-              cancelled: false,
-            });
-            
-            setPonderModalOpen(false);
-            setPonderRequest(null);
-          }}
-          onCancel={() => {
-            setPonderModalOpen(false);
-            setPonderRequest(null);
-          }}
-        />
-      )}
-
-      {resolutionPromptOpen(limDulsVaultModalOpen, limDulsVaultRequest?.stepId) && limDulsVaultRequest && (
-        <LimDulsVaultModal
-          cards={limDulsVaultRequest.cards}
-          cardName={limDulsVaultRequest.cardName}
-          cardImageUrl={limDulsVaultRequest.cardImageUrl}
-          imagePref={appearanceSettings.imagePref || 'normal'}
-          currentLife={limDulsVaultRequest.currentLife}
-          totalLifePaid={limDulsVaultRequest.totalLifePaid}
-          onContinue={(orderedIds) => {
-            if (!safeView?.id || !limDulsVaultRequest) return;
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: limDulsVaultRequest.stepId,
-              selections: {
-                action: 'continue',
-                orderedIds,
-              },
-              cancelled: false,
-            });
-            setLimDulsVaultModalOpen(false);
-            setLimDulsVaultRequest(null);
-          }}
-          onFinish={(orderedIds) => {
-            if (!safeView?.id || !limDulsVaultRequest) return;
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: limDulsVaultRequest.stepId,
-              selections: {
-                action: 'finish',
-                orderedIds,
-              },
-              cancelled: false,
-            });
-            setLimDulsVaultModalOpen(false);
-            setLimDulsVaultRequest(null);
-          }}
-        />
-      )}
-
-      {resolutionPromptOpen(danceWithCalamityModalOpen, danceWithCalamityRequest?.stepId) && danceWithCalamityRequest && (
-        <DanceWithCalamityModal
-          cardName={danceWithCalamityRequest.cardName}
-          cardImageUrl={danceWithCalamityRequest.cardImageUrl}
-          imagePref={appearanceSettings.imagePref || 'normal'}
-          exiledCards={danceWithCalamityRequest.exiledCards}
-          totalManaValue={danceWithCalamityRequest.totalManaValue}
-          canContinue={danceWithCalamityRequest.canContinue}
-          onContinue={() => {
-            if (!safeView?.id || !danceWithCalamityRequest) return;
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: danceWithCalamityRequest.stepId,
-              selections: {
-                action: 'continue',
-              },
-              cancelled: false,
-            });
-            setDanceWithCalamityModalOpen(false);
-            setDanceWithCalamityRequest(null);
-          }}
-          onStop={() => {
-            if (!safeView?.id || !danceWithCalamityRequest) return;
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: danceWithCalamityRequest.stepId,
-              selections: {
-                action: 'stop',
-              },
-              cancelled: false,
-            });
-            setDanceWithCalamityModalOpen(false);
-            setDanceWithCalamityRequest(null);
-          }}
-        />
-      )}
-
-      {resolutionPromptOpen(danceWithCalamityCastModalOpen, danceWithCalamityCastRequest?.stepId) && danceWithCalamityCastRequest && (
-        <DanceWithCalamityCastModal
-          cardName={danceWithCalamityCastRequest.cardName}
-          cardImageUrl={danceWithCalamityCastRequest.cardImageUrl}
-          imagePref={appearanceSettings.imagePref || 'normal'}
-          exiledCards={danceWithCalamityCastRequest.exiledCards}
-          spellCards={danceWithCalamityCastRequest.spellCards}
-          totalManaValue={danceWithCalamityCastRequest.totalManaValue}
-          onConfirm={(orderedSpellIds) => {
-            if (!safeView?.id || !danceWithCalamityCastRequest) return;
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: danceWithCalamityCastRequest.stepId,
-              selections: {
-                orderedSpellIds,
-              },
-              cancelled: false,
-            });
-            setDanceWithCalamityCastModalOpen(false);
-            setDanceWithCalamityCastRequest(null);
-          }}
-        />
-      )}
-      
-      {/* Cascade Modal */}
-      {resolutionPromptOpen(cascadeModalOpen, cascadePrompt?.stepId) && cascadePrompt && (
-        <CascadeModal
-          open={cascadeModalOpen}
-          sourceName={cascadePrompt.sourceName}
-          cascadeNumber={cascadePrompt.cascadeNumber}
-          totalCascades={cascadePrompt.totalCascades}
-          hitCard={cascadePrompt.hitCard}
-          exiledCards={cascadePrompt.exiledCards}
-          onCast={() => {
-            if (!safeView?.id || !cascadePrompt) return;
-            socket.emit("submitResolutionResponse", {
-              gameId: safeView.id,
-              stepId: cascadePrompt.stepId,
-              selections: 'cast',  // String value for clarity
-              cancelled: false,
-            });
-            setCascadeModalOpen(false);
-            setCascadePrompt(null);
-          }}
-          onDecline={() => {
-            if (!safeView?.id || !cascadePrompt) return;
-            socket.emit("submitResolutionResponse", {
-              gameId: safeView.id,
-              stepId: cascadePrompt.stepId,
-              selections: 'decline',  // String value for clarity
-              cancelled: false,
-            });
-            setCascadeModalOpen(false);
-            setCascadePrompt(null);
-          }}
-        />
-      )}
-
-      {/* Mutate Target Selection Modal */}
-      <MutateTargetModal
-        open={resolutionPromptOpen(mutateModalOpen, mutateModalData?.stepId)}
-        mutatingCard={{
-          id: mutateModalData?.cardId || '',
-          name: mutateModalData?.cardName || '',
-          imageUrl: mutateModalData?.imageUrl,
-          power: mutateModalData?.power,
-          toughness: mutateModalData?.toughness,
-          mutateCost: mutateModalData?.mutateCost || '',
-        }}
-        targets={mutateModalData?.targets || []}
-        onConfirm={(targetId, onTop) => {
-          if (!safeView?.id || !mutateModalData?.stepId) return;
-          socket.emit('submitResolutionResponse', {
-            gameId: safeView.id,
-            stepId: mutateModalData.stepId,
-            selections: {
-              targetPermanentId: targetId,
-              onTop,
-            },
-            cancelled: false,
-          });
-          setMutateModalOpen(false);
-          setMutateModalData(null);
-        }}
-        onCancel={() => {
-          if (safeView?.id && mutateModalData?.stepId && mutateModalData.mandatory) {
-            socket.emit('cancelResolutionStep', { gameId: safeView.id, stepId: mutateModalData.stepId });
-          }
-          setMutateModalOpen(false);
-          setMutateModalData(null);
-        }}
-      />
-
-      {/* Graveyard Selection Modal */}
-      <GraveyardSelectionModal
-        open={resolutionPromptOpen(graveyardSelectionModalOpen, graveyardSelectionModalData?.stepId)}
-        title={graveyardSelectionModalData?.title || 'Select from Graveyard'}
-        description={graveyardSelectionModalData?.description || ''}
-        sourceCard={graveyardSelectionModalData?.sourceCard}
-        validTargets={graveyardSelectionModalData?.validTargets || []}
-        minTargets={graveyardSelectionModalData?.minTargets ?? 0}
-        maxTargets={graveyardSelectionModalData?.maxTargets ?? 0}
-        onConfirm={(selectedIds) => {
-          if (!safeView?.id || !graveyardSelectionModalData?.stepId) return;
-          socket.emit('submitResolutionResponse', {
-            gameId: safeView.id,
-            stepId: graveyardSelectionModalData.stepId,
-            selections: { selectedCardIds: selectedIds },
-            cancelled: false,
-          });
-          setGraveyardSelectionModalOpen(false);
-          setGraveyardSelectionModalData(null);
-        }}
-        onCancel={() => {
-          if (!safeView?.id || !graveyardSelectionModalData?.stepId) {
-            setGraveyardSelectionModalOpen(false);
-            setGraveyardSelectionModalData(null);
-            return;
-          }
-
-          if (graveyardSelectionModalData.mandatory) {
-            socket.emit('cancelResolutionStep', { gameId: safeView.id, stepId: graveyardSelectionModalData.stepId });
-          } else {
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: graveyardSelectionModalData.stepId,
-              selections: {},
-              cancelled: true,
-            });
-          }
-
-          setGraveyardSelectionModalOpen(false);
-          setGraveyardSelectionModalData(null);
-        }}
-      />
-
-      {/* Deck Validation Status */}
-      {deckValidation && !deckValidation.valid && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 16,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fca5a5',
-            borderRadius: 8,
-            padding: '12px 16px',
-            zIndex: 9000,
-            maxWidth: 400,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <span style={{ fontWeight: 600, color: '#dc2626' }}>
-              ⚠️ Deck Validation Issues
-            </span>
-            <button
-              onClick={() => setDeckValidation(null)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666' }}
-            >
-              ×
-            </button>
-          </div>
-          <div style={{ fontSize: 12, color: '#7f1d1d' }}>
-            {deckValidation.illegal.slice(0, 3).map((i, idx) => (
-              <div key={idx}>• {i.name}: {i.reason}</div>
-            ))}
-            {deckValidation.illegal.length > 3 && (
-              <div>...and {deckValidation.illegal.length - 3} more</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Ignored Triggers Panel - Separate, persistent UI for viewing/managing auto-resolved triggers */}
-      <IgnoredTriggersPanel
-        ignoredSources={ignoredTriggerSources}
-        onStopIgnoring={handleStopIgnoringSource}
-        you={you || undefined}
-      />
-
-      {/* Priority Modal - Shows when you gain priority and can respond */}
-      <PriorityModal
-        open={priorityModalOpen}
-        step={(safeView as any)?.step || ''}
-        phase={(safeView as any)?.phase || ''}
-        onTake={() => {
-          setPriorityModalOpen(false);
-          // Player wants to take action - notify server to prevent auto-pass
-          if (safeView && you) {
-            socket.emit("claimPriority", { gameId: safeView.id });
-          }
-        }}
-        onPass={() => {
-          setPriorityModalOpen(false);
-          if (safeView && you) {
-            socket.emit("passPriority", { gameId: safeView.id, by: you });
-          }
-        }}
-        isOpponentsTurn={Boolean(you && safeView?.turnPlayer && safeView.turnPlayer !== you)}
-        onPassEmptyStackForTurn={() => {
-          setPriorityModalOpen(false);
-          if (safeView && you) {
-            socket.emit('setAutoPassEmptyStackForTurn', {
-              gameId: safeView.id,
-              enabled: true,
-            });
-          }
-        }}
-        autoPassSteps={autoPassSteps}
-        onToggleAutoPass={handleToggleAutoPass}
-      />
-
-      {/* Auto-Pass Settings Panel & Trigger Shortcuts - Draggable container in bottom-right */}
-      {!showUtilityRail && safeView && you && (
-        <DraggableSettingsPanel>
-          <AutoPassSettingsPanel
-            autoPassSteps={autoPassSteps}
-            onToggleAutoPass={handleToggleAutoPass}
-            onClearAll={handleClearAllAutoPass}
-            onSelectAll={handleSelectAllAutoPass}
-            isSinglePlayer={
-              // Single player mode: not in pre-game AND only 1 active (non-spectator, non-inactive) player
-              !isPreGame && 
-              (safeView.players || []).filter((p: any) => !p.spectator && !p.inactive).length === 1
-            }
-            onToggleAutoPassForTurn={handleToggleAutoPassForTurn}
-            autoPassForTurnEnabled={autoPassForTurn}
-            autoPassEmptyStackOnOpponentsTurnEnabled={autoPassEmptyStackOnOpponentsTurn}
-            onToggleAutoPassEmptyStackOnOpponentsTurn={handleToggleAutoPassEmptyStackOnOpponentsTurn}
-          />
-          {/* Trigger Shortcuts Button */}
-          <button
-            onClick={() => setShowTriggerShortcuts(true)}
-            style={{
-              marginTop: 8,
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: 6,
-              border: '1px solid #444',
-              backgroundColor: '#2a2a2a',
-              color: '#fff',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-              fontSize: 13,
-            }}
-            title="Configure auto-responses for Smothering Tithe, Rhystic Study, etc."
-          >
-            ⚡ Trigger Shortcuts
-          </button>
-
-          <button
-            onClick={() => setShowLoopShortcutPanel(prev => !prev)}
-            style={{
-              marginTop: 8,
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: 6,
-              border: '1px solid #444',
-              backgroundColor: showLoopShortcutPanel ? '#1e3a8a' : '#2a2a2a',
-              color: '#fff',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-              fontSize: 13,
-            }}
-            title="Record and replay a manual action line against live legal targets"
-          >
-            ↻ Loop Shortcuts
-          </button>
-
-          <LoopShortcutPanel
-            open={showLoopShortcutPanel}
-            onClose={() => setShowLoopShortcutPanel(false)}
-            isRecording={isLoopShortcutRecording}
-            isRunning={isLoopShortcutRunning}
-            items={loopShortcutItems}
-            shortcutName={loopShortcutName}
-            savedShortcuts={savedLoopShortcuts}
-            iterationCount={loopShortcutIterations}
-            onShortcutNameChange={setLoopShortcutName}
-            onIterationCountChange={(count) => setLoopShortcutIterations(clampLoopShortcutIterations(count))}
-            onStartRecording={handleStartLoopShortcutRecording}
-            onStopRecording={handleStopLoopShortcutRecording}
-            onRun={handleRunLoopShortcut}
-            onClear={handleClearLoopShortcut}
-            onSaveShortcut={handleSaveLoopShortcut}
-            onLoadShortcut={handleLoadSavedLoopShortcut}
-            onDeleteShortcut={handleDeleteSavedLoopShortcut}
-            statusText={loopShortcutStatusText}
-          />
-        </DraggableSettingsPanel>
-      )}
-
-      {/* Replacement Effect Settings Panel - Allows customizing effect ordering */}
-      {safeView && you && (
-        <ReplacementEffectSettingsPanel
-          gameId={safeView.id}
-          playerId={you}
-          open={replacementEffectSettingsOpen}
-          onClose={() => setReplacementEffectSettingsOpen(false)}
-        />
-      )}
-
-      {/* Trigger Shortcuts Panel - Allows setting auto-responses for Smothering Tithe, etc. */}
-      {safeView && you && (
-        <TriggerShortcutsPanel
-          isOpen={showTriggerShortcuts}
-          onClose={() => setShowTriggerShortcuts(false)}
-          socket={socket}
-          gameId={safeView.id}
-          playerId={you}
-          currentShortcuts={(safeView as any).triggerShortcuts?.[you] || []}
-          activeCards={safeView.battlefield?.map((p: any) => p.card?.name || '').filter(Boolean) || []}
-        />
-      )}
-
-      {safeView && (
-        <GameCommunicationsPanel
-          chatMessages={chat}
-          gameLogEntries={gameLogEntries}
-          onSendChat={sendChat}
-          resolvePlayerName={resolvePlayerName}
-          bottomInset={showMobileChrome ? mobilePlayLayout.playAreaBottomInset : 0}
-        />
-      )}
-
-      {/* Ignored Cards Panel - Shows cards ignored for auto-pass */}
-      {safeView && you && ignoredCards.length > 0 && (
-        <IgnoredCardsPanel
-          ignoredCards={ignoredCards}
-          you={you}
-          onUnignore={(cardId) => {
-            socket.emit('unignoreCardForAutoPass' as any, {
-              gameId: safeView.id,
-              cardId,
-            });
-          }}
-          onClearAll={() => {
-            socket.emit('clearIgnoredCards' as any, {
-              gameId: safeView.id,
-            });
-          }}
-        />
-      )}
-
-      {/* May auto preferences (Always No / Always Yes / No until targets change) */}
-      {safeView && you && mayAutoPreferenceEntries.length > 0 && (
-        <MayAutoPreferencesPanel
-          preferences={mayAutoPreferenceEntries}
-          you={you}
-          onClear={(effectKey) => {
-            socket.emit('setMayAutoPreference', {
-              gameId: safeView.id,
-              effectKey,
-              value: null,
-            });
-          }}
-          onClearAll={() => {
-            for (const entry of mayAutoPreferenceEntries) {
-              socket.emit('setMayAutoPreference', {
-                gameId: safeView.id,
-                effectKey: entry.effectKey,
-                value: null,
-              });
-            }
-          }}
-        />
-      )}
-    </div>
-  );
+  return renderAppPlayShell({
+        activeResolutionPrompt,
+        additionalCostModalData,
+        additionalCostModalOpen,
+        aiControlEnabled,
+        aiStrategy,
+        allPlayersHaveDecks,
+        allPlayersKeptHands,
+        anyColorManaModalData,
+        anyColorManaModalOpen,
+        appearanceModalOpen,
+        appearanceSettings,
+        attackingCreatures,
+        autoPassEmptyStackOnOpponentsTurn,
+        autoPassForTurn,
+        autoPassSteps,
+        autoYesOptional,
+        availableUndoCount,
+        batchExploreIndividual,
+        batchExplorePrompt,
+        battlefieldAlternateCosts,
+        canKeepHand,
+        canMulligan,
+        canPass,
+        canUnkeepHand,
+        cardNameChoiceModalData,
+        cardNameChoiceModalOpen,
+        cascadeModalOpen,
+        cascadePrompt,
+        castSpellModalOpen,
+        castSpellPaymentSources,
+        castingModeModalData,
+        castingModeModalOpen,
+        chat,
+        clashData,
+        clashModalOpen,
+        clearPlayerFocus,
+        cmdModalOpen,
+        cmdSuggestedGameId,
+        cmdSuggestedNames,
+        colorChoiceModalData,
+        colorChoiceModalOpen,
+        combatControlEffect,
+        combatControlModalOpen,
+        combatControlMode,
+        combatModalAttackersAvailableCreatures,
+        combatModalAttackersDefenders,
+        combatModalError,
+        combatModalInitialAttackTargets,
+        combatModalMinimized,
+        combatModalOpen,
+        combatModalReadOnly,
+        combatMode,
+        combatPreviewAttackTargets,
+        combatPreviewEmitTimerRef,
+        combatPreviewPendingRef,
+        confirmId,
+        confirmOpen,
+        confirmPayload,
+        confirmVotes,
+        connected,
+        counterDistributionModalData,
+        counterDistributionModalOpen,
+        counterMovementModalData,
+        counterMovementModalOpen,
+        createGameModalOpen,
+        creatureTypeModalData,
+        creatureTypeModalOpen,
+        damageReplacementEffectActiveCount,
+        damageReplacementMode,
+        danceWithCalamityCastModalOpen,
+        danceWithCalamityCastRequest,
+        danceWithCalamityModalOpen,
+        danceWithCalamityRequest,
+        debugData,
+        debugLoading,
+        debugOpen,
+        deckBuilderInitialAction,
+        deckBuilderOpen,
+        deckValidation,
+        defenderInfoMap,
+        defenders,
+        discardAnyNumber,
+        discardCount,
+        discardCurrentHandSize,
+        discardMaxCount,
+        discardMaxHandSize,
+        discardMinCount,
+        discardModalOpen,
+        discardResolutionDescription,
+        discardResolutionHand,
+        discardResolutionReason,
+        discardResolutionStepId,
+        discardResolutionTitle,
+        effectiveGameId,
+        exileModalOpen,
+        exileModalPlayerId,
+        explorePrompt,
+        fatesealData,
+        fatesealModalOpen,
+        fetchDebug,
+        fightTargetModalData,
+        fightTargetModalOpen,
+        focusedPlayerId,
+        gameIdInput,
+        gameLogEntries,
+        gameOverData,
+        gameOverModalOpen,
+        graveyardModalOpen,
+        graveyardModalPlayerId,
+        graveyardSelectionModalData,
+        graveyardSelectionModalOpen,
+        handleAppearanceSettingsApply,
+        handleCastCommander,
+        handleCastSpellCancel,
+        handleCastSpellConfirm,
+        handleClashConfirm,
+        handleClearAllAutoPass,
+        handleClearLoopShortcut,
+        handleCommanderConfirm,
+        handleCreateGame,
+        handleDeckMgrOpenChange,
+        handleDeclareAttackers,
+        handleDeclareBlockers,
+        handleDeclareControlledCombat,
+        handleDeleteSavedLoopShortcut,
+        handleExileAbility,
+        handleFatesealConfirm,
+        handleFocusPlayer,
+        handleGraveyardAbility,
+        handleHideawayChoiceCancel,
+        handleHideawayChoiceConfirm,
+        handleIgnoreTriggerSourceFromStack,
+        handleJoin,
+        handleJoinForcesContribute,
+        handleKynaiosChoiceRespond,
+        handleLibrarySearchCancel,
+        handleLibrarySearchCastWhileSearching,
+        handleLibrarySearchConfirm,
+        handleLifeRedistributionConfirm,
+        handleLoadSavedLoopShortcut,
+        handleLocalImportConfirmChange,
+        handleOpenUndoMenu,
+        handleOpeningHandActionsConfirm,
+        handleOpeningHandActionsSkip,
+        handleOptionChoiceRespond,
+        handleOrderTriggersConfirm,
+        handleProliferateConfirm,
+        handleRequestUndo,
+        handleRequestUndoTurnPhaseTargets,
+        handleReturnControlledPermanentSelect,
+        handleRunLoopShortcut,
+        handleSaveLoopShortcut,
+        handleSelectAllAutoPass,
+        handleSkipCombat,
+        handleSplitCardCancel,
+        handleSplitCardChoose,
+        handleStartLoopShortcutRecording,
+        handleStopIgnoringSource,
+        handleStopLoopShortcutRecording,
+        handleTargetCancel,
+        handleTargetConfirm,
+        handleTemptingOfferRespond,
+        handleToggleAIControl,
+        handleToggleAutoPass,
+        handleToggleAutoPassEmptyStackOnOpponentsTurn,
+        handleToggleAutoPassForTurn,
+        handleToggleAutoYesOptional,
+        handleUndoApprove,
+        handleUndoCancel,
+        handleUndoReject,
+        handleUndoToTurnPhase,
+        handleUseTopOfLibrary,
+        handleViewExile,
+        handleViewGraveyard,
+        handleVoteConfirm,
+        hasKeptHand,
+        hideawayChoiceData,
+        hideawayChoiceModalOpen,
+        ignoredCardIds,
+        ignoredCards,
+        ignoredTriggerSources,
+        imagePref,
+        importedCandidates,
+        isLoopShortcutRecording,
+        isLoopShortcutRunning,
+        isPreGame,
+        isResolutionStepMinimized,
+        isTable,
+        isYouPlayer,
+        joinCollapsed,
+        joinForcesContributions,
+        joinForcesModalOpen,
+        joinForcesRequest,
+        joinForcesResponded,
+        joinFromList,
+        kynaiosChoiceModalOpen,
+        kynaiosChoiceRequest,
+        layout,
+        leaveGame,
+        librarySearchData,
+        librarySearchModalOpen,
+        lifePaymentModalData,
+        lifePaymentModalOpen,
+        lifeRedistributionData,
+        lifeRedistributionModalOpen,
+        limDulsVaultModalOpen,
+        limDulsVaultRequest,
+        loopShortcutConsentPrompt,
+        loopShortcutItems,
+        loopShortcutIterations,
+        loopShortcutName,
+        loopShortcutStatusText,
+        manaDistributionModalData,
+        manaDistributionModalOpen,
+        manaPool,
+        mayAbilityModalData,
+        mayAbilityModalOpen,
+        mayAutoPreferenceEntries,
+        minimizeResolutionStep,
+        minimizedResolutionStep,
+        missingImport,
+        mobilePlayLayout,
+        mobilePlaySheet,
+        modalSpellModalData,
+        modalSpellModalOpen,
+        mulliganBottomCount,
+        mulliganBottomModalOpen,
+        mulliganBottomStepId,
+        mulligansTaken,
+        mutateModalData,
+        mutateModalOpen,
+        myBlockerCreatures,
+        myCreatures,
+        myPendingResolutionCount,
+        nameInUsePayload,
+        nameInput,
+        needsDeckImport,
+        openSplitCardChoice,
+        openingHandActionsModalOpen,
+        openingHandActionsStepId,
+        opponentMayPayPrompt,
+        opponentMayPayStepId,
+        optionChoiceModalOpen,
+        optionChoiceRequest,
+        peek,
+        pendingBottomCount,
+        pendingSpellXSelection,
+        pendingTriggers,
+        phaseAdvanceBlockReason,
+        phyrexianManaModalData,
+        phyrexianManaModalOpen,
+        pickRandomDeck,
+        pickingRandomDeck,
+        playLandWithPromptSync,
+        playerFocusOrder,
+        ponderModalOpen,
+        ponderRequest,
+        priority,
+        priorityModalOpen,
+        proliferateData,
+        proliferateModalOpen,
+        randomDeckError,
+        randomDeckMessage,
+        reasonCannotCast,
+        reasonCannotPlayLand,
+        refreshSavedDecks,
+        replacementEffectModalData,
+        replacementEffectModalOpen,
+        replacementEffectSettingsOpen,
+        requestCastSpellWithPromptSync,
+        requestImportDeck,
+        requestUseSavedDeck,
+        resolutionPlayerChoiceModalData,
+        resolutionPlayerChoiceModalOpen,
+        resolutionPlayerNames,
+        resolutionPromptOpen,
+        resolvePlayerName,
+        respondToConfirm,
+        restoreResolutionStep,
+        returnControlledPermanentData,
+        returnControlledPermanentModalOpen,
+        safeView,
+        savedDecks,
+        savedLoopShortcuts,
+        scheduleResolutionPromptNudge,
+        sendChat,
+        setAdditionalCostModalData,
+        setAdditionalCostModalOpen,
+        setAnyColorManaModalData,
+        setAnyColorManaModalOpen,
+        setAppearanceModalOpen,
+        setBatchExploreIndividual,
+        setBatchExplorePrompt,
+        setCardNameChoiceModalData,
+        setCardNameChoiceModalOpen,
+        setCascadeModalOpen,
+        setCascadePrompt,
+        setCastingModeModalData,
+        setCastingModeModalOpen,
+        setCmdModalOpen,
+        setColorChoiceModalData,
+        setColorChoiceModalOpen,
+        setCombatModalMinimized,
+        setCounterDistributionModalData,
+        setCounterDistributionModalOpen,
+        setCounterMovementModalData,
+        setCounterMovementModalOpen,
+        setCreateGameModalOpen,
+        setCreatureTypeModalData,
+        setCreatureTypeModalOpen,
+        setDamageReplacementMode,
+        setDanceWithCalamityCastModalOpen,
+        setDanceWithCalamityCastRequest,
+        setDanceWithCalamityModalOpen,
+        setDanceWithCalamityRequest,
+        setDebugOpen,
+        setDeckBuilderInitialAction,
+        setDeckBuilderOpen,
+        setDeckValidation,
+        setDiscardAnyNumber,
+        setDiscardCount,
+        setDiscardCurrentHandSize,
+        setDiscardMaxCount,
+        setDiscardMaxHandSize,
+        setDiscardMinCount,
+        setDiscardModalOpen,
+        setDiscardResolutionDescription,
+        setDiscardResolutionHand,
+        setDiscardResolutionReason,
+        setDiscardResolutionStepId,
+        setDiscardResolutionTitle,
+        setExileModalOpen,
+        setExileModalPlayerId,
+        setExplorePrompt,
+        setFatesealData,
+        setFatesealModalOpen,
+        setFightTargetModalData,
+        setFightTargetModalOpen,
+        setGameIdInput,
+        setGraveyardModalOpen,
+        setGraveyardModalPlayerId,
+        setGraveyardSelectionModalData,
+        setGraveyardSelectionModalOpen,
+        setJoinCollapsed,
+        setJoinForcesModalOpen,
+        setLifePaymentModalData,
+        setLifePaymentModalOpen,
+        setLimDulsVaultModalOpen,
+        setLimDulsVaultRequest,
+        setLoopShortcutConsentPrompt,
+        setLoopShortcutIterations,
+        setLoopShortcutName,
+        setManaDistributionModalData,
+        setManaDistributionModalOpen,
+        setMayAbilityModalData,
+        setMayAbilityModalOpen,
+        setMinimizedResolutionStep,
+        setMissingImport,
+        setMobilePlaySheet,
+        setModalSpellModalData,
+        setModalSpellModalOpen,
+        setMulliganBottomCount,
+        setMulliganBottomLastSubmittedStepId,
+        setMulliganBottomModalOpen,
+        setMulliganBottomStepId,
+        setMutateModalData,
+        setMutateModalOpen,
+        setNameInUsePayload,
+        setNameInput,
+        setOpponentMayPayPrompt,
+        setOpponentMayPayStepId,
+        setPeek,
+        setPendingSpellXSelection,
+        setPhaseNavigatorAdvancing,
+        setPhyrexianManaModalData,
+        setPhyrexianManaModalOpen,
+        setPonderModalOpen,
+        setPonderRequest,
+        setPriorityModalOpen,
+        setReplacementEffectModalData,
+        setReplacementEffectModalOpen,
+        setReplacementEffectSettingsOpen,
+        setResolutionPlayerChoiceModalData,
+        setResolutionPlayerChoiceModalOpen,
+        setShowLoopShortcutPanel,
+        setShowNameInUseModal,
+        setShowTriggerShortcuts,
+        setSquadCostModalData,
+        setSquadCostModalOpen,
+        setStationCreatureSelectionData,
+        setStationCreatureSelectionOpen,
+        setTableDeckMgrOpen,
+        setTapUntapTargetModalData,
+        setTapUntapTargetModalOpen,
+        setTemptingOfferModalOpen,
+        setTopDeckMgrAnchorEl,
+        setTwoPileSplitModalOpen,
+        setTwoPileSplitRequest,
+        setUtilityRailCollapsed,
+        showCommanderGallery,
+        showExpandedUtilityRail,
+        showLoopShortcutPanel,
+        showMobileChrome,
+        showMulliganUI,
+        showNameInUseModal,
+        showTableMulliganUI,
+        showTopPanelPregameActions,
+        showTriggerShortcuts,
+        showUtilityRail,
+        smartUndoCounts,
+        spellToCast,
+        splitCardData,
+        splitCardModalOpen,
+        squadCostModalData,
+        squadCostModalOpen,
+        stationCreatureSelectionData,
+        stationCreatureSelectionOpen,
+        tableDeckMgrOpen,
+        tapUntapTargetModalData,
+        tapUntapTargetModalOpen,
+        targetModalData,
+        targetModalOpen,
+        temptingOfferAcceptedBy,
+        temptingOfferModalOpen,
+        temptingOfferRequest,
+        temptingOfferResponded,
+        textColors,
+        topDeckMgrAnchorEl,
+        triggerModalOpen,
+        triggerOrderStepId,
+        twoPileSplitModalOpen,
+        twoPileSplitRequest,
+        undoModalOpen,
+        undoRequestData,
+        undoTurnPhaseTargets,
+        utilityRailCollapsed,
+        view,
+        voteData,
+        voteModalOpen,
+        you,
+        yourHandCards,
+        yourHandCount,
+        yourLibraryCount,
+        yourTurnBannerVisible,
+  });
 }
 
 export default App;

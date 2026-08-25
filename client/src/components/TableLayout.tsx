@@ -12,230 +12,32 @@ import type {
   CommanderInfo,
   GameID,
   KnownCardRef,
-  CardRef,
   ClientGameView,
   CardCostAdjustment,
   ManaPool,
 } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
-import { AttachmentLines } from './AttachmentLines';
-import { HandGallery } from './HandGallery';
-import { ZoneCardContextMenu, type ZoneType } from './ZoneCardContextMenu';
-import { LandRow } from './LandRow';
-import { ZonesPiles } from './ZonesPiles';
-import { FreeField } from './FreeField';
+import { ZoneCardContextMenu } from './ZoneCardContextMenu';
 import { DeckManagerModal } from './DeckManagerModal';
 import { CentralStack } from './CentralStack';
-import { FloatingManaPool } from './FloatingManaPool';
-import { CommanderDamagePopover } from './CommanderDamagePopover';
-import { TokenGroups } from './TokenGroups';
 import { XValueSelectionModal } from './XValueSelectionModal';
 import { socket } from '../socket';
 import { parseActivatedAbilities, type ParsedActivatedAbility } from '../utils/activatedAbilityParser';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
-import { getPlayAreaGradientStyle, getBackgroundStyle, getPlayableCardHighlight } from '../utils/appearanceSettings';
+import { getPlayAreaGradientStyle, getBackgroundStyle } from '../utils/appearanceSettings';
 import { battlefieldGridContentHeightForRows } from '../utils/battlefieldGrid';
 import { useMobilePlayLayout } from '../hooks/useMobilePlayLayout';
-import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
-import { stripCreateTokenGrantedAbilities } from '../../../rules-engine/src/oracleReminderText';
+import {
+  clamp,
+  getTotalFloatingMana,
+  sidePlan,
+  buildPositions,
+  computeExtents,
+  type PlayerBoard,
+} from './TableLayout-handlers/tableLayoutGeometry';
+import { useTableLayoutViewport } from './TableLayout-handlers/useTableLayoutViewport';
+import { renderTableLayoutPlayerSeat } from './TableLayout-handlers/tableLayoutPlayerSeat';
 
-const BATTLEFIELD_EXPAND_STORAGE_KEY = 'mtgedh:battlefieldExpanded';
-const ABILITY_BADGES_STORAGE_KEY = 'mtgedh:showAbilityBadges';
-
-function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
-function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
-function rotatePoint(x: number, y: number, deg: number) {
-  const rad = (deg * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  return {
-    x: x * cos - y * sin,
-    y: x * sin + y * cos,
-  };
-}
-
-function getTotalFloatingMana(manaPool?: ManaPool | null) {
-  if (!manaPool) return 0;
-
-  const unrestricted =
-    Number(manaPool.white || 0) +
-    Number(manaPool.blue || 0) +
-    Number(manaPool.black || 0) +
-    Number(manaPool.red || 0) +
-    Number(manaPool.green || 0) +
-    Number(manaPool.colorless || 0) +
-    Number(manaPool.generic || 0);
-  const restricted = Array.isArray(manaPool.restricted)
-    ? manaPool.restricted.reduce((sum, entry) => sum + Number(entry?.amount || 0), 0)
-    : 0;
-
-  return unrestricted + restricted;
-}
-
-// Minimum zoom for initial board fit when joining a game.
-// Higher than manual zoom limits (0.15-0.2) to ensure UI elements are readable.
-const MIN_INITIAL_ZOOM = 0.7;
-
-/**
- * Identifies mana sources (mana rocks and mana dorks).
- * Mana rocks: Artifacts that produce mana (e.g., Sol Ring, Mana Crypt, signets)
- * Mana dorks: Creatures that produce mana (e.g., Llanowar Elves, Birds of Paradise)
- */
-function stripCreateTokenTypeReminders(oracleText: string): string {
-  // Prefer shared create-token strip so Vibranium/Treasure reminders never look like mana abilities.
-  return stripCreateTokenGrantedAbilities(String(oracleText || ''));
-}
-
-function isManaSource(perm: BattlefieldPermanent): boolean {
-  const card = perm.card as any;
-  if (!card) return false;
-  const typeLine = (card.type_line || '').toLowerCase();
-  const name = (card.name || '').toLowerCase();
-  const oracleText = stripCreateTokenTypeReminders(card.oracle_text || '').toLowerCase();
-  
-  // Don't classify lands as mana sources here - they're handled separately
-  if (typeLine.includes('land')) return false;
-  
-  // Common mana rock patterns
-  const manaArtifacts = [
-    'sol ring', 'mana crypt', 'mana vault', 'grim monolith', 'lotus petal',
-    'chrome mox', 'mox diamond', 'mox opal', 'mox amber', 'lion\'s eye diamond',
-    'jeweled lotus', 'arcane signet', 'signet', 'talisman', 'fellwar stone',
-    'mind stone', 'thought vessel', 'commander\'s sphere', 'gilded lotus',
-    'thran dynamo', 'basalt monolith', 'worn powerstone', 'hedron archive',
-    'everflowing chalice', 'astral cornucopia', 'coalition relic',
-  ];
-  
-  // Common mana dork patterns
-  const manaDorks = [
-    'llanowar elves', 'elvish mystic', 'fyndhorn elves', 'birds of paradise',
-    'noble hierarch', 'bloom tender', 'priest of titania', 'elvish archdruid',
-    'deathrite shaman', 'sylvan caryatid', 'paradise druid', 'incubation druid',
-  ];
-  
-  // Cards that are NOT mana sources even though they mention mana/tokens
-  // These create tokens or have triggered abilities, not tap abilities
-  const notManaSources = [
-    "t'challa",             // Creates Vibranium tokens; reminder text has {T}: Add
-    'shuri',                // Creates Vibranium tokens / related
-    'skullport merchant',   // Creates treasure on ETB, has sacrifice ability
-    'tireless provisioner', // Landfall creates food/treasure tokens
-    'feldon of the third path', // Creates token copies, not mana
-    'treasure nabber',      // Steals treasures, doesn't produce mana itself
-    'dockside extortionist', // ETB creates treasures, not a tap ability
-    'smothering tithe',     // Creates treasures on opponent draw
-    'pitiless plunderer',   // Creates treasures when creatures die
-    'revel in riches',      // Creates treasures when opponents' creatures die
-    'goldspan dragon',      // Creates treasures on attack/targeting
-    'professional face-breaker', // Creates treasures on combat damage
-    'monologue tax',        // Creates treasures when opponent casts 2nd spell
-    'ruthless technomancer', // ETB creates treasures
-    'storm-kiln artist',    // Creates treasures on casting spells
-    'academy manufactor',   // Multiplies food/clue/treasure creation
-    'westvale abbey',       // Land that transforms, not a mana source
-    'chitterspitter',       // Creates tokens, has activated ability
-  ];
-  
-  // Check if this is in the exclusion list
-  for (const excluded of notManaSources) {
-    if (name.includes(excluded)) return false;
-  }
-  
-  // Check by name
-  for (const pattern of manaArtifacts) {
-    if (name.includes(pattern)) return true;
-  }
-  for (const pattern of manaDorks) {
-    if (name.includes(pattern)) return true;
-  }
-  
-  // Check oracle text for mana production abilities (only for artifacts and creatures)
-  if ((typeLine.includes('artifact') || typeLine.includes('creature'))) {
-    // Look for "{T}: Add" mana ability patterns - the key pattern for mana abilities
-    // This must be a direct tap ability, not a triggered or activated ability with other costs
-    if (oracleText.match(/\{t\}:\s*add\s*\{/i) || oracleText.match(/\{t\}:\s*add\s+one\s+mana/i)) {
-      // Exclude equipment and vehicles
-      if (!typeLine.includes('equipment') && !typeLine.includes('vehicle')) {
-        // Also exclude if the text mentions "sacrifice" before "add" (e.g., Ashnod's Altar)
-        // Those require sacrifice as a cost, making them different from pure mana sources
-        if (!oracleText.match(/sacrifice.*:\s*add/i)) {
-          return true;
-        }
-      }
-    }
-    
-    // Specifically check for "{T}, Sacrifice": patterns that add mana
-    // These are altar-style cards that sacrifice for mana
-    // While technically mana sources, they behave differently
-    // Include them only if explicitly tap and sacrifice
-    if (oracleText.includes('{t}, sacrifice') && oracleText.match(/:\s*add\s*\{/i)) {
-      // Include as mana source - these are like Chromatic Sphere
-      if (!typeLine.includes('equipment') && !typeLine.includes('vehicle')) {
-        return true;
-      }
-    }
-  }
-  
-  return false;
-}
-
-type Side = 0 | 1 | 2 | 3;
-type PlayerBoard = { player: PlayerRef; permanents: BattlefieldPermanent[] };
-
-type HandCard = {
-  id: string;
-  name?: string;
-  type_line?: string;
-  image_uris?: { small?: string; normal?: string };
-  faceDown?: boolean;
-  known?: boolean; // visibility to this client
-};
-
-function sidePlan(total: number): Side[] {
-  const pattern: Side[] = [0, 1, 2, 3];
-  return Array.from({ length: total }, (_, i) => pattern[i % pattern.length]);
-}
-
-function buildPositions(opts: {
-  total: number; boardW: number; boardH: number;
-  seatGapX: number; seatGapY: number;
-  centerClearX: number; centerClearY: number;
-  sidePad: number; sideOrder: Side[];
-}): Array<{ x: number; y: number; rotateDeg: number; side: Side }> {
-  const { total, boardW, boardH, seatGapX, seatGapY, centerClearX, centerClearY, sidePad, sideOrder } = opts;
-  const counts: Record<Side, number> = { 0: 0, 1: 0, 2: 0, 3: 0 }; sideOrder.forEach(s => counts[s]++);
-  const stepX = boardW + seatGapX, stepY = boardH + seatGapY;
-  const offsets = (count: number, step: number) =>
-    count <= 0 ? [] :
-    count === 1 ? [0] :
-    Array.from({ length: count }, (_, i) => -((count - 1) * step) / 2 + i * step);
-  const xBottoms = offsets(counts[0], stepX), xTops = offsets(counts[1], stepX), yRights = offsets(counts[2], stepY), yLefts = offsets(counts[3], stepY);
-  const halfGapX = Math.max((counts[0] ? ((counts[0] - 1) / 2) * stepX + boardW / 2 : 0), (counts[1] ? ((counts[1] - 1) / 2) * stepX + boardW / 2 : 0)) + centerClearX + sidePad;
-  const halfGapY = Math.max((counts[2] ? ((counts[2] - 1) / 2) * stepY + boardH / 2 : 0), (counts[3] ? ((counts[3] - 1) / 2) * stepY + boardH / 2 : 0)) + centerClearY + sidePad;
-  const yBottom = halfGapY + boardH / 2, yTop = -halfGapY - boardH / 2, xRight = halfGapX + boardW / 2, xLeft = -halfGapX - boardW / 2;
-  const nextIdx: Record<Side, number> = { 0: 0, 1: 0, 2: 0, 3: 0 };
-  const positions: Array<{ x: number; y: number; rotateDeg: number; side: Side }> = [];
-  for (let i = 0; i < total; i++) {
-    const side = sideOrder[i];
-    const idx = nextIdx[side]++;
-    switch (side) {
-      case 0: positions.push({ x: xBottoms[idx] ?? 0, y: yBottom, rotateDeg: 0, side }); break;
-      case 1: positions.push({ x: xTops[idx] ?? 0, y: yTop, rotateDeg: 180, side }); break;
-      case 2: positions.push({ x: xRight, y: yRights[idx] ?? 0, rotateDeg: -90, side }); break;
-      case 3: positions.push({ x: xLeft, y: yLefts[idx] ?? 0, rotateDeg: 90, side }); break;
-    }
-  }
-  return positions;
-}
-
-function computeExtents(positions: Array<{ x: number; y: number }>, boardW: number, boardH: number) {
-  let maxX = 0, maxY = 0;
-  for (const p of positions) {
-    maxX = Math.max(maxX, Math.abs(p.x) + boardW / 2);
-    maxY = Math.max(maxY, Math.abs(p.y) + boardH / 2);
-  }
-  return { halfW: maxX, halfH: maxY };
-}
 
 export function TableLayout(props: {
   players: PlayerRef[];
@@ -461,396 +263,43 @@ export function TableLayout(props: {
     ? -(seatPositions[focusedBoardIndex]?.rotateDeg ?? 0)
     : 0;
 
-  // Pan/Zoom and camera
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [container, setContainer] = useState({ w: 1200, h: 800 });
-  useEffect(() => {
-    const el = containerRef.current; if (!el) return;
-    const ro = new ResizeObserver(entries => {
-      const cr = entries[0]?.contentRect;
-      if (cr) setContainer({ w: cr.width, h: cr.height });
-    });
-    ro.observe(el);
-    const rect = el.getBoundingClientRect();
-    setContainer({ w: rect.width, h: rect.height });
-    return () => ro.disconnect();
-  }, []);
-  const [cam, setCam] = useState({ x: 0, y: 0, z: 1 });
-  const camRef = useRef(cam);
-  useEffect(() => { camRef.current = cam; }, [cam]);
-  const viewRotationRef = useRef(viewRotationDeg);
-  useEffect(() => { viewRotationRef.current = viewRotationDeg; }, [viewRotationDeg]);
-  const dragRef = useRef<{ id: number; sx: number; sy: number; cx: number; cy: number; active: boolean } | null>(null);
-  // Two-finger pinch-zoom + pan gesture state. Populated only when 2+ touch
-  // pointers are active on the board container; cleared on pointer up/cancel.
-  // Desktop mouse pointers are ignored entirely so existing right-click /
-  // middle-click / Space+drag pan behavior is unaffected.
-  const touchPointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const gestureRef = useRef<{
-    startDist: number;
-    startMidX: number;
-    startMidY: number;
-    startCamX: number;
-    startCamY: number;
-    startCamZ: number;
-  } | null>(null);
-  const [panKey, setPanKey] = useState(false);
-  const [yourBattlefieldExpanded, setYourBattlefieldExpanded] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      return window.localStorage.getItem(BATTLEFIELD_EXPAND_STORAGE_KEY) === 'true';
-    } catch {
-      return false;
-    }
+  const {
+    containerRef,
+    container,
+    cam,
+    setCam,
+    dragRef,
+    panKey,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    yourBattlefieldExpanded,
+    handleToggleYourBattlefieldExpanded,
+    showAbilityBadges,
+    handleToggleAbilityBadges,
+    pendingTextSwapSource,
+    setPendingTextSwapSource,
+    pendingXActivation,
+    setPendingXActivation,
+    zoneContextMenu,
+    setZoneContextMenu,
+    ignoredCardsSet,
+    setIgnoredCardsSet,
+    centerOnYou,
+  } = useTableLayoutViewport({
+    enablePanZoom,
+    viewRotationDeg,
+    you,
+    ordered,
+    seatPositions,
+    halfW,
+    halfH,
+    focusedPlayerId,
+    mobilePlayLayout,
+    BOARD_W,
+    BOARD_H,
+    propsIgnoredCardIds,
   });
-  const handleToggleYourBattlefieldExpanded = useCallback(() => {
-    setYourBattlefieldExpanded((prev) => {
-      const next = !prev;
-      try {
-        window.localStorage.setItem(BATTLEFIELD_EXPAND_STORAGE_KEY, String(next));
-      } catch { /* noop */ }
-      return next;
-    });
-  }, []);
-  // Ability badges default OFF (hide clutter); toggle persists like battlefield expand.
-  const [showAbilityBadges, setShowAbilityBadges] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      return window.localStorage.getItem(ABILITY_BADGES_STORAGE_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const handleToggleAbilityBadges = useCallback(() => {
-    setShowAbilityBadges((prev) => {
-      const next = !prev;
-      try {
-        window.localStorage.setItem(ABILITY_BADGES_STORAGE_KEY, String(next));
-      } catch { /* noop */ }
-      return next;
-    });
-  }, []);
-  const [pendingTextSwapSource, setPendingTextSwapSource] = useState<string | null>(null);
-  const [pendingXActivation, setPendingXActivation] = useState<{
-    permanentId: string;
-    abilityId: string;
-    cardName: string;
-    abilityText?: string;
-    xCount: number;
-    affordableXHint?: number;
-  } | null>(null);
-  // State for zone card context menu (works for hand, graveyard, exile, commander, library)
-  const [zoneContextMenu, setZoneContextMenu] = useState<{ card: KnownCardRef; zone: ZoneType; x: number; y: number } | null>(null);
-  // Keep track of which cards are ignored for playability checks
-  // Use props if provided, otherwise maintain local state for backward compatibility
-  const [localIgnoredCardsSet, setLocalIgnoredCardsSet] = useState<Set<string>>(new Set());
-  const ignoredCardsSet = propsIgnoredCardIds || localIgnoredCardsSet;
-  const setIgnoredCardsSet = propsIgnoredCardIds ? () => {} : setLocalIgnoredCardsSet;
-  useEffect(() => {
-    const kd = (e: KeyboardEvent) => { if (e.code === 'Space') setPanKey(true); };
-    const ku = (e: KeyboardEvent) => { if (e.code === 'Space') setPanKey(false); };
-    window.addEventListener('keydown', kd); window.addEventListener('keyup', ku);
-    return () => { window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
-  }, []);
-  useEffect(() => {
-    const el = containerRef.current; if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (!enablePanZoom) return;
-      const target = e.target as HTMLElement;
-      if (target.closest('[data-no-zoom]')) return;
-      e.preventDefault();
-      const { x, y, z } = camRef.current;
-      const rect = el.getBoundingClientRect();
-      const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
-      const cx = container.w / 2, cy = container.h / 2;
-      const worldOffset = rotatePoint((sx - cx) / z, (sy - cy) / z, -viewRotationRef.current);
-      const wx = x + worldOffset.x;
-      const wy = y + worldOffset.y;
-      const factor = Math.exp(-(e.deltaY) * 0.00125);
-      const newZ = clamp(z * factor, 0.15, 2.5);
-      const newWorldOffset = rotatePoint((sx - cx) / newZ, (sy - cy) / newZ, -viewRotationRef.current);
-      const newCamX = wx - newWorldOffset.x;
-      const newCamY = wy - newWorldOffset.y;
-      setCam({ x: newCamX, y: newCamY, z: newZ });
-    };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, [enablePanZoom, container.w, container.h]);
-
-  const beginPan = (e: React.PointerEvent) => {
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    dragRef.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, cx: camRef.current.x, cy: camRef.current.y, active: true };
-  };
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (!enablePanZoom) return;
-    if (e.pointerType === 'touch') {
-      // Track every touch contact so we can detect 2-finger gestures. Single
-      // touch is intentionally NOT used to start a pan — that interaction is
-      // reserved for card drag. Two fingers on the board start pinch+pan.
-      touchPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (touchPointersRef.current.size === 2) {
-        const pts = Array.from(touchPointersRef.current.values());
-        const [a, b] = pts;
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        gestureRef.current = {
-          startDist: dist,
-          startMidX: (a.x + b.x) / 2,
-          startMidY: (a.y + b.y) / 2,
-          startCamX: camRef.current.x,
-          startCamY: camRef.current.y,
-          startCamZ: camRef.current.z,
-        };
-        // Cancel any in-progress single-pointer pan when entering gesture mode.
-        if (dragRef.current) {
-          try {
-            (e.currentTarget as HTMLElement).releasePointerCapture(dragRef.current.id);
-          } catch { /* noop */ }
-          dragRef.current = null;
-        }
-        e.preventDefault();
-      }
-      return;
-    }
-    const isPan = e.button === 1 || e.button === 2 || panKey;
-    if (isPan) { e.preventDefault(); beginPan(e); }
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (e.pointerType === 'touch' && touchPointersRef.current.has(e.pointerId)) {
-      touchPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      const g = gestureRef.current;
-      if (g && touchPointersRef.current.size >= 2) {
-        const pts = Array.from(touchPointersRef.current.values()).slice(0, 2);
-        const [a, b] = pts;
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        const midX = (a.x + b.x) / 2;
-        const midY = (a.y + b.y) / 2;
-        const el = containerRef.current;
-        if (!el) return;
-        const rect = el.getBoundingClientRect();
-        const cxScreen = midX - rect.left;
-        const cyScreen = midY - rect.top;
-        const newZ = clamp(g.startCamZ * (dist / g.startDist), 0.15, 2.5);
-        // Convert the gesture's start midpoint (screen) into world coords using
-        // the start cam, then re-anchor that world point at the current
-        // midpoint with the new zoom — same math as wheel zoom.
-        const cx = container.w / 2;
-        const cy = container.h / 2;
-        const startMidScreenX = g.startMidX - rect.left;
-        const startMidScreenY = g.startMidY - rect.top;
-        const worldOffset = rotatePoint(
-          (startMidScreenX - cx) / g.startCamZ,
-          (startMidScreenY - cy) / g.startCamZ,
-          -viewRotationRef.current,
-        );
-        const worldX = g.startCamX + worldOffset.x;
-        const worldY = g.startCamY + worldOffset.y;
-        const newOffset = rotatePoint(
-          (cxScreen - cx) / newZ,
-          (cyScreen - cy) / newZ,
-          -viewRotationRef.current,
-        );
-        setCam({ x: worldX - newOffset.x, y: worldY - newOffset.y, z: newZ });
-        e.preventDefault();
-        return;
-      }
-    }
-    const d = dragRef.current;
-    if (!d || !d.active || d.id !== e.pointerId) return;
-    const screenDx = (e.clientX - d.sx) / camRef.current.z;
-    const screenDy = (e.clientY - d.sy) / camRef.current.z;
-    const worldDelta = rotatePoint(screenDx, screenDy, -viewRotationRef.current);
-    setCam(prev => ({ ...prev, x: d.cx - worldDelta.x, y: d.cy - worldDelta.y }));
-  };
-  const onPointerUp = (e: React.PointerEvent) => {
-    if (e.pointerType === 'touch' && touchPointersRef.current.has(e.pointerId)) {
-      touchPointersRef.current.delete(e.pointerId);
-      if (touchPointersRef.current.size < 2) {
-        gestureRef.current = null;
-      }
-    }
-    if (dragRef.current && dragRef.current.id === e.pointerId) {
-      if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId))
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      dragRef.current = null;
-    }
-  };
-
-  function getBoardWorldCenter(pos: { x: number; y: number }) {
-    return {
-      x: container.w / 2 + pos.x,
-      y: container.h / 2 + pos.y,
-    };
-  }
-
-  function centerOnBoardIndex(idx: number, preserveZoom = true) {
-    const pos = seatPositions[idx];
-    if (!pos) return;
-    const worldCenter = getBoardWorldCenter(pos);
-    setCam(c => ({ x: worldCenter.x, y: worldCenter.y, z: preserveZoom ? c.z : c.z }));
-  }
-
-  function getFocusedBoardFrame() {
-    const isDesktopFocus = container.w >= 1200;
-    const horizontalMargin = isDesktopFocus ? 20 : 36;
-    const topMargin = isDesktopFocus ? 6 : 20;
-    const bottomMargin = isDesktopFocus ? 40 : 64;
-    const desiredScreenShiftPx = isDesktopFocus
-      ? Math.min(Math.max(container.h * 0.18, 84), 156)
-      : Math.min(Math.max(container.h * 0.13, 56), 110);
-    const focusWidth = BOARD_W + (isDesktopFocus ? 8 : 36);
-    const focusHeight = BOARD_H + (isDesktopFocus ? 16 : 40);
-    const usableWidth = Math.max(container.w - horizontalMargin * 2, 280);
-    const topAvailable = Math.max(container.h / 2 - desiredScreenShiftPx - topMargin, 120);
-    const bottomAvailable = Math.max(container.h / 2 + desiredScreenShiftPx - bottomMargin, 120);
-    const zx = usableWidth / focusWidth;
-    const zy = (2 * Math.min(topAvailable, bottomAvailable)) / focusHeight;
-
-    return {
-      zoom: clamp(Math.min(zx, zy), 0.32, isDesktopFocus ? 1.16 : 1.04),
-      desiredScreenShiftPx,
-    };
-  }
-
-  function focusOnBoardIndex(idx: number) {
-    const pos = seatPositions[idx];
-    if (!pos) return;
-    const worldCenter = getBoardWorldCenter(pos);
-    const { zoom, desiredScreenShiftPx } = getFocusedBoardFrame();
-    const worldOffset = rotatePoint(0, desiredScreenShiftPx / zoom, pos.rotateDeg);
-    setCam({
-      x: worldCenter.x + worldOffset.x,
-      y: worldCenter.y + worldOffset.y,
-      z: zoom,
-    });
-  }
-
-  function centerOnNearestWorldPoint(wx: number, wy: number, preserveZoom = true) {
-    if (seatPositions.length === 0) return;
-    let best = 0, bestD = Infinity;
-    for (let i = 0; i < seatPositions.length; i++) {
-      const worldCenter = getBoardWorldCenter(seatPositions[i]);
-      const dx = worldCenter.x - wx;
-      const dy = worldCenter.y - wy;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < bestD) { bestD = d2; best = i; }
-    }
-    centerOnBoardIndex(best, preserveZoom);
-  }
-
-  function centerOnYou(preserveZoom = true) {
-    try {
-      if (you && containerRef.current) {
-        const el = document.getElementById(`hand-area-${you}`);
-        const containerEl = containerRef.current;
-        if (el && containerEl) {
-          const containerRect = containerEl.getBoundingClientRect();
-          const elemRect = el.getBoundingClientRect();
-          const z = camRef.current.z || 1;
-          const sx = (elemRect.left - containerRect.left) + elemRect.width / 2;
-          const sy = (elemRect.bottom - containerRect.top);
-          const worldX = camRef.current.x + (sx - container.w / 2) / z;
-          const worldY = camRef.current.y + (sy - container.h / 2) / z;
-          const targetSX = container.w / 2;
-          const targetSY = Math.round(container.h * mobilePlayLayout.centerHandViewportFraction);
-          const newCamX = worldX - (targetSX - container.w / 2) / z;
-          const newCamY = worldY - (targetSY - container.h / 2) / z;
-          setCam(c => ({ x: newCamX, y: newCamY, z: preserveZoom ? c.z : c.z }));
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('centerOnYou DOM centering failed', err);
-    }
-
-    if (!you || ordered.length === 0 || seatPositions.length === 0) {
-      const cx = camRef.current.x, cy = camRef.current.y;
-      centerOnNearestWorldPoint(cx, cy, preserveZoom);
-      return;
-    }
-    let idx = -1;
-    for (let i = 0; i < ordered.length; i++) {
-      const o = ordered[i];
-      if (o.player.id === you) { idx = i; break; }
-    }
-    if (idx === -1) {
-      const cx = camRef.current.x, cy = camRef.current.y;
-      centerOnNearestWorldPoint(cx, cy, preserveZoom);
-      return;
-    }
-    const pos = seatPositions[idx];
-    if (!pos) { centerOnBoardIndex(idx, preserveZoom); return; }
-    const dirX = -pos.x;
-    const dirY = -pos.y;
-    const mag = Math.hypot(dirX, dirY) || 1;
-    const nx = dirX / mag;
-    const ny = dirY / mag;
-    const shift = Math.min(Math.max(halfH * 0.18, 120), 600);
-    const cx2 = pos.x + nx * shift;
-    // Add a vertical offset to push view down 20% of screen height
-    // This prevents the mulligan bar from overlapping the deck import button on join
-    const mulliganBarOffset = Math.round(container.h * 0.20);
-    const cy2 = pos.y + ny * shift + mulliganBarOffset;
-    setCam(c => ({ x: cx2, y: cy2, z: preserveZoom ? c.z : c.z }));
-  }
-
-  const didFit = useRef(false);
-  useEffect(() => {
-    if (!container.w || !container.h) return;
-    const margin = 24;
-    const zx = (container.w / 2 - margin) / (halfW + 40);
-    const zy = (container.h / 2 - margin) / (halfH + 40);
-    const fitZ = clamp(Math.min(zx, zy), MIN_INITIAL_ZOOM, 2.0);
-    if (!didFit.current || ordered.length !== (didFit as any).lastN) {
-      centerOnYou(true);
-      setCam(prev => ({ x: prev.x, y: prev.y, z: fitZ }));
-      didFit.current = true;
-      (didFit as any).lastN = ordered.length;
-    }
-  }, [container.w, container.h, ordered.length, halfW, halfH]);
-
-  // Auto-center on player's playfield when `you` prop changes (player joins the game)
-  // Note: centerOnYou is intentionally not in deps - it uses refs/state that don't cause stale closures
-  // and including it would cause unnecessary re-runs since it's not wrapped in useCallback
-  const prevYou = useRef<PlayerID | undefined>(undefined);
-  useEffect(() => {
-    if (you && you !== prevYou.current && container.w && container.h) {
-      // Small delay to allow the DOM to update with player's hand area
-      const timer = setTimeout(() => {
-        centerOnYou(true);
-      }, 100);
-      prevYou.current = you;
-      return () => clearTimeout(timer);
-    }
-    prevYou.current = you;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [you, container.w, container.h]);
-
-  const prevOrientationRef = useRef(mobilePlayLayout.orientation);
-  useEffect(() => {
-    if (prevOrientationRef.current === mobilePlayLayout.orientation) return;
-    prevOrientationRef.current = mobilePlayLayout.orientation;
-    if (!container.w || !container.h) return;
-    if (!focusedPlayerId) return;
-    const timer = setTimeout(() => {
-      const idx = ordered.findIndex((entry) => entry.player.id === focusedPlayerId);
-      if (idx >= 0) {
-        focusOnBoardIndex(idx);
-      }
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [mobilePlayLayout.orientation, container.w, container.h, focusedPlayerId, ordered, seatPositions]);
-
-  useEffect(() => {
-    if (!focusedPlayerId) return;
-    const idx = ordered.findIndex((entry) => entry.player.id === focusedPlayerId);
-    if (idx >= 0) {
-      focusOnBoardIndex(idx);
-    }
-  }, [focusedPlayerId, ordered, seatPositions, container.w, container.h]);
 
   const attachedToSet = useMemo(() => {
     const s = new Set<string>();
@@ -1142,10 +591,6 @@ export function TableLayout(props: {
     };
   }, [appearanceSettings]);
 
-  // Opponent-hand thumbnail sizing (≈50% larger than before)
-  const OPP_THUMB_W = 42;  // was 28
-  const OPP_THUMB_H = 57;  // was 38
-
   return (
     <>
       {/* Keyframes for pulse animation */}
@@ -1311,816 +756,86 @@ export function TableLayout(props: {
 
             <div style={{ position: 'relative', zIndex: 2 }}>
               {ordered.map((pb, i) => {
-                const pos = seatPositions[i];
-                const perms = pb.permanents;
-                // Separate lands from non-lands
-                const lands = splitLands ? perms.filter(x => isLandTypeLine((x.card as any)?.type_line)) : [];
-                // Separate mana sources (mana rocks/dorks) from other permanents
-                const nonLands = splitLands ? perms.filter(x => !isLandTypeLine((x.card as any)?.type_line)) : perms;
-                // Keep TokenOptimization groups collapsed in the mana-source row.
-                // Server cast/equip/activate and ward payment resolve group_* refs to real members.
-                const manaSources = nonLands.filter(x => isManaSource(x));
-                // Separate tokens from non-token permanents (tokens have isToken: true)
-                const nonManaSourceNonLands = nonLands.filter(x => !isManaSource(x));
-                const tokens = nonManaSourceNonLands.filter(x => x.isToken === true);
-                const others = nonManaSourceNonLands.filter(x => x.isToken !== true);
-                // Threshold for collapsing tokens into TokenGroups component
-                const TOKEN_COLLAPSE_THRESHOLD = 5;
-                const showCollapsedTokens = tokens.length >= TOKEN_COLLAPSE_THRESHOLD;
-                // If showing collapsed tokens, exclude them from FreeField; otherwise show all
-                const permanentsForFreeField = showCollapsedTokens ? others : nonManaSourceNonLands;
-                const canTargetPlayer = highlightPlayerTargets?.has(pb.player.id) ?? false;
-                const isPlayerSelected = selectedPlayerTargets?.has(pb.player.id) ?? false;
-                const isYouThis = you && pb.player.id === you;
-                const allowReorderHere = Boolean(isYouThis && enableReorderForYou && !onPermanentClick);
-
-                const zObj = zones?.[pb.player.id];
-                const cmdObj = commandZone?.[pb.player.id];
-                const isCommanderFormat = (format || '').toLowerCase() === 'commander';
-
-                // unified hand objects for this player
-                const playerHandCards: HandCard[] =
-                  (zObj && Array.isArray(zObj.hand) ? (zObj.hand as any as HandCard[]) : []) || [];
-
-                const playerHandCount =
-                  typeof zObj?.handCount === 'number'
-                    ? zObj.handCount
-                    : playerHandCards.length;
-
-                const yourHand: HandCard[] = isYouThis ? playerHandCards : [];
-
-                const lifeVal =
-                  life?.[pb.player.id] ??
-                  40;
-                const poisonVal = poisonCounters?.[pb.player.id] ?? 0;
-                const xpVal = experienceCounters?.[pb.player.id] ?? 0;
-                const energyVal =
-                  energyCounters?.[pb.player.id] ??
-                  energy?.[pb.player.id] ??
-                  0;
-                return (
-                  <div
-                    key={pb.player.id}
-                    style={{
-                      position: 'absolute',
-                      left: pos.x - BOARD_W / 2,
-                      top: pos.y - BOARD_H / 2,
-                      width: BOARD_W,
-                      height: BOARD_H,
-                      transform: `translate(0,0) rotate(${isYouThis ? 0 : pos.rotateDeg}deg)`,
-                      transformOrigin: '50% 50%',
-                      opacity: 1,
-                      filter: 'none',
-                      pointerEvents: 'auto'
-                    }}
-                  >
-                    <div
-                      style={{
-                        position: 'relative',
-                        width: '100%',
-                        minHeight: BOARD_H,
-                        height: '100%',
-                        boxSizing: 'border-box',
-                        ...playerBoardBg,
-                        backdropFilter: 'blur(4px)',
-                        borderRadius: 12,
-                        padding: 12,
-                        border: '1px solid rgba(255,255,255,0.12)',
-                        boxShadow: '0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)',
-                        display: 'grid',
-                        gridTemplateColumns: `${FREE_W}px ${ZONES_W}px`,
-                        columnGap: 12,
-                        rowGap: 10
-                      }}
-                    >
-                      <div>
-                        {/* Header row */}
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            marginBottom: 10,
-                            paddingBottom: 8,
-                            borderBottom: '1px solid rgba(255,255,255,0.08)'
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontWeight: 600,
-                              color: '#fff',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 12
-                            }}
-                          >
-                            <span style={{ fontSize: 14 }}>{pb.player.name}</span>
-                            {speed?.[pb.player.id] !== undefined ? (
-                              <span title="Speed" style={{ fontSize: 12, color: '#fbbf24' }}>🏁 {speed[pb.player.id]}</span>
-                            ) : null}
-                            {enduringStory?.[pb.player.id] ? (
-                              <span title="Enduring story" style={{ fontSize: 12, color: '#c4b5fd' }}>📖 Story</span>
-                            ) : null}
-                            {/* Enhanced Counter Display Panel */}
-                            <div
-                              style={{
-                                display: 'flex',
-                                gap: 10,
-                                fontSize: 12,
-                                background: 'linear-gradient(135deg, rgba(0,0,0,0.5) 0%, rgba(20,20,30,0.6) 100%)',
-                                padding: '6px 12px',
-                                borderRadius: 6,
-                                border: '1px solid rgba(255,255,255,0.1)',
-                                boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.3)'
-                              }}
-                            >
-                              {/* Life Counter - hover/tap for commander damage breakdown in Commander games */}
-                              <CommanderDamagePopover
-                                victimPlayerId={pb.player.id}
-                                victimPlayerName={pb.player.name}
-                                players={players}
-                                commanderDamage={commanderDamage}
-                                commandZone={commandZone}
-                                format={format}
-                              >
-                                <span
-                                  style={{
-                                    color: lifeVal <= 10 ? '#ef4444' : lifeVal <= 20 ? '#fbbf24' : '#4ade80',
-                                    fontWeight: 700,
-                                    fontSize: 14,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 3,
-                                  }}
-                                >
-                                  ❤️ {lifeVal}
-                                </span>
-                              </CommanderDamagePopover>
-                              {/* Separator */}
-                              <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10 }}>|</span>
-                              {/* Poison Counter - Critical warning at 7+ */}
-                              <span
-                                aria-label={`Poison Counters: ${poisonVal}`}
-                                title={`Poison Counters (Lose at 10)`}
-                                style={{
-                                  color: poisonVal >= 7 ? '#dc2626' : poisonVal > 0 ? '#f87171' : 'rgba(136,136,136,0.6)',
-                                  fontWeight: poisonVal > 0 ? 700 : 400,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 3,
-                                  animation: poisonVal >= 7 ? 'pulse 1.5s infinite' : 'none'
-                                }}
-                              >
-                                ☠️ {poisonVal}{poisonVal >= 7 && <span style={{ fontSize: 9, marginLeft: 2 }}>⚠</span>}
-                              </span>
-                              {/* Experience Counter */}
-                              <span
-                                aria-label={`Experience Counters: ${xpVal}`}
-                                title="Experience Counters"
-                                style={{
-                                  color: xpVal > 0 ? '#60a5fa' : 'rgba(136,136,136,0.6)',
-                                  fontWeight: xpVal > 0 ? 600 : 400,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 3
-                                }}
-                              >
-                                ⭐ {xpVal}
-                              </span>
-                              {/* Energy Counter - Resource to spend */}
-                              <span
-                                aria-label={`Energy Counters: ${energyVal}`}
-                                title="Energy Counters (Resource)"
-                                style={{ 
-                                  color: energyVal > 0 ? '#fbbf24' : 'rgba(136,136,136,0.6)',
-                                  fontWeight: energyVal > 0 ? 600 : 400,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 3
-                                }}
-                              >
-                                ⚡ {energyVal}
-                              </span>
-                            </div>
-                            {/* Floating Mana Pool - all seats when they have floating mana */}
-                            {(() => {
-                              const seatPool = getSeatManaPool(pb.player.id, Boolean(isYouThis));
-                              return seatPool && getTotalFloatingMana(seatPool) > 0 ? (
-                                <FloatingManaPool manaPool={seatPool} compact />
-                              ) : null;
-                            })()}
-                            {isYouThis && !externalDeckMgrAnchorEl && (
-                              <button
-                                ref={decksBtnRef}
-                                type="button"
-                                onClick={() => setDeckMgrOpen(true)}
-                                style={{ 
-                                  fontSize: 12, 
-                                  fontWeight: 600,
-                                  padding: '6px 14px',
-                                  borderRadius: 6,
-                                  background: (zObj?.libraryCount || 0) === 0 
-                                    ? 'linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)' 
-                                    : 'rgba(59, 130, 246, 0.2)',
-                                  border: (zObj?.libraryCount || 0) === 0 
-                                    ? '2px solid #a78bfa'
-                                    : '1px solid rgba(59, 130, 246, 0.4)',
-                                  color: '#fff',
-                                  cursor: 'pointer',
-                                  boxShadow: (zObj?.libraryCount || 0) === 0 
-                                    ? '0 0 20px rgba(124, 58, 237, 0.5), 0 4px 12px rgba(37, 99, 235, 0.4)' 
-                                    : 'none',
-                                  animation: (zObj?.libraryCount || 0) === 0 
-                                    ? 'pulse 2s ease-in-out infinite' 
-                                    : 'none',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 6,
-                                }}
-                                title={gameId ? "Manage / Import Deck" : "Waiting for game to be ready"}
-                                disabled={!gameId}
-                              >
-                                📚 {(zObj?.libraryCount || 0) === 0 ? 'Import Deck' : 'Decks'}
-                              </button>
-                            )}
-                            {/* 
-                              Special game designation badges (MTG Rules 724-730):
-                              - Monarch (Rule 724): Player draws extra card at end step
-                              - Initiative (Rule 725): Player ventures into Undercity at upkeep
-                              - City's Blessing (Ascend): Permanent designation after controlling 10+ permanents
-                            */}
-                            {monarch === pb.player.id && (
-                              <span
-                                aria-label="This player is the Monarch"
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  padding: '2px 8px',
-                                  borderRadius: 4,
-                                  background: 'rgba(234,179,8,0.2)',
-                                  border: '1px solid rgba(234,179,8,0.4)',
-                                  color: '#eab308',
-                                  fontSize: 11,
-                                  fontWeight: 600
-                                }}
-                              >
-                                👑 Monarch
-                              </span>
-                            )}
-                            {initiative === pb.player.id && (
-                              <span
-                                aria-label="This player has the Initiative"
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  padding: '2px 8px',
-                                  borderRadius: 4,
-                                  background: 'rgba(168,85,247,0.2)',
-                                  border: '1px solid rgba(168,85,247,0.4)',
-                                  color: '#a855f7',
-                                  fontSize: 11,
-                                  fontWeight: 600
-                                }}
-                              >
-                                🗡️ Initiative
-                              </span>
-                            )}
-                            {cityBlessing?.[pb.player.id] ? (
-                              <span
-                                aria-label="This player has the City's Blessing"
-                                title="City's Blessing (Ascend)"
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  padding: '2px 8px',
-                                  borderRadius: 4,
-                                  background: 'rgba(20,184,166,0.2)',
-                                  border: '1px solid rgba(20,184,166,0.4)',
-                                  color: '#14b8a6',
-                                  fontSize: 11,
-                                  fontWeight: 600
-                                }}
-                              >
-                                🏛️ Ascended
-                              </span>
-                            ) : anyPlayerHasCityBlessing ? (
-                              <span
-                                aria-label="This player does not have the City's Blessing"
-                                title="No City's Blessing"
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  padding: '2px 8px',
-                                  borderRadius: 4,
-                                  background: 'rgba(100,116,139,0.15)',
-                                  border: '1px solid rgba(148,163,184,0.25)',
-                                  color: 'rgba(148,163,184,0.85)',
-                                  fontSize: 11,
-                                  fontWeight: 500
-                                }}
-                              >
-                                🏛️ —
-                              </span>
-                            ) : null}
-                          </div>
-                          {onPlayerClick && (
-                            <button
-                              type="button"
-                              onClick={() => onPlayerClick(pb.player.id)}
-                              disabled={!canTargetPlayer}
-                              style={{
-                                border: '1px solid',
-                                borderColor: isPlayerSelected
-                                  ? '#2b6cb0'
-                                  : canTargetPlayer
-                                  ? '#38a169'
-                                  : '#555',
-                                background: 'transparent',
-                                color: isPlayerSelected
-                                  ? '#2b6cb0'
-                                  : canTargetPlayer
-                                  ? '#38a169'
-                                  : '#888',
-                                padding: '2px 8px',
-                                borderRadius: 6,
-                                fontSize: 12
-                              }}
-                            >
-                              {isPlayerSelected ? 'Selected' : 'Target'}
-                            </button>
-                          )}
-                        </div>
-
-                        <AttachmentLines
-                          containerRef={{ current: null } as any}
-                          permanents={pb.permanents}
-                          opacity={0.5}
-                        />
-
-                        {/* Token Groups - collapsible token management when many tokens exist */}
-                        {showCollapsedTokens && (
-                          <div style={{ marginBottom: 8 }}>
-                            <TokenGroups
-                              tokens={tokens}
-                              groupMode="name+pt+attach"
-                              attachedToSet={new Set(perms.filter(p => p.attachedTo).map(p => p.attachedTo!))}
-                              onBulkCounter={(ids, deltas) => {
-                                // Apply counter changes to all tokens in the group
-                                if (isYouThis && gameId) {
-                                  for (const id of ids) {
-                                    for (const [counterType, delta] of Object.entries(deltas)) {
-                                      if (delta !== 0) {
-                                        onCounter?.(id, counterType, delta);
-                                      }
-                                    }
-                                  }
-                                }
-                              }}
-                              highlightTargets={highlightPermTargets}
-                              selectedTargets={selectedPermTargets}
-                              onTokenClick={onPermanentClick}
-                              onTapForMana={isYouThis && gameId
-                                ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id })
-                                : undefined}
-                              onBulkTapForMana={isYouThis && gameId
-                                ? (ids, count) => {
-                                    socket.emit('bulkTapPermanentsForMana', {
-                                      gameId,
-                                      permanentIds: ids,
-                                      count,
-                                    });
-                                    window.setTimeout(() => {
-                                      socket.emit('getMyNextResolutionStep', { gameId });
-                                    }, 0);
-                                  }
-                                : undefined}
-                              collapsible={true}
-                              defaultCollapsed={true}
-                            />
-                          </div>
-                        )}
-
-                        <FreeField
-                          perms={permanentsForFreeField}
-                          allBattlefieldPerms={allBattlefieldPerms}
-                          imagePref={imagePref || 'small'}
-                          tileWidth={TILE_W}
-                          widthPx={FREE_W}
-                          viewportRows={battlefieldViewportRows}
-                          expanded={isYouThis ? yourBattlefieldExpanded : false}
-                          onToggleExpanded={isYouThis ? handleToggleYourBattlefieldExpanded : undefined}
-                          showExpandControl={!!isYouThis}
-                          draggable={!!isYouThis}
-                          onMove={(id, xx, yy, zz) =>
-                            onUpdatePermPos?.(id, xx, yy, zz ?? 0)
-                          }
-                          highlightTargets={highlightPermTargets}
-                          selectedTargets={selectedPermTargets}
-                          onCardClick={onPermanentClick}
-                          players={players.map(p => ({ id: p.id, name: p.name }))}
-                          onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
-                          onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                          onActivateAbility={isYouThis && gameId ? emitBattlefieldAbilityActivation : undefined}
-                          onAddCounter={isYouThis ? onCounter : undefined}
-                          onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
-                          onRemove={isYouThis ? onRemove : undefined}
-                          onExchangeTextBoxes={isYouThis && gameId ? (clickedId) => {
-                            if (pendingTextSwapSource && pendingTextSwapSource !== clickedId) {
-                              socket.emit('exchangeTextBoxes', { gameId, sourcePermanentId: pendingTextSwapSource, targetPermanentId: clickedId });
-                              setPendingTextSwapSource(null);
-                            } else if (pendingTextSwapSource === clickedId) {
-                              setPendingTextSwapSource(null);
-                            } else {
-                              setPendingTextSwapSource(clickedId);
-                              console.info('[exchangeTextBoxes] Select a second permanent to complete the text swap.');
-                            }
-                          } : undefined}
-                          onIgnoreForAutoPass={isYouThis ? onIgnoreForAutoPass : undefined}
-                          onUnignoreForAutoPass={isYouThis ? onUnignoreForAutoPass : undefined}
-                          ignoredForAutoPassIds={propsIgnoredCardIds}
-                          canActivate={isYouThis || false}
-                          playerId={isYouThis ? you : undefined}
-                          hasPriority={hasPriority || false}
-                          isOwnTurn={!!isOwnTurn}
-                          isMainPhase={!!isMainPhase}
-                          stackEmpty={stackEmpty}
-                          hasThousandYearElixirEffect={hasThousandYearElixirEffect}
-                          showActivatedAbilityButtons={!!isYouThis && showAbilityBadges}
-                          showAbilityBadges={!!isYouThis && showAbilityBadges}
-                          onToggleAbilityBadges={isYouThis ? handleToggleAbilityBadges : undefined}
-                          currentStep={step}
-                          playableCards={isYouThis ? playableCards : undefined}
-                          appearanceSettings={appearanceSettings}
-                        />
-
-                        {/* Mana Sources Row (mana rocks, dorks) - positioned above lands */}
-                        {manaSources.length > 0 && (
-                          <div style={{ marginTop: 8 }} data-no-zoom>
-                            <div
-                              style={{
-                                fontSize: 11,
-                                opacity: 0.65,
-                                marginBottom: 4,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6
-                              }}
-                            >
-                              <span style={{ color: '#fbbf24' }}>💎</span>
-                              <span>Mana Sources ({manaSources.length})</span>
-                            </div>
-                            <LandRow
-                              lands={manaSources}
-                              allBattlefieldPerms={allBattlefieldPerms}
-                              imagePref={imagePref || 'small'}
-                              tileWidth={Math.round(TILE_W * 0.85)}
-                              overlapRatio={0.4}
-                              highlightTargets={highlightPermTargets}
-                              selectedTargets={selectedPermTargets}
-                              onCardClick={onPermanentClick}
-                              onRemove={isYouPlayer ? onRemove : undefined}
-                              onCounter={isYouPlayer ? onCounter : undefined}
-                              onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
-                              onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                              onActivateAbility={isYouThis && gameId ? emitBattlefieldAbilityActivation : undefined}
-                              onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
-                              onIgnoreForAutoPass={isYouThis ? onIgnoreForAutoPass : undefined}
-                              onUnignoreForAutoPass={isYouThis ? onUnignoreForAutoPass : undefined}
-                              ignoredForAutoPassIds={propsIgnoredCardIds}
-                              canActivate={isYouThis || false}
-                              playerId={isYouThis ? you : undefined}
-                              hasPriority={hasPriority || false}
-                              isOwnTurn={!!isOwnTurn}
-                              isMainPhase={!!isMainPhase}
-                              stackEmpty={stackEmpty}
-                              hasThousandYearElixirEffect={hasThousandYearElixirEffect}
-                              currentStep={step}
-                              showActivatedAbilityButtons={!!isYouThis && showAbilityBadges}
-                              playableCards={isYouThis ? playableCards : undefined}
-                              appearanceSettings={appearanceSettings}
-                            />
-                          </div>
-                        )}
-
-                        {/* Lands Row - positioned at bottom, just above hand */}
-                        {lands.length > 0 && (
-                          <div style={{ marginTop: 12 }} data-no-zoom>
-                            <div
-                              style={{
-                                fontSize: 12,
-                                opacity: 0.7,
-                                marginBottom: 6
-                              }}
-                            >
-                              Lands
-                            </div>
-                            <LandRow
-                              lands={lands}
-                              allBattlefieldPerms={allBattlefieldPerms}
-                              imagePref={imagePref || 'small'}
-                              tileWidth={TILE_W}
-                              overlapRatio={0.33}
-                              highlightTargets={highlightPermTargets}
-                              selectedTargets={selectedPermTargets}
-                              onCardClick={onPermanentClick}
-                              onRemove={isYouPlayer ? onRemove : undefined}
-                              onCounter={isYouPlayer ? onCounter : undefined}
-                              onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
-                              onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                              onActivateAbility={isYouThis && gameId ? emitBattlefieldAbilityActivation : undefined}
-                              onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
-                              onIgnoreForAutoPass={isYouThis ? onIgnoreForAutoPass : undefined}
-                              onUnignoreForAutoPass={isYouThis ? onUnignoreForAutoPass : undefined}
-                              ignoredForAutoPassIds={propsIgnoredCardIds}
-                              canActivate={isYouThis || false}
-                              playerId={isYouThis ? you : undefined}
-                              hasPriority={hasPriority || false}
-                              isOwnTurn={!!isOwnTurn}
-                              isMainPhase={!!isMainPhase}
-                              stackEmpty={stackEmpty}
-                              hasThousandYearElixirEffect={hasThousandYearElixirEffect}
-                              currentStep={step}
-                              showActivatedAbilityButtons={!!isYouThis && showAbilityBadges}
-                              playableCards={isYouThis ? playableCards : undefined}
-                              appearanceSettings={appearanceSettings}
-                            />
-                          </div>
-                        )}
-
-                        {/* YOUR hand (full details) */}
-                        {isYouThis && showYourHandBelow && embedYourHand && (
-                          <div
-                            id={`hand-area-${pb.player.id}`}
-                            style={{
-                              marginTop: 12,
-                              background: 'linear-gradient(180deg, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 100%)',
-                              border: '1px solid rgba(255,255,255,0.15)',
-                              borderRadius: 10,
-                              padding: 10,
-                              maxHeight: '32vh',
-                              overflowY: 'auto',
-                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)'
-                            }}
-                            data-no-zoom
-                          >
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                marginBottom: 8
-                              }}
-                            >
-                              <div
-                                style={{ fontSize: 12, color: '#e5e5e5', fontWeight: 500 }}
-                              >
-                                Your Hand
-                              </div>
-                              {onShuffleHand && (
-                                <button
-                                  type="button"
-                                  onClick={() => onShuffleHand()}
-                                  style={{
-                                    fontSize: 11,
-                                    padding: '3px 10px',
-                                    borderRadius: 4,
-                                    background: 'rgba(255,255,255,0.1)',
-                                    border: '1px solid rgba(255,255,255,0.2)',
-                                    color: '#ccc',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  Shuffle
-                                </button>
-                              )}
-                            </div>
-                            <HandGallery
-                              cards={yourHand as CardRef[]}
-                              imagePref={imagePref || 'small'}
-                              onPlayLand={(cardId) =>
-                                onPlayLandFromHand?.(cardId)
-                              }
-                              onCast={(cardId) =>
-                                onCastFromHand?.(cardId)
-                              }
-                              reasonCannotPlayLand={(c) =>
-                                reasonCannotPlayLand
-                                  ? reasonCannotPlayLand(c)
-                                  : null
-                              }
-                              reasonCannotCast={(c) =>
-                                reasonCannotCast ? reasonCannotCast(c) : null
-                              }
-                              thumbWidth={TILE_W}
-                              zoomScale={1}
-                              // 7 cards per row for your own hand
-                              layout="wrap7"
-                              overlapPx={0}
-                              rowGapPx={10}
-                              enableReorder={allowReorderHere}
-                              onReorder={onReorderHand}
-                              playableCards={playableCards}
-                              costAdjustments={costAdjustments}
-                              appearanceSettings={appearanceSettings}
-                              onContextMenu={(card, x, y) => setZoneContextMenu({ card, zone: 'hand', x, y })}
-                            />
-                          </div>
-                        )}
-
-                        {/* OPPONENTS' hand strip: thumbnails, larger + hover for known cards */}
-                        {!isYouThis && playerHandCount > 0 && (
-                          <div
-                            style={{
-                              marginTop: 8,
-                              padding: 6,
-                              borderRadius: 6,
-                              background: 'rgba(0,0,0,0.8)',
-                              border: '1px solid #4b5563',
-                              color: '#e5e7eb',
-                              fontSize: 11,
-                              minHeight: OPP_THUMB_H + 16,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 4,
-                            }}
-                            data-no-zoom
-                          >
-                            <div
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                              }}
-                            >
-                              <span>Hand</span>
-                              <span>{playerHandCount} cards</span>
-                            </div>
-                            <div
-                              style={{
-                                display: 'flex',
-                                gap: 4,
-                                overflowX: 'hidden',
-                                alignItems: 'center',
-                                minHeight: OPP_THUMB_H,
-                              }}
-                            >
-                              {playerHandCards.slice(0, 12).map((card, idx) => {
-                                const visibleToYou =
-                                  !!card.known && !card.faceDown;
-
-                                if (!visibleToYou) {
-                                  // hidden: card back
-                                  return (
-                                    <div
-                                      key={card.id || idx}
-                                      title="Hidden card"
-                                      style={{
-                                        width: OPP_THUMB_W,
-                                        height: OPP_THUMB_H,
-                                        borderRadius: 4,
-                                        background:
-                                          'linear-gradient(135deg, #111827, #020617)',
-                                        border: '1px solid #9ca3af',
-                                        boxShadow: '0 0 4px rgba(0,0,0,0.7)',
-                                        flex: '0 0 auto'
-                                      }}
-                                    />
-                                  );
-                                }
-
-                                // known/visible: small face-up thumbnail with preview support
-                                const art =
-                                  (card.image_uris &&
-                                    (card.image_uris.small ||
-                                      card.image_uris.normal)) ||
-                                  undefined;
-                                const previewPayload = JSON.stringify({
-                                  id: card.id,
-                                  name: card.name,
-                                  type_line: card.type_line,
-                                  image_uris: card.image_uris,
-                                });
-
-                                return (
-                                  <div
-                                    key={card.id || idx}
-                                    title={card.name || ''}
-                                    style={{
-                                      width: OPP_THUMB_W,
-                                      height: OPP_THUMB_H,
-                                      borderRadius: 4,
-                                      overflow: 'hidden',
-                                      border: '1px solid #a3e635',
-                                      boxShadow:
-                                        '0 0 4px rgba(34,197,94,0.7)',
-                                      flex: '0 0 auto',
-                                      background: '#000',
-                                      cursor: 'pointer',
-                                    }}
-                                    // Show card preview on hover
-                                    onMouseEnter={(e) => {
-                                      showCardPreview(e.currentTarget as HTMLElement, card, { prefer: 'above', anchorPadding: 0 });
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      hideCardPreview(e.currentTarget as HTMLElement);
-                                    }}
-                                  >
-                                    {art ? (
-                                      <img
-                                        src={art}
-                                        alt={card.name || ''}
-                                        style={{
-                                          width: '100%',
-                                          height: '100%',
-                                          objectFit: 'cover'
-                                        }}
-                                      />
-                                    ) : (
-                                      <div
-                                        style={{
-                                          width: '100%',
-                                          height: '100%',
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          fontSize: 9,
-                                          padding: 2
-                                        }}
-                                      >
-                                        {card.name || 'Known card'}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                              {playerHandCount > 12 && (
-                                <div
-                                  style={{
-                                    alignSelf: 'center',
-                                    marginLeft: 4,
-                                    fontSize: 10,
-                                    opacity: 0.8
-                                  }}
-                                >
-                                  +{playerHandCount - 12} more
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        {zObj && (
-                          <ZonesPiles
-                            zones={zObj}
-                            commander={cmdObj}
-                            isCommanderFormat={isCommanderFormat}
-                            showHandCount={
-                              !isYouThis
-                                ? zObj.handCount ??
-                                  (Array.isArray(zObj.hand)
-                                    ? zObj.hand.length
-                                    : 0)
-                                : undefined
-                            }
-                            hideHandDetails={!isYouThis}
-                            canCastCommander={!!(isCommanderFormat && isYouThis && gameId)}
-                            onCastCommander={(commanderId, commanderName, manaCost, tax) => {
-                              if (!gameId) return;
-                              // Use the callback if provided, otherwise emit directly
-                              if (onCastCommander) {
-                                onCastCommander(commanderId, commanderName, manaCost, tax);
-                              } else {
-                                socket.emit('requestCastSpell', {
-                                  gameId,
-                                  cardId: commanderId,
-                                  fromZone: 'command',
-                                });
-                              }
-                            }}
-                            onViewGraveyard={onViewGraveyard ? () => onViewGraveyard(pb.player.id) : undefined}
-                            onViewExile={onViewExile ? () => onViewExile(pb.player.id) : undefined}
-                            onUseTopOfLibrary={isYouThis ? onUseTopOfLibrary : undefined}
-                            playableCards={isYouThis ? playableCards : undefined}
-                            playerId={pb.player.id}
-                            appearanceSettings={appearanceSettings}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
+                return renderTableLayoutPlayerSeat({
+                  pb,
+                  i,
+                  seatPositions,
+                  splitLands,
+                  highlightPlayerTargets,
+                  selectedPlayerTargets,
+                  you,
+                  enableReorderForYou,
+                  onPermanentClick,
+                  zones,
+                  commandZone,
+                  format,
+                  life,
+                  poisonCounters,
+                  experienceCounters,
+                  energyCounters,
+                  energy,
+                  BOARD_W,
+                  BOARD_H,
+                  playerBoardBg,
+                  FREE_W,
+                  ZONES_W,
+                  speed,
+                  enduringStory,
+                  players,
+                  commanderDamage,
+                  getSeatManaPool,
+                  externalDeckMgrAnchorEl,
+                  decksBtnRef,
+                  setDeckMgrOpen,
+                  gameId,
+                  monarch,
+                  initiative,
+                  cityBlessing,
+                  anyPlayerHasCityBlessing,
+                  onPlayerClick,
+                  onCounter,
+                  highlightPermTargets,
+                  selectedPermTargets,
+                  allBattlefieldPerms,
+                  imagePref,
+                  TILE_W,
+                  battlefieldViewportRows,
+                  yourBattlefieldExpanded,
+                  handleToggleYourBattlefieldExpanded,
+                  onUpdatePermPos,
+                  emitBattlefieldAbilityActivation,
+                  onRemove,
+                  pendingTextSwapSource,
+                  setPendingTextSwapSource,
+                  onIgnoreForAutoPass,
+                  onUnignoreForAutoPass,
+                  propsIgnoredCardIds,
+                  hasPriority,
+                  isOwnTurn,
+                  isMainPhase,
+                  stackEmpty,
+                  hasThousandYearElixirEffect,
+                  showAbilityBadges,
+                  handleToggleAbilityBadges,
+                  step,
+                  playableCards,
+                  appearanceSettings,
+                  isYouPlayer,
+                  showYourHandBelow,
+                  embedYourHand,
+                  onShuffleHand,
+                  onPlayLandFromHand,
+                  onCastFromHand,
+                  setZoneContextMenu,
+                  reasonCannotPlayLand,
+                  reasonCannotCast,
+                  costAdjustments,
+                  onReorderHand,
+                  onCastCommander,
+                  onViewGraveyard,
+                  onViewExile,
+                  onUseTopOfLibrary,
+                });
               })}
             </div>
 

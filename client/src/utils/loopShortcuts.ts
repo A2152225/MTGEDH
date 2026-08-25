@@ -1,162 +1,51 @@
 import type { ClientGameView } from '../../../shared/src';
 
-type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+import {
+  LOOP_SHORTCUT_DRAFTS_STORAGE_KEY,
+  LOOP_SHORTCUT_MAX_ITERATIONS,
+  LOOP_SHORTCUT_MAX_SUSTAINED_ITERATIONS,
+  LOOP_SHORTCUT_SAVED_STORAGE_KEY,
+  LITERAL_PRIMITIVE_STEP_TYPES,
+  MANA_COLOR_NAME_RE,
+  PAYMENT_OBJECT_KNOWN_KEYS,
+  clampLoopShortcutIterations,
+} from './loopShortcuts-handlers/loopShortcutsTypes';
+import type {
+  JsonValue,
+  LoopShortcutDraft,
+  LoopShortcutIdTemplate,
+  LoopShortcutPaymentItemTemplate,
+  LoopShortcutPromptFingerprint,
+  LoopShortcutPromptTemplate,
+  LoopShortcutSequenceItem,
+  LoopShortcutTargetMatchProfile,
+  SavedLoopShortcut,
+  StorageLike,
+} from './loopShortcuts-handlers/loopShortcutsTypes';
+import { clonePayload, normalizeText } from './loopShortcuts-handlers/loopShortcutsTextUtils';
+import {
+  buildTargetMatchProfile,
+  isControlledBy,
+  isExplicitNonTokenPermanent,
+  isTokenPermanent,
+} from './loopShortcuts-handlers/loopShortcutsTargetMatchUtils';
 
-type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
-
-/** Characteristics of a recorded permanent choice, used to rebind to a live target. */
-export type LoopShortcutTargetMatchProfile = {
-  name?: string;
-  typeLine?: string;
-  isToken?: boolean;
-  tapped?: boolean;
-  isCommander?: boolean;
+export {
+  LOOP_SHORTCUT_MAX_ITERATIONS,
+  LOOP_SHORTCUT_MAX_SUSTAINED_ITERATIONS,
+  clampLoopShortcutIterations,
+};
+export type {
+  LoopShortcutDraft,
+  LoopShortcutPaymentItemTemplate,
+  LoopShortcutPromptFingerprint,
+  LoopShortcutPromptTemplate,
+  LoopShortcutSequenceItem,
+  LoopShortcutTargetMatchProfile,
+  SavedLoopShortcut,
 };
 
-type LoopShortcutIdTemplate =
-  | {
-      kind: 'specific_ids';
-      ids: string[];
-    }
-  | {
-      kind: 'select_valid_targets';
-      count: number;
-      preferTokens?: boolean;
-      preferNonTokens?: boolean;
-      requireSelfControlled?: boolean;
-      preferTapped?: boolean;
-      preferUntapped?: boolean;
-      avoidCommanders?: boolean;
-      matchProfiles?: LoopShortcutTargetMatchProfile[];
-    };
 
-const LOOP_SHORTCUT_DRAFTS_STORAGE_KEY = 'mtgedh:loopShortcutDrafts';
-const LOOP_SHORTCUT_SAVED_STORAGE_KEY = 'mtgedh:loopShortcutSaved';
-
-/** Soft cap — always allowed. Above this requires a self-sustaining loop. */
-export const LOOP_SHORTCUT_MAX_ITERATIONS = 50;
-/** Hard cap for self-sustaining loops (net resources do not decrease). */
-export const LOOP_SHORTCUT_MAX_SUSTAINED_ITERATIONS = 1000;
-
-export function clampLoopShortcutIterations(raw: unknown): number {
-  const n = Math.floor(Number(raw) || 1);
-  if (!Number.isFinite(n)) return 1;
-  return Math.max(1, Math.min(LOOP_SHORTCUT_MAX_SUSTAINED_ITERATIONS, n));
-}
-
-export type LoopShortcutPromptFingerprint = {
-  stepType: string;
-  sourceName?: string;
-};
-
-/** Recorded mana payment line item (cast / activation), with optional permanent rebind profile. */
-export type LoopShortcutPaymentItemTemplate = {
-  mana: string;
-  abilityId?: string;
-  count?: number;
-  producedColors?: string[];
-  fromRestrictedPool?: boolean;
-  restrictedIndex?: number;
-  paymentSourceId?: string;
-  /** Sticky id fallback when no battlefield match profile is available. */
-  permanentId?: string;
-  permanentProfile?: LoopShortcutTargetMatchProfile;
-  sacrificedProfiles?: LoopShortcutTargetMatchProfile[];
-  sacrificedPermanentIds?: string[];
-};
-
-export type LoopShortcutPromptTemplate =
-  | {
-      kind: 'option_choice';
-      optionIds: string[];
-    }
-  | LoopShortcutIdTemplate
-  | {
-      kind: 'selection_object';
-      literalFields?: Record<string, JsonValue>;
-      targetId?: LoopShortcutIdTemplate;
-      targetIds?: LoopShortcutIdTemplate;
-    }
-  | {
-      kind: 'literal_selection';
-      selection: JsonValue;
-    }
-  | {
-      kind: 'payment_selection';
-      alternateCostId?: string;
-      xValue?: number;
-      payment: LoopShortcutPaymentItemTemplate[];
-      convokeCreatureProfiles?: LoopShortcutTargetMatchProfile[];
-      sneakCreatureProfile?: LoopShortcutTargetMatchProfile;
-      otherLiteralFields?: Record<string, JsonValue>;
-    };
-
-/** Step types whose string/number/boolean selections are values, not permanent target ids. */
-const LITERAL_PRIMITIVE_STEP_TYPES = new Set([
-  'mana_color_selection',
-  'color_choice',
-  'card_name_choice',
-  'creature_type_choice',
-  'life_payment',
-  'number_choice',
-  'x_value_selection',
-  'explore_decision',
-]);
-
-const MANA_COLOR_NAME_RE = /^(white|blue|black|red|green|colorless)$/i;
-
-const PAYMENT_OBJECT_KNOWN_KEYS = new Set([
-  'payment',
-  'alternateCostId',
-  'xValue',
-  'convokeTappedCreatures',
-  'sneakReturnedCreatureId',
-]);
-
-export type LoopShortcutDraft = {
-  name: string;
-  items: LoopShortcutSequenceItem[];
-  iterationCount: number;
-  updatedAt: number;
-};
-
-export type SavedLoopShortcut = LoopShortcutDraft & {
-  id: string;
-};
-
-export type LoopShortcutSequenceItem =
-  | {
-      kind: 'emit';
-      event: string;
-      payload: Record<string, unknown>;
-      label: string;
-    }
-  | {
-      kind: 'resolution_response';
-      fingerprint: LoopShortcutPromptFingerprint;
-      template: LoopShortcutPromptTemplate;
-      label: string;
-    };
-
-type RankedTarget = {
-  id: string;
-  index: number;
-  score: number;
-};
-
-function normalizeText(value: unknown): string {
-  return String(value || '').trim().toLowerCase();
-}
-
-function clonePayload<T>(payload: T): T {
-  return JSON.parse(JSON.stringify(payload ?? null));
-}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -241,206 +130,6 @@ function getObjectTargetIds(selections: unknown): string[] {
   }
 
   return [];
-}
-
-function getBattlefieldPermanent(view: ClientGameView | null | undefined, id: string): any | undefined {
-  const battlefield = Array.isArray(view?.battlefield) ? view?.battlefield : [];
-  const targetId = String(id || '');
-  if (!targetId) return undefined;
-
-  const direct = battlefield.find((permanent: any) => String(permanent?.id || '') === targetId);
-  if (direct) return direct;
-
-  // Server broadcast collapses identical tokens into one group entry (`group_<id>`).
-  // Sacrifice / target prompts still use the real member IDs in groupedTokenIds.
-  for (const permanent of battlefield) {
-    if (permanent?.isGroupedTokens !== true) continue;
-    const groupedIds = Array.isArray(permanent?.groupedTokenIds) ? permanent.groupedTokenIds : [];
-    if (!groupedIds.some((entry: unknown) => String(entry || '') === targetId)) continue;
-
-    return {
-      ...permanent,
-      id: targetId,
-      isToken: true,
-      isGroupedTokens: false,
-      tokenCount: 1,
-      groupedTokenIds: undefined,
-    };
-  }
-
-  return undefined;
-}
-
-function getValidTargetEntry(step: any, id: string): any | undefined {
-  const validTargets = Array.isArray(step?.validTargets) ? step.validTargets : [];
-  return validTargets.find((entry: any) => String(entry?.id || '') === String(id || ''));
-}
-
-function resolveOptionalBoolean(...values: unknown[]): boolean | undefined {
-  for (const value of values) {
-    if (value === true) return true;
-    if (value === false) return false;
-  }
-  return undefined;
-}
-
-function looksLikeTokenId(id: string): boolean {
-  return /^(tok|token|copytok|group_)/i.test(String(id || '').trim());
-}
-
-function getPermanentDisplayName(permanent: any, validTarget?: any): string {
-  return String(
-    permanent?.card?.name
-    || permanent?.name
-    || validTarget?.label
-    || validTarget?.name
-    || ''
-  ).trim();
-}
-
-function getPermanentTypeLineValue(permanent: any, validTarget?: any): string {
-  return String(
-    permanent?.type_line
-    || permanent?.card?.type_line
-    || validTarget?.typeLine
-    || validTarget?.description
-    || ''
-  ).trim();
-}
-
-function buildTargetMatchProfile(
-  step: any,
-  view: ClientGameView | null | undefined,
-  id: string
-): LoopShortcutTargetMatchProfile {
-  const permanent = getBattlefieldPermanent(view, id);
-  const validTarget = getValidTargetEntry(step, id);
-  const name = getPermanentDisplayName(permanent, validTarget);
-  const typeLine = getPermanentTypeLineValue(permanent, validTarget);
-  const isToken = resolveOptionalBoolean(
-    permanent?.isToken,
-    permanent?.isCopyToken,
-    permanent?.card?.isToken,
-    validTarget?.isToken,
-    // Fallback: token ids from createToken / grouped members.
-    looksLikeTokenId(id) || looksLikeTokenId(String(permanent?.id || '')) ? true : undefined,
-  );
-  const tapped = resolveOptionalBoolean(permanent?.tapped, validTarget?.tapped);
-  const isCommander = resolveOptionalBoolean(
-    permanent?.isCommander,
-    permanent?.card?.isCommander,
-    validTarget?.isCommander
-  );
-
-  return {
-    ...(name ? { name } : {}),
-    ...(typeLine ? { typeLine } : {}),
-    ...(typeof isToken === 'boolean' ? { isToken } : {}),
-    ...(typeof tapped === 'boolean' ? { tapped } : {}),
-    ...(typeof isCommander === 'boolean' ? { isCommander } : {}),
-  };
-}
-
-function isTokenPermanent(
-  view: ClientGameView | null | undefined,
-  id: string,
-  step?: any
-): boolean {
-  const profile = buildTargetMatchProfile(step, view, id);
-  return profile.isToken === true;
-}
-
-function isExplicitNonTokenPermanent(
-  view: ClientGameView | null | undefined,
-  id: string,
-  step?: any
-): boolean {
-  const profile = buildTargetMatchProfile(step, view, id);
-  return profile.isToken === false;
-}
-
-function isCommanderPermanent(
-  view: ClientGameView | null | undefined,
-  id: string,
-  step?: any
-): boolean {
-  return buildTargetMatchProfile(step, view, id).isCommander === true;
-}
-
-function isControlledBy(
-  view: ClientGameView | null | undefined,
-  id: string,
-  playerId: string | null | undefined,
-  step?: any
-): boolean {
-  if (!playerId) return false;
-  const permanent = getBattlefieldPermanent(view, id);
-  if (permanent) {
-    return String(permanent?.controller || '') === String(playerId || '');
-  }
-  const validTarget = getValidTargetEntry(step, id);
-  if (validTarget?.controller) {
-    return String(validTarget.controller) === String(playerId || '');
-  }
-  return false;
-}
-
-function typeLineOverlapScore(left: string, right: string): number {
-  const leftNorm = normalizeText(left);
-  const rightNorm = normalizeText(right);
-  if (!leftNorm || !rightNorm) return 0;
-  if (leftNorm === rightNorm) return 60;
-
-  const ignore = new Set(['creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle', 'kindred', 'tribal']);
-  const leftParts = leftNorm.split(/[^a-z0-9]+/).filter((part) => part && !ignore.has(part));
-  const rightParts = new Set(rightNorm.split(/[^a-z0-9]+/).filter((part) => part && !ignore.has(part)));
-  let overlap = 0;
-  for (const part of leftParts) {
-    if (rightParts.has(part)) overlap += 1;
-  }
-  return overlap * 20;
-}
-
-function scoreCandidateAgainstProfile(
-  candidate: LoopShortcutTargetMatchProfile & { controllerMatched: boolean },
-  profile: LoopShortcutTargetMatchProfile | undefined,
-  template: Extract<LoopShortcutIdTemplate, { kind: 'select_valid_targets' }>
-): number {
-  let score = 0;
-
-  if (template.preferTokens && candidate.isToken === true) score += 100;
-  if (template.preferNonTokens && candidate.isToken === false) score += 100;
-  if (template.requireSelfControlled && candidate.controllerMatched) score += 50;
-  if (template.preferTapped && candidate.tapped === true) score += 80;
-  if (template.preferUntapped && candidate.tapped === false) score += 80;
-  if (template.avoidCommanders && candidate.isCommander === true) score -= 500;
-
-  if (!profile) return score;
-
-  if (profile.name && candidate.name && normalizeText(profile.name) === normalizeText(candidate.name)) {
-    score += 200;
-  }
-
-  if (typeof profile.isToken === 'boolean') {
-    if (candidate.isToken === profile.isToken) score += 100;
-    else score -= 80;
-  }
-
-  if (typeof profile.tapped === 'boolean') {
-    if (candidate.tapped === profile.tapped) score += 120;
-    else score -= 60;
-  }
-
-  if (typeof profile.isCommander === 'boolean') {
-    if (candidate.isCommander === profile.isCommander) score += 40;
-    else if (profile.isCommander === false && candidate.isCommander === true) score -= 500;
-  }
-
-  if (profile.typeLine && candidate.typeLine) {
-    score += typeLineOverlapScore(profile.typeLine, candidate.typeLine);
-  }
-
-  return score;
 }
 
 function describePrompt(step: any): string {
@@ -559,65 +248,6 @@ function isManaPaymentSelectionObject(step: any, selections: unknown): boolean {
     || Array.isArray((selections as any).convokeTappedCreatures);
 }
 
-function getPermanentTypeLine(permanent: any): string {
-  return normalizeText(permanent?.type_line || permanent?.cardType || permanent?.card?.type_line);
-}
-
-function permanentMatchesType(permanent: any, type: string): boolean {
-  if (type === 'permanent') return true;
-  return getPermanentTypeLine(permanent).includes(normalizeText(type));
-}
-
-function getPromptValidTargetIds(
-  step: any,
-  view: ClientGameView | null | undefined,
-  playerId: string | null | undefined
-): string[] {
-  const validTargets = Array.isArray(step?.validTargets) ? step.validTargets : [];
-  if (validTargets.length > 0) {
-    return validTargets.map((target: any) => String(target?.id || '')).filter(Boolean);
-  }
-
-  if (step?.type === 'tap_untap_target') {
-    const battlefield = Array.isArray(view?.battlefield) ? view.battlefield : [];
-    const types = Array.isArray(step?.targetFilter?.types)
-      ? step.targetFilter.types.map((entry: unknown) => normalizeText(entry)).filter(Boolean)
-      : [];
-    const controllerFilter = normalizeText(step?.targetFilter?.controller || 'any');
-    const tapStatus = normalizeText(step?.targetFilter?.tapStatus || 'any');
-    const excludeSource = step?.targetFilter?.excludeSource === true;
-    const sourceId = String(step?.sourceId || '');
-
-    return battlefield
-      .filter((permanent: any) => {
-        if (!permanent?.id) return false;
-        if (excludeSource && String(permanent.id) === sourceId) return false;
-        if (types.length > 0 && !types.every((type: string) => permanentMatchesType(permanent, type))) return false;
-
-        if (controllerFilter === 'you' && String(permanent?.controller || '') !== String(playerId || '')) {
-          return false;
-        }
-
-        if (controllerFilter === 'opponent' && String(permanent?.controller || '') === String(playerId || '')) {
-          return false;
-        }
-
-        if (tapStatus === 'tapped' && !permanent?.tapped) {
-          return false;
-        }
-
-        if (tapStatus === 'untapped' && permanent?.tapped) {
-          return false;
-        }
-
-        return true;
-      })
-      .map((permanent: any) => String(permanent.id));
-  }
-
-  return [];
-}
-
 function extractTargetIds(step: any, selections: unknown): string[] {
   const ids = getSelectionIds(selections);
   if (ids.length > 0) return ids;
@@ -699,128 +329,6 @@ function buildIdTemplate(
     kind: 'specific_ids',
     ids: selectedIds,
   };
-}
-
-function filterDynamicCandidateIds(
-  validTargetIds: string[],
-  template: Extract<LoopShortcutIdTemplate, { kind: 'select_valid_targets' }>,
-  profile: LoopShortcutTargetMatchProfile | undefined,
-  step: any,
-  view: ClientGameView | null | undefined
-): string[] {
-  let candidates = [...validTargetIds];
-
-  const wantsTokens =
-    template.preferTokens === true
-    || profile?.isToken === true;
-  if (wantsTokens) {
-    const tokenIds = candidates.filter((id) => isTokenPermanent(view, id, step));
-    if (tokenIds.length > 0) {
-      candidates = tokenIds;
-    }
-  }
-
-  const avoidCommanders =
-    template.avoidCommanders === true
-    || profile?.isCommander === false;
-  if (avoidCommanders) {
-    const nonCommanders = candidates.filter((id) => !isCommanderPermanent(view, id, step));
-    if (nonCommanders.length > 0) {
-      candidates = nonCommanders;
-    }
-  }
-
-  if (template.preferTapped === true || profile?.tapped === true) {
-    const tappedIds = candidates.filter((id) => buildTargetMatchProfile(step, view, id).tapped === true);
-    if (tappedIds.length > 0) {
-      candidates = tappedIds;
-    }
-  } else if (template.preferUntapped === true || profile?.tapped === false) {
-    const untappedIds = candidates.filter((id) => buildTargetMatchProfile(step, view, id).tapped === false);
-    if (untappedIds.length > 0) {
-      candidates = untappedIds;
-    }
-  }
-
-  return candidates;
-}
-
-function buildIdSelectionsPayload(
-  template: LoopShortcutIdTemplate,
-  step: any,
-  view: ClientGameView | null | undefined,
-  playerId: string | null | undefined
-): string[] | null {
-  if (template.kind === 'specific_ids') {
-    const validIds = new Set(getPromptValidTargetIds(step, view, playerId));
-    if (validIds.size === 0) {
-      return [...template.ids];
-    }
-
-    const selected = template.ids.filter(id => validIds.has(String(id)));
-    if (selected.length !== template.ids.length) return null;
-    return selected;
-  }
-
-  const validTargetIds = getPromptValidTargetIds(step, view, playerId);
-  if (validTargetIds.length === 0) return null;
-
-  const profiles: Array<LoopShortcutTargetMatchProfile | undefined> =
-    Array.isArray(template.matchProfiles) && template.matchProfiles.length > 0
-      ? template.matchProfiles.slice(0, Math.max(0, template.count))
-      : Array.from({ length: Math.max(0, template.count) }, () => undefined);
-
-  // Pad profiles when an older saved loop only stored aggregate preferences.
-  while (profiles.length < Math.max(0, template.count)) {
-    profiles.push(undefined);
-  }
-
-  const usedIds = new Set<string>();
-  const selected: string[] = [];
-
-  for (const profile of profiles) {
-    const candidateIds = filterDynamicCandidateIds(
-      validTargetIds.filter((id: string) => !usedIds.has(id)),
-      template,
-      profile,
-      step,
-      view
-    );
-
-    const rankedTargets: RankedTarget[] = candidateIds
-      .map((id: string, index: number) => {
-        const candidateProfile = buildTargetMatchProfile(step, view, id);
-        const score = scoreCandidateAgainstProfile(
-          {
-            ...candidateProfile,
-            controllerMatched: isControlledBy(view, id, playerId, step),
-          },
-          profile,
-          template
-        );
-
-        return {
-          id,
-          index,
-          score,
-        };
-      })
-      .sort((left: RankedTarget, right: RankedTarget) => {
-        if (right.score !== left.score) return right.score - left.score;
-        return left.index - right.index;
-      });
-
-    const best = rankedTargets[0];
-    if (!best) return null;
-    usedIds.add(best.id);
-    selected.push(best.id);
-  }
-
-  if (selected.length !== Math.max(0, template.count)) {
-    return null;
-  }
-
-  return selected;
 }
 
 function buildPaymentItemTemplate(
@@ -926,101 +434,6 @@ function createPaymentSelectionTemplate(
     ...(sneakCreatureProfile ? { sneakCreatureProfile } : {}),
     ...(Object.keys(otherLiteralFields).length > 0 ? { otherLiteralFields } : {}),
   };
-}
-
-function scorePaymentPermanentCandidate(
-  candidate: LoopShortcutTargetMatchProfile & { controllerMatched: boolean; id: string },
-  profile: LoopShortcutTargetMatchProfile | undefined
-): number {
-  let score = 0;
-  if (candidate.controllerMatched) score += 50;
-  if (!profile) return score;
-
-  if (profile.name && candidate.name && normalizeText(profile.name) === normalizeText(candidate.name)) {
-    score += 200;
-  }
-  if (typeof profile.isToken === 'boolean') {
-    if (candidate.isToken === profile.isToken) score += 100;
-    else score -= 80;
-  }
-  if (typeof profile.tapped === 'boolean') {
-    // Prefer matching tapped state, but do not hard-require it — payment sources are usually untapped.
-    if (candidate.tapped === profile.tapped) score += 40;
-  } else if (candidate.tapped === false) {
-    score += 30;
-  }
-  if (typeof profile.isCommander === 'boolean') {
-    if (candidate.isCommander === profile.isCommander) score += 40;
-    else if (profile.isCommander === false && candidate.isCommander === true) score -= 500;
-  }
-  if (profile.typeLine && candidate.typeLine) {
-    score += typeLineOverlapScore(profile.typeLine, candidate.typeLine);
-  }
-  return score;
-}
-
-function rebindPaymentPermanentId(
-  profile: LoopShortcutTargetMatchProfile | undefined,
-  stickyId: string | undefined,
-  view: ClientGameView | null | undefined,
-  playerId: string | null | undefined,
-  usedIds: Set<string>
-): string | null {
-  if (stickyId && !usedIds.has(stickyId) && getBattlefieldPermanent(view, stickyId)) {
-    usedIds.add(stickyId);
-    return stickyId;
-  }
-
-  const battlefield = Array.isArray(view?.battlefield) ? view!.battlefield : [];
-  const ranked = battlefield
-    .map((permanent: any, index: number) => {
-      const id = String(permanent?.id || '');
-      if (!id || usedIds.has(id)) return null;
-      const candidateProfile = buildTargetMatchProfile(null, view, id);
-      const score = scorePaymentPermanentCandidate(
-        {
-          ...candidateProfile,
-          id,
-          controllerMatched: isControlledBy(view, id, playerId),
-        },
-        profile
-      );
-      return { id, index, score };
-    })
-    .filter((entry): entry is RankedTarget => Boolean(entry))
-    .sort((left, right) => {
-      if (right.score !== left.score) return right.score - left.score;
-      return left.index - right.index;
-    });
-
-  const best = ranked[0];
-  // Require a name/type match signal so we do not grab an arbitrary permanent.
-  if (!best || best.score < 150) return null;
-  usedIds.add(best.id);
-  return best.id;
-}
-
-function rebindProfileIds(
-  profiles: LoopShortcutTargetMatchProfile[] | undefined,
-  stickyIds: string[] | undefined,
-  view: ClientGameView | null | undefined,
-  playerId: string | null | undefined,
-  usedIds: Set<string>
-): string[] {
-  const count = Math.max(profiles?.length || 0, stickyIds?.length || 0);
-  const selected: string[] = [];
-  for (let i = 0; i < count; i += 1) {
-    const rebound = rebindPaymentPermanentId(
-      profiles?.[i],
-      stickyIds?.[i],
-      view,
-      playerId,
-      usedIds
-    );
-    if (!rebound) continue;
-    selected.push(rebound);
-  }
-  return selected;
 }
 
 export function createRecordedEmitItem(
@@ -1289,126 +702,7 @@ export function noteLoopShortcutCastSettleStack(
   return { ...castSettle, sawNonEmptyStack: true };
 }
 
-export function buildResolutionResponsePayload(
-  template: LoopShortcutPromptTemplate,
-  step: any,
-  view: ClientGameView | null | undefined,
-  playerId: string | null | undefined
-): { selections: unknown } | null {
-  if (template.kind === 'option_choice') {
-    return { selections: [...template.optionIds] };
-  }
-
-  if (template.kind === 'literal_selection') {
-    return { selections: clonePayload(template.selection) };
-  }
-
-  if (template.kind === 'payment_selection') {
-    const usedIds = new Set<string>();
-    const payment: Record<string, unknown>[] = [];
-
-    for (const item of template.payment || []) {
-      const needsPermanent = Boolean(item.permanentProfile || item.permanentId);
-      let permanentId: string | undefined;
-      if (needsPermanent) {
-        const rebound = rebindPaymentPermanentId(
-          item.permanentProfile,
-          item.permanentId,
-          view,
-          playerId,
-          usedIds
-        );
-        if (!rebound) return null;
-        permanentId = rebound;
-      }
-
-      const sacrificedPermanentIds = item.sacrificedProfiles
-        ? rebindProfileIds(item.sacrificedProfiles, item.sacrificedPermanentIds, view, playerId, usedIds)
-        : (item.sacrificedPermanentIds || []);
-      if (item.sacrificedProfiles && sacrificedPermanentIds.length !== item.sacrificedProfiles.length) {
-        return null;
-      }
-
-      const entry: Record<string, unknown> = {
-        mana: item.mana,
-        ...(permanentId ? { permanentId } : {}),
-      };
-      if (item.abilityId) entry.abilityId = item.abilityId;
-      if (item.paymentSourceId) entry.paymentSourceId = item.paymentSourceId;
-      if (typeof item.count === 'number') entry.count = item.count;
-      if (item.producedColors) entry.producedColors = [...item.producedColors];
-      if (item.fromRestrictedPool === true) entry.fromRestrictedPool = true;
-      if (typeof item.restrictedIndex === 'number') entry.restrictedIndex = item.restrictedIndex;
-      if (sacrificedPermanentIds.length > 0) entry.sacrificedPermanentIds = sacrificedPermanentIds;
-      payment.push(entry);
-    }
-
-    const selections: Record<string, unknown> = {
-      ...(clonePayload(template.otherLiteralFields || {}) as Record<string, unknown>),
-    };
-
-    if (payment.length > 0) {
-      selections.payment = payment;
-    }
-    if (template.alternateCostId) {
-      selections.alternateCostId = template.alternateCostId;
-    }
-    if (typeof template.xValue === 'number') {
-      selections.xValue = template.xValue;
-    }
-
-    if (template.convokeCreatureProfiles && template.convokeCreatureProfiles.length > 0) {
-      const convokeIds = rebindProfileIds(
-        template.convokeCreatureProfiles,
-        undefined,
-        view,
-        playerId,
-        usedIds
-      );
-      if (convokeIds.length !== template.convokeCreatureProfiles.length) return null;
-      selections.convokeTappedCreatures = convokeIds;
-    }
-
-    if (template.sneakCreatureProfile) {
-      const sneakIds = rebindProfileIds(
-        [template.sneakCreatureProfile],
-        undefined,
-        view,
-        playerId,
-        usedIds
-      );
-      if (sneakIds.length !== 1) return null;
-      selections.sneakReturnedCreatureId = sneakIds[0];
-    }
-
-    return { selections };
-  }
-
-  if (template.kind === 'selection_object') {
-    const selections: Record<string, unknown> = clonePayload(template.literalFields || {});
-
-    if (template.targetId) {
-      const targetIds = buildIdSelectionsPayload(template.targetId, step, view, playerId);
-      if (!targetIds || targetIds.length === 0) return null;
-      selections.targetId = targetIds[0];
-    }
-
-    if (template.targetIds) {
-      const targetIds = buildIdSelectionsPayload(template.targetIds, step, view, playerId);
-      if (!targetIds) return null;
-      selections.targetIds = targetIds;
-    }
-
-    return { selections };
-  }
-
-  const selectedIds = buildIdSelectionsPayload(template, step, view, playerId);
-  if (!selectedIds) {
-    return null;
-  }
-
-  return { selections: selectedIds };
-}
+export { buildResolutionResponsePayload } from './loopShortcuts-handlers/loopShortcutsResolutionResponsePayload';
 
 export function loadLoopShortcutDraft(storage: StorageLike, gameId: string): LoopShortcutDraft | null {
   const drafts = readJsonRecord(storage, LOOP_SHORTCUT_DRAFTS_STORAGE_KEY);

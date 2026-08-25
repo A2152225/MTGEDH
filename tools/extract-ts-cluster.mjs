@@ -67,15 +67,15 @@ const first = lineAt(start);
 const last = lineAt(end).trim();
 
 const problems = [];
-if (prev !== '' && !/[;}]$/.test(prev) && !prev.endsWith('{')) {
-  if (prev !== '}') problems.push(`line ${start - 1} before the range is a continuation: "${prev}"`);
-}
 const allowNested = args.get('allow-nested') === true;
 const allowAny = args.get('allow-any') === true;
+if (!allowAny && prev !== '' && !/[;}]$/.test(prev) && !prev.endsWith('{')) {
+  if (prev !== '}') problems.push(`line ${start - 1} before the range is a continuation: "${prev}"`);
+}
 if (!allowNested && !allowAny && (/^\s/.test(first) || first.trim() === '')) {
   problems.push(`line ${start} is not a top-level declaration: "${first}"`);
 }
-if (last !== '' && last !== '}' && !/[;}]$/.test(last)) {
+if (!allowAny && last !== '' && last !== '}' && !/[;}]$/.test(last)) {
   problems.push(`line ${end} does not close a statement: "${last}"`);
 }
 if (problems.length > 0) {
