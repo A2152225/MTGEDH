@@ -1,0 +1,26 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: findCardByIdAcrossState, getSearchLibraryMatches,
+// resolveSearchLibraryMaxResults, isOptionalSearchLibraryStep.
+// Public entries: getSearchLibraryMatches, resolveSearchLibraryMaxResults,
+// isOptionalSearchLibraryStep.
+
+import type { GameState } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
+import {
+  getCardManaValue,
+  normalizeOracleText,
+} from './oracleIRExecutorPlayerUtils';
+import {
+  cardIsBasicLandForLibrarySearch,
+  cardIsLandTypeForLibrarySearch,
+  parseBasicLandLibrarySearchCriteria,
+  parseLandTypeLibrarySearchCriteria,
+  withLibrarySearchFrontFace,
+} from './oracleIRExecutorLibrarySearchCardUtils';
+import {
+  cardMatchesMoveZoneSingleTargetCriteria,
+  parseMoveZoneSingleTargetCriteria,
+} from './oracleIRExecutorZoneOps';
+

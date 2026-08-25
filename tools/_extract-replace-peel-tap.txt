@@ -1,0 +1,1 @@
+export { detectTapTriggers, type TapTrigger } from "./triggers/tap-detection.js";

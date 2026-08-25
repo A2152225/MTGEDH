@@ -1,0 +1,13 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover utility-land / equipment / umbra / control / infect / group-draw /
+ *   land-search / conditional-ETB / library / charge / special-card tables and detectors
+ * Public: detectUtilityLandAbility, detectEquipmentEffect, detectUmbraEffect, detectControlChangeEffect,
+ *   detectInfectGrantEffect, detectGroupDrawEffect, detectMultiTargetLandSearch, validateSharedLandType,
+ *   detectConditionalETBTapped, checkConditionalETBMet, detectLibraryRevealPlayEffect,
+ *   detectTopCardViewEffect, detectPowerBasedLandSearch, calculateLandSearchCount,
+ *   detectChargeCounterAbility, detectSpecialCardEffect, checkGraveyardTrigger
+ */
+
+import { getActualPowerToughness } from "../../utils.js";
+import { handleEldraziShuffle, hasGraveyardMassShuffleIntoLibraryTrigger } from "../zone-manipulation.js";

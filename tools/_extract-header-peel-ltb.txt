@@ -1,0 +1,12 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover detectLTBTriggers
+ * Public: detectLTBTriggers
+ */
+
+import { stripReminderParentheticals } from "../../../../../rules-engine/src/oracleReminderText.js";
+import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
+import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
+import { LTB_STATIC_ALTERNATIVES } from "./etb-detection-helpers.js";
+import { timingTriggerEffect } from "./timing-effect-extraction.js";
+

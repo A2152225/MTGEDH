@@ -1,0 +1,12 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover getSpellCastTriggers + extractCreatureTypes
+ * Public: getSpellCastTriggers
+ */
+
+import { debug } from "../../../utils/debug.js";
+import type { GameContext } from "../../context.js";
+import { cardHasCreatureType } from "../../creatureTypeNow.js";
+import { getEffectiveColors } from "../effectiveColors.js";
+import { detectSpellCastTriggers } from "./spell-cast-detection.js";
+import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";

@@ -1,0 +1,16 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: resolveVariableAmount.
+// Public entries: resolveVariableAmount.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
+import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
+import {
+  getCardManaValue,
+  normalizeOracleText,
+  quantityToNumber,
+} from './oracleIRExecutorPlayerUtils';
+import { resolveControllerSpellCastCountThisTurn } from './oracleIRExecutorResolveQuantity';
+

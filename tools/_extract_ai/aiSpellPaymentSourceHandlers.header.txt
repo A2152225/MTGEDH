@@ -1,0 +1,30 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: spell-payment source selection (getPaymentSources) plus
+ * adjacent payment-plan helpers through chooseAISpellPaymentSelections.
+ *
+ * Public entry symbols: getPaymentSources, canAIAssembleSpellPaymentPlan,
+ * chooseAISpellPaymentSelections.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { parseSacrificeCost } from "../../../../shared/src/textUtils.js";
+import { getTotalManaFromPool, parseManaCost } from "../../state/modules/mana-check.js";
+import {
+  calculateManaProduction,
+  consumeManaFromPool,
+  getOrInitManaPool,
+  paymentActivationCostHasUnsupportedAdditionalCosts,
+  validateManaPayment,
+} from "../util.js";
+import { COLOR_IDENTITY_MAP } from "./aiConstants.js";
+import type { AIResolvedActivatedAbilityAction } from "./aiAbilityActivationTypes.js";
+import {
+  getAIManaProductionOptions,
+  hasCreatureSummoningSickness,
+  hasManaAbility,
+  scoreAISacrificePermanentForManaAbility,
+} from "./aiManaCostHelpers.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+

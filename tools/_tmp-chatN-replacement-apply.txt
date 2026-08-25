@@ -1,0 +1,2 @@
+export { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync-handlers/oracleIrServerApplyOnServer.js';
+

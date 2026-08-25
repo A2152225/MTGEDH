@@ -1,0 +1,30 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: checkShouldTapLandsForManaRetention, executeAITapLandsForMana.
+ *
+ * Public entry symbols: checkShouldTapLandsForManaRetention, executeAITapLandsForMana.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { isPowerScaledGreenManaAbilityText } from "../../../../rules-engine/src/aiEngineManaPoolSupport.js";
+import { debug, debugWarn } from "../../utils/debug.js";
+import { ensureGame } from "../util.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import {
+  getManaProduction,
+  hasCreatureSummoningSickness,
+  hasManaAbility,
+} from "./aiManaCostHelpers.js";
+import { selectAIManaRetentionActivationAction } from "./aiManaActivationHelpers.js";
+
+async function executeAIActivateAbility(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  action: any,
+  continueAfterResolution = true,
+): Promise<boolean> {
+  return getAIHandlerDeps().executeAIActivateAbility(io, gameId, playerId, action, continueAfterResolution);
+}
+

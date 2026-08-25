@@ -1,0 +1,2 @@
+import { detectTargetType } from "./triggers/detect-target-type.js";
+

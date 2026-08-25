@@ -1,0 +1,17 @@
+[
+  {
+    "parent": "rules-engine/src/oracleIRParserPostprocess.ts",
+    "out": "rules-engine/src/oracleIRParserPostprocessResidualUnknownStepTail.ts",
+    "headerText": "// Extracted from rules-engine/src/oracleIRParserPostprocess.ts (chat B 40KB split campaign).\n//\n// Cluster: the tail half of parseCurrentResidualUnknownStep's chain, from the simple-action clause\n// reparse through the clause fallbacks that close the chain.\n//\n// The head keeps its guards and then calls this helper in the tail's original position, so the\n// first-match order of the whole chain is unchanged. staticMetadata is a verbatim copy of the\n// chain prologue.\n\nimport type { OracleEffectStep } from './oracleIR';\nimport { parseObjectSelector } from './oracleIRParserUtils';\n\n",
+    "chunks": [
+      {
+        "start": 520,
+        "end": 991,
+        "name": "parseCurrentResidualUnknownStepTail",
+        "prologue": ["staticMetadata"],
+        "params": "raw: string, sequence: { sequence?: 'then' }, clauseBody: string, step: OracleEffectStep",
+        "args": "raw, sequence, clauseBody, step"
+      }
+    ]
+  }
+]

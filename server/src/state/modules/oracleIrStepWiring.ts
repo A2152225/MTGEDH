@@ -41,6 +41,42 @@ export function oracleEffectStepFingerprint(step: OracleEffectStep): string {
   return `${String(step.kind || '')}::${String(step.raw || '').trim().toLowerCase()}`;
 }
 
+function getOracleEffectStepThenBranch(step: OracleEffectStep): readonly OracleEffectStep[] {
+  if (!step || typeof step !== 'object') return [];
+  const kind = String(step.kind || '');
+  if (
+    kind !== 'conditional'
+    && kind !== 'unless_pays_mana'
+    && kind !== 'unless_pays_life'
+    && kind !== 'unless_discards'
+    && kind !== 'unless_sacrifices'
+    && kind !== 'any_player_may'
+  ) {
+    return [];
+  }
+  const nested = (step as { steps?: readonly OracleEffectStep[] }).steps;
+  return Array.isArray(nested) ? nested : [];
+}
+
+/** True when this parsed step, or every mandatory then-branch step, is in applied/continuation. */
+export function isOracleEffectStepCoveredByApplied(
+  step: OracleEffectStep,
+  appliedFingerprints: ReadonlySet<string>,
+  continuationFingerprints: ReadonlySet<string> = new Set(),
+): boolean {
+  const fingerprint = oracleEffectStepFingerprint(step);
+  if (appliedFingerprints.has(fingerprint) || continuationFingerprints.has(fingerprint)) {
+    return true;
+  }
+  const nested = getOracleEffectStepThenBranch(step);
+  if (nested.length === 0) return false;
+  const mandatoryNested = nested.filter((inner) => !isOptionalOracleEffectStep(inner));
+  const relevant = mandatoryNested.length > 0 ? mandatoryNested : nested;
+  return relevant.every((inner) =>
+    isOracleEffectStepCoveredByApplied(inner, appliedFingerprints, continuationFingerprints),
+  );
+}
+
 export function isOracleEffectStepRuntimeWired(step: OracleEffectStep): boolean {
   if (!step || step.kind === 'unknown') return false;
 
@@ -184,9 +220,9 @@ export function describeOracleIrMandatoryExecutionIncomplete(
   );
 
   for (const step of mandatoryParsed) {
-    const fingerprint = oracleEffectStepFingerprint(step);
-    if (appliedFingerprints.has(fingerprint)) continue;
-    if (continuationFingerprints.has(fingerprint)) continue;
+    if (isOracleEffectStepCoveredByApplied(step, appliedFingerprints, continuationFingerprints)) {
+      continue;
+    }
     if (queueBridged) continue;
     if (discardBridged && step.kind === 'discard') continue;
     reasons.push(`unapplied_mandatory_step: ${summarizeOracleIrStep(step)}`);

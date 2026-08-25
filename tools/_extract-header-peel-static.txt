@@ -1,0 +1,8 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover damage-redirection, empires, mana-granter, mass-boost, must-block,
+ *   targeting-protection, dynamic P/T, mass-mill, and quest-counter detectors
+ * Public: detectDamageRedirection, checkEmpiresSet, getEmpiresEffect, detectManaAbilityGranter,
+ *   detectMassBoostEffect, calculateMassBoost, detectMustBlockEffect, detectTargetingProtection,
+ *   detectDynamicPT, calculateDynamicPT, detectMassMillEffect, detectQuestCounter
+ */

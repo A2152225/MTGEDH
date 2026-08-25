@@ -1,0 +1,23 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: executeAdvanceStep, executeAIDecision.
+ *
+ * Public entry symbols: executeAdvanceStep, executeAIDecision.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { AIDecisionType } from "../../../../rules-engine/src/AIEngine.js";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { ensureGame, broadcastGame } from "../util.js";
+import { advanceStepPersistingEvent } from "../step-advance.js";
+import { AI_PASSIVE_STEP_DELAY_MS, AI_THINK_TIME_MS } from "./aiConstants.js";
+import { scheduleAIPriority } from "./aiScheduler.js";
+import { isAIPlayer } from "./aiPlayerRegistry.js";
+import { checkPendingModals } from "./aiGameCleanupHandlers.js";
+import {
+  executeDeclareAttackers,
+  executeDeclareBlockers,
+  executePassPriority,
+} from "./aiPriorityPassCombatExecutors.js";
+

@@ -1,0 +1,3 @@
+/**
+ * Discard: old triggers/tap-untap.ts detectTapTriggers (replaced by leftover-merged tap-detection.ts).
+ */

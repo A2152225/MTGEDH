@@ -1,0 +1,24 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerUnlessPayChoicePrompts.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: queueUnlessPayChoicePromptsFromOracleIRResult.
+// Public entry symbols: queueUnlessPayChoicePromptsFromOracleIRResult.
+// Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import { resolvePlayers } from '../../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
+import { normalizeOracleManaCostString } from '../../../../../rules-engine/src/oracleIRExecutorManaUtils.js';
+import { resolveOracleIrBoundTargetSpellId } from '../../../../../rules-engine/src/oracleIrTargetBinding.js';
+import { describeAnyPlayerMayPayment } from '../../../../../rules-engine/src/oracleIRAnyPlayerMay.js';
+import type { GameContext } from '../../context.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
+import {
+  attachOracleIrResumeMetadata,
+  findSkippedOracleStep,
+  isOracleIrPlayerChoiceGap,
+} from '../oracleIrServerPromptResumeUtils.js';
+import { resolveOptionalPayLifeAmount } from './oracleIrServerOptionalStepChoicePrompts.js';
+

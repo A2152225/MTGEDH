@@ -1,0 +1,23 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: getManaProduction, getAIManaProductionOptions,
+ * chooseAIManaColorForActivation, applyAIManaLifeLoss, hasManaAbility,
+ * hasCreatureSummoningSickness, scoreAISacrificePermanentForManaAbility,
+ * calculateAvailableMana, canAIPayAdditionalCost.
+ *
+ * Public entry symbols: getManaProduction, getAIManaProductionOptions,
+ * chooseAIManaColorForActivation, applyAIManaLifeLoss, hasManaAbility,
+ * hasCreatureSummoningSickness, scoreAISacrificePermanentForManaAbility,
+ * calculateAvailableMana, canAIPayAdditionalCost.
+ */
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { cardAnalyzer } from "../../../../rules-engine/src/CardAnalyzer.js";
+import { getAvailableMana, parseManaCost, getTotalManaFromPool } from "../../state/modules/mana-check.js";
+import { buildCounterRemovalCostOptions } from "../../state/modules/counter-removal-costs.js";
+import { debugWarn } from "../../utils/debug.js";
+import type { AdditionalCostResult } from "../land-helpers.js";
+import { AI_MANA_COLOR_PRIORITY, COLOR_IDENTITY_MAP } from "./aiConstants.js";
+import { calculateCardThemeAlignment, ensureAIDeckProfile } from "./aiDeckProfileHandlers.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+

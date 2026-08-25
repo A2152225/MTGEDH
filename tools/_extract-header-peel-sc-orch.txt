@@ -1,0 +1,16 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover detectSpellCastTriggers (merged into triggers/; leftover re-exports)
+ * Public: detectSpellCastTriggers
+ */
+
+import { getActivePermanentCardFace } from "../cardFaceOracle.js";
+import {
+  getSpellCastConditionData as parseSpellCastConditionData,
+  getSpellCastEffectMetadata as parseSpellCastEffectMetadata,
+} from "./spell-cast-condition-helpers.js";
+import { appendSpellCastDetectionLate } from "./spell-cast-detection-late.js";
+import { appendSpellCastDetectionMid } from "./spell-cast-detection-mid.js";
+import type { SpellCastDetectionState } from "./spell-cast-detection-state.js";
+import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
+import { timingTriggerEffect } from "./timing-effect-extraction.js";

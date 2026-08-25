@@ -30,7 +30,7 @@ Instead:
 
 ## Find before you read
 
-Never ingest a megafile to make an edit. Grep a table of contents first — `^(export )?(async )?function`, `case ResolutionStepType`, `case '` — then Read only the cluster's line range. `docs/mtg-logic-module-map.md` says which module already owns a mechanic.
+Never ingest a megafile to make an edit. Run `node tools/ts-cluster-toc.mjs <file> --min-bytes 2000` or Grep a table of contents first — `^(export )?(async )?function`, `case ResolutionStepType`, `case '` — then Read only the cluster's line range. `docs/mtg-logic-module-map.md` says which module already owns a mechanic.
 
 ## Naming
 
@@ -83,4 +83,4 @@ Full playbook and paste prompts: `.cursor/skills/split-ts-module/SKILL.md`.
 
 ## No behavior changes while splitting
 
-Extracts move code. Do not fix cards, rename APIs, or tidy logic in the same edit — a split diff that also changes behavior cannot be reviewed. Do not revive `tools/_refactor_scratch/*.mjs` dump-and-cut scripts as the extraction method; they produced mixed CRLF and reconstruction bugs.
+Extracts move code. Do not fix cards, rename APIs, or tidy logic in the same edit — a split diff that also changes behavior cannot be reviewed. Do not revive `tools/_refactor_scratch/*.mjs` dump-and-cut scripts as the extraction method; they produced mixed CRLF and reconstruction bugs. Copy bodies with `node tools/extract-ts-cluster.mjs` (byte-copy, `--dry` first). Do not reprint with ts-morph / jscodeshift / recast.

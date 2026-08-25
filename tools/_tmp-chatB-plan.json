@@ -1,0 +1,13 @@
+{
+  "parent": "rules-engine/src/oracleIRParserPostprocess.ts",
+  "out": "rules-engine/src/oracleIRParserPostprocessResidualStaticGrantGuards.ts",
+  "header": "tools/_tmp-chatB-header.txt",
+  "chunks": [
+    {
+      "start": 9610,
+      "end": 10248,
+      "name": "parseResidualStaticGrantGuardsPrimary",
+      "prologue": ["staticMetadata", "temporaryMetadata"]
+    }
+  ]
+}

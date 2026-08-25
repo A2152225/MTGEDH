@@ -1,0 +1,27 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: handleAIResolutionStep cases explore_decision through
+ * hideaway_choice.
+ *
+ * Public entry symbols: handleAIResolutionKeywordAndMiscSteps.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import { debug } from "../../utils/debug.js";
+import {
+  chooseAIHideawayCardId,
+  chooseAIReturnControlledPermanentId,
+  chooseAIUpkeepSacrificeSelection,
+} from "./aiZoneSearchChoiceHandlers.js";
+
+export async function handleAIResolutionKeywordAndMiscSteps(
+  io: Server,
+  gameId: string,
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  createResponse: (selections: any, cancelled?: boolean) => any,
+): Promise<void> {
+  switch (step.type) {

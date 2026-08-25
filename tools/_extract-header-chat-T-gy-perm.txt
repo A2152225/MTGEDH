@@ -1,0 +1,19 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: graveyard/exile permission criteria, target resolvers, mana-cost parsers.
+// Public entries: normalizePermissionSelectorText, resolveGraveyardPermissionTargets,
+// parseSupportedManaCostString, resolveExilePermissionTargets, parseEnergyCostAmount.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { getChosenObjectIds } from './oracleIRExecutorPlayerSelectionOptions';
+import { isCardExiledWithSource } from './oracleIRExecutorPlayerUtils';
+import {
+  cardMatchesMoveZoneSingleTargetCriteria,
+  cardMatchesType,
+  parseSimpleCardTypeFromText,
+  type MoveZoneSingleTargetCriteria,
+} from './oracleIRExecutorZoneOps';
+import type { ManaCost } from './types/mana';
+import { parseManaSymbols } from './types/numbers';
+

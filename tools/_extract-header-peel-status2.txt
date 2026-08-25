@@ -1,0 +1,9 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover spell-countered / mutate / equipped / returned-to-hand detectors
+ * Public: detectSpellCounteredTriggers, detectMutateTriggers, detectEquippedTriggers,
+ *   detectReturnedToHandTriggers
+ */
+
+import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
+import { timingTriggerEffect } from "./timing-effect-extraction.js";

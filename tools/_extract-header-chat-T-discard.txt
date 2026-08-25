@@ -1,0 +1,28 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: discardSelectorRequiresPlayerChoice, handCardMatchesDiscardTarget,
+// buildDiscardSelectionOptionsForPlayer, collectDiscardSelectionOptionsForStep,
+// buildDiscardSelectionOptions, applyDiscardStep.
+// Public entries: discardSelectorRequiresPlayerChoice,
+// buildDiscardSelectionOptionsForPlayer, collectDiscardSelectionOptionsForStep,
+// buildDiscardSelectionOptions, applyDiscardStep.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep, OracleObjectSelector } from './oracleIR';
+import { evaluateOracleStepUnlessCondition } from './oracleIRExecutorConditionalStepSupport';
+import { cardMatchesLookChooseSelector } from './oracleIRExecutorPlayerLookChooseSelector';
+import {
+  buildPlayerZoneBridgeOptions,
+  filterChosenHandCardIds,
+  getNormalizedChosenIds,
+  resolveStepAmountForPlayer,
+  withDiscardLedgerFlags,
+} from './oracleIRExecutorPlayerStepShared';
+import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import {
+  discardCardsForPlayer,
+  discardSpecificCardsForPlayer,
+  quantityToNumber,
+  resolvePlayers,
+} from './oracleIRExecutorPlayerUtils';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+

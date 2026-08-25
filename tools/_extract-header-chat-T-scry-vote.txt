@@ -1,0 +1,22 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: applyScryStep, applyFatesealStep, applyVoteStep, applyClashStep.
+// Public entries: applyScryStep, applyFatesealStep, applyVoteStep, applyClashStep.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { commitLibraryTopObservation } from './oracleIRExecutorCardZoneTransitionCommit';
+import {
+  resolveStepAmountForPlayer,
+  withDiscardLedgerFlags,
+} from './oracleIRExecutorPlayerStepShared';
+import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import {
+  collectTopLibraryObservationForPlayers,
+  deriveWinningVoteChoice,
+  getCardManaValue,
+  quantityToNumber,
+  resolvePlayers,
+} from './oracleIRExecutorPlayerUtils';
+import { usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
+

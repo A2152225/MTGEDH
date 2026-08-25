@@ -1,0 +1,29 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: applySurveilStep, applyLookSelectTopStep, applyLookTopStep, applyRevealTopStep.
+// Public entries: applySurveilStep, applyLookSelectTopStep, applyLookTopStep, applyRevealTopStep.
+
+import type { GameState } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { commitLibraryTopObservation } from './oracleIRExecutorCardZoneTransitionCommit';
+import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
+import {
+  lookSelectTopRequiresPlayerChoice,
+  resolveLookSelectAmount,
+} from './oracleIRExecutorPlayerLookSelectTopOptions';
+import {
+  getNormalizedChosenIds,
+  resolveStepAmountForPlayer,
+  withDiscardLedgerFlags,
+} from './oracleIRExecutorPlayerStepShared';
+import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import {
+  collectTopLibraryObservationForPlayers,
+  lookSelectTopCardsForPlayer,
+  quantityToNumber,
+  resolvePlayers,
+  resolveRevealUntilReferenceAmountForPlayer,
+} from './oracleIRExecutorPlayerUtils';
+import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
+import { usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
+

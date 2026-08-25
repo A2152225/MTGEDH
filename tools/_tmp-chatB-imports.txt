@@ -1,0 +1,30 @@
+import {
+  parseResidualManaPhasingAndAttachGuardsOne,
+  parseResidualManaPhasingAndAttachGuardsTwo,
+  parseResidualManaPhasingAndAttachGuardsThree,
+  parseResidualManaPhasingAndAttachGuardsFour,
+  parseResidualManaPhasingAndAttachGuardsFive,
+  parseResidualManaPhasingAndAttachGuardsSix,
+  parseResidualManaPhasingAndAttachGuardsSeven,
+} from './oracleIRParserPostprocessResidualManaPhasingAndAttachGuards';
+import {
+  parseResidualNumberChangeAndGroupPtGuardsOne,
+  parseResidualNumberChangeAndGroupPtGuardsTwo,
+  parseResidualNumberChangeAndGroupPtGuardsThree,
+} from './oracleIRParserPostprocessResidualNumberChangeAndGroupPtGuards';
+import {
+  parseResidualNamedModeSearchGuardsOne,
+} from './oracleIRParserPostprocessResidualNamedModeSearchGuards';
+import {
+  parseResidualAttackerTokenAndMetadataGuardsOne,
+  parseResidualAttackerTokenAndMetadataGuardsTwo,
+} from './oracleIRParserPostprocessResidualAttackerTokenAndMetadataGuards';
+import {
+  parseResidualSelfReferenceAndLibraryOrderGuardsOne,
+  parseResidualSelfReferenceAndLibraryOrderGuardsTwo,
+  parseResidualSelfReferenceAndLibraryOrderGuardsThree,
+} from './oracleIRParserPostprocessResidualSelfReferenceAndLibraryOrderGuards';
+import {
+  parseResidualWardAndEvidenceGuardsOne,
+  parseResidualWardAndEvidenceGuardsTwo,
+} from './oracleIRParserPostprocessResidualWardAndEvidenceGuards';

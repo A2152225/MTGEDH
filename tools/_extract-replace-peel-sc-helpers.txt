@@ -1,0 +1,3 @@
+  const getSpellCastConditionData = parseSpellCastConditionData;
+  const getSpellCastEffectMetadata = (effectText: string, tribalType?: string) =>
+    parseSpellCastEffectMetadata(lowerOracle, effectText, tribalType);

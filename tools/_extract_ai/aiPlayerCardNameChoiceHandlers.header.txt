@@ -1,0 +1,12 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: chooseAIPlayerChoiceId, scoreVisibleCardNameCandidate,
+ * chooseAICardNameSelection.
+ *
+ * Public entry symbols: chooseAIPlayerChoiceId, chooseAICardNameSelection.
+ */
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { CardCategory, cardAnalyzer } from "../../../../rules-engine/src/CardAnalyzer.js";
+import { aiEngine } from "./aiScheduler.js";
+

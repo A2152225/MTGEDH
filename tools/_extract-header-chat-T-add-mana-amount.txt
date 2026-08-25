@@ -1,0 +1,20 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: battlefield-stat readers, expandManaCostToManaSequence,
+// resolveDynamicAddManaSequence, resolveAddManaAmount.
+// Public entries: readPermanentPower, permanentIsCreature, permanentHasSubtype,
+// repeatManaString, resolveDynamicAddManaSequence, resolveAddManaAmount.
+
+import type { GameState } from '../../shared/src';
+import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { countManaSymbolsInManaCost } from './oracleIRExecutorManaUtils';
+import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
+import {
+  getCardManaValue,
+  getCardTypeLineLower,
+  normalizeOracleText,
+  quantityToNumber,
+} from './oracleIRExecutorPlayerUtils';
+import { parseManaSymbols } from './types/numbers';
+

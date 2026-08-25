@@ -1,0 +1,20 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerMillCounterPreparedSync.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: mill replacement, counter replacement, and prepared-copy
+//   sync after Oracle IR battlefield controller/counter changes.
+// Public entry symbols: snapshotBattlefieldControllers, snapshotBattlefieldCounters,
+//   syncCounterReplacementEffectsAfterOracleIR,
+//   syncPreparedCopiesAfterBattlefieldControllerChanges,
+//   syncPreparedCopiesFromControlChangeEffects, applyMillReplacementEffectsToSteps.
+// Called from applyOracleIRStepsOnServer in the parent; not part of the public API
+// except applyMillReplacementEffectsToSteps.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type { OracleEffectStep, OracleQuantity } from '../../../../../rules-engine/src/oracleIR.js';
+import type { OracleIRExecutionContext } from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import { resolveOracleQuantity } from '../../../../../rules-engine/src/oracleIRExecutorResolveQuantity.js';
+import type { GameContext } from '../../context.js';
+import { syncPreparedPermanentAfterControlChange } from '../prepared.js';
+import { evaluateCounterPlacementReplacementEvent, evaluateMillReplacementEvent } from '../replacement-effects.js';
+import { updateCounters } from '../counters_tokens.js';
+

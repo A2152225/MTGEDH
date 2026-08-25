@@ -1,0 +1,10 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover Mimic Vat imprint, modal-spell parse, split second / hexproof /
+ *   graveyard keyword granters, and storm helpers
+ * Public: detectMimicVatTriggers, getMimicVatTriggers, parseModalSpellOptions, hasSplitSecond,
+ *   playerHasHexproof, getGraveyardKeywordGranters, detectStormAbility, getStormCount
+ */
+
+import type { GameContext } from "../../context.js";
+import { detectTargetType } from "./detect-target-type.js";

@@ -1,0 +1,6 @@
+export {
+  type SpellCastUntapEffect,
+  detectSpellCastUntapEffects,
+  getSpellCastUntapEffects,
+  applySpellCastUntapEffect,
+} from "./triggers/spell-cast-untap-detection.js";

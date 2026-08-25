@@ -1,0 +1,6 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover HideawayAbility detector (ETB just-in-time helper)
+ * Public: HideawayAbility, detectHideawayAbility
+ */
+

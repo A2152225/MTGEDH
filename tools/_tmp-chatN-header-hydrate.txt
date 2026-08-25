@@ -1,0 +1,23 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerZoneHydrateDelayedBridges.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: player-zone hydrate/sync, emblem hydrate/sync, graveyard/exile
+//   snapshots, token image enrich, and delayed upkeep-draw / flicker-return
+//   bridges from Oracle IR results.
+// Public entry symbols: enrichBattlefieldTokenImages, buildShadowProbeContext,
+//   hydrateOracleIRPlayerZonesFromContext, snapshotGraveyardCardIds,
+//   snapshotExileCardIds, bridgeScheduleDelayedDrawAtNextUpkeepFromOracleIRResult,
+//   bridgeScheduleDelayedFlickerReturnsFromOracleIRResult,
+//   syncOracleIRPlayerZonesToContext.
+// Existing public API stays re-exported from the parent.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type { OracleEffectStep } from '../../../../../rules-engine/src/oracleIR.js';
+import type { OracleIRExecutionResult } from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import type { GameContext } from '../../context.js';
+import { processMillTriggers } from '../zones.js';
+import { recordCardPutIntoGraveyardThisTurn } from '../turn-tracking.js';
+import { scheduleExiledCardReturnToBattlefield } from '../executeSpellEffect.js';
+import { scheduleDelayedDrawAtNextUpkeep } from '../triggerDelayedEffectUtils.js';
+import { enrichTokenCardImages } from '../../services/tokens.js';
+import { debugWarn } from '../../utils/debug.js';
+

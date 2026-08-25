@@ -1,0 +1,21 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: applyPutOnBottomStep, applyMillStep.
+// Public entries: applyPutOnBottomStep, applyMillStep.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import type { OracleIRReplayMutation } from './oracleIRReplayMutations';
+import {
+  buildPlayerZoneBridgeOptions,
+  shuffleArray,
+  withDiscardLedgerFlags,
+} from './oracleIRExecutorPlayerStepShared';
+import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import {
+  millCardsForPlayer,
+  resolvePlayers,
+  resolveUnknownMillUntilAmountForPlayer,
+} from './oracleIRExecutorPlayerUtils';
+import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
+

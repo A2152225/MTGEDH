@@ -1,0 +1,15 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover detectCombatDamageTriggers (merged into triggers/; leftover re-exports)
+ * Public: detectCombatDamageTriggers
+ */
+
+import { KNOWN_COMBAT_DAMAGE_TRIGGERS } from "./card-data-tables.js";
+import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
+import { appendCombatDamageDetectionEarly } from "./combat-damage-detection-early.js";
+import { appendCombatDamageDetectionLate } from "./combat-damage-detection-late.js";
+import { appendCombatDamageDetectionMid } from "./combat-damage-detection-mid.js";
+import type { CombatDamageDetectionState } from "./combat-damage-detection-state.js";
+import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
+import { timingTriggerEffect } from "./timing-effect-extraction.js";
+

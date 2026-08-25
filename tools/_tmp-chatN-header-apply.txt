@@ -1,0 +1,135 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerApplyOnServer.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: applyOracleIRStepsOnServer.
+// Public entry symbols: applyOracleIRStepsOnServer.
+// Sacrifice prompts are reached through oracleIrServerApplyDeps (bound by the parent).
+// Must not import oracleIrServerZoneSync.ts or the handlers index.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type { OracleEffectStep } from '../../../../../rules-engine/src/oracleIR.js';
+import {
+  applyOracleIRStepsToGameState,
+  type OracleIRExecutionContext,
+  type OracleIRExecutionOptions,
+  type OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import type { OracleIRTransitionHaltState } from '../../../../../rules-engine/src/oracleIRExecutionTypes.js';
+import { createEmptyStepLedger } from '../../../../../rules-engine/src/oracleIRStepLedger.js';
+import type { GameContext } from '../../context.js';
+import { ResolutionQueueManager } from '../../resolution/index.js';
+import { persistOracleIrReplayMutationsFromExecution, persistCounterDiffsFromOracleIR } from '../../effects/effectProgramReplayMutationPersistence.js';
+import { persistBattlefieldPermanentPatchesFromOracleIR, snapshotBattlefieldPermanentReplayPatches } from '../../effects/battlefieldPermanentReplayPersistence.js';
+import { queueTopLibraryChoicePromptsFromOracleIRResult } from '../oracleIrServerScrySurveilPromptUtils.js';
+import { queueBlightChoicePromptsFromOracleIRResult } from '../oracleIrServerBlightPromptUtils.js';
+import { isOracleIrTriggerPrimaryEnabled } from '../oracleIrTriggerExecution.js';
+import { processSpellCounteredTriggers } from '../spellCounteredTriggerUtils.js';
+import { emitTriggersAfterOracleIRApply, snapshotBattlefieldForTriggerEmission } from '../oracleIrPostApplyTriggerEmission.js';
+import { processDrawTriggers } from '../zones.js';
+import { queueCopySpellStackPushFromOracleIRResult, queueCastableCopiedSpellPromptsFromOracleIRResult } from '../oracleIrServerCopySpellSync.js';
+import { resyncPreparedExileCopiesWithControllers } from '../prepared.js';
+import { queueEachPlayerCounterPlacementPromptsFromOracleIRResult } from '../triggerCounterPlacementPromptUtils.js';
+import { bridgeGameStateOracleEffectsAfterOracleIR } from '../triggerGameStateOracleBridgeUtils.js';
+import { bridgeCreatedTokenEtbTriggersAfterOracleIR } from '../triggerOracleIrTokenEtbBridge.js';
+import { queueOracleIrReflexiveWhenYouDoFollowups } from '../triggerReflexiveWhenYouDoQueueUtils.js';
+import { syncDerivedContinuousEffects } from '../staticEffectSpec.js';
+import { mirrorGraveyardCastingPermissionsToDurable } from '../graveyard-permissions.js';
+import { syncCastingModifierGrantsFromOracleIRResult } from '../casting-modifiers.js';
+import {
+  createOracleIRServerExecutionBridge,
+  queueOracleIrDeferredReplacementPrompts,
+  readAppliedStepKindsFromState,
+  readStepLedgerFromState,
+} from '../oracleIrTransitionPipeline.js';
+import {
+  syncIrAtNextEndStepTokenSacrificeFromOracleIRResult,
+  syncIrCopyTokenProvenanceFromOracleIRResult,
+  syncIrGraveyardExilesToSourcePermanentExiledCards,
+  syncIrImpulseExileToPendingImpulseDraws,
+  syncIrLinkedExilesFromOracleIRResult,
+  syncIrPowerToughnessModifiersToTemporaryPTMods,
+  syncIrPreparedStateFromOracleIRResult,
+  syncIrReanimationRidersFromOracleIRResult,
+  syncIrTemporaryGrantEffectsToServerTemporaryAbilities,
+} from './oracleIrServerPostExecutionStateSync.js';
+import {
+  queueLookChooseChoicePromptsFromOracleIRResult,
+  queueSearchLibraryChoicePromptsFromOracleIRResult,
+  queueChoosePileChoicePromptsFromOracleIRResult,
+} from './oracleIrServerLibrarySearchLookChoosePilePrompts.js';
+import {
+  queueJoinForcesPromptsFromOracleIRResult,
+  queueVotePromptsFromOracleIRResult,
+} from './oracleIrServerVoteJoinForcesPrompts.js';
+import {
+  queueTapMatchingPermanentsChoicePromptsFromOracleIRResult,
+  queueTapOrUntapChoicePromptsFromOracleIRResult,
+} from './oracleIrServerTapUntapChoicePrompts.js';
+import {
+  queueExploreChoicePromptsFromOracleIRResult,
+  queuePopulateChoicePromptsFromOracleIRResult,
+  queueChangeTargetChoicePromptsFromOracleIRResult,
+} from './oracleIrServerExplorePopulateChangeTargetPrompts.js';
+import {
+  queueRepeatedZoneDraftChoicePromptFromOracleIRResult,
+  queueSeparateIntoPilesPromptsFromOracleIRResult,
+  bridgeLibraryChaosExchangeFromOracleIRResult,
+} from './oracleIrServerZoneDraftPilesChaosPrompts.js';
+import {
+  queueCopyPermanentChoicePromptsFromOracleIRResult,
+  queueMoveZoneChoicePromptsFromOracleIRResult,
+  queueMoveZoneDestinationChoicePromptsFromOracleIRResult,
+} from './oracleIrServerCopyPermanentMoveZonePrompts.js';
+import {
+  syncGraveyardCastFreeExilePermissionsFromOracleIR,
+  syncImpulseExilePlayPermissionsToState,
+  queueChooseOneImpulseExilePlayPromptsFromOracleIRResult,
+  queueDiscoverCastOrHandPromptsFromOracleIRResult,
+} from './oracleIrServerImpulseDiscoverGyPermissionPrompts.js';
+import { queueOptionalStepChoicePromptsFromOracleIRResult } from './oracleIrServerOptionalStepChoicePrompts.js';
+import {
+  persistUnqueuedPendingContinuationFromOracleIRResult,
+  syncNextSpellCostReductionFromOracleIRResult,
+} from './oracleIrServerPendingContinuationAndCostReduction.js';
+import { queueUnlessPayChoicePromptsFromOracleIRResult } from './oracleIrServerUnlessPayChoicePrompts.js';
+import {
+  queueAddManaChoicePromptsFromOracleIRResult,
+  queueAddCounterTargetSelectionPromptsFromOracleIRResult,
+  queueCounterDistributionPromptsFromOracleIRResult,
+} from './oracleIrServerManaCounterChoicePrompts.js';
+import {
+  queueConniveChoicePromptsFromOracleIRResult,
+  queuePlayerChoicePromptsFromOracleIRResult,
+  syncIrPendingDiscardFromOracleIRResult,
+} from './oracleIrServerConnivePlayerChoicePrompts.js';
+import {
+  queueControllerMayPutLandFromHandPromptsFromOracleIRResult,
+  queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult,
+  queueBothPlayersMayPutPermanentFromHandPromptsFromOracleIRResult,
+} from './oracleIrServerLandFromHandPrompts.js';
+import {
+  queueDiscardChoicePromptsFromOracleIRResult,
+  queueProliferateChoicePromptsFromOracleIRResult,
+} from './oracleIrServerDiscardProliferatePrompts.js';
+import {
+  queueRedistributeLifeTotalsPromptsFromOracleIRResult,
+  queueFlipCoinLifeStakesPromptsFromOracleIRResult,
+} from './oracleIrServerLifeFlipCoinPrompts.js';
+import {
+  enrichBattlefieldTokenImages,
+  hydrateOracleIRPlayerZonesFromContext,
+  snapshotGraveyardCardIds,
+  snapshotExileCardIds,
+  bridgeScheduleDelayedDrawAtNextUpkeepFromOracleIRResult,
+  bridgeScheduleDelayedFlickerReturnsFromOracleIRResult,
+  syncAllOracleIRPlayerZonesAfterResolution,
+} from './oracleIrServerZoneHydrateDelayedBridges.js';
+import {
+  snapshotBattlefieldControllers,
+  snapshotBattlefieldCounters,
+  syncCounterReplacementEffectsAfterOracleIR,
+  syncPreparedCopiesAfterBattlefieldControllerChanges,
+  syncPreparedCopiesFromControlChangeEffects,
+  applyMillReplacementEffectsToSteps,
+} from './oracleIrServerMillCounterPreparedSync.js';
+import { queueSacrificeChoicePromptsFromOracleIRResult } from './oracleIrServerApplyDeps.js';
+

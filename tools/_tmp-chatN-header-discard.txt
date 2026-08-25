@@ -1,0 +1,30 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerDiscardProliferatePrompts.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: queueDiscardChoicePromptsFromOracleIRResult and
+//   queueProliferateChoicePromptsFromOracleIRResult.
+// Public entry symbols: queueDiscardChoicePromptsFromOracleIRResult,
+//   queueProliferateChoicePromptsFromOracleIRResult.
+// Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import { resolvePlayers } from '../../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
+import { collectDiscardSelectionOptionsForStep } from '../../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
+import { getProliferateChoiceTargets } from '../../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
+import type { GameContext } from '../../context.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
+import { getProliferateActionCount } from '../keywordActionRepetition.js';
+import { appendQueuedResolutionPromptEvent } from '../resolutionPromptEvents.js';
+import {
+  attachOracleIrResumeMetadata,
+  findSkippedOracleStep,
+  isOracleIrPlayerChoiceGap,
+} from '../oracleIrServerPromptResumeUtils.js';
+
+type MutableOracleIRExecutionResult = {
+  -readonly [K in keyof OracleIRExecutionResult]: OracleIRExecutionResult[K];
+};
+

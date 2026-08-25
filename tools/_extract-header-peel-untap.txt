@@ -1,0 +1,9 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover detectUntapTriggers + UntapTrigger (merged into triggers/; leftover re-exports)
+ * Public: detectUntapTriggers, UntapTrigger
+ */
+
+import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
+import { KNOWN_UNTAP_TRIGGERS } from "./card-data-tables.js";
+import { timingTriggerEffect } from "./timing-effect-extraction.js";

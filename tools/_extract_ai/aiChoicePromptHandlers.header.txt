@@ -1,0 +1,23 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: AI option-choice prompt helpers for tax, reveal-land,
+ * mox diamond, miracle, dredge, venture, exert, MDFC, and related prompts.
+ *
+ * Public entry symbols: chooseAIOpponentMayPaySelection, chooseAIRevealLandSelection,
+ * chooseAILandWouldEnterSacrificeSelection, chooseAIMoxDiamondSelection,
+ * chooseAIMiraclePromptSelection, chooseAIZursWeirdingOpponentSelection,
+ * chooseAIDredgeDrawReplacementSelection, chooseAIForbiddenOrchardTargetSelection,
+ * chooseAIPlayerForLookedAtCardsSelection, chooseAISpellAdditionalCostBlightOrPaySelection,
+ * chooseAIVentureOptionSelection, chooseAIAdministrativeConfirmSelection,
+ * chooseAIExertChoiceSelection, chooseAIMdfcFaceSelection,
+ * chooseAISpellBottomRevealUntilNonlandSelection, chooseAICastFreePromptSelection,
+ * getAIParsedManaCostAmount.
+ */
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { getAvailableMana, getTotalManaFromPool, parseManaCost, canPayManaCostWithAvailableSources, type ParsedManaCost } from "../../state/modules/mana-check.js";
+import { getOptionalPaymentValidationFailure } from "../optional-payment-prompts.js";
+import { getMaxGenericManaAvailable } from "../util.js";
+import { ensureAIDeckProfile, getAIHand, scoreCardForAIAcquisition } from "./aiDeckProfileHandlers.js";
+import { getAILibraryCards } from "./aiPregameHandlers.js";
+

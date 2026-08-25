@@ -1,0 +1,84 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: 2-space-indented mana/payment/activation helpers that lived
+ * between snapshotAIAbilityActivationState and didAIAbilityActivationProgress.
+ *
+ * Public entry symbols: resolveAIPaymentManaAbilityId,
+ * selectAIManaRetentionActivationAction, selectAINonTapManaActivationAction,
+ * getAINonTapManaActionAmount, chooseAIReturnToHandPermanentForManaAbility,
+ * tryActivateAINonTapManaAbilityForSpellPaymentSimulation,
+ * tryAIManaBatteryColorFixForSpellPaymentSimulation,
+ * tryAIManaBatteryColorFixForSpellPayment.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { parseNumberFromText, parseSacrificeCost } from "../../../../shared/src/textUtils.js";
+import { isPowerScaledGreenManaAbilityText } from "../../../../rules-engine/src/aiEngineManaPoolSupport.js";
+import { movePermanentToGraveyard } from "../../state/modules/counters_tokens.js";
+import {
+  getTotalManaFromPool,
+  parseHandCostFromManaAbilityCost,
+  parseManaCost,
+  parseReturnToHandCostFromManaAbilityCost,
+  type ParsedManaCost,
+} from "../../state/modules/mana-check.js";
+import {
+  calculateManaProduction,
+  consumeManaFromPool,
+  getOrInitManaPool,
+  getPermanentCounterAmount,
+  parseRemoveCounterActivationCost,
+  permanentHasManaBatteryCounterLoop,
+  validateManaPayment,
+} from "../util.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { COLOR_IDENTITY_MAP } from "./aiConstants.js";
+import type {
+  AIActivatedAbilityResolverCandidate,
+  AIResolvedActivatedAbilityAction,
+} from "./aiAbilityActivationTypes.js";
+import { permanentHasLeaveBattlefieldExileReplacement } from "./aiDeckProfileHandlers.js";
+import {
+  chooseAIManaColorForActivation,
+  getAIManaProductionOptions,
+  hasCreatureSummoningSickness,
+  hasManaAbility,
+  scoreAISacrificePermanentForManaAbility,
+} from "./aiManaCostHelpers.js";
+
+function buildAIActivatedAbilityResolverCandidates(permanent: any): AIActivatedAbilityResolverCandidate[] {
+  return getAIHandlerDeps().buildAIActivatedAbilityResolverCandidates(permanent);
+}
+
+async function executeAIActivateAbility(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  action: any,
+  continueAfterResolution = true,
+): Promise<boolean> {
+  return getAIHandlerDeps().executeAIActivateAbility(io, gameId, playerId, action, continueAfterResolution);
+}
+
+function getPaymentSources(
+  game: any,
+  playerId: PlayerID,
+  cost: { colors: Record<string, number>; generic: number },
+) {
+  return getAIHandlerDeps().getPaymentSources(game, playerId, cost);
+}
+
+function cloneAISpellPaymentSimulationGame(game: any): any {
+  return getAIHandlerDeps().cloneAISpellPaymentSimulationGame(game);
+}
+
+function buildAISpellPaymentPlan(
+  game: any,
+  playerId: PlayerID,
+  parsedCost: ReturnType<typeof parseManaCost>,
+  excludePermanentIds: string[] = [],
+) {
+  return getAIHandlerDeps().buildAISpellPaymentPlan(game, playerId, parsedCost, excludePermanentIds);
+}
+

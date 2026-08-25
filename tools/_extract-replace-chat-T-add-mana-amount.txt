@@ -1,0 +1,9 @@
+import {
+  permanentHasSubtype,
+  permanentIsCreature,
+  readPermanentPower,
+  repeatManaString,
+  resolveAddManaAmount,
+  resolveDynamicAddManaSequence,
+} from './oracleIRExecutorPlayerAddManaAmount';
+

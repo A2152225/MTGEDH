@@ -1,0 +1,26 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: isAICardStillInCastSourceZone, requestAISharedCast,
+ * requestAISharedLandPlay.
+ *
+ * Public entry symbols: requestAISharedCast, requestAISharedLandPlay.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { handlePlayLandRequest, requestCastSpellForSocket } from "../game-actions.js";
+import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import { debugError, debugWarn } from "../../utils/debug.js";
+import { ensureGame } from "../util.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import {
+  captureAICastControlFlowSnapshot,
+  waitForAISharedCastToSettle,
+} from "./aiActionCandidateHandlers.js";
+import type { AICastRequestSourceZone, AISupportedCardSourceZone } from "./aiActionCandidateTypes.js";
+import { isCardAlreadyOnBattlefield, rememberAIFailedSpellCast } from "./aiLandAuraCommander.js";
+
+function getAISourceCards(game: any, playerId: PlayerID, sourceZone: AISupportedCardSourceZone): any[] {
+  return getAIHandlerDeps().getAISourceCards(game, playerId, sourceZone);
+}
+

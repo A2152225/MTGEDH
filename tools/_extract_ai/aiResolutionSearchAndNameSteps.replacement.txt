@@ -1,0 +1,11 @@
+      case 'mode_selection':
+      case 'graveyard_selection':
+      case 'library_search':
+      case 'player_choice':
+      case 'color_choice':
+      case 'creature_type_choice':
+      case 'card_name_choice':
+      case 'opening_hand_actions':
+        await handleAIResolutionSearchAndNameSteps(io, gameId, game, playerId, step, createResponse);
+        break;
+

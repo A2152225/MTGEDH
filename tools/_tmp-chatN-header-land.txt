@@ -1,0 +1,33 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerLandFromHandPrompts.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: queueControllerMayPutLandFromHandPromptsFromOracleIRResult,
+//   queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult, and
+//   queueBothPlayersMayPutPermanentFromHandPromptsFromOracleIRResult, plus
+//   the draw-if-didn't-put-land predicates they close over.
+// Public entry symbols: queueControllerMayPutLandFromHandPromptsFromOracleIRResult,
+//   queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult,
+//   queueBothPlayersMayPutPermanentFromHandPromptsFromOracleIRResult.
+// Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type { OracleEffectStep } from '../../../../../rules-engine/src/oracleIR.js';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import type { GameContext } from '../../context.js';
+import { ResolutionQueueManager, ResolutionStepStatus, ResolutionStepType } from '../../resolution/index.js';
+import {
+  isBothPlayersMayPutPermanentFromHandStep,
+  isControllerMayPutLandFromHandStep,
+  isEachPlayerMayPutLandFromHandStep,
+  queueBothPlayersMayPutPermanentFromHandPrompts,
+  queueControllerLandPlayOrDrawPrompt,
+  queueEachPlayerMayPutLandOrDrawBatch,
+  queueLandPlayFromHandPrompt,
+} from '../triggerLandPlayPromptUtils.js';
+
+type MutableOracleIRExecutionResult = {
+  -readonly [K in keyof OracleIRExecutionResult]: OracleIRExecutionResult[K];
+};
+

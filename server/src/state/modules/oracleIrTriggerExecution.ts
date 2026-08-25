@@ -390,6 +390,20 @@ function buildTriggerIrContext(
   const sourcePermanent = sourcePermanentId
     ? (state?.battlefield || []).find((entry: any) => entry && String(entry.id || '') === sourcePermanentId)
     : undefined;
+  const enteredFromZone = String(
+    sourcePermanent?.enteredFromZone
+    || (sourcePermanent?.enteredFromGraveyard ? 'graveyard' : '')
+    || sourcePermanent?.card?.enteredFromZone
+    || (sourcePermanent?.card?.enteredFromGraveyard ? 'graveyard' : '')
+    || '',
+  ).trim().toLowerCase();
+  const castFromZone = String(
+    sourcePermanent?.castSourceZone
+    || sourcePermanent?.castFromZone
+    || sourcePermanent?.card?.castSourceZone
+    || sourcePermanent?.card?.castFromZone
+    || '',
+  ).trim().toLowerCase();
   const chosenCreatureType = String(
     params.triggerItem?.chosenCreatureType
     || params.triggerItem?.card?.chosenCreatureType
@@ -427,6 +441,8 @@ function buildTriggerIrContext(
       sourceName: params.sourceName,
       sourceObjectType: 'ability',
       xValue: binding.xValue,
+      ...(enteredFromZone ? { enteredFromZone } : {}),
+      ...(castFromZone ? { castFromZone } : {}),
       ...(wasKicked ? { wasKicked: true } : {}),
       ...(typeof binding.referenceAmount === 'number' ? { referenceAmount: binding.referenceAmount } : {}),
       ...(attackingPlayerId ? { attackingPlayerId } : {}),
@@ -446,6 +462,8 @@ function buildTriggerIrContext(
         ...(createdTokenIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: createdTokenIds } : {}),
         ...(attachedToId ? { attachedToId } : {}),
         ...(wasKicked ? { wasKicked: true } : {}),
+        ...(enteredFromZone ? { enteredFromZone } : {}),
+        ...(castFromZone ? { castFromZone } : {}),
       },
       ...(resolvedTargetPermanentId ? { targetPermanentId: resolvedTargetPermanentId } : {}),
       ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
@@ -458,6 +476,8 @@ function buildTriggerIrContext(
       chosenObjectIds: binding.chosenObjectIds,
       sourceObjectType: 'ability',
       referenceAmount: binding.referenceAmount,
+      ...(enteredFromZone ? { enteredFromZone } : {}),
+      ...(castFromZone ? { castFromZone } : {}),
       ...(chosenCreatureType ? { chosenCreatureType } : {}),
     },
   );

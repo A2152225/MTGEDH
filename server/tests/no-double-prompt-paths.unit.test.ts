@@ -80,21 +80,32 @@ describe('no-double-prompt ownership paths', () => {
     expect(pending.some((step: any) => step.type === ResolutionStepType.COLOR_CHOICE)).toBe(false);
   });
 
-  it('socket tap-trigger queue pushes optional triggers without a pre-stack may import', () => {
+  it('socket tap-trigger queue prompts optional tap triggers and pushes mandatory ones onto the stack', () => {
     const source = readFileSync(
       resolve(__dirname, '../src/state/modules/tap-trigger-queue.ts'),
       'utf8',
     );
-    expect(source.includes("from '../../socket/may-ability-prompts.js'")).toBe(false);
+    expect(source.includes("from '../../socket/may-ability-prompts.js'")).toBe(true);
+    expect(source.includes('queueMayAbilityStep(')).toBe(true);
     expect(source.includes('pushTapTriggerOntoStack(io, game, gameId, entry.trigger')).toBe(true);
   });
 
   it('post-resolve optional may scan is gated when IR primary owns the spell', () => {
-    const source = readFileSync(
+    const parentSource = readFileSync(
       resolve(__dirname, '../src/socket/game-actions.ts'),
       'utf8',
     );
-    expect(source.includes('Skipping post-resolve optional may scan')).toBe(true);
-    expect(source.includes('isSpellEffectOwnedByOracleIrPrimary(oracleText, cardName)')).toBe(true);
+    const extractedSource = readFileSync(
+      resolve(__dirname, '../src/socket/game-actions-handlers/gameActionsSpellCastLock.ts'),
+      'utf8',
+    );
+    expect(
+      parentSource.includes('Skipping post-resolve optional may scan')
+      || extractedSource.includes('Skipping post-resolve optional may scan'),
+    ).toBe(true);
+    expect(
+      parentSource.includes('isSpellEffectOwnedByOracleIrPrimary(oracleText, cardName)')
+      || extractedSource.includes('isSpellEffectOwnedByOracleIrPrimary(oracleText, cardName)'),
+    ).toBe(true);
   });
 });

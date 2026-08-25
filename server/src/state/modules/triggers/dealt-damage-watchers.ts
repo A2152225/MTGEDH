@@ -6,7 +6,7 @@
  * "whenever an opponent / you is dealt damage" from resolvePlayerDamage.
  */
 import type { GameContext } from '../../context.js';
-import { detectDealtDamageTriggers } from '../triggered-abilities.js';
+import { detectDealtDamageTriggers } from './dealt-damage-detection.js';
 import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';

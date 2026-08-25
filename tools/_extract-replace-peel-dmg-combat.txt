@@ -1,0 +1,1 @@
+// detectCombatDamageTriggers lives in combat-damage-detection.ts (leftover-merged).

@@ -1,0 +1,8 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover spell-cast-untap detect/get/apply
+ * Public: detectSpellCastUntapEffects, getSpellCastUntapEffects, applySpellCastUntapEffect
+ */
+
+import { aOrAnSpellType } from "../../../../../rules-engine/src/indefiniteArticle.js";
+import type { GameContext } from "../../context.js";

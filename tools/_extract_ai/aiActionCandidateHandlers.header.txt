@@ -1,0 +1,70 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: battlefield-ability timing, mana-payment plan, action-candidate
+ * enumeration, cast-control snapshots, tryAIResponseActions.
+ *
+ * Public entry symbols: canAIAssembleManaPaymentPlan, canAIActivateBattlefieldAbilityNow,
+ * enumerateAIActionCandidates, captureAICastControlFlowSnapshot,
+ * didAICastAttemptChangeControlFlow, waitForAISharedCastToSettle, tryAIResponseActions.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { AIDecisionType } from "../../../../rules-engine/src/AIEngine.js";
+import { canRespond } from "../../state/modules/can-respond.js";
+import { parseManaCost, type ParsedManaCost } from "../../state/modules/mana-check.js";
+import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import { isPlayerCompletingSpellCast } from "../game-actions.js";
+import { calculateManaProduction, getOrInitManaPool, validateManaPayment } from "../util.js";
+import { debug, debugWarn } from "../../utils/debug.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import {
+  executeAIActivateAbility,
+  isAIManaBatteryChargeInvestAction,
+} from "./aiActivateAbilityHandlers.js";
+import type {
+  AIActionCandidate,
+  AIActionCandidateQuery,
+  AIActivatedAbilityCandidate,
+  AICastableCommanderCandidate,
+  AICastableSpellCandidate,
+  AICastAttemptDescriptor,
+  AICastRequestSourceZone,
+  AIPlayableLandCandidate,
+} from "./aiActionCandidateTypes.js";
+import { AI_MANA_ABILITY_PATTERN, COLOR_IDENTITY_MAP } from "./aiConstants.js";
+import { findCastableSpells } from "./aiFindCastableSpells.js";
+import { getPaymentSources } from "./aiPaymentSources.js";
+import { aiEngine, getAIPendingSpellCastStatus } from "./aiScheduler.js";
+import { calculateSpellPriority } from "./aiSpellPriority.js";
+
+function getAIActionContext(game: any): any {
+  return getAIHandlerDeps().getAIActionContext(game);
+}
+
+function findPlayableLand(game: any, playerId: PlayerID): AIPlayableLandCandidate | null {
+  return getAIHandlerDeps().findPlayableLand(game, playerId);
+}
+
+function findCastableCommander(game: any, playerId: PlayerID, options?: any): any {
+  return getAIHandlerDeps().findCastableCommander(game, playerId, options);
+}
+
+async function executeAICastSpell(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  candidate: AICastableSpellCandidate,
+): Promise<boolean> {
+  return getAIHandlerDeps().executeAICastSpell(io, gameId, playerId, candidate);
+}
+
+async function executeAICastCommander(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  candidate: AICastableCommanderCandidate,
+): Promise<boolean> {
+  return getAIHandlerDeps().executeAICastCommander(io, gameId, playerId, candidate);
+}
+

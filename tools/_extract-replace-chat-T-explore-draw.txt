@@ -1,0 +1,13 @@
+export {
+  applyAddPlayerCounterStep,
+  applyConniveStep,
+  applyDoublePlayerCountersStep,
+  applyDrawStep,
+  applyExploreStep,
+  applyGainLifeStep,
+  applyLoseLifeStep,
+  applyManifestDreadStep,
+  applyRegisterLoseGameReplacementStep,
+  buildExploreDecisionFromStep,
+} from './oracleIRExecutorPlayerExploreLifeDrawSteps';
+

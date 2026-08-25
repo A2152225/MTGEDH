@@ -1,0 +1,9 @@
+      case 'trigger_order':
+      case 'kynaios_choice':
+      case 'target_selection':
+      case 'mutate_target_selection':
+      case 'option_choice':
+      case 'modal_choice':
+        await handleAIResolutionTriggerAndChoiceSteps(io, gameId, game, playerId, step, createResponse);
+        break;
+

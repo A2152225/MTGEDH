@@ -1,0 +1,15 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: London-mulligan thresholds, mana-source counting, and
+ * handleAIMulligan keep/mulligan decision.
+ *
+ * Public entry symbols: handleAIMulligan.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { debug, debugError } from "../../utils/debug.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { ensureGame } from "../util.js";
+import { ensureAIDeckProfile, summarizeAIHandPlan } from "./aiDeckProfileHandlers.js";
+

@@ -1,0 +1,12 @@
+/**
+ * Graveyard cast/play permission lowering for the oracle IR postprocess pass.
+ *
+ * Origin parent: rules-engine/src/oracleIRParserPostprocess.ts (lines 25722-26282).
+ * Cluster moved: `grant_graveyard_permission` unknown-step parsing - permission duration,
+ * selector and keyword-cost helpers plus the combined play-and-cast permission splitter.
+ * Public entry symbols: expandGraveyardPermissionUnknownAbilities,
+ * expandGraveyardOrExilePermissionAbilities, expandFreeGraveyardCastPermissionAbilities.
+ */
+import type { OracleClauseCondition, OracleEffectStep, OracleIRAbility } from './oracleIR';
+import { normalizeOracleText, parseObjectSelector, parsePlayerSelector } from './oracleIRParserUtils';
+

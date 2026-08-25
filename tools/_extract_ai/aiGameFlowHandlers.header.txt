@@ -1,0 +1,25 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: handleAIGameFlow — pregame commander/deck recovery, mulligan
+ * handoff, pending-step resolve, and scheduling priority at 0ms after the
+ * gameFlow delay.
+ *
+ * Public entry symbols: handleAIGameFlow.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { appendEvent } from "../../db/index.js";
+import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import { debug, debugError, debugWarn } from "../../utils/debug.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { tryAutoStartGameFromPreGame } from "../pregame-auto-start.js";
+import { broadcastGame, ensureGame } from "../util.js";
+import { AI_REACTION_DELAY_MS, AI_THINK_TIME_MS } from "./aiConstants.js";
+import {
+  autoSelectAICommander,
+  ensureAIPreGameDeckLoaded,
+  getAILibraryCards,
+} from "./aiPregameHandlers.js";
+import { runExclusiveAIAction, scheduleAIGameFlow, scheduleAIPriority } from "./aiScheduler.js";
+

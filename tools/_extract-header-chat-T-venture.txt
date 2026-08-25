@@ -1,0 +1,25 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: applyVentureIntoDungeonStep (+ exclusive chosen-dungeon helpers).
+// Public entries: applyVentureIntoDungeonStep.
+
+import type { GameState } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import {
+  getDungeonDefinition,
+  getDungeonRoomDefinition,
+  getDungeonRoomDefinitionByProgress,
+} from './oracleIRExecutorPlayerDungeonDefinitions';
+import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
+
+function getNormalizedChosenDungeonId(ctx: OracleIRExecutionContext): string | undefined {
+  const chosenDungeonId = String(ctx.selectorContext?.chosenDungeonId || '').trim().toLowerCase();
+  return chosenDungeonId || undefined;
+}
+
+function getNormalizedChosenDungeonRoomId(ctx: OracleIRExecutionContext): string | undefined {
+  const chosenDungeonRoomId = String(ctx.selectorContext?.chosenDungeonRoomId || '').trim().toLowerCase();
+  return chosenDungeonRoomId || undefined;
+}
+

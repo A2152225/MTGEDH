@@ -1,0 +1,3 @@
+/**
+ * Discard: old triggers/spell-cast.ts getSpellCastTriggers (replaced by leftover-merged spell-cast-get-triggers.ts).
+ */

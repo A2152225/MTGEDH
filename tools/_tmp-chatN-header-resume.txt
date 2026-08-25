@@ -1,0 +1,49 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerResumeAndChoiceApply.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: sacrifice choice prompts, unless-discard/unless-pay resume,
+//   resumeOracleIRRemainingStepsFromResolution,
+//   resumeOracleIRStepWithChoiceFromResolution,
+//   maybeApplyOracleIrChoiceStepFromResolution, plus selection-id helpers
+//   and mergeOracleIrContinuationResult.
+// Public entry symbols: queueSacrificeChoicePromptsFromOracleIRResult,
+//   resumeOracleIRUnlessDiscardsFromResolution,
+//   resumeOracleIRUnlessPayFromResolution,
+//   resumeOracleIRRemainingStepsFromResolution,
+//   resumeOracleIRStepWithChoiceFromResolution,
+//   maybeApplyOracleIrChoiceStepFromResolution.
+// Binds sacrifice into oracleIrServerApplyDeps at module load.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type { OracleEffectStep } from '../../../../../rules-engine/src/oracleIR.js';
+import {
+  buildOracleIRExecutionContext,
+  type OracleIRExecutionContext,
+  type OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import { resolveBoundSelfOrSourceCreatureTargetId } from '../../../../../rules-engine/src/oracleIRExecutorBoundSelfCreatureTarget.js';
+import { resolvePlayers } from '../../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
+import { buildSacrificeTargetSelectionOptions } from '../../../../../rules-engine/src/oracleIRExecutorBattlefieldStepHandlers.js';
+import type { GameContext } from '../../context.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
+import {
+  attachOracleIrResumeMetadata,
+  isOracleIrPlayerChoiceGap,
+} from '../oracleIrServerPromptResumeUtils.js';
+import {
+  persistOracleIrCompoundDrawAfterResolution,
+  readAppliedStepKindsFromState,
+  readStepLedgerFromState,
+  resolveOracleIrChoiceStepIndex,
+  resolveOracleIrContinuationStepIndex,
+} from '../oracleIrTransitionPipeline.js';
+import { applyOracleIRStepsOnServer } from './oracleIrServerApplyOnServer.js';
+import {
+  poolKeyToManaSymbol,
+  buildChosenManaFromDistribution,
+} from './oracleIrServerManaCounterChoicePrompts.js';
+import { bindQueueSacrificeChoicePromptsFromOracleIRResult } from './oracleIrServerApplyDeps.js';
+
+type MutableOracleIRExecutionResult = {
+  -readonly [K in keyof OracleIRExecutionResult]: OracleIRExecutionResult[K];
+};
+

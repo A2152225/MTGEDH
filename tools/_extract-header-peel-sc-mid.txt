@@ -1,0 +1,26 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover detectSpellCastTriggers mid watcher patterns
+ * Public: appendSpellCastDetectionMid
+ */
+
+import { controllerGrantsKeywordToCreatures, permanentHasAttachmentGrantedKeyword } from "../../../../../shared/src/attachmentKeywordGrants.js";
+import { aOrAnSpellType } from "../../../../../rules-engine/src/indefiniteArticle.js";
+import { extractSpellCastEffect, normalizeSpellCastEffectText } from "./spell-cast-effect-text.js";
+import type { SpellCastDetectionState } from "./spell-cast-detection-state.js";
+import { timingTriggerEffect } from "./timing-effect-extraction.js";
+
+export function appendSpellCastDetectionMid(detectionState: SpellCastDetectionState): void {
+  const {
+    triggers,
+    oracleText,
+    lowerOracle,
+    cardName,
+    permanentId,
+    controllerId,
+    card,
+    permanent,
+    state,
+    getSpellCastConditionData,
+    getSpellCastEffectMetadata,
+  } = detectionState;

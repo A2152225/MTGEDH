@@ -1,0 +1,2 @@
+import { buildCardNameRegexAlternatives } from "./triggers/cardNameRegexAlternatives.js";
+

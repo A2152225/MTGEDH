@@ -1,0 +1,1 @@
+// detectTapTriggers lives in tap-detection.ts (leftover-merged).

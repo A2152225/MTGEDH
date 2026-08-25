@@ -1,0 +1,9 @@
+export {
+  type AttachmentAttackTrigger,
+  detectAttachmentAttackTriggers,
+  getAttachmentAttackTriggers,
+  getAttachmentCombatDamageTriggers,
+  getAttackUntapTriggers,
+  getCombatDamageUntapTriggers,
+  executeUntapTrigger,
+} from "./triggers/attachment-attack-detection.js";

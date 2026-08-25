@@ -1,0 +1,41 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: isAIManaBatteryChargeInvestAction, executeAIActivateAbility.
+ *
+ * Public entry symbols: isAIManaBatteryChargeInvestAction, executeAIActivateAbility.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { parseReturnToHandCostFromManaAbilityCost } from "../../state/modules/mana-check.js";
+import { debug, debugWarn } from "../../utils/debug.js";
+import { ensureGame, permanentHasManaBatteryCounterLoop } from "../util.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { snapshotAIAbilityActivationState } from "./aiAbilityActivationSnapshot.js";
+import type { AIActivatedAbilityResolverCandidate } from "./aiAbilityActivationTypes.js";
+import { AI_MANA_ABILITY_PATTERN, AI_REACTION_DELAY_MS } from "./aiConstants.js";
+import { executeAILegacyActivateAbility } from "./aiLegacyActivateAbilityHandlers.js";
+import { executePassPriority } from "./aiPriorityPassCombatExecutors.js";
+import { scheduleAIPriority } from "./aiScheduler.js";
+
+function buildAIActivatedAbilityResolverCandidates(permanent: any): AIActivatedAbilityResolverCandidate[] {
+  return getAIHandlerDeps().buildAIActivatedAbilityResolverCandidates(permanent);
+}
+
+function didAIAbilityActivationProgress(before: any, after: any): boolean {
+  return getAIHandlerDeps().didAIAbilityActivationProgress(before, after);
+}
+
+function resolveAIActivatedAbilityId(action: any, permanent: any): string | undefined {
+  return getAIHandlerDeps().resolveAIActivatedAbilityId(action, permanent);
+}
+
+async function requestAISharedBattlefieldAbilityActivation(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  request: { permanentId: string; abilityId: string; xValue?: unknown; drainQueuedSteps?: boolean },
+): Promise<boolean> {
+  return getAIHandlerDeps().requestAISharedBattlefieldAbilityActivation(io, gameId, playerId, request);
+}
+

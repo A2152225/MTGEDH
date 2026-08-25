@@ -1,0 +1,16 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: look-choose selector matching (normalize/split/term/mana-limit/cardMatches).
+// Public entries: normalizeLookChooseSelectorText, splitLookChooseSelectorTerms,
+// resolveLookChooseManaValueLimit, cardMatchesLookChooseSelector.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import {
+  getCardManaValue,
+  getCardTypeLineLower,
+} from './oracleIRExecutorPlayerUtils';
+import {
+  cardMatchesMoveZoneSingleTargetCriteria,
+  parseMoveZoneSingleTargetCriteria,
+  parseSimpleCardTypeFromText,
+} from './oracleIRExecutorZoneOps';
+

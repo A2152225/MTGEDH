@@ -1,0 +1,46 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: applySearchLibraryStep (+ exclusive filterChosenLibraryMatchIds).
+// Public entries: applySearchLibraryStep.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import type { OracleIRReplayMutation } from './oracleIRReplayMutations';
+import { resolveBattlefieldEntryFromOracleIrContext } from './oracleIRExecutorBattlefieldEntryCommit';
+import { commitCardZoneChanges } from './oracleIRExecutorCardZoneTransitionCommit';
+import {
+  getSearchLibraryMatches,
+  isOptionalSearchLibraryStep,
+  resolveSearchLibraryMaxResults,
+} from './oracleIRExecutorPlayerSearchLibraryMatches';
+import {
+  getNormalizedChosenIds,
+  shuffleArray,
+  withDiscardLedgerFlags,
+} from './oracleIRExecutorPlayerStepShared';
+import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import {
+  readPlayerZoneCards,
+  resolvePlayers,
+  stampCardsPutIntoGraveyardThisTurn,
+  writePlayerZoneCards,
+} from './oracleIRExecutorPlayerUtils';
+import { inferSplitLibrarySearchPlan } from './oracleIRSplitLibrarySearch';
+import { usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
+import { createBattlefieldPermanentsFromCards } from './oracleIRExecutorZoneOps';
+
+function filterChosenLibraryMatchIds(
+  matches: readonly any[],
+  chosenIds: readonly string[],
+  maxResults: number,
+): readonly string[] {
+  const matchIds = new Set(
+    matches
+      .map((card) => String(card?.id || card?.cardId || '').trim())
+      .filter(Boolean),
+  );
+  const filtered = chosenIds.filter((id) => matchIds.has(id));
+  if (filtered.length === 0) return [];
+  return filtered.slice(0, Math.max(1, maxResults));
+}
+

@@ -1,0 +1,4 @@
+export function registerAIHandlers(io: Server, socket: Socket): void {
+  registerAIHandlersImpl(io, socket);
+}
+

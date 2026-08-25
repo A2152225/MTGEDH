@@ -1,0 +1,7 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover planeswalker loyalty parse/activate helpers
+ * Public: parsePlaneswalkerAbilities, getLoyaltyActivationLimit, checkChainVeilEndStepTrigger,
+ *   canActivateLoyaltyAbility, getLoyaltyAdditionalCost, canActivateLoyaltyAtInstantSpeed,
+ *   getTeferisTalentDrawTrigger, calculateLoyaltyChange, getAvailableLoyaltyAbilities
+ */

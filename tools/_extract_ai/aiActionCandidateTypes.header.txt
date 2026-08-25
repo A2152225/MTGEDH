@@ -1,0 +1,17 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: AI action-candidate type aliases used by handleAIPriority,
+ * enumerateAIActionCandidates, findCastableSpells, and cast/land executors.
+ *
+ * Public entry symbols: AISupportedCardSourceZone, AICastRequestSourceZone,
+ * AIPlayableLandCandidate, AICastableSpellCandidate, AICastableCommanderCandidate,
+ * AIActivatedAbilityCandidate, AIActionCandidate, AIActionSelectionMode,
+ * AIActionCandidateQuery, AICastAttemptDescriptor.
+ */
+import type {
+  SharedCommanderCastCandidate,
+  SharedPlayableLandCandidate,
+  SharedSpellSourceZone,
+} from "../../state/modules/can-respond.js";
+

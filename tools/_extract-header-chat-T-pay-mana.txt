@@ -1,0 +1,16 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: applyPayManaStep.
+// Public entries: applyPayManaStep.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import {
+  parseEnergyCostAmount,
+  parseSupportedManaCostString,
+} from './oracleIRExecutorPlayerGraveyardPermissionHelpers';
+import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import { adjustPlayerCounter, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { payManaCost } from './spellCasting';
+import { createEmptyManaPool } from './types/mana';
+

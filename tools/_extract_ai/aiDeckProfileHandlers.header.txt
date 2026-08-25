@@ -1,0 +1,22 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: archetype weight tables, ensureAIDeckProfile, visible-deck
+ * card reads, theme/synergy scoring, and hand-plan summary used by mulligan
+ * and acquisition choices.
+ *
+ * Public entry symbols: ensureAIDeckProfile, getAIHand, getAIBattlefield,
+ * getAIPlayerLife, calculateCardThemeAlignment, calculateCardSynergyPressure,
+ * summarizeAIHandPlan, scoreCardForAIAcquisition,
+ * permanentHasLeaveBattlefieldExileReplacement,
+ * scoreHostileGraveyardCardDisruption, rehydrateCardsById.
+ */
+import {
+  cardAnalyzer,
+  CardCategory,
+  SynergyArchetype,
+  type DeckArchetypeProfile,
+} from "../../../../rules-engine/src/CardAnalyzer.js";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { MAX_LIBRARY_SEARCH_LIMIT } from "./aiConstants.js";
+

@@ -1,0 +1,7 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover detectSpellCastTriggers inner condition/metadata helpers
+ * Public: getSpellCastConditionData, getSpellCastEffectMetadata
+ */
+
+import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";

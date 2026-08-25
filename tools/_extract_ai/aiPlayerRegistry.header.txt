@@ -1,0 +1,24 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: registerAIPlayer / rehydrate / unregister / isAIPlayer /
+ * getAIPlayers and the derived-strategy sync they close over.
+ *
+ * Public entry symbols: registerAIPlayer, rehydrateAIPlayerRuntime,
+ * rehydrateAIGameRuntime, unregisterAIPlayer, isAIPlayer, getAIPlayers.
+ */
+import { inferAIStrategyFromDeckProfile } from "../../../../rules-engine/src/aiEngineDeckSupport.js";
+import { AIStrategy, type AIPlayerConfig } from "../../../../rules-engine/src/AIEngine.js";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { debug } from "../../utils/debug.js";
+import { ensureGame } from "../util.js";
+import { ensureAIDeckProfile } from "./aiDeckProfileHandlers.js";
+import { getPersistedAIPlayerRuntimeData } from "./aiPlayerRuntimeData.js";
+import {
+  aiActionsInProgress,
+  aiEngine,
+  aiPlayers,
+  clearScheduledAIAction,
+  getAIActionKey,
+} from "./aiScheduler.js";
+

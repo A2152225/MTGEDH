@@ -1,0 +1,27 @@
+// Extracted from rules-engine/src/oracleIRParserParseOracleTextToIR.ts (chat B 40KB split campaign).
+//
+// Late passes of the parseOracleTextToIR pipeline (reminder prunes, recoveries, surface repairs).
+//
+// Public entry points:
+//   applyParseOracleTextToIRLatePasses
+
+import type { OracleIRAbility, OracleIRResult } from './oracleIR';
+import type { OracleTextParseResult, ParsedAbility } from './oracleTextParser';
+import { parseOracleText } from './oracleTextParser';
+import { parseAbilityToIRAbility as parseAbilityToIRAbilityFromModule } from './oracleIRParserAbilityToIR';
+import { repairCurrentBatchSurfaceSteps } from './oracleIRParserPostprocessCurrentBatchSurfaces';
+import { repairIntraAbilityInsteadConditionalSteps } from './oracleIRParserPostprocessInsteadReplacementSteps';
+import { extractQuotedAbilityRiderSteps } from './oracleIRParserPostprocessQuotedAbilityRiders';
+
+export function applyParseOracleTextToIRLatePasses(params: {
+  abilities: OracleIRAbility[];
+  normalizedOracleText: string;
+  parsingOracleText: string;
+  cardName?: string;
+  parsed: OracleTextParseResult;
+  parseOracleTextToIR: (oracleText: string, cardName?: string) => OracleIRResult;
+}): OracleIRAbility[] {
+  let { abilities, normalizedOracleText, parsingOracleText, cardName, parsed } = params;
+  const parseAbilityToIRAbility = (ability: ParsedAbility, name?: string): OracleIRAbility =>
+    parseAbilityToIRAbilityFromModule(ability, name, params.parseOracleTextToIR);
+

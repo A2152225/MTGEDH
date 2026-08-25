@@ -1,0 +1,17 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerPendingContinuationAndCostReduction.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: persistUnqueuedPendingContinuationFromOracleIRResult and
+//   syncNextSpellCostReductionFromOracleIRResult.
+// Public entry symbols: persistUnqueuedPendingContinuationFromOracleIRResult,
+//   syncNextSpellCostReductionFromOracleIRResult.
+// Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import type { GameContext } from '../../context.js';
+import { unwrapYouDoResumeSteps } from '../oracleIrServerPromptResumeUtils.js';
+import { grantNextSpellCostReduction } from '../nextSpellCostReduction.js';
+

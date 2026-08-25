@@ -1,0 +1,10 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover detector TriggeredAbility wire type
+ * Public: TriggeredAbility
+ *
+ * Distinct from triggers/types.ts TriggeredAbility (stale/skinny folder copy).
+ * Detector functions use this shape. Leftover re-exports it so existing
+ * `from "./triggered-abilities.js"` type imports keep working.
+ */
+

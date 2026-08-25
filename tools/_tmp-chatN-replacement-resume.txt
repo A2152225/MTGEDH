@@ -1,0 +1,8 @@
+export {
+  resumeOracleIRUnlessDiscardsFromResolution,
+  resumeOracleIRUnlessPayFromResolution,
+  resumeOracleIRRemainingStepsFromResolution,
+  resumeOracleIRStepWithChoiceFromResolution,
+  maybeApplyOracleIrChoiceStepFromResolution,
+} from './oracleIrServerZoneSync-handlers/oracleIrServerResumeAndChoiceApply.js';
+

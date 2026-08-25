@@ -1,0 +1,15 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: buildLookSelectTopSelectionOptions, resolveLookSelectAmount,
+// lookSelectTopRequiresPlayerChoice.
+// Public entries: buildLookSelectTopSelectionOptions, resolveLookSelectAmount,
+// lookSelectTopRequiresPlayerChoice.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
+import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
+import { getNormalizedChosenIds } from './oracleIRExecutorPlayerStepShared';
+import { quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
+

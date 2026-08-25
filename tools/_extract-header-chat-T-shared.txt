@@ -1,0 +1,11 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: withDiscardLedgerFlags, shuffleArray, getNormalizedChosenIds.
+// Public entries: withDiscardLedgerFlags, shuffleArray, getNormalizedChosenIds.
+
+import { omitBridgedStepCarryOver } from './oracleIRStepLedgerRuntime';
+import {
+  buildDiscardEffectReplayMutationsFromCards,
+  type OracleIRReplayMutation,
+} from './oracleIRReplayMutations';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+

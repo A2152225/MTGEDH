@@ -8,6 +8,7 @@ const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(TEST_DIR, '..');
 const SERVER_SRC_DIR = path.join(SERVER_DIR, 'src');
 const APPLY_EVENT_PATH = path.join(SERVER_DIR, 'src', 'state', 'modules', 'applyEvent.ts');
+const APPLY_EVENT_HANDLER_DIR = path.join(SERVER_DIR, 'src', 'state', 'modules', 'apply-event-handlers');
 
 const INTERACTION_EVENT_SOURCE_PATHS = [
   path.join(SERVER_DIR, 'src', 'socket', 'game-actions.ts'),
@@ -391,32 +392,44 @@ function findReplayCoverageFiles(eventType: string, replayTestFiles: string[]): 
 
 let applyEventCaseBodyCache: Map<string, string> | null = null;
 
+function collectApplyEventSourcePaths(): string[] {
+  const paths = [APPLY_EVENT_PATH];
+  if (fs.existsSync(APPLY_EVENT_HANDLER_DIR)) {
+    for (const name of fs.readdirSync(APPLY_EVENT_HANDLER_DIR)) {
+      if (name.endsWith('.ts')) paths.push(path.join(APPLY_EVENT_HANDLER_DIR, name));
+    }
+  }
+  return paths;
+}
+
 function collectApplyEventCaseBodies(): Map<string, string> {
   if (applyEventCaseBodyCache) return applyEventCaseBodyCache;
 
-  const sourceText = readFile(APPLY_EVENT_PATH);
-  const sourceFile = ts.createSourceFile(APPLY_EVENT_PATH, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const clauses: ts.CaseOrDefaultClause[] = [];
-
-  const visit = (node: ts.Node) => {
-    if (ts.isSwitchStatement(node)) {
-      clauses.push(...node.caseBlock.clauses);
-    }
-    ts.forEachChild(node, visit);
-  };
-
-  visit(sourceFile);
-
   const caseBodies = new Map<string, string>();
-  for (let index = 0; index < clauses.length; index++) {
-    const eventType = caseClauseEventType(clauses[index]);
-    if (!eventType || caseBodies.has(eventType)) continue;
+  for (const filePath of collectApplyEventSourcePaths()) {
+    const sourceText = readFile(filePath);
+    const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const clauses: ts.CaseOrDefaultClause[] = [];
 
-    for (let bodyIndex = index; bodyIndex < clauses.length; bodyIndex++) {
-      const clause = clauses[bodyIndex];
-      if (clause.statements.length > 0) {
-        caseBodies.set(eventType, clause.statements.map(statement => statement.getText(sourceFile)).join('\n'));
-        break;
+    const visit = (node: ts.Node) => {
+      if (ts.isSwitchStatement(node) && node.expression.getText(sourceFile) === 'e.type') {
+        clauses.push(...node.caseBlock.clauses);
+      }
+      ts.forEachChild(node, visit);
+    };
+
+    visit(sourceFile);
+
+    for (let index = 0; index < clauses.length; index++) {
+      const eventType = caseClauseEventType(clauses[index]);
+      if (!eventType || caseBodies.has(eventType)) continue;
+
+      for (let bodyIndex = index; bodyIndex < clauses.length; bodyIndex++) {
+        const clause = clauses[bodyIndex];
+        if (clause.statements.length > 0) {
+          caseBodies.set(eventType, clause.statements.map(statement => statement.getText(sourceFile)).join('\n'));
+          break;
+        }
       }
     }
   }

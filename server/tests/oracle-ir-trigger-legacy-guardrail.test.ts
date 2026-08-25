@@ -428,8 +428,20 @@ const applyEventSource = readFileSync(
   join(serverRoot, 'src/state/modules/applyEvent.ts'),
   'utf8',
 );
+const applyEventCastSpellEventsSource = readFileSync(
+  join(serverRoot, 'src/state/modules/apply-event-handlers/applyEventCastSpellEvents.ts'),
+  'utf8',
+);
+const applyEventStackCoreEventsSource = readFileSync(
+  join(serverRoot, 'src/state/modules/apply-event-handlers/applyEventStackCoreEvents.ts'),
+  'utf8',
+);
 const gameActionsSource = readFileSync(
   join(serverRoot, 'src/socket/game-actions.ts'),
+  'utf8',
+);
+const gameActionsPersistOnCastSource = readFileSync(
+  join(serverRoot, 'src/socket/game-actions-handlers/gameActionsCastSpellFromHandPersistOnCast.ts'),
   'utf8',
 );
 const combatSource = readFileSync(
@@ -486,6 +498,10 @@ const turnTrackingSource = readFileSync(
 );
 const turnSource = readFileSync(
   join(serverRoot, 'src/state/modules/turn.ts'),
+  'utf8',
+);
+const turnStepCleanupSource = readFileSync(
+  join(serverRoot, 'src/state/modules/turn-handlers/turnStepCleanup.ts'),
   'utf8',
 );
 const kynaiosChoiceSource = readFileSync(
@@ -823,7 +839,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('function parseTokenCreation')).toBe(false);
     expect(stackSource.includes("from './oracleIrSpellLegacyTokenUtils.js'") || stackSource.includes('from "./oracleIrSpellLegacyTokenUtils.js"')).toBe(true);
     expect(turnSource.includes('detectEntersWithCounters.js')).toBe(true);
-    expect(turnSource.includes('triggerEtbEntryEffects.js')).toBe(true);
+    expect(turnStepCleanupSource.includes('triggerEtbEntryEffects.js')).toBe(true);
     expect(turnSource.includes('triggerEtbPermanentEffects.js')).toBe(true);
     expect(turnSource.includes('from "./stack.js"')).toBe(false);
     expect(kynaiosChoiceSource.includes('detectEntersWithCounters.js')).toBe(true);
@@ -1281,12 +1297,22 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes("from './stackExecuteTriggerEffectIrFallbackUtils.js'") || stackSource.includes('from "./stackExecuteTriggerEffectIrFallbackUtils.js"')).toBe(true);
     expect(applyEventSource.includes('from "./stack"')).toBe(false);
     expect(applyEventSource.includes('from "./stack.js"')).toBe(false);
-    expect(applyEventSource.includes("from './stackCastSpellUtils.js'") || applyEventSource.includes('from "./stackCastSpellUtils.js"')).toBe(true);
-    expect(applyEventSource.includes("from './stackResolveTopOfStackUtils.js'") || applyEventSource.includes('from "./stackResolveTopOfStackUtils.js"')).toBe(true);
+    expect(
+      applyEventCastSpellEventsSource.includes("from '../stackCastSpellUtils.js'")
+      || applyEventCastSpellEventsSource.includes('from "../stackCastSpellUtils.js"')
+      || applyEventSource.includes("from './stackCastSpellUtils.js'")
+      || applyEventSource.includes('from "./stackCastSpellUtils.js"'),
+    ).toBe(true);
+    expect(
+      applyEventStackCoreEventsSource.includes("from '../stackResolveTopOfStackUtils.js'")
+      || applyEventStackCoreEventsSource.includes('from "../stackResolveTopOfStackUtils.js"')
+      || applyEventSource.includes("from './stackResolveTopOfStackUtils.js'")
+      || applyEventSource.includes('from "./stackResolveTopOfStackUtils.js"'),
+    ).toBe(true);
     expect(gameActionsSource.includes('from "../state/modules/stack.js"')).toBe(false);
     expect(combatSource.includes('from "../state/modules/stack.js"')).toBe(false);
     expect(exertTriggersSource.includes("from '../state/modules/stack.js'")).toBe(false);
-    expect(gameActionsSource.includes('inferTriggeredAbilityTargetMetadata')).toBe(true);
+    expect(gameActionsPersistOnCastSource.includes('inferTriggeredAbilityTargetMetadata')).toBe(true);
     expect(stackExecuteTriggerEffectPrefaceUtilsSource.includes('export function tryApplyTriggerEffectPrefaceHandlers')).toBe(true);
     expect(stackExecuteTriggerEffectUtilsSource.includes('tryApplyTriggerEffectPrefaceHandlers(')).toBe(true);
     expect(stackExecuteTriggerEffectUtilsSource.includes('prefaceResult.handled')).toBe(true);

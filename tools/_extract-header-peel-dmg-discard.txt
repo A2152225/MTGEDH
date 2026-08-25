@@ -1,0 +1,3 @@
+/**
+ * Discard: old triggers/combat.ts detectCombatDamageTriggers (replaced by leftover-merged combat-damage-detection.ts).
+ */

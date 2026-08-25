@@ -1,0 +1,19 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover detectCombatDamageTriggers early watcher patterns
+ * Public: appendCombatDamageDetectionEarly
+ */
+
+import { timingTriggerEffect } from "./timing-effect-extraction.js";
+import type { CombatDamageDetectionState } from "./combat-damage-detection-state.js";
+
+export function appendCombatDamageDetectionEarly(state: CombatDamageDetectionState): void {
+  const {
+    triggers,
+    oracleText,
+    lowerOracle,
+    cardName,
+    permanentId,
+    combatNameVariants,
+  } = state;
+

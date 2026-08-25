@@ -1,0 +1,12 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover attachment-attack detect/get + combat-untap getters/execute
+ * Public: detectAttachmentAttackTriggers, getAttachmentAttackTriggers,
+ *   getAttachmentCombatDamageTriggers, getAttackUntapTriggers,
+ *   getCombatDamageUntapTriggers, executeUntapTrigger
+ */
+
+import { debug } from "../../../utils/debug.js";
+import type { GameContext } from "../../context.js";
+import { timingTriggerEffect } from "./timing-effect-extraction.js";
+import { detectUntapTriggers, type UntapTrigger } from "./untap-detection.js";

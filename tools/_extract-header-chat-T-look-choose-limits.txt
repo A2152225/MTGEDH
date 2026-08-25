@@ -1,0 +1,10 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: parseLookChooseSelectionLimits, buildLookChooseLibrarySearchFilter.
+// Public entries: parseLookChooseSelectionLimits, buildLookChooseLibrarySearchFilter.
+
+import {
+  normalizeLookChooseSelectorText,
+  splitLookChooseSelectorTerms,
+} from './oracleIRExecutorPlayerLookChooseSelector';
+import { parseSimpleCardTypeFromText } from './oracleIRExecutorZoneOps';
+

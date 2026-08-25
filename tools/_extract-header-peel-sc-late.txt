@@ -1,0 +1,22 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover detectSpellCastTriggers late watcher patterns
+ * Public: appendSpellCastDetectionLate
+ */
+
+import { aOrAnSpellType } from "../../../../../rules-engine/src/indefiniteArticle.js";
+import { extractSpellCastEffect } from "./spell-cast-effect-text.js";
+import type { SpellCastDetectionState } from "./spell-cast-detection-state.js";
+import { timingTriggerEffect } from "./timing-effect-extraction.js";
+import { escapeCardNameForRegex } from "./types.js";
+
+export function appendSpellCastDetectionLate(state: SpellCastDetectionState): void {
+  const {
+    triggers,
+    oracleText,
+    lowerOracle,
+    cardName,
+    permanentId,
+    controllerId,
+    getSpellCastConditionData,
+  } = state;

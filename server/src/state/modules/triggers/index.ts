@@ -68,30 +68,20 @@ export {
   type EndOfCombatTrigger,
 } from "./end-combat.js";
 export {
-  // Combat damage triggers
-  detectCombatDamageTriggers,
+  // Combat damage triggers (detectCombatDamageTriggers lives in combat-damage-detection.ts)
   getCombatDamageTriggersForCreature,
-  // Attack triggers
-  detectAttackTriggers,
-  getAttackTriggersForCreatures,
-  detectAttachmentAttackTriggers,
-  getAttachmentAttackTriggers,
-  getAttachmentCombatDamageTriggers,
+  // Attack triggers (detectAttackTriggers lives in attack-detection.ts)
   // Beginning of combat
   detectBeginningOfCombatTriggers,
   getBeginningOfCombatTriggers,
-  // Block triggers
-  detectBlockTriggers,
+  // Block triggers (detectBlockTriggers lives in block-detection.ts)
   getBlockTriggersForCreatures,
   getBlockedTriggersForCreatures,
-  type BlockTrigger,
   // Damage received triggers
   checkDamageReceivedTrigger,
   type DamageReceivedTriggerInfo,
-  // Types
-  type CombatTriggeredAbility,
-  type AttachmentAttackTrigger,
 } from "./combat.js";
+export type { CombatTriggeredAbility } from "./combat-triggered-ability.js";
 export {
   // End step
   detectEndStepTriggers,
@@ -116,26 +106,78 @@ export type {
   DoesntUntapEffect,
 } from "./turn-phases.js";
 // Export from zone-changes.ts (full implementation, replaces re-exports)
+// detectDeathTriggers is the leftover-merged detector in death-detection.ts
 export {
   detectDeathTriggers,
-  getDeathTriggers,
-  getDeathTriggersForCreature,
-  getPlayersWhoMustSacrifice,
-  processUndyingPersist,
   detectETBTriggers,
   getETBTriggersForPermanent,
+  type TriggeredAbility as ZoneChangeTriggeredAbility,
+} from "./zone-changes.js";
+// ETB untap + auto-sacrifice live bodies (leftover-merged). zone-changes.ts re-exports these too.
+export {
   detectETBUntapEffects,
   getETBUntapEffects,
   applyETBUntapEffect,
   checkETBAutoSacrifice,
-  type TriggeredAbility as ZoneChangeTriggeredAbility,
   type ETBUntapEffect as ZoneChangeETBUntapEffect,
+} from "./etb-untap.js";
+// Death emission live bodies (leftover-merged). zone-changes.ts re-exports these too.
+export {
+  getDeathTriggers,
+  getDeathTriggersForCreature,
+  getPlayersWhoMustSacrifice,
+  processUndyingPersist,
   type DeathTriggerResult as ZoneChangeDeathTriggerResult,
-} from "./zone-changes.js";
+} from "./death-emission.js";
+export { collectDeathTriggerEffectText } from "./death-detection.js";
+export { detectAttackTriggers } from "./attack-detection.js";
+export { detectLTBTriggers } from "./ltb-detection.js";
+export { detectAbilityActivatedTriggers } from "./ability-activated-detection.js";
+export { detectCombatDamageTriggers } from "./combat-damage-detection.js";
+export { detectTapTriggers, type TapTrigger } from "./tap-detection.js";
+export { detectSpellCastTriggers } from "./spell-cast-detection.js";
+export { getSpellCastTriggers } from "./spell-cast-get-triggers.js";
+export { detectDealtDamageTriggers } from "./dealt-damage-detection.js";
+export { detectMonstrousTriggers, detectTransformTriggers } from "./status-keyword-detection.js";
+export {
+  detectSpellCounteredTriggers,
+  detectMutateTriggers,
+  detectEquippedTriggers,
+} from "./status-event-detection.js";
+export { detectUntapTriggers, type UntapTrigger } from "./untap-detection.js";
+export {
+  type AttachmentAttackTrigger,
+  detectAttachmentAttackTriggers,
+  getAttachmentAttackTriggers,
+  getAttachmentCombatDamageTriggers,
+  getAttackUntapTriggers,
+  getCombatDamageUntapTriggers,
+  executeUntapTrigger,
+} from "./attachment-attack-detection.js";
+export { isEnchantedByAuraYouControl } from "./enchanted-by-aura.js";
+export {
+  playerHasDungeonRoomAbilityDoubler,
+  detectTriggerDoublers,
+  applyTriggerDoublers,
+  pushTriggerDoublerCopies,
+  type TriggerDoublerEventContext,
+} from "./trigger-doublers.js";
+export { isAttackWatcherTriggerType, planAttackWatcherQueue } from "./attack-watcher-queue.js";
+export {
+  mergeCombatTriggerValue,
+  extractCommanderOwnedGrantedAbilityTexts,
+} from "./combat-attack-trigger-helpers.js";
+export { getAttackTriggersForCreatures } from "./attack-triggers-for-creatures.js";
+export { detectBlockTriggers } from "./block-detection.js";
+export type { BlockTrigger } from "./block-trigger-type.js";
+export type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
+export { ENTERS_OR_OTHER_EVENT_PREFIX } from "./enters-or-other-event-prefix.js";
+export { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
+export { detectHideawayAbility } from "./hideaway-ability.js";
+export { detectTargetType } from "./detect-target-type.js";
+export { LTB_STATIC_ALTERNATIVES } from "./etb-detection-helpers.js";
 // Export from spell-cast.ts (full implementation, replaces re-exports)
 export {
-  detectSpellCastTriggers,
-  getSpellCastTriggers,
   detectSpellCastUntapEffects,
   getSpellCastUntapEffects,
   applySpellCastUntapEffect,
@@ -149,16 +191,10 @@ export {
 } from "./spell-cast.js";
 // Export from tap-untap.ts (full implementation, replaces re-exports)
 export {
-  detectTapTriggers,
   getTapTriggers,
-  detectUntapTriggers,
   getBecomesUntappedTriggers,
   queueBecomesUntappedTriggers,
-  getAttackUntapTriggers,
-  getCombatDamageUntapTriggers,
-  executeUntapTrigger,
   type TapTrigger as TapTriggerType,
-  type UntapTrigger as UntapTriggerType,
 } from "./tap-untap.js";
 export * from "./card-draw.js";
 export * from "./landfall.js";

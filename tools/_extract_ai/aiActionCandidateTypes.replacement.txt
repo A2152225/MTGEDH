@@ -1,0 +1,13 @@
+import type {
+  AIActionCandidate,
+  AIActionCandidateQuery,
+  AIActionSelectionMode,
+  AIActivatedAbilityCandidate,
+  AICastableCommanderCandidate,
+  AICastableSpellCandidate,
+  AICastAttemptDescriptor,
+  AICastRequestSourceZone,
+  AIPlayableLandCandidate,
+  AISupportedCardSourceZone,
+} from "./ai-handlers/aiActionCandidateTypes.js";
+

@@ -1,0 +1,1 @@
+export { detectMonstrousTriggers, detectRoomTriggers, detectTransformTriggers } from "./triggers/status-keyword-detection.js";

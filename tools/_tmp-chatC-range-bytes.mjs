@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+const file = process.argv[2];
+const start = Number(process.argv[3]);
+const end = Number(process.argv[4]);
+const buf = fs.readFileSync(file);
+const starts = [0];
+for (let i = 0; i < buf.length; i++) if (buf[i] === 0x0a) starts.push(i + 1);
+const a = starts[start - 1];
+const b = end < starts.length ? starts[end] : buf.length;
+console.log(`${file}:${start}-${end} ${b - a} B (${((b - a) / 1024).toFixed(1)} KB)`);

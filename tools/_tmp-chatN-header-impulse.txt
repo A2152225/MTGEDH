@@ -1,0 +1,28 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerImpulseDiscoverGyPermissionPrompts.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: graveyard-cast permission metadata, impulse-exile play
+//   permissions, choose-one impulse exile play prompts, and discover
+//   cast-or-hand prompts, plus the helpers they close over.
+// Public entry symbols: collectGrantGraveyardPermissionModifyMetadata,
+//   resolveGrantGraveyardCastChoiceCard,
+//   syncGraveyardCastFreeExilePermissionsFromOracleIR,
+//   syncImpulseExilePlayPermissionsToState,
+//   queueChooseOneImpulseExilePlayPromptsFromOracleIRResult,
+//   queueDiscoverCastOrHandPromptsFromOracleIRResult.
+// Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type { OracleEffectStep } from '../../../../../rules-engine/src/oracleIR.js';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import {
+  getPlayableUntilTurnForImpulseDuration,
+  impulseExileTopIsDiscoverCastOrHand,
+  impulseExileTopRequiresChooseOne,
+} from '../../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
+import type { GameContext } from '../../context.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
+import { queueCastFromExileResolutionPrompt } from '../triggerCastFromExileUtils.js';
+

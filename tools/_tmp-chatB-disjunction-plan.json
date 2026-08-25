@@ -1,0 +1,29 @@
+{
+  "parent": "rules-engine/src/oracleIRParserPostprocess.ts",
+  "returnOpenLine": 4061,
+  "returnCloseLine": 4741,
+  "budget": 26000,
+  "locals": {
+    "normalizedText": "string",
+    "normalizedModalHeader": "string",
+    "isParentheticalText": "boolean",
+    "rawNormalizedText": "string"
+  },
+  "modules": [
+    {
+      "out": "rules-engine/src/oracleIRParserPostprocessCurrentBatchReminderKeywordPatterns.ts",
+      "name": "isCurrentBatchReminderKeywordPattern",
+      "headerText": "// Extracted from rules-engine/src/oracleIRParserPostprocess.ts (chat B 40KB split campaign).\n//\n// Cluster: the first slice of isCurrentBatchReminderOrPlatformOnlyText's pattern disjunction -\n// keyword reminder text (saga, partner, infect, landwalk, bestow, reconfigure ...), cost-reduction\n// notes, copy-without-paying reminders and deck-construction notes.\n//\n// The operands are byte-identical to the original chain and keep their order; the trailing `false`\n// only terminates the disjunction, which cannot change a boolean result.\n\n"
+    },
+    {
+      "out": "rules-engine/src/oracleIRParserPostprocessCurrentBatchReminderRulesClarifications.ts",
+      "name": "isCurrentBatchReminderRulesClarification",
+      "headerText": "// Extracted from rules-engine/src/oracleIRParserPostprocess.ts (chat B 40KB split campaign).\n//\n// Cluster: the second slice of isCurrentBatchReminderOrPlatformOnlyText's pattern disjunction -\n// rules clarifications, aura and enchant reminders, vehicle and foretell notes, and graveyard-cast\n// permission text.\n//\n// The operands are byte-identical to the original chain and keep their order; the trailing `false`\n// only terminates the disjunction, which cannot change a boolean result.\n\n"
+    },
+    {
+      "out": "rules-engine/src/oracleIRParserPostprocessCurrentBatchReminderTargetAndDeckPatterns.ts",
+      "name": "isCurrentBatchReminderTargetOrDeckPattern",
+      "headerText": "// Extracted from rules-engine/src/oracleIRParserPostprocess.ts (chat B 40KB split campaign).\n//\n// Cluster: the final slice of isCurrentBatchReminderOrPlatformOnlyText's pattern disjunction -\n// target and until-your-next-turn tails, background and bestow choices, copy caveats and\n// deck-limit notes.\n//\n// The operands are byte-identical to the original chain and keep their order; the trailing `false`\n// only terminates the disjunction, which cannot change a boolean result.\n\n"
+    }
+  ]
+}

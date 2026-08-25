@@ -1,0 +1,30 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerManaCounterChoicePrompts.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: queueAddManaChoicePromptsFromOracleIRResult,
+//   queueAddCounterTargetSelectionPromptsFromOracleIRResult, and
+//   queueCounterDistributionPromptsFromOracleIRResult, plus mana-symbol
+//   and add-counter helpers they close over (including targetIdsKey).
+// Public entry symbols: poolKeyToManaSymbol, buildChosenManaFromDistribution,
+//   queueAddManaChoicePromptsFromOracleIRResult,
+//   queueAddCounterTargetSelectionPromptsFromOracleIRResult,
+//   queueCounterDistributionPromptsFromOracleIRResult.
+// Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type { OracleEffectStep, OracleQuantity } from '../../../../../rules-engine/src/oracleIR.js';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import { resolveOracleQuantity } from '../../../../../rules-engine/src/oracleIRExecutorResolveQuantity.js';
+import { resolvePlayers } from '../../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
+import { parseSimplePermanentTypeFromText } from '../../../../../rules-engine/src/oracleIRExecutorBattlefieldParser.js';
+import { hasExecutorClass } from '../../../../../rules-engine/src/oracleIRExecutorPermanentUtils.js';
+import type { GameContext } from '../../context.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
+import {
+  attachOracleIrResumeMetadata,
+  findSkippedOracleStep,
+  isOracleIrPlayerChoiceGap,
+} from '../oracleIrServerPromptResumeUtils.js';
+

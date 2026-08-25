@@ -1,0 +1,3 @@
+/**
+ * Discard: old triggers/combat.ts detectBlockTriggers + BlockTrigger (replaced by leftover-merged leaves).
+ */

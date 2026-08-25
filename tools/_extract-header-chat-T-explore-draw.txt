@@ -1,0 +1,129 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: buildExploreDecisionFromStep, applyExploreStep, applyManifestDreadStep,
+// applyConniveStep, applyRegisterLoseGameReplacementStep, applyGainLifeStep,
+// applyLoseLifeStep, applyAddPlayerCounterStep, applyDoublePlayerCountersStep,
+// applyDrawStep (+ exclusive resolveDynamicDrawAmount/readPower/resolveSourcePower).
+// Public entries: buildExploreDecisionFromStep, applyExploreStep, applyManifestDreadStep,
+// applyConniveStep, applyRegisterLoseGameReplacementStep, applyGainLifeStep,
+// applyLoseLifeStep, applyAddPlayerCounterStep, applyDoublePlayerCountersStep, applyDrawStep.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import type { OracleIRReplayMutation } from './oracleIRReplayMutations';
+import { resolveBoundSelfOrSourceCreatureTargetId } from './oracleIRExecutorBoundSelfCreatureTarget';
+import { resolveCreatureTargetIds } from './oracleIRExecutorCreatureStepUtils';
+import { buildEffectBridgeOptions } from './oracleIRExecutorDamageTransitionCommit';
+import { collectForEachReferenceBattlefieldPermanentIds } from './oracleIRExecutorForEachQuantity';
+import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
+import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
+import {
+  permanentHasSubtype,
+  permanentIsCreature,
+  readPermanentPower,
+} from './oracleIRExecutorPlayerAddManaAmount';
+import {
+  filterChosenHandCardIds,
+  getNormalizedChosenIds,
+  resolveStepAmountForPlayer,
+  withDiscardLedgerFlags,
+} from './oracleIRExecutorPlayerStepShared';
+import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import {
+  adjustLife,
+  adjustPlayerCounter,
+  discardCardsForPlayer,
+  discardSpecificCardsForPlayer,
+  drawCardsForPlayer,
+  getCardManaValue,
+  getCardTypeLineLower,
+  quantityToNumber,
+  readPlayerZoneCards,
+  resolvePlayers,
+  resolveVotesReceivedQuantity,
+  stampCardsPutIntoGraveyardThisTurn,
+} from './oracleIRExecutorPlayerUtils';
+import { resolveVariableAmount } from './oracleIRExecutorPlayerVariableAmount';
+import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
+import {
+  addBattlefieldPermanentsToState,
+  createBattlefieldPermanentsFromCards,
+} from './oracleIRExecutorZoneOps';
+
+function readPower(value: any): number {
+  if (!value) return 0;
+  if (typeof value.effectivePower === 'number') return value.effectivePower;
+  let power = typeof value.basePower === 'number' ? value.basePower : undefined;
+  if (typeof power !== 'number') {
+    const rawPower = value.card?.power ?? value.power;
+    power = typeof rawPower === 'string' ? Number.parseInt(rawPower, 10) : Number(rawPower);
+  }
+  if (!Number.isFinite(power)) power = 0;
+  const counters = (value.counters || {}) as Record<string, number>;
+  power += Math.max(0, Number(counters['+1/+1']) || 0);
+  power -= Math.max(0, Number(counters['-1/-1']) || 0);
+  return power;
+}
+
+function resolveSourcePower(state: GameState, ctx: OracleIRExecutionContext): number | null {
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) return null;
+  const source = ((state.battlefield || []) as any[]).find((perm) => String(perm?.id || '').trim() === sourceId);
+  return source ? Math.max(0, readPower(source)) : null;
+}
+
+function resolveDynamicDrawAmount(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'draw' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
+): number | null {
+  const amountRaw = String((step.amount as any)?.raw || '').trim().toLowerCase();
+  if (/the milled card'?s mana value/.test(amountRaw)) {
+    const milled = [
+      ...(Array.isArray((ctx as any).lastMilledCards) ? (ctx as any).lastMilledCards : []),
+      ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+      ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+    ];
+    if (milled.length > 0) {
+      const manaValue = getCardManaValue(milled[milled.length - 1]);
+      if (manaValue !== null) return manaValue;
+    }
+  }
+
+  const fromShared = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
+    whereX: step.whereX,
+    runtime,
+  });
+  if (fromShared !== null) return fromShared;
+
+  if (step.amount.kind === 'source_power') return resolveSourcePower(state, ctx);
+  if (step.amount.kind === 'greatest_power_among_creatures_you_control') {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const excludeSubtype = step.amount.excludeSubtype;
+    const powers = ((state.battlefield || []) as any[])
+      .filter((permanent) => String(permanent?.controller || '').trim() === controllerId)
+      .filter(permanentIsCreature)
+      .filter((permanent) => !permanentHasSubtype(permanent, excludeSubtype))
+      .map(readPermanentPower)
+      .filter((value): value is number => value !== null);
+    return powers.length > 0 ? Math.max(0, ...powers) : 0;
+  }
+  if (step.amount.kind === 'votes_received') {
+    return resolveVotesReceivedQuantity(state, String(ctx.controllerId || ''), step.amount);
+  }
+  if (step.amount.kind === 'votes_for_choice') {
+    const fromState = Number(
+      (state as any)?.lastVoteResults?.[String(step.amount.choice || '').toLowerCase()] ??
+        (state as any)?.voteResults?.[String(step.amount.choice || '').toLowerCase()]
+    );
+    if (Number.isFinite(fromState)) {
+      const multiplier = Number.isFinite(Number(step.amount.multiplier))
+        ? Math.max(0, Math.trunc(Number(step.amount.multiplier)))
+        : 1;
+      return Math.max(0, Math.floor(fromState * multiplier));
+    }
+  }
+  return quantityToNumber(step.amount, ctx);
+}
+

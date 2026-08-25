@@ -1,0 +1,22 @@
+      case 'x_value_selection':
+      case 'mana_color_selection':
+      case 'discard_selection':
+      case 'scry':
+      case 'surveil':
+      case 'bottom_order':
+      case 'lim_duls_vault':
+      case 'dance_with_calamity':
+      case 'dance_with_calamity_cast':
+      case 'hand_to_bottom':
+      case 'join_forces':
+      case 'fight_target':
+      case 'tap_untap_target':
+      case 'counter_movement':
+      case 'counter_target':
+      case 'station_creature_selection':
+      case 'life_payment':
+      case 'additional_cost_payment':
+      case 'squad_cost_payment':
+        await handleAIResolutionPaymentAndTargetSteps(io, gameId, game, playerId, step, createResponse);
+        break;
+

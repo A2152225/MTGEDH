@@ -1,0 +1,28 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: handleAIResolutionStep cases mode_selection through
+ * opening_hand_actions.
+ *
+ * Public entry symbols: handleAIResolutionSearchAndNameSteps.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import { debug } from "../../utils/debug.js";
+import { isOpeningHandBattlefieldCard } from "../opening-hand.js";
+import { getDominantCreatureType } from "../creature-type.js";
+import { chooseAIGraveyardSelectionIds, chooseAILibrarySearchResponse } from "./aiZoneSearchChoiceHandlers.js";
+import { chooseAICardNameSelection, chooseAIPlayerChoiceId } from "./aiPlayerCardNameChoiceHandlers.js";
+import { chooseAIModeSelectionsForStep } from "./aiModeChoiceHandlers.js";
+import { chooseAIManaColorForActivation } from "./aiManaCostHelpers.js";
+
+export async function handleAIResolutionSearchAndNameSteps(
+  io: Server,
+  gameId: string,
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  createResponse: (selections: any, cancelled?: boolean) => any,
+): Promise<void> {
+  switch (step.type) {

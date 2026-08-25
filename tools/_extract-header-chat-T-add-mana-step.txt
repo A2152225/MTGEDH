@@ -1,0 +1,44 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: applyAddManaStep (+ exclusive commander color identity,
+// manaStringToColorCounts, recordProducedMana, TEMPORARY_RETAINED_MANA_COLORS).
+// Public entries: applyAddManaStep, TEMPORARY_RETAINED_MANA_COLORS.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import {
+  repeatManaString,
+  resolveAddManaAmount,
+  resolveDynamicAddManaSequence,
+} from './oracleIRExecutorPlayerAddManaAmount';
+import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import { addManaToPoolForPlayer, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+
+function normalizeColorSymbols(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((value) => String(value || '').trim().toUpperCase())
+    .map((value) => value.length === 1 ? value : value.slice(0, 1))
+    .filter((value) => /^[WUBRG]$/.test(value));
+}
+
+function getCommanderColorIdentityForPlayer(state: GameState, playerId: PlayerID): string[] {
+  const player: any = (state.players || []).find((entry: any) => entry?.id === playerId);
+  const direct = normalizeColorSymbols(player?.commanderColorIdentity || player?.colorIdentity || player?.deckColorIdentity);
+  if (direct.length > 0) return [...new Set(direct)];
+
+  const commanderCards: any[] = [];
+  for (const source of [player?.commander, player?.commanders]) {
+    if (Array.isArray(source)) commanderCards.push(...source);
+    else if (source) commanderCards.push(source);
+  }
+
+  const commanderZone = Array.isArray((state as any)?.commanderZone) ? (state as any).commanderZone : [];
+  commanderCards.push(...commanderZone.filter((entry: any) => String(entry?.ownerId || entry?.owner || entry?.controller || '').trim() === String(playerId)));
+
+  const colors = commanderCards.flatMap((card: any) =>
+    normalizeColorSymbols(card?.colorIdentity || card?.color_identity || card?.card?.colorIdentity || card?.card?.color_identity)
+  );
+  return [...new Set(colors)];
+}
+

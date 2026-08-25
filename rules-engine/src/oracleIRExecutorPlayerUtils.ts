@@ -950,7 +950,7 @@ export function resolvePlayers(
 
   const controllerId = normalizeId(ctx.controllerId) ?? ctx.controllerId;
   const hasValidController = (state.players || []).some((player: any) => normalizeId(player?.id) === controllerId);
-  const opponents = controllerId
+  const opponents = hasValidController
     ? (state.players || [])
         .map((player: any) => normalizeId(player?.id))
         .filter((id: PlayerID | undefined): id is PlayerID => Boolean(id) && id !== controllerId)

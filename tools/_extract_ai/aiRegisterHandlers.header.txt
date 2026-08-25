@@ -1,0 +1,29 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: registerAIHandlers socket.on bodies (createGame, addAI,
+ * toggle AI control, deck load, strategies). Parent keeps a real exported
+ * wrapper so existing `from "./ai.js"` callers keep working.
+ *
+ * Public entry symbols: registerAIHandlers.
+ */
+import { randomBytes } from "crypto";
+import type { Server, Socket } from "socket.io";
+import { AIStrategy } from "../../../../rules-engine/src/AIEngine.js";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { appendEvent, isGameCreator } from "../../db/index.js";
+import { getDeck, listDecks } from "../../db/decks.js";
+import { parseDecklist } from "../../services/scryfall.js";
+import { resolveDeckList } from "../../services/deckImport.js";
+import { debug, debugError, debugWarn } from "../../utils/debug.js";
+import { broadcastGame, ensureGame } from "../util.js";
+import { AI_FAST_CONTINUE_MS, AI_THINK_TIME_MS } from "./aiConstants.js";
+import { handleAIGameFlow } from "./aiGameFlowHandlers.js";
+import { createConfiguredGame } from "./aiGameSetupHandlers.js";
+import { persistAIPlayerDeckSource, resolveAIDeckEntries } from "./aiPregameHandlers.js";
+import { registerAIPlayer, unregisterAIPlayer } from "./aiPlayerRegistry.js";
+import {
+  aiPlayers,
+  scheduleAIPriority,
+} from "./aiScheduler.js";
+

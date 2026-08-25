@@ -1,0 +1,9 @@
+  abilities = applyParseOracleTextToIRLatePasses({
+    abilities,
+    normalizedOracleText,
+    parsingOracleText,
+    cardName,
+    parsed,
+    parseOracleTextToIR,
+  });
+

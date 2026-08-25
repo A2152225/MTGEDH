@@ -1,0 +1,32 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: executeAILegacyActivateAbility.
+ *
+ * Public entry symbols: executeAILegacyActivateAbility.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { appendEvent } from "../../db/index.js";
+import { movePermanentToGraveyard } from "../../state/modules/counters_tokens.js";
+import { movePermanentToHand } from "../../state/modules/zones.js";
+import { parseReturnToHandCostFromManaAbilityCost } from "../../state/modules/mana-check.js";
+import { syncPreparedPermanentAfterControlChange } from "../../state/modules/prepared.js";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import {
+  broadcastGame,
+  calculateManaProduction,
+  ensureGame,
+  getOrInitManaPool,
+  getPlayerName,
+} from "../util.js";
+import { AI_MANA_ABILITY_PATTERN, AI_REACTION_DELAY_MS, COLOR_IDENTITY_MAP } from "./aiConstants.js";
+import { scheduleAIPriority } from "./aiScheduler.js";
+import { executePassPriority } from "./aiPriorityPassCombatExecutors.js";
+import {
+  applyAIManaLifeLoss,
+  chooseAIManaColorForActivation,
+  getAIManaProductionOptions,
+} from "./aiManaCostHelpers.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+

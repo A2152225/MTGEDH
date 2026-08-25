@@ -2,6 +2,7 @@ import type { Server } from 'socket.io';
 import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debugWarn } from '../../utils/debug.js';
+import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { buildTapTriggeredStackItem, collectTapTriggersForTapEvent, serializeTapTriggeredStackItem } from './triggers/tap-untap.js';
 import { orderTriggersByAPNAP } from './triggers/ordering.js';
 
@@ -128,10 +129,31 @@ export function queueTapTriggersForTappedPermanents(
     })),
   );
 
-  // Optional tap triggers go straight onto the stack. Resolve-time optional
-  // deferral owns the single may prompt (no pre-stack mayAbilityPrompt).
+  // Optional tap triggers prompt before they go on the stack (Judge of Currents).
+  // Mandatory tap triggers go straight onto the stack.
   let addedStackTrigger = false;
   for (const entry of orderedTapTriggerEntries) {
+    if (entry.trigger?.mandatory === false) {
+      const effectText = String(entry.trigger.effect || entry.trigger.description || '')
+        .trim()
+        .replace(/\.+$/, '');
+      const sourceName = String(entry.trigger.cardName || 'Triggered ability');
+      queueMayAbilityStep(
+        io,
+        gameId,
+        game,
+        String(entry.trigger.controllerId || tappedByPlayerId),
+        sourceName,
+        effectText,
+        String(entry.trigger.description || effectText),
+        async () => {
+          pushTapTriggerOntoStack(io, game, gameId, entry.trigger, entry.tappedPermanentId, {
+            optionalTriggeredAbilityDecisionApplied: true,
+          });
+        },
+      );
+      continue;
+    }
     pushTapTriggerOntoStack(io, game, gameId, entry.trigger, entry.tappedPermanentId);
     addedStackTrigger = true;
   }

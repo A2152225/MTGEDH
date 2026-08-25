@@ -1,0 +1,25 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerLifeFlipCoinPrompts.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: queueRedistributeLifeTotalsPromptsFromOracleIRResult and
+//   queueFlipCoinLifeStakesPromptsFromOracleIRResult, plus
+//   readServerPlayerLifeTotal.
+// Public entry symbols: queueRedistributeLifeTotalsPromptsFromOracleIRResult,
+//   queueFlipCoinLifeStakesPromptsFromOracleIRResult.
+// Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import { resolvePlayers } from '../../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
+import type { GameContext } from '../../context.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
+import { queueFlipCoinLifeStakesLoop } from '../flipCoinLifeStakes.js';
+import { appendQueuedResolutionPromptEvent } from '../resolutionPromptEvents.js';
+import {
+  attachOracleIrResumeMetadata,
+  findSkippedOracleStep,
+  isOracleIrPlayerChoiceGap,
+} from '../oracleIrServerPromptResumeUtils.js';
+

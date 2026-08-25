@@ -1,0 +1,37 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerConnivePlayerChoicePrompts.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: queueConniveChoicePromptsFromOracleIRResult,
+//   queuePlayerChoicePromptsFromOracleIRResult, and
+//   syncIrPendingDiscardFromOracleIRResult, plus connive/player-choice
+//   prompt builders they close over.
+// Public entry symbols: queueConniveChoicePromptsFromOracleIRResult,
+//   queuePlayerChoicePromptsFromOracleIRResult,
+//   syncIrPendingDiscardFromOracleIRResult.
+// Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type { OracleEffectStep, OracleQuantity } from '../../../../../rules-engine/src/oracleIR.js';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import { resolveSingleCreatureTargetId } from '../../../../../rules-engine/src/oracleIRExecutorCreatureStepUtils.js';
+import { resolveBoundSelfOrSourceCreatureTargetId } from '../../../../../rules-engine/src/oracleIRExecutorBoundSelfCreatureTarget.js';
+import { resolveOracleQuantity } from '../../../../../rules-engine/src/oracleIRExecutorResolveQuantity.js';
+import {
+  collectDiscardSelectionOptionsForStep,
+  buildPlayerChoiceAmongThemSelectionOptions,
+} from '../../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
+import type { GameContext } from '../../context.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
+import {
+  attachOracleIrResumeMetadata,
+  findSkippedOracleStep,
+  isOracleIrPlayerChoiceGap,
+  normalizeTopLibraryPromptCard,
+} from '../oracleIrServerPromptResumeUtils.js';
+import {
+  readAppliedStepKindsFromState,
+  readStepLedgerFromState,
+} from '../oracleIrTransitionPipeline.js';
+

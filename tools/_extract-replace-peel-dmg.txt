@@ -1,0 +1,2 @@
+export { detectCombatDamageTriggers } from "./triggers/combat-damage-detection.js";
+

@@ -1,0 +1,25 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: commander color-identity scoring, library/deck load for pregame,
+ * and autoSelectAICommander (findBestCommanders, ensureAIPreGameDeckLoaded, and
+ * the helpers they close over).
+ *
+ * Public entry symbols: autoSelectAICommander, ensureAIPreGameDeckLoaded,
+ * getAILibraryCards, persistAIPlayerDeckSource, resolveAIDeckEntries.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { appendEvent } from "../../db/index.js";
+import { getDeck } from "../../db/decks.js";
+import { resolveDeckList } from "../../services/deckImport.js";
+import { parseDecklist } from "../../services/scryfall.js";
+import { debug, debugError, debugWarn } from "../../utils/debug.js";
+import { broadcastGame, ensureGame } from "../util.js";
+import {
+  COLOR_IDENTITY_MAP,
+  INITIAL_HAND_SIZE,
+  MAX_LIBRARY_SEARCH_LIMIT,
+} from "./aiConstants.js";
+import { getPersistedAIPlayerRuntimeData } from "./aiPlayerRuntimeData.js";
+

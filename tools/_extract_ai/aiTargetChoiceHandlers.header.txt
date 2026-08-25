@@ -1,0 +1,38 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: zone/target lookup helpers, spell-target scoring,
+ * chooseAITargetsForSpell, chooseAITargetSelectionsForChoiceStep.
+ *
+ * Public entry symbols: findZoneCardById, chooseAITargetsForSpell,
+ * chooseAITargetSelectionsForChoiceStep.
+ */
+import type { PlayerID } from "../../../../shared/src/types.js";
+import {
+  cardAnalyzer,
+  CardCategory,
+  SynergyArchetype,
+  type DeckArchetypeProfile,
+} from "../../../../rules-engine/src/CardAnalyzer.js";
+import { AIEngine } from "../../../../rules-engine/src/AIEngine.js";
+import {
+  isAttackManaRetentionEquipmentText,
+  readPermanentPower,
+  scoreAttackManaEngineReconfigureTarget,
+} from "../../../../rules-engine/src/aiEngineManaPoolSupport.js";
+import { getEffectivePower } from "../util.js";
+import {
+  categorizeSpell,
+  type SpellSpec,
+  type TargetRef,
+} from "../rules-engine/targeting.js";
+import {
+  calculateCardSynergyPressure,
+  calculateCardThemeAlignment,
+  ensureAIDeckProfile,
+  scoreCardForAIAcquisition,
+  scoreHostileGraveyardCardDisruption,
+} from "./aiDeckProfileHandlers.js";
+import { aiEngine } from "./aiScheduler.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+

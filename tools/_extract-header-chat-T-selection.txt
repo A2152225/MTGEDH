@@ -1,0 +1,37 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: buildSearchLibrarySelectionOptions, move-zone selection helpers,
+// buildMoveZoneSelectionOptions, buildPlayerChoiceAmongThemSelectionOptions,
+// getChosenObjectIds.
+// Public entries: buildSearchLibrarySelectionOptions, buildMoveZoneSelectionOptions,
+// buildPlayerChoiceAmongThemSelectionOptions, getChosenObjectIds.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { resolvePlayerLibraryCardsForSearch } from './oracleIRExecutorLibrarySearchCardUtils';
+import {
+  collectRevealedThisWayCardsLedgerFirst,
+  resolveAntecedentContextualCards,
+  resolveAntecedentMilledCards,
+} from './oracleIRLedgerCardAccess';
+import {
+  buildLookChooseLibrarySearchFilter,
+  parseLookChooseSelectionLimits,
+} from './oracleIRExecutorPlayerLookChooseLimits';
+import { cardMatchesLookChooseSelector } from './oracleIRExecutorPlayerLookChooseSelector';
+import {
+  getSearchLibraryMatches,
+  isOptionalSearchLibraryStep,
+  resolveSearchLibraryMaxResults,
+} from './oracleIRExecutorPlayerSearchLibraryMatches';
+import { normalizeOracleText, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import {
+  cardMatchesMoveZoneSingleTargetCriteria,
+  cardMatchesType,
+  parseMoveZoneAnyNumberCardsFromYourHand,
+  parseMoveZoneAnyNumberTypedFromYourHand,
+  parseMoveZoneSingleTargetCriteria,
+  parseMoveZoneTypedCardFromYourHand,
+  parseMoveZoneUpToTargetCountFromYourHand,
+} from './oracleIRExecutorZoneOps';
+

@@ -1,0 +1,17 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: calculateSpellPriority.
+ *
+ * Public entry symbols: calculateSpellPriority.
+ */
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { cardAnalyzer, SynergyArchetype } from "../../../../rules-engine/src/CardAnalyzer.js";
+import { parseManaCost } from "../../state/modules/mana-check.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { calculateCardSynergyPressure, ensureAIDeckProfile } from "./aiDeckProfileHandlers.js";
+
+function getSpellCmc(cost: { generic: number; colors: Record<string, number> }): number {
+  return getAIHandlerDeps().getSpellCmc(cost);
+}
+

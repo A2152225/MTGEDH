@@ -1,0 +1,28 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: applyExileNamedCardsFromZonesStep, applyShuffleLibraryStep,
+// applyShuffleZonesIntoLibraryStep, applyChoosePileStep, applyChangeTargetStep.
+// Public entries: applyExileNamedCardsFromZonesStep, applyShuffleLibraryStep,
+// applyShuffleZonesIntoLibraryStep, applyChoosePileStep, applyChangeTargetStep.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import type { OracleIRReplayMutation } from './oracleIRReplayMutations';
+import { commitCardZoneChanges } from './oracleIRExecutorCardZoneTransitionCommit';
+import {
+  applyRandomRetargetToStackSpells,
+  isRandomChangeTargetStep,
+  resolveChangeTargetExcludeText,
+  resolveChangeTargetSpellIds,
+} from './oracleIRExecutorChangeTargetSupport';
+import {
+  getNormalizedChosenIds,
+  shuffleArray,
+  withDiscardLedgerFlags,
+} from './oracleIRExecutorPlayerStepShared';
+import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import { readPlayerZoneCards, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
+import { resolveOracleIrBoundTargetSpellId } from './oracleIrTargetBinding';
+import { usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
+

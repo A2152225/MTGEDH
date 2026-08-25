@@ -402,6 +402,85 @@ describe('oracle IR step wiring guardrails', () => {
     expect(isOracleIrActivatedAbilityHandled(parsedSteps, completeResult)).toBe(true);
   });
 
+  it('treats a conditional wrapper as complete when its then-branch applied', () => {
+    const exileStep: OracleEffectStep = {
+      kind: 'exile',
+      target: { kind: 'raw', text: 'it' },
+      raw: 'exile it',
+    } as OracleEffectStep;
+    const tokenStep: OracleEffectStep = {
+      kind: 'create_token',
+      token: { name: 'Demon', power: 5, toughness: 5, colors: ['B'], types: ['Creature'] },
+      raw: 'create a 5/5 black Demon creature token with flying',
+    } as OracleEffectStep;
+    const parsedSteps: OracleEffectStep[] = [
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'it entered from your graveyard or you cast it from your graveyard' },
+        steps: [exileStep],
+        raw: 'if it entered from your graveyard or you cast it from your graveyard, exile it',
+      } as OracleEffectStep,
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you do' },
+        steps: [tokenStep],
+        raw: 'If you do, create a 5/5 black Demon creature token with flying',
+      } as OracleEffectStep,
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you do' },
+        steps: [tokenStep],
+        raw: 'If you do, create a 5/5 black Demon creature token with flying',
+      } as OracleEffectStep,
+    ];
+    const result = {
+      state: {},
+      log: [],
+      appliedSteps: [exileStep, tokenStep],
+      skippedSteps: [],
+      automationGaps: [],
+      pendingOptionalSteps: [],
+    } as any;
+
+    expect(isOracleIrMandatoryExecutionComplete(parsedSteps, result)).toBe(true);
+    expect(isOracleIrExecutionHandled(result, 0, 0, parsedSteps)).toBe(true);
+    expect(describeOracleIrMandatoryExecutionIncomplete(parsedSteps, result)).toEqual([]);
+  });
+
+  it('still rejects a conditional whose then-branch did not apply', () => {
+    const exileStep: OracleEffectStep = {
+      kind: 'exile',
+      target: { kind: 'raw', text: 'it' },
+      raw: 'exile it',
+    } as OracleEffectStep;
+    const tokenStep: OracleEffectStep = {
+      kind: 'create_token',
+      token: { name: 'Demon', power: 5, toughness: 5, colors: ['B'], types: ['Creature'] },
+      raw: 'create a 5/5 black Demon creature token with flying',
+    } as OracleEffectStep;
+    const parsedSteps: OracleEffectStep[] = [
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you do' },
+        steps: [tokenStep],
+        raw: 'If you do, create a 5/5 black Demon creature token with flying',
+      } as OracleEffectStep,
+    ];
+    const result = {
+      state: {},
+      log: [],
+      appliedSteps: [exileStep],
+      skippedSteps: [],
+      automationGaps: [],
+      pendingOptionalSteps: [],
+    } as any;
+
+    expect(isOracleIrMandatoryExecutionComplete(parsedSteps, result)).toBe(false);
+    expect(describeOracleIrMandatoryExecutionIncomplete(parsedSteps, result).some(
+      (reason) => reason.startsWith('unapplied_mandatory_step:'),
+    )).toBe(true);
+  });
+
   it('refuses activated IR when an unwired step kind is present', () => {
     const ctx = {
       state: seedWhipState(),

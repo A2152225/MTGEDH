@@ -1,0 +1,3 @@
+import { TEMPORARY_RETAINED_MANA_COLORS } from './oracleIRExecutorPlayerAddManaStep';
+export { applyAddManaStep, TEMPORARY_RETAINED_MANA_COLORS } from './oracleIRExecutorPlayerAddManaStep';
+

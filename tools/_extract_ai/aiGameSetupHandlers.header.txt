@@ -1,0 +1,12 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: createConfiguredGame plus normalizeRequestedGameSeed used
+ * when AI handlers create a game room.
+ *
+ * Public entry symbols: createConfiguredGame.
+ */
+import { GameManager } from "../../GameManager.js";
+import { appendEvent, gameExistsInDb } from "../../db/index.js";
+import { debug, debugError, debugWarn } from "../../utils/debug.js";
+

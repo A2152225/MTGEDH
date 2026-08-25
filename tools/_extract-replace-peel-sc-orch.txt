@@ -1,0 +1,1 @@
+export { detectSpellCastTriggers } from "./triggers/spell-cast-detection.js";

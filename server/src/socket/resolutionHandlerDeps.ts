@@ -73,6 +73,186 @@ import {
   handleProliferateResponse,
   handleVoteResponse,
 } from "./resolutionVoteProliferateLimDulResponseHandlers.js";
+import {
+  handleBatchExploreDecisionResponse,
+  handleExploreDecisionResponse,
+} from "./resolution-handlers/exploreDecisionResponseHandlers.js";
+import {
+  handleCounterDistributionResponse,
+  handleCounterMovementResponse,
+  handleCounterTargetResponse,
+} from "./resolution-handlers/counterManipulationResponseHandlers.js";
+import { handleAdditionalCostPaymentResponse } from "./resolution-handlers/additionalCostPaymentResponseHandlers.js";
+import { handleFightTargetResponse } from "./resolution-handlers/fightTargetResponseHandlers.js";
+import { handleLifePaymentResponse } from "./resolution-handlers/lifePaymentResponseHandlers.js";
+import { handleManaColorSelectionResponse } from "./resolution-handlers/manaColorSelectionResponseHandlers.js";
+import { handleTriggerOrderResponse } from "./resolution-handlers/triggerOrderResponseHandlers.js";
+import { handleXValueSelectionResponse } from "./resolution-handlers/xValueSelectionResponseHandlers.js";
+import { handleExtortPaymentResponse } from "./resolution-handlers/extortPaymentResponseHandlers.js";
+import { handleMutateTargetSelectionResponse } from "./resolution-handlers/mutateTargetSelectionResponseHandlers.js";
+import {
+  handleMayAbilityResponse,
+  handleOptionalTriggeredAbilityChoiceResponse,
+} from "./resolution-handlers/mayAbilityAndOptionalTriggerHandlers.js";
+import { tryHandleManaPaymentChoiceActivation } from "./resolution-handlers/manaPaymentChoiceActivationHandlers.js";
+import { handleManaPaymentChoicePhyrexianActivation } from "./resolution-handlers/manaPaymentChoicePhyrexianHandlers.js";
+import { tryHandleManaPaymentChoiceWardAndSacrificePrefix } from "./resolution-handlers/manaPaymentChoicePrefixHandlers.js";
+import { tryHandleModeSelectionCastResume } from "./resolution-handlers/modeSelectionCastResumeHandlers.js";
+import { handleModeSelectionGenericChoice } from "./resolution-handlers/modeSelectionGenericChoiceHandlers.js";
+import { handleSquadCostPaymentResponse } from "./resolution-handlers/squadCostPaymentResponseHandlers.js";
+import { handleUpkeepSacrificeResponse } from "./resolution-handlers/upkeepSacrificeResponseHandlers.js";
+import { handlePlayerChoiceResponse } from "./resolution-handlers/playerChoiceResponseHandlers.js";
+import { handleStationCreatureSelectionResponse } from "./resolution-handlers/stationCreatureSelectionResponseHandlers.js";
+import {
+  handleRemoveCountersAbilityAsCostTargetSelection,
+  handleReturnToHandAbilityAsCostTargetSelection,
+} from "./resolution-handlers/targetSelectionActivationCostPaymentHandlers.js";
+import { handleBattlefieldAbilityTargetSelection } from "./resolution-handlers/targetSelectionBattlefieldAbilityHandlers.js";
+import { handleBlightKeywordTargetSelection } from "./resolution-handlers/targetSelectionBlightKeywordHandlers.js";
+import { handleSacrificeAbilityAsCostTargetSelection } from "./resolution-handlers/targetSelectionSacrificeAbilityCostHandlers.js";
+import { tryHandleTargetSelectionGraveyardCardAction } from "./resolution-handlers/targetSelectionGraveyardCardActions.js";
+import { tryHandleTargetSelectionImmediateBattlefieldAction } from "./resolution-handlers/targetSelectionImmediateBattlefieldActions.js";
+import {
+  handleGraveyardCastSacrificeAsCostTargetSelection,
+  handleGraveyardSpellCastTargetSelection,
+} from "./resolution-handlers/targetSelectionGraveyardCastHandlers.js";
+import {
+  handleSacrificeAnotherPermanentForBenefitTargetSelection,
+  handleSacrificeWhenYouDoTargetSelection,
+} from "./resolution-handlers/targetSelectionSacrificeFollowupHandlers.js";
+import {
+  handlePlaneswalkerAbilityTargetSelection,
+  handleSoldierProgramCounterTargetSelection,
+} from "./resolution-handlers/targetSelectionPlaneswalkerAndSoldierHandlers.js";
+import {
+  handleBecomeCopyOfCreatureTargetSelection,
+  handleScavengeTargetSelection,
+} from "./resolution-handlers/targetSelectionScavengeAndCopyHandlers.js";
+import {
+  handleAttachEquipmentSelectEquipmentTargetSelection,
+  handleTapCreaturesCostTargetSelection,
+} from "./resolution-handlers/targetSelectionTapCostAndAttachHandlers.js";
+import {
+  applyAutoUnignoreForTargetedPermanents,
+  handleSpellCastPaymentTargetSelection,
+} from "./resolution-handlers/targetSelectionSpellCastPaymentHandlers.js";
+import {
+  handleEnlistChoiceTargetSelection,
+  tryHandleCrewAbilityTargetSelection,
+} from "./resolution-handlers/targetSelectionCrewAndEnlistHandlers.js";
+import {
+  handleDungeonRoomSacrificePayment,
+  handleDungeonTargetCreatureEffect,
+} from "./resolution-handlers/targetSelectionDungeonRoomHandlers.js";
+import {
+  handleExertTargetChoiceTargetSelection,
+  handleRetargetAbilityCopyTargetSelection,
+  handleRetargetSpellCopyTargetSelection,
+} from "./resolution-handlers/targetSelectionExertAndCopyRetargetHandlers.js";
+import {
+  handleDamageReceivedTriggerTargetSelection,
+  handleTargetedTriggeredAbilityTargetSelection,
+} from "./resolution-handlers/targetSelectionTriggeredAbilityTargetHandlers.js";
+import {
+  handleDivineReckoningChoiceTargetSelection,
+  handleOpponentSelectionTargetSelection,
+  handleSacrificeSelectionTargetSelection,
+} from "./resolution-handlers/targetSelectionNonStackChoiceHandlers.js";
+import { handleCancelledTargetSelectionResponse } from "./resolution-handlers/targetSelectionCancellationHandlers.js";
+import {
+  handleOracleIrAnyPlayerMayPaymentSelection,
+  handleOracleIrLibraryChaosTargetSelection,
+} from "./resolution-handlers/targetSelectionOracleIrPromptHandlers.js";
+import {
+  handleLandWouldEnterSacrificeChoice,
+  handleMoxDiamondChoice,
+  handleRevealLandChoice,
+  handleShockLandChoice,
+} from "./resolution-handlers/optionChoiceLandEntryReplacementHandlers.js";
+import { handleWardPaymentOptionChoice } from "./resolution-handlers/optionChoiceWardPaymentHandlers.js";
+import {
+  handleForceOfWillExileChoice,
+  handleOpponentMayPayChoice,
+  handleSacrificeUnlessPayChoice,
+} from "./resolution-handlers/optionChoicePayOrElseHandlers.js";
+import {
+  handleCastFromGraveyardPromptChoice,
+  handlePlayFromGraveyardPromptChoice,
+} from "./resolution-handlers/optionChoiceCastFromGraveyardPrompts.js";
+import {
+  handleCastFromExilePromptChoice,
+  handleDanceWithCalamityCastPrompt,
+  type CastFromExilePromptHelpers,
+} from "./resolution-handlers/optionChoiceCastFromExilePrompts.js";
+import {
+  handleReflexiveBoundGraveyardSelfExileWhenYouDo,
+  handleReflexiveExileToOwnersGraveyardWhenYouDo,
+} from "./resolution-handlers/optionChoiceReflexiveExileWhenYouDoHandlers.js";
+import {
+  handleReflexiveDiscardWhenYouDo,
+  handleReflexiveGraveyardExileWhenYouDo,
+  handleSacrificeWhenYouDoAskChoice,
+} from "./resolution-handlers/optionChoiceReflexiveWhenYouDoQueueHandlers.js";
+import {
+  handleDungeonRoomFreeCastFromHandChoice,
+  handleDungeonRoomPenaltyChoice,
+  handleDungeonRoomThroneChoice,
+} from "./resolution-handlers/optionChoiceDungeonRoomPrompts.js";
+import {
+  handleVentureChooseDungeonChoice,
+  handleVentureChooseRoomChoice,
+  handleVentureIntoDungeonChoice,
+} from "./resolution-handlers/optionChoiceVentureDungeonHandlers.js";
+import {
+  handleResolvedSpellCopyChoice,
+  handleRetargetAbilityCopyChoice,
+  handleRetargetSpellCopyChoice,
+} from "./resolution-handlers/optionChoiceSpellCopyPrompts.js";
+import {
+  handleChooseLookedAtCardsDestinationChoice,
+  handleChoosePileFromSplitChoice,
+  handlePayManaToLookAndChooseCardChoice,
+} from "./resolution-handlers/optionChoiceLookedAtCardsAndPileHandlers.js";
+import {
+  handleAttachEquipmentToPermanentChoice,
+  handleMoveChosenHandCardToLibraryChoice,
+  handleSacrificeAnotherPermanentForBenefitAskChoice,
+} from "./resolution-handlers/optionChoicePermanentAndHandCardPrompts.js";
+import {
+  handleChooseDiscardPlanChoice,
+  handleSpellAdditionalCostBlightOrPayChoice,
+} from "./resolution-handlers/optionChoiceCostPlanPrompts.js";
+import {
+  handleChoosePlayerForLookedAtCardsChoice,
+  handleChoosePlayerForTwoPileSplitChoice,
+} from "./resolution-handlers/optionChoiceChoosePlayerPrompts.js";
+import {
+  handleChooseManaColorsChoice,
+  handleOptionalDiscardThenDrawChoice,
+} from "./resolution-handlers/optionChoiceDiscardAndManaColorPrompts.js";
+import {
+  handleGrantPlayableFromExileChoice,
+  handleReboundCastChoice,
+} from "./resolution-handlers/optionChoiceExilePlayPermissionPrompts.js";
+import {
+  handleCounterPlacementTriggerChoice,
+  handleEtbPermanentOptionChoice,
+} from "./resolution-handlers/optionChoiceEtbAndCounterPlacementPrompts.js";
+import {
+  handleMoxDiamondStackChoice,
+  handleTapOrUntapDecision,
+} from "./resolution-handlers/optionChoiceBoardActionPrompts.js";
+import {
+  handleSpellPaymentChoiceResponse,
+  type SpellPaymentChoiceHelpers,
+} from "./resolution-handlers/manaPaymentSpellCastResponseHandlers.js";
+import {
+  handleHandToBottomResponse,
+  handleOpeningHandActionsResponse,
+  type StepResponseExit,
+} from "./resolution-handlers/preGameHandStepResponseHandlers.js";
+import { maybeQueueWardPaymentPromptsForTargetSelection } from "./resolution-handlers/targetSelectionWardPromptHandlers.js";
+import { handleTapUntapTargetResponse } from "./resolution-handlers/tapUntapTargetResponseHandlers.js";
 
 export type ResolutionStepHandler = (
   io: Server,
@@ -115,6 +295,186 @@ export type ResolutionHandlerDeps = {
   handleActivatedAbilityResponse: ResolutionStepHandler;
   handleDiscardResponse: ResolutionStepHandler;
   handleGraveyardSelectionResponse: ResolutionStepHandler;
+  handleExploreDecisionResponse: ResolutionStepHandler;
+  handleBatchExploreDecisionResponse: ResolutionStepHandler;
+  handleFightTargetResponse: ResolutionStepHandler;
+  handleTapUntapTargetResponse: ResolutionStepHandler;
+  handleCounterMovementResponse: ResolutionStepHandler;
+  handleCounterTargetResponse: ResolutionStepHandler;
+  handleCounterDistributionResponse: ResolutionStepHandler;
+  handleStationCreatureSelectionResponse: ResolutionStepHandler;
+  handleLifePaymentResponse: ResolutionStepHandler;
+  handleManaColorSelectionResponse: ResolutionStepHandler;
+  handleXValueSelectionResponse: ResolutionStepHandler;
+  handleTriggerOrderResponse: ResolutionStepHandler;
+  handleExtortPaymentResponse: ResolutionStepHandler;
+  handleMutateTargetSelectionResponse: ResolutionStepHandler;
+  handleMayAbilityResponse: ResolutionStepHandler;
+  handleOptionalTriggeredAbilityChoiceResponse: ResolutionStepHandler;
+  tryHandleManaPaymentChoiceWardAndSacrificePrefix: (
+    io: Server,
+    game: any,
+    gameId: string,
+    step: ResolutionStep,
+    response: ResolutionStepResponse,
+  ) => Promise<boolean>;
+  tryHandleManaPaymentChoiceActivation: (
+    io: Server,
+    game: any,
+    gameId: string,
+    step: ResolutionStep,
+    response: ResolutionStepResponse,
+  ) => Promise<boolean>;
+  handleManaPaymentChoicePhyrexianActivation: ResolutionStepHandler;
+  tryHandleModeSelectionCastResume: (
+    io: Server,
+    game: any,
+    gameId: string,
+    step: ResolutionStep,
+    response: ResolutionStepResponse,
+  ) => Promise<boolean>;
+  handleModeSelectionGenericChoice: ResolutionStepHandler;
+  handleAdditionalCostPaymentResponse: ResolutionStepHandler;
+  handleSquadCostPaymentResponse: ResolutionStepHandler;
+  handleUpkeepSacrificeResponse: ResolutionStepHandler;
+  handlePlayerChoiceResponse: ResolutionStepHandler;
+  handleSacrificeAbilityAsCostTargetSelection: ResolutionStepHandler;
+  handleRemoveCountersAbilityAsCostTargetSelection: ResolutionStepHandler;
+  handleReturnToHandAbilityAsCostTargetSelection: ResolutionStepHandler;
+  handleBattlefieldAbilityTargetSelection: ResolutionStepHandler;
+  handleBlightKeywordTargetSelection: ResolutionStepHandler;
+  maybeQueueWardPaymentPromptsForTargetSelection: (
+    io: Server,
+    game: any,
+    gameId: string,
+    step: ResolutionStep,
+    args: { pid: string; selections: string[]; spellCastContext: any },
+  ) => boolean;
+  handleSacrificeWhenYouDoTargetSelection: ResolutionStepHandler;
+  handleSacrificeAnotherPermanentForBenefitTargetSelection: ResolutionStepHandler;
+  handleGraveyardCastSacrificeAsCostTargetSelection: (
+    io: Server,
+    game: any,
+    gameId: string,
+    step: ResolutionStep,
+    response: ResolutionStepResponse,
+  ) => Promise<boolean>;
+  handleGraveyardSpellCastTargetSelection: ResolutionStepHandler;
+  handleScavengeTargetSelection: ResolutionStepHandler;
+  handleBecomeCopyOfCreatureTargetSelection: ResolutionStepHandler;
+  tryHandleTargetSelectionImmediateBattlefieldAction: (
+    io: Server,
+    game: any,
+    gameId: string,
+    step: ResolutionStep,
+    response: ResolutionStepResponse,
+  ) => Promise<boolean>;
+  tryHandleTargetSelectionGraveyardCardAction: (
+    io: Server,
+    game: any,
+    gameId: string,
+    step: ResolutionStep,
+    response: ResolutionStepResponse,
+  ) => boolean;
+  applyAutoUnignoreForTargetedPermanents: (
+    io: Server,
+    game: any,
+    gameId: string,
+    response: ResolutionStepResponse,
+  ) => void;
+  handleSpellCastPaymentTargetSelection: ResolutionStepHandler;
+  handleSoldierProgramCounterTargetSelection: ResolutionStepHandler;
+  handlePlaneswalkerAbilityTargetSelection: ResolutionStepHandler;
+  handleTapCreaturesCostTargetSelection: ResolutionStepHandler;
+  handleAttachEquipmentSelectEquipmentTargetSelection: ResolutionStepHandler;
+  tryHandleCrewAbilityTargetSelection: (
+    io: Server,
+    game: any,
+    gameId: string,
+    step: ResolutionStep,
+    response: ResolutionStepResponse,
+  ) => Promise<boolean>;
+  handleEnlistChoiceTargetSelection: ResolutionStepHandler;
+  handleDungeonRoomSacrificePayment: ResolutionStepHandler;
+  handleDungeonTargetCreatureEffect: ResolutionStepHandler;
+  handleExertTargetChoiceTargetSelection: ResolutionStepHandler;
+  handleRetargetAbilityCopyTargetSelection: ResolutionStepHandler;
+  handleRetargetSpellCopyTargetSelection: ResolutionStepHandler;
+  handleTargetedTriggeredAbilityTargetSelection: ResolutionStepHandler;
+  handleDamageReceivedTriggerTargetSelection: ResolutionStepHandler;
+  handleDivineReckoningChoiceTargetSelection: ResolutionStepHandler;
+  handleSacrificeSelectionTargetSelection: ResolutionStepHandler;
+  handleOpponentSelectionTargetSelection: ResolutionStepHandler;
+  handleCancelledTargetSelectionResponse: ResolutionStepHandler;
+  handleOracleIrAnyPlayerMayPaymentSelection: ResolutionStepHandler;
+  handleOracleIrLibraryChaosTargetSelection: ResolutionStepHandler;
+  handleShockLandChoice: ResolutionStepHandler;
+  handleRevealLandChoice: ResolutionStepHandler;
+  handleLandWouldEnterSacrificeChoice: ResolutionStepHandler;
+  handleMoxDiamondChoice: ResolutionStepHandler;
+  handleWardPaymentOptionChoice: ResolutionStepHandler;
+  handleSacrificeUnlessPayChoice: ResolutionStepHandler;
+  handleForceOfWillExileChoice: ResolutionStepHandler;
+  handleOpponentMayPayChoice: ResolutionStepHandler;
+  handlePlayFromGraveyardPromptChoice: ResolutionStepHandler;
+  handleCastFromGraveyardPromptChoice: ResolutionStepHandler;
+  handleDanceWithCalamityCastPrompt: ResolutionStepHandler;
+  handleCastFromExilePromptChoice: (
+    io: Server,
+    game: any,
+    gameId: string,
+    step: ResolutionStep,
+    response: ResolutionStepResponse,
+    helpers: CastFromExilePromptHelpers,
+  ) => Promise<void>;
+  handleReflexiveBoundGraveyardSelfExileWhenYouDo: ResolutionStepHandler;
+  handleReflexiveExileToOwnersGraveyardWhenYouDo: ResolutionStepHandler;
+  handleReflexiveGraveyardExileWhenYouDo: ResolutionStepHandler;
+  handleReflexiveDiscardWhenYouDo: ResolutionStepHandler;
+  handleSacrificeWhenYouDoAskChoice: ResolutionStepHandler;
+  handleDungeonRoomPenaltyChoice: ResolutionStepHandler;
+  handleDungeonRoomFreeCastFromHandChoice: ResolutionStepHandler;
+  handleDungeonRoomThroneChoice: ResolutionStepHandler;
+  handleVentureIntoDungeonChoice: ResolutionStepHandler;
+  handleVentureChooseDungeonChoice: ResolutionStepHandler;
+  handleVentureChooseRoomChoice: ResolutionStepHandler;
+  handleResolvedSpellCopyChoice: ResolutionStepHandler;
+  handleRetargetSpellCopyChoice: ResolutionStepHandler;
+  handleRetargetAbilityCopyChoice: ResolutionStepHandler;
+  handleChooseLookedAtCardsDestinationChoice: ResolutionStepHandler;
+  handlePayManaToLookAndChooseCardChoice: ResolutionStepHandler;
+  handleChoosePileFromSplitChoice: ResolutionStepHandler;
+  handleMoveChosenHandCardToLibraryChoice: ResolutionStepHandler;
+  handleSacrificeAnotherPermanentForBenefitAskChoice: ResolutionStepHandler;
+  handleAttachEquipmentToPermanentChoice: ResolutionStepHandler;
+  handleSpellAdditionalCostBlightOrPayChoice: ResolutionStepHandler;
+  handleChooseDiscardPlanChoice: ResolutionStepHandler;
+  handleChoosePlayerForTwoPileSplitChoice: ResolutionStepHandler;
+  handleChoosePlayerForLookedAtCardsChoice: ResolutionStepHandler;
+  handleOptionalDiscardThenDrawChoice: ResolutionStepHandler;
+  handleChooseManaColorsChoice: ResolutionStepHandler;
+  handleGrantPlayableFromExileChoice: ResolutionStepHandler;
+  handleReboundCastChoice: ResolutionStepHandler;
+  handleEtbPermanentOptionChoice: ResolutionStepHandler;
+  handleCounterPlacementTriggerChoice: ResolutionStepHandler;
+  handleTapOrUntapDecision: ResolutionStepHandler;
+  handleMoxDiamondStackChoice: ResolutionStepHandler;
+  handleSpellPaymentChoiceResponse: (
+    io: Server,
+    game: any,
+    gameId: string,
+    step: ResolutionStep,
+    response: ResolutionStepResponse,
+    helpers: SpellPaymentChoiceHelpers,
+  ) => Promise<void>;
+  handleOpeningHandActionsResponse: ResolutionStepHandler;
+  handleHandToBottomResponse: (
+    io: Server,
+    game: any,
+    gameId: string,
+    step: ResolutionStep,
+    response: ResolutionStepResponse,
+  ) => StepResponseExit;
   tryHandleOptionChoiceEarlySpecialsPrefix: (
     io: Server,
     game: any,
@@ -189,6 +549,113 @@ export function createResolutionHandlerDeps(
     handleActivatedAbilityResponse,
     handleDiscardResponse,
     handleGraveyardSelectionResponse,
+    handleExploreDecisionResponse,
+    handleBatchExploreDecisionResponse,
+    handleFightTargetResponse,
+    handleTapUntapTargetResponse,
+    handleCounterMovementResponse,
+    handleCounterTargetResponse,
+    handleCounterDistributionResponse,
+    handleStationCreatureSelectionResponse,
+    handleLifePaymentResponse,
+    handleManaColorSelectionResponse,
+    handleXValueSelectionResponse,
+    handleTriggerOrderResponse,
+    handleExtortPaymentResponse,
+    handleMutateTargetSelectionResponse,
+    handleMayAbilityResponse,
+    handleOptionalTriggeredAbilityChoiceResponse,
+    tryHandleManaPaymentChoiceWardAndSacrificePrefix,
+    tryHandleManaPaymentChoiceActivation,
+    handleManaPaymentChoicePhyrexianActivation,
+    tryHandleModeSelectionCastResume,
+    handleModeSelectionGenericChoice,
+    handleAdditionalCostPaymentResponse,
+    handleSquadCostPaymentResponse,
+    handleUpkeepSacrificeResponse,
+    handlePlayerChoiceResponse,
+    handleSacrificeAbilityAsCostTargetSelection,
+    handleRemoveCountersAbilityAsCostTargetSelection,
+    handleReturnToHandAbilityAsCostTargetSelection,
+    handleBattlefieldAbilityTargetSelection,
+    handleBlightKeywordTargetSelection,
+    maybeQueueWardPaymentPromptsForTargetSelection,
+    handleSacrificeWhenYouDoTargetSelection,
+    handleSacrificeAnotherPermanentForBenefitTargetSelection,
+    handleGraveyardCastSacrificeAsCostTargetSelection,
+    handleGraveyardSpellCastTargetSelection,
+    handleScavengeTargetSelection,
+    handleBecomeCopyOfCreatureTargetSelection,
+    tryHandleTargetSelectionImmediateBattlefieldAction,
+    tryHandleTargetSelectionGraveyardCardAction,
+    applyAutoUnignoreForTargetedPermanents,
+    handleSpellCastPaymentTargetSelection,
+    handleSoldierProgramCounterTargetSelection,
+    handlePlaneswalkerAbilityTargetSelection,
+    handleTapCreaturesCostTargetSelection,
+    handleAttachEquipmentSelectEquipmentTargetSelection,
+    tryHandleCrewAbilityTargetSelection,
+    handleEnlistChoiceTargetSelection,
+    handleDungeonRoomSacrificePayment,
+    handleDungeonTargetCreatureEffect,
+    handleExertTargetChoiceTargetSelection,
+    handleRetargetAbilityCopyTargetSelection,
+    handleRetargetSpellCopyTargetSelection,
+    handleTargetedTriggeredAbilityTargetSelection,
+    handleDamageReceivedTriggerTargetSelection,
+    handleDivineReckoningChoiceTargetSelection,
+    handleSacrificeSelectionTargetSelection,
+    handleOpponentSelectionTargetSelection,
+    handleCancelledTargetSelectionResponse,
+    handleOracleIrAnyPlayerMayPaymentSelection,
+    handleOracleIrLibraryChaosTargetSelection,
+    handleShockLandChoice,
+    handleRevealLandChoice,
+    handleLandWouldEnterSacrificeChoice,
+    handleMoxDiamondChoice,
+    handleWardPaymentOptionChoice,
+    handleSacrificeUnlessPayChoice,
+    handleForceOfWillExileChoice,
+    handleOpponentMayPayChoice,
+    handlePlayFromGraveyardPromptChoice,
+    handleCastFromGraveyardPromptChoice,
+    handleDanceWithCalamityCastPrompt,
+    handleCastFromExilePromptChoice,
+    handleReflexiveBoundGraveyardSelfExileWhenYouDo,
+    handleReflexiveExileToOwnersGraveyardWhenYouDo,
+    handleReflexiveGraveyardExileWhenYouDo,
+    handleReflexiveDiscardWhenYouDo,
+    handleSacrificeWhenYouDoAskChoice,
+    handleDungeonRoomPenaltyChoice,
+    handleDungeonRoomFreeCastFromHandChoice,
+    handleDungeonRoomThroneChoice,
+    handleVentureIntoDungeonChoice,
+    handleVentureChooseDungeonChoice,
+    handleVentureChooseRoomChoice,
+    handleResolvedSpellCopyChoice,
+    handleRetargetSpellCopyChoice,
+    handleRetargetAbilityCopyChoice,
+    handleChooseLookedAtCardsDestinationChoice,
+    handlePayManaToLookAndChooseCardChoice,
+    handleChoosePileFromSplitChoice,
+    handleMoveChosenHandCardToLibraryChoice,
+    handleSacrificeAnotherPermanentForBenefitAskChoice,
+    handleAttachEquipmentToPermanentChoice,
+    handleSpellAdditionalCostBlightOrPayChoice,
+    handleChooseDiscardPlanChoice,
+    handleChoosePlayerForTwoPileSplitChoice,
+    handleChoosePlayerForLookedAtCardsChoice,
+    handleOptionalDiscardThenDrawChoice,
+    handleChooseManaColorsChoice,
+    handleGrantPlayableFromExileChoice,
+    handleReboundCastChoice,
+    handleEtbPermanentOptionChoice,
+    handleCounterPlacementTriggerChoice,
+    handleTapOrUntapDecision,
+    handleMoxDiamondStackChoice,
+    handleSpellPaymentChoiceResponse,
+    handleOpeningHandActionsResponse,
+    handleHandToBottomResponse,
     tryHandleOptionChoiceEarlySpecialsPrefix,
     tryHandleOptionChoiceEarlySpecialsConfirmCastPayment,
     appendCastSpellContinuationEvent,

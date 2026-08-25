@@ -1,0 +1,1 @@
+// detectBlockTriggers + BlockTrigger live in block-detection.ts / block-trigger-type.ts (leftover-merged).

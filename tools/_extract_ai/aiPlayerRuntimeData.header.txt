@@ -1,0 +1,12 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: getPersistedAIPlayerRuntimeData — reads persisted isAI player
+ * fields (difficulty/name) so pregame deck load and runtime rehydrate share one helper.
+ *
+ * Public entry symbols: getPersistedAIPlayerRuntimeData.
+ */
+
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { ensureGame } from "../util.js";
+

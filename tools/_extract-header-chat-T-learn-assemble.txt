@@ -1,0 +1,27 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: isLessonCard, applySelectedLearn*, applyLearnStep,
+// applyOpenAttractionStep, applyPlaneswalkStep, applyAssembleStep.
+// Public entries: applyLearnStep, applyOpenAttractionStep, applyPlaneswalkStep,
+// applyAssembleStep.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext, OracleIRExecutionOptions } from './oracleIRExecutionTypes';
+import {
+  getDungeonDefinition,
+  getDungeonRoomDefinition,
+  getDungeonRoomDefinitionByProgress,
+} from './oracleIRExecutorPlayerDungeonDefinitions';
+import { getNormalizedChosenIds } from './oracleIRExecutorPlayerStepShared';
+import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import {
+  drawCardsForPlayer,
+  normalizeOracleText,
+  resolvePlayers,
+  stampCardsPutIntoGraveyardThisTurn,
+} from './oracleIRExecutorPlayerUtils';
+import {
+  addBattlefieldPermanentsToState,
+  createBattlefieldPermanentsFromCards,
+} from './oracleIRExecutorZoneOps';
+

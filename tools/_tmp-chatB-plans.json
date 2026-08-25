@@ -1,0 +1,134 @@
+[
+  {
+    "parent": "rules-engine/src/oracleIRParserPostprocess.ts",
+    "out": "rules-engine/src/tmpX1.ts",
+    "header": "tools/_tmp-chatB-header.txt",
+    "chunks": [
+      {
+        "start": 290,
+        "end": 300,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run1",
+        "prologue": [],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 391
+      },
+      {
+        "start": 305,
+        "end": 332,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run2",
+        "prologue": [
+          "staticMetadata"
+        ],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 1372
+      },
+      {
+        "start": 337,
+        "end": 363,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run3",
+        "prologue": [],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 1264
+      },
+      {
+        "start": 402,
+        "end": 404,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run4",
+        "prologue": [
+          "staticMetadata"
+        ],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 282
+      },
+      {
+        "start": 409,
+        "end": 413,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run5",
+        "prologue": [],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 393
+      },
+      {
+        "start": 418,
+        "end": 421,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run6",
+        "prologue": [],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 351
+      },
+      {
+        "start": 426,
+        "end": 440,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run7",
+        "prologue": [],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 842
+      },
+      {
+        "start": 468,
+        "end": 502,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run8",
+        "prologue": [],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 1055
+      },
+      {
+        "start": 545,
+        "end": 551,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run9",
+        "prologue": [
+          "staticMetadata"
+        ],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 1902
+      },
+      {
+        "start": 583,
+        "end": 617,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run10",
+        "prologue": [],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 1304
+      },
+      {
+        "start": 622,
+        "end": 648,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run11",
+        "prologue": [],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 1236
+      },
+      {
+        "start": 668,
+        "end": 707,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run12",
+        "prologue": [],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 1466
+      },
+      {
+        "start": 1188,
+        "end": 1196,
+        "name": "parseResidualGraveyardReturnAndConditionalGuards1Run13",
+        "prologue": [
+          "staticMetadata"
+        ],
+        "params": "raw: string, sequence: { sequence?: 'then' }",
+        "args": "raw, sequence",
+        "bytes": 1071
+      }
+    ]
+  }
+]

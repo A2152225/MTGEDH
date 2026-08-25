@@ -1,0 +1,13 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover getAttackTriggersForCreatures
+ * Public: getAttackTriggersForCreatures
+ */
+
+import type { GameContext } from "../../context.js";
+import { permanentHasCreatureTypeNow } from "../../creatureTypeNow.js";
+import { detectAttackTriggers } from "./attack-detection.js";
+import { getAttachmentAttackTriggers } from "./attachment-attack-detection.js";
+import { isEnchantedByAuraYouControl } from "./combat.js";
+import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
+import { detectETBTriggers } from "./etb-detection.js";

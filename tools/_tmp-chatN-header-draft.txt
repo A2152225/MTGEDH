@@ -1,0 +1,30 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerZoneDraftPilesChaosPrompts.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: queueRepeatedZoneDraftChoicePromptFromOracleIRResult,
+//   queueSeparateIntoPilesPromptsFromOracleIRResult, and
+//   bridgeLibraryChaosExchangeFromOracleIRResult, plus
+//   findExiledCardDisplayInfo.
+// Public entry symbols: queueRepeatedZoneDraftChoicePromptFromOracleIRResult,
+//   queueSeparateIntoPilesPromptsFromOracleIRResult,
+//   bridgeLibraryChaosExchangeFromOracleIRResult.
+// Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type { OracleEffectStep } from '../../../../../rules-engine/src/oracleIR.js';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import type { GameContext } from '../../context.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
+import {
+  attachOracleIrResumeMetadata,
+  findSkippedOracleStep,
+} from '../oracleIrServerPromptResumeUtils.js';
+import {
+  executeLibraryChaosExchange,
+  permanentMatchesLibraryChaosTarget,
+  queueLibraryChaosCastOffers,
+  type LibraryChaosExchangeStep,
+} from '../oracleIrLibraryChaosExchange.js';
+

@@ -1,0 +1,36 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerCopyPermanentMoveZonePrompts.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: queueCopyPermanentChoicePromptsFromOracleIRResult,
+//   queueMoveZoneChoicePromptsFromOracleIRResult, and
+//   queueMoveZoneDestinationChoicePromptsFromOracleIRResult, plus the
+//   move-zone helpers they close over.
+// Public entry symbols: queueCopyPermanentChoicePromptsFromOracleIRResult,
+//   queueMoveZoneChoicePromptsFromOracleIRResult,
+//   queueMoveZoneDestinationChoicePromptsFromOracleIRResult.
+// Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type { OracleEffectStep } from '../../../../../rules-engine/src/oracleIR.js';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import { buildMoveZoneSelectionOptions } from '../../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
+import type { GameContext } from '../../context.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
+import {
+  attachOracleIrResumeMetadata,
+  findSkippedOracleStep,
+  isOracleIrPlayerChoiceGap,
+  normalizeTopLibraryPromptCard,
+} from '../oracleIrServerPromptResumeUtils.js';
+import {
+  applyCopyPermanentTriggerStep,
+  copyPermanentTriggerStepNeedsTargetSelectionQueue,
+} from '../trigger-copy-permanent.js';
+import {
+  isBothPlayersMayPutPermanentFromHandStep,
+  isControllerMayPutLandFromHandStep,
+  isEachPlayerMayPutLandFromHandStep,
+} from '../triggerLandPlayPromptUtils.js';
+

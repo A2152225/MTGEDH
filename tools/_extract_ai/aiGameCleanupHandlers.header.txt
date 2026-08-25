@@ -1,0 +1,18 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: cleanupGameAI, checkPendingModals, getPendingBlockerDeclaration.
+ *
+ * Public entry symbols: cleanupGameAI, checkPendingModals, getPendingBlockerDeclaration.
+ */
+import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import { getPendingInteractions } from "../../state/modules/turn.js";
+import { debug } from "../../utils/debug.js";
+import {
+  aiActionsInProgress,
+  aiEngine,
+  aiPlayers,
+  clearScheduledAIActionsForGame,
+  getAIActionKey,
+} from "./aiScheduler.js";
+

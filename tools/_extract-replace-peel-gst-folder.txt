@@ -1,0 +1,1 @@
+// getSpellCastTriggers lives in spell-cast-get-triggers.ts (leftover-merged).

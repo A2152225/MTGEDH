@@ -28,8 +28,8 @@ export function castSpellPaymentHasExplicitFloatingRefs(
 
 export function addUnselectedFloatingPoolRemainder(
   targetTotals: Record<string, number>,
-  pool: Record<string, number> | null | undefined,
-  alreadySelected: Record<string, number> | null | undefined,
+  pool: Partial<Record<(typeof CAST_SPELL_PAYMENT_SELECTION_MANA_KEYS)[number], number>> | null | undefined,
+  alreadySelected: Partial<Record<(typeof CAST_SPELL_PAYMENT_SELECTION_MANA_KEYS)[number], number>> | null | undefined,
 ): void {
   for (const key of CAST_SPELL_PAYMENT_SELECTION_MANA_KEYS) {
     const poolAmount = Number(pool?.[key] || 0);

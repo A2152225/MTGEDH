@@ -1,0 +1,32 @@
+// server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerOptionalStepChoicePrompts.ts
+// Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
+// Cluster moved: queueOptionalStepChoicePromptsFromOracleIRResult plus
+//   applyOracleIrOptionalLifePayment and resolveOptionalPayLifeAmount.
+// Public entry symbols: applyOracleIrOptionalLifePayment,
+//   resolveOptionalPayLifeAmount,
+//   queueOptionalStepChoicePromptsFromOracleIRResult.
+// Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type { OracleEffectStep, OracleQuantity } from '../../../../../rules-engine/src/oracleIR.js';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import { resolveOracleQuantity } from '../../../../../rules-engine/src/oracleIRExecutorResolveQuantity.js';
+import { tryEvaluateCombatDamageReferenceCount } from '../../../../../rules-engine/src/oracleIRExecutorCombatDamageCounts.js';
+import { buildMoveZoneSelectionOptions } from '../../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
+import { isOracleIrOptionalStepBridgedToDedicatedResolutionPrompt } from '../../../../../rules-engine/src/oracleIRPerPlayerOptional.js';
+import type { GameContext } from '../../context.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
+import { appendQueuedResolutionPromptEvent } from '../resolutionPromptEvents.js';
+import {
+  attachOracleIrResumeMetadata,
+  findSkippedOracleStep,
+} from '../oracleIrServerPromptResumeUtils.js';
+import { queueMoveZoneChoicePromptsFromOracleIRResult } from './oracleIrServerCopyPermanentMoveZonePrompts.js';
+import {
+  collectGrantGraveyardPermissionModifyMetadata,
+  resolveGrantGraveyardCastChoiceCard,
+} from './oracleIrServerImpulseDiscoverGyPermissionPrompts.js';
+

@@ -1,0 +1,159 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: applyCreateEmblemStep, grant/modify graveyard+exile permission steps,
+// applyModifyTokenCreationStep, applyJoinForcesStep (+ exclusive GY permission ID helpers).
+// Public entries: applyCreateEmblemStep, applyGrantGraveyardPermissionStep,
+// applyGrantGraveyardKeywordAbilityStep, applyGrantExilePermissionStep,
+// applyModifyGraveyardPermissionsStep, applyModifyTokenCreationStep,
+// applyJoinForcesStep, mergeGrantedGraveyardPermissionSourceText.
+
+import type { GameState, PlayerID } from '../../shared/src';
+import { createCustomEmblem } from './emblemSupport';
+import { oracleGraveyardAdditionalCostToSerializable } from './graveyardPermissionAdditionalCost';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import {
+  normalizePermissionSelectorText,
+  resolveExilePermissionTargets,
+  resolveGraveyardPermissionTargets,
+} from './oracleIRExecutorPlayerGraveyardPermissionHelpers';
+import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import {
+  applyExilePermissionMarkers,
+  applyGraveyardPermissionMarkers,
+  getPlayableUntilTurnForImpulseDuration,
+  normalizeOracleText,
+  resolvePlayers,
+} from './oracleIRExecutorPlayerUtils';
+
+function sanitizeGrantedGraveyardPermissionIdPart(value: unknown): string {
+  return normalizeOracleText(String(value || ''))
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80);
+}
+
+function buildGrantedGraveyardPermissionId(options: {
+  playerId: PlayerID;
+  permission: 'play' | 'cast';
+  sourceId?: string;
+  sourceName?: string;
+  qualifier?: string;
+  cardIds?: string[];
+  turnApplied: number;
+}): string {
+  const sourcePart = sanitizeGrantedGraveyardPermissionIdPart(options.sourceId || options.sourceName || 'source');
+  const qualifierPart = sanitizeGrantedGraveyardPermissionIdPart(
+    options.qualifier || (Array.isArray(options.cardIds) ? options.cardIds.join('_') : '') || 'cards'
+  );
+  return [
+    'graveyard-permission',
+    options.playerId,
+    options.permission,
+    sourcePart || 'source',
+    qualifierPart || 'cards',
+    Number(options.turnApplied || 0) || 0,
+  ].map(sanitizeGrantedGraveyardPermissionIdPart).filter(Boolean).join(':');
+}
+
+function normalizeGrantedGraveyardPermissionDuration(duration: Extract<Extract<OracleEffectStep, { kind: 'grant_graveyard_permission' }>['duration'], string>): 'this_turn' | 'until_end_of_next_turn' {
+  switch (duration) {
+    case 'during_next_turn':
+    case 'until_end_of_next_turn':
+    case 'until_end_of_combat_on_next_turn':
+    case 'until_next_turn':
+    case 'until_next_upkeep':
+    case 'until_next_end_step':
+      return 'until_end_of_next_turn';
+    default:
+      return 'this_turn';
+  }
+}
+
+export function mergeGrantedGraveyardPermissionSourceText(
+  existingSourceText: string,
+  modifierSourceText: string,
+): string {
+  const base = String(existingSourceText || '').trim();
+  const tail = String(modifierSourceText || '').trim();
+  if (!base) {
+    return tail;
+  }
+  if (!tail) {
+    return base;
+  }
+
+  const collapse = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
+  const normalizedBase = collapse(base);
+  const normalizedTail = collapse(tail);
+
+  if (normalizedBase.includes(normalizedTail)) {
+    return base;
+  }
+
+  const byClauseMatch = base.match(/\bby\s+(.+?)\s+in addition to paying\b/i);
+  if (byClauseMatch) {
+    const byClause = collapse(byClauseMatch[1] || '');
+    if (byClause.includes(normalizedTail) || normalizedTail.includes(byClause)) {
+      return base;
+    }
+  }
+
+  return `${base} ${tail}`.trim();
+}
+
+function buildFirstClassGrantedGraveyardPermission(
+  state: GameState,
+  playerId: PlayerID,
+  step: Extract<OracleEffectStep, { kind: 'grant_graveyard_permission' }>,
+  ctx: OracleIRExecutionContext,
+  resolvedCards: readonly any[],
+): any | undefined {
+  const sourceId = String(ctx.sourceId || '').trim();
+  const sourceName = String(ctx.sourceName || '').trim();
+  const selectorText =
+    step.what.kind === 'raw'
+      ? normalizePermissionSelectorText(step.what.text)
+      : normalizePermissionSelectorText((step.what as any).raw || '');
+  const contextualReference = /^(?:it|that card|that spell|the discarded card|target .+?)$/.test(selectorText);
+  const selfReference = /^(?:this card|this spell|this permanent|this creature)$/.test(selectorText);
+  const cardIds = (contextualReference || selfReference)
+    ? (Array.isArray(resolvedCards) ? resolvedCards : [])
+        .map((card: any) => String(card?.id || card?.cardId || '').trim())
+        .filter(Boolean)
+    : [];
+  const qualifier = !contextualReference && !selfReference ? selectorText : '';
+  if (!qualifier && cardIds.length === 0) {
+    return undefined;
+  }
+
+  const turnApplied = Number((state as any)?.turnNumber ?? (state as any)?.turn ?? 0) || 0;
+  const rawText = String(step.raw || '').trim();
+  return {
+    id: buildGrantedGraveyardPermissionId({
+      playerId,
+      permission: step.permission,
+      ...(sourceId ? { sourceId } : {}),
+      ...(sourceName ? { sourceName } : {}),
+      ...(qualifier ? { qualifier } : {}),
+      ...(cardIds.length > 0 ? { cardIds } : {}),
+      turnApplied,
+    }),
+    playerId,
+    permission: step.permission,
+    sourceZone: 'graveyard',
+    cardFilter: {
+      ...(qualifier ? { qualifier } : {}),
+      ...(cardIds.length > 0 ? { cardIds } : {}),
+    },
+    costMode: 'normal',
+    duration: normalizeGrantedGraveyardPermissionDuration(step.duration),
+    turnApplied,
+    ...(sourceId ? { sourceId } : {}),
+    ...(sourceName ? { sourceName } : {}),
+    ...(rawText ? { sourceText: rawText } : {}),
+    ...( /\bonce during each of your turns\b/i.test(rawText)
+      ? { usageLimit: { type: 'once_per_turn', maxUses: 1 } }
+      : {}),
+  };
+}
+

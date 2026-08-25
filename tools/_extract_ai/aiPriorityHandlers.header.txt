@@ -1,0 +1,127 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: handleAIPriority (main AI priority decision loop).
+ *
+ * Public entry symbols: handleAIPriority.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { AIDecisionType, type AIDecisionContext } from "../../../../rules-engine/src/AIEngine.js";
+import { hydrateGameStateOracleText } from "../../state/modules/cardOracleHydration.js";
+import { canAct, canPlayLand } from "../../state/modules/can-respond.js";
+import { runSBA } from "../../state/modules/counters_tokens.js";
+import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import { isPlayerCompletingSpellCast } from "../game-actions.js";
+import { broadcastGame, ensureGame } from "../util.js";
+import { debug, debugError, debugWarn } from "../../utils/debug.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { AI_FAST_CONTINUE_MS, AI_REACTION_DELAY_MS } from "./aiConstants.js";
+import { executeAdvanceStep } from "./aiAdvanceAndDecisionExecutors.js";
+import { getPendingBlockerDeclaration } from "./aiGameCleanupHandlers.js";
+import { isAIPlayer } from "./aiPlayerRegistry.js";
+import {
+  executeDeclareAttackers,
+  executeDeclareBlockers,
+  executePassPriority,
+} from "./aiPriorityPassCombatExecutors.js";
+import {
+  aiEngine,
+  getAIPendingSpellCastStatus,
+  runExclusiveAIAction,
+  scheduleAIPriority,
+} from "./aiScheduler.js";
+import type {
+  AIActionCandidate,
+  AIActionCandidateQuery,
+  AICastableCommanderCandidate,
+  AICastableSpellCandidate,
+  AICastAttemptDescriptor,
+  AISupportedCardSourceZone,
+} from "./aiActionCandidateTypes.js";
+
+async function tryAIResponseActions(io: Server, gameId: string, playerId: PlayerID, game: any): Promise<boolean> {
+  return getAIHandlerDeps().tryAIResponseActions(io, gameId, playerId, game);
+}
+
+async function enumerateAIActionCandidates(
+  game: any,
+  playerId: PlayerID,
+  query: AIActionCandidateQuery,
+): Promise<AIActionCandidate[]> {
+  return getAIHandlerDeps().enumerateAIActionCandidates(game, playerId, query);
+}
+
+function captureAICastControlFlowSnapshot(gameId: string, game: any, playerId: PlayerID) {
+  return getAIHandlerDeps().captureAICastControlFlowSnapshot(gameId, game, playerId);
+}
+
+function didAICastAttemptChangeControlFlow(
+  gameId: string,
+  game: any,
+  playerId: PlayerID,
+  candidate: AICastAttemptDescriptor,
+  before: any,
+): boolean {
+  return getAIHandlerDeps().didAICastAttemptChangeControlFlow(gameId, game, playerId, candidate, before);
+}
+
+async function handleAIResolutionStep(io: Server, gameId: string, playerId: PlayerID, step: any): Promise<void> {
+  return getAIHandlerDeps().handleAIResolutionStep(io, gameId, playerId, step);
+}
+
+async function executeAIActivateAbility(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  action: any,
+  continueAfterResolution = true,
+): Promise<boolean> {
+  return getAIHandlerDeps().executeAIActivateAbility(io, gameId, playerId, action, continueAfterResolution);
+}
+
+function getAIActionContext(game: any): any {
+  return getAIHandlerDeps().getAIActionContext(game);
+}
+
+function getAIMaxHandSize(game: any, playerId: PlayerID): number {
+  return getAIHandlerDeps().getAIMaxHandSize(game, playerId);
+}
+
+function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { shouldTap: boolean; reason: string } {
+  return getAIHandlerDeps().checkShouldTapLandsForManaRetention(game, playerId);
+}
+
+async function executeAITapLandsForMana(io: Server, gameId: string, playerId: PlayerID): Promise<boolean> {
+  return getAIHandlerDeps().executeAITapLandsForMana(io, gameId, playerId);
+}
+
+async function executeAIPlayLand(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  cardId: string,
+  sourceZone: AISupportedCardSourceZone = 'hand',
+  selectedFaceIndex?: number,
+): Promise<boolean> {
+  return getAIHandlerDeps().executeAIPlayLand(io, gameId, playerId, cardId, sourceZone, selectedFaceIndex);
+}
+
+async function executeAICastSpell(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  candidate: AICastableSpellCandidate,
+): Promise<boolean> {
+  return getAIHandlerDeps().executeAICastSpell(io, gameId, playerId, candidate);
+}
+
+async function executeAICastCommander(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  candidate: AICastableCommanderCandidate,
+): Promise<boolean> {
+  return getAIHandlerDeps().executeAICastCommander(io, gameId, playerId, candidate);
+}
+

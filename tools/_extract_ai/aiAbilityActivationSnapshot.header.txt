@@ -1,0 +1,13 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: snapshotAIAbilityActivationState (short snapshot helper
+ * only — mana/payment helpers live in aiManaActivationHelpers.ts).
+ *
+ * Public entry symbols: snapshotAIAbilityActivationState.
+ */
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import { getOrInitManaPool } from "../util.js";
+import type { AIAbilityActivationSnapshot } from "./aiAbilityActivationTypes.js";
+

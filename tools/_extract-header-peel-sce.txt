@@ -1,0 +1,7 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: leftover spell-cast effect-text helpers used by detectSpellCastTriggers
+ * Public: extendSpellCopyEffectText, extractSpellCastEffect, normalizeSpellCastEffectText
+ */
+
+import { timingTriggerEffect } from "./timing-effect-extraction.js";

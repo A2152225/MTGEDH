@@ -1,0 +1,34 @@
+      case 'explore_decision':
+      case 'batch_explore_decision':
+      case 'mana_payment_choice':
+      case 'tempting_offer':
+      case 'activated_ability':
+      case 'cascade':
+      case 'ponder_effect':
+      case 'devour_selection':
+      case 'suspend_cast':
+      case 'morph_turn_face_up':
+      case 'proliferate':
+      case 'fateseal':
+      case 'clash':
+      case 'vote':
+      case 'two_pile_split':
+      case 'riot_choice':
+      case 'unleash_choice':
+      case 'fabricate_choice':
+      case 'tribute_choice':
+      case 'extort_payment':
+      case 'keyword_choice':
+      case 'exploit_choice':
+      case 'backup_choice':
+      case 'mentor_target':
+      case 'enlist_choice':
+      case 'modular_choice':
+      case 'soulshift_target':
+      case 'haunt_target':
+      case 'upkeep_sacrifice':
+      case 'return_controlled_permanent_choice':
+      case 'hideaway_choice':
+        await handleAIResolutionKeywordAndMiscSteps(io, gameId, game, playerId, step, createResponse);
+        break;
+

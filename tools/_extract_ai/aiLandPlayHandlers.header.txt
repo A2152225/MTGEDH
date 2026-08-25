@@ -1,0 +1,34 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: shock/bounce land helpers, executeAIPlayLand, handleBounceLandETB.
+ *
+ * Public entry symbols: executeAIPlayLand, handleBounceLandETB.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { movePermanentToHand } from "../../state/modules/zones.js";
+import { debug, debugError, debugWarn } from "../../utils/debug.js";
+import { ensureGame } from "../util.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import type { AISupportedCardSourceZone } from "./aiActionCandidateTypes.js";
+import { permanentHasLeaveBattlefieldExileReplacement } from "./aiDeckProfileHandlers.js";
+import { getManaProduction } from "./aiManaCostHelpers.js";
+
+function getAISourceCards(game: any, playerId: PlayerID, sourceZone: AISupportedCardSourceZone): any[] {
+  return getAIHandlerDeps().getAISourceCards(game, playerId, sourceZone);
+}
+
+function applyAISelectedLandFace(card: any, selectedFaceIndex?: number): void {
+  getAIHandlerDeps().applyAISelectedLandFace(card, selectedFaceIndex);
+}
+
+async function requestAISharedLandPlay(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  request: { cardId: string; sourceZone: AISupportedCardSourceZone; selectedFaceIndex?: number },
+): Promise<boolean> {
+  return getAIHandlerDeps().requestAISharedLandPlay(io, gameId, playerId, request);
+}
+

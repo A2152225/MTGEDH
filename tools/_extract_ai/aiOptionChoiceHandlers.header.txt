@@ -1,0 +1,70 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: chooseAIOptionSelectionsForStep dispatcher over extracted
+ * option-choice helpers.
+ *
+ * Public entry symbols: chooseAIOptionSelectionsForStep.
+ */
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { cardAnalyzer } from "../../../../rules-engine/src/CardAnalyzer.js";
+import { getMaxGenericManaAvailable } from "../util.js";
+import { getAvailableMana, parseManaCost, canPayManaCostWithAvailableSources } from "../../state/modules/mana-check.js";
+import { chooseAIReflexiveExileToOwnersGraveyardSelection } from "../aiReflexiveExileToOwnersGraveyardChoice.js";
+import {
+  calculateCardThemeAlignment,
+  ensureAIDeckProfile,
+  getAIBattlefield,
+  getAIHand,
+  getAIPlayerLife,
+} from "./aiDeckProfileHandlers.js";
+import {
+  chooseAIAdministrativeConfirmSelection,
+  chooseAICastFreePromptSelection,
+  chooseAIDredgeDrawReplacementSelection,
+  chooseAIExertChoiceSelection,
+  chooseAIForbiddenOrchardTargetSelection,
+  chooseAILandWouldEnterSacrificeSelection,
+  chooseAIMdfcFaceSelection,
+  chooseAIMiraclePromptSelection,
+  chooseAIMoxDiamondSelection,
+  chooseAIOpponentMayPaySelection,
+  chooseAIPlayerForLookedAtCardsSelection,
+  chooseAIRevealLandSelection,
+  chooseAISpellAdditionalCostBlightOrPaySelection,
+  chooseAISpellBottomRevealUntilNonlandSelection,
+  chooseAIVentureOptionSelection,
+  chooseAIZursWeirdingOpponentSelection,
+} from "./aiChoicePromptHandlers.js";
+import {
+  chooseAIOptionalDiscardThenDrawSelection,
+  chooseAIReflexiveFixedPaymentSelection,
+  chooseAIReflexiveManaPaymentSelection,
+  chooseAIReflexiveSacrificeSelection,
+  chooseAISacrificeAnotherPermanentForBenefitSelection,
+  scoreGenericChoiceOption,
+  scoreProtectedObjectForWard,
+} from "./aiZoneSearchChoiceHandlers.js";
+import {
+  chooseAIAttachEquipmentToPermanentChoiceSelection,
+  chooseAIChooseDiscardPlanSelection,
+  chooseAIChooseManaColorsSelection,
+  chooseAIChoosePlayerForTwoPileSplitSelection,
+  chooseAICopyRetargetSelection,
+  chooseAIForceOfWillExileSelection,
+  chooseAIGrantPlayableFromExileSelection,
+  chooseAIKeywordCounterSelectionsForStep,
+  chooseAILookedAtCardsDestinationSelection,
+  chooseAIMoveChosenHandCardToLibrarySelection,
+  chooseAIOptionalPaymentPromptSelection,
+  chooseAIPayManaToLookAndChooseCardSelection,
+  chooseAIPileFromSplitSelection,
+  chooseAIPutFromHandSelectionsForStep,
+  chooseAIReflexiveBoundGraveyardSelfExileSelection,
+  chooseAIReflexiveConvertSelection,
+  chooseAIReflexiveDiscardSelection,
+  chooseAIReflexiveGraveyardExileSelection,
+  chooseAIResolvedSpellCopySelection,
+} from "./aiPileAndKeywordChoiceHandlers.js";
+import { chooseAIPlayerChoiceId } from "./aiPlayerCardNameChoiceHandlers.js";
+

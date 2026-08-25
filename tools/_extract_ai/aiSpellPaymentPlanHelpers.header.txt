@@ -1,0 +1,56 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: 2-space-indented spell-payment plan helpers that lived
+ * after getPaymentSources (chooseAISacrificePermanentForManaAbility through
+ * chooseAISpellPaymentSelections).
+ *
+ * Public entry symbols: chooseAISacrificePermanentForManaAbility,
+ * chooseAISacrificePermanentsForManaAbility, buildAIAvailableManaForSpellPayment,
+ * buildAISpellPaymentPlan, cloneAISpellPaymentSimulationGame,
+ * canAIAssembleSpellPaymentPlan, getAINonTapManaAbilityCandidates,
+ * chooseAISpellPaymentSelections.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { parseSacrificeCost } from "../../../../shared/src/textUtils.js";
+import { getTotalManaFromPool, parseManaCost } from "../../state/modules/mana-check.js";
+import {
+  calculateManaProduction,
+  consumeManaFromPool,
+  getOrInitManaPool,
+  validateManaPayment,
+} from "../util.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { COLOR_IDENTITY_MAP } from "./aiConstants.js";
+import type { AIResolvedActivatedAbilityAction } from "./aiAbilityActivationTypes.js";
+import {
+  hasManaAbility,
+  scoreAISacrificePermanentForManaAbility,
+} from "./aiManaCostHelpers.js";
+import {
+  getAINonTapManaActionAmount,
+  selectAINonTapManaActivationAction,
+  tryActivateAINonTapManaAbilityForSpellPaymentSimulation,
+  tryAIManaBatteryColorFixForSpellPayment,
+  tryAIManaBatteryColorFixForSpellPaymentSimulation,
+} from "./aiManaActivationHelpers.js";
+
+function getPaymentSources(
+  game: any,
+  playerId: PlayerID,
+  cost: { colors: Record<string, number>; generic: number },
+) {
+  return getAIHandlerDeps().getPaymentSources(game, playerId, cost);
+}
+
+async function executeAIActivateAbility(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  action: any,
+  continueAfterResolution = true,
+): Promise<boolean> {
+  return getAIHandlerDeps().executeAIActivateAbility(io, gameId, playerId, action, continueAfterResolution);
+}
+

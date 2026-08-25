@@ -1,0 +1,24 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: land-face/playable-land helpers, failed-cast memory, aura
+ * targeting, findCastableCommander.
+ *
+ * Public entry symbols: applyAISelectedLandFace, findPlayableLand,
+ * rememberAIFailedSpellCast, isAIFailedSpellCastCard, findCastableCommander,
+ * checkAuraHasValidTarget, findAuraTarget.
+ */
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { getCastableCommanderCandidates, getPlayableLandCandidates } from "../../state/modules/can-respond.js";
+import { getAvailableMana } from "../../state/modules/mana-check.js";
+import { getEffectiveAdditionalCost } from "../game-actions.js";
+import { debug, debugWarn } from "../../utils/debug.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import type { AICastableCommanderCandidate, AIPlayableLandCandidate } from "./aiActionCandidateTypes.js";
+import { canAIPayAdditionalCost } from "./aiManaCostHelpers.js";
+import { canAIAssembleSpellPaymentPlan } from "./aiSpellPaymentPlanHelpers.js";
+
+function getAIActionContext(game: any): any {
+  return getAIHandlerDeps().getAIActionContext(game);
+}
+

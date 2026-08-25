@@ -38,19 +38,42 @@ export function queueTopLibraryChoicePromptsFromOracleIRResult(
   const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
   const sourceId = String(params.sourceId || '').trim() || undefined;
   const queuedKeys = new Set<string>();
+  const candidateSteps: OracleEffectStep[] = [];
+  const seenStepKeys = new Set<string>();
+  const gapSourcedKeys = new Set<string>();
+  const rememberStep = (step: OracleEffectStep | undefined, fromGap = false) => {
+    if (!step) return;
+    const kind = String(step.kind || '');
+    if (kind !== 'scry' && kind !== 'surveil') return;
+    const key = `${kind}:${String((step as any).raw || '')}`;
+    if (fromGap) gapSourcedKeys.add(key);
+    if (seenStepKeys.has(key)) return;
+    seenStepKeys.add(key);
+    candidateSteps.push(step);
+  };
 
   for (const gap of result.automationGaps || []) {
     if (!isOracleIrPlayerChoiceGap(gap)) continue;
     const kind = String(gap.stepKind || '');
     if (kind !== 'scry' && kind !== 'surveil') continue;
+    rememberStep(
+      (result.skippedSteps || []).find(
+        (candidate) =>
+          String(candidate.kind || '') === kind &&
+          String((candidate as any).raw || '') === String(gap.raw || ''),
+      ) as OracleEffectStep | undefined,
+      true,
+    );
+  }
+  // Empty-library scry is applied as a no-op (no player_choice gap). Still queue a
+  // persist prompt so resolveTopOfStackPrompt is recorded.
+  for (const step of result.appliedSteps || []) {
+    if (String(step.kind || '') !== 'scry') continue;
+    rememberStep(step, false);
+  }
 
-    const step = (result.skippedSteps || []).find(
-      (candidate) =>
-        String(candidate.kind || '') === kind &&
-        String((candidate as any).raw || '') === String(gap.raw || ''),
-    ) as OracleEffectStep | undefined;
-    if (!step) continue;
-
+  for (const step of candidateSteps) {
+    const kind = String(step.kind || '');
     const playerIds = [...resolvePlayers(state, (step as any).who, params.irCtx)];
     for (const playerId of playerIds) {
       const count = resolveOracleQuantityForPlayer(
@@ -76,7 +99,9 @@ export function queueTopLibraryChoicePromptsFromOracleIRResult(
           ? (state.players || []).find((player: any) => String(player?.id || '') === playerId).library
           : [];
       const actualCount = Math.min(count, library.length);
-      if (actualCount <= 0) continue;
+      if (actualCount <= 0 && kind !== 'scry') continue;
+      const stepKey = `${kind}:${String((step as any).raw || '')}`;
+      if (kind === 'scry' && actualCount > 0 && !gapSourcedKeys.has(stepKey)) continue;
 
       const cards = library.slice(0, actualCount).map(normalizeTopLibraryPromptCard);
 

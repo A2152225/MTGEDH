@@ -20,6 +20,10 @@ import { uid } from "../../utils.js";
 import { orderTriggersByAPNAP } from "./ordering.js";
 import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./target-metadata.js";
+import { detectTapTriggers, type TapTrigger } from "./tap-detection.js";
+
+export { detectTapTriggers };
+export type { TapTrigger };
 
 // Re-export detectDoesntUntapEffects from turn-phases for backwards compatibility
 export { detectDoesntUntapEffects } from "./turn-phases.js";
@@ -37,28 +41,7 @@ export interface UntapTrigger {
   effect: string;
 }
 
-export interface TapTrigger {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  description: string;
-  effect: string;
-  triggerCondition: 'becomes_tapped' | 'becomes_untapped' | 'taps_for_mana';
-  affectedType: 'any' | 'creature' | 'tribal_type' | 'self' | 'equipped_creature' | 'enchanted_creature';
-  tribalType?: string;
-  nontokenOnly?: boolean;
-  /** "Whenever one or more … become tapped" fires once per tap event, not per permanent. */
-  oneOrMoreBatch?: boolean;
-  mandatory: boolean;
-  lifeGain?: number;
-  createsToken?: boolean;
-  tokenDetails?: {
-    name: string;
-    power: number;
-    toughness: number;
-    types: string;
-  };
-}
+// TapTrigger lives in tap-detection.ts (leftover-merged).
 
 export type TapTriggeredStackItem = {
   id: string;
@@ -463,215 +446,7 @@ function isOptionalTapTriggerEffect(effectText: string): boolean {
   return true;
 }
 
-/**
- * Detect tap/untap triggered abilities from a card's oracle text
- */
-export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
-  const triggers: TapTrigger[] = [];
-  const oracleText = (card?.oracle_text || "");
-  const lowerOracle = oracleText.toLowerCase();
-  const cardName = card?.name || "Unknown";
-  const permanentId = permanent?.id || "";
-  const controllerId = permanent?.controller || "";
-  
-  // "Whenever one or more nontoken [TYPE] you control become tapped" (Deeproot Pilgrimage)
-  const nontokenTribalTapMatch = oracleText.match(
-    /whenever one or more nontoken (\w+) you control become tapped,?\s*([^.]+)/i,
-  );
-  if (nontokenTribalTapMatch) {
-    const tribalType = nontokenTribalTapMatch[1].toLowerCase();
-    const effectText = timingTriggerEffect(oracleText, nontokenTribalTapMatch, 2);
-    const isOptional = isOptionalTapTriggerEffect(effectText);
-
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: `Whenever one or more nontoken ${tribalType} you control become tapped, ${effectText}`,
-      effect: effectText,
-      triggerCondition: 'becomes_tapped',
-      affectedType: 'tribal_type',
-      tribalType,
-      nontokenOnly: true,
-      oneOrMoreBatch: true,
-      mandatory: !isOptional,
-    });
-  }
-
-  // "Whenever a [TYPE] you control becomes tapped" pattern
-  const tribalTapMatch = oracleText.match(/whenever (?:a |an )?(\w+) you control becomes tapped,?\s*([^.]+)/i);
-  if (tribalTapMatch) {
-    const tribalType = tribalTapMatch[1].toLowerCase();
-    const effectText = timingTriggerEffect(oracleText, tribalTapMatch, 2);
-    const isOptional = isOptionalTapTriggerEffect(effectText);
-    
-    const lifeGainMatch = effectText.match(/gain (\d+) life/i);
-    
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: `Whenever a ${tribalType} you control becomes tapped, ${effectText}`,
-      effect: effectText,
-      triggerCondition: 'becomes_tapped',
-      affectedType: 'tribal_type',
-      tribalType,
-      mandatory: !isOptional,
-      lifeGain: lifeGainMatch ? parseInt(lifeGainMatch[1]) : undefined,
-    });
-  }
-  
-  // "Whenever ~ becomes tapped" (including compound "enters or becomes tapped")
-  const selfTapNameRefs = [
-    '~',
-    'this creature',
-    'this artifact',
-    'this land',
-    'this permanent',
-    escapeCardNameForRegex(cardName),
-  ].filter(Boolean);
-  const selfTapMatch = oracleText.match(
-    new RegExp(
-      `when(?:ever)? (?:${selfTapNameRefs.join('|')}) (?:enters(?: the battlefield)?\\s+or\\s+)?become(?:s)? tapped,?\\s*([^.]+)`,
-      'i',
-    ),
-  );
-  if (selfTapMatch) {
-    const effectText = timingTriggerEffect(oracleText, selfTapMatch);
-    const isOptional = isOptionalTapTriggerEffect(effectText);
-    
-    // Check for token creation
-    const tokenMatch = effectText.match(/create (?:a |an )?(\d+)\/(\d+)/i);
-    let createsToken = false;
-    let tokenDetails: TapTrigger['tokenDetails'];
-    
-    if (tokenMatch || lowerOracle.includes('create') && lowerOracle.includes('token')) {
-      createsToken = true;
-      const powerMatch = effectText.match(/(\d+)\/(\d+)/);
-      if (powerMatch) {
-        tokenDetails = {
-          name: 'Token',
-          power: parseInt(powerMatch[1]),
-          toughness: parseInt(powerMatch[2]),
-          types: 'Creature',
-        };
-      }
-    }
-    
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: `Whenever ${cardName} becomes tapped, ${effectText}`,
-      effect: effectText,
-      triggerCondition: 'becomes_tapped',
-      affectedType: 'self',
-      mandatory: !isOptional,
-      createsToken,
-      tokenDetails,
-    });
-  }
-  
-  // "Whenever a creature you control becomes tapped" (generic creature tap)
-  if (lowerOracle.includes('whenever a creature you control becomes tapped') && 
-      !triggers.some(t => t.affectedType === 'creature')) {
-    const effectMatch = oracleText.match(/whenever a creature you control becomes tapped,?\s*([^.]+)/i);
-    if (effectMatch) {
-      const effectText = timingTriggerEffect(oracleText, effectMatch);
-      triggers.push({
-        permanentId,
-        cardName,
-        controllerId,
-        description: `Whenever a creature you control becomes tapped, ${effectText}`,
-        effect: effectText,
-        triggerCondition: 'becomes_tapped',
-        affectedType: 'creature',
-        mandatory: !isOptionalTapTriggerEffect(effectText),
-      });
-    }
-  }
-
-  // "Whenever equipped/enchanted creature becomes tapped" (Hawkeye's Bow, etc.)
-  const equippedTapMatch = oracleText.match(/whenever equipped creature becomes tapped,?\s*([^.]+)/i);
-  if (equippedTapMatch && !triggers.some((t) => t.affectedType === 'equipped_creature')) {
-    const effectText = timingTriggerEffect(oracleText, equippedTapMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: `Whenever equipped creature becomes tapped, ${effectText}`,
-      effect: effectText,
-      triggerCondition: 'becomes_tapped',
-      affectedType: 'equipped_creature',
-      mandatory: !isOptionalTapTriggerEffect(effectText),
-    });
-  }
-  const enchantedTapMatch = oracleText.match(/whenever enchanted creature becomes tapped,?\s*([^.]+)/i);
-  if (enchantedTapMatch && !triggers.some((t) => t.affectedType === 'enchanted_creature')) {
-    const effectText = timingTriggerEffect(oracleText, enchantedTapMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: `Whenever enchanted creature becomes tapped, ${effectText}`,
-      effect: effectText,
-      triggerCondition: 'becomes_tapped',
-      affectedType: 'enchanted_creature',
-      mandatory: !isOptionalTapTriggerEffect(effectText),
-    });
-  }
-  
-  // "Whenever you tap a [TYPE] for mana" pattern
-  const tapForManaMatch = oracleText.match(/whenever you tap (?:a |an )?(\w+) for mana,?\s*([^.]+)/i);
-  if (tapForManaMatch) {
-    const tribalType = tapForManaMatch[1].toLowerCase();
-    const effectText = timingTriggerEffect(oracleText, tapForManaMatch, 2);
-    
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: `Whenever you tap a ${tribalType} for mana, ${effectText}`,
-      effect: effectText,
-      triggerCondition: 'taps_for_mana',
-      affectedType: 'tribal_type',
-      tribalType,
-      mandatory: true,
-    });
-  }
-
-  const permanentUntapMatch = oracleText.match(/whenever a permanent becomes untapped,?\s*([^.]+)/i);
-  if (permanentUntapMatch) {
-    const effectText = timingTriggerEffect(oracleText, permanentUntapMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: `Whenever a permanent becomes untapped, ${effectText}`,
-      effect: effectText,
-      triggerCondition: 'becomes_untapped',
-      affectedType: 'any',
-      mandatory: !effectText.toLowerCase().includes('you may'),
-    });
-  }
-
-  const selfUntapMatch = oracleText.match(/whenever (?:~|this permanent|this creature|this artifact) becomes untapped,?\s*([^.]+)/i);
-  if (selfUntapMatch) {
-    const effectText = timingTriggerEffect(oracleText, selfUntapMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: `Whenever ${cardName} becomes untapped, ${effectText}`,
-      effect: effectText,
-      triggerCondition: 'becomes_untapped',
-      affectedType: 'self',
-      mandatory: !effectText.toLowerCase().includes('you may'),
-    });
-  }
-  
-  return triggers;
-}
+// detectTapTriggers lives in tap-detection.ts (leftover-merged).
 
 /**
  * Get all tap triggers that should fire when a permanent becomes tapped

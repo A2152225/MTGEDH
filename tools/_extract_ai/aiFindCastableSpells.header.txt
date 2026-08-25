@@ -1,0 +1,60 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: findCastableSpells.
+ *
+ * Public entry symbols: findCastableSpells.
+ */
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { getCastableSpellCandidates } from "../../state/modules/can-respond.js";
+import {
+  getAvailableMana,
+  getTotalManaFromPool,
+  parseManaCost,
+  type ParsedManaCost,
+} from "../../state/modules/mana-check.js";
+import {
+  chooseMultikickerTimesForChargeInvest,
+  expandManaCostWithMultikicker,
+  isMultikickerChargeCounterManaInvest,
+  parseMultikickerManaCost,
+} from "../../state/modules/multikickerCastUtils.js";
+import { getMaxAffordableSpellX, isSpellWorthCastingAtX } from "../../state/modules/spellXCastUtils.js";
+import { getEffectiveAdditionalCost } from "../game-actions.js";
+import { debug } from "../../utils/debug.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import type { AICastableSpellCandidate } from "./aiActionCandidateTypes.js";
+import { getAIParsedManaCostAmount } from "./aiChoicePromptHandlers.js";
+import { canAIPayAdditionalCost } from "./aiManaCostHelpers.js";
+import { canAIAssembleSpellPaymentPlan } from "./aiSpellPaymentPlanHelpers.js";
+
+function getAIActionContext(game: any): any {
+  return getAIHandlerDeps().getAIActionContext(game);
+}
+
+function isAISpellContextuallyUseful(game: any, playerId: PlayerID, card: any): boolean {
+  return getAIHandlerDeps().isAISpellContextuallyUseful(game, playerId, card);
+}
+
+function calculateResponseSpellPriority(
+  card: any,
+  game: any,
+  playerId: PlayerID,
+  adjustedCost?: { generic: number; colors: Record<string, number> },
+): number {
+  return getAIHandlerDeps().calculateResponseSpellPriority(card, game, playerId, adjustedCost);
+}
+
+function isAIFailedSpellCastCard(game: any, playerId: string, cardId: string): boolean {
+  return getAIHandlerDeps().isAIFailedSpellCastCard(game, playerId, cardId);
+}
+
+function calculateSpellPriority(
+  card: any,
+  game: any,
+  playerId: PlayerID,
+  adjustedCost?: { generic: number; colors: Record<string, number> },
+): number {
+  return getAIHandlerDeps().calculateSpellPriority(card, game, playerId, adjustedCost);
+}
+

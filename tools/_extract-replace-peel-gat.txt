@@ -1,0 +1,1 @@
+export { getAttackTriggersForCreatures } from "./triggers/attack-triggers-for-creatures.js";

@@ -1,0 +1,20 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: executePassPriority, executeDeclareAttackers, executeDeclareBlockers.
+ *
+ * Public entry symbols: executePassPriority, executeDeclareAttackers, executeDeclareBlockers.
+ */
+import type { Server } from "socket.io";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { appendEvent } from "../../db/index.js";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { persistAndResolveTopOfStack, ensureGame, broadcastGame } from "../util.js";
+import { runPostResolutionPermanentPromptChecks } from "../game-actions.js";
+import { advanceStepPersistingEvent } from "../step-advance.js";
+import { executeDeclareAttackers as executeCombatDeclareAttackers } from "../combat.js";
+import { AI_REACTION_DELAY_MS } from "./aiConstants.js";
+import { scheduleAIPriority } from "./aiScheduler.js";
+import { isAIPlayer } from "./aiPlayerRegistry.js";
+import { checkPendingModals } from "./aiGameCleanupHandlers.js";
+

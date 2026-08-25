@@ -1,0 +1,38 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: library-search / graveyard / scry / hideaway / upkeep-sacrifice
+ * AI choosers plus reflexive mana/sacrifice/discard-then-draw prompts.
+ *
+ * Public entry symbols: chooseAILibrarySearchCards, chooseAILibrarySearchResponse,
+ * chooseAIGraveyardSelectionIds, chooseAIUpkeepSacrificeSelection,
+ * chooseAIReturnControlledPermanentId, chooseAIHideawayCardId, chooseAIScrySelection,
+ * scoreGenericChoiceOption, scoreProtectedObjectForWard,
+ * chooseAIReflexiveManaPaymentSelection, chooseAIReflexiveFixedPaymentSelection,
+ * chooseAIReflexiveSacrificeSelection, chooseAISacrificeAnotherPermanentForBenefitSelection,
+ * chooseAIOptionalDiscardThenDrawSelection.
+ */
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { cardAnalyzer, CardCategory } from "../../../../rules-engine/src/CardAnalyzer.js";
+import {
+  canPayManaCost,
+  parseManaCost,
+} from "../../state/modules/mana-check.js";
+import {
+  getAvailableReflexiveManaAmountFromPool,
+  parseReflexivePaymentChoiceAmount,
+  permanentMatchesReflexiveSacrificeType,
+} from "../../state/modules/reflexive-triggers.js";
+import { getOrInitManaPool } from "../util.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import {
+  calculateCardThemeAlignment,
+  ensureAIDeckProfile,
+  getAIHand,
+  permanentHasLeaveBattlefieldExileReplacement,
+  rehydrateCardsById,
+  scoreCardForAIAcquisition,
+  scoreHostileGraveyardCardDisruption,
+} from "./aiDeckProfileHandlers.js";
+import { getPermanentCombatStats } from "./aiPermanentCombatStats.js";
+

@@ -163,7 +163,7 @@ describe('phase skip continuation', () => {
     expect((game.state as any).pendingPhaseSkip).toBeUndefined();
   });
 
-  it('stops at DRAW when skipping UPKEEP toward MAIN2', () => {
+  it('does not stop at DRAW for additional-draw-only effects when skipping UPKEEP toward MAIN2', () => {
     const gameId = 'phase_skip_upkeep_draw';
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -201,14 +201,18 @@ describe('phase skip continuation', () => {
       skipOriginStep: 'UPKEEP',
     });
 
-    expect(result).toBe('stopped');
-    expect(String((game.state as any).step || '')).toBe('DRAW');
+    expect(result).toBe('ready_to_complete');
+    expect(String((game.state as any).step || '')).toBe('UPKEEP');
     expect((game.state as any).pendingPhaseSkip?.drawStepActionPerformed).toBe(true);
-    expect(game.state.zones?.[p1]?.handCount).toBe(1);
-    expect(((game.state as any).stack || []).length).toBeGreaterThan(0);
+    expect(game.state.zones?.[p1]?.handCount).toBeGreaterThanOrEqual(1);
+    expect(
+      ((game.state as any).stack || []).some(
+        (item: any) => String(item?.sourceName || item?.cardName || '') === 'The Immortal Sun',
+      ),
+    ).toBe(false);
   });
 
-  it('does not double-draw when completing skip after draw step action at DRAW stop', () => {
+  it('does not double-draw when completing skip after draw step action during additional-draw scan', () => {
     const gameId = 'phase_skip_draw_no_double';
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -246,10 +250,11 @@ describe('phase skip continuation', () => {
       skipOriginStep: 'UPKEEP',
     });
 
-    expect(stopResult).toBe('stopped');
-    expect(String((game.state as any).step || '')).toBe('DRAW');
+    expect(stopResult).toBe('ready_to_complete');
     expect((game.state as any).pendingPhaseSkip?.drawStepActionPerformed).toBe(true);
-    expect(game.state.zones?.[p1]?.handCount).toBe(1);
+    const handAfterScan = game.state.zones?.[p1]?.handCount ?? 0;
+    const libraryAfterScan = game.state.zones?.[p1]?.libraryCount ?? 0;
+    expect(handAfterScan).toBeGreaterThanOrEqual(1);
 
     completePendingPhaseSkipCore({
       game,
@@ -263,8 +268,8 @@ describe('phase skip continuation', () => {
     });
 
     expect(String((game.state as any).step || '')).toBe('MAIN2');
-    expect(game.state.zones?.[p1]?.handCount).toBe(1);
-    expect(game.state.zones?.[p1]?.libraryCount).toBe(1);
+    expect(game.state.zones?.[p1]?.handCount).toBe(handAfterScan);
+    expect(game.state.zones?.[p1]?.libraryCount).toBe(libraryAfterScan);
     expect((game.state as any).pendingPhaseSkip).toBeUndefined();
   });
 

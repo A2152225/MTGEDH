@@ -25,7 +25,7 @@ import { processLifeChange } from "../game-state-effects.js";
 import { triggerLifeGainEffects } from "../../utils.js";
 import { applyDamageToPermanentWithCounterEffects } from "../counter-common-effects.js";
 import { applyCreatureDamageFromSource, resolvePlayerDamage } from "../combat-damage-processing.js";
-import { detectDealtDamageTriggers } from "../triggered-abilities.js";
+import { detectDealtDamageTriggers } from "./dealt-damage-detection.js";
 import {
   inferDamageReceivedEffectFromOracle,
   isSelfDealtDamageClause,

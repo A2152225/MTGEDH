@@ -1,11 +1,10 @@
 /**
  * triggers/planeswalker.ts
- * 
+ *
  * Planeswalker loyalty ability support.
  * Includes parsing and activating planeswalker abilities.
  */
 
-// Re-export from the legacy module for backwards compatibility
 export {
   parsePlaneswalkerAbilities,
   getLoyaltyActivationLimit,
@@ -16,4 +15,4 @@ export {
   getTeferisTalentDrawTrigger,
   calculateLoyaltyChange,
   getAvailableLoyaltyAbilities,
-} from "../triggered-abilities.js";
+} from "./planeswalker-loyalty.js";

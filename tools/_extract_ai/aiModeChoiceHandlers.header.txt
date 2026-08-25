@@ -1,0 +1,14 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: scoreModeOption, chooseAbundantHarvestMode, chooseOverloadMode,
+ * chooseAIModeSelectionsForStep, chooseAIKynaiosChoiceSelection.
+ *
+ * Public entry symbols: chooseAIModeSelectionsForStep, chooseAIKynaiosChoiceSelection.
+ */
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { choosePBudgetModeSelections } from "../../../../shared/src/modeSelectionPBudget.js";
+import { canPlayLand } from "../../state/modules/can-respond.js";
+import { getAvailableMana, parseManaCost, canPayManaCostWithAvailableSources } from "../../state/modules/mana-check.js";
+import { getAIBattlefield, getAIHand, getAIPlayerLife } from "./aiDeckProfileHandlers.js";
+

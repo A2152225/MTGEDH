@@ -1,0 +1,7 @@
+// Extracted from oracleIRExecutorPlayerStepHandlers.ts.
+// Cluster: DungeonRoomDefinition, DungeonDefinition, DUNGEON_DEFINITIONS,
+// getDungeonDefinition, getDungeonRoomDefinition, getDefaultDungeonPath,
+// getDungeonRoomDefinitionByProgress.
+// Public entries: getDungeonDefinition, getDungeonRoomDefinition,
+// getDungeonRoomDefinitionByProgress.
+

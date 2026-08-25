@@ -1,0 +1,9 @@
+/**
+ * Origin: server/src/state/modules/triggered-abilities.ts
+ * Cluster: card-name regex alternatives used by leftover detectors
+ * Public: buildCardNameRegexAlternatives
+ */
+
+import { escapeCardNameForRegex } from "./types.js";
+import { normalizeCardNameForOracleText } from "../../utils.js";
+

@@ -1,0 +1,35 @@
+/**
+ * Origin parent: server/src/socket/ai.ts
+ *
+ * Cluster moved: two-pile split, exile-grant, looked-at destination, mana-color,
+ * Force of Will, copy/retarget, reflexive discard/exile/convert, keyword-counter,
+ * and put-from-hand option choosers.
+ *
+ * Public entry symbols: chooseAIPileFromSplitSelection, chooseAIGrantPlayableFromExileSelection,
+ * chooseAILookedAtCardsDestinationSelection, chooseAIPayManaToLookAndChooseCardSelection,
+ * chooseAIChooseManaColorsSelection, chooseAIMoveChosenHandCardToLibrarySelection,
+ * chooseAIAttachEquipmentToPermanentChoiceSelection, chooseAIChooseDiscardPlanSelection,
+ * chooseAIChoosePlayerForTwoPileSplitSelection, chooseAIForceOfWillExileSelection,
+ * chooseAIResolvedSpellCopySelection, chooseAICopyRetargetSelection,
+ * chooseAIReflexiveDiscardSelection, chooseAIReflexiveGraveyardExileSelection,
+ * chooseAIReflexiveBoundGraveyardSelfExileSelection, chooseAIReflexiveConvertSelection,
+ * chooseAIOptionalPaymentPromptSelection, chooseAIKeywordCounterSelectionsForStep,
+ * chooseAIPutFromHandSelectionsForStep.
+ */
+import { cardAnalyzer, CardCategory, SynergyArchetype } from "../../../../rules-engine/src/CardAnalyzer.js";
+import type { PlayerID } from "../../../../shared/src/types.js";
+import { getOptionalPaymentValidationFailure } from "../optional-payment-prompts.js";
+import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import {
+  calculateCardSynergyPressure,
+  calculateCardThemeAlignment,
+  ensureAIDeckProfile,
+  getAIBattlefield,
+  getAIHand,
+  getAIPlayerLife,
+  scoreCardForAIAcquisition,
+} from "./aiDeckProfileHandlers.js";
+import { getPermanentCombatStats, getPermanentKeywordSet } from "./aiPermanentCombatStats.js";
+import { getAILibraryCards } from "./aiPregameHandlers.js";
+import { scoreGenericChoiceOption } from "./aiZoneSearchChoiceHandlers.js";
+
