@@ -1210,17 +1210,20 @@ export function resolvePlayersFromDamageTarget(
   if (!t) return [];
 
   if (t === 'you') return resolvePlayers(state, { kind: 'you' }, ctx);
-  if (t === 'any target') {
+  // Bare "target" is how truncated ability text (and some test stubs) spell any-target.
+  if (t === 'any target' || t === 'target') {
     // Permanent bindings also set targetPlayerId for pronoun resolution; prefer the
     // chosen permanent when the cast target was a battlefield object.
     const boundPermanentId = normalizeId(ctx.targetPermanentId)
       || normalizeId(ctx.selectorContext?.targetPermanentId);
     if (boundPermanentId) return [];
 
-    const targetPlayerId = normalizeId(ctx.selectorContext?.targetPlayerId);
+    const targetPlayerId = normalizeId(ctx.selectorContext?.targetPlayerId)
+      ?? normalizeId(ctx.targetPlayerId);
     if (targetPlayerId && allPlayerIds.has(targetPlayerId)) return [targetPlayerId];
 
-    const targetOpponentId = normalizeId(ctx.selectorContext?.targetOpponentId);
+    const targetOpponentId = normalizeId(ctx.selectorContext?.targetOpponentId)
+      ?? normalizeId(ctx.targetOpponentId);
     if (targetOpponentId && allPlayerIds.has(targetOpponentId)) return [targetOpponentId];
   }
   if (t === 'target player') return resolvePlayers(state, { kind: 'target_player' }, ctx);

@@ -219,7 +219,7 @@ Guard-run hoists out of `parseCurrentResidualUnknownStep` live in `oracleIRParse
 
 ## Oracle IR executor (`rules-engine/src/`)
 
-Still over ceiling, largest first: `oracleIRExecutorSpecialTargetHandlers.ts` (143.6 KB), `oracleIRExecutorConditionalStepSupport.ts` (133.8 KB), `oracleIRExecutorMoveZoneStepHandlers.ts` (71.7 KB). `oracleIRExecutorPlayerStepHandlers.ts` is **33.6 KB** (done). `oracleIRExecutorMainLoop.ts` is **29.4 KB** (done; `applyOracleIRStepsToGameStateImpl` is the switch dispatcher). `oracleIRExecutorBattlefieldStepHandlers.ts` is **34.7 KB** (done). `oracleIRExecutorZoneOps.ts` is **20.2 KB** (done). Split by step or op family; no `BatchNNN` / `Bulk` names. No `*-handlers/` folder until a parent is already a thin barrel.
+Still over ceiling, largest first: `oracleIRExecutorTokenStepHandlers.ts` (97.2 KB), `oracleIRExecutorPlayerUtils.ts` (83.7 KB), `oracleIRExecutorCreatureStepUtils.ts` (58.4 KB), `oracleIRExecutorModifyPtStepHandlers.ts` (54.7 KB), `oracleIRExecutorDamageStepHandlers.ts` (51.2 KB). `oracleIRExecutorSpecialTargetHandlers.ts` is **2.8 KB** (done; thin barrel). `oracleIRExecutorConditionalStepSupport.ts` is **5.7 KB** (done). `oracleIRExecutorConditionalStepSupportExtended.ts` is **15.9 KB** (done). `oracleIRExecutorMoveZoneStepHandlers.ts` is **31.9 KB** (done). `oracleIRExecutorPlayerStepHandlers.ts` is **33.6 KB** (done). `oracleIRExecutorMainLoop.ts` is **29.4 KB** (done; `applyOracleIRStepsToGameStateImpl` is the switch dispatcher). `oracleIRExecutorBattlefieldStepHandlers.ts` is **34.7 KB** (done). `oracleIRExecutorZoneOps.ts` is **20.2 KB** (done). Split by step or op family; no `BatchNNN` / `Bulk` names. No `*-handlers/` folder until a parent is already a thin barrel.
 
 ### `oracleIRExecutorMoveZone*` (extracted from `applyMoveZoneStep`)
 
@@ -235,8 +235,10 @@ Public API unchanged: parent still exports `applyMoveZoneStep` / `MoveZoneStepHa
 | `oracleIRExecutorMoveZoneGuardsDiceBracketIt.ts` | Head-of-chain guards from `parsedDiceBracketIt` through self-battlefield `whatText` / `sourceCardZone`. Entry: `tryApplyMoveZoneGuardsFromDiceBracketIt`. |
 | `oracleIRExecutorMoveZoneGuardsTopCardLibraryOwnerId.ts` | Top/bottom library-owner moves and `contextualBoundCardIds` multi-card move. Entry: `tryApplyMoveZoneGuardsFromTopCardLibraryOwnerId`. |
 | `oracleIRExecutorMoveZoneGuardsOneOfThemSplit.ts` | Second chain: `parsedOneOfThemSplit` / `parsedOnePileSplit` / `contextualBoundCardZone` / `sourceCardZone` plus following graveyard / hand-gy selectors. Entry: `tryApplyMoveZoneGuardsFromOneOfThemSplit`. |
+| `oracleIRExecutorMoveZoneGuardsCommandZonePermanentToHand.ts` | Remaining inline guard-arg builds + leftover selector runs (first leftover: `parsedCommandZonePermanent && step.to === 'hand'`). Entry: `tryApplyMoveZoneGuardsFromCommandZonePermanentToHand`. **34.1 KB** — do not append. |
+| `oracleIRExecutorMoveZoneGuardsUnsupportedSelectorEarlyOut.ts` | All-selector unsupported early-out. Returns the skip result or `undefined`. Not named `GuardsFromGraveyard`. |
 
-Remaining in the parent (~71.7 KB): `finalizeAppliedResult` prologue (closes over mutable `nextState` / `effectiveBattlefieldAdd*`) plus the all-selector unsupported early-out (cannot be named `GuardsFromGraveyard` — that sibling already exists). `MoveZoneGuardArgs` already carries the extra locals from these chains.
+Parent is **31.9 KB**. Leftover: `finalizeAppliedResult` prologue (closes over mutable `nextState` / `effectiveBattlefieldAdd*`). `MoveZoneGuardArgs` already carries the extra locals from these chains.
 
 ### `oracleIRExecutorZoneOps*` (extracted from `oracleIRExecutorZoneOps.ts`)
 
@@ -244,6 +246,53 @@ Remaining in the parent (~71.7 KB): `finalizeAppliedResult` prologue (closes ove
 | --- | --- |
 | `oracleIRExecutorZoneOpsCardTypeMatchers.ts` | Simple card-type parsing and matching. Entries: `SimpleCardType`, `parseSimpleCardTypeFromText`, `cardMatchesType`, `cardMatchesTotalPowerToughnessLte`. Parent re-exports the public API. |
 | `oracleIRExecutorZoneOpsShuffleIntoLibrary.ts` | Shuffle-all / typed cards from a player's graveyard into their library. Entries: `parseMoveZoneShuffleAllFromYourGraveyardIntoLibrary`, `shufflePlayerGraveyardIntoLibrary`, `shuffleTypedCardsFromPlayerGraveyardIntoLibrary`. Parent re-exports the public API. |
+
+### `oracleIRExecutorSpecialTarget*` (extracted from `trySpecial*`)
+
+Parent is a **2.8 KB** barrel: `trySpecialExileStep` dispatches Batch386–389 then `tryApplyExileLookedContextualStep` / `tryApplyExilePileCounterAndTargetedStep`; other `trySpecial*` are re-exports. No `*-handlers/` folder. Existing Batch386–391 siblings stay. Do not create new `BatchNNN` / `Bulk` names.
+
+| Module | Owns |
+| --- | --- |
+| `oracleIRExecutorSpecialTargetOps.ts` | `SpecialTargetStepResult`, normalize helpers, `collectBoundIds`, exile ops. |
+| `oracleIRExecutorSpecialTargetResolve.ts` | `resolveSourcePermanent`, `resolveEnchantedHost`, `resolveContextualCreature`. |
+| `oracleIRExecutorExileLookedContextualHandlers.ts` | `tryApplyExileLookedContextualStep` (looked/contextual, top mill, mass nontoken, “the rest”). |
+| `oracleIRExecutorExilePileCounterAndTargetedHandlers.ts` | `tryApplyExilePileCounterAndTargetedStep` (face-down piles, source counters, until-leaves, targeted). |
+| `oracleIRExecutorSpecialTargetDestroyHandlers.ts` | `trySpecialDestroyStep`. |
+| `oracleIRExecutorSpecialTargetAddRemoveCounterHandlers.ts` | `trySpecialAddCounterStep`, `trySpecialRemoveCounterStep`. |
+| `oracleIRExecutorSpecialTargetRegenerateDamageHandlers.ts` | `trySpecialRegenerateStep`, `trySpecialDealDamageStep`, `trySpecialPreventDamageStep`. |
+| `oracleIRExecutorSpecialTargetDoubleCountersHandlers.ts` | `trySpecialDoubleCountersStep`. |
+| `oracleIRExecutorSpecialTargetSacrificeHandlers.ts` | `trySpecialSacrificeStep`. |
+| `oracleIRExecutorSpecialTargetCopyPermanentHandlers.ts` | `trySpecialCopyPermanentStep`. |
+| `oracleIRExecutorSpecialTargetCombatStatusHandlers.ts` | exert / turn-face-down / tap-or-untap / force-block / suspect. |
+| `oracleIRExecutorSpecialTargetMoveCountersHandlers.ts` | `trySpecialMoveCountersStep`, `trySpecialScheduleDelayedBattlefieldActionStep`. |
+
+### `oracleIRExecutorConditionalStep*` (extracted from `evaluateConditionalWrapperCondition`)
+
+Parent is a **5.7 KB** dispatcher: unless-kind + if/as_long_as normalize, then `tryEvaluate…` fall-throughs. Leaves return `boolean | null | undefined` (`undefined` = family did not match; `null` = matched but unevaluable). Recursion is `params.evaluateRecursive`. No leaf imports the public parent. `oracleIRExecutorConditionalStepSupportHelpers.ts` is **38.6 KB** — do not append.
+
+| Module | Owns |
+| --- | --- |
+| `oracleIRExecutorConditionalStepSupportHelpers.ts` | Shared types + helpers (`ConditionalCondition`, `resolveUnlessPayInnerCondition`, …). |
+| `oracleIRExecutorConditionalStepUnlessPay.ts` | `tryEvaluateConditionalUnlessPayYouDoOtherwise` (unless-pay, you-do/otherwise, enters-this-way, lands, first-combat). |
+| `oracleIRExecutorConditionalStepCreaturesDied.ts` | `tryEvaluateConditionalCreaturesDiedThisTurn` (died, suspected, attacking, hand-size, legendary). |
+| `oracleIRExecutorConditionalStepKicked.ts` | `tryEvaluateConditionalKicked` (kicked, composite and/or, graveyard-there-are). |
+| `oracleIRExecutorConditionalStepYouHaveGraveyard.ts` | `tryEvaluateConditionalYouHaveGraveyard` (you-have-graveyard, entered-from, vote, mana-spent). |
+
+### `oracleIRExecutorConditionalStepExtended*` (extracted from `evaluateExtendedConditionalClause`)
+
+Parent is a **15.9 KB** dispatcher: `thisWay` → `would` → existing `evaluateBatch368–380` → `tryEvaluate…` fall-throughs. Leaves return `boolean | null`. `oracleIRExecutorConditionalStepExtendedClauseHelpers.ts` is **35.5 KB** — do not append. Do not create new `BatchNNN` / `Bulk` names.
+
+| Module | Owns |
+| --- | --- |
+| `oracleIRExecutorConditionalStepExtendedTypes.ts` | `ExtendedConditionalParams`, `LastActionOutcome`, `EXILE_THIS_WAY_STEP_KINDS`. |
+| `oracleIRExecutorConditionalStepExtendedClauseHelpers.ts` | Shared helpers including `getControlledTypeEnteredThisTurnCount`. |
+| `oracleIRExecutorConditionalStepExtendedThisWay.ts` | `evaluateThisWayClause`. |
+| `oracleIRExecutorConditionalStepExtendedWarriorDamage.ts` | `tryEvaluateExtendedWarriorDamageClause` (warrior damage through surge-cost-paid). |
+| `oracleIRExecutorConditionalStepExtendedProwl.ts` | `tryEvaluateExtendedProwlClause` (prowl through graveyard-has-flying). |
+| `oracleIRExecutorConditionalStepExtendedLessonCard.ts` | `tryEvaluateExtendedLessonCardClause` (lesson in graveyard …). |
+| `oracleIRExecutorConditionalStepExtendedCycledCard.ts` | `tryEvaluateExtendedCycledCardClause`. |
+| `oracleIRExecutorConditionalStepExtendedVotedChoice.ts` | `tryEvaluateExtendedVotedChoiceClause`. |
+| `oracleIRExecutorConditionalStepExtendedCommanderControl.ts` | `tryEvaluateExtendedCommanderControlClause`. |
 
 ### `oracleIRExecutorBattlefield*` (extracted from `oracleIRExecutorBattlefieldStepHandlers.ts`)
 
@@ -281,7 +330,7 @@ Parent is a **29.4 KB** dispatcher. Each family returns `result | undefined` (un
 | `oracleIRExecutorMainLoopChoiceKeywordLookSteps.ts` | `tryApplyMainLoopChoiceKeywordLookSteps` |
 | `oracleIRExecutorMainLoopMillPtTokenSteps.ts` | `tryApplyMainLoopMillPtTokenSteps` |
 | `oracleIRExecutorMainLoopCopyDestroySteps.ts` | `tryApplyMainLoopCopyDestroySteps` |
-| `oracleIRExecutorMainLoopLateSteps.ts` | `tryApplyMainLoopLateSteps` |
+| `oracleIRExecutorMainLoopLateSteps.ts` | `tryApplyMainLoopLateSteps`. **Ledger:** a successful `conditional` records inner/else `appliedSteps` only; push the wrapper iff that branch applied nothing. Do not always append `'conditional'` after inner steps (31-test regression after the MainLoop split). Court of Ambition discarded/no-life-loss asserts `['unless_discards']`, not the wrapper. |
 
 ## Server spell routing (`server/src/state/modules/`)
 
@@ -408,9 +457,11 @@ Parent is a **29.4 KB** dispatcher. Each family returns `result | undefined` (un
 | `state/modules/oracleIrServerZoneSync.ts` | **29.4 KB** | `oracleIrServerZoneSync-handlers/index.ts` | Under ceiling. Remaining in parent: optional-payment resume + compound resume (`resolveOracleIrOptionalPaymentPromptFromResolution`). |
 | `socket/util.ts` | **13.7 KB** | `util-handlers/index.ts` | Under ceiling. `calculateManaProduction` is a dispatcher over `tryCalculateManaProduction*` leaves. |
 | `state/modules/turn.ts` | **38.8 KB** | `turn-handlers/index.ts` | Under ceiling. `nextStep()` / `nextTurn()` / `dealCombatDamage()` stay as dispatchers. |
-| `socket/combat.ts` | 104.4 KB | `combat-handlers/index.ts` | Declare-attackers support helpers extracted. Next: `handleDeclareAttackers`. No combat-damage-assignment cluster in this file. |
+| `socket/combat.ts` | **28.5 KB** | `combat-handlers/index.ts` | Under ceiling. `registerCombatHandlers` stays a real function (preview, skip, apply/clear control, `declareControlledBlockers`). Never create `socket/combat/`. |
 | `socket/undo.ts` | ~39.7 KB | `undo-handlers/index.ts` | Under ceiling (~260 B headroom). Further additions need a new sibling, not the parent. |
 | `state/modules/can-respond.ts` | **34.2 KB** | `can-respond-handlers/index.ts` | Under ceiling. Never create `can-respond/` beside `can-respond.ts`. |
+| `rules-engine/targeting.ts` | **34.9 KB** | `targeting-handlers/index.ts` | Under ceiling. `categorizeSpellWithoutPrimaryRetirement` is a dispatcher over `tryCategorize…`. Never create `targeting/` beside `targeting.ts`. |
+| `state/modules/game-state-effects.ts` | **5.2 KB** | `game-state-effects-handlers/index.ts` | Under ceiling (re-export barrel). Never create `game-state-effects/` beside `game-state-effects.ts`. `WinCondition` here is the card-effect table type, not `triggers/win-conditions.ts`. |
 
 ### `game-actions-handlers/` (extracted from `game-actions.ts`)
 
@@ -543,6 +594,11 @@ Family dispatch in the parent: `if (applyXEvents(ctx, e)) return;`. `activateBat
 | `combat-handlers/combatLegalityGates.ts` | `socket/combat.ts` | `isCurrentlyCreature`, attack/block legality, temporary combat restriction texts. |
 | `combat-handlers/combatDeclareBlockersRequest.ts` | `socket/combat.ts` | `handleDeclareBlockers`; declare-blockers chat; battlefield name lookup; `persistTriggeredAbilityPush`. |
 | `combat-handlers/combatDeclareAttackersSupport.ts` | `socket/combat.ts` | Declare-attackers chat; defender-id resolution; owner-attack restriction predicates; optional attack-trigger mana/energy payment (`resolveAttackTriggerManaPaymentChoice`); `processAttackTriggersAfterDeclaration`. |
+| `combat-handlers/combatDeclareAttackersForceTapSupport.ts` | `socket/combat.ts` | Exert/enlist enqueue, goad status, forced-attack check, tap-on-attack triggers. |
+| `combat-handlers/combatDeclareAttackersExecute.ts` | `socket/combat.ts` | `executeDeclareAttackers` (AI / paid-attack / resolution-queue path). |
+| `combat-handlers/combatControlState.ts` | `socket/combat.ts` | `getCombatControl` / `setCombatControl`. |
+| `combat-handlers/combatDeclareAttackersRequest.ts` | `socket/combat.ts` | `handleDeclareAttackers`. |
+| `combat-handlers/combatDeclareControlledAttackersRequest.ts` | `socket/combat.ts` | `handleDeclareControlledAttackers`. |
 | `undo-handlers/undoBoundaryPlanning.ts` | `socket/undo.ts` | Semantic action counting, boundary keys/snapshots/history, smart undo counts. |
 | `undo-handlers/undoTurnPhaseTargets.ts` | `socket/undo.ts` | Earlier turn/phase/step jump targets. Entries: `listUndoTurnPhaseTargets`, `resolveUndoToTurnPhaseCount`. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerPostExecutionStateSync.ts` | `oracleIrServerZoneSync.ts` | Post-IR mirroring: GY→exile provenance, copy-token, prepared, linked exiles, reanimation, EOT token sacrifice/exile, impulse draws, temp abilities / P/T. |
@@ -567,6 +623,36 @@ Family dispatch in the parent: `if (applyXEvents(ctx, e)) return;`. `activateBat
 | `oracleIrServerZoneSync-handlers/oracleIrServerApplyOnServer.ts` | `oracleIrServerZoneSync.ts` | `applyOracleIRStepsOnServer`. Imports PostExecutionStateSync directly, not the index. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerResumeAndChoiceApply.ts` | `oracleIrServerZoneSync.ts` | Sacrifice queue, unless-discard/pay resume, remaining-steps resume, choice apply. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerAnyPlayerMayPrompts.ts` | `oracleIrServerZoneSync.ts` | Any-player-may parse/queue/resume. |
+
+### `targeting-handlers/` (extracted from `targeting.ts`)
+
+Public path stays `targeting.ts`. Leaves must not import `targeting.ts` or the index. Never create `targeting/` beside `targeting.ts`. `categorizeSpellWithoutPrimaryRetirement` keeps the exported dispatcher: normalize oracle, suppress exile/counter-all-spells, then `tryCategorize…` (`null` = fall through).
+
+| Module | Owns |
+| --- | --- |
+| `targetingSpellSpecTypes.ts` | `SpellOp`, `SpellSpec`, filters/restrictions. |
+| `targetingCategorizeCountUtils.ts` | `parseCountWord`, `titleCaseWords`. |
+| `targetingCategorizePermanentFilter.ts` | `detectCategorizePermanentFilter`. |
+| `targetingParseTargetRequirements.ts` | `parseTargetRequirements`, `matchesGraveyardCardTargetType`, `requiresTargeting`, `GroupedTargetRequirement`. |
+| `targetingCategorizeStackCounterSimpleTemplates.ts` | Stack/counter/simple templates. |
+| `targetingCategorizeScryMillMassRemoval.ts` | Scry/mill/mass-removal templates. |
+| `targetingCategorizeDamageFlickerRestrictions.ts` | Damage/flicker/restriction templates. |
+| `targetingCategorizeTapBounceGenericTargets.ts` | Tap/bounce/generic-target templates. |
+
+### `game-state-effects-handlers/` (extracted from `game-state-effects.ts`)
+
+Public path stays `game-state-effects.ts` (re-export barrel). Leaves must not import the parent or the index. Never create `game-state-effects/` beside `game-state-effects.ts`. Dual-copy: `WinCondition` in `triggers/win-conditions.ts` is a different type (game-result) — do not merge.
+
+| Module | Owns |
+| --- | --- |
+| `gameStateEffectsBattlefieldQueries.ts` | Phased-out-aware battlefield queries (creature count, devotion). |
+| `gameStateEffectsReplacementApply.ts` | 616.1 replacement order, detect, and apply (damage/life/counters/tokens/mill). |
+| `gameStateEffectsAbilityConditions.ts` | Metalcraft / threshold / delirium / coven / `getActiveAbilityConditions`. |
+| `gameStateEffectsTokenSubtype.ts` | Treasure / artifact token subtype checks. |
+| `gameStateEffectsWinLose.ts` | Win / lose / can't-lose, life change, empty-library draw, ascend. |
+| `gameStateEffectsLandPlayDraw.ts` | Additional land drops, temporary land bonuses, additional draws. |
+| `gameStateEffectsTopLibrary.ts` | Top-of-library look/play/cast, `recalculatePlayerEffects`. |
+| `gameStateEffectsMillDamage.ts` | Combat mill replacements, modified damage, `applyCombatDamageReplacement`. |
 
 ## Oracle IR parser postprocess extracts (`rules-engine/src/`)
 
@@ -609,6 +695,8 @@ Family dispatch in the parent: `if (applyXEvents(ctx, e)) return;`. `activateBat
 | `oracleIRParserPostprocessQuotedAbilityRiders.ts` | `extractQuotedAbilityRiderSteps` — lift quoted riders and rewrite leftover unknown residuals. |
 | `oracleIRParserPostprocessCurrentBatchSurfaces.ts` | `repairCurrentBatchSurfaceSteps` — restore executable step kinds swallowed by residual rewrites. |
 | `oracleIRExecutorExileOneOfThemHandlers.ts` | From `oracleIRExecutorSpecialTargetHandlers.ts`. `tryApplyExileOneOfThemLookedCards`. |
+| `oracleIRExecutorExileLookedContextualHandlers.ts` | From `oracleIRExecutorSpecialTargetHandlers.ts`. `tryApplyExileLookedContextualStep`. |
+| `oracleIRExecutorExilePileCounterAndTargetedHandlers.ts` | From `oracleIRExecutorSpecialTargetHandlers.ts`. `tryApplyExilePileCounterAndTargetedStep`. |
 
 ## Card data and SQLite connections (`server/src/services/`)
 

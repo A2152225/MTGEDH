@@ -1,0 +1,6 @@
+export {
+  trySpecialRegenerateStep,
+  trySpecialDealDamageStep,
+  trySpecialPreventDamageStep,
+} from './oracleIRExecutorSpecialTargetRegenerateDamageHandlers';
+

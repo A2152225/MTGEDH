@@ -483,7 +483,8 @@ export function tryApplyMainLoopLateSteps(
             pendingOptionalSteps.push(...elseResult.pendingOptionalSteps);
             absorbExecutionReplayMutations(elseResult);
             mergeNestedExecutionOutcome(elseResult);
-            appliedSteps.push(step);
+            if (elseResult.appliedSteps.length === 0) appliedSteps.push(step);
+            else anyConditionalProducedSteps = true;
             break;
           }
           falseConditionalMarkers.add(step);
@@ -608,8 +609,8 @@ export function tryApplyMainLoopLateSteps(
         pendingOptionalSteps.push(...result.pendingOptionalSteps);
         absorbExecutionReplayMutations(result);
         mergeNestedExecutionOutcome(result);
-        appliedSteps.push(step);
-        if (result.appliedSteps.length > 0) anyConditionalProducedSteps = true;
+        if (result.appliedSteps.length === 0) appliedSteps.push(step);
+        else anyConditionalProducedSteps = true;
         break;
       }
       case 'unless_pays_life': {

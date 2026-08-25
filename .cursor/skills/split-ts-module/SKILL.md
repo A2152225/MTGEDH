@@ -128,6 +128,7 @@ Never `X.ts` and `X/index.ts` in the same directory. Index files: named re-expor
 - Appending to a sibling already at ~36–40KB.
 - Creating `socket/resolution/` or `socket/game-actions/` next to the same-named `.ts`.
 - Returning behavior changes inside a split diff.
+- Always appending a successful `conditional` wrapper to `appliedSteps` after inner/else steps already ran. Record the wrapper only when that branch applied nothing (`oracleIRExecutorMainLoopLateSteps.ts`). Tests assert inner kinds (`move_zone`, `unless_discards`, …), not a trailing `'conditional'`.
 - Reviving `tools/_refactor_scratch/*.mjs` dump-and-cut scripts — they caused CRLF and reconstruction bugs. Use `tools/extract-ts-cluster.mjs` (byte-copy) instead.
 - ts-morph / jscodeshift / recast / `ts.createPrinter` as extract writers — they reprint the file. Parser-only inventory is fine; printing is not.
 - A second agent writing the same parent file concurrently.

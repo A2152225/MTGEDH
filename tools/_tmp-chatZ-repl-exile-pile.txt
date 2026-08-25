@@ -1,0 +1,3 @@
+  const pileCounterAndTargeted = tryApplyExilePileCounterAndTargetedStep(state, step, ctx);
+  if (pileCounterAndTargeted) return pileCounterAndTargeted;
+

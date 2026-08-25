@@ -1,0 +1,14 @@
+/**
+ * Extracted from oracleIRExecutorSpecialTargetHandlers.ts.
+ * Public: trySpecialMoveCountersStep, trySpecialScheduleDelayedBattlefieldActionStep
+ */
+import type { GameState, BattlefieldPermanent } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import {
+  collectBoundIds,
+  normalizeRaw,
+  type SpecialTargetStepResult,
+} from './oracleIRExecutorSpecialTargetOps';
+

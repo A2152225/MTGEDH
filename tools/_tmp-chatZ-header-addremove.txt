@@ -1,0 +1,22 @@
+/**
+ * Extracted from oracleIRExecutorSpecialTargetHandlers.ts.
+ * Public: trySpecialAddCounterStep, trySpecialRemoveCounterStep
+ */
+import type { GameState, BattlefieldPermanent } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
+import { tryBatch386RemoveCounterStep } from './oracleIRExecutorSpecialTargetHandlersBatch386Bulk';
+import { tryBatch388RemoveCounterStep } from './oracleIRExecutorSpecialTargetHandlersBatch388Bulk';
+import { tryBatch389RemoveCounterStep } from './oracleIRExecutorSpecialTargetHandlersBatch389Bulk';
+import {
+  collectBoundIds,
+  normalizeClause,
+  normalizeRaw,
+  readContextualCardsFromCtx,
+  typeLineHasSubtype,
+  type SpecialTargetStepResult,
+} from './oracleIRExecutorSpecialTargetOps';
+import { resolveContextualCreature } from './oracleIRExecutorSpecialTargetResolve';
+

@@ -1,0 +1,37 @@
+// server/src/rules-engine/targeting-handlers/index.ts
+// Internal / agent TOC barrel for clusters extracted out of
+// server/src/rules-engine/targeting.ts.
+// Named re-exports only - no implementations, no `export *`.
+// The public compatibility path stays server/src/rules-engine/targeting.ts
+// ("./targeting.js"). Never create targeting/ beside targeting.ts.
+
+// SpellSpec and related public types.
+export type {
+  SpellOp,
+  PermanentFilter,
+  SpellTypeFilter,
+  StatRequirement,
+  TargetRestrictionType,
+  TargetRestriction,
+  SpellSpec,
+} from "./targetingSpellSpecTypes.js";
+
+// Word-to-number and title-case helpers for categorize templates.
+export { parseCountWord, titleCaseWords } from "./targetingCategorizeCountUtils.js";
+
+// Shared permanent-type filter detection for destroy/exile categorize patterns.
+export { detectCategorizePermanentFilter } from "./targetingCategorizePermanentFilter.js";
+
+// Graveyard target-type helpers, requiresTargeting, and parseTargetRequirements.
+export {
+  matchesGraveyardCardTargetType,
+  requiresTargeting,
+  parseTargetRequirements,
+} from "./targetingParseTargetRequirements.js";
+export type { GroupedTargetRequirement } from "./targetingParseTargetRequirements.js";
+
+// categorizeSpellWithoutPrimaryRetirement pattern families (null = fall through).
+export { tryCategorizeStackCounterSimpleTemplates } from "./targetingCategorizeStackCounterSimpleTemplates.js";
+export { tryCategorizeScryMillMassRemoval } from "./targetingCategorizeScryMillMassRemoval.js";
+export { tryCategorizeDamageFlickerRestrictions } from "./targetingCategorizeDamageFlickerRestrictions.js";
+export { tryCategorizeTapBounceGenericTargets } from "./targetingCategorizeTapBounceGenericTargets.js";

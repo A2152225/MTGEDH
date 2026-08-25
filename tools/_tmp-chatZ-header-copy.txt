@@ -1,0 +1,35 @@
+/**
+ * Extracted from oracleIRExecutorSpecialTargetHandlers.ts.
+ * Public: trySpecialCopyPermanentStep
+ */
+import type { GameState, BattlefieldPermanent } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
+import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
+import { collectExiledCardsLedgerFirst } from './oracleIRLedgerCardAccess';
+import {
+  tryBatch386CopyPermanentStep,
+} from './oracleIRExecutorSpecialTargetHandlersBatch386Bulk';
+import {
+  tryBatch387CopyPermanentStep,
+} from './oracleIRExecutorSpecialTargetHandlersBatch387Bulk';
+import {
+  tryBatch388CopyPermanentStep,
+} from './oracleIRExecutorSpecialTargetHandlersBatch388Bulk';
+import {
+  tryBatch389CopyPermanentStep,
+} from './oracleIRExecutorSpecialTargetHandlersBatch389Bulk';
+import {
+  collectBoundIds,
+  normalizeRaw,
+  readContextualCardsFromRuntime,
+  type SpecialTargetStepResult,
+} from './oracleIRExecutorSpecialTargetOps';
+import {
+  resolveContextualCreature,
+  resolveEnchantedHost,
+  resolveSourcePermanent,
+} from './oracleIRExecutorSpecialTargetResolve';
+

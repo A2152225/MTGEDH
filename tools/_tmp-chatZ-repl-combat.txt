@@ -1,0 +1,8 @@
+export {
+  trySpecialExertStep,
+  trySpecialTurnFaceDownStep,
+  trySpecialTapOrUntapStep,
+  trySpecialForceBlockStep,
+  trySpecialSuspectStep,
+} from './oracleIRExecutorSpecialTargetCombatStatusHandlers';
+

@@ -1,0 +1,27 @@
+/**
+ * Extracted from oracleIRExecutorSpecialTargetHandlers.ts.
+ * Public: trySpecialRegenerateStep, trySpecialDealDamageStep, trySpecialPreventDamageStep
+ */
+import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
+import { createRegenerationShield } from './keywordAbilities/regeneration';
+import {
+  createTargetAllDamagePreventionEffect,
+  createTargetDamagePreventionEffect,
+  registerDamagePreventionEffect,
+} from './oracleIRDamagePrevention';
+import { tryBatch386DealDamageStep, tryBatch386RegenerateStep } from './oracleIRExecutorSpecialTargetHandlersBatch386Bulk';
+import { tryBatch389DealDamageStep } from './oracleIRExecutorSpecialTargetHandlersBatch389Bulk';
+import { tryBatch391DealDamageStep } from './oracleIRExecutorSpecialTargetHandlersBatch391Bulk';
+import {
+  collectBoundIds,
+  normalizeClause,
+  normalizeRaw,
+  normalizeTargetText,
+  readPower,
+  type SpecialTargetStepResult,
+} from './oracleIRExecutorSpecialTargetOps';
+

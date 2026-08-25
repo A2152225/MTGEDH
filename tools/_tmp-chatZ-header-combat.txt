@@ -1,0 +1,18 @@
+/**
+ * Extracted from oracleIRExecutorSpecialTargetHandlers.ts.
+ * Public: trySpecialExertStep, trySpecialTurnFaceDownStep, trySpecialTapOrUntapStep,
+ * trySpecialForceBlockStep, trySpecialSuspectStep
+ */
+import type { GameState, BattlefieldPermanent } from '../../shared/src';
+import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import { tryBatch386SuspectStep } from './oracleIRExecutorSpecialTargetHandlersBatch386Bulk';
+import {
+  collectBoundIds,
+  normalizeRaw,
+  type SpecialTargetStepResult,
+} from './oracleIRExecutorSpecialTargetOps';
+import { resolveContextualCreature } from './oracleIRExecutorSpecialTargetResolve';
+

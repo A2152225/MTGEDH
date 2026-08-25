@@ -1,0 +1,13 @@
+/**
+ * Extracted from oracleIRExecutorSpecialTargetHandlers.ts.
+ * Shared special-target result types, normalize helpers, and exile ops.
+ * Public: SpecialTargetStepResult, normalizeRaw, normalizeTargetText, collectBoundIds,
+ * exileBattlefieldPermanents, millToExile, exileContextualCardsFromCtx, exileSourceWithCounter.
+ */
+import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { finalizeBattlefieldRemoval, resolveZoneCardIdFromPermanent } from './oracleIRExecutorBattlefieldOps';
+import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
+import { collectContextualCardsLedgerFirst } from './oracleIRLedgerCardAccess';
+

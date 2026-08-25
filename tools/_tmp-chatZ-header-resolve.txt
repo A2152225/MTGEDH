@@ -1,0 +1,10 @@
+/**
+ * Extracted from oracleIRExecutorSpecialTargetHandlers.ts.
+ * Battlefield permanent resolvers for special-target steps.
+ * Public: resolveSourcePermanent, resolveEnchantedHost, resolveContextualCreature
+ */
+import type { BattlefieldPermanent } from '../../shared/src';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import { collectBoundIds } from './oracleIRExecutorSpecialTargetOps';
+

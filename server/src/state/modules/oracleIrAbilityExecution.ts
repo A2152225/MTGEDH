@@ -446,16 +446,21 @@ export function tryApplyOracleIRToActivatedAbility(
     });
 
     if (!handled) {
-      logOracleIrAllOrNothingFailure(
-        'activated',
-        params.sourceName,
-        describeOracleIrActivatedAbilityIncomplete(steps, result, {
-          resolutionQueueStepsBefore: queueBefore,
-          resolutionQueueStepsAfter: queueAfter,
-        }),
-        { applied, parsed: steps.length },
-        { gameId: gameId !== 'unknown' ? gameId : undefined },
-      );
+      // Legal rules rejection (e.g. Class cannot skip from level 1 to 3) is not an IR gap.
+      const legalImpossibleSkip =
+        applied === 0 && result.lastStepOutcome?.kind === 'impossible';
+      if (!legalImpossibleSkip) {
+        logOracleIrAllOrNothingFailure(
+          'activated',
+          params.sourceName,
+          describeOracleIrActivatedAbilityIncomplete(steps, result, {
+            resolutionQueueStepsBefore: queueBefore,
+            resolutionQueueStepsAfter: queueAfter,
+          }),
+          { applied, parsed: steps.length },
+          { gameId: gameId !== 'unknown' ? gameId : undefined },
+        );
+      }
     } else {
       debug(
         2,

@@ -88,7 +88,7 @@ describe('Court of Ambition unless-discards + monarch-instead conditional', () =
     const p2 = (result.state as any).players.find((entry: any) => entry.id === 'p2');
     expect(p2.life).toBe(40);
     expect(p2.hand.length).toBe(0);
-    expect(result.appliedSteps.some((step) => step.kind === 'conditional')).toBe(true);
+    expect(result.appliedSteps.map((step) => step.kind)).toEqual(['unless_discards']);
   });
 
   it('not monarch + opponent chooses to discard but has more cards than needed: surfaces a discard card-selection gap', () => {

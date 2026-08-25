@@ -1,0 +1,24 @@
+/**
+ * Extracted from oracleIRExecutorSpecialTargetHandlers.ts.
+ * Public: trySpecialDestroyStep
+ */
+import type { GameState, BattlefieldPermanent } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
+import { parseDestroyChosenQualityTarget } from './oracleIRExecutorZoneOps';
+import { tryBatch386DestroyStep } from './oracleIRExecutorSpecialTargetHandlersBatch386Bulk';
+import { tryBatch387DestroyStep } from './oracleIRExecutorSpecialTargetHandlersBatch387Bulk';
+import { tryBatch388DestroyStep } from './oracleIRExecutorSpecialTargetHandlersBatch388Bulk';
+import { tryBatch389DestroyStep } from './oracleIRExecutorSpecialTargetHandlersBatch389Bulk';
+import {
+  collectBoundIds,
+  exileBattlefieldPermanents,
+  normalizeClause,
+  normalizeRaw,
+  readPower,
+  typeLineHasSubtype,
+  type SpecialTargetStepResult,
+} from './oracleIRExecutorSpecialTargetOps';
+

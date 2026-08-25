@@ -127,7 +127,7 @@ function resolveSinglePermanentDamageTargetId(
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/[.!]$/, '');
-  if (targetText !== 'any target') return undefined;
+  if (targetText !== 'any target' && targetText !== 'target') return undefined;
 
   const candidateIds = [
     String(ctx.targetPermanentId || '').trim(),

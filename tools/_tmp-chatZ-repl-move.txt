@@ -1,0 +1,5 @@
+export {
+  trySpecialMoveCountersStep,
+  trySpecialScheduleDelayedBattlefieldActionStep,
+} from './oracleIRExecutorSpecialTargetMoveCountersHandlers';
+

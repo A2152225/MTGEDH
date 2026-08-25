@@ -1,0 +1,29 @@
+/**
+ * Extracted from oracleIRExecutorSpecialTargetHandlers.ts: leftover exile
+ * families after batch 386-389 dispatch (looked/contextual cards, top mill,
+ * mass nontoken, and "the rest").
+ * Public: tryApplyExileLookedContextualStep
+ */
+import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import { tryApplyExileOneOfThemLookedCards } from './oracleIRExecutorExileOneOfThemHandlers.js';
+import {
+  collectBoundIds,
+  exileBattlefieldPermanents,
+  exileContextualCardsFromCtx,
+  millToExile,
+  normalizeRaw,
+  normalizeTargetText,
+  readContextualAndExiledCardsFromCtx,
+  readContextualCardsFromCtx,
+  type SpecialTargetStepResult,
+} from './oracleIRExecutorSpecialTargetOps';
+import { resolveEnchantedHost } from './oracleIRExecutorSpecialTargetResolve';
+
+export function tryApplyExileLookedContextualStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'exile' }>,
+  ctx: OracleIRExecutionContext,
+): SpecialTargetStepResult | null {

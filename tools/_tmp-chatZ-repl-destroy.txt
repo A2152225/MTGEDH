@@ -1,0 +1,2 @@
+export { trySpecialDestroyStep } from './oracleIRExecutorSpecialTargetDestroyHandlers';
+

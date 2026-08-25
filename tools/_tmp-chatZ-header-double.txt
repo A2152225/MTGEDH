@@ -1,0 +1,21 @@
+/**
+ * Extracted from oracleIRExecutorSpecialTargetHandlers.ts.
+ * Public: trySpecialDoubleCountersStep
+ */
+import type { GameState, BattlefieldPermanent } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import {
+  collectBoundIds,
+  normalizeRaw,
+  normalizeTargetText,
+  readPower,
+  typeLineHasSubtype,
+  type SpecialTargetStepResult,
+} from './oracleIRExecutorSpecialTargetOps';
+import {
+  resolveEnchantedHost,
+  resolveSourcePermanent,
+} from './oracleIRExecutorSpecialTargetResolve';
+

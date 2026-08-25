@@ -1,0 +1,27 @@
+/**
+ * Extracted from oracleIRExecutorSpecialTargetHandlers.ts.
+ * Public: trySpecialSacrificeStep
+ */
+import type { GameState, BattlefieldPermanent } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { finalizeBattlefieldRemoval, permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import {
+  tryBatch387SacrificeStep,
+} from './oracleIRExecutorSpecialTargetHandlersBatch387Bulk';
+import {
+  tryBatch388SacrificeStep,
+} from './oracleIRExecutorSpecialTargetHandlersBatch388Bulk';
+import {
+  tryBatch389SacrificeStep,
+} from './oracleIRExecutorSpecialTargetHandlersBatch389Bulk';
+import {
+  normalizeRaw,
+  type SpecialTargetStepResult,
+} from './oracleIRExecutorSpecialTargetOps';
+import {
+  resolveContextualCreature,
+  resolveEnchantedHost,
+  resolveSourcePermanent,
+} from './oracleIRExecutorSpecialTargetResolve';
+
