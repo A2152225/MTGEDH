@@ -1,16 +1,15 @@
 import type { GameState } from '../../shared/src';
-import { ChoiceEventType, type ChoiceOption, type ChoiceResponse } from './choiceEventsTypes';
+import { ChoiceEventType, type ChoiceResponse } from './choiceEventsTypes';
 import { applyOracleIRStepsToGameState } from './oracleIRExecutor';
 import {
   applyGrantGraveyardPermissionStep,
   applyModifyGraveyardPermissionsStep,
   buildDiscardSelectionOptions,
 } from './oracleIRExecutorPlayerStepHandlers';
-import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
 import { evaluateConditionalWrapperCondition } from './oracleIRExecutorConditionalStepSupport';
 import { applyProliferateSelectedTargetIds, getProliferateChoiceTargets } from './oracleIRExecutorKeywordStepHandlers';
 import type { OracleIRExecutionContext, OracleIRExecutionOptions, OracleIRExecutionResult } from './oracleIRExecutionTypes';
-import { resolvePlayers, listEligibleChooseOpponentIds } from './oracleIRExecutorPlayerUtils';
+import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import { buildSacrificeTargetSelectionOptions } from './oracleIRExecutorBattlefieldStepHandlers';
 import { executePopulate, getPopulateTargets } from './keywordActions/populate';
 import { parseOracleTextToIR } from './oracleIRParser';
@@ -29,6 +28,49 @@ import {
   type EffectProgramRunResult,
   type EffectProgramRuntime,
 } from './effectProgram';
+import {
+  normalizeChoiceResponseSelection,
+  normalizeChoiceResponseSelections,
+} from './effectProgramOracleRunner-handlers/effectProgramOracleRunnerChoiceNormalize';
+import {
+  buildOracleIRPlayerChoiceOptions,
+  buildOracleIRTargetSelectionOptions,
+  hasNonEmptyChoiceOptions,
+  inferOracleIRTargetTypes,
+  shouldOracleIRPlayerChoiceAllowSelf,
+} from './effectProgramOracleRunner-handlers/effectProgramOracleRunnerChoiceOptions';
+import {
+  buildPopulateTargetChoiceOption,
+  findBattlefieldPermanent,
+  isLandCard,
+  readPermanentName,
+  resolveExploreTargetId,
+  resolvePopulatePlayerId,
+} from './effectProgramOracleRunner-handlers/effectProgramOracleRunnerChoiceLookups';
+import {
+  findFatesealTargetPlayerId,
+  getPlayerLibrary,
+  normalizeSelectionIdList,
+  normalizeTopLibraryPromptCard,
+  quantityToStaticNumber,
+  readFirstSelectionForBinding,
+  resolveTopLibraryChoicePlayerId,
+} from './effectProgramOracleRunner-handlers/effectProgramOracleRunnerLibraryLookups';
+import {
+  findClashOpponentPlayerId,
+  resolveClashPlayerId,
+} from './effectProgramOracleRunner-handlers/effectProgramOracleRunnerClashLookups';
+import {
+  LAST_ACTION_OUTCOME_BINDING,
+  LAST_GRANTED_GRAVEYARD_CARDS_BINDING,
+  LAST_GRANTED_GRAVEYARD_PERMISSION_IDS_BINDING,
+  LAST_MOVED_CARDS_BINDING,
+  LAST_REVEALED_CARD_COUNT_BINDING,
+} from './effectProgramOracleRunner-handlers/effectProgramOracleRunnerBindingKeys';
+import {
+  createOracleIRContextWithEffectProgramBindings,
+  createOracleIROptionsWithEffectProgramBindings,
+} from './effectProgramOracleRunner-handlers/effectProgramOracleRunnerContextBindings';
 
 export interface OracleIRCommandExecutionEvent {
   readonly type: 'oracle_ir_execution';
@@ -56,19 +98,6 @@ export interface BuildEffectProgramsFromOracleTextResult {
   readonly programs: readonly EffectProgram[];
 }
 
-interface DerivedOracleIRContextBindings {
-  targetCreatureId?: string;
-  targetPermanentId?: string;
-  targetSpellId?: string;
-  lastClashWon?: boolean;
-  selectorContext?: Record<string, unknown>;
-}
-
-const LAST_GRANTED_GRAVEYARD_CARDS_BINDING = '__oracleLastGrantedGraveyardCards';
-const LAST_GRANTED_GRAVEYARD_PERMISSION_IDS_BINDING = '__oracleLastGrantedGraveyardPermissionIds';
-const LAST_ACTION_OUTCOME_BINDING = '__oracleLastActionOutcome';
-const LAST_MOVED_CARDS_BINDING = '__oracleLastMovedCards';
-const LAST_REVEALED_CARD_COUNT_BINDING = '__oracleLastRevealedCardCount';
 
 export type OracleIREffectProgramHandlerOverrides = Omit<EffectProgramHandlers<GameState>, 'applyCommand'> & {
   readonly applyCommand?: EffectProgramHandlers<GameState>['applyCommand'];
@@ -878,55 +907,6 @@ function applyClashChoiceCommand(
   };
 }
 
-function resolveClashPlayerId(
-  state: GameState,
-  oracleStep: OracleEffectStep | undefined,
-  ctx: OracleIRExecutionContext
-): string | undefined {
-  if (!oracleStep || String((oracleStep as any).kind || '') !== 'clash') {
-    return undefined;
-  }
-
-  const players = resolvePlayers(state, (oracleStep as any).who, ctx);
-  return players.length === 1 ? String(players[0]) : undefined;
-}
-
-function findClashOpponentPlayerId(
-  runtime: EffectProgramRuntime<GameState>,
-  commandStep: EffectProgramCommandStep,
-  oracleStep: OracleEffectStep,
-  state: GameState,
-  ctx: OracleIRExecutionContext
-): string | undefined {
-  const opponentBindingKey = findClashTargetBindingKey(runtime, commandStep);
-  const selectedOpponentId = readFirstSelectionForBinding(runtime, opponentBindingKey);
-  if (selectedOpponentId) {
-    return selectedOpponentId;
-  }
-
-  if (!(oracleStep as any).opponent) {
-    return undefined;
-  }
-
-  const opponents = resolvePlayers(state, (oracleStep as any).opponent, ctx);
-  return opponents.length === 1 ? String(opponents[0]) : undefined;
-}
-
-function findClashTargetBindingKey(
-  runtime: EffectProgramRuntime<GameState>,
-  commandStep: EffectProgramCommandStep
-): string {
-  const commandIndex = runtime.program.steps.findIndex(step => step.id === commandStep.id);
-  const searchSteps = commandIndex >= 0 ? runtime.program.steps.slice(0, commandIndex) : runtime.program.steps;
-  for (const step of searchSteps) {
-    if (step.kind !== 'choice') continue;
-    const payload = step.choiceRequest?.payload as any;
-    if (String(payload?.oracleStepKind || '') === 'clash_target') {
-      return step.bindingKey;
-    }
-  }
-  return '';
-}
 
 function readClashParticipantResponse(
   runtime: EffectProgramRuntime<GameState>,
@@ -1063,58 +1043,6 @@ function applyPopulateChoiceCommand(
   };
 }
 
-function resolvePopulatePlayerId(
-  state: GameState,
-  oracleStep: OracleEffectStep | undefined,
-  ctx: OracleIRExecutionContext
-): string | undefined {
-  if (!oracleStep || String((oracleStep as any).kind || '') !== 'populate') {
-    return undefined;
-  }
-
-  const players = resolvePlayers(state, (oracleStep as any).who, ctx);
-  return players.length === 1 ? String(players[0]) : undefined;
-}
-
-function buildPopulateTargetChoiceOption(token: any): ChoiceOption {
-  const id = String(token?.id || '').trim();
-  const name = String(token?.card?.name || token?.name || id || 'Creature Token');
-  return {
-    id,
-    label: name,
-    description: 'Creature token',
-    imageUrl: token?.imageUrl || token?.card?.imageUrl || token?.card?.image_uris?.normal,
-  };
-}
-
-function resolveExploreTargetId(
-  state: GameState,
-  oracleStep: OracleEffectStep | undefined,
-  ctx: OracleIRExecutionContext
-): string | undefined {
-  if (!oracleStep || String((oracleStep as any).kind || '') !== 'explore' || !(oracleStep as any).target) {
-    return undefined;
-  }
-
-  return resolveSingleCreatureTargetId(state, (oracleStep as any).target, ctx);
-}
-
-function findBattlefieldPermanent(state: GameState, permanentId: string): any | undefined {
-  return (((state as any).battlefield || []) as any[])
-    .find(permanent => String(permanent?.id || '').trim() === permanentId);
-}
-
-function readPermanentName(permanent: any, fallbackId: string): string {
-  return String(permanent?.card?.name || permanent?.name || fallbackId || 'Creature');
-}
-
-function isLandCard(card: any): boolean {
-  return getCardTypeLine(card).includes('land');
-}
-
-function getCardTypeLine(card: any): string {
-  return String(card?.type_line || card?.card?.type_line || '').toLowerCase();
-}
 
 function normalizeTopLibraryChoiceSelection(
   selections: ChoiceResponse['selections'],
@@ -1130,586 +1058,7 @@ function normalizeTopLibraryChoiceSelection(
   };
 }
 
-function findFatesealTargetPlayerId(
-  runtime: EffectProgramRuntime<GameState>,
-  commandStep: EffectProgramCommandStep
-): string | undefined {
-  const fatesealBindingKey = commandStep.guard?.bindingKey;
-  const fatesealChoiceStep = runtime.program.steps.find(step => (
-    step.kind === 'choice' &&
-    step.bindingKey === fatesealBindingKey &&
-    String(step.choiceEvent?.type || step.choiceRequest?.type || '') === ChoiceEventType.FATESEAL
-  ));
-  const targetBindingKey = fatesealChoiceStep?.kind === 'choice'
-    ? String((fatesealChoiceStep.choiceRequest?.payload as any)?.targetBindingKey || '')
-    : '';
-  return readFirstSelectionForBinding(runtime, targetBindingKey);
-}
 
-function readFirstSelectionForBinding(
-  runtime: EffectProgramRuntime<GameState>,
-  bindingKey: string
-): string | undefined {
-  if (!bindingKey) {
-    return undefined;
-  }
 
-  const response = runtime.bindings[bindingKey] as ChoiceResponse | undefined;
-  if (!response || response.cancelled) {
-    return undefined;
-  }
 
-  return normalizeChoiceResponseSelections(response)[0];
-}
 
-function normalizeSelectionIdList(value: unknown): readonly string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.map(selection => normalizeChoiceResponseSelection(selection)).filter(Boolean);
-}
-
-function getPlayerLibrary(state: GameState, playerId: string): readonly any[] {
-  const player = (state.players || []).find(candidate => String(candidate?.id || '') === playerId) as any;
-  return Array.isArray(player?.library) ? player.library : [];
-}
-
-function resolveTopLibraryChoicePlayerId(
-  state: GameState,
-  oracleStep: OracleEffectStep | undefined,
-  ctx: OracleIRExecutionContext,
-  controllerId: string
-): string | undefined {
-  if (!oracleStep) {
-    return controllerId;
-  }
-
-  const who = (oracleStep as any)?.who;
-  if (!who) {
-    return controllerId;
-  }
-
-  const players = resolvePlayers(state, who, ctx);
-  if (players.length === 1) {
-    return String(players[0]);
-  }
-
-  return players.length === 0 ? controllerId : undefined;
-}
-
-function normalizeTopLibraryPromptCard(card: any): Record<string, unknown> {
-  return {
-    id: String(card?.id || ''),
-    name: String(card?.name || card?.card?.name || card?.id || 'Unknown Card'),
-    type_line: card?.type_line || card?.card?.type_line,
-    oracle_text: card?.oracle_text || card?.card?.oracle_text,
-    imageUrl: card?.imageUrl || card?.image_uris?.normal || card?.card?.imageUrl || card?.card?.image_uris?.normal,
-    mana_cost: card?.mana_cost || card?.card?.mana_cost,
-    cmc: card?.cmc ?? card?.card?.cmc,
-  };
-}
-
-function quantityToStaticNumber(quantity: unknown): number | undefined {
-  if ((quantity as any)?.kind === 'number' && Number.isFinite(Number((quantity as any).value))) {
-    return Number((quantity as any).value);
-  }
-
-  return undefined;
-}
-
-function createOracleIRContextWithEffectProgramBindings(
-  ctx: OracleIRExecutionContext,
-  runtime: EffectProgramRuntime<GameState>
-): OracleIRExecutionContext {
-  const derived = deriveOracleIRContextFromEffectProgramBindings(runtime);
-  const boundLastMovedCards = runtime.bindings[LAST_MOVED_CARDS_BINDING];
-  const boundLastRevealedCardCount = runtime.bindings[LAST_REVEALED_CARD_COUNT_BINDING];
-  const lastMovedCards = Array.isArray(boundLastMovedCards)
-    ? boundLastMovedCards
-    : Array.isArray(ctx.lastMovedCards)
-      ? ctx.lastMovedCards
-      : undefined;
-  const lastRevealedCardCount = typeof boundLastRevealedCardCount === 'number'
-    ? Math.max(0, Number(boundLastRevealedCardCount) || 0)
-    : ctx.lastRevealedCardCount;
-
-  if (!derived && !lastMovedCards && lastRevealedCardCount === ctx.lastRevealedCardCount) {
-    return ctx;
-  }
-
-  if (!derived) {
-    return {
-      ...ctx,
-      ...(lastMovedCards ? { lastMovedCards } : {}),
-      ...(typeof lastRevealedCardCount === 'number' ? { lastRevealedCardCount } : {}),
-    };
-  }
-
-  return {
-    ...ctx,
-    targetCreatureId: derived.targetCreatureId || ctx.targetCreatureId,
-    targetPermanentId: derived.targetPermanentId || ctx.targetPermanentId,
-    targetSpellId: derived.targetSpellId || ctx.targetSpellId,
-    lastClashWon: typeof derived.lastClashWon === 'boolean' ? derived.lastClashWon : ctx.lastClashWon,
-    ...(lastMovedCards ? { lastMovedCards } : {}),
-    ...(typeof lastRevealedCardCount === 'number' ? { lastRevealedCardCount } : {}),
-    ...(derived.selectorContext?.unlessPaysManaChoice === 'pay' || derived.selectorContext?.unlessPaysManaChoice === 'decline'
-      ? { unlessPaysManaChoice: derived.selectorContext.unlessPaysManaChoice }
-      : {}),
-    ...(derived.selectorContext?.unlessPaysLifeChoice === 'pay' || derived.selectorContext?.unlessPaysLifeChoice === 'decline'
-      ? { unlessPaysLifeChoice: derived.selectorContext.unlessPaysLifeChoice }
-      : {}),
-    ...(derived.selectorContext?.unlessDiscardsChoice === 'discard' || derived.selectorContext?.unlessDiscardsChoice === 'decline'
-      ? { unlessDiscardsChoice: derived.selectorContext.unlessDiscardsChoice }
-      : {}),
-    ...(derived.selectorContext?.unlessSacrificesChoice === 'sacrifice' || derived.selectorContext?.unlessSacrificesChoice === 'decline'
-      ? { unlessSacrificesChoice: derived.selectorContext.unlessSacrificesChoice }
-      : {}),
-    selectorContext: {
-      ...(ctx.selectorContext || {}),
-      ...(derived.selectorContext || {}),
-    },
-  };
-}
-
-function createOracleIROptionsWithEffectProgramBindings(
-  options: OracleIRExecutionOptions,
-  runtime: EffectProgramRuntime<GameState>,
-  commandStep?: EffectProgramCommandStep
-): OracleIRExecutionOptions {
-  const selectedModeIds = findSelectedModeIdsForCommand(runtime, commandStep);
-  const oracleStep = commandStep?.command?.kind === 'oracle_ir_step'
-    ? commandStep.command.step
-    : undefined;
-  const guardedOptionalAccepted =
-    commandStep?.guard?.selectionIncludes === 'yes'
-    || Boolean((oracleStep as any)?.optional);
-  const mergedOptions: OracleIRExecutionOptions = {
-    ...options,
-    ...(guardedOptionalAccepted ? { allowOptional: true } : {}),
-    ...(selectedModeIds.length > 0 ? { selectedModeIds } : {}),
-  };
-
-  return mergedOptions;
-}
-
-function findSelectedModeIdsForCommand(
-  runtime: EffectProgramRuntime<GameState>,
-  commandStep?: EffectProgramCommandStep
-): readonly string[] {
-  const preferredBindingKey = commandStep?.guard?.bindingKey;
-  if (preferredBindingKey) {
-    const preferred = readSelectedModeIdsForBinding(runtime, preferredBindingKey);
-    if (preferred.length > 0) {
-      return preferred;
-    }
-  }
-
-  const commandIndex = commandStep
-    ? runtime.program.steps.findIndex(step => step.id === commandStep.id)
-    : -1;
-  if (commandIndex > 0) {
-    for (let index = commandIndex - 1; index >= 0; index -= 1) {
-      const step = runtime.program.steps[index];
-      if (step?.kind !== 'choice') {
-        continue;
-      }
-
-      const choiceType = String(step.choiceEvent?.type || step.choiceRequest?.type || '');
-      if (choiceType !== ChoiceEventType.MODE_SELECTION) {
-        continue;
-      }
-
-      const selectedModeIds = readSelectedModeIdsForBinding(runtime, step.bindingKey);
-      if (selectedModeIds.length > 0) {
-        return selectedModeIds;
-      }
-    }
-  }
-
-  for (const step of runtime.program.steps) {
-    if (step.kind !== 'choice') {
-      continue;
-    }
-
-    const choiceType = String(step.choiceEvent?.type || step.choiceRequest?.type || '');
-    if (choiceType !== ChoiceEventType.MODE_SELECTION) {
-      continue;
-    }
-
-    const response = runtime.bindings[step.bindingKey] as ChoiceResponse | undefined;
-    if (!response || response.cancelled) {
-      continue;
-    }
-
-    const selectedModeIds = readSelectedModeIdsForBinding(runtime, step.bindingKey);
-    if (selectedModeIds.length > 0) {
-      return selectedModeIds;
-    }
-  }
-
-  return [];
-}
-
-function readSelectedModeIdsForBinding(
-  runtime: EffectProgramRuntime<GameState>,
-  bindingKey: string
-): readonly string[] {
-  const step = runtime.program.steps.find(candidate => candidate.kind === 'choice' && candidate.bindingKey === bindingKey);
-  if (step?.kind !== 'choice') {
-    return [];
-  }
-
-  const choiceType = String(step.choiceEvent?.type || step.choiceRequest?.type || '');
-  if (choiceType !== ChoiceEventType.MODE_SELECTION) {
-    return [];
-  }
-
-  const response = runtime.bindings[bindingKey] as ChoiceResponse | undefined;
-  if (!response || response.cancelled) {
-    return [];
-  }
-
-  return normalizeChoiceResponseSelections(response);
-}
-
-function deriveOracleIRContextFromEffectProgramBindings(
-  runtime: EffectProgramRuntime<GameState>
-): DerivedOracleIRContextBindings | undefined {
-  const selectorContext: Record<string, unknown> = {};
-  const derived: DerivedOracleIRContextBindings = {};
-
-  for (const step of runtime.program.steps) {
-    if (step.kind !== 'choice') {
-      continue;
-    }
-
-    const response = runtime.bindings[step.bindingKey] as ChoiceResponse | undefined;
-    if (!response || response.cancelled) {
-      continue;
-    }
-
-    const selections = normalizeChoiceResponseSelections(response);
-    const firstSelection = selections[0];
-    if (!firstSelection) {
-      continue;
-    }
-
-    const choiceType = String(step.choiceEvent?.type || step.choiceRequest?.type || '');
-    if (choiceType === ChoiceEventType.TARGET_SELECTION) {
-      selectorContext.chosenObjectIds = selections;
-      const targetKind = classifyChoiceTarget(runtime.state, firstSelection, runtime.program.controllerId);
-      if (targetKind === 'player') {
-        selectorContext.targetPlayerId = firstSelection;
-        if (firstSelection !== runtime.program.controllerId) {
-          selectorContext.targetOpponentId = firstSelection;
-        }
-      } else if (targetKind === 'creature') {
-        derived.targetCreatureId = firstSelection;
-        derived.targetPermanentId = firstSelection;
-      } else {
-        derived.targetPermanentId = firstSelection;
-      }
-      continue;
-    }
-
-    if (choiceType === ChoiceEventType.DISCARD_SELECTION) {
-      selectorContext.chosenObjectIds = selections;
-      continue;
-    }
-
-    if (choiceType === ChoiceEventType.PLAYER_CHOICE) {
-      selectorContext.targetPlayerId = firstSelection;
-      if (firstSelection !== runtime.program.controllerId) {
-        selectorContext.targetOpponentId = firstSelection;
-      }
-      continue;
-    }
-
-    if (choiceType === ChoiceEventType.COLOR_CHOICE) {
-      selectorContext.chosenMana = normalizeChosenManaSelection(firstSelection);
-      continue;
-    }
-
-    if (choiceType === ChoiceEventType.CREATURE_TYPE_CHOICE) {
-      selectorContext.chosenCreatureType = firstSelection;
-      continue;
-    }
-
-    if (choiceType === ChoiceEventType.BASIC_LAND_TYPE_CHOICE) {
-      selectorContext.chosenBasicLandType = firstSelection;
-      continue;
-    }
-
-    if (choiceType === ChoiceEventType.CARD_NAME_CHOICE) {
-      selectorContext.chosenCardName = firstSelection;
-      continue;
-    }
-
-    const oracleStepKind = String((step.choiceRequest?.payload as any)?.oracleStepKind || '');
-    if (oracleStepKind === 'unless_pays_mana' || oracleStepKind === 'unless_pays_life') {
-      const payChoice = firstSelection === 'pay';
-      if (oracleStepKind === 'unless_pays_mana') {
-        selectorContext.unlessPaysManaChoice = payChoice ? 'pay' : 'decline';
-      } else {
-        selectorContext.unlessPaysLifeChoice = payChoice ? 'pay' : 'decline';
-      }
-      continue;
-    }
-
-    if (oracleStepKind === 'unless_discards') {
-      selectorContext.unlessDiscardsChoice = firstSelection === 'discard' ? 'discard' : 'decline';
-      continue;
-    }
-
-    if (oracleStepKind === 'unless_sacrifices') {
-      selectorContext.unlessSacrificesChoice = firstSelection === 'sacrifice' ? 'sacrifice' : 'decline';
-      continue;
-    }
-
-    if (oracleStepKind === 'choose_target_creature') {
-      selectorContext.chosenObjectIds = selections;
-      derived.targetCreatureId = firstSelection;
-      derived.targetPermanentId = firstSelection;
-    }
-  }
-
-  for (const binding of Object.values(runtime.bindings)) {
-    if (binding && typeof binding === 'object' && typeof (binding as any).lastClashWon === 'boolean') {
-      derived.lastClashWon = (binding as any).lastClashWon;
-    }
-  }
-
-  if (
-    !derived.targetCreatureId &&
-    !derived.targetPermanentId &&
-    !derived.targetSpellId &&
-    typeof derived.lastClashWon !== 'boolean' &&
-    Object.keys(selectorContext).length === 0
-  ) {
-    return undefined;
-  }
-
-  return {
-    ...derived,
-    selectorContext,
-  };
-}
-
-function normalizeChoiceResponseSelections(response: ChoiceResponse): readonly string[] {
-  const selections = response.selections;
-  if (Array.isArray(selections)) {
-    return selections.map(selection => normalizeChoiceResponseSelection(selection)).filter(Boolean);
-  }
-
-  if (typeof selections === 'number' || typeof selections === 'boolean') {
-    return [String(selections)];
-  }
-
-  return [];
-}
-
-function normalizeChoiceResponseSelection(selection: unknown): string {
-  if (selection === undefined || selection === null) {
-    return '';
-  }
-
-  if (typeof selection === 'string' || typeof selection === 'number' || typeof selection === 'boolean') {
-    return String(selection).trim();
-  }
-
-  if (typeof selection === 'object') {
-    const record = selection as Record<string, unknown>;
-    for (const key of ['id', 'value', 'selection', 'selectedId', 'selectedCardId', 'selectedTargetId', 'target']) {
-      if (record[key] !== undefined && record[key] !== null) {
-        return String(record[key]).trim();
-      }
-    }
-    return '';
-  }
-
-  return String(selection).trim();
-}
-
-function classifyChoiceTarget(
-  state: GameState,
-  targetId: string,
-  controllerId: string
-): 'creature' | 'permanent' | 'player' {
-  const player = (state.players || []).find(candidate => String(candidate.id || '').trim() === targetId);
-  if (player) {
-    return 'player';
-  }
-
-  const permanent = ((state as any).battlefield || []).find((candidate: any) => String(candidate?.id || '').trim() === targetId);
-  const typeLine = String((permanent as any)?.card?.type_line || (permanent as any)?.type_line || '').toLowerCase();
-  if (typeLine.includes('creature')) {
-    return 'creature';
-  }
-
-  void controllerId;
-  return 'permanent';
-}
-
-function normalizeChosenManaSelection(selection: string): string {
-  const normalized = selection.trim();
-  if (/^\{[WUBRG]\}$/i.test(normalized)) {
-    return normalized.toUpperCase();
-  }
-
-  if (/^[WUBRG]$/i.test(normalized)) {
-    return `{${normalized.toUpperCase()}}`;
-  }
-
-  const colorNameToSymbol: Record<string, string> = {
-    white: '{W}',
-    blue: '{U}',
-    black: '{B}',
-    red: '{R}',
-    green: '{G}',
-  };
-  return colorNameToSymbol[normalized.toLowerCase()] || normalized.toUpperCase();
-}
-
-function hasNonEmptyChoiceOptions(value: unknown): boolean {
-  return Array.isArray(value) && value.length > 0;
-}
-
-function inferOracleIRTargetTypes(oracleStep: unknown): readonly string[] {
-  const kind = String((oracleStep as any)?.kind || '');
-  if (kind === 'choose_target_creature') {
-    return ['creature'];
-  }
-
-  return ['object'];
-}
-
-function buildOracleIRTargetSelectionOptions(
-  state: GameState,
-  controllerId: string,
-  oracleStep: unknown,
-  programSourceId?: string
-): readonly ChoiceOption[] {
-  const kind = String((oracleStep as any)?.kind || '');
-  if (kind !== 'choose_target_creature') {
-    return [];
-  }
-
-  const rawTargetText = String(
-    (oracleStep as any)?.target?.text ||
-    (oracleStep as any)?.target?.raw ||
-    (oracleStep as any)?.raw ||
-    ''
-  ).toLowerCase();
-  const requiresYouControl = /\byou control\b/.test(rawTargetText);
-  const requiresOpponentControl = /\bopponents? controls?\b|\ban opponent controls\b/.test(rawTargetText);
-  const requiresNotYouControl = /\byou (?:do not|don['’]t) control\b/.test(rawTargetText);
-  const sourceId = String((oracleStep as any)?.sourceId || programSourceId || '').trim();
-
-  return (((state as any).battlefield || []) as any[])
-    .filter(permanent => {
-      const permanentId = String(permanent?.id || '').trim();
-      if (!permanentId || (sourceId && permanentId === sourceId && /\banother\b/.test(rawTargetText))) {
-        return false;
-      }
-
-      const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
-      if (!typeLine.includes('creature')) {
-        return false;
-      }
-
-      const permanentController = String(permanent?.controller || '').trim();
-      if (requiresYouControl && permanentController !== controllerId) {
-        return false;
-      }
-
-      if ((requiresOpponentControl || requiresNotYouControl) && permanentController === controllerId) {
-        return false;
-      }
-
-      return true;
-    })
-    .map(permanent => {
-      const id = String(permanent?.id || '').trim();
-      const name = String(permanent?.card?.name || permanent?.name || id);
-      return {
-        id,
-        label: name,
-        description: String(permanent?.card?.type_line || permanent?.type_line || 'Creature'),
-      };
-    });
-}
-
-function buildOracleIRPlayerChoiceOptions(
-  state: GameState,
-  controllerId: string,
-  oracleStep: unknown,
-  options?: {
-    readonly runtime?: EffectProgramRuntime<GameState>;
-    readonly distinctPlayerTargets?: boolean;
-  },
-): readonly { id: string; name: string }[] {
-  const kind = String((oracleStep as any)?.kind || '');
-  const allowSelf = shouldOracleIRPlayerChoiceAllowSelf(oracleStep);
-  const eligibleOpponentIds = kind === 'choose_opponent'
-    ? new Set(listEligibleChooseOpponentIds(state, controllerId, String((oracleStep as any)?.raw || '')))
-    : null;
-  const excludedPlayerIds = new Set<string>();
-  if (options?.distinctPlayerTargets && options.runtime) {
-    for (const step of options.runtime.program.steps) {
-      if (step.kind !== 'choice') continue;
-      if (String(step.choiceRequest?.type || '') !== ChoiceEventType.PLAYER_CHOICE) continue;
-      if (!Boolean((step.choiceRequest?.payload as any)?.distinctPlayerTargets)) continue;
-      const response = options.runtime.bindings[step.bindingKey] as ChoiceResponse | undefined;
-      if (!response || response.cancelled) continue;
-      for (const selection of normalizeChoiceResponseSelections(response)) {
-        const playerId = String(selection || '').trim();
-        if (playerId) excludedPlayerIds.add(playerId);
-      }
-    }
-  }
-  return (state.players || [])
-    .filter(player => {
-      const playerId = String(player?.id || '').trim();
-      if (!playerId) {
-        return false;
-      }
-
-      if (excludedPlayerIds.has(playerId)) {
-        return false;
-      }
-
-      if ((kind === 'choose_opponent' || !allowSelf) && playerId === controllerId) {
-        return false;
-      }
-
-      if (eligibleOpponentIds && !eligibleOpponentIds.has(playerId as any)) {
-        return false;
-      }
-
-      return true;
-    })
-    .map(player => ({
-      id: String(player.id),
-      name: String((player as any).name || player.id),
-    }));
-}
-
-function shouldOracleIRPlayerChoiceAllowSelf(oracleStep: unknown): boolean {
-  const kind = String((oracleStep as any)?.kind || '');
-  if (kind === 'choose_opponent') {
-    return false;
-  }
-  if (kind === 'target_player') {
-    return true;
-  }
-
-  const targetKind = String((oracleStep as any)?.target?.kind || '');
-  if (targetKind === 'target_opponent' || targetKind === 'each_opponent') {
-    return false;
-  }
-
-  const raw = String((oracleStep as any)?.raw || '').toLowerCase();
-  return !/\bopponent\b/.test(raw);
-}

@@ -33,126 +33,44 @@ import {
 import { hasChangeling, getAllCreatureTypes } from '../tribalSupport';
 import { getCardManaValue } from '../oracleIRExecutorPlayerUtils';
 
-export interface TriggerResult {
-  state: GameState;
-  triggersAdded: number;
-  oracleStepsApplied?: number;
-  oracleStepsSkipped?: number;
-  oracleExecutions?: number;
-  oracleAutomationGaps?: number;
-  logs: string[];
-}
+export type {
+  TriggerResult,
+  TriggerProcessingOptions,
+  StepTriggerProcessingOptions,
+  ETBTriggerProcessingOptions,
+  LandfallTriggerProcessingOptions,
+  DiesTriggerProcessingOptions,
+  SpellCastTriggerProcessingOptions,
+  DrawTriggerProcessingOptions,
+  CombatDamageTriggerProcessingOptions,
+  BecomesBlockedTriggerProcessingOptions,
+  DelayedTriggerEventCheck,
+  DelayedEventTriggerProcessingOptions,
+  CombatDamageTriggerAssignment,
+  AttackTriggerAssignment,
+  BecomesBlockedTriggerAssignment,
+} from './triggersHandler-handlers/triggersHandlerTypes.js';
+import type {
+  TriggerResult,
+  TriggerProcessingOptions,
+  StepTriggerProcessingOptions,
+  ETBTriggerProcessingOptions,
+  LandfallTriggerProcessingOptions,
+  DiesTriggerProcessingOptions,
+  SpellCastTriggerProcessingOptions,
+  DrawTriggerProcessingOptions,
+  CombatDamageTriggerProcessingOptions,
+  BecomesBlockedTriggerProcessingOptions,
+  DelayedTriggerEventCheck,
+  DelayedEventTriggerProcessingOptions,
+  CombatDamageTriggerAssignment,
+  AttackTriggerAssignment,
+  BecomesBlockedTriggerAssignment,
+} from './triggersHandler-handlers/triggersHandlerTypes.js';
 
-export interface TriggerProcessingOptions {
-  /**
-   * When true, triggered ability effect text is executed immediately via Oracle IR
-   * (deterministic subset only) in addition to queueing stack trigger objects.
-   */
-  autoExecuteOracle?: boolean;
-  /** Forwarded to Oracle IR execution when autoExecuteOracle is enabled. */
-  allowOptional?: boolean;
-  /**
-   * Optional resolution-time trigger context used for intervening-if rechecks
-   * during auto Oracle execution.
-   */
-  resolutionEventData?: TriggerEventData;
-}
 
-export interface StepTriggerProcessingOptions extends TriggerProcessingOptions {
-  /** Optional delayed trigger registry to consume for this step. Defaults to state.delayedTriggerRegistry. */
-  delayedTriggerRegistry?: DelayedTriggerRegistry;
-  /** Current turn number for delayed-trigger timing checks. Defaults to state.turnNumber/state.turn. */
-  turnNumber?: number;
-}
+import { getStackItems } from './triggersHandler-handlers/triggersHandlerStackItems.js';
 
-export interface ETBTriggerProcessingOptions extends TriggerProcessingOptions {
-  /** Optional explicit event data to merge into the entering permanent context. */
-  eventData?: TriggerEventData;
-}
-
-export interface LandfallTriggerProcessingOptions extends Omit<TriggerProcessingOptions, 'autoExecuteOracle'> {
-  /** Optional explicit event data to merge into the landfall trigger context. */
-  eventData?: TriggerEventData;
-}
-
-export interface DiesTriggerProcessingOptions extends TriggerProcessingOptions {
-  /** Optional explicit event data for the dying object when current state cannot fully infer it. */
-  eventData?: TriggerEventData;
-  /** Include battlefield abilities that watch a controlled creature dying. Defaults to true. */
-  includeControlledCreatureDeath?: boolean;
-}
-
-export interface SpellCastTriggerProcessingOptions extends TriggerProcessingOptions {
-  /** Optional explicit event data to merge into the cast-spell context. */
-  eventData?: TriggerEventData;
-}
-
-export interface DrawTriggerProcessingOptions extends TriggerProcessingOptions {
-  /** Optional explicit event data to merge into the draw trigger context. */
-  eventData?: TriggerEventData;
-}
-
-export interface CombatDamageTriggerProcessingOptions extends TriggerProcessingOptions {
-  /** Optional explicit event data to merge into each combat-damage assignment context. */
-  eventData?: TriggerEventData;
-}
-
-export interface BecomesBlockedTriggerProcessingOptions extends TriggerProcessingOptions {
-  /** Optional explicit event data to merge into the blocked-attacker context. */
-  eventData?: TriggerEventData;
-}
-
-export interface DelayedTriggerEventCheck {
-  readonly type:
-    | 'end_step'
-    | 'upkeep'
-    | 'combat_end'
-    | 'combat_begin'
-    | 'cleanup'
-    | 'permanent_left'
-    | 'dies'
-    | 'dies_or_exiled'
-    | 'control_lost'
-    | 'turn_start';
-  readonly playerId?: string;
-  readonly activePlayerId?: string;
-  readonly permanentId?: string;
-  readonly currentTurn?: number;
-  readonly eligibleTriggerIds?: ReadonlySet<string>;
-}
-
-export interface DelayedEventTriggerProcessingOptions extends TriggerProcessingOptions {
-  /** Optional delayed trigger registry to process. Defaults to state.delayedTriggerRegistry. */
-  delayedTriggerRegistry?: DelayedTriggerRegistry;
-}
-
-export interface CombatDamageTriggerAssignment {
-  readonly attackerId?: string;
-  readonly damage?: number;
-  readonly defendingPlayerId?: string;
-  readonly targetPlayerId?: string;
-  readonly targetOpponentId?: string;
-}
-
-export interface AttackTriggerAssignment {
-  readonly attackerId?: string;
-  readonly defendingPlayerId?: string;
-  readonly targetPlayerId?: string;
-  readonly targetOpponentId?: string;
-  readonly eventData?: TriggerEventData;
-}
-
-export interface BecomesBlockedTriggerAssignment {
-  readonly attackerId?: string;
-  readonly defendingPlayerId?: string;
-}
-
-function getStackItems(state: GameState): any[] {
-  const rawStack = (state as any)?.stack;
-  if (Array.isArray(rawStack)) return rawStack;
-  if (Array.isArray((rawStack as any)?.objects)) return [...(rawStack as any).objects];
-  return [];
-}
 
 function findCardInPlayersGraveyards(state: GameState, cardId: string): { playerId: string; card: any } | null {
   const normalizedCardId = String(cardId || '').trim();
@@ -284,188 +202,9 @@ export function processTriggersAutoOracle(
   });
 }
 
-/**
- * Find all triggered abilities on permanents
- * 
- * This enhanced version checks:
- * 1. Card-specific configurations from our cards module
- * 2. Parsed oracle text patterns
- * 3. Special trigger types (tribal, landfall, etc.)
- */
-export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
-  const abilities: TriggeredAbility[] = [];
-  const looksLikeZoneActiveGraveyardTrigger = (oracleText: string): boolean => {
-    const normalized = String(oracleText || '').replace(/\u2019/g, "'").toLowerCase();
-    if (!/\b(?:when|whenever|at)\b/.test(normalized)) return false;
-    return (
-      normalized.includes('this card is in your graveyard') ||
-      normalized.includes('return this card from your graveyard') ||
-      normalized.includes('cast it from your graveyard') ||
-      normalized.includes('cast this card from your graveyard')
-    );
-  };
-  const normalizeTriggerEffectText = (text: string): string =>
-    String(text || '')
-      .replace(/\u2019/g, "'")
-      .trim()
-      .toLowerCase()
-      .replace(
-        /\bthat player may pay (\{[^}]+\})\.\s*if they do(?:n't| not),\s*/g,
-        'unless that player pays $1 '
-      )
-      .replace(
-        /\byou create a ([^.]+?) unless that player pays (\{[^}]+\})\.?/g,
-        'unless that player pays $2 create a $1'
-      )
-      .replace(/\byou\s+(create|gain|draw|return|put|copy|sacrifice|exile|destroy|tap|untap)\b/g, '$1')
-      .replace(/^you\s+/, '')
-      .replace(/\s+/g, ' ');
-  
-  // Scan all permanents on centralized battlefield for triggered abilities
-  for (const perm of state.battlefield || []) {
-    const card = perm.card as KnownCardRef;
-    if (!card) continue;
-    
-    const cardName = card.name || '';
-    const oracleText = card.oracle_text || '';
-    const controllerId = perm.controller || '';
-    
-    // Check for special card-specific triggers first
-    const specialTriggerConfig = hasSpecialTriggeredAbility(cardName)
-      ? getTriggeredAbilityConfig(cardName)
-      : undefined;
+import { findTriggeredAbilities } from './triggersHandler-handlers/triggersHandlerFindTriggeredAbilities.js';
+export { findTriggeredAbilities } from './triggersHandler-handlers/triggersHandlerFindTriggeredAbilities.js';
 
-    if (specialTriggerConfig) {
-        abilities.push({
-          id: `${perm.id}-special-trigger`,
-          sourceId: perm.id,
-          sourceName: cardName,
-          controllerId: controllerId,
-          keyword: 'whenever' as any,
-          event: specialTriggerConfig.triggerEvent,
-          condition: specialTriggerConfig.triggerCondition,
-          effect: specialTriggerConfig.effect,
-          optional: specialTriggerConfig.requiresChoice,
-        });
-    }
-    
-    // Check for ETB token creator triggers
-    if (isETBTokenCreator(cardName)) {
-      const etbConfig = getETBTokenConfig(cardName);
-      if (etbConfig) {
-        abilities.push({
-          id: `${perm.id}-etb-tokens`,
-          sourceId: perm.id,
-          sourceName: cardName,
-          controllerId: controllerId,
-          keyword: 'when' as any,
-          event: TriggerEvent.ENTERS_BATTLEFIELD,
-          effect: `Create ${etbConfig.tokenCount} ${etbConfig.tokenType} token(s).`,
-        });
-      }
-    }
-    
-    // Parse additional triggers from oracle text
-    const parsedTriggers = parseTriggeredAbilitiesFromText(
-      oracleText,
-      perm.id,
-      controllerId,
-      cardName
-    ).filter(trigger => {
-      if (!specialTriggerConfig) return true;
-      return !(
-        trigger.event === specialTriggerConfig.triggerEvent &&
-        normalizeTriggerEffectText(String(trigger.effect || '')) ===
-          normalizeTriggerEffectText(String(specialTriggerConfig.effect || ''))
-      );
-    });
-    abilities.push(...parsedTriggers);
-  }
-
-  for (const player of state.players || []) {
-    const controllerId = String((player as any)?.id || '').trim();
-    if (!controllerId) continue;
-
-    const graveyard = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
-    for (const card of graveyard) {
-      const cardId = String((card as any)?.id || '').trim();
-      const cardName = String((card as any)?.name || '').trim();
-      const oracleText = String((card as any)?.oracle_text || '').trim();
-      if (!cardId || !cardName || !oracleText || !looksLikeZoneActiveGraveyardTrigger(oracleText)) continue;
-
-      const parsedTriggers = parseTriggeredAbilitiesFromText(
-        oracleText,
-        cardId,
-        controllerId,
-        cardName
-      );
-      abilities.push(...parsedTriggers);
-    }
-
-    const emblems = Array.isArray((player as any)?.emblems) ? (player as any).emblems : [];
-    for (const emblem of emblems) {
-      const emblemId = String((emblem as any)?.id || '').trim();
-      const emblemName = String((emblem as any)?.name || 'Emblem').trim() || 'Emblem';
-      const abilityTexts = Array.isArray((emblem as any)?.abilities) ? (emblem as any).abilities : [];
-
-      for (const abilityText of abilityTexts) {
-        const parsedTriggers = parseTriggeredAbilitiesFromText(
-          String(abilityText || ''),
-          emblemId || `${controllerId}-emblem`,
-          controllerId,
-          emblemName
-        );
-        abilities.push(...parsedTriggers);
-      }
-    }
-  }
-
-  for (const stackItem of getStackItems(state)) {
-    if (String((stackItem as any)?.type || '').trim().toLowerCase() !== 'spell') continue;
-
-    const stackCard = (((stackItem as any)?.card || (stackItem as any)?.spell || {}) as KnownCardRef);
-    const stackSpellId = String((stackItem as any)?.id || '').trim();
-    const stackControllerId = String((stackItem as any)?.controller || (stackItem as any)?.controllerId || '').trim();
-    const stackCardName = String((stackItem as any)?.cardName || stackCard?.name || '').trim();
-    const stackOracleText = String(stackCard?.oracle_text || (stackItem as any)?.oracle_text || '').trim();
-    if (!stackSpellId || !stackControllerId || !stackCardName || !stackOracleText) continue;
-
-    const parsedTriggers = parseTriggeredAbilitiesFromText(
-      stackOracleText,
-      stackSpellId,
-      stackControllerId,
-      stackCardName
-    );
-    abilities.push(...parsedTriggers);
-  }
-
-  const dedupedAbilities: TriggeredAbility[] = [];
-  const seenAbilitySignatures = new Set<string>();
-  const normalizeSignaturePart = (value: unknown): string =>
-    String(value ?? '')
-      .replace(/\u2019/g, "'")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, ' ');
-
-  for (const ability of abilities) {
-    const signature = [
-      normalizeSignaturePart((ability as any)?.sourceId),
-      normalizeSignaturePart((ability as any)?.controllerId),
-      normalizeSignaturePart((ability as any)?.event),
-      normalizeSignaturePart((ability as any)?.condition),
-      normalizeSignaturePart((ability as any)?.triggerFilter),
-      normalizeSignaturePart((ability as any)?.interveningIfClause),
-      normalizeTriggerEffectText(String((ability as any)?.effect || '')),
-    ].join('|');
-
-    if (seenAbilitySignatures.has(signature)) continue;
-    seenAbilitySignatures.add(signature);
-    dedupedAbilities.push(ability);
-  }
-
-  return dedupedAbilities;
-}
 
 /**
  * Check for enter the battlefield triggers
@@ -623,187 +362,8 @@ export function checkDiesTriggers(
   };
 }
 
-/**
- * Check for beginning of step triggers
- */
-export function checkStepTriggers(
-  state: GameState,
-  event: TriggerEvent,
-  activePlayerId?: string,
-  options: StepTriggerProcessingOptions = {}
-): TriggerResult {
-  const abilities = findTriggeredAbilities(state);
-  const stepAbilities = abilities.filter(a => a.event === event);
-  const logs: string[] = [];
-  const autoExecuteOracle = Boolean(options.autoExecuteOracle);
-  let nextState = state;
-  let triggerInstances: any[] = [];
-  let oracleStepsApplied = 0;
-  let oracleStepsSkipped = 0;
-  let oracleExecutions = 0;
-  let oracleAutomationGaps = 0;
-
-  const controllerIds = Array.from(
-    new Set(stepAbilities.map(ability => String(ability.controllerId || '').trim()).filter(Boolean))
-  );
-
-  if (controllerIds.length === 0 && activePlayerId) {
-    controllerIds.push(String(activePlayerId).trim());
-  }
-
-  for (const controllerId of controllerIds) {
-    const controllerAbilities = stepAbilities.filter(
-      ability => String(ability.controllerId || '').trim() === controllerId
-    );
-    if (controllerAbilities.length === 0) continue;
-
-    const eventData = buildResolutionEventDataFromGameState(
-      nextState,
-      controllerId,
-      buildTriggerEventDataFromPayloads(activePlayerId || controllerId, {
-        sourceControllerId: activePlayerId || controllerId,
-        affectedPlayerIds: activePlayerId ? [activePlayerId] : undefined,
-      })
-    );
-
-    if (autoExecuteOracle) {
-      const execution = processEventAndExecuteTriggeredOracle(
-        nextState,
-        event,
-        controllerAbilities,
-        eventData,
-        {
-          allowOptional: options.allowOptional,
-          resolutionEventData: options.resolutionEventData,
-        }
-      );
-      nextState = execution.state;
-      triggerInstances.push(...execution.triggers);
-      oracleStepsApplied += execution.executions.reduce((sum, r) => sum + (r.appliedSteps?.length || 0), 0);
-      oracleStepsSkipped += execution.executions.reduce((sum, r) => sum + (r.skippedSteps?.length || 0), 0);
-      oracleAutomationGaps += execution.executions.reduce((sum, r) => sum + (r.automationGaps?.length || 0), 0);
-      oracleExecutions += execution.executions.length;
-      logs.push(...execution.log);
-      continue;
-    }
-
-    triggerInstances.push(...processEvent(event, controllerAbilities, eventData));
-  }
-
-  const delayedTriggerRegistry =
-    options.delayedTriggerRegistry ||
-    (((state as any).delayedTriggerRegistry || undefined) as DelayedTriggerRegistry | undefined);
-  let updatedDelayedRegistry = delayedTriggerRegistry;
-  const delayedEventType =
-    event === TriggerEvent.BEGINNING_OF_UPKEEP
-      ? 'upkeep'
-      : event === TriggerEvent.BEGINNING_OF_END_STEP
-        ? 'end_step'
-        : event === TriggerEvent.BEGINNING_OF_COMBAT
-          ? 'combat_begin'
-          : event === TriggerEvent.END_OF_COMBAT
-            ? 'combat_end'
-            : event === TriggerEvent.CLEANUP_STEP
-              ? 'cleanup'
-              : null;
-
-  if (delayedTriggerRegistry && delayedEventType) {
-    const delayedCheck = checkDelayedTriggers(delayedTriggerRegistry, {
-      type: delayedEventType,
-      activePlayerId: activePlayerId as any,
-      currentTurn:
-        options.turnNumber ??
-        Number((state as any).turnNumber ?? (state as any).turn ?? 0) ??
-        0,
-    });
-
-    if (delayedCheck.triggersToFire.length > 0) {
-      updatedDelayedRegistry = {
-        ...delayedTriggerRegistry,
-        triggers: delayedCheck.remainingTriggers,
-        firedTriggerIds: [
-          ...(Array.isArray(delayedTriggerRegistry.firedTriggerIds) ? delayedTriggerRegistry.firedTriggerIds : []),
-          ...delayedCheck.triggersToFire.map(trigger => trigger.id),
-        ],
-      };
-
-      triggerInstances.push(...processDelayedTriggers(delayedCheck.triggersToFire, Date.now()));
-      logs.push(...delayedCheck.triggersToFire.map(trigger => `${trigger.sourceName} delayed trigger processed`));
-
-      if (autoExecuteOracle) {
-        for (const delayedTrigger of delayedCheck.triggersToFire) {
-          const execution = executeTriggeredAbilityEffectWithOracleIR(
-            nextState,
-            {
-              controllerId: delayedTrigger.controllerId,
-              sourceId: delayedTrigger.sourceId,
-              sourceName: delayedTrigger.sourceName,
-              effect: delayedTrigger.effect,
-            },
-            delayedTrigger.eventDataSnapshot,
-            { allowOptional: options.allowOptional }
-          );
-          nextState = execution.state;
-          oracleExecutions += 1;
-          oracleStepsApplied += execution.appliedSteps.length;
-          oracleStepsSkipped += execution.skippedSteps.length;
-          oracleAutomationGaps += execution.automationGaps.length;
-          logs.push(...execution.log);
-        }
-      }
-    }
-  }
-
-  if (autoExecuteOracle) {
-    logs.unshift(
-      `[triggers] Oracle auto-execution: executions=${oracleExecutions}, applied=${oracleStepsApplied}, skipped=${oracleStepsSkipped}, gaps=${oracleAutomationGaps}`
-    );
-  }
-
-  if (triggerInstances.length === 0) {
-    return {
-      state: updatedDelayedRegistry
-        ? ({ ...(nextState as any), delayedTriggerRegistry: updatedDelayedRegistry } as any)
-        : nextState,
-      triggersAdded: 0,
-      oracleStepsApplied,
-      oracleStepsSkipped,
-      oracleExecutions,
-      oracleAutomationGaps,
-      logs,
-    };
-  }
-
-  let queue = createEmptyTriggerQueue();
-  for (const trigger of triggerInstances) {
-    queue = { triggers: [...queue.triggers, trigger] };
-  }
-
-  const activeId = activePlayerId || state.players[state.activePlayerIndex || 0]?.id || '';
-  const apnapTurnOrder = (() => {
-    const ids = (state.players || []).map(p => String((p as any)?.id || '').trim()).filter(Boolean);
-    if (ids.length === 0) return ids;
-    const activeIdx = ids.indexOf(activeId);
-    if (activeIdx < 0) return ids;
-    return [...ids.slice(activeIdx), ...ids.slice(0, activeIdx)];
-  })();
-  const { stackObjects, log } = putTriggersOnStack(queue, activeId, apnapTurnOrder);
-  logs.push(...log);
-
-  return {
-    state: {
-      ...(nextState as any),
-      ...(updatedDelayedRegistry ? { delayedTriggerRegistry: updatedDelayedRegistry } : {}),
-      stack: [...getStackItems(nextState), ...stackObjects] as any,
-    } as any,
-    triggersAdded: stackObjects.length,
-    oracleStepsApplied,
-    oracleStepsSkipped,
-    oracleExecutions,
-    oracleAutomationGaps,
-    logs,
-  };
-}
+import { checkStepTriggers } from './triggersHandler-handlers/triggersHandlerCheckStepTriggers.js';
+export { checkStepTriggers } from './triggersHandler-handlers/triggersHandlerCheckStepTriggers.js';
 
 /**
  * Check delayed triggers tied to non-step events such as dies, leaves, and control-loss.

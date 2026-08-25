@@ -165,7 +165,7 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 - **ETB untap / auto-sacrifice dual copies reconciled:** leftover `detectETBUntapEffects` / `getETBUntapEffects` / `applyETBUntapEffect` / `checkETBAutoSacrifice` re-export from `zone-changes.js`; live bodies in `etb-untap.ts`. **One** `export function` each.
 - **Attack dual copies reconciled:** leftover `detectAttackTriggers` re-exports from `triggers/zone-changes.js`; live body in `attack-detection.ts` (+ generic/watchers/state). `combat.ts` re-exports the leaf. **One** `export function`.
 - **`getAttackTriggersForCreatures` dual copies reconciled:** live body in `attack-triggers-for-creatures.ts` (production combat implementation; leftover simpler copy replaced). `combat.ts` and leftover re-export. **One** `export function`.
-- Folder members still over ceiling: `card-data-tables.ts` (44.3 KB), `turn-phases.ts` (45.4 KB), `zone-change.ts` (40.5 KB). `combat.ts` is **30.1 KB** (done). `intervening-if.ts` is **12.6 KB** (done). `zone-changes.ts` is now ~1.9 KB (re-export barrel).
+- Folder members under ceiling: `turn-phases.ts` is **37.4 KB** (done). `zone-change.ts` is **32.3 KB** (done). `card-data-tables.ts` is **39.1 KB** (done). `combat.ts` is **30.1 KB** (done). `intervening-if.ts` is **12.6 KB** (done). `zone-changes.ts` is now ~1.9 KB (re-export barrel).
 
 | Module (`triggers/`) | Owns |
 | --- | --- |
@@ -196,13 +196,26 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `trigger-doublers.ts` | From `combat.ts`. `detectTriggerDoublers`, `applyTriggerDoublers`, `pushTriggerDoublerCopies`, `playerHasDungeonRoomAbilityDoubler`, `TriggerDoublerEventContext`. |
 | `attack-watcher-queue.ts` | From `combat.ts`. `planAttackWatcherQueue`, `isAttackWatcherTriggerType`. |
 | `combat-attack-trigger-helpers.ts` | From `combat.ts`. `mergeCombatTriggerValue`, `extractCommanderOwnedGrantedAbilityTexts`. |
+| `card-data-tables.ts` | Public `KNOWN_*` trigger lookup tables. `KNOWN_TAP_UNTAP_ABILITIES` re-exported from `card-data-tables-handlers/`. **39.1 KB** (done). Never create `card-data-tables/` beside the `.ts`. Extract existing tables only — do not add card-name rows. |
+| `card-data-tables-handlers/index.ts` | Internal TOC barrel. Named re-exports only. Leaves must not import the parent or this index. |
+| `card-data-tables-handlers/cardDataTablesTapUntapAbilities.ts` | From `card-data-tables.ts`. `KNOWN_TAP_UNTAP_ABILITIES`. Parent re-exports. |
+| `zone-change.ts` | Public exile-from-battlefield get/queue, put-into-graveyard-from-anywhere, left-graveyard. **32.3 KB** (done). Distinct from `zone-changes.ts` (death/ETB/attack barrel). Never create `triggers/zone-change/` beside the `.ts`. |
+| `zone-change-handlers/index.ts` | Internal TOC for extracts from `triggers/zone-change.ts`. Named re-exports only. Leaves must not import the parent or this index. |
+| `zone-change-handlers/exileFromBattlefieldDetection.ts` | From `triggers/zone-change.ts`. `ExiledFromBattlefieldTrigger`, `detectExiledFromBattlefieldTriggers`. Parent re-exports. Distinct from death/ETB/attack. |
+| `turn-phases.ts` | Public turn-phase detectors/emitters. **37.4 KB** (done). `EndStepTrigger` and `detectEndStepTriggers` re-exported from `turn-phases-handlers/`. Never create `turn-phases/` beside the `.ts`. |
+| `turn-phases-handlers/index.ts` | Internal TOC barrel. Named re-exports only. Leaves must not import the parent or this index. |
+| `turn-phases-handlers/turnPhaseTriggerTypes.ts` | From `turn-phases.ts`. `EndStepTrigger`. Parent re-exports. |
+| `turn-phases-handlers/turnPhaseActivePermanentFace.ts` | From `turn-phases.ts`. `getActivePermanentCardFace`. |
+| `turn-phases-handlers/turnPhaseEffectChoiceHelpers.ts` | From `turn-phases.ts`. `detectRequiresChoice`, `detectAffectsAllPlayers`. |
+| `turn-phases-handlers/turnPhaseEndStepTriggers.ts` | From `turn-phases.ts`. `detectEndStepTriggers`. Parent re-exports. |
 
 ## Oracle IR parser / postprocess (`rules-engine/src/`)
 
 - `oracleIRParserPostprocess.ts` is a **12.5 KB barrel** (named re-exports + a few leftover imports). All `oracleIRParserPostprocess*.ts` siblings are under the ceiling (largest: `oracleIRParserPostprocessGapClosureStepRepairs.ts` at 37.0 KB). Add a new family file; do not append to a sibling near 36–40 KB.
 - `oracleIRParser.ts` is a **0.1 KB barrel**: `export { parseOracleTextToIR } from './oracleIRParserParseOracleTextToIR'`.
+- `oracleIR.ts` is a **1.0 KB barrel**: re-exports shared types + `OracleEffectStep` (`A | B | C`) plus leftover `OracleIRAbility` / `OracleIRResult`. Never create `oracleIR/` beside `oracleIR.ts`.
 - Keep the `oracleIRParser*` / `oracleIRExecutor*` prefixes. No folder move until a parent is already a thin barrel.
-- Pre-existing oversized clause files still need their own split: `oracleIRParserStaticAbilityClauses.ts` (67.2 KB), `oracleIRParserUtils.ts` (55.1 KB), `oracleIRParserEffectImpulsePermission.ts` (47.3 KB), `oracleIRParserLifeAndCombatClauses.ts` (44.3 KB). `oracleIRParserSimpleActionClauses.ts` is a **4.0 KB** dispatcher (`tryParseSimpleActionClause` + family `tryX`).
+- `oracleIRParserEffectImpulsePermission.ts` is a **26.7 KB** dispatcher (`parseEffectLevelImpulsePermissionClause` leftover early / from-among if-chain + late `tryParse` call). `oracleIRParserLifeAndCombatClauses.ts` is a **0.1 KB barrel** (`tryParseLifeAndCombatClause`; existing BOM kept — do not add another). `oracleIRParserUtils.ts` is a **28.2 KB** dispatcher (`parseQuantity` leftover numeric / late-reference if-chain + `parsePlayerSelector` / `splitIntoClauses` / `normalizeClauseForParse`). `oracleIRParserStaticAbilityClauses.ts` is a **33.1 KB** dispatcher (`tryParseStaticAbilityGrantClause` leftover if-chain + re-export of `tryParseRulesTextClause`). `oracleIRParserSimpleActionClauses.ts` is a **4.0 KB** dispatcher (`tryParseSimpleActionClause` + family `tryX`).
 
 | Module | Left | Entry |
 | --- | --- | --- |
@@ -214,12 +227,25 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `oracleIRParserParseOracleTextToIR.ts` | `oracleIRParser.ts` | `parseOracleTextToIR` |
 | `oracleIRParserParseOracleTextToIRLatePasses.ts` | `oracleIRParser.ts` | late passes of `parseOracleTextToIR` |
 | `oracleIRParserSimpleActionHelpers.ts` / `…EarlyClauses.ts` / `…AddManaChoice.ts` / `…DrawTurn.ts` / `…CounterSearch.ts` / `…DiscardVote.ts` | `oracleIRParserSimpleActionClauses.ts` | Family `tryX` runs of `tryParseSimpleActionClause`. Leaves take parse args; null = fall through. Recursion is a `parseRest` callback — do not import the parent. |
+| `oracleIRParserEffectImpulsePermission-handlers/index.ts` | `oracleIRParserEffectImpulsePermission.ts` | Internal TOC barrel. Named re-exports only. Never create `oracleIRParserEffectImpulsePermission/` beside the `.ts`. |
+| `oracleIRParserEffectImpulsePermission-handlers/oracleIRParserEffectImpulsePermissionLateDurations.ts` | `oracleIRParserEffectImpulsePermission.ts` | Late next-turn / until-end / remains-exiled if-chain of `parseEffectLevelImpulsePermissionClause`. `undefined` = fall through. Do not import the parent. |
+| `oracleIRParserStaticAbilityClauses-handlers/oracleIRParserStaticAbilityGrantParseUtils.ts` | `oracleIRParserStaticAbilityClauses.ts` | `WithMeta` plus keyword-list, signed P/T, and graveyard grant parse helpers. |
+| `oracleIRParserStaticAbilityClauses-handlers/oracleIRParserStaticAbilityGrantEarlyClauses.ts` | `oracleIRParserStaticAbilityClauses.ts` | First if-chain of `tryParseStaticAbilityGrantClause` (permission / P/T / quoted grant). `undefined` = fall through; `null` = abort the whole grant parse. Do not import the parent. |
+| `oracleIRParserStaticAbilityClauses-handlers/oracleIRParserStaticAbilityRulesTextClause.ts` | `oracleIRParserStaticAbilityClauses.ts` | `tryParseRulesTextClause` (parent re-exports). |
+| `oracleIRParserLifeAndCombatClauses-handlers/oracleIRParserLifeAndCombatParseUtils.ts` | `oracleIRParserLifeAndCombatClauses.ts` | `parseDamageAmount`, `parseLifeChangeAmount`, damage-clause subject/amount patterns, `isDamageAmountDescriptor`, `shouldSkipGenericDamageSource`, `normalizeDamageClauseForParse`. Do not import the parent. |
+| `oracleIRParserLifeAndCombatClauses-handlers/oracleIRParserLifeAndCombatClause.ts` | `oracleIRParserLifeAndCombatClauses.ts` | `tryParseLifeAndCombatClause` (parent re-exports). **33.0 KB** — do not append. Never create `oracleIRParserLifeAndCombatClauses/` beside the `.ts`. |
+| `oracleIRParserUtils-handlers/oracleIRParserUtilsQuantityEarlyReferences.ts` | `oracleIRParserUtils.ts` | First if-chain of `parseQuantity` (reference-amount / object-stat / phrase). Recursion is a `parseRest` callback — do not import the parent. `null` = fall through. |
+| `oracleIR-handlers/oracleIRSharedTypes.ts` | `oracleIR.ts` | `OracleQuantity`, `OraclePlayerSelector`, `OracleObjectSelector`, `OracleScaler`, `OracleClauseCondition`, `OracleGraveyardAdditionalCost`, `OracleBattlefieldObjectCondition`, `OracleZone`. |
+| `oracleIR-handlers/oracleIREffectStepA.ts` | `oracleIR.ts` | `OracleEffectStepA` (`grant_next_spell_cost_reduction` … `fateseal`). Nested `steps` use the full `OracleEffectStep` alias. Do not import the parent or index. |
+| `oracleIR-handlers/oracleIREffectStepB.ts` | `oracleIR.ts` | `OracleEffectStepB` (`learn` … `prevent_damage`). |
+| `oracleIR-handlers/oracleIREffectStepC.ts` | `oracleIR.ts` | `OracleEffectStepC` (`damage_cant_be_prevented` … `unknown`). |
+| `oracleIR-handlers/oracleIREffectStep.ts` | `oracleIR.ts` | Public `OracleEffectStep` alias (`A \| B \| C`). Parent re-exports. |
 
 Guard-run hoists out of `parseCurrentResidualUnknownStep` live in `oracleIRParserPostprocessResidual*Guards.ts` (static grant, entry/permission, text/catalog, combat/counter/payment, perpetual/secret, reflexive, mana/phasing/attach, number-change/group P/T, named-mode search, attacker/token, self-ref/library-order, ward/evidence). `parseStructuredTriggerResidualGrant` lives in `oracleIRParserPostprocessTriggerResidual*Pt*.ts`. Reminder/platform text is `oracleIRParserPostprocessCurrentBatchReminder*.ts`.
 
 ## Oracle IR executor (`rules-engine/src/`)
 
-Still over ceiling, largest first: `oracleIRExecutorTokenStepHandlers.ts` (97.2 KB), `oracleIRExecutorPlayerUtils.ts` (83.7 KB), `oracleIRExecutorCreatureStepUtils.ts` (58.4 KB), `oracleIRExecutorModifyPtStepHandlers.ts` (54.7 KB), `oracleIRExecutorDamageStepHandlers.ts` (51.2 KB). `oracleIRExecutorSpecialTargetHandlers.ts` is **2.8 KB** (done; thin barrel). `oracleIRExecutorConditionalStepSupport.ts` is **5.7 KB** (done). `oracleIRExecutorConditionalStepSupportExtended.ts` is **15.9 KB** (done). `oracleIRExecutorMoveZoneStepHandlers.ts` is **31.9 KB** (done). `oracleIRExecutorPlayerStepHandlers.ts` is **33.6 KB** (done). `oracleIRExecutorMainLoop.ts` is **29.4 KB** (done; `applyOracleIRStepsToGameStateImpl` is the switch dispatcher). `oracleIRExecutorBattlefieldStepHandlers.ts` is **34.7 KB** (done). `oracleIRExecutorZoneOps.ts` is **20.2 KB** (done). Split by step or op family; no `BatchNNN` / `Bulk` names. No `*-handlers/` folder until a parent is already a thin barrel.
+All listed executor parents are under the ceiling. `oracleIRExecutorModifyPtStepHandlers.ts` is **25.4 KB** (done). `oracleIRExecutorDamageStepHandlers.ts` is **28.3 KB** (done). `oracleIRExecutorCreatureStepUtils.ts` is **14.0 KB** (done). `oracleIRExecutorTokenStepHandlers.ts` is **25.0 KB** (done). `oracleIRExecutorPlayerUtils.ts` is **38.2 KB** (done). `oracleIRExecutorSpecialTargetHandlers.ts` is **2.8 KB** (done; thin barrel). `oracleIRExecutorConditionalStepSupport.ts` is **5.7 KB** (done). `oracleIRExecutorConditionalStepSupportExtended.ts` is **15.9 KB** (done). `oracleIRExecutorMoveZoneStepHandlers.ts` is **31.9 KB** (done). `oracleIRExecutorPlayerStepHandlers.ts` is **33.6 KB** (done). `oracleIRExecutorMainLoop.ts` is **29.4 KB** (done; `applyOracleIRStepsToGameStateImpl` is the switch dispatcher). `oracleIRExecutorBattlefieldStepHandlers.ts` is **34.7 KB** (done). `oracleIRExecutorZoneOps.ts` is **20.2 KB** (done). Split by step or op family; no `BatchNNN` / `Bulk` names. No `*-handlers/` folder until a parent is already a thin barrel.
 
 ### `oracleIRExecutorMoveZone*` (extracted from `applyMoveZoneStep`)
 
@@ -246,6 +272,63 @@ Parent is **31.9 KB**. Leftover: `finalizeAppliedResult` prologue (closes over m
 | --- | --- |
 | `oracleIRExecutorZoneOpsCardTypeMatchers.ts` | Simple card-type parsing and matching. Entries: `SimpleCardType`, `parseSimpleCardTypeFromText`, `cardMatchesType`, `cardMatchesTotalPowerToughnessLte`. Parent re-exports the public API. |
 | `oracleIRExecutorZoneOpsShuffleIntoLibrary.ts` | Shuffle-all / typed cards from a player's graveyard into their library. Entries: `parseMoveZoneShuffleAllFromYourGraveyardIntoLibrary`, `shufflePlayerGraveyardIntoLibrary`, `shuffleTypedCardsFromPlayerGraveyardIntoLibrary`. Parent re-exports the public API. |
+
+### `oracleIRExecutorPlayerUtils*` (extracted from `oracleIRExecutorPlayerUtils.ts`)
+
+Public API unchanged: parent re-exports. Do not import the parent from a leaf. Parent is **38.2 KB** (under ceiling). Leftover: graveyard/exile permission markers, vote/quantity helpers, mill-until / reveal-until, draw / exile-top, shuffle-rest / library-bottom, `adjustLife`, `adjustPlayerCounter`, mill. Pre-existing dual copy: `isThatOwnerOrControllerSelector` / `isThoseOpponentsSelector` also live in `oracleIRParserUtils.ts`.
+
+| Module | Owns |
+| --- | --- |
+| `oracleIRExecutorPlayerResolvePlayers.ts` | `resolvePlayers`, `resolvePlayersFromDamageTarget`, `countControlledLands`, `listEligibleChooseOpponentIds`, `isThatOwnerOrControllerSelector`, `isThoseOpponentsSelector`. |
+| `oracleIRExecutorPlayerImpulsePermissionMarkers.ts` | `applyImpulsePermissionMarkers`. |
+| `oracleIRExecutorPlayerZoneAccess.ts` | `readPlayerZoneCards`, `writePlayerZoneCards`, `getCurrentTurnNumber`, `stampCardPutIntoGraveyardThisTurn`, `stampCardsPutIntoGraveyardThisTurn`. |
+| `oracleIRExecutorPlayerLookSelectTop.ts` | `lookSelectTopCardsForPlayer`. |
+| `oracleIRExecutorPlayerCardInspect.ts` | `normalizeOracleText`, `getCardTypeLineLower`. |
+| `oracleIRExecutorPlayerExileUntilAmount.ts` | `resolveUnknownExileUntilAmountForPlayer`, `getCardTypesFromTypeLine`, `getCardManaValue`. |
+| `oracleIRExecutorPlayerDiscardCards.ts` | `discardCardsForPlayer`, `discardSpecificCardsForPlayer`. |
+| `oracleIRExecutorPlayerAddManaToPool.ts` | `addManaToPoolForPlayer`. |
+
+### `oracleIRExecutorCreatureStepUtils-handlers/` (extracted from `oracleIRExecutorCreatureStepUtils.ts`)
+
+Public API unchanged: parent re-exports. Do not import the parent from a leaf. Parent is **14.0 KB** (done). Leftover: temporary P/T (`applyTemporaryPowerToughnessModifier`, `applyTemporarySetBasePowerToughness`, `applyTemporarySwitchPowerToughness`), goad (`resolveGoadTargetCreatureIds`, `applyGoadToCreatures`), `countControlledByClass`, `normalizeControlledClassKey`. Never create `oracleIRExecutorCreatureStepUtils/` beside the `.ts`.
+
+| Module | Owns |
+| --- | --- |
+| `oracleIRExecutorCreatureBattlefieldLookup.ts` | `getProcessedBattlefield`, `readPermanentPower`, `readPermanentToughness`, `permanentIsCreature`, `isMassTapOrUntapSelectorText`, `permanentHasSubtype`, `getSourceBattlefieldPermanent`, `getControlledPermanents`. |
+| `oracleIRExecutorCreatureBattlefieldHelpers.ts` | `readPowerForComparison`, `readToughnessForComparison`, `readCreatureStatForComparison`, `isAttackingPermanent`, `resolveBlockersOfPermanent`, `resolveBlockingCreatureIds`, `isUnblockedAttackingPermanent`, `permanentHasKeyword`. |
+| `oracleIRExecutorCreatureSingleTarget.ts` | `resolveSingleCreatureTargetId`, `resolveMentorTargetCreatureIdFromBattlefield`, `resolveCreatureExtremaQualifiedTargetIdFromBattlefield`, `resolveBolsterTargetCreatureIdFromBattlefield`, `resolveTrepanationBoostTargetCreatureId`. |
+| `oracleIRExecutorCreatureTargetIds.ts` | `resolveCreatureTargetIds` (plus private `permanentMatchesControlledQualifier` / `readBaseStatForQualifier`). |
+
+### `oracleIRExecutorModifyPtStepHandlers-handlers/` (extracted from `oracleIRExecutorModifyPtStepHandlers.ts`)
+
+Public API unchanged: parent still exports `applyModifyPtStep`, `applyModifyPtPerRevealedStep`, `applySetBasePtStep`, `applySwitchPowerToughnessStep`, `ModifyPtRuntime`, `ModifyPtStepHandlerResult`. Do not import the parent from a leaf. Parent is **25.4 KB** (done). Leftover: `applyModifyPtStep`, `applyModifyPtPerRevealedStep`, `applySetBasePtStep`, `applySwitchPowerToughnessStep`, local step-result types. Never create `oracleIRExecutorModifyPtStepHandlers/` beside the `.ts`.
+
+| Module | Owns |
+| --- | --- |
+| `oracleIRExecutorModifyPtStepTypes.ts` | `ModifyPtRuntime`. Parent re-exports. |
+| `oracleIRExecutorModifyPtScalerCountHelpers.ts` | `countAttackingCreaturesMatching`, `countCreaturesBlockedByTarget`, `countCreaturesBlockingTarget`, `countBasicLandTypesAmongLandsYouControl`, `countArtifactsYouControl`, `countOtherAttackingAurochs`, `countControlledCreaturesWithSubtype`, `countPartyCreatures`, `countBloodTokensForPlayer`. |
+| `oracleIRExecutorModifyPtReferenceScaler.ts` | `resolveReferenceScalerScale`. |
+
+### `oracleIRExecutorDamageStepHandlers-handlers/` (extracted from `oracleIRExecutorDamageStepHandlers.ts`)
+
+Public API unchanged: parent re-exports. Do not import the parent from a leaf. Parent is **28.3 KB** (done). Leftover: deal-damage apply (`applyDealDamageStep`) and amount/source/battlefield helpers, `applyDamageCantBePreventedStep`. Never create `oracleIRExecutorDamageStepHandlers/` beside the `.ts`.
+
+| Module | Owns |
+| --- | --- |
+| `oracleIRExecutorDamagePreventionStepTypes.ts` | `PreventDamageStepHandlerResult` plus private prevention apply/skip types. Parent re-exports. |
+| `oracleIRExecutorDamagePermanentTarget.ts` | `resolveSinglePermanentDamageTargetId`. |
+| `oracleIRExecutorDamagePreventionLookups.ts` | `resolvePreventionRecipientPermanentId`, `resolvePreventionTargetSourceId`, `findSourceObject`. |
+| `oracleIRExecutorPreventDamageStep.ts` | `applyPreventDamageStep`. Parent re-exports. |
+
+### `oracleIRExecutorToken*` (extracted from `applyCreateTokenStep`)
+
+Parent `oracleIRExecutorTokenStepHandlers.ts` is **25.0 KB** (done). Leftover: `applyCreateTokenStep` dispatcher, `scheduleTokenCleanup`, and for-each copy/create `tryApply*` helpers. Public API unchanged: parent still exports `applyCreateTokenStep` / `TokenStepHandlerResult`. Do not import the parent from a leaf.
+
+| Module | Owns |
+| --- | --- |
+| `oracleIRExecutorTokenCopySource.ts` | Copy-token source resolution and exclusive copy helpers. Entries: `resolveCopyTokenSource`, `createCopiedTokenPermanent`, `splitCopyTokenReference`, `typeLineHasWord`, `findSourceObjectByIdAcrossState`, `normalizeReferenceText`. **35.4 KB** — do not append. |
+| `oracleIRExecutorTokenBlockingEntry.ts` | Stamp created tokens as blocking a creature. Entries: `applyBlockingEntryToCreatedTokens`, `resolveBlockTargetPermanentId`. |
+| `oracleIRExecutorTokenBattlefieldAdd.ts` | Amount resolution, those-referenced copies, and battlefield add. Entries: `addTokensToBattlefield`, `resolveTokenAmount`, `resolveTokenCreationSpecsForReplacementEffects`. **36.4 KB** — do not append. |
 
 ### `oracleIRExecutorSpecialTarget*` (extracted from `trySpecial*`)
 
@@ -374,7 +457,7 @@ Parent is a **29.4 KB** dispatcher. Each family returns `result | undefined` (un
 | `oracleIRExecutorMoveZoneStepHandlers.ts` | `target card from a graveyard` is an explicit selector (not a pronoun). Bound-id lookup reads `state.zones` as well as `players[].graveyard` so cast-side Cremate/Vile Rebirth still resolve when only the dual-store zone map is populated. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerZoneHydrateDelayedBridges.ts` | `hydrateOracleIRPlayerZonesFromContext` copies graveyard/hand/exile from `state.zones` even when `ctx.libraries` is missing. |
 | `stackResolveSpellGraveyardAutomationUtils.ts` | Cast-side GY automation skips `Exile … from a graveyard` sentences; IR already applied those clauses. Return/put reanimate riders still run. |
-| `triggerEtbGraveyardTargetPrompt.ts` | Extracted from `triggerEtbEntryEffects.ts`. Self-ETB graveyard target prompt. `you may cast target … from your graveyard` uses destination `cast` plus `triggeredAbilityCastFromGraveyard`. Entry: `queueSelfEtbGraveyardTargetPrompt`. |
+| `triggerEtbGraveyardTargetPrompt.ts` | Extracted from `triggerEtbEntryEffects.ts`. Self-ETB graveyard target prompt. `you may cast target … from your graveyard` uses destination `cast` plus `triggeredAbilityCastFromGraveyard`. Entry: `queueSelfEtbGraveyardTargetPrompt`. Parent `triggerEtbEntryEffects.ts` is now a **2.9 KB** re-export barrel (`triggerEtbEntryEffects-handlers/`). |
 | `oracleIRExecutorBoundSelfCreatureTarget.ts` | `oracleIRExecutorCreatureStepUtils.resolveSingleCreatureTargetId` | `resolveBoundSelfOrSourceCreatureTargetId` — “this creature” / “this permanent” falls back to bound `targetPermanentId` when `sourceId` is not the affected creature (connive, explore). |
 | `oracleIRExecutorPlayerStepHandlers.ts` (`applyRetainManaStep`) | Duration-limited `retain_mana` (Tanuki / Birgi / firebending) writes `temporaryRetainedMana` only. Do not stamp pool-wide `doesNotEmpty` or expired combat/EOT mana survives `clearManaPool`. |
 | `oracleIRExecutorPlayerStepHandlers.ts` (`applyScryStep`) | Scry N still requires a player-choice gap when the library is empty so the server can queue printed `scryCount`. |
@@ -411,7 +494,7 @@ Parent is a **29.4 KB** dispatcher. Each family returns `result | undefined` (un
 | `stackResolveSpellChoiceUtils.ts` | After that stamp, EP-owned “choose a color + rider” spells finish on the existing-color path and do not start a second Effect Program. |
 | `ResolutionQueueManager.addStep` / `applyEvent.ts` (`kynaiosChoiceInitiated`) | Restored APNAP Kynaios steps use `allowDuringReplay` + `skipEmit` so live `STEP_ADDED` handlers cannot auto-complete the controller’s pending choice. `createResolutionStep` keeps a provided `id`. |
 | `stackResolveAbilityLateHandlersUtils.ts` | After IR resolves an activated ability, still apply `applyTemporaryGraveyardKeywordGrantFromText` so “gains escape until end of turn” is an escape grant, not only generic GY permission. |
-| `graveyard-permissions.ts` (`stripGenericGraveyardCastPermissionForCard`) | Escape grants strip the companion generic GY-cast permission (first-class + this-turn durable). Cleanup of the keyword grant strips it again so reminder-text cast windows do not outlive escape. |
+| `graveyard-permissions-handlers/graveyardPermissionsStripGenericCast.ts` (`stripGenericGraveyardCastPermissionForCard`) | Escape grants strip the companion generic GY-cast permission (first-class + this-turn durable). Cleanup of the keyword grant strips it again so reminder-text cast windows do not outlive escape. Public path still re-exports from `graveyard-permissions.ts`. |
 | `triggerLifeDamageUtils.ts` (`tryApplyEachOpponentDamageTrigger`) | Same-clause riders after “deals N damage to each opponent”: life gain, and “put a +1/+1 counter on ~” (not “target”). |
 | `socket/resolution.ts` | Re-exports `persistResolutionPaymentManaMutations` from `resolutionPaymentManaUtils.ts` for persist tests. |
 | `stackResolveTriggeredAbilityTargetPromptUtils.ts` | Mentor triggers own `MENTOR_TARGET`. Do not defer them as generic `TARGET_SELECTION`. |
@@ -454,14 +537,43 @@ Parent is a **29.4 KB** dispatcher. Each family returns `result | undefined` (un
 | `socket/ai.ts` | **35.2 KB** | `ai-handlers/index.ts` | Under ceiling. `registerAIHandlers` stays a real wrapper. `handleAIResolutionStep` is a dispatcher. Never create `socket/ai/`. |
 | `state/modules/applyEvent.ts` | **14.2 KB** | `apply-event-handlers/index.ts` | Done under ceiling. Family dispatch: `if (applyXEvents(ctx, e)) return;`. Leaves must not import `applyEvent.ts`. `reset`/`skip`/`unskip`/`remove` live in `applyEventLifecycleResetHandlers.ts`. |
 | `state/planeswalker/templates/resolve.ts` | **5.1 KB** | `templates/resolve-handlers/index.ts` | Under ceiling. `tryResolvePlaneswalkerLoyaltyTemplate` is a case-family dispatcher. Never create `templates/resolve/`. |
+| `state/planeswalker/templates/registry.ts` | **2.1 KB** | `templates/registry-handlers/index.ts` | Under ceiling. `getPlaneswalkerTemplateMatch` is a 4-phase dispatcher plus `allowFallback`. Never create `templates/registry/`. Distinct from `templates/resolve-handlers/`. |
 | `state/modules/oracleIrServerZoneSync.ts` | **29.4 KB** | `oracleIrServerZoneSync-handlers/index.ts` | Under ceiling. Remaining in parent: optional-payment resume + compound resume (`resolveOracleIrOptionalPaymentPromptFromResolution`). |
 | `socket/util.ts` | **13.7 KB** | `util-handlers/index.ts` | Under ceiling. `calculateManaProduction` is a dispatcher over `tryCalculateManaProduction*` leaves. |
+| `state/utils.ts` | **35.3 KB** | `utils-handlers/index.ts` | Under ceiling. Public path stays `utils.ts`. Never create `state/utils/` beside `utils.ts` (`state/utils/diff.ts` is unrelated). Life-gain (`applyLifeGain` / `triggerLifeGainEffects`) still in parent. Distinct from `socket/util-handlers/`. |
 | `state/modules/turn.ts` | **38.8 KB** | `turn-handlers/index.ts` | Under ceiling. `nextStep()` / `nextTurn()` / `dealCombatDamage()` stay as dispatchers. |
 | `socket/combat.ts` | **28.5 KB** | `combat-handlers/index.ts` | Under ceiling. `registerCombatHandlers` stays a real function (preview, skip, apply/clear control, `declareControlledBlockers`). Never create `socket/combat/`. |
+| `rules-engine/src/actions/combat.ts` | **36.6 KB** | `actions/combat-handlers/index.ts` | Under ceiling (near warning). Remaining: blocker capacity, `getLegalAttackers` / `getLegalBlockers`, `executeDeclareAttackers`, `validateDeclareBlockers` / `executeDeclareBlockers`, `executeCombatDamage`. Never create `actions/combat/` beside `combat.ts`. Distinct from `socket/combat-handlers/`. Dual-copy: socket `isCurrentlyCreature` / `canPermanentAttack`, AI `executeDeclareBlockers`, and `turn.ts` `dealCombatDamage` are different functions — do not merge. |
+| `rules-engine/src/actions/triggersHandler.ts` | **39.0 KB** | `actions/triggersHandler-handlers/index.ts` | Under ceiling (~1 KB headroom). Remaining: `findCardInPlayersGraveyards` / `buildObjectTypeTokens` / `looksLikeSelfDiesTrigger`; `processTriggers` / `processTriggersAutoOracle`; `checkETBTriggers`, `checkDiesTriggers`, `checkDelayedEventTriggers`, `checkTribalCastTriggers`, `checkLandfallTriggers`, `checkSpellCastTriggers`, `checkDrawTriggers`, `checkAttackTriggers`, `checkAttacksAloneTriggers`, `checkCombatDamageToPlayerTriggers`, `checkBecomesBlockedTriggers`. Never create `actions/triggersHandler/` beside `triggersHandler.ts`. Dual-copy: server `detectETBTriggers` / `detectDeathTriggers` / `detectAttackTriggers` and `zoneChangeTracking.ts` `checkETBTriggers` / `checkDiesTriggers` are different functions — do not merge. Further additions need a sibling, not the parent. |
+| `socket/deck.ts` | **36.0 KB** | `deck-handlers/index.ts` | Under ceiling (near warning). `registerDeckHandlers` stays a real function (CRUD / candidates / can-import-without-wipe). `handleImportWipeConfirmVote` stays exported from the parent. Never create `socket/deck/`. |
+| `socket/join.ts` | **38.4 KB** | `join-handlers/index.ts` | Under ceiling. `registerJoinHandlers` stays a real function (`joinGame` / `requestState`). Never create `socket/join/`. Dual-copy: join’s larger `ensureStateZonesForPlayers` / `defaultPlayerZones` live in `join-handlers/joinEnsureStateZones.ts`; a smaller pair remains in `util-handlers/playerStateZones.ts` — do not merge in a split. |
 | `socket/undo.ts` | ~39.7 KB | `undo-handlers/index.ts` | Under ceiling (~260 B headroom). Further additions need a new sibling, not the parent. |
 | `state/modules/can-respond.ts` | **34.2 KB** | `can-respond-handlers/index.ts` | Under ceiling. Never create `can-respond/` beside `can-respond.ts`. |
 | `rules-engine/targeting.ts` | **34.9 KB** | `targeting-handlers/index.ts` | Under ceiling. `categorizeSpellWithoutPrimaryRetirement` is a dispatcher over `tryCategorize…`. Never create `targeting/` beside `targeting.ts`. |
+| `rules-engine/staticEffects.ts` | **28.9 KB** | `staticEffects-handlers/index.ts` | Under ceiling. `computeContinuousEffects` stays the exported dispatcher (init, hexproof/anthems/ability grants, chosen-type/color, global type-additions). Never create `staticEffects/` beside `staticEffects.ts`. |
+| `rules-engine/src/AutomationService.ts` | **28.9 KB** | `AutomationService-handlers/index.ts` | Under ceiling. Remaining: `autoTapForMana`, `hasAvailableActions`, `processTriggeredAbilities` + `matchTrigger`, `runAutomation`, SBA/untap/draw/cleanup. Never create `AutomationService/` beside `AutomationService.ts`. Dual-copy: leaf `calculateCombatDamage`/`applyCombatDamage` (GameState automation API, index aliases `autoCalculateCombatDamage` / `autoApplyCombatDamage`) ≠ `combatDamageEnhanced.ts` `calculateCombatDamage`. |
+| `rules-engine/src/RulesEngineAdapter.ts` | **39.3 KB** | `RulesEngineAdapter-handlers/index.ts` | Under ceiling (~690 B headroom). Class stays; methods are thin `.call(this)` wrappers. Remaining real bodies: event wiring, `initializeGame` / `validateAction`, combat-declare validation, delayed dies/control-loss, pass-priority / mulligan / empty-pools, leftover SBA/win/death shims. Never create `RulesEngineAdapter/` beside `RulesEngineAdapter.ts`. Further additions need a sibling, not the parent. |
+| `rules-engine/src/CardAnalyzer.ts` | **33.9 KB** | `CardAnalyzer-handlers/index.ts` | Under ceiling. Public path stays `CardAnalyzer.ts`. Class stays; `analyzeDeck` is a thin `.call(this)` wrapper. Remaining real bodies: `analyzeCard`, `analyzeBattlefield`, synergy/sacrifice helpers, private categorize/details/threat/combo/removal. Never create `CardAnalyzer/` beside `CardAnalyzer.ts`. |
+| `rules-engine/src/AIEngine.ts` | **38.1 KB** | `AIEngine-handlers/index.ts` | Under ceiling. Public path stays `AIEngine.ts`. Class stays; `analyzeLibraryForPlanning` is a thin `.call(this)` wrapper. Remaining real bodies: registry/history, `findHandSynergies`, `selectRemovalTarget`, `evaluateSymmetricEffect`, `selectSacrificeTarget`, `detectOpponentCombo`, `makeDecision` dispatcher. Existing flat `aiEngine*.ts` siblings stay put — do not append. Never create `AIEngine/` beside `AIEngine.ts`. Dual-copy: `assessBattlefieldThreats` already lives in `aiEngineThreatSupport.ts`. |
+| `rules-engine/src/oracleTextParser.ts` | **33.0 KB** | `oracleTextParser-handlers/index.ts` | Under ceiling. Remaining: `parseTriggeredAbility`, `parseReplacementEffect`, `parseKeywordActions`, spell-instruction predicates (`isSpellInstructionLineInner` / `isSpellInstructionLine`), `parseDelayedTrigger`, `hasTriggeredAbility` / `hasActivatedAbility` / `hasReplacementEffect`. Never create `oracleTextParser/` beside `oracleTextParser.ts`. Runtime seam: `oracleTextParserHandlerDeps.ts`. Existing flat siblings `oracleTextParserPreprocess.ts`, `oracleTextParserSupport.ts`, `oracleTextParserKeywordCosts.ts`, `oracleTextParserKeywordActionAbilities.ts`, `oracleTextParserKeywordTriggers.ts` stay put. |
+| `rules-engine/src/triggeredAbilitiesEventDetection.ts` | **39.7 KB** | `triggeredAbilitiesEventDetection-handlers/index.ts` | Under ceiling (~325 B headroom). `detectTriggeredAbilityEvent` stays the exported dispatcher (leftover 39.5 KB if-chain + early `tryParse` call). Never create `triggeredAbilitiesEventDetection/` beside the `.ts`. Dual-copy: server `detectETBTriggers` / `detectDeathTriggers` / `detectAttackTriggers` are different functions — do not merge. Further additions need a sibling, not the parent. |
+| `rules-engine/src/effectProgram.ts` | **23.0 KB** | `effectProgram-handlers/index.ts` | Under ceiling. Remaining: `createEffectProgramRuntime`, `bindEffectProgramChoiceResponse`, `createChoiceEventFromEffectProgramChoiceRequest`, `runEffectProgram`, plus choice-payload coercers and run-loop helpers. Never create `effectProgram/` beside `effectProgram.ts`. `effectProgramAppendOracleStep.ts` is **33.9 KB** — do not append. |
+| `rules-engine/src/effectProgramOracleRunner.ts` | **38.8 KB** | `effectProgramOracleRunner-handlers/index.ts` | Under ceiling. Remaining: `createOracleIRCommandHandler`, graveyard-permission apply, `createOracleIREffectProgramHandlers`, `createOracleIRChoiceEvent` (10.2 KB), `buildEffectProgramsFromOracleText`, apply-* choice commands (top-library / explore / proliferate / clash / populate). Never create `effectProgramOracleRunner/` beside `effectProgramOracleRunner.ts`. |
 | `state/modules/game-state-effects.ts` | **5.2 KB** | `game-state-effects-handlers/index.ts` | Under ceiling (re-export barrel). Never create `game-state-effects/` beside `game-state-effects.ts`. `WinCondition` here is the card-effect table type, not `triggers/win-conditions.ts`. |
+| `state/modules/mana-abilities.ts` | **38.4 KB** | `mana-abilities-handlers/index.ts` | Under ceiling. Remaining: `getManaMultiplier`, `getExtraManaProduction`, devotion cluster, `getCreatureCountManaAmount`, `getThroneOfEldraineManaTaps`, `requiresManaColorChoice`. Never create `mana-abilities/` beside `mana-abilities.ts`. Dual-copy: leftover `calculateDevotion` / `getDevotionManaAmount` ≠ `triggers/devotion.ts`. |
+| `state/modules/mana-check.ts` | **3.6 KB** | `mana-check-handlers/index.ts` | Under ceiling (re-export barrel). Remaining: `buildNormalizedManaPaymentModel`. Never create `mana-check/` beside `mana-check.ts`. `manaCheckExactSources.ts` is **34.6 KB** — do not append. |
+| `state/modules/counters_tokens.ts` | **24.6 KB** | `counters_tokens-handlers/index.ts` | Under ceiling. Public path stays `counters_tokens.ts`. Runtime seam: `countersTokensHandlerDeps.ts`. Remaining: counter placement, `destroyPermanent` / `removePermanent`, devotion / god status, `applyEngineEffects`. Never create `counters_tokens/` beside `counters_tokens.ts`. Dual-copy: leftover `calculateDevotion` also exists in `mana-abilities.ts`, `triggers/devotion.ts`, and `gameStateEffectsBattlefieldQueries.ts` — do not merge in a split. |
+| `state/modules/zones.ts` | **35.7 KB** | `zones-handlers/index.ts` | Under ceiling. Remaining: import/shuffle, Zur's/dredge apply + `findDredgeAmount`, hand/library utilities (`moveHandToLibrary`, peek/select/reorder, scry/surveil/explore/search, put-on-library), `reconcileZonesConsistency`, `applyPreGameReset`. Never create `zones/` beside `zones.ts`. Dual-copy: leftover `clearPreparedStateOnBattlefieldExit` also exists as a private function in `counters_tokens.ts` — do not merge in a split. `moveRemovedPermanentToExile` ≠ `counters_tokens` `movePermanentToExile`. |
+| `state/modules/graveyard-permissions.ts` | **36.8 KB** | `graveyard-permissions-handlers/index.ts` | Under ceiling (near warning). Remaining: static-source permissions, `addGraveyardCastingPermission`, durable conversion, printed self-cast, `findGrantedKeywordInfo`. Never create `graveyard-permissions/` beside `graveyard-permissions.ts`. Dual-copy: `oracleIRParserPostprocessGraveyardCastPermission` and `graveyardPermissionAdditionalCost` are different modules — do not merge. |
+| `state/modules/keyword-handlers.ts` | **38.6 KB** | `keyword-trigger-handlers/index.ts` | Under ceiling. `processKeywordTrigger` stays a real switch dispatcher. Never create `keyword-handlers/` beside `keyword-handlers.ts`. Dual-copy: 2-arg `permanentHasKeyword` ≠ 4-arg `gameActionsPermanentKeywordGrants`. |
+| `state/modules/keyword-detection.ts` | **31.9 KB** | `keyword-detection-handlers/index.ts` | Under ceiling. Public path stays `keyword-detection.ts`. Remaining: STATIC / REPLACEMENT / KEYWORD_ACTION pattern tables, `detectKeywords`, `battlefieldGrantsRiotToPermanent`, timing/filter helpers. Never create `keyword-detection/` beside `keyword-detection.ts`. Dual-copy: `detectKeywords` is consumed by `keyword-handlers.ts` / `keyword-trigger-handlers` — do not create a third copy. `status-keyword-detection.ts` is a different leftover detector. |
+| `state/modules/triggerEtbEntryEffects.ts` | **2.9 KB** | `triggerEtbEntryEffects-handlers/index.ts` | Under ceiling (re-export barrel). Never create `triggerEtbEntryEffects/` beside `triggerEtbEntryEffects.ts`. Dual-copy: `persistTriggeredAbilityPush` here ≠ `combatDeclareBlockersRequest.ts`. Sibling `triggerEtbGraveyardTargetPrompt.ts` is a prior extract, not in the handlers folder. |
+| `state/modules/stackResolvePermanentEntryUtils.ts` | **34.0 KB** | `stackResolvePermanentEntryUtils-handlers/index.ts` | Under ceiling. Remaining: loyalty helpers, thin `queueMutateTriggeredAbilities` wrapper, `resolvePermanentSpellBattlefieldEntry` (28.8 KB). Never create `stackResolvePermanentEntryUtils/` beside the `.ts`. |
+| `state/modules/dungeon-effects.ts` | **33.6 KB** | `dungeon-effects-handlers/index.ts` | Under ceiling. Remaining: scry/library-search helpers, `applyLifeChange`, choice-entry builders, `applyDungeonTargetCreatureEffect` / `applyDungeonTargetPlayerEffect` / `applyAutomaticDungeonRoomEffect`, `buildDungeonRoomPenaltyFollowUpStep`, `buildDungeonRoomPromptSteps` / `buildDungeonRoomPromptStep`. Never create `dungeon-effects/` beside `dungeon-effects.ts`. |
+| `state/modules/executeSpellEffect.ts` | **3.0 KB** | `executeSpellEffect-handlers/index.ts` | Under ceiling. Public path stays `executeSpellEffect.ts` with thin wrappers for `executeSpellEffect`, `scheduleExiledCardReturnToBattlefield`, `returnExiledCardToBattlefield`. Never create `executeSpellEffect/` beside `executeSpellEffect.ts`. Flat sibling `executeSpellEffectMillCards.ts` stays put. Existing BOM kept — do not add another. |
+| `state/modules/upkeep-triggers.ts` | **19.0 KB** | `upkeep-triggers-handlers/index.ts` | Under ceiling. Remaining: `recordUpkeepBegan`, `stampPermanentControlEntryForEcho`, saga lore helpers, `getUpkeepTriggersForPlayer`, age/fade/time/echo/lore counters, `sacrificePermanent`, `checkSagaSacrifice`, `autoProcessCumulativeUpkeepMana`. Never create `upkeep-triggers/` beside `upkeep-triggers.ts`. Dual-copy: none — `detectUpkeepTriggers` / `UpkeepTrigger` lived only in this parent. |
+| `state/modules/triggerReflexiveWhenYouDoQueueUtils.ts` | **37.7 KB** | `triggerReflexiveWhenYouDoQueueUtils-handlers/index.ts` | Under ceiling. Remaining: other `maybeQueue*` families, `tryDeferReflexiveWhenYouDoTriggers`, `queueOracleIrReflexiveWhenYouDoFollowups`. Never create `triggerReflexiveWhenYouDoQueueUtils/` beside the `.ts`. Flat sibling `triggerReflexiveBoundSelfExilePreludeUtils.ts` stays put. |
+| `state/modules/replacementEffectSpec.ts` | **39.5 KB** | `replacementEffectSpec-handlers/index.ts` | Under ceiling (~516 B headroom). Remaining: builtins, intrinsic shuffle-into-library, overlay match/summarize, `evaluateReplacementEffectSpec`, dredge. Never create `replacementEffectSpec/` beside `replacementEffectSpec.ts`. Further additions need a sibling, not the parent. |
 
 ### `game-actions-handlers/` (extracted from `game-actions.ts`)
 
@@ -552,6 +664,29 @@ Public path stays `game-actions.ts` (`export { … } from "./game-actions-handle
 | `interactionActivateGenericMana.ts` | `tryHandleActivateGenericMana` (immediate mana production). |
 | `interactionActivateBattlefieldAbilityPersist.ts` | `applyActivateBattlefieldAbilityPersist` (bumpSeq, deferred costs, replay events). Runs after both generic branches. |
 
+### `deck-handlers/` (extracted from `deck.ts`)
+
+Public path stays `socket/deck.ts`. Leaves must not import `deck.ts` or the index. Never create `socket/deck/`. `registerDeckHandlers` stays a real function.
+
+| Module | Owns |
+| --- | --- |
+| `deckImportConfirmState.ts` | `PendingConfirm`, `pendingImportConfirmations`, `toImportBufferCard`, `makeImportConfirmId`, `isSocketInGameRoom`, `canModifySavedDeck`, `cancelImportWipeConfirmResolutionSteps`. |
+| `deckImportConfirmHelpers.ts` | Confirm broadcast/cancel, initial-draw flags, snapshot restore, transient-zone clear, `getActivePlayerIds`, `suggestCommanderNames`. |
+| `deckImportResolutionSupport.ts` | `MIN_PRECON_DECK_SIZE`, `generateUniqueCardInstanceId`, `createDeckResolutionStatusReporter`, `enqueueImportWipeConfirmToResolutionQueue`. |
+| `deckApplyConfirmedImport.ts` | `applyConfirmedImport`. |
+| `deckImportDeckSocketHandlers.ts` | `registerImportDeckHandler`. |
+| `deckUseSavedDeckSocketHandlers.ts` | `registerUseSavedDeckHandler`. |
+| `deckImportPreconDeckSocketHandlers.ts` | `registerImportPreconDeckHandler`. |
+| `deckImportDeckFromUrlSocketHandlers.ts` | `registerImportDeckFromUrlHandler`. |
+
+### `join-handlers/` (extracted from `join.ts`)
+
+Public path stays `socket/join.ts`. Leaves must not import `join.ts` or the index. Never create `socket/join/`. `registerJoinHandlers` stays a real function. Dual-copy: a smaller `defaultPlayerZones` / `ensureStateZonesForPlayers` remains in `util-handlers/playerStateZones.ts` — do not merge in a split.
+
+| Module | Owns |
+| --- | --- |
+| `joinEnsureStateZones.ts` | `defaultPlayerZones`, `ensureStateZonesForPlayers` (join-local zone + intervening-if tracker seed). |
+
 ### `ai-handlers/` (extracted from `ai.ts`)
 
 Public path stays `ai.ts`. Leaves must not import `ai.ts` or the index. Never create `socket/ai/`. `aiHandlerDeps.ts` is the injection seam if present. Choice/resolution leaves from Chat Q: `ai*ChoiceHandlers.ts`, `aiResolution*Steps.ts`, `aiPregameHandlers.ts`, `aiRegisterHandlers.ts`. See `ai-handlers/index.ts` for the full TOC.
@@ -573,6 +708,21 @@ Public path stays `ai.ts`. Leaves must not import `ai.ts` or the index. Never cr
 | `aiActionCandidateHandlers.ts` | Enumeration, mana-payment plan, response-window actions. |
 | `aiLandAuraCommander.ts` | Playable-land lookup, aura targeting, `findCastableCommander`, failed-cast memory. |
 | `aiSharedCastLand.ts` | `requestAISharedCast`, `requestAISharedLandPlay`. |
+
+### `registry-handlers/` (extracted from `registry.ts`)
+
+Public path stays `state/planeswalker/templates/registry.ts`. Folder is `templates/registry-handlers/` — not `templates/resolve-handlers/`. Leaves must not import `registry.ts` or the index. Never create `templates/registry/`.
+
+| Module | Owns |
+| --- | --- |
+| `planeswalkerTemplateDrawExileLookRegexes.ts` | Draw / exile-top / look-at-top / discard-draw loyalty regex tables. Breadcrumb: `DRAW_SELF_REGEXES`. |
+| `planeswalkerTemplateDamageDestroyEmblemRegexes.ts` | Damage / destroy / emblem / mill / targeted-pump regex tables. |
+| `planeswalkerTemplatePumpHandCounterManaRegexes.ts` | Creature-pump / put-from-hand / counters / mana regex tables. |
+| `planeswalkerTemplateControlSearchNamedDamageRegexes.ts` | Control / fight / library-search / named-damage regex tables. |
+| `planeswalkerTemplateMatchDrawExileSearch.ts` | First matcher if-chain. Entry: `tryMatchPlaneswalkerTemplateDrawExileSearch`. |
+| `planeswalkerTemplateMatchLookDraftPerpetual.ts` | Search / look / draft / perpetual if-chain. Entry: `tryMatchPlaneswalkerTemplateLookDraftPerpetual`. |
+| `planeswalkerTemplateMatchPumpLifeCreate.ts` | Pump / life / create-token mid-chain. Entry: `tryMatchPlaneswalkerTemplatePumpLifeCreate`. |
+| `planeswalkerTemplateMatchControlFightNamedDamage.ts` | Control / fight / named-damage late-chain. Entry: `tryMatchPlaneswalkerTemplateControlFightNamedDamage`. |
 
 ### `apply-event-handlers/` (extracted from `applyEvent.ts`)
 
@@ -639,6 +789,16 @@ Public path stays `targeting.ts`. Leaves must not import `targeting.ts` or the i
 | `targetingCategorizeDamageFlickerRestrictions.ts` | Damage/flicker/restriction templates. |
 | `targetingCategorizeTapBounceGenericTargets.ts` | Tap/bounce/generic-target templates. |
 
+### `staticEffects-handlers/` (extracted from `staticEffects.ts`)
+
+Public path stays `staticEffects.ts`. Leaves must not import `staticEffects.ts` or the index. Never create `staticEffects/` beside `staticEffects.ts`. `computeContinuousEffects` keeps the exported dispatcher: init + hexproof/anthems/ability grants/chosen-type-color/global type-additions, then `applyMonumentLordAndSharedTypeEffects` for the monument/lord/shared-type phase.
+
+| Module | Owns |
+| --- | --- |
+| `staticEffectsKnownCards.ts` | `KNOWN_STATIC_EFFECT_CARDS` (extracted as-is; unused by computeContinuousEffects). |
+| `staticEffectsScanHelpers.ts` | Parse/battlefield helpers plus `EffectAggregate` / `ContinuousEffectResult`. Entries: `COLOR_WORDS`, `parseCardCountWord`, `parseBuffSegment`, `resolveGrantedAbilities`, `isCreature`, `isLegendaryCreature`, `isColor`, `creatureHasManaColor`, `hasCreatureType`, `countOtherCreaturesSharingType`, `permanentCountsForControlTypeCondition`, `CREATURE_TYPES`, `GLOBAL_TYPE_ADDITIONS`. |
+| `staticEffectsMonumentLordAndSharedType.ts` | Monument + creature-type lord + nonblack/nonhuman + Coat of Arms + Sliver Legion phase. Entry: `applyMonumentLordAndSharedTypeEffects`. |
+
 ### `game-state-effects-handlers/` (extracted from `game-state-effects.ts`)
 
 Public path stays `game-state-effects.ts` (re-export barrel). Leaves must not import the parent or the index. Never create `game-state-effects/` beside `game-state-effects.ts`. Dual-copy: `WinCondition` in `triggers/win-conditions.ts` is a different type (game-result) — do not merge.
@@ -653,6 +813,320 @@ Public path stays `game-state-effects.ts` (re-export barrel). Leaves must not im
 | `gameStateEffectsLandPlayDraw.ts` | Additional land drops, temporary land bonuses, additional draws. |
 | `gameStateEffectsTopLibrary.ts` | Top-of-library look/play/cast, `recalculatePlayerEffects`. |
 | `gameStateEffectsMillDamage.ts` | Combat mill replacements, modified damage, `applyCombatDamageReplacement`. |
+
+### `mana-abilities-handlers/` (extracted from `mana-abilities.ts`)
+
+Public path stays `mana-abilities.ts`. Leaves must not import `mana-abilities.ts` or the index. Never create `mana-abilities/` beside `mana-abilities.ts`. Dual-copy: leftover `calculateDevotion` / `getDevotionManaAmount` differ from `triggers/devotion.ts` — do not merge.
+
+| Module | Owns |
+| --- | --- |
+| `manaAbilityLandTypeModifiers.ts` | `ManaAbility` / `ManaModifier`, basic-land-type helpers, `KNOWN_MANA_MODIFIERS`, `detectManaModifiers`, `getEffectiveBasicLandTypes`. |
+| `manaAbilityColorRestrictionUtils.ts` | Chosen-color, Mox Amber, spend-restriction, power-threshold, commander identity, opponent-land colors; exclusive helpers for `getManaAbilitiesForPermanent`. |
+| `manaAbilitiesForPermanent.ts` | `getManaAbilitiesForPermanent`. |
+
+### `mana-check-handlers/` (extracted from `mana-check.ts`)
+
+Public path stays `mana-check.ts`. Leaves must not import `mana-check.ts` or the index. Never create `mana-check/` beside `mana-check.ts`.
+
+| Module | Owns |
+| --- | --- |
+| `manaCheckActivationGate.ts` | `canCountPermanentManaAbilities` (metalcraft / threshold gate). |
+| `manaCheckPaymentTypes.ts` | `PHYREXIAN_LIFE_COST`, `ParsedManaCost`, `NormalizedManaPaymentModel`. |
+| `manaCheckOracleText.ts` | `stripReminderTextFromOracle`. |
+| `manaCheckSimplePool.ts` | `getEmptyManaPool`, `getManaPoolFromState`, `SIMPLE_MANA_KEYS`, exact-source types, simple-pool arithmetic. |
+| `manaCheckRemoveCounterCost.ts` | Self-remove-counter parse and permanent counter budgets. |
+| `manaCheckCostedTapFilter.ts` | `filterOutCostedTapMatches`. |
+| `manaCheckPermanentColors.ts` | `getOpponentPermanentColors`, `getControlledPermanentColors`. |
+| `manaCheckAvailableMana.ts` | `getAvailableMana`. |
+| `manaCheckParseManaCost.ts` | `parseManaCost`, `normalizeParsedManaCost`, `stringifyParsedManaCost`. |
+| `manaCheckScalingExactOptions.ts` | `buildScalingManaExactOptions`. |
+| `manaCheckAbilityCostParsers.ts` | Hand / life / return-to-hand mana-ability cost parsers. |
+| `manaCheckExactSources.ts` | Non-tap, battery color-fix, spend, produced-mana, `buildExactManaSources`. **34.6 KB** — do not append. |
+| `manaCheckCanPayManaCost.ts` | `getTotalManaFromPool`, `canPayManaCost`, `getMaxXValue`. |
+| `manaCheckCanPayWithSources.ts` | `canPayManaCostWithAvailableSources`, `getPlayerLifeTotal`. |
+
+### `AutomationService-handlers/` (extracted from `AutomationService.ts`)
+
+Public path stays `rules-engine/src/AutomationService.ts`. Leaves must not import the parent or the index. Never create `AutomationService/` beside `AutomationService.ts`. Dual-copy: leaf combat-damage API ≠ `combatDamageEnhanced.ts`.
+
+| Module | Owns |
+| --- | --- |
+| `automationServiceDecisionTypes.ts` | `DecisionType`, `PendingDecision`, `DecisionOption`, `SelectionFilter`, `DecisionResult`, `AutomationContext`, `AutomationResult`. |
+| `automationServiceCombatDamage.ts` | `calculateCombatDamage`, `applyCombatDamage`, `CombatDamageAssignment`, exclusive combat helpers. |
+| `automationServiceTargetDecisionTypes.ts` | `TargetingSourceInfo`, `TargetDecisionZone`, `TargetDecisionConstraints`. |
+| `automationServiceTargetDecisionBuilders.ts` | `requiresDecisionToResolve` plus target/mode/X builders (`parseTargetTypes`, `buildTargetDecisionOptions`, …). |
+
+### `RulesEngineAdapter-handlers/` (extracted from `RulesEngineAdapter.ts`)
+
+Public path stays `rules-engine/src/RulesEngineAdapter.ts`. Leaves must not import the parent or the index. Never create `RulesEngineAdapter/` beside `RulesEngineAdapter.ts`. Class methods in the parent are thin `.call(this)` wrappers.
+
+| Module | Owns |
+| --- | --- |
+| `adapterActivatedAbilityAdditionalCosts.ts` | Additional-cost resolve/pay (discard/tap/sac/counter/exile/reveal) + graveyard extras. |
+| `adapterActionValidators.ts` | `validatePlayLand`, `validateSpellCast`, `validateAbilityActivation`. |
+| `adapterCastSpellAction.ts` | `castSpellAction`. |
+| `adapterResolveStackTop.ts` | `resolveStackTop`. |
+| `adapterStateBasedActions.ts` | `checkStateBasedActions`. |
+| `adapterActivateAbilityAction.ts` | `activateAbilityAction`. |
+| `adapterPlayLandAction.ts` | `playLandAction`. |
+| `adapterTargetingHelpers.ts` | Targeting colors / source info / selected-target legality. |
+| `adapterCastSpellMetadata.ts` | Cast metadata (payment, counters, flash, immunity). |
+| `adapterAdditionalCostParsers.ts` | Additional-cost eligibility + `parse*FromDescription`. |
+| `adapterKeywordCostAndResolvedSpell.ts` | Buyback/replicate/disturb/rebound + resolved-spell zone moves. |
+| `adapterExecuteAction.ts` | `executeAction`. |
+| `adapterTapForManaAction.ts` | `tapForManaAction`. |
+| `adapterHelmOfTheHostTrigger.ts` | `resolveHelmOfTheHostTrigger`. |
+| `adapterBecameMonstrousTriggers.ts` | `processBecameMonstrousTriggers`. |
+| `adapterLibrarySourceHelpers.ts` | `getCardTypes`, top-library land/spell, `findSourceZoneCard`. |
+| `adapterManaCostParse.ts` | `parseManaCostString`, `canPayManaCostFromPool`. |
+| `adapterTimingContext.ts` | `buildTimingContext`. |
+
+### `CardAnalyzer-handlers/` (extracted from `CardAnalyzer.ts`)
+
+Public path stays `rules-engine/src/CardAnalyzer.ts`. Leaves must not import the parent or the index. Never create `CardAnalyzer/` beside `CardAnalyzer.ts`. Class methods in the parent are thin `.call(this)` wrappers.
+
+| Module | Owns |
+| --- | --- |
+| `cardAnalyzerPatterns.ts` | `PATTERNS` card-effect regex table. |
+| `cardAnalyzerBeneficialDeathCards.ts` | `BENEFICIAL_DEATH_CARDS` death-payoff table. |
+| `cardAnalyzerKnownCombos.ts` | `KNOWN_COMBOS` named combo-piece partners. |
+| `cardAnalyzerTypes.ts` | `CardCategory`, `ThreatLevel`, `SynergyArchetype`, `CardAnalysis`, `CardEffectDetails`, `BattlefieldAnalysis`, `DeckArchetypeProfile`. |
+| `cardAnalyzerAnalyzeDeck.ts` | `analyzeDeck`, `CardAnalyzerHost`. |
+
+### `AIEngine-handlers/` (extracted from `AIEngine.ts`)
+
+Public path stays `rules-engine/src/AIEngine.ts`. Leaves must not import the parent or the index. Never create `AIEngine/` beside `AIEngine.ts`. Class methods in the parent are thin `.call(this)` wrappers. Existing flat `aiEngine*.ts` siblings stay put — do not append. Dual-copy: `assessBattlefieldThreats` already lives in `aiEngineThreatSupport.ts`.
+
+| Module | Owns |
+| --- | --- |
+| `aiEngineAnalyzeLibraryForPlanning.ts` | `analyzeLibraryForPlanning`, `AIEngineHost`. |
+
+### `oracleTextParser-handlers/` (extracted from `oracleTextParser.ts`)
+
+Public path stays `rules-engine/src/oracleTextParser.ts`. Leaves must not import the parent or the index. Never create `oracleTextParser/` beside `oracleTextParser.ts`. Runtime seam: `oracleTextParserHandlerDeps.ts`. Existing flat siblings `oracleTextParserPreprocess.ts`, `oracleTextParserSupport.ts`, `oracleTextParserKeywordCosts.ts`, `oracleTextParserKeywordActionAbilities.ts`, `oracleTextParserKeywordTriggers.ts` stay put.
+
+| Module | Owns |
+| --- | --- |
+| `oracleTextParserTypes.ts` | `ParsedAbility`, `ChoiceRequirement`, `AbilityType`, `ParsedKeywordAction`, `OracleTextParseResult`. |
+| `oracleTextParserTriggeredLineSplit.ts` | `stripLeadingTriggeredAbilityLabel`, `looksLikeCompleteTriggerCondition`, `splitMixedStandaloneAndTriggeredLine`, `splitRepeatedTriggeredLead`. |
+| `oracleTextParserHandlerDeps.ts` | Runtime seam for parse helpers still in the parent. Entries: `setOracleTextParserHandlerDeps`, `getOracleTextParserHandlerDeps`. |
+| `oracleTextParserParseActivatedAbility.ts` | `parseActivatedAbility`, `KEYWORD_COST_PATTERN`, `isGrantedQuotedActivatedAbilityLine`. |
+| `oracleTextParserParseOracleText.ts` | `parseOracleText`, `parseKeywords`. |
+
+### `triggeredAbilitiesEventDetection-handlers/` (extracted from `rules-engine/src/triggeredAbilitiesEventDetection.ts`)
+
+Public path stays `rules-engine/src/triggeredAbilitiesEventDetection.ts` (**39.7 KB**). Internal TOC: `rules-engine/src/triggeredAbilitiesEventDetection-handlers/index.ts`. `detectTriggeredAbilityEvent` stays the exported dispatcher (leftover 39.5 KB if-chain + early `tryParse` call). Leaves must not import `triggeredAbilitiesEventDetection.ts` or the index. Never create `triggeredAbilitiesEventDetection/` beside the `.ts`. Dual-copy: server `detectETBTriggers` / `detectDeathTriggers` / `detectAttackTriggers` are different functions — do not merge.
+
+| Module | Owns |
+| --- | --- |
+| `triggeredAbilitiesEventDetectionEarlyFamilies.ts` | Early `detectTriggeredAbilityEvent` if-chain (spell countered / beginning-of-main / first-spell / spell-cast). Entry: `tryParseTriggeredAbilityEventEarlyFamilies`. `undefined` = fall through. Do not import the parent. |
+
+### `effectProgram-handlers/` (extracted from `effectProgram.ts`)
+
+Public path stays `rules-engine/src/effectProgram.ts`. Leaves must not import the parent or the index. Never create `effectProgram/` beside `effectProgram.ts`.
+
+| Module | Owns |
+| --- | --- |
+| `effectProgramTypes.ts` | Public Effect Program types/interfaces plus `ORACLE_CHOICE_STEP_KINDS` / `BASIC_LAND_TYPE_OPTIONS`. |
+| `effectProgramAppendOracleStep.ts` | `buildEffectProgramFromOracleIR`, `appendOracleStepToEffectProgram`, and exclusive oracle-step choice helpers (choose-mode targets, choice-request builders, supported-choice guards, clash append, color/mode mappers). **33.9 KB** — do not append. |
+
+### `effectProgramOracleRunner-handlers/` (extracted from `effectProgramOracleRunner.ts`)
+
+Public path stays `rules-engine/src/effectProgramOracleRunner.ts`. Leaves must not import the parent or the index. Never create `effectProgramOracleRunner/` beside `effectProgramOracleRunner.ts`.
+
+| Module | Owns |
+| --- | --- |
+| `effectProgramOracleRunnerChoiceNormalize.ts` | `normalizeChoiceResponseSelections`, `normalizeChoiceResponseSelection`. |
+| `effectProgramOracleRunnerChoiceOptions.ts` | `hasNonEmptyChoiceOptions`, `inferOracleIRTargetTypes`, `buildOracleIRTargetSelectionOptions`, `buildOracleIRPlayerChoiceOptions`, `shouldOracleIRPlayerChoiceAllowSelf`. |
+| `effectProgramOracleRunnerChoiceLookups.ts` | Populate/explore battlefield lookups: `resolvePopulatePlayerId`, `buildPopulateTargetChoiceOption`, `resolveExploreTargetId`, `findBattlefieldPermanent`, `readPermanentName`, `isLandCard`, `getCardTypeLine`. |
+| `effectProgramOracleRunnerLibraryLookups.ts` | Top-library / fateseal lookups: `findFatesealTargetPlayerId`, `readFirstSelectionForBinding`, `normalizeSelectionIdList`, `getPlayerLibrary`, `resolveTopLibraryChoicePlayerId`, `normalizeTopLibraryPromptCard`, `quantityToStaticNumber`. |
+| `effectProgramOracleRunnerClashLookups.ts` | `resolveClashPlayerId`, `findClashOpponentPlayerId`, `findClashTargetBindingKey`. |
+| `effectProgramOracleRunnerBindingKeys.ts` | `DerivedOracleIRContextBindings`, `LAST_*` binding key constants. |
+| `effectProgramOracleRunnerChoiceClassify.ts` | `classifyChoiceTarget`, `normalizeChosenManaSelection`. |
+| `effectProgramOracleRunnerContextBindings.ts` | `createOracleIRContextWithEffectProgramBindings`, `createOracleIROptionsWithEffectProgramBindings`, `findSelectedModeIdsForCommand`, `readSelectedModeIdsForBinding`, `deriveOracleIRContextFromEffectProgramBindings`. |
+
+### `actions/combat-handlers/` (extracted from `rules-engine/src/actions/combat.ts`)
+
+Public path stays `rules-engine/src/actions/combat.ts`. Internal TOC: `rules-engine/src/actions/combat-handlers/index.ts`. Distinct from `server/src/socket/combat-handlers/`. Leaves must not import `actions/combat.ts` or the index. Never create `actions/combat/` beside `combat.ts`. Dual-copy: socket `combatLegalityGates.ts` `isCurrentlyCreature` / `canPermanentAttack`, AI `executeDeclareBlockers`, and `turn.ts` `dealCombatDamage` are different functions — do not merge.
+
+| Module | Owns |
+| --- | --- |
+| `combatActionTypes.ts` | `AttackerDeclaration`, `BlockerDeclaration`, `DeclareAttackersAction`, `DeclareBlockersAction`, `CombatDamageAssignment`, `DealCombatDamageAction`. |
+| `combatGoadPermanentLookup.ts` | `getPermanentForGoadAnalysis`. |
+| `combatLegalityHelpers.ts` | `isCurrentlyCreature`, `hasDefender`, `canPermanentAttack`, `hasHaste`, `canPermanentBlock`, `checkEvasionAbilities`, `hasAbility`, `CombatValidationResult`. |
+| `combatPermanentPower.ts` | `getPermanentPower`. |
+| `combatGoadHelpers.ts` | `buildProcessedBattlefieldForGoad`, `isGoaded`, `getGoadedBy`, `getGoadedAttackTargets`, `canGoadedCreatureAttack`. |
+| `combatGoadedAttackers.ts` | `getGoadedAttackers`. |
+| `combatValidateDeclareAttackers.ts` | `validateDeclareAttackers`. |
+
+### `actions/triggersHandler-handlers/` (extracted from `rules-engine/src/actions/triggersHandler.ts`)
+
+Public path stays `rules-engine/src/actions/triggersHandler.ts`. Internal TOC: `rules-engine/src/actions/triggersHandler-handlers/index.ts`. Leaves must not import `actions/triggersHandler.ts` or the index. Never create `actions/triggersHandler/` beside `triggersHandler.ts`. Dual-copy: server `detectETBTriggers` / `detectDeathTriggers` / `detectAttackTriggers` and `zoneChangeTracking.ts` `checkETBTriggers` / `checkDiesTriggers` are different functions — do not merge.
+
+| Module | Owns |
+| --- | --- |
+| `triggersHandlerTypes.ts` | `TriggerResult`, `TriggerProcessingOptions`, step/ETB/landfall/dies/spell/draw/combat-damage/blocked option types, `DelayedTriggerEventCheck`, combat/attack/blocked assignment types. |
+| `triggersHandlerStackItems.ts` | `getStackItems`. |
+| `triggersHandlerFindTriggeredAbilities.ts` | `findTriggeredAbilities`. |
+| `triggersHandlerCheckStepTriggers.ts` | `checkStepTriggers`. |
+
+### `utils-handlers/` (extracted from `state/utils.ts`)
+
+Public path stays `server/src/state/utils.ts`. Folder is `server/src/state/utils-handlers/` — not `socket/util-handlers/`. Leaves must not import `utils.ts` or the index. Never create `state/utils/` beside `utils.ts` (`state/utils/diff.ts` is unrelated).
+
+| Module | Owns |
+| --- | --- |
+| `variablePTCalculator.ts` | Characteristic-defining `*/*` P/T. Entry: `calculateVariablePT`. |
+| `ptTypeLineCreatureTypes.ts` | Type-line subtype split. Entry: `extractCreatureTypes` (was file-private). |
+| `ptAttachedBonusParseHelpers.ts` | Attached P/T count/parse, set-base-P/T auras, Trepanation Blade predicates. Entries: `resolveSetBasePTFromAttachedAuras`, `isEquippedAttackRevealUntilLandPump`, `getEquippedAttackRevealPumpPowerPerCard`, `shouldUseAttachedBonusNameTable`, `parseStaticAttachedPTBonusFromOracle`, `resolveAttachedPTBonusFromOracle`. |
+| `ptAttachedBonusNameTables.ts` | Legacy empty `EQUIPMENT_BONUSES` / `AURA_BONUSES`. |
+| `ptEquipmentBonusCalculator.ts` | Attached equipment/aura P/T sum. Entry: `calculateEquipmentBonus`. |
+| `ptAllBonusesCalculator.ts` | Combined P/T bonuses (lords, anthems, equipment, counters). Entry: `calculateAllPTBonuses`. |
+| `ptAllBonusesWithSources.ts` | Tooltip source tracking. Entries: `calculateAllPTBonusesWithSources`, `calculateEquipmentBonusWithSources`, `PTBonusSource`, `PTBonusResult`. |
+
+### `counters_tokens-handlers/` (extracted from `counters_tokens.ts`)
+
+Public path stays `counters_tokens.ts`. Leaves must not import the parent or the index. Runtime seam: `countersTokensHandlerDeps.ts`.
+
+| Module | Owns |
+| --- | --- |
+| `countersTokensDeathTriggerStack.ts` | `inferDeathTriggerStackMetadata`, `pushDeathTriggerOntoStack`, exclusive battlefield-return metadata helpers. |
+| `countersTokensDeathTriggerKeywords.ts` | `getKeywordDeathTriggersForPermanent`, `mergeDeathTriggers`. |
+| `countersTokensCreateToken.ts` | `createToken`, `createCopyTokensOfCard`, `CreateTokenOptions`. |
+| `countersTokensMoveToGraveyard.ts` | `movePermanentToGraveyard` (token cease-to-exist still emits death triggers). |
+| `countersTokensMoveToExile.ts` | `movePermanentToExile`. |
+| `countersTokensStateBasedActions.ts` | `runSBA`, `resolveLegendRuleChoice`. |
+| `countersTokensHandlerDeps.ts` | Runtime seam for `runSBA` / GY / counter-mod / battlefield-exit / god-status. |
+
+### `zones-handlers/` (extracted from `zones.ts`)
+
+Public path stays `zones.ts`. Leaves must not import the parent or the index. Never create `zones/` beside `zones.ts`. Dual-copy: `clearPreparedStateOnBattlefieldExit` also exists as a private function in `counters_tokens.ts` — do not merge. `moveRemovedPermanentToExile` ≠ `movePermanentToExile`.
+
+| Module | Owns |
+| --- | --- |
+| `zonesClearPreparedOnBattlefieldExit.ts` | `clearPreparedStateOnBattlefieldExit` (soulbond unpair + prepared cleanup). |
+| `zonesDrawReplacementZursQueue.ts` | `getOpponentsForPlayer`, `queueZursWeirdingOpponentStep`, `queueZursWeirdingDrawReplacementStep`. |
+| `zonesDrawReplacementDredgeQueue.ts` | `queueDredgeDrawReplacementStep`. |
+| `zonesDrawCards.ts` | `DrawCardsOptions`, `persistDrawCardsEvent`, `drawCards`, `drawCardsByIds`, `processDrawTriggers`. |
+| `zonesProcessMillTriggers.ts` | `processMillTriggers`. |
+| `zonesMovePermanentToLibrary.ts` | `movePermanentToLibrary`. |
+| `zonesMovePermanentToHand.ts` | `movePermanentToHand`. |
+| `zonesMoveRemovedPermanentToExile.ts` | `moveRemovedPermanentToExile`. |
+
+### `graveyard-permissions-handlers/` (extracted from `graveyard-permissions.ts`)
+
+Public path stays `graveyard-permissions.ts`. Leaves must not import the parent or the index. Never create `graveyard-permissions/` beside `graveyard-permissions.ts`. Runtime seam: `graveyardPermissionsHandlerDeps.ts`. Dual-copy: `oracleIRParserPostprocessGraveyardCastPermission` and `graveyardPermissionAdditionalCost` are different modules — do not merge.
+
+| Module | Owns |
+| --- | --- |
+| `graveyardPermissionsTypes.ts` | Public GY-permission interfaces/aliases. |
+| `graveyardPermissionsCardUtils.ts` | Shared card/text helpers (`normalizeText`, `getCardId`, …). |
+| `graveyardPermissionsQualifierMatch.ts` | `qualifierMatchesCard`, `getCardColors`, `splitTypeWordList`. |
+| `graveyardPermissionsNormalize.ts` | Cost-mode / duration normalizers. |
+| `graveyardPermissionsZoneAccess.ts` | Graveyard collection / snapshot / find. |
+| `graveyardPermissionsHandlerDeps.ts` | Runtime seam for `addGraveyardCastingPermission`. |
+| `graveyardPermissionsMarkSourcePlayable.ts` | `markSourceCardPlayableFromGraveyardThisTurn`. |
+| `graveyardPermissionsTemporaryPlayable.ts` | Temporary playable-from-GY grant. |
+| `graveyardPermissionsPlayableFromText.ts` | `applyPlayableFromGraveyardPermissionFromText`. |
+| `graveyardPermissionsKeywordCost.ts` | Granted-keyword cost + escape counters. |
+| `graveyardPermissionsKeywordGrantHelpers.ts` | Temporary keyword-grant lookup / target selection. |
+| `graveyardPermissionsStripGenericCast.ts` | Escape strips companion generic GY-cast permission. |
+| `graveyardPermissionsTemporaryKeywordGrant.ts` | `addTemporaryGraveyardKeywordGrant`. |
+| `graveyardPermissionsKeywordGrantFromText.ts` | `applyTemporaryGraveyardKeywordGrantFromText`. |
+
+### `keyword-trigger-handlers/` (extracted from `keyword-handlers.ts`)
+
+Public path stays `keyword-handlers.ts`. Leaves must not import the parent or the index. Never create `keyword-handlers/` beside `keyword-handlers.ts`. Dual-copy: 2-arg `permanentHasKeyword` ≠ 4-arg `gameActionsPermanentKeywordGrants`.
+
+| Module | Owns |
+| --- | --- |
+| `keywordTriggerTypes.ts` | `KeywordTriggerResult`, `KeywordTriggerContext`. |
+| `keywordTriggerPermanentLookup.ts` | 2-arg `permanentHasKeyword`, `getPermanentKeywords` (oracle-text detect; distinct from 4-arg grants). |
+| `keywordTriggerAttackHandlers.ts` | Combat lookup helpers plus attack-trigger `handleProwess` through `handleEnlist`. |
+
+### `keyword-detection-handlers/` (extracted from `keyword-detection.ts`)
+
+Public path stays `keyword-detection.ts`. Leaves must not import the parent or the index. Never create `keyword-detection/` beside `keyword-detection.ts`. Dual-copy: `detectKeywords` is consumed by `keyword-handlers.ts` / `keyword-trigger-handlers` — do not create a third copy. `status-keyword-detection.ts` is a different leftover detector.
+
+| Module | Owns |
+| --- | --- |
+| `keywordDetectionTypes.ts` | `KeywordCategory`, `KeywordTiming`, `DetectedKeyword`, `KeywordDetectionResult`, `KeywordPattern`. |
+| `keywordDetectionTriggeredPatterns.ts` | `TRIGGERED_KEYWORD_PATTERNS` regex table. |
+
+### `triggerEtbEntryEffects-handlers/` (extracted from `triggerEtbEntryEffects.ts`)
+
+Public path stays `triggerEtbEntryEffects.ts`. Leaves must not import the parent or the index. Never create `triggerEtbEntryEffects/` beside `triggerEtbEntryEffects.ts`. Dual-copy: `persistTriggeredAbilityPush` here ≠ `combatDeclareBlockersRequest.ts`. Sibling `triggerEtbGraveyardTargetPrompt.ts` is a prior extract, not in this folder.
+
+| Module | Owns |
+| --- | --- |
+| `triggerEtbPersistTriggeredAbility.ts` | Event-log persist for a pushed triggered-ability stack item. Entry: `persistTriggeredAbilityPush`. |
+| `triggerEtbTypedPermanentMatch.ts` | Typed/chosen-type ETB predicates and stack-item build. Entries: `shouldQueueChosenTypeCreatureEtbTrigger`, `tryBuildTypedPermanentEtbStackItem`, `matchesRequiredTypePhrase`, `TYPED_PERMANENT_ETB_REQUIRED_TYPE`. |
+| `triggerEtbBattlefieldEntryTracking.ts` | Entered-this-turn counters for intervening-if. Entry: `recordBattlefieldEntryTurnTracking`. |
+| `triggerEtbTemporaryEntryTriggers.ts` | This-turn temporary ETB triggers. Entries: `addTemporaryEtbTrigger`, `clearTemporaryEtbTriggers`, `queueTemporaryEtbTriggersForEntry`. |
+| `triggerEtbTokenEntryEffects.ts` | Token battlefield-entry ETB (self + other permanents). Entry: `triggerETBEffectsForToken`. |
+| `triggerEtbQueueSelfTriggers.ts` | Self-ETB when a permanent enters. Entry: `queueSelfETBTriggersForPermanent`. |
+
+### `stackResolvePermanentEntryUtils-handlers/` (extracted from `stackResolvePermanentEntryUtils.ts`)
+
+Public path stays `stackResolvePermanentEntryUtils.ts`. Leaves must not import the parent or the index. Never create `stackResolvePermanentEntryUtils/` beside the `.ts`. Parent keeps a thin `queueMutateTriggeredAbilities` wrapper.
+
+| Module | Owns |
+| --- | --- |
+| `queueMutateTriggeredAbilities.ts` | Queue mutate triggered abilities from mutated-stack cards plus `detectMutateTriggers`. Exclusive helper `buildFullTriggeredAbilityText`. |
+
+### `dungeon-effects-handlers/` (extracted from `dungeon-effects.ts`)
+
+Public path stays `dungeon-effects.ts`. Leaves must not import `dungeon-effects.ts` or the index. Never create `dungeon-effects/` beside `dungeon-effects.ts`.
+
+| Module | Owns |
+| --- | --- |
+| `dungeonRoomCardHelpers.ts` | `DungeonRoomExecuteEffectPayload`, library clone/get/top helpers, pending dungeon-room card ids, `getLibraryCardChoiceEntries`, `shuffleCardsInPlace`. |
+| `dungeonRoomTokenEffects.ts` | `buildDungeonRoomTokenPayloads`, `applyAutomaticDungeonRoomTokenEffects`. |
+
+### `executeSpellEffect-handlers/` (extracted from `executeSpellEffect.ts`)
+
+Public path stays `executeSpellEffect.ts`. Internal TOC: `executeSpellEffect-handlers/index.ts`. Leaves must not import `executeSpellEffect.ts` or the index. Never create `executeSpellEffect/` beside `executeSpellEffect.ts`. Flat sibling `executeSpellEffectMillCards.ts` (MillCards case) is a prior extract, not in the handlers folder.
+
+| Module | Owns |
+| --- | --- |
+| `executeSpellEffectCore.ts` | Legacy spell-effect switch. Entry: `executeSpellEffect`. **35.2 KB** — do not append. |
+| `executeSpellEffectFlickerHelpers.ts` | Flicker return-at normalize/schedule and exile-to-battlefield return. Entries: `normalizeFlickerReturnAt`, `scheduleExiledCardReturnToBattlefield`, `returnExiledCardToBattlefield`, `resolveFlickerReturnAfterExile`. |
+
+### `upkeep-triggers-handlers/` (extracted from `upkeep-triggers.ts`)
+
+Public path stays `server/src/state/modules/upkeep-triggers.ts`. Leaves must not import the parent or the index. Never create `upkeep-triggers/` beside `upkeep-triggers.ts`. Dual-copy: none — `detectUpkeepTriggers` / `UpkeepTrigger` lived only in this parent.
+
+| Module | Owns |
+| --- | --- |
+| `upkeepTriggerDetectHelpers.ts` | `UpkeepTrigger` plus exclusive detect helpers: `normalizeUpkeepEffectText`, `hasMatchingUpkeepEffect`, `isSacrificeCreatureOrSelfOracle`. |
+| `upkeepMarkerHelpers.ts` | Echo/control upkeep marker lookup. Entry: `getLastUpkeepMarker`. |
+| `upkeepEchoHelpers.ts` | Echo cost fires on the control-change upkeep. Entry: `shouldTriggerEcho`. |
+| `upkeepTriggerDetect.ts` | Oracle-text upkeep trigger detection. Entry: `detectUpkeepTriggers`. |
+
+### `triggerReflexiveWhenYouDoQueueUtils-handlers/` (extracted from `triggerReflexiveWhenYouDoQueueUtils.ts`)
+
+Public path stays `triggerReflexiveWhenYouDoQueueUtils.ts`. Leaves must not import the parent or the index. Never create `triggerReflexiveWhenYouDoQueueUtils/` beside the `.ts`. Flat sibling `triggerReflexiveBoundSelfExilePreludeUtils.ts` stays put.
+
+| Module | Owns |
+| --- | --- |
+| `maybeQueueReflexiveAnyAmountManaPayment.ts` | Queues CR 603.12 “you may pay any amount of mana. If you do” reflexive `OPTION_CHOICE`. Entry: `maybeQueueReflexiveAnyAmountManaPayment`. |
+
+### `replacementEffectSpec-handlers/` (extracted from `replacementEffectSpec.ts`)
+
+Public path stays `replacementEffectSpec.ts`. Leaves must not import the parent or the index. Existing mechanic row for CR 616.1a leave-battlefield / finality stays — that logic is still in the parent builtins.
+
+| Module | Owns |
+| --- | --- |
+| `replacementEffectSpecTypes.ts` | `ReplacementEffectSpec` + per-event match interfaces. |
+| `replacementEffectSpecOracleTextUtils.ts` | `normalizeOraclePatternText`, `readCardOracleText`. |
+| `replacementEffectSpecLifeGainOracleTemplates.ts` | Life-gain oracle templates + `collectOraclePatternLifeGainReplacementSpecsFromState`. |
+| `replacementEffectSpecCounterOracleTemplates.ts` | Counter templates + collect. |
+| `replacementEffectSpecLibrarySearchOracleTemplates.ts` | Library-search templates + collect. |
+| `replacementEffectSpecDamageOracleTemplates.ts` | Damage templates, prevent-all-but parsers, emblem sources, `overlaySpecsMatchDamage`. |
+| `replacementEffectSpecDrawOracleTemplates.ts` | Draw templates + collect. |
+| `replacementEffectSpecTokenOracleTemplates.ts` | Token templates + collect. |
+| `replacementEffectSpecMillOracleTemplates.ts` | Mill templates + collect. |
+| `replacementEffectSpecZoneChangeOracleTemplates.ts` | Oracle zone-change templates + collect. |
 
 ## Oracle IR parser postprocess extracts (`rules-engine/src/`)
 

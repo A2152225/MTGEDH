@@ -17,277 +17,35 @@
  * - Handles the recursive nature of MTG templating language
  */
 
-import {
-  normalizeOracleTextSelfReferences,
-  splitOracleTextIntoParseLines,
-} from './oracleTextParserPreprocess';
-import {
-  hasTargeting,
-  isManaProducingAbility,
-  parseKeywordsFromOracleText,
-  parseTargets,
-} from './oracleTextParserSupport';
-import {
-  expandKeywordCostAbility,
-  parseKeywordPrefixedActivatedAbility,
-  parseStationKeywordActivatedAbility,
-  parseStationThresholdActivatedAbility,
-} from './oracleTextParserKeywordCosts';
-import { parseKeywordActionAbility } from './oracleTextParserKeywordActionAbilities';
+import { parseTargets } from './oracleTextParserSupport';
 import { parseKeywordTriggeredAbility } from './oracleTextParserKeywordTriggers';
+import { looksLikeCompleteTriggerCondition } from './oracleTextParser-handlers/oracleTextParserTriggeredLineSplit.js';
+import { setOracleTextParserHandlerDeps } from './oracleTextParser-handlers/oracleTextParserHandlerDeps.js';
+import {
+  KEYWORD_COST_PATTERN,
+  isGrantedQuotedActivatedAbilityLine,
+  parseActivatedAbility,
+} from './oracleTextParser-handlers/oracleTextParserParseActivatedAbility.js';
+import { parseKeywords, parseOracleText } from './oracleTextParser-handlers/oracleTextParserParseOracleText.js';
+import {
+  AbilityType,
+  type ChoiceRequirement,
+  type OracleTextParseResult,
+  type ParsedAbility,
+  type ParsedKeywordAction,
+} from './oracleTextParser-handlers/oracleTextParserTypes.js';
 
-/**
- * Parsed ability structure
- */
-export interface ParsedAbility {
-  readonly type: AbilityType;
-  readonly text: string;
-  readonly cost?: string;
-  readonly effect?: string;
-  readonly triggerCondition?: string;
-  readonly triggerKeyword?: 'when' | 'whenever' | 'at';
-  readonly interveningIf?: string;
-  readonly isOptional?: boolean;
-  readonly isManaAbility?: boolean;
-  readonly isLoyaltyAbility?: boolean;
-  readonly targets?: readonly string[];
-  readonly modes?: readonly string[];
-  readonly requiresChoice?: ChoiceRequirement;
-  /** Station / Spacecraft charge-counter gate (N in `N+ | {cost}: effect`). */
-  readonly stationChargeThreshold?: number;
-}
+export {
+  AbilityType,
+  type ParsedAbility,
+  type ChoiceRequirement,
+  type ParsedKeywordAction,
+  type OracleTextParseResult,
+};
+export { parseActivatedAbility, parseKeywords, parseOracleText };
 
-/**
- * Choice requirement for cards that need a choice on ETB or cast
- */
-export interface ChoiceRequirement {
-  readonly choiceType: 'color' | 'creature_type' | 'card_type' | 'player' | 'mode' | 'other';
-  readonly timing: 'etb' | 'cast' | 'activation' | 'trigger';
-  readonly description: string;
-}
 
-/**
- * Types of abilities that can be parsed
- */
-export enum AbilityType {
-  ACTIVATED = 'activated',
-  TRIGGERED = 'triggered',
-  STATIC = 'static',
-  REPLACEMENT = 'replacement',
-  SPELL = 'spell',
-  KEYWORD = 'keyword',
-}
 
-/**
- * Parsed keyword action
- */
-export interface ParsedKeywordAction {
-  readonly action: string;
-  readonly value?: number | string;
-  readonly target?: string;
-  readonly modifier?: string;
-}
-
-/**
- * Main parsing result for oracle text
- */
-export interface OracleTextParseResult {
-  readonly abilities: readonly ParsedAbility[];
-  readonly keywords: readonly string[];
-  readonly keywordActions: readonly ParsedKeywordAction[];
-  readonly isTriggered: boolean;
-  readonly isActivated: boolean;
-  readonly isReplacement: boolean;
-  readonly hasTargets: boolean;
-  readonly hasModes: boolean;
-}
-
-// =============================================================================
-// ACTIVATED ABILITIES (Rule 602)
-// Golden Rule: [Cost] : [Effect]
-// =============================================================================
-
-/**
- * Regex pattern for activated abilities
- * Captures: cost (group 1), effect (group 2)
- * 
- * The colon is a hard delimiter:
- * - Everything to the left is the Cost (happens immediately, cannot be responded to)
- * - Everything to the right is the Effect (goes on the stack)
- */
-// Note: Use [\s\S] so multiline modal/bullet effects are supported.
-const ACTIVATED_ABILITY_PATTERN = /^([^:]+?):\s*([\s\S]+)$/;
-
-/**
- * Planeswalker loyalty ability pattern
- * Captures: loyalty change (group 1), effect (group 2)
- */
-// Note: Use [\s\S] so multiline modal/bullet effects are supported.
-const LOYALTY_ABILITY_PATTERN = /^([+−-]?\d+|0)\s*:\s*([\s\S]+)$/;
-
-/**
- * Keyword lines that behave like activated abilities or special actions once
- * a cost is supplied. Pure spell modifiers / ability words such as Kicker,
- * Flashback, Landfall, or Ward are intentionally excluded here so they don't
- * get misclassified as inert activated keyword stubs.
- *
- * Captures: keyword (group 1), cost (group 2)
- */
-const KEYWORD_COST_PATTERN = /^(Adapt|Basic landcycling|[A-Za-z]+cycling|Buyback|Cycling|Disguise|Disturb|Embalm|Encore|Equip|Escape|Eternalize|Flashback|Foretell|Fortify|Jump-start|Level up|Megamorph|Morph|Outlast|Reconfigure|Reinforce|Replicate|Retrace|Scavenge|Suspend|Transfigure|Transmute|Unearth)\s+(.+)$/i;
-
-function isGrantedQuotedActivatedAbilityLine(text: string): boolean {
-  const normalized = String(text || '').replace(/\u2019/g, "'").trim();
-  if (!normalized.includes(':')) return false;
-  return /\b(?:has|have|gains?)\s+"[^"]+:\s*[^"]+"\s*\.?$/i.test(normalized);
-}
-
-function firstColonIsInsideQuotes(text: string): boolean {
-  const normalized = String(text || '').replace(/\u2019/g, "'");
-  const colonIndex = normalized.indexOf(':');
-  if (colonIndex < 0) return false;
-
-  const lastQuoteBeforeColon = normalized.lastIndexOf('"', colonIndex);
-  if (lastQuoteBeforeColon < 0) return false;
-  const nextQuoteAfterColon = normalized.indexOf('"', colonIndex);
-  return nextQuoteAfterColon > colonIndex;
-}
-
-/**
- * Parse an activated ability from oracle text line
- */
-export function parseActivatedAbility(text: string): ParsedAbility | null {
-  if (isGrantedQuotedActivatedAbilityLine(text) || firstColonIsInsideQuotes(text)) {
-    return null;
-  }
-
-  // Check for planeswalker loyalty ability first
-  const loyaltyMatch = text.match(LOYALTY_ABILITY_PATTERN);
-  if (loyaltyMatch) {
-    return {
-      type: AbilityType.ACTIVATED,
-      text,
-      cost: loyaltyMatch[1],
-      effect: loyaltyMatch[2].trim(),
-      isLoyaltyAbility: true,
-      isOptional: false,
-    };
-  }
-
-  const prefixedKeywordActivated = parseKeywordPrefixedActivatedAbility(text);
-  if (prefixedKeywordActivated) {
-    const isManaAbility =
-      isManaProducingAbility(prefixedKeywordActivated.effect) &&
-      !hasTargeting(prefixedKeywordActivated.effect);
-    return {
-      type: AbilityType.KEYWORD,
-      text: prefixedKeywordActivated.text,
-      cost: prefixedKeywordActivated.cost,
-      effect: prefixedKeywordActivated.effect,
-      isManaAbility,
-      isOptional: prefixedKeywordActivated.effect.toLowerCase().includes('you may'),
-      targets: parseTargets(prefixedKeywordActivated.effect),
-    };
-  }
-
-  const stationKeywordActivated = parseStationKeywordActivatedAbility(text);
-  if (stationKeywordActivated) {
-    const isManaAbility =
-      isManaProducingAbility(stationKeywordActivated.effect) &&
-      !hasTargeting(stationKeywordActivated.effect);
-    return {
-      type: AbilityType.KEYWORD,
-      text: stationKeywordActivated.text,
-      cost: stationKeywordActivated.cost,
-      effect: stationKeywordActivated.effect,
-      isManaAbility,
-      isOptional: stationKeywordActivated.effect.toLowerCase().includes('you may'),
-      targets: parseTargets(stationKeywordActivated.effect),
-    };
-  }
-
-  const stationThresholdActivated = parseStationThresholdActivatedAbility(text);
-  if (stationThresholdActivated) {
-    const isManaAbility =
-      isManaProducingAbility(stationThresholdActivated.effect) &&
-      !hasTargeting(stationThresholdActivated.effect);
-    return {
-      type: AbilityType.ACTIVATED,
-      text: stationThresholdActivated.text,
-      cost: stationThresholdActivated.cost,
-      effect: stationThresholdActivated.effect,
-      stationChargeThreshold: stationThresholdActivated.stationChargeThreshold,
-      isManaAbility,
-      isOptional: stationThresholdActivated.effect.toLowerCase().includes('you may'),
-      targets: parseTargets(stationThresholdActivated.effect),
-    };
-  }
-  
-  // Check for keyword with cost
-  const keywordMatch = text.match(KEYWORD_COST_PATTERN);
-  if (keywordMatch) {
-    const rawCost = keywordMatch[2].trim();
-    const cost = rawCost.replace(/\s+\([^()]*\)\s*$/, '').trim();
-    if (
-      String(keywordMatch[1] || '').trim().toLowerCase() === 'unearth' &&
-      !/\{[^}]+\}/.test(cost || rawCost)
-    ) {
-      return null;
-    }
-    const expandedKeywordAbility = expandKeywordCostAbility(text, keywordMatch[1], cost || rawCost);
-    if (expandedKeywordAbility) {
-      const isManaAbility =
-        isManaProducingAbility(expandedKeywordAbility.effect) &&
-        !hasTargeting(expandedKeywordAbility.effect);
-      return {
-        type: AbilityType.KEYWORD,
-        text: expandedKeywordAbility.text,
-        cost: expandedKeywordAbility.cost,
-        effect: expandedKeywordAbility.effect,
-        isManaAbility,
-        isOptional: expandedKeywordAbility.effect.toLowerCase().includes('you may'),
-        targets: parseTargets(expandedKeywordAbility.effect),
-      };
-    }
-    return {
-      type: AbilityType.KEYWORD,
-      text,
-      cost: cost || rawCost,
-      effect: keywordMatch[1], // The keyword itself is the effect
-    };
-  }
-  
-  // Standard activated ability
-  const activatedMatch = text.match(ACTIVATED_ABILITY_PATTERN);
-  if (activatedMatch) {
-    const cost = activatedMatch[1].trim();
-    const effect = activatedMatch[2].trim();
-    
-    // Skip if this looks like a triggered ability (cost starts with when/whenever/at)
-    if (/^(when|whenever|at\s+the\s+beginning)/i.test(cost)) {
-      return null;
-    }
-    
-    // Skip reminder text (parentheses)
-    if (cost.startsWith('(')) {
-      return null;
-    }
-    
-    // Determine if it's a mana ability
-    const isManaAbility = isManaProducingAbility(effect) && !hasTargeting(effect);
-    
-    return {
-      type: AbilityType.ACTIVATED,
-      text,
-      cost,
-      effect,
-      isManaAbility,
-      isOptional: effect.toLowerCase().includes('you may'),
-      targets: parseTargets(effect),
-    };
-  }
-  
-  return null;
-}
 
 // =============================================================================
 // TRIGGERED ABILITIES (Rule 603)
@@ -313,148 +71,6 @@ const AT_PATTERN = /^At\s+(the|each)\s+([\s\S]+?),\s+([\s\S]+)$/i;
 // Note: Use [\s\S] so multiline modal/bullet effects are supported.
 const INTERVENING_IF_PATTERN = /^(When|Whenever|At)\s+([\s\S]+?),\s+if\s+([\s\S]+?),\s+([\s\S]+)$/i;
 
-const TRIGGER_CONDITION_EVENT_HINTS = [
-  /\bdies$/i,
-  /\bis put into (?:(?:a|an|your|its owner's|their owner's)\s+)?graveyard from the battlefield$/i,
-  /\benters(?: the battlefield)?(?: under your control)?$/i,
-  /\battacks?(?:\s+(?:a|an|the|target|each|one|that)\s+[^,]+|\s+alone|\s+with\s+[^,]+)?$/i,
-  /\bblocks$/i,
-  /\bbecomes blocked$/i,
-  /\bdeals combat damage(?: to (?:a|an|target) [a-z0-9' -]+)?$/i,
-  /\bdeals damage(?: to (?:a|an|target) [a-z0-9' -]+)?$/i,
-  /\bis dealt (?:combat )?damage(?: to [^,]+)?$/i,
-  /\b(?:you|an opponent|each opponent|a player|opponent) casts? (?:a|an|your|their|target) [a-z0-9' -]+$/i,
-  /\bdraws? (?:a|an|\d+|x|[a-z]+)?\s*cards?$/i,
-  /\bdiscards? (?:a|an|\d+|x|[a-z]+)?\s*cards?$/i,
-  /\bgains? [a-z0-9' -]+ life$/i,
-  /\bloses? [a-z0-9' -]+ life$/i,
-  /\bloses the game$/i,
-  /\bsacrifices? [a-z0-9' -]+$/i,
-  /\bbecomes tapped$/i,
-  /\btaps$/i,
-  /\bbecomes untapped$/i,
-  /\buntaps$/i,
-  /\bis exiled$/i,
-  /\b(?:is|are) milled$/i,
-  /\b(?:is|are) put (?:on|onto|into) [\s\S]+$/i,
-  /\bleaves the battlefield$/i,
-  /\bbecomes the target$/i,
-  /\bis targeted$/i,
-];
-
-function stripLeadingTriggeredAbilityLabel(text: string): string {
-  const trimmed = String(text || '').trim().replace(/^[\u2022•]\s+/, '');
-  if (!trimmed) return trimmed;
-
-  return trimmed.replace(
-    /^[a-z][a-z0-9' ,/+-]*\s+[\u2014\-?]\s+(?=(?:when|whenever|at(?:\s+the\s+beginning)?)\b)/i,
-    ''
-  );
-}
-
-function looksLikeTriggerEffectFragment(text: string): boolean {
-  const trimmed = String(text || '').trim();
-  if (!trimmed) return false;
-  if (/^(?:they|you|that player|that opponent|each (?:player|opponent)|target (?:player|opponent))\b/i.test(trimmed)) {
-    return true;
-  }
-  if (/^(?:you may|if you do|choose|create|draw|exile|return|put|sacrifice|destroy|tap|untap|gain|lose|mill|discover|search|reveal|shuffle|scry|surveil|proliferate|blight)\b/i.test(trimmed)) {
-    return true;
-  }
-  return false;
-}
-
-function looksLikeCompleteTriggerCondition(text: string): boolean {
-  const normalized = String(text || '').trim();
-  if (!normalized) return false;
-  if (/\bif you cast (?:a |an )?(?:creature )?spell this way\b/i.test(normalized)) return false;
-  if (/\bthe last time counter is removed\b/i.test(normalized)) return false;
-  if (/\bsplice onto\b/i.test(normalized) || /\bconspire\s*\(/i.test(normalized)) return false;
-  if (/^the beginning of the next end step\b/i.test(normalized)) return false;
-  if (/,/.test(normalized) && /\b(?:exile|draw|you may play|for as long as they remain)\b/i.test(normalized)) {
-    return false;
-  }
-  const commaIndex = normalized.indexOf(',');
-  if (commaIndex >= 0) {
-    const afterComma = normalized.slice(commaIndex + 1).trim();
-    if (looksLikeTriggerEffectFragment(afterComma)) return false;
-  }
-  return TRIGGER_CONDITION_EVENT_HINTS.some(pattern => pattern.test(normalized));
-}
-
-function splitMixedStandaloneAndTriggeredLine(text: string): string[] {
-  const trimmed = String(text || '').trim();
-  if (!trimmed) return [];
-
-  const keywordLeadTrigger = trimmed.match(/^([A-Za-z][A-Za-z\s,'-]{0,80}?)\s+((?:when|whenever|at\s+the\s+beginning)\b[\s\S]+)$/i);
-  if (keywordLeadTrigger) {
-    const firstBody = String(keywordLeadTrigger[1] || '').trim();
-    const remainder = String(keywordLeadTrigger[2] || '').trim();
-    const standaloneKeywords = parseKeywordsFromOracleText(firstBody);
-    const normalizedFirstBody = firstBody
-      .toLowerCase()
-      .replace(/\band\b/g, ',')
-      .replace(/\s*,\s*/g, ',')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const normalizedKeywordText = standaloneKeywords
-      .map(keyword => keyword.toLowerCase())
-      .join(',')
-      .trim();
-    if (standaloneKeywords.length > 0 && normalizedFirstBody === normalizedKeywordText && remainder) {
-      return [firstBody, remainder];
-    }
-  }
-
-  const sentenceBoundary = trimmed.match(/^([^.!?]+[.!?])\s+([\s\S]+)$/);
-  if (!sentenceBoundary) return [trimmed];
-
-  const firstSentence = String(sentenceBoundary[1] || '').trim();
-  const remainder = String(sentenceBoundary[2] || '').trim();
-  if (!firstSentence || !remainder) return [trimmed];
-
-  const firstBody = firstSentence.replace(/[.!?]+$/, '').trim();
-  if (!firstBody) return [trimmed];
-
-  const standaloneKeywords = parseKeywordsFromOracleText(firstBody);
-
-  // Keep true sentence continuations intact; only split simple standalone
-  // clauses like "Flash." before a triggered/replacement ability.
-  if (/[,:;]/.test(firstBody)) return [trimmed];
-  if (standaloneKeywords.length === 0) return [trimmed];
-  if (/^(when\s+you\s+do|whenever\s+you\s+do)\b/i.test(remainder)) return [trimmed];
-  if (!/^(when|whenever|at\s+the\s+beginning|if\b.+\binstead\b|as\s+.+enters\b)/i.test(remainder)) {
-    return [trimmed];
-  }
-
-  return [firstSentence, remainder];
-}
-
-function splitRepeatedTriggeredLead(text: string): string[] {
-  const trimmed = String(text || '').trim();
-  if (!trimmed) return [];
-
-  const match = trimmed.match(/^(When|Whenever)\s+([\s\S]+?),\s+([\s\S]+)$/i);
-  if (!match) return [trimmed];
-
-  const firstKeyword = String(match[1] || '').trim();
-  const leadBody = String(match[2] || '').trim();
-  const effect = String(match[3] || '').trim();
-  if (!leadBody || !effect) return [trimmed];
-
-  const segments = leadBody
-    .split(/\s+and\s+(?=(?:when|whenever)\b)/i)
-    .map(segment => segment.trim())
-    .filter(Boolean);
-  if (segments.length <= 1) return [trimmed];
-
-  return segments.map((segment, index) => {
-    const normalizedLead = index === 0
-      ? `${firstKeyword} ${segment}`
-      : segment.replace(/^(when|whenever)\b/i, keyword => keyword[0].toUpperCase() + keyword.slice(1).toLowerCase());
-    return `${normalizedLead}, ${effect}`;
-  });
-}
 
 function splitWhenWheneverTriggeredLine(text: string): {
   readonly keyword: 'when' | 'whenever';
@@ -1153,172 +769,7 @@ export function parseDelayedTrigger(text: string): { effect: string; timing: str
  * action verbs like "Draw", "Exile", etc. as continuation patterns.
  */
 
-/**
- * Parse keywords from card oracle text
- */
-export function parseKeywords(oracleText: string): string[] {
-  return parseKeywordsFromOracleText(oracleText);
-}
 
-// =============================================================================
-// MAIN PARSING FUNCTION
-// =============================================================================
-
-/**
- * Parse complete oracle text into structured abilities
- * 
- * This function follows the recommended parsing hierarchy:
- * 1. Check for Colon (:) → Parse as Activated Ability (Cost : Effect)
- * 2. Check Start Anchor:
- *    - If starts with "If ... instead" → Parse as Replacement
- *    - If starts with "As / ~ enters" → Parse as Static Replacement
- *    - If starts with "When / Whenever / At" → Parse as Trigger
- * 3. Fallback → Static Ability or Spell Ability
- */
-export function parseOracleText(oracleText: string, cardName?: string): OracleTextParseResult {
-  const abilities: ParsedAbility[] = [];
-  const keywordActions: ParsedKeywordAction[] = [];
-  let hasTargets = false;
-  let hasModes = false;
-
-  // Normalize self-references in text. This includes the full printed card name
-  // plus common legendary shorthand like "Endrek Sahr" from
-  // "Endrek Sahr, Master Breeder".
-  const normalizedText = normalizeOracleTextSelfReferences(oracleText, cardName);
-  
-  // Shared preprocessing preserves ability boundaries, keeps modal bullet blocks
-  // intact, and merges sentence fragments that continue a prior instruction.
-  const lines = splitOracleTextIntoParseLines(normalizedText)
-    .flatMap(splitMixedStandaloneAndTriggeredLine)
-    .flatMap(splitRepeatedTriggeredLead);
-  
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const triggerCandidate = stripLeadingTriggeredAbilityLabel(trimmed);
-    
-    // Step 1: Check for colon (activated ability)
-    if (trimmed.includes(':') && !trimmed.startsWith('(')) {
-      const activated = parseActivatedAbility(trimmed);
-      if (activated) {
-        abilities.push(activated);
-        if (activated.targets && activated.targets.length > 0) hasTargets = true;
-        continue;
-      }
-    }
-    
-    // Step 2a: Check for replacement effects ("If ... would ...", "If ... instead", ETB modifiers).
-    // Temporary this-turn spell replacements (Gather Specimens, Blind Fury) resolve with the
-    // spell and must stay SPELL so collectSpellResolutionEffectSteps keeps them.
-    if (
-      !isTemporarySpellReplacementLine(trimmed) &&
-      (
-        /^if\s+.+instead/i.test(trimmed) ||
-        /^if\s+.+,\s+(?:it|this\s+[^.;]+?)\s+enters\b/i.test(trimmed) ||
-        /^if\s+.+\s+would\s+.+,\s+/i.test(trimmed)
-      )
-    ) {
-      const replacement = parseReplacementEffect(trimmed);
-      if (replacement) {
-        abilities.push(replacement);
-        continue;
-      }
-    }
-    
-    // Step 2b: Check for "As ... enters" (static replacement)
-    if (/^as\s+.+enters/i.test(trimmed)) {
-      const replacement = parseReplacementEffect(trimmed);
-      if (replacement) {
-        abilities.push(replacement);
-        continue;
-      }
-    }
-    
-    // Step 2c: Check for triggers (When/Whenever/At)
-    if (/^(when|whenever|at\s+the\s+beginning)/i.test(triggerCandidate)) {
-      const triggered = parseTriggeredAbility(triggerCandidate);
-      if (triggered) {
-        abilities.push({ ...triggered, text: trimmed });
-        if (triggered.targets && triggered.targets.length > 0) hasTargets = true;
-        continue;
-      }
-    }
-    
-    // Step 3: Check for self-replacement "enters with/tapped" patterns
-    if (
-      /\benters the battlefield\b/i.test(trimmed)
-      || /^this\s+[^.;]+?\s+enters\b/i.test(trimmed)
-      || (/\benters(?: the battlefield)? with\b/i.test(trimmed) && /\bcounters?\s+on\s+(?:it|him|her)\b/i.test(trimmed))
-    ) {
-      const replacement = parseReplacementEffect(trimmed);
-      if (replacement) {
-        abilities.push(replacement);
-        continue;
-      }
-    }
-
-    const keywordTriggered = parseKeywordTriggeredAbility(trimmed);
-    if (keywordTriggered) {
-      abilities.push(keywordTriggered);
-      if (keywordTriggered.targets && keywordTriggered.targets.length > 0) hasTargets = true;
-      continue;
-    }
-
-    const keywordActionAbility = parseKeywordActionAbility(trimmed);
-    if (keywordActionAbility) {
-      abilities.push(keywordActionAbility);
-      if (keywordActionAbility.effect && hasTargeting(keywordActionAbility.effect)) {
-        hasTargets = true;
-      }
-      continue;
-    }
-    
-    // Parse keyword actions from all text
-    const actions = parseKeywordActions(trimmed);
-    keywordActions.push(...actions);
-    
-    // Check for modal text
-    if (/choose\s+(?:one|two|three|four|up to)\b/i.test(trimmed) || /[\u2022•]/.test(trimmed)) {
-      hasModes = true;
-    }
-    
-    // Check for targeting in non-ability text (spell effects)
-    if (hasTargeting(trimmed)) {
-      hasTargets = true;
-    }
-    
-    // Step 4: Check for keyword abilities with cost (Equip, Cycling, etc.)
-    // These don't have a colon, so they weren't caught in Step 1
-    const keywordAbility = parseActivatedAbility(trimmed);
-    if (keywordAbility && keywordAbility.type === AbilityType.KEYWORD) {
-      abilities.push(keywordAbility);
-      continue;
-    }
-    
-    // Fallback: spell instruction vs continuous static ability
-    if (!abilities.some(a => a.text === trimmed)) {
-      abilities.push({
-        type: isSpellInstructionLine(trimmed) ? AbilityType.SPELL : AbilityType.STATIC,
-        text: trimmed,
-        effect: trimmed,
-      });
-    }
-  }
-  
-  // Parse keywords
-  const keywords = parseKeywords(oracleText);
-  
-  return {
-    abilities,
-    keywords,
-    keywordActions,
-    isTriggered: abilities.some(a => a.type === AbilityType.TRIGGERED),
-    isActivated: abilities.some(a => a.type === AbilityType.ACTIVATED || a.type === AbilityType.KEYWORD),
-    isReplacement: abilities.some(a => a.type === AbilityType.REPLACEMENT),
-    hasTargets,
-    hasModes,
-  };
-}
 
 /**
  * Quick check if oracle text contains a triggered ability
@@ -1370,6 +821,14 @@ export function hasReplacementEffect(oracleText: string): boolean {
          /enters the battlefield (tapped|with)/i.test(oracleText) ||
          /^this\s+[^.;]+?\s+enters\s+(tapped|with)/im.test(oracleText);
 }
+
+setOracleTextParserHandlerDeps({
+  parseTriggeredAbility,
+  parseReplacementEffect,
+  parseKeywordActions,
+  isTemporarySpellReplacementLine,
+  isSpellInstructionLine,
+});
 
 export default {
   parseOracleText,

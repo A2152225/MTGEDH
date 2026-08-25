@@ -18,17 +18,18 @@
 import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import { isInterveningIfSatisfied } from "./intervening-if.js";
-import { KNOWN_END_STEP_TRIGGERS } from "./card-data-tables.js";
 import { shouldSkipUntapStepForPlayer } from "../skipUntapStepUtils.js";
-import { stripReminderParentheticals } from "../../../../../rules-engine/src/oracleReminderText.js";
 import { isNoOpOptionalCombatDamagePayLife } from "../../../../../rules-engine/src/oracleIRExecutorCombatDamageCounts.js";
 import {
   inferDrawStepWhoseTurn,
   inferEndStepWhoseTurn,
   inferMainPhaseWhoseTurn,
   shouldQueuePhaseTriggerForActivePlayer,
-  type PhaseWhoseTurn,
 } from "./phaseWhoseTurn.js";
+import type { EndStepTrigger } from "./turn-phases-handlers/turnPhaseTriggerTypes.js";
+import { getActivePermanentCardFace } from "./turn-phases-handlers/turnPhaseActivePermanentFace.js";
+import { detectRequiresChoice, detectAffectsAllPlayers } from "./turn-phases-handlers/turnPhaseEffectChoiceHelpers.js";
+import { detectEndStepTriggers } from "./turn-phases-handlers/turnPhaseEndStepTriggers.js";
 
 // ============================================================================
 // Type Definitions for Turn Phase Triggers
@@ -38,20 +39,8 @@ import {
 // These local definitions are used for the implementation and will be
 // exported from this module. They align with the types.ts definitions.
 
-export interface EndStepTrigger {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  triggerType: 'end_step_resource' | 'end_step_effect';
-  description: string;
-  effect?: string;
-  mandatory: boolean;
-  requiresChoice?: boolean;
-  modalOptions?: string[];
-  affectsAllPlayers?: boolean;
-  triggersOnOpponentEndStep?: boolean;  // For cards like Keeper of the Accord
-  whoseTurn?: PhaseWhoseTurn;
-}
+export type { EndStepTrigger } from "./turn-phases-handlers/turnPhaseTriggerTypes.js";
+
 
 export interface DrawStepTrigger {
   permanentId: string;
@@ -91,186 +80,9 @@ export interface DoesntUntapEffect {
   description: string;
 }
 
-function getActivePermanentCardFace(card: any, permanent: any): { cardName: string; oracleText: string } {
-  const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
-  const isTransformCard = (card?.layout === 'transform' || card?.layout === 'double_faced_token') && cardFaces.length >= 2;
-  const activeFaceIndex = (permanent as any)?.transformed ? 1 : 0;
-  const activeFace = isTransformCard ? cardFaces[activeFaceIndex] || cardFaces[0] : undefined;
 
-  return {
-    cardName: String(isTransformCard ? activeFace?.name || card?.name || 'Unknown' : card?.name || 'Unknown'),
-    oracleText: stripReminderParentheticals(
-      String(isTransformCard ? activeFace?.oracle_text || card?.oracle_text || '' : card?.oracle_text || ''),
-    ),
-  };
-}
+export { detectEndStepTriggers };
 
-/**
- * Detect end step triggers from a card's oracle text
- * Uses dynamic regex-based detection to work with any card
- */
-export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger[] {
-  const triggers: EndStepTrigger[] = [];
-  const { cardName, oracleText } = getActivePermanentCardFace(card, permanent);
-  const lowerName = cardName.toLowerCase();
-  const lowerOracle = oracleText.toLowerCase();
-  const permanentId = permanent?.id || "";
-  const controllerId = permanent?.controller || "";
-
-  for (const [knownName, info] of Object.entries(KNOWN_END_STEP_TRIGGERS)) {
-    if (!lowerName.includes(knownName)) continue;
-
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'end_step_effect',
-      description: info.effect,
-      effect: info.effect,
-      mandatory: info.mandatory,
-      requiresChoice: info.requiresChoice,
-      modalOptions: Array.isArray(info.modalOptions) ? [...info.modalOptions] : undefined,
-      affectsAllPlayers: info.affectsAllPlayers,
-      triggersOnOpponentEndStep: info.triggersOnOpponentEndStep,
-    });
-    return triggers;
-  }
-  
-  const enchantedOpponentEndStepMatch = oracleText.match(
-    /at the beginning of enchanted opponent's end step,?\s*([^.]+)/i,
-  );
-  if (enchantedOpponentEndStepMatch) {
-    const effect = timingTriggerEffect(oracleText, enchantedOpponentEndStepMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'end_step_effect',
-      description: effect,
-      effect: effect,
-      mandatory: !effect.toLowerCase().includes('you may'),
-      requiresChoice: detectRequiresChoice(effect),
-      affectsAllPlayers: false,
-      whoseTurn: 'enchanted_player',
-    });
-  }
-
-  const enchantedPlayerEndStepMatch = oracleText.match(
-    /at the beginning of enchanted player's end step,?\s*([^.]+)/i,
-  );
-  if (enchantedPlayerEndStepMatch) {
-    const effect = timingTriggerEffect(oracleText, enchantedPlayerEndStepMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'end_step_effect',
-      description: effect,
-      effect: effect,
-      mandatory: !effect.toLowerCase().includes('you may'),
-      requiresChoice: detectRequiresChoice(effect),
-      affectsAllPlayers: false,
-      whoseTurn: 'enchanted_player',
-    });
-  }
-
-  const monarchEndStepMatch = oracleText.match(
-    /at the beginning of the monarch's end step,?\s*([^.]+)/i,
-  );
-  if (monarchEndStepMatch) {
-    const effect = timingTriggerEffect(oracleText, monarchEndStepMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'end_step_effect',
-      description: effect,
-      effect: effect,
-      mandatory: !effect.toLowerCase().includes('you may'),
-      requiresChoice: detectRequiresChoice(effect),
-      affectsAllPlayers: false,
-      whoseTurn: 'monarch',
-    });
-  }
-
-  const yourOpponentsEndStepMatch = oracleText.match(
-    /at the beginning of your opponents['']? end step,?\s*([^.]+)/i,
-  );
-  if (yourOpponentsEndStepMatch) {
-    const effect = timingTriggerEffect(oracleText, yourOpponentsEndStepMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'end_step_effect',
-      description: effect,
-      effect: effect,
-      mandatory: !effect.toLowerCase().includes('you may'),
-      triggersOnOpponentEndStep: true,
-      requiresChoice: detectRequiresChoice(effect),
-      affectsAllPlayers: detectAffectsAllPlayers(effect),
-    });
-  }
-
-  // Pattern for "each opponent's end step" (Keeper of the Accord style)
-  const opponentEndStepMatch = oracleText.match(/at the beginning of each opponent['']?s end step,?\s*([^.]+)/i);
-  if (opponentEndStepMatch) {
-    const effect = timingTriggerEffect(oracleText, opponentEndStepMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'end_step_effect',
-      description: effect,
-      effect: effect,
-      mandatory: !effect.toLowerCase().includes('you may'),
-      triggersOnOpponentEndStep: true,
-      requiresChoice: detectRequiresChoice(effect),
-      affectsAllPlayers: detectAffectsAllPlayers(effect),
-    });
-    return triggers; // Don't match other patterns if this matched
-  }
-  
-  // Pattern for regular end step triggers: "At the beginning of your/each end step"
-  // Match until the end of the sentence (period followed by space or end of string)
-  const thatTurnEndStepMatch = oracleText.match(
-    /\[?at the beginning of that turn's end step,?\s*([^\].]+)/i,
-  );
-  if (thatTurnEndStepMatch) {
-    const effect = timingTriggerEffect(oracleText, thatTurnEndStepMatch).replace(/\]$/, '');
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'end_step_effect',
-      description: effect,
-      effect: effect,
-      mandatory: !effect.toLowerCase().includes('you may'),
-      requiresChoice: detectRequiresChoice(effect),
-      affectsAllPlayers: false,
-    });
-  }
-
-  const endStepMatch = oracleText.match(
-    /at the beginning of (?:(?:the )?next|your next|each(?: player's)?|your|the) end step,?\s*([^.]+\.?)/i,
-  );
-  if (endStepMatch) {
-    const effect = timingTriggerEffect(oracleText, endStepMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'end_step_effect',
-      description: effect,
-      effect: effect,
-      mandatory: !effect.toLowerCase().includes('you may'),
-      requiresChoice: detectRequiresChoice(effect),
-      affectsAllPlayers: detectAffectsAllPlayers(effect),
-    });
-  }
-  
-  return triggers;
-}
 
 /**
  * Detect beginning-of-first-main-phase triggers (parser may omit leading "At").
@@ -626,43 +438,6 @@ export function getPostcombatMainTriggers(
   return triggers;
 }
 
-/**
- * Detect if an effect requires player choice based on oracle text patterns
- */
-function detectRequiresChoice(effectText: string): boolean {
-  const lowerEffect = effectText.toLowerCase();
-  
-  // Patterns that indicate player choice is required
-  const choicePatterns = [
-    /each player may/i,                    // Kynaios style
-    /you may/i,                            // Optional effects
-    /choose (?:one|two|a|an)/i,            // Modal choices
-    /target/i,                             // Targeting requires selection
-    /search your library/i,                // Search requires selection
-    /put a .* card .* onto the battlefield/i,  // Card selection for battlefield
-    /return .* card .* from .* to/i,       // Return effects with card selection
-  ];
-  
-  return choicePatterns.some(pattern => pattern.test(lowerEffect));
-}
-
-/**
- * Detect if an effect affects all players based on oracle text patterns
- */
-function detectAffectsAllPlayers(effectText: string): boolean {
-  const lowerEffect = effectText.toLowerCase();
-  
-  // Patterns that indicate all players are affected
-  const allPlayersPatterns = [
-    /each player/i,                        // "Each player may..."
-    /each opponent/i,                      // "Each opponent..."
-    /all players/i,                        // "All players..."
-    /every player/i,                       // "Every player..."
-    /each other player/i,                  // "Each other player..."
-  ];
-  
-  return allPlayersPatterns.some(pattern => pattern.test(lowerEffect));
-}
 
 /**
  * Get all end step triggers for the active player's end step

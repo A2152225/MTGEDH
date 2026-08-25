@@ -1,0 +1,26 @@
+/**
+ * Extracted from triggerReflexiveWhenYouDoQueueUtils.ts:
+ * maybeQueueReflexiveAnyAmountManaPayment.
+ * Cluster moved: maybeQueueReflexiveAnyAmountManaPayment.
+ * No exclusive parent helpers (OUT->IN empty).
+ * Parent keeps public exports and imports this leaf for internal dispatch.
+ *
+ * Leaf must not import triggerReflexiveWhenYouDoQueueUtils.ts or
+ * triggerReflexiveWhenYouDoQueueUtils-handlers/index.ts.
+ */
+
+import type { PlayerID } from '../../../../../shared/src/index.js';
+import type { GameContext } from '../../context.js';
+import { debug } from '../../../utils/debug.js';
+import { ResolutionStepType } from '../../resolution/index.js';
+import { queueResolveTopOfStackPrompt } from '../resolutionPromptEvents.js';
+import {
+  buildTriggerSourcePermanentSnapshot,
+  getTriggerSourcePermanent,
+} from '../triggerSourceUtils.js';
+import {
+  buildReflexivePaymentAmountOptions,
+  getAvailableReflexiveManaAmountFromPool,
+  parseReflexiveAnyAmountManaPayment,
+} from '../reflexive-triggers.js';
+
