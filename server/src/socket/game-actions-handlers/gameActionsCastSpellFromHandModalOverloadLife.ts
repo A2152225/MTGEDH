@@ -8,6 +8,7 @@
  */
 import type { Socket } from "socket.io";
 import type { PaymentItem } from "../../../../shared/src/index.js";
+import type { GameContext } from "../../state/context.js";
 import { extractAdditionalCostModesFromOracleText } from "../../state/modules/additionalCostModeOracleText.js";
 import { spellOracleUsesTeamworkChooseBoth } from "../../state/modules/marvelMechanicsHelpers.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
@@ -262,7 +263,7 @@ export function tryPromptCastSpellModalOverloadLifeFromHand(
         // Get the player's current life to determine max payment
         const startingLife = game.state.startingLife || 40;
         const currentLife = game.state.life?.[playerId] ?? startingLife;
-        const maxPayable = getMaxPayableLife(currentLife);
+        const maxPayable = getMaxPayableLife(currentLife, game as GameContext, playerId);
         const minPayment = payXLifeInfo.minX || 0;
         
         const existing = ResolutionQueueManager
@@ -305,7 +306,7 @@ export function tryPromptCastSpellModalOverloadLifeFromHand(
         const startingLife = game.state.startingLife || 40;
         const currentLife = game.state.life?.[playerId] ?? startingLife;
         
-        const validationError = validateLifePayment(currentLife, lifePayment, cardInHand.name);
+        const validationError = validateLifePayment(currentLife, lifePayment, cardInHand.name, game as GameContext, playerId);
         if (validationError) {
           socket.emit("error", {
             code: "INVALID_LIFE_PAYMENT",

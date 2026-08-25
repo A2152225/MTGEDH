@@ -1,5 +1,6 @@
 import type { GameContext } from '../context.js';
 import { categorizeSpellWithoutPrimaryRetirement } from '../../rules-engine/targeting.js';
+import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 import { persistBattlefieldPermanentPatchAfterMutation } from '../effects/battlefieldPermanentReplayPersistence.js';
 import { updateCounters } from './counters_tokens.js';
@@ -65,9 +66,13 @@ export function applySimpleTargetedTemporarySpellEffects(
   if (skipRetiredSpellLegacyHandler(text, sourceName)) {
     return 0;
   }
-  const categorizeOp = categorizeSpellWithoutPrimaryRetirement(sourceName, text)?.op;
-  if (categorizeOp === 'ADD_COUNTERS_TARGET' || categorizeOp === 'ADD_COUNTERS_EACH') {
-    return 0;
+  // IR-primary: do not consult the categorize opcode table. Counter-put text is
+  // owned by IR; this leftover only still categorizes on IR-off.
+  if (!isOracleIrSpellPrimaryEnabled()) {
+    const categorizeOp = categorizeSpellWithoutPrimaryRetirement(sourceName, text)?.op;
+    if (categorizeOp === 'ADD_COUNTERS_TARGET' || categorizeOp === 'ADD_COUNTERS_EACH') {
+      return 0;
+    }
   }
   if (!text || !Array.isArray(targets) || targets.length === 0) return 0;
 

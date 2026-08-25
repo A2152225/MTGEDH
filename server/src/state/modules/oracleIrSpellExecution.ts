@@ -39,8 +39,6 @@ import { normalizeOracleIrSelectedModeIds } from './oracleIrModeSelection.js';
 import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { isSpellEffectOwnedByOracleIrPrimary } from './oracleIrSpellLegacyRouting.js';
 import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
-import { detectInstantSorcerySpellShapeFlags } from './oracleIrSpellLegacySpellShapeUtils.js';
-import { applyInstantSorceryNibelheimAflameEffect } from './stackResolveSpellSpecialCaseUtils.js';
 
 export { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
 
@@ -213,7 +211,6 @@ function applyOracleIrSpellStructuralSupplements(
   params: TryResolveSpellViaOracleIRParams,
 ): void {
   const oracleTextLower = String(params.oracleText || '').toLowerCase();
-  const shapeFlags = detectInstantSorcerySpellShapeFlags(params.spellName, oracleTextLower);
   const supplementItem = params.sourceItem || {
     castFromGraveyard: params.castFromGraveyard,
     card: {
@@ -240,20 +237,6 @@ function applyOracleIrSpellStructuralSupplements(
     spellXValue: params.xValue,
     uncategorizedSpellFallbackApplied: 0,
   });
-
-  if (
-    shapeFlags.isNibelheimAflameStyleSweep
-    && supplementTargets.length > 0
-  ) {
-    applyInstantSorceryNibelheimAflameEffect(ctx, {
-      controller: params.controller,
-      effectiveCard: { name: params.spellName },
-      item: supplementItem,
-      targets: supplementTargets,
-      isNibelheimAflameStyleSweep: true,
-      hasNibelheimGraveyardRider: shapeFlags.hasNibelheimGraveyardRider,
-    });
-  }
 }
 
 export function tryResolveSpellViaOracleIR(

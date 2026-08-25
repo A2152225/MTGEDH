@@ -5,7 +5,7 @@ Coordinator owns this file. Extract chats must not edit it — paste owed rows.
 
 ## Oracle IR executor (`rules-engine/src/`)
 
-All listed executor parents are under the ceiling. `oracleIRExecutorModifyPtStepHandlers.ts` is **25.4 KB** (done). `oracleIRExecutorDamageStepHandlers.ts` is **28.3 KB** (done). `oracleIRExecutorCreatureStepUtils.ts` is **14.0 KB** (done). `oracleIRExecutorTokenStepHandlers.ts` is **25.0 KB** (done). `oracleIRExecutorPlayerUtils.ts` is **38.2 KB** (done). `oracleIRExecutorSpecialTargetHandlers.ts` is **2.8 KB** (done; thin barrel). `oracleIRExecutorConditionalStepSupport.ts` is **5.7 KB** (done). `oracleIRExecutorConditionalStepSupportExtended.ts` is **15.9 KB** (done). `oracleIRExecutorMoveZoneStepHandlers.ts` is **31.9 KB** (done). `oracleIRExecutorPlayerStepHandlers.ts` is **33.6 KB** (done). `oracleIRExecutorMainLoop.ts` is **29.4 KB** (done; `applyOracleIRStepsToGameStateImpl` is the switch dispatcher). `oracleIRExecutorBattlefieldStepHandlers.ts` is **34.7 KB** (done). `oracleIRExecutorZoneOps.ts` is **20.2 KB** (done). Split by step or op family; no `BatchNNN` / `Bulk` names. No `*-handlers/` folder until a parent is already a thin barrel.
+All listed executor parents are under the ceiling. `oracleIRExecutorModifyPtStepHandlers.ts` is **25.4 KB** (done). `oracleIRExecutorDamageStepHandlers.ts` is **28.3 KB** (done). `oracleIRExecutorCreatureStepUtils.ts` is **14.0 KB** (done). `oracleIRExecutorTokenStepHandlers.ts` is **25.0 KB** (done). `oracleIRExecutorPlayerUtils.ts` is **38.2 KB** (done). `oracleIRExecutorSpecialTargetHandlers.ts` is **2.8 KB** (done; thin barrel). `oracleIRExecutorConditionalStepSupport.ts` is **5.7 KB** (done). `oracleIRExecutorConditionalStepSupportExtended.ts` is **15.9 KB** (done). `oracleIRExecutorMoveZoneStepHandlers.ts` is **32.1 KB** (done). `oracleIRExecutorPlayerStepHandlers.ts` is **33.6 KB** (done). `oracleIRExecutorMainLoop.ts` is **29.4 KB** (done; `applyOracleIRStepsToGameStateImpl` is the switch dispatcher). `oracleIRExecutorBattlefieldStepHandlers.ts` is **34.7 KB** (done). `oracleIRExecutorZoneOps.ts` is **20.2 KB** (done). Split by step or op family; no `BatchNNN` / `Bulk` names. No `*-handlers/` folder until a parent is already a thin barrel.
 
 ### `oracleIRExecutorMoveZone*` (extracted from `applyMoveZoneStep`)
 
@@ -23,8 +23,9 @@ Public API unchanged: parent still exports `applyMoveZoneStep` / `MoveZoneStepHa
 | `oracleIRExecutorMoveZoneGuardsOneOfThemSplit.ts` | Second chain: `parsedOneOfThemSplit` / `parsedOnePileSplit` / `contextualBoundCardZone` / `sourceCardZone` plus following graveyard / hand-gy selectors. Entry: `tryApplyMoveZoneGuardsFromOneOfThemSplit`. |
 | `oracleIRExecutorMoveZoneGuardsCommandZonePermanentToHand.ts` | Remaining inline guard-arg builds + leftover selector runs (first leftover: `parsedCommandZonePermanent && step.to === 'hand'`). Entry: `tryApplyMoveZoneGuardsFromCommandZonePermanentToHand`. **34.1 KB** — do not append. |
 | `oracleIRExecutorMoveZoneGuardsUnsupportedSelectorEarlyOut.ts` | All-selector unsupported early-out. Returns the skip result or `undefined`. Not named `GuardsFromGraveyard`. |
+| `oracleIRExecutorMoveZoneSeventhFromTop.ts` | `move_zone` to owner’s library seventh from the top when the source is this spell / this card / it and that object is still on the stack. Inserts at index `min(6, library.length)` and removes it from the stack. Entry: `tryApplyMoveZoneSeventhFromTop`. Called from `applyMoveZoneStep` after early guards. |
 
-Parent is **31.9 KB**. Leftover: `finalizeAppliedResult` prologue (closes over mutable `nextState` / `effectiveBattlefieldAdd*`). `MoveZoneGuardArgs` already carries the extra locals from these chains.
+Parent is **32.1 KB**. Leftover: `finalizeAppliedResult` prologue (closes over mutable `nextState` / `effectiveBattlefieldAdd*`). `MoveZoneGuardArgs` already carries the extra locals from these chains.
 
 ### `oracleIRExecutorZoneOps*` (extracted from `oracleIRExecutorZoneOps.ts`)
 
@@ -103,6 +104,7 @@ Parent is a **2.8 KB** barrel: `trySpecialExileStep` dispatches Batch386–389 t
 | `oracleIRExecutorSpecialTargetDestroyHandlers.ts` | `trySpecialDestroyStep`. |
 | `oracleIRExecutorSpecialTargetAddRemoveCounterHandlers.ts` | `trySpecialAddCounterStep`, `trySpecialRemoveCounterStep`. |
 | `oracleIRExecutorSpecialTargetRegenerateDamageHandlers.ts` | `trySpecialRegenerateStep`, `trySpecialDealDamageStep`, `trySpecialPreventDamageStep`. |
+| `oracleIRExecutorChosenCreaturePowerSweepDamage.ts` | `tryChosenCreaturePowerSweepDealDamageStep` — chosen/targeted creature deals damage equal to its power to each other creature (skips the bound source). Generic `deal_damage` excludeSourceId only drops the spell. |
 | `oracleIRExecutorSpecialTargetDoubleCountersHandlers.ts` | `trySpecialDoubleCountersStep`. |
 | `oracleIRExecutorSpecialTargetSacrificeHandlers.ts` | `trySpecialSacrificeStep`. |
 | `oracleIRExecutorSpecialTargetCopyPermanentHandlers.ts` | `trySpecialCopyPermanentStep`. |
@@ -120,6 +122,8 @@ Parent is a **5.7 KB** dispatcher: unless-kind + if/as_long_as normalize, then `
 | `oracleIRExecutorConditionalStepCreaturesDied.ts` | `tryEvaluateConditionalCreaturesDiedThisTurn` (died, suspected, attacking, hand-size, legendary). |
 | `oracleIRExecutorConditionalStepKicked.ts` | `tryEvaluateConditionalKicked` (kicked, composite and/or, graveyard-there-are). |
 | `oracleIRExecutorConditionalStepYouHaveGraveyard.ts` | `tryEvaluateConditionalYouHaveGraveyard` (you-have-graveyard, entered-from, vote, mana-spent). |
+| `oracleIRExecutorWinIfControlDifferentNames.ts` | `tryEvaluateWinIfControlDifferentNames` — unique-name control count. Runs before the broader “you control N or more X” matcher so “Gates with different names” is not treated as a type. |
+| `oracleIRExecutorWinIfCastSameNameThisGame.ts` | `tryEvaluateWinIfCastSameNameThisGame` — cast-from-hand + another same-name-this-game. Reads `namedSpellsCastThisGame` persisted by `persistNamedSpellCastThisGame` (live via `recordSpellCastThisTurn`; also GY replay, replay `castSpell`, `copyStackItem`, live/IR/delayed stack copies, replay copy-resolve). |
 
 ### `oracleIRExecutorConditionalStepExtended*` (extracted from `evaluateExtendedConditionalClause`)
 
@@ -149,6 +153,8 @@ Parent is a **34.7 KB** barrel. Keep the `oracleIRExecutorBattlefield*` prefix. 
 | `oracleIRExecutorBattlefieldExchangeAndCopySteps.ts` | exchange control, copy permanent |
 | `oracleIRExecutorBattlefieldCantActivateAbilitiesStep.ts` | `applyCantActivateAbilitiesStep` |
 | `oracleIRExecutorBattlefieldGrantStaticAbilityStep.ts` | `applyGrantStaticAbilityStep` |
+| `oracleIRExecutorPreventLifeGainThisTurn.ts` | `tryApplyPreventLifeGainThisTurnGrant` — stamps `lastingEffects.preventLifeGain` (with `this_turn` / `end_of_turn` duration) for you / target player / players / opponents. Cleanup expires those stamps. Continuous `static` unchanged. Alchemy A- skipped. |
+| `oracleIRExecutorUntilEotProtectionOverride.ts` | `tryApplyUntilEotProtectionOverrideGrant` — stamps `lastingEffects` `protectionKeywordOverride` (`asThoughController` / `remove`) until cleanup. Idle land is not a continuous static. |
 | `oracleIRExecutorBattlefieldGrantTemporaryTargetText.ts` | infer/normalize grant target text |
 | `oracleIRExecutorBattlefieldGrantTemporaryAbilityEarlyCases.ts` / `…GrantTemporaryAbilityStep.ts` | grant-temporary split |
 | `oracleIRExecutorBattlefieldDestroyTargets.ts` / `…DestroyStep.ts` | destroy targeting + step |
@@ -174,3 +180,9 @@ Parent is a **29.4 KB** dispatcher. Each family returns `result | undefined` (un
 | `oracleIRExecutorMainLoopMillPtTokenSteps.ts` | `tryApplyMainLoopMillPtTokenSteps` |
 | `oracleIRExecutorMainLoopCopyDestroySteps.ts` | `tryApplyMainLoopCopyDestroySteps` |
 | `oracleIRExecutorMainLoopLateSteps.ts` | `tryApplyMainLoopLateSteps`. **Ledger:** a successful `conditional` records inner/else `appliedSteps` only; push the wrapper iff that branch applied nothing. Do not always append `'conditional'` after inner steps (31-test regression after the MainLoop split). Court of Ambition discarded/no-life-loss asserts `['unless_discards']`, not the wrapper. |
+| `oracleIRExecutorTemporaryEtbWindowStep.ts` | `applyGrantTemporaryEtbTriggerStep` — this-turn ETB window (`grant_temporary_etb_trigger`). |
+| `oracleIRExecutorEachPlayerChooseDestroyRest.ts` | `each_player_choose_then_destroy_rest` (Divine Reckoning family). |
+| `oracleIRExecutorSecretOpponentChoiceDamage.ts` | `secret_opponent_choice_damage` (Prisoner's Dilemma family). |
+| `oracleIRExecutorMayCastFromAmong.ts` | `may_cast_from_among` (mill-from-among may-cast). Needs `ctx.lastMilledCards` after mill; `applyMillStep` restores those cards after server-bridge ledger omit. |
+| `oracleIRExecutorMayRevealHandWinIfOwnNamed.ts` | `may_reveal_hand_then_win_if_own_named_in_zones` (may-reveal four-zone named-copy win). Entries: `applyMayRevealHandWinIfOwnNamedStep`, `playerOwnsNamedCardInFourWinZones`, `applyWinIfOwnNamedInFourZones`. Apply returns `player_choice_required`; win is stamped after Reveal. |
+| `oracleIRExecutorLoyaltyDirectionGainControl.ts` | Seat-order rotation for Choose left or right `gain_control` (lands + source PW stay). |

@@ -8,13 +8,14 @@
 // applyReplacementsCustomOrder, detectDamageReplacementEffects,
 // detectCounterReplacementEffects, detectLifeGainReplacementEffects,
 // detectTokenCreationReplacementEffects, applyCounterReplacements,
-// applyLifeGainReplacements, detectMillReplacementEffects,
+// applyLifeGainReplacements, detectLifeLossReplacementEffects, applyLifeLossReplacements, detectMillReplacementEffects,
 // applyMillReplacements, applyTokenCreationReplacements.
 // Leaf must not import game-state-effects.ts or game-state-effects-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
 import {
   collectOraclePatternDamageReplacementSpecsFromState,
+  collectOraclePatternLifeFloorDamageReplacementSpecsFromState,
   collectOraclePatternLifeGainReplacementSpecsFromState,
   collectOraclePatternTokenReplacementSpecsFromState,
   collectOraclePatternCounterReplacementSpecsFromState,
@@ -26,6 +27,10 @@ import {
   overlaySpecsMatchCounterPlacement,
   overlaySpecsMatchMill,
 } from "../replacementEffectSpec.js";
+import {
+  collectOraclePatternLifeLossReplacementSpecsFromState,
+  overlaySpecsMatchLifeLoss,
+} from "../replacementEffectSpec-handlers/replacementEffectSpecLifeLossOracleTemplates.js";
 
 /**
  * Replacement Effect Ordering System
@@ -380,6 +385,20 @@ export interface ReplacementEffectOrderPreference {
  * @param isToOpponent - True if damage is being dealt TO an opponent
  * @returns Array of replacement effects that apply
  */
+function readReplacementApplyPlayerLife(state: unknown, playerId: string): number {
+  const pid = String(playerId || '');
+  const lifeMap = (state as { life?: Record<string, unknown> })?.life;
+  const fromMap = Number(lifeMap?.[pid]);
+  if (Number.isFinite(fromMap)) return fromMap;
+  const players = Array.isArray((state as { players?: unknown })?.players)
+    ? (state as { players: Array<{ id?: string; life?: unknown }> }).players
+    : [];
+  const player = players.find((entry) => String(entry?.id || '') === pid);
+  const fromPlayer = Number(player?.life);
+  if (Number.isFinite(fromPlayer)) return fromPlayer;
+  return Number((state as { startingLife?: unknown })?.startingLife || 40);
+}
+
 export function detectDamageReplacementEffects(
   ctx: GameContext,
   damageDealer: string,
@@ -393,14 +412,52 @@ export function detectDamageReplacementEffects(
 
   // Oracle-pattern amount modifiers (Furnace / Dictate / Gisela / Angrath's / Emancipation / Torbran / Sound of Drums).
   const state = (ctx as any)?.state || ctx;
-  const oracleSpecs = collectOraclePatternDamageReplacementSpecsFromState(state);
+  const oracleSpecs = [
+    ...collectOraclePatternDamageReplacementSpecsFromState(state),
+    ...collectOraclePatternLifeFloorDamageReplacementSpecsFromState(state),
+  ];
   for (const spec of oracleSpecs) {
-    if (!spec.instead?.modify) continue;
     if (!overlaySpecsMatchDamage(
       spec,
       { damageDealer, damageReceiver, damageSourcePermanentId, isCombatDamage, targetPermanentId },
       state,
     )) continue;
+
+    const floorLifeAt = Number(spec.instead?.floorLifeAt);
+    if (Number.isFinite(floorLifeAt) && floorLifeAt > 0) {
+      if (targetPermanentId) continue;
+      if (spec.match?.requiresSourceControllerControlsCreature === true) {
+        const battlefield = Array.isArray((state as { battlefield?: unknown })?.battlefield)
+          ? (state as { battlefield: unknown[] }).battlefield
+          : [];
+        const sourceController = String(spec.sourceController || '');
+        const hasCreature = battlefield.some((perm) => {
+          if (!perm || typeof perm !== 'object') return false;
+          const record = perm as {
+            controller?: string;
+            phasedOut?: boolean;
+            type_line?: string;
+            card?: { type_line?: string };
+          };
+          if (record.phasedOut === true) return false;
+          if (String(record.controller || '') !== sourceController) return false;
+          const typeLine = String(record.card?.type_line || record.type_line || '').toLowerCase();
+          return typeLine.includes('creature');
+        });
+        if (!hasCreature) continue;
+      }
+      const currentLife = readReplacementApplyPlayerLife(state, damageReceiver);
+      const cap = Math.max(0, currentLife - Math.floor(floorLifeAt));
+      effects.push({
+        type: 'cap',
+        value: cap,
+        source: String(spec.sourceName || spec.effectId || spec.id || 'Replacement effect'),
+        controllerId: spec.sourceController,
+      });
+      continue;
+    }
+
+    if (!spec.instead?.modify) continue;
     effects.push(overlayReplacementSpecToEffect(spec));
   }
 
@@ -498,6 +555,37 @@ export function applyLifeGainReplacements(
   if (pref?.useCustomOrder && Array.isArray(pref.customOrder) && pref.customOrder.length > 0) {
     return applyReplacementsCustomOrder(baseAmount, sortEffectsByCustomOrder(effects, pref.customOrder));
   }
+  return applyBeneficialReplacements(baseAmount, effects);
+}
+
+/**
+ * Detect life-loss amount-modify replacements (Bloodletter family).
+ * Oracle-pattern specs only — no card-name routing.
+ */
+export function detectLifeLossReplacementEffects(
+  ctx: GameContext,
+  playerId: string
+): ReplacementEffect[] {
+  const effects: ReplacementEffect[] = [];
+  const state = (ctx as any)?.state || ctx;
+  const specs = collectOraclePatternLifeLossReplacementSpecsFromState(state);
+  for (const spec of specs) {
+    if (!spec.instead?.modify) continue;
+    if (!overlaySpecsMatchLifeLoss(spec, { playerId, state })) continue;
+    effects.push(overlayReplacementSpecToEffect(spec));
+  }
+  return effects;
+}
+
+/**
+ * Apply life-loss amount-modify replacements (Bloodletter doubles).
+ */
+export function applyLifeLossReplacements(
+  ctx: GameContext,
+  baseAmount: number,
+  playerId: string
+): { finalAmount: number; appliedEffects: string[] } {
+  const effects = detectLifeLossReplacementEffects(ctx, playerId);
   return applyBeneficialReplacements(baseAmount, effects);
 }
 

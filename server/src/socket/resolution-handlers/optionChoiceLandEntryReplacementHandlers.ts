@@ -18,6 +18,7 @@
 
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
+import type { GameContext } from "../../state/context.js";
 import {
   resolveLandWouldEnterSacrificeChoice,
   resolveWouldEnterDiscardLandChoice,
@@ -28,6 +29,7 @@ import type {
   ResolutionStepResponse,
 } from "../../state/resolution/index.js";
 import { debugWarn } from "../../utils/debug.js";
+import { canChooseShockLandPayLife } from "../land-helpers.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "../util.js";
 import {
   extractOptionChoiceSelectionId,
@@ -74,8 +76,8 @@ export async function handleShockLandChoice(
     }
 
     const currentLife = (game.state as any).life[playerId] ?? (game as any).life?.[playerId] ?? 40;
-    if (typeof currentLife !== 'number' || currentLife < payLifeAmount) {
-      debugWarn(1, `[Resolution] shockLandChoice: insufficient life to pay ${payLifeAmount} (life=${currentLife}), entering tapped`);
+    if (!canChooseShockLandPayLife(game as GameContext, String(playerId), payLifeAmount)) {
+      debugWarn(1, `[Resolution] shockLandChoice: cannot pay ${payLifeAmount} life (life=${currentLife}), entering tapped`);
       (permanent as any).tapped = true;
     } else {
       const newLife = currentLife - payLifeAmount;

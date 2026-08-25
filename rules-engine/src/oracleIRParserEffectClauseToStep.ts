@@ -24,6 +24,12 @@ import {
 } from './oracleIRParserStaticAbilityClauses';
 import { tryParseTemporaryAbilityClause } from './oracleIRParserTemporaryAbilityClauses';
 import { tryParseTemporaryGrantedDiesTriggerClause } from './oracleIRParserTemporaryTriggeredClauses';
+import { tryParsePhase4ChoiceFamilyClause } from './oracleIRParserPhase4ChoiceFamilyClauses';
+import { tryParseTemporaryEtbWindowClause } from './oracleIRParserTemporaryEtbWindowClauses';
+import { tryParsePreventLifeGainThisTurnClause } from './oracleIRParserPreventLifeGainThisTurn';
+import { tryParseUntilEotProtectionOverrideClause } from './oracleIRParserUntilEotProtectionOverride';
+import { tryParseWinIfCastSameNameThisGameStep } from './oracleIRParserWinIfCastSameNameThisGame';
+import { tryParseWinIfControlDifferentNamesStep } from './oracleIRParserWinIfControlDifferentNames';
 import { tryParseTokenCreationReplacementClause } from './oracleIRParserTokenReplacementClauses';
 import { tryParseSimpleCreateTokenClause } from './oracleIRParserTokenSimpleClauses';
 import { normalizeClauseForParse, normalizeOracleText, parseObjectSelector } from './oracleIRParserUtils';
@@ -70,6 +76,26 @@ export function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
       } as OracleEffectStep],
       raw: rawClause,
     } as OracleEffectStep);
+  }
+
+  {
+    const parsed = tryParseUntilEotProtectionOverrideClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
+    const parsed = tryParsePreventLifeGainThisTurnClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
+    const parsed = tryParseWinIfControlDifferentNamesStep(clause, sequence ? { sequence } : {});
+    if (parsed) return withMeta(parsed);
+  }
+
+  {
+    const parsed = tryParseWinIfCastSameNameThisGameStep(clause, sequence ? { sequence } : {});
+    if (parsed) return withMeta(parsed);
   }
 
   {
@@ -131,6 +157,16 @@ export function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
         if (parsed) return parsed;
       }
     }
+  }
+
+  {
+    const parsed = tryParseTemporaryEtbWindowClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
+    const parsed = tryParsePhase4ChoiceFamilyClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
   }
 
   {

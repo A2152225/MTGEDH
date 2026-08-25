@@ -1,4 +1,5 @@
-import type { GameContext } from '../context.js';import { resolveGiftAwareOracleText } from '../../utils/gift.js';
+import type { GameContext } from '../context.js';
+import { resolveGiftAwareOracleText } from '../../utils/gift.js';
 import { detectInstantSorcerySpellShapeFlags } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { tryResolveInstantSorceryPreResolutionChoices } from './stackResolveSpellChoiceUtils.js';
 import { tryResolveAcademicProbationSpellEffects } from './stackResolveSpellAcademicProbationUtils.js';
@@ -94,7 +95,10 @@ export function tryResolveInstantSorceryPreface(
       selectedModes,
       existingChosenColor,
       existingChosenCreatureType,
-      skipLegacySpellCategorization,
+      // Rite + leftover families are IR-owned. Do not skip primary now that
+      // the parses are complete (destroy-without-choice / unconditional 12
+      // / wrong-zone free-cast no longer apply).
+      skipLegacySpellCategorization: false,
     });
 
   if (oracleIrSpellOutcome.spellSpec && !oracleIrSpellOutcome.oracleIrSpellHandled) {

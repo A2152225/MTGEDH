@@ -15,7 +15,9 @@
  */
 import type { Server, Socket } from "socket.io";
 import { appendEvent } from "../../db";
+import { canPlayerBeTargetedByPlayer } from "../../rules-engine/targeting";
 import { updateCounters } from "../../state/modules/counters_tokens.js";
+import { persistNamedSpellCastThisGame } from "../../state/modules/namedSpellsCastThisGame.js";
 import type { SpellCastTrigger } from "../../state/modules/triggered-abilities";
 import {
   persistTargetedTriggeredStackItems,
@@ -64,12 +66,14 @@ export function buildSpellCopyRetargetValidTargetsFallback(
   });
   if (!wantsPlayerTarget) return null;
 
-  return players.map((player: any) => ({
-    id: player.id,
-    kind: 'player',
-    name: player.name || player.id,
-    isOpponent: String(player.id || '') !== String(controllerId || ''),
-  }));
+  return players
+    .filter((player: any) => canPlayerBeTargetedByPlayer(player.id, game.state, controllerId))
+    .map((player: any) => ({
+      id: player.id,
+      kind: 'player',
+      name: player.name || player.id,
+      isOpponent: String(player.id || '') !== String(controllerId || ''),
+    }));
 }
 
 export function resolveSpellCopyRetargetValidTargets(
@@ -181,6 +185,12 @@ export function cloneTriggeredSpellCopy(
   };
 
   stack.push(copiedItem);
+  if (String(copiedItem.type || (original as any).type || '').toLowerCase() === 'spell') {
+    persistNamedSpellCastThisGame(game.state, String(copiedItem.controller || controllerId).trim(), {
+      name: copiedItem?.card?.name || (original as any)?.card?.name,
+      id: copiedItem.id,
+    });
+  }
 
   appendCopyTriggeredSpellResolveEvent(gameId, game, {
     sourceId: String(trigger.permanentId || '').trim() || undefined,
@@ -357,6 +367,12 @@ export function consumeDelayedSpellCopiesForCast(
     };
 
     stack.push(copiedItem);
+    if (String(copiedItem.type || (original as any).type || '').toLowerCase() === 'spell') {
+      persistNamedSpellCastThisGame(game.state, String(copiedItem.controller || casterId).trim(), {
+        name: copiedItem?.card?.name || (original as any)?.card?.name,
+        id: copiedItem.id,
+      });
+    }
 
     appendCopyTriggeredSpellResolveEvent(gameId, game, {
       sourceId: String(entry?.sourceId || '').trim() || undefined,

@@ -40,6 +40,7 @@ const ORACLE_LIFE_GAIN_REPLACEMENT_TEMPLATES: readonly OracleLifeGainReplacement
   {
     templateId: 'opponents-cant-gain-life',
     oracleMustIncludeAll: ['your opponents', "can't gain life"],
+    oracleMustExcludeAny: ["can't gain life this turn", "can't gain life until end of turn"],
     spec: {
       event: 'life-gain',
       match: { gainingPlayerIsOpponentOfSource: true },
@@ -49,13 +50,61 @@ const ORACLE_LIFE_GAIN_REPLACEMENT_TEMPLATES: readonly OracleLifeGainReplacement
     },
   },
   {
+    // Quest Compleated Beast family — singular opponent, not "your opponents".
+    templateId: 'opponent-singular-cant-gain-life',
+    oracleMustIncludeAll: ["your opponent can't gain life"],
+    oracleMustExcludeAny: ["can't gain life this turn", "can't gain life until end of turn"],
+    spec: {
+      event: 'life-gain',
+      match: { gainingPlayerIsOpponentOfSource: true },
+      instead: { replaceLifeGainWith: 'none' },
+      effectId: 'life-gain-prevented',
+      reason: 'life_gain_prevented',
+    },
+  },
+  {
+    // Grievous Wound family — Enchant player aura.
+    templateId: 'enchanted-player-cant-gain-life',
+    oracleMustIncludeAll: ["enchanted player can't gain life"],
+    spec: {
+      event: 'life-gain',
+      match: { gainingPlayerIsEnchantedBySource: true },
+      instead: { replaceLifeGainWith: 'none' },
+      effectId: 'life-gain-prevented',
+      reason: 'life_gain_prevented',
+    },
+  },
+  {
     templateId: 'players-cant-gain-life',
     oracleMustIncludeAll: ["players can't gain life"],
+    oracleMustExcludeAny: ["can't gain life this turn", "can't gain life until end of turn"],
     spec: {
       event: 'life-gain',
       instead: { replaceLifeGainWith: 'none' },
       effectId: 'life-gain-prevented',
       reason: 'life_gain_prevented',
+    },
+  },
+  {
+    // Sulfuric Vortex current oracle (not the older "Players can't gain life" wording).
+    templateId: 'player-would-gain-life-gains-none',
+    oracleMustIncludeAll: ['if a player would gain life', 'gains no life instead'],
+    spec: {
+      event: 'life-gain',
+      instead: { replaceLifeGainWith: 'none' },
+      effectId: 'life-gain-prevented',
+      reason: 'life_gain_prevented',
+    },
+  },
+  {
+    templateId: 'controller-life-total-cant-change',
+    oracleMustIncludeAll: ["your life total can't change"],
+    spec: {
+      event: 'life-gain',
+      match: { gainingPlayerIsSourceController: true },
+      instead: { replaceLifeGainWith: 'none' },
+      effectId: 'life-gain-prevented',
+      reason: 'life_total_cant_change',
     },
   },
   {
@@ -114,6 +163,7 @@ export function collectOraclePatternLifeGainReplacementSpecsFromState(state: unk
     const sourceController = String(permRecord.controller || '').trim();
     const sourceName = String(permRecord.card?.name || 'Unknown').trim();
     if (!sourcePermanentId) continue;
+    if (/^A-/i.test(sourceName)) continue;
 
     for (const template of ORACLE_LIFE_GAIN_REPLACEMENT_TEMPLATES) {
       if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;

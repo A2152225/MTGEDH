@@ -26,12 +26,17 @@ export type {
   ReplacementCounterMatch,
   ReplacementDrawMatch,
   ReplacementLifeGainMatch,
+  ReplacementLifeLossMatch,
   ReplacementTokenMatch,
   ReplacementDamageMatch,
+  ReplacementLoseGameMatch,
+  ReplacementLoseGameInstead,
   ReplacementEffectSpec,
 } from './replacementEffectSpec-handlers/replacementEffectSpecTypes.js';
 import { normalizeOraclePatternText, readCardOracleText } from './replacementEffectSpec-handlers/replacementEffectSpecOracleTextUtils.js';
 import { collectOraclePatternLifeGainReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLifeGainOracleTemplates.js';
+import { overlaySpecsMatchLifeGain, matchesLifeGainSpec } from './replacementEffectSpec-handlers/replacementEffectSpecLifeGainMatch.js';
+import { collectOraclePatternLifeLossReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLifeLossOracleTemplates.js';
 import { collectOraclePatternCounterReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecCounterOracleTemplates.js';
 import { collectOraclePatternLibrarySearchReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLibrarySearchOracleTemplates.js';
 import { collectOraclePatternDamageReplacementSpecsFromState, overlaySpecsMatchDamage } from './replacementEffectSpec-handlers/replacementEffectSpecDamageOracleTemplates.js';
@@ -39,6 +44,8 @@ import { collectOraclePatternDrawReplacementSpecsFromState } from './replacement
 import { collectOraclePatternTokenReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecTokenOracleTemplates.js';
 import { collectOraclePatternMillReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecMillOracleTemplates.js';
 import { collectOraclePatternZoneChangeReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecZoneChangeOracleTemplates.js';
+import { collectOraclePatternLoseGameReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLoseGameOracleTemplates.js';
+import { collectOraclePatternLifeFloorDamageReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLifeFloorDamageOracleTemplates.js';
 
 const STACK_GRAVEYARD_EXILE_ABILITIES = ['flashback', 'jump-start', 'escape', 'disturb', 'harmonize'];
 
@@ -113,26 +120,21 @@ export const BUILTIN_REPLACEMENT_EFFECT_SPECS: readonly ReplacementEffectSpec[] 
 
 
 
-export { collectOraclePatternDrawReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecDrawOracleTemplates.js';
-
-
-export { collectOraclePatternLifeGainReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLifeGainOracleTemplates.js';
-
-
-export { collectOraclePatternTokenReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecTokenOracleTemplates.js';
-
-
-export { collectOraclePatternCounterReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecCounterOracleTemplates.js';
-
-
-export { collectOraclePatternMillReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecMillOracleTemplates.js';
-
-
-export { collectOraclePatternLibrarySearchReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLibrarySearchOracleTemplates.js';
-
-
-export { collectOraclePatternDamageReplacementSpecsFromState, overlaySpecsMatchDamage } from './replacementEffectSpec-handlers/replacementEffectSpecDamageOracleTemplates.js';
-
+export { overlaySpecsMatchLifeGain };
+export {
+  collectOraclePatternDrawReplacementSpecsFromState,
+  collectOraclePatternLifeGainReplacementSpecsFromState,
+  collectOraclePatternLifeLossReplacementSpecsFromState,
+  collectOraclePatternTokenReplacementSpecsFromState,
+  collectOraclePatternCounterReplacementSpecsFromState,
+  collectOraclePatternMillReplacementSpecsFromState,
+  collectOraclePatternLibrarySearchReplacementSpecsFromState,
+  collectOraclePatternDamageReplacementSpecsFromState,
+  overlaySpecsMatchDamage,
+  collectOraclePatternZoneChangeReplacementSpecsFromState,
+  collectOraclePatternLoseGameReplacementSpecsFromState,
+  collectOraclePatternLifeFloorDamageReplacementSpecsFromState,
+};
 
 export function matchesSelfShuffleIntoLibraryReplacementOracle(oracleText: string): boolean {
   const normalized = normalizeOraclePatternText(oracleText);
@@ -196,9 +198,6 @@ export function collectIntrinsicZoneChangeReplacementSpecsFromObject(
 
   return specs;
 }
-
-export { collectOraclePatternZoneChangeReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecZoneChangeOracleTemplates.js';
-
 
 function matchesDrawSpec(spec: ReplacementEffectSpec, event: CardDrawReplacementEvent): boolean {
   const match = spec.match;
@@ -284,46 +283,6 @@ export function overlaySpecsMatchTokenCreation(
     tokenName: event.tokenName,
     tokenTypeLine: event.tokenTypeLine,
   });
-}
-
-export function overlaySpecsMatchLifeGain(
-  spec: ReplacementEffectSpec,
-  event: { playerId: string; state?: unknown; amount?: number },
-): boolean {
-  return matchesLifeGainSpec(spec, {
-    type: 'life-gain',
-    state: event.state,
-    playerId: event.playerId,
-    amount: event.amount ?? 1,
-  });
-}
-
-function matchesLifeGainSpec(spec: ReplacementEffectSpec, event: LifeGainReplacementEvent): boolean {
-  const match = spec.match;
-  if (!match) return true;
-
-  const playerId = String(event.playerId || '');
-  const sourceController = String(spec.sourceController || '');
-
-  if (match.gainingPlayerIsOpponentOfSource === true
-    && playerId === sourceController) {
-    return false;
-  }
-
-  if (match.gainingPlayerIsSourceController === true
-    && playerId !== sourceController) {
-    return false;
-  }
-
-  if (typeof match.gainingPlayerLifeGte === 'number') {
-    const state = event.state as { life?: Record<string, unknown>; startingLife?: number } | undefined;
-    const currentLife = Number(state?.life?.[playerId] ?? state?.startingLife ?? 40);
-    if (!Number.isFinite(currentLife) || currentLife < match.gainingPlayerLifeGte) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 function normalizeReplacementToken(value: unknown): string {
@@ -613,12 +572,15 @@ export function collectReplacementEffectSpecsFromState(state: unknown): Replacem
 
   specs.push(...collectOraclePatternDrawReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternLifeGainReplacementSpecsFromState(state));
+  specs.push(...collectOraclePatternLifeLossReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternTokenReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternZoneChangeReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternCounterReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternDamageReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternMillReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternLibrarySearchReplacementSpecsFromState(state));
+  specs.push(...collectOraclePatternLoseGameReplacementSpecsFromState(state));
+  specs.push(...collectOraclePatternLifeFloorDamageReplacementSpecsFromState(state));
   return specs;
 }
 
@@ -1099,7 +1061,7 @@ export function evaluateDeclarativeReplacementEvent(
   for (const spec of [...intrinsicSpecs, ...dynamicSpecs, ...BUILTIN_REPLACEMENT_EFFECT_SPECS]) {
     // Amount-modify families aggregate via detect*/apply*/summarize* helpers (616.1 ordering).
     // Library-search restrictions also aggregate (prevent + limit + control + payment + trigger).
-    if (spec.event === 'library-search') {
+    if (spec.event === 'library-search' || spec.event === 'lose-game') {
       continue;
     }
     if (
@@ -1109,6 +1071,7 @@ export function evaluateDeclarativeReplacementEvent(
         || event.type === 'counter-placement'
         || event.type === 'damage'
         || event.type === 'life-gain'
+        || event.type === 'life-loss'
         || event.type === 'card-draw'
         || event.type === 'token-creation'
       )

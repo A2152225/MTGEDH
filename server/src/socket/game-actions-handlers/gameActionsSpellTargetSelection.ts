@@ -7,18 +7,22 @@
  *
  * Public entry symbols: buildSpellTargetListFromRequirements,
  * buildGroupedSpellTargetMetadata, buildSpellTargetSelectionClauses,
- * mapSpellTargetRefToDisplay, shouldPreferParsedTargetReqs, resolveTargetCount.
+ * mapSpellTargetRefToDisplay, shouldPreferParsedTargetReqs (re-export),
+ * resolveTargetCount.
  */
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { normalizeGameplayEffectText } from "../../../../rules-engine/src/oracleReminderText.js";
 import {
   canPermanentBeTargetedByPlayer,
-  categorizeSpellWithoutPrimaryRetirement,
+  canPlayerBeTargetedByPlayer,
   evaluateTargeting,
   matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType,
-  parseTargetRequirements,
 } from "../../rules-engine/targeting";
+import { permanentMatchesTargetRequirementStatKeywordFilters } from "../../rules-engine/targeting-handlers/targetingParseTargetRequirementRestrictions.js";
 import { cardManaValue } from "../../state/utils";
+import { resolveCastSpellParsedTargeting } from "./gameActionsCastSpellParsedTargeting.js";
+
+export { shouldPreferParsedTargetReqs } from "./gameActionsCastSpellParsedTargeting.js";
 
 export function resolveTargetCount(baseCount: number | undefined, countIsX: boolean | undefined, xValue?: number): number {
   if (countIsX) {
@@ -128,6 +132,7 @@ function normalizeRequirementTargetType(rawTargetType: string | undefined): stri
     .replace(/^artifacts?$/g, 'artifact')
     .replace(/^enchantments?$/g, 'enchantment')
     .replace(/^lands?$/g, 'land')
+    .replace(/^battles?$/g, 'battle')
     .replace(/^planeswalkers?$/g, 'planeswalker');
 }
 
@@ -173,16 +178,6 @@ function matchesSpellGraveyardCardTargetType(card: any, targetType: string): boo
   return matchesSharedGraveyardCardTargetType(card, targetType);
 }
 
-export function shouldPreferParsedTargetReqs(
-  targetReqs: ReturnType<typeof parseTargetRequirements> | null | undefined,
-): boolean {
-  if (!targetReqs?.needsTargets) return false;
-  if (targetReqs.groupedTargets) return true;
-  if (targetReqs.perOpponent === true) return true;
-  return Array.isArray(targetReqs.targetTypes)
-    && targetReqs.targetTypes.some((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'));
-}
-
 /** Exported for counterspell / stack-target unit tests. */
 export function buildSpellTargetListFromRequirements(game: any, playerId: string, targetReqs: any): Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> {
   const validTargetList: Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> = [];
@@ -212,6 +207,7 @@ export function buildSpellTargetListFromRequirements(game: any, playerId: string
 
     if (targetTypeLower === 'creature' || targetTypeLower === 'permanent' || targetTypeLower === 'artifact' ||
         targetTypeLower === 'enchantment' || targetTypeLower === 'land' || targetTypeLower === 'planeswalker' ||
+        targetTypeLower === 'battle' ||
         targetTypeLower === 'nonland permanent' || targetTypeLower === 'noncreature permanent' ||
         ((targetTypeLower.includes('nonland') || targetTypeLower.includes('noncreature')) && !targetTypeLower.includes('spell'))) {
       const permanents = (game.state.battlefield || []).filter((permanent: any) => {
@@ -222,10 +218,13 @@ export function buildSpellTargetListFromRequirements(game: any, playerId: string
           ? targetReqs.targetFilterExcludeTypes.map((type: unknown) => String(type || '').toLowerCase())
           : [];
         if (excludedTypes.some((type: string) => type && typeLine.includes(type))) return false;
-        if (targetTypeLower === 'permanent') return true;
-        if (targetTypeLower.includes('nonland')) return !typeLine.includes('land');
-        if (targetTypeLower.includes('noncreature')) return !typeLine.includes('creature');
-        return typeLine.includes(targetTypeLower);
+        let typeMatches = false;
+        if (targetTypeLower === 'permanent') typeMatches = true;
+        else if (targetTypeLower.includes('nonland')) typeMatches = !typeLine.includes('land');
+        else if (targetTypeLower.includes('noncreature')) typeMatches = !typeLine.includes('creature');
+        else typeMatches = typeLine.includes(targetTypeLower);
+        if (!typeMatches) return false;
+        return permanentMatchesTargetRequirementStatKeywordFilters(permanent, game.state, targetReqs, playerId);
       });
 
       for (const permanent of permanents) {
@@ -249,6 +248,7 @@ export function buildSpellTargetListFromRequirements(game: any, playerId: string
       const players = (game.state.players || []).filter((player: any) => {
         if (targetTypeLower === 'opponent' && player.id === playerId) return false;
         if (targetControllerConstraint === 'opponent' && player.id === playerId) return false;
+        if (!canPlayerBeTargetedByPlayer(player.id, game.state, playerId as PlayerID)) return false;
         return true;
       });
       for (const player of players) {
@@ -437,14 +437,13 @@ export function buildSpellTargetSelectionClauses(
   }> = [];
 
   for (const clauseText of clauses) {
-    const spellSpec = categorizeSpellWithoutPrimaryRetirement(cardName, clauseText);
-    const targetReqs = parseTargetRequirements(clauseText, {
+    const { spellSpec, targetReqs, preferParsedTargetReqs } = resolveCastSpellParsedTargeting({
+      cardName,
+      oracleText: clauseText,
       xValue,
       gameState: game.state,
       controllerId: String(playerId),
-      sourceName: cardName,
     });
-    const preferParsedTargetReqs = shouldPreferParsedTargetReqs(targetReqs);
     const minTargets = spellSpec && !preferParsedTargetReqs
       ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, xValue)
       : resolveTargetCount(targetReqs?.minTargets, (targetReqs as any)?.minTargetsIsX === true, xValue);

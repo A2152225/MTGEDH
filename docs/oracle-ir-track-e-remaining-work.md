@@ -135,8 +135,8 @@ These are the **main engineering tasks** still open for the *overall* new-card e
 | **Layers 1–2** | Parse + execute corpus | ✅ Complete |
 | **Layer 3 E6–E8** | Live IR + sockets + EP | ✅ Beta-ready |
 | **E9+ / D3** | `applyRetiredTriggerLegacy*` export retirement | ✅ **Complete** (ceiling **0**; soak 0 exports); migration **889/889** |
-| **Phase 4** | Infrastructure dual-path collapse (`categorizeSpell`, uncategorized fallbacks, riders) | **Partial** — uncategorized fallback include check collapsed onto `isTriggerStepRuntimeWired` (2026-08-13). Remaining: leftover `categorizeSpell` targeting dual-path / riders |
-| **Phase 5** | PW loyalty + continuous/replacement **depth** | **5.1–5.5 landed**; life-gain/draw/token/counter/mill/library-search on oracle-pattern specs; PW IR loyalty **886/887 (99.9%)** (2026-08-13). Last line: Davriel Alchemy offers |
+| **Phase 4** | Infrastructure dual-path collapse (`categorizeSpell`, uncategorized fallbacks, riders) | **Partial** — cast-time targeting closed including leftover `TargetRestrictionType`s / compound `orStat` / Atraxa's Fall list / `hasValidTargetsForSpell` filters; Rite / Divine Reckoning / Prisoner's Dilemma / Summons / Nibelheim IR-owned; uncategorized Nibelheim short-circuit dropped; PRIMARY=0 Nibelheim + Approach + Divine / Prisoner / Summons / Rite special-case bodies trampoline to IR (2026-08-25). Remaining: real EDH tables / telemetry |
+| **Phase 5** | PW loyalty + continuous/replacement **depth** | **5.1–5.5 landed** plus 2026-08-25 depth: GY+land/hexproof/mana statics; Saryth/lure including Masamune first strike (idle leak closed) + typed `must_be_blocked_by_<keyword>` + raid `source_controller_attacked_this_turn`; targeting lose vs as-though + player hexproof + Shalai wording + Nowhere to Run ward skip; lure all-able vs at-least-one; can't-lose / win / life tables gone; this-turn preventLifeGain stamps; Maze's End + Approach IR + copy ledger (including optionChoice fallback); Hedron may-reveal IR; until-EOT hexproof activations (Detection Tower / Arcane Lighthouse `lastingEffects.protectionKeywordOverride`); state-trigger / `immediate` SBA + adapter; Choose left or right; Teyo combat. PW IR **925/926**. |
 
 There is **no planned Track F or E15**. New-card work uses **§A workflow + B/C/D tasks** above.
 
@@ -186,7 +186,12 @@ These are **in-scope migration work** that does not always move the usual metric
 - Compound `enters or …` trigger-detector audit (Tivit class — D5)
   - ~~ETB effect swallow~~ ✅ commander-legal **208** compounds, **0** swallowed ETB effects (2026-08-12)
   - ~~Other-event fire paths~~ ✅ artifact LTB/GY, monstrous, tapped, haunt. Morph face-up live emission via `processFaceUpTriggers` (2026-08-13).
-- ~~Phase 4 uncategorized fallback allowlist~~ ✅ collapsed onto `isTriggerStepRuntimeWired` (`unknown` stays out). Leftover: `categorizeSpell` targeting dual-path / riders
+- ~~Phase 4 uncategorized fallback allowlist~~ ✅ collapsed onto `isTriggerStepRuntimeWired` (`unknown` stays out).
+- ~~Phase 4 `categorizeSpell` cast-time targeting dual-path~~ ✅ IR-primary uses `parseTargetRequirements` plus leftover restriction types / compound `orStat` / Atraxa's Fall multi-type / `hasValidTargetsForSpell` filters. Choice families + Nibelheim Aflame IR-owned; uncategorized Nibelheim short-circuit dropped. PRIMARY=0 Nibelheim / Approach / Divine / Prisoner / Summons / Rite special-case bodies trampoline to IR.
+- ~~Phase 5 leftover static parse (Saryth tap/untap, lure, lose-keyword / Glaring Spotlight as-though)~~ ✅ `StaticEffectSpec`. Targeting lose vs as-though + player hexproof ✅. Lure all-able vs at-least-one + Impetus/Indrik/Gift/Noble Quarry/named-self ✅. Masamune first strike + idle leak closed + Frodo/threshold/equipped ✅. Typed `must_be_blocked_by_<keyword>` ✅. Raid `source_controller_attacked_this_turn` ✅. Shalai you/planeswalkers/other-creatures ✅. Nowhere to Run ward skip ✅. Until-EOT hexproof activations ✅ Detection Tower as-though / Arcane Lighthouse lose stamp `lastingEffects.protectionKeywordOverride` (idle land stays not a continuous static)
+- ~~Phase 5 `WIN_CONDITIONS` name table~~ ✅ oracle scan. Maze's End unique-name win ✅ IR. Approach same-name-cast-this-game ✅ IR (persist ledger at live cast + GY/castSpell replay + `copyStackItem` + live/IR/delayed copies + optionChoice fallback `stack.push`). Then-if / Darksteel scan ✅. Rules-engine `checkWinConditions` + live `runSBA` + adapter `checkWinConditionsForState` apply `immediate`. Hedron Alignment may-reveal ✅ IR choice family (not auto-scan)
+- ~~Phase 5 `LIFE_MODIFIERS` name table~~ ✅ oracle + `ReplacementEffectSpec`. Bloodletter `life-loss` double ✅. Enchanted-player / singular-opponent can't-gain ✅. `canPlayerPayLife` on cast/activate/ward ✅. Shock-land + remaining production `validateLifePayment` `ctx` ✅. This-turn spell/ability “can't gain life” stamps `lastingEffects.preventLifeGain` ✅ including leading until-EOT activations. Cleanup expires this-turn stamps (`duration: 'game'` rest-of-game stays).
+- ~~Phase 5 leftover: 1 unwired loyalty line (Davriel, Soul Broker Alchemy offers/conditions)~~ left unwired by design; coverage 925/926
 - Generic haunt targeting stamps `hauntingPermanentId` on the exiled card (2026-08-13)
 - ~~Phase 5 life-gain amount-modify~~ ✅ double / plus-1 oracle-pattern specs; `applyLifeGain` no longer card-name routes
 - ~~Delayed-return face-up emission~~ ✅ `turnReturnedPermanentFaceUp`
@@ -203,7 +208,7 @@ These are **in-scope migration work** that does not always move the usual metric
 - ~~Combat prevent-and-mill first-match table~~ ✅ Mindskinner-family parse from oracle
 - ~~Szadek-style source-self combat replace~~ ✅ instead +1/+1 on source + mill that player (not controller-wide)
 - ~~Vigor creature-damage card-name~~ ✅ another-creature prevent + +1/+1 per 1 prevented (oracle pattern)
-- Phase 5 leftover: 1 unwired loyalty line (Davriel, Soul Broker Alchemy offers/conditions)
+- Phase 5 leftover: Davriel, Soul Broker Alchemy offers/conditions — **left unwired by design** (coverage 925/926)
 
 ---
 

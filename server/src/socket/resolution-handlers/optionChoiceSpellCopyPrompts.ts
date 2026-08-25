@@ -29,6 +29,7 @@ import type { PlayerID } from "../../../../shared/src/types.js";
 import { debugWarn } from "../../utils/debug.js";
 import { appendQueuedResolutionPromptEvent } from "../resolutionCloneQueuedPromptUtils.js";
 import { broadcastGame } from "../util.js";
+import { persistNamedSpellCastThisGame } from "../../state/modules/namedSpellsCastThisGame.js";
 import { extractOptionChoiceSelectionId } from "./resolutionOptionChoiceSelectionIds.js";
 
 /** "You may copy that spell" after it resolved, then optionally retarget the copy. */
@@ -90,6 +91,10 @@ export async function handleResolvedSpellCopyChoice(
     const copiedSpellId = String((copiedSpellSnapshot as any)?.id || '').trim();
     if (!copiedSpellId || !stack.some((item: any) => item && String(item.id || '').trim() === copiedSpellId)) {
       stack.push({ ...(copiedSpellSnapshot as any) });
+      persistNamedSpellCastThisGame(game.state, String((copiedSpellSnapshot as any)?.controller || playerId).trim(), {
+        name: (copiedSpellSnapshot as any)?.card?.name || (copiedSpellSnapshot as any)?.name,
+        id: (copiedSpellSnapshot as any)?.card?.id || (copiedSpellSnapshot as any)?.id,
+      });
     }
   }
 

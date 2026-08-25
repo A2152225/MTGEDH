@@ -8,6 +8,7 @@ import {
   parseSpellLegacyTokenCreation,
 } from './oracleIrSpellLegacyTokenUtils.js';
 import { parseNumberWord } from './oracleIrSpellLegacySpellShapeUtils.js';
+import { persistNamedSpellCastThisGame } from './namedSpellsCastThisGame.js';
 import { buildResolvedSpellCopySnapshot, wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
 import { buildOracleOverlayCollectOptions } from './oracleIrCompiledOverlayLookup.js';
 import { collectSpellResolutionEffectSteps } from './trigger-runtime-wiring.js';
@@ -149,6 +150,10 @@ export function applyInstantSorceryCopyStackSpellRiders(
         for (let copyIndex = 0; copyIndex < copyCount; copyIndex++) {
           const copiedSpell = buildResolvedSpellCopySnapshot(targetStackItem, sourceName, controller);
           stack.push(copiedSpell);
+          persistNamedSpellCastThisGame(state, String(copiedSpell?.controller || controller).trim(), {
+            name: copiedSpell?.card?.name || targetStackItem?.card?.name,
+            id: copiedSpell?.id,
+          });
         }
 
         bumpSeq?.();

@@ -8,7 +8,9 @@
  */
 import type { Server, Socket } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/index.js";
+import type { GameContext } from "../../state/context.js";
 import { buildCounterRemovalCostOptions } from "../../state/modules/counter-removal-costs.js";
+import { canPlayerPayLife } from "../../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
 import { getDeclarativeLeaveBattlefieldReplacementHint as getLeaveBattlefieldReplacementHint } from "../../state/modules/leaveBattlefieldReplacementHint.js";
 import { queueLifePaymentTriggers } from "../../state/modules/triggers/pay-life.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
@@ -173,6 +175,14 @@ export function tryQueueRequestCastSpellWithTargets(
         if (!requestCastAdditionalCostPaid && additionalCost?.type === 'pay_life') {
           const startingLife = game.state.startingLife || 40;
           const currentLife = game.state.life?.[playerId] ?? startingLife;
+          if (!canPlayerPayLife(game as GameContext, String(playerId))) {
+            delete (game.state as any).pendingSpellCasts[effectId];
+            socket.emit('error', {
+              code: 'CANNOT_PAY_COST',
+              message: `Cannot cast ${cardName}: players can't pay life.`,
+            });
+            return;
+          }
           if (currentLife < additionalCost.amount) {
             delete (game.state as any).pendingSpellCasts[effectId];
             socket.emit('error', {

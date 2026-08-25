@@ -28,6 +28,7 @@ import {
   canPermanentAttack,
 } from "./combatLegalityGates.js";
 import { hasLegalMustAttackDefender } from "./combatDeclareAttackersSupport.js";
+import { getNearestOpponentDirectionAllowedDefenderId } from "../../state/modules/nearestOpponentDirectionAttackRestriction.js";
 
 export function enqueueSupportedExertChoiceSteps(
   gameId: string,
@@ -205,6 +206,8 @@ export function findForcedAttackViolation(
     if (!isCurrentlyCreature(perm, battlefield, playerId)) continue;
     if (attacking.has(String(perm.id))) continue;
     if (!creatureCanBeForcedToAttack(perm, battlefield, playerId, players)) continue;
+    const allowedDefenderId = getNearestOpponentDirectionAllowedDefenderId(game.state, playerId);
+    if (allowedDefenderId === null) continue;
 
     const goadInfo = getCreatureGoadStatus(perm, battlefield, playerId, currentTurn);
     if (goadInfo.isGoaded) {

@@ -22,6 +22,7 @@ import {
   type ResolutionStep,
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
+import type { GameContext } from "../state/context.js";
 import { validateLifePayment } from "../state/utils.js";
 import { getEffectivePower } from "./util.js";
 import { validateCounterRemovalPaymentSelection } from "./resolution-handlers/resolutionCounterRemovalPaymentSelection.js";
@@ -89,7 +90,7 @@ export function validateCostPaymentStepsBeforeComplete(
 
     const startingLife = (game.state as any)?.startingLife || 40;
     const currentLife = (game.state as any)?.life?.[pid as any] ?? startingLife;
-    const validationError = validateLifePayment(Number(currentLife || 0), lifePayment, cardName);
+    const validationError = validateLifePayment(Number(currentLife || 0), lifePayment, cardName, game as GameContext, pid);
     if (validationError) {
       socket.emit('error', { code: 'INVALID_LIFE_PAYMENT', message: validationError });
       return false;

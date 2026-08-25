@@ -15,8 +15,11 @@ export type {
   ReplacementCounterMatch,
   ReplacementDrawMatch,
   ReplacementLifeGainMatch,
+  ReplacementLifeLossMatch,
   ReplacementTokenMatch,
   ReplacementDamageMatch,
+  ReplacementLoseGameMatch,
+  ReplacementLoseGameInstead,
   ReplacementEffectSpec,
 } from "./replacementEffectSpecTypes.js";
 
@@ -25,6 +28,16 @@ export { normalizeOraclePatternText, readCardOracleText } from "./replacementEff
 
 // Oracle-pattern life-gain templates (Boon Reflection / Tainted Remedy family).
 export { collectOraclePatternLifeGainReplacementSpecsFromState } from "./replacementEffectSpecLifeGainOracleTemplates.js";
+
+// Life-gain overlay match (extracted so leftover aura/opponent templates can extend it).
+export { overlaySpecsMatchLifeGain, matchesLifeGainSpec } from "./replacementEffectSpecLifeGainMatch.js";
+
+// Oracle-pattern life-loss templates (Bloodletter family).
+export {
+  collectOraclePatternLifeLossReplacementSpecsFromState,
+  overlaySpecsMatchLifeLoss,
+  summarizeLifeLossAmountReplacements,
+} from "./replacementEffectSpecLifeLossOracleTemplates.js";
 
 // Oracle-pattern counter-placement templates (Doubling Season family).
 export { collectOraclePatternCounterReplacementSpecsFromState } from "./replacementEffectSpecCounterOracleTemplates.js";
@@ -46,3 +59,16 @@ export { collectOraclePatternMillReplacementSpecsFromState } from "./replacement
 
 // Oracle-pattern zone-change templates (graveyard-to-exile from anywhere).
 export { collectOraclePatternZoneChangeReplacementSpecsFromState } from "./replacementEffectSpecZoneChangeOracleTemplates.js";
+
+// Oracle-pattern can't-lose / can't-win / empty-library-win (Platinum Angel family).
+export {
+  collectOraclePatternLoseGameReplacementSpecsFromState,
+  loseGameSpecPreventsLoss,
+  loseGameSpecPreventsWin,
+  loseGameSpecExemptsZeroOrLessLife,
+  loseGameSpecExemptsEmptyLibraryDraw,
+  loseGameSpecWinsOnEmptyLibraryDraw,
+} from "./replacementEffectSpecLoseGameOracleTemplates.js";
+
+// Oracle-pattern Worship / Fortune Thief life-floor damage replacements.
+export { collectOraclePatternLifeFloorDamageReplacementSpecsFromState } from "./replacementEffectSpecLifeFloorDamageOracleTemplates.js";

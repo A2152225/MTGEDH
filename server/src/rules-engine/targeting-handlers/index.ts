@@ -30,8 +30,27 @@ export {
 } from "./targetingParseTargetRequirements.js";
 export type { GroupedTargetRequirement } from "./targetingParseTargetRequirements.js";
 
+// SpellSpec-aligned has_keyword / power-toughness filters for IR-primary lists.
+export {
+  parseTargetRequirementStatKeywordFilters,
+  stripTargetTypeRestrictionSuffix,
+  attachParsedTargetRequirementStatKeywordFilters,
+  permanentMatchesTargetRequirementStatKeywordFilters,
+} from "./targetingParseTargetRequirementRestrictions.js";
+export type { ParsedTargetRequirementStatKeywordFilters } from "./targetingParseTargetRequirementRestrictions.js";
+
 // categorizeSpellWithoutPrimaryRetirement pattern families (null = fall through).
 export { tryCategorizeStackCounterSimpleTemplates } from "./targetingCategorizeStackCounterSimpleTemplates.js";
 export { tryCategorizeScryMillMassRemoval } from "./targetingCategorizeScryMillMassRemoval.js";
 export { tryCategorizeDamageFlickerRestrictions } from "./targetingCategorizeDamageFlickerRestrictions.js";
 export { tryCategorizeTapBounceGenericTargets } from "./targetingCategorizeTapBounceGenericTargets.js";
+
+// Hexproof/shroud lose vs controller-only as-though (Glaring Spotlight / Kaya).
+export {
+  protectionKeywordIgnoredForTargeting,
+  protectionKeywordIgnoredForPlayerTargeting,
+  asThoughAbilitySuppressedForTarget,
+} from "./targetingProtectionKeywordStaticOverride.js";
+
+// Player hexproof/shroud targeting legality (Leyline / Kaya as-though).
+export { canPlayerBeTargetedByPlayer } from "./targetingPlayerProtectionKeyword.js";

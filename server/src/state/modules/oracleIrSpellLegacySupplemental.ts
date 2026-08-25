@@ -5,6 +5,7 @@ import type { GameContext } from '../context.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { getOrCreatePlayerZones, millCardsFromLibrary } from './triggerLibraryMillUtils.js';
 import { queueCastFromExileResolutionPrompt } from './triggerCastFromExileUtils.js';
+import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
 
 export function normalizeOracleResolutionText(value: string): string {
   return String(value || '')
@@ -55,6 +56,10 @@ export function applySupplementalOracleIRForResolvedSpell(
 ): number {
   void caster;
   void sourcePermanentId;
+
+  // IR primary already executes mill / impulse-exile / shuffle riders via
+  // applyOracleIRStepsOnServer. Keep this parallel mini-executor unused there.
+  if (isOracleIrSpellPrimaryEnabled()) return 0;
 
   try {
     const text = String(oracleText || '').trim();

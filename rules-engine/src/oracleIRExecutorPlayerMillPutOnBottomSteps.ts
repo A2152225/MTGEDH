@@ -181,7 +181,7 @@ export function applyMillStep(
     .filter(([, count]) => Number(count) > 0)
     .map(([playerId, count]) => ({ kind: 'mill', playerId, count: Number(count) }));
 
-  return withDiscardLedgerFlags({
+  const flagged = withDiscardLedgerFlags({
     applied: true,
     state: nextState,
     log,
@@ -189,4 +189,9 @@ export function applyMillStep(
     ...(lastMilledCards.length > 0 ? { lastMilledCards } : {}),
     ...(replayMutations.length > 0 ? { replayMutations } : {}),
   }, ledgerRecordedViaBridge);
+  // Restore lastMilledCards after ledger omit so mill-from-among can still
+  // see the cards milled this resolution after a server-bridge mill.
+  return lastMilledCards.length > 0
+    ? { ...flagged, lastMilledCards }
+    : flagged;
 }

@@ -49,27 +49,62 @@ export function extractKeywordsFromGrantText(grantText: string): string[] {
 }
 
 /**
+ * Combat / attachment-state predicates after "is", not keyword grants.
+ * "As long as equipped creature is attacking, it has first strike…" must not
+ * look like an unconditional "is first strike" grant.
+ */
+const ATTACHMENT_IS_STATE_PREFIX = /^(?:attacking|blocking|tapped|untapped|equipped)\b/i;
+
+/** "is [condition], it has first strike" — the grant is on "it", not `is`. */
+const ATTACHMENT_IS_IT_HAS_CONSEQUENCE = /\bit\s+(?:has|gains?)\b/i;
+
+/**
+ * True for real `is` grants: "is indestructible", "is unblockable",
+ * "is legendary, gets +1/+1, and has flying…".
+ * False for combat/state predicates and "is [condition], it has [keywords]".
+ */
+function isAttachmentIsKeywordGrantCapture(capture: string): boolean {
+  const tail = String(capture || '').trim();
+  if (!tail) return false;
+  if (ATTACHMENT_IS_STATE_PREFIX.test(tail)) return false;
+  if (ATTACHMENT_IS_IT_HAS_CONSEQUENCE.test(tail)) return false;
+  return true;
+}
+
+function addKeywordsFromCapture(granted: Set<string>, capture: string): void {
+  for (const keyword of extractKeywordsFromGrantText(capture)) {
+    granted.add(keyword);
+  }
+}
+
+/**
  * Collect keyword grants from a single attachment oracle string.
  */
 export function parseAttachmentGrantedKeywordsFromOracle(oracleText: string): string[] {
   const oracle = String(oracleText || '');
   const granted = new Set<string>();
 
-  const patterns = [
+  const hasGainPatterns = [
     /(?:equipped|enchanted)\s+creature\s+has\s+([^.]+)/gi,
     /(?:equipped|enchanted)\s+creature\s+gains?\s+([^.]+)/gi,
-    /(?:equipped|enchanted)\s+creature\s+is\s+([^.]+)/gi,
     /(?:equipped|enchanted)\s+creature\s+gets?\s+[+\-]?\d*\s*\/\s*[+\-]?\d*\s+and\s+(?:has|gains?)\s+([^.]+)/gi,
   ];
 
-  for (const pattern of patterns) {
+  for (const pattern of hasGainPatterns) {
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(oracle)) !== null) {
-      for (const keyword of extractKeywordsFromGrantText(match[1] || '')) {
-        granted.add(keyword);
-      }
+      addKeywordsFromCapture(granted, match[1] || '');
     }
+  }
+
+  const isPattern = /(?:equipped|enchanted)\s+creature\s+is\s+([^.]+)/gi;
+  isPattern.lastIndex = 0;
+  let isMatch: RegExpExecArray | null;
+  while ((isMatch = isPattern.exec(oracle)) !== null) {
+    const capture = isMatch[1] || '';
+    if (!isAttachmentIsKeywordGrantCapture(capture)) continue;
+    addKeywordsFromCapture(granted, capture);
   }
 
   return [...granted];

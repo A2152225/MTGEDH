@@ -24,6 +24,11 @@ import {
   checkUpkeepWinConditions,
 } from '../winEffectCards';
 import { hasPermanentType } from '../permanentTypeUtils';
+import {
+  findOracleScannerImmediateWin,
+  findOracleScannerUpkeepWin,
+  stampOracleScannerWinOnState,
+} from './stateBasedActionsOracleScannerWins';
 
 function permanentHasKeyword(perm: any, keyword: string): boolean {
   const lowerKeyword = String(keyword || '').trim().toLowerCase();
@@ -431,8 +436,21 @@ export function checkWinConditions(state: GameState): {
     return { winner: (state as any).winner, reason: String((state as any).winReason || 'Game effect') };
   }
 
+  // Immediate oracle-scanner wins (Darksteel-style N-or-more counters).
+  // Applied as an SBA like existing Felidar-style upkeep wins — not a stack trigger.
+  const immediateWin = findOracleScannerImmediateWin(state);
+  if (immediateWin) {
+    stampOracleScannerWinOnState(state, immediateWin);
+    return { winner: immediateWin.winner, reason: immediateWin.reason };
+  }
+
   const activePlayer = state.players[(state.activePlayerIndex || 0)] as any;
   if (String(state.step || '').toLowerCase() === 'upkeep' && activePlayer?.id) {
+    const oracleUpkeepWin = findOracleScannerUpkeepWin(state, String(activePlayer.id));
+    if (oracleUpkeepWin) {
+      stampOracleScannerWinOnState(state, oracleUpkeepWin);
+      return { winner: oracleUpkeepWin.winner, reason: oracleUpkeepWin.reason };
+    }
     const librarySize = (activePlayer.library || []).length;
     const handSize = (activePlayer.hand || []).length;
     const graveyardCreatureCount = (activePlayer.graveyard || []).filter((card: any) =>

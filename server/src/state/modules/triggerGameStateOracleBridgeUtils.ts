@@ -44,10 +44,23 @@ export function bridgeGameStateOracleEffectsAfterOracleIR(
     readonly effectText?: string;
   },
 ): void {
-  if (!params.triggerItem || (ctx as any).isReplaying) return;
+  if ((ctx as any).isReplaying) return;
 
   const desc = collectEffectText(result, params.effectText);
   const kinds = appliedStepKinds(result);
+
+  // Activated abilities (Maze's End family) also apply win_game; they have no triggerItem.
+  if (kinds.has('win_game')) {
+    if (state.winner && !state.gameOver) {
+      state.gameOver = true;
+      if (!state.winCondition) {
+        state.winCondition = `${params.sourceName}: you win the game`;
+      }
+    }
+  }
+
+  if (!params.triggerItem) return;
+
   const triggerSourceId = String(
     params.sourceId
     || params.triggerItem?.permanentId

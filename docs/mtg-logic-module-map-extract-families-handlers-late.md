@@ -16,7 +16,7 @@ Public path stays `rules-engine/src/AutomationService.ts`. Leaves must not impor
 
 ### `RulesEngineAdapter-handlers/` (extracted from `RulesEngineAdapter.ts`)
 
-Public path stays `rules-engine/src/RulesEngineAdapter.ts`. Leaves must not import the parent or the index. Never create `RulesEngineAdapter/` beside `RulesEngineAdapter.ts`. Class methods in the parent are thin `.call(this)` wrappers.
+Public path stays `rules-engine/src/RulesEngineAdapter.ts`. Leaves must not import the parent or the index. Never create `RulesEngineAdapter/` beside `RulesEngineAdapter.ts`. Class methods in the parent are thin `.call(this)` wrappers. Sibling `rulesEngineAdapterStateSupport.ts`: `checkWinConditionsForState` applies Darksteel-style `immediate` oracle-scanner wins (and Felidar-style upkeep when `state.step` is upkeep). Last-player-standing unchanged. Hedron Alignment may-reveal still owed.
 
 | Module | Owns |
 | --- | --- |
@@ -153,7 +153,7 @@ Public path stays `counters_tokens.ts`. Leaves must not import the parent or the
 | `countersTokensCreateToken.ts` | `createToken`, `createCopyTokensOfCard`, `CreateTokenOptions`. |
 | `countersTokensMoveToGraveyard.ts` | `movePermanentToGraveyard` (token cease-to-exist still emits death triggers). |
 | `countersTokensMoveToExile.ts` | `movePermanentToExile`. |
-| `countersTokensStateBasedActions.ts` | `runSBA`, `resolveLegendRuleChoice`. |
+| `countersTokensStateBasedActions.ts` | `runSBA`, `resolveLegendRuleChoice`. After `applyStateBasedActions`, stamps Darksteel-style `immediate` oracle-scanner wins. Upkeep scanner stays on `turnActions`. |
 | `countersTokensHandlerDeps.ts` | Runtime seam for `runSBA` / GY / counter-mod / battlefield-exit / god-status. |
 
 ### `zones-handlers/` (extracted from `zones.ts`)
@@ -277,7 +277,9 @@ Public path stays `replacementEffectSpec.ts`. Leaves must not import the parent 
 | --- | --- |
 | `replacementEffectSpecTypes.ts` | `ReplacementEffectSpec` + per-event match interfaces. |
 | `replacementEffectSpecOracleTextUtils.ts` | `normalizeOraclePatternText`, `readCardOracleText`. |
-| `replacementEffectSpecLifeGainOracleTemplates.ts` | Life-gain oracle templates + `collectOraclePatternLifeGainReplacementSpecsFromState`. |
+| `replacementEffectSpecLifeGainOracleTemplates.ts` | Life-gain oracle templates + collect. Includes enchanted-player / singular-opponent can't-gain; excludes this-turn / until-EOT activations. |
+| `replacementEffectSpecLifeGainMatch.ts` | Shared life-gain match overlay helpers. |
+| `replacementEffectSpecLifeLossOracleTemplates.ts` | Bloodletter-class “would lose life … lose twice that much instead” (`life-loss` event, controller’s turn). Wound Reflection is an end-step trigger, not this. |
 | `replacementEffectSpecCounterOracleTemplates.ts` | Counter templates + collect. |
 | `replacementEffectSpecLibrarySearchOracleTemplates.ts` | Library-search templates + collect. |
 | `replacementEffectSpecDamageOracleTemplates.ts` | Damage templates, prevent-all-but parsers, emblem sources, `overlaySpecsMatchDamage`. |
@@ -285,3 +287,20 @@ Public path stays `replacementEffectSpec.ts`. Leaves must not import the parent 
 | `replacementEffectSpecTokenOracleTemplates.ts` | Token templates + collect. |
 | `replacementEffectSpecMillOracleTemplates.ts` | Mill templates + collect. |
 | `replacementEffectSpecZoneChangeOracleTemplates.ts` | Oracle zone-change templates + collect. |
+| `replacementEffectSpecLoseGameOracleTemplates.ts` | Can't-lose / can't-win / 0-life exemption / empty-library draw-win. `collectOraclePatternLoseGameReplacementSpecsFromState`. |
+| `replacementEffectSpecLifeFloorDamageOracleTemplates.ts` | Worship / Fortune Thief life-floor damage replacements. |
+
+### `staticEffectSpec-handlers/` (extracted from `staticEffectSpecOracleParsing.ts`)
+
+Public path stays `staticEffectSpec.ts` / `staticEffectSpecOracleParsing.ts`. Never create `staticEffectSpec/` beside `staticEffectSpec.ts`. Leaves must not import the parent or this index. `staticEffectSpecConditionEval.ts` owns `specMatchesStaticCondition` (unknown kinds do not grant; attacking / ring-bearer / threshold / equipped / `source_controller_attacked_this_turn`).
+
+| Module | Owns |
+| --- | --- |
+| `staticEffectSpecOracleParseHelpers.ts` | Ability tails, buffs, `buildSpec`. |
+| `staticEffectSpecOracleParsingGraveyardLandKeywords.ts` | GY + basic-land-type keyword grants (Anger / Wonder family). |
+| `staticEffectSpecOracleParsingAsLongAsAndPolarity.ts` | Player hexproof; you-and-type; you/planeswalkers/other-creatures hexproof (Shalai wording); other/opponent P/T. |
+| `staticEffectSpecOracleParsingManaAbilityGrants.ts` | Lands/creatures tap-for-mana grants. |
+| `staticEffectSpecOracleParsingTapUntapAbilityGrants.ts` | Tapped/untapped creature keyword grants (`target_is_tapped` / `target_is_untapped`; Saryth). |
+| `staticEffectSpecOracleParsingMustBeBlocked.ts` | Host grants: `all_able_creatures_must_block` vs `must_be_blocked_if_able`. Same-sentence `has first strike` included (Masamune `target_is_attacking` / Indrik Umbra). List leftovers + Frodo / threshold / Enkira. Raid / “if you attacked this turn” → `source_controller_attacked_this_turn`. Other unexpressible as-long-as still fail closed. Channel “this turn” is not a static. Idle Masamune first strike is no longer leaked by parent `attachment-keyword-host` (`shared/src/attachmentKeywordGrants.ts` gates `is` attacking / `, it has` tails). |
+| `staticEffectSpecOracleParsingMustBeBlockedByType.ts` | Typed “must be blocked by a creature with [keyword] if able” → `must_be_blocked_by_<keyword>` host grant. Channel / this turn / raid skipped. Entry: `pushMustBeBlockedByTypeSpecs`. |
+| `staticEffectSpecOracleParsingLoseKeywords.ts` | Opponent lose-keyword (`removeAbilities`); Glaring Spotlight you-control as-though; Nowhere to Run global as-though (`asThoughNoAbilities` including `'ward'` for “Ward abilities of those creatures don't trigger”); Kaya opponent permanents. Until-EOT activations skipped (IR `grant_static_ability` stamps `lastingEffects.protectionKeywordOverride`). |

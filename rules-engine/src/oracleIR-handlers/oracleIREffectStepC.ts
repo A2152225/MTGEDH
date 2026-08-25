@@ -160,6 +160,76 @@ export type OracleEffectStepC =
     }
   | {
       /**
+       * Instant/sorcery delayed window: "Whenever a [types] you control enters this turn, …"
+       * (Rite of Harmony family). Server state key: temporaryEtbTriggers.
+       */
+      readonly kind: 'grant_temporary_etb_trigger';
+      readonly watchTypes: readonly string[];
+      readonly nontokenOnly?: boolean;
+      readonly effect: string;
+      readonly duration: 'until_end_of_turn';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * "Each player chooses a [type] they control. Destroy the rest."
+       * (Divine Reckoning family). Server queues existing TARGET_SELECTION.
+       */
+      readonly kind: 'each_player_choose_then_destroy_rest';
+      readonly choosers: OraclePlayerSelector;
+      readonly keepTypes: readonly string[];
+      readonly keepCount: number;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * Secret each-opponent binary choice plus all-same / mixed damage matrix
+       * (Prisoner's Dilemma family). Server queues existing OPTION_CHOICE.
+       */
+      readonly kind: 'secret_opponent_choice_damage';
+      readonly choosers: OraclePlayerSelector;
+      readonly choices: readonly string[];
+      readonly secret: true;
+      readonly allFirstDamage: number;
+      readonly allSecondDamage: number;
+      readonly mixedFirstDamage: number;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * "You may cast a [types] spell with mana value X or less from among
+       * them/milled cards without paying its mana cost."
+       */
+      readonly kind: 'may_cast_from_among';
+      readonly among: 'milled_this_way';
+      readonly cardTypes: readonly string[];
+      readonly maxManaValue: OracleQuantity;
+      readonly withoutPayingManaCost?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * "You may reveal your hand. If you do, you win the game if you own a
+       * card named [printed] in exile, in your hand, in your graveyard, and
+       * on the battlefield." Printed name is this card's current name at
+       * execute time — never a hardcoded card name.
+       */
+      readonly kind: 'may_reveal_hand_then_win_if_own_named_in_zones';
+      readonly zones: readonly ['exile', 'hand', 'graveyard', 'battlefield'];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
        * Schedule a delayed one-shot battlefield action whose targets must be
        * bound now and resolved later against exact chosen object ids.
        */

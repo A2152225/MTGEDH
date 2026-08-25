@@ -92,6 +92,7 @@ export {
   getGraveyardCards,
   detectWinConditions,
   checkUpkeepWinConditions,
+  checkImmediateWinConditions,
   checkEndStepWinConditions,
   tryResolveThassasOracleWin,
   hasDrawWinReplacement,

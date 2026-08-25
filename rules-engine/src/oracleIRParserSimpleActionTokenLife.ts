@@ -5,6 +5,7 @@
  */
 
 import type { OracleEffectStep } from './oracleIR';
+import { tryParsePreventLifeGainThisTurnClause } from './oracleIRParserPreventLifeGainThisTurn';
 import { parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 import type { SimpleActionClauseParseArgs } from './oracleIRParserSimpleActionHelpers';
 
@@ -625,6 +626,11 @@ export function tryParseSimpleActionTokenLifeClauses(args: SimpleActionClausePar
         optional: true,
         raw: rawClause,
         });
+    }
+
+    {
+      const thisTurnLock = tryParsePreventLifeGainThisTurnClause({ clause, rawClause, withMeta });
+      if (thisTurnLock) return thisTurnLock;
     }
 
     if (/^(?:your\s+opponents|each\s+opponent)\s+can(?:not|'t)\s+gain\s+life$/i.test(clause)) {

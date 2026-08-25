@@ -15,10 +15,10 @@ import { ResolutionQueueManager, ResolutionStepType } from "../../state/resoluti
 import { calculateSneakOptions } from "../../state/modules/sneakCastUtils.js";
 import {
   canPermanentBeTargetedByPlayer,
-  categorizeSpellWithoutPrimaryRetirement,
+  canPlayerBeTargetedByPlayer,
   evaluateTargeting,
-  parseTargetRequirements,
 } from "../../rules-engine/targeting";
+import { resolveCastSpellParsedTargeting } from "./gameActionsCastSpellParsedTargeting.js";
 import { debug } from "../../utils/debug.js";
 import { getPlayerName } from "../util";
 import { calculateHarmonizeOptions } from "./gameActionsAdditionalCastCosts.js";
@@ -120,14 +120,20 @@ export function tryComputeRequestCastSpellTargets(
   } = args;
     // Check if this spell requires targets
     const isAura = spellTypeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
-    const spellSpec = (isInstantOrSorcery && !isAura) ? categorizeSpellWithoutPrimaryRetirement(cardName, oracleText) : null;
-    const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText, {
-      xValue: chosenXValue,
-      gameState: game.state,
-      controllerId: String(playerId),
-      sourceName: cardName,
-    }) : null;
-    const preferParsedTargetReqs = shouldPreferParsedTargetReqs(targetReqs);
+    const parsedTargeting = (isInstantOrSorcery && !isAura)
+      ? resolveCastSpellParsedTargeting({
+        cardName,
+        oracleText,
+        xValue: chosenXValue,
+        gameState: game.state,
+        controllerId: String(playerId),
+      })
+      : null;
+    const spellSpec = parsedTargeting?.spellSpec ?? null;
+    const targetReqs = parsedTargeting?.targetReqs ?? null;
+    const preferParsedTargetReqs = parsedTargeting
+      ? parsedTargeting.preferParsedTargetReqs
+      : shouldPreferParsedTargetReqs(targetReqs);
 
     // Auras always choose exactly one host when cast (CR 303.4). Do not derive
     // counts from instant/sorcery targetReqs � those are null for Auras and would
@@ -273,7 +279,10 @@ export function tryComputeRequestCastSpellTargets(
 
         if (auraTargetType === 'player' || auraTargetType === 'opponent') {
           validTargetList = (game.state.players || [])
-            .filter((p: any) => auraTargetType !== 'opponent' || p.id !== playerId)
+            .filter((p: any) => {
+              if (auraTargetType === 'opponent' && p.id === playerId) return false;
+              return canPlayerBeTargetedByPlayer(p.id, game.state, playerId as PlayerID);
+            })
             .map((p: any) => ({
               id: p.id,
               kind: 'player',

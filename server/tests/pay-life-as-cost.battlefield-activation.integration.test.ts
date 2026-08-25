@@ -180,4 +180,62 @@ describe('Pay-life-as-activation-cost (integration)', () => {
     expect(error?.payload?.code).toBe('SORCERY_SPEED_ONLY');
     expect(((game.state as any).stack || [])).toHaveLength(0);
   });
+
+  it('rejects a pay-life activation when Angel-style oracle is on the battlefield', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).battlefield = [
+      {
+        id: 'src_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Test Permanent',
+          type_line: 'Artifact',
+          oracle_text: 'Pay 2 life: Draw a card.',
+          image_uris: { small: 'https://example.com/test.jpg' },
+        },
+      },
+      {
+        id: 'angel_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Custom Jubilant Angel',
+          type_line: 'Creature — Angel',
+          // Oracle from mtg_data.db (is_token = 0), Angel of Jubilation.
+          oracle_text: "Flying\nOther nonblack creatures you control get +1/+1.\nPlayers can't pay life or sacrifice creatures to cast spells or activate abilities.",
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'src_1', abilityId: 'src_1-ability-0' });
+
+    const error = emitted.find((entry) => entry.event === 'error');
+    expect(error?.payload?.code).toBe('CANNOT_PAY_COST');
+    expect(error?.payload?.message).toMatch(/can't pay life/i);
+    expect(Number((game.state as any).life?.[p1] ?? 0)).toBe(40);
+    expect(((game.state as any).stack || [])).toHaveLength(0);
+  });
 });

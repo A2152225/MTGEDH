@@ -5,6 +5,7 @@
 
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { parseOracleTextToIR } from './oracleIRParser';
 import { generateCoinFlipResult } from './coinFlip';
 import { performDieRoll, performMultipleDieRolls } from './dieRoll';

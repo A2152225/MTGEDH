@@ -1,7 +1,9 @@
 import type { BattlefieldPermanent } from "../../../shared/src/types.js";
+import type { GameContext } from "./context.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { evaluateLifeGainReplacementEvent } from './modules/replacement-effects.js';
 import { summarizeLifeGainAmountReplacements } from './modules/replacementEffectSpec.js';
+import { canPlayerPayLife } from './modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js';
 import { calculateVariablePT } from './utils-handlers/variablePTCalculator.js';
 import { resolveSetBasePTFromAttachedAuras } from './utils-handlers/ptAttachedBonusParseHelpers.js';
 
@@ -45,15 +47,19 @@ export function parseWordNumber(str: string | undefined, defaultValue: number = 
 /**
  * Validate if a player can pay a specific amount of life.
  * Rule 119.4: A player can't pay more life than they have.
- * 
- * @param currentLife - Player's current life total
- * @param amount - Amount of life to pay
- * @returns true if the player can pay, false otherwise
+ * Optional `ctx`/`playerId` also consult `canPlayerPayLife` (Angel of Jubilation /
+ * life-total-can't-change). You CAN pay life that would put you at 0 when no
+ * restriction applies (you'll lose to SBA, but the payment is legal).
  */
-export function canPayLife(currentLife: number, amount: number): boolean {
-  // You can pay life as long as you have at least that much life
-  // Note: You CAN pay life that would put you at 0 (you'll lose to SBA, but the payment is legal)
-  return currentLife >= amount;
+export function canPayLife(
+  currentLife: number,
+  amount: number,
+  ctx?: GameContext,
+  playerId?: string,
+): boolean {
+  if (currentLife < amount) return false;
+  if (ctx && playerId && !canPlayerPayLife(ctx, playerId)) return false;
+  return true;
 }
 
 /**
@@ -90,26 +96,33 @@ export function cardManaValue(card: any, chosenX?: number): number {
 /**
  * Get the maximum life a player can pay.
  * Useful for "pay X life" effects where X can be chosen.
- * 
- * @param currentLife - Player's current life total
- * @returns Maximum life that can be paid (their current life total)
+ * When `ctx`/`playerId` are provided and the player cannot pay life, returns 0.
  */
-export function getMaxPayableLife(currentLife: number): number {
+export function getMaxPayableLife(
+  currentLife: number,
+  ctx?: GameContext,
+  playerId?: string,
+): number {
+  if (ctx && playerId && !canPlayerPayLife(ctx, playerId)) return 0;
   return Math.max(0, currentLife);
 }
 
 /**
  * Validate life payment for a spell or ability.
  * Returns an error message if invalid, or null if valid.
- * 
- * @param currentLife - Player's current life total
- * @param amount - Amount of life to pay
- * @param cardName - Name of the card for error messages
- * @returns Error message or null if valid
  */
-export function validateLifePayment(currentLife: number, amount: number, cardName?: string): string | null {
+export function validateLifePayment(
+  currentLife: number,
+  amount: number,
+  cardName?: string,
+  ctx?: GameContext,
+  playerId?: string,
+): string | null {
   if (amount < 0) {
     return `Cannot pay negative life`;
+  }
+  if (ctx && playerId && !canPlayerPayLife(ctx, playerId)) {
+    return `Cannot pay life${cardName ? ` for ${cardName}` : ''}: players can't pay life`;
   }
   if (amount > currentLife) {
     return `Cannot pay ${amount} life (only have ${currentLife} life)${cardName ? ` for ${cardName}` : ''}`;

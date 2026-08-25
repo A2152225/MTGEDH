@@ -1,13 +1,13 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-08-14 (Phase 5 type-restricted combat mill + PW loyalty 99.9%)
+Last updated: 2026-08-25 (Phase 4 leftover PRIMARY=0 special-case IR trampolines)
 
 > **Cost reducers / alternate costs** (separate workstream): see [`docs/cost-reduction-handoff.md`](cost-reduction-handoff.md).
 
 ## Next session prompt (copy-paste)
 
 ```
-Continue MTGEDH Oracle IR migration — post Phase 5 type-restricted combat mill (Alchemist family) + PW loyalty 99.9%.
+Continue MTGEDH Oracle IR migration — post LIFE_MODIFIERS retirement; Phase 4 special-case spells IR-owned.
 
 Read first:
 - docs/oracle-ir-session-handoff.md (this prompt)
@@ -16,21 +16,219 @@ Read first:
 - .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
 
 Done recently:
-- Type-restricted combat mill: "if a [type] you control would deal combat damage to a player, instead that player mills" (Undead Alchemist family; generic oracle, not card-name)
-- Vigor-family creature damage: "if damage would be dealt to another creature you control, prevent that damage" + +1/+1 per 1 prevented (generic oracle; not `name.includes('vigor')`)
-- Szadek-style source-self combat replace: instead +1/+1 counters on source and mill that player (generic oracle; not controller-wide)
-- Library-search replacements collapsed onto oracle-pattern specs
-- Combat prevent-and-mill first-match table removed; Mindskinner-family effects parse from oracle
-- Mill replacements collapsed onto oracle-pattern specs; leftover loyalty 99.9%
+- Phase 4 cast-time targeting: IR-primary `parseTargetRequirements` plus leftover TargetRestrictionTypes, compound orStat, Atraxa's Fall multi-type list, hasValidTargetsForSpell filters. Nibelheim PRIMARY=0 special-case trampolines to IR (deal_damage sweep + GY rider).
+- Phase 4 choice families IR-owned: Divine Reckoning, Prisoner's Dilemma, Summons of Saruman, Rite of Harmony, Nibelheim Aflame. PRIMARY=0 special-case bodies trampoline to the same IR (prompt-queue re-entry uses `fromOracleIrPromptQueue`).
+- Phase 5 static: raid source_controller_attacked_this_turn lure; Shalai you/planeswalkers/other-creatures hexproof; Nowhere to Run ward skip (asThoughNoAbilities 'ward'). Until-EOT hexproof activations stamp lastingEffects.protectionKeywordOverride (Detection Tower as-though / Arcane Lighthouse lose). Idle land is not a continuous static.
+- Phase 5 life: this-turn / until-EOT “can't gain life” stamps lastingEffects.preventLifeGain with duration; cleanup expires them. Rest-of-game duration 'game' stays. Continuous players-can't-gain stays ReplacementEffectSpec.
+- Phase 5 win: Hedron Alignment may-reveal four-zone named-copy win is generic IR (not auto-scan). optionChoiceSpellCopyPrompts fallback stack.push persists namedSpellsCastThisGame. Approach PRIMARY=0 special-case trampolines to the same IR win / seventh-from-top / life path (no approachCastHistory).
+- Phase 5 PW: Choose left or right. Coverage 925/926; Davriel Alchemy stays unwired
 
 Verify:
-cd server ; npx vitest run tests/mindskinner-damage-replacement.unit.test.ts --pool=threads --maxWorkers=1
+cd server ; npx vitest run tests/oracle-ir-phase4-choice-families.unit.test.ts tests/oracle-ir-temporary-etb-window.unit.test.ts tests/oracle-ir-nibelheim-aflame.unit.test.ts tests/oracle-ir-approach-second-sun-special-case.unit.test.ts --pool=threads --maxWorkers=1
 
 Next work (priority):
-1. Last 1/887 loyalty line: Davriel, Soul Broker Alchemy "Accept one of Davriel's offers/conditions" (leave unwired unless a generic offer/condition step exists).
-2. Real EDH tables → GET /api/oracle-ir/telemetry (do not expand edh-readiness). New `replacement-effects` suite injects mill/search/combat permanents on a live table: `npm run oracle-ir:smoke:replacements` / `:live`.
-3. Optional: `rules-engine/src/librarySearchEffects.ts` KNOWN_* table is unused by the live socket path.
+1. Real EDH tables later → GET /api/oracle-ir/telemetry (do not expand edh-readiness). Alchemy stays unwired.
 ```
+
+## Session 2026-08-25 — Phase 4 leftover PRIMARY=0 special-case IR trampolines
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Divine / Prisoner / Summons / Rite PRIMARY=0** | Special-case spell resolve trampolines to uncategorized IR. IR prompt-queue re-entry sets `fromOracleIrPromptQueue` so Divine/Prisoner do not recurse. Replay fills under PRIMARY=1 stay. | `stackResolveSpellSpecialCaseUtils.ts`, `oracleIrServerChoiceFamilyPrompts.ts`, `oracle-ir-phase4-choice-families.unit.test.ts`, `oracle-ir-temporary-etb-window.unit.test.ts` |
+| **Mill-from-among lastMilledCards** | Server-bridge mill ledger omit no longer drops the milled cards before `may_cast_from_among`. | `oracleIRExecutorPlayerMillPutOnBottomSteps.ts`, `oracleIRExecutorMainLoop.ts` |
+
+## Session 2026-08-25 — Nibelheim + Approach PRIMARY=0 IR trampolines
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Nibelheim PRIMARY=0** | Special-case body deleted. PRIMARY=0 calls uncategorized IR (`deal_damage` sweep + GY discard/draw). PRIMARY=1 still no-ops. Dead supplement call removed from `oracleIrSpellExecution`. | `stackResolveSpellSpecialCaseUtils.ts`, `oracle-ir-nibelheim-aflame.unit.test.ts` |
+| **Approach PRIMARY=0** | `approachCastHistory` deleted. PRIMARY=0 trampolines generic win-if-cast-same-name IR (seventh-from-top + life / named ledger win). No card-name route. | `stackResolveSpellZoneUtils.ts`, `oracle-ir-approach-second-sun-special-case.unit.test.ts` |
+
+## Session 2026-08-25 — until-EOT can't-gain + preventLifeGain cleanup
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Until-EOT can't-gain** | Leading `Until end of turn, … can't gain life` parses as `grant_static_ability` duration `end_of_turn` and stamps `lastingEffects.preventLifeGain`. | `oracleIRParserPreventLifeGainThisTurn.ts`, `oracleIRExecutorPreventLifeGainThisTurn.ts` |
+| **Cleanup expiry** | Cleanup drops this-turn / until-EOT `preventLifeGain` (missing duration = this-turn). `duration: 'game'` rest-of-game stays. Hexproof overrides still expire. | `turnStepCleanup.ts`, `life-modifiers-oracle-pattern.unit.test.ts` |
+
+## Session 2026-08-25 — until-EOT hexproof activations
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Until-EOT hexproof** | Detection Tower as-though + Arcane Lighthouse lose parse as `grant_static_ability` duration `end_of_turn` and stamp `lastingEffects.protectionKeywordOverride`. Idle land still not a continuous static. Cleanup drops the override (and this-turn `preventLifeGain`). | `oracleIRParserUntilEotProtectionOverride.ts`, `oracleIRExecutorUntilEotProtectionOverride.ts`, `targetingProtectionKeywordStaticOverride.ts`, `turnStepCleanup.ts` |
+
+## Session 2026-08-25 — Hedron IR + raid lure + Shalai + ward + restrictions + copy ledger
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Hedron may-reveal** | Generic `may_reveal_hand_then_win_if_own_named_in_zones`. Apply returns `player_choice_required`; OPTION_CHOICE Reveal/Decline; printed name is source current name. Not an auto-scan. In `ORACLE_IR_FALLBACK_STEP_KINDS`. | `oracleIRParserMayRevealHandWinIfOwnNamed.ts`, `oracleIRExecutorMayRevealHandWinIfOwnNamed.ts`, `optionChoiceMayRevealHandWinHandlers.ts` |
+| **Raid lure** | `source_controller_attacked_this_turn`. Other unexpressible as-long-as still fail closed. | `staticEffectSpec.ts`, `staticEffectSpecConditionEval.ts`, `staticEffectSpecOracleParsingMustBeBlocked.ts` |
+| **Shalai wording** | You / planeswalkers you control / other creatures you control have hexproof. Source excluded. | `staticEffectSpecOracleParsingAsLongAsAndPolarity.ts` |
+| **Ward rider** | Nowhere to Run `asThoughNoAbilities` includes `'ward'`; ward prompts skip. Spotlight / Detection Tower still queue ward. | `staticEffectSpecOracleParsingLoseKeywords.ts`, `targetSelectionWardPromptHandlers.ts` |
+| **Cast-time restrictions** | Tapped/untapped/combat/ETB/damage-this-turn/Delirium + compound `orStat`. Atraxa's Fall lists all four types. `hasValidTargetsForSpell` uses the matcher. | `targetingParseTargetRequirementRestrictions.ts`, `target-availability.ts` |
+| **Copy ledger fallback** | `optionChoiceSpellCopyPrompts` persist after fallback `stack.push`. applyEvent path unchanged. | `optionChoiceSpellCopyPrompts.ts` |
+
+## Session 2026-08-25 — Phase 5 preventLifeGain this-turn + copy ledger + idle Masamune
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Idle Masamune** | Attachment `is` parser skips attacking/blocking/tapped/untapped/equipped prefixes and `, it has` tails. Real `is indestructible` still extracts. | `shared/src/attachmentKeywordGrants.ts` |
+| **Live copies ledger** | `cloneTriggeredSpellCopy`, delayed copies, IR stack copies, replay copy-resolve, legacy riders persist. Retarget-only / ability copies do not. **Owed:** `optionChoiceSpellCopyPrompts` fallback when `applyEvent` is missing. | `gameActionsSpellCopyHeroicTriggers.ts`, `oracleIrServerCopySpellSync.ts` |
+| **This-turn can't-gain** | Spell/ability clauses stamp `lastingEffects.preventLifeGain` (`this_turn` / trailing or leading `end_of_turn`). Cleanup expires those stamps. Continuous players-can't-gain stays ReplacementEffectSpec. | `oracleIRParserPreventLifeGainThisTurn.ts`, `oracleIRExecutorPreventLifeGainThisTurn.ts`, `turnStepCleanup.ts` |
+
+## Session 2026-08-25 — Phase 5 typed lure + SpellSpec filters + adapter wins
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Masamune first strike** | Same-sentence `has first strike` on the lure grant (`target_is_attacking`). Idle leak from attachment-keyword-host closed. | `staticEffectSpecOracleParsingMustBeBlocked.ts`, `attachmentKeywordGrants.ts` |
+| **Typed must-block** | `must_be_blocked_by_<keyword>` host grant. Combat skip illegal only when a legal keyword-blocker is unused. Raid still skipped. | `staticEffectSpecOracleParsingMustBeBlockedByType.ts`, `combatMustBeBlockedIfAble.ts` |
+| **SpellSpec keyword/stat lists** | IR-primary `parseTargetRequirements` attaches `targetRestriction` / `statRequirement` / `creatureRestriction`. Wing Snare flying; Legion's Judgment power ≥ 4. | `targetingParseTargetRequirementRestrictions.ts`, `gameActionsSpellTargetSelection.ts` |
+| **namedSpellsCastThisGame** | Shared `persistNamedSpellCastThisGame`. GY replay, replay `castSpell`, `copyStackItem`, live/IR/delayed copies, replay copy-resolve. Retarget-only and ability copies do not persist. **Owed:** `optionChoiceSpellCopyPrompts` fallback when `applyEvent` is missing. | `namedSpellsCastThisGame.ts` |
+| **Adapter wins** | `checkWinConditionsForState` stamps `immediate` + upkeep scanner wins. Last-player-standing unchanged. Hedron Alignment still owed. | `rulesEngineAdapterStateSupport.ts` |
+
+## Session 2026-08-25 — Phase 5 Approach live path + runSBA immediate wins
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **namedSpellsCastThisGame** | `recordSpellCastThisTurn` appends `{name,id}` per caster. Executor already excludes current `sourceId`. Copy/replay paths that never call it still omit the ledger. | `gameActionsSpellCastTriggerDetection.ts`, `oracle-ir-win-if-cast-same-name-this-game.unit.test.ts` |
+| **Approach special-case** | `tryResolveApproachOfTheSecondSunAfterEffects` returns false under IR spell primary. PRIMARY=0 trampolines the same IR win / seventh-from-top / life path. | `stackResolveSpellZoneUtils.ts`, `oracle-ir-approach-second-sun-special-case.unit.test.ts` |
+| **Stack seventh-from-top** | Generic `move_zone` to owner’s library seventh from the top when source is this spell/this card/it and the object is still on the stack. Insert at `min(6, length)`. | `oracleIRExecutorMoveZoneSeventhFromTop.ts`, `oracleIRExecutorMoveZoneStepHandlers.ts` |
+| **runSBA immediate** | After `applyStateBasedActions`, `findOracleScannerImmediateWin` + stamp. `checkImmediateWinConditions` re-exported from public barrels. Upkeep scanner stays on `turnActions` (not re-checked all step). **Owed:** Hedron Alignment; `checkWinConditionsForState` last-player-standing. | `countersTokensStateBasedActions.ts`, `game-state-effects.ts`, `win-conditions-oracle-pattern.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 5 immediate SBA wins + Approach IR + lure conditions
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Immediate / upkeep SBA** | `checkImmediateWinConditions` + rules-engine `checkWinConditions` stamp Darksteel-style `immediate` wins (20 counters, not 19) like Felidar. Live upkeep scanner before `winEffectCards`. Live `runSBA` also stamps `immediate` wins. `checkImmediateWinConditions` re-exported from `game-state-effects.ts`. **Owed:** Hedron Alignment optional reveal; `checkWinConditionsForState` last-player-standing only. | `gameStateEffectsWinLose.ts`, `stateBasedActionsOracleScannerWins.ts`, `stateBasedActionsHandler.ts`, `turnActions.ts`, `countersTokensStateBasedActions.ts` |
+| **Approach same-name-cast IR** | Generic “cast from hand + another spell with this card’s current name this game” wraps `win_game`; otherwise `move_zone` seventh-from-top + `gain_life`. Not `detectWinConditions`. Persist `namedSpellsCastThisGame` at cast. Special-case no-ops under IR primary (`PRIMARY=0` kept). Stack-source seventh-from-top is generic `move_zone`. | `oracleIRParserWinIfCastSameNameThisGame.ts`, `oracleIRExecutorWinIfCastSameNameThisGame.ts`, `oracleIRExecutorMoveZoneSeventhFromTop.ts`, `oracle-ir-win-if-cast-same-name-this-game.unit.test.ts` |
+| **Lure conditions** | Unknown kinds fail closed. Masamune `target_is_attacking`; Frodo `target_is_ring_bearer`; Seton's Desire `source_controller_has_threshold`; Enkira `target_is_equipped`. **Owed:** typed “must be blocked by …”; Masamune first strike in the same sentence; raid. | `staticEffectSpec.ts`, `staticEffectSpecConditionEval.ts`, `staticEffectSpecOracleParsingMustBeBlocked.ts` |
+
+## Session 2026-08-25 — Phase 5 leftover pay-life ctx
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **validateLifePayment ctx** | LIFE_PAYMENT resume, pre-complete cost/option, ConfirmCastPayment reflexive consume, and modal/overload provided-life pass `game as GameContext` + paying player. Queued pay-X-life max uses `getMaxPayableLife`. Production callers wired; `_agent_scratch` copy still omits. Can't-sacrifice skipped. | `lifePaymentResponseHandlers.ts`, `resolutionRegisterPreCompleteValidationForCostPaymentSteps.ts`, `gameActionsCastSpellFromHandModalOverloadLife.ts`, `pay-life-cost-restriction.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 5 shock-land human pay-life refuse
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Shock-land / request-cast** | `queueShockLandPaymentStep` / `handleShockLandChoice` use `canChooseShockLandPayLife`: omit/refuse pay-2-life, enter-tapped stays legal. Request-cast pay-life leftovers pass `canPlayerPayLife`. Remaining production `validateLifePayment` callers now pass `ctx`. Can't-sacrifice skipped. | `optional-payment-prompts.ts`, `optionChoiceLandEntryReplacementHandlers.ts`, `pay-life-cost-restriction.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 5 copy-retarget + activation player hexproof
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Copy-retarget / activations** | `buildSpellCopyRetargetValidTargetsFallback` plus activation player lists (`buildActivatedAbilityValidTargets`, generic non-mana, planeswalker loyalty) use `canPlayerBeTargetedByPlayer`. **Owed:** until-EOT activations; ward; Shalai wording. | `gameActionsSpellCopyHeroicTriggers.ts`, `resolutionActivatedAbilityTargetingUtils.ts`, `spell-copy-retarget-player-hexproof.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 5 state-trigger wins + lure list leftovers
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **State-trigger / then-if scan** | Darksteel-style `when this has N or more X counters` as `immediate`. Mayael then-if power; Happily Ever After compound; Azor counters; Mechanized same-name; Liliana different-name tribe. Optional you-may wins not auto-scanned. Maze's End still excluded. **Owed:** Hedron Alignment may-reveal; SBA dispatch for `immediate`; live upkeep still `winEffectCards.ts`. | `gameStateEffectsWinConditionStateTriggerThenIf.ts`, `win-conditions-oracle-pattern.unit.test.ts` |
+| **Lure list leftovers** | Impetus goad-list → at-least-one; Indrik “block it” → all-able; Gift of the Deity color condition; Noble Quarry this-or-enchanted; named-self. **Unparsed:** Masamune attacking, Frodo Ring-bearer, threshold, typed must-be-blocked-by. | `staticEffectSpecOracleParsingMustBeBlocked.ts`, leftover-template tests |
+
+## Session 2026-08-25 — Phase 5 pay-life costs + cast-time player hexproof
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **canPlayerPayLife** | Cast/activate additional cost, can-respond, ward, request-cast leftovers, shock-land human queue/resolve, LIFE_PAYMENT resume, pre-complete validation, ConfirmCastPayment, and modal/overload pay-X-life consult `canPlayerPayLife` / `canChooseShockLandPayLife`. Can't-sacrifice skipped. | `utils.ts`, `optional-payment-prompts.ts`, `pay-life-cost-restriction.unit.test.ts` |
+| **Cast-time player lists** | `buildSpellTargetListFromRequirements` / `hasValidTargetsForSpell` / aura-hand builders filter via `canPlayerBeTargetedByPlayer`. Copy-retarget and activation lists also filter. | `gameActionsSpellTargetSelection.ts`, `target-availability.ts`, `oracle-ir-cast-time-parsed-targeting.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 5 Bloodletter life-loss IR
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Bloodletter / leftover can't-gain** | Generic `life-loss` double (controller’s turn; opponent or “a player”). Enchanted-player and singular-opponent can't-gain templates. Existing players/opponents can't-gain exclude this-turn / until-EOT activations. Wound Reflection stays an end-step trigger. **Owed:** this-turn instants stamping `lastingEffects.preventLifeGain`; until-EOT activations skipped by design. | `replacementEffectSpecLifeLossOracleTemplates.ts`, `life-modifiers-oracle-pattern.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 5 player hexproof targeting
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Player hexproof** | `evaluateTargeting` filters player targets via `canPlayerBeTargetedByPlayer`. Leyline-style you-have hexproof blocks opponents; Kaya `player_opponents` as-though is source-controller only. Spotlight stays creature-only. **Owed:** cast-time parsed-req player lists still add every player; until-EOT activations; ward; Shalai wording. | `targetingPlayerProtectionKeyword.ts`, `targeting-lose-hexproof-as-though.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 5 Maze's End activated win IR
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Maze's End family** | Generic “if you control N or more [type] with different names, you win the game” wraps existing `win_game`. Unique names by type, not card name. Still **not** `detectWinConditions`. `win_game` in activated fallback; `gameOver` stamped without `triggerItem`. Approach of the Second Sun is a separate same-name-cast-this-game IR family. | `oracleIRParserWinIfControlDifferentNames.ts`, `oracleIRExecutorWinIfControlDifferentNames.ts`, `oracle-ir-win-if-control-different-names.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 5 lure all-able vs at-least-one
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **All-able vs at-least-one** | Lure / Shinen / Nemesis Mask grant `all_able_creatures_must_block` (every remaining able blocker, or another all-able attacker they can legally block). Goblin Fire Fiend–style “must be blocked if able” stays at-least-one. Unused `detectMustBlockEffect` now reads oracle patterns, not Lure name. **Owed:** list/conditional templates (Predatory Impetus, The Masamune, Frodo); Channel “this turn” is not a static. | `staticEffectSpecOracleParsingMustBeBlocked.ts`, `combatMustBeBlockedIfAble.ts`, leftover + combat tests |
+
+## Session 2026-08-25 — Phase 4 Nibelheim uncategorized fallback
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Uncategorized Nibelheim** | Shape short-circuit removed. Fallback applies existing `deal_damage` sweep + graveyard `conditional` discard/draw. Special-case no-ops under IR primary; PRIMARY=0 trampolines the same IR. | `oracleIrUncategorizedSpellFallback.ts`, `oracle-ir-nibelheim-aflame.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 5 LIFE_MODIFIERS + as-though variants
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **LIFE_MODIFIERS table** | Removed. Life-gain prevent/reverse uses `ReplacementEffectSpec`. Can't-change / can't-pay-life are generic oracle. Teferi's Protection uses `playerProtection.lifeCannotChange` (no card name). Wound Reflection is an end-step trigger, not `damage_doubled`. Angel of Jubilation is **all players** (oracle), not opponents-only. **Owed:** Bloodletter life-loss double; aura/singular/this-turn can't-gain; `canPlayerPayLife` cost wiring. | `gameStateEffectsLifeModifierOraclePatterns.ts`, `life-modifiers-oracle-pattern.unit.test.ts` |
+| **Nowhere to Run / Kaya** | Global `asThoughNoAbilities` (every player, keyword stays). Kaya `opponent_permanents` + you-control as-though. Spotlight stays controller-only; Archetype stays true lose. Until-EOT activations stamp `lastingEffects.protectionKeywordOverride`. | `staticEffectSpecOracleParsingLoseKeywords.ts`, `targetingProtectionKeywordStaticOverride.ts` |
+
+## Session 2026-08-25 — Phase 5 lure skip/AI declare-blockers
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Skip / AI** | Same `findMustBeBlockedIfAbleViolation` as human declare. Empty skip rejected when a legal blocker exists; skip OK when unable. AI empty `[]` auto-assigns a legal blocker. **Owed:** full “all able creatures block” still at-least-one; unused `detectMustBlockEffect` still name-checks Lure. | `combatMustBeBlockedIfAble.ts`, `combat.ts` skip, `aiPriorityPassCombatExecutors.ts`, `combat-must-be-blocked-if-able.*.test.ts` |
+
+## Session 2026-08-25 — Phase 4 Nibelheim Aflame IR
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Nibelheim Aflame** | IR-owned via generic `deal_damage` (chosen creature’s power to each other creature; skip the bound source) plus graveyard-only `conditional` discard-hand + draw-four. Special-case no-ops under IR primary. Divine / Prisoner / Summons / Rite unchanged. **Owed:** `oracleIrUncategorizedSpellFallback.ts` still short-circuits this shape; `PRIMARY=0` special-case body remains. | `oracleIRExecutorChosenCreaturePowerSweepDamage.ts`, `oracleIRParserDiscardHandAndDrawLatePass.ts`, `oracle-ir-nibelheim-aflame.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 5 combat must-be-blocked-if-able
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Lure / Shinen / Nemesis Mask** | Declare-blockers submit rejects leaving a `must_be_blocked_if_able` attacker unblocked when a legal blocker existed. Derived grants, not names. “If able” uses `canBlockAttacker`. **Owed:** `skipDeclareBlockers` and AI `executeDeclareBlockers` bypass; full “all able creatures block” still at-least-one; unused `detectMustBlockEffect` still name-checks Lure. | `combatMustBeBlockedIfAble.ts`, `combat-must-be-blocked-if-able.unit.test.ts`, `combat-must-be-blocked-if-able.socket.test.ts` |
+
+## Session 2026-08-25 — Phase 5 targeting lose vs as-though
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Lose-hexproof / Glaring Spotlight** | True `removeAbilities` ignores printed hexproof for **all** players. As-though is `asThoughNoAbilitiesForController` (source controller only). Arcane Lighthouse / Detection Tower until-EOT activations stamp `lastingEffects.protectionKeywordOverride`. | `targetingProtectionKeywordStaticOverride.ts`, `staticEffectSpecOracleParsingLoseKeywords.ts`, `targeting-lose-hexproof-as-though.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 5 WIN_CONDITIONS oracle scan
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **WIN_CONDITIONS table** | Removed. Battlefield/emblem oracle scan: Felidar-style N-life upkeep, Thassa devotion/library ETB, Mortal Combat / Epic Struggle / Treasures / counters-on-this / empty board+hand, Biovisionary end-step named-creature count. Lab Man/Jace stay on `ReplacementEffectSpec`. Maze's End activated unique-name win is IR. Approach same-name-cast-this-game is IR. `immediate` wins apply on rules-engine `checkWinConditions` and live `runSBA`. **Owed:** Hedron Alignment; copy/replay ledger; `checkWinConditionsForState`. Do not merge with `triggers/win-conditions.ts`. | `gameStateEffectsWinConditionOraclePatterns.ts`, `gameStateEffectsWinLose.ts`, `win-conditions-oracle-pattern.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 5 leftover static templates
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Saryth / lure / lose-keyword** | Oracle `StaticEffectSpec`: tap/untap ability grants (`target_is_tapped` / `target_is_untapped`), host `must_be_blocked_if_able`, opponent `removeAbilities` + Glaring Spotlight as-though. Apply via `recomputeContinuousEffects`. **Consumers owed:** targeting still treats printed hexproof as present; combat does not enforce lure; as-though is you-only but apply is a global lose. | `staticEffectSpecOracleParsingTapUntapAbilityGrants.ts`, `staticEffectSpecOracleParsingMustBeBlocked.ts`, `staticEffectSpecOracleParsingLoseKeywords.ts`, `static-effect-spec-leftover-templates.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 4 choice-family IR
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Divine Reckoning / Prisoner's Dilemma / Summons** | Complete generic IR steps; primary queues existing TARGET_SELECTION / secret OPTION_CHOICE / GRAVEYARD_SELECTION. Special-case skipped when IR handled (Summons replay still fills amass+mill). Rite unchanged. **Nibelheim Aflame** still special-case. | `oracleIRParserPhase4ChoiceFamilyClauses.ts`, `oracleIrServerChoiceFamilyPrompts.ts`, `oracle-ir-phase4-choice-families.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 4 riders + Phase 5 static / can't-lose / PW direction
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Rite of Harmony family** | Generic `grant_temporary_etb_trigger` from “whenever a [types] you control enters this turn”. IR-primary owns it; special-case is idempotent. Divine Reckoning / Prisoner's Dilemma / Summons stay special-case (incomplete IR would mis-apply). Supplemental mill/impulse unused under IR primary. | `oracleIRParserTemporaryEtbWindowClauses.ts`, `oracle-ir-temporary-etb-window.unit.test.ts` |
+| **Static oracle depth** | GY+land keyword grants, you-have hexproof, opponent P/T polarity, tap-for-mana grants. `KNOWN_STATIC_EFFECT_CARDS` emptied. | `staticEffectSpec-handlers/`, `static-effect-spec.unit.test.ts` |
+| **Can't-lose** | Oracle `ReplacementEffectSpec`; `CANT_LOSE_CARDS` removed. Worship life-floor. `WIN_CONDITIONS` name table remains. | `replacementEffectSpecLoseGameOracleTemplates.ts`, `cant-lose-oracle-pattern.unit.test.ts` |
+| **PW left-or-right** | Generic Choose left or right `choose_mode` + gain_control / grant_temporary_ability. Coverage **925/926**; Davriel Alchemy unwired. | `oracleIRParserLoyaltyDirectionChoice.ts`, `oracle-ir-activated-ability.test.ts` |
+| **Teyo combat lock** | Generic nearest-opponent-in-chosen-direction attack restriction. `turnApplied` stamped on until-next-turn grants; expired at controller’s next turn. Battles legal only vs locked opponent as protector/defender. | `nearestOpponentDirectionAttackRestriction.ts`, `turnExpiredUntilNextTurnEffects.ts`, `nearest-opponent-direction-attack.unit.test.ts` |
+
+## Session 2026-08-25 — Phase 4 IR-primary cast-time targeting
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Cast-time targeting** | IR-primary live path no longer calls `categorizeSpellWithoutPrimaryRetirement`. `parseTargetRequirements` drives prompts and legality; a derived SpellSpec is used only when parse cannot cover. Categorize remains for tests and `ORACLE_IR_SPELL_PRIMARY=0`. Restriction gap: parse still does not encode SpellSpec-only stat/keyword filters (IR-primary lists can be broader). | `gameActionsCastSpellParsedTargeting.ts`, `target-availability.ts`, `oracle-ir-cast-time-parsed-targeting.unit.test.ts` |
 
 ## Session 2026-08-14 (latest) — type-restricted combat mill (Alchemist family)
 

@@ -321,3 +321,10 @@ export {
   resolveTargetCount,
   shouldPreferParsedTargetReqs,
 } from "./gameActionsSpellTargetSelection.js";
+
+// IR-primary cast-time targeting from parseTargetRequirements (no categorize opcode table).
+export {
+  deriveSpellSpecFromParsedTargetReqs,
+  parsedTargetReqsCoverCastTargets,
+  resolveCastSpellParsedTargeting,
+} from "./gameActionsCastSpellParsedTargeting.js";

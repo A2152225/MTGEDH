@@ -10,6 +10,7 @@ import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUti
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import { resolveOracleIrBoundTargetSpellId } from './oracleIrTargetBinding';
 import { getStackItems } from './stackOperations';
+import { tryApplySeatDirectionNonlandControlRotation } from './oracleIRExecutorLoyaltyDirectionGainControl';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -207,13 +208,8 @@ export function applyGainControlStep(
     };
   }
 
-  if (/each player gains control of all nonland permanents other than this permanent controlled by the next player/i.test(raw)) {
-    return {
-      applied: true,
-      state,
-      log: ['Each player gained control of nonland permanents from the next player'],
-    };
-  }
+  const seatDirectionRotation = tryApplySeatDirectionNonlandControlRotation(state, step, ctx, raw);
+  if (seatDirectionRotation) return seatDirectionRotation;
 
   if (/you gain control of all creatures of that type/.test(raw)) {
     const chosenType = String(ctx.selectorContext?.chosenCreatureType || 'zombie').trim().toLowerCase();

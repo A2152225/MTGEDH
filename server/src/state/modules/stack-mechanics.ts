@@ -31,6 +31,7 @@
 
 import type { GameContext } from "../context.js";
 import { debug, debugWarn } from "../../utils/debug.js";
+import { persistNamedSpellCastThisGame } from "./namedSpellsCastThisGame.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
 import { processSpellCounteredTriggers } from "./spellCounteredTriggerUtils.js";
@@ -446,6 +447,13 @@ export function copyStackItem(
   // Copies are put on top of the stack
   stack.push(copy);
   ctx.bumpSeq();
+
+  if (String(copy.type || original.type || '').toLowerCase() === 'spell') {
+    persistNamedSpellCastThisGame(ctx.state, newController, {
+      name: copy.card?.name || original.card?.name || original.source?.cardName,
+      id: copy.id,
+    });
+  }
   
   return { success: true, copy };
 }

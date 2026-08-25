@@ -314,7 +314,6 @@ export function pruneExternallyHandledStaticUnknownAbilities(
       /^as this land enters, you may pay \d+ life\. if you don't, (?:this land|it) enters tapped[.)]*$/i.test(normalizedText) ||
       /^you have hexproof(?:\.?\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
       /^players can't gain life[.)]*$/i.test(normalizedText) ||
-      /^players can't gain life this turn[.)]*$/i.test(normalizedText) ||
       /^each creature you control with a \+1\/\+1 counter on it has trample[.)]*$/i.test(normalizedText) ||
       /^creatures with power less than (?:this creature|~|[a-z0-9', -]+)'?s power can(?:'|’)?t block (?:it|this creature|~)[.)]*$/i.test(normalizedText) ||
       /^(?:this (?:creature|permanent)'?s|~'?s) power and toughness are each equal to (?:the )?number of lands you control[.)]*$/i.test(normalizedText) ||

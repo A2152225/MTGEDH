@@ -405,30 +405,9 @@ export interface MustBlockEffect {
 
 export function detectMustBlockEffect(card: any, permanent: any): MustBlockEffect | null {
   const oracleText = (card?.oracle_text || "").toLowerCase();
-  const cardName = (card?.name || "").toLowerCase();
-  
-  // Lure
-  if (cardName === 'lure') {
-    return {
-      permanentId: permanent?.id || '',
-      cardName: 'Lure',
-      affects: 'enchanted',
-      scope: 'all_creatures',
-    };
-  }
-  
-  // Nemesis Mask
-  if (cardName.includes('nemesis mask')) {
-    return {
-      permanentId: permanent?.id || '',
-      cardName: 'Nemesis Mask',
-      affects: 'equipped',
-      scope: 'all_creatures',
-    };
-  }
-  
-  // Generic "all creatures able to block" pattern
-  if (oracleText.includes('all creatures able to block') && 
+  if (!oracleText) return null;
+
+  if (oracleText.includes('all creatures able to block') &&
       oracleText.includes('do so')) {
     const affects = oracleText.includes('enchanted creature') ? 'enchanted' :
                    oracleText.includes('equipped creature') ? 'equipped' : 'self';
@@ -439,7 +418,18 @@ export function detectMustBlockEffect(card: any, permanent: any): MustBlockEffec
       scope: 'all_creatures',
     };
   }
-  
+
+  if (oracleText.includes('must be blocked if able')) {
+    const affects = oracleText.includes('enchanted creature') ? 'enchanted' :
+                   oracleText.includes('equipped creature') ? 'equipped' : 'self';
+    return {
+      permanentId: permanent?.id || '',
+      cardName: card?.name || 'Unknown',
+      affects,
+      scope: 'able_creatures',
+    };
+  }
+
   return null;
 }
 

@@ -15,6 +15,10 @@ import {
   resolveSpecialUpkeepOutcomes,
   clearEndOfTurnWinLossEffects,
 } from '../winEffectCards';
+import {
+  applyOracleScannerWinToState,
+  findOracleScannerUpkeepWin,
+} from './stateBasedActionsOracleScannerWins';
 import { consumeNextDrawStepSkipEffect, findStaticSkipDrawStepSource } from '../phaseTransitionTriggers';
 import { clearFutureSpellEffects } from '../futureSpellEffects';
 import { removeExpiredShields } from '../keywordAbilities/regeneration';
@@ -449,30 +453,37 @@ export function executeTurnBasedAction(
       return { next: currentState, log: allLogs };
     }
 
-    const player = currentState.players.find(p => p.id === activePlayer.id);
-    const librarySize = (player?.library || []).length;
-    const handSize = (player?.hand || []).length;
-    const graveyardCreatureCount = (player?.graveyard || []).filter((card: any) =>
-      String(card?.type_line || '').toLowerCase().includes('creature')
-    ).length;
-    const upkeepWinCheck = checkUpkeepWinConditions(
-      activePlayer.id,
-      librarySize,
-      handSize,
-      graveyardCreatureCount,
-      (currentState.battlefield || []) as any,
-      currentState.players as any,
-      ((currentState as any).winLossEffects || []) as any,
-    );
-    allLogs.push(...(upkeepWinCheck.log || []));
-    if (upkeepWinCheck.playerWins) {
-      currentState = {
-        ...currentState,
-        winner: activePlayer.id,
-        status: 'finished' as any,
-        winReason: upkeepWinCheck.winReason as any,
-      } as GameState;
-      allLogs.push(`${activePlayer.id} wins the game`);
+    const oracleUpkeepWin = findOracleScannerUpkeepWin(currentState, activePlayer.id);
+    if (oracleUpkeepWin) {
+      currentState = applyOracleScannerWinToState(currentState, oracleUpkeepWin);
+      allLogs.push(`${oracleUpkeepWin.winner} wins the game`);
+    } else {
+      const player = currentState.players.find(p => p.id === activePlayer.id);
+      const librarySize = (player?.library || []).length;
+      const handSize = (player?.hand || []).length;
+      const graveyardCreatureCount = (player?.graveyard || []).filter((card: any) =>
+        String(card?.type_line || '').toLowerCase().includes('creature')
+      ).length;
+      const upkeepWinCheck = checkUpkeepWinConditions(
+        activePlayer.id,
+        librarySize,
+        handSize,
+        graveyardCreatureCount,
+        (currentState.battlefield || []) as any,
+        currentState.players as any,
+        ((currentState as any).winLossEffects || []) as any,
+      );
+      allLogs.push(...(upkeepWinCheck.log || []));
+      if (upkeepWinCheck.playerWins) {
+        currentState = {
+          ...currentState,
+          winner: activePlayer.id,
+          gameOver: true,
+          status: 'finished' as any,
+          winReason: upkeepWinCheck.winReason as any,
+        } as GameState;
+        allLogs.push(`${activePlayer.id} wins the game`);
+      }
     }
   } else if (step === GameStep.MAIN1 || step === GameStep.MAIN2) {
     allLogs.push('Main phase');

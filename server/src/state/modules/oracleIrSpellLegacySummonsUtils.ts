@@ -10,6 +10,88 @@ import { createToken, updateCounters } from './counters_tokens.js';
 import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 
+function cardTypeLine(card: any): string {
+  return String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+}
+
+export function filterMilledCardsForMayCast(
+  milledCards: readonly any[],
+  cardTypes: readonly string[],
+  maxManaValue: number,
+): any[] {
+  const types = (Array.isArray(cardTypes) ? cardTypes : [])
+    .map((typeWord) => String(typeWord || '').trim().toLowerCase())
+    .filter(Boolean);
+  const cap = Number.isFinite(maxManaValue) ? maxManaValue : Number.POSITIVE_INFINITY;
+  return (Array.isArray(milledCards) ? milledCards : []).filter((card: any) => {
+    const typeLine = cardTypeLine(card);
+    if (types.length > 0 && !types.some((typeWord) => typeLine.includes(typeWord))) return false;
+    return cardManaValue(card) <= cap;
+  });
+}
+
+export function queueMayCastFromAmongMilledCards(
+  ctx: GameContext,
+  options: {
+    controller: PlayerID;
+    sourceName: string;
+    sourceId: string;
+    sourceImage?: string;
+    milledCards?: readonly any[];
+    cardTypes?: readonly string[];
+    maxManaValue: number;
+    eligibleCards?: readonly any[];
+  },
+): void {
+  const x = Math.max(0, Math.floor(Number(options.maxManaValue) || 0));
+  const cardTypes = options.cardTypes && options.cardTypes.length > 0
+    ? options.cardTypes
+    : ['instant', 'sorcery'];
+  const eligibleCards = Array.isArray(options.eligibleCards)
+    ? [...options.eligibleCards]
+    : filterMilledCardsForMayCast(options.milledCards || [], cardTypes, x);
+
+  const gameId = String((ctx as any).gameId || 'unknown');
+  const isReplaying = Boolean((ctx as any).isReplaying);
+  if (eligibleCards.length === 0 || !gameId || gameId === 'unknown' || isReplaying) {
+    return;
+  }
+
+  const typeLabel = cardTypes.join(' or ');
+  const step = ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.GRAVEYARD_SELECTION,
+    playerId: options.controller,
+    description: `${options.sourceName}: You may cast ${typeLabel === 'instant or sorcery' ? 'an instant or sorcery' : `a ${typeLabel}`} spell milled this way with mana value ${x} or less without paying its mana cost.`,
+    mandatory: false,
+    sourceId: options.sourceId || undefined,
+    sourceName: options.sourceName,
+    sourceImage: options.sourceImage,
+    targetPlayerId: options.controller,
+    destination: 'cast',
+    minTargets: 1,
+    maxTargets: 1,
+    title: `Choose a spell to cast with ${options.sourceName}`,
+    validTargets: eligibleCards.map((card: any) => ({
+      id: String(card.id || card?.card?.id || ''),
+      label: String(card.name || card?.card?.name || 'Card'),
+      description: String(card.type_line || card?.card?.type_line || 'Card'),
+      imageUrl: card.image_uris?.small || card.image_uris?.normal || card?.card?.image_uris?.small || card?.card?.image_uris?.normal,
+      zoneOwnerId: options.controller,
+    })),
+    triggeredAbilityGraveyardSelection: true,
+    triggeredAbilityCastFromGraveyard: true,
+    triggeredAbilityCastWithoutPayingManaCost: true,
+    triggeredAbilityMayCastFromGraveyard: true,
+    triggeredAbilityEffectText: `${options.sourceName}: You may cast ${typeLabel === 'instant or sorcery' ? 'an instant or sorcery' : `a ${typeLabel}`} spell with mana value ${x} or less from among the milled cards without paying its mana cost.`,
+  } as any);
+
+  appendQueuedResolutionPromptEvent(ctx, {
+    playerId: String(options.controller),
+    sourceId: options.sourceId || String((step as any)?.sourceId || '').trim(),
+    queuedResolutionStep: step,
+  });
+}
+
 export function applySummonsOfSarumanEffect(
   ctx: GameContext,
   controller: PlayerID,
@@ -77,48 +159,18 @@ export function applySummonsOfSarumanEffect(
   controllerZones.libraryCount = library.length;
   controllerZones.graveyardCount = controllerZones.graveyard.length;
 
-  const eligibleCards = milledCards.filter((card: any) => {
-    const typeLine = String(card?.type_line || '').toLowerCase();
-    if (!typeLine.includes('instant') && !typeLine.includes('sorcery')) return false;
-    return cardManaValue(card) <= x;
+  const eligibleCards = filterMilledCardsForMayCast(milledCards, ['instant', 'sorcery'], x);
+
+  queueMayCastFromAmongMilledCards(ctx, {
+    controller,
+    sourceName,
+    sourceId,
+    sourceImage,
+    milledCards,
+    cardTypes: ['instant', 'sorcery'],
+    maxManaValue: x,
+    eligibleCards,
   });
-
-  const gameId = String((ctx as any).gameId || 'unknown');
-  const isReplaying = Boolean((ctx as any).isReplaying);
-  if (eligibleCards.length > 0 && gameId && gameId !== 'unknown' && !isReplaying) {
-    const step = ResolutionQueueManager.addStep(gameId, {
-      type: ResolutionStepType.GRAVEYARD_SELECTION,
-      playerId: controller,
-      description: `${sourceName}: You may cast an instant or sorcery spell milled this way with mana value ${x} or less without paying its mana cost.`,
-      mandatory: false,
-      sourceId: sourceId || undefined,
-      sourceName,
-      sourceImage,
-      targetPlayerId: controller,
-      destination: 'cast',
-      minTargets: 1,
-      maxTargets: 1,
-      title: `Choose a spell to cast with ${sourceName}`,
-      validTargets: eligibleCards.map((card: any) => ({
-        id: String(card.id || ''),
-        label: String(card.name || 'Card'),
-        description: String(card.type_line || 'Card'),
-        imageUrl: card.image_uris?.small || card.image_uris?.normal,
-        zoneOwnerId: controller,
-      })),
-      triggeredAbilityGraveyardSelection: true,
-      triggeredAbilityCastFromGraveyard: true,
-      triggeredAbilityCastWithoutPayingManaCost: true,
-      triggeredAbilityMayCastFromGraveyard: true,
-      triggeredAbilityEffectText: `${sourceName}: You may cast an instant or sorcery spell with mana value ${x} or less from among the milled cards without paying its mana cost.`,
-    } as any);
-
-    appendQueuedResolutionPromptEvent(ctx, {
-      playerId: String(controller),
-      sourceId: sourceId || String((step as any)?.sourceId || '').trim(),
-      queuedResolutionStep: step,
-    });
-  }
 
   if (typeof (ctx as any).bumpSeq === 'function') {
     (ctx as any).bumpSeq();

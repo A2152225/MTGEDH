@@ -2,6 +2,11 @@ import type { GameState } from '../../shared/src';
 import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters';
 import { getLeaveBattlefieldDestination } from '../../shared/src/leaveBattlefieldReplacement';
 import type { EngineResult } from './index';
+import {
+  applyOracleScannerWinToState,
+  findOracleScannerImmediateWin,
+  findOracleScannerUpkeepWin,
+} from './actions/stateBasedActionsOracleScannerWins';
 import { hasPermanentType } from './permanentTypeUtils';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { GameEndReason, WinCondition } from './types/gameFlow';
@@ -47,6 +52,43 @@ export function checkWinConditionsForState(args: {
   persistState: PersistGameState;
 }): EngineResult<GameState> {
   const { gameId, state, emit, persistState } = args;
+
+  // Darksteel-style `immediate` oracle-scanner wins (and Felidar-style upkeep
+  // when `state.step` is upkeep). Same stamp as `checkWinConditions` — not a
+  // CR 603.8 stack trigger. Hedron Alignment stays out of this scanner.
+  const immediateWin = findOracleScannerImmediateWin(state);
+  const activePlayer = state.players[(state.activePlayerIndex || 0)] as { id?: string } | undefined;
+  const upkeepWin =
+    !immediateWin &&
+    String(state.step || '').toLowerCase() === 'upkeep' &&
+    activePlayer?.id
+      ? findOracleScannerUpkeepWin(state, String(activePlayer.id))
+      : null;
+  const scannerWin = immediateWin ?? upkeepWin;
+  if (scannerWin) {
+    const nextState = applyOracleScannerWinToState(state, scannerWin);
+    persistState(gameId, nextState);
+
+    emit({
+      type: RulesEngineEvent.PLAYER_WON,
+      timestamp: Date.now(),
+      gameId,
+      data: { playerId: scannerWin.winner, reason: WinCondition.EFFECT_STATES_WIN },
+    });
+
+    emit({
+      type: RulesEngineEvent.GAME_ENDED,
+      timestamp: Date.now(),
+      gameId,
+      data: { winner: scannerWin.winner, reason: GameEndReason.PLAYER_WIN },
+    });
+
+    return {
+      next: nextState,
+      log: [`${scannerWin.winner} wins the game!`],
+    };
+  }
+
   const activePlayers = state.players.filter(p => !p.hasLost);
 
   if (activePlayers.length === 1) {

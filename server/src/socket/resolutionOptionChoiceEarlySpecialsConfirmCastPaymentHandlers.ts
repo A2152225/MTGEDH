@@ -621,7 +621,7 @@ export async function tryHandleOptionChoiceEarlySpecialsConfirmCastPayment(
     if (lifeAmount > 0) {
       const startingLife = Number((game.state as any)?.startingLife ?? 40);
       const currentLife = Number((game.state as any)?.life?.[controllerId] ?? startingLife);
-      const lifeValidationError = validateLifePayment(currentLife, lifeAmount, sourceName);
+      const lifeValidationError = validateLifePayment(currentLife, lifeAmount, sourceName, game as GameContext, controllerId);
       if (lifeValidationError) {
         emitToPlayer(io, controllerId as any, 'error', { code: 'INSUFFICIENT_LIFE', message: lifeValidationError });
         return true;

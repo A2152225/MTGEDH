@@ -10,6 +10,7 @@
 //   expandStandaloneStaticKeywordAbilities
 
 import type { OracleEffectStep, OracleIRAbility } from './oracleIR';
+import { tryParseChooseLeftOrRightLoyaltySteps } from './oracleIRParserLoyaltyDirectionChoice';
 import { tryParseGenericUntilNextTurnResidualGrant } from './oracleIRParserPostprocessActivationCostReductionStatics';
 import {
   STANDALONE_KEYWORD_STATICS,
@@ -33,6 +34,9 @@ function parseStructuredTriggerResidualGrant(
   raw: string,
   sequence: { sequence?: 'then' }
 ): readonly OracleEffectStep[] | null {
+  const chooseLeftOrRightLoyalty = tryParseChooseLeftOrRightLoyaltySteps(raw, sequence);
+  if (chooseLeftOrRightLoyalty) return chooseLeftOrRightLoyalty;
+
   const genericUntilNextTurn = tryParseGenericUntilNextTurnResidualGrant(raw, sequence);
   if (genericUntilNextTurn) return genericUntilNextTurn;
 

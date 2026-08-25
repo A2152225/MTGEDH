@@ -607,6 +607,14 @@ function isSpellInstructionLineInner(trimmed: string): boolean {
     return false;
   }
 
+  // Delayed this-turn ETB windows are spell-resolution instructions (Rite of Harmony).
+  if (
+    /^whenever\s+a(?:n)?\s+.+?\s+you\s+control\s+enters(?:\s+the\s+battlefield)?\s+this\s+turn,/i.test(trimmed)
+    || /^whenever\s+a(?:n)?\s+.+?\s+enters(?:\s+the\s+battlefield)?\s+under\s+your\s+control\s+this\s+turn,/i.test(trimmed)
+  ) {
+    return true;
+  }
+
   // Triggered / continuous / replacement leads that are not resolution instructions.
   // Exception: "Only the chosen creatures can attack…" is a spell-created combat restriction.
   if (

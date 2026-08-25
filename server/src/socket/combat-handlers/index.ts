@@ -23,6 +23,13 @@ export {
   persistTriggeredAbilityPush,
 } from "./combatDeclareBlockersRequest.js";
 
+// Derived must-be-blocked-if-able declare-blockers legality (Lure / Shinen / Nemesis Mask grants).
+export {
+  attackerHasMustBeBlockedIfAble,
+  findMustBeBlockedIfAbleViolation,
+  resolveMustBeBlockedIfAbleAssignments,
+} from "./combatMustBeBlockedIfAble.js";
+
 // declare-attackers support helpers (chat, defender ids, optional attack-trigger payment).
 export {
   emitDeclareAttackersChat,

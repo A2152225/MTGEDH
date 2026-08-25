@@ -331,7 +331,7 @@ export type { InstantSorcerySpellShapeFlags } from './stackResolveSharedTypes.js
 import type { InstantSorcerySpellShapeFlags } from './stackResolveSharedTypes.js';
 
 export function detectInstantSorcerySpellShapeFlags(
-  cardName: string,
+  _cardName: string,
   oracleTextLower: string,
 ): InstantSorcerySpellShapeFlags {
   const normalizedOracleTextLower = String(oracleTextLower || '').replace(/\s+/g, ' ');
@@ -341,10 +341,9 @@ export function detectInstantSorcerySpellShapeFlags(
     && /if each opponent chose silence, .* deals 4 damage to each of them\./i.test(normalizedOracleTextLower)
     && /if each opponent chose snitch, .* deals 8 damage to each of them\./i.test(normalizedOracleTextLower)
     && /otherwise, .* deals 12 damage to each opponent who chose silence\./i.test(normalizedOracleTextLower);
-  const isSummonsOfSarumanStyle = String(cardName || '').toLowerCase() === 'summons of saruman'
-    || (/\bamass\s+orcs\s+x\b/i.test(normalizedOracleTextLower)
-      && /\bmill\s+x\s+cards\b/i.test(normalizedOracleTextLower)
-      && /\bwithout\s+paying\s+its\s+mana\s+cost\b/i.test(normalizedOracleTextLower));
+  const isSummonsOfSarumanStyle = /\bamass\s+orcs\s+x\b/i.test(normalizedOracleTextLower)
+    && /\bmill\s+x\s+cards\b/i.test(normalizedOracleTextLower)
+    && /\bwithout\s+paying\s+its\s+mana\s+cost\b/i.test(normalizedOracleTextLower);
   const isNibelheimAflameStyleSweep = /choose target creature you control\. it deals damage equal to its power to each other creature\./i.test(normalizedOracleTextLower);
   const hasNibelheimGraveyardRider = /if this spell was cast from a graveyard, discard your hand and draw four cards\.?/i.test(normalizedOracleTextLower);
 
@@ -359,7 +358,8 @@ export function detectInstantSorcerySpellShapeFlags(
     skipLegacySpellCategorization: isRiteOfHarmonyStyleWindow
       || isDivineReckoningStyleChoice
       || isPrisonersDilemmaStyleChoice
-      || isSummonsOfSarumanStyle,
+      || isSummonsOfSarumanStyle
+      || isNibelheimAflameStyleSweep,
   };
 }
 

@@ -3,7 +3,9 @@
 // Public entry symbols: ReplacementEffectSpecEvent, ReplacementModifyMode,
 //   ReplacementZoneChangeMatch, ReplacementMillMatch, ReplacementLibrarySearchMatch,
 //   ReplacementCounterMatch, ReplacementDrawMatch, ReplacementLifeGainMatch,
-//   ReplacementTokenMatch, ReplacementDamageMatch, ReplacementEffectSpec.
+//   ReplacementLifeLossMatch,
+//   ReplacementTokenMatch, ReplacementDamageMatch, ReplacementLoseGameMatch,
+//   ReplacementLoseGameInstead, ReplacementEffectSpec.
 // Leaf must not import replacementEffectSpec.ts or replacementEffectSpec-handlers/index.ts.
 
 import type {
@@ -12,7 +14,7 @@ import type {
 } from '../replacement-effects.js';
 
 /** Declarative replacement spec (Phase 5.1). See docs/oracle-ir-phase5-continuous-effects-design.md */
-export type ReplacementEffectSpecEvent = ReplacementEvent['type'];
+export type ReplacementEffectSpecEvent = ReplacementEvent['type'] | 'lose-game';
 
 export type ReplacementModifyMode = 'double' | 'triple' | 'add_flat' | 'halve' | 'cap';
 
@@ -72,8 +74,21 @@ export interface ReplacementLifeGainMatch {
   gainingPlayerIsOpponentOfSource?: boolean;
   /** Gaining player must be the spec source controller (Boon Reflection family). */
   gainingPlayerIsSourceController?: boolean;
+  /** Gaining player must be the player this aura (spec source) is attached to. */
+  gainingPlayerIsEnchantedBySource?: boolean;
   /** Gaining player's current life must be at least this (Angel of Vitality). */
   gainingPlayerLifeGte?: number;
+}
+
+export interface ReplacementLifeLossMatch {
+  /** Losing player must be an opponent of the spec source controller. */
+  losingPlayerIsOpponentOfSource?: boolean;
+  /** Losing player must be the spec source controller. */
+  losingPlayerIsSourceController?: boolean;
+  /** Losing player must be the player this aura (spec source) is attached to. */
+  losingPlayerIsEnchantedBySource?: boolean;
+  /** Only apply while it is the spec source controller's turn. */
+  duringSourceControllerTurn?: boolean;
 }
 
 export interface ReplacementTokenMatch {
@@ -105,18 +120,52 @@ export interface ReplacementDamageMatch {
    * permanent they control, including the source (Hyperion / Ajani emblem).
    */
   receivingIsYouOrMatchingPermanentYouControl?: boolean;
+  /** Worship: apply only while the source controller controls a creature. */
+  requiresSourceControllerControlsCreature?: boolean;
+}
+
+export interface ReplacementLoseGameMatch {
+  /** The queried player must be the spec source controller. */
+  affectedPlayerIsSourceController?: boolean;
+  /** The queried player must be an opponent of the spec source controller. */
+  affectedPlayerIsOpponentOfSource?: boolean;
+  /** Applies to every player (Platinum Persecutor family). */
+  affectedPlayerIsAny?: boolean;
+  /** "As long as you control a Gideon planeswalker" — type_line substring. */
+  requiresControlledTypeIncludes?: string;
+  /** Pact Weapon family: source must be attached to a creature. */
+  requiresAttachedToCreature?: boolean;
+}
+
+export interface ReplacementLoseGameInstead {
+  controllerCantLose?: boolean;
+  controllerCantWin?: boolean;
+  opponentsCantLose?: boolean;
+  opponentsCantWin?: boolean;
+  allPlayersCantLose?: boolean;
+  allPlayersCantWin?: boolean;
+  /** Transcendence / Phyrexian Unlife — only SBAs for 0 or less life. */
+  onlyZeroOrLessLife?: boolean;
+  /** Mine, Mine, Mine! family — only empty-library draw loss. */
+  onlyEmptyLibrary?: boolean;
 }
 
 export interface ReplacementEffectSpec {
   id: string;
   event: ReplacementEffectSpecEvent;
-  match?: ReplacementZoneChangeMatch & ReplacementMillMatch & ReplacementLibrarySearchMatch & ReplacementCounterMatch & ReplacementDrawMatch & ReplacementLifeGainMatch & ReplacementDamageMatch & ReplacementTokenMatch;
+  match?: ReplacementZoneChangeMatch & ReplacementMillMatch & ReplacementLibrarySearchMatch & ReplacementCounterMatch & ReplacementDrawMatch & ReplacementLifeGainMatch & ReplacementLifeLossMatch & ReplacementDamageMatch & ReplacementTokenMatch & ReplacementLoseGameMatch;
   instead: {
     redirectZone?: ReplacementZone;
     choiceRequired?: boolean;
     replacementOptions?: ReplacementZone[];
     modify?: ReplacementModifyMode;
     value?: number;
+    /** Can't-lose / can't-win polarity (Platinum Angel / Abyssal Persecutor). */
+    loseGame?: ReplacementLoseGameInstead;
+    /** Laboratory Maniac / Jace: win instead of losing to an empty-library draw. */
+    winInsteadOfLose?: boolean;
+    /** Worship / Fortune Thief: leave life at this floor (damage to you). */
+    floorLifeAt?: number;
     /** Redirect the draw to the source permanent's controller (Notion Thief). */
     redirectDrawTo?: 'source_controller';
     /** Each affected player draws this many instead (Alms Collector). */

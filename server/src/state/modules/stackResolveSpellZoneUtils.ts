@@ -9,8 +9,13 @@ import { queueInitiativeVentureTrigger, resolveVentureProgress } from './trigger
 import {
   queueResolvedSpellCopyChoice,
   shouldQueueResolvedSpellCopyChoice,
+  wasSpellCastFromGraveyard,
 } from './stackResolveSpellCopyChoiceUtils.js';
 import { repairCardIdAwayFromZones } from './stackReplayUtils.js';
+import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
+import { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync-handlers/oracleIrServerApplyOnServer.js';
+import { collectSpellResolutionEffectSteps } from './trigger-runtime-wiring.js';
+import { buildOracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutor.js';
 
 type ResolvedInstantOrSorceryDestination = 'graveyard' | 'exile' | 'library' | 'ceased';
 
@@ -60,6 +65,12 @@ function persistMoveResolvedInstantOrSorceryEvent(
   }
 }
 
+function isWinIfCastSameNameThisGameFamily(oracleText: string): boolean {
+  const normalized = String(oracleText || '').replace(/\s+/g, ' ').trim();
+  return /if this spell was cast from your hand and you've cast another spell named .+ this game,\s*you win the game/i.test(normalized)
+    && /seventh from the top/i.test(normalized);
+}
+
 export function tryResolveApproachOfTheSecondSunAfterEffects(
   ctx: GameContext,
   options: {
@@ -67,57 +78,61 @@ export function tryResolveApproachOfTheSecondSunAfterEffects(
     card: any;
     effectiveCard: any;
     oracleTextLower: string;
+    oracleText?: string;
+    item?: any;
   },
 ): boolean {
-  const state = (ctx as any).state;
-  const controller = options.controller;
-  const card = options.card;
-  const effectiveCard = options.effectiveCard;
-  const oracleTextLower = String(options.oracleTextLower || '');
-
-  const isApproach = (effectiveCard?.name || '').toLowerCase().includes('approach of the second sun')
-    || (oracleTextLower.includes('put it into its owner\'s library seventh from the top')
-      && oracleTextLower.includes('you win the game'));
-
-  if (!isApproach) {
+  // IR primary owns win-if-cast-same-name-this-game (win or otherwise seventh+life).
+  if (isOracleIrSpellPrimaryEnabled()) {
     return false;
   }
 
-  const stateAny = state as any;
-  stateAny.approachCastHistory = stateAny.approachCastHistory || {};
-  stateAny.approachCastHistory[controller] = stateAny.approachCastHistory[controller] || [];
-  stateAny.approachCastHistory[controller].push({
-    timestamp: Date.now(),
-    castFromHand: true,
+  const oracleText = String(options.oracleText || options.oracleTextLower || '').trim();
+  if (!isWinIfCastSameNameThisGameFamily(oracleText) && !isWinIfCastSameNameThisGameFamily(options.oracleTextLower)) {
+    return false;
+  }
+
+  const spellName = String(options.effectiveCard?.name || options.card?.name || 'spell');
+  const sourceId = String(options.item?.id || options.card?.id || options.effectiveCard?.id || '').trim();
+  const state = (ctx as any).state;
+  const stack = Array.isArray(state?.stack) ? state.stack : [];
+  const alreadyOnStack = sourceId
+    && stack.some((entry: any) => String(entry?.id || '') === sourceId || String(entry?.card?.id || '') === sourceId);
+  if (!alreadyOnStack && options.card) {
+    state.stack = [
+      ...stack,
+      {
+        id: sourceId || options.card.id,
+        controller: options.controller,
+        owner: options.controller,
+        card: options.card,
+      },
+    ];
+  }
+
+  const steps = collectSpellResolutionEffectSteps(oracleText, spellName);
+  if (steps.length === 0) return false;
+
+  const castFromGraveyard = wasSpellCastFromGraveyard(options.item);
+  const irCtx = buildOracleIRExecutionContext({
+    controllerId: options.controller,
+    sourceId,
+    sourceName: spellName,
+    sourceObjectType: 'spell',
+    ...(castFromGraveyard ? { castFromZone: 'graveyard' as const } : { castFromZone: 'hand' as const }),
   });
-
-  const castCount = stateAny.approachCastHistory[controller].length;
-  if (castCount >= 2) {
-    debug(2, `[tryResolveApproachOfTheSecondSunAfterEffects] ${controller} wins! Approach of the Second Sun cast for the second time!`);
-    stateAny.winner = controller;
-    stateAny.gameOver = true;
-    stateAny.winCondition = 'Approach of the Second Sun';
-    return true;
-  }
-
-  const lib = ctx.libraries?.get(controller) || [];
-  const insertPosition = Math.min(6, lib.length);
-  (lib as any[]).splice(insertPosition, 0, { ...card, zone: 'library' });
-  ctx.libraries?.set(controller, lib);
-
-  const zones = state?.zones || {};
-  const z = zones[controller];
-  if (z) {
-    z.libraryCount = lib.length;
-  }
-
-  state.life = state.life || {};
-  state.life[controller] = (state.life[controller] || 40) + 7;
-  const player = (state.players || []).find((p: any) => p.id === controller);
-  if (player) player.life = state.life[controller];
-
-  debug(2, `[tryResolveApproachOfTheSecondSunAfterEffects] Approach of the Second Sun: ${controller} gained 7 life, card put 7th from top (cast #${castCount})`);
-  return true;
+  const result = applyOracleIRStepsOnServer(
+    ctx,
+    state,
+    steps,
+    irCtx,
+    { allowOptional: true },
+    {
+      controller: options.controller,
+      oracleText,
+    },
+  );
+  return (result.appliedSteps || []).length > 0;
 }
 
 export function applyResolvedInstantSorceryInitiativeVentureRiders(

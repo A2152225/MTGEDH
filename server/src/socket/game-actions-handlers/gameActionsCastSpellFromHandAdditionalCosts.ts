@@ -9,6 +9,8 @@
  */
 import type { Server, Socket } from "socket.io";
 import type { PaymentItem } from "../../../../shared/src/index.js";
+import type { GameContext } from "../../state/context.js";
+import { canPlayerPayLife } from "../../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
 import { getDeclarativeLeaveBattlefieldReplacementHint as getLeaveBattlefieldReplacementHint } from "../../state/modules/leaveBattlefieldReplacementHint.js";
 import { buildBeholdSelectionOptions } from "../../state/modules/chosen-creature-type.js";
 import { queueLifePaymentTriggers } from "../../state/modules/triggers/pay-life.js";
@@ -654,7 +656,14 @@ export function tryPromptCastSpellAdditionalCostsFromHand(
           const startingLife = game.state.startingLife || 40;
           const currentLife = game.state.life?.[playerId] ?? startingLife;
           
-          // Validate that player can pay the life
+          // Validate that player can pay the life (total + Angel / life-lock restrictions)
+          if (!canPlayerPayLife(game as GameContext, String(playerId))) {
+            socket.emit("error", {
+              code: "CANNOT_PAY_COST",
+              message: `Cannot cast ${cardInHand.name}: players can't pay life.`,
+            });
+            return;
+          }
           if (currentLife < additionalCost.amount) {
             socket.emit("error", {
               code: "CANNOT_PAY_COST",

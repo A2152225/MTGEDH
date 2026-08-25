@@ -19,6 +19,7 @@ import {
 } from "../../state/modules/casting-modifiers.js";
 import { createToken } from "../../state/modules/counters_tokens.js";
 import { getEffectiveColors } from "../../state/modules/effectiveColors.js";
+import { persistNamedSpellCastThisGame } from "../../state/modules/namedSpellsCastThisGame.js";
 import { consumeNextSpellCostReductionAfterCast } from "../../state/modules/nextSpellCostReduction.js";
 import { detectSpellCastTriggers, type SpellCastTrigger } from "../../state/modules/triggered-abilities";
 import { debugWarn } from "../../utils/debug.js";
@@ -207,6 +208,7 @@ export function recordSpellCastThisTurn(
         ...(castSourceZone ? { castSourceZone } : {}),
       },
     });
+    persistNamedSpellCastThisGame(game.state, casterId, spellCard);
     consumeNextSpellCostReductionAfterCast(game.state as any, casterId as PlayerID);
     consumeConvokeGrantsAfterCast(game.state, casterId as PlayerID, spellCard, castSourceZone);
     consumeChosenTypeFlashGrantsAfterCast(game.state, casterId as PlayerID, spellCard);

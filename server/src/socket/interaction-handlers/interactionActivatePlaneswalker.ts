@@ -9,7 +9,7 @@
 
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { appendEvent } from "../../db";
-import { matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements } from "../../rules-engine/targeting.js";
+import { canPlayerBeTargetedByPlayer, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements } from "../../rules-engine/targeting.js";
 import { getLoyaltyActivationLimit } from "../../state/modules/triggered-abilities";
 import { triggerAbilityActivatedTriggers } from "../../state/modules/triggers/ability-activated.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
@@ -152,8 +152,8 @@ export async function tryHandleActivatePlaneswalker(
             validTargets.push(...players
               .filter((p: any) => {
                 if (!p || !p.id) return false;
-                if (targetType === 'opponent') return p.id !== pid;
-                return true;
+                if (targetType === 'opponent' && p.id === pid) return false;
+                return canPlayerBeTargetedByPlayer(p.id, game.state, pid as PlayerID);
               })
               .map((p: any) => ({
                 id: p.id,
@@ -181,7 +181,7 @@ export async function tryHandleActivatePlaneswalker(
             const anyLifeDict = game.state.life || {};
             const anyStartingLife = game.state.startingLife || 40;
             validTargets.push(...players
-              .filter((p: any) => p && p.id)
+              .filter((p: any) => p && p.id && canPlayerBeTargetedByPlayer(p.id, game.state, pid as PlayerID))
               .map((p: any) => ({
                 id: p.id,
                 kind: 'player',

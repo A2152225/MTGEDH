@@ -256,6 +256,42 @@ describe('oracle IR step wiring guardrails', () => {
     );
     expect(gyReanimateWard.map((step) => step.kind)).toEqual(['move_zone', 'grant_static_ability']);
     expect(isActivatedAbilityEffectFullyWired(gyReanimateWard)).toBe(true);
+
+    const aminatouDirection = collectActivatedAbilitySteps(
+      'Choose left or right. Each player gains control of all nonland permanents other than Aminatou controlled by the next player in the chosen direction.',
+      'Aminatou, the Fateshifter',
+    );
+    expect(aminatouDirection).toEqual([
+      expect.objectContaining({
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 1,
+      }),
+    ]);
+    expect((aminatouDirection[0] as any).modes.map((mode: any) => mode.label)).toEqual(['Left', 'Right']);
+    expect((aminatouDirection[0] as any).modes[0].steps).toEqual([
+      expect.objectContaining({ kind: 'gain_control', duration: 'indefinite' }),
+    ]);
+    expect(isActivatedAbilityEffectFullyWired(aminatouDirection)).toBe(true);
+
+    const teyoDirection = collectActivatedAbilitySteps(
+      'Choose left or right. Until your next turn, each player may attack only the nearest opponent in the last chosen direction and planeswalkers controlled by that opponent.',
+      'Teyo, Geometric Tactician',
+    );
+    expect(teyoDirection).toEqual([
+      expect.objectContaining({
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 1,
+      }),
+    ]);
+    expect((teyoDirection[0] as any).modes[1].steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_temporary_ability',
+        duration: 'until_next_turn',
+      }),
+    ]);
+    expect(isActivatedAbilityEffectFullyWired(teyoDirection)).toBe(true);
   });
 
   it('wires Class gain_class_level for activated abilities', () => {

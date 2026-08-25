@@ -6,7 +6,7 @@
  */
 
 import { appendEvent } from "../db/index.js";
-import { matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements } from "../rules-engine/targeting";
+import { canPlayerBeTargetedByPlayer, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements } from "../rules-engine/targeting";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import {
   extractStackItemTargetIds,
@@ -204,7 +204,8 @@ export function buildActivatedAbilityValidTargets(
         validTargets.push(...statePlayers
           .filter((player: any) => {
             if (!player?.id) return false;
-            return targetType === 'opponent' ? String(player.id) !== controllerId : true;
+            if (targetType === 'opponent' && String(player.id) === controllerId) return false;
+            return canPlayerBeTargetedByPlayer(player.id, game.state, controllerId);
           })
           .map((player: any) => ({
             id: String(player.id),
@@ -225,7 +226,7 @@ export function buildActivatedAbilityValidTargets(
             imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
           })));
         validTargets.push(...statePlayers
-          .filter((player: any) => player?.id)
+          .filter((player: any) => player?.id && canPlayerBeTargetedByPlayer(player.id, game.state, controllerId))
           .map((player: any) => ({
             id: String(player.id),
             name: player.name || String(player.id),

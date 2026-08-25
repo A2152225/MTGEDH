@@ -15,7 +15,7 @@ import {
   buildPersistedWebSlingingCastIntentFields,
 } from "../../state/modules/castIntent.js";
 import { cleanupCardLeavingExile } from "../../state/modules/playable-from-exile.js";
-import { canPermanentBeTargetedByPlayer, evaluateTargeting } from "../../rules-engine/targeting";
+import { canPermanentBeTargetedByPlayer, canPlayerBeTargetedByPlayer, evaluateTargeting } from "../../rules-engine/targeting";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { getOrInitManaPool } from "../util";
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
@@ -171,15 +171,17 @@ export function tryPushCastSpellFromHandToStack(
               targetDescription = `Enchant ${auraTargetType}`;
 
               if (auraTargetType === 'player') {
-                validTargetList = (game.state.players || []).map((player: any) => ({
-                  id: player.id,
-                  kind: 'player',
-                  name: player.name || player.id,
-                  isOpponent: player.id !== playerId,
-                }));
+                validTargetList = (game.state.players || [])
+                  .filter((player: any) => canPlayerBeTargetedByPlayer(player.id, game.state, playerId as PlayerID))
+                  .map((player: any) => ({
+                    id: player.id,
+                    kind: 'player',
+                    name: player.name || player.id,
+                    isOpponent: player.id !== playerId,
+                  }));
               } else if (auraTargetType === 'opponent') {
                 validTargetList = (game.state.players || [])
-                  .filter((player: any) => player.id !== playerId)
+                  .filter((player: any) => player.id !== playerId && canPlayerBeTargetedByPlayer(player.id, game.state, playerId as PlayerID))
                   .map((player: any) => ({
                     id: player.id,
                     kind: 'player',

@@ -13,6 +13,7 @@ import {
   createTargetDamagePreventionEffect,
   registerDamagePreventionEffect,
 } from './oracleIRDamagePrevention';
+import { tryChosenCreaturePowerSweepDealDamageStep } from './oracleIRExecutorChosenCreaturePowerSweepDamage';
 import { tryBatch386DealDamageStep, tryBatch386RegenerateStep } from './oracleIRExecutorSpecialTargetHandlersBatch386Bulk';
 import { tryBatch389DealDamageStep } from './oracleIRExecutorSpecialTargetHandlersBatch389Bulk';
 import { tryBatch391DealDamageStep } from './oracleIRExecutorSpecialTargetHandlersBatch391Bulk';
@@ -84,6 +85,8 @@ export function trySpecialDealDamageStep(
   if (batch389) return batch389;
   const batch391 = tryBatch391DealDamageStep(state, step, ctx, amount);
   if (batch391) return batch391;
+  const powerSweep = tryChosenCreaturePowerSweepDealDamageStep(state, step, ctx, amount);
+  if (powerSweep) return powerSweep;
 
   const raw = normalizeRaw(step);
   const target = normalizeTargetText(step);

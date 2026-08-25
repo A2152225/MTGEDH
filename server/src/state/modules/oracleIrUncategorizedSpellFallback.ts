@@ -134,11 +134,6 @@ export function applyOracleIRUncategorizedSpellFallback(
     if (!text || !wouldOracleIRFallbackPrefilterMatch(text)) return 0;
 
     const textLower = text.toLowerCase();
-    const isNibelheimShape = /choose target creature you control\. it deals damage equal to its power to each other creature/i.test(textLower);
-    if (isNibelheimShape) {
-      // Structural sweep + graveyard rider are owned by applyInstantSorceryNibelheimAflameEffect.
-      return 0;
-    }
 
     const allSteps = collectSpellSteps(text, spellName, sourceItem, sourceObjectType);
     let fallbackSteps = allSteps.filter(shouldIncludeUncategorizedSpellFallbackStep);

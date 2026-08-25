@@ -23,6 +23,7 @@ import {
   canBlockAttacker,
   isCurrentlyCreature,
 } from "./combatLegalityGates.js";
+import { findMustBeBlockedIfAbleViolation } from "./combatMustBeBlockedIfAble.js";
 
 export function lookupBattlefieldPermanentName(battlefield: any[], permanentId: string): string {
   const perm = battlefield.find((entry: any) => entry?.id === permanentId);
@@ -183,6 +184,19 @@ export async function handleDeclareBlockers(
       }
 
       resolvedBlockers.push({ blockerId: actualBlockerId, attackerId: actualAttackerId });
+    }
+
+    const mustBlockViolation = findMustBeBlockedIfAbleViolation({
+      state: game.state,
+      defendingPlayerId: playerId,
+      assignments: resolvedBlockers,
+    });
+    if (mustBlockViolation) {
+      socket.emit("error", {
+        code: mustBlockViolation.code,
+        message: mustBlockViolation.message,
+      });
+      return;
     }
 
     // Now process the resolved blockers

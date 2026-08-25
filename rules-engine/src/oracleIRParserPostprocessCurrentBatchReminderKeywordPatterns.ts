@@ -180,7 +180,6 @@ export function isCurrentBatchReminderKeywordPattern(normalizedText: string, nor
     /^when this equipment enters, create a 2\/2 red rebel creature token, then attach this to it$/i.test(normalizedText) ||
     /^to investigate, create a clue token$/i.test(normalizedText) ||
     /^it(?:'|’)?s an artifact with "?\{2\}, sacrifice this (?:artifact|token): draw a card"?$/i.test(normalizedText) ||
-    /^players can(?:'|’)?t gain life this turn$/i.test(normalizedText) ||
     /^copy a random spell you cast from exile or in a graveyard this game(?:\s+you may cast the copy without paying its mana cost)?$/i.test(normalizedText) ||
     /^create a copy of one of the following, chosen at random:.+$/i.test(normalizedText) ||
     /^you may cast the copy without paying its mana cost$/i.test(normalizedText) ||

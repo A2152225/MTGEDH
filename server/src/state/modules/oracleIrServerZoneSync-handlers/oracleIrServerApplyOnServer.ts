@@ -60,6 +60,7 @@ import {
   queueJoinForcesPromptsFromOracleIRResult,
   queueVotePromptsFromOracleIRResult,
 } from './oracleIrServerVoteJoinForcesPrompts.js';
+import { queueChoiceFamilyPromptsFromOracleIRResult } from './oracleIrServerChoiceFamilyPrompts.js';
 import {
   queueTapMatchingPermanentsChoicePromptsFromOracleIRResult,
   queueTapOrUntapChoicePromptsFromOracleIRResult,
@@ -426,6 +427,15 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
+  });
+  queueChoiceFamilyPromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+    item: params?.sourceItem || params?.triggerItem,
+    card: params?.sourceItem?.card,
+    effectiveCard: params?.sourceItem?.card || { name: irCtx.sourceName },
   });
   queueMoveZoneChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,

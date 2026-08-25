@@ -7,6 +7,10 @@ import type { PlayerID } from "../../../../../shared/src/index.js";
 import type { GameContext } from "../../context.js";
 import { parsePT, uid } from "../../utils.js";
 import { applyStateBasedActions } from "../../../rules-engine/index.js";
+import {
+  findOracleScannerImmediateWin,
+  stampOracleScannerWinOnState,
+} from "../../../../../rules-engine/src/actions/stateBasedActionsOracleScannerWins.js";
 import { appendEvent } from "../../../db/index.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 import { ResolutionQueueManager } from "../../resolution/index.js";
@@ -205,6 +209,18 @@ export function runSBA(ctx: GameContext) {
   // NOW run the standard SBA checks
   const res = applyStateBasedActions(state);
   let changed = unattachChanged;
+
+  // Darksteel-style `immediate` oracle-scanner wins. applyStateBasedActions is
+  // toughness/counters/aura only; stamp winner/gameOver here as a Felidar-style
+  // SBA (not a CR 603.8 stack trigger). Upkeep scanner stays on turnActions.
+  if (!(state as any).winner && !(state as any).gameOver) {
+    const immediateWin = findOracleScannerImmediateWin(state);
+    if (immediateWin) {
+      stampOracleScannerWinOnState(state, immediateWin);
+      debug(1, `[runSBA] Player ${immediateWin.winner} WINS (${immediateWin.reason})`);
+      changed = true;
+    }
+  }
   
   // Handle players who have lost due to life <= 0 (Rule 704.5a)
   if (res.playersLost && res.playersLost.length > 0) {

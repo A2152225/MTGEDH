@@ -14,6 +14,7 @@ import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import type { AISupportedCardSourceZone } from "./aiActionCandidateTypes.js";
 import { permanentHasLeaveBattlefieldExileReplacement } from "./aiDeckProfileHandlers.js";
 import { getManaProduction } from "./aiManaCostHelpers.js";
+import { canChooseShockLandPayLife } from "../land-helpers.js";
 
 function getAISourceCards(game: any, playerId: PlayerID, sourceZone: AISupportedCardSourceZone): any[] {
   return getAIHandlerDeps().getAISourceCards(game, playerId, sourceZone);
@@ -108,6 +109,10 @@ function isShockLand(cardName: string): boolean {
  * - Or if this is the only land that can produce a needed color this turn
  */
 function shouldAIPayShockLandLife(game: any, playerId: PlayerID): boolean {
+  if (!canChooseShockLandPayLife(game, String(playerId), 2)) {
+    return false;
+  }
+
   // Get current life total
   const players = game.state?.players || [];
   const player = players.find((p: any) => p.id === playerId);

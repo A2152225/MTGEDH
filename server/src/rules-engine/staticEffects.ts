@@ -96,9 +96,11 @@ export function computeContinuousEffects(
       || options?.skipDeclarativePtForSourceIds?.has(String(source.id || '')),
     );
 
-    // Player hexproof/shroud
-    if (/\byou have hexproof\b/.test(oracle)) playerHexproof.add(controller);
-    if (/\byou have shroud\b/.test(oracle)) playerShroud.add(controller);
+    // Player hexproof/shroud — skip when declarative StaticEffectSpec owns the source.
+    if (!skipLegacyStatic) {
+      if (/\byou have hexproof\b/.test(oracle)) playerHexproof.add(controller);
+      if (/\byou have shroud\b/.test(oracle)) playerShroud.add(controller);
+    }
 
     if (!skipLegacyStatic) {
     // Global patterns

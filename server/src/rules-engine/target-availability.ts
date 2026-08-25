@@ -1,5 +1,7 @@
 import type { PlayerID } from "../../../shared/src/index.js";
-import { categorizeSpell, categorizeSpellWithoutPrimaryRetirement, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "./targeting.js";
+import { canPlayerBeTargetedByPlayer, categorizeSpell, categorizeSpellWithoutPrimaryRetirement, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "./targeting.js";
+import { permanentMatchesTargetRequirementStatKeywordFilters } from "./targeting-handlers/targetingParseTargetRequirementRestrictions.js";
+import { isOracleIrSpellPrimaryEnabled } from "../state/modules/oracleIrFeatureFlags.js";
 import { cardManaValue } from "../state/utils.js";
 
 function getTargetingContext(state: any): { hasBattlefield: boolean; hasPlayers: boolean; hasStack: boolean; hasZones: boolean } {
@@ -50,6 +52,7 @@ function matchesBattlefieldTargetType(perm: any, rawTargetType: string): boolean
 
   if (targetType === "permanent") return true;
   if (targetType === "nonland permanent") return !typeLine.includes("land");
+  if (targetType === "any") return typeLine.includes("creature") || typeLine.includes("planeswalker");
 
   // Common type words from oracle patterns.
   if (targetType === "creature") return typeLine.includes("creature");
@@ -95,7 +98,10 @@ export function hasValidTargetsForSpell(
 
     if (auraTargetType === "player" || auraTargetType === "opponent") {
       const players = Array.isArray(state.players) ? state.players : [];
-      const validPlayers = players.filter((p: any) => auraTargetType !== "opponent" || p.id !== playerId);
+      const validPlayers = players.filter((p: any) => {
+        if (auraTargetType === "opponent" && p.id === playerId) return false;
+        return canPlayerBeTargetedByPlayer(p.id, state, playerId);
+      });
       return validPlayers.length > 0;
     }
 
@@ -111,13 +117,13 @@ export function hasValidTargetsForSpell(
     return true;
   }
 
-  // Prefer the dynamic heuristic spell categorizer (it aligns with our target selector).
-  // Use the non-retired categorizer for castability/auto-pass: IR retirement suppresses
-  // COUNTER_TARGET_* specs for resolution routing, but empty-stack counterspells must still
-  // be treated as uncastable (Fierce Guardianship free cast with commander on board).
-  const spellSpec =
-    categorizeSpellWithoutPrimaryRetirement(cardName, oracleText)
-    || categorizeSpell(cardName, oracleText);
+  // IR-primary: parseTargetRequirements owns cast-time legality (no categorize opcode table).
+  // IR-off: keep the non-retired categorizer so empty-stack COUNTER_TARGET_* stays uncastable.
+  const useParsedCastTargets = isOracleIrSpellPrimaryEnabled();
+  const spellSpec = useParsedCastTargets
+    ? null
+    : (categorizeSpellWithoutPrimaryRetirement(cardName, oracleText)
+      || categorizeSpell(cardName, oracleText));
 
   // Counterspells and similar stack-targeting effects must have legal targets on the stack,
   // even when requiresTargeting() misses oracle phrasing like "target instant or sorcery spell".
@@ -160,7 +166,8 @@ export function hasValidTargetsForSpell(
   });
   const preferParsedTargetReqs = Boolean(targetReqs.needsTargets)
     && (
-      targetReqs.perOpponent === true
+      useParsedCastTargets
+      || targetReqs.perOpponent === true
       || (
         Array.isArray(targetReqs.targetTypes)
         && targetReqs.targetTypes.some(t => String(t || '').toLowerCase().startsWith('graveyard_'))
@@ -187,13 +194,14 @@ export function hasValidTargetsForSpell(
     return true;
   }
 
-  const needsPlayers = targetReqs.targetTypes.includes('player') || targetReqs.targetTypes.includes('opponent');
+  const needsAnyTarget = targetReqs.targetTypes.includes('any');
+  const needsPlayers = needsAnyTarget || targetReqs.targetTypes.includes('player') || targetReqs.targetTypes.includes('opponent');
   const needsStack = targetReqs.targetTypes.some(t => {
     const tt = String(t).toLowerCase();
     return tt.includes('spell') || tt.includes('ability');
   });
   const needsGraveyard = targetReqs.targetTypes.some(t => String(t).toLowerCase().startsWith('graveyard_'));
-  const needsBattlefield = !needsPlayers && !needsStack && !needsGraveyard;
+  const needsBattlefield = needsAnyTarget || (!needsPlayers && !needsStack && !needsGraveyard);
 
   if (needsPlayers && !ctx.hasPlayers) return conservative;
   if (needsStack) {
@@ -206,12 +214,18 @@ export function hasValidTargetsForSpell(
   const candidates = new Set<string>();
 
   // Player targets.
-  if (targetReqs.targetTypes.includes("player")) {
-    for (const pr of state.players || []) candidates.add(`player:${pr.id}`);
+  if (targetReqs.targetTypes.includes("player") || targetReqs.targetTypes.includes("any")) {
+    for (const pr of state.players || []) {
+      if (canPlayerBeTargetedByPlayer(pr.id, state, playerId)) {
+        candidates.add(`player:${pr.id}`);
+      }
+    }
   }
   if (targetReqs.targetTypes.includes("opponent")) {
     for (const pr of state.players || []) {
-      if (pr.id !== playerId) candidates.add(`player:${pr.id}`);
+      if (pr.id !== playerId && canPlayerBeTargetedByPlayer(pr.id, state, playerId)) {
+        candidates.add(`player:${pr.id}`);
+      }
     }
   }
 
@@ -271,7 +285,8 @@ export function hasValidTargetsForSpell(
     for (const opp of opponents) {
       const hasOne = (state.battlefield || []).some((perm: any) => {
         if (perm?.controller !== opp.id) return false;
-        return targetReqs.targetTypes.some(tt => matchesBattlefieldTargetType(perm, tt));
+        if (!targetReqs.targetTypes.some(tt => matchesBattlefieldTargetType(perm, tt))) return false;
+        return permanentMatchesTargetRequirementStatKeywordFilters(perm, state, targetReqs, playerId);
       });
       if (!hasOne) return false;
     }
@@ -282,9 +297,9 @@ export function hasValidTargetsForSpell(
   // Battlefield targets.
   for (const perm of state.battlefield || []) {
     if (!perm?.id) continue;
-    if (targetReqs.targetTypes.some(tt => matchesBattlefieldTargetType(perm, tt))) {
-      candidates.add(`battlefield:${perm.id}`);
-    }
+    if (!targetReqs.targetTypes.some(tt => matchesBattlefieldTargetType(perm, tt))) continue;
+    if (!permanentMatchesTargetRequirementStatKeywordFilters(perm, state, targetReqs, playerId)) continue;
+    candidates.add(`battlefield:${perm.id}`);
   }
 
   return candidates.size >= targetReqs.minTargets;

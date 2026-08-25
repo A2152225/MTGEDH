@@ -15,6 +15,8 @@ import { tryEvaluateConditionalUnlessPayYouDoOtherwise } from './oracleIRExecuto
 import { tryEvaluateConditionalCreaturesDiedThisTurn } from './oracleIRExecutorConditionalStepCreaturesDied.js';
 import { tryEvaluateConditionalKicked } from './oracleIRExecutorConditionalStepKicked.js';
 import { tryEvaluateConditionalYouHaveGraveyard } from './oracleIRExecutorConditionalStepYouHaveGraveyard.js';
+import { tryEvaluateWinIfCastSameNameThisGame } from './oracleIRExecutorWinIfCastSameNameThisGame.js';
+import { tryEvaluateWinIfControlDifferentNames } from './oracleIRExecutorWinIfControlDifferentNames.js';
 
 export function evaluateOracleStepUnlessCondition(
   unlessCondition: ConditionalCondition,
@@ -87,6 +89,16 @@ export function evaluateConditionalWrapperCondition(
   }
   if (normalizedRaw.startsWith('if ')) {
     normalizedRaw = normalizedRaw.replace(/^if\s+/i, '').trim();
+  }
+
+  {
+    const differentNames = tryEvaluateWinIfControlDifferentNames(params);
+    if (differentNames !== undefined) return differentNames;
+  }
+
+  {
+    const sameNameCast = tryEvaluateWinIfCastSameNameThisGame(params);
+    if (sameNameCast !== undefined) return sameNameCast;
   }
 
   {

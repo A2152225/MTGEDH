@@ -13,6 +13,7 @@ import { creatureHasHaste } from '../../../socket/game-actions.js';
 import { getGrantedEmbalmInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from '../graveyard-permissions.js';
 import { debug, debugWarn } from '../../../utils/debug.js';
 import { parseWordNumber } from '../../utils.js';
+import { canPlayerPayLife } from '../game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js';
 import { findPermanentsWithCreatureType } from '../../../../../shared/src/creatureTypes.js';
 import { isAbilityActivationProhibitedByChosenName } from '../chosen-name-restrictions.js';
 import { canActivateLoyaltyAtInstantSpeed } from '../triggered-abilities.js';
@@ -363,7 +364,7 @@ function hasActivatableAbility(
         if (lifeMatch) {
           const lifeCost = parseInt(lifeMatch[1], 10);
           const currentLife = state.life?.[playerId] ?? 40;
-          if (currentLife < lifeCost) {
+          if (currentLife < lifeCost || !canPlayerPayLife(ctx, playerId)) {
             return false; // Can't pay life cost
           }
         }

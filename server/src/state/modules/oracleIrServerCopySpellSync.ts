@@ -29,6 +29,7 @@ import {
   buildResolvedSpellCopySnapshot,
   wasSpellCastFromGraveyard,
 } from './stackResolveSpellCopyChoiceUtils.js';import { appendEvent } from '../../db/index.js';
+import { persistNamedSpellCastThisGame } from './namedSpellsCastThisGame.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 
 function isAbilityCopyStep(
@@ -82,15 +83,18 @@ function findCopySpellStepForGap(
 function appendCopiedSpellToServerStack(state: any, copiedItem: any): void {
   if (Array.isArray(state?.stack)) {
     state.stack.push(copiedItem);
-    return;
-  }
-
-  if (state?.stack && typeof state.stack === 'object' && Array.isArray(state.stack.objects)) {
+  } else if (state?.stack && typeof state.stack === 'object' && Array.isArray(state.stack.objects)) {
     state.stack.objects.push(copiedItem);
-    return;
+  } else {
+    state.stack = [copiedItem];
   }
 
-  state.stack = [copiedItem];
+  if (String(copiedItem?.type || '').toLowerCase() === 'spell') {
+    persistNamedSpellCastThisGame(state, String(copiedItem?.controller || '').trim(), {
+      name: copiedItem?.card?.name,
+      id: copiedItem?.id,
+    });
+  }
 }
 
 function resolveTriggeringStackItemId(

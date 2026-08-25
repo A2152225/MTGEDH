@@ -25,6 +25,7 @@ import type { RecurseExecutor, MainLoopStepFamilyCtx } from './oracleIRExecutorM
 import { tryApplyMainLoopExileRestrictionSteps } from './oracleIRExecutorMainLoopExileRestrictionSteps';
 import { tryApplyMainLoopCoinDieDrawSteps } from './oracleIRExecutorMainLoopCoinDieDrawSteps';
 import { tryApplyMainLoopLibraryTurnControlSteps } from './oracleIRExecutorMainLoopLibraryTurnControlSteps';
+import { tryApplyMainLoopChoiceFamilySteps } from './oracleIRExecutorMainLoopChoiceFamilySteps';
 import { tryApplyMainLoopChoiceKeywordLookSteps } from './oracleIRExecutorMainLoopChoiceKeywordLookSteps';
 import { tryApplyMainLoopMillPtTokenSteps } from './oracleIRExecutorMainLoopMillPtTokenSteps';
 import { tryApplyMainLoopCopyDestroySteps } from './oracleIRExecutorMainLoopCopyDestroySteps';
@@ -59,6 +60,10 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'venture_into_dungeon',
   // Council / Secret council — resume must re-run vote + follow-on votes_received effects.
   'vote',
+  'each_player_choose_then_destroy_rest',
+  'secret_opponent_choice_damage',
+  'may_cast_from_among',
+  'may_reveal_hand_then_win_if_own_named_in_zones',
 ]);
 
 export function applyOracleIRStepsToGameStateImpl(
@@ -287,7 +292,15 @@ export function applyOracleIRStepsToGameStateImpl(
         ? { referenceAmount: lastReferenceAmount }
         : {}),
     };
-    onApplied?.(sanitizeBridgedStepCarryOver(result));
+    const sanitizedCarryOver = sanitizeBridgedStepCarryOver(result);
+    const milledForFollowUp = Array.isArray((result as any).lastMilledCards)
+      ? ((result as any).lastMilledCards as any[])
+      : [];
+    onApplied?.(
+      milledForFollowUp.length > 0
+        ? { ...sanitizedCarryOver, lastMilledCards: milledForFollowUp }
+        : sanitizedCarryOver,
+    );
     trackAppliedStepKind(appliedStepKinds, Number(currentCtx.currentStepIndex ?? 0), step);
     if (!result.skipLedgerFlush) {
       flushStepLedgerFromAppliedResult({
@@ -627,6 +640,13 @@ export function applyOracleIRStepsToGameStateImpl(
         tryApplyMainLoopChoiceKeywordLookSteps(loopCtx, step);
         break;
       }
+      case 'each_player_choose_then_destroy_rest':
+      case 'secret_opponent_choice_damage':
+      case 'may_cast_from_among':
+      case 'may_reveal_hand_then_win_if_own_named_in_zones': {
+        tryApplyMainLoopChoiceFamilySteps(loopCtx, step);
+        break;
+      }
       case 'mill':
       case 'modify_pt':
       case 'set_base_pt':
@@ -658,6 +678,7 @@ export function applyOracleIRStepsToGameStateImpl(
       case 'attach':
       case 'create_token':
       case 'grant_temporary_dies_trigger':
+      case 'grant_temporary_etb_trigger':
       case 'grant_temporary_ability':
       case 'grant_leave_battlefield_replacement': {
         tryApplyMainLoopMillPtTokenSteps(loopCtx, step);
@@ -719,6 +740,7 @@ export function applyOracleIRStepsToGameStateImpl(
     ...(pendingContinuationSteps ? { pendingContinuationSteps } : {}),
     lastStepOutcome,
     ...(lastMovedCards.length > 0 ? { lastMovedCards } : {}),
+    ...(lastMilledCards.length > 0 ? { lastMilledCards } : {}),
     ...(lastRevealedCardCount > 0 ? { lastRevealedCardCount } : {}),
     ...(replayMutations.length > 0 ? { replayMutations } : {}),
   };

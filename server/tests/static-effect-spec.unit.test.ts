@@ -1115,6 +1115,25 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
       ],
     };
 
+    const specs = collectStaticEffectSpecsFromState(state);
+    expect(specs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scope: { kind: 'player_you' },
+        grant: { playerHexproof: true },
+        sourcePermanentId: 'shalai_perm',
+      }),
+      expect.objectContaining({
+        scope: { kind: 'other_creatures_you_control' },
+        grant: { abilities: ['hexproof'] },
+        sourcePermanentId: 'shalai_perm',
+      }),
+      expect.objectContaining({
+        scope: { kind: 'planeswalkers_you_control' },
+        grant: { abilities: ['hexproof'] },
+        sourcePermanentId: 'shalai_perm',
+      }),
+    ]));
+
     const merged = recomputeContinuousEffects(state as any);
     expect([...merged.playerHexproof]).toContain('p1');
     expect(merged.perPermanent.get('other_creature')?.abilities?.has('hexproof')).toBe(true);
@@ -1438,5 +1457,137 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
     expect(merged.perPermanent.get('sliver_legion')).toMatchObject({ pDelta: 1, tDelta: 1 });
     expect(merged.perPermanent.get('sliver_two')).toMatchObject({ pDelta: 1, tDelta: 1 });
     expect(merged.perPermanent.get('nonsliver')?.pDelta || 0).toBe(0);
+  });
+
+  it('grants haste from Anger in the graveyard when you control a Mountain', () => {
+    // oracle-cards / mtg_data.db: "Haste\nAs long as this card is in your graveyard and you control a Mountain, creatures you control have haste."
+    const angerOracle = 'Haste\nAs long as this card is in your graveyard and you control a Mountain, creatures you control have haste.';
+    const state = {
+      battlefield: [
+        {
+          id: 'mountain_1',
+          controller: 'p1',
+          card: { name: 'Mountain', type_line: 'Basic Land — Mountain', oracle_text: '{T}: Add {R}.' },
+        },
+        {
+          id: 'bear_1',
+          controller: 'p1',
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+      ],
+      zones: {
+        p1: {
+          graveyard: [{
+            id: 'anger_gy',
+            name: 'Anger',
+            type_line: 'Creature — Incarnation',
+            oracle_text: angerOracle,
+          }],
+        },
+      },
+    };
+
+    const specs = collectStaticEffectSpecsFromState(state);
+    expect(specs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scope: { kind: 'creatures_you_control' },
+        grant: { abilities: ['haste'] },
+        condition: { kind: 'source_in_graveyard_and_control_land_type', landType: 'mountain' },
+        sourcePermanentId: 'anger_gy',
+      }),
+    ]));
+
+    const withMountain = recomputeContinuousEffects(state as any);
+    expect(withMountain.perPermanent.get('bear_1')?.abilities?.has('haste')).toBe(true);
+
+    const withoutMountain = recomputeContinuousEffects({
+      ...state,
+      battlefield: [state.battlefield[1]],
+    } as any);
+    expect(withoutMountain.perPermanent.get('bear_1')?.abilities?.has('haste')).toBeFalsy();
+  });
+
+  it('grants player hexproof from Leyline of Sanctity oracle', () => {
+    // oracle-cards / mtg_data.db: "If this card is in your opening hand, you may begin the game with it on the battlefield.\nYou have hexproof. (You can't be the target of spells or abilities your opponents control.)"
+    const state = {
+      battlefield: [{
+        id: 'leyline_1',
+        controller: 'p1',
+        card: {
+          name: 'Leyline of Sanctity',
+          type_line: 'Enchantment',
+          oracle_text: 'If this card is in your opening hand, you may begin the game with it on the battlefield.\nYou have hexproof. (You can\'t be the target of spells or abilities your opponents control.)',
+        },
+      }],
+    };
+
+    const specs = collectStaticEffectSpecsFromState(state);
+    expect(specs.some((spec) => spec.grant.playerHexproof && spec.scope.kind === 'player_you')).toBe(true);
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect([...merged.playerHexproof]).toContain('p1');
+  });
+
+  it('applies Elesh Norn other-creature buff and opponent-creature debuff', () => {
+    // oracle-cards / mtg_data.db: "Vigilance\nOther creatures you control get +2/+2.\nCreatures your opponents control get -2/-2."
+    const state = {
+      battlefield: [
+        {
+          id: 'elesh_1',
+          controller: 'p1',
+          card: {
+            name: 'Elesh Norn, Grand Cenobite',
+            type_line: 'Legendary Creature — Phyrexian Praetor',
+            oracle_text: 'Vigilance\nOther creatures you control get +2/+2.\nCreatures your opponents control get -2/-2.',
+            power: '4',
+            toughness: '7',
+          },
+        },
+        {
+          id: 'ally_1',
+          controller: 'p1',
+          card: { name: 'Elite Vanguard', type_line: 'Creature — Human Soldier', oracle_text: '', power: '2', toughness: '1' },
+        },
+        {
+          id: 'enemy_1',
+          controller: 'p2',
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '', power: '2', toughness: '2' },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('ally_1')).toMatchObject({ pDelta: 2, tDelta: 2 });
+    expect(merged.perPermanent.get('enemy_1')).toMatchObject({ pDelta: -2, tDelta: -2 });
+    expect(merged.perPermanent.get('elesh_1')?.pDelta || 0).toBe(0);
+  });
+
+  it('grants Cryptolith Rite tap-for-any-color via declarative specs', () => {
+    // oracle-cards / mtg_data.db: "Creatures you control have \"{T}: Add one mana of any color.\""
+    const state = {
+      battlefield: [
+        {
+          id: 'cryptolith_1',
+          controller: 'p1',
+          card: {
+            name: 'Cryptolith Rite',
+            type_line: 'Enchantment',
+            oracle_text: 'Creatures you control have "{T}: Add one mana of any color."',
+          },
+        },
+        {
+          id: 'bear_1',
+          controller: 'p1',
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+      ],
+    };
+
+    const specs = collectStaticEffectSpecsFromState(state);
+    expect(specs.some((spec) => spec.grant.abilities?.includes('tap_for_any_color'))).toBe(true);
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('bear_1')?.abilities?.has('tap_for_any_color')).toBe(true);
+    expect(merged.permanentAbilities.get('cryptolith_1')?.has('tap_for_any_color')).toBeFalsy();
   });
 });

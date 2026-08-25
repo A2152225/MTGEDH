@@ -18,6 +18,7 @@ import {
   applyRecordedLifePayment,
 } from "../applyEventReplayZoneCommanderManaHelpers.js";
 import { buildDisturbCastCard, consumeRecordedManaCostFromPool } from "../applyEventReplayCardMoveLibraryHelpers.js";
+import { persistNamedSpellCastThisGame } from "../namedSpellsCastThisGame.js";
 import { debugWarn } from "../../../utils/debug.js";
 import { ResolutionQueueManager } from "../../resolution/index.js";
 
@@ -264,6 +265,7 @@ export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEve
                     castSourceZone: 'graveyard',
                   },
                 });
+                persistNamedSpellCastThisGame(stateAny, String(pid), { name: card?.name, id: card?.id || cardId });
                 if (!String(card?.type_line || '').toLowerCase().includes('creature')) {
                   stateAny.noncreatureSpellsCastThisTurn = stateAny.noncreatureSpellsCastThisTurn || {};
                   stateAny.noncreatureSpellsCastThisTurn[String(pid)] =
@@ -408,6 +410,7 @@ export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEve
                     castSourceZone: 'graveyard',
                   },
                 });
+                persistNamedSpellCastThisGame(stateAny, String(pid), { name: disturbSpellCard?.name, id: disturbSpellCard?.id || cardId });
                 if (!String(disturbSpellCard?.type_line || '').toLowerCase().includes('creature')) {
                   stateAny.noncreatureSpellsCastThisTurn = stateAny.noncreatureSpellsCastThisTurn || {};
                   stateAny.noncreatureSpellsCastThisTurn[String(pid)] =

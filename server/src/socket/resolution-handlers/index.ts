@@ -114,6 +114,9 @@ export {
 // OPTION_CHOICE dispatcher.
 export { handleOptionChoiceResponse } from "./optionChoiceResponseHandlers.js";
 
+// OPTION_CHOICE resume: may-reveal-hand / if-you-do four-zone named-copy win.
+export { handleMayRevealHandWinIfOwnNamedChoice } from "./optionChoiceMayRevealHandWinHandlers.js";
+
 // handleStepResponse core dispatcher.
 export { handleStepResponse } from "./stepResponseHandlers.js";
 

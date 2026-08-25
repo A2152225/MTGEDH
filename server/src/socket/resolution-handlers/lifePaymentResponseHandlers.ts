@@ -9,6 +9,7 @@
  */
 
 import type { Server } from "socket.io";
+import type { GameContext } from "../../state/context.js";
 import { queueLifePaymentTriggers } from "../../state/modules/triggers/pay-life.js";
 import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolution/index.js";
 import { validateLifePayment } from "../../state/utils.js";
@@ -55,7 +56,7 @@ export async function handleLifePaymentResponse(
 
   const startingLife = (game.state as any)?.startingLife || 40;
   const currentLife = (game.state as any)?.life?.[pid] ?? startingLife;
-  const validationError = validateLifePayment(currentLife, lifePayment, cardName);
+  const validationError = validateLifePayment(currentLife, lifePayment, cardName, game as GameContext, pid);
   if (validationError) {
     emitToPlayer(io, pid as any, 'error', { code: 'INVALID_LIFE_PAYMENT', message: validationError });
     return;

@@ -26,6 +26,9 @@ import {
   detectMillReplacementEffects,
   applyMillReplacements,
   processLifeChange,
+  hasCantLoseEffect,
+  hasDrawWinReplacement,
+  checkLoseConditions,
 } from '../src/state/modules/game-state-effects.js';
 
 describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
@@ -1660,5 +1663,142 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
       'Generic Global Token Doubler',
       'Generic Creature Token Tripler',
     ]);
+  });
+
+  it('collects oracle-pattern can\'t-lose specs without a card-name table', () => {
+    const platinumOracle = 'Flying\nYou can\'t lose the game and your opponents can\'t win the game.';
+    const abyssalOracle = 'Flying, trample\nYou can\'t win the game and your opponents can\'t lose the game.';
+    const angelsGraceOracle =
+      'Split second (As long as this spell is on the stack, players can\'t cast spells or activate abilities that aren\'t mana abilities.)\nYou can\'t lose the game this turn and your opponents can\'t win the game this turn. Until end of turn, damage that would reduce your life total to less than 1 reduces it to 1 instead.';
+    const unlifeOracle =
+      'You don\'t lose the game for having 0 or less life.\nAs long as you have 0 or less life, all damage is dealt to you as though its source had infect. (Damage is dealt to you in the form of poison counters.)';
+    const labManOracle = 'If you would draw a card while your library has no cards in it, you win the game instead.';
+    const gideonOracle =
+      '[+1]: Until your next turn, prevent all damage target permanent would deal.\n[0]: Until end of turn, Gideon becomes a 4/4 Human Soldier creature with indestructible that\'s still a planeswalker. Prevent all damage that would be dealt to him this turn.\n[0]: You get an emblem with "As long as you control a Gideon planeswalker, you can\'t lose the game and your opponents can\'t win the game."';
+
+    const state = {
+      players: [{ id: 'p1', life: 40 }, { id: 'p2', life: 40 }],
+      life: { p1: 40, p2: 40 },
+      battlefield: [
+        {
+          id: 'angel_1',
+          controller: 'p1',
+          card: { name: 'Platinum Angel', oracle_text: platinumOracle },
+        },
+      ],
+    };
+    const specs = collectReplacementEffectSpecsFromState(state);
+    expect(specs.some((spec) => spec.effectId === 'controller-cant-lose-opponents-cant-win')).toBe(true);
+    expect(hasCantLoseEffect({ state } as any, 'p1')).toMatchObject({ cantLose: true, reason: 'Platinum Angel' });
+    expect(hasCantLoseEffect({ state } as any, 'p2').cantLose).toBe(false);
+
+    const graceState = {
+      players: [{ id: 'p1', life: 40 }, { id: 'p2', life: 40 }],
+      battlefield: [{
+        id: 'grace_1',
+        controller: 'p1',
+        card: { name: "Angel's Grace", oracle_text: angelsGraceOracle },
+      }],
+    };
+    expect(hasCantLoseEffect({ state: graceState } as any, 'p1').cantLose).toBe(true);
+    expect(hasCantLoseEffect({ state: graceState } as any, 'p2').cantLose).toBe(false);
+
+    const abyssalState = {
+      players: [{ id: 'p1', life: 40 }, { id: 'p2', life: 40 }],
+      battlefield: [{
+        id: 'abyssal_1',
+        controller: 'p2',
+        card: { name: 'Abyssal Persecutor', oracle_text: abyssalOracle },
+      }],
+    };
+    expect(hasCantLoseEffect({ state: abyssalState } as any, 'p1')).toMatchObject({
+      cantLose: true,
+      reason: 'Abyssal Persecutor (controlled by opponent)',
+    });
+    expect(hasCantLoseEffect({ state: abyssalState } as any, 'p2').cantLose).toBe(false);
+
+    const unlifeState = {
+      players: [{ id: 'p1', life: 0 }, { id: 'p2', life: 40 }],
+      life: { p1: 0, p2: 40 },
+      battlefield: [{
+        id: 'unlife_1',
+        controller: 'p1',
+        card: { name: 'Phyrexian Unlife', oracle_text: unlifeOracle },
+      }],
+    };
+    expect(hasCantLoseEffect({ state: unlifeState } as any, 'p1').cantLose).toBe(false);
+    expect(checkLoseConditions({ state: unlifeState } as any, 'p1').lost).toBe(false);
+
+    const labState = {
+      battlefield: [{
+        id: 'lab_1',
+        controller: 'p1',
+        card: { name: 'Laboratory Maniac', oracle_text: labManOracle },
+      }],
+    };
+    expect(hasDrawWinReplacement({ state: labState } as any, 'p1')).toBe(true);
+    expect(hasDrawWinReplacement({ state: labState } as any, 'p2')).toBe(false);
+
+    const gideonState = {
+      battlefield: [{
+        id: 'gideon_1',
+        controller: 'p1',
+        card: { name: 'Gideon of the Trials', type_line: 'Legendary Planeswalker — Gideon', oracle_text: gideonOracle },
+      }],
+    };
+    expect(hasCantLoseEffect({ state: gideonState } as any, 'p1').cantLose).toBe(false);
+  });
+
+  it('caps player damage so life cannot go below 1 when oracle says so', () => {
+    const worshipOracle =
+      'If you control a creature, damage that would reduce your life total to less than 1 reduces it to 1 instead.';
+    const fortuneOracle =
+      'Damage that would reduce your life total to less than 1 reduces it to 1 instead.\nMorph {R}{R} (You may cast this card face down as a 2/2 creature for {3}. Turn it face up any time for its morph cost.)';
+    const creature = {
+      id: 'bear_1',
+      controller: 'p1',
+      card: { name: 'Bear', type_line: 'Creature — Bear' },
+    };
+    const worshipCtx = {
+      state: {
+        players: [{ id: 'p1', life: 5 }, { id: 'p2', life: 40 }],
+        life: { p1: 5, p2: 40 },
+        battlefield: [
+          creature,
+          {
+            id: 'worship_1',
+            controller: 'p1',
+            card: { name: 'Worship', type_line: 'Enchantment', oracle_text: worshipOracle },
+          },
+        ],
+      },
+    } as any;
+    expect(calculateModifiedDamage(worshipCtx, 10, 'p2', 'p1').amount).toBe(4);
+
+    const worshipNoCreature = {
+      state: {
+        players: [{ id: 'p1', life: 5 }, { id: 'p2', life: 40 }],
+        life: { p1: 5, p2: 40 },
+        battlefield: [{
+          id: 'worship_1',
+          controller: 'p1',
+          card: { name: 'Worship', type_line: 'Enchantment', oracle_text: worshipOracle },
+        }],
+      },
+    } as any;
+    expect(calculateModifiedDamage(worshipNoCreature, 10, 'p2', 'p1').amount).toBe(10);
+
+    const fortuneCtx = {
+      state: {
+        players: [{ id: 'p1', life: 3 }, { id: 'p2', life: 40 }],
+        life: { p1: 3, p2: 40 },
+        battlefield: [{
+          id: 'thief_1',
+          controller: 'p1',
+          card: { name: 'Fortune Thief', type_line: 'Creature — Human Rogue', oracle_text: fortuneOracle },
+        }],
+      },
+    } as any;
+    expect(calculateModifiedDamage(fortuneCtx, 8, 'p2', 'p1').amount).toBe(2);
   });
 });

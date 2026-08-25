@@ -33,6 +33,11 @@ import { parseEffectClauseToStep } from './oracleIRParserEffectClauseToStep';
 import { parseBareTriggerEffectFragmentSteps } from './oracleIRParserPostprocessBareTriggerFragmentSteps';
 import { lowerCurrentResidualUnknownAbilities } from './oracleIRParserPostprocessResidualUnknownLowering';
 import { expandKeywordActionUnknownAbilities } from './oracleIRParserPostprocessKeywordActionUnknownSteps';
+import { expandChooseLeftOrRightLoyaltyAbilities } from './oracleIRParserLoyaltyDirectionChoice';
+import { rewritePhase4ChoiceFamilyAbilities } from './oracleIRParserPhase4ChoiceFamilyLatePass';
+import { rewriteDiscardHandAndDrawAbilities } from './oracleIRParserDiscardHandAndDrawLatePass';
+import { expandWinIfCastSameNameThisGameAbilities } from './oracleIRParserWinIfCastSameNameThisGame';
+import { expandWinIfControlDifferentNamesAbilities } from './oracleIRParserWinIfControlDifferentNames';
 
 export function applyParseOracleTextToIRLatePasses(params: {
   abilities: OracleIRAbility[];
@@ -347,5 +352,10 @@ export function applyParseOracleTextToIRLatePasses(params: {
   });
 
   abilities = mergeChangeTargetRestrictionFollowupAbilities(abilities);
+  abilities = expandChooseLeftOrRightLoyaltyAbilities(abilities);
+  abilities = rewritePhase4ChoiceFamilyAbilities(abilities, normalizedOracleText);
+  abilities = rewriteDiscardHandAndDrawAbilities(abilities);
+  abilities = expandWinIfControlDifferentNamesAbilities(abilities);
+  abilities = expandWinIfCastSameNameThisGameAbilities(abilities);
   return abilities;
 }

@@ -114,6 +114,20 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
       }
     }
     
+    // Delayed this-turn ETB windows resolve with the spell (Rite of Harmony family).
+    if (
+      /^whenever\s+a(?:n)?\s+.+?\s+you\s+control\s+enters(?:\s+the\s+battlefield)?\s+this\s+turn,/i.test(triggerCandidate)
+      || /^whenever\s+a(?:n)?\s+.+?\s+enters(?:\s+the\s+battlefield)?\s+under\s+your\s+control\s+this\s+turn,/i.test(triggerCandidate)
+    ) {
+      abilities.push({
+        type: AbilityType.SPELL,
+        text: trimmed,
+        effect: trimmed,
+      });
+      if (hasTargeting(trimmed)) hasTargets = true;
+      continue;
+    }
+
     // Step 2c: Check for triggers (When/Whenever/At)
     if (/^(when|whenever|at\s+the\s+beginning)/i.test(triggerCandidate)) {
       const triggered = parseTriggeredAbility(triggerCandidate);

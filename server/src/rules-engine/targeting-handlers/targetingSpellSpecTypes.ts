@@ -53,6 +53,9 @@ export interface StatRequirement {
   stat: 'power' | 'toughness';
   comparison: '<=' | '>=' | '<' | '>' | '=';
   value: number;
+  // Repel Calamity: "with power or toughness N or greater/less".
+  // Existing power XOR toughness stays on `stat` alone; do not set this for those.
+  orStat?: 'power' | 'toughness';
 }
 
 // Target restriction - "that..." clauses after "target X"

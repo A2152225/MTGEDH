@@ -138,6 +138,7 @@ import {
 } from './oracleIRExecutorMoveZonePermanentSelectors';
 
 import { tryApplyMoveZoneEarlyGuardSteps } from './oracleIRExecutorMoveZoneEarlyGuardSteps';
+import { tryApplyMoveZoneSeventhFromTop } from './oracleIRExecutorMoveZoneSeventhFromTop';
 
 export function applyMoveZoneStep(
   state: GameState,
@@ -158,6 +159,9 @@ export function applyMoveZoneStep(
 
   const earlyGuardResult = tryApplyMoveZoneEarlyGuardSteps(state, step, ctx);
   if (earlyGuardResult) return earlyGuardResult;
+
+  const seventhFromTopResult = tryApplyMoveZoneSeventhFromTop(state, step, ctx);
+  if (seventhFromTopResult) return seventhFromTopResult;
 
   let nextState = state;
   const log: string[] = [];

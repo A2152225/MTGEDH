@@ -14,8 +14,8 @@ Coordinator owns this file. Extract chats must not edit it — paste owed rows.
   - `resolutionRegisterPreCompleteValidationForZoneSelectionSteps.ts` — discard, hand-to-bottom, graveyard, library search
   - `resolutionRegisterPreCompleteValidationForChoicePromptSteps.ts` — X, Kynaios, hideaway, devour, player choice, …
   - `resolutionRegisterPreCompleteValidationForModeAndTriggerSteps.ts` — MODE_SELECTION, TRIGGER_ORDER, OPENING_HAND_ACTIONS
-  - `resolutionRegisterPreCompleteValidationForOptionChoiceSteps.ts` — OPTION_CHOICE shape + pay-cost prompts
-  - `resolutionRegisterPreCompleteValidationForCostPaymentSteps.ts` — LIFE_PAYMENT, ADDITIONAL_COST_PAYMENT, SQUAD_COST_PAYMENT
+  - `resolutionRegisterPreCompleteValidationForOptionChoiceSteps.ts` — OPTION_CHOICE shape + pay-cost prompts (`validateLifePayment` passes `ctx` + `controllerId`)
+  - `resolutionRegisterPreCompleteValidationForCostPaymentSteps.ts` — LIFE_PAYMENT, ADDITIONAL_COST_PAYMENT, SQUAD_COST_PAYMENT (`validateLifePayment` passes `ctx` + `pid`)
   - `resolutionRegisterPreCompleteValidationForManaAndSacrificeSteps.ts` — MANA_PAYMENT_CHOICE, tap-cost, EXTORT, EXPLOIT
   - `resolutionRegisterPreCompleteValidationForTargetSelectionSteps.ts` — TARGET_SELECTION / MUTATE_TARGET_SELECTION
   - `resolutionRegisterPreCompleteValidationForActivationCostSteps.ts` — tap-other / discard / exile / sacrifice / blight as cost
@@ -34,7 +34,7 @@ Coordinator owns this file. Extract chats must not edit it — paste owed rows.
 | `resolutionKeywordChoiceHandlers.ts` (35.6 KB) | Keyword choices *(exports TBD)* |
 | `resolutionLibrarySearchHandlers.ts`, `resolutionLibrarySearchStepUtils.ts`, `resolutionLibrarySearchOracleIrChoiceResume.ts`, `resolutionLibrarySearchOracleIrResumeUtils.ts`, `resolutionLibraryLookResponseHandlers.ts` | Library search / look, including Oracle IR resume (leaf-import example) *(exports TBD)* |
 | `resolutionModalChoiceResponseHandlers.ts` | Modal choices *(exports TBD)* |
-| `resolutionOptionChoiceEarlySpecialsPrefixHandlers.ts` (39.5 KB), `resolutionOptionChoiceEarlySpecialsConfirmCastPaymentHandlers.ts` (36.9 KB) | Early `handleOptionChoiceResponse` specials; try-handle boolean prefix pattern *(exports TBD)* |
+| `resolutionOptionChoiceEarlySpecialsPrefixHandlers.ts` (39.5 KB), `resolutionOptionChoiceEarlySpecialsConfirmCastPaymentHandlers.ts` (36.9 KB) | Early `handleOptionChoiceResponse` specials; try-handle boolean prefix pattern. ConfirmCastPayment reflexive consume `validateLifePayment` passes `ctx` + `controllerId`. |
 | `resolutionPaymentManaUtils.ts`, `resolutionWardUtils.ts` | Mana payment and ward helpers *(exports TBD)* |
 | `resolutionProcessPendingHandlers.ts` | Pending-resolution processing *(exports TBD)* |
 | `resolutionPutCardOntoBattlefieldUtils.ts`, `resolutionCloneQueuedPromptUtils.ts`, `resolutionStepTypeSpecificFieldsUtils.ts`, `resolutionSyntheticCastSocketUtils.ts` | Shared step/prompt utilities *(exports TBD)* |
@@ -52,7 +52,7 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `tapUntapTargetResponseHandlers.ts` | TAP_UNTAP_TARGET plus tap-another-permanent as cost. Entry: `handleTapUntapTargetResponse`. |
 | `counterManipulationResponseHandlers.ts` | COUNTER_MOVEMENT / COUNTER_TARGET / COUNTER_DISTRIBUTION. |
 | `stationCreatureSelectionResponseHandlers.ts` | STATION_CREATURE_SELECTION. |
-| `lifePaymentResponseHandlers.ts` | LIFE_PAYMENT then resume captured cast. |
+| `lifePaymentResponseHandlers.ts` | LIFE_PAYMENT then resume captured cast. `validateLifePayment` passes `ctx` + `pid`. |
 | `manaColorSelectionResponseHandlers.ts` | MANA_COLOR_SELECTION (distribution, Treasure provenance, deferred activation costs). |
 | `resolutionManaPaymentApplication.ts` | Shared mana-payment appliers: `extractResolutionPaymentItems`, ward apply/validate, `applySelectedManaPaymentForResolutionCost`. |
 | `manaPaymentChoicePrefixHandlers.ts` | MANA_PAYMENT_CHOICE ward / sacrifice-unless-pay prefix. Entry: `tryHandleManaPaymentChoiceWardAndSacrificePrefix`. |
@@ -88,7 +88,7 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `targetSelectionOracleIrPromptHandlers.ts` | Oracle IR any-player-may + library-chaos TARGET_SELECTION. |
 | `targetSelectionDistinctTargetUtils.ts` | `getFilteredValidTargetsForStep`, distinct-target helpers. |
 | `resolutionOptionChoiceSelectionIds.ts` | Shared OPTION_CHOICE id extractors. |
-| `optionChoiceLandEntryReplacementHandlers.ts` | Shock / reveal / land-sacrifice / Mox Diamond. |
+| `optionChoiceLandEntryReplacementHandlers.ts` | Shock / reveal / land-sacrifice / Mox Diamond. `handleShockLandChoice` refuses `pay_2_life` via `canChooseShockLandPayLife`. |
 | `optionChoiceWardPaymentHandlers.ts` | Ward pay-or-counter OPTION_CHOICE. |
 | `optionChoicePayOrElseHandlers.ts` | Sacrifice-unless-pay, Force of Will pitch, opponent-may-pay. |
 | `optionChoiceCastFromGraveyardPrompts.ts` | Play/cast from graveyard OPTION_CHOICE. |
@@ -97,7 +97,8 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `optionChoiceReflexiveWhenYouDoQueueHandlers.ts` | Reflexive when-you-do that only queue the follow-up. |
 | `optionChoiceDungeonRoomPrompts.ts` | Dungeon room penalty / free-cast / Throne. |
 | `optionChoiceVentureDungeonHandlers.ts` | Venture + `applyDungeonRoomEffectsWithDoubler`. |
-| `optionChoiceSpellCopyPrompts.ts` | Resolved-spell copy keep/retarget. |
+| `optionChoiceSpellCopyPrompts.ts` | Resolved-spell copy keep/retarget. Fallback `stack.push` (no `applyEvent`) persists `namedSpellsCastThisGame`. |
+| `optionChoiceMayRevealHandWinHandlers.ts` | OPTION_CHOICE resume for may-reveal four-zone named-copy win. Reveal is a chat note then stamp winner if the chooser owns a current-name copy in exile, hand, GY, and battlefield. Decline is a no-op. Entry: `handleMayRevealHandWinIfOwnNamedChoice`. |
 | `optionChoiceLookedAtCardsAndPileHandlers.ts` | Looked-at destination, pay-X-to-look, pile split. |
 | `optionChoicePermanentAndHandCardPrompts.ts` | Own-card / own-permanent OPTION_CHOICE. |
 | `optionChoiceCostPlanPrompts.ts` | Blight-or-pay + choose-discard-plan. |

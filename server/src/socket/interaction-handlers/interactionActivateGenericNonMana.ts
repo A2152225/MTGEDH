@@ -18,6 +18,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../../state/resoluti
 import { cardManaValue, parsePT, parseWordNumber } from "../../state/utils";
 import {
   canPermanentBeTargetedByPlayer,
+  canPlayerBeTargetedByPlayer,
   normalizeRequirementTargetType,
   parseAbilityTargeting,
   parseTargetRequirements,
@@ -505,6 +506,7 @@ export async function tryHandleActivateGenericNonMana(
               if (!player?.id) return false;
               if (targetType === 'opponent' && String(player.id) === String(pid)) return false;
               if (targetControllerConstraint === 'opponent' && String(player.id) === String(pid)) return false;
+              if (!canPlayerBeTargetedByPlayer(player.id, game.state, pid as PlayerID)) return false;
               return true;
             })
             .map((player: any) => ({

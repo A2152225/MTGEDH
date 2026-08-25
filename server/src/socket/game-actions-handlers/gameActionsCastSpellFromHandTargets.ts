@@ -11,10 +11,10 @@ import type { Socket } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import {
   canPermanentBeTargetedByPlayer,
-  categorizeSpellWithoutPrimaryRetirement,
+  canPlayerBeTargetedByPlayer,
   evaluateTargeting,
-  parseTargetRequirements,
 } from "../../rules-engine/targeting";
+import { resolveCastSpellParsedTargeting } from "./gameActionsCastSpellParsedTargeting.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug, debugError } from "../../utils/debug.js";
 import { getPlayerName } from "../util";
@@ -123,19 +123,22 @@ export function tryPromptCastSpellTargetsFromHand(
         }
       }
       
-      // Use comprehensive targeting detection for instants/sorceries
-      // This catches ALL spells with "target" in their text, not just specific patterns
-      const spellSpec = (requiresTargetingCheck && !isAura) ? categorizeSpellWithoutPrimaryRetirement(cardInHand.name || '', oracleText) : null;
-      
-      // If categorizeSpell didn't find a pattern but the spell has "target" in text,
-      // use the comprehensive detection
-      const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText, {
-        xValue,
-        gameState: game.state,
-        controllerId: String(playerId),
-        sourceName: String(cardInHand.name || ''),
-      }) : null;
-      const preferParsedTargetReqs = shouldPreferParsedTargetReqs(targetReqs);
+      // IR-primary: parseTargetRequirements only (no categorize opcode table).
+      // IR-off: resolveCastSpellParsedTargeting still uses categorize as fallback.
+      const parsedTargeting = (requiresTargetingCheck && !isAura)
+        ? resolveCastSpellParsedTargeting({
+          cardName: String(cardInHand.name || ''),
+          oracleText,
+          xValue,
+          gameState: game.state,
+          controllerId: String(playerId),
+        })
+        : null;
+      const spellSpec = parsedTargeting?.spellSpec ?? null;
+      const targetReqs = parsedTargeting?.targetReqs ?? null;
+      const preferParsedTargetReqs = parsedTargeting
+        ? parsedTargeting.preferParsedTargetReqs
+        : shouldPreferParsedTargetReqs(targetReqs);
       const multiTargetClauses = !isAura
         ? buildSpellTargetSelectionClauses(game, String(playerId), String(cardInHand.name || ''), oracleText, xValue)
         : [];
@@ -164,16 +167,18 @@ export function tryPromptCastSpellTargetsFromHand(
         
         if (auraTargetType === 'player') {
           // Enchant player - can target any player
-          validTargets = (game.state.players || []).map((p: any) => ({
-            id: p.id,
-            kind: 'player',
-            name: p.name || p.id,
-            isOpponent: p.id !== playerId,
-          }));
+          validTargets = (game.state.players || [])
+            .filter((p: any) => canPlayerBeTargetedByPlayer(p.id, game.state, playerId as PlayerID))
+            .map((p: any) => ({
+              id: p.id,
+              kind: 'player',
+              name: p.name || p.id,
+              isOpponent: p.id !== playerId,
+            }));
         } else if (auraTargetType === 'opponent') {
           // Enchant opponent - can only target opponents (Curses typically)
           validTargets = (game.state.players || [])
-            .filter((p: any) => p.id !== playerId)
+            .filter((p: any) => p.id !== playerId && canPlayerBeTargetedByPlayer(p.id, game.state, playerId as PlayerID))
             .map((p: any) => ({
               id: p.id,
               kind: 'player',

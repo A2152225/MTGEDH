@@ -35,6 +35,10 @@ export {
   queueVotePromptsFromOracleIRResult,
 } from "./oracleIrServerVoteJoinForcesPrompts.js";
 
+// Phase 4 leftover choice families: each-player choose-then-destroy-rest,
+// secret opponent damage matrix, mill-from-among may-cast.
+export { queueChoiceFamilyPromptsFromOracleIRResult } from "./oracleIrServerChoiceFamilyPrompts.js";
+
 // TAP_UNTAP_TARGET queues for tap-or-untap and tap-matching-permanents
 // automation gaps.
 export {

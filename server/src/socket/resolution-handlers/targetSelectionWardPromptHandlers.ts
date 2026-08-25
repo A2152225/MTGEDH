@@ -17,6 +17,7 @@
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
 import type { GameContext } from "../../state/context.js";
+import { canPlayerPayLife } from "../../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
 import { counterStackItem, getWardCost } from "../../state/modules/stack-mechanics.js";
 import {
   createResolutionStep,
@@ -26,6 +27,7 @@ import {
   type ResolutionStep,
 } from "../../state/resolution/index.js";
 import { debugWarn } from "../../utils/debug.js";
+import { asThoughAbilitySuppressedForTarget } from "../../rules-engine/targeting-handlers/targetingProtectionKeywordStaticOverride.js";
 import { resolveWardCasterForTargetSelection } from "../resolutionWardUtils.js";
 import { broadcastGame, getPlayerName } from "../util.js";
 
@@ -100,6 +102,10 @@ export function maybeQueueWardPaymentPromptsForTargetSelection(
 
     // Ward triggers only for opponents; if we're targeting our own permanent, ignore.
     if (String(targetPerm.controller || '') === casterId) continue;
+
+    if (asThoughAbilitySuppressedForTarget(targetPerm, game.state, casterId, 'ward')) {
+      continue;
+    }
 
     const wardCost = getWardCost(targetPerm.card);
     if (!wardCost) continue;
@@ -226,7 +232,7 @@ export function maybeQueueWardPaymentPromptsForTargetSelection(
       const startingLife = game.state.startingLife || 40;
       game.state.life = game.state.life || {};
       const currentLife = game.state.life?.[casterId] ?? startingLife;
-      if (currentLife < lifeAmount) {
+      if (currentLife < lifeAmount || !canPlayerPayLife(makeCounterCtx(), casterId)) {
         const ctx = makeCounterCtx();
         counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
         io.to(gameId).emit('chat', {

@@ -27,6 +27,7 @@ import {
   recordGraveyardPermanentTypesCastThisTurn,
 } from "../applyEventReplayZoneCommanderManaHelpers.js";
 import { applyReplaySacrificedPermanent } from "../applyEventReplayCardMoveLibraryHelpers.js";
+import { persistNamedSpellCastThisGame } from "../namedSpellsCastThisGame.js";
 import { getOrInitManaPool } from "../../../socket/util.js";
 
 export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
@@ -251,6 +252,13 @@ export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
             if (persistedStackItemId) {
               (topStackItem as any).id = persistedStackItemId;
             }
+
+            persistNamedSpellCastThisGame(ctx.state, String((e as any).playerId || '').trim(), {
+              name: (topStackItem as any)?.card?.name
+                || (typeof spellCardData === 'object' ? (spellCardData as any)?.name : undefined),
+              id: (topStackItem as any)?.id
+                || (typeof spellCardData === 'object' ? (spellCardData as any)?.id : spellCardData),
+            });
 
             const applyToStackItem = (key: string, value: any) => {
               (topStackItem as any)[key] = value;

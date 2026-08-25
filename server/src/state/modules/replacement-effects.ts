@@ -1,4 +1,5 @@
 import { evaluateDeclarativeReplacementEvent, collectReplacementEffectSpecsFromState, overlaySpecsMatchLibrarySearch, summarizeTokenAmountReplacements } from './replacementEffectSpec.js';
+import { summarizeLifeLossAmountReplacements } from './replacementEffectSpec-handlers/replacementEffectSpecLifeLossOracleTemplates.js';
 import type { GameContext } from '../context.js';
 import {
   applyBeneficialReplacements,
@@ -9,7 +10,7 @@ import { computeCounterPlacementModifiedDeltas } from './replacementCounterPlace
 
 export type ReplacementZone = 'battlefield' | 'graveyard' | 'exile' | 'hand' | 'library' | 'command' | 'stack';
 
-export type ReplacementEvent = ZoneChangeReplacementEvent | BattlefieldEntryReplacementEvent | DamageReplacementEvent | LifeGainReplacementEvent | LibrarySearchReplacementEvent | TokenCreationReplacementEvent | CounterPlacementReplacementEvent | CardDrawReplacementEvent | MillReplacementEvent;
+export type ReplacementEvent = ZoneChangeReplacementEvent | BattlefieldEntryReplacementEvent | DamageReplacementEvent | LifeGainReplacementEvent | LifeLossReplacementEvent | LibrarySearchReplacementEvent | TokenCreationReplacementEvent | CounterPlacementReplacementEvent | CardDrawReplacementEvent | MillReplacementEvent;
 
 export interface ZoneChangeReplacementEvent {
   type: 'zone-change';
@@ -67,6 +68,17 @@ export interface CardDrawReplacementEvent {
 
 export interface LifeGainReplacementEvent {
   type: 'life-gain';
+  state?: any;
+  playerId: string;
+  amount: number;
+  source?: any;
+  sourceId?: string;
+  cause?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface LifeLossReplacementEvent {
+  type: 'life-loss';
   state?: any;
   playerId: string;
   amount: number;
@@ -709,6 +721,30 @@ function collectMillReplacementEffects(event: MillReplacementEvent): Replacement
   );
 }
 
+const lifeLossAmountReplacementEvaluator: ReplacementEffectEvaluator = (event) => {
+  if (event.type !== 'life-loss') return null;
+
+  const originalAmount = Math.max(0, Math.floor(Number(event.amount || 0)));
+  if (originalAmount <= 0) return null;
+
+  const summary = summarizeLifeLossAmountReplacements(event.state, String(event.playerId || ''));
+  if (summary.multiplier <= 1 && summary.extraLife === 0) return null;
+
+  return {
+    applied: true,
+    eventType: event.type,
+    effectId: 'life-loss-modified',
+    originalAmount,
+    replacementAmount: (originalAmount + summary.extraLife) * summary.multiplier,
+    reason: 'life_loss_replacement',
+    metadata: {
+      playerId: String(event.playerId || ''),
+      multiplier: summary.multiplier,
+      sources: [...summary.extraSources, ...summary.doubleSources],
+    },
+  };
+};
+
 const millReplacementEvaluator: ReplacementEffectEvaluator = (event) => {
   if (event.type !== 'mill') return null;
 
@@ -745,6 +781,7 @@ const replacementEffectEvaluators: ReplacementEffectEvaluator[] = [
   damagePreventionEffectEvaluator,
   damageAmountReplacementEvaluator,
   lifeGainPreventionEvaluator,
+  lifeLossAmountReplacementEvaluator,
   librarySearchReplacementEvaluator,
   tokenCreationReplacementEvaluator,
   millReplacementEvaluator,
@@ -904,6 +941,13 @@ export function evaluateBattlefieldEntryReplacementEvent(event: Omit<Battlefield
 export function evaluateLifeGainReplacementEvent(event: Omit<LifeGainReplacementEvent, 'type'>): ReplacementEffectResult {
   return evaluateReplacementEvent({
     type: 'life-gain',
+    ...event,
+  });
+}
+
+export function evaluateLifeLossReplacementEvent(event: Omit<LifeLossReplacementEvent, 'type'>): ReplacementEffectResult {
+  return evaluateReplacementEvent({
+    type: 'life-loss',
     ...event,
   });
 }

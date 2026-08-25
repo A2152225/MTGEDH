@@ -13,6 +13,7 @@ import {
   applyGrantLeaveBattlefieldReplacementStep,
   applyGrantTemporaryAbilityStep,
   applyGrantTemporaryDiesTriggerStep,
+  applyGrantTemporaryEtbTriggerStep,
   applyPhaseOutStep,
   applyRemoveFromCombatStep,
   applyRemoveMarkedDamageStep,
@@ -668,6 +669,11 @@ export function tryApplyMainLoopMillPtTokenSteps(
       }
       case 'grant_temporary_dies_trigger': {
         const result = applyGrantTemporaryDiesTriggerStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'grant_temporary_etb_trigger': {
+        const result = applyGrantTemporaryEtbTriggerStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

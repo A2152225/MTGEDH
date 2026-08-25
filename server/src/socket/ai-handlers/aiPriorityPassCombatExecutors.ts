@@ -13,6 +13,10 @@ import { persistAndResolveTopOfStack, ensureGame, broadcastGame } from "../util.
 import { runPostResolutionPermanentPromptChecks } from "../game-actions.js";
 import { advanceStepPersistingEvent } from "../step-advance.js";
 import { executeDeclareAttackers as executeCombatDeclareAttackers } from "../combat.js";
+import {
+  findMustBeBlockedIfAbleViolation,
+  resolveMustBeBlockedIfAbleAssignments,
+} from "../combat-handlers/combatMustBeBlockedIfAble.js";
 import { AI_REACTION_DELAY_MS } from "./aiConstants.js";
 import { scheduleAIPriority } from "./aiScheduler.js";
 import { isAIPlayer } from "./aiPlayerRegistry.js";
@@ -160,9 +164,34 @@ export async function executeDeclareBlockers(
   try {
     const battlefield = game.state?.battlefield || [];
     const state = game.state as any;
-    
+    let assignments = Array.isArray(blockers) ? blockers : [];
+    if (findMustBeBlockedIfAbleViolation({
+      state,
+      defendingPlayerId: playerId,
+      assignments,
+    })) {
+      assignments = resolveMustBeBlockedIfAbleAssignments({
+        state,
+        defendingPlayerId: playerId,
+        assignments,
+      });
+    }
+    const mustBlockViolation = findMustBeBlockedIfAbleViolation({
+      state,
+      defendingPlayerId: playerId,
+      assignments,
+    });
+    if (mustBlockViolation) {
+      debugWarn(1, '[AI] Refusing declare blockers that leaves a must-be-blocked-if-able attacker unblocked:', {
+        gameId,
+        playerId,
+        attackerIds: mustBlockViolation.attackerIds,
+      });
+      return;
+    }
+
     // Apply blocker assignments to permanents
-    for (const blocker of blockers) {
+    for (const blocker of assignments) {
       const blockerCreature = battlefield.find((perm: any) => perm.id === blocker.blockerId);
       const attackerCreature = battlefield.find((perm: any) => perm.id === blocker.attackerId);
       
@@ -187,7 +216,7 @@ export async function executeDeclareBlockers(
     
     // Call game method if it exists (for compatibility)
     if (typeof (game as any).declareBlockers === 'function') {
-      (game as any).declareBlockers(playerId, blockers);
+      (game as any).declareBlockers(playerId, assignments);
     }
     
     // Bump sequence number
@@ -195,10 +224,10 @@ export async function executeDeclareBlockers(
       (game as any).bumpSeq();
     }
     
-    await appendEvent(gameId, (game as any).seq || 0, 'declareBlockers', { playerId, blockers });
+    await appendEvent(gameId, (game as any).seq || 0, 'declareBlockers', { playerId, blockers: assignments });
     
     // Broadcast the blocker count
-    const blockerCount = blockers.length;
+    const blockerCount = assignments.length;
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
       gameId,
@@ -216,11 +245,19 @@ export async function executeDeclareBlockers(
     
   } catch (error) {
     debugError(1, '[AI] Error declaring blockers:', error);
-    // Even on error, mark blockers as declared to prevent infinite loop
     const state = game.state as any;
-    state.blockersDeclaredBy = state.blockersDeclaredBy || [];
-    if (!state.blockersDeclaredBy.includes(playerId)) {
-      state.blockersDeclaredBy.push(playerId);
+    const mustBlockViolation = findMustBeBlockedIfAbleViolation({
+      state,
+      defendingPlayerId: playerId,
+      assignments: [],
+    });
+    // Stamp only when an empty declare would be legal. A lure leftover must
+    // not be marked declared after an unexpected error.
+    if (!mustBlockViolation) {
+      state.blockersDeclaredBy = state.blockersDeclaredBy || [];
+      if (!state.blockersDeclaredBy.includes(playerId)) {
+        state.blockersDeclaredBy.push(playerId);
+      }
     }
     await executePassPriority(io, gameId, playerId);
   }

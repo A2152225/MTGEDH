@@ -8,6 +8,8 @@
  */
 
 import type { PlayerID } from "../../../../shared/src/index.js";
+import type { GameContext } from "../../state/context.js";
+import { canPlayerPayLife } from "../../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
 import { parseWordNumber } from "../../state/utils";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
@@ -124,6 +126,13 @@ export async function tryHandleActivatePayLifeExileCounters(
           }
 
           const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
+          if (!canPlayerPayLife(game as GameContext, String(pid))) {
+            socket.emit('error', {
+              code: 'CANNOT_PAY_COST',
+              message: `Cannot activate ${cardName}: players can't pay life.`,
+            });
+            return true;
+          }
           if (!Number.isFinite(currentLife) || currentLife < lifeToPay) {
             socket.emit('error', {
               code: 'INSUFFICIENT_LIFE',
@@ -203,6 +212,13 @@ export async function tryHandleActivatePayLifeExileCounters(
             }
 
             const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
+            if (!canPlayerPayLife(game as GameContext, String(pid))) {
+              socket.emit('error', {
+                code: 'CANNOT_PAY_COST',
+                message: `Cannot activate ${cardName}: players can't pay life.`,
+              });
+              return true;
+            }
             if (!Number.isFinite(currentLife) || currentLife < n) {
               socket.emit('error', {
                 code: 'INSUFFICIENT_LIFE',

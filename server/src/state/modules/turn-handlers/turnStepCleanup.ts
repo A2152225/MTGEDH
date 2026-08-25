@@ -2,7 +2,8 @@
 // Origin parent: server/src/state/modules/turn.ts
 // Cluster moved: the cleanup-step body from nextStep() plus the private
 // helpers that body uniquely closes over - discard-to-hand-size, Sundial
-// pause, Rule 514.2 damage clear, and until-end-of-turn effect expiry.
+// pause, Rule 514.2 damage clear, until-end-of-turn effect expiry, and
+// lastingEffects.protectionKeywordOverride / preventLifeGain this-turn expiry.
 // Public entry symbols: runTurnStepCleanup.
 // Called from nextStep() in the parent; not part of the public turn.ts API.
 // nextTurn stays in the parent dispatcher (leaf must not import turn.ts).
@@ -270,6 +271,29 @@ function endTemporaryEffects(ctx: GameContext) {
         delete state.staticAbilityGrantEffects;
       }
       endedCount += before - (state.staticAbilityGrantEffects?.length || 0);
+    }
+
+    if (Array.isArray(state.lastingEffects) && state.lastingEffects.length > 0) {
+      const before = state.lastingEffects.length;
+      const expiringDurations = new Set(['end_of_turn', 'until_end_of_turn', 'this_turn', 'eot']);
+      state.lastingEffects = state.lastingEffects.filter((effect: any) => {
+        const type = String(effect?.type || '');
+        const duration = String(effect?.duration || '').trim().toLowerCase();
+        if (type === 'protectionKeywordOverride') {
+          return !expiringDurations.has(duration);
+        }
+        if (type === 'preventLifeGain') {
+          // Missing duration is the original this-turn stamp (Skullcrack).
+          // Rest-of-game locks must set duration 'game'.
+          if (!duration || expiringDurations.has(duration)) return false;
+          return true;
+        }
+        return true;
+      });
+      if (state.lastingEffects.length === 0) {
+        delete state.lastingEffects;
+      }
+      endedCount += before - (state.lastingEffects?.length || 0);
     }
 
     endedCount += clearTemporaryGraveyardKeywordGrants(state);

@@ -11,6 +11,8 @@
  */
 
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import type { GameContext } from "../state/context.js";
+import { canPlayerPayLife } from "../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
 import { detectTeamworkAdditionalCost } from '../state/modules/marvelMechanicsHelpers.js';
 import { matchOpponentsControlLandsETB } from '../../../rules-engine/src/oracleIREtbTappedPattern.js';
 
@@ -262,6 +264,20 @@ export function isShockLand(cardName: string, oracleText?: string): boolean {
   const normalizedOracleText = (oracleText || '').toLowerCase();
   return normalizedOracleText.includes('you may pay 2 life') &&
     normalizedOracleText.includes("if you don't, it enters tapped");
+}
+
+/**
+ * Shock-land "pay N life or enter tapped" option. Entering tapped stays legal
+ * when this returns false (Angel of Jubilation / life-total-can't-change).
+ */
+export function canChooseShockLandPayLife(
+  ctx: GameContext,
+  playerId: string,
+  amount = 2,
+): boolean {
+  if (!canPlayerPayLife(ctx, playerId)) return false;
+  const currentLife = Number((ctx as any)?.state?.life?.[playerId] ?? (ctx as any)?.life?.[playerId] ?? 40);
+  return Number.isFinite(currentLife) && currentLife >= amount;
 }
 
 /** Check if a card name is a bounce land */

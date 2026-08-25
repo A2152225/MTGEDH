@@ -104,6 +104,19 @@ See [`mtg-logic-module-map-resolution.md`](mtg-logic-module-map-resolution.md).
 | Module | Left | Entry |
 | --- | --- | --- |
 | `oracleIRParserEffectClauseToStep.ts` | `oracleIRParser.ts` | `parseEffectClauseToStep` |
+| `oracleIRParserTemporaryEtbWindowClauses.ts` | `oracleIRParserEffectClauseToStep.ts` | `tryParseTemporaryEtbWindowClause`, `isTemporaryEtbWindowSpellLine` — Rite of Harmony family “whenever a [types] you control enters this turn” |
+| `oracleIRParserPhase4ChoiceFamilyClauses.ts` | `oracleIRParserEffectClauseToStep.ts` | `tryParsePhase4ChoiceFamilyClause` dispatcher: each-player choose-then-destroy-rest, secret opponent damage, mill-from-among may-cast, may-reveal four-zone named-copy win. |
+| `oracleIRParserEachPlayerChooseDestroyRest.ts` | Phase 4 choice family | `tryParseEachPlayerChooseThenDestroyRest` — Divine Reckoning family. |
+| `oracleIRParserSecretOpponentChoiceDamage.ts` | Phase 4 choice family | `tryParseSecretOpponentChoiceDamage` — Prisoner's Dilemma family. |
+| `oracleIRParserMayCastFromAmong.ts` | Phase 4 choice family | `tryParseMayCastFromAmong` — Summons of Saruman mill-from-among may-cast. |
+| `oracleIRParserMayRevealHandWinIfOwnNamed.ts` | Phase 4 choice family | `tryParseMayRevealHandWinIfOwnNamed` — optional may-reveal-hand / if-you-do four-zone named-copy win (Hedron Alignment family). Printed “named X” is this card’s current name at execute time. Not `detectWinConditions`. |
+| `oracleIRParserPhase4ChoiceFamilyLatePass.ts` | leftover PW/spell late pass | Late recovery for those choice-family clauses. |
+| `oracleIRParserDiscardHandAndDrawLatePass.ts` | leftover late pass | `rewriteDiscardHandAndDrawAbilities` — “discard your hand and draw N” after clause parse kept only the draw half (Nibelheim graveyard rider). |
+| `oracleIRParserWinIfControlDifferentNames.ts` | leftover win-if | `tryParseWinIfControlDifferentNamesStep`, `expandWinIfControlDifferentNamesAbilities` — “if you control N or more [type] with different names, you win the game” (Maze's End activated family). Not an immediate battlefield scan. |
+| `oracleIRParserWinIfCastSameNameThisGame.ts` | leftover win-if | `tryParseWinIfCastSameNameThisGameStep`, `expandWinIfCastSameNameThisGameAbilities` — “cast from hand + another spell with this card’s current name this game, you win” (Approach of the Second Sun family). Not `detectWinConditions`. |
+| `oracleIRParserPreventLifeGainThisTurn.ts` | leftover life | `tryParsePreventLifeGainThisTurnClause` — this-turn / trailing or leading until-EOT “can't gain life” → `grant_static_ability` duration `this_turn` / `end_of_turn`. Continuous “Players can't gain life” stays ReplacementEffectSpec. |
+| `oracleIRParserUntilEotProtectionOverride.ts` | leftover static | `tryParseUntilEotProtectionOverrideClause` — leading until-EOT activated lose / as-though hexproof-shroud (Detection Tower / Arcane Lighthouse) → `grant_static_ability` duration `end_of_turn`. Continuous statics stay StaticEffectSpec. |
+| `oracleIRParserLoyaltyDirectionChoice.ts` | leftover PW loyalty | `tryParseChooseLeftOrRightLoyaltySteps`, `expandChooseLeftOrRightLoyaltyAbilities` — generic Choose left or right (Aminatou −6 / Teyo −2). Do not add card-name cases. |
 | `oracleIRParserAbilityMerges.ts` | `oracleIRParser.ts` | `mergeSplitChooseModeParsedAbilities` |
 | `oracleIRParserImpulseExileTop.ts` | `oracleIRParser.ts` | impulse-exile-top parse (was a closure of `parseAbilityToIRAbility`) |
 | `oracleIRParserExileTopOnlyLegacy.ts` | `oracleIRParser.ts` | exile-top-only legacy parse |

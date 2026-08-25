@@ -1,119 +1,33 @@
 import type { BattlefieldPermanent } from '../../../../shared/src/index.js';
 import { parseAttachmentGrantedKeywordsFromOracle } from '../../../../shared/src/attachmentKeywordGrants.js';
 import { isCreatureTypeWord } from '../../../../shared/src/creatureTypes.js';
-import type { StaticEffectCountBasis, StaticEffectGrant, StaticEffectSpec } from './staticEffectSpec.js';
+import type { StaticEffectCountBasis, StaticEffectSpec } from './staticEffectSpec.js';
 import { sanitizeOracleTextForStaticEffectScan } from '../../../../rules-engine/src/staticEffectOracleSanitize.js';
-
-const ABILITY_WORDS = [
-  'flying', 'indestructible', 'vigilance', 'trample', 'hexproof', 'shroud',
-  'deathtouch', 'lifelink', 'haste', 'menace', 'reach', 'first strike',
-  'double strike', 'protection', 'ward',
-];
-
-const COLOR_WORDS = ['white', 'blue', 'black', 'red', 'green'];
-
-const SMALL_NUMBER_WORDS: Record<string, number> = {
-  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-  a: 1, an: 1,
-};
-
-function parseCardCountWord(raw: string): number | undefined {
-  const lower = String(raw || '').toLowerCase();
-  if (SMALL_NUMBER_WORDS[lower] !== undefined) return SMALL_NUMBER_WORDS[lower];
-  const parsed = parseInt(lower, 10);
-  return Number.isNaN(parsed) ? undefined : parsed;
-}
-
-function parseBuffSegment(seg: string): { power: number; toughness: number } | null {
-  const match = String(seg || '').match(/([+-]?\d+)\s*\/\s*([+-]?\d+)/);
-  if (!match) return null;
-  const power = parseInt(match[1], 10);
-  const toughness = parseInt(match[2], 10);
-  if (Number.isNaN(power) || Number.isNaN(toughness)) return null;
-  return { power, toughness };
-}
-
-function parseAbilitiesFromTail(tail: string): string[] {
-  const found: string[] = [];
-  const lower = String(tail || '').toLowerCase();
-  for (const ability of ABILITY_WORDS) {
-    if (new RegExp(`\\b${ability}\\b`, 'i').test(lower)) {
-      found.push(ability);
-    }
-  }
-  return found;
-}
-
-function resolveChosenOptionsFromPermanent(perm: BattlefieldPermanent): string[] {
-  const chosenValues = Array.isArray((perm as any)?.chosenOptions)
-    ? (perm as any).chosenOptions
-    : [((perm as any)?.chosenOption ?? '')];
-  return chosenValues
-    .map((value: unknown) => String(value || '').trim().toLowerCase())
-    .filter((value) => value.length > 0 && ABILITY_WORDS.includes(value));
-}
-
-function pushPlayerAbilityGrantsFromList(
-  specs: StaticEffectSpec[],
-  source: { sourcePermanentId: string; sourceController: string; sourceName: string },
-  idSuffix: string,
-  abilities: readonly string[],
-): void {
-  if (abilities.includes('hexproof')) {
-    specs.push(buildSpec(
-      source,
-      `${idSuffix}-player-hexproof`,
-      { kind: 'player_you' },
-      { playerHexproof: true },
-    ));
-  }
-  if (abilities.includes('shroud')) {
-    specs.push(buildSpec(
-      source,
-      `${idSuffix}-player-shroud`,
-      { kind: 'player_you' },
-      { playerShroud: true },
-    ));
-  }
-}
-
-function parseLordAbilitiesFromTail(tail: string): string[] {
-  if (/abilities of your choice among/i.test(tail)) {
-    return [];
-  }
-  return parseAbilitiesFromTail(tail);
-}
-
-function parseLordCreatureType(raw: string): string {
-  const lower = String(raw || '').trim().toLowerCase();
-  if (!lower) return '';
-  // "Pegasus" / "Homunculus" already end in s; do not strip a valid type to "pegasu".
-  if (isCreatureTypeWord(lower)) return lower;
-  if (lower.endsWith('s') && lower.length > 2) {
-    const singular = lower.slice(0, -1);
-    if (isCreatureTypeWord(singular)) return singular;
-    return singular;
-  }
-  return lower;
-}
-
-function buildSpec(
-  source: { sourcePermanentId: string; sourceController: string; sourceName: string },
-  idSuffix: string,
-  scope: StaticEffectSpec['scope'],
-  grant: StaticEffectGrant,
-  condition?: StaticEffectSpec['condition'],
-): StaticEffectSpec {
-  return {
-    id: `${source.sourcePermanentId}:${idSuffix}`,
-    scope,
-    grant,
-    condition,
-    sourcePermanentId: source.sourcePermanentId,
-    sourceController: source.sourceController,
-    sourceName: source.sourceName,
-  };
-}
+import {
+  ABILITY_WORDS,
+  COLOR_WORDS,
+  buildSpec,
+  parseAbilitiesFromTail,
+  parseBuffSegment,
+  parseCardCountWord,
+  parseLordAbilitiesFromTail,
+  parseLordCreatureType,
+  pushPlayerAbilityGrantsFromList,
+  resolveChosenOptionsFromPermanent,
+} from './staticEffectSpec-handlers/staticEffectSpecOracleParseHelpers.js';
+import {
+  oracleHasGraveyardLandKeywordGrant,
+  pushGraveyardLandKeywordGrantSpecs,
+} from './staticEffectSpec-handlers/staticEffectSpecOracleParsingGraveyardLandKeywords.js';
+import {
+  pushOtherCreatureAndOpponentPolaritySpecs,
+  pushPlayerHexproofAndConditionalGrantSpecs,
+} from './staticEffectSpec-handlers/staticEffectSpecOracleParsingAsLongAsAndPolarity.js';
+import { pushManaAbilityGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingManaAbilityGrants.js';
+import { pushTapUntapAbilityGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingTapUntapAbilityGrants.js';
+import { pushMustBeBlockedSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingMustBeBlocked.js';
+import { pushMustBeBlockedByTypeSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingMustBeBlockedByType.js';
+import { pushLoseKeywordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingLoseKeywords.js';
 
 /** Lightning Greaves / Swiftfoot Boots: grant keywords to the equipped/enchanted host. */
 function pushAttachedHostKeywordGrants(
@@ -316,7 +230,7 @@ function pushAbilityGrantSpecs(
     return;
   }
 
-  if (!/other creatures you control have/i.test(oracle)) {
+  if (!/other creatures you control have/i.test(oracle) && !oracleHasGraveyardLandKeywordGrant(oracle)) {
     const creaturesAbilityMatch = oracle.match(/(?<![a-z] )(?<!legendary )(?:all )?creatures you control have ([^.]+)/i);
     if (creaturesAbilityMatch) {
       const abilities = parseAbilitiesFromTail(creaturesAbilityMatch[1] || '');
@@ -432,7 +346,7 @@ function pushLordSpecs(
   if (otherTypeMatch) {
     const creatureType = parseLordCreatureType(String(otherTypeMatch[1] || ''));
     const buff = parseBuffSegment(otherTypeMatch[2]);
-    if (creatureType && buff) {
+    if (creatureType && isCreatureTypeWord(creatureType) && buff) {
       const hasYouControl = /you\s+control/i.test(otherTypeMatch[0]);
       specs.push(buildSpec(
         source,
@@ -634,7 +548,7 @@ export function parseStaticEffectSpecsFromOraclePermanent(
   const hasOtherTypeLordPattern = /other\s+[a-z]+\s+creatures?\s+you\s+control\s+get/i.test(oracle);
 
   const monumentMatch = oracle.match(
-    /(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/i,
+    /(?<!other )(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/i,
   );
   if (monumentMatch) {
     const buff = parseBuffSegment(monumentMatch[1]);
@@ -658,7 +572,7 @@ export function parseStaticEffectSpecsFromOraclePermanent(
       && !hasOtherTypeLordPattern
       && !legendaryMatch
       && !legendaryHaveMatch
-      ? oracle.match(/(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/i)
+      ? oracle.match(/(?<!other )(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/i)
       : null;
     if (anthemMatch) {
       const buff = parseBuffSegment(anthemMatch[1]);
@@ -678,7 +592,15 @@ export function parseStaticEffectSpecsFromOraclePermanent(
   }
 
   pushLordSpecs(specs, source, oracle);
+  pushOtherCreatureAndOpponentPolaritySpecs(specs, source, oracle);
   pushAbilityGrantSpecs(specs, source, perm, oracle);
+  pushTapUntapAbilityGrantSpecs(specs, source, oracle);
+  pushPlayerHexproofAndConditionalGrantSpecs(specs, source, oracle);
+  pushGraveyardLandKeywordGrantSpecs(specs, source, oracle);
+  pushManaAbilityGrantSpecs(specs, source, oracle);
+  pushLoseKeywordSpecs(specs, source, oracle);
+  pushMustBeBlockedSpecs(specs, source, perm, oracle);
+  pushMustBeBlockedByTypeSpecs(specs, source, perm, oracle);
   pushColorAnthemSpecs(specs, source, oracle);
 
   if (chosenColor) {

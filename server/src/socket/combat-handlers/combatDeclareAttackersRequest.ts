@@ -38,6 +38,7 @@ import {
   processTapTriggersForAttackers,
 } from "./combatDeclareAttackersForceTapSupport.js";
 import { setCombatControl } from "./combatControlState.js";
+import { getNearestOpponentDirectionAttackViolation } from "../../state/modules/nearestOpponentDirectionAttackRestriction.js";
 
 /**
  * Declare attackers - player selects which creatures to attack with
@@ -276,6 +277,20 @@ export async function handleDeclareAttackers(
         return;
       }
 
+      const directionRestriction = getNearestOpponentDirectionAttackViolation({
+        state: game.state,
+        attackerPlayerId: playerId,
+        defendingPlayerId,
+        targetPermanentId: attacker.targetPermanentId || attacker.targetPlayerId,
+      });
+      if (directionRestriction.illegal) {
+        socket.emit("error", {
+          code: "ATTACK_DIRECTION_RESTRICTED",
+          message: `${(creature as any).card?.name || "Creature"} can't attack that player. ${directionRestriction.reason}`,
+        });
+        return;
+      }
+
       // Check if creature is tapped (can't attack if tapped, unless vigilance)
       if ((creature as any).tapped) {
         const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
@@ -320,8 +335,13 @@ export async function handleDeclareAttackers(
               .map((p: any) => p.id);
             
             // Check if there are non-goader opponents available
-            const nonGoaderOpponents = allOpponents.filter((oppId: string) => 
+            const nonGoaderOpponents = allOpponents.filter((oppId: string) =>
               !goadInfo.goaders.includes(oppId)
+              && !getNearestOpponentDirectionAttackViolation({
+                state: game.state,
+                attackerPlayerId: playerId,
+                defendingPlayerId: oppId,
+              }).illegal
             );
             
             if (nonGoaderOpponents.length > 0) {

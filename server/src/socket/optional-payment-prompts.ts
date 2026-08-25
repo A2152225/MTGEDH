@@ -1,6 +1,8 @@
 import { appendEvent } from '../db/index.js';
+import type { GameContext } from '../state/context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../state/resolution/index.js';
 import { getEnergyCount, validateLifePayment } from '../state/utils.js';
+import { canChooseShockLandPayLife } from './land-helpers.js';
 import {
   broadcastGame,
   canPayManaCostStringWithAvailableSources,
@@ -127,7 +129,13 @@ export function getOptionalPaymentValidationFailure(
   if (validationKind === 'life') {
     const lifeAmount = Number(stepData?.optionalPaymentLifeAmount || stepData?.payLifeAmount || 0);
     const currentLife = Number(game?.state?.life?.[playerId] ?? game?.life?.[playerId] ?? game?.state?.startingLife ?? 40);
-    const message = validateLifePayment(currentLife, lifeAmount, String(stepData?.sourceName || stepData?.cardName || 'card'));
+    const message = validateLifePayment(
+      currentLife,
+      lifeAmount,
+      String(stepData?.sourceName || stepData?.cardName || 'card'),
+      game as GameContext,
+      playerId,
+    );
     return message ? { code: 'INSUFFICIENT_LIFE', message } : null;
   }
 
@@ -211,6 +219,20 @@ export function queueShockLandPaymentStep(
   }
 
   const currentLife = (game.state as any)?.life?.[playerId] ?? (game as any)?.life?.[playerId] ?? 40;
+  if (!canChooseShockLandPayLife(game as GameContext, String(playerId), 2)) {
+    const currentPermanent = getCurrentPermanent();
+    if (currentPermanent) {
+      (currentPermanent as any).tapped = true;
+    }
+    io?.to?.(gameId)?.emit?.('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)}'s ${cardName} enters the battlefield tapped.`,
+      ts: Date.now(),
+    });
+    return;
+  }
   queueOptionalPaymentStep(gameId, {
     playerId,
     sourceName: cardName,

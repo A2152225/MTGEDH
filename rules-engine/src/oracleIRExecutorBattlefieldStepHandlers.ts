@@ -264,6 +264,7 @@ export {
 } from './oracleIRExecutorBattlefieldTapUntapSteps';
 
 export { applyGrantTemporaryDiesTriggerStep } from './oracleIRExecutorBattlefieldGrantTemporaryDiesTriggerStep';
+export { applyGrantTemporaryEtbTriggerStep } from './oracleIRExecutorTemporaryEtbWindowStep';
 
 export { applyGrantTemporaryAbilityStep } from './oracleIRExecutorBattlefieldGrantTemporaryAbilityStep';
 

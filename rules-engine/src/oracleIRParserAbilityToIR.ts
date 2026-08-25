@@ -33,6 +33,8 @@ import {
   tryParseTrailingConditionalStep,
 } from './oracleIRParserSacrificeHelpers';
 import { tryParseTemporaryGrantedDiesTriggerClause } from './oracleIRParserTemporaryTriggeredClauses';
+import { tryParsePhase4ChoiceFamilyClause } from './oracleIRParserPhase4ChoiceFamilyClauses';
+import { tryParseTemporaryEtbWindowClause } from './oracleIRParserTemporaryEtbWindowClauses';
 import { tryParseCreateTokenFollowupModifier } from './oracleIRParserTokenFollowup';
 import { tryParseMultiCreateTokensClause as tryParseMultiCreateTokensClauseFromModule } from './oracleIRParserTokenCreateClauses';
 import {
@@ -129,6 +131,40 @@ export function parseAbilityToIRAbility(
       interveningIf: ability.interveningIf,
       effectText,
       steps: [...parseEffectTextToFlatSteps(String(eldraziManaReminderMatch[1] || '').trim())],
+    };
+  }
+
+  const fullTemporaryEtbWindowStep = tryParseTemporaryEtbWindowClause({
+    clause: effectText,
+    rawClause: effectText,
+    withMeta: <T extends OracleEffectStep>(step: T): T => step,
+  });
+  if (fullTemporaryEtbWindowStep) {
+    return {
+      type: ability.type,
+      text: ability.text,
+      cost: ability.cost,
+      triggerCondition: ability.triggerCondition,
+      interveningIf: ability.interveningIf,
+      effectText,
+      steps: [fullTemporaryEtbWindowStep],
+    };
+  }
+
+  const fullChoiceFamilyStep = tryParsePhase4ChoiceFamilyClause({
+    clause: effectText,
+    rawClause: effectText,
+    withMeta: <T extends OracleEffectStep>(step: T): T => step,
+  });
+  if (fullChoiceFamilyStep) {
+    return {
+      type: ability.type,
+      text: ability.text,
+      cost: ability.cost,
+      triggerCondition: ability.triggerCondition,
+      interveningIf: ability.interveningIf,
+      effectText,
+      steps: [fullChoiceFamilyStep],
     };
   }
 

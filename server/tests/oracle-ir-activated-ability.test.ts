@@ -399,4 +399,101 @@ describe('oracle IR activated ability execution', () => {
     expect(ctx.state.lastCoinFlip).toBeTruthy();
     expect(ctx.state.lastCoinFlip.playerId).toBe('p1');
   });
+
+  it('handles Aminatou left-or-right control rotation through IR', () => {
+    // Oracle: "Choose left or right. Each player gains control of all nonland
+    // permanents other than Aminatou controlled by the next player in the chosen direction."
+    const ctx = {
+      state: {
+        players: [
+          { id: 'p1', name: 'Player 1' },
+          { id: 'p2', name: 'Player 2' },
+          { id: 'p3', name: 'Player 3' },
+          { id: 'p4', name: 'Player 4' },
+        ],
+        battlefield: [
+          {
+            id: 'aminatou_1',
+            controller: 'p1',
+            owner: 'p1',
+            card: { id: 'aminatou_card_1', name: 'Aminatou, the Fateshifter', type_line: 'Legendary Planeswalker — Aminatou' },
+          },
+          {
+            id: 'bear_2',
+            controller: 'p2',
+            owner: 'p2',
+            card: { id: 'bear_card_2', name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+          },
+          {
+            id: 'island_3',
+            controller: 'p3',
+            owner: 'p3',
+            card: { id: 'island_card_3', name: 'Island', type_line: 'Basic Land — Island' },
+          },
+        ],
+        life: { p1: 40, p2: 40, p3: 40, p4: 40 },
+        turnNumber: 1,
+        zones: {
+          p1: { hand: [], library: [], graveyard: [], exile: [] },
+          p2: { hand: [], library: [], graveyard: [], exile: [] },
+          p3: { hand: [], library: [], graveyard: [], exile: [] },
+          p4: { hand: [], library: [], graveyard: [], exile: [] },
+        },
+      },
+      gameId: 'test_loyalty_ir_aminatou_direction',
+      bumpSeq: () => {},
+      libraries: new Map(),
+    } as any;
+
+    const result = tryApplyOracleIRToActivatedAbility(ctx, {
+      controller: 'p1',
+      sourceName: 'Aminatou, the Fateshifter',
+      oracleText:
+        '+1: Choose left or right. Each player gains control of all nonland permanents other than Aminatou controlled by the next player in the chosen direction.',
+      sourcePermanentId: 'aminatou_1',
+      selectedModeIds: ['Left'],
+      allowOptional: true,
+    });
+
+    expect(result.handled).toBe(true);
+    const bear = ctx.state.battlefield.find((perm: any) => perm.id === 'bear_2');
+    const island = ctx.state.battlefield.find((perm: any) => perm.id === 'island_3');
+    const aminatou = ctx.state.battlefield.find((perm: any) => perm.id === 'aminatou_1');
+    expect(bear?.controller).toBe('p1');
+    expect(island?.controller).toBe('p3');
+    expect(aminatou?.controller).toBe('p1');
+  });
+
+  it('handles Teyo left-or-right attack restriction through IR', () => {
+    // Oracle: "Choose left or right. Until your next turn, each player may attack
+    // only the nearest opponent in the last chosen direction and planeswalkers controlled by that opponent."
+    const ctx = {
+      state: {
+        players: [{ id: 'p1', name: 'Player 1' }, { id: 'p2', name: 'Player 2' }],
+        battlefield: [],
+        life: { p1: 40, p2: 40 },
+        turnNumber: 1,
+        zones: {
+          p1: { hand: [], library: [], graveyard: [], exile: [] },
+          p2: { hand: [], library: [], graveyard: [], exile: [] },
+        },
+      },
+      gameId: 'test_loyalty_ir_teyo_direction',
+      bumpSeq: () => {},
+      libraries: new Map(),
+    } as any;
+
+    const result = tryApplyOracleIRToActivatedAbility(ctx, {
+      controller: 'p1',
+      sourceName: 'Teyo, Geometric Tactician',
+      oracleText:
+        '+1: Choose left or right. Until your next turn, each player may attack only the nearest opponent in the last chosen direction and planeswalkers controlled by that opponent.',
+      sourcePermanentId: 'teyo_1',
+      selectedModeIds: ['Right'],
+      allowOptional: true,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.applied).toBeGreaterThanOrEqual(1);
+  });
 });

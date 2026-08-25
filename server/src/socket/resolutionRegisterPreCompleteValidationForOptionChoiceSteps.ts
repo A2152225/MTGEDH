@@ -27,6 +27,7 @@ import {
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
 import { getMaxGenericManaAvailable, parseManaCost } from "./util.js";
+import type { GameContext } from "../state/context.js";
 import { validateLifePayment } from "../state/utils.js";
 import {
   getOptionalPaymentValidationFailure,
@@ -322,7 +323,7 @@ export async function validateOptionChoicePayCostPromptsBeforeComplete(
     if (lifeAmount > 0) {
       const startingLife = Number((game.state as any)?.startingLife ?? 40);
       const currentLife = Number((game.state as any)?.life?.[controllerId] ?? startingLife);
-      const lifeValidationError = validateLifePayment(currentLife, lifeAmount, String(stepAny?.sourceName || stepAny?.reflexiveFixedPaymentSourceName || 'Ability'));
+      const lifeValidationError = validateLifePayment(currentLife, lifeAmount, String(stepAny?.sourceName || stepAny?.reflexiveFixedPaymentSourceName || 'Ability'), game as GameContext, controllerId);
       if (lifeValidationError) {
         socket.emit('error', { code: 'INSUFFICIENT_LIFE', message: lifeValidationError });
         return false;

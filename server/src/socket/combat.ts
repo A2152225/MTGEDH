@@ -40,6 +40,7 @@ import {
   handleDeclareBlockers,
   persistTriggeredAbilityPush,
 } from "./combat-handlers/combatDeclareBlockersRequest.js";
+import { findMustBeBlockedIfAbleViolation } from "./combat-handlers/combatMustBeBlockedIfAble.js";
 import { handleDeclareAttackers } from "./combat-handlers/combatDeclareAttackersRequest.js";
 import { handleDeclareControlledAttackers } from "./combat-handlers/combatDeclareControlledAttackersRequest.js";
 import {
@@ -323,17 +324,30 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         return;
       }
 
-      // Mark that blockers have been declared (skipped) for this player
-      // This allows step advancement to proceed past DECLARE_BLOCKERS
       const state = game.state as any;
       state.blockersDeclaredBy = state.blockersDeclaredBy || [];
-      if (!state.blockersDeclaredBy.includes(playerId)) {
-        state.blockersDeclaredBy.push(playerId);
-        debug(1, `[combat] ${playerId} skipped declaring blockers`);
-      } else {
+      if (state.blockersDeclaredBy.includes(playerId)) {
         debug(1, `[combat] ${playerId} already declared/skipped blockers, ignoring duplicate skip`);
-        return; // Already declared, don't do anything
+        return;
       }
+
+      const mustBlockViolation = findMustBeBlockedIfAbleViolation({
+        state: game.state,
+        defendingPlayerId: playerId,
+        assignments: [],
+      });
+      if (mustBlockViolation) {
+        socket.emit('error', {
+          code: mustBlockViolation.code,
+          message: mustBlockViolation.message,
+        });
+        return;
+      }
+
+      // Mark that blockers have been declared (skipped) for this player
+      // This allows step advancement to proceed past DECLARE_BLOCKERS
+      state.blockersDeclaredBy.push(playerId);
+      debug(1, `[combat] ${playerId} skipped declaring blockers`);
 
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,

@@ -29,6 +29,8 @@ export {
   detectTokenCreationReplacementEffects,
   applyCounterReplacements,
   applyLifeGainReplacements,
+  detectLifeLossReplacementEffects,
+  applyLifeLossReplacements,
   detectMillReplacementEffects,
   applyMillReplacements,
   applyTokenCreationReplacements,
@@ -59,7 +61,35 @@ export type { AbilityStateCondition } from "./gameStateEffectsAbilityConditions.
 // Treasure / artifact token subtype checks.
 export { isTreasureToken, isArtifactTokenSubtype } from "./gameStateEffectsTokenSubtype.js";
 
-// Win / lose / can't-lose, life change, empty-library draw, ascend.
+// Oracle-pattern "you win the game" scanner (no WIN_CONDITIONS name table).
+export {
+  collectOraclePatternWinConditions,
+  oracleTextHasDevotionLibraryWin,
+  sourcePermanentHasDevotionLibraryWin,
+} from "./gameStateEffectsWinConditionOraclePatterns.js";
+export type { OraclePatternWinCondition, OraclePatternWinTiming } from "./gameStateEffectsWinConditionOraclePatterns.js";
+
+// State-trigger / then-if / compound upkeep win predicates.
+export {
+  classifyStateTriggerWinAbility,
+  evaluateExtendedWinIfFallbacks,
+  extractWinGatingIfText,
+  oracleTextHasOptionalIfYouDoWin,
+  splitCompoundWinIfClauses,
+} from "./gameStateEffectsWinConditionStateTriggerThenIf.js";
+
+// Oracle-pattern life modifiers (no LIFE_MODIFIERS name table).
+export {
+  detectLifeModifiers,
+  canLifeChange,
+  canGainLife,
+  lifeGainBecomesLoss,
+  canPlayerPayLife,
+  processLifeChange,
+} from "./gameStateEffectsLifeModifierOraclePatterns.js";
+export type { LifeModifier } from "./gameStateEffectsLifeModifierOraclePatterns.js";
+
+// Win / lose / can't-lose, empty-library draw, ascend.
 export {
   getPlayerLife,
   getLibraryCount,
@@ -67,14 +97,10 @@ export {
   getGraveyardCards,
   detectWinConditions,
   checkUpkeepWinConditions,
+  checkImmediateWinConditions,
   checkEndStepWinConditions,
   tryResolveThassasOracleWin,
   hasDrawWinReplacement,
-  detectLifeModifiers,
-  canLifeChange,
-  canGainLife,
-  lifeGainBecomesLoss,
-  processLifeChange,
   checkLoseConditions,
   hasCantLoseEffect,
   checkEmptyLibraryDraw,
@@ -82,7 +108,7 @@ export {
   applyEmptyLibraryDrawConsequences,
   processPendingEmptyLibraryDrawAttempts,
 } from "./gameStateEffectsWinLose.js";
-export type { WinCondition, LifeModifier, CantLoseEffect } from "./gameStateEffectsWinLose.js";
+export type { WinCondition, CantLoseEffect } from "./gameStateEffectsWinLose.js";
 
 // Additional land drops, temporary land bonuses, and additional draws.
 export {

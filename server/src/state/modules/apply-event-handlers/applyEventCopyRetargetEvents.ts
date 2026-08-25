@@ -15,6 +15,7 @@ import {
 } from "../applyEventReplayZoneCommanderManaHelpers.js";
 import { consumeRecordedManaCostFromPool } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { debugWarn } from "../../../utils/debug.js";
+import { persistNamedSpellCastThisGame } from "../namedSpellsCastThisGame.js";
 import { ResolutionStepType } from "../../resolution/index.js";
 
 export function applyCopyRetargetEvents(ctx: GameContext, e: GameEvent): boolean {
@@ -147,6 +148,12 @@ export function applyCopyRetargetEvents(ctx: GameContext, e: GameEvent): boolean
             };
 
             stack.push(copiedItem);
+            if (String(copiedItem.type || (original as any).type || '').toLowerCase() === 'spell') {
+              persistNamedSpellCastThisGame(ctx.state, String(copiedItem.controller || controllerId).trim(), {
+                name: copiedItem?.card?.name || (original as any)?.card?.name,
+                id: copiedItem.id,
+              });
+            }
           }
 
           ctx.bumpSeq();
@@ -237,6 +244,12 @@ export function applyCopyRetargetEvents(ctx: GameContext, e: GameEvent): boolean
                 ? { ...((rawCopiedSpell as any).entersBattlefieldWithCounters as Record<string, any>) }
                 : (rawCopiedSpell as any).entersBattlefieldWithCounters,
             });
+            if (String((rawCopiedSpell as any).type || 'spell').toLowerCase() === 'spell') {
+              persistNamedSpellCastThisGame(ctx.state, String((rawCopiedSpell as any).controller || '').trim(), {
+                name: (rawCopiedSpell as any)?.card?.name,
+                id: copiedSpellId || (rawCopiedSpell as any).id,
+              });
+            }
           }
 
           ctx.bumpSeq();

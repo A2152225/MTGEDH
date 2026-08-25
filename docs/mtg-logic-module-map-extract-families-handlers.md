@@ -13,9 +13,10 @@ Public path stays `game-actions.ts` (`export { … } from "./game-actions-handle
 | `gameActionsCastCostFormatting.ts` | Mana-cost adjustment arithmetic, adjusted-cost rendering, payment/pending-cast payloads. |
 | `gameActionsPermanentKeywordGrants.ts` | 4-arg keyword/haste grants + summoning sickness (distinct from 2-arg `keyword-handlers.ts`). |
 | `gameActionsCastSpellPaymentSources.ts` | Cast-spell payment sources: permanent refs, mana-ability costs, produced mana, checkpoints. |
-| `gameActionsSpellTargetSelection.ts` | Spell target lists, grouped metadata, per-clause TARGET_SELECTION. |
-| `gameActionsSpellCopyHeroicTriggers.ts` | Spell copies, copy retargeting, heroic / targeted / untap cast triggers. |
-| `gameActionsSpellCastTriggerDetection.ts` | Which spell-cast triggers a cast produces; once-per-turn bookkeeping. |
+| `gameActionsSpellTargetSelection.ts` | Spell target lists, grouped metadata, per-clause TARGET_SELECTION. Player candidates go through `canPlayerBeTargetedByPlayer`. Battlefield candidates also filter `has_keyword` / power-toughness from parsed reqs. `shouldPreferParsedTargetReqs` re-exports from `gameActionsCastSpellParsedTargeting.ts`; per-clause prompts go through `resolveCastSpellParsedTargeting`. |
+| `gameActionsCastSpellParsedTargeting.ts` | IR-primary cast-time targeting from `parseTargetRequirements`. Copies `targetRestriction` / `statRequirement` / `creatureRestriction` onto derived SpellSpec. IR-off still categorizes. Public: `resolveCastSpellParsedTargeting`, `deriveSpellSpecFromParsedTargetReqs`, `parsedTargetReqsCoverCastTargets`, `shouldPreferParsedTargetReqs`. |
+| `gameActionsSpellCopyHeroicTriggers.ts` | Spell copies, copy retargeting, heroic / targeted / untap cast triggers. Copy-retarget player lists use `canPlayerBeTargetedByPlayer`. |
+| `gameActionsSpellCastTriggerDetection.ts` | Which spell-cast triggers a cast produces; once-per-turn bookkeeping. `recordSpellCastThisTurn` persists `namedSpellsCastThisGame` `{name,id}` via `persistNamedSpellCastThisGame`. GY replay, replay `castSpell`, and `copyStackItem` also call the helper. Live persistOnCast still goes through `recordSpellCastThisTurn` only. |
 | `gameActionsSpellCastTriggerProcessing.ts` | Run those triggers: APNAP, intervening-if, IR vs legacy, step queueing. |
 | `gameActionsMulliganReadinessChecks.ts` | Free-mulligan house rule, mulligan counts, all-players-ready. |
 | `gameActionsPermanentEntryPrompts.ts` | Creature-type / color / player / enchantment ETB prompts as a permanent enters. |
@@ -32,15 +33,15 @@ Public path stays `game-actions.ts` (`export { … } from "./game-actions-handle
 | `gameActionsPregameSocketHandlers.ts` | `restartGame`, `restartGameClear`, `keepHand`, `unkeepHand`, `mulligan`. |
 | `gameActionsLifeMillHouseRulesSocketHandlers.ts` | Life / mill / house-rules socket handlers: `adjustLife`, `setLife`, `mill`, `setHouseRules`. |
 | `gameActionsEquipAbilitySocketHandlers.ts` | Equip-ability socket handler lifted out of `registerGameActions`: valid-target prompt, metalcraft cost reduction, mana payment, stack activation. Entry: `handleEquipAbilityRequest`. |
-| `gameActionsCastSpellFromHandAdditionalCosts.ts` | `handleCastSpellFromHand` additional-cost prompts (Bargain, evidence, Teamwork, Behold, discard, sacrifice, pay life, Squad) before targeting. |
+| `gameActionsCastSpellFromHandAdditionalCosts.ts` | `handleCastSpellFromHand` additional-cost prompts (Bargain, evidence, Teamwork, Behold, discard, sacrifice, pay life, Squad) before targeting. Pay-life consults `canPlayerPayLife`. |
 | `gameActionsCastSpellFromHandTargets.ts` | Cast-time targeting (CR 601.2c): Aura hosts, spell targets, validation. |
 | `gameActionsCastSpellFromHandCostConvoke.ts` | Cost assembly (alt costs, X, reductions) plus Harmonize/Convoke and the payment checkpoint. |
 | `gameActionsCastSpellFromHandManaPayment.ts` | Mana-source payment: tap/sacrifice permanents, floating-pool picks, haste snapshots. |
 | `gameActionsCastSpellFromHandConsumeMana.ts` | Pool consumption plus Treasure/snow provenance and converge. |
 | `gameActionsCastSpellFromHandPersistOnCast.ts` | Persist `castSpell` plus on-cast trigger glue and pending cascade/scry. |
-| `gameActionsCastSpellFromHandModalOverloadLife.ts` | Modal / overload / pay-X-life prompts before additional costs. |
+| `gameActionsCastSpellFromHandModalOverloadLife.ts` | Modal / overload / pay-X-life prompts before additional costs. Provided-life `validateLifePayment` and queued `getMaxPayableLife` pass `ctx` + `playerId`. |
 | `gameActionsCastSpellFromHandForceFlash.ts` | Force of Will, flash/timing grants, Abundant Harvest choice. |
-| `gameActionsRequestCastSpellNoTargetPayment.ts` | `requestCastSpellForSocket` no-target additional costs + mana payment queue. |
+| `gameActionsRequestCastSpellNoTargetPayment.ts` | `requestCastSpellForSocket` no-target additional costs + mana payment queue. Pay-life consults `canPlayerPayLife`. |
 | `gameActionsRequestCastSpellWithTargets.ts` | `requestCastSpellForSocket` with-target additional costs + `TARGET_SELECTION` (near ceiling — do not append). |
 | `gameActionsCastSpellFromHandStackStamp.ts` | Stamp stack item after `applyEvent` (converge, haste, cavern, snow, additional cost). |
 | `gameActionsRequestCastSpellCandidateZone.ts` | `requestCastSpellForSocket` timing, candidate lookup, and source-zone gates (CR 601.2a). |
@@ -81,7 +82,7 @@ Public path stays `game-actions.ts` (`export { … } from "./game-actions-handle
 | `interactionActivateSacrificeDraw.ts` | `tryHandleActivateSacrificeDraw`. |
 | `interactionActivateGrantFightCounterTap.ts` | `tryHandleActivateGrantFightCounterTap`. |
 | `interactionActivateLevelOutlastUpgrade.ts` | `tryHandleActivateLevelOutlastUpgrade`. |
-| `interactionActivatePlaneswalker.ts` | `tryHandleActivatePlaneswalker`. |
+| `interactionActivatePlaneswalker.ts` | `tryHandleActivatePlaneswalker`. Loyalty player/`any` lists use `canPlayerBeTargetedByPlayer`. |
 | `interactionActivateSacrificeCostPrompt.ts` | `tryHandleActivateSacrificeCostPrompt`. |
 | `interactionActivatePayLifeExileCounters.ts` | `tryHandleActivatePayLifeExileCounters`. |
 | `interactionActivateBattlefieldAbilityHelpers.ts` | Shared activate helpers (`persistAbilityActivatedTriggerPushes`, `parseStationThreshold`, `applyXValueToText`, `extractActivatedAbilitiesFromText`, …). |
@@ -167,11 +168,14 @@ Family dispatch in the parent: `if (applyXEvents(ctx, e)) return;`. `activateBat
 | `util-handlers/calculateManaProduction.ts` | `socket/util.ts` | Dispatcher: land/basic → dynamic → creature power → storage/battery → bonuses/total. |
 | `util-handlers/tryCalculateManaProductionLandBasic.ts` (and Dynamic / CreaturePower / StorageBattery / BonusesAndTotal) | `socket/util.ts` | Ability-family runs of `calculateManaProduction`. |
 | `turn-handlers/pendingDelayedTriggerDequeues.ts` | `state/modules/turn.ts` | Drain `state.pending*` delayed schedules at step boundaries. |
-| `turn-handlers/turnStepCleanup.ts` | `state/modules/turn.ts` | Cleanup-step body from `nextStep()`: discard-to-hand-size, Sundial pause, Rule 514.2 damage clear, until-end-of-turn expiry. Entry: `runTurnStepCleanup`. |
+| `turn-handlers/turnStepCleanup.ts` | `state/modules/turn.ts` | Cleanup-step body from `nextStep()`: discard-to-hand-size, Sundial pause, Rule 514.2 damage clear, until-end-of-turn expiry including `lastingEffects.protectionKeywordOverride` and this-turn `preventLifeGain`. Rest-of-game `preventLifeGain` (`duration: 'game'`) stays. Entry: `runTurnStepCleanup`. |
 | `turn-handlers/turnStepUpkeep.ts` | `state/modules/turn.ts` | Upkeep-step body from `nextStep()`: delayed upkeep dequeues, initiative venture, cumulative upkeep mana, suspend, rebound, beginning-of-upkeep triggers. Entry: `runTurnStepUpkeep`. |
+| `turn-handlers/turnExpiredUntilNextTurnEffects.ts` | `state/modules/turn.ts` | `removeExpiredUntilNextTurnEffects` at next-turn start. Also drops until-next-turn `staticAbilityGrantEffects` / grant bags when `turnApplied` is earlier than the controller’s current turn. |
 | `combat-handlers/combatLegalityGates.ts` | `socket/combat.ts` | `isCurrentlyCreature`, attack/block legality, temporary combat restriction texts. |
-| `combat-handlers/combatDeclareBlockersRequest.ts` | `socket/combat.ts` | `handleDeclareBlockers`; declare-blockers chat; battlefield name lookup; `persistTriggeredAbilityPush`. |
+| `combat-handlers/combatDeclareBlockersRequest.ts` | `socket/combat.ts` | `handleDeclareBlockers`; declare-blockers chat; battlefield name lookup; `persistTriggeredAbilityPush`. Wires `findMustBeBlockedIfAbleViolation`. |
+| `combat-handlers/combatMustBeBlockedIfAble.ts` | `socket/combat.ts` | Derived lure grants: `all_able_creatures_must_block` vs `must_be_blocked_if_able`, plus typed `must_be_blocked_by_<keyword>`. Skip illegal only when a legal (keyword) blocker is unused. Human declare, skip, and AI empty `[]` share `findMustBeBlockedIfAbleViolation`. |
 | `combat-handlers/combatDeclareAttackersSupport.ts` | `socket/combat.ts` | Declare-attackers chat; defender-id resolution; owner-attack restriction predicates; optional attack-trigger mana/energy payment (`resolveAttackTriggerManaPaymentChoice`); `processAttackTriggersAfterDeclaration`. |
+| `nearestOpponentDirectionAttackRestriction.ts` | `state/modules/` (combat) | Generic until-next-turn “nearest opponent in chosen direction” attack lock (Teyo −2 oracle). Battles legal only if locked opponent is protector/defending player. Entries: `parseNearestOpponentDirectionAttackLock`, `getNearestOpponentInChosenDirection`, `getNearestOpponentDirectionAllowedDefenderId`, `getNearestOpponentDirectionAttackViolation`. Wired from declare-attackers request/execute/force-tap. |
 | `combat-handlers/combatDeclareAttackersForceTapSupport.ts` | `socket/combat.ts` | Exert/enlist enqueue, goad status, forced-attack check, tap-on-attack triggers. |
 | `combat-handlers/combatDeclareAttackersExecute.ts` | `socket/combat.ts` | `executeDeclareAttackers` (AI / paid-attack / resolution-queue path). |
 | `combat-handlers/combatControlState.ts` | `socket/combat.ts` | `getCombatControl` / `setCombatControl`. |
@@ -179,9 +183,10 @@ Family dispatch in the parent: `if (applyXEvents(ctx, e)) return;`. `activateBat
 | `combat-handlers/combatDeclareControlledAttackersRequest.ts` | `socket/combat.ts` | `handleDeclareControlledAttackers`. |
 | `undo-handlers/undoBoundaryPlanning.ts` | `socket/undo.ts` | Semantic action counting, boundary keys/snapshots/history, smart undo counts. |
 | `undo-handlers/undoTurnPhaseTargets.ts` | `socket/undo.ts` | Earlier turn/phase/step jump targets. Entries: `listUndoTurnPhaseTargets`, `resolveUndoToTurnPhaseCount`. |
-| `oracleIrServerZoneSync-handlers/oracleIrServerPostExecutionStateSync.ts` | `oracleIrServerZoneSync.ts` | Post-IR mirroring: GY→exile provenance, copy-token, prepared, linked exiles, reanimation, EOT token sacrifice/exile, impulse draws, temp abilities / P/T. |
+| `oracleIrServerZoneSync-handlers/oracleIrServerPostExecutionStateSync.ts` | `oracleIrServerZoneSync.ts` | Post-IR mirroring: GY→exile provenance, copy-token, prepared, linked exiles, reanimation, EOT token sacrifice/exile, impulse draws, temp abilities / P/T. Stamps `turnApplied` on until-next-turn `staticAbilityGrantEffects` / grant bags. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerLibrarySearchLookChoosePilePrompts.ts` | `oracleIrServerZoneSync.ts` | Look-choose / search-library / choose-pile prompt builders. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerVoteJoinForcesPrompts.ts` | `oracleIrServerZoneSync.ts` | JOIN_FORCES / VOTE prompt queues. Entries: `queueJoinForcesPromptsFromOracleIRResult`, `queueVotePromptsFromOracleIRResult`. |
+| `oracleIrServerZoneSync-handlers/oracleIrServerChoiceFamilyPrompts.ts` | `oracleIrServerZoneSync.ts` | IR-primary queues for `each_player_choose_then_destroy_rest` / `secret_opponent_choice_damage` / `may_cast_from_among` onto existing TARGET_SELECTION / secret OPTION_CHOICE / GRAVEYARD_SELECTION. Also queues Reveal/Decline OPTION_CHOICE for `may_reveal_hand_then_win_if_own_named_in_zones`. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerTapUntapChoicePrompts.ts` | `oracleIrServerZoneSync.ts` | TAP_UNTAP_TARGET queues for tap-or-untap and tap-matching-permanents. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerExplorePopulateChangeTargetPrompts.ts` | `oracleIrServerZoneSync.ts` | Explore / populate / change-target queues. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerImpulseDiscoverGyPermissionPrompts.ts` | `oracleIrServerZoneSync.ts` | GY-cast permission, impulse-exile play, discover cast-or-hand. |
@@ -204,18 +209,21 @@ Family dispatch in the parent: `if (applyXEvents(ctx, e)) return;`. `activateBat
 
 ### `targeting-handlers/` (extracted from `targeting.ts`)
 
-Public path stays `targeting.ts`. Leaves must not import `targeting.ts` or the index. Never create `targeting/` beside `targeting.ts`. `categorizeSpellWithoutPrimaryRetirement` keeps the exported dispatcher: normalize oracle, suppress exile/counter-all-spells, then `tryCategorize…` (`null` = fall through).
+Public path stays `targeting.ts`. Leaves must not import `targeting.ts` or the index. Never create `targeting/` beside `targeting.ts`. `categorizeSpellWithoutPrimaryRetirement` keeps the exported dispatcher: normalize oracle, suppress exile/counter-all-spells, then `tryCategorize…` (`null` = fall through). IR-primary live cast targeting does **not** call it — see `gameActionsCastSpellParsedTargeting.ts` and `target-availability.ts`. Categorize remains for tests and `ORACLE_IR_SPELL_PRIMARY=0`.
 
 | Module | Owns |
 | --- | --- |
-| `targetingSpellSpecTypes.ts` | `SpellOp`, `SpellSpec`, filters/restrictions. |
+| `targetingSpellSpecTypes.ts` | `SpellOp`, `SpellSpec`, filters/restrictions. `StatRequirement.orStat` for compound power-or-toughness. |
 | `targetingCategorizeCountUtils.ts` | `parseCountWord`, `titleCaseWords`. |
 | `targetingCategorizePermanentFilter.ts` | `detectCategorizePermanentFilter`. |
-| `targetingParseTargetRequirements.ts` | `parseTargetRequirements`, `matchesGraveyardCardTargetType`, `requiresTargeting`, `GroupedTargetRequirement`. |
+| `targetingParseTargetRequirements.ts` | `parseTargetRequirements`, `matchesGraveyardCardTargetType`, `requiresTargeting`, `GroupedTargetRequirement`. Comma/or multi-type lists (Atraxa's Fall). Attaches `targetRestriction` / `statRequirement` / `creatureRestriction` from the sibling. |
+| `targetingParseTargetRequirementRestrictions.ts` | SpellSpec-aligned `has_keyword` / power-toughness / tapped-untapped / attacked-blocked / entered / damage-this-turn / active-player plus compound `orStat` for IR-primary lists. Matcher takes optional caster id. Public: `parseTargetRequirementStatKeywordFilters`, `stripTargetTypeRestrictionSuffix`, `attachParsedTargetRequirementStatKeywordFilters`, `permanentMatchesTargetRequirementStatKeywordFilters`. |
 | `targetingCategorizeStackCounterSimpleTemplates.ts` | Stack/counter/simple templates. |
 | `targetingCategorizeScryMillMassRemoval.ts` | Scry/mill/mass-removal templates. |
 | `targetingCategorizeDamageFlickerRestrictions.ts` | Damage/flicker/restriction templates. |
 | `targetingCategorizeTapBounceGenericTargets.ts` | Tap/bounce/generic-target templates. |
+| `targetingProtectionKeywordStaticOverride.ts` | Lose vs as-though hexproof (`protectionKeywordIgnoredForTargeting`, `protectionKeywordIgnoredForPlayerTargeting`). Archetype global lose; Spotlight controller-only creatures; Nowhere to Run every player; Kaya opponent permanents + `player_opponents`. `asThoughAbilitySuppressedForTarget` skips ward when `asThoughNoAbilities` lists `'ward'`. Until-EOT `lastingEffects.protectionKeywordOverride` (Detection Tower as-though / Arcane Lighthouse lose). |
+| `targetingPlayerProtectionKeyword.ts` | `canPlayerBeTargetedByPlayer`. Wired in `evaluateTargeting`, cast-time lists, copy-retarget fallback, activation player lists (`buildActivatedAbilityValidTargets`, generic non-mana, planeswalker loyalty). Until-EOT Detection Tower player as-though uses `lastingEffects.protectionKeywordOverride`. |
 
 ### `staticEffects-handlers/` (extracted from `staticEffects.ts`)
 
@@ -223,7 +231,7 @@ Public path stays `staticEffects.ts`. Leaves must not import `staticEffects.ts` 
 
 | Module | Owns |
 | --- | --- |
-| `staticEffectsKnownCards.ts` | `KNOWN_STATIC_EFFECT_CARDS` (extracted as-is; unused by computeContinuousEffects). |
+| `staticEffectsKnownCards.ts` | `KNOWN_STATIC_EFFECT_CARDS` emptied leftover re-export; unused by `computeContinuousEffects`. Behavior is oracle `StaticEffectSpec`. |
 | `staticEffectsScanHelpers.ts` | Parse/battlefield helpers plus `EffectAggregate` / `ContinuousEffectResult`. Entries: `COLOR_WORDS`, `parseCardCountWord`, `parseBuffSegment`, `resolveGrantedAbilities`, `isCreature`, `isLegendaryCreature`, `isColor`, `creatureHasManaColor`, `hasCreatureType`, `countOtherCreaturesSharingType`, `permanentCountsForControlTypeCondition`, `CREATURE_TYPES`, `GLOBAL_TYPE_ADDITIONS`. |
 | `staticEffectsMonumentLordAndSharedType.ts` | Monument + creature-type lord + nonblack/nonhuman + Coat of Arms + Sliver Legion phase. Entry: `applyMonumentLordAndSharedTypeEffects`. |
 
@@ -237,7 +245,10 @@ Public path stays `game-state-effects.ts` (re-export barrel). Leaves must not im
 | `gameStateEffectsReplacementApply.ts` | 616.1 replacement order, detect, and apply (damage/life/counters/tokens/mill). |
 | `gameStateEffectsAbilityConditions.ts` | Metalcraft / threshold / delirium / coven / `getActiveAbilityConditions`. |
 | `gameStateEffectsTokenSubtype.ts` | Treasure / artifact token subtype checks. |
-| `gameStateEffectsWinLose.ts` | Win / lose / can't-lose, life change, empty-library draw, ascend. |
+| `gameStateEffectsWinConditionOraclePatterns.ts` | Oracle-pattern “you win the game” scanner (upkeep / end-step / Thassa / then-if / state-trigger). Maze's End unique-name win and Approach same-name-cast-this-game are IR, not this scan. Hedron Alignment may-reveal is not auto-scanned. Rules-engine adapter: `stateBasedActionsOracleScannerWins.ts`. |
+| `gameStateEffectsWinConditionStateTriggerThenIf.ts` | State-trigger counter wins (`immediate`); then-if / compound intervening-if; same-name / different-name tribe counts. Rules-engine `checkWinConditions` and live `runSBA` dispatch `immediate`. Upkeep scanner stays on `turnActions`. |
+| `gameStateEffectsLifeModifierOraclePatterns.ts` | Oracle-pattern life restrictions + ReplacementEffectSpec life-gain/life-loss collect/apply. No `LIFE_MODIFIERS` name table. Teferi's Protection uses `playerProtection.lifeCannotChange`. Wound Reflection is an end-step trigger. Bloodletter doubles via `life-loss` specs. `detectLifeModifiers` / `canGainLife` also honor `lastingEffects.preventLifeGain` this-turn stamps. |
+| `gameStateEffectsWinLose.ts` | Win / lose / can't-lose, empty-library draw, ascend. `checkImmediateWinConditions` (Darksteel-style) re-exported from `game-state-effects.ts`. Re-exports life-modifier helpers from `gameStateEffectsLifeModifierOraclePatterns.ts`. |
 | `gameStateEffectsLandPlayDraw.ts` | Additional land drops, temporary land bonuses, additional draws. |
 | `gameStateEffectsTopLibrary.ts` | Top-of-library look/play/cast, `recalculatePlayerEffects`. |
 | `gameStateEffectsMillDamage.ts` | Combat mill replacements, modified damage, `applyCombatDamageReplacement`. |

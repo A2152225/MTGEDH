@@ -29,6 +29,7 @@ import {
   findForcedAttackViolation,
   processTapTriggersForAttackers,
 } from "./combatDeclareAttackersForceTapSupport.js";
+import { getNearestOpponentDirectionAttackViolation } from "../../state/modules/nearestOpponentDirectionAttackRestriction.js";
 
 export async function executeDeclareAttackers(
   io: Server,
@@ -165,6 +166,19 @@ export async function executeDeclareAttackers(
       throw Object.assign(
         new Error(`${(creature as any).card?.name || 'Creature'} ${ownerRestrictionReason.toLowerCase()}`),
         { code: 'CANT_ATTACK_OWNER' },
+      );
+    }
+
+    const directionRestriction = getNearestOpponentDirectionAttackViolation({
+      state: game.state,
+      attackerPlayerId: playerId,
+      defendingPlayerId,
+      targetPermanentId: attacker.targetPermanentId || attacker.targetPlayerId,
+    });
+    if (directionRestriction.illegal) {
+      throw Object.assign(
+        new Error(`${(creature as any).card?.name || 'Creature'} can't attack that player. ${directionRestriction.reason}`),
+        { code: 'ATTACK_DIRECTION_RESTRICTED' },
       );
     }
 

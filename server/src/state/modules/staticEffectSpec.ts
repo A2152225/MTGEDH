@@ -12,7 +12,10 @@ import {
 } from './staticEffectSpecOracleParsing.js';
 import { getEffectiveOracleText } from './effectiveOracleText.js';
 import { scanBattlefieldContinuousEffectOverlayGaps } from './oracleIrContinuousEffectGapTelemetry.js';
-import { collectPrintedColorSymbols, printedObjectHasManaColor } from './printedColorSymbols.js';
+import {
+  specMatchesStaticCondition,
+  type StaticConditionState,
+} from './staticEffectSpecConditionEval.js';
 
 /** Declarative static spec (Phase 5.3). See docs/oracle-ir-phase5-continuous-effects-design.md */
 export type StaticEffectScopeKind =
@@ -25,8 +28,12 @@ export type StaticEffectScopeKind =
   | 'other_all_creatures_of_type'
   | 'creature_type'
   | 'opponent_creatures_of_type'
+  | 'opponent_creatures'
+  | 'opponent_permanents'
+  | 'lands_you_control'
   | 'all_permanents'
-  | 'player_you';
+  | 'player_you'
+  | 'player_opponents';
 
 export interface StaticEffectScope {
   kind: StaticEffectScopeKind;
@@ -41,6 +48,18 @@ export interface StaticEffectGrant {
   playerShroud?: boolean;
   /** Color words/symbols added in addition to printed colors (layer 5). */
   colorAdditions?: readonly string[];
+  /** Keywords this effect removes (layer 6 lose / can't have or gain). */
+  removeAbilities?: readonly string[];
+  /**
+   * Keywords every player may ignore when targeting (as-though they didn't
+   * have …, without "you control"). Does not strip abilities globally.
+   */
+  asThoughNoAbilities?: readonly string[];
+  /**
+   * Keywords the source controller may ignore when targeting (as-though they
+   * didn't have …). Does not strip abilities globally.
+   */
+  asThoughNoAbilitiesForController?: readonly string[];
   /** Multiply power/toughness by a battlefield count (Coat of Arms, Sliver Legion). */
   countBasis?: StaticEffectCountBasis;
 }
@@ -62,7 +81,16 @@ export type StaticEffectConditionKind =
   | 'target_has_mana_color'
   | 'target_is_not_black_creature'
   | 'target_is_not_human_creature'
-  | 'target_is_legendary_creature';
+  | 'target_is_legendary_creature'
+  | 'source_in_graveyard_and_control_land_type'
+  | 'target_is_tapped'
+  | 'target_is_untapped'
+  | 'target_is_attacking'
+  | 'target_is_ring_bearer'
+  | 'source_controller_has_threshold'
+  | 'target_is_equipped'
+  /** Raid / “if you attacked this turn” (controller attacked). */
+  | 'source_controller_attacked_this_turn';
 
 export interface StaticEffectCondition {
   kind: StaticEffectConditionKind;
@@ -70,6 +98,8 @@ export interface StaticEffectCondition {
   offset?: number;
   /** Mana color name for chosen-color anthems (Caged Sun). */
   color?: string;
+  /** Basic land type for GY incarnation statics (Anger / Wonder). */
+  landType?: string;
 }
 
 export interface StaticEffectSpec {
@@ -91,14 +121,14 @@ function isCreaturePermanent(permanent: BattlefieldPermanent): boolean {
   return typeLine.includes('creature') || typeLine.includes('kindred') || typeLine.includes('tribal');
 }
 
-function isLegendaryCreaturePermanent(permanent: BattlefieldPermanent): boolean {
-  const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
-  return typeLine.includes('legendary') && isCreaturePermanent(permanent);
-}
-
 function isPlaneswalkerPermanent(permanent: BattlefieldPermanent): boolean {
   const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
   return typeLine.includes('planeswalker');
+}
+
+function isLandPermanent(permanent: BattlefieldPermanent): boolean {
+  const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
+  return typeLine.includes('land');
 }
 
 function hasCreatureType(permanent: BattlefieldPermanent, creatureType: string): boolean {
@@ -183,6 +213,13 @@ function inferStaticEffectLayer(spec: StaticEffectSpec): StaticEffectLayer {
   if (spec.layer) return spec.layer;
   if (specHasPowerToughnessGrant(spec)) return 7;
   if (Array.isArray(spec.grant.abilities) && spec.grant.abilities.length > 0) return 6;
+  if (Array.isArray(spec.grant.removeAbilities) && spec.grant.removeAbilities.length > 0) return 6;
+  if (Array.isArray(spec.grant.asThoughNoAbilities) && spec.grant.asThoughNoAbilities.length > 0) {
+    return 6;
+  }
+  if (Array.isArray(spec.grant.asThoughNoAbilitiesForController) && spec.grant.asThoughNoAbilitiesForController.length > 0) {
+    return 6;
+  }
   if (spec.grant.playerHexproof || spec.grant.playerShroud) return 6;
   return 7;
 }
@@ -296,33 +333,6 @@ function permanentHasOverlayStaticSpecs(perm: BattlefieldPermanent): boolean {
   return false;
 }
 
-function colorNameToSymbol(colorName: string): string | null {
-  const colorMap: Record<string, string> = {
-    white: 'W',
-    blue: 'U',
-    black: 'B',
-    red: 'R',
-    green: 'G',
-    w: 'W',
-    u: 'U',
-    b: 'B',
-    r: 'R',
-    g: 'G',
-  };
-  return colorMap[String(colorName || '').trim().toLowerCase()] || null;
-}
-
-function creatureHasManaColor(permanent: BattlefieldPermanent, colorName: string): boolean {
-  const symbol = colorNameToSymbol(colorName);
-  const colors = collectPrintedColorSymbols(permanent);
-  const added = Array.isArray((permanent as any).colorAdditions)
-    ? ((permanent as any).colorAdditions as string[]).map((entry) => String(entry).toUpperCase())
-    : [];
-  const effective = [...new Set([...colors, ...added])];
-  if (symbol && effective.includes(symbol)) return true;
-  return printedObjectHasManaColor(permanent, colorName);
-}
-
 export function collectStaticEffectSpecsFromState(state: unknown): StaticEffectSpec[] {
   const specs: StaticEffectSpec[] = [];
   const battlefield = Array.isArray((state as any)?.battlefield) ? (state as any).battlefield : [];
@@ -377,6 +387,32 @@ export function collectStaticEffectSpecsFromState(state: unknown): StaticEffectS
     }
   }
 
+  const zones = ((state as any)?.zones && typeof (state as any).zones === 'object')
+    ? (state as any).zones as Record<string, { graveyard?: readonly unknown[] }>
+    : {};
+  for (const [playerId, playerZones] of Object.entries(zones)) {
+    const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+    for (const card of graveyard) {
+      if (!card || typeof card !== 'object') continue;
+      const record = card as Record<string, unknown>;
+      const nested = (record.card && typeof record.card === 'object')
+        ? record.card as Record<string, unknown>
+        : record;
+      const sourcePermanentId = String(record.id || nested.id || '').trim();
+      const sourceController = String(playerId || record.owner || record.controller || '').trim();
+      if (!sourcePermanentId || !sourceController) continue;
+      specs.push(...parseStaticEffectSpecsFromOraclePermanent({
+        id: sourcePermanentId,
+        controller: sourceController,
+        card: {
+          name: String(nested.name || record.name || 'Unknown'),
+          oracle_text: String(nested.oracle_text || record.oracle_text || ''),
+          type_line: String(nested.type_line || record.type_line || ''),
+        },
+      } as BattlefieldPermanent));
+    }
+  }
+
   const emblems = Array.isArray((state as any)?.emblems) ? (state as any).emblems : [];
   for (const emblem of emblems) {
     if (!emblem) continue;
@@ -405,6 +441,7 @@ function permanentMatchesScope(
   const controller = String(spec.sourceController || '');
   switch (spec.scope.kind) {
     case 'player_you':
+    case 'player_opponents':
       return false;
     case 'self':
       return String(permanent.id || '') === String(spec.sourcePermanentId || '');
@@ -439,56 +476,16 @@ function permanentMatchesScope(
       return isCreaturePermanent(permanent)
         && String(permanent.controller || '') !== controller
         && hasCreatureType(permanent, String(spec.scope.creatureType || ''));
+    case 'opponent_creatures':
+      return isCreaturePermanent(permanent)
+        && String(permanent.controller || '') !== controller;
+    case 'opponent_permanents':
+      return String(permanent.controller || '') !== controller;
+    case 'lands_you_control':
+      return isLandPermanent(permanent)
+        && String(permanent.controller || '') === controller;
     default:
       return false;
-  }
-}
-
-type StaticConditionState = {
-  battlefield?: readonly BattlefieldPermanent[];
-  life?: Record<string, number>;
-  startingLife?: number;
-  turnPlayer?: string;
-};
-
-function specMatchesStaticCondition(
-  permanent: BattlefieldPermanent,
-  spec: StaticEffectSpec,
-  state: StaticConditionState,
-): boolean {
-  const condition = spec.condition;
-  if (!condition?.kind) return true;
-
-  switch (condition.kind) {
-    case 'controller_life_at_least_starting_plus': {
-      const controller = String(spec.sourceController || '');
-      const startingLife = Number(state.startingLife || 40);
-      const currentLife = Number(state.life?.[controller] ?? startingLife);
-      return currentLife >= startingLife + Number(condition.offset || 0);
-    }
-    case 'target_is_token':
-      return permanent.isToken === true;
-    case 'target_is_not_token':
-      return permanent.isToken !== true;
-    case 'during_source_controller_turn':
-      return String(state.turnPlayer || '') === String(spec.sourceController || '');
-    case 'target_is_token_during_source_controller_turn':
-      return permanent.isToken === true
-        && String(state.turnPlayer || '') === String(spec.sourceController || '');
-    case 'target_has_mana_color':
-      return creatureHasManaColor(permanent, String(condition.color || ''));
-    case 'target_is_not_black_creature': {
-      const colors = ((permanent.card as any)?.colors || []).map((entry: string) => String(entry).toUpperCase());
-      return !colors.includes('B');
-    }
-    case 'target_is_not_human_creature': {
-      const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
-      return !typeLine.includes('human');
-    }
-    case 'target_is_legendary_creature':
-      return isLegendaryCreaturePermanent(permanent);
-    default:
-      return true;
   }
 }
 
@@ -510,6 +507,31 @@ function ensurePermanentAbilities(
   const created = new Set<string>();
   result.permanentAbilities.set(permanentId, created);
   return created;
+}
+
+function normalizeGrantedAbilityList(abilities: readonly string[] | undefined): string[] {
+  if (!Array.isArray(abilities)) return [];
+  const normalized: string[] = [];
+  for (const ability of abilities) {
+    const value = String(ability || '').trim().toLowerCase();
+    if (value && !normalized.includes(value)) normalized.push(value);
+  }
+  return normalized;
+}
+
+function stripAbilitiesFromContinuousResult(
+  result: ContinuousEffectResult,
+  permanentId: string,
+  abilities: readonly string[],
+): void {
+  const creatureAgg = result.perPermanent.get(permanentId);
+  if (creatureAgg) {
+    for (const ability of abilities) creatureAgg.abilities.delete(ability);
+  }
+  const permanentLevel = result.permanentAbilities.get(permanentId);
+  if (permanentLevel) {
+    for (const ability of abilities) permanentLevel.delete(ability);
+  }
 }
 
 export function applyDeclarativeStaticSpecs(
@@ -540,6 +562,9 @@ export function applyDeclarativeStaticSpecs(
       const controller = String(spec.sourceController || '') as PlayerID;
       if (spec.grant.playerHexproof) result.playerHexproof.add(controller);
       if (spec.grant.playerShroud) result.playerShroud.add(controller);
+      continue;
+    }
+    if (spec.scope.kind === 'player_opponents') {
       continue;
     }
 
@@ -583,6 +608,22 @@ export function applyDeclarativeStaticSpecs(
         }
         result.colorAdditions.set(permanentId, merged);
       }
+    }
+  }
+
+  // Re-apply lose / can't-have-or-gain after grants so Archetype-style removals win
+  // over same-layer keyword grants regardless of battlefield timestamp.
+  // asThoughNoAbilities / asThoughNoAbilitiesForController are honored at targeting
+  // time — do not strip those abilities here.
+  for (const spec of orderedSpecs) {
+    const removedAbilities = normalizeGrantedAbilityList(spec.grant.removeAbilities);
+    if (removedAbilities.length === 0 || spec.scope.kind === 'player_you') continue;
+    for (const permanent of battlefield) {
+      if (!permanentMatchesScope(permanent, spec)) continue;
+      if (!specMatchesStaticCondition(permanent, spec, state)) continue;
+      const permanentId = String(permanent.id || '');
+      if (!permanentId) continue;
+      stripAbilitiesFromContinuousResult(result, permanentId, removedAbilities);
     }
   }
 

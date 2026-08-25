@@ -11,6 +11,10 @@ import { tryCategorizeStackCounterSimpleTemplates } from './targeting-handlers/t
 import { tryCategorizeScryMillMassRemoval } from './targeting-handlers/targetingCategorizeScryMillMassRemoval.js';
 import { tryCategorizeDamageFlickerRestrictions } from './targeting-handlers/targetingCategorizeDamageFlickerRestrictions.js';
 import { tryCategorizeTapBounceGenericTargets } from './targeting-handlers/targetingCategorizeTapBounceGenericTargets.js';
+import { protectionKeywordIgnoredForTargeting } from './targeting-handlers/targetingProtectionKeywordStaticOverride.js';
+import { canPlayerBeTargetedByPlayer } from './targeting-handlers/targetingPlayerProtectionKeyword.js';
+
+export { canPlayerBeTargetedByPlayer };
 
 // Re-export TargetRef for consumers of this module
 export type { TargetRef };
@@ -337,11 +341,18 @@ export function canPermanentBeTargetedByPlayer(
   state: Readonly<GameState>,
   targetingPlayerId: PlayerID
 ): boolean {
-  if (hasGrantedProtectionKeyword(permanent, state, 'shroud')) {
+  if (
+    hasGrantedProtectionKeyword(permanent, state, 'shroud')
+    && !protectionKeywordIgnoredForTargeting(permanent, state, targetingPlayerId, 'shroud')
+  ) {
     return false;
   }
 
-  if (hasGrantedProtectionKeyword(permanent, state, 'hexproof') && permanent.controller !== targetingPlayerId) {
+  if (
+    hasGrantedProtectionKeyword(permanent, state, 'hexproof')
+    && permanent.controller !== targetingPlayerId
+    && !protectionKeywordIgnoredForTargeting(permanent, state, targetingPlayerId, 'hexproof')
+  ) {
     return false;
   }
 
@@ -370,6 +381,7 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
   ) {
     for (const pr of state.players) {
       if (spec.opponentOnly && pr.id === caster) continue;
+      if (!canPlayerBeTargetedByPlayer(pr.id, state, caster)) continue;
       out.push({ kind: 'player', id: pr.id });
     }
     return out;
@@ -639,7 +651,10 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
     out.push({ kind: 'permanent', id: p.id });
   }
   if (spec.op === 'ANY_TARGET_DAMAGE') {
-    for (const pr of state.players) out.push({ kind: 'player', id: pr.id });
+    for (const pr of state.players) {
+      if (!canPlayerBeTargetedByPlayer(pr.id, state, caster)) continue;
+      out.push({ kind: 'player', id: pr.id });
+    }
   }
   return out;
 }

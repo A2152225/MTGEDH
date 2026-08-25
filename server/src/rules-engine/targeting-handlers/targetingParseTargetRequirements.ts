@@ -9,8 +9,23 @@
 //   between those helpers.
 // Public entry symbols: parseTargetRequirements, matchesGraveyardCardTargetType,
 //   requiresTargeting, GroupedTargetRequirement.
+// Stat/keyword filters live in targetingParseTargetRequirementRestrictions.ts.
 
 import { inferManaValueConstraintFromText, type DynamicManaValueContext } from '../../state/modules/graveyard-mana-value.js';
+import type { StatRequirement, TargetRestriction } from './targetingSpellSpecTypes.js';
+import {
+  attachParsedTargetRequirementStatKeywordFilters,
+  parseTargetRequirementStatKeywordFilters,
+  stripTargetTypeRestrictionSuffix,
+} from './targetingParseTargetRequirementRestrictions.js';
+
+export {
+  parseTargetRequirementStatKeywordFilters,
+  stripTargetTypeRestrictionSuffix,
+  attachParsedTargetRequirementStatKeywordFilters,
+  permanentMatchesTargetRequirementStatKeywordFilters,
+} from './targetingParseTargetRequirementRestrictions.js';
+export type { ParsedTargetRequirementStatKeywordFilters } from './targetingParseTargetRequirementRestrictions.js';
 
 function buildGraveyardCardTargetType(rawTargetType: string | undefined): string {
   const normalized = String(rawTargetType || '')
@@ -171,17 +186,35 @@ function buildManaValueConstraintFromClause(rawClause: string | undefined, conte
   return inferManaValueConstraintFromText(clauseText, context);
 }
 
+const KNOWN_TARGET_TYPE_PATTERN = /\b(?:nonland\s+permanents?|noncreature\s+permanents?|noncreature\s+spells?|creature\s+spells?|instant\s+or\s+sorcery\s+spells?|instant\s+spells?|sorcery\s+spells?|nonland|noncreature|permanents?|creatures?|artifacts?|enchantments?|lands?|battles?|planeswalkers?|players?|opponents?|spells?)\b/gi;
+
+function canonicalizeParsedTargetType(raw: string): string {
+  return String(raw || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/s$/, '');
+}
+
 function parseTargetTypePhrase(rawTargetType: string | undefined): string[] {
-  const normalized = String(rawTargetType || '')
+  const normalized = stripTargetTypeRestrictionSuffix(String(rawTargetType || '')
     .toLowerCase()
     .replace(/\band\/or\b/g, 'or')
     .replace(/[.,]/g, ' ')
     .replace(/\btarget\b/g, ' ')
     .replace(/\bthat player controls\b/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim());
 
   if (!normalized) return [];
+
+  KNOWN_TARGET_TYPE_PATTERN.lastIndex = 0;
+  const knownTypes = Array.from(new Set(
+    (normalized.match(KNOWN_TARGET_TYPE_PATTERN) || [])
+      .map((entry) => canonicalizeParsedTargetType(entry))
+      .filter(Boolean),
+  ));
+  if (knownTypes.length > 0) return knownTypes;
 
   const pieces = normalized
     .split(/\s+or\s+/)
@@ -208,7 +241,7 @@ export function requiresTargeting(oracleText?: string): boolean {
   // Check for "target" keyword followed by a valid target type
   // This catches ALL spells that require targets
   const targetPatterns = [
-    /target\s+(?:creature|permanent|artifact|enchantment|land|player|opponent|planeswalker)/i,
+    /target\s+(?:(?:tapped|untapped|attacking or blocking|attacking|blocking)\s+)?(?:creature|permanent|artifact|enchantment|land|battle|player|opponent|planeswalker)/i,
     /any\s+target/i,
     /target\s+spell/i,
     /target\s+(?:instant|sorcery)(?:\s+or\s+(?:instant|sorcery))?\s+spell/i,
@@ -253,6 +286,9 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   targetFilterMaxManaValue?: number;
   targetTotalPowerLimit?: number;
   targetFilterExcludeTypes?: string[];
+  targetRestriction?: TargetRestriction;
+  statRequirement?: StatRequirement;
+  creatureRestriction?: TargetRestriction;
 } {
   if (!oracleText) return { needsTargets: false, targetTypes: [], minTargets: 0, maxTargets: 0, targetDescription: '' };
   
@@ -268,6 +304,9 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   let minTargets = 0;
   let maxTargets = 0;
   let targetDescription = '';
+  const statKeywordFilters = parseTargetRequirementStatKeywordFilters(oracleText);
+  const finish = <T extends { needsTargets: boolean }>(result: T) =>
+    attachParsedTargetRequirementStatKeywordFilters(result, statKeywordFilters);
 
   const parseGroupedTargetPhrase = (
     rawTargetPhrase: string,
@@ -279,7 +318,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     const positivePhrase = normalized
       .replace(/\bnon(?:artifact|creature|enchantment|land|planeswalker)\b[\s,]*/g, '')
       .trim();
-    const parsedTypes = positivePhrase
+    const parsedTypes = stripTargetTypeRestrictionSuffix(positivePhrase)
       .split(/\s+or\s+/)
       .map((type) => type.trim())
       .filter(Boolean);
@@ -357,7 +396,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     }
 
     targetDescription = `any number of target ${normalizedTargetPhrase}`;
-    return {
+    return finish({
       needsTargets: true,
       targetTypes,
       minTargets,
@@ -366,7 +405,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       targetControllerConstraint: /\byou control\b/i.test(normalizedTargetPhrase)
         ? 'you'
         : (/\ban opponent controls\b/i.test(normalizedTargetPhrase) ? 'opponent' : 'any'),
-    };
+    });
   }
   
   // Generic grouped controller targeting:
@@ -378,7 +417,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     const groupPlayers = groupedExactMatch[1] === 'player' ? 'each_player' : 'each_opponent';
     const targetPhrase = groupedExactMatch[2].trim();
     const parsed = parseGroupedTargetPhrase(targetPhrase);
-    return {
+    return finish({
       needsTargets: true,
       targetTypes: parsed.targetTypes,
       minTargets: 1,
@@ -393,7 +432,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       ...(groupPlayers === 'each_opponent' ? { perOpponent: true } : {}),
       targetControllerConstraint: 'that_player',
       ...(parsed.excludeTypes.length > 0 ? { targetFilterExcludeTypes: parsed.excludeTypes } : {}),
-    };
+    });
   }
 
   const groupedUpToMatch = t.match(
@@ -406,7 +445,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
     const maxPerGroup = numMap[numWord] || parseInt(numWord, 10) || 1;
     const parsed = parseGroupedTargetPhrase(targetPhrase);
-    return {
+    return finish({
       needsTargets: true,
       targetTypes: parsed.targetTypes,
       minTargets: 0,
@@ -421,7 +460,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       ...(groupPlayers === 'each_opponent' ? { perOpponent: true } : {}),
       targetControllerConstraint: 'that_player',
       ...(parsed.excludeTypes.length > 0 ? { targetFilterExcludeTypes: parsed.excludeTypes } : {}),
-    };
+    });
   }
 
   // Legacy "for each opponent, X target Y that player controls" patterns.
@@ -443,11 +482,11 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       targetTypes.push(type.trim());
     }
     targetDescription = `for each opponent, up to ${numWord} target ${targetType} that player controls`;
-    return { 
-      needsTargets: true, 
-      targetTypes, 
-      minTargets, 
-      maxTargets, 
+    return finish({
+      needsTargets: true,
+      targetTypes,
+      minTargets,
+      maxTargets,
       targetDescription,
       groupedTargets: {
         groupBy: 'controller',
@@ -457,7 +496,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       },
       perOpponent: true,
       targetControllerConstraint: 'that_player',
-    };
+    });
   }
   
   // Check for "for each opponent, target X that player controls" (exact one, not "up to")
@@ -471,7 +510,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       targetTypes.push(type.trim());
     }
     targetDescription = `for each opponent, target ${targetType} that player controls`;
-    return { 
+    return finish({
       needsTargets: true, 
       targetTypes, 
       minTargets, 
@@ -485,7 +524,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       },
       perOpponent: true,
       targetControllerConstraint: 'that_player',
-    };
+    });
   }
 
   // Check for graveyard-to-hand card targeting on activated abilities.
@@ -553,7 +592,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     minTargets = 0; // "up to" means minimum is 0
     targetTypes.push(...parseTargetTypePhrase(rawTargetType));
     targetDescription = `up to ${numWord} target ${rawTargetType}`;
-    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, ...(isXCount ? { maxTargetsIsX: true } : {}) };
+    return finish({ needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, ...(isXCount ? { maxTargetsIsX: true } : {}) });
   }
   
   // Check for "X target" patterns (e.g., "two target creatures")
@@ -569,14 +608,14 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       maxTargets = isXCount ? 0 : num;
       targetTypes.push(...parseTargetTypePhrase(rawTargetType));
       targetDescription = `${numWord} target ${rawTargetType}`;
-      return {
+      return finish({
         needsTargets: true,
         targetTypes,
         minTargets,
         maxTargets,
         targetDescription,
         ...(isXCount ? { minTargetsIsX: true, maxTargetsIsX: true } : {}),
-      };
+      });
     }
   }
   
@@ -602,7 +641,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       .filter(Boolean);
     const scope = String(nonSubtypeCreatureTargetMatch[2] || '').trim().toLowerCase();
     targetDescription = `target non-${String(nonSubtypeCreatureTargetMatch[1] || '').trim()} creature${scope ? ` ${scope}` : ''}`;
-    return {
+    return finish({
       needsTargets: true,
       targetTypes,
       minTargets,
@@ -611,19 +650,36 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       targetFilterExcludeTypes: excludedTypes,
       ...(scope === 'you control' ? { targetControllerConstraint: 'you' as const } : {}),
       ...(scope === 'an opponent controls' ? { targetControllerConstraint: 'opponent' as const } : {}),
-    };
+    });
   }
   
+  // Comma/or multi-type lists (Atraxa's Fall, Nature's Claim). Must run before
+  // the first-type-only "target artifact" match.
+  const multiPermanentTypeMatch = t.match(
+    /target\s+((?:(?:non(?:land|creature)\s+)?(?:artifact|battle|enchantment|creature|land|planeswalker|permanent)s?(?:\s*,?\s+or\s+|\s+and\/or\s+|\s*,\s*))+(?:(?:non(?:land|creature)\s+)?(?:artifact|battle|enchantment|creature|land|planeswalker|permanent)s?))(?:\s+with\b[^.]+)?/i,
+  );
+  if (multiPermanentTypeMatch) {
+    const parsedTypes = parseTargetTypePhrase(multiPermanentTypeMatch[1]);
+    if (parsedTypes.length > 1) {
+      minTargets = 1;
+      maxTargets = 1;
+      targetTypes.push(...parsedTypes);
+      targetDescription = `target ${String(multiPermanentTypeMatch[1] || '').trim()}`;
+      return finish({ needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription });
+    }
+  }
+
   // Check for standard "target X" patterns
   // Include counterspell subjects: "target noncreature spell", "target creature spell", "target spell"
-  const targetMatch = t.match(/target\s+(creature|permanent|artifact|enchantment|land|battle|player|opponent|planeswalker|spell|nonland\s+permanent|noncreature\s+permanent|noncreature\s+spell|creature\s+spell|instant\s+or\s+sorcery\s+spell|instant\s+spell|sorcery\s+spell)(?:\s+(you\s+control|an\s+opponent\s+controls))?/i);
+  // Prefixes (tapped / attacking or blocking / …) are stripped into targetRestriction.
+  const targetMatch = t.match(/target\s+(?:(?:tapped|untapped|attacking or blocking|attacking|blocking)\s+)?(creature|permanent|artifact|enchantment|land|battle|player|opponent|planeswalker|spell|nonland\s+permanent|noncreature\s+permanent|noncreature\s+spell|creature\s+spell|instant\s+or\s+sorcery\s+spell|instant\s+spell|sorcery\s+spell)(?:\s+(you\s+control|an\s+opponent\s+controls))?/i);
   if (targetMatch) {
     minTargets = 1;
     maxTargets = 1;
     targetTypes.push(targetMatch[1]);
     const scope = String(targetMatch[2] || '').trim().toLowerCase();
     targetDescription = `target ${targetMatch[1]}${scope ? ` ${scope}` : ''}`;
-    return {
+    return finish({
       needsTargets: true,
       targetTypes,
       minTargets,
@@ -631,7 +687,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       targetDescription,
       ...(scope === 'you control' ? { targetControllerConstraint: 'you' as const } : {}),
       ...(scope === 'an opponent controls' ? { targetControllerConstraint: 'opponent' as const } : {}),
-    };
+    });
   }
   
   // Check for "target activated or triggered ability"

@@ -10,7 +10,8 @@
 //   syncIrCopyTokenProvenanceFromOracleIRResult, syncIrPreparedStateFromOracleIRResult,
 //   syncIrLinkedExilesFromOracleIRResult, syncIrReanimationRidersFromOracleIRResult,
 //   syncIrAtNextEndStepTokenSacrificeFromOracleIRResult, syncIrImpulseExileToPendingImpulseDraws,
-//   syncIrTemporaryGrantEffectsToServerTemporaryAbilities,
+//   syncIrTemporaryGrantEffectsToServerTemporaryAbilities
+//   (also stamps turnApplied on until-next-turn staticAbilityGrantEffects / grant bags),
 //   syncIrPowerToughnessModifiersToTemporaryPTMods.
 // Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
 
@@ -568,6 +569,43 @@ function preferTemporaryAbilityText(existing: string, candidate: string): string
   return left.length >= right.length ? left : right;
 }
 
+function isUntilNextTurnGrantEntryForStamp(entry: any): boolean {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+  if (String(entry.duration || '').trim() === 'until_next_turn') return true;
+  if (String(entry.expiresOnControllerTurn || '').trim()) return true;
+  return false;
+}
+
+function stampUntilNextTurnGrantTurnApplied(entry: any, turnNumber: number): void {
+  if (!isUntilNextTurnGrantEntryForStamp(entry)) return;
+  if (Number.isFinite(Number(entry.turnApplied)) && Number(entry.turnApplied) > 0) return;
+  entry.turnApplied = turnNumber;
+}
+
+function stampUntilNextTurnGrantBag(bag: any, turnNumber: number): void {
+  if (!Array.isArray(bag) || turnNumber <= 0) return;
+  for (const entry of bag) stampUntilNextTurnGrantTurnApplied(entry, turnNumber);
+}
+
+function stampUntilNextTurnGrantsOnState(state: any, turnNumber: number): void {
+  if (!state || typeof state !== 'object' || turnNumber <= 0) return;
+  stampUntilNextTurnGrantBag(state.staticAbilityGrantEffects, turnNumber);
+  for (const player of Array.isArray(state.players) ? state.players : []) {
+    if (!player || typeof player !== 'object') continue;
+    stampUntilNextTurnGrantBag(player.temporaryAbilities, turnNumber);
+    stampUntilNextTurnGrantBag(player.grantedAbilities, turnNumber);
+    stampUntilNextTurnGrantBag(player.temporaryEffects, turnNumber);
+  }
+  const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+  for (const perm of battlefield) {
+    if (!perm || typeof perm !== 'object') continue;
+    stampUntilNextTurnGrantBag(perm.staticAbilityGrantEffects, turnNumber);
+    stampUntilNextTurnGrantBag(perm.temporaryAbilities, turnNumber);
+    stampUntilNextTurnGrantBag(perm.grantedAbilities, turnNumber);
+    stampUntilNextTurnGrantBag(perm.temporaryEffects, turnNumber);
+  }
+}
+
 function canonicalizeTemporaryAbilityForServer(abilityText: string, expiresAt: string): string {
   const text = String(abilityText || '').trim();
   if (!text) return text;
@@ -587,6 +625,7 @@ export function syncIrTemporaryGrantEffectsToServerTemporaryAbilities(
   sourceName: string,
 ): void {
   const turnNumber = Number(state?.turnNumber || 0);
+  stampUntilNextTurnGrantsOnState(state, turnNumber);
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
 
   for (const perm of battlefield) {

@@ -20,6 +20,7 @@ import {
   handleOptionalTriggeredAbilityChoiceResponse,
   isOptionalTriggeredEffectProgramStep,
 } from "./mayAbilityAndOptionalTriggerHandlers.js";
+import { handleMayRevealHandWinIfOwnNamedChoice } from "./optionChoiceMayRevealHandWinHandlers.js";
 import { sanitizeStepForClient } from "./sanitizeStepForClient.js";
 
 /** OPTION_CHOICE: dispatch the chosen prompt flag to the specialized handler. */
@@ -52,6 +53,11 @@ export async function handleOptionChoiceResponse(
   }
 
   if (await getResolutionHandlerDeps().tryHandleOptionChoiceEarlySpecialsConfirmCastPayment(io, game, gameId, step, response)) {
+    return;
+  }
+
+  if (stepData?.mayRevealHandWinIfOwnNamedChoice === true) {
+    await handleMayRevealHandWinIfOwnNamedChoice(io, game, gameId, step, response);
     return;
   }
 

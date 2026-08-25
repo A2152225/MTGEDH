@@ -9,12 +9,19 @@ import type { BattlefieldStepHandlerResult } from './oracleIRExecutorBattlefield
 import { resolveAttachedStaticAbilityGrantTargets } from './oracleIRExecutorBattlefieldAttachedGrantTargets';
 import { resolveDirectBattlefieldPermanents } from './oracleIRExecutorBattlefieldPermanentSelectors';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
+import { tryApplyPreventLifeGainThisTurnGrant } from './oracleIRExecutorPreventLifeGainThisTurn';
+import { tryApplyUntilEotProtectionOverrideGrant } from './oracleIRExecutorUntilEotProtectionOverride';
 
 export function applyGrantStaticAbilityStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'grant_static_ability' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
+  const thisTurnLock = tryApplyPreventLifeGainThisTurnGrant(state, step, ctx);
+  if (thisTurnLock) return thisTurnLock;
+  const untilEotOverride = tryApplyUntilEotProtectionOverrideGrant(state, step, ctx);
+  if (untilEotOverride) return untilEotOverride;
+
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const attachedTargets = resolveAttachedStaticAbilityGrantTargets(battlefield, step.target as any, ctx);
   const directTargets = attachedTargets.length > 0 ? [] : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);

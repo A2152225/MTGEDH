@@ -31,20 +31,22 @@ function applyLegacyResolvedSpellRiders(
     targetControllerForTokenCreation: PlayerID | null;
   },
 ): void {
-  applySupplementalOracleIRForResolvedSpell(
-    ctx,
-    options.oracleText,
-    options.controller,
-    options.effectiveCard?.name || 'spell',
-    String((options.item as any).source || (options.item as any).permanentId || ''),
-    String((options.item as any).id || (options.card as any)?.id || ''),
-    {
-      targetPlayerId: options.targetSpellControllerForSupplemental || undefined,
-      referenceSpellName: options.targetSpellNameForSupplemental || undefined,
-      sourceImage: options.effectiveCard.image_uris?.small || options.effectiveCard.image_uris?.normal,
-      skipRawSteps: ['Counter target spell'],
-    },
-  );
+  if (!isOracleIrSpellPrimaryEnabled()) {
+    applySupplementalOracleIRForResolvedSpell(
+      ctx,
+      options.oracleText,
+      options.controller,
+      options.effectiveCard?.name || 'spell',
+      String((options.item as any).source || (options.item as any).permanentId || ''),
+      String((options.item as any).id || (options.card as any)?.id || ''),
+      {
+        targetPlayerId: options.targetSpellControllerForSupplemental || undefined,
+        referenceSpellName: options.targetSpellNameForSupplemental || undefined,
+        sourceImage: options.effectiveCard.image_uris?.small || options.effectiveCard.image_uris?.normal,
+        skipRawSteps: ['Counter target spell'],
+      },
+    );
+  }
 
   applyInstantSorceryItsControllerCreatesToken(ctx, {
     effectiveCard: options.effectiveCard,
