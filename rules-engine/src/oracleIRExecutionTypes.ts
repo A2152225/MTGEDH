@@ -270,6 +270,8 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly sourceName?: string;
   /** Explicit X value for resolving X/X or similar effects when already known. */
   readonly xValue?: number;
+  /** Mana spent to cast the resolving source when the popped stack item is no longer findable. */
+  readonly sourceManaSpentTotal?: number;
   /** Whether the resolving source is a spell or an ability. */
   readonly sourceObjectType?: 'spell' | 'ability';
   /** Colors of the resolving source spell when relevant to source-sensitive checks. */

@@ -98,5 +98,7 @@ export function isOracleIrOptionalStepBridgedToDedicatedResolutionPrompt(
   step: OracleEffectStep,
 ): boolean {
   if (isPerPlayerOptionalOracleStep(step)) return true;
-  return isControllerMayPutLandFromHandOracleStep(step);
+  if (isControllerMayPutLandFromHandOracleStep(step)) return true;
+  // Mill-from-among free-cast queues GRAVEYARD_SELECTION, not generic Yes/No.
+  return String(step.kind || '') === 'may_cast_from_among';
 }

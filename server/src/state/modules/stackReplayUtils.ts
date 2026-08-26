@@ -1,3 +1,6 @@
+import { clearReplayQueuedSteps } from './applyEventReplayZoneCommanderManaHelpers.js';
+import { ResolutionStepType } from '../resolution/index.js';
+
 function removeReplayDuplicateCardEntries(cards: any, cardId: string): number {
   if (!Array.isArray(cards) || !cardId) return 0;
 
@@ -294,4 +297,151 @@ export function repairAllDualZoneGhosts(ctxOrState: any): number {
     + repairGraveyardDualZoneGhosts(ctxOrState)
     + repairExileDualZoneGhosts(ctxOrState)
   );
+}
+
+const STACK_GRAVEYARD_EXILE_ABILITIES = new Set([
+  'flashback',
+  'jump-start',
+  'escape',
+  'disturb',
+  'harmonize',
+]);
+
+function applyStackItemFlag(stackItem: any, key: string, value: unknown): void {
+  stackItem[key] = value;
+  if (stackItem.card && typeof stackItem.card === 'object') {
+    stackItem.card[key] = value;
+  }
+}
+
+/**
+ * Origin parent: applyEvent castSpell / castFromGraveyardPromptResolve.
+ * Cluster: restore exileAfterResolution / castWithAbility / castFromGraveyard on
+ * replayed free GY-cast stack items so flashback-like replacements survive
+ * `castSpell` already-on-stack idempotency.
+ * Public: stampReplayedGraveyardCastStackFlags, findReplayedStackItemForCastCard
+ */
+export function findReplayedStackItemForCastCard(ctxOrState: any, cardId: string, stackItemId?: string): any {
+  const state = ctxOrState?.state || ctxOrState;
+  const stack = Array.isArray(state?.stack) ? state.stack : [];
+  const persistedId = String(stackItemId || '').trim();
+  const id = String(cardId || '').trim();
+  if (persistedId) {
+    const byStackId = stack.find((entry: any) => String(entry?.id || '').trim() === persistedId);
+    if (byStackId) return byStackId;
+  }
+  if (!id) return undefined;
+  return stack.find((entry: any) => {
+    if (!entry) return false;
+    return String(entry?.card?.id || '').trim() === id
+      || String(entry?.card?.card?.id || '').trim() === id
+      || String(entry?.id || '').trim() === id;
+  });
+}
+
+export function stampReplayedGraveyardCastStackFlags(stackItem: any, source: any): void {
+  if (!stackItem || typeof stackItem !== 'object' || !source || typeof source !== 'object') return;
+
+  const fromZone = String(
+    source.fromZone || source.card?.fromZone || source.card?.castSourceZone || source.card?.source || '',
+  ).toLowerCase().trim();
+  if (
+    fromZone === 'graveyard'
+    || source.castFromGraveyard === true
+    || source.card?.castFromGraveyard === true
+  ) {
+    applyStackItemFlag(stackItem, 'castFromGraveyard', true);
+  }
+
+  const castWithAbility = String(
+    source.castWithAbility
+    || source.card?.castWithAbility
+    || source.card?.card?.castWithAbility
+    || '',
+  ).trim();
+  if (castWithAbility) {
+    applyStackItemFlag(stackItem, 'castWithAbility', castWithAbility);
+  }
+
+  const abilityLower = castWithAbility.toLowerCase();
+  if (
+    source.exileAfterResolution === true
+    || source.card?.exileAfterResolution === true
+    || source.card?.card?.exileAfterResolution === true
+    || STACK_GRAVEYARD_EXILE_ABILITIES.has(abilityLower)
+  ) {
+    applyStackItemFlag(stackItem, 'exileAfterResolution', true);
+  }
+}
+
+function collectStackCardIds(stack: any[]): Set<string> {
+  const ids = new Set<string>();
+  for (const item of stack) {
+    for (const value of [item?.card?.id, item?.card?.card?.id, item?.id]) {
+      const id = String(value || '').trim();
+      if (id) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+function stackItemIsGraveyardCast(item: any): boolean {
+  return item?.castFromGraveyard === true
+    || item?.card?.castFromGraveyard === true
+    || item?.exileAfterResolution === true
+    || item?.card?.exileAfterResolution === true;
+}
+
+function promptCastCardIds(step: any): string[] {
+  const fromFields = [
+    String(step?.castFromGraveyardCardId || '').trim(),
+    String(step?.playFromGraveyardCardId || '').trim(),
+  ];
+  const fromTargets = Array.isArray(step?.validTargets)
+    ? (step.validTargets as any[]).map((target: any) => String(target?.id || '').trim())
+    : [];
+  return [...fromFields, ...fromTargets].filter(Boolean);
+}
+
+function cardIdStillInAnyGraveyard(state: any, cardId: string): boolean {
+  const zones = state?.zones && typeof state.zones === 'object' ? state.zones : {};
+  return Object.values(zones).some((zone: any) =>
+    Array.isArray(zone?.graveyard)
+    && (zone.graveyard as any[]).some((card: any) => String(card?.id || '').trim() === cardId),
+  );
+}
+
+/**
+ * Origin parent: applyEvent resolveTopOfStack.
+ * Cluster: after a free GY cast is already on the stack, replay can re-queue the
+ * source's GRAVEYARD_SELECTION dest=cast. That leftover blocks
+ * oracleIrDeferredFinalize and leaves the instant on the stack instead of exile.
+ * Public: clearStaleReplayedGraveyardCastPrompts
+ */
+export function clearStaleReplayedGraveyardCastPrompts(ctx: any): void {
+  const gameId = String(ctx?.gameId || '').trim();
+  if (!gameId) return;
+
+  const state = ctx?.state || ctx;
+  const stack = Array.isArray(state?.stack) ? state.stack : [];
+  if (stack.length === 0) return;
+
+  const onStackIds = collectStackCardIds(stack);
+  const stackHasGyCast = stack.some(stackItemIsGraveyardCast);
+  if (onStackIds.size === 0) return;
+
+  clearReplayQueuedSteps(gameId, (step: any) => {
+    if (!step) return false;
+    const type = String(step.type || '').toLowerCase();
+    const dest = String(step.destination || '').toLowerCase();
+    const cardIds = promptCastCardIds(step);
+    if (cardIds.some((id) => onStackIds.has(id))) return true;
+
+    const isGyCastSelection = (
+      type === String(ResolutionStepType.GRAVEYARD_SELECTION).toLowerCase()
+      || type === 'graveyard_selection'
+    ) && dest === 'cast';
+    if (!stackHasGyCast || !isGyCastSelection) return false;
+    return !cardIds.some((id) => cardIdStillInAnyGraveyard(state, id));
+  });
 }

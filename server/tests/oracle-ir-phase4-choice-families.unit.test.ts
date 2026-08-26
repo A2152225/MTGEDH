@@ -4,7 +4,9 @@ import { createContext, type GameContext } from '../src/state/context.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { collectSpellResolutionEffectSteps } from '../src/state/modules/trigger-runtime-wiring.js';
 import { isSpellEffectOwnedByOracleIrPrimary } from '../src/state/modules/oracleIrSpellLegacyRouting.js';
+import { requiresSpellEffectProgramOrchestration } from '../src/state/modules/oracleIrEffectProgramServer.js';
 import { applyInstantSorcerySpecialCaseSpellEffects } from '../src/state/modules/stackResolveSpellSpecialCaseUtils.js';
+import { queueEachPlayerChooseThenDestroyRestPrompts } from '../src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerChooseDestroyRestSecretDamagePrompts.js';
 
 // Quoted from mtg_data.db cards.text WHERE is_token = 0 (2026-08-25).
 const DIVINE_RECKONING =
@@ -73,6 +75,13 @@ describe('Phase 4 leftover choice-family IR ownership', () => {
     expect(steps.some((step) => step.kind === 'grant_graveyard_permission')).toBe(false);
   });
 
+  it('keeps Summons mill-from-among may-cast on direct IR, not Effect Program Yes/No', () => {
+    const corpusSteps = collectSpellResolutionEffectSteps(SUMMONS_OF_SARUMAN, 'Summons of Saruman');
+    const testVariantSteps = collectSpellResolutionEffectSteps(SUMMONS_TEST_VARIANT, 'Summons of Saruman');
+    expect(requiresSpellEffectProgramOrchestration(corpusSteps)).toBe(false);
+    expect(requiresSpellEffectProgramOrchestration(testVariantSteps)).toBe(false);
+  });
+
   it('marks the three leftover families as IR-owned under spell primary', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '1';
     expect(isSpellEffectOwnedByOracleIrPrimary(DIVINE_RECKONING, 'Divine Reckoning')).toBe(true);
@@ -103,12 +112,13 @@ describe('Phase 4 leftover choice-family IR ownership', () => {
     ResolutionQueueManager.clearAllSteps(gameId);
   });
 
-  it('PRIMARY=1 Divine special-case still queues survivor choices for the IR prompt bridge', () => {
+  it('PRIMARY=1 Divine special-case no-ops; extracted helper queues survivor choices', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '1';
     const { ctx, playerId, opponentId, gameId } = createDivineChoiceCtx();
+    const divineCard = { id: 'divine_spell_1', name: 'Custom Reckoning', oracle_text: DIVINE_RECKONING };
     applyInstantSorcerySpecialCaseSpellEffects(ctx, {
       controller: playerId,
-      card: { id: 'divine_spell_1', name: 'Custom Reckoning', oracle_text: DIVINE_RECKONING },
+      card: divineCard,
       effectiveCard: { name: 'Custom Reckoning', oracle_text: DIVINE_RECKONING },
       item: { id: 'divine_spell_1', card: { oracle_text: DIVINE_RECKONING } },
       gameId,
@@ -117,7 +127,18 @@ describe('Phase 4 leftover choice-family IR ownership', () => {
       isDivineReckoningStyleChoice: true,
       isPrisonersDilemmaStyleChoice: false,
       isSummonsOfSarumanStyle: false,
-      fromOracleIrPromptQueue: true,
+    });
+    expect(
+      ResolutionQueueManager.getQueue(gameId).steps
+        .filter((step: any) => step?.divineReckoningChoice === true),
+    ).toEqual([]);
+
+    queueEachPlayerChooseThenDestroyRestPrompts(ctx, {
+      controller: playerId,
+      card: divineCard,
+      effectiveCard: { name: 'Custom Reckoning', oracle_text: DIVINE_RECKONING },
+      item: { id: 'divine_spell_1', card: { oracle_text: DIVINE_RECKONING } },
+      gameId,
     });
 
     const queued = ResolutionQueueManager.getQueue(gameId).steps

@@ -11931,17 +11931,16 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     );
 
     expect(ir.abilities[0]?.steps).toEqual([
-      {
-        kind: 'look_top',
+      expect.objectContaining({
+        kind: 'look_select_top',
         who: { kind: 'you' },
         amount: { kind: 'number', value: 3 },
-        raw: 'Look at the top three cards of your library',
-      },
-      expect.objectContaining({
-        kind: 'shuffle_library',
-        optional: true,
+        choose: { kind: 'number', value: 3 },
+        destination: 'library_top',
+        restDestination: 'library',
       }),
     ]);
+    expect(String(ir.abilities[0]?.steps[0]?.raw || '')).toMatch(/you may shuffle/i);
   });
 
   it('parses standalone reveal-top informational clauses', () => {

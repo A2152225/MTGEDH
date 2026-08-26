@@ -8,6 +8,7 @@ import {
   resumeOracleIRStepWithChoiceFromResolution,
 } from '../src/state/modules/oracleIrServerZoneSync.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+import { collectSpellResolutionEffectSteps } from '../src/state/modules/trigger-runtime-wiring.js';
 
 describe('oracle IR look-choose queue adapter', () => {
   it('queues library search when optional look-choose has matching cards', () => {
@@ -73,5 +74,64 @@ describe('oracle IR look-choose queue adapter', () => {
     const updatedPlayer = (game.state as any).players.find((entry: any) => entry.id === p1);
     expect((updatedPlayer.hand || []).map((card: any) => card.id)).toEqual(['top-2']);
     expect((updatedPlayer.library || []).map((card: any) => card.id)).toEqual(['top-1', 'top-3', 'top-4', 'top-5']);
+  });
+});
+
+describe('oracle IR look-search census merges', () => {
+  it('parses Memory Deluge into look_select_top with where-X mana spent and random library rest', () => {
+    const steps = collectSpellResolutionEffectSteps(
+      'Look at the top X cards of your library, where X is the amount of mana spent to cast this spell. Put two of them into your hand and the rest on the bottom of your library in a random order.\nFlashback {5}{U}{U}',
+      'Memory Deluge',
+    );
+    expect(steps).toEqual([
+      expect.objectContaining({
+        kind: 'look_select_top',
+        who: { kind: 'you' },
+        amount: { kind: 'x' },
+        whereX: { kind: 'where', raw: 'the amount of mana spent to cast this spell' },
+        choose: { kind: 'number', value: 2 },
+        destination: 'hand',
+        restDestination: 'library',
+        restRandomOrder: true,
+      }),
+    ]);
+  });
+
+  it('parses Genesis Wave into optional look_choose_from_top permanents to battlefield, rest graveyard', () => {
+    const steps = collectSpellResolutionEffectSteps(
+      'Reveal the top X cards of your library. You may put any number of permanent cards with mana value X or less from among them onto the battlefield. Then put all cards revealed this way that were not put onto the battlefield into your graveyard.',
+      'Genesis Wave',
+    );
+    expect(steps).toEqual([
+      expect.objectContaining({
+        kind: 'look_choose_from_top',
+        who: { kind: 'you' },
+        amount: { kind: 'x' },
+        selectorText: expect.stringMatching(/any number of permanent cards? with mana value x or less/i),
+        destination: 'battlefield',
+        reveal: true,
+        optional: true,
+        nonMatchRest: 'graveyard',
+      }),
+    ]);
+  });
+
+  it('parses Siphon Insight into look_choose_from_top exile from target opponent with play-from-exile grant in raw', () => {
+    const steps = collectSpellResolutionEffectSteps(
+      "Look at the top two cards of target opponent's library. Exile one of them face down and put the other on the bottom of that library. You may play the exiled card for as long as it remains exiled, and you may spend mana as though it were mana of any color to cast that spell.\nFlashback {1}{U}{B}",
+      'Siphon Insight',
+    );
+    expect(steps).toEqual([
+      expect.objectContaining({
+        kind: 'look_choose_from_top',
+        who: { kind: 'target_opponent' },
+        amount: { kind: 'number', value: 2 },
+        selectorText: 'one of them',
+        destination: 'exile',
+        nonMatchRest: 'library_bottom',
+      }),
+    ]);
+    expect(String(steps[0]?.raw || '')).toMatch(/you may play the exiled card/i);
+    expect(String(steps[0]?.raw || '')).toMatch(/face down/i);
   });
 });

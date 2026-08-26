@@ -38,6 +38,7 @@ import {
   applyDungeonTargetCreatureEffect,
   applyDungeonTargetPlayerEffect,
 } from "../dungeon-effects.js";
+import { maybeResumeDeferredOracleIrStackSpell } from "../oracleIrDeferredStackFinalize.js";
 
 export function applyDungeonVoteEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -178,6 +179,7 @@ export function applyDungeonVoteEvents(ctx: GameContext, e: GameEvent): boolean 
           }
 
           ctx.bumpSeq();
+          maybeResumeDeferredOracleIrStackSpell(ctx);
         } catch (err) {
           debugWarn(1, 'applyEvent(divineReckoningChoiceResolve): failed', err);
         }
@@ -200,6 +202,7 @@ export function applyDungeonVoteEvents(ctx: GameContext, e: GameEvent): boolean 
           clearDivineReckoningChoiceBatch(ctx.state, batchId);
 
           ctx.bumpSeq();
+          maybeResumeDeferredOracleIrStackSpell(ctx);
         } catch (err) {
           debugWarn(1, 'applyEvent(divineReckoningBatchResolve): failed', err);
         }
@@ -243,6 +246,7 @@ export function applyDungeonVoteEvents(ctx: GameContext, e: GameEvent): boolean 
           }
 
           ctx.bumpSeq();
+          maybeResumeDeferredOracleIrStackSpell(ctx);
         } catch (err) {
           debugWarn(1, 'applyEvent(prisonersDilemmaChoiceResolve): failed', err);
         }
@@ -283,6 +287,7 @@ export function applyDungeonVoteEvents(ctx: GameContext, e: GameEvent): boolean 
           clearPrisonersDilemmaChoiceBatch(ctx.state, batchId);
 
           ctx.bumpSeq();
+          maybeResumeDeferredOracleIrStackSpell(ctx);
         } catch (err) {
           debugWarn(1, 'applyEvent(prisonersDilemmaBatchResolve): failed', err);
         }

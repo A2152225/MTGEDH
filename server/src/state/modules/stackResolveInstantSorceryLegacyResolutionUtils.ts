@@ -98,6 +98,20 @@ export function tryResolveInstantSorceryLegacyResolution(
         isSummonsOfSarumanStyle: true,
       });
     }
+    // IR may handle next-cast copy text as copy_spell without stamping delayedSpellCopiesThisTurn.
+    // The copy rider still skips Increasing Vengeance-style target copies when IR emitted copy_spell.
+    applyInstantSorceryCopyStackSpellRiders(ctx, {
+      controller,
+      card,
+      effectiveCard,
+      item,
+      oracleText,
+      oracleTextLower,
+      targets,
+      spellXValue,
+      uncategorizedSpellFallbackApplied: 0,
+      oracleIrSpellHandled: true,
+    });
     if ((item as any)?.oracleIrDeferredFinalize !== true) {
       if (finalizeResolvedInstantOrSorceryResolution(ctx, {
         controller,

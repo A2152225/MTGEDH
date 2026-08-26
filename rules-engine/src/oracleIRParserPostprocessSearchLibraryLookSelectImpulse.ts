@@ -665,21 +665,28 @@ function parseLookSelectTopPrimaryStep(params: {
   const normalizedMove = normalizeOracleText(String(params.moveRaw || '')).replace(/[.]+$/g, '').trim();
   if (!normalizedLook || !normalizedMove) return null;
 
-  const lookMatch = normalizedLook.match(/^look at the top (a|an|\d+|x|[a-z]+) cards? of your library$/i);
+  const lookMatch = normalizedLook.match(
+    /^look at the top (a|an|\d+|x|[a-z]+) cards? of your library(?:\s*,\s*where\s+x\s+is\s+(.+))?$/i
+  );
   if (!lookMatch) return null;
 
   const moveMatch = normalizedMove.match(
-    /^(?:then\s+)?put (a|an|\d+|x|[a-z]+)(?: of (?:those cards|them))? into your hand and the rest into your graveyard$/i
+    /^(?:then\s+)?put (a|an|\d+|x|[a-z]+)(?: of (?:those cards|them))? into your hand and the rest (?:into your graveyard|on the bottom of your library(?: in (a random|any) order)?)$/i
   );
   if (!moveMatch) return null;
+
+  const whereXRaw = String(lookMatch[2] || '').trim();
+  const restIsLibraryBottom = /on the bottom of your library/i.test(normalizedMove);
 
   return {
     kind: 'look_select_top',
     who: { kind: 'you' },
     amount: parseQuantity(String(lookMatch[1] || '').trim()),
+    ...(whereXRaw ? { whereX: { kind: 'where' as const, raw: whereXRaw } } : {}),
     choose: parseQuantity(String(moveMatch[1] || '').trim()),
     destination: 'hand',
-    restDestination: 'graveyard',
+    restDestination: restIsLibraryBottom ? 'library' : 'graveyard',
+    ...(restIsLibraryBottom && /in a random order/i.test(normalizedMove) ? { restRandomOrder: true } : {}),
     ...(params.optional ? { optional: true } : {}),
     ...(params.sequence ? { sequence: params.sequence } : {}),
     raw: `${normalizedLook}. ${normalizedMove}`.trim(),
@@ -727,12 +734,23 @@ function parseLookTopMoveZoneSelectPair(
 ): OracleEffectStep | null {
   if (current.kind !== 'look_top' || next?.kind !== 'move_zone') return null;
 
-  return parseLookSelectTopPrimaryStep({
+  const parsed = parseLookSelectTopPrimaryStep({
     lookRaw: String(current.raw || '').trim(),
     moveRaw: String(next.raw || '').trim(),
     sequence: current.sequence ?? next.sequence,
     optional: current.optional === true || next.optional === true,
   });
+  if (!parsed || parsed.kind !== 'look_select_top') return null;
+
+  const lookWho = (current as { who?: typeof parsed.who }).who;
+  const lookAmount = (current as { amount?: typeof parsed.amount }).amount;
+  const lookWhereX = (current as { whereX?: typeof parsed.whereX }).whereX;
+  return {
+    ...parsed,
+    ...(lookWho ? { who: lookWho } : {}),
+    ...(lookAmount ? { amount: lookAmount } : {}),
+    ...(lookWhereX ? { whereX: lookWhereX } : {}),
+  };
 }
 
 export function mergeLookSelectTopFollowupAbilities(

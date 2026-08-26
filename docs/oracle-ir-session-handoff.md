@@ -1,6 +1,6 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-08-25 (Phase 4 leftover PRIMARY=0 special-case IR trampolines)
+Last updated: 2026-08-25 (SPELL_PRIMARY=1 spell-resolve census 0 failed / 239)
 
 > **Cost reducers / alternate costs** (separate workstream): see [`docs/cost-reduction-handoff.md`](cost-reduction-handoff.md).
 
@@ -16,25 +16,77 @@ Read first:
 - .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
 
 Done recently:
-- Phase 4 cast-time targeting: IR-primary `parseTargetRequirements` plus leftover TargetRestrictionTypes, compound orStat, Atraxa's Fall multi-type list, hasValidTargetsForSpell filters. Nibelheim PRIMARY=0 special-case trampolines to IR (deal_damage sweep + GY rider).
-- Phase 4 choice families IR-owned: Divine Reckoning, Prisoner's Dilemma, Summons of Saruman, Rite of Harmony, Nibelheim Aflame. PRIMARY=0 special-case bodies trampoline to the same IR (prompt-queue re-entry uses `fromOracleIrPromptQueue`).
-- Phase 5 static: raid source_controller_attacked_this_turn lure; Shalai you/planeswalkers/other-creatures hexproof; Nowhere to Run ward skip (asThoughNoAbilities 'ward'). Until-EOT hexproof activations stamp lastingEffects.protectionKeywordOverride (Detection Tower as-though / Arcane Lighthouse lose). Idle land is not a continuous static.
-- Phase 5 life: this-turn / until-EOT “can't gain life” stamps lastingEffects.preventLifeGain with duration; cleanup expires them. Rest-of-game duration 'game' stays. Continuous players-can't-gain stays ReplacementEffectSpec.
-- Phase 5 win: Hedron Alignment may-reveal four-zone named-copy win is generic IR (not auto-scan). optionChoiceSpellCopyPrompts fallback stack.push persists namedSpellsCastThisGame. Approach PRIMARY=0 special-case trampolines to the same IR win / seventh-from-top / life path (no approachCastHistory).
-- Phase 5 PW: Choose left or right. Coverage 925/926; Davriel Alchemy stays unwired
+- Bounded SPELL_PRIMARY=1 vitest census (`npm run oracle-ir:primary-census`) is **0 failed / 239** on the 27-file spell-resolve slice. `vitest.setup.ts` still defaults PRIMARY=0 — do not flip until asked.
+- Deferred flashback exile while a prompt is open: tests accept PRIMARY=0 immediate exile or PRIMARY=1 `oracleIrDeferredFinalize` (CR 608.2m). Do not revert deferred finalize.
+- Look/search: Memory Deluge look_select_top, Genesis Wave look_choose rest GY, Siphon Insight opponent exile, Ponder/Index reorder → PONDER_EFFECT, Loot look-at-six keeps the full slice in availableCards (Genesis Wave GY remainder stays selectable-only).
+- Phase 4 + census leftovers IR-owned: Divine/Prisoner replay exile, Summons mill-from-among GRAVEYARD_SELECTION (not EP Yes/No), Past in Flames grants, Galvanic delayed copy, Electroduplicate except-copy haste/sac, Nibelheim discard stamps, Brave sourceId, Will of the Jeskai mode_N / commander maxModes, Gearhulk replay exile.
 
 Verify:
-cd server ; npx vitest run tests/oracle-ir-phase4-choice-families.unit.test.ts tests/oracle-ir-temporary-etb-window.unit.test.ts tests/oracle-ir-nibelheim-aflame.unit.test.ts tests/oracle-ir-approach-second-sun-special-case.unit.test.ts --pool=threads --maxWorkers=1
+cd server ; npm run oracle-ir:primary-census
+cd server ; Remove-Item Env:ORACLE_IR_CENSUS_SPELL_PRIMARY -ErrorAction SilentlyContinue ; npx vitest run tests/cast-from-graveyard.graveyard-replay.integration.test.ts tests/resolve-spell-prompt.integration.test.ts tests/resolve-top-of-stack-prompt.integration.test.ts tests/stack.generic-library-and-untap.regression.test.ts --pool=threads --maxWorkers=1
 
 Next work (priority):
-1. Real EDH tables later → GET /api/oracle-ir/telemetry (do not expand edh-readiness). Alchemy stays unwired.
+1. Do not flip vitest.setup.ts unless explicitly asked. Next leftovers outside the green census: Sevinne's Reclamation graveyard-cast copy (`all_or_nothing_failure` on `conditional` — test still passes via fallback), real EDH tables → GET /api/oracle-ir/telemetry.
+2. Alchemy stays unwired. TRIGGER_PRIMARY census is a later mountain.
 ```
+
+## Session 2026-08-25 — SPELL_PRIMARY=1 spell-resolve census green
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Census** | `npm run oracle-ir:primary-census` **0 failed / 239** (was 28 / 238). Setup still PRIMARY=0. | `server/scripts/out/oracle-ir-primary-census.json` |
+| **Summons free-cast** | Optional `may_cast_from_among` was Effect Program Yes/No. Stays on direct IR GRAVEYARD_SELECTION. | `oracleIrEffectProgramServer.ts` `OPTIONAL_NO_CHOICE_KINDS`, `oracleIRPerPlayerOptional.ts` |
+| **Ponder** | Reorder-only `look_select_top` dest=`library_top` queues `PONDER_EFFECT`, not OPTION_CHOICE. | `oracleIrServerLibrarySearchLookChoosePilePrompts.ts`, `oracleIRParserPostprocessLookChooseFromTopCensus.ts` `parseLookTopReorderAllOnLibrary` |
+| **Brave color-choice** | `sourceId` is card instance (`sourceCardId`); `spellId` stays stack item. | `oracleIrEffectProgramServer.ts`, `oracleIrSpellExecution.ts` |
+| **Electroduplicate** | Except-copy haste + quoted end-step sacrifice on `grantedAbilities`; `pendingSacrificeAtNextEndStep`. | `oracleIRParserTokenExceptCopyModifiers.ts`, `oracleIRExecutorTokenExceptCopyStamp.ts` |
+| **Will of the Jeskai** | `mode_N` aliases for IR `Mode N` labels; `maxModes` 2 only with a commander. | `oraclePromptContext.ts` |
+| **Divine/Prisoner + Gearhulk replay** | applyEvent choice+batch resume deferred finalize; stale GY-cast prompts cleared so replay exile runs. | `applyEventDungeonVoteEvents.ts`, `stackReplayUtils.ts` |
+| **Past in Flames / Galvanic / Nibelheim** | GY keyword grants, delayed next-cast copy rider, discard provenance stamps. | executor GY permission / discard; `stackResolveSpellPostCategorizeRidersUtils.ts` |
+| **Loot look-at-six** | Last census red: battlefield dest was treated like Genesis Wave (selectable-only). Rest-bottom look-at keeps all 6 in `availableCards`. | `oracleIrServerLibrarySearchLookChoosePilePrompts.ts` |
+| **Still open** | Sevinne's Reclamation GY-cast copy telemetry (`unapplied_mandatory_step: conditional`). Do not flip setup. TRIGGER_PRIMARY census later. | graveyard-replay Sevinne test still passes |
+
+## Session 2026-08-25 — deferred flashback exile (CR 608.2m)
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Do not revert deferred finalize** | IR-handled spells with a queued choice stay on the stack (`oracleIrDeferredFinalize`) until `maybeResumeDeferredOracleIrStackSpell` after the queue empties. That is CR 608.2m, same as Kindred Summons / Chart a Course. | `stackResolveInstantSorceryLegacyResolutionUtils.ts`, `oracleIrDeferredStackFinalize.ts` |
+| **Graveyard-replay dual-mode** | Prompt-open flashback tests accept PRIMARY=0 immediate exile **or** PRIMARY=1 deferred stack item. Live Faithless / Faithful Mending still assert exile after discard submits. | `cast-from-graveyard.graveyard-replay.integration.test.ts` `expectFlashbackCardExiledOrDeferredOnStack` |
+| **Cards** | Otherworldly Gaze, Forbidden Alchemy replay, Memory Deluge replay, Siphon Insight replay, Faithless Looting, Faithful Mending. Live look/search after submit already asserted exile. | same |
+| **Still open (closed later same day)** | Other census families — now green in the session above. | `server/scripts/out/oracle-ir-primary-census.json` |
+
+## Session 2026-08-25 — look/search library prompts (SPELL_PRIMARY=1)
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Memory Deluge** | `look_top` + put-two/rest-bottom merges to `look_select_top` (where-X mana spent, rest library random). Queue `contextValue` = looked count. Popped-stack mana spent via `sourceManaSpentTotal` / `getAmountOfManaSpent` manaCost fallback. | `oracleIRParserPostprocessSearchLibraryLookSelectImpulse.ts`, `oracleIRExecutorManaUtils.ts`, `oracleIRExecutorContextRefUtils.ts`, `oracleIrSpellExecution.ts` |
+| **Genesis Wave** | `reveal_top` X + any-number permanents MV≤X to battlefield + rest GY → `look_choose_from_top` (`nonMatchRest: 'graveyard'`, optional). Remainder GY; availableCards are selectable permanents. | `oracleIRParserPostprocessLookChooseFromTopCensus.ts`, `oracleIRExecutorPlayerLookChooseLimits.ts`, `oracleIRExecutorPlayerLookChooseSelector.ts` |
+| **Siphon Insight** | Look at target opponent's top two + exile one face down + rest bottom + play-exiled grant folded into raw → `look_choose_from_top`. Chooser is controller; `searchOwnerId` is opponent. Player targets in `chosenObjectIds` are not card picks. Resume stamps faceDown + playableFromExile. | `oracleIRParserPostprocessLookChooseFromTopCensus.ts`, `oracleIrServerLibrarySearchLookChoosePilePrompts.ts`, `resolutionLibrarySearchOracleIrChoiceResume.ts` |
+| **PRIMARY=0 double queue** | Skip legacy look-top / Genesis Wave name-check when IR already queued `LIBRARY_SEARCH` with `oracleIrChoiceStepJson`. | `stackResolveSpellLibraryTopPromptUtils.ts`, `hasOracleIrQueuedLibrarySearch` |
+| **Still open (closed later same day)** | Replay flashback exile at `resolveTopOfStack` while LIBRARY_SEARCH is open — tests now dual-mode (exile or `oracleIrDeferredFinalize`). See session above. | `cast-from-graveyard.graveyard-replay.integration.test.ts` |
+| **Tests** | `oracle-ir-look-choose.integration.test.ts` parse asserts; Genesis Wave `resolve-spell-prompt.integration.test.ts`; live flashback Deluge/Siphon/Alchemy under `ORACLE_IR_CENSUS_SPELL_PRIMARY=1`. | |
+
+## Session 2026-08-25 — bounded SPELL_PRIMARY=1 vitest census
+
+Historical snapshot from earlier that day (**28 failed / 238**). Not the current next-work prompt — see the copy-paste block and the green census session above.
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Harness gate** | `vitest.setup.ts` still defaults PRIMARY=0. `ORACLE_IR_CENSUS_SPELL_PRIMARY=1` (or `ORACLE_IR_CENSUS_PRIMARY=1` for both flags) flips the harness to production-on without editing setup. | `server/tests/vitest.setup.ts` |
+| **Census runner** | `npm run oracle-ir:primary-census` (`--scope=spell` default, `--scope=graveyard`, `--from-raw`). | `server/scripts/oracle-ir-primary-census.ts` |
+| **Spell-resolve slice** | 27 files, **28 failed / 238** (210 passed). 25 of 28 are `cast-from-graveyard.graveyard-replay.integration.test.ts`. Stack/effect-program/Think Twice/Rite/Approach/Phase 4 unit files were green. | `server/scripts/out/oracle-ir-primary-census.json` |
+| **Top families** | look-search-library-prompt **6** (Memory Deluge, Siphon Insight, Forbidden Alchemy, Genesis Wave); draw-then-discard-flashback-exile **4**; delayed-copy / Divine-Prisoner-replay-exile / Nibelheim GY rider / surveil-exile / Past in Flames grants / Electroduplicate **2 each**; then Ponder `option_choice` vs `ponder_effect`, Brave color-choice payload, Torrential Gearhulk, Will of the Jeskai modes, Summons X-from-exile **1 each**. | same |
+
+## Session 2026-08-25 — Divine/Prisoner prompt queue extracted from special-case
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Divine / Prisoner queue leaf** | APNAP survivor TARGET_SELECTION and secret silence/snitch OPTION_CHOICE moved out of `applyInstantSorcerySpecialCaseSpellEffects`. IR choice-family calls the leaf; no special-case re-entry. PRIMARY=1 special-case with those flags is a no-op. PRIMARY=0 still trampolines to IR. Rite missing-window + Summons replay fills stay. | `oracleIrServerChooseDestroyRestSecretDamagePrompts.ts`, `oracleIrServerChoiceFamilyPrompts.ts`, `stackResolveSpellSpecialCaseUtils.ts`, `oracle-ir-phase4-choice-families.unit.test.ts` |
 
 ## Session 2026-08-25 — Phase 4 leftover PRIMARY=0 special-case IR trampolines
 
 | Area | Outcome | Key files / tests |
 |------|---------|-------------------|
-| **Divine / Prisoner / Summons / Rite PRIMARY=0** | Special-case spell resolve trampolines to uncategorized IR. IR prompt-queue re-entry sets `fromOracleIrPromptQueue` so Divine/Prisoner do not recurse. Replay fills under PRIMARY=1 stay. | `stackResolveSpellSpecialCaseUtils.ts`, `oracleIrServerChoiceFamilyPrompts.ts`, `oracle-ir-phase4-choice-families.unit.test.ts`, `oracle-ir-temporary-etb-window.unit.test.ts` |
+| **Divine / Prisoner / Summons / Rite PRIMARY=0** | Special-case spell resolve trampolines to uncategorized IR. Divine/Prisoner prompt queue later extracted (see session above). Replay fills under PRIMARY=1 stay. | `stackResolveSpellSpecialCaseUtils.ts`, `oracleIrServerChoiceFamilyPrompts.ts`, `oracle-ir-phase4-choice-families.unit.test.ts`, `oracle-ir-temporary-etb-window.unit.test.ts` |
 | **Mill-from-among lastMilledCards** | Server-bridge mill ledger omit no longer drops the milled cards before `may_cast_from_among`. | `oracleIRExecutorPlayerMillPutOnBottomSteps.ts`, `oracleIRExecutorMainLoop.ts` |
 
 ## Session 2026-08-25 — Nibelheim + Approach PRIMARY=0 IR trampolines

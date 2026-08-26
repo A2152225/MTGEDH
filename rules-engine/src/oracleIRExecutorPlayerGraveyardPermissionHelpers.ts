@@ -1,7 +1,10 @@
 // Extracted from oracleIRExecutorPlayerStepHandlers.ts.
 // Cluster: graveyard/exile permission criteria, target resolvers, mana-cost parsers.
 // Public entries: normalizePermissionSelectorText, resolveGraveyardPermissionTargets,
-// parseSupportedManaCostString, resolveExilePermissionTargets, parseEnergyCostAmount.
+// parseSupportedManaCostString, resolveExilePermissionTargets, parseEnergyCostAmount,
+// extractGrantedGraveyardKeywordFromRaw, resolvePrintedManaCostForGraveyardGrant,
+// buildTemporaryGraveyardKeywordGrantStamps, mergeTemporaryGraveyardKeywordGrantStamps,
+// findGraveyardOwnerIdForCard.
 
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
@@ -359,4 +362,111 @@ export function parseSupportedManaCostString(rawMana: string, xValue?: number): 
 
 export function parseEnergyCostAmount(rawMana: string): number {
   return parseManaSymbols(rawMana).reduce((count, symbol) => count + (String(symbol || '').trim().toUpperCase() === '{E}' ? 1 : 0), 0);
+}
+
+const GRANTED_GRAVEYARD_CAST_KEYWORDS = ['flashback', 'escape', 'retrace', 'jump-start', 'harmonize'] as const;
+
+export type GrantedGraveyardCastKeyword = (typeof GRANTED_GRAVEYARD_CAST_KEYWORDS)[number];
+
+export type TemporaryGraveyardKeywordGrantStamp = {
+  readonly playerId: string;
+  readonly cardId: string;
+  readonly keyword: string;
+  readonly cost?: string;
+  readonly sourceId?: string;
+  readonly sourceName?: string;
+  readonly expiresAt: string;
+  readonly turnApplied: number;
+};
+
+export function extractGrantedGraveyardKeywordFromRaw(raw: string): {
+  readonly keyword: GrantedGraveyardCastKeyword;
+  readonly explicitCost?: string;
+} | null {
+  const text = String(raw || '').replace(/\u2019/g, "'");
+  const grantMatch = text.match(
+    /\b(?:gains?|has|have)\s+"?(flashback|escape|retrace|jump-start|harmonize)\b(?:\s*(?:-|:)\s*((?:\{[^}]+\}\s*)+))?/i
+  );
+  if (grantMatch?.[1]) {
+    const keyword = String(grantMatch[1] || '').trim().toLowerCase() as GrantedGraveyardCastKeyword;
+    const explicitCost = String(grantMatch[2] || '').replace(/\s+/g, '').trim();
+    return explicitCost ? { keyword, explicitCost } : { keyword };
+  }
+
+  const costMatch = text.match(
+    /\b(flashback|escape|retrace|jump-start|harmonize)\s+cost\s+is\s+equal\s+to\b/i
+  );
+  if (!costMatch?.[1]) return null;
+  return { keyword: String(costMatch[1] || '').trim().toLowerCase() as GrantedGraveyardCastKeyword };
+}
+
+export function resolvePrintedManaCostForGraveyardGrant(card: unknown): string {
+  const anyCard = card as { mana_cost?: unknown; manaCost?: unknown } | null;
+  return String(anyCard?.mana_cost || anyCard?.manaCost || '').trim();
+}
+
+export function buildTemporaryGraveyardKeywordGrantStamps(options: {
+  readonly state: GameState;
+  readonly playerId: PlayerID;
+  readonly cards: readonly any[];
+  readonly keyword: string;
+  readonly resolveCost: (card: any) => string | undefined;
+  readonly sourceId?: string;
+  readonly sourceName?: string;
+  readonly expiresAt: string;
+}): TemporaryGraveyardKeywordGrantStamp[] {
+  const turnApplied = Number((options.state as any)?.turnNumber ?? (options.state as any)?.turn ?? 0) || 0;
+  const stamps: TemporaryGraveyardKeywordGrantStamp[] = [];
+  for (const card of options.cards) {
+    const cardId = String((card as any)?.id ?? (card as any)?.cardId ?? '').trim();
+    if (!cardId) continue;
+    const cost = String(options.resolveCost(card) || '').trim();
+    if (!cost) continue;
+    stamps.push({
+      playerId: String(options.playerId),
+      cardId,
+      keyword: options.keyword,
+      cost,
+      ...(options.sourceId ? { sourceId: options.sourceId } : {}),
+      ...(options.sourceName ? { sourceName: options.sourceName } : {}),
+      expiresAt: options.expiresAt,
+      turnApplied,
+    });
+  }
+  return stamps;
+}
+
+export function mergeTemporaryGraveyardKeywordGrantStamps(
+  state: GameState,
+  entries: readonly TemporaryGraveyardKeywordGrantStamp[],
+): GameState {
+  if (entries.length === 0) return state;
+  const nextStateAny: any = { ...(state as any) };
+  const replacementKeys = new Set(entries.map((entry) =>
+    `${entry.playerId}:${entry.cardId}:${entry.keyword}:${String(entry.sourceId || '')}`
+  ));
+  const existing = Array.isArray(nextStateAny.temporaryGraveyardKeywordGrants)
+    ? nextStateAny.temporaryGraveyardKeywordGrants
+    : [];
+  nextStateAny.temporaryGraveyardKeywordGrants = [
+    ...existing.filter((entry: any) =>
+      !replacementKeys.has(`${String(entry?.playerId || '')}:${String(entry?.cardId || '')}:${String(entry?.keyword || '')}:${String(entry?.sourceId || '')}`)
+    ),
+    ...entries,
+  ];
+  return nextStateAny as GameState;
+}
+
+export function findGraveyardOwnerIdForCard(state: GameState, cardId: string): PlayerID | undefined {
+  const wanted = String(cardId || '').trim();
+  if (!wanted) return undefined;
+  for (const player of state.players || []) {
+    const playerId = String(player?.id || '').trim();
+    if (!playerId) continue;
+    const graveyard = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
+    if (graveyard.some((card: any) => String(card?.id ?? card?.cardId ?? '').trim() === wanted)) {
+      return playerId as PlayerID;
+    }
+  }
+  return undefined;
 }

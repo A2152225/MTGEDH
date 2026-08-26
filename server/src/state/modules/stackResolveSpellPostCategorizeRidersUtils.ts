@@ -103,11 +103,19 @@ export function applyInstantSorceryCopyStackSpellRiders(
   ctx: GameContext,
   options: InstantSorceryPostCategorizeRiderOptions,
 ): void {
-  if (options.oracleIrSpellHandled) {
-    return;
-  }
-
   const spellName = String(options.effectiveCard?.name || 'spell');
+  const state = (ctx as any).state;
+  const controller = options.controller;
+  const effectiveCard = options.effectiveCard;
+  const item = options.item;
+  const oracleText = options.oracleText;
+  const targets = options.targets;
+  const bumpSeq = typeof (ctx as any).bumpSeq === 'function' ? (ctx as any).bumpSeq.bind(ctx) : undefined;
+
+  // IR may "handle" next-cast copy text as copy_spell without stamping delayedSpellCopiesThisTurn.
+  // Keep that rider even when oracleIrSpellHandled; only skip immediate target copies below.
+  applyDelayedNextCastInstantOrSorceryCopyRider(ctx, options);
+
   if (
     /copy target instant or sorcery spell you control/i.test(options.oracleText)
     && collectSpellResolutionEffectSteps(
@@ -123,14 +131,9 @@ export function applyInstantSorceryCopyStackSpellRiders(
     return;
   }
 
-  const state = (ctx as any).state;
-  const controller = options.controller;
-  const effectiveCard = options.effectiveCard;
-  const item = options.item;
-  const oracleText = options.oracleText;
-  const oracleTextLower = options.oracleTextLower;
-  const targets = options.targets;
-  const bumpSeq = typeof (ctx as any).bumpSeq === 'function' ? (ctx as any).bumpSeq.bind(ctx) : undefined;
+  if (options.oracleIrSpellHandled) {
+    return;
+  }
 
   if (targets.length > 0 && /copy target instant or sorcery spell you control/i.test(oracleText)) {
     const targetStackItemId = String(typeof targets[0] === 'string' ? targets[0] : targets[0]?.id || '').trim();
@@ -171,21 +174,43 @@ export function applyInstantSorceryCopyStackSpellRiders(
       }
     }
   }
+}
 
-  if (oracleTextLower.includes('when you next cast an instant or sorcery spell this turn, copy that spell. you may choose new targets for the copy.')) {
-    const stateAny = state as any;
-    stateAny.delayedSpellCopiesThisTurn = Array.isArray(stateAny.delayedSpellCopiesThisTurn)
-      ? stateAny.delayedSpellCopiesThisTurn
-      : [];
-    stateAny.delayedSpellCopiesThisTurn.push({
-      controllerId: controller,
-      spellType: 'instant_or_sorcery',
-      sourceName: effectiveCard.name || 'Spell copy',
-      allowRetargeting: true,
-    });
-    (ctx as any).delayedSpellCopiesThisTurn = stateAny.delayedSpellCopiesThisTurn;
-    debug(2, `[resolveTopOfStack] ${effectiveCard.name || 'Spell'}: queued next instant/sorcery spell copy for ${controller}`);
+function applyDelayedNextCastInstantOrSorceryCopyRider(
+  ctx: GameContext,
+  options: InstantSorceryPostCategorizeRiderOptions,
+): void {
+  const oracleTextLower = options.oracleTextLower;
+  if (!oracleTextLower.includes('when you next cast an instant or sorcery spell this turn, copy that spell. you may choose new targets for the copy.')) {
+    return;
   }
+
+  const stateAny = (ctx as any).state as any;
+  if (!stateAny) {
+    return;
+  }
+
+  const controller = options.controller;
+  const sourceName = options.effectiveCard?.name || 'Spell copy';
+  stateAny.delayedSpellCopiesThisTurn = Array.isArray(stateAny.delayedSpellCopiesThisTurn)
+    ? stateAny.delayedSpellCopiesThisTurn
+    : [];
+  const alreadyQueued = stateAny.delayedSpellCopiesThisTurn.some((entry: any) => (
+    String(entry?.controllerId || '') === String(controller || '')
+    && String(entry?.sourceName || '') === String(sourceName)
+  ));
+  if (alreadyQueued) {
+    return;
+  }
+
+  stateAny.delayedSpellCopiesThisTurn.push({
+    controllerId: controller,
+    spellType: 'instant_or_sorcery',
+    sourceName,
+    allowRetargeting: true,
+  });
+  (ctx as any).delayedSpellCopiesThisTurn = stateAny.delayedSpellCopiesThisTurn;
+  debug(2, `[resolveTopOfStack] ${options.effectiveCard?.name || 'Spell'}: queued next instant/sorcery spell copy for ${controller}`);
 }
 
 export function applyInstantSorceryFracturedIdentityAndFallbackRiders(

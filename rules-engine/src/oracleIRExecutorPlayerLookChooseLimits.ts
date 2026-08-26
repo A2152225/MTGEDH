@@ -14,6 +14,10 @@ export function parseLookChooseSelectionLimits(
 ): { readonly minSelections: number; readonly maxSelections: number } {
   const normalized = normalizeLookChooseSelectorText(selectorText).toLowerCase();
 
+  if (/\bany number of\b/i.test(normalized)) {
+    return { minSelections: optional ? 0 : 1, maxSelections: Number.MAX_SAFE_INTEGER };
+  }
+
   if (/\band\/or\b/i.test(normalized)) {
     const parts = normalized.split(/\s+and\/or\s+/i).map((part) => part.trim()).filter(Boolean);
     if (parts.length >= 2) {

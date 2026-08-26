@@ -101,8 +101,12 @@ function applyReadyCardZoneTransitions(args: {
     if (!objectId) continue;
 
     const { remaining, removed } = removeCardById(sourceCards, objectId);
-    const card = removed ?? transition.event.object;
-    if (!card) continue;
+    const proposed = transition.event.object;
+    const card = {
+      ...(removed && typeof removed === 'object' ? removed : {}),
+      ...(proposed && typeof proposed === 'object' ? proposed : {}),
+    };
+    if (!removed && !proposed) continue;
 
     const fallbackZone = toPlayerZoneName(args.fallbackDestination);
     const destination = resolveEffectiveDestinationFromTransition(
@@ -245,8 +249,12 @@ function applyDirectCardZoneChanges(args: {
     const { remaining, removed } = removeCardById(nextSource, objectId);
     if (!removed) continue;
     nextSource = remaining;
-    placeCardInPlayerZone(args.state, player, removed, args.intendedDestination, args.libraryPlacement);
-    movedCards.push(removed);
+    const card = {
+      ...removed,
+      ...(rawCard && typeof rawCard === 'object' ? rawCard : {}),
+    };
+    placeCardInPlayerZone(args.state, player, card, args.intendedDestination, args.libraryPlacement);
+    movedCards.push(card);
   }
 
   writePlayerZoneCards(args.state, args.playerId, player, args.sourceZone, nextSource);

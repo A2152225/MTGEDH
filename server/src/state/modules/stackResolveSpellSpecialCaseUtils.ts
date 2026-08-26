@@ -1,18 +1,10 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
-import { debug, debugWarn } from '../../utils/debug.js';
+import { debug } from '../../utils/debug.js';
 import { buildOracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutor.js';
-import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
-import { isCreatureNow } from '../creatureTypeNow.js';
+import { ResolutionQueueManager } from '../resolution/index.js';
 import { addTemporaryEtbTrigger } from './triggerEtbEntryEffects.js';
-import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
-import {
-  clearDivineReckoningChoiceBatch,
-  clearPrisonersDilemmaChoiceBatch,
-  createDivineReckoningChoiceBatch,
-  createPrisonersDilemmaChoiceBatch,
-} from './spellLegacyChoiceBatchUtils.js';
 import { applySummonsOfSarumanEffect } from './oracleIrSpellLegacySummonsUtils.js';
 import { wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
 import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
@@ -102,7 +94,6 @@ export function applyInstantSorcerySpecialCaseSpellEffects(
     isDivineReckoningStyleChoice: boolean;
     isPrisonersDilemmaStyleChoice: boolean;
     isSummonsOfSarumanStyle: boolean;
-    fromOracleIrPromptQueue?: boolean;
   },
 ): void {
   const state = (ctx as any).state;
@@ -114,9 +105,10 @@ export function applyInstantSorcerySpecialCaseSpellEffects(
   const spellXValue = options.spellXValue;
 
   // PRIMARY=0 spell resolve still hits this helper (skipLegacy blocks uncategorized).
-  // Trampoline to the same IR as production; prompt-queue re-entry must not recurse.
+  // Trampoline to the same IR as production. Divine/Prisoner prompts are queued
+  // from IR choice-family → oracleIrServerChooseDestroyRestSecretDamagePrompts,
+  // not from this function.
   const shouldTrampolinePhase4ChoiceFamilyToIr = !isOracleIrSpellPrimaryEnabled()
-    && options.fromOracleIrPromptQueue !== true
     && (
       options.isRiteOfHarmonyStyleWindow
       || options.isDivineReckoningStyleChoice
@@ -161,171 +153,6 @@ export function applyInstantSorcerySpecialCaseSpellEffects(
         expiresAt: 'end_of_turn',
       });
       debug(2, `[applyInstantSorcerySpecialCaseSpellEffects] ${sourceName} granted ${controller} a temporary creature/enchantment ETB draw trigger`);
-    }
-  }
-
-  if (options.isDivineReckoningStyleChoice) {
-    const players = Array.isArray(state.players) ? state.players : [];
-    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
-    const turnOrder: PlayerID[] = players
-      .map((player: any) => player?.id)
-      .filter((playerId: any) => typeof playerId === 'string') as PlayerID[];
-    const activePlayerId: PlayerID =
-      state?.turnPlayer ||
-      state?.activePlayerId ||
-      state?.activePlayer ||
-      players[state?.activePlayerIndex || 0]?.id ||
-      controller;
-    const batchId = `${String(item?.id || card?.id || effectiveCard?.id || uid('divine_reckoning'))}:divine_reckoning`;
-    const sourceId = String(item?.id || card?.id || effectiveCard?.id || '').trim() || undefined;
-    const stepConfigs: any[] = [];
-    const expectedPlayerIds: string[] = [];
-
-    for (const player of players) {
-      const playerId = String(player?.id || '').trim();
-      if (!playerId || player?.hasLost) continue;
-
-      const validTargets = battlefield
-        .filter((permanent: any) => permanent && String(permanent.controller || '') === playerId)
-        .filter((permanent: any) => isCreatureNow(permanent))
-        .map((permanent: any) => ({
-          id: permanent.id,
-          label: permanent.card?.name || 'Creature',
-          description: permanent.card?.type_line || 'creature',
-          imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
-        }));
-
-      if (validTargets.length === 0) continue;
-
-      expectedPlayerIds.push(playerId);
-      stepConfigs.push({
-        type: ResolutionStepType.TARGET_SELECTION,
-        playerId,
-        description: `${effectiveCard?.name || 'Divine Reckoning'}: choose a creature you control to keep. The rest will be destroyed.`,
-        mandatory: true,
-        sourceId,
-        sourceName: effectiveCard?.name || 'Divine Reckoning',
-        sourceImage: effectiveCard?.image_uris?.small || effectiveCard?.image_uris?.normal,
-        validTargets,
-        targetTypes: ['creature'],
-        minTargets: 1,
-        maxTargets: 1,
-        targetDescription: 'creature you control',
-        priority: 0,
-        divineReckoningChoice: true,
-        divineReckoningBatchId: batchId,
-        divineReckoningExpectedPlayerIds: expectedPlayerIds,
-        divineReckoningController: String(controller),
-        divineReckoningSourceId: sourceId,
-        divineReckoningSourceName: effectiveCard?.name || 'Divine Reckoning',
-      });
-    }
-
-    if (stepConfigs.length > 0 && gameId && gameId !== 'unknown') {
-      for (const config of stepConfigs) {
-        config.divineReckoningExpectedPlayerIds = [...expectedPlayerIds];
-      }
-
-      createDivineReckoningChoiceBatch(state, {
-        id: batchId,
-        controller: String(controller),
-        sourceId,
-        sourceName: effectiveCard?.name || 'Divine Reckoning',
-        expectedPlayerIds,
-      });
-
-      try {
-        const steps = ResolutionQueueManager.addStepsWithAPNAP(gameId, stepConfigs as any, turnOrder as any, activePlayerId as any);
-        appendQueuedResolutionPromptEvent(ctx, {
-          playerId: String(steps[0]?.playerId || expectedPlayerIds[0] || '').trim(),
-          sourceId: sourceId || String(steps[0]?.sourceId || '').trim(),
-          queuedResolutionSteps: steps as any[],
-        });
-        debug(2, `[applyInstantSorcerySpecialCaseSpellEffects] ${effectiveCard?.name || 'Divine Reckoning'} queued ${steps.length} Divine Reckoning survivor choice step(s)`);
-      } catch (err) {
-        clearDivineReckoningChoiceBatch(state, batchId);
-        debugWarn(1, `[applyInstantSorcerySpecialCaseSpellEffects] ${effectiveCard?.name || 'Divine Reckoning'} failed to queue Divine Reckoning choices:`, err);
-      }
-    } else {
-      clearDivineReckoningChoiceBatch(state, batchId);
-      debug(2, `[applyInstantSorcerySpecialCaseSpellEffects] ${effectiveCard?.name || 'Divine Reckoning'} had no creatures to choose for Divine Reckoning`);
-    }
-  }
-
-  if (options.isPrisonersDilemmaStyleChoice) {
-    const players = Array.isArray(state.players) ? state.players : [];
-    const turnOrder: PlayerID[] = players
-      .map((player: any) => player?.id)
-      .filter((playerId: any) => typeof playerId === 'string') as PlayerID[];
-    const activePlayerId: PlayerID =
-      state?.turnPlayer ||
-      state?.activePlayerId ||
-      state?.activePlayer ||
-      players[state?.activePlayerIndex || 0]?.id ||
-      controller;
-    const batchId = `${String(item?.id || card?.id || effectiveCard?.id || uid('prisoners_dilemma'))}:prisoners_dilemma`;
-    const sourceId = String(item?.id || card?.id || effectiveCard?.id || '').trim() || undefined;
-    const stepConfigs: any[] = [];
-    const expectedPlayerIds: string[] = [];
-
-    for (const player of players) {
-      const playerId = String(player?.id || '').trim();
-      if (!playerId || playerId === String(controller) || player?.hasLost) continue;
-
-      expectedPlayerIds.push(playerId);
-      stepConfigs.push({
-        type: ResolutionStepType.OPTION_CHOICE,
-        playerId,
-        description: `${effectiveCard?.name || "Prisoner's Dilemma"}: secretly choose silence or snitch.`,
-        mandatory: true,
-        sourceId,
-        sourceName: effectiveCard?.name || "Prisoner's Dilemma",
-        sourceImage: effectiveCard?.image_uris?.small || effectiveCard?.image_uris?.normal,
-        options: [
-          { id: 'silence', label: 'Silence' },
-          { id: 'snitch', label: 'Snitch' },
-        ],
-        minSelections: 1,
-        maxSelections: 1,
-        priority: 0,
-        prisonersDilemmaChoice: true,
-        secretChoice: true,
-        prisonersDilemmaBatchId: batchId,
-        prisonersDilemmaExpectedPlayerIds: expectedPlayerIds,
-        prisonersDilemmaController: String(controller),
-        prisonersDilemmaSourceId: sourceId,
-        prisonersDilemmaSourceName: effectiveCard?.name || "Prisoner's Dilemma",
-      });
-    }
-
-    if (stepConfigs.length > 0 && gameId && gameId !== 'unknown') {
-      for (const config of stepConfigs) {
-        config.prisonersDilemmaExpectedPlayerIds = [...expectedPlayerIds];
-      }
-
-      createPrisonersDilemmaChoiceBatch(state, {
-        id: batchId,
-        controller: String(controller),
-        sourceId,
-        sourceName: effectiveCard?.name || "Prisoner's Dilemma",
-        expectedPlayerIds,
-      });
-
-      try {
-        const steps = ResolutionQueueManager.addStepsWithAPNAP(gameId, stepConfigs as any, turnOrder as any, activePlayerId as any);
-        appendQueuedResolutionPromptEvent(ctx, {
-          playerId: String(steps[0]?.playerId || expectedPlayerIds[0] || '').trim(),
-          sourceId: sourceId || String(steps[0]?.sourceId || '').trim(),
-          queuedResolutionSteps: steps as any[],
-        });
-        debug(2, `[applyInstantSorcerySpecialCaseSpellEffects] ${effectiveCard?.name || "Prisoner's Dilemma"} queued ${steps.length} secret choice step(s)`);
-      } catch (err) {
-        clearPrisonersDilemmaChoiceBatch(state, batchId);
-        debugWarn(1, `[applyInstantSorcerySpecialCaseSpellEffects] ${effectiveCard?.name || "Prisoner's Dilemma"} failed to queue secret choices:`, err);
-      }
-    } else {
-      clearPrisonersDilemmaChoiceBatch(state, batchId);
-      debug(2, `[applyInstantSorcerySpecialCaseSpellEffects] ${effectiveCard?.name || "Prisoner's Dilemma"} had no opponents to choose`);
     }
   }
 

@@ -7,7 +7,62 @@ import {
   commitCardZoneChanges,
   type PlayerZoneChangeBridgeContext,
 } from './oracleIRExecutorCardZoneTransitionCommit';
-import { stampCardsPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerZoneAccess';
+import {
+  getCurrentTurnNumber,
+  stampCardsPutIntoGraveyardThisTurn,
+} from './oracleIRExecutorPlayerZoneAccess';
+
+function discardProvenanceFields(
+  state: GameState,
+  playerId: PlayerID,
+): { discardedByPlayerId: string; discardedOnTurn: number } {
+  return {
+    discardedByPlayerId: String(playerId || '').trim(),
+    discardedOnTurn: getCurrentTurnNumber(state),
+  };
+}
+
+function withDiscardProvenance(state: GameState, playerId: PlayerID, card: any): any {
+  return {
+    ...card,
+    ownerId: playerId,
+    owner: playerId,
+    ...discardProvenanceFields(state, playerId),
+  };
+}
+
+/** Zone-change commit places the hand copy and drops extraFields; restamp GY + zones. */
+function applyDiscardProvenanceToGraveyardCards(
+  state: GameState,
+  playerId: PlayerID,
+  discardedCards: readonly any[],
+): void {
+  const ids = new Set(
+    discardedCards.map((card) => String(card?.id || '').trim()).filter(Boolean),
+  );
+  if (ids.size === 0) return;
+  const fields = discardProvenanceFields(state, playerId);
+
+  const stampInPlace = (cards: any[] | undefined): void => {
+    if (!Array.isArray(cards)) return;
+    for (const card of cards) {
+      if (!card || typeof card !== 'object') continue;
+      const id = String(card.id || '').trim();
+      if (!id || !ids.has(id)) continue;
+      card.ownerId = playerId;
+      card.owner = playerId;
+      card.discardedByPlayerId = fields.discardedByPlayerId;
+      card.discardedOnTurn = fields.discardedOnTurn;
+    }
+  };
+
+  const player = state.players.find((entry) => entry.id === playerId) as any;
+  stampInPlace(player?.graveyard);
+  const zoneGraveyard = (state as any).zones?.[playerId]?.graveyard;
+  if (zoneGraveyard !== player?.graveyard) {
+    stampInPlace(zoneGraveyard);
+  }
+}
 
 export function discardCardsForPlayer(
   state: GameState,
@@ -30,12 +85,9 @@ export function discardCardsForPlayer(
   }
 
   const discarded = hand.splice(0, hand.length);
-  const stampedDiscarded = stampCardsPutIntoGraveyardThisTurn(state, discarded).map((card: any) => ({
-    ...card,
-    ownerId: playerId,
-    owner: playerId,
-    discardedByPlayerId: playerId,
-  }));
+  const stampedDiscarded = stampCardsPutIntoGraveyardThisTurn(state, discarded).map((card: any) => (
+    withDiscardProvenance(state, playerId, card)
+  ));
 
   const stepIndex = bridgeOptions?.stepIndex;
   if (bridgeOptions?.ctx?.serverBridge && Number.isFinite(stepIndex)) {
@@ -65,15 +117,13 @@ export function discardCardsForPlayer(
     // Prefer stampedDiscarded for replay identity — bridge movedCards can lose owner/id stamps.
     const discardedCardsForReplay = stampedDiscarded.map((card: any, index: number) => {
       const moved = commitResult.movedCards[index];
-      return {
+      return withDiscardProvenance(commitResult.state, playerId, {
         ...(moved && typeof moved === 'object' ? moved : {}),
         ...card,
         id: String(card?.id || moved?.id || '').trim() || card?.id,
-        ownerId: playerId,
-        owner: playerId,
-        discardedByPlayerId: playerId,
-      };
+      });
     });
+    applyDiscardProvenanceToGraveyardCards(commitResult.state, playerId, discardedCardsForReplay);
     log.push(`${playerId} discards ${actualCount} card(s)`);
     return {
       state: commitResult.state,
@@ -89,9 +139,11 @@ export function discardCardsForPlayer(
   graveyard.push(...stampedDiscarded);
 
   const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, hand, graveyard } : p));
+  const nextState = { ...state, players: updatedPlayers as any };
+  applyDiscardProvenanceToGraveyardCards(nextState, playerId, stampedDiscarded);
   log.push(`${playerId} discards ${discarded.length} card(s)`);
   return {
-    state: { ...state, players: updatedPlayers as any },
+    state: nextState,
     log,
     applied: true,
     needsChoice: false,
@@ -136,12 +188,9 @@ export function discardSpecificCardsForPlayer(
   }
 
   const remainingHand = hand.filter((card: any) => !wantedIdSet.has(String(card?.id || '').trim()));
-  const stampedDiscarded = stampCardsPutIntoGraveyardThisTurn(state, discarded).map((card: any) => ({
-    ...card,
-    ownerId: playerId,
-    owner: playerId,
-    discardedByPlayerId: playerId,
-  }));
+  const stampedDiscarded = stampCardsPutIntoGraveyardThisTurn(state, discarded).map((card: any) => (
+    withDiscardProvenance(state, playerId, card)
+  ));
 
   const stepIndex = bridgeOptions?.stepIndex;
   if (bridgeOptions?.ctx?.serverBridge && Number.isFinite(stepIndex)) {
@@ -169,15 +218,13 @@ export function discardSpecificCardsForPlayer(
     }
     const discardedCardsForReplay = stampedDiscarded.map((card: any, index: number) => {
       const moved = commitResult.movedCards[index];
-      return {
+      return withDiscardProvenance(commitResult.state, playerId, {
         ...(moved && typeof moved === 'object' ? moved : {}),
         ...card,
         id: String(card?.id || moved?.id || '').trim() || card?.id,
-        ownerId: playerId,
-        owner: playerId,
-        discardedByPlayerId: playerId,
-      };
+      });
     });
+    applyDiscardProvenanceToGraveyardCards(commitResult.state, playerId, discardedCardsForReplay);
     log.push(`${playerId} discards ${Math.max(commitResult.movedCards.length, stampedDiscarded.length)} chosen card(s)`);
     return {
       state: commitResult.state,
@@ -194,9 +241,11 @@ export function discardSpecificCardsForPlayer(
   const updatedPlayers = state.players.map((p) => (
     p.id === playerId ? { ...p, hand: remainingHand, graveyard } : p
   ));
+  const nextState = { ...state, players: updatedPlayers as any };
+  applyDiscardProvenanceToGraveyardCards(nextState, playerId, stampedDiscarded);
   log.push(`${playerId} discards ${discarded.length} chosen card(s)`);
   return {
-    state: { ...state, players: updatedPlayers as any },
+    state: nextState,
     log,
     applied: true,
     discardedCount: stampedDiscarded.length,

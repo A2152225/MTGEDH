@@ -34,6 +34,33 @@ function parseProtectionKeywords(text: string): string[] {
   return found;
 }
 
+function isProtectionKeyword(token: string): boolean {
+  return (PROTECTION_KEYWORDS as readonly string[]).includes(token.toLowerCase());
+}
+
+/**
+ * Arcane Lighthouse lose-lists are hexproof/shroud only (optional "can't have" tail).
+ * Mixed lists (Shadowspear: hexproof and indestructible) must fall through to
+ * grant_temporary_ability so the extra keywords are not dropped.
+ */
+function parseExclusiveProtectionLoseList(text: string): string[] | null {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return null;
+  const withoutCantHave = trimmed.replace(/\s+and can'?t have .+$/i, '').trim();
+  const parts = withoutCantHave
+    .split(/\s*(?:,|and|or)\s*/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+  if (!parts.every((part) => isProtectionKeyword(part))) return null;
+  const unique: string[] = [];
+  for (const part of parts) {
+    const keyword = part.toLowerCase();
+    if (!unique.includes(keyword)) unique.push(keyword);
+  }
+  return unique;
+}
+
 function hasUntilEotWindow(body: string): boolean {
   return /^until\s+end\s+of\s+turn\b/i.test(body)
     || /\buntil\s+end\s+of\s+turn\.?$/i.test(body);
@@ -95,8 +122,8 @@ export function tryParseUntilEotProtectionOverrideClause(args: {
     /^((?:creatures|permanents) your opponents control) lose (.+)$/i,
   );
   if (lose) {
-    const abilities = parseProtectionKeywords(String(lose[2] || ''));
-    if (abilities.length === 0) return null;
+    const abilities = parseExclusiveProtectionLoseList(String(lose[2] || ''));
+    if (!abilities || abilities.length === 0) return null;
     const subjectKind = String(lose[1] || '').toLowerCase().startsWith('permanents')
       ? 'opponent_permanents'
       : 'opponent_creatures';

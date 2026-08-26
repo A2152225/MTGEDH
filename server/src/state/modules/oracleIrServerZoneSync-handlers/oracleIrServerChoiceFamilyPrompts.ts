@@ -2,7 +2,8 @@
 // Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
 // Cluster: queue existing Divine Reckoning / Prisoner's Dilemma / mill-from-among
 //   may-cast / may-reveal four-zone named-copy-win resolution steps from
-//   Oracle IR player-choice gaps.
+//   Oracle IR player-choice gaps. Divine/Prisoner prompts live in
+//   oracleIrServerChooseDestroyRestSecretDamagePrompts (not special-case).
 // Public: queueChoiceFamilyPromptsFromOracleIRResult
 // Called from applyOracleIRStepsOnServer; not part of the public API.
 
@@ -14,9 +15,6 @@ import type {
 } from '../../../../../rules-engine/src/oracleIRExecutor.js';
 import type { GameContext } from '../../context.js';
 import {
-  applyInstantSorcerySpecialCaseSpellEffects,
-} from '../stackResolveSpellSpecialCaseUtils.js';
-import {
   queueMayCastFromAmongMilledCards,
 } from '../oracleIrSpellLegacySummonsUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
@@ -25,6 +23,10 @@ import {
   findSkippedOracleStep,
   isOracleIrPlayerChoiceGap,
 } from '../oracleIrServerPromptResumeUtils.js';
+import {
+  queueEachPlayerChooseThenDestroyRestPrompts,
+  queueSecretOpponentChoiceDamagePrompts,
+} from './oracleIrServerChooseDestroyRestSecretDamagePrompts.js';
 
 function resolveMaxManaValue(amount: OracleQuantity | undefined, irCtx?: OracleIRExecutionContext): number {
   if (!amount) return Number.NaN;
@@ -74,19 +76,24 @@ export function queueChoiceFamilyPromptsFromOracleIRResult(
     if (!step) continue;
     queuedKinds.add(stepKind);
 
-    if (step.kind === 'each_player_choose_then_destroy_rest' || step.kind === 'secret_opponent_choice_damage') {
-      applyInstantSorcerySpecialCaseSpellEffects(ctx, {
+    if (step.kind === 'each_player_choose_then_destroy_rest') {
+      queueEachPlayerChooseThenDestroyRestPrompts(ctx, {
         controller: params.controller,
         card: params.card || { id: sourceId, name: sourceName },
         effectiveCard: params.effectiveCard || { name: sourceName },
         item: params.item || { id: sourceId, source: sourceId },
         gameId,
-        spellXValue: params.irCtx?.xValue,
-        isRiteOfHarmonyStyleWindow: false,
-        isDivineReckoningStyleChoice: step.kind === 'each_player_choose_then_destroy_rest',
-        isPrisonersDilemmaStyleChoice: step.kind === 'secret_opponent_choice_damage',
-        isSummonsOfSarumanStyle: false,
-        fromOracleIrPromptQueue: true,
+      });
+      continue;
+    }
+
+    if (step.kind === 'secret_opponent_choice_damage') {
+      queueSecretOpponentChoiceDamagePrompts(ctx, {
+        controller: params.controller,
+        card: params.card || { id: sourceId, name: sourceName },
+        effectiveCard: params.effectiveCard || { name: sourceName },
+        item: params.item || { id: sourceId, source: sourceId },
+        gameId,
       });
       continue;
     }

@@ -137,6 +137,7 @@ Public path stays `ai.ts`. Leaves must not import `ai.ts` or the index. Never cr
 | `aiActionCandidateHandlers.ts` | Enumeration, mana-payment plan, response-window actions. |
 | `aiLandAuraCommander.ts` | Playable-land lookup, aura targeting, `findCastableCommander`, failed-cast memory. |
 | `aiSharedCastLand.ts` | `requestAISharedCast`, `requestAISharedLandPlay`. |
+| `aiMayRevealHandWinChoiceHandlers.ts` | Reveal if `playerOwnsNamedCardInFourWinZones`, else decline. Entry: `chooseAIMayRevealHandWinIfOwnNamedSelection`. |
 
 ### `registry-handlers/` (extracted from `registry.ts`)
 
@@ -155,7 +156,7 @@ Public path stays `state/planeswalker/templates/registry.ts`. Folder is `templat
 
 ### `apply-event-handlers/` (extracted from `applyEvent.ts`)
 
-Family dispatch in the parent: `if (applyXEvents(ctx, e)) return;`. `activateBattlefieldAbility` is split: cost replay → `applyEventActivateBattlefieldAbilityCostReplay.ts`, stack rebuild → `applyEventActivateBattlefieldAbilityStackReplay.ts`, wrapper + leftover `cascadeResolve` → `applyEventActivateBattlefieldAbilityEvents.ts`. See `apply-event-handlers/index.ts` for the full named TOC (lobby, commander/counters/damage, stack, cast, combat, mana, activations, choices, dungeon/vote, attachments, …).
+Family dispatch in the parent: `if (applyXEvents(ctx, e)) return;`. `activateBattlefieldAbility` is split: cost replay → `applyEventActivateBattlefieldAbilityCostReplay.ts`, stack rebuild → `applyEventActivateBattlefieldAbilityStackReplay.ts`, wrapper + leftover `cascadeResolve` → `applyEventActivateBattlefieldAbilityEvents.ts`. See `apply-event-handlers/index.ts` for the full named TOC (lobby, commander/counters/damage, stack, cast, combat, mana, activations, choices, dungeon/vote, attachments, …). Divine/Prisoner choice+batch (`applyEventDungeonVoteEvents.ts`) call `maybeResumeDeferredOracleIrStackSpell` after the queue empties. GY-cast stack flags and stale `graveyard_selection` cleanup live in `applyEventCastSpellEvents.ts` / `applyEventReflexivePromptEvents.ts` / `applyEventStackCoreEvents.ts` with `stackReplayUtils.ts`.
 
 ### `util-handlers/` / `turn-handlers/` / `combat-handlers/` / `undo-handlers/` / `oracleIrServerZoneSync-handlers/`
 
@@ -183,10 +184,10 @@ Family dispatch in the parent: `if (applyXEvents(ctx, e)) return;`. `activateBat
 | `combat-handlers/combatDeclareControlledAttackersRequest.ts` | `socket/combat.ts` | `handleDeclareControlledAttackers`. |
 | `undo-handlers/undoBoundaryPlanning.ts` | `socket/undo.ts` | Semantic action counting, boundary keys/snapshots/history, smart undo counts. |
 | `undo-handlers/undoTurnPhaseTargets.ts` | `socket/undo.ts` | Earlier turn/phase/step jump targets. Entries: `listUndoTurnPhaseTargets`, `resolveUndoToTurnPhaseCount`. |
-| `oracleIrServerZoneSync-handlers/oracleIrServerPostExecutionStateSync.ts` | `oracleIrServerZoneSync.ts` | Post-IR mirroring: GY→exile provenance, copy-token, prepared, linked exiles, reanimation, EOT token sacrifice/exile, impulse draws, temp abilities / P/T. Stamps `turnApplied` on until-next-turn `staticAbilityGrantEffects` / grant bags. |
-| `oracleIrServerZoneSync-handlers/oracleIrServerLibrarySearchLookChoosePilePrompts.ts` | `oracleIrServerZoneSync.ts` | Look-choose / search-library / choose-pile prompt builders. |
+| `oracleIrServerZoneSync-handlers/oracleIrServerPostExecutionStateSync.ts` | `oracleIrServerZoneSync.ts` | Post-IR mirroring: GY→exile provenance, copy-token, prepared, linked exiles, reanimation, EOT token sacrifice/exile, impulse draws, temp abilities / P/T. After `create_token`, mirrors except-copy `grantedAbilities` into `pendingSacrificeAtNextEndStep` / haste `tempAbilities`. Stamps `turnApplied` on until-next-turn `staticAbilityGrantEffects` / grant bags. |
+| `oracleIrServerZoneSync-handlers/oracleIrServerLibrarySearchLookChoosePilePrompts.ts` | `oracleIrServerZoneSync.ts` | Look-choose / search-library / choose-pile prompt builders. SPELL_PRIMARY=1 `look_select_top` dest=`library_top` reorder-all queues `PONDER_EFFECT` (Ponder/Index). `nonMatchRest: 'graveyard'` (Genesis Wave) puts only selectable permanents in `availableCards`; look-at-then-battlefield rest-bottom (Loot) keeps the full looked slice in `availableCards` plus `nonSelectableCards`. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerVoteJoinForcesPrompts.ts` | `oracleIrServerZoneSync.ts` | JOIN_FORCES / VOTE prompt queues. Entries: `queueJoinForcesPromptsFromOracleIRResult`, `queueVotePromptsFromOracleIRResult`. |
-| `oracleIrServerZoneSync-handlers/oracleIrServerChoiceFamilyPrompts.ts` | `oracleIrServerZoneSync.ts` | IR-primary queues for `each_player_choose_then_destroy_rest` / `secret_opponent_choice_damage` / `may_cast_from_among` onto existing TARGET_SELECTION / secret OPTION_CHOICE / GRAVEYARD_SELECTION. Also queues Reveal/Decline OPTION_CHOICE for `may_reveal_hand_then_win_if_own_named_in_zones`. |
+| `oracleIrServerZoneSync-handlers/oracleIrServerChoiceFamilyPrompts.ts` | `oracleIrServerZoneSync.ts` | IR-primary queues for `each_player_choose_then_destroy_rest` / `secret_opponent_choice_damage` / `may_cast_from_among` onto existing TARGET_SELECTION / secret OPTION_CHOICE / GRAVEYARD_SELECTION. Divine/Prisoner go through `oracleIrServerChooseDestroyRestSecretDamagePrompts.ts`. Optional mill-from-among (Summons) stays GRAVEYARD_SELECTION — Effect Program `OPTIONAL_NO_CHOICE_KINDS` skips Yes/No. Also queues Reveal/Decline OPTION_CHOICE for `may_reveal_hand_then_win_if_own_named_in_zones`. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerTapUntapChoicePrompts.ts` | `oracleIrServerZoneSync.ts` | TAP_UNTAP_TARGET queues for tap-or-untap and tap-matching-permanents. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerExplorePopulateChangeTargetPrompts.ts` | `oracleIrServerZoneSync.ts` | Explore / populate / change-target queues. |
 | `oracleIrServerZoneSync-handlers/oracleIrServerImpulseDiscoverGyPermissionPrompts.ts` | `oracleIrServerZoneSync.ts` | GY-cast permission, impulse-exile play, discover cast-or-hand. |

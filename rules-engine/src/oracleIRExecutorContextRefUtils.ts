@@ -18,7 +18,15 @@ export function getContextSourceObject(
   findObjectById: FindObjectById
 ): any | null {
   const sourceId = getContextSourceId(ctx);
-  return sourceId ? findObjectById(sourceId) : null;
+  const found = sourceId ? findObjectById(sourceId) : null;
+  if (found) return found;
+  const spent = Number(ctx?.sourceManaSpentTotal);
+  if (!Number.isFinite(spent)) return null;
+  return {
+    id: sourceId || undefined,
+    name: ctx?.sourceName,
+    manaSpentTotal: Math.max(0, spent),
+  };
 }
 
 export function getContextTargetObject(

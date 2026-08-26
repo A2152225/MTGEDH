@@ -425,6 +425,56 @@ function stampHasteTempAbilityOnPermanent(perm: any): void {
   }
 }
 
+function readDelayedTriggerEntries(state: any): readonly any[] {
+  const triggers = (state as any)?.delayedTriggerRegistry?.triggers;
+  if (Array.isArray(triggers)) return triggers;
+  if (triggers && typeof triggers === 'object') return Object.values(triggers);
+  return [];
+}
+
+function tokenHasGrantedEndStepCleanup(perm: any, action: 'sacrifice' | 'exile'): boolean {
+  const granted = Array.isArray(perm?.grantedAbilities) ? perm.grantedAbilities : [];
+  const pattern = action === 'exile'
+    ? /at\s+the\s+beginning\s+of\s+(?:the\s+)?(?:next\s+)?end\s+step,?\s*exile\s+this\s+(?:token|permanent)\b/i
+    : /at\s+the\s+beginning\s+of\s+(?:the\s+)?(?:next\s+)?end\s+step,?\s*sacrifice\s+this\s+(?:token|permanent)\b/i;
+  return granted.some((ability: unknown) => pattern.test(String(ability || '')));
+}
+
+function collectEndStepCleanupTokenIds(
+  state: any,
+  params: { controller: PlayerID; sourceName: string },
+  delayedTriggers: readonly any[],
+  action: 'sacrifice' | 'exile',
+): readonly string[] {
+  const ids = new Set<string>();
+  const sourceName = String(params.sourceName || '').trim();
+
+  for (const delayed of delayedTriggers) {
+    const effect = String((delayed as any)?.effect || '');
+    const timing = String((delayed as any)?.timing || '').toUpperCase();
+    if (!timing.includes('END_STEP')) continue;
+    const matchesAction = action === 'exile'
+      ? /\bexile\b/i.test(effect)
+      : /sacrifice (?:that|those|this) (?:tokens?|permanents?)\.?/i.test(effect);
+    if (!matchesAction) continue;
+    const targetIds = Array.isArray((delayed as any)?.targets)
+      ? (delayed as any).targets.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+    for (const permanentId of targetIds) ids.add(permanentId);
+  }
+
+  for (const perm of state.battlefield || []) {
+    if (!perm?.isToken) continue;
+    if (!tokenHasGrantedEndStepCleanup(perm, action)) continue;
+    const createdBy = String(perm.createdBySourceName || '').trim();
+    if (createdBy && sourceName && createdBy !== sourceName) continue;
+    const permanentId = String(perm.id || '').trim();
+    if (permanentId) ids.add(permanentId);
+  }
+
+  return [...ids];
+}
+
 export function syncIrAtNextEndStepTokenSacrificeFromOracleIRResult(
   state: any,
   result: OracleIRExecutionResult,
@@ -437,71 +487,56 @@ export function syncIrAtNextEndStepTokenSacrificeFromOracleIRResult(
   const scheduledExile = createTokenSteps.some(
     (step) => (step as { atNextEndStep?: string }).atNextEndStep === 'exile',
   );
-  const grantedHaste = createTokenSteps.some((step) => Boolean((step as { grantsHaste?: string }).grantsHaste));
-  if (grantedHaste) {
-    for (const perm of state.battlefield || []) {
-      if (perm?.isToken) stampHasteTempAbilityOnPermanent(perm);
-    }
+  for (const perm of state.battlefield || []) {
+    if (perm?.isToken) stampHasteTempAbilityOnPermanent(perm);
   }
-  if (!scheduledSacrifice && !scheduledExile) return;
-
-  const registry = state.delayedTriggerRegistry as { triggers?: Record<string, unknown> } | undefined;
-  const triggers = registry?.triggers ? Object.values(registry.triggers) : [];
-  if (triggers.length === 0) return;
+  const delayedTriggers = readDelayedTriggerEntries(state);
+  const shouldInspectCreatedTokens = createTokenSteps.length > 0;
+  const sacrificeTokenIds = scheduledSacrifice || shouldInspectCreatedTokens
+    ? collectEndStepCleanupTokenIds(state, params, delayedTriggers, 'sacrifice')
+    : [];
+  const exileTokenIds = scheduledExile || shouldInspectCreatedTokens
+    ? collectEndStepCleanupTokenIds(state, params, delayedTriggers, 'exile')
+    : [];
+  const shouldScheduleSacrifice = scheduledSacrifice || sacrificeTokenIds.length > 0;
+  const shouldScheduleExile = scheduledExile || exileTokenIds.length > 0;
+  if (!shouldScheduleSacrifice && !shouldScheduleExile) return;
 
   const fireAtTurnNumber = getNextEndStepFireTurnNumber(state);
 
-  if (scheduledSacrifice) {
+  if (shouldScheduleSacrifice) {
     state.pendingSacrificeAtNextEndStep = Array.isArray(state.pendingSacrificeAtNextEndStep)
       ? state.pendingSacrificeAtNextEndStep
       : [];
+    for (const permanentId of sacrificeTokenIds) {
+      const alreadyScheduled = (state.pendingSacrificeAtNextEndStep as any[]).some(
+        (entry: any) => String(entry?.permanentId || '').trim() === permanentId,
+      );
+      if (alreadyScheduled) continue;
+      state.pendingSacrificeAtNextEndStep.push({
+        permanentId,
+        fireAtTurnNumber,
+        maxManaValue: 0,
+        sourceName: params.sourceName,
+        createdBy: String(params.controller),
+      });
+    }
   }
-  if (scheduledExile) {
+  if (shouldScheduleExile) {
     state.pendingExileAtNextEndStep = Array.isArray(state.pendingExileAtNextEndStep)
       ? state.pendingExileAtNextEndStep
       : [];
-  }
-
-  for (const delayed of triggers) {
-    const effect = String((delayed as any)?.effect || '');
-    const timing = String((delayed as any)?.timing || '').toUpperCase();
-    if (!timing.includes('END_STEP')) continue;
-
-    const targetIds = Array.isArray((delayed as any)?.targets)
-      ? (delayed as any).targets.map((id: unknown) => String(id || '').trim()).filter(Boolean)
-      : [];
-
-    if (scheduledSacrifice && /sacrifice (?:that|those) tokens?\.?/i.test(effect)) {
-      for (const permanentId of targetIds) {
-        const alreadyScheduled = (state.pendingSacrificeAtNextEndStep as any[]).some(
-          (entry: any) => String(entry?.permanentId || '').trim() === permanentId,
-        );
-        if (alreadyScheduled) continue;
-
-        state.pendingSacrificeAtNextEndStep.push({
-          permanentId,
-          fireAtTurnNumber,
-          maxManaValue: 0,
-          sourceName: params.sourceName,
-          createdBy: String(params.controller),
-        });
-      }
-    }
-
-    if (scheduledExile && /\bexile\b/i.test(effect.toLowerCase())) {
-      for (const permanentId of targetIds) {
-        const alreadyScheduled = (state.pendingExileAtNextEndStep as any[]).some(
-          (entry: any) => String(entry?.permanentId || '').trim() === permanentId,
-        );
-        if (alreadyScheduled) continue;
-
-        state.pendingExileAtNextEndStep.push({
-          permanentId,
-          fireAtTurnNumber,
-          sourceName: params.sourceName,
-          createdBy: String(params.controller),
-        });
-      }
+    for (const permanentId of exileTokenIds) {
+      const alreadyScheduled = (state.pendingExileAtNextEndStep as any[]).some(
+        (entry: any) => String(entry?.permanentId || '').trim() === permanentId,
+      );
+      if (alreadyScheduled) continue;
+      state.pendingExileAtNextEndStep.push({
+        permanentId,
+        fireAtTurnNumber,
+        sourceName: params.sourceName,
+        createdBy: String(params.controller),
+      });
     }
   }
 }

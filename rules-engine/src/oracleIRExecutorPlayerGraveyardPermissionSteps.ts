@@ -12,9 +12,14 @@ import { oracleGraveyardAdditionalCostToSerializable } from './graveyardPermissi
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import {
+  buildTemporaryGraveyardKeywordGrantStamps,
+  extractGrantedGraveyardKeywordFromRaw,
+  findGraveyardOwnerIdForCard,
+  mergeTemporaryGraveyardKeywordGrantStamps,
   normalizePermissionSelectorText,
   resolveExilePermissionTargets,
   resolveGraveyardPermissionTargets,
+  resolvePrintedManaCostForGraveyardGrant,
 } from './oracleIRExecutorPlayerGraveyardPermissionHelpers';
 import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
 import {
@@ -220,6 +225,14 @@ export function applyGrantGraveyardPermissionStep(
   const grantedCards: any[] = [];
   const grantedPermissionIds: string[] = [];
   const log: string[] = [];
+  const keywordGrant = extractGrantedGraveyardKeywordFromRaw(step.raw);
+  const sourceId = String(ctx.sourceId || '').trim();
+  const sourceName = String(ctx.sourceName || '').trim();
+  const stampKeywordGrants = Boolean(
+    keywordGrant &&
+    (step.duration === 'this_turn' || step.duration === 'until_end_of_next_turn' || step.duration === 'until_next_turn')
+  );
+  const keywordGrantStamps: ReturnType<typeof buildTemporaryGraveyardKeywordGrantStamps> = [];
 
   for (const playerId of players) {
     const resolved = resolveGraveyardPermissionTargets(nextState, playerId, step, ctx);
@@ -264,6 +277,22 @@ export function applyGrantGraveyardPermissionStep(
     if (markerResult.granted > 0) {
       log.push(`${playerId} may ${step.permission === 'play' ? 'play' : 'cast'} ${markerResult.granted} graveyard card(s)`);
     }
+    if (stampKeywordGrants && keywordGrant) {
+      keywordGrantStamps.push(...buildTemporaryGraveyardKeywordGrantStamps({
+        state: nextState,
+        playerId,
+        cards: resolved.cards,
+        keyword: keywordGrant.keyword,
+        resolveCost: (card) => keywordGrant.explicitCost || resolvePrintedManaCostForGraveyardGrant(card),
+        ...(sourceId ? { sourceId } : {}),
+        ...(sourceName ? { sourceName } : {}),
+        expiresAt: step.duration === 'this_turn' ? 'end_of_turn' : step.duration,
+      }));
+    }
+  }
+
+  if (keywordGrantStamps.length > 0) {
+    nextState = mergeTemporaryGraveyardKeywordGrantStamps(nextState, keywordGrantStamps);
   }
 
   return {
@@ -585,14 +614,77 @@ export function applyModifyGraveyardPermissionsStep(
   });
 
   const nextStateAny: any = { ...(state as any), players: updatedPlayers as any };
+  const nextState = stampKeywordGrantsFromModifyStep(
+    mergeGrantedGraveyardPermissionModifiers(nextStateAny as GameState) as any,
+    step,
+    lastGrantedGraveyardCards,
+    grantedPermissionIds,
+  );
   return {
     applied: true,
-    state: mergeGrantedGraveyardPermissionModifiers(nextStateAny as GameState) as any,
+    state: nextState,
     log:
       changed > 0
         ? [`Updated graveyard permissions for ${changed} graveyard card(s)`]
         : [`Updated no graveyard permissions: ${step.raw}`],
   };
+}
+
+function stampKeywordGrantsFromModifyStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'modify_graveyard_permissions' }>,
+  lastGrantedGraveyardCards: readonly any[],
+  grantedPermissionIds: ReadonlySet<string>,
+): GameState {
+  if (lastGrantedGraveyardCards.length === 0) return state;
+
+  const keywordGrant = extractGrantedGraveyardKeywordFromRaw(step.raw);
+  const usesPrintedManaCost =
+    step.castCost === 'mana_cost' ||
+    Boolean(keywordGrant && /\bmana cost\b/i.test(String(step.raw || '')));
+  if (!keywordGrant || !usesPrintedManaCost) return state;
+
+  const permissions = Array.isArray((state as any).graveyardCastingPermissions)
+    ? (state as any).graveyardCastingPermissions
+    : [];
+  const sourcePermission = permissions.find((permission: any) =>
+    grantedPermissionIds.has(String(permission?.id || '').trim())
+  );
+  const sourceId = String(sourcePermission?.sourceId || '').trim();
+  const sourceName = String(sourcePermission?.sourceName || '').trim();
+  const expiresAt = String(sourcePermission?.duration || '') === 'this_turn' || !sourcePermission?.duration
+    ? 'end_of_turn'
+    : String(sourcePermission.duration);
+
+  const stamps: ReturnType<typeof buildTemporaryGraveyardKeywordGrantStamps> = [];
+  const cardsByPlayer = new Map<string, any[]>();
+  for (const card of lastGrantedGraveyardCards) {
+    const cardId = String((card as any)?.id ?? (card as any)?.cardId ?? '').trim();
+    if (!cardId) continue;
+    const playerId = findGraveyardOwnerIdForCard(state, cardId);
+    if (!playerId) continue;
+    const existing = cardsByPlayer.get(playerId) || [];
+    existing.push(card);
+    cardsByPlayer.set(playerId, existing);
+  }
+
+  for (const [playerId, cards] of cardsByPlayer.entries()) {
+    stamps.push(...buildTemporaryGraveyardKeywordGrantStamps({
+      state,
+      playerId: playerId as any,
+      cards,
+      keyword: keywordGrant.keyword,
+      resolveCost: (card) =>
+        step.castCost === 'mana_cost' || usesPrintedManaCost
+          ? resolvePrintedManaCostForGraveyardGrant(card)
+          : String(step.castCostRaw || '').trim() || resolvePrintedManaCostForGraveyardGrant(card),
+      ...(sourceId ? { sourceId } : {}),
+      ...(sourceName ? { sourceName } : {}),
+      expiresAt,
+    }));
+  }
+
+  return mergeTemporaryGraveyardKeywordGrantStamps(state, stamps);
 }
 
 export function applyModifyTokenCreationStep(

@@ -13,7 +13,7 @@ Coordinator owns this file. Extract chats must not edit it — paste owed rows.
   - `resolutionRegisterPreCompleteValidationForStepResponseClusters.ts` — explore / fight / tap-untap / counters / station / mana-color / phyrexian
   - `resolutionRegisterPreCompleteValidationForZoneSelectionSteps.ts` — discard, hand-to-bottom, graveyard, library search
   - `resolutionRegisterPreCompleteValidationForChoicePromptSteps.ts` — X, Kynaios, hideaway, devour, player choice, …
-  - `resolutionRegisterPreCompleteValidationForModeAndTriggerSteps.ts` — MODE_SELECTION, TRIGGER_ORDER, OPENING_HAND_ACTIONS
+  - `resolutionRegisterPreCompleteValidationForModeAndTriggerSteps.ts` — MODE_SELECTION, TRIGGER_ORDER, OPENING_HAND_ACTIONS. MODE_SELECTION membership accepts `mode_N` as the Nth IR label (`Mode N`).
   - `resolutionRegisterPreCompleteValidationForOptionChoiceSteps.ts` — OPTION_CHOICE shape + pay-cost prompts (`validateLifePayment` passes `ctx` + `controllerId`)
   - `resolutionRegisterPreCompleteValidationForCostPaymentSteps.ts` — LIFE_PAYMENT, ADDITIONAL_COST_PAYMENT, SQUAD_COST_PAYMENT (`validateLifePayment` passes `ctx` + `pid`)
   - `resolutionRegisterPreCompleteValidationForManaAndSacrificeSteps.ts` — MANA_PAYMENT_CHOICE, tap-cost, EXTORT, EXPLOIT

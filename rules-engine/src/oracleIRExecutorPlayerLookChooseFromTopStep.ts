@@ -69,12 +69,13 @@ export function buildLookChooseFromTopSelectionOptions(
 
   const lookedCards = library.slice(0, lookedCount);
   const chosenCreatureType = String(ctx.selectorContext?.chosenCreatureType || '').trim();
-  const manaValueLimit = resolveLookChooseManaValueLimit(state, playerId, step.selectorText);
+  const manaValueLimit = resolveLookChooseManaValueLimit(state, playerId, step.selectorText, ctx);
   const selectableCardIds = lookedCards
     .filter(card => cardMatchesLookChooseSelector(card, step.selectorText, manaValueLimit, chosenCreatureType))
     .map(card => String(card?.id || '').trim())
     .filter(Boolean);
   const limits = parseLookChooseSelectionLimits(step.selectorText, step.optional === true);
+  const maxSelections = Math.min(limits.maxSelections, Math.max(selectableCardIds.length, limits.minSelections));
 
   return {
     playerId,
@@ -82,7 +83,7 @@ export function buildLookChooseFromTopSelectionOptions(
     availableCards: lookedCards,
     selectableCardIds,
     minSelections: limits.minSelections,
-    maxSelections: limits.maxSelections,
+    maxSelections,
     destination: step.destination,
     filter: buildLookChooseLibrarySearchFilter(step.selectorText),
     ...(step.restOrder === 'any' ? { restOrder: 'any' as const } : {}),
@@ -99,22 +100,28 @@ function lookChooseFromTopRequiresPlayerChoice(
   runtime?: ModifyPtRuntime
 ): boolean {
   if (ctx.interactivePlayerChoices === false) return false;
-  if (getNormalizedChosenIds(ctx).length > 0) return false;
 
   if (
     usedOracleIrServerBridge(ctx)
     && step.destination === 'battlefield'
     && step.amount?.kind === 'reference_amount'
   ) {
-    const built = buildLookChooseFromTopSelectionOptions(state, step, ctx, runtime);
-    return Boolean(built && built.selectableCardIds.length > 0);
+    const builtRevealUntil = buildLookChooseFromTopSelectionOptions(state, step, ctx, runtime);
+    return Boolean(builtRevealUntil && builtRevealUntil.selectableCardIds.length > 0);
   }
 
   if (step.optional === true && ctx.deferOptionalLookChoices !== true) return false;
   const built = buildLookChooseFromTopSelectionOptions(state, step, ctx, runtime);
   if (!built) return false;
-  if (step.optional !== true) return false;
-  return built.selectableCardIds.length > 0;
+  if (built.selectableCardIds.length === 0) return false;
+
+  const chosenLookedIds = getNormalizedChosenIds(ctx).filter((id) =>
+    built.availableCards.some((card) => String(card?.id || '').trim() === id)
+  );
+  if (chosenLookedIds.length > 0) return false;
+
+  if (step.optional === true) return true;
+  return built.selectableCardIds.length > built.maxSelections;
 }
 
 export function resolveLookChooseAmount(
@@ -216,7 +223,7 @@ export function applyLookChooseFromTopStep(
     let lookedCards = library.slice(0, lookedCount);
     const chosenCards: any[] = [];
     const chosenCreatureType = String(ctx.selectorContext?.chosenCreatureType || '').trim();
-    const manaValueLimit = resolveLookChooseManaValueLimit(nextState, playerId, step.selectorText);
+    const manaValueLimit = resolveLookChooseManaValueLimit(nextState, playerId, step.selectorText, ctx);
     const nonMatchRest = (step as { nonMatchRest?: string }).nonMatchRest || 'library_bottom';
 
     if (chosenIds.size > 0) {
@@ -256,6 +263,29 @@ export function applyLookChooseFromTopStep(
 
     const bridgeLookChooseRest = (): boolean => {
       if (!canBridgeZone || restCards.length === 0) return false;
+      if (nonMatchRest === 'graveyard') {
+        const restCommit = commitLookSelectRestZoneChanges({
+          state: nextState,
+          playerId,
+          rest: restCards,
+          destination: step.destination === 'exile' ? 'exile' : 'hand',
+          restDestination: 'graveyard',
+          restToTop: false,
+          restRandomOrder: false,
+          stepIndex: Number(stepIndex),
+          stepKind: String(bridgeOptions?.stepKind || 'look_choose_from_top'),
+          cause: 'oracle_ir:look_choose_from_top_non_match',
+          ctx: bridgeOptions?.ctx,
+        });
+        if (restCommit.halted) return true;
+        nextState = restCommit.state;
+        movedCards.push(...restCards);
+        if (restCommit.ledgerRecordedViaBridge) {
+          ledgerRecordedViaBridge = true;
+        }
+        log.push(`${playerId} looks at ${lookedCount} card(s) and puts ${restCards.length} into their graveyard`);
+        return true;
+      }
       const restCommit = commitLookSelectRestZoneChanges({
         state: nextState,
         playerId,
@@ -275,31 +305,6 @@ export function applyLookChooseFromTopStep(
         ledgerRecordedViaBridge = true;
       }
       return false;
-    };
-
-    const bridgeNonMatchGraveyard = (): boolean => {
-      if (!canBridgeZone || restCards.length === 0 || nonMatchRest !== 'graveyard') return false;
-      const restCommit = commitLookSelectRestZoneChanges({
-        state: nextState,
-        playerId,
-        rest: restCards,
-        destination: step.destination === 'exile' ? 'exile' : 'hand',
-        restDestination: 'graveyard',
-        restToTop: false,
-        restRandomOrder: false,
-        stepIndex: Number(stepIndex),
-        stepKind: String(bridgeOptions?.stepKind || 'look_choose_from_top'),
-        cause: 'oracle_ir:look_choose_from_top_non_match',
-        ctx: bridgeOptions?.ctx,
-      });
-      if (restCommit.halted) return true;
-      nextState = restCommit.state;
-      movedCards.push(...restCards);
-      if (restCommit.ledgerRecordedViaBridge) {
-        ledgerRecordedViaBridge = true;
-      }
-      log.push(`${playerId} looks at ${lookedCount} card(s), finds no match, and puts ${restCards.length} into their graveyard`);
-      return true;
     };
 
     if (canBridgeChosen) {
@@ -329,6 +334,7 @@ export function applyLookChooseFromTopStep(
 
       nextState = commitResult.state;
       movedCards.push(...commitResult.movedCards);
+      stampLookChooseExileGrantFlags(commitResult.movedCards, step, ctx);
       if (commitResult.ledgerRecordedViaBridge) {
         ledgerRecordedViaBridge = true;
       }
@@ -352,19 +358,12 @@ export function applyLookChooseFromTopStep(
     }
 
     if (canBridgeZone && chosenCards.length === 0 && restCards.length > 0) {
-      if (bridgeNonMatchGraveyard()) {
-        return withDiscardLedgerFlags({
-          applied: true,
-          state: nextState,
-          log,
-          ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
-        }, ledgerRecordedViaBridge);
-      }
       if (bridgeLookChooseRest()) {
         return withDiscardLedgerFlags({
           applied: true,
           state: nextState,
           log,
+          ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
         }, ledgerRecordedViaBridge);
       }
 
@@ -390,12 +389,16 @@ export function applyLookChooseFromTopStep(
         nextExile.push(chosenCard);
       }
     }
+    stampLookChooseExileGrantFlags(chosenCards, step, ctx);
 
-    if (restCards.length > 0 && nonMatchRest === 'graveyard' && chosenCards.length === 0) {
+    if (restCards.length > 0 && nonMatchRest === 'graveyard') {
       nextGraveyard.push(...restCards);
       movedCards.push(...restCards);
       writePlayerZoneCards(nextState, playerId, player, 'graveyard', nextGraveyard);
-      log.push(`${playerId} looks at ${lookedCount} card(s), finds no match, and puts ${restCards.length} into their graveyard`);
+      writePlayerZoneCards(nextState, playerId, player, 'library', library.slice(lookedCount));
+      writePlayerZoneCards(nextState, playerId, player, 'hand', nextHand);
+      writePlayerZoneCards(nextState, playerId, player, 'exile', nextExile);
+      log.push(`${playerId} looks at ${lookedCount} card(s) and puts ${restCards.length} into their graveyard`);
       continue;
     }
 
@@ -418,4 +421,23 @@ export function applyLookChooseFromTopStep(
     log,
     ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
   }, ledgerRecordedViaBridge);
+}
+
+function stampLookChooseExileGrantFlags(
+  cards: readonly any[],
+  step: Extract<OracleEffectStep, { kind: 'look_choose_from_top' }>,
+  ctx: OracleIRExecutionContext,
+): void {
+  if (step.destination !== 'exile') return;
+  const raw = String(step.raw || '');
+  const faceDown = /face down/i.test(raw);
+  const grantPlay = /you may play the exiled card/i.test(raw);
+  const anyMana = /mana as though it were mana of any/i.test(raw);
+  if (!faceDown && !grantPlay && !anyMana) return;
+  for (const card of cards) {
+    if (!card || typeof card !== 'object') continue;
+    if (faceDown) card.faceDown = true;
+    if (grantPlay) card.canBePlayedBy = ctx.controllerId;
+    if (anyMana) card.spendManaAsThoughAnyType = true;
+  }
 }

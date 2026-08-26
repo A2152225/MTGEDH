@@ -22,6 +22,10 @@ import { ResolutionStepType } from "../../resolution/index.js";
 import { applyKeywordPromptResolveOutcome } from "../keywordPromptReplayOutcomes.js";
 import { consumeManaFromPool, getOrInitManaPool, resolveManaCostForPoolPayment } from "../../../socket/util.js";
 import { consumeReflexiveManaAmountFromPool } from "../reflexive-triggers.js";
+import {
+  findReplayedStackItemForCastCard,
+  stampReplayedGraveyardCastStackFlags,
+} from "../stackReplayUtils.js";
 
 export function applyReflexivePromptEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -519,6 +523,14 @@ export function applyReflexivePromptEvents(ctx: GameContext, e: GameEvent): bool
                 (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId)
               );
             });
+          }
+
+          const choice = String((e as any).choice || '').trim().toLowerCase();
+          if (cardId && (choice === 'cast' || choice === 'play')) {
+            const stackItem = findReplayedStackItemForCastCard(ctx, cardId);
+            if (stackItem) {
+              stampReplayedGraveyardCastStackFlags(stackItem, e);
+            }
           }
 
           ctx.bumpSeq();

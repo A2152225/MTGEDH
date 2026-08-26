@@ -22,6 +22,7 @@ import {
   shouldSkipLegacySpellBodyHandlers,
   skipRetiredSpellLegacyHandler,
 } from './oracleIrSpellLegacyRouting.js';
+import { hasOracleIrQueuedLibrarySearch } from './stackResolveSpellLibraryHandlersUtils.js';
 
 function getRecordedManaSpentTotal(stackItem: any): number | null {
   const direct = Number(stackItem?.manaSpentTotal);
@@ -65,6 +66,9 @@ export function applyInstantSorceryLibraryTopCardPromptHandlers(
   }
   // P1c: IR primary owns look-top / Ponder-style compounds — skip legacy library prompts.
   if (shouldSkipLegacySpellBodyHandlers(options.oracleTextLower, spellName)) {
+    return;
+  }
+  if (hasOracleIrQueuedLibrarySearch(ctx, spellName)) {
     return;
   }
 

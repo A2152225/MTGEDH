@@ -44,6 +44,7 @@ import {
   replayResolveAllTriggersDuringEventReplay,
 } from "../replay-prompt-cleanup.js";
 import { getOrInitManaPool } from "../../../socket/util.js";
+import { clearStaleReplayedGraveyardCastPrompts } from "../stackReplayUtils.js";
 import { applyDamageToPermanentWithCounterEffects } from "../counter-common-effects.js";
 import { applyCreatureDamageFromSource, resolvePlayerDamage } from "../combat-damage-processing.js";
 
@@ -399,6 +400,7 @@ export function applyStackCoreEvents(ctx: GameContext, e: GameEvent): boolean {
         if ((ctx as any).isReplaying) {
           replayPopTopOfStackDuringEventReplay(ctx as any);
         } else {
+          clearStaleReplayedGraveyardCastPrompts(ctx);
           resolveTopOfStack(ctx as any);
         }
         break;

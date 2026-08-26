@@ -699,4 +699,72 @@ describe('AI option choice', () => {
 
     expect(decision).toEqual({ selections: ['decline_ward_cost'], cancelled: false });
   });
+
+  it('reveals a may-reveal-hand win when the four-zone named copies are present', () => {
+    const playerId = 'ai1' as PlayerID;
+    const named = { name: 'Hedron Alignment' };
+    const game = {
+      state: {
+        players: [{
+          id: playerId,
+          name: 'AI',
+          hand: [{ id: 'h1', ...named }],
+          graveyard: [{ id: 'g1', ...named }],
+          exile: [{ id: 'e1', ...named }],
+        }],
+        battlefield: [{
+          id: 'bf1',
+          owner: playerId,
+          controller: playerId,
+          name: named.name,
+          card: named,
+        }],
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      mayRevealHandWinIfOwnNamedChoice: true,
+      oracleIrSourceName: named.name,
+      options: [
+        { id: 'reveal', label: 'Reveal hand' },
+        { id: 'decline', label: 'Decline' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['reveal'], cancelled: false });
+  });
+
+  it('declines a may-reveal-hand win when a named-copy zone is missing', () => {
+    const playerId = 'ai1' as PlayerID;
+    const named = { name: 'Hedron Alignment' };
+    const game = {
+      state: {
+        players: [{
+          id: playerId,
+          name: 'AI',
+          hand: [{ id: 'h1', ...named }],
+          graveyard: [],
+          exile: [{ id: 'e1', ...named }],
+        }],
+        battlefield: [{
+          id: 'bf1',
+          owner: playerId,
+          controller: playerId,
+          name: named.name,
+          card: named,
+        }],
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      mayRevealHandWinIfOwnNamedChoice: true,
+      oracleIrSourceName: named.name,
+      options: [
+        { id: 'reveal', label: 'Reveal hand' },
+        { id: 'decline', label: 'Decline' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['decline'], cancelled: false });
+  });
 });

@@ -62,9 +62,14 @@ function sweepStaleTestDatabases(): void {
 beforeEach(() => {
   // Default-off in tests so legacy-path suites stay stable; IR-primary tests opt in with =1.
   // P4e: ORACLE_IR_*_LEGACY is ignored — PRIMARY=0 is the only opt-out.
-  process.env.ORACLE_IR_TRIGGER_PRIMARY = '0';
+  // Census (`ORACLE_IR_CENSUS_PRIMARY=1` or ORACLE_IR_CENSUS_{SPELL,TRIGGER}_PRIMARY=1)
+  // flips the harness to production-on so a failure census can run without editing this file.
+  const censusAll = process.env.ORACLE_IR_CENSUS_PRIMARY === '1';
+  const censusSpell = censusAll || process.env.ORACLE_IR_CENSUS_SPELL_PRIMARY === '1';
+  const censusTrigger = censusAll || process.env.ORACLE_IR_CENSUS_TRIGGER_PRIMARY === '1';
+  process.env.ORACLE_IR_TRIGGER_PRIMARY = censusTrigger ? '1' : '0';
   delete process.env.ORACLE_IR_TRIGGER_LEGACY;
-  process.env.ORACLE_IR_SPELL_PRIMARY = '0';
+  process.env.ORACLE_IR_SPELL_PRIMARY = censusSpell ? '1' : '0';
   delete process.env.ORACLE_IR_SPELL_LEGACY;
 });
 

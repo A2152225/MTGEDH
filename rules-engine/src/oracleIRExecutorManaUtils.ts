@@ -1,3 +1,5 @@
+import { calculateManaValue, parseManaSymbols } from './types/numbers';
+
 export function getColorsFromObject(obj: any): readonly string[] {
   const normalizeColor = (value: unknown): string | null => {
     const color = String(value || '').trim().toUpperCase();
@@ -206,6 +208,20 @@ export function getAmountOfManaSpent(obj: any): number | null {
   ];
   for (const candidate of arrayCandidates) {
     if (Array.isArray(candidate)) return candidate.length;
+  }
+
+  const manaCost = String(
+    obj?.manaCost
+    || obj?.mana_cost
+    || obj?.card?.manaCost
+    || obj?.card?.mana_cost
+    || obj?.spell?.manaCost
+    || obj?.spell?.mana_cost
+    || '',
+  ).trim();
+  if (manaCost) {
+    const fromPrintedCost = calculateManaValue(parseManaSymbols(manaCost), 0);
+    if (Number.isFinite(fromPrintedCost) && fromPrintedCost > 0) return fromPrintedCost;
   }
 
   return null;

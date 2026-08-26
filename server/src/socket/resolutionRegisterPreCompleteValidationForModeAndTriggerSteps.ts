@@ -22,6 +22,7 @@ import {
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
 import { isValidPBudgetSelection } from "../../../shared/src/modeSelectionPBudget.js";
+import { isAllowedModalModeSelectionId } from "../utils/oraclePromptContext.js";
 import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
 
 export type ModeAndTriggerPreCompleteValidationArgs = {
@@ -81,7 +82,6 @@ export function validateModeTriggerAndOpeningHandStepsBeforeComplete(
 
       const rawModes = Array.isArray(stepAny?.modes) ? stepAny.modes : [];
       const modeIds = rawModes.map(extractModeId).filter(Boolean) as string[];
-      const modeIdSet = new Set(modeIds.map(String));
       const modesForBudget = rawModes.map((mode: any, idx: number) => ({
         id: String(extractModeId(mode) || `mode_${idx + 1}`),
         pCost: Number(mode?.pCost),
@@ -165,7 +165,8 @@ export function validateModeTriggerAndOpeningHandStepsBeforeComplete(
         }
 
         // If the step defines explicit modes, enforce membership.
-        if (modeIds.length > 0 && normalized.some((id) => !modeIdSet.has(String(id)))) {
+        // SPELL_PRIMARY=1 queues IR labels (`Mode 2`); cast UI still submits `mode_2`.
+        if (modeIds.length > 0 && normalized.some((id) => !isAllowedModalModeSelectionId(String(id), modeIds))) {
           socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected mode is not valid' });
           return false;
         }

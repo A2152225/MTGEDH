@@ -53,6 +53,9 @@ export async function handlePlayFromGraveyardPromptChoice(
   const zones = game.state?.zones?.[playerId];
   const graveyard = Array.isArray(zones?.graveyard) ? zones.graveyard : [];
   const cardIndex = graveyard.findIndex((c: any) => c?.id === graveyardCardId);
+  const castWithoutPayingManaCost = stepData.playFromGraveyardWithoutPayingManaCost === true;
+  const exileAfterResolution = stepData.playFromGraveyardExileAfterResolution === true
+    || stepData.playFromGraveyardCard?.exileAfterResolution === true;
 
   if (choiceId === 'play') {
     const cardSnapshot = stepData.playFromGraveyardCard;
@@ -79,9 +82,6 @@ export async function handlePlayFromGraveyardPromptChoice(
         bypassGraveyardPermissionCheck: true,
       });
     } else {
-      const castWithoutPayingManaCost = stepData.playFromGraveyardWithoutPayingManaCost === true;
-      const exileAfterResolution = stepData.playFromGraveyardExileAfterResolution === true
-        || stepData.playFromGraveyardCard?.exileAfterResolution === true;
       const fakeSocket: any = {
         data: { playerId, spectator: false },
         emit: (event: string, payload: unknown) => {
@@ -110,6 +110,10 @@ export async function handlePlayFromGraveyardPromptChoice(
     resolvedStepId: String((step as any).id || '').trim(),
     cardId: graveyardCardId,
     choice: choiceId === 'play' ? 'play' : 'decline',
+    fromZone: 'graveyard',
+    castFromGraveyard: true,
+    ...(castWithoutPayingManaCost ? { castWithoutPayingManaCost: true } : {}),
+    ...(exileAfterResolution ? { exileAfterResolution: true } : {}),
   });
 
   if (typeof (game as any).bumpSeq === 'function') {
@@ -133,11 +137,11 @@ export async function handleCastFromGraveyardPromptChoice(
   const zones = game.state?.zones?.[playerId];
   const graveyard = Array.isArray(zones?.graveyard) ? zones.graveyard : [];
   const cardIndex = graveyard.findIndex((c: any) => c?.id === graveyardCardId);
+  const castWithoutPayingManaCost = stepData.castFromGraveyardWithoutPayingManaCost === true;
+  const exileAfterResolution = stepData.castFromGraveyardExileAfterResolution === true
+    || stepData.castFromGraveyardCard?.exileAfterResolution === true;
 
   if (choiceId === 'cast') {
-    const castWithoutPayingManaCost = stepData.castFromGraveyardWithoutPayingManaCost === true;
-    const exileAfterResolution = stepData.castFromGraveyardExileAfterResolution === true
-      || stepData.castFromGraveyardCard?.exileAfterResolution === true;
     if (!zones || !Array.isArray(zones.graveyard)) {
       debugWarn(2, `[Resolution] Cast-from-graveyard: No graveyard found for player ${playerId}`);
     } else if (cardIndex === -1) {
@@ -171,6 +175,10 @@ export async function handleCastFromGraveyardPromptChoice(
     resolvedStepId: String((step as any).id || '').trim(),
     cardId: graveyardCardId,
     choice: choiceId === 'cast' ? 'cast' : 'decline',
+    fromZone: 'graveyard',
+    castFromGraveyard: true,
+    ...(castWithoutPayingManaCost ? { castWithoutPayingManaCost: true } : {}),
+    ...(exileAfterResolution ? { exileAfterResolution: true } : {}),
   });
 
   if (typeof (game as any).bumpSeq === 'function') {

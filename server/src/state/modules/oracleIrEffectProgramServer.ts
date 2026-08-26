@@ -43,6 +43,8 @@ const OPTIONAL_NO_CHOICE_KINDS = new Set<string>([
   // Optional put-from-hand queues LIBRARY_SEARCH via move_zone player_choice bridge.
   'move_zone',
   'tap_matching_permanents',
+  // Mill-from-among may-cast queues GRAVEYARD_SELECTION (Summons of Saruman family).
+  'may_cast_from_among',
 ]);
 
 const SEQUENTIAL_CHOICE_KINDS = new Set<string>([
@@ -337,12 +339,34 @@ export interface StartOracleEffectProgramOnServerParams {
   readonly controller: PlayerID;
   readonly sourceName: string;
   readonly sourceId?: string;
+  /** Card instance id when `sourceId` is a stack item id (spell resolution). */
+  readonly sourceCardId?: string;
   readonly sourceImage?: string;
   readonly steps: readonly OracleEffectStep[];
   readonly irCtx: OracleIRExecutionContext;
   readonly executionOptions?: OracleIRExecutionOptions;
   readonly programIdPrefix: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
+function resolveEffectProgramChoiceSourceIds(
+  params: StartOracleEffectProgramOnServerParams,
+  triggerItem: any,
+  state: any,
+): { readonly cardInstanceId: string; readonly stackItemId: string } {
+  const stackItemId = String(triggerItem?.id || params.sourceId || '').trim();
+  const metadata = params.metadata as Record<string, unknown> | undefined;
+  const metadataCardId = String(metadata?.sourceCardId || metadata?.cardInstanceId || '').trim();
+  const stack = Array.isArray(state?.stack) ? state.stack : [];
+  const stackItem = triggerItem
+    || stack.find((entry: any) => String(entry?.id || '').trim() === stackItemId);
+  const cardInstanceId = String(
+    stackItem?.card?.id
+    || params.sourceCardId
+    || metadataCardId
+    || '',
+  ).trim();
+  return { cardInstanceId, stackItemId };
 }
 
 export interface StartOracleEffectProgramOnServerResult {
@@ -450,8 +474,11 @@ export function startOracleEffectProgramOnServer(
       params.executionOptions || { allowOptional: true },
     );
 
-    const cardInstanceId = String(triggerItem?.card?.id || '').trim();
-    const stackItemId = String(triggerItem?.id || params.sourceId || '').trim();
+    const { cardInstanceId, stackItemId } = resolveEffectProgramChoiceSourceIds(
+      params,
+      triggerItem,
+      state,
+    );
     const spellResolutionPrompt = String(params.metadata?.family || '') === 'spell_resolution';
 
     const result = startEffectProgramResolution({

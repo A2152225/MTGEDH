@@ -44,9 +44,16 @@ Public API unchanged: parent re-exports. Do not import the parent from a leaf. P
 | `oracleIRExecutorPlayerImpulsePermissionMarkers.ts` | `applyImpulsePermissionMarkers`. |
 | `oracleIRExecutorPlayerZoneAccess.ts` | `readPlayerZoneCards`, `writePlayerZoneCards`, `getCurrentTurnNumber`, `stampCardPutIntoGraveyardThisTurn`, `stampCardsPutIntoGraveyardThisTurn`. |
 | `oracleIRExecutorPlayerLookSelectTop.ts` | `lookSelectTopCardsForPlayer`. |
+| `oracleIRExecutorPlayerLookChooseFromTopStep.ts` | `applyLookChooseFromTopStep` / `buildLookChooseFromTopSelectionOptions`. Optional look-choose queues when `deferOptionalLookChoices`. Mandatory look-choose queues when more matching cards than `maxSelections` (player targets in `chosenObjectIds` are not card picks). Rest to GY when `nonMatchRest: 'graveyard'`. |
+| `oracleIRExecutorPlayerLookChooseLimits.ts` | `parseLookChooseSelectionLimits` — `any number of` is min 0 (if optional) / max unbounded, capped by selectable count. |
+| `oracleIRExecutorPlayerLookChooseSelector.ts` | Mana-value `X or less` uses `ctx.xValue`. `any number of` / `cards with mana value` stripped before type match. |
+| `oracleIRParserPostprocessLookChooseFromTopCensus.ts` | Sibling of `oracleIRParserPostprocessLookChooseFromTop.ts`. Entries: `parseRevealTopAnyNumberPermanentsToBattlefieldTriple` (Genesis Wave), `parseLookTopExileOneFaceDownRestBottom` (Siphon Insight), `parseLookTopReorderAllOnLibrary` (Ponder/Index put-them-back + optional shuffle → `look_select_top` dest=`library_top`). Called from `mergeLookChooseFromTopAbilities`. |
 | `oracleIRExecutorPlayerCardInspect.ts` | `normalizeOracleText`, `getCardTypeLineLower`. |
 | `oracleIRExecutorPlayerExileUntilAmount.ts` | `resolveUnknownExileUntilAmountForPlayer`, `getCardTypesFromTypeLine`, `getCardManaValue`. |
-| `oracleIRExecutorPlayerDiscardCards.ts` | `discardCardsForPlayer`, `discardSpecificCardsForPlayer`. |
+| `oracleIRExecutorPlayerDiscardCards.ts` | `discardCardsForPlayer` / `discardSpecificCardsForPlayer` stamp `discardedByPlayerId` + `discardedOnTurn` (`turnNumber ?? turn`) onto GY cards in `players[].graveyard` and `state.zones` so Mayhem / Nibelheim GY riders see discard provenance. |
+| `oracleIRExecutorCardZoneTransitionCommit.ts` | Zone-change apply merges proposed `event.object` extraFields over the source-zone copy (hand copy otherwise drops discard stamps). |
+| `oracleIRExecutorPlayerGraveyardPermissionSteps.ts` | Grant/modify/keyword GY permission apply. `grant_graveyard_permission` + `modify_graveyard_permissions` (`castCost: 'mana_cost'`) stamp `temporaryGraveyardKeywordGrants` with keyword from raw and printed mana cost (Past in Flames / Will of the Jeskai family). |
+| `oracleIRExecutorPlayerGraveyardPermissionHelpers.ts` | GY/exile permission target resolvers plus keyword-grant stamp helpers (`extractGrantedGraveyardKeywordFromRaw`, `resolvePrintedManaCostForGraveyardGrant`, `mergeTemporaryGraveyardKeywordGrantStamps`). |
 | `oracleIRExecutorPlayerAddManaToPool.ts` | `addManaToPoolForPlayer`. |
 
 ### `oracleIRExecutorCreatureStepUtils-handlers/` (extracted from `oracleIRExecutorCreatureStepUtils.ts`)
@@ -88,6 +95,8 @@ Parent `oracleIRExecutorTokenStepHandlers.ts` is **25.0 KB** (done). Leftover: `
 | Module | Owns |
 | --- | --- |
 | `oracleIRExecutorTokenCopySource.ts` | Copy-token source resolution and exclusive copy helpers. Entries: `resolveCopyTokenSource`, `createCopiedTokenPermanent`, `splitCopyTokenReference`, `typeLineHasWord`, `findSourceObjectByIdAcrossState`, `normalizeReferenceText`. **35.4 KB** — do not append. |
+| `oracleIRParserTokenExceptCopyModifiers.ts` | Generic `except it has haste and "…"` parse. Entries: `parseCreateTokenExceptCopyModifiers`, `applyExceptCopyModifiersToCreateTokenStep` (`grantsHaste`, `atNextEndStep` sacrifice/exile). |
+| `oracleIRExecutorTokenExceptCopyStamp.ts` | `stampCopiedTokenExceptGrantedAbilities` copies except-copy `addAbilities` onto token `grantedAbilities` (Haste + quoted end-step line) and clears summoning sickness for haste. |
 | `oracleIRExecutorTokenBlockingEntry.ts` | Stamp created tokens as blocking a creature. Entries: `applyBlockingEntryToCreatedTokens`, `resolveBlockTargetPermanentId`. |
 | `oracleIRExecutorTokenBattlefieldAdd.ts` | Amount resolution, those-referenced copies, and battlefield add. Entries: `addTokensToBattlefield`, `resolveTokenAmount`, `resolveTokenCreationSpecsForReplacementEffects`. **36.4 KB** — do not append. |
 

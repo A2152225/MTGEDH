@@ -4,6 +4,7 @@
 // resolveLookChooseManaValueLimit, cardMatchesLookChooseSelector.
 
 import type { GameState, PlayerID } from '../../shared/src';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import {
   getCardManaValue,
   getCardTypeLineLower,
@@ -18,6 +19,14 @@ export function normalizeLookChooseSelectorText(value: string): string {
   return String(value || '')
     .replace(/^an?\s+/i, '')
     .replace(/\s+card$/i, '')
+    .trim();
+}
+
+function normalizeLookChooseManaValueSelector(value: string): string {
+  return normalizeLookChooseSelectorText(value)
+    .replace(/^(?:any number of)\s+/i, '')
+    .replace(/\s+cards?\s+with\s+mana\s+value/i, ' with mana value')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -53,10 +62,9 @@ export function resolveLookChooseManaValueLimit(
   state: GameState,
   playerId: PlayerID,
   selectorText: string,
+  ctx?: OracleIRExecutionContext,
 ): number | null {
-  const normalizedSelector = normalizeLookChooseSelectorText(selectorText)
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalizedSelector = normalizeLookChooseManaValueSelector(selectorText);
   if (!normalizedSelector) return null;
 
   if (/with mana value less than or equal to the number of lands you control/i.test(normalizedSelector)) {
@@ -67,9 +75,14 @@ export function resolveLookChooseManaValueLimit(
     }).length;
   }
 
-  const manaValueMatch = normalizedSelector.match(/^(.+?)\s+with\s+mana\s+value\s+(\d+)\s+or\s+less$/i);
+  const manaValueMatch = normalizedSelector.match(/^(.+?)\s+with\s+mana\s+value\s+(x|\d+)\s+or\s+less$/i);
   if (!manaValueMatch) return null;
-  const parsed = Number.parseInt(String(manaValueMatch[2] || ''), 10);
+  const rawLimit = String(manaValueMatch[2] || '').trim().toLowerCase();
+  if (rawLimit === 'x') {
+    const xValue = Number(ctx?.xValue);
+    return Number.isFinite(xValue) ? Math.max(0, xValue | 0) : null;
+  }
+  const parsed = Number.parseInt(rawLimit, 10);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -79,11 +92,9 @@ export function cardMatchesLookChooseSelector(
   manaValueLimitOverride?: number | null,
   chosenCreatureType?: string,
 ): boolean {
-  const normalizedSelector = normalizeLookChooseSelectorText(selectorText)
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalizedSelector = normalizeLookChooseManaValueSelector(selectorText);
   if (!normalizedSelector) return false;
-  if (/^(?:(?:one|any) of )?those(?: cards?)?$|^cards?$/i.test(normalizedSelector)) return true;
+  if (/^(?:(?:one|any) of )?(?:them|those(?: cards?)?)$|^cards?$/i.test(normalizedSelector)) return true;
 
   const structuredCriteria = parseMoveZoneSingleTargetCriteria(normalizedSelector);
   if (structuredCriteria?.usesChosenCreatureType) {
@@ -95,7 +106,7 @@ export function cardMatchesLookChooseSelector(
     });
   }
 
-  const manaValueMatch = normalizedSelector.match(/^(.+?)\s+with\s+mana\s+value\s+(\d+)\s+or\s+less$/i);
+  const manaValueMatch = normalizedSelector.match(/^(.+?)\s+with\s+mana\s+value\s+(x|\d+)\s+or\s+less$/i);
   const selectorWithoutManaLimit = manaValueMatch
     ? String(manaValueMatch[1] || '').trim()
     : normalizedSelector.replace(/\s+with\s+mana\s+value\s+less than or equal to the number of lands you control$/i, '').trim();

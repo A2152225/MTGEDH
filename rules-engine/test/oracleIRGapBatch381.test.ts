@@ -74,7 +74,10 @@ describe('Oracle IR gap batch 381 — move_zone selector clusters (Track E1)', (
       { id: 'lib-2', type_line: 'Sorcery' },
       { id: 'lib-3', type_line: 'Creature — Elf' },
     ];
-    const insteadStep = seeTheTruth.abilities[0].steps?.[2];
+    const insteadStep = seeTheTruth.abilities
+      .flatMap((ability) => ability.steps || [])
+      .find((step) => step.kind === 'conditional' && /put each of those cards into your hand instead/i.test(String(step.raw || '')));
+    expect(insteadStep).toBeTruthy();
     expect(insteadStep?.kind).toBe('conditional');
     expectNoUnsupportedSelectorGaps(
       [insteadStep!],

@@ -112,6 +112,12 @@ describe('per-player optional guardrails', () => {
       raw: 'you may destroy target creature',
     } as any)).toBe(false);
 
+    expect(isOracleIrOptionalStepBridgedToDedicatedResolutionPrompt({
+      kind: 'may_cast_from_among',
+      optional: true,
+      raw: 'You may cast an instant or sorcery spell with mana value X or less from among them without paying its mana cost.',
+    } as any)).toBe(true);
+
     expect(isControllerMayPutLandFromHandOracleStep({
       kind: 'move_zone',
       optional: true,

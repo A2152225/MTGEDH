@@ -38,6 +38,11 @@ export {
 // Phase 4 leftover choice families: each-player choose-then-destroy-rest,
 // secret opponent damage matrix, mill-from-among may-cast.
 export { queueChoiceFamilyPromptsFromOracleIRResult } from "./oracleIrServerChoiceFamilyPrompts.js";
+// Divine/Prisoner APNAP + secret OPTION_CHOICE queues (extracted from special-case).
+export {
+  queueEachPlayerChooseThenDestroyRestPrompts,
+  queueSecretOpponentChoiceDamagePrompts,
+} from "./oracleIrServerChooseDestroyRestSecretDamagePrompts.js";
 
 // TAP_UNTAP_TARGET queues for tap-or-untap and tap-matching-permanents
 // automation gaps.

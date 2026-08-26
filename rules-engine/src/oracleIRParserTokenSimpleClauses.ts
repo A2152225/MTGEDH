@@ -1,4 +1,5 @@
 import type { OracleEffectStep, OraclePlayerSelector } from './oracleIR';
+import { applyExceptCopyModifiersToCreateTokenStep } from './oracleIRParserTokenExceptCopyModifiers';
 import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 
 function parseCreateTokenWhoFromSubject(rawWho: string | undefined): OraclePlayerSelector {
@@ -132,7 +133,8 @@ export function tryParseSimpleCreateTokenClause(args: {
   rawClause: string;
   withMeta: WithMeta;
 }): OracleEffectStep | null {
-  const { rawClause, withMeta } = args;
+  const { rawClause } = args;
+  const withMeta: WithMeta = (step) => applyExceptCopyModifiersToCreateTokenStep(args.withMeta(step));
   const clause = normalizeOracleText(args.clause)
     .replace(/^\(+\s*/, '')
     .replace(/\s*\)+\s*$/g, '')

@@ -38,6 +38,7 @@ import { debug, debugWarn } from '../../utils/debug.js';
 import { normalizeOracleIrSelectedModeIds } from './oracleIrModeSelection.js';
 import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { isSpellEffectOwnedByOracleIrPrimary } from './oracleIrSpellLegacyRouting.js';
+import { getAmountOfManaSpent } from '../../../../rules-engine/src/oracleIRExecutorManaUtils.js';
 import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
 
 export { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
@@ -100,6 +101,7 @@ function buildSpellIrContext(
   targetBinding: ReturnType<typeof inferOracleIrTargetBinding>,
 ) {
   const chosenMana = chosenColorToChosenMana(params.chosenColor);
+  const sourceManaSpentTotal = getAmountOfManaSpent(params.sourceItem);
   return buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
@@ -107,6 +109,7 @@ function buildSpellIrContext(
       sourceName: params.spellName,
       sourceObjectType: 'spell',
       xValue: params.xValue,
+      ...(sourceManaSpentTotal !== null ? { sourceManaSpentTotal } : {}),
       sourceColors: params.sourceColors,
       ...(typeof params.giftPromised === 'boolean' ? { giftPromised: params.giftPromised } : {}),
       ...(typeof params.teamworkWasPaid === 'boolean' ? { teamworkWasPaid: params.teamworkWasPaid } : {}),
@@ -276,6 +279,9 @@ export function tryResolveSpellViaOracleIR(
     irCtx,
     executionOptions,
     programIdPrefix: `spell:${params.sourceId || params.spellName}`,
+    sourceCardId: String(
+      params.card?.id || params.sourceItem?.card?.id || params.effectiveCard?.id || '',
+    ).trim() || undefined,
     metadata: { family: 'spell_resolution' },
   };
 

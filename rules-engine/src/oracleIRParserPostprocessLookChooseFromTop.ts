@@ -20,6 +20,11 @@ import {
   normalizeOracleText,
   parseQuantity,
 } from './oracleIRParserUtils';
+import {
+  parseLookTopExileOneFaceDownRestBottom,
+  parseLookTopReorderAllOnLibrary,
+  parseRevealTopAnyNumberPermanentsToBattlefieldTriple,
+} from './oracleIRParserPostprocessLookChooseFromTopCensus';
 
 function appendFollowupSentence(base: string | undefined, followup: string | null): string {
   const trimmedBase = String(base || '')
@@ -473,6 +478,27 @@ export function mergeLookChooseFromTopAbilities(
         continue;
       }
 
+      const revealPermanents = parseRevealTopAnyNumberPermanentsToBattlefieldTriple(current, next, after);
+      if (revealPermanents) {
+        merged.push(revealPermanents);
+        i += 2;
+        continue;
+      }
+
+      const opponentExileFaceDown = parseLookTopExileOneFaceDownRestBottom(current, next, after, fourth);
+      if (opponentExileFaceDown) {
+        merged.push(opponentExileFaceDown.step);
+        i += opponentExileFaceDown.consumed - 1;
+        continue;
+      }
+
+      const reorderAllOnLibrary = parseLookTopReorderAllOnLibrary(current, next, after, ability);
+      if (reorderAllOnLibrary) {
+        merged.push(reorderAllOnLibrary.step);
+        i += reorderAllOnLibrary.consumed - 1;
+        continue;
+      }
+
       const revealUntilChoose = parseRevealUntilChooseFromTopPair(current, next);
       if (revealUntilChoose) {
         merged.push(revealUntilChoose);
@@ -687,7 +713,7 @@ function hasRecentTopLibrarySelectionContext(steps: readonly OracleEffectStep[],
 
     const normalized = normalizeOracleText(String(step.raw || ''))
       .replace(/^then\b\s*/i, '')
-      .replace(/^[^-—]+[-—]\s*/i, '')
+      .replace(/^[^-?]+[-?]\s*/i, '')
       .replace(/[.]+$/g, '')
       .trim();
     if (/^(?:if you do,\s+)?(?:look at|reveal) the top\b/i.test(normalized)
@@ -707,7 +733,7 @@ function isTopLibrarySelectionFallbackStep(step: OracleEffectStep | undefined): 
     .replace(/[.]+$/g, '')
     .trim();
 
-  return /^if you don(?:'|’)?t, put it into your hand$/i.test(normalized);
+  return /^if you don['?]?t, put it into your hand$/i.test(normalized);
 }
 
 export function mergeTopLibraryBottomRandomTailAbilities(
@@ -803,4 +829,4 @@ export function mergeTopLibraryBottomRandomTailAbilities(
     return merged.length === ability.steps.length ? ability : { ...ability, steps: merged };
   });
 }
-
+

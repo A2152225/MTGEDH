@@ -102,6 +102,10 @@ describe('until-EOT protection override oracle IR', () => {
     expect(collectOverrideSteps(GLARING_SPOTLIGHT_ORACLE, 'Glaring Spotlight')).toEqual([]);
     expect(collectOverrideSteps(NOWHERE_TO_RUN_ORACLE, 'Nowhere to Run')).toEqual([]);
     expect(collectOverrideSteps(KAYA_BANE_ORACLE, 'Kaya, Bane of the Dead')).toEqual([]);
+    expect(collectOverrideSteps(
+      'Permanents your opponents control lose hexproof and indestructible until end of turn.',
+      'Shadowspear',
+    )).toEqual([]);
   });
 
   it('stamps lastingEffects protectionKeywordOverride for Detection Tower', () => {

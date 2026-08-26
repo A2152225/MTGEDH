@@ -35,7 +35,7 @@ function hasIrBridgedLibrarySearchForSpell(ctx: GameContext, spellName: string):
   );
 }
 
-function hasOracleIrQueuedLibrarySearch(ctx: GameContext, spellName: string): boolean {
+export function hasOracleIrQueuedLibrarySearch(ctx: GameContext, spellName: string): boolean {
   return hasIrBridgedLibrarySearchForSpell(ctx, spellName);
 }
 

@@ -187,7 +187,7 @@ File: `server/src/state/modules/oracleIrFeatureFlags.ts`
 | `ORACLE_IR_SPELL_PRIMARY` | **ON** | Try IR before `categorizeSpell`. Opt-out: `=0` only (P4e — `ORACLE_IR_*_LEGACY` ignored) |
 | `ORACLE_IR_*_LEGACY=1` | off | Force legacy path |
 
-Vitest defaults primary **OFF** (`server/tests/vitest.setup.ts`). Migration suite (`npm run test:oracle-ir-migration`) tests production defaults.
+Vitest defaults primary **OFF** (`server/tests/vitest.setup.ts`). `ORACLE_IR_CENSUS_SPELL_PRIMARY=1` (or `ORACLE_IR_CENSUS_PRIMARY=1`) flips the harness for a failure census without changing that default (`npm run oracle-ir:primary-census`). Migration suite (`npm run test:oracle-ir-migration`) tests production defaults.
 
 ---
 

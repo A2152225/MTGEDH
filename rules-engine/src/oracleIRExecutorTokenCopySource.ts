@@ -10,6 +10,7 @@ import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src
 import type { CopyTokenOverrides } from '../../shared/src/copyTokenOverrides.js';
 import { copyAsEntersCopiableChoicesFromSource } from '../../shared/src/copyTokenUtils.js';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { stampCopiedTokenExceptGrantedAbilities } from './oracleIRExecutorTokenExceptCopyStamp';
 import {
   findCardsExiledWithSource,
   parseMoveZoneSingleTargetFromLinkedExile,
@@ -265,6 +266,7 @@ function createCopiedTokenPermanent(params: {
 
   // CR 707.2 — inherit as-enters choices (e.g. Morophon creature type) from the copied object.
   copyAsEntersCopiableChoicesFromSource(sourceObject, tokenPermanent);
+  stampCopiedTokenExceptGrantedAbilities(tokenPermanent, params.overrides);
 
   return tokenPermanent;
 }

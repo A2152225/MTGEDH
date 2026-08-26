@@ -29,6 +29,10 @@ import {
 import { applyReplaySacrificedPermanent } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { persistNamedSpellCastThisGame } from "../namedSpellsCastThisGame.js";
 import { getOrInitManaPool } from "../../../socket/util.js";
+import {
+  findReplayedStackItemForCastCard,
+  stampReplayedGraveyardCastStackFlags,
+} from "../stackReplayUtils.js";
 
 export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -552,6 +556,16 @@ export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
               if ((e as any).teamworkResolved === true) {
                 applyToStackItem('teamworkResolved', true);
               }
+            }
+            stampReplayedGraveyardCastStackFlags(topStackItem, e);
+          } else {
+            const existingStackItem = findReplayedStackItemForCastCard(
+              ctx,
+              String((typeof spellCardData === 'object' && spellCardData ? (spellCardData as any).id : '') || (e as any).cardId || ''),
+              String((e as any).stackItemId || ''),
+            );
+            if (existingStackItem) {
+              stampReplayedGraveyardCastStackFlags(existingStackItem, e);
             }
           }
         } catch {

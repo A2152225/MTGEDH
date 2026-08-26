@@ -8,6 +8,7 @@
  */
 
 import type { Server } from "socket.io";
+import type { PlayerID } from "../../../shared/src/types.js";
 import { appendEvent } from "../db/index.js";
 import { cardHasCreatureType } from "../state/creatureTypeNow.js";
 import {
@@ -29,6 +30,10 @@ import {
   oracleIrLibrarySearchResumeApplied,
   readShuffledLibraryIdsFromReplayMutations,
 } from "./resolutionLibrarySearchOracleIrResumeUtils.js";
+import {
+  buildDurablePlayableFromExilePermission,
+  upsertDurablePermission,
+} from "../state/modules/durable-permissions.js";
 
 /**
  * @returns true if the Oracle-IR library-search path fully handled the response
@@ -82,6 +87,15 @@ export async function tryHandleLibrarySearchOracleIrChoiceResume(
       const compoundResumeResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
       game.state = ctx.state;
       syncAllOracleIRPlayerZonesAfterResolution(ctx);
+      stampLibrarySearchExileGrantFlagsOnState(game.state, {
+        selectedIds: Array.isArray(selections) ? selections : [],
+        searchOwnerId,
+        destinationFaceDown,
+        grantPlayableFromExileToController,
+        grantPlayableFromExileControllerId,
+        grantPlayableFromExileSpendManaAsThoughAnyType,
+        sourceName,
+      });
 
       // Celestial / behold: IR search_library resumes to hand; promote when additional cost + type match.
       const chosenTypeBattlefieldIfPaidIr = (searchStep as any).chosenTypeBattlefieldIfPaid as
@@ -334,4 +348,66 @@ export async function tryHandleLibrarySearchOracleIrChoiceResume(
       return { handled: true, destination };
     }
   return { handled: false };
+}
+
+function stampLibrarySearchExileGrantFlagsOnState(
+  state: any,
+  params: {
+    selectedIds: readonly string[];
+    searchOwnerId: string;
+    destinationFaceDown: boolean;
+    grantPlayableFromExileToController: boolean;
+    grantPlayableFromExileControllerId: string;
+    grantPlayableFromExileSpendManaAsThoughAnyType: boolean;
+    sourceName: string;
+  },
+): void {
+  if (!params.destinationFaceDown && !params.grantPlayableFromExileToController) return;
+  const selected = new Set(
+    params.selectedIds.map((id) => String(id || '').trim()).filter(Boolean),
+  );
+  if (selected.size === 0) return;
+
+  const stampCard = (card: any): boolean => {
+    if (!card || !selected.has(String(card.id || '').trim())) return false;
+    if (params.destinationFaceDown) card.faceDown = true;
+    if (params.grantPlayableFromExileToController) {
+      card.canBePlayedBy = params.grantPlayableFromExileControllerId;
+      card.playableUntilTurn = true;
+      if (params.grantPlayableFromExileSpendManaAsThoughAnyType) {
+        card.spendManaAsThoughAnyType = true;
+      }
+    }
+    return true;
+  };
+
+  const zones = state.zones || {};
+  const ownerZone = zones[params.searchOwnerId] = zones[params.searchOwnerId] || {};
+  const zoneExile = Array.isArray(ownerZone.exile) ? ownerZone.exile : [];
+  ownerZone.exile = zoneExile;
+  const player = (Array.isArray(state.players) ? state.players : []).find(
+    (entry: any) => String(entry?.id || '') === params.searchOwnerId,
+  );
+  const playerExile = Array.isArray(player?.exile) ? player.exile : [];
+  const stampedIds: string[] = [];
+  for (const card of [...zoneExile, ...playerExile]) {
+    if (stampCard(card)) stampedIds.push(String(card.id || '').trim());
+  }
+  if (!params.grantPlayableFromExileToController || stampedIds.length === 0) return;
+
+  state.playableFromExile = state.playableFromExile || {};
+  const entry = state.playableFromExile[params.grantPlayableFromExileControllerId]
+    = state.playableFromExile[params.grantPlayableFromExileControllerId] || {};
+  for (const id of stampedIds) {
+    if (id) entry[id] = true;
+  }
+  upsertDurablePermission(state, buildDurablePlayableFromExilePermission({
+    playerId: params.grantPlayableFromExileControllerId as PlayerID,
+    cardIds: [...new Set(stampedIds.filter(Boolean))],
+    action: 'play',
+    duration: 'static',
+    turnApplied: Number(state.turnNumber || 0),
+    sourceName: params.sourceName,
+    spendManaAsThoughAnyType: params.grantPlayableFromExileSpendManaAsThoughAnyType,
+  }));
 }

@@ -427,12 +427,24 @@ export function extractModalModesForSpellCast(
       };
     });
 
+    // IR treats any "choose both instead" rider as maxModes=2. Cast-time commander /
+    // other "If …, you may choose both instead" riders stay at the printed Choose-one
+    // limits; adjustModalSpellInfoForCurrentCast raises maxModes when the condition holds.
+    const hasConditionalChooseBoth = oracleTextHasConditionalChooseBothInstead(oracleText);
     const pBudget = Number(chooseModeStep?.pBudget);
     const irBase: OracleModalModeInfo = {
-      minModes: Number(chooseModeStep?.minModes ?? legacy?.minModes ?? 1) || 0,
-      maxModes: Number(chooseModeStep?.maxModes ?? legacy?.maxModes ?? options.length) || options.length,
-      normalMinModes: Number(chooseModeStep?.minModes ?? legacy?.normalMinModes ?? 1) || 0,
-      normalMaxModes: Number(chooseModeStep?.maxModes ?? legacy?.normalMaxModes ?? options.length) || options.length,
+      minModes: hasConditionalChooseBoth
+        ? (legacy?.minModes ?? 1)
+        : Number(chooseModeStep?.minModes ?? legacy?.minModes ?? 1) || 0,
+      maxModes: hasConditionalChooseBoth
+        ? (legacy?.maxModes ?? 1)
+        : Number(chooseModeStep?.maxModes ?? legacy?.maxModes ?? options.length) || options.length,
+      normalMinModes: hasConditionalChooseBoth
+        ? (legacy?.normalMinModes ?? 1)
+        : Number(chooseModeStep?.minModes ?? legacy?.normalMinModes ?? 1) || 0,
+      normalMaxModes: hasConditionalChooseBoth
+        ? (legacy?.normalMaxModes ?? 1)
+        : Number(chooseModeStep?.maxModes ?? legacy?.normalMaxModes ?? options.length) || options.length,
       ...(legacy?.entwineCost ? { entwineCost: legacy.entwineCost } : {}),
       ...(Number.isFinite(pBudget) && pBudget > 0 ? { pBudget } : {}),
       ...(chooseModeStep?.canRepeatModes || legacy?.canRepeatModes
@@ -454,6 +466,38 @@ export function extractModalModesForSpellCast(
   } catch {
     return legacy;
   }
+}
+
+function oracleTextHasConditionalChooseBothInstead(text: string): boolean {
+  const normalized = String(text || '')
+    .replace(/[’]/g, "'")
+    .replace(/[−–—]/g, '-');
+  return /\bif\b[\s\S]+?(?:you may\s+)?choose both instead\b/i.test(normalized);
+}
+
+/**
+ * Cast-time UI and tests still submit `mode_1` / `mode_2` while SPELL_PRIMARY=1
+ * queues IR labels (`Mode 1`). Treat those as the same option.
+ */
+export function isAllowedModalModeSelectionId(
+  selectedId: string,
+  optionIds: readonly string[],
+): boolean {
+  const id = String(selectedId || '').trim();
+  if (!id) return false;
+  if (optionIds.some((optionId) => optionId === id)) return true;
+
+  const indexMatch = /^mode[_-]?(\d+)$/i.exec(id) || /^mode\s+(\d+)$/i.exec(id);
+  if (indexMatch) {
+    const idx = parseInt(indexMatch[1], 10) - 1;
+    if (idx >= 0 && idx < optionIds.length) return true;
+  }
+
+  const normalized = id.toLowerCase().replace(/[\s_-]+/g, '');
+  return optionIds.some((optionId, idx) => {
+    const optionNorm = String(optionId || '').toLowerCase().replace(/[\s_-]+/g, '');
+    return optionNorm === normalized || optionNorm === `mode${idx + 1}`;
+  });
 }
 
 export function matchModalModeOptions(

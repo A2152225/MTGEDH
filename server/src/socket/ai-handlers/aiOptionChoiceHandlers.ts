@@ -36,6 +36,7 @@ import {
   chooseAIVentureOptionSelection,
   chooseAIZursWeirdingOpponentSelection,
 } from "./aiChoicePromptHandlers.js";
+import { chooseAIMayRevealHandWinIfOwnNamedSelection } from "./aiMayRevealHandWinChoiceHandlers.js";
 import {
   chooseAIOptionalDiscardThenDrawSelection,
   chooseAIReflexiveFixedPaymentSelection,
@@ -321,6 +322,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.reflexiveConvertWhenYouDo === true) {
     return chooseAIReflexiveConvertSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.mayRevealHandWinIfOwnNamedChoice === true) {
+    return chooseAIMayRevealHandWinIfOwnNamedSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.mayAbilityPrompt === true) {

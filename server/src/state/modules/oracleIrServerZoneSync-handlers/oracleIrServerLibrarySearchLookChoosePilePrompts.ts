@@ -6,6 +6,8 @@
 //   helpers they close over (parseChoosePileRevealCount, listActiveOpponentIds,
 //   revealCardsFromControllerLibrary, findNextLastSplitPileStep,
 //   buildChoosePileSplitMetadata).
+// look_select_top dest=library_top + all-cards reorder queues PONDER_EFFECT
+// (Index / Ponder put-them-back); hand/battlefield/graveyard-rest stay LIBRARY_SEARCH.
 // Public entry symbols: queueLookChooseChoicePromptsFromOracleIRResult,
 //   queueSearchLibraryChoicePromptsFromOracleIRResult,
 //   queueChoosePileChoicePromptsFromOracleIRResult.
@@ -37,6 +39,51 @@ import {
   isOracleIrPlayerChoiceGap,
   normalizeTopLibraryPromptCard,
 } from '../oracleIrServerPromptResumeUtils.js';
+import { isOracleIrSpellPrimaryEnabled } from '../oracleIrFeatureFlags.js';
+
+function isLookSelectTopLibraryReorderOnly(
+  built: {
+    readonly destination: string;
+    readonly restDestination: string;
+    readonly restToTop: boolean;
+    readonly restRandomOrder: boolean;
+    readonly chooseCount: number;
+    readonly chooseMin: number;
+    readonly lookedCount: number;
+  },
+  step: { readonly raw?: string },
+): boolean {
+  if (built.destination !== 'library_top') return false;
+  if (built.restDestination !== 'library') return false;
+  if (built.restToTop) return false;
+  if (built.restRandomOrder) return false;
+  if (!(built.lookedCount > 0)) return false;
+  if (built.chooseCount !== built.lookedCount) return false;
+  if (built.chooseMin !== built.lookedCount) return false;
+
+  const raw = String(step.raw || '');
+  if (/\binto your hand\b/i.test(raw)) return false;
+  if (/\bonto the battlefield\b/i.test(raw)) return false;
+  if (/\binto your graveyard\b/i.test(raw)) return false;
+  if (/\bface down\b/i.test(raw) && /\bexile\b/i.test(raw)) return false;
+  return true;
+}
+
+function consumeLeadingDrawAfterReorder(
+  result: OracleIRExecutionResult,
+): { readonly drawAfter: boolean; readonly resultForResume: OracleIRExecutionResult } {
+  const pending = result.pendingContinuationSteps;
+  if (!Array.isArray(pending) || pending[0]?.kind !== 'draw') {
+    return { drawAfter: false, resultForResume: result };
+  }
+  return {
+    drawAfter: true,
+    resultForResume: {
+      ...result,
+      pendingContinuationSteps: pending.slice(1),
+    },
+  };
+}
 
 export function queueLookChooseChoicePromptsFromOracleIRResult(
   ctx: GameContext,
@@ -78,6 +125,14 @@ export function queueLookChooseChoicePromptsFromOracleIRResult(
       const nonSelectableCards = availableCards.filter((card) => !selectableIds.has(String(card.id || '')));
       const stepRaw = String((step as any).raw || '');
       const isRevealUntil = (step as any).amount?.kind === 'reference_amount';
+      const remainderIsGraveyard = String((step as any).nonMatchRest || '') === 'graveyard';
+      const destinationFaceDown = built.destination === 'exile' && /face down/i.test(stepRaw);
+      const grantPlayableFromExileToController = built.destination === 'exile'
+        && /you may play the exiled card/i.test(stepRaw);
+      const grantPlayableFromExileSpendManaAsThoughAnyType = grantPlayableFromExileToController
+        && /mana as though it were mana of any/i.test(stepRaw);
+      const libraryOwnerId = built.playerId;
+      const chooserId = params.controller;
       const attachSelectedEquipmentToPermanentId = built.destination === 'battlefield'
         && /attached to that creature/i.test(stepRaw)
         ? String(
@@ -86,17 +141,18 @@ export function queueLookChooseChoicePromptsFromOracleIRResult(
           || '',
         ).trim() || undefined
         : undefined;
-      const queuedAvailableCards = isRevealUntil && selectableIds.size > 0
+      const queuedAvailableCards = (isRevealUntil || remainderIsGraveyard) && selectableIds.size > 0
         ? availableCards.filter((card) => selectableIds.has(String(card.id || '')))
         : availableCards;
 
       const queuedStep = ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
         type: ResolutionStepType.LIBRARY_SEARCH,
-        playerId: built.playerId,
+        playerId: chooserId,
         description: `${sourceName}: ${String((step as any).raw || 'Look and choose')}`,
         mandatory: (step as any).optional !== true,
         sourceId,
         sourceName,
+        searchOwnerId: libraryOwnerId,
         searchCriteria: built.destination === 'battlefield' && built.contextValue !== undefined
           ? `Top ${built.lookedCount} cards - creature card with mana value ${built.contextValue} or less`
           : String((step as any).raw || 'Look at the top cards of your library'),
@@ -109,9 +165,19 @@ export function queueLookChooseChoicePromptsFromOracleIRResult(
             : 'hand',
         reveal: Boolean((step as any).reveal),
         shuffleAfter: false,
-        remainderDestination: 'bottom',
-        remainderRandomOrder: built.restOrder !== 'any',
-        remainderPlayerChoosesOrder: built.restOrder === 'any',
+        remainderDestination: remainderIsGraveyard ? 'graveyard' : 'bottom',
+        remainderRandomOrder: remainderIsGraveyard ? false : built.restOrder !== 'any',
+        remainderPlayerChoosesOrder: !remainderIsGraveyard && built.restOrder === 'any',
+        destinationFaceDown,
+        ...(grantPlayableFromExileToController
+          ? {
+              grantPlayableFromExileToController: true,
+              grantPlayableFromExileControllerId: chooserId,
+              ...(grantPlayableFromExileSpendManaAsThoughAnyType
+                ? { grantPlayableFromExileSpendManaAsThoughAnyType: true }
+                : {}),
+            }
+          : {}),
         availableCards: queuedAvailableCards,
         nonSelectableCards,
         filter: built.filter,
@@ -133,7 +199,7 @@ export function queueLookChooseChoicePromptsFromOracleIRResult(
             }),
       } as any, result, params) as any);
       appendQueuedResolutionPromptEvent(ctx, {
-        playerId: built.playerId,
+        playerId: chooserId,
         sourceId,
         queuedResolutionStep: queuedStep,
       });
@@ -147,6 +213,44 @@ export function queueLookChooseChoicePromptsFromOracleIRResult(
       const queueKey = `look_select:${String((step as any).raw || '')}:${built.playerId}`;
       if (queuedKeys.has(queueKey)) continue;
       queuedKeys.add(queueKey);
+
+      if (isLookSelectTopLibraryReorderOnly(built, step as { raw?: string })) {
+        // PRIMARY=0: uncategorized IR may still apply this step; leave the
+        // prompt to the legacy PONDER_EFFECT body so we do not double-queue.
+        if (!isOracleIrSpellPrimaryEnabled()) {
+          continue;
+        }
+        const stepRaw = String((step as any).raw || '');
+        const { drawAfter, resultForResume } = consumeLeadingDrawAfterReorder(result);
+        const cards = Array.isArray(built.availableCards)
+          ? built.availableCards.map((card) => ({ ...card }))
+          : [];
+        const queuedStep = ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+          type: ResolutionStepType.PONDER_EFFECT,
+          playerId: built.playerId,
+          description: `${sourceName}: ${stepRaw || 'Look at the top cards of your library'}`,
+          mandatory: (step as any).optional !== true,
+          sourceId,
+          sourceName,
+          cards,
+          variant: drawAfter ? 'ponder' : 'index',
+          cardCount: built.lookedCount,
+          drawAfter,
+          mayShuffleAfter: /you may shuffle/i.test(stepRaw),
+          targetPlayerId: built.playerId,
+          effectId: sourceId,
+          oracleIrChoiceStepJson: JSON.stringify([step]),
+          oracleIrControllerId: params.controller,
+          oracleIrSourceId: sourceId,
+          oracleIrSourceName: sourceName,
+        } as any, resultForResume, params) as any);
+        appendQueuedResolutionPromptEvent(ctx, {
+          playerId: built.playerId,
+          sourceId,
+          queuedResolutionStep: queuedStep,
+        });
+        continue;
+      }
 
       const isLibraryTop = built.destination === 'library_top';
       ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
@@ -165,6 +269,7 @@ export function queueLookChooseChoicePromptsFromOracleIRResult(
         remainderDestination: built.restDestination === 'graveyard' ? 'graveyard' : 'bottom',
         remainderRandomOrder: built.restRandomOrder,
         availableCards: built.availableCards.map(normalizeTopLibraryPromptCard),
+        ...(built.lookedCount > 0 ? { contextValue: built.lookedCount } : {}),
         oracleIrChoiceStepJson: JSON.stringify([step]),
         oracleIrControllerId: params.controller,
         oracleIrSourceId: sourceId,

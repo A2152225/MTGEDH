@@ -104,6 +104,9 @@ export {
   getAIParsedManaCostAmount,
 } from "./aiChoicePromptHandlers.js";
 
+// May-reveal-hand then four-zone named-copy win (Hedron Alignment family).
+export { chooseAIMayRevealHandWinIfOwnNamedSelection } from "./aiMayRevealHandWinChoiceHandlers.js";
+
 // Permanent keyword set + P/T reads for keyword-counter scoring.
 export { getPermanentCombatStats, getPermanentKeywordSet } from "./aiPermanentCombatStats.js";
 

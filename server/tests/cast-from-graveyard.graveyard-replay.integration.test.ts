@@ -38,6 +38,23 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
+/**
+ * Flashback exile happens when the spell finishes resolving (CR 608.2m / 702.34a).
+ * PRIMARY=0 still moves the card to exile as soon as resolveTopOfStack queues a
+ * choice. PRIMARY=1 re-pushes `oracleIrDeferredFinalize` until the queue empties.
+ */
+function expectFlashbackCardExiledOrDeferredOnStack(state: any, playerId: string, cardId: string): void {
+  const inExile = ((state?.zones?.[playerId]?.exile) || []).some((card: any) => String(card?.id || '') === cardId);
+  if (inExile) return;
+  const deferred = (Array.isArray(state?.stack) ? state.stack : []).some((item: any) => {
+    if (item?.oracleIrDeferredFinalize !== true) return false;
+    return String(item?.card?.id || '') === cardId
+      || String(item?.card?.card?.id || '') === cardId
+      || String(item?.id || '') === cardId;
+  });
+  expect(deferred).toBe(true);
+}
+
 async function seedGame(gameId: string, cardId: string, oracleText: string, options?: { manaCost?: string; manaPool?: any; life?: number; hand?: any[]; extraGraveyard?: any[]; name?: string; typeLine?: string }) {
   await resetGame(gameId);
   createGameIfNotExists(gameId, 'commander', 40);
@@ -1805,7 +1822,10 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     game.resolveTopOfStack();
 
     const zones = (game.state as any).zones?.[playerId];
-    expect((zones?.exile || []).map((card: any) => card.id).sort()).toEqual(['summons_cost_card_1', 'summons_cost_card_2', 'summons_of_saruman_1']);
+    expect((zones?.exile || []).map((card: any) => card.id)).toEqual(
+      expect.arrayContaining(['summons_cost_card_1', 'summons_cost_card_2']),
+    );
+    expectFlashbackCardExiledOrDeferredOnStack(game.state, playerId, 'summons_of_saruman_1');
     expect((zones?.graveyard || []).map((card: any) => card.id).sort()).toEqual(['summons_milled_expensive_spell', 'summons_milled_think_twice']);
     expect((zones?.library || [])).toHaveLength(0);
 
@@ -1856,7 +1876,10 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     replay.game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
     const replayZones = (replay.game.state as any).zones?.[playerId];
-    expect((replayZones?.exile || []).map((card: any) => card.id).sort()).toEqual(['summons_cost_card_1', 'summons_cost_card_2', 'summons_of_saruman_1']);
+    expect((replayZones?.exile || []).map((card: any) => card.id)).toEqual(
+      expect.arrayContaining(['summons_cost_card_1', 'summons_cost_card_2']),
+    );
+    expectFlashbackCardExiledOrDeferredOnStack(replay.game.state, playerId, 'summons_of_saruman_1');
     expect((replayZones?.graveyard || []).map((card: any) => card.id).sort()).toEqual(['summons_milled_expensive_spell', 'summons_milled_think_twice']);
     expect((replayZones?.library || [])).toHaveLength(0);
 
@@ -4001,8 +4024,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'otherworldly_gaze_top_3',
     ]);
 
-    const zones = (game.state as any).zones?.[playerId];
-    expect((zones?.exile || []).map((card: any) => card.id)).toContain('otherworldly_gaze_1');
+    expectFlashbackCardExiledOrDeferredOnStack(game.state, playerId, 'otherworldly_gaze_1');
   });
 
   it('replay resolveTopOfStack restores Otherworldly Gaze surveil prompt state', async () => {
@@ -4048,8 +4070,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'otherworldly_gaze_replay_top_3',
     ]);
 
-    const zones = (game.state as any).zones?.[playerId];
-    expect((zones?.exile || []).map((card: any) => card.id)).toContain('otherworldly_gaze_replay_1');
+    expectFlashbackCardExiledOrDeferredOnStack(game.state, playerId, 'otherworldly_gaze_replay_1');
   });
 
   it('live flashback Forbidden Alchemy queues a top-four selection, moves the chosen card to hand, and exiles itself', async () => {
@@ -4172,8 +4193,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'forbidden_alchemy_replay_top_4',
     ]);
 
-    const zones = (game.state as any).zones?.[playerId];
-    expect((zones?.exile || []).map((card: any) => card.id)).toContain('forbidden_alchemy_replay_1');
+    expectFlashbackCardExiledOrDeferredOnStack(game.state, playerId, 'forbidden_alchemy_replay_1');
   });
 
   it('live flashback Memory Deluge uses the paid flashback cost for X, resolves a top-seven selection, and exiles itself', async () => {
@@ -4315,8 +4335,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'memory_deluge_replay_top_7',
     ]);
 
-    const zones = (game.state as any).zones?.[playerId];
-    expect((zones?.exile || []).map((card: any) => card.id)).toContain('memory_deluge_replay_1');
+    expectFlashbackCardExiledOrDeferredOnStack(game.state, playerId, 'memory_deluge_replay_1');
   });
 
   it('live flashback Siphon Insight exiles a face-down card from target opponent\'s library and lets it be cast with off-color mana', async () => {
@@ -4551,8 +4570,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'siphon_replay_top_2',
     ]);
 
-    const controllerZones = (game.state as any).zones?.[playerId];
-    expect((controllerZones?.exile || []).map((card: any) => card.id)).toContain('siphon_insight_replay_1');
+    expectFlashbackCardExiledOrDeferredOnStack(game.state, playerId, 'siphon_insight_replay_1');
   });
 
   it('live flashback Nibelheim Aflame damages each other creature and applies its graveyard rider', async () => {
@@ -5683,7 +5701,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'faithless_draw_1',
       'faithless_draw_2',
     ]);
-    expect((zonesAfterResolve?.exile || []).map((card: any) => card.id)).toContain('faithless_looting_1');
+    expectFlashbackCardExiledOrDeferredOnStack(game.state, playerId, 'faithless_looting_1');
 
     await handlers['submitResolutionResponse']({
       gameId: lootingGameId,
@@ -5758,7 +5776,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'faithless_replay_draw_1',
       'faithless_replay_draw_2',
     ]);
-    expect((zonesAfterResolve?.exile || []).map((card: any) => card.id)).toContain('faithless_looting_replay_1');
+    expectFlashbackCardExiledOrDeferredOnStack(game.state, playerId, 'faithless_looting_replay_1');
   });
 
   it('live flashback Faithful Mending gains life, queues discard, and exiles itself on resolution', async () => {
@@ -5825,7 +5843,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'faithful_draw_1',
       'faithful_draw_2',
     ]);
-    expect((zonesAfterResolve?.exile || []).map((card: any) => card.id)).toContain('faithful_mending_1');
+    expectFlashbackCardExiledOrDeferredOnStack(game.state, playerId, 'faithful_mending_1');
 
     await handlers['submitResolutionResponse']({
       gameId: faithfulMendingGameId,
@@ -5903,7 +5921,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'faithful_replay_draw_1',
       'faithful_replay_draw_2',
     ]);
-    expect((zonesAfterResolve?.exile || []).map((card: any) => card.id)).toContain('faithful_mending_replay_1');
+    expectFlashbackCardExiledOrDeferredOnStack(game.state, playerId, 'faithful_mending_replay_1');
   });
 
   it('live flashback Angelfire Ignition adds counters, grants keywords, and exiles itself', async () => {

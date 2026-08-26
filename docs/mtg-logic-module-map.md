@@ -108,7 +108,7 @@ See [`mtg-logic-module-map-resolution.md`](mtg-logic-module-map-resolution.md).
 | `oracleIRParserPhase4ChoiceFamilyClauses.ts` | `oracleIRParserEffectClauseToStep.ts` | `tryParsePhase4ChoiceFamilyClause` dispatcher: each-player choose-then-destroy-rest, secret opponent damage, mill-from-among may-cast, may-reveal four-zone named-copy win. |
 | `oracleIRParserEachPlayerChooseDestroyRest.ts` | Phase 4 choice family | `tryParseEachPlayerChooseThenDestroyRest` — Divine Reckoning family. |
 | `oracleIRParserSecretOpponentChoiceDamage.ts` | Phase 4 choice family | `tryParseSecretOpponentChoiceDamage` — Prisoner's Dilemma family. |
-| `oracleIRParserMayCastFromAmong.ts` | Phase 4 choice family | `tryParseMayCastFromAmong` — Summons of Saruman mill-from-among may-cast. |
+| `oracleIRParserMayCastFromAmong.ts` | Phase 4 choice family | `tryParseMayCastFromAmong` — Summons of Saruman mill-from-among may-cast. Optional step stays on direct IR GRAVEYARD_SELECTION (`isOracleIrOptionalStepBridgedToDedicatedResolutionPrompt` / Effect Program `OPTIONAL_NO_CHOICE_KINDS`), not Yes/No. |
 | `oracleIRParserMayRevealHandWinIfOwnNamed.ts` | Phase 4 choice family | `tryParseMayRevealHandWinIfOwnNamed` — optional may-reveal-hand / if-you-do four-zone named-copy win (Hedron Alignment family). Printed “named X” is this card’s current name at execute time. Not `detectWinConditions`. |
 | `oracleIRParserPhase4ChoiceFamilyLatePass.ts` | leftover PW/spell late pass | Late recovery for those choice-family clauses. |
 | `oracleIRParserDiscardHandAndDrawLatePass.ts` | leftover late pass | `rewriteDiscardHandAndDrawAbilities` — “discard your hand and draw N” after clause parse kept only the draw half (Nibelheim graveyard rider). |
