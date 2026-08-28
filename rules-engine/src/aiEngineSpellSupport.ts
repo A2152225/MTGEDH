@@ -20,6 +20,22 @@ const BUFF_SPELL_NO_CREATURES_PENALTY = -5;
 const BUFF_SPELL_WITH_CREATURES_BONUS = 3;
 const AURA_NO_TARGET_PENALTY = -10;
 
+function isAttackingPlayerOrTheirPermanent(
+  perm: any,
+  playerId: string,
+  battlefield: readonly BattlefieldPermanent[],
+): boolean {
+  if (!perm || String(perm.controller || '') === playerId) return false;
+  if (perm.attacking === true || perm.isAttacking === true) return true;
+  const explicitPlayer = String(perm.targetPlayerId || perm.defendingPlayerId || '').trim();
+  if (explicitPlayer) return explicitPlayer === playerId;
+  const targetRef = String(perm.attacking || perm.targetPermanentId || '').trim();
+  if (!targetRef) return false;
+  if (targetRef === playerId) return true;
+  const targetPerm = battlefield.find((entry) => String(entry?.id || '') === targetRef);
+  return Boolean(targetPerm && String(targetPerm.controller || '') === playerId);
+}
+
 export function countOpponentThreats(
   gameState: any,
   playerId: string,
@@ -139,15 +155,12 @@ export function evaluateSpellValue(
     oracleText.includes('prevent') && oracleText.includes('combat damage');
 
   if (isFog) {
-    // Are there any creatures attacking the AI player (playerId)?
-    const attackingMe = battlefield.filter(p => {
-      const attackingValue = (p as any).attacking;
-      if (!attackingValue) return false;
-      // In multiplayer, p.attacking might be a playerId (the defending player) or true
-      return p.controller !== playerId && (attackingValue === playerId || attackingValue === true);
-    });
+    // Live attacking is a defender or planeswalker/battle id, not boolean true.
+    const attackingMe = battlefield.filter((perm) =>
+      isAttackingPlayerOrTheirPermanent(perm, playerId, battlefield),
+    );
 
-    const anyAttackers = battlefield.filter(p => (p as any).attacking);
+    const anyAttackers = battlefield.filter((perm) => Boolean((perm as any).attacking) || (perm as any).isAttacking === true);
 
     if (attackingMe.length > 0) {
       // Very desirable to cast if opponents are attacking me with substantial power!

@@ -147,11 +147,33 @@ export interface GenericOptionChoiceRequestShape {
   sourceId?: string;
   sourceName: string;
   sourceImage?: string;
+  causeName?: string;
+  causeImage?: string;
+  causeLabel?: string;
   description: string;
   options: OptionChoiceOption[];
   minSelections: number;
   maxSelections: number;
   mandatory: boolean;
+}
+
+function readOptionalStepString(step: Record<string, unknown>, key: string): string | undefined {
+  const text = String(step[key] || '').trim();
+  return text || undefined;
+}
+
+export function readResolutionPromptCause(step: Record<string, unknown>): {
+  causeName?: string;
+  causeImage?: string;
+  causeLabel?: string;
+} {
+  const causeName = readOptionalStepString(step, 'causeName');
+  if (!causeName) return {};
+  return {
+    causeName,
+    causeImage: readOptionalStepString(step, 'causeImage'),
+    causeLabel: readOptionalStepString(step, 'causeLabel'),
+  };
 }
 
 export function buildGenericOptionChoiceRequestFromStep(
@@ -165,6 +187,7 @@ export function buildGenericOptionChoiceRequestFromStep(
     sourceId: step.sourceId != null ? String(step.sourceId) : undefined,
     sourceName: String(step.sourceName || 'Make a Choice'),
     sourceImage: typeof step.sourceImage === 'string' ? step.sourceImage : undefined,
+    ...readResolutionPromptCause(step),
     description: String(step.description || ''),
     options: Array.isArray(step.options) ? step.options as OptionChoiceOption[] : [],
     minSelections: Number(step.minSelections ?? 0),

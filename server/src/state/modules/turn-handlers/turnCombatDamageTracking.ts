@@ -8,6 +8,8 @@
 
 import type { GameContext } from "../../context.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
+import { markPlayerOutOfPriority } from "../priorityEligibility.js";
+import { removeLeavingPlayerGameObjects } from "../playerLeavingGame.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -50,12 +52,8 @@ export function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
         player.lossReason = "Life total is 0 or less";
         defeatedPlayers.push(player.id);
         debug(1, `${ts()} [syncLifeAndCheckDefeat] Player ${player.id} has lost the game (life: ${player.life})`);
-        
-        // Mark player as inactive
-        if (!((ctx as any).inactive instanceof Set)) {
-          (ctx as any).inactive = new Set<string>();
-        }
-        (ctx as any).inactive.add(player.id);
+        markPlayerOutOfPriority(ctx as any, player.id);
+        removeLeavingPlayerGameObjects(state, player.id, { gameId: String((ctx as any).gameId || '') });
       }
 
       const poisonTotal = Math.max(
@@ -70,10 +68,8 @@ export function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
         player.lossReason = "10 or more poison counters";
         defeatedPlayers.push(player.id);
         debug(1, `${ts()} [syncLifeAndCheckDefeat] Player ${player.id} has lost the game (poison: ${poisonTotal})`);
-        if (!((ctx as any).inactive instanceof Set)) {
-          (ctx as any).inactive = new Set<string>();
-        }
-        (ctx as any).inactive.add(player.id);
+        markPlayerOutOfPriority(ctx as any, player.id);
+        removeLeavingPlayerGameObjects(state, player.id, { gameId: String((ctx as any).gameId || '') });
       }
     }
     
@@ -130,12 +126,8 @@ export function trackCommanderDamage(
     if (defeatedPlayer && !defeatedPlayer.hasLost) {
       defeatedPlayer.hasLost = true;
       defeatedPlayer.lossReason = `21 or more combat damage from ${attackerCard.name || 'a commander'}`;
-      
-      // Mark player as inactive so they automatically pass priority
-      if (!((ctx as any).inactive instanceof Set)) {
-        (ctx as any).inactive = new Set<string>();
-      }
-      (ctx as any).inactive.add(defendingPlayerId);
+      markPlayerOutOfPriority(ctx as any, defendingPlayerId);
+      removeLeavingPlayerGameObjects((ctx as any).state, defendingPlayerId, { gameId: String((ctx as any).gameId || '') });
       debug(1, `${ts()} [dealCombatDamage] Player ${defendingPlayerId} marked as inactive (commander damage)`);
     }
   }

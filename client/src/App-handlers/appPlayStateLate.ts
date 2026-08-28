@@ -265,6 +265,7 @@ export function useAppPlayStateLate(p: Record<string, any>) {
     stepId?: string;
     mandatory?: boolean;
     pendingId: string;
+    attackCostPayment?: boolean;
     permanentId?: string;
     cardId?: string;
     castSpellArgs?: {

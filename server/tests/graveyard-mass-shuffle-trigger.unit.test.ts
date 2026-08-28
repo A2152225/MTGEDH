@@ -3,9 +3,12 @@ import type { PlayerID } from '../../shared/src/index.js';
 import { createContext, type GameContext } from '../src/state/context.js';
 import { destroyPermanent } from '../src/state/modules/counters_tokens.js';
 import { checkGraveyardTrigger } from '../src/state/modules/triggered-abilities.js';
+import { millCardsFromLibrary } from '../src/state/modules/triggerLibraryMillUtils.js';
+import { pushCardToPlayerGraveyardWithReplacements } from '../src/state/modules/graveyardEntryUtils.js';
 import {
   hasGraveyardMassShuffleIntoLibraryTrigger,
   hasGraveyardSelfShuffleIntoLibraryReplacement,
+  hasGraveyardShuffleFromLibraryTrigger,
   hasGraveyardShuffleTrigger,
 } from '../src/state/modules/zone-manipulation.js';
 import { lookupLocalCardByNameSync } from '../src/services/localCardLookup.js';
@@ -94,5 +97,55 @@ describe('graveyard mass shuffle triggers (batch 179)', () => {
     expect(destroyed).toBe(true);
     expect((ctx as any).state.zones[playerId].graveyard).toHaveLength(0);
     expect(ctx.libraries.get(playerId)?.length).toBeGreaterThan(1);
+  });
+
+  it('does not treat Reminisce-style spell text as a GY-entry shuffle trigger', () => {
+    const reminisce = lookupLocalCardByNameSync('Reminisce');
+    expect(hasGraveyardMassShuffleIntoLibraryTrigger(reminisce)).toBe(false);
+    expect(hasGraveyardShuffleFromLibraryTrigger(reminisce)).toBe(false);
+    expect(hasGraveyardShuffleTrigger(reminisce)).toBe(false);
+  });
+
+  it('detects Gaea\'s Blessing as library-only, not from-anywhere', () => {
+    const blessing = lookupLocalCardByNameSync("Gaea's Blessing");
+    expect(blessing).toBeTruthy();
+    expect(hasGraveyardShuffleFromLibraryTrigger(blessing)).toBe(true);
+    expect(hasGraveyardMassShuffleIntoLibraryTrigger(blessing)).toBe(false);
+    expect(hasGraveyardShuffleTrigger(blessing)).toBe(true);
+  });
+
+  it('shuffles the graveyard when Gaea\'s Blessing is milled', () => {
+    const playerId = 'p1' as PlayerID;
+    const ctx = createGraveyardShuffleCtx(playerId);
+    const blessing = lookupLocalCardByNameSync("Gaea's Blessing");
+    expect(blessing).toBeTruthy();
+    const milled = { ...(blessing || {}), id: 'blessing_lib', zone: 'library' };
+    ctx.libraries.set(playerId, [milled]);
+    (ctx as any).state.zones[playerId].library = [milled];
+
+    const milledCount = millCardsFromLibrary((ctx as any).state, playerId, 1, ctx, {
+      skipEventPersistence: true,
+    });
+    expect(milledCount).toBe(1);
+    expect((ctx as any).state.zones[playerId].graveyard).toHaveLength(0);
+    expect(ctx.libraries.get(playerId)?.some((card: any) => String(card?.name) === "Gaea's Blessing")).toBe(true);
+  });
+
+  it('does not shuffle when Gaea\'s Blessing goes to the graveyard from the stack', () => {
+    const playerId = 'p1' as PlayerID;
+    const ctx = createGraveyardShuffleCtx(playerId);
+    const blessing = lookupLocalCardByNameSync("Gaea's Blessing");
+    const resolved = { ...(blessing || {}), id: 'blessing_stack', zone: 'stack' };
+    const gyBefore = (ctx as any).state.zones[playerId].graveyard.length;
+
+    const entered = pushCardToPlayerGraveyardWithReplacements(
+      ctx,
+      playerId,
+      resolved,
+      (ctx as any).state.zones[playerId].graveyard,
+      { sourceZone: 'stack' },
+    );
+    expect(entered).toBe(true);
+    expect((ctx as any).state.zones[playerId].graveyard.length).toBe(gyBefore + 1);
   });
 });

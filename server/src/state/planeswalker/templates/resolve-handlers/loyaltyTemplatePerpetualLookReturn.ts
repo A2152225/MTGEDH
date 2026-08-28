@@ -55,15 +55,17 @@ export function tryLoyaltyTemplatePerpetualLookReturn(
       return true;
     }
 
+    case "TYPED_CARDS_IN_HAND_PERPETUALLY_GAIN_COST_REDUCTION_AND_PAY_X":
     case "DRAGON_CARDS_IN_HAND_PERPETUALLY_GAIN_COST_REDUCTION_AND_PAY_X": {
       const m = text.match(
-        /^dragon cards in your hand perpetually gain "this spell costs \{1\} less to cast," and "you may pay \{x\} rather than pay this spell(?:'|’)s mana cost, where x is its mana value\."\.?$/i
+        /^([a-z][a-z-]*) cards in your hand perpetually gain "this spell costs \{1\} less to cast," and "you may pay \{x\} rather than pay this spell(?:'|’)s mana cost, where x is its mana value\."\.?$/i
       );
       if (!m) return false;
 
+      const typeTitle = String(m[1] || "Dragon").replace(/[a-z]+/gi, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
       const gameId = getGameId(ctx);
       const isReplaying = !!(ctx as any).isReplaying;
-      const description = `[Manual resolution] ${sourceName}: Dragon cards in your hand gain perpetual cost modifications (Arena-only).`;
+      const description = `[Manual resolution] ${sourceName}: ${typeTitle} cards in your hand gain perpetual cost modifications (Arena-only).`;
 
       debug(1, `[planeswalker/templates] ${description}`);
 
@@ -200,7 +202,14 @@ export function tryLoyaltyTemplatePerpetualLookReturn(
       return true;
     }
 
+    case "TARGET_CREATURE_YOU_CONTROL_GAINS_DEATHTOUCH_AND_LIFELINK_EOT_IF_TYPED_P1P1":
     case "TARGET_CREATURE_YOU_CONTROL_GAINS_DEATHTOUCH_AND_LIFELINK_EOT_IF_VAMPIRE_P1P1": {
+      const m = text.match(
+        /^target creature you control gains deathtouch and lifelink until end of turn\.\s*if it(?:'|’)s an? ([a-z][a-z-]*), put a \+1\/\+1 counter on it\.?$/i
+      );
+      if (!m) return false;
+      const subtype = String(m[1] || "vampire").toLowerCase();
+
       const [targetId] = getTargets(triggerItem);
       if (!targetId) return false;
 
@@ -224,7 +233,7 @@ export function tryLoyaltyTemplatePerpetualLookReturn(
         turnApplied: state.turnNumber || 0,
       });
 
-      if (isCreatureOfSubtype(perm, "vampire")) {
+      if (isCreatureOfSubtype(perm, subtype)) {
         updateCounters(ctx as any, targetId, { "+1/+1": 1 });
       }
 

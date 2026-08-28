@@ -16,6 +16,10 @@ import {
   isStationPermanentTypeLine,
   readStationChargeCreatureThresholdFromOracleText,
 } from './stationPermanentUtils';
+import {
+  abilityAllowsAnyPlayerActivation,
+  textAllowsAnyPlayerActivation,
+} from '../../shared/src/anyPlayerActivatedAbility';
 
 type HasPermanentType = (perm: BattlefieldPermanent, type: string) => boolean;
 type GetPrimaryArchetypes = (config: AIPlayerConfig) => readonly SynergyArchetype[];
@@ -30,6 +34,22 @@ function readProcessedBattlefield(
     return deps.getProcessedBattlefield(gameState);
   }
   return applyStaticAbilitiesToBattlefield((gameState.battlefield || []) as BattlefieldPermanent[]);
+}
+
+function permanentOracleText(perm: BattlefieldPermanent): string {
+  return String((perm.card as KnownCardRef)?.oracle_text || '');
+}
+
+function playerMayActivatePermanent(perm: BattlefieldPermanent, playerId: PlayerID): boolean {
+  return String(perm.controller || '') === String(playerId)
+    || textAllowsAnyPlayerActivation(permanentOracleText(perm));
+}
+
+function candidateAllowsAnyPlayerActivation(perm: BattlefieldPermanent, abilityText: string): boolean {
+  return abilityAllowsAnyPlayerActivation({
+    scopedAbilityText: abilityText,
+    cardOracleText: permanentOracleText(perm),
+  });
 }
 
 export interface ActivatedAbilityChoice {
@@ -304,6 +324,8 @@ export function evaluateActivatedAbilityValue(
 ): number {
   let value = 0;
   const lowerText = abilityText.toLowerCase();
+  // Quoted granted abilities (Herd Heirloom's combat-damage draw) are not immediate effects.
+  const effectText = lowerText.replace(/"[^"]*"/g, ' ');
   const card = perm.card as KnownCardRef;
   const analysis = cardAnalyzer.analyzeCard(perm);
   const archetypes = deps.getPrimaryArchetypes(config);
@@ -340,8 +362,8 @@ export function evaluateActivatedAbilityValue(
     return 0;
   }
 
-  if (lowerText.includes('draw') && !lowerText.includes('opponent draws')) {
-    const drawMatch = lowerText.match(/draw (\w+) card/);
+  if (effectText.includes('draw') && !effectText.includes('opponent draws')) {
+    const drawMatch = effectText.match(/draw (\w+) card/);
     if (drawMatch) {
       const countText = drawMatch[1];
       let drawCount = 1;
@@ -367,6 +389,20 @@ export function evaluateActivatedAbilityValue(
       value += drawCount * 15;
     } else {
       value += 15;
+    }
+  }
+
+  // Xantcha, Sleeper Agent: "{3}: Xantcha's controller loses 2 life and you draw a card.
+  // Any player may activate this ability." Draw is already scored above; the life loss is
+  // a ping on the controller. That is a real play only when someone else controls it.
+  const controllerLifeLossMatch = effectText.match(/controller loses (\d+) life/)
+    || effectText.match(/loses (\d+) life and you draw/);
+  if (controllerLifeLossMatch) {
+    const amount = Number.parseInt(controllerLifeLossMatch[1], 10) || 0;
+    if (String(perm.controller || '') === String(playerId)) {
+      value -= amount * 8;
+    } else {
+      value += amount * 6;
     }
   }
 
@@ -400,23 +436,23 @@ export function evaluateActivatedAbilityValue(
     value -= directAttachValue > 20 ? directAttachValue + 12 : 10;
   }
 
-  if (lowerText.includes('search your library')) {
+  if (effectText.includes('search your library')) {
     value += 12;
   }
 
-  if (lowerText.includes('create') && lowerText.includes('token')) {
+  if (effectText.includes('create') && effectText.includes('token')) {
     value += 6;
   }
 
-  if (lowerText.includes('damage') && (lowerText.includes('opponent') || lowerText.includes('player'))) {
+  if (effectText.includes('damage') && (effectText.includes('opponent') || effectText.includes('player'))) {
     value += 5;
   }
 
-  if (lowerText.includes('destroy') || lowerText.includes('exile')) {
+  if (effectText.includes('destroy') || effectText.includes('exile')) {
     value += 7;
   }
 
-  if (lowerText.includes('gain') && lowerText.includes('life')) {
+  if (effectText.includes('gain') && effectText.includes('life')) {
     value += 3;
   }
 
@@ -528,7 +564,7 @@ export function evaluateActivatedAbilityValue(
     if (analysis.comboPotential >= 7) {
       value += 8;
     }
-    if (lowerText.includes('search your library') || lowerText.includes('untap') || lowerText.includes('draw')) {
+    if (effectText.includes('search your library') || lowerText.includes('untap') || effectText.includes('draw')) {
       value += 6;
     }
     if (isPureManaAbility && analysis.details.producesMana) {
@@ -537,7 +573,7 @@ export function evaluateActivatedAbilityValue(
   }
 
   if (archetypes.includes(SynergyArchetype.SPELLSLINGER)) {
-    if (lowerText.includes('draw')) value += 4;
+    if (effectText.includes('draw')) value += 4;
     if (lowerText.includes('add {')) value += 2;
   }
 
@@ -604,12 +640,13 @@ export function findBestActivatedAbility(
   }
 ): ActivatedAbilityChoice | null {
   const battlefield = readProcessedBattlefield(deps, gameState);
-  const myPermanents = battlefield.filter((perm: BattlefieldPermanent) => perm.controller === playerId);
 
   let bestAbility: ActivatedAbilityChoice | null = null;
   let bestValue = 0;
 
-  for (const perm of myPermanents) {
+  for (const perm of battlefield) {
+    const isOwnPermanent = String(perm.controller || '') === String(playerId);
+    if (!playerMayActivatePermanent(perm, playerId)) continue;
     if (!canActivateAbilityNow(perm, gameState, playerId, { hasPermanentType: deps.hasPermanentType })) continue;
 
     const abilityCandidates = getAIActivatedAbilityCandidates(perm);
@@ -623,6 +660,9 @@ export function findBestActivatedAbility(
         })();
 
     for (const candidate of scoredCandidates) {
+      if (!isOwnPermanent && !candidateAllowsAnyPlayerActivation(perm, candidate.abilityText)) {
+        continue;
+      }
       const value = evaluateActivatedAbilityValue(perm, candidate.abilityText, gameState, playerId, config, {
         getPrimaryArchetypes: deps.getPrimaryArchetypes,
         hasPotentialManaSink: deps.hasPotentialManaSink,

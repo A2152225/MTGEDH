@@ -18,7 +18,8 @@
 
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
-import { updateCounters } from "../../state/modules/counters_tokens.js";
+import type { GameContext } from "../../state/context.js";
+import { runSBA, updateCounters } from "../../state/modules/counters_tokens.js";
 import { applyPermanentBecomeCopyOfTargetPermanent } from "../../state/modules/permanent-copy.js";
 import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolution/index.js";
 import { debugWarn } from "../../utils/debug.js";
@@ -151,6 +152,12 @@ export async function handleBecomeCopyOfCreatureTargetSelection(
     return;
   }
 
+  if (stepAny?.enterTappedIfCopied === true) {
+    const copiedPermanent = (Array.isArray(game.state?.battlefield) ? game.state.battlefield : [])
+      .find((permanent: any) => String(permanent?.id || '') === copyOntoPermanentId) as any;
+    if (copiedPermanent) copiedPermanent.tapped = true;
+  }
+
   try {
     await appendEvent(gameId, (game as any).seq ?? 0, 'permanentBecomeCopyResolve', {
       playerId: pid,
@@ -160,6 +167,7 @@ export async function handleBecomeCopyOfCreatureTargetSelection(
       sourceName,
       retainedAbilityText,
       targetName: result.targetName,
+      enterTappedIfCopied: stepAny?.enterTappedIfCopied === true,
     });
   } catch (e) {
     debugWarn(1, '[Resolution] appendEvent(permanentBecomeCopyResolve) failed:', e);
@@ -169,10 +177,26 @@ export async function handleBecomeCopyOfCreatureTargetSelection(
     id: `m_${Date.now()}`,
     gameId,
     from: 'system',
-    message: `${getPlayerName(game, pid)}: ${sourceName} became a copy of ${result.targetName || 'the chosen creature'}.`,
+    message: `${getPlayerName(game, pid)}: ${sourceName} became a copy of ${result.targetName || 'the chosen permanent'}.`,
     ts: Date.now(),
   });
 
   if (typeof game.bumpSeq === 'function') game.bumpSeq();
+
+  // CR 704.5j: becoming a copy (Vesuva, Cryptoplasm, Thespian's Stage) can create
+  // two legendary permanents with the same name, including legendary lands.
+  try {
+    const ctx = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as unknown as GameContext;
+    runSBA(ctx);
+  } catch (err) {
+    debugWarn(1, '[Resolution] runSBA after become-copy failed:', err);
+  }
+
   broadcastGame(io, game, gameId);
 }

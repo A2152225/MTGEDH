@@ -213,6 +213,8 @@ export async function validateOptionChoicePayCostPromptsBeforeComplete(
     if (raw && typeof raw === 'object') {
       const id = (raw as any).id;
       if (typeof id === 'string' && id.trim()) return id;
+      const optionId = (raw as any).optionId;
+      if (typeof optionId === 'string' && optionId.trim()) return optionId;
       const choiceId = (raw as any).choiceId;
       if (typeof choiceId === 'string' && choiceId.trim()) return choiceId;
     }
@@ -413,8 +415,42 @@ export async function validateOptionChoicePayCostPromptsBeforeComplete(
   }
 
   // Combat attack tax prompts: confirm pay must be affordable.
-  if (stepAny?.attackCostPayment === true && choiceId === 'pay_attack_cost') {
+  if (stepAny?.attackCostPayment === true && (
+    choiceId === 'pay_attack_cost'
+    || (Array.isArray(response.selections)
+      && (response.selections as any[]).some((entry) => entry && typeof entry === 'object' && 'payWithLife' in entry))
+  )) {
     const amount = Number(stepAny?.attackCostAmount || 0) || 0;
+    const items = Array.isArray(stepAny?.attackCostPhyrexianItems) ? stepAny.attackCostPhyrexianItems : [];
+    const { parseAttackCostPhyrexianChoices, canAffordAttackCostPayment } = await import(
+      './combat-handlers/attackCostPhyrexianPayment.js'
+    );
+    const choices = parseAttackCostPhyrexianChoices(response.selections, items.length);
+    if (items.length > 0 && !choices) {
+      socket.emit('error', { code: 'INVALID_SELECTION', message: 'Missing Phyrexian attack-cost choices.' });
+      return false;
+    }
+    const excludedPermanentIds = Array.isArray(stepAny?.attackers)
+      ? (stepAny.attackers as any[]).map((entry: any) => String(entry?.creatureId || '')).filter(Boolean)
+      : [];
+    const afford = canAffordAttackCostPayment(game.state, String(pid), {
+      generic: amount,
+      items,
+      excludedPermanentIds,
+      choices: choices || [],
+    });
+    if (!afford.ok) {
+      socket.emit('error', {
+        code: afford.error?.toLowerCase().includes('life') ? 'INSUFFICIENT_LIFE' : 'INSUFFICIENT_MANA',
+        message: afford.error || 'Insufficient mana.',
+      });
+      return false;
+    }
+  }
+
+  // Combat block tax prompts: confirm pay must be affordable.
+  if (stepAny?.blockCostPayment === true && choiceId === 'pay_block_cost') {
+    const amount = Number(stepAny?.blockCostAmount || 0) || 0;
     const validationError = await validateGenericAmountPayable(String(pid), amount);
     if (validationError) {
       socket.emit('error', { code: 'INSUFFICIENT_MANA', message: validationError });

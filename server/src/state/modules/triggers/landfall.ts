@@ -35,6 +35,8 @@ export interface LandfallTrigger {
   /** Required land subtype for typed_land_enter (e.g. "forest", "gate"). */
   requiredLandType?: string;
   triggerType?: string;
+  /** Foe-liage: only while the watcher's controller is the turn player. */
+  duringSourceControllerTurn?: boolean;
 }
 
 /** Rule 205.3i land types — used so "Whenever a creature you control enters" is not typed landfall. */
@@ -234,11 +236,10 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
     /whenever a land (?:you control enters(?: from anywhere other than your hand)?|enters(?: the battlefield)?(?: under your control)?(?: from anywhere other than your hand)?),?\s*([^]*?)(?:\n\n|$)/i
   );
   const hybridLandEnterMatch = oracleText.match(
-    /\bor\s+(?:a |an )?(\w+(?:\s+\w+)*) you control enters(?:,|\s)/i,
+    /\bor\s+(?:a |an )?(\w+(?:\s+\w+)*) you control enters(?: from [^,]+)?,?\s*([^.]+)/i,
   );
   if (hybridLandEnterMatch && !landfallMatch && !genericLandfallMatch) {
-    const effectMatch = oracleText.match(/,\s*([^.]+)\.?\s*$/);
-    const effectText = String(effectMatch?.[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, hybridLandEnterMatch, 2);
     if (effectText) {
       triggers.push({
         permanentId,
@@ -247,7 +248,8 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
         effect: effectText,
         mandatory: !effectText.toLowerCase().includes('you may'),
         requiresChoice: effectText.toLowerCase().includes('you may'),
-      });
+        triggerType: 'hybrid_land_you_control_enters' as any,
+      } as LandfallTrigger);
     }
   }
 
@@ -400,6 +402,53 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
     } as LandfallTrigger);
   }
 
+  const thisOrAnotherLandEnterMatch = oracleText.match(
+    /whenever (?:this (?:land|permanent)|~) or another land you control enters(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherLandEnterMatch
+    && !landfallMatch
+    && !genericLandfallMatch
+    && !triggers.some((t) => (t as any).triggerType === 'this_or_another_land_you_control_enters')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherLandEnterMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiresChoice: effectText.toLowerCase().includes('you may'),
+      triggerType: 'this_or_another_land_you_control_enters' as any,
+    } as LandfallTrigger);
+  }
+
+  const anyLandEnterMatch = oracleText.match(
+    /whenever a land enters(?: the battlefield)?(?: during your turn)?(?!\s+under),?\s*([^.]+)/i,
+  );
+  if (
+    anyLandEnterMatch
+    && !/you control enters/i.test(String(anyLandEnterMatch[0] || ''))
+    && !/an opponent/i.test(String(anyLandEnterMatch[0] || ''))
+    && !/enchanted player/i.test(String(anyLandEnterMatch[0] || ''))
+    && !landfallMatch
+    && !genericLandfallMatch
+    && !triggers.some((t) => (t as any).triggerType === 'any_land_enter' || (t as any).triggerType === 'opponent_land_enter')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, anyLandEnterMatch);
+    const duringYourTurn = /during your turn/i.test(String(anyLandEnterMatch[0] || ''));
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiresChoice: effectText.toLowerCase().includes('you may'),
+      triggerType: 'any_land_enter' as any,
+      ...(duringYourTurn ? { duringSourceControllerTurn: true } : null),
+    } as LandfallTrigger);
+  }
+
   const playLandPatterns = [
     { pattern: /whenever an opponent plays a land,?\s*([^.]+)/gi, triggerType: 'opponent_plays_land' as const },
     { pattern: /whenever a player plays a land,?\s*([^.]+)/gi, triggerType: 'player_plays_land' as const },
@@ -508,6 +557,13 @@ export function getLandfallTriggers(
         triggerType === 'opponent_land_enter'
         || triggerType === 'exiled_name_opponent_land_enter';
       const isAnyControllerTyped = triggerType === 'any_typed_land_enter';
+      const isAnyLandEnter = triggerType === 'any_land_enter';
+      const isEnchantedPlayerLand = triggerType === 'enchanted_player_land_enter';
+
+      if ((trigger as any).duringSourceControllerTurn) {
+        const turnPlayer = String((ctx.state as any)?.turnPlayer || (ctx.state as any)?.activePlayer || '');
+        if (turnPlayer && turnPlayer !== String(permanent.controller || '')) continue;
+      }
 
       if (isOpponentLandTrigger) {
         // Watcher must be an opponent of the player whose land entered.
@@ -519,6 +575,13 @@ export function getLandfallTriggers(
         if (!enteringLandMatchesRequiredType(enteringLand, (trigger as any).requiredLandType)) {
           continue;
         }
+      } else if (isAnyLandEnter) {
+        // Any land, any controller.
+      } else if (isEnchantedPlayerLand) {
+        const enchantedPlayer = String(
+          permanent?.attachedTo || permanent?.enchanting || permanent?.enchantedPlayerId || '',
+        ).trim();
+        if (!enchantedPlayer || enchantedPlayer !== String(landController || '')) continue;
       } else {
         // Normal landfall: only when the land's controller owns the watcher.
         if (permanent.controller !== landController) continue;

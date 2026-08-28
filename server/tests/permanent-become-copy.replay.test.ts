@@ -97,4 +97,132 @@ describe('permanentBecomeCopyResolve replay semantics', () => {
     expect((queue.steps || []).some((entry: any) => entry?.type === ResolutionStepType.TARGET_SELECTION)).toBe(false);
     ResolutionQueueManager.removeQueue(gameId);
   });
+
+  it('replays enterTappedIfCopied by tapping the copied permanent', () => {
+    const gameId = 't_permanent_become_copy_enter_tapped_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, 'p2' as PlayerID, 'P2');
+    const step = addActiveCopyTargetStep(gameId, p1, 'vesuva_1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'vesuva_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'vesuva_card',
+          name: 'Vesuva',
+          type_line: 'Land',
+          oracle_text: 'You may have this land enter tapped as a copy of any land on the battlefield.',
+        },
+      },
+      {
+        id: 'forest_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'forest_card',
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'permanentBecomeCopyResolve',
+      playerId: p1,
+      resolvedStepId: step.id,
+      copyOntoPermanentId: 'vesuva_1',
+      copyFromPermanentId: 'forest_1',
+      sourceName: 'Vesuva',
+      targetName: 'Forest',
+      enterTappedIfCopied: true,
+    } as any);
+
+    const vesuva = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'vesuva_1');
+    expect(vesuva?.card?.name).toBe('Forest');
+    expect(vesuva?.tapped).toBe(true);
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('queues the legend rule when Vesuva becomes a copy of a legendary land', () => {
+    const gameId = 't_permanent_become_copy_legend_land';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, 'p2' as PlayerID, 'P2');
+    const step = addActiveCopyTargetStep(gameId, p1, 'vesuva_1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'vesuva_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'vesuva_card',
+          name: 'Vesuva',
+          type_line: 'Land',
+          oracle_text: 'You may have this land enter tapped as a copy of any land on the battlefield.',
+        },
+      },
+      {
+        id: 'ruins_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'ruins_card',
+          name: 'Academy Ruins',
+          type_line: 'Legendary Land',
+          oracle_text:
+            '{T}: Add {C}.\n{1}{U}, {T}: Put target artifact card from your graveyard on top of your library.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      ...(game.state as any).zones,
+      [p1]: {
+        ...((game.state as any).zones?.[p1] || {}),
+        hand: [],
+        graveyard: [],
+        exile: [],
+        library: [],
+        handCount: 0,
+        graveyardCount: 0,
+        exileCount: 0,
+      },
+    };
+
+    game.applyEvent({
+      type: 'permanentBecomeCopyResolve',
+      playerId: p1,
+      resolvedStepId: step.id,
+      copyOntoPermanentId: 'vesuva_1',
+      copyFromPermanentId: 'ruins_1',
+      sourceName: 'Vesuva',
+      targetName: 'Academy Ruins',
+      enterTappedIfCopied: true,
+    } as any);
+
+    const vesuva = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'vesuva_1');
+    expect(vesuva?.card?.name).toBe('Academy Ruins');
+    expect(String(vesuva?.card?.type_line || '')).toBe('Legendary Land');
+    expect(vesuva?.tapped).toBe(true);
+
+    const legendStep = ResolutionQueueManager.getQueue(gameId).steps.find(
+      (entry: any) => entry?.legendRuleChoice === true,
+    ) as any;
+    expect(legendStep).toBeTruthy();
+    expect(legendStep.mandatory).toBe(true);
+    expect((legendStep.options || []).map((option: any) => option.id).sort()).toEqual(['ruins_1', 'vesuva_1']);
+    ResolutionQueueManager.removeQueue(gameId);
+  });
 });
+

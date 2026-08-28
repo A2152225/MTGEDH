@@ -8,7 +8,9 @@ import type { BattlefieldPermanent, CardFace, KnownCardRef } from "../../../shar
 import type { CardFaceOption } from "../components/SplitCardChoiceModal";
 import { socket } from "../socket";
 import { canCreatureBlockNow, isCurrentlyCreature } from "../utils/creatureUtils";
+import { expandGroupedTokensForDisplay, tokenDisplayInstanceCount } from "../utils/expandGroupedTokens";
 import { debugError } from "../utils/debug";
+import { playerIsLegalAttackTarget } from "../../../rules-engine/src/playerInGameStatus";
 
 export function useAppPlayCombatHandlers(p: Record<string, any>) {
   const {
@@ -336,31 +338,7 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
   // Expand server-grouped tokens (broadcast optimization) into individual permanent entries
   // so the combat modal can show and select each token independently. Each entry uses
   // its real permanent ID from groupedTokenIds so server-side validation succeeds.
-  const expandGroupedTokens = (permanents: BattlefieldPermanent[]): BattlefieldPermanent[] => {
-    const expanded: BattlefieldPermanent[] = [];
-    for (const perm of permanents) {
-      const groupedIds = (perm as any).groupedTokenIds as string[] | undefined;
-      const tokenCount = Number((perm as any).tokenCount || 0);
-      if ((perm as any).isGroupedTokens && tokenCount > 1) {
-        const groupId = String(perm.id || `group_${(perm as any).originalId || 'token'}`);
-        for (let i = 0; i < tokenCount; i += 1) {
-          const tokenId = groupedIds && i < groupedIds.length ? groupedIds[i] : `${groupId}_virtual_${i}`;
-          expanded.push({
-            ...perm,
-            id: tokenId,
-            isGroupedTokens: false,
-            tokenCount: 1,
-            groupedTokenIds: undefined,
-            _virtualFromGroup: groupId,
-            _virtualIndex: i,
-          } as BattlefieldPermanent);
-        }
-      } else {
-        expanded.push(perm);
-      }
-    }
-    return expanded;
-  };
+  const expandGroupedTokens = expandGroupedTokensForDisplay;
 
   // Get creatures for combat modal - filter to only those that can attack
   const myCreatures = useMemo(() => {
@@ -407,7 +385,7 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
 
   const defenders = useMemo(() => {
     if (!safeView || !you) return [];
-    return (safeView.players || []).filter((p: any) => p.id !== you);
+    return (safeView.players || []).filter((p: any) => playerIsLegalAttackTarget(p, you));
   }, [safeView, you]);
 
   // Per-defender attack info: untapped creature count and attack tax per attacker.
@@ -458,12 +436,13 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
       const defendingPlayerId = resolveDefendingPlayerId(defId);
 
       // Count untapped creatures controlled by this opponent
-      const untappedCreatureCount = battlefield.filter((p: BattlefieldPermanent) => {
-        if (p.controller !== defendingPlayerId) return false;
-        if (p.tapped) return false;
+      const untappedCreatureCount = battlefield.reduce((sum: number, p: BattlefieldPermanent) => {
+        if (p.controller !== defendingPlayerId) return sum;
+        if (p.tapped) return sum;
         const tl = ((p.card as any)?.type_line || '').toLowerCase();
-        return /\bcreature\b/.test(tl);
-      }).length;
+        if (!/\bcreature\b/.test(tl)) return sum;
+        return sum + tokenDisplayInstanceCount(p);
+      }, 0);
 
       // Compute attack tax from pillow-fort permanents controlled by the defending player
       let attackTaxPerCreature = 0;
@@ -484,18 +463,18 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
 
     // For read-only viewers, show the active player's combat-relevant creatures
     // (include currently-attacking creatures even if they are tapped).
-    return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
+    return expandGroupedTokens((safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
       if (p.controller !== turnPlayer) return false;
       if (!isCurrentlyCreature(p)) return false;
       return canCreatureAttack(p) || !!(p as any).attacking;
-    });
+    }));
   }, [safeView]);
 
   const combatModalAttackersDefenders = useMemo(() => {
     if (!safeView) return [];
     const turnPlayer = safeView.turnPlayer;
     if (!turnPlayer) return [];
-    return (safeView.players || []).filter((p: any) => p.id !== turnPlayer);
+    return (safeView.players || []).filter((p: any) => playerIsLegalAttackTarget(p, turnPlayer));
   }, [safeView]);
 
   const combatControlEffect = useMemo(() => {

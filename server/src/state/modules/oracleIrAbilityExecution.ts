@@ -66,6 +66,67 @@ function extractActivatedEffectText(oracleText: string): string {
   return colonSplit ? String(colonSplit[1] || '').trim() : raw;
 }
 
+function dropQuotedGrantedTriggerBleedSteps(
+  sourceText: string,
+  steps: readonly OracleEffectStep[],
+): OracleEffectStep[] {
+  const quotedTriggers = [...String(sourceText || '').matchAll(/"((?:when|whenever)[^"]*)"/gi)]
+    .map((match) => String(match[1] || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (quotedTriggers.length === 0) return [...steps];
+
+  const filtered = steps.filter((step) => {
+    const kind = String(step.kind || '');
+    // Parent steps whose `raw` includes the quoted When/Whenever must be kept.
+    // The bleed check below matches `raw.includes(quoted)` and would otherwise
+    // drop the loyalty effect itself (create token/emblem with a granted trigger).
+    if (
+      kind === 'grant_temporary_ability'
+      || kind === 'grant_temporary_dies_trigger'
+      || kind === 'grant_temporary_etb_trigger'
+      || kind === 'grant_static_ability'
+      || kind === 'modify_pt'
+      || kind === 'create_token'
+      || kind === 'create_emblem'
+    ) {
+      return true;
+    }
+    const raw = String((step as { raw?: string }).raw || '').trim().toLowerCase();
+    return !quotedTriggers.some((quoted) => {
+      if (kind === 'draw' && /\bdraws?\b/.test(quoted)) return true;
+      if (kind === 'destroy' && /\bdestroy/.test(quoted)) return true;
+      if (raw && (quoted.includes(raw) || raw.includes(quoted))) return true;
+      return false;
+    });
+  });
+  if (filtered.length > 0) return collapseDuplicateQuotedParentSteps(filtered);
+  if (/\bgains?\b/i.test(sourceText) && /\buntil end of turn\b/i.test(sourceText)) {
+    return [{
+      kind: 'grant_temporary_ability',
+      target: { kind: 'raw', text: 'target creature' },
+      duration: 'end_of_turn',
+      effectText: quotedTriggers,
+      raw: sourceText,
+    } as OracleEffectStep];
+  }
+  return filtered;
+}
+
+function collapseDuplicateQuotedParentSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const seen = new Set<string>();
+  const out: OracleEffectStep[] = [];
+  for (const step of steps) {
+    const kind = String(step.kind || '');
+    if (kind === 'create_emblem' || kind === 'create_token') {
+      const key = `${kind}\0${String((step as { raw?: string }).raw || '').trim().toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    out.push(step);
+  }
+  return out;
+}
+
 function applyCompiledOverlayToActivatedSteps(
   parsedText: string,
   sourceName: string,
@@ -76,10 +137,13 @@ function applyCompiledOverlayToActivatedSteps(
     cardName: sourceName,
     ...options,
   });
-  if (!overlay) return [...steps];
-  const hasUnknown = steps.some((step) => step.kind === 'unknown');
-  if (!hasUnknown && steps.length > 0) return [...steps];
-  return [...collectOracleEffectStepsWithOverlay(parsedText, sourceName, overlay, options?.overlayOptions)];
+  const resolved = (() => {
+    if (!overlay) return [...steps];
+    const hasUnknown = steps.some((step) => step.kind === 'unknown');
+    if (!hasUnknown && steps.length > 0) return [...steps];
+    return [...collectOracleEffectStepsWithOverlay(parsedText, sourceName, overlay, options?.overlayOptions)];
+  })();
+  return dropQuotedGrantedTriggerBleedSteps(parsedText, resolved);
 }
 
 export function collectActivatedAbilitySteps(

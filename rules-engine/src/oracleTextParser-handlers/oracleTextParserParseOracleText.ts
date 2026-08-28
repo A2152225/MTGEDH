@@ -63,7 +63,7 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
 
   // Normalize self-references in text. This includes the full printed card name
   // plus common legendary shorthand like "Endrek Sahr" from
-  // "Endrek Sahr, Master Breeder".
+  // "Endrek Sahr, Master Breeder" and 3-letter first names like "Ral".
   const normalizedText = normalizeOracleTextSelfReferences(oracleText, cardName);
   
   // Shared preprocessing preserves ability boundaries, keeps modal bullet blocks
@@ -115,9 +115,11 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
     }
     
     // Delayed this-turn ETB windows resolve with the spell (Rite of Harmony family).
+    // Delayed "dealt damage this way dies this turn" windows (Reckless Blaze / Skeletonize).
     if (
       /^whenever\s+a(?:n)?\s+.+?\s+you\s+control\s+enters(?:\s+the\s+battlefield)?\s+this\s+turn,/i.test(triggerCandidate)
       || /^whenever\s+a(?:n)?\s+.+?\s+enters(?:\s+the\s+battlefield)?\s+under\s+your\s+control\s+this\s+turn,/i.test(triggerCandidate)
+      || /^when(?:ever)?\s+a\s+creature(?:\s+you\s+control)?\s+dealt\s+damage\s+this\s+way\s+dies\s+this\s+turn,/i.test(triggerCandidate)
     ) {
       abilities.push({
         type: AbilityType.SPELL,

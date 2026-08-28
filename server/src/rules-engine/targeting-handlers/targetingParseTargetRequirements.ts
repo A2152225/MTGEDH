@@ -289,6 +289,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   targetRestriction?: TargetRestriction;
   statRequirement?: StatRequirement;
   creatureRestriction?: TargetRestriction;
+  stackObjectMustHaveSingleTarget?: boolean;
 } {
   if (!oracleText) return { needsTargets: false, targetTypes: [], minTargets: 0, maxTargets: 0, targetDescription: '' };
   
@@ -667,6 +668,16 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       targetDescription = `target ${String(multiPermanentTypeMatch[1] || '').trim()}`;
       return finish({ needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription });
     }
+  }
+
+  // Bolt Bend / Disallow: "target spell or ability" is both stack kinds, not just "spell".
+  const spellOrAbilityMatch = t.match(/target\s+spell or ability(?:\s+with a single target)?/i);
+  if (spellOrAbilityMatch) {
+    minTargets = 1;
+    maxTargets = 1;
+    targetTypes.push('spell', 'ability');
+    targetDescription = String(spellOrAbilityMatch[0] || 'target spell or ability').trim();
+    return finish({ needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription });
   }
 
   // Check for standard "target X" patterns

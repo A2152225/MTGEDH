@@ -452,7 +452,12 @@ function calculateResponseSpellPriority(
   const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
 
   if (oracleText.includes('counter target') && stack.length > 0) {
-    priority += 120;
+    const hasOpponentStackObject = stack.some(
+      (item: any) => String(item?.controller || item?.controllerId || '') !== String(playerId),
+    );
+    if (hasOpponentStackObject) {
+      priority += 120;
+    }
   }
 
   if (oracleText.includes('destroy') || oracleText.includes('exile')) {

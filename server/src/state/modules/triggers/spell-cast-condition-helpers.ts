@@ -4,6 +4,7 @@
  * Public: getSpellCastConditionData, getSpellCastEffectMetadata
  */
 
+import { isModalChooseModesEffectText } from "../inferTriggeredAbilityTargetMetadata.js";
 import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
 export function getSpellCastConditionData(spellType: string): Pick<SpellCastTrigger, 'spellCondition' | 'tribalType'> {
     let spellCondition: SpellCastTrigger['spellCondition'] = 'any';
@@ -50,7 +51,8 @@ export function getSpellCastEffectMetadata(lowerOracle: string, effectText: stri
     let createsToken = false;
     let tokenDetails: SpellCastTrigger['tokenDetails'];
 
-    if (tokenMatch || lowerOracle.includes('create a') && lowerOracle.includes('token')) {
+    const modalChooseModes = isModalChooseModesEffectText(effectText);
+    if (!modalChooseModes && (tokenMatch || lowerOracle.includes('create a') && lowerOracle.includes('token'))) {
       createsToken = true;
       const tokenPowerMatch = effectText.match(/(\d+)\/(\d+)/);
       if (tokenPowerMatch) {

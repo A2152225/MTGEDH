@@ -45,6 +45,32 @@ describe('temporary ETB window IR ownership', () => {
     expect(applied).toBe(0);
   });
 
+  it('PRIMARY=1 Rite special-case does not fill a missing ETB window', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+    const playerId = 'p1' as PlayerID;
+    const ctx = createContext('rite_primary1_noop');
+    (ctx as any).state = {
+      players: [{ id: playerId, name: 'P1', hasLost: false }],
+      battlefield: [],
+      stack: [],
+      temporaryEtbTriggers: [],
+    };
+    applyInstantSorcerySpecialCaseSpellEffects(ctx, {
+      controller: playerId,
+      card: { id: 'rite_spell_1', name: 'Custom Harmony', oracle_text: RITE_TEXT },
+      effectiveCard: { name: 'Custom Harmony', oracle_text: RITE_TEXT },
+      item: { id: 'rite_spell_1', card: { oracle_text: RITE_TEXT } },
+      gameId: ctx.gameId,
+      spellXValue: undefined,
+      isRiteOfHarmonyStyleWindow: true,
+      isDivineReckoningStyleChoice: false,
+      isPrisonersDilemmaStyleChoice: false,
+      isSummonsOfSarumanStyle: false,
+    });
+
+    expect((ctx.state as any).temporaryEtbTriggers || []).toEqual([]);
+  });
+
   it('PRIMARY=0 Rite special-case trampolines to IR grant_temporary_etb_trigger', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
     const playerId = 'p1' as PlayerID;

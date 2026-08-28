@@ -135,18 +135,6 @@ export function resolveReferenceScalerScale(
       return /\bcreature\b/i.test(typeLine);
     }).length;
   }
-  if (/^for each goblin you control$/.test(normalized)) {
-    const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
-    return battlefield.filter((permanent: any) => {
-      if (String(permanent?.controllerId || permanent?.controller || '').trim() !== String(controllerId || '').trim()) {
-        return false;
-      }
-      const typeLine = String(
-        permanent?.card?.type_line || permanent?.card?.typeLine || permanent?.type_line || permanent?.typeLine || ''
-      ).toLowerCase();
-      return /\bcreature\b/i.test(typeLine) && /\bgoblin\b/i.test(typeLine);
-    }).length;
-  }
   const otherSubtypeYouControlMatch = normalized.match(/^for each other ([a-z][a-z -]+?) you control$/);
   if (otherSubtypeYouControlMatch) {
     const subtype = String(otherSubtypeYouControlMatch[1] || '').trim();

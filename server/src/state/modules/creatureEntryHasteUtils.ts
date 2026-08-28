@@ -1,4 +1,8 @@
 import { debugWarn } from '../../utils/debug.js';
+import {
+  oracleTextGrantsKeywordOnlyToOthers,
+  oracleTextHasOwnKeyword,
+} from '../../../../rules-engine/src/oracleOwnKeywordText.js';
 
 function extractCreatureTypes(typeLine: string): string[] {
   const types: string[] = [];
@@ -28,7 +32,15 @@ export function creatureWillHaveHaste(
     const cardTypeLine = (card?.type_line || '').toLowerCase();
     const cardOracleText = (card?.oracle_text || '').toLowerCase();
 
-    if (cardOracleText.includes('haste')) {
+    if (oracleTextHasOwnKeyword(cardOracleText, 'haste')) {
+      return true;
+    }
+
+    const cardKeywords = Array.isArray(card?.keywords) ? card.keywords : [];
+    if (
+      !oracleTextGrantsKeywordOnlyToOthers(cardOracleText, 'haste') &&
+      cardKeywords.some((entry: unknown) => String(entry || '').toLowerCase() === 'haste')
+    ) {
       return true;
     }
 
@@ -40,8 +52,8 @@ export function creatureWillHaveHaste(
 
       if (grantorController === controller) {
         if (
-          grantorOracle.includes('creatures you control have haste') ||
-          grantorOracle.includes('other creatures you control have haste')
+          /\bcreatures you control have haste\b/i.test(grantorOracle) &&
+          !/\bother creatures you control have haste\b/i.test(grantorOracle)
         ) {
           return true;
         }
@@ -61,9 +73,13 @@ export function creatureWillHaveHaste(
           const hasteIndex = grantorOracle.indexOf('have haste');
           if (typeIndex !== -1 && hasteIndex !== -1 && typeIndex < hasteIndex) {
             const textBetween = grantorOracle.slice(typeIndex, hasteIndex);
-            if (!textBetween.includes('.')) {
-              return true;
+            if (textBetween.includes('.')) continue;
+            const prefix = grantorOracle.slice(Math.max(0, typeIndex - 10), typeIndex);
+            const isOtherGrant = /\bother\s+$/i.test(prefix);
+            if (isOtherGrant && perm.card === card) {
+              continue;
             }
+            return true;
           }
         }
       }

@@ -28,8 +28,9 @@ export {
   getControlledPermanents,
 };
 
-import {
+export {
   isAttackingPermanent,
+  isBlockingPermanent,
   permanentHasKeyword,
   readPowerForComparison,
   readCreatureStatForComparison,

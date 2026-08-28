@@ -17,6 +17,8 @@ export {
 
 // Dredge draw-replacement option-choice queue helper.
 export { queueDredgeDrawReplacementStep } from "./zonesDrawReplacementDredgeQueue.js";
+export { queueSkipDrawReplacementStep } from "./zonesDrawReplacementSkipDrawQueue.js";
+export { applySkipDrawReplacementChoice } from "./zonesDrawReplacementSkipDrawApply.js";
 
 // Library draw, persist, draw-by-id, and "whenever you draw" trigger emission.
 export {

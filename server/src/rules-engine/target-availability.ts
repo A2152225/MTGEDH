@@ -1,6 +1,8 @@
 import type { PlayerID } from "../../../shared/src/index.js";
 import { canPlayerBeTargetedByPlayer, categorizeSpell, categorizeSpellWithoutPrimaryRetirement, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "./targeting.js";
 import { permanentMatchesTargetRequirementStatKeywordFilters } from "./targeting-handlers/targetingParseTargetRequirementRestrictions.js";
+import { stackItemMeetsSingleTargetRequirement } from "./targeting-handlers/targetingStackObjectSingleTarget.js";
+import { evaluateUntargetedCombatRoleMassEffectLegality } from "./targeting-handlers/targetingUntargetedCombatRoleMassEffect.js";
 import { isOracleIrSpellPrimaryEnabled } from "../state/modules/oracleIrFeatureFlags.js";
 import { cardManaValue } from "../state/utils.js";
 
@@ -155,6 +157,8 @@ export function hasValidTargetsForSpell(
         return conservative;
       }
     }
+    const combatRoleLegal = evaluateUntargetedCombatRoleMassEffectLegality(state, oracleTextRaw, conservative);
+    if (combatRoleLegal !== null) return combatRoleLegal;
     return true;
   }
 
@@ -191,6 +195,8 @@ export function hasValidTargetsForSpell(
   }
 
   if (!targetReqs.needsTargets || targetReqs.minTargets <= 0) {
+    const combatRoleLegal = evaluateUntargetedCombatRoleMassEffectLegality(state, oracleTextRaw, conservative);
+    if (combatRoleLegal !== null) return combatRoleLegal;
     return true;
   }
 
@@ -233,12 +239,14 @@ export function hasValidTargetsForSpell(
   if (targetReqs.targetTypes.some(t => String(t).includes("spell"))) {
     for (const si of state.stack || []) {
       if (si?.type === "ability" || si?.type === "triggered_ability" || si?.type === "activated_ability") continue;
+      if (!stackItemMeetsSingleTargetRequirement(si, targetReqs)) continue;
       candidates.add(`stack:${si.id}`);
     }
   }
   if (targetReqs.targetTypes.some(t => String(t).includes("ability"))) {
     for (const si of state.stack || []) {
       if (si?.type === "ability" || si?.type === "triggered_ability" || si?.type === "activated_ability") {
+        if (!stackItemMeetsSingleTargetRequirement(si, targetReqs)) continue;
         candidates.add(`stack:${si.id}`);
       }
     }

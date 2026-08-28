@@ -80,6 +80,7 @@ export function createBattlefieldPermanentsFromCards(
       owner: sourcePlayerId,
       tapped: Boolean(entersTapped),
       summoningSickness: true,
+      enteredThisTurn: true,
       counters: counters || {},
       enteredFromZone: sourceZone,
       ...(String(card?.castFromZone || '').trim() ? { castFromZone: String(card.castFromZone).trim().toLowerCase() } : {}),
@@ -117,8 +118,12 @@ export function createBattlefieldPermanentsFromCards(
       } as any;
     }
 
+    const printedPower = parsePrintedPowerToughness(faceUpCard?.power);
+    const printedToughness = parsePrintedPowerToughness(faceUpCard?.toughness);
     return {
       ...basePermanent,
+      ...(printedPower !== undefined ? { basePower: printedPower, power: printedPower } : {}),
+      ...(printedToughness !== undefined ? { baseToughness: printedToughness, toughness: printedToughness } : {}),
       card: faceUpCard,
     } as any;
   });
@@ -130,6 +135,13 @@ export function getBattlefieldAttachmentTarget(state: GameState, permanentId: st
   return ((state.battlefield || []) as BattlefieldPermanent[]).find(
     perm => String((perm as any)?.id || '').trim() === wantedId
   );
+}
+
+function parsePrintedPowerToughness(raw: unknown): number | undefined {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  const str = String(raw ?? '').trim();
+  if (!str || !/^\d+$/.test(str)) return undefined;
+  return Number.parseInt(str, 10);
 }
 
 function getCardOracleTextLower(card: any): string {

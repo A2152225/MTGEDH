@@ -37,6 +37,7 @@ export {
   getStormCount,
   hasCascade,
   getCascadeCount,
+  getNativeCascadeCount,
   type CastTriggerInfo,
 } from './castTriggers';
 

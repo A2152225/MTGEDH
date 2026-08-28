@@ -515,13 +515,14 @@ export interface ServerToClientEvents {
     targets: Record<string, string>;
   }) => void;
 
-  // Post-restart game restore progress (event replay into cold games)
+  // Post-restart / undo game restore progress (event replay)
   gameResumeProgress: (payload: {
     gameId: GameID;
     current: number;
     total: number;
     percent: number;
     isRestoring: boolean;
+    reason?: "resume" | "undo";
   }) => void;
   
   // Game log / action feed

@@ -21,6 +21,7 @@ export {
   buildBoundaryHistoryFromReplay,
   calculateBoundaryUndoCount,
   calculateSmartUndoCounts,
+  resolveBoundaryHistoryForUndo,
 } from "./undoBoundaryPlanning.js";
 export type {
   PersistedEvent,
@@ -39,3 +40,6 @@ export {
   buildPlayerNameMap,
 } from "./undoTurnPhaseTargets.js";
 export type { UndoTurnPhaseTarget } from "./undoTurnPhaseTargets.js";
+
+// Truncate + reset + replay remaining events; emits gameResumeProgress during rebuild.
+export { performUndo } from "./undoPerformReplay.js";

@@ -123,16 +123,20 @@ export function FreeField(props: {
 
   // Handle double-click on a battlefield permanent
   const handleDoubleClick = useCallback((perm: BattlefieldPermanent) => {
-    if (!canActivate || !onActivateAbility || perm.controller !== playerId) return;
+    if (!onActivateAbility) return;
+    const isOwnPermanent = String(perm.controller || '') === String(playerId || '');
+    if (isOwnPermanent && !canActivate) return;
+    if (!isOwnPermanent && !hasPriority) return;
 
     const kc = perm.card as KnownCardRef;
     if (!kc) return;
 
     // Parse abilities from the card (include quoted grants from attachments)
-    const abilities = parseActivatedAbilities(kc, perm.grantedAbilities, {
+    const parsed = parseActivatedAbilities(kc, perm.grantedAbilities, {
       permanent: perm,
       battlefield: allBattlefieldPerms || perms,
     });
+    const abilities = isOwnPermanent ? parsed : parsed.filter((ability) => ability.anyPlayerMayActivate);
     if (abilities.length === 0) return;
 
     // Build activation context

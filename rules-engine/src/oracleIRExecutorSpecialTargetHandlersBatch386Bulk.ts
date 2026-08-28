@@ -1,4 +1,5 @@
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
+import { normalizeCreatureTypeWord } from '../../shared/src/creatureTypes';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { finalizeBattlefieldRemoval, permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
@@ -349,16 +350,22 @@ export function tryBatch386RegenerateStep(
   ctx: OracleIRExecutionContext
 ): Batch386StepResult | null {
   const target = normalizeTargetText(step);
-  if (!/regenerate all werewolf creatures you control/i.test(target) && !/all werewolf creatures you control/i.test(target)) {
+  const regenerateAll =
+    target.match(/regenerate all ([a-z]+) creatures you control/i)
+    ?? target.match(/all ([a-z]+) creatures you control/i);
+  const typeName = regenerateAll ? normalizeCreatureTypeWord(String(regenerateAll[1] || '')) : null;
+  if (!typeName) {
     return null;
   }
   const controllerId = String(ctx.controllerId || 'p1').trim();
-  const werewolves = ((state.battlefield || []) as BattlefieldPermanent[]).filter((perm: any) => {
+  const typeLabel = `${typeName.charAt(0).toUpperCase()}${typeName.slice(1)}`;
+  const typeNeedle = new RegExp(`\\b${typeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+  const typedCreatures = ((state.battlefield || []) as BattlefieldPermanent[]).filter((perm: any) => {
     if (String(perm?.controller || '').trim() !== controllerId) return false;
     if (!permanentMatchesType(perm, 'creature')) return false;
-    return typeLineHasSubtype(perm, 'werewolf') || /\bwerewolf\b/i.test(getExecutorTypeLineLower(perm));
+    return typeLineHasSubtype(perm, typeName) || typeNeedle.test(getExecutorTypeLineLower(perm));
   });
-  const shields = werewolves.map((perm: any) =>
+  const shields = typedCreatures.map((perm: any) =>
     createRegenerationShield(String(perm?.id || '').trim(), controllerId)
   );
   return {
@@ -370,7 +377,7 @@ export function tryBatch386RegenerateStep(
         ...shields,
       ],
     } as GameState,
-    log: [`Created regeneration shield(s) for ${werewolves.length} Werewolf creature(s)`],
+    log: [`Created regeneration shield(s) for ${typedCreatures.length} ${typeLabel} creature(s)`],
   };
 }
 

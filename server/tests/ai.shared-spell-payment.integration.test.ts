@@ -1300,6 +1300,205 @@ describe('AI shared spell-payment integration', () => {
     expect(Math.max(...forestIndexes)).toBeLessThan(threeTreeIndex);
   });
 
+  it('does not stop generic payment at Three Tree City invest when free lands cover the cost', async () => {
+    const gameId = createTestGameId('three_tree_city_generic_free_taps');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      ...Array.from({ length: 8 }, (_, index) => ({
+        id: `forest_${index + 1}`,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: `forest_card_${index + 1}`,
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '({T}: Add {G}.)',
+        },
+      })),
+      {
+        id: 'three_tree_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        chosenCreatureType: 'Elf',
+        card: {
+          id: 'three_tree_card_1',
+          name: 'Three Tree City',
+          type_line: 'Legendary Land',
+          oracle_text:
+            'As Three Tree City enters, choose a creature type.\n' +
+            '{T}: Add {C}.\n' +
+            '{2}, {T}: Choose a color. Add an amount of mana of that color equal to the number of creatures you control of the chosen type.',
+        },
+      },
+      ...Array.from({ length: 4 }, (_, index) => ({
+        id: `elf_${index + 1}`,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: `elf_card_${index + 1}`,
+          name: `Elf ${index + 1}`,
+          type_line: 'Creature — Elf',
+          oracle_text: '',
+          power: '1',
+          toughness: '1',
+        },
+      })),
+    ];
+
+    // Eight Forests already make {8}. Using the {2} invest line plus only four Forests nets 6.
+    const parsedCost = parseManaCost('{8}');
+    expect(canAIAssembleSpellPaymentPlan(game, playerId as any, parsedCost)).toBe(true);
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{8}',
+      totalManaCost: '{8}',
+    });
+    expect(plan).not.toBeNull();
+    const payment = plan?.payment || [];
+    const forestCount = payment.filter((entry) => String(entry.permanentId || '').startsWith('forest_')).length;
+    expect(forestCount).toBeGreaterThanOrEqual(8);
+  });
+
+  it('includes enough free lands to pay Three Tree City {2} when invest is required for generic', async () => {
+    const gameId = createTestGameId('three_tree_city_generic_invest_net');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      ...Array.from({ length: 6 }, (_, index) => ({
+        id: `forest_${index + 1}`,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: `forest_card_${index + 1}`,
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '({T}: Add {G}.)',
+        },
+      })),
+      {
+        id: 'three_tree_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        chosenCreatureType: 'Elf',
+        card: {
+          id: 'three_tree_card_1',
+          name: 'Three Tree City',
+          type_line: 'Legendary Land',
+          oracle_text:
+            'As Three Tree City enters, choose a creature type.\n' +
+            '{T}: Add {C}.\n' +
+            '{2}, {T}: Choose a color. Add an amount of mana of that color equal to the number of creatures you control of the chosen type.',
+        },
+      },
+      ...Array.from({ length: 4 }, (_, index) => ({
+        id: `elf_${index + 1}`,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: `elf_card_${index + 1}`,
+          name: `Elf ${index + 1}`,
+          type_line: 'Creature — Elf',
+          oracle_text: '',
+          power: '1',
+          toughness: '1',
+        },
+      })),
+    ];
+
+    // Six Forests + {C} = 7. Invest: 6 - {2} + 4 = 8.
+    const parsedCost = parseManaCost('{8}');
+    expect(canAIAssembleSpellPaymentPlan(game, playerId as any, parsedCost)).toBe(true);
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{8}',
+      totalManaCost: '{8}',
+    });
+    expect(plan).not.toBeNull();
+    const payment = plan?.payment || [];
+    expect(payment.some((entry) => entry.permanentId === 'three_tree_1')).toBe(true);
+    const forestCount = payment.filter((entry) => String(entry.permanentId || '').startsWith('forest_')).length;
+    expect(forestCount).toBeGreaterThanOrEqual(6);
+  });
+
   it('uses Nyx Lotus devotion choose-a-color mana for spell payment', async () => {
     const gameId = createTestGameId('nyx_lotus_devotion');
     createGameIfNotExists(gameId, 'commander', 40);
@@ -1529,6 +1728,124 @@ describe('AI shared spell-payment integration', () => {
     expect(payment.some((entry) => entry.permanentId === 'itlimoc_1')).toBe(true);
     expect(payment.every((entry) => entry.permanentId === 'itlimoc_1')).toBe(true);
     expect(String(payment[0]?.mana || '').toUpperCase()).toBe('G');
+  });
+
+  it('pays Elemental Bond with Sunpetal Grove for {G} and Secluded Courtyard {C} for generic', async () => {
+    const gameId = createTestGameId('secluded_courtyard_generic_c');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const elementalBond = {
+      id: 'bond_card_1',
+      name: 'Elemental Bond',
+      type_line: 'Enchantment',
+      mana_cost: '{2}{G}',
+      oracle_text: 'Whenever a creature you control with power 3 or greater enters, draw a card.',
+    };
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [elementalBond],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).pendingSpellCasts = {
+      cast_bond_1: {
+        cardId: elementalBond.id,
+        cardName: elementalBond.name,
+        card: elementalBond,
+        playerId,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'sunpetal_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'sunpetal_card_1',
+          name: 'Sunpetal Grove',
+          type_line: 'Land',
+          oracle_text: 'Sunpetal Grove enters tapped unless you control two or more basic lands.\n{T}: Add {G} or {W}.',
+        },
+      },
+      {
+        id: 'mountain_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'mountain_card_1',
+          name: 'Mountain',
+          type_line: 'Basic Land — Mountain',
+          oracle_text: '{T}: Add {R}.',
+        },
+      },
+      {
+        id: 'courtyard_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        chosenCreatureType: 'Elf',
+        card: {
+          id: 'courtyard_card_1',
+          name: 'Secluded Courtyard',
+          type_line: 'Land',
+          oracle_text:
+            'As this land enters, choose a creature type.\n{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type or activate an ability of a creature source of the chosen type.',
+        },
+      },
+    ];
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{2}{G}',
+      totalManaCost: '{2}{G}',
+      effectId: 'cast_bond_1',
+      cardId: elementalBond.id,
+      card: elementalBond,
+    });
+
+    expect(plan).not.toBeNull();
+    const payment = plan?.payment || [];
+    expect(payment).toHaveLength(3);
+
+    const sunpetal = payment.find((entry) => entry.permanentId === 'sunpetal_1');
+    const courtyard = payment.find((entry) => entry.permanentId === 'courtyard_1');
+    const mountain = payment.find((entry) => entry.permanentId === 'mountain_1');
+    expect(String(sunpetal?.mana || '').toUpperCase()).toBe('G');
+    expect(mountain).toBeTruthy();
+    expect(String(courtyard?.mana || '').toUpperCase()).toBe('C');
+    expect(String(courtyard?.abilityId || '')).toBe('courtyard_card_1-ability-0');
   });
 });
 

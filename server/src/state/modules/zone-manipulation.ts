@@ -218,68 +218,66 @@ export function handleEldraziShuffle(
   );
 }
 
-/**
- * Detect if a card has the graveyard shuffle trigger.
- * Checks both known cards and dynamic pattern matching.
- * 
- * Patterns:
- * - "shuffle your graveyard into your library"
- * - "shuffle this card and your graveyard into their owner's library"
- * - Eldrazi titans: "when put into graveyard from anywhere"
- * 
- * @param card Card to check
- * @returns True if card has graveyard shuffle trigger
- */
-export function hasGraveyardShuffleTrigger(card: any): boolean {
-  if (!card) return false;
-
-  const oracleText = String(card.oracle_text || '').toLowerCase();
-
-  if (
-    oracleText
-    && /(?:when|whenever)\b[^.]*\bis put into a graveyard from anywhere\b/.test(oracleText)
-    && /shuffles? (?:their )?graveyard into (?:their )?library/.test(oracleText)
-  ) {
-    return true;
-  }
-
-  const name = String(card.name || '').toLowerCase();
-
-  if (hasGraveyardSelfShuffleIntoLibraryReplacement(card)) {
-    return false;
-  }
-
-  if (hasGraveyardMassShuffleIntoLibraryTrigger(card)) {
-    return true;
-  }
-
-  // Known cards with graveyard shuffle triggers (non-oracle fallbacks)
-  const knownShufflers = [
-    'ulamog, the infinite gyre',
-    'kozilek, butcher of truth',
-    'emrakul, the aeons torn',
-  ];
-
-  if (knownShufflers.includes(name)) {
-    return true;
-  }
-
-  // Pattern matching
-  if (oracleText.includes('shuffle') && oracleText.includes('graveyard') && oracleText.includes('library')) {
-    // Check it's a trigger, not just mentioning the effect
-    if (oracleText.includes('when') || oracleText.includes('whenever')) {
-      return true;
-    }
-  }
-
-  return false;
+function readGraveyardShuffleOracle(card: any): string {
+  return String(card?.oracle_text || card?.card?.oracle_text || '').toLowerCase();
 }
 
-/** Eldrazi-style GY trigger: shuffle entire graveyard into library (not Blightsteel self-shuffle). */
+export function hasGraveyardShuffleTrigger(card: any): boolean {
+  if (!card) return false;
+  if (hasGraveyardSelfShuffleIntoLibraryReplacement(card)) return false;
+  return hasGraveyardMassShuffleIntoLibraryTrigger(card)
+    || hasGraveyardShuffleFromLibraryTrigger(card);
+}
+
+/**
+ * Eldrazi titans: "When ~ is put into a graveyard from anywhere, its owner
+ * shuffles their graveyard into their library." Not spell effects like Reminisce.
+ */
 export function hasGraveyardMassShuffleIntoLibraryTrigger(card: any): boolean {
-  const oracleText = String(card?.oracle_text || card?.card?.oracle_text || '').toLowerCase();
+  const oracleText = readGraveyardShuffleOracle(card);
   if (!oracleText) return false;
-  return /shuffles? (?:their )?graveyard into (?:their )?library/.test(oracleText);
+  return /(?:when|whenever)\b[^.]*\bis put into a graveyard from anywhere\b[^.]*shuffles? (?:their )?graveyard into (?:their )?library/.test(oracleText);
+}
+
+/**
+ * Gaea's Blessing: "When this card is put into your graveyard from your library,
+ * shuffle your graveyard into your library." Does not fire from stack/hand/BF.
+ */
+export function hasGraveyardShuffleFromLibraryTrigger(card: any): boolean {
+  const oracleText = readGraveyardShuffleOracle(card);
+  if (!oracleText) return false;
+  return /(?:when|whenever)\b[^.]*\bis put into (?:your |a )?graveyard from your library\b[^.]*(?:shuffle|shuffles) (?:your |their )?graveyard into (?:your |their )?library/.test(oracleText);
+}
+
+function graveyardShuffleTriggerApplies(card: any, sourceZone?: string): boolean {
+  if (hasGraveyardMassShuffleIntoLibraryTrigger(card)) return true;
+  if (!hasGraveyardShuffleFromLibraryTrigger(card)) return false;
+  const fromZone = String(
+    sourceZone || card?.putIntoGraveyardFrom || card?.zone || card?.card?.zone || '',
+  ).toLowerCase();
+  return fromZone === 'library';
+}
+
+/**
+ * Apply Eldrazi / Gaea's Blessing mass GY-into-library triggers after a card
+ * actually enters the graveyard. `sourceZone` is the zone it left.
+ */
+export function checkGraveyardTrigger(
+  ctx: GameContext,
+  card: any,
+  ownerId: string,
+  sourceZone?: string,
+): boolean {
+  if (!graveyardShuffleTriggerApplies(card, sourceZone)) return false;
+
+  const shuffledCount = handleEldraziShuffle(ctx, ownerId, card);
+  if (shuffledCount > 0) {
+    if (ctx.bumpSeq && typeof ctx.bumpSeq === 'function') {
+      ctx.bumpSeq();
+    }
+    return true;
+  }
+  return false;
 }
 
 /**

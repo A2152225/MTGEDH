@@ -1,9 +1,11 @@
 // server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerVoteJoinForcesPrompts.ts
 // Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
-// Cluster moved: queueJoinForcesPromptsFromOracleIRResult and
+// Cluster moved: queueJoinForcesPromptsFromOracleIRResult,
+//   queueTemptingOfferPromptsFromOracleIRResult, and
 //   queueVotePromptsFromOracleIRResult, plus the vote helpers they close
 //   over (buildVoteBallotChoices, buildApnapVoterOrder).
 // Public entry symbols: queueJoinForcesPromptsFromOracleIRResult,
+//   queueTemptingOfferPromptsFromOracleIRResult,
 //   queueVotePromptsFromOracleIRResult.
 // Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
 
@@ -17,6 +19,7 @@ import { resolvePlayers } from '../../../../../rules-engine/src/oracleIRExecutor
 import type { GameContext } from '../../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
 import { queueJoinForcesResolutionSteps } from '../joinForcesResolutionQueue.js';
+import { queueTemptingOfferResolutionSteps } from '../temptingOfferResolutionQueue.js';
 import {
   attachOracleIrResumeMetadata,
   findSkippedOracleStep,
@@ -132,6 +135,47 @@ export function queueJoinForcesPromptsFromOracleIRResult(
       oracleIrControllerId: String(resumePayload.oracleIrControllerId || params.controller).trim() || undefined,
       oracleIrSourceId: String(resumePayload.oracleIrSourceId || sourceId || '').trim() || undefined,
       oracleIrSourceName: String(resumePayload.oracleIrSourceName || sourceName).trim() || undefined,
+    });
+    return;
+  }
+}
+
+export function queueTemptingOfferPromptsFromOracleIRResult(
+  ctx: GameContext,
+  _state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  for (const gap of result.automationGaps || []) {
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
+    if (String(gap.stepKind || '') !== 'tempting_offer') continue;
+
+    const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'tempting_offer' }> | undefined;
+    if (!step || step.kind !== 'tempting_offer') continue;
+
+    const sourceName = String(params.sourceName || 'Tempting Offer Spell').trim() || 'Tempting Offer Spell';
+    const sourceId = String(params.sourceId || '').trim() || undefined;
+    const continuationRaw = (result.pendingContinuationSteps || [])
+      .map((entry) => String((entry as { raw?: string }).raw || '').trim())
+      .filter(Boolean)
+      .join(' ');
+    const effectDescription = [String(step.raw || '').trim(), continuationRaw].filter(Boolean).join(' ');
+
+    queueTemptingOfferResolutionSteps(ctx, {
+      controller: params.controller,
+      cardName: sourceName,
+      sourceId,
+      sourceName,
+      effectDescription: effectDescription || String(step.raw || sourceName),
+      logPrefix: 'oracleIR temptingOffer',
     });
     return;
   }

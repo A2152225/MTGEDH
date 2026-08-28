@@ -97,6 +97,8 @@ export interface ActivatedAbilityButtonsProps {
   position?: 'left' | 'bottom' | 'loyalty-inline';
   // Filter to show only loyalty abilities (for planeswalkers)
   loyaltyAbilitiesOnly?: boolean;
+  /** Viewing player; opponent permanents only show any-player-activatable abilities. */
+  viewerPlayerId?: string;
 }
 
 /**
@@ -441,6 +443,7 @@ export function ActivatedAbilityButtons({
   maxVisible = 3,
   position = 'left',
   loyaltyAbilitiesOnly = false,
+  viewerPlayerId,
 }: ActivatedAbilityButtonsProps) {
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -493,16 +496,21 @@ export function ActivatedAbilityButtons({
       };
     });
   }, [abilities, battlefield, context, perm]);
+
+  const viewingOtherController = !!viewerPlayerId && String(perm.controller || '') !== String(viewerPlayerId);
+  const ownershipFilteredAbilities = viewingOtherController
+    ? annotatedAbilities.filter((entry) => entry.ability.anyPlayerMayActivate)
+    : annotatedAbilities;
   
   // Don't show anything if no abilities
-  if (annotatedAbilities.length === 0) {
+  if (ownershipFilteredAbilities.length === 0) {
     return null;
   }
   
   // Filter abilities if loyaltyAbilitiesOnly is set
   const filteredAbilities = loyaltyAbilitiesOnly 
-    ? annotatedAbilities.filter(a => a.ability.isLoyaltyAbility)
-    : annotatedAbilities;
+    ? ownershipFilteredAbilities.filter(a => a.ability.isLoyaltyAbility)
+    : ownershipFilteredAbilities;
   
   // Return null if filtering leaves no abilities
   if (filteredAbilities.length === 0) {

@@ -51,6 +51,35 @@ describe('trigger scry and surveil oracle IR fallback', () => {
     expect((scryStep as any)?.persistOracleIrScryResolve).toBe(true);
   });
 
+  it('queues scry 1 from Lifecrafter\'s Bestiary even if the controller still has leftGame', () => {
+    const gameId = 'trigger_scry_ir_stale_leave';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.importDeckResolved(p1, makeLibrary('p1', 5) as any);
+    const sitting = (game.state.players || []).find((entry: any) => entry.id === p1) as any;
+    sitting.leftGame = true;
+    sitting.conceded = true;
+    sitting.departureMode = 'leave';
+
+    const ctx = game as any;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    executeTriggerEffect(ctx, p1, "Lifecrafter's Bestiary", 'scry 1', {
+      type: 'triggered_ability',
+      controller: p1,
+      sourceId: 'bestiary_source',
+      id: 'bestiary_upkeep',
+      triggerType: 'upkeep',
+    });
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(gameId, p1);
+    const scryStep = steps.find(step => step.type === ResolutionStepType.SCRY);
+    expect(scryStep).toBeTruthy();
+    expect((scryStep as any)?.scryCount).toBe(1);
+  });
+
   it('queues surveil via oracle IR when a trigger effect surveils', () => {
     const gameId = 'trigger_surveil_ir';
     const game = createInitialGameState(gameId);

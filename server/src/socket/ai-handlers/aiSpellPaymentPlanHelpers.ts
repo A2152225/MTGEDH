@@ -20,6 +20,7 @@ import {
   consumeManaFromPool,
   getOrInitManaPool,
   validateManaPayment,
+  type RestrictedManaSpendPurpose,
 } from "../util.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { COLOR_IDENTITY_MAP } from "./aiConstants.js";
@@ -40,8 +41,30 @@ function getPaymentSources(
   game: any,
   playerId: PlayerID,
   cost: { colors: Record<string, number>; generic: number },
+  options?: { restrictedSpendPurpose?: RestrictedManaSpendPurpose },
 ) {
-  return getAIHandlerDeps().getPaymentSources(game, playerId, cost);
+  return getAIHandlerDeps().getPaymentSources(game, playerId, cost, options);
+}
+
+function buildAISpellRestrictedManaPurpose(card: any): RestrictedManaSpendPurpose | undefined {
+  if (!card) return undefined;
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  return {
+    spellCard: card,
+    ...(typeLine.includes('creature') ? { isCreature: true } : {}),
+    ...(typeLine.includes('artifact') ? { isArtifact: true } : {}),
+    ...(typeLine.includes('legendary') ? { isLegendary: true } : {}),
+    ...((/\binstant\b/.test(typeLine) || /\bsorcery\b/.test(typeLine)) ? { isInstantOrSorcery: true } : {}),
+  };
+}
+
+function resolveAISpellPaymentSpellCard(game: any, step: any): any {
+  const effectId = String(step?.effectId || '').trim();
+  const pendingCast = effectId ? (game?.state as any)?.pendingSpellCasts?.[effectId] : undefined;
+  return pendingCast?.card
+    || step?.spellCastContext?.card
+    || step?.card
+    || null;
 }
 
 async function executeAIActivateAbility(
@@ -189,16 +212,22 @@ export function buildAIAvailableManaForSpellPayment(
       const activationCostText = String(manaInfo?.activationCost || '').trim();
       if (activationCostText) {
         const parsedActivation = parseManaCost(activationCostText);
-        if (validateManaPayment(totalAvailable, parsedActivation.colors, parsedActivation.generic)) {
-          // Cannot pay this source's activation cost from floated mana — ignore it.
-          continue;
+        const hasManaActivation = Number(parsedActivation.generic || 0) > 0
+          || Object.values(parsedActivation.colors || {}).some((value) => Number(value || 0) > 0);
+        // `{T}` / `{Q}` are not mana costs — consuming them only spams logs and can
+        // look like the AI is looping on Three Tree City / similar dual-ability lands.
+        if (hasManaActivation) {
+          if (validateManaPayment(totalAvailable, parsedActivation.colors, parsedActivation.generic)) {
+            // Cannot pay this source's activation cost from floated mana — ignore it.
+            continue;
+          }
+          consumeManaFromPool(
+            totalAvailable,
+            parsedActivation.colors,
+            parsedActivation.generic,
+            `[aiSpellPaymentActivation:${String(permanent?.card?.name || source.sourceId)}]`,
+          );
         }
-        consumeManaFromPool(
-          totalAvailable,
-          parsedActivation.colors,
-          parsedActivation.generic,
-          `[aiSpellPaymentActivation:${String(permanent?.card?.name || source.sourceId)}]`,
-        );
       }
 
       const poolKey = COLOR_IDENTITY_MAP[String(source.produceColor || '').toUpperCase()] || 'colorless';
@@ -228,6 +257,7 @@ export function buildAISpellPaymentPlan(
     playerId: PlayerID,
     parsedCost: ReturnType<typeof parseManaCost>,
     excludePermanentIds: string[] = [],
+    restrictedSpendPurpose?: RestrictedManaSpendPurpose,
   ): { payment: Array<{ permanentId: string; mana: string; count?: number; abilityId?: string }> } | null {
     const excluded = new Set(excludePermanentIds.map((id) => String(id || '').trim()).filter(Boolean));
     if (canAIPaySpellCostWithPaymentSources(game, playerId, parsedCost, [])) {
@@ -237,7 +267,7 @@ export function buildAISpellPaymentPlan(
     const paymentSources = getPaymentSources(game, playerId, {
       colors: { ...(parsedCost.colors || {}) },
       generic: Number(parsedCost.generic || 0),
-    }).filter((source) => !excluded.has(String(source.sourceId || '')));
+    }, restrictedSpendPurpose ? { restrictedSpendPurpose } : undefined).filter((source) => !excluded.has(String(source.sourceId || '')));
     if (!canAIPaySpellCostWithPaymentSources(game, playerId, parsedCost, paymentSources)) {
       return null;
     }
@@ -266,8 +296,10 @@ export function cloneAISpellPaymentSimulationGame(game: any): any {
     playerId: PlayerID,
     parsedCost: ReturnType<typeof parseManaCost>,
     excludedHandCardIds?: string[],
+    spellCard?: any,
   ): boolean {
-    if (buildAISpellPaymentPlan(game, playerId, parsedCost) !== null) {
+    const purpose = buildAISpellRestrictedManaPurpose(spellCard);
+    if (buildAISpellPaymentPlan(game, playerId, parsedCost, [], purpose) !== null) {
       return true;
     }
 
@@ -280,7 +312,7 @@ export function cloneAISpellPaymentSimulationGame(game: any): any {
         break;
       }
 
-      if (buildAISpellPaymentPlan(simulatedGame, playerId, parsedCost) !== null) {
+      if (buildAISpellPaymentPlan(simulatedGame, playerId, parsedCost, [], purpose) !== null) {
         return true;
       }
     }
@@ -385,8 +417,9 @@ export function getAINonTapManaAbilityCandidates(
       ? String(step?.permanentId || step?.sourceId || '').trim()
       : '';
     const excludePermanentIds = activatingPermanentId ? [activatingPermanentId] : [];
+    const restrictedSpendPurpose = buildAISpellRestrictedManaPurpose(resolveAISpellPaymentSpellCard(game, step));
 
-    const buildPlan = () => buildAISpellPaymentPlan(game, playerId, parsedCost, excludePermanentIds);
+    const buildPlan = () => buildAISpellPaymentPlan(game, playerId, parsedCost, excludePermanentIds, restrictedSpendPurpose);
 
     let plan = buildPlan();
     if (plan) return plan;

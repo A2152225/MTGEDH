@@ -148,6 +148,7 @@ describe('AI management authorization (integration)', () => {
     (game.state as any).players = [{ id: creator, name: 'P1', spectator: false, life: 40 }];
     (game.state as any).startingLife = 40;
     (game.state as any).life = { [creator]: 40 };
+    (game.state as any).phase = 'PRE_GAME';
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(creator, emitted);
@@ -167,6 +168,211 @@ describe('AI management authorization (integration)', () => {
 
     const aiPlayer = (game.state as any).players.find((p: any) => p && p.isAI);
     expect(aiPlayer).toBeTruthy();
+  });
+
+  it('allows creator to remove an AI during pre-game', async () => {
+    const creator = 'p1';
+    const aiId = 'ai_remove_me';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, creator);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: creator, name: 'P1', spectator: false, life: 40 },
+      { id: aiId, name: 'AI Opponent', spectator: false, life: 40, isAI: true },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [creator]: 40, [aiId]: 40 };
+    (game.state as any).phase = 'PRE_GAME';
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(creator, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerAIHandlers(io as any, socket as any);
+
+    await handlers['removeAIFromGame']({ gameId, aiPlayerId: aiId });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err).toBeUndefined();
+    expect((game.state as any).players.some((p: any) => p?.id === aiId)).toBe(false);
+    expect(emitted.find(e => e.event === 'aiPlayerRemoved')?.payload?.aiPlayerId).toBe(aiId);
+  });
+
+  it('rejects removeAIFromGame for a human seat', async () => {
+    const creator = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, creator);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: creator, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [creator]: 40 };
+    (game.state as any).phase = 'PRE_GAME';
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(creator, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerAIHandlers(io as any, socket as any);
+
+    await handlers['removeAIFromGame']({ gameId, aiPlayerId: creator });
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('AI_NOT_FOUND');
+    expect((game.state as any).players.length).toBe(1);
+  });
+
+  it('rejects removeAIFromGame after the game has left pre-game', async () => {
+    const creator = 'p1';
+    const aiId = 'ai_stuck';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, creator);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: creator, name: 'P1', spectator: false, life: 40 },
+      { id: aiId, name: 'AI Opponent', spectator: false, life: 40, isAI: true },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [creator]: 40, [aiId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(creator, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerAIHandlers(io as any, socket as any);
+
+    await handlers['removeAIFromGame']({ gameId, aiPlayerId: aiId });
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('AI_NOT_PREGAME');
+    expect((game.state as any).players.some((p: any) => p?.id === aiId)).toBe(true);
+  });
+
+  it('rejects removeAIFromGame once every seated player has kept their hand', async () => {
+    const creator = 'p1';
+    const aiId = 'ai_kept';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, creator);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: creator, name: 'P1', spectator: false, life: 40 },
+      { id: aiId, name: 'AI Opponent', spectator: false, life: 40, isAI: true },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [creator]: 40, [aiId]: 40 };
+    (game.state as any).phase = 'PRE_GAME';
+    (game.state as any).mulliganState = {
+      [creator]: { hasKeptHand: true, mulligansTaken: 0, pendingBottomCount: 0 },
+      [aiId]: { hasKeptHand: true, mulligansTaken: 0, pendingBottomCount: 0 },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(creator, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerAIHandlers(io as any, socket as any);
+
+    await handlers['removeAIFromGame']({ gameId, aiPlayerId: aiId });
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('AI_HANDS_LOCKED');
+    expect((game.state as any).players.some((p: any) => p?.id === aiId)).toBe(true);
+  });
+
+  it('rejects addAIToGame after the game has left pre-game', async () => {
+    const creator = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, creator);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: creator, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [creator]: 40 };
+    (game.state as any).phase = 'precombatMain';
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(creator, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerAIHandlers(io as any, socket as any);
+
+    const before = (game.state as any).players.length;
+    await handlers['addAIToGame']({ gameId, aiName: 'AI Opponent' });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('AI_NOT_PREGAME');
+    expect((game.state as any).players.length).toBe(before);
+  });
+
+  it('rejects addAIToGame once every seated player has kept their hand', async () => {
+    const creator = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, creator);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: creator, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [creator]: 40 };
+    (game.state as any).phase = 'PRE_GAME';
+    (game.state as any).mulliganState = {
+      [creator]: { hasKeptHand: true, mulligansTaken: 0, pendingBottomCount: 0 },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(creator, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerAIHandlers(io as any, socket as any);
+
+    const before = (game.state as any).players.length;
+    await handlers['addAIToGame']({ gameId, aiName: 'AI Opponent' });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('AI_HANDS_LOCKED');
+    expect((game.state as any).players.length).toBe(before);
+  });
+
+  it('rejects addAIToGame when the table is already at 10 seats', async () => {
+    const creator = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, creator);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = Array.from({ length: 10 }, (_, i) => ({
+      id: i === 0 ? creator : `p${i + 1}`,
+      name: `P${i + 1}`,
+      spectator: false,
+      life: 40,
+    }));
+    (game.state as any).startingLife = 40;
+    (game.state as any).phase = 'PRE_GAME';
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(creator, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerAIHandlers(io as any, socket as any);
+
+    await handlers['addAIToGame']({ gameId, aiName: 'AI Opponent' });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('AI_TABLE_FULL');
+    expect((game.state as any).players.length).toBe(10);
   });
 
   it('rejects creator addAIToGame when not in the game room', async () => {

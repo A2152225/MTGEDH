@@ -17,8 +17,9 @@ import { getAvailableMana, parseManaCost, getTotalManaFromPool } from "../../sta
 import { buildCounterRemovalCostOptions } from "../../state/modules/counter-removal-costs.js";
 import { debugWarn } from "../../utils/debug.js";
 import type { AdditionalCostResult } from "../land-helpers.js";
-import { AI_MANA_COLOR_PRIORITY, COLOR_IDENTITY_MAP } from "./aiConstants.js";
+import { collectAIManaColorNeedWeights, pickAIManaColorByNeedWeights } from "./aiManaColorNeedHelpers.js";
 import { calculateCardThemeAlignment, ensureAIDeckProfile } from "./aiDeckProfileHandlers.js";
+import { permanentCannotActivateTapAbilities } from "../../state/modules/staticEffectSpecActivationLocks.js";
 
 /**
  * Determine what color of mana a permanent can produce based on its type and oracle text
@@ -65,7 +66,8 @@ export function getManaProduction(card: any): string[] {
        oracleText.includes('add one mana of any type')) &&
       !oracleText.includes('land an opponent controls') && // Exclude Exotic Orchard, Fellwar Stone
       !oracleText.includes('opponents control')) { // Exclude other conditional cards
-    return ['W', 'U', 'B', 'R', 'G']; // Can produce any color
+    // Keep {C} from a separate tap (Secluded Courtyard / Cavern of Souls / Unclaimed Territory).
+    return [...new Set(['W', 'U', 'B', 'R', 'G', ...colors])];
   }
   
   // Sol Ring and similar - "Add {C}{C}" means it produces 2 colorless
@@ -145,19 +147,8 @@ export function chooseAIManaColorForActivation(game: any, playerId: PlayerID, pr
     green: 0,
     colorless: 0,
   };
-
-  const coloredCandidates = producedColors.filter((color) => color !== 'C');
-  const candidates = coloredCandidates.length > 0 ? coloredCandidates : producedColors;
-
-  return [...candidates].sort((left, right) => {
-    const leftKey = COLOR_IDENTITY_MAP[left] || 'colorless';
-    const rightKey = COLOR_IDENTITY_MAP[right] || 'colorless';
-    const leftCount = Number((manaPool as any)[leftKey] || 0);
-    const rightCount = Number((manaPool as any)[rightKey] || 0);
-
-    if (leftCount !== rightCount) return leftCount - rightCount;
-    return AI_MANA_COLOR_PRIORITY.indexOf(left) - AI_MANA_COLOR_PRIORITY.indexOf(right);
-  })[0] || 'C';
+  const needWeights = collectAIManaColorNeedWeights(game, playerId);
+  return pickAIManaColorByNeedWeights(producedColors, needWeights, manaPool as any);
 }
 
 export function applyAIManaLifeLoss(game: any, playerId: PlayerID, amount: number, trackDamage: boolean): void {
@@ -333,6 +324,7 @@ export function calculateAvailableMana(game: any, playerId: PlayerID): { total: 
       
       // Creatures with summoning sickness can't tap for mana
       if (hasCreatureSummoningSickness(perm)) continue;
+      if (permanentCannotActivateTapAbilities(perm, game.state)) continue;
       
       let producedColors = getManaProduction(perm.card);
       

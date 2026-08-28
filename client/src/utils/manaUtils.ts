@@ -4,6 +4,20 @@
  */
 import type { PaymentItem, ManaColor } from '../../../shared/src';
 import type { SacrificeType } from '../../../shared/src/textUtils';
+import type { RestrictedManaPoolEntry, RestrictedManaSpendPurpose } from './manaRestrictedSpendPurpose';
+import { canUseRestrictedManaClient } from './manaRestrictedSpendPurpose';
+import {
+  chargeSourceActivationCost,
+  getSourceActivationManaPips,
+  tryAssignFixedMixedManaBundle,
+} from './manaSuggestedPaymentActivation';
+
+export type { RestrictedManaPoolEntry, RestrictedManaSpendPurpose } from './manaRestrictedSpendPurpose';
+export {
+  typeLineIndicatesArtifactSpell,
+  canUseRestrictedManaClient,
+  buildRestrictedManaPurposeForSpell,
+} from './manaRestrictedSpendPurpose';
 
 export type Color = ManaColor;
 
@@ -42,6 +56,11 @@ export interface ManaPaymentSource {
   /** Mana produced by a single activation (e.g. Sol Ring = 2). Distinct from availableQuantity. */
   amount?: number;
   /**
+   * Extra mana added when this source is tapped (Fertile Ground, Wild Growth, Utopia Sprawl).
+   * Native `options`/`amount` stay the land's own ability; these chunks are independent.
+   */
+  manaBonuses?: Array<{ options: Color[]; amount: number; sameColor?: boolean }>;
+  /**
    * Number of identical usable copies represented by this row (grouped tokens / collapsed twins).
    * Default 1. Suggest/capacity treats total mana as (mana per activation) * availableQuantity.
    */
@@ -60,6 +79,11 @@ export interface ManaPaymentSource {
    * Auto-pay and manual selection must not assign this source when purpose fails the check.
    */
   spendRestriction?: { restriction: string; restrictedTo?: string };
+  /**
+   * Extra mana to activate this ability, excluding {T} (Signet `{1}`, Three Tree `{2}`).
+   * Auto-pay must float this from other sources/pool in the same payment, and tap those first.
+   */
+  activationManaCost?: string;
 }
 
 function normalizeProducedColors(producedColors?: readonly string[]): Color[] {
@@ -196,103 +220,6 @@ export function computeColorsNeededByOtherCards(otherCards: OtherCardInfo[]): Se
     }
   }
   return neededColors;
-}
-
-export interface RestrictedManaPoolEntry {
-  type?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-  amount?: number;
-  restriction?: string;
-  restrictedTo?: string;
-}
-
-/** Purpose flags used to filter restricted floating mana (Vibranium/Powerstone, etc.). */
-export interface RestrictedManaSpendPurpose {
-  isCreature?: boolean;
-  isAbility?: boolean;
-  isArtifact?: boolean;
-  isActivatedAbility?: boolean;
-  isInstantOrSorcery?: boolean;
-  isLegendary?: boolean;
-  isMulticolored?: boolean;
-  isColorless?: boolean;
-  isCommander?: boolean;
-  spellCard?: { type_line?: string; mana_cost?: string; cmc?: number; name?: string } | null;
-}
-
-/** True when type_line is an artifact spell (Vehicle, Equipment, Artifact Creature, etc.). */
-export function typeLineIndicatesArtifactSpell(typeLine: string | null | undefined): boolean {
-  return /\bartifact\b/i.test(String(typeLine || ''));
-}
-
-/** Client-side mirror of server canUseRestrictedMana for auto-pay filtering. */
-export function canUseRestrictedManaClient(
-  entry: RestrictedManaPoolEntry,
-  purpose?: RestrictedManaSpendPurpose | null,
-): boolean {
-  const restriction = String(entry?.restriction || '').trim();
-  if (!restriction) return true;
-  const p = purpose || {};
-  switch (restriction) {
-    case 'creatures':
-      return p.isCreature === true;
-    case 'abilities':
-      return p.isAbility === true;
-    case 'artifacts':
-      return p.isArtifact === true;
-    case 'activated_abilities':
-      return p.isActivatedAbility === true;
-    case 'instant_sorcery':
-      return p.isInstantOrSorcery === true;
-    case 'legendary':
-      return p.isLegendary === true;
-    case 'multicolored':
-      return p.isMulticolored === true;
-    case 'commander':
-      return p.isCommander === true;
-    case 'colorless_spells':
-      return p.isColorless === true;
-    case 'no_nonartifact_spells': {
-      // Powerstone / Vibranium: cannot cast nonartifact spells; OK for abilities / artifact spells.
-      // Artifact includes Vehicle, Equipment, Fortification, etc. — not only Artifact Creature.
-      if (p.isActivatedAbility === true || p.isAbility === true) return true;
-      if (p.isArtifact === true) return true;
-      const spellCard = p.spellCard;
-      const spellTypeLine = String(spellCard?.type_line || '').trim();
-      if (spellTypeLine) {
-        return typeLineIndicatesArtifactSpell(spellTypeLine);
-      }
-      if (
-        p.isCreature === true
-        || p.isInstantOrSorcery === true
-        || p.isLegendary === true
-        || p.isMulticolored === true
-        || p.isColorless === true
-        || p.isCommander === true
-      ) {
-        return false;
-      }
-      // Unknown / non-cast context, or empty type_line without cast flags: allow.
-      return true;
-    }
-    default:
-      // Unknown restriction: exclude from auto-pay (safer than treating as free C).
-      return false;
-  }
-}
-
-export function buildRestrictedManaPurposeForSpell(spellCard?: { type_line?: string } | null): RestrictedManaSpendPurpose {
-  const rawTypeLine = String(spellCard?.type_line || '').trim();
-  const typeLine = rawTypeLine.toLowerCase();
-  const isArtifact = typeLineIndicatesArtifactSpell(rawTypeLine);
-  return {
-    // Only attach spellCard when type_line is present — empty type_line used to
-    // hard-fail no_nonartifact_spells and mark Vibranium restricted for Vehicles.
-    ...(rawTypeLine ? { spellCard: { ...spellCard, type_line: rawTypeLine } } : {}),
-    ...(typeLine.includes('creature') ? { isCreature: true } : {}),
-    ...(isArtifact ? { isArtifact: true } : {}),
-    ...((typeLine.includes('instant') || typeLine.includes('sorcery')) ? { isInstantOrSorcery: true } : {}),
-    ...(typeLine.includes('legendary') ? { isLegendary: true } : {}),
-  };
 }
 
 /**
@@ -563,10 +490,66 @@ export function getTotalManaProduction(options: Color[]): number {
   return 1;
 }
 
-/** Mana produced by one activation of this source (ignores availableQuantity). */
-export function getManaPerActivation(source: ManaPaymentSource): number {
+function getSourceBonusChunks(source: Pick<ManaPaymentSource, 'manaBonuses'>): Array<{ options: Color[]; amount: number; sameColor?: boolean }> {
+  return Array.isArray(source.manaBonuses)
+    ? source.manaBonuses.filter((chunk) => Array.isArray(chunk?.options) && Number(chunk.amount || 0) > 0)
+    : [];
+}
+
+export function getSourceBonusManaAmount(source: Pick<ManaPaymentSource, 'manaBonuses'>): number {
+  return getSourceBonusChunks(source).reduce((sum, chunk) => sum + Math.max(0, Number(chunk.amount || 0)), 0);
+}
+
+export function getSourceNativeManaAmount(source: ManaPaymentSource): number {
   if (typeof source.amount === 'number' && source.amount > 0) return source.amount;
   return getTotalManaProduction(source.options);
+}
+
+/** Mana produced by one activation of this source (ignores availableQuantity). */
+export function getManaPerActivation(source: ManaPaymentSource): number {
+  return getSourceNativeManaAmount(source) + getSourceBonusManaAmount(source);
+}
+
+export function getManaSourceDisplayOptions(source: Pick<ManaPaymentSource, 'options' | 'manaBonuses'>): Color[] {
+  const seen = new Set<Color>();
+  const display: Color[] = [];
+  for (const color of [...(source.options || []), ...getSourceBonusChunks(source).flatMap((chunk) => chunk.options)]) {
+    if (!MANA_COLORS.includes(color) || seen.has(color)) continue;
+    seen.add(color);
+    display.push(color);
+  }
+  return display;
+}
+
+function sourceCanProduceColor(source: Pick<ManaPaymentSource, 'options' | 'manaBonuses'>, color: Color): boolean {
+  if ((source.options || []).includes(color)) return true;
+  return getSourceBonusChunks(source).some((chunk) => chunk.options.includes(color));
+}
+
+export function buildProducedColorsForSelectedMana(source: ManaPaymentSource, selected: Color): Color[] | undefined {
+  const chunks = getSourceBonusChunks(source);
+  if (chunks.length === 0) {
+    return Array.isArray(source.producedColors) && source.producedColors.length > 0
+      ? [...source.producedColors]
+      : undefined;
+  }
+
+  const produced: Color[] = [];
+  if (Array.isArray(source.producedColors) && source.producedColors.length > 0) {
+    produced.push(...source.producedColors);
+  } else {
+    const nativeAmount = getSourceNativeManaAmount(source);
+    const nativeColor = source.options.includes(selected) ? selected : (source.options[0] || selected);
+    for (let index = 0; index < nativeAmount; index += 1) produced.push(nativeColor);
+  }
+
+  for (const chunk of chunks) {
+    const bonusColor = chunk.options.includes(selected) ? selected : (chunk.options[0] || selected);
+    for (let index = 0; index < Math.max(0, Number(chunk.amount || 0)); index += 1) {
+      produced.push(bonusColor);
+    }
+  }
+  return produced.length > 0 ? produced : undefined;
 }
 
 export function getSourceAvailableQuantity(source: ManaPaymentSource): number {
@@ -599,6 +582,8 @@ export function applyXValueToParsedCost(
 export interface SuggestedPaymentSelection {
   color: Color;
   count: number;
+  /** Exact symbols produced by one or more activations, including mixed native+aura mana. */
+  producedColors?: Color[];
 }
 
 /**
@@ -637,9 +622,22 @@ export function calculateSuggestedPayment(
   // Track which sources we've used
   const usedSources = new Set<string>();
   const usedPermanentIds = new Set<string>();
+  const activationCharged = new Map<string, number>();
   const remainingSourceCapacity = new Map<string, number>();
+  const remainingNative = new Map<string, number>();
+  const remainingBonus = new Map<string, Array<{ remaining: number; options: Color[]; sameColor?: boolean; locked?: Color }>>();
   for (const source of usableSources) {
+    const quantity = getSourceAvailableQuantity(source);
     remainingSourceCapacity.set(source.id, getSourceManaCapacity(source));
+    remainingNative.set(source.id, getSourceNativeManaAmount(source) * quantity);
+    remainingBonus.set(
+      source.id,
+      getSourceBonusChunks(source).map((chunk) => ({
+        remaining: Math.max(0, Number(chunk.amount || 0)) * quantity,
+        options: chunk.options,
+        sameColor: chunk.sameColor,
+      })),
+    );
   }
   
   // Helper: get unique colors (for choice sources like Command Tower)
@@ -668,6 +666,66 @@ export function calculateSuggestedPayment(
   const getPaymentSourcePermanentId = (source: ManaPaymentSource): string =>
     String(source.sourcePermanentId || source.id || '').trim();
 
+  const appendProducedMana = (sourceId: string, color: Color, amount: number): void => {
+    if (amount <= 0) return;
+    const existing = suggestions.get(sourceId);
+    const source = usableSources.find((candidate) => candidate.id === sourceId);
+    if (!existing) {
+      const produced = Array.from({ length: amount }, () => color);
+      const includeProduced = getSourceBonusChunks(source || {}).length > 0 || new Set(produced).size > 1;
+      suggestions.set(sourceId, {
+        color,
+        count: amount,
+        ...(includeProduced ? { producedColors: produced } : {}),
+      });
+      usedSources.add(sourceId);
+      return;
+    }
+    const produced = (existing.producedColors && existing.producedColors.length > 0)
+      ? existing.producedColors.slice()
+      : Array.from({ length: existing.count }, () => existing.color);
+    for (let index = 0; index < amount; index += 1) produced.push(color);
+    const includeProduced = getSourceBonusChunks(source || {}).length > 0 || new Set(produced).size > 1;
+    suggestions.set(sourceId, {
+      color: produced[0] || color,
+      count: produced.length,
+      ...(includeProduced ? { producedColors: produced } : {}),
+    });
+  };
+
+  const takeManaOfColor = (source: ManaPaymentSource, color: Color, requestedAmount: number): number => {
+    let remaining = requestedAmount;
+    let taken = 0;
+    const nativeLeft = remainingNative.get(source.id) || 0;
+    if (remaining > 0 && nativeLeft > 0 && source.options.includes(color)) {
+      const nativeTake = Math.min(nativeLeft, remaining);
+      remainingNative.set(source.id, nativeLeft - nativeTake);
+      remaining -= nativeTake;
+      taken += nativeTake;
+    }
+    const buckets = remainingBonus.get(source.id) || [];
+    for (const bucket of buckets) {
+      if (remaining <= 0) break;
+      if (bucket.remaining <= 0) continue;
+      if (!bucket.options.includes(color)) continue;
+      if (bucket.locked && bucket.locked !== color) continue;
+      const bonusTake = Math.min(bucket.remaining, remaining);
+      bucket.remaining -= bonusTake;
+      if (bucket.sameColor) bucket.locked = color;
+      remaining -= bonusTake;
+      taken += bonusTake;
+    }
+    return taken;
+  };
+
+  const chargeActivationForSource = (source: ManaPaymentSource): void => {
+    const nativePerActivation = Math.max(1, getSourceNativeManaAmount(source));
+    const totalNative = nativePerActivation * getSourceAvailableQuantity(source);
+    const usedNative = Math.max(0, totalNative - (remainingNative.get(source.id) || 0));
+    const unitsUsed = Math.ceil(usedNative / nativePerActivation);
+    genericLeft += chargeSourceActivationCost(source, unitsUsed, activationCharged);
+  };
+
   const assignFromSource = (
     source: ManaPaymentSource,
     color: Color,
@@ -685,37 +743,91 @@ export function calculateSuggestedPayment(
       return 0;
     }
 
-    const assigned = Math.min(available, requestedAmount);
-    const existing = suggestions.get(source.id);
-    if (existing) {
-      if (existing.color !== color) return 0;
-      suggestions.set(source.id, { color, count: existing.count + assigned });
-    } else {
-      suggestions.set(source.id, { color, count: assigned });
-      usedSources.add(source.id);
+    const mixedState = {
+      genericLeft,
+      costRemaining,
+      remainingSourceCapacity,
+      remainingNative,
+      usedPermanentIds,
+    };
+    const mixedAssigned = tryAssignFixedMixedManaBundle(
+      source,
+      color,
+      requestedAmount,
+      mixedState,
+      appendProducedMana,
+    );
+    if (mixedAssigned !== null) {
+      genericLeft = mixedState.genericLeft;
+      if (mixedAssigned > 0) chargeActivationForSource(source);
+      return mixedAssigned;
     }
 
-    if (sourcePermanentId && assigned > 0) {
+    const assigned = takeManaOfColor(source, color, Math.min(available, requestedAmount));
+    if (assigned <= 0) return 0;
+
+    appendProducedMana(source.id, color, assigned);
+
+    if (sourcePermanentId) {
       usedPermanentIds.add(sourcePermanentId);
     }
 
     remainingSourceCapacity.set(source.id, available - assigned);
+    chargeActivationForSource(source);
     return assigned;
+  };
+
+  const pickFillColor = (options: Color[]): Color => {
+    if (options.includes('C')) return 'C';
+    for (const color of options) {
+      if (!colorsToPreserve.has(color)) return color;
+    }
+    return options[0] || 'C';
+  };
+
+  const settleUsedSourceLeftovers = (): void => {
+    for (const source of usableSources) {
+      if (!suggestions.has(source.id)) continue;
+
+      let nativeLeft = remainingNative.get(source.id) || 0;
+      while (nativeLeft > 0) {
+        const fillColor = pickFillColor(source.options);
+        const assigned = assignFromSource(source, fillColor, nativeLeft);
+        if (assigned <= 0) break;
+        if (genericLeft > 0) genericLeft = Math.max(0, genericLeft - assigned);
+        nativeLeft = remainingNative.get(source.id) || 0;
+      }
+
+      const buckets = remainingBonus.get(source.id) || [];
+      for (const bucket of buckets) {
+        while (bucket.remaining > 0) {
+          const fillColor = bucket.locked || pickFillColor(bucket.options);
+          const assigned = assignFromSource(source, fillColor, bucket.remaining);
+          if (assigned <= 0) break;
+          if (genericLeft > 0) genericLeft = Math.max(0, genericLeft - assigned);
+        }
+      }
+    }
   };
   
   // First pass: assign sources for specific color requirements (after floating mana)
-  // For colored mana, prefer single-color sources first, then multi-color
+  // For colored mana, prefer native producers, then aura-bonus producers
   for (const c of MANA_COLORS) {
     if (c === 'C') continue; // Handle colorless separately
     if (costRemaining[c] <= 0) continue;
     
     // Sort sources: prefer sources with fewer unique options (more specific)
     const colorSources = usableSources
-      .filter(s => !usedSources.has(s.id) && s.options.includes(c))
+      .filter((s) => (remainingSourceCapacity.get(s.id) || 0) > 0 && sourceCanProduceColor(s, c))
       .sort((a, b) => {
         if (isConsumableSource(a) !== isConsumableSource(b)) {
           return isConsumableSource(a) ? 1 : -1;
         }
+        const activationCmp = getSourceActivationManaPips(a) - getSourceActivationManaPips(b);
+        if (activationCmp !== 0) return activationCmp;
+        const aNative = a.options.includes(c);
+        const bNative = b.options.includes(c);
+        if (aNative !== bNative) return aNative ? -1 : 1;
         return getUniqueColors(a.options).length - getUniqueColors(b.options).length;
       });
     
@@ -730,7 +842,7 @@ export function calculateSuggestedPayment(
   // Handle colorless mana requirement (specific {C} cost, not generic)
   if (costRemaining['C'] > 0) {
     const colorlessSources = usableSources
-      .filter(s => !usedSources.has(s.id) && s.options.includes('C'))
+      .filter((s) => (remainingSourceCapacity.get(s.id) || 0) > 0 && sourceCanProduceColor(s, 'C'))
       .sort((a, b) => {
         // Prefer colorless-only sources
         if (isColorlessOnly(a) && !isColorlessOnly(b)) return -1;
@@ -738,6 +850,11 @@ export function calculateSuggestedPayment(
         if (isConsumableSource(a) !== isConsumableSource(b)) {
           return isConsumableSource(a) ? 1 : -1;
         }
+        const activationCmp = getSourceActivationManaPips(a) - getSourceActivationManaPips(b);
+        if (activationCmp !== 0) return activationCmp;
+        const aNative = a.options.includes('C');
+        const bNative = b.options.includes('C');
+        if (aNative !== bNative) return aNative ? -1 : 1;
         return a.options.length - b.options.length;
       });
     
@@ -758,17 +875,17 @@ export function calculateSuggestedPayment(
     for (const source of usableSources) {
       const remainingCapacity = remainingSourceCapacity.get(source.id) || 0;
       if (remainingCapacity <= 0) continue;
-      const existing = suggestions.get(source.id);
       
       for (const c of hybrid) {
-        if (!source.options.includes(c)) continue;
-        if (existing && existing.color !== c) continue;
+        if (!sourceCanProduceColor(source, c)) continue;
         
         // Score: prefer colors NOT needed by other cards, and fewer options
         const preservePenalty = colorsToPreserve.has(c) ? 100 : 0;
         const consumablePenalty = source.consumable === true ? 50 : 0;
+        const nativePenalty = source.options.includes(c) ? 0 : 8;
         const optionPenalty = source.options.length;
-        const score = preservePenalty + consumablePenalty + optionPenalty;
+        const activationPenalty = getSourceActivationManaPips(source) * 20;
+        const score = preservePenalty + consumablePenalty + nativePenalty + optionPenalty + activationPenalty;
         
         if (score < bestScore) {
           bestScore = score;
@@ -782,6 +899,8 @@ export function calculateSuggestedPayment(
       assignFromSource(bestSource, bestColor, 1);
     }
   }
+
+  settleUsedSourceLeftovers();
 
   if (genericLeft > 0) {
     const existingSuggestedSources = usableSources.filter((source) => {
@@ -810,6 +929,9 @@ export function calculateSuggestedPayment(
       if (isConsumableSource(a) !== isConsumableSource(b)) {
         return isConsumableSource(a) ? 1 : -1;
       }
+
+      const activationCmp = getSourceActivationManaPips(a) - getSourceActivationManaPips(b);
+      if (activationCmp !== 0) return activationCmp;
 
       // 1. Colorless-only sources first (best for generic)
       const aColorlessOnly = isColorlessOnly(a);

@@ -2,11 +2,13 @@
  * Battlefield / player watchers for detectDealtDamageTriggers templates.
  *
  * Self "whenever this is dealt damage" redirects stay in damage-received.ts.
- * This module covers other permanents watching the damaged object, plus
+ * Enrage fight and other self non-redirects use processSelfDealtDamageNonRedirectTriggers.
+ * This module also covers other permanents watching the damaged object, plus
  * "whenever an opponent / you is dealt damage" from resolvePlayerDamage.
  */
 import type { GameContext } from '../../context.js';
 import { detectDealtDamageTriggers } from './dealt-damage-detection.js';
+import { parseAnyTargetThatIsntCreatureType } from './damage-redirect-target-type.js';
 import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
@@ -60,15 +62,18 @@ export function inferDamageReceivedEffectFromOracle(oracleText: string): Inferre
   } else if (targetType !== 'none' && text.includes('each opponent')) {
     targetType = 'each_opponent';
     targetRestriction = 'each opponent';
-  } else if (targetType !== 'none' && text.includes("any target that isn't a dragon")) {
-    targetType = 'any_non_dragon';
-    targetRestriction = "that isn't a Dragon";
-  } else if (targetType !== 'none' && text.includes('the chosen player')) {
-    targetType = 'chosen_player';
-    targetRestriction = 'chosen player';
-  } else if (targetType !== 'none' && text.includes('target player')) {
-    targetType = 'any';
-    targetRestriction = 'player';
+  } else if (targetType !== 'none') {
+    const anyNonType = parseAnyTargetThatIsntCreatureType(text);
+    if (anyNonType) {
+      targetType = anyNonType.targetType;
+      targetRestriction = anyNonType.targetRestriction;
+    } else if (text.includes('the chosen player')) {
+      targetType = 'chosen_player';
+      targetRestriction = 'chosen player';
+    } else if (text.includes('target player')) {
+      targetType = 'any';
+      targetRestriction = 'player';
+    }
   }
 
   let effect = 'Deals that much damage to target';
@@ -164,7 +169,8 @@ function isDelayedThatCreatureClause(clause: string): boolean {
 
 /**
  * Whether a watcher permanent's dealt-damage oracle applies to this damaged permanent.
- * Self-only clauses return false — those stay on getDamageReceivedTrigger.
+ * Self-only clauses return false — redirects stay on getDamageReceivedTrigger;
+ * Enrage fight and other self non-redirects use processSelfDealtDamageNonRedirectTriggers.
  */
 export function dealtDamageWatcherAppliesToPermanent(
   watcher: any,
@@ -228,6 +234,53 @@ export function dealtDamageWatcherAppliesToPermanent(
   }
 
   return false;
+}
+
+/**
+ * Queue self "whenever this is dealt damage" abilities that are not
+ * that-much-damage / gain-life redirects (Apex Altisaur Enrage fight, etc.).
+ */
+export function processSelfDealtDamageNonRedirectTriggers(
+  ctx: GameContext,
+  damagedPermanent: any,
+  damageAmount: number,
+): any[] {
+  if ((ctx as any)?.isReplaying) return [];
+  if (!damagedPermanent?.card || damageAmount <= 0) return [];
+
+  const oracle = String(damagedPermanent.card?.oracle_text || '');
+  if (!oracle || isThatMuchDamageRedirectOracle(oracle)) return [];
+
+  const detected = detectDealtDamageTriggers(damagedPermanent.card, damagedPermanent)
+    .filter((trigger) => trigger.triggerType === 'dealt_damage');
+  if (detected.length === 0) return [];
+
+  const ordered = orderTriggersByAPNAP(
+    ctx,
+    detected.map((trigger) => ({
+      ...trigger,
+      controllerId: String(damagedPermanent.controller || trigger.controllerId || ''),
+    })),
+  );
+
+  const queued: any[] = [];
+  for (const trigger of ordered) {
+    if (!evaluateWatcherInterveningIf(ctx, trigger, 'Whenever this creature is dealt damage', damagedPermanent)) {
+      continue;
+    }
+    const item = queueGenericTriggeredAbility(ctx, {
+      ...trigger,
+      controllerId: String(damagedPermanent.controller || trigger.controllerId || ''),
+      permanentId: String(damagedPermanent.id || trigger.permanentId || ''),
+      cardName: String(damagedPermanent.card?.name || trigger.cardName || ''),
+    }, 'dealt_damage', {
+      damagedPermanentId: String(damagedPermanent.id || ''),
+      damagedPermanentName: String(damagedPermanent.card?.name || ''),
+      damageAmount,
+    });
+    if (item) queued.push(item);
+  }
+  return queued;
 }
 
 function sourceMatchesTypePhrase(sourcePermanent: any, typePhrase: string): boolean {

@@ -13,9 +13,11 @@ import { canAct, canPlayLand } from "../../state/modules/can-respond.js";
 import { runSBA } from "../../state/modules/counters_tokens.js";
 import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
 import { isPlayerCompletingSpellCast } from "../game-actions.js";
+import { isGameReplayLocked } from "../../gameRestoreState.js";
 import { broadcastGame, ensureGame } from "../util.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { playerCannotReceivePriority } from "../../state/modules/priorityEligibility.js";
 import { AI_FAST_CONTINUE_MS, AI_REACTION_DELAY_MS } from "./aiConstants.js";
 import { executeAdvanceStep } from "./aiAdvanceAndDecisionExecutors.js";
 import { getPendingBlockerDeclaration } from "./aiGameCleanupHandlers.js";
@@ -25,6 +27,8 @@ import {
   executeDeclareBlockers,
   executePassPriority,
 } from "./aiPriorityPassCombatExecutors.js";
+import { listAttackersAgainstDefender } from "../combat-handlers/combatMustBeBlockedIfAble.js";
+import { rememberAIFailedSpellCast } from "./aiLandAuraCommander.js";
 import {
   aiEngine,
   getAIPendingSpellCastStatus,
@@ -149,20 +153,22 @@ export async function handleAIPriority(
     debugWarn(2, '[AI] handleAIPriority: game not found', { gameId, playerId });
     return;
   }
+  if (isGameReplayLocked(game, gameId)) {
+    debug(2, '[AI] handleAIPriority skipped during undo/restore replay', { gameId, playerId });
+    return;
+  }
   
   // Check if this AI player has lost the game
   const players = game.state.players || [];
   const aiPlayer = players.find((p: any) => p.id === playerId);
-  if (aiPlayer?.hasLost) {
-    debug(1, '[AI] AI player has lost the game, skipping priority handling:', { gameId, playerId });
-    return;
-  }
-  
-  // Check if this AI player is in the inactive set
   const ctx = (game as any).ctx || game;
-  const inactiveSet = ctx.inactive instanceof Set ? ctx.inactive : new Set();
-  if (inactiveSet.has(playerId)) {
-    debug(1, '[AI] AI player is inactive, skipping priority handling:', { gameId, playerId });
+  if (playerCannotReceivePriority(aiPlayer, ctx) || (ctx.inactive instanceof Set && ctx.inactive.has(playerId))) {
+    if (game.state.priority === playerId) {
+      debug(1, '[AI] Eliminated/inactive AI still holds priority; auto-passing:', { gameId, playerId });
+      await executePassPriority(io, gameId, playerId);
+    } else {
+      debug(1, '[AI] AI player has left the game, skipping priority handling:', { gameId, playerId });
+    }
     return;
   }
   
@@ -361,6 +367,7 @@ export async function handleAIPriority(
       for (const effectId of pendingCastStatus.orphanedEffectIds) {
         const castInfo = pendingSpellCasts[effectId];
         debugWarn(2, `[AI] Removing orphaned spell cast: ${castInfo?.cardName || 'unknown'} (effectId: ${effectId})`);
+        rememberAIFailedSpellCast(game, String(playerId), String(castInfo?.cardId || ''));
         delete pendingSpellCasts[effectId];
       }
       if (typeof game.bumpSeq === 'function') {
@@ -384,12 +391,11 @@ export async function handleAIPriority(
         const alreadyDeclared = blockersDeclaredBy.includes(playerId);
         
         if (!alreadyDeclared) {
+          hydrateGameStateOracleText(game.state, (game as any).libraries);
+
           // AI needs to declare blockers
-          // Get the attacking creatures from the battlefield
           const battlefield = game.state?.battlefield || [];
-          const attackingCreatures = battlefield.filter((perm: any) => 
-            perm.attacking === true
-          );
+          const attackingCreatures = listAttackersAgainstDefender(battlefield, playerId);
           
           const context: AIDecisionContext = {
             gameState: game.state as any,
@@ -735,11 +741,9 @@ export async function handleAIPriority(
         
         hydrateGameStateOracleText(game.state, (game as any).libraries);
 
-        // Get the attacking creatures from the battlefield
+        // Get the attacking creatures aimed at this defender (attacking is a player/permanent id, not boolean true)
         const battlefield = game.state?.battlefield || [];
-        const attackingCreatures = battlefield.filter((perm: any) => 
-          perm.attacking === true
-        );
+        const attackingCreatures = listAttackersAgainstDefender(battlefield, playerId);
         
         const context: AIDecisionContext = {
           gameState: game.state as any,

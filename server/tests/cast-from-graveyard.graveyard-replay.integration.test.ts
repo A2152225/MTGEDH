@@ -9,6 +9,7 @@ import { getCastableSpellCandidates } from '../src/state/modules/can-respond.js'
 import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
 import { nextStep } from '../src/state/modules/turn.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+import { getOracleIrGapTelemetrySnapshot, resetOracleIrGapTelemetry } from '../src/state/modules/oracleIrGapTelemetry.js';
 import { resetIntegrationGame } from './helpers/integrationGameReset.js';
 
 async function resetGame(gameId: string) {
@@ -36,6 +37,20 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
     },
   } as any;
   return { socket, handlers };
+}
+
+function replayLiveOracleIrMutationsBeforeResolve(
+  replayGame: { applyEvent: (event: any) => void },
+  liveGameId: string,
+): void {
+  if (process.env.ORACLE_IR_SPELL_PRIMARY !== '1') return;
+  const events = [...getEvents(liveGameId)];
+  const resolveIdx = events.findIndex((event) => event.type === 'resolveTopOfStack');
+  const slice = events.slice(0, resolveIdx >= 0 ? resolveIdx : events.length);
+  for (const event of slice) {
+    if ((event as any).payload?.oracleIrReplayMutation !== true) continue;
+    replayGame.applyEvent({ type: event.type, ...((event as any).payload || {}) });
+  }
 }
 
 /**
@@ -1873,6 +1888,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     const replay = await seedSummonsGame(replayGameId);
     replay.game.applyEvent({ type: 'confirmGraveyardTargets', ...(confirmEvent?.payload || {}) } as any);
     replay.game.applyEvent({ type: 'activateGraveyardAbility', ...(activateEvent?.payload || {}) } as any);
+    replayLiveOracleIrMutationsBeforeResolve(replay.game, summonsGameId);
     replay.game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
     const replayZones = (replay.game.state as any).zones?.[playerId];
@@ -1939,10 +1955,22 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
 
     expect(((game.state as any).stack || []).map((item: any) => item?.card?.id)).toEqual(['sevinne_reclamation_1']);
 
+    if (process.env.ORACLE_IR_SPELL_PRIMARY === '1') {
+      resetOracleIrGapTelemetry();
+    }
+
     game.resolveTopOfStack();
 
     expect(((game.state as any).battlefield || []).some((perm: any) => String(perm?.card?.id || '') === 'sevinne_target_1')).toBe(true);
     expect(((game.state as any).stack || [])).toHaveLength(0);
+
+    if (process.env.ORACLE_IR_SPELL_PRIMARY === '1') {
+      const sevinneFailures = getOracleIrGapTelemetrySnapshot().recentEvents.filter((event) =>
+        event.kind === 'all_or_nothing_failure'
+        && /sevinne/i.test(String(event.label || '')),
+      );
+      expect(sevinneFailures).toEqual([]);
+    }
 
     const copyChoiceStep = ResolutionQueueManager
       .getStepsForPlayer(sevinneGameId, playerId)
@@ -4969,41 +4997,47 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
   });
 
   it('replay resolveTopOfStack restores Rite of Harmony draw window for an enchantment ETB', async () => {
+    const liveGameId = `${gameId}_rite_of_harmony_replay_live`;
     const replayGameId = `${gameId}_rite_of_harmony_replay`;
-    const { game, playerId } = await seedGame(
-      replayGameId,
-      'rite_of_harmony_replay_1',
-      'Whenever a creature or enchantment you control enters this turn, draw a card.\nFlashback {2}{G}{W}',
-      {
+    const oracleText = 'Whenever a creature or enchantment you control enters this turn, draw a card.\nFlashback {2}{G}{W}';
+    const seedRiteGame = async (targetGameId: string, cardId: string) => {
+      const seeded = await seedGame(targetGameId, cardId, oracleText, {
         manaPool: { white: 1, blue: 0, black: 0, red: 0, green: 1, colorless: 2 },
         name: 'Rite of Harmony',
         typeLine: 'Instant',
-      },
-    );
+      });
+      (seeded.game.state as any).turnNumber = 13;
+      (seeded.game.state as any).phase = 'main';
+      (seeded.game.state as any).step = 'MAIN1';
+      (seeded.game.state as any).turnPlayer = seeded.playerId;
+      (seeded.game.state as any).activePlayer = seeded.playerId;
+      (seeded.game.state as any).priority = seeded.playerId;
+      const libraryCards = [
+        { id: `${targetGameId}_draw_1`, name: 'Temple Garden', type_line: 'Land - Forest Plains', oracle_text: '', zone: 'library' },
+      ];
+      (seeded.game.state as any).zones[seeded.playerId].library = libraryCards.map((card) => ({ ...card }));
+      (seeded.game.state as any).zones[seeded.playerId].libraryCount = libraryCards.length;
+      (seeded.game as any).libraries.set(seeded.playerId, libraryCards.map((card) => ({ ...card })));
+      return seeded;
+    };
 
-    (game.state as any).turnNumber = 13;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'MAIN1';
-    (game.state as any).turnPlayer = playerId;
-    (game.state as any).activePlayer = playerId;
-    (game.state as any).priority = playerId;
-
-    const libraryCards = [
-      { id: 'rite_replay_draw_1', name: 'Temple Garden', type_line: 'Land - Forest Plains', oracle_text: '', zone: 'library' },
-    ];
-    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
-    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
-    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
-
-    game.applyEvent({
-      type: 'activateGraveyardAbility',
-      playerId,
+    const live = await seedRiteGame(liveGameId, 'rite_of_harmony_replay_1');
+    const activatePayload = {
+      playerId: live.playerId,
       cardId: 'rite_of_harmony_replay_1',
       abilityId: 'flashback',
       stackId: 'stack_rite_of_harmony_replay_1',
       manaCost: '{2}{G}{W}',
+    };
+    live.game.applyEvent({
+      type: 'activateGraveyardAbility',
+      ...activatePayload,
     } as any);
+    live.game.resolveTopOfStack();
 
+    const { game, playerId } = await seedRiteGame(replayGameId, 'rite_of_harmony_replay_1');
+    game.applyEvent({ type: 'activateGraveyardAbility', ...activatePayload, playerId } as any);
+    replayLiveOracleIrMutationsBeforeResolve(game, liveGameId);
     game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
     expect((((game.state as any).zones?.[playerId]?.hand || []) as any[]).map((card: any) => card.id)).toEqual([]);
@@ -5046,7 +5080,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     game.resolveTopOfStack();
 
     const zones = (game.state as any).zones?.[playerId];
-    expect((zones?.hand || []).map((card: any) => card.id)).toEqual(['rite_replay_draw_1']);
+    expect((zones?.hand || []).map((card: any) => card.id)).toEqual([`${replayGameId}_draw_1`]);
     expect(Number(zones?.libraryCount || 0)).toBe(0);
     expect((zones?.exile || []).map((card: any) => card.id)).toContain('rite_of_harmony_replay_1');
   });

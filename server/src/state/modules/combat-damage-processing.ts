@@ -10,6 +10,7 @@ import {
   applyDamageToPermanentWithCounterEffects,
   getCounterGrantedAbilities,
 } from './counter-common-effects.js';
+import { getContinuousGrantedAbilitiesForPermanent } from './staticEffectSpec.js';
 import { updateCounters } from './counters_tokens.js';
 import {
   calculateModifiedDamage,
@@ -19,6 +20,7 @@ import {
 import { protectionPreventsSource } from './combat-mechanics.js';
 import { permanentHasIndestructible } from '../../rules-engine/index.js';
 import { processPlayerDealtDamageTriggers } from './triggers/dealt-damage-watchers.js';
+import { evaluateLifeLossReplacementEvent } from './replacement-effects.js';
 
 export function applyPoisonCountersToPlayer(ctx: GameContext, playerId: string, amount: number): void {
   const normalized = Math.max(0, Number(amount || 0));
@@ -47,10 +49,13 @@ export function getCombatDamageSourceCharacteristics(
   state: any,
 ): DamageSourceCharacteristics {
   const base = createDamageSourceFromPermanent(sourcePermanent);
-  const granted = getCounterGrantedAbilities(state, sourcePermanent);
-  if (!granted.length) return base;
+  const extraTexts = [
+    ...getCounterGrantedAbilities(state, sourcePermanent),
+    ...getContinuousGrantedAbilitiesForPermanent(sourcePermanent, state),
+  ];
+  if (!extraTexts.length) return base;
 
-  const grantedData = parseDamageAbilities(granted.join(' '), sourcePermanent?.card?.type_line);
+  const grantedData = parseDamageAbilities(extraTexts.join(' '), sourcePermanent?.card?.type_line);
   return mergeDamageCharacteristics(base, grantedData);
 }
 
@@ -183,8 +188,16 @@ export function resolvePlayerDamage(
     characteristics,
   });
 
-  const lifeLost = Math.max(0, -processed.lifeChange);
+  let lifeLost = Math.max(0, -processed.lifeChange);
   if (lifeLost > 0) {
+    const replacement = evaluateLifeLossReplacementEvent({
+      state: (ctx as any).state,
+      playerId: targetPlayerId,
+      amount: lifeLost,
+    });
+    if (replacement.applied && Number.isFinite(Number(replacement.replacementAmount))) {
+      lifeLost = Math.max(0, Number(replacement.replacementAmount));
+    }
     const state = (ctx as any).state;
     const startingLife = state?.startingLife || 40;
     const life = state.life = state.life || {};

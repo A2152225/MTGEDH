@@ -200,11 +200,47 @@ export function applyGainControlStep(
     };
   }
 
-  if (/each player gains control of each permanent for which they were chosen/.test(raw)) {
+  if (
+    /each player gains control of each permanent for which they were chosen/.test(raw)
+    || /for each (?:nonland )?permanents?, choose a player at random/.test(raw)
+  ) {
+    const playerIds = resolvePlayers(state, { kind: 'each_player' }, ctx)
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    if (playerIds.length === 0) {
+      return {
+        applied: true,
+        state,
+        log: ['No players for random control assignment'],
+        lastAntecedentBattlefieldPermanentIds: [],
+      };
+    }
+
+    const whatText = String((step as any).what?.text || '').toLowerCase();
+    const nonlandOnly = /nonland/.test(raw) || /nonland/.test(whatText) || /for which they were chosen/.test(raw);
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const assignedIds: string[] = [];
+    let transferred = 0;
+    const nextBattlefield = battlefield.map((permanent: any) => {
+      if (nonlandOnly && !permanentMatchesType(permanent, 'nonland_permanent')) return permanent;
+      if (!nonlandOnly && !permanentMatchesType(permanent, 'permanent')) return permanent;
+      const permanentId = String(permanent?.id || '').trim();
+      if (!permanentId) return permanent;
+      assignedIds.push(permanentId);
+      const chosenPlayerId = playerIds[Math.floor(Math.random() * playerIds.length)];
+      const currentController = String(permanent?.controller || '').trim();
+      if (!chosenPlayerId || chosenPlayerId === currentController) return permanent;
+      transferred += 1;
+      return { ...permanent, controller: chosenPlayerId, summoningSickness: true };
+    });
+
     return {
       applied: true,
-      state,
-      log: ['Each player gained control of permanents for which they were chosen'],
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: [
+        `Assigned ${assignedIds.length} permanent(s) at random; ${transferred} changed control`,
+      ],
+      lastAntecedentBattlefieldPermanentIds: assignedIds,
     };
   }
 
@@ -242,23 +278,6 @@ export function applyGainControlStep(
       applied: true,
       state: { ...(state as any), battlefield: nextBattlefield } as GameState,
       log: ['Gained control of attached Equipment'],
-    };
-  }
-
-  if (/gain control of target creature an opponent controls until end of turn/i.test(raw)) {
-    const targetId = String(
-      ctx.targetCreatureId || ctx.selectorContext?.targetCreatureId || 'bf-opponent-creature'
-    ).trim();
-    const controllerId = String(ctx.controllerId || 'p1').trim();
-    const nextBattlefield = ((state.battlefield || []) as any[]).map((permanent: any) =>
-      String(permanent?.id || '').trim() === targetId
-        ? { ...permanent, controller: controllerId, summoningSickness: true, controlUntilEndOfTurn: true }
-        : permanent
-    );
-    return {
-      applied: true,
-      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
-      log: [`Gained control of ${targetId} until end of turn`],
     };
   }
 
@@ -600,6 +619,7 @@ export function applyGainControlStep(
       `${targetPermanentId} changes control to ${newController}` +
         (step.duration === 'until_end_of_turn' ? ' until end of turn' : ''),
     ],
+    lastAntecedentBattlefieldPermanentIds: [targetPermanentId],
   };
 }
 

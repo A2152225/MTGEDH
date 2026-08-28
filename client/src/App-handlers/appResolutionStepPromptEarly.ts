@@ -18,6 +18,7 @@ import {
   isGenericNumberChoiceStep,
   isGenericOptionChoiceFallbackStep,
   isNamedGenericOptionChoiceStep,
+  readResolutionPromptCause,
 } from "../utils/resolutionChoicePrimitives";
 import { isResolutionStepMandatory } from "../utils/resolutionStepUtils";
 
@@ -211,6 +212,33 @@ export function handleAppResolutionStepPromptEarly(
           return;
         }
 
+        if (step.attackCostPayment === true && Array.isArray(step.attackCostPhyrexianChoices)
+          && step.attackCostPhyrexianChoices.length > 0) {
+          const youId = String(you || '');
+          const playerLife = Number(
+            (safeViewRef.current as any)?.life?.[youId]
+            ?? (Array.isArray((safeViewRef.current as any)?.players)
+              ? (safeViewRef.current as any).players.find((player: any) => String(player?.id || '') === youId)?.life
+              : undefined)
+            ?? 40,
+          );
+          setPhyrexianManaModalData({
+            stepId: String(step.id),
+            mandatory: isResolutionStepMandatory(step),
+            attackCostPayment: true,
+            pendingId: '',
+            cardName: String(step.sourceName || 'Attack Cost'),
+            abilityText: String(step.description || ''),
+            totalManaCost: String(step.description || ''),
+            genericCost: Number(step.attackCostAmount || 0),
+            phyrexianChoices: step.attackCostPhyrexianChoices,
+            playerLife,
+            cardImageUrl: step.sourceImage,
+          });
+          setPhyrexianManaModalOpen(true);
+          return;
+        }
+
         if (step.opponentMayPayChoice === true) {
           const prompt: OpponentMayPayPrompt = {
             promptId: String(step.promptId || ''),
@@ -272,6 +300,7 @@ export function handleAppResolutionStepPromptEarly(
             shortcutCardName: normalizedSourceName,
             persistMayAutoPreference: true,
             persistTriggerShortcut: isOptionalTriggeredAbilityPrompt,
+            ...readResolutionPromptCause(step),
           });
           setMayAbilityModalOpen(true);
           return;

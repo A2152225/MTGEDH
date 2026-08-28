@@ -397,11 +397,10 @@ export function commitLibraryTopObservation(args: {
 
   const bridgeResult = bridge.proposeTransitions(transitions);
   if (bridgeResult.halt) {
-    if (args.ctx?.transitionHaltState) {
-      args.ctx.transitionHaltState.halted = true;
-      args.ctx.transitionHaltState.deferred = [...(bridgeResult.deferred || [])];
-    }
-    return { halted: true, ledgerRecordedViaBridge: false };
+    // Same-zone library observations are not replacement-eligible moves. Halting here
+    // aborted follow-up steps such as Chaos Warp's "if it's a permanent card, put it
+    // onto the battlefield".
+    return { halted: false, ledgerRecordedViaBridge: false };
   }
 
   return { halted: false, ledgerRecordedViaBridge: true };

@@ -504,5 +504,34 @@ describe('Casting Restrictions', () => {
       expect(result.hasTargets).toBe(false);
       expect(result.reason).toContain('No creatures');
     });
+
+    it('treats attacking: defenderId as an attacking creature', () => {
+      const attacker = {
+        id: 'attacker-1',
+        controller: 'player2',
+        attacking: 'player1',
+        card: {
+          name: 'Grizzly Bears',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+        },
+      };
+
+      const idle = {
+        id: 'idle-1',
+        controller: 'player2',
+        card: {
+          name: 'Wall of Wood',
+          type_line: 'Creature — Wall',
+          oracle_text: '',
+        },
+      };
+
+      const combatState = createGameState([], [attacker, idle], { phase: 'combat' });
+      expect(hasValidTargetsForSpell('Destroy target attacking creature.', combatState, 'player1').hasTargets).toBe(true);
+
+      const idleCombat = createGameState([], [idle], { phase: 'combat' });
+      expect(hasValidTargetsForSpell('Destroy target attacking creature.', idleCombat, 'player1').hasTargets).toBe(false);
+    });
   });
 });

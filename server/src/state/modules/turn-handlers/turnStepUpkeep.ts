@@ -17,6 +17,7 @@ import {
   dequeuePendingUpkeepDrawTriggers,
 } from "./pendingDelayedTriggerDequeues.js";
 import { persistTurnStepTriggeredAbility } from "./turnStepTriggerPersist.js";
+import { queueExiledTimeCounterRemovedTriggers } from "../triggers/queueExiledTimeCounterRemoved.js";
 import { debug } from "../../../utils/debug.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
@@ -84,6 +85,12 @@ export function runTurnStepUpkeep(
             for (const card of suspendedCards) {
               card.timeCounters--;
               debug(2, `${ts()} [nextStep] Suspend: Removed time counter from ${card.name} (${card.timeCounters} remaining)`);
+
+              // Queue "whenever a time counter is removed from this card while it's exiled"
+              // while the card is still in exile, including the last-counter tick.
+              if (!usePersistedTurnStepTriggers) {
+                queueExiledTimeCounterRemovedTriggers(ctx, card, turnPlayer);
+              }
               
               // If last time counter was removed, cast the spell for free
               if (card.timeCounters === 0) {

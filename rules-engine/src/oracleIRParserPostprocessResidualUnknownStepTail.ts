@@ -22,6 +22,7 @@ import {
   parseResidualCombatCounterAndPaymentGuardsThree,
 } from './oracleIRParserPostprocessResidualCombatCounterAndPaymentGuards';
 import { tryParseSimpleActionClause } from './oracleIRParserSimpleActionClauses';
+import { normalizeCreatureTypeWord } from '../../shared/src/creatureTypes';
 
 export function parseCurrentResidualUnknownStepTail(
   raw: string, sequence: { sequence?: 'then' }, clauseBody: string, step: OracleEffectStep
@@ -274,8 +275,17 @@ export function parseCurrentResidualUnknownStepTail(
   const hoistedResidualPerpetualAndSecretChoiceGuardsOne = parseResidualPerpetualAndSecretChoiceGuardsOne(raw, sequence, step);
   if (hoistedResidualPerpetualAndSecretChoiceGuardsOne) return hoistedResidualPerpetualAndSecretChoiceGuardsOne;
 
-  if (/^storied matriarch, return up to one target goblin card from your graveyard to your hand$/i.test(raw)) {
-    return staticMetadata('target goblin card in your graveyard', raw.replace(/^storied matriarch,?\s*/i, ''));
+  {
+    const gyTypeReturn = raw.match(
+      /^(?:[^,]+,\s*)?return up to one target ([a-z]+) card from your graveyard to your hand$/i,
+    );
+    const gyType = gyTypeReturn ? normalizeCreatureTypeWord(String(gyTypeReturn[1] || '')) : null;
+    if (gyType) {
+      return staticMetadata(
+        `target ${gyType} card in your graveyard`,
+        raw.replace(/^[^,]+,\s*/i, ''),
+      );
+    }
   }
 
   if (/^bert, and william die, if they were a creature, return them to the battlefield$/i.test(raw)) {

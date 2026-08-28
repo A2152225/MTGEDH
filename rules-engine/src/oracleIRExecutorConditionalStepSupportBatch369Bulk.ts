@@ -273,10 +273,13 @@ export function evaluateBatch369BulkConditionalClause(params: Batch369BulkParams
 
   {
     const itsOrTypesMatch = normalizedRaw.match(/^it'?s (?:a|an) (.+)$/i);
-    if (itsOrTypesMatch) {
+    const capturedTypes = String(itsOrTypesMatch?.[1] || '');
+    // Descendants' Path / kinship "shares a creature type" is not a type-list check.
+    // Matching it here returns false (no referenced object) and steals the real evaluator.
+    if (itsOrTypesMatch && !/\bshares a (?:creature|card) type\b/i.test(capturedTypes)) {
       const ref = params.getReferencedObject(nextState, ctx) ?? params.getConditionalSubjectCard(params);
       if (!ref) return false;
-      const types = String(itsOrTypesMatch[1] || '')
+      const types = capturedTypes
         .split(/\s*,\s*|\s+or\s+/)
         .map((part) => part.trim().toLowerCase())
         .filter(Boolean);

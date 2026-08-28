@@ -5,7 +5,7 @@ import {
 import { commitCardDraws } from './oracleIRExecutorDrawTransitionCommit';
 import type { OracleQuantity } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
-import { cardHasCreatureType } from '../../shared/src/creatureTypes';
+import { cardHasCreatureType, normalizeCreatureTypeWord } from '../../shared/src/creatureTypes';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
 import { stripPlayableFromGraveyardTags } from './playableFromGraveyard';
 import type { GameState, PlayerID } from '../../shared/src';
@@ -424,6 +424,7 @@ import { getCardManaValue } from './oracleIRExecutorPlayerExileUntilAmount';
 export {
   getCardTypesFromTypeLine,
   getCardManaValue,
+  resolveReferencedSpellManaValue,
   resolveUnknownExileUntilAmountForPlayer,
 } from './oracleIRExecutorPlayerExileUntilAmount';
 
@@ -459,8 +460,14 @@ function cardMatchesRevealUntilCriterion(card: any, criterion: string): boolean 
   if (normalized === 'nonland card') return !typeLine.includes('land');
   if (normalized === 'land card') return typeLine.includes('land');
   if (/^creature card\b/i.test(normalized)) return typeLine.includes('creature');
-  if (/zombie creature card/i.test(normalized)) {
-    return typeLine.includes('creature') && typeLine.includes('zombie');
+  {
+    const typedCreatureCard = normalized.match(/^([a-z][a-z'-]*) creature card$/i);
+    const typedCreature = typedCreatureCard
+      ? normalizeCreatureTypeWord(String(typedCreatureCard[1] || ''))
+      : null;
+    if (typedCreature) {
+      return typeLine.includes('creature') && typeLine.includes(typedCreature);
+    }
   }
   if (normalized.endsWith(' card')) {
     const typeName = normalized.slice(0, -' card'.length).trim();
@@ -698,8 +705,12 @@ export function collectTopLibraryObservationForPlayers(
   let lookedCount = 0;
   const perAmount = Math.max(0, amount | 0);
   for (const playerId of playerIds) {
-    const player = state.players.find((entry) => entry.id === playerId) as any;
-    const library = Array.isArray(player?.library) ? player.library : [];
+    const normalizedId = String(playerId || '').trim() as PlayerID;
+    if (!normalizedId) continue;
+    const player = (state.players || []).find(
+      (entry) => String(entry?.id || '').trim() === normalizedId,
+    ) as any;
+    const library = readPlayerZoneCards(state, normalizedId, player, 'library');
     const looked = Math.max(0, Math.min(library.length, perAmount));
     if (looked > 0) {
       cards.push(...library.slice(0, looked));
@@ -1031,6 +1042,7 @@ export function millCardsForPlayer(
     ...card,
     ownerId: playerId,
     owner: playerId,
+    putIntoGraveyardFrom: 'library',
   }));
 
   const stepIndex = bridgeOptions?.stepIndex;

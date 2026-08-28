@@ -1304,6 +1304,12 @@ describe('Oracle Text Parser', () => {
     it('should detect disappear ability word', () => {
       expect(parseKeywords('Disappear — Whenever a permanent leaves the battlefield under your control, draw a card.')).toContain('disappear');
     });
+
+    it('does not treat Other [type] you control have haste as printed haste', () => {
+      expect(parseKeywords(
+        'Other Dinosaurs you control have haste.\nWhen this creature enters, create a 3/3 green Dinosaur creature token with trample.',
+      )).not.toContain('haste');
+    });
   });
 
   describe('parseDelayedTrigger', () => {

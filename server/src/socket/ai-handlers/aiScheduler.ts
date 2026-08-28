@@ -12,6 +12,7 @@ import type { Server } from "socket.io";
 import { AIEngine, type AIPlayerConfig } from "../../../../rules-engine/src/AIEngine.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import { isGameRestoring } from "../../gameRestoreState.js";
 import { debug, debugError } from "../../utils/debug.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { AI_REACTION_DELAY_MS } from "./aiConstants.js";
@@ -61,6 +62,7 @@ function scheduleAIActionInternal(
   kind: AIScheduledActionKind,
   delayMs: number,
 ): void {
+  if (isGameRestoring(gameId)) return;
   const key = getAIActionKey(gameId, playerId);
   const runAt = Date.now() + Math.max(0, delayMs);
   const existing = aiScheduledActions.get(key);
@@ -75,6 +77,7 @@ function scheduleAIActionInternal(
 
   const timer = setTimeout(() => {
     aiScheduledActions.delete(key);
+    if (isGameRestoring(gameId)) return;
     const { handleAIGameFlow, handleAIPriority } = getAIHandlerDeps();
     const invoke = kind === 'gameFlow' ? handleAIGameFlow : handleAIPriority;
     void invoke(io, gameId, playerId).catch((err) => debugError(1, err));

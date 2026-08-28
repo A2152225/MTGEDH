@@ -470,6 +470,17 @@ export type OracleEffectStepA =
       readonly raw: string;
     }
   | {
+      /**
+       * Tempting offer — caster effect, then each opponent may copy it.
+       * Halts for accept/decline; library-search (etc.) is applied after responses.
+       */
+      readonly kind: 'tempting_offer';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'choose_opponent';
       readonly optional?: boolean;
       readonly sequence?: 'then';

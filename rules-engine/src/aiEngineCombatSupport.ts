@@ -10,6 +10,7 @@ import {
 } from './aiEngineManaPoolSupport';
 import { AIStrategy, AIDecisionType, type AIDecision, type AIDecisionContext, type AIPlayerConfig } from './AIEngine';
 import { shouldPreserveInCombat } from './aiEngineValueSupport';
+import { playerIsLegalAttackTarget } from './playerInGameStatus';
 
 type CombatDeckModifiers = { attackBias: number; preserveBias: number };
 type CombatValueEvaluation = { combatValue: number; wantsToGetKilled: boolean; deathBenefit: number };
@@ -22,7 +23,7 @@ export function wouldDefenderLikelyBlockProfitably(
 ): boolean {
   const attacker = createCombatCreature(attackerPerm);
   const legalBlockerIds = getLegalBlockers(
-    { battlefield: [...battlefield] } as any,
+    { battlefield } as any,
     defendingPlayerId,
     attacker.id,
   );
@@ -46,13 +47,7 @@ export function wouldDefenderLikelyBlockProfitably(
 }
 
 function isActiveCombatOpponent(player: any, attackingPlayerId: string): boolean {
-  return Boolean(player?.id)
-    && player.id !== attackingPlayerId
-    && !player?.hasLost
-    && !player?.eliminated
-    && !player?.conceded
-    && !player?.spectator
-    && !player?.isSpectator;
+  return playerIsLegalAttackTarget(player, attackingPlayerId);
 }
 
 function listActiveOpponents(gameState: AIDecisionContext['gameState'], attackingPlayerId: string) {
@@ -116,6 +111,82 @@ function isSmallVoluntaryAttacker(attacker: CombatCreature): boolean {
   return attacker.power + attacker.toughness <= 4;
 }
 
+function readDefenderLife(gameState: AIDecisionContext['gameState'], playerId: string): number {
+  const player = gameState.players?.find((entry) => entry.id === playerId);
+  if (typeof player?.life === 'number') return player.life;
+  const fromState = (gameState as any)?.life?.[playerId];
+  if (typeof fromState === 'number') return fromState;
+  return 40;
+}
+
+function isPermanentAttackingDefender(
+  perm: any,
+  defenderId: string,
+  battlefield: readonly BattlefieldPermanent[],
+): boolean {
+  if (!perm || perm.controller === defenderId) return false;
+  const explicitTargetPlayer = String(perm.targetPlayerId || perm.defendingPlayerId || '').trim();
+  if (explicitTargetPlayer) return explicitTargetPlayer === defenderId;
+  if (perm.attacking === true || perm.isAttacking === true) return true;
+  const targetRef = String(perm.attacking || perm.targetPermanentId || '').trim();
+  if (!targetRef) return false;
+  if (targetRef === defenderId) return true;
+  const targetPerm = battlefield.find((entry) => String(entry?.id || '') === targetRef);
+  return Boolean(targetPerm && targetPerm.controller === defenderId);
+}
+
+function listAttackersForBlockDecision(
+  context: AIDecisionContext,
+  battlefield: readonly BattlefieldPermanent[],
+): BattlefieldPermanent[] {
+  const fromConstraints = Array.isArray(context.constraints?.attackers)
+    ? context.constraints.attackers
+    : [];
+  const resolvedFromConstraints = fromConstraints
+    .map((entry: any) => {
+      if (!entry) return null;
+      if (typeof entry === 'string') {
+        return battlefield.find((perm) => perm.id === entry) || null;
+      }
+      const id = String(entry.id || '').trim();
+      return (id ? battlefield.find((perm) => perm.id === id) : null) || entry;
+    })
+    .filter((perm: any) => perm && perm.controller !== context.playerId);
+
+  if (resolvedFromConstraints.length > 0) {
+    const aimedHere = resolvedFromConstraints.filter((perm: any) =>
+      isPermanentAttackingDefender(perm, context.playerId, battlefield),
+    ) as BattlefieldPermanent[];
+    if (aimedHere.length > 0) return aimedHere;
+
+    const aimedElsewhere = resolvedFromConstraints.some((perm: any) => {
+      const targetRef = String(perm.attacking || perm.defendingPlayerId || perm.targetPlayerId || '').trim();
+      return Boolean(targetRef) && targetRef !== 'true';
+    });
+    return aimedElsewhere ? [] : resolvedFromConstraints as BattlefieldPermanent[];
+  }
+
+  return battlefield.filter((perm) =>
+    isPermanentAttackingDefender(perm, context.playerId, battlefield),
+  );
+}
+
+function identicalAttackerEvalKey(perm: BattlefieldPermanent): string {
+  const card = perm.card as { name?: string; type_line?: string } | undefined;
+  const granted = ((perm as any).grantedAbilities || []).slice().sort().join('|');
+  return [
+    perm.controller,
+    card?.name || '',
+    perm.effectivePower ?? perm.basePower ?? '',
+    perm.effectiveToughness ?? perm.baseToughness ?? '',
+    perm.tapped ? 1 : 0,
+    perm.summoningSickness ? 1 : 0,
+    perm.isToken ? 1 : 0,
+    (perm as any).isCommander ? 1 : 0,
+    granted,
+  ].join('\0');
+}
+
 /** Strategy tunes how eager the AI is to attack; combat sanity is always applied. */
 export function getStrategyAttackModifiers(strategy: AIStrategy): {
   minVoluntaryAttackValue: number;
@@ -138,7 +209,7 @@ export function getStrategyAttackModifiers(strategy: AIStrategy): {
 }
 
 function isActiveCombatPlayer(player: any): boolean {
-  return Boolean(player?.id) && !player?.hasLost && !player?.eliminated && !player?.conceded && !player?.spectator && !player?.isSpectator;
+  return playerIsLegalAttackTarget(player);
 }
 
 export function makeBasicAttackDecision(
@@ -190,7 +261,7 @@ export function makeBasicAttackDecision(
   const goadedCreatureIds = getGoadedAttackers(context.gameState, context.playerId);
   const goadedSet = new Set(goadedCreatureIds);
   const activeOpponents = context.gameState.players.filter((candidate: any) =>
-    candidate?.id && candidate.id !== context.playerId && !candidate?.hasLost && !candidate?.eliminated && !candidate?.conceded
+    playerIsLegalAttackTarget(candidate, context.playerId)
   ).length;
   const allPlayerIds = context.gameState.players
     .filter((p: any) => isActiveCombatPlayer(p) || p.id === context.playerId)
@@ -244,9 +315,16 @@ export function makeBasicAttackDecision(
 
   const targetPlayer = deps.selectAttackTarget(context.gameState, context.playerId);
   const opponents = listActiveOpponents(context.gameState, context.playerId);
-  const smallAttackerBlockedEverywhere = (perm: BattlefieldPermanent) =>
-    isSmallVoluntaryAttacker(createCombatCreature(perm))
-    && !attackerHasOpenLane(perm, opponents, globalBattlefield);
+  const blockedEverywhereCache = new Map<string, boolean>();
+  const smallAttackerBlockedEverywhere = (perm: BattlefieldPermanent) => {
+    const key = identicalAttackerEvalKey(perm);
+    const cached = blockedEverywhereCache.get(key);
+    if (cached !== undefined) return cached;
+    const blocked = isSmallVoluntaryAttacker(createCombatCreature(perm))
+      && !attackerHasOpenLane(perm, opponents, globalBattlefield);
+    blockedEverywhereCache.set(key, blocked);
+    return blocked;
+  };
 
   const suicideAttackers = attackerEvaluations
     .filter((entry) => entry.wantsToGetKilled && entry.deathBenefit >= 8)
@@ -398,17 +476,6 @@ export function makeBasicBlockDecision(
     };
   }
 
-  const attackingCreatures = context.constraints?.attackers || [];
-  if (attackingCreatures.length === 0) {
-    return {
-      type: AIDecisionType.DECLARE_BLOCKERS,
-      playerId: context.playerId,
-      action: { blockers: [] },
-      reasoning: 'No attackers to block',
-      confidence: 1,
-    };
-  }
-
   const globalBattlefield = deps.getProcessedBattlefield(context.gameState);
   const blockerPermanents = globalBattlefield.filter((p: any) => p.controller === context.playerId && legalBlockerIds.includes(p.id));
 
@@ -422,9 +489,22 @@ export function makeBasicBlockDecision(
     };
   }
 
+  const attackingPermanents = listAttackersForBlockDecision(context, globalBattlefield);
+  const attackerCreatures = attackingPermanents.map((perm) => createCombatCreature(perm));
+
+  if (attackerCreatures.length === 0) {
+    return {
+      type: AIDecisionType.DECLARE_BLOCKERS,
+      playerId: context.playerId,
+      action: { blockers: [] },
+      reasoning: 'No attackers to block',
+      confidence: 1,
+    };
+  }
+
   const blockerEvaluations = blockerPermanents.map((perm: BattlefieldPermanent) => {
     const activeOpponents = context.gameState.players.filter((candidate: any) =>
-      candidate?.id && candidate.id !== context.playerId && !candidate?.hasLost && !candidate?.eliminated && !candidate?.conceded
+      playerIsLegalAttackTarget(candidate, context.playerId)
     ).length;
     const evaluation = deps.evaluateCombatValue(perm, false, activeOpponents);
     const deckModifiers = deps.getCombatDeckModifiers(perm, config);
@@ -439,18 +519,7 @@ export function makeBasicBlockDecision(
     };
   });
 
-  const attackerCreatures = attackingCreatures
-    .map((a: any) => {
-      if (typeof a === 'object' && a.id) {
-        const processedAttacker = globalBattlefield.find((perm: BattlefieldPermanent) => perm.id === a.id) || a;
-        return createCombatCreature(processedAttacker as BattlefieldPermanent);
-      }
-      return null;
-    })
-    .filter(Boolean) as CombatCreature[];
-
-  const player = context.gameState.players.find(p => p.id === context.playerId);
-  const playerLife = player?.life || 40;
+  const playerLife = readDefenderLife(context.gameState, context.playerId);
   const totalAttackerDamage = attackerCreatures.reduce((sum, a) => sum + a.power, 0);
   let isLethalIfUnblocked = totalAttackerDamage >= playerLife;
 
@@ -464,9 +533,6 @@ export function makeBasicBlockDecision(
     const totalCommanderDamage = existingDamage + attacker.power;
     if (totalCommanderDamage >= 21) {
       isLethalIfUnblocked = true;
-      console.log(
-        `[AI] Commander damage lethal threat detected: ${attacker.name} would deal ${totalCommanderDamage} total commander damage (${existingDamage} existing + ${attacker.power} new)`
-      );
       break;
     }
   }
@@ -533,15 +599,15 @@ export function makeBasicBlockDecision(
       if (attacker.keywords.deathtouch) {
         score += 15;
       }
-      if (isLethalIfUnblocked) {
+      if (isLethalIfUnblocked || attacker.power >= playerLife) {
         score += 100;
       } else if (attacker.power >= 4 && blockerDies && !attackerDies) {
         score += 10;
       }
-      if (blockerDies && !blockerEval.wantsToGetKilled && !attackerDies && !isLethalIfUnblocked) {
+      if (blockerDies && !blockerEval.wantsToGetKilled && !attackerDies && !isLethalIfUnblocked && attacker.power < playerLife) {
         score -= blockerEval.baseValue * 2;
       }
-      if (blockerDies && !isLethalIfUnblocked) {
+      if (blockerDies && !isLethalIfUnblocked && attacker.power < playerLife) {
         score -= blockerEval.preserveBias;
       }
       if (!blockerDies && blockerEval.attackBias > 0) {
@@ -554,7 +620,8 @@ export function makeBasicBlockDecision(
       }
     }
 
-    const minScoreThreshold = isLethalIfUnblocked ? -50 : 0;
+    const attackerIsLethal = isLethalIfUnblocked || attacker.power >= playerLife;
+    const minScoreThreshold = attackerIsLethal ? Number.NEGATIVE_INFINITY : 0;
     if (bestBlocker && bestScore >= minScoreThreshold) {
       blockAssignments.push({
         blockerId: bestBlocker.creature.id,

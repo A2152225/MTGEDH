@@ -4,6 +4,7 @@
  * Public: appendCombatDamageDetectionMid
  */
 
+import { normalizeCreatureTypeWord } from "../../../../../shared/src/creatureTypes.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import type { CombatDamageDetectionState } from "./combat-damage-detection-state.js";
 
@@ -37,23 +38,35 @@ export function appendCombatDamageDetectionMid(state: CombatDamageDetectionState
     });
   }
 
-  const nonHumanCreaturesCombatDamageMatch = oracleText.match(
-    /when(?:ever)? one or more non-Human creatures you control deal combat damage to a player,?\s*([^.]+)/i,
+  const nonTypeCreaturesCombatDamageMatch = oracleText.match(
+    /when(?:ever)? one or more non-([A-Za-z]+) creatures you control deal combat damage to a player,?\s*([^.]+)/i,
   );
+  const nonTypePhrase = nonTypeCreaturesCombatDamageMatch
+    ? normalizeCreatureTypeWord(String(nonTypeCreaturesCombatDamageMatch[1] || ''))
+    : null;
   if (
-    nonHumanCreaturesCombatDamageMatch &&
-    !triggers.some((t) => t.triggerType === 'non_human_creatures_combat_damage_to_player')
+    nonTypeCreaturesCombatDamageMatch &&
+    nonTypePhrase &&
+    !triggers.some((t) =>
+      t.triggerType === 'non_human_creatures_combat_damage_to_player'
+      || t.triggerType === 'non_type_creatures_combat_damage_to_player'
+    )
   ) {
-    const effectText = timingTriggerEffect(oracleText, nonHumanCreaturesCombatDamageMatch);
-    triggers.push({
+    const effectText = timingTriggerEffect(oracleText, nonTypeCreaturesCombatDamageMatch, 2);
+    const trigger = {
       permanentId,
       cardName,
-      triggerType: 'non_human_creatures_combat_damage_to_player',
+      triggerType: nonTypePhrase === 'human'
+        ? 'non_human_creatures_combat_damage_to_player'
+        : 'non_type_creatures_combat_damage_to_player',
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
       batched: true,
-    });
+    };
+    (trigger as { requiredTypePhrase?: string }).requiredTypePhrase =
+      String(nonTypeCreaturesCombatDamageMatch[1] || '').trim();
+    triggers.push(trigger);
   }
 
   const creatureTokensCombatDamageMatch = oracleText.match(
@@ -348,22 +361,34 @@ export function appendCombatDamageDetectionMid(state: CombatDamageDetectionState
     });
   }
 
-  const assassinCombatDamageToOpponentMatch = oracleText.match(
-    /whenever an Assassin you control deals combat damage to an opponent,?\s*([^.]+)/i,
+  const typedCombatDamageToOpponentMatch = oracleText.match(
+    /whenever an? ([A-Za-z]+) you control deals combat damage to an opponent,?\s*([^.]+)/i,
   );
+  const typedOpponentPhrase = typedCombatDamageToOpponentMatch
+    ? normalizeCreatureTypeWord(String(typedCombatDamageToOpponentMatch[1] || ''))
+    : null;
   if (
-    assassinCombatDamageToOpponentMatch &&
-    !triggers.some((t) => t.triggerType === 'assassin_combat_damage_to_opponent')
+    typedCombatDamageToOpponentMatch &&
+    typedOpponentPhrase &&
+    !triggers.some((t) =>
+      t.triggerType === 'assassin_combat_damage_to_opponent'
+      || t.triggerType === 'typed_creature_combat_damage_to_opponent'
+    )
   ) {
-    const effectText = timingTriggerEffect(oracleText, assassinCombatDamageToOpponentMatch);
-    triggers.push({
+    const effectText = timingTriggerEffect(oracleText, typedCombatDamageToOpponentMatch, 2);
+    const trigger = {
       permanentId,
       cardName,
-      triggerType: 'assassin_combat_damage_to_opponent',
+      triggerType: typedOpponentPhrase === 'assassin'
+        ? 'assassin_combat_damage_to_opponent'
+        : 'typed_creature_combat_damage_to_opponent',
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+    };
+    (trigger as { requiredTypePhrase?: string }).requiredTypePhrase =
+      String(typedCombatDamageToOpponentMatch[1] || '').trim();
+    triggers.push(trigger);
   }
 
   const selfOrEnchantedCombatDamageToPlayerMatch = oracleText.match(
@@ -474,22 +499,34 @@ export function appendCombatDamageDetectionMid(state: CombatDamageDetectionState
     });
   }
 
-  const sliverCombatDamageToCreatureMatch = oracleText.match(
-    /whenever a Sliver deals combat damage to a creature,?\s*([^.]+)/i,
+  const typedCombatDamageToCreatureMatch = oracleText.match(
+    /whenever an? ([A-Za-z]+) deals combat damage to a creature,?\s*([^.]+)/i,
   );
+  const typedCreaturePhrase = typedCombatDamageToCreatureMatch
+    ? normalizeCreatureTypeWord(String(typedCombatDamageToCreatureMatch[1] || ''))
+    : null;
   if (
-    sliverCombatDamageToCreatureMatch &&
-    !triggers.some((t) => t.triggerType === 'sliver_combat_damage_to_creature')
+    typedCombatDamageToCreatureMatch &&
+    typedCreaturePhrase &&
+    !triggers.some((t) =>
+      t.triggerType === 'sliver_combat_damage_to_creature'
+      || t.triggerType === 'typed_creature_combat_damage_to_creature'
+    )
   ) {
-    const effectText = timingTriggerEffect(oracleText, sliverCombatDamageToCreatureMatch);
-    triggers.push({
+    const effectText = timingTriggerEffect(oracleText, typedCombatDamageToCreatureMatch, 2);
+    const trigger = {
       permanentId,
       cardName,
-      triggerType: 'sliver_combat_damage_to_creature',
+      triggerType: typedCreaturePhrase === 'sliver'
+        ? 'sliver_combat_damage_to_creature'
+        : 'typed_creature_combat_damage_to_creature',
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+    };
+    (trigger as { requiredTypePhrase?: string }).requiredTypePhrase =
+      String(typedCombatDamageToCreatureMatch[1] || '').trim();
+    triggers.push(trigger);
   }
 
   const opponentCreaturesCombatDamageToOpponentsMatch = oracleText.match(

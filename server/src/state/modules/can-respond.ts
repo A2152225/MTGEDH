@@ -31,7 +31,7 @@ import { detectActivatedAbilityConditionRequirement } from "./activated-ability-
 import { isActivatedAbilityTimingLegal } from "./activation-timing.js";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan, getCostAdjustmentForCard as getSharedCostAdjustmentForCard, type CostAdjustmentPlan } from "./cost-adjustments";
 import { collectStaticEffectSources } from "./static-effect-sources";
-import { creatureHasHaste, getEffectiveAdditionalCost } from "../../socket/game-actions.js";
+import { getEffectiveAdditionalCost, permanentHasSummoningSickness } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { cardManaValue, parseWordNumber } from "../utils";
 import { findPermanentsWithCreatureType } from "../../../../shared/src/creatureTypes.js";
@@ -44,6 +44,7 @@ import { getDurableCommandZonePermissionForCard, playerHasDurableLandPlayPermiss
 import { cardMayBeCastWithMayhem, parseMayhemCost } from './keywordCastMechanics.js';
 import { buildFreeCastIntentFields } from './castIntent.js';
 import { hydrateCardOracleInPlace } from './cardOracleHydration.js';
+import { getOrComputeCachedBoolean } from "./can-respond-handlers/canRespondPriorityCache.js";
 import type {
   SharedSpellSourceZone,
   SharedSpellCandidateMode,
@@ -258,6 +259,10 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
  * @returns true if the player can respond, false otherwise
  */
 export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
+  return getOrComputeCachedBoolean(ctx, playerId, 'canRespond', () => canRespondUncached(ctx, playerId));
+}
+
+function canRespondUncached(ctx: GameContext, playerId: PlayerID): boolean {
   try {
     debug(2, `[canRespond] ${playerId}: checking instant-speed responses only`);
 
@@ -396,16 +401,8 @@ function hasGoadedCreaturesThatMustAttack(ctx: GameContext, playerId: PlayerID):
       // Can't attack if tapped
       if (permanent.tapped) continue;
       
-      // Can't attack with summoning sickness (unless haste)
-      const enteredThisTurn = permanent.enteredThisTurn === true;
-      if (enteredThisTurn) {
-        const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
-        const grantedAbilities = permanent.grantedAbilities || [];
-        const hasHaste = oracleText.includes("haste") || 
-                        grantedAbilities.some((a: string) => a && a.toLowerCase().includes("haste"));
-        
-        if (!hasHaste) continue; // Summoning sickness
-      }
+      // Rule 701.15b: must attack *if able*. Summoning sickness without haste is not able.
+      if (permanentHasSummoningSickness(permanent, battlefield, playerId)) continue;
       
       // Check for "can't attack" effects
       const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
@@ -452,18 +449,7 @@ export function hasValidAttackers(ctx: GameContext, playerId: PlayerID): boolean
       // Can't attack if tapped
       if (permanent.tapped) continue;
       
-      // Can't attack with summoning sickness (unless haste)
-      // Check if creature entered this turn AND doesn't have haste
-      const enteredThisTurn = permanent.enteredThisTurn === true;
-      if (enteredThisTurn) {
-        // Check for haste in oracle text or granted abilities
-        const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
-        const grantedAbilities = permanent.grantedAbilities || [];
-        const hasHaste = oracleText.includes("haste") || 
-                        grantedAbilities.some((a: string) => a && a.toLowerCase().includes("haste"));
-        
-        if (!hasHaste) continue; // Summoning sickness
-      }
+      if (permanentHasSummoningSickness(permanent, battlefield, playerId)) continue;
       
       // Check for "can't attack" effects (like Pacifism, Trapped in the Tower, etc.)
       const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
@@ -577,6 +563,10 @@ export function isPlayerIdleForAutoPass(ctx: GameContext, playerId: PlayerID): b
 }
 
 export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
+  return getOrComputeCachedBoolean(ctx, playerId, 'canAct', () => canActUncached(ctx, playerId));
+}
+
+function canActUncached(ctx: GameContext, playerId: PlayerID): boolean {
   try {
     const currentStep = String((ctx.state as any).step || '').toUpperCase();
     const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';

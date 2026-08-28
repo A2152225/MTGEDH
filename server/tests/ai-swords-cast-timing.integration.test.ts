@@ -5,6 +5,7 @@ import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolut
 import { games } from '../src/socket/socket.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
+import { cleanupGameAI, handleAIResolutionStep, registerAIPlayer } from '../src/socket/ai.js';
 import { ensureGame } from '../src/socket/util.js';
 
 function createMockSocket(playerId: string, emitted: Array<{ room?: string; event: string; payload: any }>) {
@@ -63,6 +64,7 @@ describe('AI Swords cast timing integration', () => {
 
   afterEach(async () => {
     for (const gameId of trackedGameIds) {
+      cleanupGameAI(gameId);
       ResolutionQueueManager.removeQueue(gameId);
       games.delete(gameId as any);
       await deleteGame(gameId);
@@ -400,5 +402,121 @@ describe('AI Swords cast timing integration', () => {
     expect((game.state as any).stack || []).toHaveLength(1);
     expect(((game.state as any).zones?.[playerId]?.hand || []).map((card: any) => card.id)).toEqual([]);
     expect(emitted.some((entry) => entry.event === 'error' && entry.payload?.code === 'CAST_TIMING_LOST')).toBe(false);
+  });
+
+  it('applies mana_payment_choice side effects so Swords lands on the stack instead of retrying', async () => {
+    const gameId = createTestGameId('ai_payment_side_effects');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const swordsId = 'swords_hand_ai_pay';
+    const effectId = `cast_${swordsId}_ai_pay`;
+    const targetId = 'perm_target_creature';
+
+    (game.state as any).players = [
+      { id: playerId, name: 'King', spectator: false, life: 40, isAI: true },
+      { id: opponentId, name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: targetId,
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'target_creature_card',
+          name: 'Llanowar Elves',
+          type_line: 'Creature — Elf Druid',
+          oracle_text: '{T}: Add {G}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: swordsId,
+            name: 'Swords to Plowshares',
+            type_line: 'Instant',
+            oracle_text: 'Exile target creature. Its controller gains life equal to its power.',
+            mana_cost: '{W}',
+            cmc: 1,
+            zone: 'hand',
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).pendingSpellCasts = {
+      [effectId]: {
+        cardId: swordsId,
+        cardName: 'Swords to Plowshares',
+        manaCost: '{W}',
+        rawManaCost: '{W}',
+        fromZone: 'hand',
+        playerId,
+        validTargetIds: [targetId],
+        targets: [targetId],
+        finalManaCost: '{W}',
+        card: (game.state as any).zones[playerId].hand[0],
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    initializePriorityResolutionHandler(io);
+    registerResolutionHandlers(io, socket);
+    registerGameActions(io, socket);
+    registerAIPlayer(gameId, playerId as any, 'King', 0.5);
+
+    const paymentStep = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId,
+      sourceId: swordsId,
+      sourceName: 'Swords to Plowshares',
+      description: 'Pay for Swords to Plowshares',
+      mandatory: true,
+      spellPaymentRequired: true,
+      effectId,
+      cardId: swordsId,
+      cardName: 'Swords to Plowshares',
+      manaCost: '{W}',
+      targets: [targetId],
+    } as any);
+
+    await handleAIResolutionStep(io, gameId, playerId as any, paymentStep);
+
+    expect((game.state as any).pendingSpellCasts?.[effectId]).toBeUndefined();
+    expect(((game.state as any).zones?.[playerId]?.hand || []).map((card: any) => card.id)).toEqual([]);
+    expect((game.state as any).stack || []).toHaveLength(1);
+    expect(String((game.state as any).stack?.[0]?.card?.name || (game.state as any).stack?.[0]?.cardName || '')).toBe(
+      'Swords to Plowshares',
+    );
   });
 });

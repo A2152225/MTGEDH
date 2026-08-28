@@ -856,13 +856,16 @@ export function tryLoyaltyTemplateControlExtraTurnGy(
       return true;
     }
 
+    case "PUT_P1P1_COUNTERS_ON_TARGET_CREATURE_IT_BECOMES_A_TYPED_CREATURE_IN_ADDITION_TO_ITS_OTHER_TYPES_AND_GAINS_KEYWORDS":
     case "PUT_P1P1_COUNTERS_ON_TARGET_CREATURE_IT_BECOMES_AN_ANGEL_IN_ADDITION_TO_ITS_OTHER_TYPES_AND_GAINS_FLYING": {
       const m = text.match(
-        /^put (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) \+1\/\+1 counters? on target creature\. it becomes an angel in addition to its other types and gains flying\.?$/i
+        /^put (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) \+1\/\+1 counters? on target creature\. it becomes an? ([a-z][a-z-]*) in addition to its other types and gains ([a-z][a-z-]*(?: [a-z]+)?(?: and [a-z][a-z-]*(?: [a-z]+)?)*)\.?$/i
       );
       if (!m) return false;
 
       const n = parseCountTokenWord(m[1]);
+      const typeTitle = String(m[2] || "Angel").replace(/[a-z]+/gi, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+      const keywords = String(m[3] || "Flying").split(/\s+and\s+/i).map((k) => k.trim().replace(/[a-z]+/gi, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())).filter(Boolean);
       const [targetId] = getTargets(triggerItem);
       if (!targetId) return false;
 
@@ -876,12 +879,14 @@ export function tryLoyaltyTemplateControlExtraTurnGy(
 
       perm.card = perm.card || {};
       const currentTypeLine = String(perm.card.type_line || '');
-      if (!/\bangel\b/i.test(currentTypeLine)) {
-        perm.card.type_line = currentTypeLine.length > 0 ? `${currentTypeLine} Angel` : 'Angel';
+      if (typeTitle && !new RegExp(`\\b${typeTitle}\\b`, 'i').test(currentTypeLine)) {
+        perm.card.type_line = currentTypeLine.length > 0 ? `${currentTypeLine} ${typeTitle}` : typeTitle;
       }
 
       perm.grantedAbilities = Array.isArray(perm.grantedAbilities) ? perm.grantedAbilities : [];
-      if (!perm.grantedAbilities.includes('Flying')) perm.grantedAbilities.push('Flying');
+      for (const kw of keywords) {
+        if (!perm.grantedAbilities.includes(kw)) perm.grantedAbilities.push(kw);
+      }
 
       (ctx as any).bumpSeq?.();
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);

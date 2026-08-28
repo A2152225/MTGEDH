@@ -25,6 +25,8 @@ import {
 import { debugWarn } from '../../utils/debug.js';
 import { queueDealsDamageToPlayerTriggersFromPermanent } from './triggerLifeDamageUtils.js';
 import { processMillTriggers } from './zones.js';
+import { checkGraveyardTrigger } from './zone-manipulation.js';
+import { runSBA } from './counters_tokens.js';
 
 export type BattlefieldTriggerSnapshot = {
   readonly lifeByPlayer: ReadonlyMap<string, number>;
@@ -64,7 +66,12 @@ export function snapshotBattlefieldForTriggerEmission(state: any): BattlefieldTr
     if (!id) continue;
     permanents.set(id, {
       tapped: perm?.tapped === true,
-      damage: Math.max(0, Number(perm?.damage || 0) || 0),
+      damage: Math.max(
+        0,
+        Number(perm?.damage || 0) || 0,
+        Number(perm?.damageMarked || 0) || 0,
+        Number(perm?.markedDamage || 0) || 0,
+      ),
       isMonstrous: perm?.isMonstrous === true || perm?.monstrous === true,
       controller: String(perm?.controller || ''),
       card: perm?.card,
@@ -167,7 +174,12 @@ export function emitTriggersAfterOracleIRApply(
       if (!id) continue;
       const prev = before.permanents.get(id);
       const nowTapped = perm?.tapped === true;
-      const nowDamage = Math.max(0, Number(perm?.damage || 0) || 0);
+        const nowDamage = Math.max(
+          0,
+          Number(perm?.damage || 0) || 0,
+          Number(perm?.damageMarked || 0) || 0,
+          Number(perm?.markedDamage || 0) || 0,
+        );
       const nowMonstrous = perm?.isMonstrous === true || perm?.monstrous === true;
 
       if (prev) {
@@ -250,6 +262,9 @@ export function emitTriggersAfterOracleIRApply(
           return cardId && !beforeGy.has(cardId) && !beforeHand.has(cardId);
         });
         if (milledCards.length > 0) {
+          for (const milledCard of milledCards) {
+            checkGraveyardTrigger(ctx, milledCard, playerId, 'library');
+          }
           processMillTriggers(ctx, playerId, milledCards, irController || undefined);
         }
       }
@@ -304,6 +319,14 @@ export function emitTriggersAfterOracleIRApply(
         const discoverValue = extractDiscoverValueFromImpulseStep(step);
         if (discoverValue == null) continue;
         processDiscoverTriggers(ctx, irController, discoverValue);
+      }
+    }
+
+    if (kinds.has('deal_damage') && !(ctx as any).isReplaying) {
+      try {
+        runSBA(ctx);
+      } catch {
+        // SBA may not be available during replay
       }
     }
   } catch (err) {

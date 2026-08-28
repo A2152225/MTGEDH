@@ -105,7 +105,7 @@ describe('Oracle IR gap batch 301 — Dragon/Aetherspouts/Split selectors', () =
           controller: 'p2',
           owner: 'p2',
           card: { name: 'Soldier', type_line: 'Creature — Soldier', cmc: 2 },
-          attacking: true,
+          attacking: controllerId,
           tapped: true,
           attachments: [],
           counters: {},

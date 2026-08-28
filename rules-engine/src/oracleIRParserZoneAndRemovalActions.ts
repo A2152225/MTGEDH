@@ -375,6 +375,25 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
+  // Current-template shortening of "exile all cards from target player's graveyard"
+  // (Bojuka Bog). Generic `exile <object>` would emit kind:exile and skip at runtime.
+  const exilePossessiveGraveyardMatch = clause.match(
+    /^(?:otherwise,\s*)?exile\s+((?:target\s+player's|target\s+opponent's|that\s+player's|that\s+opponent's|each\s+player's|each\s+opponent's|all)\s+graveyards?)$/i,
+  );
+  if (exilePossessiveGraveyardMatch) {
+    const ownerGraveyard = String(exilePossessiveGraveyardMatch[1] || '').trim();
+    const whatRaw = /^all\s+graveyards?$/i.test(ownerGraveyard)
+      ? 'all cards from all graveyards'
+      : `all cards from ${ownerGraveyard}`;
+    return withMeta({
+      kind: 'move_zone',
+      what: parseObjectSelector(whatRaw),
+      to: 'exile',
+      toRaw: 'exile',
+      raw: rawClause,
+    });
+  }
+
   const exileMatch = clause.match(/^(?:otherwise,\s*)?exile\s+(.+)$/i);
   if (exileMatch) {
     return withMeta({ kind: 'exile', target: parseObjectSelector(exileMatch[1]), raw: rawClause });

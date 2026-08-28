@@ -129,10 +129,16 @@ export function applyInstantSorcerySpecialCaseSpellEffects(
     }
   }
 
+  // PRIMARY=1 owns Rite / Divine / Prisoner / Summons via IR. Do not fill a
+  // missing ETB window or replay amass/mill here — that duplicated live IR.
+  if (isOracleIrSpellPrimaryEnabled()) {
+    return;
+  }
+
   if (options.isRiteOfHarmonyStyleWindow) {
     const sourceName = String(effectiveCard?.name || 'spell');
-    // IR primary already wrote this window (`grant_temporary_etb_trigger`). Replay
-    // short-circuits IR-owned spells without re-applying, so only fill when missing.
+    // PRIMARY=0 trampoline miss: restore the this-turn ETB window. IR primary
+    // persists grantTemporaryEtbTrigger for replay and never reaches this fill.
     if (!hasMatchingTemporaryEtbWindow(state, {
       controller,
       sourceName,

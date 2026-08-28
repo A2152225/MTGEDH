@@ -13,6 +13,11 @@ import {
   parseControlledCreatureCombatGate,
 } from '../../../shared/src/controlledCreatureCombatGate';
 import { getCombinedPermanentText } from './permanentText';
+import {
+  grantedAbilityIsOwnKeyword,
+  oracleTextGrantsKeywordOnlyToOthers,
+  oracleTextHasOwnKeyword,
+} from '../../../rules-engine/src/oracleOwnKeywordText';
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -25,16 +30,91 @@ function getKeywordList(perm: BattlefieldPermanent): string[] {
     : [];
 }
 
-function hasWord(text: string, word: string): boolean {
-  return new RegExp(`\\b${escapeRegExp(word)}\\b`, 'i').test(text);
+function getOwnOracleText(perm: BattlefieldPermanent): string {
+  return String((perm.card as any)?.oracle_text || (perm as any).oracle_text || '');
 }
 
 function getSummoningSickness(perm: BattlefieldPermanent): boolean {
   return Boolean(
     (perm as any).summoningSickness
-    ?? (perm as any).summoningSick
-    ?? (perm as any).enteredThisTurn,
+    || (perm as any).summoningSick
+    || (perm as any).enteredThisTurn,
   );
+}
+
+function grantedAbilitiesIncludeKeyword(perm: BattlefieldPermanent, keyword: string): boolean {
+  const granted = (perm as any).grantedAbilities;
+  if (!Array.isArray(granted)) return false;
+  return granted.some((entry: unknown) => grantedAbilityIsOwnKeyword(entry, keyword));
+}
+
+function temporaryAbilitiesIncludeKeyword(perm: BattlefieldPermanent, keyword: string): boolean {
+  const tempAbilities = [
+    ...(Array.isArray((perm as any).tempAbilities) ? (perm as any).tempAbilities : []),
+    ...(Array.isArray((perm as any).temporaryAbilities) ? (perm as any).temporaryAbilities : []),
+  ];
+  return tempAbilities.some((entry: any) => {
+    if (typeof entry === 'string') return grantedAbilityIsOwnKeyword(entry, keyword);
+    return grantedAbilityIsOwnKeyword(entry?.ability || entry?.keyword || entry?.name, keyword);
+  });
+}
+
+function typeLineHasCreatureType(typeLine: string, creatureType: string): boolean {
+  const type = String(creatureType || '').trim().toLowerCase().replace(/s$/, '');
+  if (!type) return false;
+  return new RegExp(`\\b${escapeRegExp(type)}s?\\b`, 'i').test(typeLine);
+}
+
+function battlefieldGrantsKeyword(
+  perm: BattlefieldPermanent,
+  keyword: string,
+  battlefield: readonly BattlefieldPermanent[] | undefined,
+): boolean {
+  if (!battlefield?.length) return false;
+  const recipientId = String(perm.id || '');
+  const recipientController = String(perm.controller || '');
+  const recipientTypeLine = String((perm.card as any)?.type_line || '').toLowerCase();
+  const escaped = escapeRegExp(keyword);
+
+  for (const grantor of battlefield) {
+    if (!grantor || String(grantor.controller || '') !== recipientController) continue;
+    const oracle = String((grantor.card as any)?.oracle_text || '');
+    if (!oracle) continue;
+    const grantorId = String(grantor.id || '');
+
+    if (
+      new RegExp(String.raw`\bcreatures you control have\b[^\n.]*\b${escaped}\b`, 'i').test(oracle) &&
+      !new RegExp(String.raw`\bother creatures you control have\b[^\n.]*\b${escaped}\b`, 'i').test(oracle)
+    ) {
+      return true;
+    }
+
+    const otherTypeMatch = oracle.match(
+      new RegExp(
+        String.raw`\bother\s+(\w+?)s?\s+(?:creatures?\s+)?you\s+control\s+have\b[^\n.]*\b${escaped}\b`,
+        'i',
+      ),
+    );
+    if (otherTypeMatch && grantorId && grantorId !== recipientId) {
+      if (typeLineHasCreatureType(recipientTypeLine, String(otherTypeMatch[1] || ''))) {
+        return true;
+      }
+    }
+
+    const tribalMatch = oracle.match(
+      new RegExp(
+        String.raw`\b(\w+)\s+creatures? you control have\b[^\n.]*\b${escaped}\b`,
+        'i',
+      ),
+    );
+    if (tribalMatch && !/^(all|each|every|other)$/i.test(String(tribalMatch[1] || ''))) {
+      if (typeLineHasCreatureType(recipientTypeLine, String(tribalMatch[1] || ''))) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 function getAttachedPermanents(
@@ -136,11 +216,23 @@ export function hasCurrentKeyword(
   battlefield?: readonly BattlefieldPermanent[],
 ): boolean {
   const normalizedKeyword = keyword.toLowerCase();
-  if (getKeywordList(perm).includes(normalizedKeyword)) {
+  const ownOracle = getOwnOracleText(perm);
+  const otherOnlyGrant = oracleTextGrantsKeywordOnlyToOthers(ownOracle, normalizedKeyword);
+
+  // Scryfall/keyword lists can be filled by a naive full-oracle scan of a lord grant.
+  if (!otherOnlyGrant && getKeywordList(perm).includes(normalizedKeyword)) {
     return true;
   }
 
-  if (hasWord(getCombinedPermanentText(perm), normalizedKeyword)) {
+  if (oracleTextHasOwnKeyword(ownOracle, normalizedKeyword)) {
+    return true;
+  }
+
+  if (!otherOnlyGrant && grantedAbilitiesIncludeKeyword(perm, normalizedKeyword)) {
+    return true;
+  }
+
+  if (temporaryAbilitiesIncludeKeyword(perm, normalizedKeyword)) {
     return true;
   }
 
@@ -150,7 +242,7 @@ export function hasCurrentKeyword(
     }
   }
 
-  return false;
+  return battlefieldGrantsKeyword(perm, normalizedKeyword, battlefield);
 }
 
 export function hasCurrentHaste(

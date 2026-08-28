@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { PlayerID } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser.js';
@@ -89,32 +89,38 @@ describe('Chaos Warp and Jaheira Respite spell IR', () => {
     expect(evaluation).toBe(true);
   });
 
-  it('executes Chaos Warp shuffle-reveal-conditional ETB with server bridge', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function executeChaosWarp(args: {
+    readonly opponentLibrary: readonly any[];
+    readonly casterLibrary?: readonly any[];
+    readonly targetController?: string;
+    readonly targetOwner?: string;
+    readonly serverBridgeFactory?: (state: any, ledger: any, haltState: OracleIRTransitionHaltState) => any;
+  }) {
     const ir = parseOracleTextToIR(CHAOS_WARP_TEXT, 'Chaos Warp');
     const steps = ir.abilities[0]?.steps || [];
+    const targetController = args.targetController || 'p_opp';
+    const targetOwner = args.targetOwner || 'p_opp';
 
     const state: any = {
       players: [
-        { id: 'p_caster', hand: [], graveyard: [], exile: [], library: [] },
+        { id: 'p_caster', hand: [], graveyard: [], exile: [], library: [...(args.casterLibrary || [])] },
         {
           id: 'p_opp',
           hand: [],
           graveyard: [],
           exile: [],
-          library: [
-            {
-              id: 'revealed_creature',
-              name: 'Elite Vanguard',
-              type_line: 'Creature — Human Soldier',
-            },
-          ],
+          library: [...args.opponentLibrary],
         },
       ],
       battlefield: [
         {
           id: 'target_perm',
-          controller: 'p_opp',
-          owner: 'p_opp',
+          controller: targetController,
+          owner: targetOwner,
           card: {
             id: 'target_card',
             name: 'Grizzly Bears',
@@ -126,12 +132,14 @@ describe('Chaos Warp and Jaheira Respite spell IR', () => {
 
     const ledger = createEmptyStepLedger();
     const haltState: OracleIRTransitionHaltState = { halted: false, deferred: [] };
-    const serverBridge = createOracleIRServerExecutionBridge({
-      state,
-      ledger,
-      interactivePlayerChoices: true,
-      haltState,
-    });
+    const serverBridge = args.serverBridgeFactory
+      ? args.serverBridgeFactory(state, ledger, haltState)
+      : createOracleIRServerExecutionBridge({
+          state,
+          ledger,
+          interactivePlayerChoices: true,
+          haltState,
+        });
 
     const binding = inferOracleIrTargetBinding(state, ['target_perm'], 'p_caster' as PlayerID);
     const ctx = buildOracleIRExecutionContext({
@@ -144,9 +152,25 @@ describe('Chaos Warp and Jaheira Respite spell IR', () => {
       appliedStepKinds: new Map(),
     });
 
-    const result = applyOracleIRStepsToGameState(state, steps, ctx, {
-      allowOptional: true,
-      haltOnPlayerChoiceRequired: true,
+    return {
+      haltState,
+      result: applyOracleIRStepsToGameState(state, steps, ctx, {
+        allowOptional: true,
+        haltOnPlayerChoiceRequired: true,
+      }),
+    };
+  }
+
+  it('executes Chaos Warp shuffle-reveal-conditional ETB with server bridge', () => {
+    // After tucking Bears, Fisher-Yates with random=0 puts Vanguard on top of
+    // [Lightning Bolt, Elite Vanguard, Grizzly Bears].
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    const { result, haltState } = executeChaosWarp({
+      opponentLibrary: [
+        { id: 'library_bolt', name: 'Lightning Bolt', type_line: 'Instant' },
+        { id: 'revealed_creature', name: 'Elite Vanguard', type_line: 'Creature — Human Soldier' },
+      ],
     });
 
     expect(result.appliedSteps.map((step) => step.kind)).toEqual([
@@ -156,10 +180,69 @@ describe('Chaos Warp and Jaheira Respite spell IR', () => {
     ]);
     expect(result.skippedSteps).toHaveLength(0);
     expect(haltState.halted).toBe(false);
-    expect(
-      (result.state as any).battlefield.some(
-        (perm: any) => String(perm?.card?.name || '') === 'Elite Vanguard',
-      ),
-    ).toBe(true);
+    const battlefield = ((result.state as any).battlefield || []) as any[];
+    expect(battlefield.some((perm) => String(perm?.id || '') === 'target_perm')).toBe(false);
+    expect(battlefield.some((perm) => String(perm?.card?.name || '') === 'Elite Vanguard')).toBe(true);
+  });
+
+  it('does not put a revealed instant onto the battlefield', () => {
+    // Two-card library after tuck: [Lightning Bolt, Grizzly Bears]. random≈1 leaves Bolt on top.
+    vi.spyOn(Math, 'random').mockReturnValue(0.999);
+
+    const { result } = executeChaosWarp({
+      opponentLibrary: [{ id: 'library_bolt', name: 'Lightning Bolt', type_line: 'Instant' }],
+    });
+
+    const battlefield = ((result.state as any).battlefield || []) as any[];
+    expect(battlefield).toHaveLength(0);
+    const oppLibrary = ((result.state as any).players || []).find((player: any) => player.id === 'p_opp')?.library || [];
+    expect(oppLibrary.map((card: any) => String(card?.name || ''))).toContain('Lightning Bolt');
+    expect(oppLibrary.map((card: any) => String(card?.id || ''))).toContain('target_card');
+  });
+
+  it('reveals from the owner library when the target is controlled by someone else', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    const { result } = executeChaosWarp({
+      targetController: 'p_caster',
+      targetOwner: 'p_opp',
+      casterLibrary: [{ id: 'caster_bolt', name: 'Lightning Bolt', type_line: 'Instant' }],
+      opponentLibrary: [
+        { id: 'library_bolt', name: 'Lightning Bolt', type_line: 'Instant' },
+        { id: 'revealed_creature', name: 'Elite Vanguard', type_line: 'Creature — Human Soldier' },
+      ],
+    });
+
+    const battlefield = ((result.state as any).battlefield || []) as any[];
+    expect(battlefield.some((perm) => String(perm?.card?.name || '') === 'Elite Vanguard')).toBe(true);
+    expect(battlefield.some((perm) => String(perm?.card?.name || '') === 'Lightning Bolt')).toBe(false);
+  });
+
+  it('still puts the revealed permanent onto the battlefield when library observation would halt', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    const { result, haltState } = executeChaosWarp({
+      opponentLibrary: [
+        { id: 'library_bolt', name: 'Lightning Bolt', type_line: 'Instant' },
+        { id: 'revealed_creature', name: 'Elite Vanguard', type_line: 'Creature — Human Soldier' },
+      ],
+      serverBridgeFactory: () => ({
+        proposeTransitions: (transitions: readonly any[]) => {
+          const observationOnly = (Array.isArray(transitions) ? transitions : []).every(
+            (transition) =>
+              String(transition?.event?.sourceZone || '') === 'library' &&
+              String(transition?.event?.destinationZone || '') === 'library',
+          );
+          if (observationOnly && (transitions?.length || 0) > 0) {
+            return { halt: true, deferred: [] };
+          }
+          return { halt: false, ready: transitions };
+        },
+      }),
+    });
+
+    expect(haltState.halted).toBe(false);
+    const battlefield = ((result.state as any).battlefield || []) as any[];
+    expect(battlefield.some((perm) => String(perm?.card?.name || '') === 'Elite Vanguard')).toBe(true);
   });
 });

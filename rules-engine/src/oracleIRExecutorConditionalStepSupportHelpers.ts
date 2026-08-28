@@ -4,6 +4,7 @@
  * Public: ConditionalCondition, LastActionOutcome, resolveUnlessPayInnerCondition, parseSmallNumberWord, and other clause helpers
  */
 import type { GameState, PlayerID } from '../../shared/src';
+import { isCreatureTypeWord, normalizeCreatureTypeWord } from '../../shared/src/creatureTypes';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { checkRolledDoubles } from './dieRoll';
@@ -14,6 +15,10 @@ import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPe
 import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
 import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
 import { collectContextualCardsLedgerFirst } from './oracleIRLedgerCardAccess';
+import {
+  topCardSharesCreatureTypeWithControlledCreature,
+  topCardSharesCreatureTypeWithSource,
+} from './oracleIRExecutorConditionalStepShareTypeHelpers';
 
 const EXILE_THIS_WAY_STEP_KINDS = new Set<OracleEffectStep['kind']>([
   'exile',
@@ -94,8 +99,12 @@ function playerHandHasMatchingDescriptor(
   if (descriptor === 'nonland card' || descriptor === 'a nonland card') {
     return hand.some((card: any) => !matchesCardTypeDescriptor(card, 'land'));
   }
-  if (descriptor === 'pirate card' || descriptor === 'a pirate card') {
-    return hand.some((card: any) => matchesCardTypeDescriptor(card, 'pirate'));
+  {
+    const typedCard = descriptor.match(/^(?:an? )?([a-z]+) card$/);
+    const typedNoun = typedCard ? normalizeCreatureTypeWord(String(typedCard[1] || '')) : null;
+    if (typedNoun) {
+      return hand.some((card: any) => matchesCardTypeDescriptor(card, typedNoun));
+    }
   }
   if (descriptor === 'artifact card' || descriptor === 'an artifact card') {
     return hand.some((card: any) => matchesCardTypeDescriptor(card, 'artifact'));
@@ -656,12 +665,26 @@ function splitCompositeCondition(raw: string, delimiter: 'and' | 'or'): string[]
       /^this creature did not attack or come under your control this turn$/i.test(normalized) ||
       /^you control a white or blue permanent$/i.test(normalized) ||
       /^you control a green or white permanent$/i.test(normalized) ||
-      /^it's a goblin or orc$/i.test(normalized) ||
+      (() => {
+        const typeOr = normalized.match(/^it's an? ([a-z]+) or ([a-z]+)$/i);
+        return Boolean(
+          typeOr
+          && isCreatureTypeWord(String(typeOr[1] || ''))
+          && isCreatureTypeWord(String(typeOr[2] || '')),
+        );
+      })() ||
       /^you or a player you're attacking has the initiative$/i.test(normalized) ||
       /^that creature was green or white$/i.test(normalized) ||
       /^that creature was blue or black$/i.test(normalized) ||
       /^you control a red or green permanent$/i.test(normalized) ||
-      /^you control three or more wolves and\/or werewolves$/i.test(normalized) ||
+      (() => {
+        const pair = normalized.match(/^you control three or more ([a-z]+)s? and\/or ([a-z]+)s?$/i);
+        return Boolean(
+          pair
+          && normalizeCreatureTypeWord(String(pair[1] || ''))
+          && normalizeCreatureTypeWord(String(pair[2] || '')),
+        );
+      })() ||
       /^that creature is black or red$/i.test(normalized) ||
       /^you control a god, a demigod, or a legendary enchantment$/i.test(normalized) ||
       /^you've played a land or cast a spell this turn from anywhere other than your hand$/i.test(normalized) ||
@@ -692,19 +715,38 @@ function getReferencedConditionalObject(
   return resolveReferencedObject(nextState, ctx);
 }
 
+const CAST_ZONE_NAMES = new Set(['hand', 'graveyard', 'exile', 'library', 'battlefield', 'stack', 'command']);
+const GRAVEYARD_CAST_ABILITIES = new Set([
+  'flashback',
+  'jump-start',
+  'retrace',
+  'escape',
+  'disturb',
+  'harmonize',
+  'graveyard-cast',
+  'aftermath',
+]);
+
+function normalizeCastZoneName(value: unknown): string | undefined {
+  const zone = String(value || '').trim().toLowerCase();
+  return CAST_ZONE_NAMES.has(zone) ? zone : undefined;
+}
+
+function objectWasCastFromGraveyard(object: any): boolean {
+  if (object?.castFromGraveyard === true || object?.card?.castFromGraveyard === true) return true;
+  const ability = String(object?.castWithAbility || object?.card?.castWithAbility || '').trim().toLowerCase();
+  return GRAVEYARD_CAST_ABILITIES.has(ability);
+}
+
 function getConditionalObjectZoneProvenance(object: any): { castFromZone?: string; enteredFromZone?: string } {
   const castFromZone =
-    String(
-      object?.castFromZone ||
-        object?.castSourceZone ||
-        object?.card?.castFromZone ||
-        object?.card?.castSourceZone ||
-        object?.source ||
-        object?.card?.source ||
-        '',
-    )
-      .trim()
-      .toLowerCase() || undefined;
+    normalizeCastZoneName(object?.castFromZone) ||
+    normalizeCastZoneName(object?.castSourceZone) ||
+    normalizeCastZoneName(object?.card?.castFromZone) ||
+    normalizeCastZoneName(object?.card?.castSourceZone) ||
+    normalizeCastZoneName(object?.source) ||
+    normalizeCastZoneName(object?.card?.source) ||
+    (objectWasCastFromGraveyard(object) ? 'graveyard' : undefined);
   const enteredFromZone =
     String(
       object?.enteredFromZone ||
@@ -721,13 +763,6 @@ function getConditionalObjectZoneProvenance(object: any): { castFromZone?: strin
 function objectEnteredFromOrWasCastFromGraveyard(object: any): boolean {
   const provenance = getConditionalObjectZoneProvenance(object);
   return provenance.enteredFromZone === 'graveyard' || provenance.castFromZone === 'graveyard';
-}
-
-function getTopLibraryCard(nextState: GameState, ownerId: string): any | null {
-  const normalizedOwnerId = String(ownerId || '').trim();
-  if (!normalizedOwnerId) return null;
-  const player = (nextState.players || []).find((entry: any) => String(entry?.id || '').trim() === normalizedOwnerId) as any;
-  return Array.isArray(player?.library) && player.library.length > 0 ? player.library[0] : null;
 }
 
 function getBattlefieldCreaturePower(perm: any): number {
@@ -917,20 +952,6 @@ function resolveTargetSpellManaValue(nextState: GameState, ctx: OracleIRExecutio
   return getCardManaValue(stackSpell.card || stackSpell);
 }
 
-function topCardSharesCreatureTypeWithSource(nextState: GameState, ownerId: string, sourceRef: any): boolean {
-  const topCard = getTopLibraryCard(nextState, ownerId);
-  if (!topCard || !sourceRef) return false;
-
-  const topCardSubtypes = new Set(getCreatureSubtypeKeys(topCard, getExecutorTypeLineLower));
-  const sourceSubtypes = new Set(getCreatureSubtypeKeys(sourceRef, getExecutorTypeLineLower));
-  if (topCardSubtypes.size === 0 || sourceSubtypes.size === 0) return false;
-
-  for (const subtype of topCardSubtypes) {
-    if (sourceSubtypes.has(subtype)) return true;
-  }
-  return false;
-}
-
 export type { ConditionalCondition, LastActionOutcome };
 export type EvaluateConditionalWrapperConditionParams = {
   condition: ConditionalCondition;
@@ -991,5 +1012,6 @@ export {
   resolveUnlessPayInnerCondition,
   splitCompositeCondition,
   topCardSharesCreatureTypeWithSource,
+  topCardSharesCreatureTypeWithControlledCreature,
   youHaveMoreCardsInHandThanEachOpponent,
 };

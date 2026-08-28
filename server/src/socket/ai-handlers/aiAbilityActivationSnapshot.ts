@@ -33,5 +33,9 @@ export function snapshotAIAbilityActivationState(
     exileCount: Array.isArray(zones?.exile) ? zones.exile.length : 0,
     permanentExists: Boolean(permanent),
     permanentTapped: Boolean(permanent?.tapped),
+    battlefieldTappedKey: battlefield
+      .map((entry: any) => `${String(entry?.id || '')}:${entry?.tapped ? '1' : '0'}`)
+      .sort()
+      .join('|'),
   };
 }

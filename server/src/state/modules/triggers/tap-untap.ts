@@ -19,6 +19,7 @@ import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 import { uid } from "../../utils.js";
 import { orderTriggersByAPNAP } from "./ordering.js";
 import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
+import { extractCreatureTypes as extractCreatureTypesFromTypeLine } from '../../../../../shared/src/creatureTypes.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./target-metadata.js";
 import { detectTapTriggers, type TapTrigger } from "./tap-detection.js";
 
@@ -415,23 +416,7 @@ export function executeUntapTrigger(
  * Extract creature types from a type line
  */
 function extractCreatureTypes(typeLine: string): string[] {
-  const types: string[] = [];
-  const lowerTypeLine = typeLine.toLowerCase();
-  
-  const knownTypes = [
-    'merfolk', 'goblin', 'elf', 'wizard', 'shaman', 'warrior', 'soldier', 'zombie',
-    'vampire', 'dragon', 'angel', 'demon', 'beast', 'elemental', 'spirit', 'human',
-    'knight', 'cleric', 'rogue', 'druid', 'pirate', 'dinosaur', 'cat', 'bird',
-    'snake', 'spider', 'sliver', 'ally', 'rebel', 'mercenary', 'horror', 'faerie',
-  ];
-  
-  for (const type of knownTypes) {
-    if (lowerTypeLine.includes(type)) {
-      types.push(type);
-    }
-  }
-  
-  return types;
+  return extractCreatureTypesFromTypeLine(typeLine).map((type) => String(type || '').toLowerCase());
 }
 
 function isOptionalTapTriggerEffect(effectText: string): boolean {

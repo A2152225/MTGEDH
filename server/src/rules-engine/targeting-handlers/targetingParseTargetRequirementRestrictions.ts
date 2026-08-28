@@ -11,6 +11,10 @@
 //   ParsedTargetRequirementStatKeywordFilters.
 
 import type { StatRequirement, TargetRestriction } from './targetingSpellSpecTypes.js';
+import {
+  isPermanentCurrentlyAttacking,
+  isPermanentCurrentlyBlocking,
+} from '../../state/modules/triggeredAbilityBattlefieldTargetMatch.js';
 
 // Same keyword set categorize uses for "target creature with [keyword]".
 const PARSED_TARGET_KEYWORD_ABILITIES = [
@@ -32,6 +36,8 @@ export type ParsedTargetRequirementStatKeywordFilters = {
   targetRestriction?: TargetRestriction;
   statRequirement?: StatRequirement;
   creatureRestriction?: TargetRestriction;
+  /** Bolt Bend / Redirect: the chosen stack object must already have exactly one target. */
+  stackObjectMustHaveSingleTarget?: boolean;
 };
 
 function escapeRegExp(value: string): string {
@@ -139,6 +145,10 @@ export function parseTargetRequirementStatKeywordFilters(oracleText?: string): P
     }
   }
 
+  if (/\b(?:spell(?:\s+or\s+ability)?|(?:activated|triggered)\s+ability|ability)\s+with a single target\b/i.test(t)) {
+    result.stackObjectMustHaveSingleTarget = true;
+  }
+
   return result;
 }
 
@@ -161,7 +171,12 @@ export function attachParsedTargetRequirementStatKeywordFilters<T extends object
   result: T,
   filters: ParsedTargetRequirementStatKeywordFilters,
 ): T & ParsedTargetRequirementStatKeywordFilters {
-  if (!filters.targetRestriction && !filters.statRequirement && !filters.creatureRestriction) {
+  if (
+    !filters.targetRestriction
+    && !filters.statRequirement
+    && !filters.creatureRestriction
+    && !filters.stackObjectMustHaveSingleTarget
+  ) {
     return result as T & ParsedTargetRequirementStatKeywordFilters;
   }
   return { ...result, ...filters };
@@ -249,16 +264,16 @@ function permanentMeetsTargetRestriction(
       return !!(damageTracker && damageTracker[permanent?.id]);
     }
     case 'attacked_this_turn':
-      return !!(permanent?.attacking || permanent?.attackedThisTurn);
+      return isPermanentCurrentlyAttacking(permanent) || !!permanent?.attackedThisTurn;
     case 'attacked_or_blocked_this_turn':
-      return !!(
-        permanent?.attacking
-        || permanent?.attackedThisTurn
-        || permanent?.blocking
-        || permanent?.blockedThisTurn
+      return (
+        isPermanentCurrentlyAttacking(permanent)
+        || isPermanentCurrentlyBlocking(permanent)
+        || !!permanent?.attackedThisTurn
+        || !!permanent?.blockedThisTurn
       );
     case 'blocked_this_turn':
-      return !!(permanent?.blocking || permanent?.blockedThisTurn);
+      return isPermanentCurrentlyBlocking(permanent) || !!permanent?.blockedThisTurn;
     case 'entered_this_turn':
       return !!permanent?.enteredThisTurn;
     case 'tapped':

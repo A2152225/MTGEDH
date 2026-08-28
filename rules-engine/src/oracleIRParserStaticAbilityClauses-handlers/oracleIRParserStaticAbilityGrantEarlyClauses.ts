@@ -174,11 +174,19 @@ export function tryParseStaticAbilityGrantEarlyClauses(args: {
     });
   }
 
-  if (/^you\s+may\s+have\s+this\s+creature\s+enter\s+as\s+a\s+copy\s+of\s+any\s+creature\s+on\s+the\s+battlefield$/i.test(normalized)) {
+  if (/^you\s+may\s+have\s+this\s+(?:creature|land|permanent)\s+enter(?:\s+tapped)?\s+as\s+a\s+copy\s+of\s+any\s+(?:creature|land|permanent)\s+on\s+the\s+battlefield$/i.test(normalized)) {
+    const isLand = /\bthis\s+land\b/i.test(normalized);
+    const copyOf = /\bany\s+land\b/i.test(normalized) ? 'land' : /\bany\s+creature\b/i.test(normalized) ? 'creature' : 'permanent';
+    const self = isLand ? 'this land' : 'this creature';
+    const tapped = /\benter\s+tapped\s+as\s+a\s+copy\b/i.test(normalized);
     return withMeta({
       kind: 'grant_static_ability',
-      target: parseObjectSelector('this creature'),
-      effectText: ['may enter as a copy of any creature on the battlefield'],
+      target: parseObjectSelector(self),
+      effectText: [
+        tapped
+          ? `may enter tapped as a copy of any ${copyOf} on the battlefield`
+          : `may enter as a copy of any ${copyOf} on the battlefield`,
+      ],
       duration: 'static',
       raw: rawClause,
     });

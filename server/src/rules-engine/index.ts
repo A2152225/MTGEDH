@@ -376,7 +376,7 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
   
   for (const perm of battlefieldPermanents) {
     const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
-    // Check for "legendary" supertype (both legendary creatures and legendary planeswalkers)
+    // Check for "legendary" supertype on any permanent (creatures, planeswalkers, lands, …)
     if (!typeLine.includes('legendary')) continue;
     
     // The legend rule is based on control, not ownership. Battlefield replay can

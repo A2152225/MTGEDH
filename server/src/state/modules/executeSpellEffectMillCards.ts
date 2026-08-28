@@ -8,7 +8,7 @@ import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { applyMillReplacements } from './game-state-effects.js';
-import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
+import { pushCardToGraveyardFromLibrary } from './graveyardEntryUtils.js';
 import { processMillTriggers } from './zones.js';
 
 export const REFLEXIVE_BOUND_GRAVEYARD_SELF_EXILE_PRELUDE_MILL_REASON =
@@ -44,7 +44,7 @@ export function applyMillCardsSpellEffect(
     for (let i = 0; i < millCount && lib.length > 0; i++) {
       const milled = lib.shift();
       if (milled) {
-        pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), milled, z.graveyard);
+        pushCardToGraveyardFromLibrary(ctx, String(playerId), milled, z.graveyard);
         milledCards.push({ ...milled, zone: 'graveyard' });
       }
     }

@@ -12,6 +12,7 @@ type ResumeProgress = {
   current: number;
   total: number;
   percent: number;
+  reason?: "resume" | "undo";
 };
 
 type GameRow = {
@@ -38,10 +39,11 @@ interface GameListProps {
 
 function ResumeProgressBar({ progress }: { progress: ResumeProgress }) {
   const pct = Math.max(0, Math.min(100, progress.percent ?? 0));
+  const verb = progress.reason === "undo" ? "Undoing" : "Restoring";
   const label =
     progress.total > 0
-      ? `Restoring ${progress.current}/${progress.total}`
-      : "Restoring…";
+      ? `${verb} ${progress.current}/${progress.total}`
+      : `${verb}…`;
   return (
     <div
       title={label}
@@ -154,6 +156,7 @@ export default function GameList(props: GameListProps) {
       total: number;
       percent: number;
       isRestoring: boolean;
+      reason?: "resume" | "undo";
     }) => {
       if (!payload?.gameId) return;
       setResumeOverrides((prev) => {
@@ -169,6 +172,7 @@ export default function GameList(props: GameListProps) {
             current: payload.current,
             total: payload.total,
             percent: payload.percent,
+            reason: payload.reason,
             isRestoring: true,
           },
         };

@@ -7,9 +7,13 @@
  * Public entry symbols: canAIAssembleManaPaymentPlan, canAIActivateBattlefieldAbilityNow,
  * enumerateAIActionCandidates, captureAICastControlFlowSnapshot,
  * didAICastAttemptChangeControlFlow, waitForAISharedCastToSettle, tryAIResponseActions.
+ *
+ * Response-window activations that produce no state change are remembered for the current
+ * phase/step/stack window so the AI passes instead of retrying tap-cost no-ops.
  */
 import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/types.js";
+import { abilityAllowsAnyPlayerActivation } from "../../../../shared/src/anyPlayerActivatedAbility.js";
 import { AIDecisionType } from "../../../../rules-engine/src/AIEngine.js";
 import { canRespond } from "../../state/modules/can-respond.js";
 import { parseManaCost, type ParsedManaCost } from "../../state/modules/mana-check.js";
@@ -72,6 +76,16 @@ function isAISorcerySpeedBattlefieldAbility(action: any, permanent: any): boolea
   const abilityId = String(action?.abilityId || '').toLowerCase();
   const abilityText = String(action?.abilityText || '').toLowerCase();
   const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
+  const sorceryRestriction = /(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i;
+
+  // Xantcha-style "{3}: ... Any player may activate this ability." is instant-speed.
+  // Do not inherit Equip/Reconfigure/sorcery flags from the rest of the card.
+  if (abilityAllowsAnyPlayerActivation({
+    scopedAbilityText: String(action?.abilityText || ''),
+    cardOracleText: String(permanent?.card?.oracle_text || ''),
+  })) {
+    return sorceryRestriction.test(abilityText);
+  }
 
   if (/-reconfigure-|-equip-|fortify/.test(abilityId)) {
     return true;
@@ -82,7 +96,7 @@ function isAISorcerySpeedBattlefieldAbility(action: any, permanent: any): boolea
   if (/\breconfigure\b/.test(oracleText) || /\bequip\b/.test(oracleText) || /\bfortify\b/.test(oracleText)) {
     return true;
   }
-  return /(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i.test(oracleText);
+  return sorceryRestriction.test(oracleText);
 }
 
 function resolveAIActivatedAbilityManaCostText(action: any, permanent: any): string {
@@ -445,6 +459,56 @@ export async function waitForAISharedCastToSettle(
   return didAICastAttemptChangeControlFlow(gameId, game, playerId, { card: { id: cardId }, sourceZone }, before);
 }
 
+type FailedResponseAbilityWindow = {
+  fingerprint: string;
+  keys: Set<string>;
+};
+
+const failedResponseAbilityWindows = new Map<string, FailedResponseAbilityWindow>();
+
+function getAIResponseAbilityWindowFingerprint(game: any): string {
+  return [
+    String(game?.state?.phase || ''),
+    String(game?.state?.step || ''),
+    String(game?.state?.turnPlayer || ''),
+    String(Array.isArray(game?.state?.stack) ? game.state.stack.length : 0),
+  ].join('|');
+}
+
+function rememberFailedAIResponseAbility(
+  gameId: string,
+  game: any,
+  playerId: string,
+  permanentId: string,
+): void {
+  const id = String(permanentId || '').trim();
+  if (!id) return;
+  const fingerprint = getAIResponseAbilityWindowFingerprint(game);
+  const windowKey = `${gameId}:${playerId}`;
+  const existing = failedResponseAbilityWindows.get(windowKey);
+  if (!existing || existing.fingerprint !== fingerprint) {
+    failedResponseAbilityWindows.set(windowKey, { fingerprint, keys: new Set([id]) });
+    return;
+  }
+  existing.keys.add(id);
+}
+
+function didAIResponseAbilityFailThisWindow(
+  gameId: string,
+  game: any,
+  playerId: string,
+  permanentId: string,
+): boolean {
+  const id = String(permanentId || '').trim();
+  if (!id) return false;
+  const existing = failedResponseAbilityWindows.get(`${gameId}:${playerId}`);
+  return Boolean(
+    existing
+    && existing.fingerprint === getAIResponseAbilityWindowFingerprint(game)
+    && existing.keys.has(id),
+  );
+}
+
 export async function tryAIResponseActions(
   io: Server,
   gameId: string,
@@ -459,15 +523,27 @@ export async function tryAIResponseActions(
   const responseCandidates = await enumerateAIActionCandidates(game, playerId, { mode: 'response' });
   for (const candidate of responseCandidates) {
     if (candidate.kind === 'activate_ability') {
+      const permanentId = String(candidate.ability.action?.permanentId || '');
+      if (didAIResponseAbilityFailThisWindow(gameId, game, playerId, permanentId)) {
+        debugWarn(1, '[AI] Skipping previously failed response-window ability this priority window', {
+          gameId,
+          playerId,
+          permanentId,
+          cardName: candidate.ability.action?.cardName,
+        });
+        continue;
+      }
+
       debug(1, '[AI] Taking response-window activated ability:', candidate.ability.action.cardName);
       if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action, false)) {
         return true;
       }
 
+      rememberFailedAIResponseAbility(gameId, game, playerId, permanentId);
       debugWarn(1, '[AI] Response-window ability candidate produced no state change; continuing to next response option', {
         gameId,
         playerId,
-        permanentId: candidate.ability.action?.permanentId,
+        permanentId,
         cardName: candidate.ability.action?.cardName,
       });
       continue;

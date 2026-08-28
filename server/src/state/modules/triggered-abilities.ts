@@ -35,7 +35,6 @@
 import type { GameContext } from "../context.js";
 import { getActivePermanentCardFace } from "./cardFaceOracle.js";
 import { getEffectiveColors } from "./effectiveColors.js";
-import { handleEldraziShuffle, hasGraveyardMassShuffleIntoLibraryTrigger } from "./zone-manipulation.js";
 
 // Import card data tables from modularized submodule
 import { debug, debugWarn, debugError } from "../../utils/debug.js";

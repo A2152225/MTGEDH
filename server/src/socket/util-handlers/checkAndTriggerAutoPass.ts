@@ -10,11 +10,14 @@ import type { Server } from "socket.io";
 import type { InMemoryGame } from "../../state/types.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
-import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import {
+  contextHasBlockingNonPaymentResolutionSteps,
+  contextPendingResolutionSummary,
+} from "../../state/resolution/resolutionQueueGameIds.js";
 import { isPlayerIdleForAutoPass, canRespond, canAct } from "../../state/modules/can-respond.js";
 import { getTopTriggeredAbilityAutoPassReason } from "../trigger-shortcuts.js";
 import { appendEvent } from "../../db/index.js";
-import { isGameRestoring } from "../../gameRestoreState.js";
+import { isGameReplayLocked } from "../../gameRestoreState.js";
 import { getManaPoolFromState, getTotalManaFromPool } from "../../state/modules/mana-check.js";
 import { runPostResolutionPermanentPromptChecks } from "../game-actions.js";
 import { tryQueueMoxDiamondBeforeStackResolve } from "../../state/modules/mox-diamond-choice.js";
@@ -27,6 +30,9 @@ import {
   clearScheduledHumanAutoPass,
 } from "./autoPassTimerState.js";
 import { ts, repairMissingPriorityIfStuck } from "./repairMissingPriorityIfStuck.js";
+import { kickIdleAutoPassPendingResolutionSteps } from "./autoPassIdleResolutionKick.js";
+import { listAttackersAgainstDefender } from "../combat-handlers/combatMustBeBlockedIfAble.js";
+import { reassignPriorityIfHolderCannotReceive } from "../../state/modules/priorityEligibility.js";
 
 export type CheckAndTriggerAutoPassDeps = {
   broadcastGame: (io: Server, game: InMemoryGame, gameId: string) => void;
@@ -50,10 +56,14 @@ export function runCheckAndTriggerAutoPass(
 ): void {
   const { broadcastGame, appendGameEvent, persistAndResolveTopOfStack } = deps;
   try {
-    if ((game as any)?.isReplaying || isGameRestoring(gameId)) {
+    if (isGameReplayLocked(game, gameId)) {
       return;
     }
     const stateAny = game.state as any;
+    const ctx = (game as any).ctx || game;
+    if (reassignPriorityIfHolderCannotReceive(ctx)) {
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    }
     const priority = stateAny?.priority;
     const priorityPlayerId = priority ? String(priority) as PlayerID : null;
     const existingHumanAutoPass = pendingHumanAutoPassTimers.get(gameId);
@@ -86,7 +96,7 @@ export function runCheckAndTriggerAutoPass(
       if (!repaired) {
         const phase = String(stateAny?.phase || '').toLowerCase();
         const step = String(stateAny?.step || '').toUpperCase();
-        const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
+        const pendingSummary = contextPendingResolutionSummary(game, gameId);
 
         if (phase === 'pre_game' || phase === 'pre-game') {
           debug(2, `${ts()} [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: ${debugCallId})`);
@@ -95,6 +105,7 @@ export function runCheckAndTriggerAutoPass(
 
         if (pendingSummary.hasPending) {
           debug(2, `${ts()} [checkAndTriggerAutoPass] Priority is null due to active resolution (${pendingSummary.pendingCount} pending steps), returning (ID: ${debugCallId})`);
+          kickIdleAutoPassPendingResolutionSteps(io, game, gameId);
           return;
         }
 
@@ -168,23 +179,16 @@ export function runCheckAndTriggerAutoPass(
     }
 
     // Never Smart-Pass / stack-drain while a non-payment resolution prompt is open.
-    // Mox Diamond stays on the stack during its discard-land choice; without this
-    // guard, bypassIdleForStack re-resolves the spell and queues a second prompt.
-    {
-      const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
-      if (pendingSummary.hasPending) {
-        const blockingTypes = pendingSummary.pendingTypes.filter(
-          (type) => String(type) !== 'mana_payment_choice',
-        );
-        if (blockingTypes.length > 0) {
-          clearScheduledHumanAutoPass(gameId, priorityPlayerId);
-          debug(
-            2,
-            `${ts()} [checkAndTriggerAutoPass] Blocking auto-pass — pending resolution steps: ${blockingTypes.join(', ')} (ID: ${debugCallId})`,
-          );
-          return;
-        }
-      }
+    // Mox Diamond / Neera-style bottom-reveal stay on the stack during their choice;
+    // without this guard, bypassIdleForStack re-resolves the spell under the prompt.
+    if (contextHasBlockingNonPaymentResolutionSteps(game, gameId)) {
+      clearScheduledHumanAutoPass(gameId, priorityPlayerId);
+      debug(
+        2,
+        `${ts()} [checkAndTriggerAutoPass] Blocking auto-pass — pending non-payment resolution step (ID: ${debugCallId})`,
+      );
+      kickIdleAutoPassPendingResolutionSteps(io, game, gameId);
+      return;
     }
 
     const players = stateAny?.players || [];
@@ -367,7 +371,7 @@ export function runCheckAndTriggerAutoPass(
       const currentStep = String(currentState?.step || '').toUpperCase();
       const turnPlayer = currentState?.turnPlayer;
       const battlefield = game.state?.battlefield || [];
-      const isBeingAttacked = battlefield.some((perm: any) => perm?.attacking === priority);
+      const isBeingAttacked = listAttackersAgainstDefender(battlefield, priority).length > 0;
       const hasPotentialBlockers = battlefield.some((perm: any) => {
         if (!perm || perm.controller !== priority) return false;
         if (perm.tapped) return false;
@@ -377,6 +381,15 @@ export function runCheckAndTriggerAutoPass(
       const isDefendingPlayer = isBeingAttacked && hasPotentialBlockers;
       if ((currentStep === 'DECLARE_BLOCKERS' || currentStep.includes('BLOCKERS')) && isDefendingPlayer) {
         debug(2, `${ts()} [executeAutoPass] Skipping auto-pass for ${priority} during DECLARE_BLOCKERS - player has potential blockers (ID: ${debugCallId})`);
+        return;
+      }
+
+      if (contextHasBlockingNonPaymentResolutionSteps(game, gameId)) {
+        debug(
+          2,
+          `${ts()} [executeAutoPass] Blocking auto-pass — pending non-payment resolution step (ID: ${debugCallId})`,
+        );
+        kickIdleAutoPassPendingResolutionSteps(io, game, gameId);
         return;
       }
       
@@ -404,23 +417,26 @@ export function runCheckAndTriggerAutoPass(
             // Handle stack resolution or step advancement if needed
             if (result.resolvedNow) {
               debug(2, `[checkAndTriggerAutoPass] Stack resolved after auto-pass for ${priority}`);
-              const deferredMox = tryQueueMoxDiamondBeforeStackResolve(game);
-              if (!deferredMox && persistAndResolveTopOfStack(game, gameId, { auto: true })) {
-                runPostResolutionPermanentPromptChecks(io, game, gameId);
+              if (contextHasBlockingNonPaymentResolutionSteps(game, gameId)) {
+                debug(
+                  2,
+                  `${ts()} [executeAutoPass] Skipping stack resolve — pending non-payment resolution step (ID: ${debugCallId})`,
+                );
+              } else {
+                const deferredMox = tryQueueMoxDiamondBeforeStackResolve(game);
+                if (!deferredMox && persistAndResolveTopOfStack(game, gameId, { auto: true })) {
+                  runPostResolutionPermanentPromptChecks(io, game, gameId);
+                }
               }
             }
             
             if (result.advanceStep) {
               // Re-check: a voluntary action may have queued a resolution prompt between
               // schedule and execute (Equip target selection, etc.).
-              const pendingBeforeAdvance = ResolutionQueueManager.getPendingSummary(gameId);
-              const blockingBeforeAdvance = (pendingBeforeAdvance.pendingTypes || []).filter(
-                (type) => String(type) !== 'mana_payment_choice',
-              );
-              if (blockingBeforeAdvance.length > 0) {
+              if (contextHasBlockingNonPaymentResolutionSteps(game, gameId)) {
                 debug(
                   2,
-                  `${ts()} [executeAutoPass] Skipping step advance - pending resolution steps: ${blockingBeforeAdvance.join(', ')} (ID: ${debugCallId})`,
+                  `${ts()} [executeAutoPass] Skipping step advance - pending non-payment resolution step (ID: ${debugCallId})`,
                 );
               } else {
                 debug(2, `${ts()} [executeAutoPass] Advancing step after auto-pass for ${priority} (ID: ${debugCallId})`);

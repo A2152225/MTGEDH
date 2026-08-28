@@ -16,7 +16,7 @@ import type { Server, Socket } from "socket.io";
 import { appendEvent } from "../../db";
 import { cleanupCardLeavingExile } from "../../state/modules/playable-from-exile.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
-import { broadcastGame, ensureGame, getPlayerName } from "../util";
+import { broadcastGame, ensureGame, getPlayerName, payGenericManaWithAvailableSources } from "../util";
 import type { EnsureInGameRoom } from "./gameActionsSocketRoomGuard.js";
 
 // ==========================================================================
@@ -61,16 +61,35 @@ export async function handleForetellCardRequest(
     }
 
     const card = zones.hand[cardIndex] as any;
-    const oracleText = (card.oracle_text || '').toLowerCase();
-    
-    // Check if card has foretell (use word boundary to avoid false matches)
-    if (!/\bforetell\b/i.test(oracleText)) {
+    const oracleText = String(card.oracle_text || card.oracleText || '');
+    const keywords = card.keywords;
+    const hasForetellKeyword = Array.isArray(keywords)
+      ? keywords.some((entry: unknown) => String(entry || '').toLowerCase() === 'foretell')
+      : /\bforetell\b/i.test(String(keywords || ''));
+    if (!/\bforetell\b/i.test(oracleText) && !hasForetellKeyword) {
       socket.emit("error", { code: "NO_FORETELL", message: "This card doesn't have foretell" });
       return;
     }
 
-    // Parse foretell cost from oracle text
-    const foretellCostMatch = (card.oracle_text || '').match(/\bforetell\b\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+    const turnPlayer = String((game.state as any)?.turnPlayer || '').trim();
+    if (turnPlayer && turnPlayer !== String(playerId)) {
+      socket.emit("error", { code: "NOT_YOUR_TURN", message: "You can only foretell during your turn." });
+      return;
+    }
+    const priority = (game.state as any)?.priority;
+    if (priority && String(priority) !== String(playerId)) {
+      socket.emit("error", { code: "NO_PRIORITY", message: "You need priority to foretell." });
+      return;
+    }
+
+    const payment = payGenericManaWithAvailableSources(game.state, playerId, 2);
+    if (!payment.ok) {
+      socket.emit("error", { code: "CANNOT_PAY_FORETELL", message: payment.error || "Pay {2} to foretell." });
+      return;
+    }
+
+    // Parse the later-turn cast cost (not the {2} exile cost)
+    const foretellCostMatch = oracleText.match(/\bforetell\b\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
     const foretellCost = foretellCostMatch ? foretellCostMatch[1] : '{2}';
 
     // Remove from hand
@@ -91,7 +110,7 @@ export async function handleForetellCardRequest(
     (zones.exile as any[]).push(foretoldCard);
     (zones as any).exileCount = (zones.exile as any[]).length;
 
-    debug(2, `[foretellCard] ${playerId} foretold ${card.name} (foretell cost: ${foretellCost})`);
+    debug(1, `[foretellCard] ${playerId} foretold ${card.name} (foretell cost: ${foretellCost})`);
 
     // Persist event for replay
     try {

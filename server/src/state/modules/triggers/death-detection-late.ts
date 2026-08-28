@@ -6,6 +6,7 @@
 
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import { KNOWN_DEATH_TRIGGERS } from "./card-data-tables.js";
+import { isCreatureTypeWord } from "../../../../../shared/src/creatureTypes.js";
 import type { DeathDetectionState } from "./death-detection-state.js";
 
 export function appendDeathDetectionLate(state: DeathDetectionState): void {
@@ -135,6 +136,25 @@ export function appendDeathDetectionLate(state: DeathDetectionState): void {
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
     });
+  }
+
+  const anotherListTypedCreatureDiesMatch = oracleText.match(
+    /whenever another ((?:[\w]+,\s+)+[\w]+,? or [\w]+) you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    anotherListTypedCreatureDiesMatch
+    && !triggers.some((t) => t.triggerType === 'another_multi_typed_creature_dies')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, anotherListTypedCreatureDiesMatch, 2);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_multi_typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiredTypePhrase: String(anotherListTypedCreatureDiesMatch[1] || '').trim(),
+    } as any);
   }
 
   const thisOrATypedCreatureDiesMatch = oracleText.match(
@@ -609,6 +629,130 @@ export function appendDeathDetectionLate(state: DeathDetectionState): void {
       permanentId,
       cardName,
       triggerType: 'typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  // Hansk: "Whenever a Zombie an opponent controls dies, draw a card."
+  const typedOpponentCreatureDiesMatch = oracleText.match(
+    /whenever an? ([\w]+) an opponent controls dies,?\s*([^.]+)/i,
+  );
+  const typedOpponentSubject = String(typedOpponentCreatureDiesMatch?.[1] || '').trim().toLowerCase();
+  if (
+    typedOpponentCreatureDiesMatch
+    && typedOpponentSubject !== 'creature'
+    && isCreatureTypeWord(typedOpponentSubject)
+    && !triggers.some((t) =>
+      t.triggerType === 'typed_opponent_creature_dies'
+      || t.triggerType === 'opponent_creature_dies'
+    )
+  ) {
+    const effectText = timingTriggerEffect(oracleText, typedOpponentCreatureDiesMatch, 2);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_opponent_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      creatureType: typedOpponentSubject,
+    });
+  }
+
+  // Hungry Lynx: "Whenever a Rat dies, put a +1/+1 counter on each Cat you control."
+  const anyTypedCreatureDiesMatch = oracleText.match(/whenever an? ([\w]+) dies,?\s*([^.]+)/i);
+  const anyTypedDieSubject = String(anyTypedCreatureDiesMatch?.[1] || '').trim().toLowerCase();
+  if (
+    anyTypedCreatureDiesMatch
+    && anyTypedDieSubject !== 'creature'
+    && isCreatureTypeWord(anyTypedDieSubject)
+    && !triggers.some((t) =>
+      t.triggerType === 'any_typed_creature_dies'
+      || t.triggerType === 'typed_creature_dies'
+      || t.triggerType === 'typed_opponent_creature_dies'
+    )
+  ) {
+    const effectText = timingTriggerEffect(oracleText, anyTypedCreatureDiesMatch, 2);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'any_typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      creatureType: anyTypedDieSubject,
+    });
+  }
+
+  const namedCounterDiesMatch = oracleText.match(
+    /whenever a (?:permanent|creature)(?: (?:an opponent controls|you don't control|you control))? with an? ([+\w/-]+) counter on it dies(?: or is put into exile)?,?\s*([^.]+)/i,
+  );
+  if (
+    namedCounterDiesMatch
+    && !triggers.some((t) => t.triggerType === 'named_counter_dies')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, namedCounterDiesMatch, 2);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_counter_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiredCounterName: String(namedCounterDiesMatch[1] || '').trim().toLowerCase(),
+    } as any);
+  }
+
+  const commanderOpponentDiesMatch = oracleText.match(
+    /whenever a commander an opponent controls dies,?\s*([^.]+)/i,
+  );
+  if (
+    commanderOpponentDiesMatch
+    && !triggers.some((t) => t.triggerType === 'opponent_commander_dies')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, commanderOpponentDiesMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_commander_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const defenderYouControlDiesMatch = oracleText.match(
+    /whenever a creature you control with defender dies,?\s*([^.]+)/i,
+  );
+  if (
+    defenderYouControlDiesMatch
+    && !triggers.some((t) => t.triggerType === 'defender_you_control_dies')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, defenderYouControlDiesMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'defender_you_control_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const legendaryWithCountersDiesMatch = oracleText.match(
+    /whenever a legendary creature with counters on it dies,?\s*([^.]+)/i,
+  );
+  if (
+    legendaryWithCountersDiesMatch
+    && !triggers.some((t) => t.triggerType === 'legendary_with_counters_dies')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, legendaryWithCountersDiesMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'legendary_with_counters_dies',
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),

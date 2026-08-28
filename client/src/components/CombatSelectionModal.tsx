@@ -16,6 +16,8 @@ import {
   permanentMustAttackIfAble,
   preferredForcedAttackTarget,
 } from '../utils/combatGoad';
+import { canCreatureAttackNow } from '../utils/creatureUtils';
+import { playerIsLegalAttackTarget } from '../../../rules-engine/src/playerInGameStatus';
 import { getCreatureInfo } from './CombatSelectionModal-handlers/combatSelectionModalCreatureInfo';
 import { groupCreatures } from './CombatSelectionModal-handlers/combatSelectionModalGroupCreatures';
 import type { CreatureGroup } from './CombatSelectionModal-handlers/combatSelectionModalGroupCreatures';
@@ -52,7 +54,7 @@ export function CombatSelectionModal({
   attackingCreatures = [],
   battlefield = [],
   players = [],
-  defenders = [],
+  defenders: defendersProp = [],
   defenderInfoMap,
   initialAttackTargets,
   onAttackTargetsChange,
@@ -85,6 +87,10 @@ export function CombatSelectionModal({
   const isInteractive = !readOnly && (mode === 'blockers' || isYourTurn);
   const isReadOnlyAttackerView = readOnly && mode === 'attackers';
   const isReadOnlyBlockerView = readOnly && mode === 'blockers';
+  const defenders = useMemo(
+    () => defendersProp.filter((player) => playerIsLegalAttackTarget(player)),
+    [defendersProp],
+  );
   
   // Reset selections when the modal opens or switches mode — not when defender
   // list identity churns from game-state broadcasts (that wiped in-progress
@@ -96,6 +102,7 @@ export function CombatSelectionModal({
       const defenderIdList = defenders.map((defender) => String(defender.id || '').trim()).filter(Boolean);
       for (const creature of availableCreatures) {
         if (creature.tapped || !permanentMustAttackIfAble(creature)) continue;
+        if (!canCreatureAttackNow(creature, battlefield)) continue;
         nextAttackers.set(creature.id, preferredForcedAttackTarget(creature, defenderIdList));
       }
     }
@@ -111,9 +118,15 @@ export function CombatSelectionModal({
   // Seed bulk attack target once defenders are available without clearing selections.
   React.useEffect(() => {
     if (!open || mode !== 'attackers') return;
-    const firstDefenderId = defenders[0]?.id;
-    if (!firstDefenderId) return;
-    setBulkAttackTarget((prev) => prev || firstDefenderId);
+    const legalIds = new Set(
+      defenders.map((defender) => String(defender.id || '').trim()).filter(Boolean),
+    );
+    const firstDefenderId = defenders[0]?.id || '';
+    setBulkAttackTarget((prev) => {
+      const current = String(prev || '').trim();
+      if (current && legalIds.has(current)) return prev;
+      return firstDefenderId;
+    });
   }, [open, mode, defenders]);
 
   // In read-only attackers mode, keep selections synced to the provided targets (live preview).
@@ -150,10 +163,12 @@ export function CombatSelectionModal({
     const ids = new Set<string>();
     if (mode !== 'attackers' || !isInteractive) return ids;
     for (const creature of availableForAttack) {
-      if (permanentMustAttackIfAble(creature)) ids.add(creature.id);
+      if (!permanentMustAttackIfAble(creature)) continue;
+      if (!canCreatureAttackNow(creature, battlefield)) continue;
+      ids.add(creature.id);
     }
     return ids;
-  }, [mode, isInteractive, availableForAttack]);
+  }, [mode, isInteractive, availableForAttack, battlefield]);
 
   const defenderIds = useMemo(
     () => defenders.map((defender) => String(defender.id || '').trim()).filter(Boolean),

@@ -5,6 +5,7 @@ import {
   buildOracleIRExecutionContext,
   type OracleIRExecutionResult,
 } from '../../../../rules-engine/src/oracleIRExecutor.js';
+import { getCardManaValue } from '../../../../rules-engine/src/oracleIRExecutorPlayerExileUntilAmount.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import {
@@ -38,8 +39,31 @@ import {
   queueJoinForcesResolutionSteps,
 } from './joinForcesResolutionQueue.js';
 import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime-wiring.js';
+import { findTriggeringSpellOnStack, stackObjectIdsMatch } from './triggerCastSpellStackBinding.js';
 
 export { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
+
+function readTriggeringSpellManaValue(
+  state: any,
+  triggerItem: any,
+  targetSpellId?: string,
+): number | undefined {
+  const preferredId = String(targetSpellId || '').trim();
+  const stackSpell = findTriggeringSpellOnStack(state, triggerItem)
+    || (preferredId
+      ? (Array.isArray(state?.stack) ? state.stack : []).find((entry: any) => (
+        stackObjectIdsMatch(String(entry?.id || ''), preferredId)
+        || stackObjectIdsMatch(String(entry?.card?.id || ''), preferredId)
+      ))
+      : null);
+  const card = stackSpell?.card
+    || stackSpell
+    || triggerItem?.effectData?.triggeringSpell
+    || triggerItem?.triggeringSpell;
+  const manaValue = getCardManaValue(card);
+  if (manaValue == null || !Number.isFinite(manaValue)) return undefined;
+  return Math.max(0, Math.floor(manaValue));
+}
 
 function triggerCopyStepsNeedServerTargetQueue(steps: readonly OracleEffectStep[]): boolean {
   return steps.some(
@@ -167,6 +191,18 @@ function resolveTriggerTargetBinding(
     if (!targetPlayerId && explicitTargetPlayer && playerIds.has(explicitTargetPlayer)) {
       targetPlayerId = explicitTargetPlayer as PlayerID;
     }
+    const triggerValue = (triggerItem as any)?.value;
+    const defendingPlayerId = String(
+      triggerItem?.defendingPlayer
+        || triggerItem?.effectData?.defendingPlayerId
+        || triggerItem?.effectData?.defendingPlayer
+        || (triggerValue && typeof triggerValue === 'object' ? triggerValue.defendingPlayerId : '')
+        || (triggerValue && typeof triggerValue === 'object' ? triggerValue.defendingPlayer : '')
+        || '',
+    ).trim();
+    if (!targetPlayerId && defendingPlayerId && playerIds.has(defendingPlayerId)) {
+      targetPlayerId = defendingPlayerId as PlayerID;
+    }
     const triggeringPlayer = String(triggerItem?.triggeringPlayer || '').trim();
     if (!targetPlayerId && triggeringPlayer && playerIds.has(triggeringPlayer)) {
       targetPlayerId = triggeringPlayer as PlayerID;
@@ -243,7 +279,23 @@ function resolveTriggerTargetBinding(
   let targetPermanentId: string | undefined;
   let targetSpellId: string | undefined;
   if (triggeringStackItemId) {
-    targetSpellId = triggeringStackItemId;
+    const stamped = stack.find((stackItem: any) => (
+      stackObjectIdsMatch(String(stackItem?.id || ''), triggeringStackItemId)
+      || stackObjectIdsMatch(String(stackItem?.card?.id || ''), triggeringStackItemId)
+    ));
+    if (stamped) {
+      targetSpellId = String(stamped.id || '').trim() || undefined;
+    }
+  }
+  if (!targetSpellId) {
+    const boundSpell = findTriggeringSpellOnStack(state, triggerItem);
+    if (boundSpell) {
+      targetSpellId = String(boundSpell.id || '').trim() || undefined;
+      const boundCaster = String(boundSpell.controller || '').trim();
+      if (!targetPlayerId && boundCaster) {
+        targetPlayerId = boundCaster as PlayerID;
+      }
+    }
   }
   for (const targetId of normalizedTargetIds) {
     if (battlefield.some((permanent: any) => String(permanent?.id || '') === targetId)) {
@@ -281,11 +333,15 @@ function resolveTriggerTargetBinding(
   const untappedPermanentController = String(
     triggerItem?.effectData?.untappedPermanentController || '',
   ).trim() as PlayerID;
+  // Attack watchers (Vengeful Ancestor "whenever a goaded creature attacks")
+  // stamp the attacking creature so "it deals 1 damage to its controller" binds.
+  const attackingCreatureId = String(triggerItem?.effectData?.attackingCreatureId || '').trim();
   const chosenObjectIds = Array.from(new Set([
-    ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...normalizedTargetIds,
+    ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...(damagedPermanentId ? [damagedPermanentId] : []),
     ...(untappedPermanentId ? [untappedPermanentId] : []),
+    ...(attackingCreatureId ? [attackingCreatureId] : []),
     ...(discardedCardId ? [discardedCardId] : []),
     ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),
     ...createdTokenIds,
@@ -311,6 +367,13 @@ function resolveTriggerTargetBinding(
   ) {
     targetPermanentId = untappedPermanentId;
   }
+  if (
+    !targetPermanentId
+    && attackingCreatureId
+    && battlefield.some((permanent: any) => String(permanent?.id || '') === attackingCreatureId)
+  ) {
+    targetPermanentId = attackingCreatureId;
+  }
   if (!targetPlayerId && untappedPermanentController) {
     const playerIds = new Set(players.map((player: any) => String(player?.id || '')).filter(Boolean));
     if (playerIds.has(untappedPermanentController)) {
@@ -323,6 +386,7 @@ function resolveTriggerTargetBinding(
   }
 
   let xValue = typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined;
+  const spellManaValue = readTriggeringSpellManaValue(state, triggerItem, targetSpellId);
   if (typeof xValue !== 'number' || !Number.isFinite(xValue)) {
     const effect = String(triggerItem?.effect || triggerItem?.description || '');
     const statMatch = effect.match(/where\s+x\s+is\s+that\s+creature(?:'|’)?s\s+(power|toughness)/i);
@@ -338,6 +402,13 @@ function resolveTriggerTargetBinding(
           xValue = Math.max(0, Math.floor(Number(bound)));
         }
       }
+    }
+    if (
+      (typeof xValue !== 'number' || !Number.isFinite(xValue))
+      && /where\s+x\s+is\s+that\s+spell(?:'|’)?s\s+mana\s+value/i.test(effect)
+      && typeof spellManaValue === 'number'
+    ) {
+      xValue = spellManaValue;
     }
   }
 
@@ -361,6 +432,7 @@ function resolveTriggerTargetBinding(
                 ? damageReference
                 : undefined,
     xValue,
+    spellManaValue,
   };
 }
 
@@ -397,11 +469,13 @@ function buildTriggerIrContext(
     || (sourcePermanent?.card?.enteredFromGraveyard ? 'graveyard' : '')
     || '',
   ).trim().toLowerCase();
+  const stampedCastFromHand = (sourcePermanent as any)?.castFromHand ?? (sourcePermanent as any)?.card?.castFromHand;
   const castFromZone = String(
     sourcePermanent?.castSourceZone
     || sourcePermanent?.castFromZone
     || sourcePermanent?.card?.castSourceZone
     || sourcePermanent?.card?.castFromZone
+    || (stampedCastFromHand === true ? 'hand' : '')
     || '',
   ).trim().toLowerCase();
   const chosenCreatureType = String(
@@ -422,6 +496,13 @@ function buildTriggerIrContext(
     || '',
   ).trim();
   const resolvedTargetPermanentId = String(binding.targetPermanentId || attachedToId || '').trim();
+  const resolvedTargetIsCreature = Boolean(
+    resolvedTargetPermanentId
+    && (state?.battlefield || []).some((entry: any) => {
+      if (String(entry?.id || '').trim() !== resolvedTargetPermanentId) return false;
+      return /\bcreature\b/i.test(String(entry?.card?.type_line || entry?.type_line || ''));
+    }),
+  );
 
   const optionalTriggerAccepted = (params.triggerItem as any)?.optionalTriggeredAbilityDecisionApplied === true;
   if (optionalTriggerAccepted) {
@@ -430,10 +511,34 @@ function buildTriggerIrContext(
   const createdTokenIds = Array.isArray(params.triggerItem?.effectData?.createdTokenIds)
     ? params.triggerItem.effectData.createdTokenIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
     : [];
+  const lastAntecedentFromItem = Array.from(new Set([
+    ...(Array.isArray(params.triggerItem?.lastAntecedentBattlefieldPermanentIds)
+      ? params.triggerItem.lastAntecedentBattlefieldPermanentIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : []),
+    ...(Array.isArray(params.triggerItem?.effectData?.lastAntecedentBattlefieldPermanentIds)
+      ? params.triggerItem.effectData.lastAntecedentBattlefieldPermanentIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : []),
+    ...(String(params.triggerItem?.effectData?.attackingCreatureId || '').trim()
+      ? [String(params.triggerItem.effectData.attackingCreatureId).trim()]
+      : []),
+  ]));
+  const lastAntecedentBattlefieldPermanentIds = createdTokenIds.length > 0
+    ? createdTokenIds
+    : lastAntecedentFromItem;
   const wasKicked = (params.triggerItem as any)?.wasKicked === true
     || (params.triggerItem as any)?.card?.wasKicked === true
     || (params.triggerItem as any)?.stackItem?.wasKicked === true
     || (params.triggerItem as any)?.sourceItem?.wasKicked === true;
+  const triggeringSpell = params.triggerItem?.effectData?.triggeringSpell
+    || params.triggerItem?.triggeringSpell;
+  const triggeringSpellTypeLine = String(
+    triggeringSpell?.type_line
+    || triggeringSpell?.card?.type_line
+    || (binding.targetSpellId
+      ? (state?.stack || []).find((item: any) => String(item?.id || '').trim() === String(binding.targetSpellId))?.card?.type_line
+      : '')
+    || '',
+  ).trim();
   const irCtx = buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
@@ -450,35 +555,48 @@ function buildTriggerIrContext(
         ? {
             lastCreatedTokenIds: createdTokenIds,
             lastMovedBattlefieldPermanentIds: createdTokenIds,
-            lastAntecedentBattlefieldPermanentIds: createdTokenIds,
           }
+        : {}),
+      ...(lastAntecedentBattlefieldPermanentIds.length > 0
+        ? { lastAntecedentBattlefieldPermanentIds }
         : {}),
       selectorContext: {
         ...(binding.chosenObjectIds ? { chosenObjectIds: binding.chosenObjectIds } : {}),
         ...(binding.targetPlayerId ? { targetPlayerId: binding.targetPlayerId } : {}),
         ...(defendingOpponentId ? { targetOpponentId: defendingOpponentId } : {}),
         ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
+        ...(resolvedTargetPermanentId ? { targetPermanentId: resolvedTargetPermanentId } : {}),
+        ...(resolvedTargetIsCreature ? { targetCreatureId: resolvedTargetPermanentId } : {}),
         ...(chosenCreatureType ? { chosenCreatureType } : {}),
-        ...(createdTokenIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: createdTokenIds } : {}),
+        ...(lastAntecedentBattlefieldPermanentIds.length > 0
+          ? { lastAntecedentBattlefieldPermanentIds }
+          : {}),
         ...(attachedToId ? { attachedToId } : {}),
         ...(wasKicked ? { wasKicked: true } : {}),
         ...(enteredFromZone ? { enteredFromZone } : {}),
         ...(castFromZone ? { castFromZone } : {}),
       },
       ...(resolvedTargetPermanentId ? { targetPermanentId: resolvedTargetPermanentId } : {}),
+      ...(resolvedTargetIsCreature ? { targetCreatureId: resolvedTargetPermanentId } : {}),
       ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
     },
     {
       targetPermanentId: resolvedTargetPermanentId || binding.targetPermanentId,
+      ...(resolvedTargetIsCreature ? { targetCreatureId: resolvedTargetPermanentId } : {}),
       targetPlayerId: (attackingPlayerId || binding.targetPlayerId) as PlayerID | undefined,
       targetOpponentId: defendingOpponentId,
       targetSpellId: binding.targetSpellId,
       chosenObjectIds: binding.chosenObjectIds,
       sourceObjectType: 'ability',
       referenceAmount: binding.referenceAmount,
+      ...(typeof binding.spellManaValue === 'number' ? { spellManaValue: binding.spellManaValue } : {}),
+      ...(triggeringSpellTypeLine ? { spellType: triggeringSpellTypeLine } : {}),
       ...(enteredFromZone ? { enteredFromZone } : {}),
       ...(castFromZone ? { castFromZone } : {}),
       ...(chosenCreatureType ? { chosenCreatureType } : {}),
+      ...(lastAntecedentBattlefieldPermanentIds.length > 0
+        ? { lastAntecedentBattlefieldPermanentIds }
+        : {}),
     },
   );
   if (optionalTriggerAccepted) {

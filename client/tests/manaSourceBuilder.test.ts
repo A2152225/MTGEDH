@@ -159,7 +159,7 @@ describe('buildSuggestedPaymentItems', () => {
           card: {
             id: 'forest_card',
             name: 'Forest',
-            type_line: 'Basic Land â€” Forest',
+            type_line: 'Basic Land ? Forest',
             oracle_text: '{T}: Add {G}.',
           },
         },
@@ -181,7 +181,7 @@ describe('buildSuggestedPaymentItems', () => {
         card: {
           id: 'breeding_pool_card',
           name: 'Breeding Pool',
-          type_line: 'Land â€” Forest Island',
+          type_line: 'Land ? Forest Island',
           oracle_text:
             "({T}: Add {G} or {U}.)\nAs this land enters, you may pay 2 life. If you don't, it enters tapped.",
         },
@@ -215,7 +215,7 @@ describe('buildSuggestedPaymentItems', () => {
         card: {
           id: 'ghost_dual_card',
           name: 'Breeding Pool',
-          type_line: 'Land â€” Forest Island',
+          type_line: 'Land ? Forest Island',
           oracle_text: '',
         },
       },
@@ -473,7 +473,7 @@ describe('mana source quantity stacks', () => {
         card: {
           id: 'plains_card',
           name: 'Plains',
-          type_line: 'Basic Land — Plains',
+          type_line: 'Basic Land ? Plains',
           oracle_text: '{T}: Add {W}.',
         },
       },
@@ -485,7 +485,7 @@ describe('mana source quantity stacks', () => {
         card: {
           id: 'plains_card',
           name: 'Plains',
-          type_line: 'Basic Land — Plains',
+          type_line: 'Basic Land ? Plains',
           oracle_text: '{T}: Add {W}.',
         },
       },
@@ -498,7 +498,7 @@ describe('mana source quantity stacks', () => {
         card: {
           id: 'plains_card',
           name: 'Plains',
-          type_line: 'Basic Land — Plains',
+          type_line: 'Basic Land ? Plains',
           oracle_text: '{T}: Add {W}.',
         },
       },
@@ -511,7 +511,7 @@ describe('mana source quantity stacks', () => {
         card: {
           id: 'fertile_card',
           name: 'Fertile Ground',
-          type_line: 'Enchantment — Aura',
+          type_line: 'Enchantment ? Aura',
           oracle_text: 'Enchant land\nWhenever enchanted land is tapped for mana, its controller adds one mana of any color.',
         },
       },
@@ -526,6 +526,10 @@ describe('mana source quantity stacks', () => {
     expect(stacked?.stackPermanentIds).toEqual(['plains_1', 'plains_2']);
     expect(separate?.keepSeparate).toBe(true);
     expect(separate?.availableQuantity).toBeUndefined();
+    expect(separate?.manaBonuses).toEqual([
+      { options: ['W', 'U', 'B', 'R', 'G'], amount: 1 },
+    ]);
+    expect(separate?.options).toEqual(['W']);
   });
 
   it('keeps lands separate when attachment is only linked via attachedTo', () => {
@@ -538,7 +542,7 @@ describe('mana source quantity stacks', () => {
         card: {
           id: 'forest_card',
           name: 'Forest',
-          type_line: 'Basic Land — Forest',
+          type_line: 'Basic Land ? Forest',
           oracle_text: '{T}: Add {G}.',
         },
       },
@@ -550,7 +554,7 @@ describe('mana source quantity stacks', () => {
         card: {
           id: 'forest_card',
           name: 'Forest',
-          type_line: 'Basic Land — Forest',
+          type_line: 'Basic Land ? Forest',
           oracle_text: '{T}: Add {G}.',
         },
       },
@@ -563,7 +567,7 @@ describe('mana source quantity stacks', () => {
         card: {
           id: 'wg_card',
           name: 'Wild Growth',
-          type_line: 'Enchantment — Aura',
+          type_line: 'Enchantment ? Aura',
           oracle_text: 'Enchant land\nWhenever enchanted land is tapped for mana, its controller adds {G}.',
         },
       },
@@ -573,6 +577,8 @@ describe('mana source quantity stacks', () => {
     expect(forestRows).toHaveLength(2);
     expect(forestRows.some((source) => source.sourcePermanentId === 'forest_b' && source.keepSeparate)).toBe(true);
     expect(forestRows.some((source) => source.sourcePermanentId === 'forest_a' && (source.availableQuantity || 1) === 1)).toBe(true);
+    const enchanted = forestRows.find((source) => source.sourcePermanentId === 'forest_b');
+    expect(enchanted?.manaBonuses).toEqual([{ options: ['G'], amount: 1 }]);
   });
 
   it('does not treat Sol Ring multi-mana amount as a quantity stack', () => {
@@ -595,5 +601,218 @@ describe('mana source quantity stacks', () => {
     );
     expect(items).toHaveLength(1);
     expect(items[0].count).toBe(2);
+  });
+});
+
+describe('chosen-color lands and land-aura bonuses', () => {
+  const thrivingOracle = [
+    'This land enters tapped. As it enters, choose a color other than green.',
+    '{T}: Add {G} or one mana of the chosen color.',
+  ].join('\n');
+
+  it('adds the stored chosen color to Thriving Grove payment options', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [
+      {
+        id: 'grove_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        chosenColor: 'red',
+        card: {
+          id: 'grove_card',
+          name: 'Thriving Grove',
+          type_line: 'Land',
+          oracle_text: thrivingOracle,
+        },
+      },
+    ] as any);
+
+    expect(sources).toHaveLength(1);
+    expect(sources[0].options).toEqual(['G', 'R']);
+  });
+
+  it('reads chosen color from the card object when the permanent field is empty', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [
+      {
+        id: 'grove_2',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'grove_card',
+          name: 'Thriving Grove',
+          type_line: 'Land',
+          oracle_text: thrivingOracle,
+          chosenColor: 'blue',
+        },
+      },
+    ] as any);
+
+    expect(sources[0].options).toEqual(['G', 'U']);
+  });
+
+  it('suggests mixed native + Fertile Ground mana for a two-color cost', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [
+      {
+        id: 'forest_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'forest_card',
+          name: 'Forest',
+          type_line: 'Basic Land ? Forest',
+          oracle_text: '{T}: Add {G}.',
+        },
+      },
+      {
+        id: 'fertile_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        attachedTo: 'forest_1',
+        card: {
+          id: 'fertile_card',
+          name: 'Fertile Ground',
+          type_line: 'Enchantment ? Aura',
+          oracle_text:
+            'Enchant land\nWhenever enchanted land is tapped for mana, its controller adds an additional one mana of any color.',
+        },
+      },
+    ] as any);
+
+    const forest = sources.find((source) => source.sourcePermanentId === 'forest_1');
+    expect(forest?.options).toEqual(['G']);
+    expect(forest?.manaBonuses).toEqual([
+      { options: ['W', 'U', 'B', 'R', 'G'], amount: 1 },
+    ]);
+
+    const items = buildSuggestedPaymentItems(
+      {
+        colors: { W: 0, U: 1, B: 0, R: 0, G: 1, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      sources,
+      new Set(),
+    );
+
+    expect(items).toHaveLength(1);
+    expect(items[0].permanentId).toBe('forest_1');
+    expect(items[0].producedColors?.slice().sort()).toEqual(['G', 'U']);
+    expect(items[0].count).toBe(2);
+  });
+});
+
+describe('signet sequential auto-pay', () => {
+  const rakdosSignet = {
+    id: 'signet_1',
+    controller: 'p1',
+    owner: 'p1',
+    tapped: false,
+    card: {
+      id: 'rakdos_signet_card',
+      name: 'Rakdos Signet',
+      type_line: 'Artifact',
+      oracle_text: '{1}, {T}: Add {B}{R}.',
+    },
+  };
+  const mountain = {
+    id: 'mountain_1',
+    controller: 'p1',
+    owner: 'p1',
+    tapped: false,
+    card: {
+      id: 'mountain_card',
+      name: 'Mountain',
+      type_line: 'Basic Land â€” Mountain',
+      oracle_text: '{T}: Add {R}.',
+    },
+  };
+
+  it('stamps {1} activation cost and mixed {B}{R} production on Rakdos Signet', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [rakdosSignet] as any);
+    expect(sources).toHaveLength(1);
+    expect(sources[0].name).toBe('Rakdos Signet');
+    expect(sources[0].activationManaCost).toBe('{1}');
+    expect(sources[0].producedColors).toEqual(['B', 'R']);
+    expect(sources[0].amount).toBe(2);
+  });
+
+  it('autopays {B}{R} by tapping a land first, then the Signet', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [rakdosSignet, mountain] as any);
+    const items = buildSuggestedPaymentItems(
+      {
+        colors: { W: 0, U: 0, B: 1, R: 1, G: 0, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      sources,
+      new Set(),
+    );
+
+    expect(items.map((item) => item.permanentId)).toEqual(['mountain_1', 'signet_1']);
+    const signet = items.find((item) => item.permanentId === 'signet_1');
+    expect(signet?.producedColors?.slice().sort()).toEqual(['B', 'R']);
+    expect(Number(signet?.count || 0)).toBe(2);
+  });
+
+  it('does not spend a Signet when basic lands already cover the cost', () => {
+    const swamp = {
+      id: 'swamp_1',
+      controller: 'p1',
+      owner: 'p1',
+      tapped: false,
+      card: {
+        id: 'swamp_card',
+        name: 'Swamp',
+        type_line: 'Basic Land â€” Swamp',
+        oracle_text: '{T}: Add {B}.',
+      },
+    };
+    const sources = buildAvailableManaSourcesForPlayer('p1', [rakdosSignet, mountain, swamp] as any);
+    const items = buildSuggestedPaymentItems(
+      {
+        colors: { W: 0, U: 0, B: 1, R: 1, G: 0, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      sources,
+      new Set(),
+    );
+
+    expect(items.some((item) => item.permanentId === 'signet_1')).toBe(false);
+    expect(items.map((item) => item.permanentId).sort()).toEqual(['mountain_1', 'swamp_1']);
+  });
+
+  it('autopays {1}{B}{R} with a land-plus-Signet net by floating the {1} first', () => {
+    const swamp = {
+      id: 'swamp_1',
+      controller: 'p1',
+      owner: 'p1',
+      tapped: false,
+      card: {
+        id: 'swamp_card',
+        name: 'Swamp',
+        type_line: 'Basic Land â€” Swamp',
+        oracle_text: '{T}: Add {B}.',
+      },
+    };
+    const sources = buildAvailableManaSourcesForPlayer('p1', [rakdosSignet, mountain, swamp] as any);
+    const items = buildSuggestedPaymentItems(
+      {
+        colors: { W: 0, U: 0, B: 1, R: 1, G: 0, C: 0 },
+        generic: 1,
+        hybrids: [],
+      },
+      sources,
+      new Set(),
+    );
+
+    expect(items.some((item) => item.permanentId === 'signet_1')).toBe(true);
+    const signetIndex = items.findIndex((item) => item.permanentId === 'signet_1');
+    expect(signetIndex).toBeGreaterThan(0);
+    expect(items.slice(0, signetIndex).every((item) => item.permanentId !== 'signet_1')).toBe(true);
+    expect(items.length).toBe(3);
   });
 });

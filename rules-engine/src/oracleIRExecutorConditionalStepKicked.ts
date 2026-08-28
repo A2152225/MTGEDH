@@ -561,7 +561,10 @@ export function tryEvaluateConditionalKicked(
     const contextualCardTypeMatch = normalizedRaw.match(
       /^(?:it(?:'s| is)?|that card|that creature|that permanent|this card|this permanent) (?:is )?(?:a|an) ([a-z0-9' -]+?)(?: card)?$/i
     );
-    if (contextualCardTypeMatch) {
+    if (
+      contextualCardTypeMatch &&
+      !/\bshares a (?:creature|card) type\b/i.test(String(contextualCardTypeMatch[1] || ''))
+    ) {
       const typeName = String(contextualCardTypeMatch[1] || '').trim().toLowerCase();
       const referencedId =
         String(ctx.targetPermanentId || '').trim() ||

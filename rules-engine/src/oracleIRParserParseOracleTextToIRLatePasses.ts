@@ -23,6 +23,7 @@ import { expandMoveZoneCopiedSpellAbilities, mergeDanglingCopySpellAbilities } f
 import { expandOtherwiseConditionalUnknownAbilities, expandSimpleConditionalUnknownAbilities } from './oracleIRParserPostprocessDeterministicBodyAndConditionalExpansions';
 import { mergeConditionalLookChooseFromTopAbilities, mergeLookChooseFromTopAbilities, mergeTopLibraryBottomRandomTailAbilities } from './oracleIRParserPostprocessLookChooseFromTop';
 import { expandChaosZoneTemplateAbilities } from './oracleIRParserChaosZoneTemplates';
+import { mergeRevealTopShareTypeMayCastAbilities } from './oracleIRParserRevealTopShareTypeMayCast';
 import { bindThisWayAntecedentOnAbilities } from './oracleIRThisWayBinding';
 import { wrapTriggeredInterveningIfAbility } from './oracleIRParserAbilityMerges';
 import { pruneBatch382MisparseExecutableSteps, upgradeSpryAndMightyCompoundSteps } from './oracleIRParserPostprocessMoveZoneFollowupUpgrades';
@@ -357,5 +358,6 @@ export function applyParseOracleTextToIRLatePasses(params: {
   abilities = rewriteDiscardHandAndDrawAbilities(abilities);
   abilities = expandWinIfControlDifferentNamesAbilities(abilities);
   abilities = expandWinIfCastSameNameThisGameAbilities(abilities);
+  abilities = mergeRevealTopShareTypeMayCastAbilities(abilities);
   return abilities;
 }

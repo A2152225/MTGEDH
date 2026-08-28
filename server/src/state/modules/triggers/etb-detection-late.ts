@@ -50,6 +50,154 @@ export function appendEtbDetectionLate(state: EtbDetectionState): void {
     } as any);
   }
 
+  // Curse of the Restless Dead: landfall.ts also owns emission; detect here so
+  // live-seam etb_watcher does not treat the clause as empty.
+  const enchantedPlayerLandETBMatch = oracleText.match(
+    /whenever a land enchanted player controls enters(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    enchantedPlayerLandETBMatch
+    && !triggers.some((t) => t.triggerType === 'enchanted_player_land_etb')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, enchantedPlayerLandETBMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enchanted_player_land_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    } as any);
+  }
+
+  // Bloomburrow "Whenever a land you control enters" / older "enters under your control".
+  // Landfall emission stays in landfall.ts; this is detection for watcher scans.
+  const landYouControlETBMatch = oracleText.match(
+    /whenever a land (?:you control enters(?: the battlefield)?|enters(?: the battlefield)? under your control),?\s*([^.]+)/i,
+  );
+  if (
+    landYouControlETBMatch
+    && !/enchanted player/i.test(String(landYouControlETBMatch[0] || ''))
+    && !/an opponent/i.test(String(landYouControlETBMatch[0] || ''))
+    && !triggers.some((t) =>
+      t.triggerType === 'land_you_control_etb'
+      || t.triggerType === 'opponent_land_etb'
+      || t.triggerType === 'enchanted_player_land_etb'
+    )
+  ) {
+    const effectText = timingTriggerEffect(oracleText, landYouControlETBMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'land_you_control_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    } as any);
+  }
+
+  const anyLandETBMatch = oracleText.match(
+    /whenever a land enters(?: the battlefield)?(?: during your turn)?(?!\s+under),?\s*([^.]+)/i,
+  );
+  if (
+    anyLandETBMatch
+    && !/you control enters/i.test(String(anyLandETBMatch[0] || ''))
+    && !/an opponent/i.test(String(anyLandETBMatch[0] || ''))
+    && !/enchanted player/i.test(String(anyLandETBMatch[0] || ''))
+    && !triggers.some((t) =>
+      t.triggerType === 'any_land_etb'
+      || t.triggerType === 'land_you_control_etb'
+      || t.triggerType === 'opponent_land_etb'
+    )
+  ) {
+    const effectText = timingTriggerEffect(oracleText, anyLandETBMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'any_land_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    } as any);
+  }
+
+  const thisOrAnotherLandETBMatch = oracleText.match(
+    /whenever (?:this (?:land|permanent)|~) or another land you control enters(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherLandETBMatch
+    && !triggers.some((t) =>
+      t.triggerType === 'this_or_another_land_you_control_etb'
+      || t.triggerType === 'land_you_control_etb'
+    )
+  ) {
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherLandETBMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_land_you_control_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    } as any);
+  }
+
+  const multiTypedYouControlETBMatch = oracleText.match(
+    /whenever another ((?:[\w]+,\s+)+[\w]+,? or [\w]+) you control enters(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    multiTypedYouControlETBMatch
+    && !triggers.some((t) => t.triggerType === 'multi_typed_you_control_etb')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, multiTypedYouControlETBMatch, 2);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'multi_typed_you_control_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiredTypePhrase: String(multiTypedYouControlETBMatch[1] || '').trim(),
+    } as any);
+  }
+
+  const thisOrLegendaryETBMatch = oracleText.match(
+    /whenever (?:this \w+|~) or a legendary creature you control enters(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrLegendaryETBMatch
+    && !triggers.some((t) => t.triggerType === 'this_or_legendary_you_control_etb')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, thisOrLegendaryETBMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_legendary_you_control_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    } as any);
+  }
+
+  const namedOrSnowPermanentETBMatch = oracleText.match(
+    /whenever .+ or another snow permanent you control enters(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    namedOrSnowPermanentETBMatch
+    && !triggers.some((t) => t.triggerType === 'named_or_snow_permanent_etb')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, namedOrSnowPermanentETBMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_snow_permanent_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    } as any);
+  }
+
   // "Whenever a creature an opponent controls enters" (Suture Priest second ability)
   // This triggers when OPPONENTS' creatures enter the battlefield
   // Also handles plural forms

@@ -24,7 +24,10 @@ import { debug, debugError, debugWarn } from "../../utils/debug.js";
 // registerGameActions wraps this under the local name `checkAndEmitDamageTriggers`;
 // importing it under that name keeps the moved handler bodies unchanged.
 import { emitPendingDamageTriggers as checkAndEmitDamageTriggers } from "../damage-triggers.js";
-import { tryAutoStartGameFromPreGame } from "../pregame-auto-start.js";
+import {
+  randomizeAndPersistPregameTurnOrder,
+  tryAutoStartGameFromPreGame,
+} from "../pregame-auto-start.js";
 import {
   processPendingBottomOrder,
   processPendingCascades,
@@ -60,6 +63,8 @@ import {
 } from "./gameActionsPermanentEntryPrompts.js";
 import { processOracleIRInteractions } from "./gameActionsSpellCastLock.js";
 import type { EnsureInGameRoom } from "./gameActionsSocketRoomGuard.js";
+import { removeLeavingPlayerGameObjects } from "../../state/modules/playerLeavingGame.js";
+import { markPlayerOutOfPriority } from "../../state/modules/priorityEligibility.js";
 
 export async function handleClaimMyTurnRequest(
   io: Server,
@@ -183,35 +188,20 @@ export async function handleRandomizeStartingPlayerRequest(
       return;
     }
 
-    const players = (game.state?.players || []).filter((p: any) => p && !p.spectator && !p.isSpectator);
-    if (players.length === 0) {
-      socket.emit("error", {
-        code: "RANDOMIZE_NO_PLAYERS",
-        message: "No players to randomize.",
-      });
-      return;
-    }
-
-    // Pick a random player
-    const randomIndex = Math.floor(Math.random() * players.length);
-    const randomPlayer = players[randomIndex];
-
-    // Set as active player
     try {
-      game.state.turnPlayer = randomPlayer.id;
-      // Track starting player for intervening-if templates like "if you weren't the starting player".
-      (game.state as any).startingPlayerId = randomPlayer.id;
-      // Legacy alias for intervening-if fallbacks.
-      (game.state as any).startingPlayer = (game.state as any).startingPlayerId;
-      appendGameEvent(game, gameId, "randomizeStartingPlayer", { 
-        selectedPlayerId: randomPlayer.id,
-        by: playerId
-      });
+      const randomized = randomizeAndPersistPregameTurnOrder(game, gameId, playerId);
+      if (!randomized) {
+        socket.emit("error", {
+          code: "RANDOMIZE_NO_PLAYERS",
+          message: "No players to randomize.",
+        });
+        return;
+      }
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `=�Ħ ${getPlayerName(game, randomPlayer.id)} was randomly selected to go first!`,
+        message: `Turn order randomized. ${getPlayerName(game, randomized.selectedPlayerId)} goes first.`,
         ts: Date.now(),
       });
       broadcastGame(io, game, gameId);
@@ -392,34 +382,16 @@ export async function handleNextTurnRequest(
       const departureMode = String((concededPlayer as any).departureMode || "concede").toLowerCase();
       const lossReason = departureMode === "leave" ? "Left the game" : "Conceded";
 
-      // Clean up conceded player's permanents (exile them)
-      const battlefield = game.state.battlefield || [];
-      const concededPermanents = battlefield.filter((p: any) => p.controller === newTurnPlayer);
-
-      if (concededPermanents.length > 0) {
-        // Move all their permanents to exile
-        const zones = (game.state as any).zones = (game.state as any).zones || {};
-        const playerZones = zones[newTurnPlayer] = zones[newTurnPlayer] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-        (playerZones as any).exile = (playerZones as any).exile || [];
-
-        for (const perm of concededPermanents) {
-          (playerZones as any).exile.push({
-            id: perm.id,
-            ...perm.card,
-            zone: 'exile',
-          });
-        }
-
-        // Remove from battlefield
-        game.state.battlefield = battlefield.filter((p: any) => p.controller !== newTurnPlayer);
-
-        debug(2, `[nextTurn] Removed ${concededPermanents.length} permanents from conceded player ${concededPlayerName}`);
+      const removedIds = removeLeavingPlayerGameObjects(game.state, newTurnPlayer, { gameId });
+      if (removedIds.length > 0) {
+        debug(2, `[nextTurn] Removed ${removedIds.length} permanents from conceded player ${concededPlayerName}`);
       }
 
       // Mark player as fully eliminated now
       (concededPlayer as any).hasLost = true;
       (concededPlayer as any).eliminated = true;
       (concededPlayer as any).lossReason = lossReason;
+      markPlayerOutOfPriority((game as any).ctx || game, newTurnPlayer);
 
       const stateAny = game.state as any;
       if (stateAny.autoPassForTurn && typeof stateAny.autoPassForTurn === "object") {

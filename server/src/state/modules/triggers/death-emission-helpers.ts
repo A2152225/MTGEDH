@@ -160,6 +160,13 @@ function isAuraPermanent(permanent: any): boolean {
   return typeLine.includes('aura');
 }
 
+function hasAnyDyingCounter(counters: Record<string, unknown> | object): boolean {
+  for (const value of Object.values(counters as Record<string, unknown>)) {
+    if (typeof value === 'number' && value > 0) return true;
+  }
+  return false;
+}
+
 export function countControlledAurasAttachedTo(
   ctx: GameContext,
   controllerId: string,
@@ -249,8 +256,10 @@ export function deathTriggerClauseMatchesDyingCreature(
   const wantsPlaneswalker = /\bplaneswalkers?\b/.test(clause);
   const wantsVehicle = /\bvehicles?\b/.test(clause);
   const wantsPermanent = /\bpermanents?\b/.test(clause);
+  const wantsCommander = /\bcommanders?\b/.test(clause);
   const typeOk =
     wantsPermanent
+    || wantsCommander
     || (wantsCreature && typeLine.includes('creature'))
     || (wantsArtifact && typeLine.includes('artifact'))
     || (wantsEnchantment && typeLine.includes('enchantment'))
@@ -266,10 +275,36 @@ export function deathTriggerClauseMatchesDyingCreature(
 
   if (clause.includes('nontoken') && isToken) return false;
   if (clause.includes('nonartifact') && typeLine.includes('artifact')) return false;
-  if (clause.includes('non-angel') && typeLine.includes('angel')) return false;
+  {
+    const nonSubtype = clause.match(/\bnon-([a-z]+)\b/);
+    const excluded = String(nonSubtype?.[1] || '').toLowerCase();
+    if (excluded && typeLine.includes(excluded)) return false;
+  }
   if (clause.includes("but don't own") && ownerId && ownerId === sourceController) return false;
   if (clause.includes('without flying') && deathTriggerPermanentHasKeyword(dyingCreature, 'flying')) return false;
   if (clause.includes('with a +1/+1 counter on it') && Number(counters['+1/+1'] || counters.plus1plus1 || 0) <= 0) return false;
+  const namedCounter = clause.match(/with an? ([+\w/-]+) counter on it/);
+  if (namedCounter) {
+    const counterName = String(namedCounter[1] || '').trim().toLowerCase();
+    if (counterName && counterName !== '+1/+1') {
+      const count = Number(
+        counters[counterName]
+        || counters[String(namedCounter[1] || '')]
+        || 0,
+      );
+      if (count <= 0) return false;
+    }
+  }
+  if (/\bwith counters on it\b/.test(clause) && !hasAnyDyingCounter(counters)) return false;
+  if (clause.includes('with defender') && !deathTriggerPermanentHasKeyword(dyingCreature, 'defender')) return false;
+  if (/\bcommanders?\b/.test(clause)) {
+    const isCommander = Boolean(
+      dyingCreature?.isCommander
+      || dyingCreature?.commander
+      || dyingCreature?.card?.isCommander
+    );
+    if (!isCommander) return false;
+  }
   if (clause.includes('face-down') && !isFaceDown) return false;
 
   if (clause.includes('of the chosen type')) {

@@ -6,7 +6,9 @@
  * emitNextPendingResolutionStep, applyCancelledResolutionStepSideEffects,
  * handleTimedOutResolutionStep, scheduleResolutionStepTimeoutForGame.
  * Public entry symbols: emitNextPendingResolutionStep, applyCancelledResolutionStepSideEffects,
- * scheduleResolutionStepTimeoutForGame, handleTimedOutResolutionStep.
+ * scheduleResolutionStepTimeoutForGame, clearScheduledResolutionStepTimeout.
+ * Per-step clocks start on STEP_ADDED so APNAP choices (Kynaios) reset for every
+ * player when the effect is queued, and answering one seat does not rewind others.
  *
  * Must not import resolution.ts.
  */
@@ -18,10 +20,11 @@ import { counterStackItem } from "../../state/modules/stack-mechanics.js";
 import { resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution } from "../../state/modules/oracleIrServerZoneSync.js";
 import {
   ResolutionQueueManager,
+  ResolutionStepStatus,
   ResolutionStepType,
   type ResolutionStep,
 } from "../../state/resolution/index.js";
-import { debugWarn } from "../../utils/debug.js";
+import { debug, debugWarn } from "../../utils/debug.js";
 import { isLoopShortcutBroadcastSuppressed } from "../loopShortcutSustain.js";
 import { handleDeclinedPlayerSelection } from "../player-selection.js";
 import {
@@ -36,13 +39,52 @@ import { priorityResolutionHandlerState } from "./resolutionPriorityHandlerState
 import { sanitizeStepForClient } from "./sanitizeStepForClient.js";
 
 const DEFAULT_RESOLUTION_STEP_TIMEOUT_MS = Number(process.env.RESOLUTION_STEP_TIMEOUT_MS ?? 30_000);
+const STEP_TIMEOUT_KEY_SEP = '::';
 const resolutionStepTimeouts = new Map<string, NodeJS.Timeout>();
 
-function clearResolutionStepTimeout(gameId: string): void {
-  const existingTimeout = resolutionStepTimeouts.get(gameId);
-  if (!existingTimeout) return;
-  clearTimeout(existingTimeout);
-  resolutionStepTimeouts.delete(gameId);
+function stepTimeoutKey(gameId: string, stepId: string): string {
+  return `${gameId}${STEP_TIMEOUT_KEY_SEP}${stepId}`;
+}
+
+function isPendingResolutionStep(step: ResolutionStep | undefined): boolean {
+  return Boolean(step) && step!.status === ResolutionStepStatus.PENDING;
+}
+
+function findPendingResolutionStep(gameId: string, stepId: string): ResolutionStep | undefined {
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  return (queue?.steps || []).find((step) =>
+    String(step?.id || '') === stepId && isPendingResolutionStep(step)
+  );
+}
+
+function pendingResolutionSteps(gameId: string): ResolutionStep[] {
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  return (queue?.steps || []).filter((step) => isPendingResolutionStep(step));
+}
+
+export function clearScheduledResolutionStepTimeout(gameId: string, stepId?: string): void {
+  if (stepId) {
+    const key = stepTimeoutKey(gameId, stepId);
+    const existingTimeout = resolutionStepTimeouts.get(key);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      resolutionStepTimeouts.delete(key);
+    }
+    const legacyTimeout = resolutionStepTimeouts.get(gameId);
+    if (legacyTimeout) {
+      clearTimeout(legacyTimeout);
+      resolutionStepTimeouts.delete(gameId);
+    }
+    return;
+  }
+
+  const prefix = `${gameId}${STEP_TIMEOUT_KEY_SEP}`;
+  for (const key of [...resolutionStepTimeouts.keys()]) {
+    if (key !== gameId && !key.startsWith(prefix)) continue;
+    const existingTimeout = resolutionStepTimeouts.get(key);
+    if (existingTimeout) clearTimeout(existingTimeout);
+    resolutionStepTimeouts.delete(key);
+  }
 }
 
 function getResolutionStepTimeoutMs(step: ResolutionStep | undefined): number {
@@ -51,6 +93,14 @@ function getResolutionStepTimeoutMs(step: ResolutionStep | undefined): number {
     return configuredTimeout;
   }
   return DEFAULT_RESOLUTION_STEP_TIMEOUT_MS;
+}
+
+function isSimultaneousChoiceTimeoutAutoComplete(step: ResolutionStep): boolean {
+  return (
+    step.type === ResolutionStepType.KYNAIOS_CHOICE
+    || step.type === ResolutionStepType.JOIN_FORCES
+    || step.type === ResolutionStepType.TEMPTING_OFFER
+  );
 }
 
 
@@ -283,13 +333,30 @@ export function applyCancelledResolutionStepSideEffects(
 }
 
 function handleTimedOutResolutionStep(io: Server, gameId: string, stepId: string, timeoutMs: number): void {
-  clearResolutionStepTimeout(gameId);
+  clearScheduledResolutionStepTimeout(gameId, stepId);
 
   const game = ensureGame(gameId);
   if (!game) return;
 
-  const nextStep = ResolutionQueueManager.getNextStep(gameId);
-  if (!nextStep || String(nextStep.id || '') !== stepId) {
+  const timedOutStep = findPendingResolutionStep(gameId, stepId);
+  if (!timedOutStep) return;
+
+  if (isSimultaneousChoiceTimeoutAutoComplete(timedOutStep)) {
+    debug(
+      2,
+      `[ResolutionTimeout] Auto-completing timed out ${timedOutStep.type} ${stepId} for ${timedOutStep.playerId} in ${gameId}`,
+    );
+    void import('../resolution.js').then(async (resolutionModule) => {
+      try {
+        if (typeof resolutionModule.handleAIResolutionStep === 'function') {
+          await resolutionModule.handleAIResolutionStep(io, gameId, timedOutStep, { force: true });
+        }
+      } catch (err) {
+        debugWarn(1, '[ResolutionTimeout] Failed to auto-complete timed out choice step:', err);
+      }
+    }).catch((err) => {
+      debugWarn(1, '[ResolutionTimeout] Failed to load resolution handler for timed out choice:', err);
+    });
     return;
   }
 
@@ -334,23 +401,33 @@ function handleTimedOutResolutionStep(io: Server, gameId: string, stepId: string
   });
 }
 
-export function scheduleResolutionStepTimeoutForGame(gameId: string): void {
-  clearResolutionStepTimeout(gameId);
-
+export function scheduleResolutionStepTimeoutForGame(gameId: string, step?: ResolutionStep): void {
   const io = priorityResolutionHandlerState.io;
   if (!io) return;
 
   const game = ensureGame(gameId);
   if (!game || !(game.state as any)?.active) return;
 
-  const nextStep = ResolutionQueueManager.getNextStep(gameId);
-  if (!nextStep) return;
+  const targets = step ? [step] : pendingResolutionSteps(gameId);
+  for (const target of targets) {
+    const targetId = String(target?.id || '').trim();
+    if (!targetId || !isPendingResolutionStep(target)) continue;
 
-  const timeoutMs = getResolutionStepTimeoutMs(nextStep);
-  resolutionStepTimeouts.set(
-    gameId,
-    setTimeout(() => {
-      handleTimedOutResolutionStep(io, gameId, String(nextStep.id || ''), timeoutMs);
-    }, timeoutMs)
-  );
+    const key = stepTimeoutKey(gameId, targetId);
+    if (!step && resolutionStepTimeouts.has(key)) continue;
+
+    const existingTimeout = resolutionStepTimeouts.get(key);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      resolutionStepTimeouts.delete(key);
+    }
+
+    const timeoutMs = getResolutionStepTimeoutMs(target);
+    resolutionStepTimeouts.set(
+      key,
+      setTimeout(() => {
+        handleTimedOutResolutionStep(io, gameId, targetId, timeoutMs);
+      }, timeoutMs),
+    );
+  }
 }

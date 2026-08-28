@@ -12,6 +12,7 @@ import type {
 import { resolveAttachedStaticAbilityGrantTargets } from './oracleIRExecutorBattlefieldAttachedGrantTargets';
 import { collectBoundBattlefieldIds } from './oracleIRExecutorBattlefieldBoundIds';
 import { buildContextualBattlefieldTargetIds } from './oracleIRExecutorBattlefieldContextualTargets';
+import { tryApplyGrantKeywordsToStackSpell } from './oracleIRExecutorBattlefieldGrantStackSpell';
 import { tryApplyGrantTemporaryAbilityEarlyCases } from './oracleIRExecutorBattlefieldGrantTemporaryAbilityEarlyCases';
 import {
   inferGrantTemporaryAbilityTargetFromRaw,
@@ -29,6 +30,7 @@ import { typeLineHasSubtype } from './oracleIRExecutorBattlefieldSubtypeUtils';
 import { registerTemporaryStaticAbilityGrant } from './oracleIRExecutorBattlefieldTemporaryStaticAbilityGrant';
 import { applyTemporaryEffectToPermanents } from './oracleIRExecutorBattlefieldTemporaryEffects';
 import { permanentMatchesSelector, permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import { isExecutorCreature } from './oracleIRExecutorPermanentUtils';
 
 export function applyGrantTemporaryAbilityStep(
   state: GameState,
@@ -36,6 +38,9 @@ export function applyGrantTemporaryAbilityStep(
   ctx: OracleIRExecutionContext,
   runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
+  const stackSpellGrant = tryApplyGrantKeywordsToStackSpell(state, step, ctx);
+  if (stackSpellGrant) return stackSpellGrant;
+
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const stepRaw = String(step.raw || '');
   const inferredTarget = inferGrantTemporaryAbilityTargetFromRaw(stepRaw);
@@ -385,6 +390,8 @@ export function applyGrantTemporaryAbilityStep(
       /^creature cards in your graveyard$/i.test(normalizedTargetText) ||
       (
         !/^those\b/i.test(normalizedTargetText) &&
+        !/^(?:it|this creature|this permanent)$/i.test(normalizedTargetText) &&
+        !/\b(?:it|this creature|this permanent)\s+(?:also\s+)?(?:gains?|gets?)\b/i.test(stepRaw) &&
         /\b(?:you gain|until (?:end of turn|your next turn)|all damage that would be dealt|face-down spells you cast)\b/i.test(stepRaw)
       )
     ) {
@@ -396,8 +403,49 @@ export function applyGrantTemporaryAbilityStep(
     if (
       sourceId &&
       (/\b(?:this creature|this permanent|it also|it gets|it gains|for each \{r\}\{r\} spent to cast it)\b/i.test(stepRaw) ||
-        /^it\b/i.test(normalizedTargetText))
+        /^(?:it|this creature)$/i.test(normalizedTargetText))
     ) {
+      const sourcePermanent = battlefield.find(
+        (perm: any) => String((perm as any)?.id || '').trim() === sourceId,
+      );
+      let stampTargets: BattlefieldPermanent[] = [];
+      if (sourcePermanent && isExecutorCreature(sourcePermanent)) {
+        stampTargets = [sourcePermanent];
+      } else if (sourcePermanent) {
+        const attachedToId = String(
+          (sourcePermanent as any)?.attachedTo || (sourcePermanent as any)?.enchanting || '',
+        ).trim();
+        const attached = attachedToId
+          ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === attachedToId)
+          : undefined;
+        if (attached && isExecutorCreature(attached)) stampTargets = [attached];
+      }
+      if (stampTargets.length > 0) {
+        const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
+          .map((value) => String(value || '').trim())
+          .filter(Boolean);
+        const effectTextValues = (Array.isArray(step.effectText) ? step.effectText : [])
+          .map((value) => String(value || '').trim())
+          .filter(Boolean);
+        const descriptions = [...grantedAbilities, ...effectTextValues].filter(Boolean);
+        if (descriptions.length > 0) {
+          const controllerId = (String(ctx.controllerId || '').trim() ||
+            String((stampTargets[0] as any)?.controller || '').trim()) as PlayerID;
+          const nextState = applyTemporaryEffectToPermanents(state, stampTargets, ctx, {
+            descriptions,
+            grantedAbilities,
+            expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+            ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
+          });
+          return {
+            applied: true,
+            state: nextState,
+            log: [
+              `Granted temporary ability text to ${stampTargets.length} permanent(s) ${step.duration === 'until_next_turn' ? 'until next turn' : 'until end of turn'}`,
+            ],
+          };
+        }
+      }
       return registerTemporaryStaticAbilityGrant(state, step, ctx, {
         targetPermanentId: sourceId,
         duration: step.duration === 'until_next_turn' ? 'until_next_turn' : 'end_of_turn',

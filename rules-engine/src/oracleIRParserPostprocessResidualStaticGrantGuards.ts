@@ -9,7 +9,7 @@
 // temporaryMetadata closures are copies of the chain prologue.
 
 import type { OracleEffectStep } from './oracleIR';
-import { parseObjectSelector } from './oracleIRParserUtils';
+import { parseObjectSelector, parsePlayerSelector } from './oracleIRParserUtils';
 
 export function parseResidualStaticGrantGuardsPrimary(
   raw: string, sequence: { sequence?: 'then' }, step: OracleEffectStep
@@ -298,8 +298,19 @@ export function parseResidualStaticGrantGuardsPrimary(
     return staticMetadata('you', raw);
   }
 
-  if (/^this permanent enters under the control of an opponent of your choice$/i.test(raw)) {
-    return staticMetadata('this permanent', raw);
+  if (
+    /^(?:this (?:creature|permanent|artifact|enchantment) enters(?: the battlefield)? )?under the control of an opponent of your choice$/i.test(raw)
+  ) {
+    return [{
+      kind: 'gain_control',
+      what: parseObjectSelector('this permanent'),
+      newController: parsePlayerSelector('an opponent of your choice'),
+      duration: 'indefinite',
+      raw: /enters(?: the battlefield)? under the control of an opponent/i.test(raw)
+        ? raw
+        : `this permanent enters ${raw}`,
+      ...sequence,
+    } as OracleEffectStep];
   }
 
   if (/^up to one other target creature loses all abilities$/i.test(raw)) {
@@ -490,7 +501,7 @@ export function parseResidualStaticGrantGuardsPrimary(
     return staticMetadata('you', raw);
   }
 
-  if (/^the creature is a vampire in addition to its other types$/i.test(raw)) {
+  if (/^the creature is an? ([a-z]+) in addition to its other types$/i.test(raw)) {
     return staticMetadata('that creature', raw);
   }
 

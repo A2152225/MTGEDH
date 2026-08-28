@@ -361,6 +361,10 @@ export function applyPlayerChoiceEvents(ctx: GameContext, e: GameEvent): boolean
                 (permanent as any).cantAttackOwner = true;
                 (permanent as any).ownerId = choosingPlayerId;
               }
+              (permanent as any).chosenPlayer = selectedPlayerId;
+              if (permanent.card && typeof permanent.card === 'object') {
+                (permanent.card as any).chosenPlayer = selectedPlayerId;
+              }
             } else {
               debugWarn(2, `[applyEvent] playerSelection(control_change): permanent ${permanentId} not found`);
             }

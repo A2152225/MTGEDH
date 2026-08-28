@@ -215,6 +215,14 @@ export function tryApplyMoveZoneGuardsFromSingleTargetFromTargetPlayerExile(args
     const libraryPlacement = getLibraryPlacement(step);
     if (!targetObjectId) {
       if (isUpToOneTargetReference(step.what)) return buildNoOpOptionalSingleTargetResult(nextState, step);
+      if (ctx.interactivePlayerChoices === true) {
+        return {
+          applied: false,
+          message: `Skipped move zone (needs player card selection): ${step.raw}`,
+          reason: 'player_choice_required',
+          options: { classification: 'player_choice' },
+        };
+      }
       return {
         applied: false,
         message: `Skipped move zone (unsupported selector): ${step.raw}`,

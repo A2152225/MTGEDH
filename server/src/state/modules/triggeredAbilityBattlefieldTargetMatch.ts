@@ -42,6 +42,7 @@ export function isPermanentCurrentlyBlocking(permanent: any): boolean {
   if (!permanent) return false;
   if (permanent.isBlocking === true) return true;
   const blocking = permanent.blocking;
+  if (blocking === true) return true;
   if (Array.isArray(blocking) && blocking.length > 0) return true;
   if (typeof blocking === 'string' && blocking.trim().length > 0) return true;
   return false;

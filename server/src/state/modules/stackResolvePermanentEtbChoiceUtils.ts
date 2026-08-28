@@ -10,6 +10,7 @@ import {
   cantAttackOwner,
 } from './triggered-abilities.js';
 import { getAsEntersChoiceRequirements } from './asEntersChoiceRequirements.js';
+import { checkAsEntersCopyChoiceForNewPermanents } from './asEntersCopyChoice.js';
 
 export function queuePermanentAsEntersBattlefieldChoiceSteps(
   ctx: GameContext,
@@ -104,6 +105,10 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
         const validPlayers = opponentOnly
           ? allPlayers.filter((p: any) => p.id !== controller)
           : allPlayers;
+        const appliesControlChange = requirement.appliesControlChange === true;
+        if (appliesControlChange) {
+          (newPermanent as any).asEntersControlChangeQueued = true;
+        }
         queueResolveTopOfStackPrompt(ctx, {
           type: ResolutionStepType.PLAYER_CHOICE,
           playerId: controller,
@@ -120,6 +125,17 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
             name: p.name || `Player ${p.seat}`,
           })),
           opponentOnly,
+          ...(appliesControlChange
+            ? {
+                controlChangeData: {
+                  permanentId: newPermId,
+                  isOptional: requirement.mandatory !== true,
+                  goadsOnChange: false,
+                  mustAttackEachCombat: mustAttackEachCombat(effectiveCard),
+                  cantAttackOwner: cantAttackOwner(effectiveCard),
+                },
+              }
+            : {}),
         } as any);
         debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires ${opponentOnly ? 'opponent' : 'player'} choice, added resolution step`);
       }
@@ -278,7 +294,7 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
     const controlChangeEffects = detectControlChangeEffects(effectiveCard, newPermanent);
     const etbControlChangeEffects = controlChangeEffects.filter((e) => e.isETB);
 
-    if (etbControlChangeEffects.length > 0) {
+    if (etbControlChangeEffects.length > 0 && !(newPermanent as any).asEntersControlChangeQueued && !newPermanent.chosenPlayer) {
       for (const effect of etbControlChangeEffects) {
         if (effect.type === 'enters_under_opponent_control') {
           (newPermanent as any).pendingControlChange = {
@@ -308,5 +324,10 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
     }
   } catch (err) {
     debugError(1, '[resolveTopOfStack] Error checking control change effects:', err);
+  }
+
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (gameId && gameId !== 'unknown' && !(ctx as any).isReplaying) {
+    checkAsEntersCopyChoiceForNewPermanents({ state: (ctx as any).state }, gameId);
   }
 }

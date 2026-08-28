@@ -14,6 +14,7 @@
  */
 
 import { buildCommanderFreeCastPaymentExtras } from "../../state/modules/alternate-costs.js";
+import { buildNormalizedManaPaymentModel } from "../../state/modules/mana-check.js";
 import {
   ResolutionQueueManager,
   ResolutionStepType,
@@ -65,12 +66,36 @@ function normalizePendingCastCostMetadata(pendingCast: any): PendingCastCostMeta
     messages: Array.isArray(reductionSource?.messages) ? [...reductionSource.messages] : [],
   };
   const paymentCostAdjustment = existing.paymentCostAdjustment || pendingCast?.paymentCostAdjustment;
+  const isFreeCast =
+    pendingCast?.castWithoutPayingManaCost === true
+    || String(pendingCast?.forcedAlternateCostId || '').trim().toLowerCase() === 'free'
+    || existing.paymentModel?.castWithoutPayingManaCost === true
+    || String(existing.paymentModel?.forcedAlternateCostId || '').trim().toLowerCase() === 'free';
+  const existingPaymentModel = existing.paymentModel && typeof existing.paymentModel === 'object'
+    ? existing.paymentModel
+    : undefined;
+  const paymentModel = isFreeCast
+    ? buildNormalizedManaPaymentModel({
+        originalManaCost: String(existingPaymentModel?.originalManaCost || pendingCast?.card?.mana_cost || pendingCast?.rawManaCost || ''),
+        effectiveManaCost: '{0}',
+        castWithoutPayingManaCost: true,
+        forcedAlternateCostId: String(
+          pendingCast?.forcedAlternateCostId
+          || existingPaymentModel?.forcedAlternateCostId
+          || 'free',
+        ).trim() || 'free',
+        additionalCosts: Array.isArray(existingPaymentModel?.additionalCosts)
+          ? existingPaymentModel.additionalCosts
+          : (Array.isArray(pendingCast?.additionalCosts) ? pendingCast.additionalCosts : []),
+      })
+    : existingPaymentModel;
 
   return {
     costReduction,
     staticCostTax: { generic: genericCostTax, messages: taxMessages },
     genericCostTax,
     ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
+    ...(paymentModel ? { paymentModel } : {}),
   };
 }
 
@@ -171,6 +196,25 @@ export function buildSpellPaymentPresentationFields(
   if (pendingCast?.preferredAlternateCostId) {
     fields.preferredAlternateCostId = pendingCast.preferredAlternateCostId;
   }
+
+  const isForcedFreeCast =
+    String(pendingCast?.forcedAlternateCostId || '').trim().toLowerCase() === 'free'
+    || pendingCast?.castWithoutPayingManaCost === true;
+  if (isForcedFreeCast) {
+    const existingIds = new Set(extraAlternateCosts.map((c: any) => String(c?.id || '')));
+    if (!existingIds.has('free')) {
+      extraAlternateCosts.push({
+        id: 'free',
+        label: 'Free Cast',
+        description: 'Cast without paying its mana cost',
+        manaCost: '{0}',
+      });
+    }
+    if (!fields.preferredAlternateCostId) {
+      fields.preferredAlternateCostId = 'free';
+    }
+  }
+
   if (extraAlternateCosts.length > 0) {
     fields.extraAlternateCosts = extraAlternateCosts;
   }

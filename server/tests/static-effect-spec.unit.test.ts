@@ -1184,6 +1184,43 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
     expect(merged.perPermanent.get('elf_perm')?.abilities?.has('vigilance')).toBe(false);
   });
 
+  it('grants haste from Other Dinosaurs you control have haste without buffing the source', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'regisaur_1',
+          controller: 'p1',
+          card: {
+            name: 'Regisaur Alpha',
+            type_line: 'Creature — Dinosaur',
+            oracle_text: 'Other Dinosaurs you control have haste.\nWhen this creature enters, create a 3/3 green Dinosaur creature token with trample.',
+          },
+        },
+        {
+          id: 'other_dino',
+          controller: 'p1',
+          card: {
+            name: 'Earthshaker Dreadmaw',
+            type_line: 'Creature — Dinosaur',
+            oracle_text: 'Trample\nWhen this creature enters, draw a card for each other Dinosaur you control.',
+          },
+        },
+        {
+          id: 'bear_1',
+          controller: 'p1',
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+      ],
+    };
+
+    expect(getContinuousGrantedAbilitiesForPermanent(state.battlefield[1] as any, state)).toContain('haste');
+    expect(getContinuousGrantedAbilitiesForPermanent(state.battlefield[0] as any, state)).not.toContain('haste');
+    expect(getContinuousGrantedAbilitiesForPermanent(state.battlefield[2] as any, state)).not.toContain('haste');
+
+    const keywords = parseCreatureKeywords(state.battlefield[1].card, state.battlefield[1], state);
+    expect(keywords.haste).toBe(true);
+  });
+
   it('applies global chosen-type shroud through declarative specs', () => {
     const state = {
       battlefield: [
@@ -1505,6 +1542,158 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
       battlefield: [state.battlefield[1]],
     } as any);
     expect(withoutMountain.perPermanent.get('bear_1')?.abilities?.has('haste')).toBeFalsy();
+  });
+
+  it('does not apply battlefield soldier/dinosaur lords from the graveyard', () => {
+    // Valiant Veteran / Dinosaurs on a Spaceship are battlefield statics. Scanning every
+    // GY card through parseStaticEffectSpecsFromOraclePermanent used to keep those anthems
+    // live after Reckless Blaze (and after a commander recast).
+    const veteranOracle = 'Other Soldiers you control get +1/+1.\n{3}{W}{W}, Exile this card from your graveyard: Put a +1/+1 counter on each Soldier you control.';
+    const spaceshipOracle = "Vigilance, trample\nOther Dinosaurs you control get +1/+1 and have vigilance and trample.\nSuspend 4—{3}{R}{W}\nWhenever a time counter is removed from this card while it's exiled, create a 2/2 red and white Dinosaur creature token with flying and haste.";
+
+    const gyState = {
+      battlefield: [
+        {
+          id: 'myrel_1',
+          controller: 'p1',
+          card: {
+            name: 'Myrel, Shield of Argive',
+            type_line: 'Legendary Creature — Human Soldier',
+            oracle_text: '',
+            power: '3',
+            toughness: '4',
+          },
+        },
+        {
+          id: 'dino_1',
+          controller: 'p2',
+          card: {
+            name: 'Ghalta, Primal Hunger',
+            type_line: 'Legendary Creature — Dinosaur',
+            oracle_text: '',
+            power: '12',
+            toughness: '12',
+          },
+        },
+      ],
+      zones: {
+        p1: {
+          graveyard: [{
+            id: 'veteran_gy',
+            name: 'Valiant Veteran',
+            type_line: 'Creature — Kor Soldier',
+            oracle_text: veteranOracle,
+          }],
+        },
+        p2: {
+          graveyard: [{
+            id: 'spaceship_gy',
+            name: 'Dinosaurs on a Spaceship',
+            type_line: 'Creature — Dinosaur',
+            oracle_text: spaceshipOracle,
+          }],
+        },
+      },
+    };
+
+    const gySpecs = collectStaticEffectSpecsFromState(gyState);
+    expect(gySpecs.some((spec) => spec.sourcePermanentId === 'veteran_gy')).toBe(false);
+    expect(gySpecs.some((spec) => spec.sourcePermanentId === 'spaceship_gy')).toBe(false);
+
+    const gyEffects = recomputeContinuousEffects(gyState as any);
+    expect(gyEffects.perPermanent.get('myrel_1')?.pDelta || 0).toBe(0);
+    expect(gyEffects.perPermanent.get('dino_1')?.pDelta || 0).toBe(0);
+    expect(gyEffects.perPermanent.get('dino_1')?.abilities?.has('vigilance')).toBeFalsy();
+    expect(gyEffects.perPermanent.get('dino_1')?.abilities?.has('trample')).toBeFalsy();
+
+    const battlefieldState = {
+      battlefield: [
+        {
+          id: 'veteran_bf',
+          controller: 'p1',
+          card: {
+            name: 'Valiant Veteran',
+            type_line: 'Creature — Kor Soldier',
+            oracle_text: veteranOracle,
+            power: '2',
+            toughness: '2',
+          },
+        },
+        gyState.battlefield[0],
+        {
+          id: 'spaceship_bf',
+          controller: 'p2',
+          card: {
+            name: 'Dinosaurs on a Spaceship',
+            type_line: 'Creature — Dinosaur',
+            oracle_text: spaceshipOracle,
+            power: '7',
+            toughness: '7',
+          },
+        },
+        gyState.battlefield[1],
+      ],
+    };
+
+    const bfEffects = recomputeContinuousEffects(battlefieldState as any);
+    expect(bfEffects.perPermanent.get('myrel_1')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(bfEffects.perPermanent.get('dino_1')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(bfEffects.perPermanent.get('dino_1')?.abilities?.has('vigilance')).toBe(true);
+    expect(bfEffects.perPermanent.get('dino_1')?.abilities?.has('trample')).toBe(true);
+  });
+
+  it('grants G or W to lands from Riftstone Portal only while it is in the graveyard', () => {
+    const riftstoneOracle = '{T}: Add {C}.\nAs long as this card is in your graveyard, lands you control have "{T}: Add {G} or {W}."';
+    const forest = {
+      id: 'forest_1',
+      controller: 'p1',
+      card: { name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' },
+    };
+    const gyState = {
+      battlefield: [forest],
+      zones: {
+        p1: {
+          graveyard: [{
+            id: 'riftstone_gy',
+            name: 'Riftstone Portal',
+            type_line: 'Land',
+            oracle_text: riftstoneOracle,
+          }],
+        },
+      },
+    };
+
+    const gySpecs = collectStaticEffectSpecsFromState(gyState);
+    expect(gySpecs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourcePermanentId: 'riftstone_gy',
+        scope: { kind: 'lands_you_control' },
+        grant: { abilities: expect.arrayContaining(['tap_for_green', 'tap_for_white']) },
+        condition: { kind: 'source_in_graveyard' },
+      }),
+    ]));
+
+    const gyEffects = recomputeContinuousEffects(gyState as any);
+    expect(gyEffects.permanentAbilities.get('forest_1')?.has('tap_for_green')).toBe(true);
+    expect(gyEffects.permanentAbilities.get('forest_1')?.has('tap_for_white')).toBe(true);
+
+    const bfState = {
+      battlefield: [
+        {
+          id: 'riftstone_bf',
+          controller: 'p1',
+          card: {
+            name: 'Riftstone Portal',
+            type_line: 'Land',
+            oracle_text: riftstoneOracle,
+          },
+        },
+        forest,
+      ],
+    };
+    const bfEffects = recomputeContinuousEffects(bfState as any);
+    expect(bfEffects.permanentAbilities.get('forest_1')?.has('tap_for_green')).toBeFalsy();
+    expect(bfEffects.permanentAbilities.get('forest_1')?.has('tap_for_white')).toBeFalsy();
   });
 
   it('grants player hexproof from Leyline of Sanctity oracle', () => {

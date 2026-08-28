@@ -11,6 +11,8 @@ const ABILITY_LINE_BOUNDARY =
 
 const NEW_TRIGGER_TIMING_SENTENCE = /^(?:when|whenever|at the beginning of)\b/i;
 const REFLEXIVE_WHEN_YOU_DO_SENTENCE = /^when you do(?: so)?\b/i;
+const DELAYED_TRIGGER_CONTINUATION_SENTENCE =
+  /^(?:at the beginning of (?:the |your )?next (?:end step|upkeep)|at the beginning of your next (?:end step|upkeep))\b/i;
 
 const CONTINUATION_SENTENCE =
   /^(?:then|each|if you (?:do|win)|when you do(?: so)?|otherwise|you may|that player|those|they|it|choose|target|create|otherwise|search|reveal (?:those|them|it))\b/i;
@@ -20,6 +22,9 @@ function isNewTriggerTimingSentence(sentence: string): boolean {
   if (!trimmed) return false;
   // Reflexive "When you do" continues the same ability (CR 603.12), not a new trigger line.
   if (REFLEXIVE_WHEN_YOU_DO_SENTENCE.test(trimmed)) return false;
+  // "At the beginning of the next end step, …" is a delayed trigger created by
+  // this resolving ability (CR 603.7), not a separate card trigger.
+  if (DELAYED_TRIGGER_CONTINUATION_SENTENCE.test(trimmed)) return false;
   return NEW_TRIGGER_TIMING_SENTENCE.test(trimmed);
 }
 

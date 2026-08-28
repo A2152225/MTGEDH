@@ -34,7 +34,18 @@ export function applyTurnPhaseTopLibraryEvents(ctx: GameContext, e: GameEvent): 
       }
 
       case "nextStep": {
-        nextStep(ctx as any);
+        const drawnCardIds = (Array.isArray((e as any).drawnCardIds) ? (e as any).drawnCardIds : [])
+          .map((id: unknown) => String(id || '').trim())
+          .filter(Boolean);
+        if (drawnCardIds.length > 0) {
+          (ctx.state as any)._replayDrawStepCardIds = drawnCardIds;
+        }
+        try {
+          nextStep(ctx as any);
+        } finally {
+          delete (ctx.state as any)._replayDrawStepCardIds;
+          delete (ctx.state as any)._lastDrawStepCardIds;
+        }
         break;
       }
 

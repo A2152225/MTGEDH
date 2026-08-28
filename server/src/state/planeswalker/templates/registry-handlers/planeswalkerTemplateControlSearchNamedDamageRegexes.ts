@@ -202,7 +202,7 @@ const EXILE_TOP_N_CARDS_OF_TARGET_OPPONENTS_LIBRARY_REGEX =
 
 const DESTROY_TARGET_PLANESWALKER_REGEX = /^destroy (?:another )?target planeswalker\.?$/i;
 
-const DESTROY_ALL_NON_ZOMBIE_CREATURES_REGEX = /^destroy all non-zombie creatures\.?$/i;
+const DESTROY_ALL_NON_ZOMBIE_CREATURES_REGEX = /^destroy all non-([a-z]+) creatures\.?$/i;
 
 const DESTROY_ALL_LANDS_TARGET_PLAYER_CONTROLS_REGEX = /^destroy all lands target player controls\.?$/i;
 

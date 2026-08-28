@@ -8,7 +8,7 @@
  */
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { cardAnalyzer } from "../../../../rules-engine/src/CardAnalyzer.js";
-import { getMaxGenericManaAvailable } from "../util.js";
+import { canAffordAttackCostPayment } from "../combat-handlers/attackCostPhyrexianPayment.js";
 import { getAvailableMana, parseManaCost, canPayManaCostWithAvailableSources } from "../../state/modules/mana-check.js";
 import { chooseAIReflexiveExileToOwnersGraveyardSelection } from "../aiReflexiveExileToOwnersGraveyardChoice.js";
 import {
@@ -22,6 +22,7 @@ import {
   chooseAIAdministrativeConfirmSelection,
   chooseAICastFreePromptSelection,
   chooseAIDredgeDrawReplacementSelection,
+  chooseAISkipDrawReplacementSelection,
   chooseAIExertChoiceSelection,
   chooseAIForbiddenOrchardTargetSelection,
   chooseAILandWouldEnterSacrificeSelection,
@@ -110,11 +111,39 @@ export function chooseAIOptionSelectionsForStep(
     const attackerIds = attackers
       .map((entry: any) => String(entry?.creatureId || entry?.attackerId || '').trim())
       .filter(Boolean);
-    const available = getMaxGenericManaAvailable(game.state, playerId, { excludedPermanentIds: attackerIds });
-    const canPay = amount <= 0 || available >= amount;
+    const phyrexianItems = Array.isArray(step?.attackCostPhyrexianItems) ? step.attackCostPhyrexianItems : [];
     const payChoice = options.some((option: any) => resolveOptionId(option) === 'pay_attack_cost') ? 'pay_attack_cost' : resolveOptionId(options[0]);
     const cancelChoice = options.some((option: any) => resolveOptionId(option) === 'cancel_attack') ? 'cancel_attack' : payChoice;
-    return { selections: [canPay ? payChoice : cancelChoice], cancelled: false };
+    const allMana = phyrexianItems.map((_: unknown, index: number) => ({ index, payWithLife: false }));
+    const allLife = phyrexianItems.map((_: unknown, index: number) => ({ index, payWithLife: true }));
+    const affordMana = canAffordAttackCostPayment(game.state, playerId, {
+      generic: amount,
+      items: phyrexianItems,
+      excludedPermanentIds: attackerIds,
+      choices: allMana,
+    });
+    const affordLife = !affordMana.ok
+      ? canAffordAttackCostPayment(game.state, playerId, {
+        generic: amount,
+        items: phyrexianItems,
+        excludedPermanentIds: attackerIds,
+        choices: allLife,
+      })
+      : { ok: false };
+    const canPay = affordMana.ok || affordLife.ok;
+    if (!canPay) {
+      return { selections: [cancelChoice], cancelled: false };
+    }
+    if (phyrexianItems.length === 0) {
+      return { selections: [payChoice], cancelled: false };
+    }
+    return {
+      selections: {
+        optionId: payChoice,
+        phyrexianChoices: affordMana.ok ? allMana : allLife,
+      },
+      cancelled: false,
+    };
   }
 
   if (step?.commanderZoneChoice === true) {
@@ -190,6 +219,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.dredgeDrawReplacementChoice === true) {
     return chooseAIDredgeDrawReplacementSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.skipDrawReplacementChoice === true) {
+    return chooseAISkipDrawReplacementSelection(options, resolveOptionId);
   }
 
   if (step?.zursWeirdingOpponentChoice === true) {

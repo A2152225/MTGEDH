@@ -27,6 +27,7 @@ import type { AppearanceSettings } from '../../utils/appearanceSettings';
 import type { ParsedActivatedAbility } from '../../utils/activatedAbilityParser';
 import { showCardPreview, hideCardPreview } from '../CardPreviewLayer';
 import type { ZoneType } from '../ZoneCardContextMenu';
+import { shouldCollapseTokenGroups } from '../../utils/expandGroupedTokens';
 import { isManaSource } from './tableLayoutManaSource';
 import {
   isLandTypeLine,
@@ -218,9 +219,8 @@ export function renderTableLayoutPlayerSeat({
                 const nonManaSourceNonLands = nonLands.filter(x => !isManaSource(x));
                 const tokens = nonManaSourceNonLands.filter(x => x.isToken === true);
                 const others = nonManaSourceNonLands.filter(x => x.isToken !== true);
-                // Threshold for collapsing tokens into TokenGroups component
-                const TOKEN_COLLAPSE_THRESHOLD = 5;
-                const showCollapsedTokens = tokens.length >= TOKEN_COLLAPSE_THRESHOLD;
+                // Count grouped tokenCount, not emit rows — a 20-stack is one row.
+                const showCollapsedTokens = shouldCollapseTokenGroups(tokens);
                 // If showing collapsed tokens, exclude them from FreeField; otherwise show all
                 const permanentsForFreeField = showCollapsedTokens ? others : nonManaSourceNonLands;
                 const canTargetPlayer = highlightPlayerTargets?.has(pb.player.id) ?? false;
@@ -245,7 +245,9 @@ export function renderTableLayoutPlayerSeat({
 
                 const lifeVal =
                   life?.[pb.player.id] ??
+                  pb.player.life ??
                   40;
+                const isEliminated = Boolean(pb.player.hasLost) || Boolean(pb.player.eliminated) || lifeVal <= 0;
                 const poisonVal = poisonCounters?.[pb.player.id] ?? 0;
                 const xpVal = experienceCounters?.[pb.player.id] ?? 0;
                 const energyVal =
@@ -263,8 +265,8 @@ export function renderTableLayoutPlayerSeat({
                       height: BOARD_H,
                       transform: `translate(0,0) rotate(${isYouThis ? 0 : pos.rotateDeg}deg)`,
                       transformOrigin: '50% 50%',
-                      opacity: 1,
-                      filter: 'none',
+                      opacity: isEliminated ? 0.45 : 1,
+                      filter: isEliminated ? 'grayscale(0.6)' : 'none',
                       pointerEvents: 'auto'
                     }}
                   >
@@ -384,7 +386,7 @@ export function renderTableLayoutPlayerSeat({
                           players={players.map(p => ({ id: p.id, name: p.name }))}
                           onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
                           onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                          onActivateAbility={isYouThis && gameId ? emitBattlefieldAbilityActivation : undefined}
+                          onActivateAbility={gameId ? emitBattlefieldAbilityActivation : undefined}
                           onAddCounter={isYouThis ? onCounter : undefined}
                           onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                           onRemove={isYouThis ? onRemove : undefined}
@@ -402,14 +404,14 @@ export function renderTableLayoutPlayerSeat({
                           onIgnoreForAutoPass={isYouThis ? onIgnoreForAutoPass : undefined}
                           onUnignoreForAutoPass={isYouThis ? onUnignoreForAutoPass : undefined}
                           ignoredForAutoPassIds={propsIgnoredCardIds}
-                          canActivate={isYouThis || false}
-                          playerId={isYouThis ? you : undefined}
+                          canActivate={!!(isYouThis || hasPriority)}
+                          playerId={you}
                           hasPriority={hasPriority || false}
                           isOwnTurn={!!isOwnTurn}
                           isMainPhase={!!isMainPhase}
                           stackEmpty={stackEmpty}
                           hasThousandYearElixirEffect={hasThousandYearElixirEffect}
-                          showActivatedAbilityButtons={!!isYouThis && showAbilityBadges}
+                          showActivatedAbilityButtons={isYouThis ? showAbilityBadges : true}
                           showAbilityBadges={!!isYouThis && showAbilityBadges}
                           onToggleAbilityBadges={isYouThis ? handleToggleAbilityBadges : undefined}
                           currentStep={step}
@@ -446,20 +448,20 @@ export function renderTableLayoutPlayerSeat({
                               onCounter={isYouPlayer ? onCounter : undefined}
                               onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
                               onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                              onActivateAbility={isYouThis && gameId ? emitBattlefieldAbilityActivation : undefined}
+                              onActivateAbility={gameId ? emitBattlefieldAbilityActivation : undefined}
                               onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                               onIgnoreForAutoPass={isYouThis ? onIgnoreForAutoPass : undefined}
                               onUnignoreForAutoPass={isYouThis ? onUnignoreForAutoPass : undefined}
                               ignoredForAutoPassIds={propsIgnoredCardIds}
-                              canActivate={isYouThis || false}
-                              playerId={isYouThis ? you : undefined}
+                              canActivate={!!(isYouThis || hasPriority)}
+                              playerId={you}
                               hasPriority={hasPriority || false}
                               isOwnTurn={!!isOwnTurn}
                               isMainPhase={!!isMainPhase}
                               stackEmpty={stackEmpty}
                               hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                               currentStep={step}
-                              showActivatedAbilityButtons={!!isYouThis && showAbilityBadges}
+                              showActivatedAbilityButtons={isYouThis ? showAbilityBadges : true}
                               playableCards={isYouThis ? playableCards : undefined}
                               appearanceSettings={appearanceSettings}
                             />
@@ -491,20 +493,20 @@ export function renderTableLayoutPlayerSeat({
                               onCounter={isYouPlayer ? onCounter : undefined}
                               onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
                               onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                              onActivateAbility={isYouThis && gameId ? emitBattlefieldAbilityActivation : undefined}
+                              onActivateAbility={gameId ? emitBattlefieldAbilityActivation : undefined}
                               onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                               onIgnoreForAutoPass={isYouThis ? onIgnoreForAutoPass : undefined}
                               onUnignoreForAutoPass={isYouThis ? onUnignoreForAutoPass : undefined}
                               ignoredForAutoPassIds={propsIgnoredCardIds}
-                              canActivate={isYouThis || false}
-                              playerId={isYouThis ? you : undefined}
+                              canActivate={!!(isYouThis || hasPriority)}
+                              playerId={you}
                               hasPriority={hasPriority || false}
                               isOwnTurn={!!isOwnTurn}
                               isMainPhase={!!isMainPhase}
                               stackEmpty={stackEmpty}
                               hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                               currentStep={step}
-                              showActivatedAbilityButtons={!!isYouThis && showAbilityBadges}
+                              showActivatedAbilityButtons={isYouThis ? showAbilityBadges : true}
                               playableCards={isYouThis ? playableCards : undefined}
                               appearanceSettings={appearanceSettings}
                             />

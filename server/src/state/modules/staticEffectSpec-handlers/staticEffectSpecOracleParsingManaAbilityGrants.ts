@@ -25,15 +25,20 @@ export function pushManaAbilityGrantSpecs(
   source: StaticEffectSpecSource,
   oracle: string,
 ): void {
-  const landsHaveMatch = oracle.match(/lands you control have ([^.]+)/i);
+  const gyLandsHaveMatch = oracle.match(
+    /as long as (?:this card|this creature) is in your graveyard,?\s*lands you control have ([^.]+)/i,
+  );
+  const landsHaveMatch = gyLandsHaveMatch
+    || oracle.match(/lands you control have ([^.]+)/i);
   if (landsHaveMatch) {
     const abilities = parseAbilitiesFromTail(landsHaveMatch[1] || '');
     if (grantHasManaAbility(abilities)) {
       specs.push(buildSpec(
         source,
-        'lands-mana-ability-grant',
+        gyLandsHaveMatch ? 'gy-lands-mana-ability-grant' : 'lands-mana-ability-grant',
         { kind: 'lands_you_control' },
         { abilities: abilities.filter((ability) => ability.startsWith('tap_for_')) },
+        gyLandsHaveMatch ? { kind: 'source_in_graveyard' } : undefined,
       ));
     }
   }

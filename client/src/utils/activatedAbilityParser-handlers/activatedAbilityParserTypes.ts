@@ -45,6 +45,8 @@ export interface ParsedActivatedAbility {
   // Activation restrictions
   timingRestriction?: 'sorcery' | 'instant' | 'upkeep' | 'your_turn';
   oncePerTurn?: boolean;
+  /** True when oracle says "Any player may activate this ability." */
+  anyPlayerMayActivate?: boolean;
   // For targeting
   requiresTarget?: boolean;
   targetDescription?: string;

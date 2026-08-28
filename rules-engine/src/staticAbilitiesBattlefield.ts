@@ -1,6 +1,9 @@
 import type { BattlefieldPermanent, GameState, KnownCardRef, PlayerID } from '../../shared/src';
 import { calculateEffectivePT } from './staticAbilitiesEvaluation';
 import type { StaticAbility } from './staticAbilitiesShared';
+import { controllerHasLeftTheGame } from './playerInGameStatus';
+
+const STATIC_ABILITIES_APPLIED = Symbol.for('mtgedh.staticAbilitiesApplied');
 
 type ParseStaticAbilitiesFn = (
   card: KnownCardRef,
@@ -8,15 +11,21 @@ type ParseStaticAbilitiesFn = (
   controllerId: PlayerID
 ) => StaticAbility[];
 
+function hasOracleText(card: KnownCardRef | undefined): boolean {
+  return Boolean(String(card?.oracle_text || '').trim());
+}
+
 export function collectStaticAbilities(
   battlefield: BattlefieldPermanent[],
-  parseStaticAbilities: ParseStaticAbilitiesFn
+  parseStaticAbilities: ParseStaticAbilitiesFn,
+  gameState?: GameState
 ): StaticAbility[] {
   const abilities: StaticAbility[] = [];
 
   for (const perm of battlefield) {
+    if (controllerHasLeftTheGame(gameState, perm.controller)) continue;
     const card = perm.card as KnownCardRef;
-    if (!card) continue;
+    if (!card || !hasOracleText(card)) continue;
 
     const parsed = parseStaticAbilities(card, perm.id, perm.controller);
     abilities.push(...parsed);
@@ -25,12 +34,58 @@ export function collectStaticAbilities(
   return abilities;
 }
 
+function markStaticAbilitiesApplied(battlefield: BattlefieldPermanent[]): BattlefieldPermanent[] {
+  try {
+    Object.defineProperty(battlefield, STATIC_ABILITIES_APPLIED, {
+      value: true,
+      enumerable: false,
+      configurable: true,
+    });
+  } catch {
+    (battlefield as any)[STATIC_ABILITIES_APPLIED] = true;
+  }
+  return battlefield;
+}
+
+function canBatchIdenticalTokenPt(perm: BattlefieldPermanent): boolean {
+  if (perm.isToken !== true) return false;
+  if (perm.attachedTo) return false;
+  if (Array.isArray((perm as any).attachedEquipment) && (perm as any).attachedEquipment.length > 0) return false;
+  if (Array.isArray((perm as any).attachments) && (perm as any).attachments.length > 0) return false;
+  if (Array.isArray(perm.modifiers) && perm.modifiers.length > 0) return false;
+  if ((perm.damageMarked || 0) > 0 || ((perm as any).markedDamage || 0) > 0 || ((perm as any).damageTaken || 0) > 0) return false;
+  if ((perm as any).isEquipped || (perm as any).isCommander) return false;
+  return true;
+}
+
+function identicalTokenPtFingerprint(perm: BattlefieldPermanent): string {
+  const card = perm.card as KnownCardRef;
+  const counters = Object.entries(perm.counters || {})
+    .filter(([, v]) => (v as number) > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}:${v}`)
+    .join(',');
+  const granted = ((perm as any).grantedAbilities || []).slice().sort().join('|');
+  return [
+    perm.controller,
+    card?.name || '',
+    card?.type_line || '',
+    card?.oracle_text || '',
+    perm.basePower ?? card?.power ?? '',
+    perm.baseToughness ?? card?.toughness ?? '',
+    counters,
+    granted,
+  ].join('\0');
+}
+
 function applyStaticAuraControlEffects(
-  battlefield: BattlefieldPermanent[]
+  battlefield: BattlefieldPermanent[],
+  gameState?: GameState
 ): BattlefieldPermanent[] {
   const nextBattlefield = battlefield.map(permanent => ({ ...permanent } as BattlefieldPermanent));
 
   for (const aura of nextBattlefield) {
+    if (controllerHasLeftTheGame(gameState, aura.controller)) continue;
     const card = aura.card as KnownCardRef;
     if (!card) continue;
 
@@ -60,8 +115,16 @@ export function applyStaticAbilitiesToBattlefield(
   parseStaticAbilities: ParseStaticAbilitiesFn,
   gameState?: GameState
 ): BattlefieldPermanent[] {
-  const battlefieldWithStaticControl = applyStaticAuraControlEffects(battlefield);
-  const staticAbilities = collectStaticAbilities(battlefieldWithStaticControl, parseStaticAbilities);
+  if (!Array.isArray(battlefield) || battlefield.length === 0) {
+    return battlefield || [];
+  }
+  if ((battlefield as any)[STATIC_ABILITIES_APPLIED] === true) {
+    return battlefield;
+  }
+
+  const battlefieldWithStaticControl = applyStaticAuraControlEffects(battlefield, gameState);
+  const staticAbilities = collectStaticAbilities(battlefieldWithStaticControl, parseStaticAbilities, gameState);
+  const tokenPtCache = new Map<string, { power: number; toughness: number; grantedAbilities: string[] }>();
 
   const withEffectivePT = battlefieldWithStaticControl.map(perm => {
     const card = perm.card as KnownCardRef;
@@ -72,12 +135,32 @@ export function applyStaticAbilitiesToBattlefield(
       return perm;
     }
 
-    const { power, toughness, grantedAbilities } = calculateEffectivePT(
-      perm,
-      battlefieldWithStaticControl,
-      staticAbilities,
-      gameState
-    );
+    let power: number;
+    let toughness: number;
+    let grantedAbilities: string[];
+    if (canBatchIdenticalTokenPt(perm)) {
+      const fingerprint = identicalTokenPtFingerprint(perm);
+      let cached = tokenPtCache.get(fingerprint);
+      if (!cached) {
+        cached = calculateEffectivePT(
+          perm,
+          battlefieldWithStaticControl,
+          staticAbilities,
+          gameState
+        );
+        tokenPtCache.set(fingerprint, cached);
+      }
+      power = cached.power;
+      toughness = cached.toughness;
+      grantedAbilities = cached.grantedAbilities;
+    } else {
+      ({ power, toughness, grantedAbilities } = calculateEffectivePT(
+        perm,
+        battlefieldWithStaticControl,
+        staticAbilities,
+        gameState
+      ));
+    }
 
     return {
       ...perm,
@@ -87,13 +170,13 @@ export function applyStaticAbilitiesToBattlefield(
     } as BattlefieldPermanent;
   });
 
-  const staticGoadSources = collectStaticGoadSources(withEffectivePT);
+  const staticGoadSources = collectStaticGoadSources(withEffectivePT, gameState);
 
   if (staticGoadSources.length === 0) {
-    return withEffectivePT;
+    return markStaticAbilitiesApplied(withEffectivePT);
   }
 
-  return withEffectivePT.map(perm => {
+  return markStaticAbilitiesApplied(withEffectivePT.map(perm => {
     const card = perm.card as KnownCardRef;
     if (!card) return perm;
 
@@ -130,7 +213,7 @@ export function applyStaticAbilitiesToBattlefield(
       isStaticallyGoaded: true,
       staticGoadedBy: goadedByStatic,
     } as BattlefieldPermanent;
-  });
+  }));
 }
 
 interface StaticGoadSource {
@@ -140,10 +223,14 @@ interface StaticGoadSource {
   requiresLowerPower: boolean;
 }
 
-function collectStaticGoadSources(battlefield: BattlefieldPermanent[]): StaticGoadSource[] {
+function collectStaticGoadSources(
+  battlefield: BattlefieldPermanent[],
+  gameState?: GameState
+): StaticGoadSource[] {
   const sources: StaticGoadSource[] = [];
 
   for (const perm of battlefield) {
+    if (controllerHasLeftTheGame(gameState, perm.controller)) continue;
     const card = perm.card as KnownCardRef;
     if (!card) continue;
 

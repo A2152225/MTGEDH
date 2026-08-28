@@ -11,6 +11,7 @@ import {
   trySpecialDealDamageStep,
   type SpecialTargetStepResult,
 } from './oracleIRExecutorSpecialTargetHandlers';
+import { tryApplyFightDealDamageStep } from './oracleIRExecutorFightStep';
 import {
   normalizeRepeatedEachAllInList,
   parseDeterministicMixedDamageTarget,
@@ -39,6 +40,7 @@ type StepApplyResult = {
   readonly log: readonly string[];
   readonly count?: number;
   readonly excessDamageDealtThisWay: number;
+  readonly lastDamagedBattlefieldPermanentIds?: readonly string[];
 };
 
 type StepSkipResult = {
@@ -82,7 +84,34 @@ type DamageSourceKeywords = {
   readonly hasInfect: boolean;
   readonly hasWither: boolean;
   readonly hasLifelink: boolean;
+  readonly hasDeathtouch: boolean;
 };
+
+function readGrantedAbilityNames(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const names: string[] = [];
+  for (const value of raw) {
+    const name = typeof value === 'string'
+      ? value.trim()
+      : String((value as any)?.name || (value as any)?.type || '').trim();
+    if (name) names.push(name);
+  }
+  return names;
+}
+
+function mergeGrantedAbilityNames(...lists: unknown[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const list of lists) {
+    for (const name of readGrantedAbilityNames(list)) {
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(name);
+    }
+  }
+  return out;
+}
 
 function readFiniteCardStat(value: unknown): number | null {
   const n = Number(value);
@@ -312,9 +341,30 @@ function resolveDamageSourceKeywords(
   ctx: OracleIRExecutionContext
 ): DamageSourceKeywords | null {
   const sourceId = String(ctx.sourceId || '').trim();
-  if (!sourceId) return null;
+  const liveObject = sourceId ? findSourceObject(state, sourceId) : null;
+  const mergedGranted = mergeGrantedAbilityNames(
+    (liveObject as any)?.grantedAbilities,
+    ctx.sourceGrantedAbilities,
+  );
 
-  const sourceObject = findSourceObject(state, sourceId);
+  let sourceObject = liveObject && typeof liveObject === 'object' ? liveObject : null;
+  if (sourceObject && mergedGranted.length > 0) {
+    sourceObject = { ...(sourceObject as any), grantedAbilities: mergedGranted };
+  } else if (!sourceObject && (mergedGranted.length > 0 || sourceId)) {
+    // Instant/sorcery resolve pops the stack item before IR damage. Keywords
+    // granted to "that spell" (Judith) must still apply from the snapshot.
+    sourceObject = {
+      id: sourceId,
+      controller: ctx.controllerId,
+      grantedAbilities: mergedGranted,
+      card: {
+        name: ctx.sourceName || '',
+        oracle_text: '',
+        type_line: '',
+      },
+    };
+  }
+
   if (!sourceObject || typeof sourceObject !== 'object') return null;
 
   const controllerId = String((sourceObject as any)?.controller || ctx.controllerId || '').trim() || null;
@@ -326,6 +376,7 @@ function resolveDamageSourceKeywords(
       hasInfect: Boolean(source.hasInfect),
       hasWither: Boolean(source.hasWither),
       hasLifelink: Boolean(source.hasLifelink),
+      hasDeathtouch: Boolean(source.hasDeathtouch),
     };
   }
 
@@ -334,6 +385,7 @@ function resolveDamageSourceKeywords(
     hasInfect: false,
     hasWither: false,
     hasLifelink: false,
+    hasDeathtouch: false,
   };
 }
 
@@ -374,11 +426,18 @@ function applyDamageToMatchingBattlefield(
   matcher: (permanent: any) => boolean,
   sourceKeywords?: DamageSourceKeywords | null,
   skipPrevention = false,
-): { state: GameState; excessDamageDealtThisWay: number; damageDealt: number; log: readonly string[] } {
+): {
+  state: GameState;
+  excessDamageDealtThisWay: number;
+  damageDealt: number;
+  log: readonly string[];
+  lastDamagedBattlefieldPermanentIds: readonly string[];
+} {
   let excessDamageThisStep = 0;
   let damageDealt = 0;
   let preventionState = state;
   const log: string[] = [];
+  const damagedIds: string[] = [];
   const sourcePermanentId = String(ctx.sourceId || '').trim() || undefined;
 
   const updatedBattlefield = (state.battlefield || []).map(permanent => {
@@ -395,14 +454,18 @@ function applyDamageToMatchingBattlefield(
       return permanent as any;
     }
 
+    if (targetPermanentId) damagedIds.push(targetPermanentId);
     damageDealt += finalAmount;
     excessDamageThisStep += getExcessDamageToPermanent(permanent as any, finalAmount);
     if (hasExecutorClass(permanent as any, 'battle')) return removeDefenseCountersFromBattle(permanent as any, finalAmount);
     if (hasExecutorClass(permanent as any, 'creature')) {
-      if (sourceKeywords?.hasInfect || sourceKeywords?.hasWither) {
-        return addMinusCountersToPermanentLikeCreatureFromSource(permanent as any, finalAmount, sourcePermanentId);
+      let damaged = (sourceKeywords?.hasInfect || sourceKeywords?.hasWither)
+        ? addMinusCountersToPermanentLikeCreatureFromSource(permanent as any, finalAmount, sourcePermanentId)
+        : addDamageToPermanentLikeCreatureFromSource(permanent as any, finalAmount, sourcePermanentId);
+      if (sourceKeywords?.hasDeathtouch) {
+        damaged = { ...damaged, deathtouchDamageMarked: true };
       }
-      return addDamageToPermanentLikeCreatureFromSource(permanent as any, finalAmount, sourcePermanentId);
+      return damaged;
     }
     if (hasExecutorClass(permanent as any, 'planeswalker')) return removeLoyaltyFromPlaneswalker(permanent as any, finalAmount);
     return permanent as any;
@@ -413,7 +476,17 @@ function applyDamageToMatchingBattlefield(
     excessDamageDealtThisWay: Math.max(0, excessDamageThisStep),
     damageDealt,
     log,
+    lastDamagedBattlefieldPermanentIds: damagedIds,
   };
+}
+
+function stampLastDamagedIds(
+  ctx: OracleIRExecutionContext,
+  ids: readonly string[] | undefined,
+): void {
+  const cleaned = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (cleaned.length === 0) return;
+  (ctx as any).lastDamagedBattlefieldPermanentIds = cleaned;
 }
 
 function resolveMixedDamagePlayers(
@@ -483,6 +556,18 @@ export function applyDealDamageStep(
   ctx: OracleIRExecutionContext,
   runtime?: DamageRuntime
 ): DamageStepHandlerResult {
+  const fight = tryApplyFightDealDamageStep(state, step, ctx);
+  if (fight) {
+    if (fight.applied) {
+      stampLastDamagedIds(ctx, fight.lastDamagedBattlefieldPermanentIds);
+      return {
+        ...fight,
+        excessDamageDealtThisWay: Math.max(0, Number(fight.excessDamageDealtThisWay) || 0),
+      };
+    }
+    return fight;
+  }
+
   const fightEarly = trySpecialDealDamageStep(state, step, ctx, 0);
   if (fightEarly) return normalizeSpecialDamageResult(fightEarly);
 
@@ -582,12 +667,14 @@ export function applyDealDamageStep(
     } else {
       log.push(`Dealt ${result.damageDealt} damage to ${singlePermanentId}`);
     }
+    stampLastDamagedIds(ctx, result.lastDamagedBattlefieldPermanentIds);
     return {
       applied: true,
       state: nextState,
       log,
       count: result.damageDealt,
       excessDamageDealtThisWay: result.excessDamageDealtThisWay,
+      lastDamagedBattlefieldPermanentIds: result.lastDamagedBattlefieldPermanentIds,
     };
   }
 
@@ -626,12 +713,14 @@ export function applyDealDamageStep(
       } else {
         log.push(`Dealt ${result.damageDealt} damage to ${rawText}`);
       }
+      stampLastDamagedIds(ctx, result.lastDamagedBattlefieldPermanentIds);
       return {
         applied: true,
         state: nextState,
         log,
         count: result.damageDealt,
         excessDamageDealtThisWay: result.excessDamageDealtThisWay,
+        lastDamagedBattlefieldPermanentIds: result.lastDamagedBattlefieldPermanentIds,
       };
     }
 
@@ -656,6 +745,7 @@ export function applyDealDamageStep(
       }
 
       let excessDamageDealtThisWay = 0;
+      const mixedDamagedIds: string[] = [];
       for (const selector of mixed.selectors) {
         const result = applyDamageToMatchingBattlefield(
           nextState,
@@ -668,6 +758,7 @@ export function applyDealDamageStep(
         log.push(...result.log);
         excessDamageDealtThisWay += result.excessDamageDealtThisWay;
         totalDamageDealt += result.damageDealt;
+        mixedDamagedIds.push(...result.lastDamagedBattlefieldPermanentIds);
       }
 
       if (sourceKeywords?.hasLifelink && sourceKeywords.controllerId && totalDamageDealt > 0) {
@@ -677,12 +768,14 @@ export function applyDealDamageStep(
       }
 
       log.push(`Dealt ${totalDamageDealt} damage to ${rawText}`);
+      stampLastDamagedIds(ctx, mixedDamagedIds);
       return {
         applied: true,
         state: nextState,
         log,
         count: totalDamageDealt,
         excessDamageDealtThisWay: Math.max(0, excessDamageDealtThisWay),
+        lastDamagedBattlefieldPermanentIds: mixedDamagedIds,
       };
     }
   }
@@ -723,12 +816,14 @@ export function applyDealDamageStep(
       } else {
         log.push(`Dealt ${result.damageDealt} damage to ${normalized}`);
       }
+      stampLastDamagedIds(ctx, result.lastDamagedBattlefieldPermanentIds);
       return {
         applied: true,
         state: nextState,
         log,
         count: result.damageDealt,
         excessDamageDealtThisWay: result.excessDamageDealtThisWay,
+        lastDamagedBattlefieldPermanentIds: result.lastDamagedBattlefieldPermanentIds,
       };
     }
   }

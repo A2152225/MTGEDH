@@ -10,9 +10,7 @@
 // "./undo.js" import path keeps working.
 
 import {
-  boundaryHistoryHasKey,
-  buildBoundaryHistoryFromPersistedMetadata,
-  buildBoundaryHistoryFromReplay,
+  resolveBoundaryHistoryForUndo,
   buildUndoBoundaryPreview,
   getBoundaryKey,
   humanizeBoundaryToken,
@@ -176,13 +174,9 @@ export function listUndoTurnPhaseTargets(
     : undefined;
 
   const liveKey = getBoundaryKey((game?.state || {}) as any, kind);
-  let history = buildBoundaryHistoryFromPersistedMetadata(events, kind);
-  let eventCount = events.length;
-  if (!history || !boundaryHistoryHasKey(history, liveKey)) {
-    const replayed = buildBoundaryHistoryFromReplay(events, game, kind);
-    history = replayed.history;
-    eventCount = replayed.eventCount;
-  }
+  const resolved = resolveBoundaryHistoryForUndo(events, game, kind);
+  const history = resolved.history;
+  const eventCount = resolved.eventCount;
   if (!history.length) return [];
 
   let currentIndex = history.length - 1;

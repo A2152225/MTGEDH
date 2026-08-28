@@ -58,6 +58,7 @@ Public path stays `rules-engine/src/AIEngine.ts`. Leaves must not import the par
 | Module | Owns |
 | --- | --- |
 | `aiEngineAnalyzeLibraryForPlanning.ts` | `analyzeLibraryForPlanning`, `AIEngineHost`. |
+| `aiEngineActivatedAbilitySupport.ts` | Activated-ability detection, timing, heuristic value, `findBestActivatedAbility`. Includes opponent permanents with “any player may activate” (Xantcha `{3}` draw + controller loses 2). |
 
 ### `oracleTextParser-handlers/` (extracted from `oracleTextParser.ts`)
 
@@ -111,11 +112,11 @@ Public path stays `rules-engine/src/actions/combat.ts`. Internal TOC: `rules-eng
 | --- | --- |
 | `combatActionTypes.ts` | `AttackerDeclaration`, `BlockerDeclaration`, `DeclareAttackersAction`, `DeclareBlockersAction`, `CombatDamageAssignment`, `DealCombatDamageAction`. |
 | `combatGoadPermanentLookup.ts` | `getPermanentForGoadAnalysis`. |
-| `combatLegalityHelpers.ts` | `isCurrentlyCreature`, `hasDefender`, `canPermanentAttack`, `hasHaste`, `canPermanentBlock`, `checkEvasionAbilities`, `hasAbility`, `CombatValidationResult`. |
+| `combatLegalityHelpers.ts` | `isCurrentlyCreature`, `hasDefender`, `canPermanentAttack`, `hasHaste`, `canPermanentBlock`, `checkEvasionAbilities`, `hasAbility`, `CombatValidationResult`. `hasHaste` ignores Other-[type] lord grants and self-stamped haste badges. |
 | `combatPermanentPower.ts` | `getPermanentPower`. |
-| `combatGoadHelpers.ts` | `buildProcessedBattlefieldForGoad`, `isGoaded`, `getGoadedBy`, `getGoadedAttackTargets`, `canGoadedCreatureAttack`. |
+| `combatGoadHelpers.ts` | `buildProcessedBattlefieldForGoad`, `isGoaded`, `getGoadedBy`, `getGoadedAttackTargets`, `canGoadedCreatureAttack`. `buildProcessedBattlefieldForGoad` reuses `applyStaticAbilitiesToBattlefield`, which skips already-processed snapshots and batches identical token P/T (Myrel soldier swarms). |
 | `combatGoadedAttackers.ts` | `getGoadedAttackers`. |
-| `combatValidateDeclareAttackers.ts` | `validateDeclareAttackers`. |
+| `combatValidateDeclareAttackers.ts` | `validateDeclareAttackers`. Rejects defending players who have left the game (`playerIsLegalAttackTarget`); goad / must-attack opponent lists use the same living-player set. |
 
 ### `actions/triggersHandler-handlers/` (extracted from `rules-engine/src/actions/triggersHandler.ts`)
 
@@ -165,7 +166,9 @@ Public path stays `zones.ts`. Leaves must not import the parent or the index. Ne
 | `zonesClearPreparedOnBattlefieldExit.ts` | `clearPreparedStateOnBattlefieldExit` (soulbond unpair + prepared cleanup). |
 | `zonesDrawReplacementZursQueue.ts` | `getOpponentsForPlayer`, `queueZursWeirdingOpponentStep`, `queueZursWeirdingDrawReplacementStep`. |
 | `zonesDrawReplacementDredgeQueue.ts` | `queueDredgeDrawReplacementStep`. |
-| `zonesDrawCards.ts` | `DrawCardsOptions`, `persistDrawCardsEvent`, `drawCards`, `drawCardsByIds`, `processDrawTriggers`. |
+| `zonesDrawReplacementSkipDrawQueue.ts` | `queueSkipDrawReplacementStep`. |
+| `zonesDrawReplacementSkipDrawApply.ts` | `applySkipDrawReplacementChoice` — skip stamps except-keywords lock; draw continues. |
+| `zonesDrawCards.ts` | `DrawCardsOptions`, `persistDrawCardsEvent`, `drawCards`, `drawCardsByIds`, `processDrawTriggers`. `drawCards` / `drawCardsByIds` skip a library card whose `id` is already in that player's hand (replay ghost) and keep drawing. |
 | `zonesProcessMillTriggers.ts` | `processMillTriggers`. |
 | `zonesMovePermanentToLibrary.ts` | `movePermanentToLibrary`. |
 | `zonesMovePermanentToHand.ts` | `movePermanentToHand`. |
@@ -283,24 +286,37 @@ Public path stays `replacementEffectSpec.ts`. Leaves must not import the parent 
 | `replacementEffectSpecCounterOracleTemplates.ts` | Counter templates + collect. |
 | `replacementEffectSpecLibrarySearchOracleTemplates.ts` | Library-search templates + collect. |
 | `replacementEffectSpecDamageOracleTemplates.ts` | Damage templates, prevent-all-but parsers, emblem sources, `overlaySpecsMatchDamage`. |
-| `replacementEffectSpecDrawOracleTemplates.ts` | Draw templates + collect. |
+| `replacementEffectSpecDrawOracleTemplates.ts` | Draw templates + collect. Includes Island Sanctuary optional skip-draw during the draw step. |
 | `replacementEffectSpecTokenOracleTemplates.ts` | Token templates + collect. |
 | `replacementEffectSpecMillOracleTemplates.ts` | Mill templates + collect. |
 | `replacementEffectSpecZoneChangeOracleTemplates.ts` | Oracle zone-change templates + collect. |
 | `replacementEffectSpecLoseGameOracleTemplates.ts` | Can't-lose / can't-win / 0-life exemption / empty-library draw-win. `collectOraclePatternLoseGameReplacementSpecsFromState`. |
-| `replacementEffectSpecLifeFloorDamageOracleTemplates.ts` | Worship / Fortune Thief life-floor damage replacements. |
+| `replacementEffectSpecLifeFloorDamageOracleTemplates.ts` | Worship / Fortune Thief life-floor damage replacements. Parse + collect; live cap apply is `detectDamageReplacementEffects` plus `replacementEffectsDamageLifeFloor.ts`. |
 
-### `staticEffectSpec-handlers/` (extracted from `staticEffectSpecOracleParsing.ts`)
+### `replacement-effects` siblings
 
-Public path stays `staticEffectSpec.ts` / `staticEffectSpecOracleParsing.ts`. Never create `staticEffectSpec/` beside `staticEffectSpec.ts`. Leaves must not import the parent or this index. `staticEffectSpecConditionEval.ts` owns `specMatchesStaticCondition` (unknown kinds do not grant; attacking / ring-bearer / threshold / equipped / `source_controller_attacked_this_turn`).
+`replacement-effects.ts` has no `*-handlers/` folder yet. Leaves must not import the parent.
 
 | Module | Owns |
 | --- | --- |
-| `staticEffectSpecOracleParseHelpers.ts` | Ability tails, buffs, `buildSpec`. |
+| `replacementEffectsDamageLifeFloor.ts` | Player-damage `floorLifeAt` caps for `evaluateDamageReplacementEvent`. Filters `detectDamageReplacementEffects` to `type: 'cap'` so combat's `calculateModifiedDamage` then shield eval does not double-apply Furnace/Gisela. Entry: `applyPlayerDamageLifeFloorCaps`. |
+
+### `staticEffectSpec-handlers/` (extracted from `staticEffectSpecOracleParsing.ts`)
+
+Public path stays `staticEffectSpec.ts` / `staticEffectSpecOracleParsing.ts`. Never create `staticEffectSpec/` beside `staticEffectSpec.ts`. Leaves must not import the parent or this index. `staticEffectSpecConditionEval.ts` owns `specMatchesStaticCondition` (unknown kinds do not grant; attacking / ring-bearer / threshold / equipped / `source_controller_attacked_this_turn` / `source_in_graveyard` / `target_has_keyword` / `target_lacks_keyword` / `target_lacks_all_keywords` / `target_power_greater_than_source_controller_hand_size` / `target_power_at_most` / `target_has_creature_type` / `target_has_type` / `target_is_outlaw` / `target_is_colorless` / `target_is_multicolored` / `target_is_modified` / `target_has_mana_color_and_lacks_keyword` / `target_enchanted_by_aura_you_control` / `source_is_untapped` / `source_is_attacking` / `source_controller_has_citys_blessing` / `target_is_historic` / `target_is_historic_during_source_controller_turn` / `target_has_mana_ability`). Extra `spec.conditions` must all match with `condition`. Keyword with/without conditions take an optional layer-6 resolver (printed + unconditional grants, then `removeAbilities`). `staticEffectSpecActivationLocks.ts` honors `"can't activate tap abilities"` at activate / tap / mana / AI. `staticEffectSpecAttackYouTax.ts` collects pillowfort `attackYouTaxGeneric` / `attackYouProhibited` / except-keyword stamps for live declare (per attacker) plus `blockTaxGeneric`. `staticEffectSpecAttackYouTaxPhyrexian.ts` collects `{W/P}`. `staticEffectSpecAttackTaxThisTurn.ts` collects War Tax stamps. `staticEffectSpecTypes.ts` holds declarative spec types (re-exported from `staticEffectSpec.ts`). `staticEffectSpecCopyExiledActivated.ts` expands `copyActivatedFromExiledWithCardType` from `exiledWithSourceId` exile cards.
+
+| Module | Owns |
+| --- | --- |
+| `staticEffectSpecOracleParseHelpers.ts` | Ability tails, buffs, `buildSpec`. `{T}: Add {G} or {W}` collects both tap_for colors. `{T}, Pay 1 life: Add any color` and quoted ability text are grants. Numeric `afflict N` / `toxic N` / `fabricate N` / `outlast {N}`. `ABILITY_WORDS` includes riot / exalted / skulk / intimidate / myriad / wither / fear / horsemanship / prowess / training / evolve / dethrone / unleash / melee / exploit / extort. `parseLordCreatureType` uses `normalizeCreatureTypeWord` (Elves/Dwarves/Mice). |
+| `staticEffectSpecOracleParsingTypedAndKeywordLords.ts` | Artifact/enchantment/land creature lords (`target_has_type`), outlaw designation lords (`target_is_outlaw`), nontoken/attacking “have” grants, color/colorless/multicolored other-creature anthems, permanents/artifacts/enchantments you control have (`other_permanents_you_control`), modified/equipped/enchanted have. Entry: `pushTypedAndKeywordLordSpecs`. |
+| `staticEffectSpecOracleParsingQuotedNumericBasePT.ts` | Quoted have-grants (Phenax / Slivers / Forgotten Monument / Grothama), city's blessing anthems, historic-during-your-turn, characteristic-setting base P/T + type additions (`other_all_creatures`), mana-ability creature anthems, copy activated abilities of cards exiled with the source. Entry: `pushQuotedNumericAndBasePTLordSpecs`. |
 | `staticEffectSpecOracleParsingGraveyardLandKeywords.ts` | GY + basic-land-type keyword grants (Anger / Wonder family). |
 | `staticEffectSpecOracleParsingAsLongAsAndPolarity.ts` | Player hexproof; you-and-type; you/planeswalkers/other-creatures hexproof (Shalai wording); other/opponent P/T. |
-| `staticEffectSpecOracleParsingManaAbilityGrants.ts` | Lands/creatures tap-for-mana grants. |
+| `staticEffectSpecOracleParsingManaAbilityGrants.ts` | Lands/creatures tap-for-mana grants. GY-gated “as long as this card is in your graveyard, lands you control have `{T}: Add {G} or {W}`” (Riftstone Portal) uses `source_in_graveyard`. |
 | `staticEffectSpecOracleParsingTapUntapAbilityGrants.ts` | Tapped/untapped creature keyword grants (`target_is_tapped` / `target_is_untapped`; Saryth). |
 | `staticEffectSpecOracleParsingMustBeBlocked.ts` | Host grants: `all_able_creatures_must_block` vs `must_be_blocked_if_able`. Same-sentence `has first strike` included (Masamune `target_is_attacking` / Indrik Umbra). List leftovers + Frodo / threshold / Enkira. Raid / “if you attacked this turn” → `source_controller_attacked_this_turn`. Other unexpressible as-long-as still fail closed. Channel “this turn” is not a static. Idle Masamune first strike is no longer leaked by parent `attachment-keyword-host` (`shared/src/attachmentKeywordGrants.ts` gates `is` attacking / `, it has` tails). |
 | `staticEffectSpecOracleParsingMustBeBlockedByType.ts` | Typed “must be blocked by a creature with [keyword] if able” → `must_be_blocked_by_<keyword>` host grant. Channel / this turn / raid skipped. Entry: `pushMustBeBlockedByTypeSpecs`. |
-| `staticEffectSpecOracleParsingLoseKeywords.ts` | Opponent lose-keyword (`removeAbilities`); Glaring Spotlight you-control as-though; Nowhere to Run global as-though (`asThoughNoAbilities` including `'ward'` for “Ward abilities of those creatures don't trigger”); Kaya opponent permanents. Until-EOT activations skipped (IR `grant_static_ability` stamps `lastingEffects.protectionKeywordOverride`). |
+| `staticEffectSpecOracleParsingCantAttack.ts` | Host combat locks: Pacifism / Bound in Silence `can't attack` / `can't block`. Same-sentence `{T}`-cost activation lock (`can't activate tap abilities`; Serra Bestiary). Skips this-turn, pillowfort unless-pay, and “can't attack you”. Live declare uses `combatLegalityGates`; tap lock via `staticEffectSpecActivationLocks.ts`. Entry: `pushCantAttackBlockSpecs`. |
+| `staticEffectSpecOracleParsingMassCantAttack.ts` | Mass combat locks: Moat without-keyword, Katabatic with-keyword attack/block/`{T}`, Ensnaring Bridge power vs hand, Peacekeeper all creatures, type-you-control (Doomed Artisan). Entry: `pushMassCantAttackBlockSpecs`. Conditions: `target_has_keyword` / `target_lacks_keyword` / `target_power_greater_than_source_controller_hand_size` (evaluated with layer-6 grants then `removeAbilities`). Pillowfort tax is a sibling parser, not `can't attack`. |
+| `staticEffectSpecOracleParsingAttackYouTax.ts` | Pillowfort tax `{N}/{X}` plus `attackYouTaxPhyrexian` `{W/P}` plus `attackYouProhibited` (Elephant Grass, Blazing Archon, Form of the Dragon, Sandwurm, Reverence, Combat Calligrapher, Vow host, Teferi's Moat, Eriette, Island Sanctuary `target_lacks_all_keywords`). Crawlspace / Silent Arbiter caps. Archangel `blockTaxGeneric`. Static this-turn skipped; applied War Tax is `staticEffectSpecAttackTaxThisTurn.ts`; applied War Cadence is `staticEffectSpecBlockTaxThisTurn.ts`. Collectors: `staticEffectSpecAttackYouTax.ts`, `staticEffectSpecAttackYouTaxPhyrexian.ts`. Live: `combatDeclareAttackersRequest.ts`, `attackCostPhyrexianPayment.ts`. AI caps: `combatDeclareAttackersExecute.ts`, `aiPriorityPassCombatExecutors.ts`. AI block tax: `aiPriorityPassCombatBlockTax.ts`. |
+| `staticEffectSpecOracleParsingLoseKeywords.ts` | Opponent lose-keyword (`removeAbilities`); all-creatures lose (Gravity Sphere / Mystic Decree); Glaring Spotlight you-control as-though; Nowhere to Run global as-though (`asThoughNoAbilities` including `'ward'` for “Ward abilities of those creatures don't trigger”); Kaya opponent permanents. Until-EOT activations and until-EOT mass lose skipped. Humility lose-all skipped. |

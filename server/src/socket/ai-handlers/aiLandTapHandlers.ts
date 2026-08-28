@@ -17,6 +17,7 @@ import {
   hasManaAbility,
 } from "./aiManaCostHelpers.js";
 import { selectAIManaRetentionActivationAction } from "./aiManaActivationHelpers.js";
+import { permanentCannotActivateTapAbilities } from "../../state/modules/staticEffectSpecActivationLocks.js";
 
 async function executeAIActivateAbility(
   io: Server,
@@ -109,6 +110,7 @@ export function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerI
     
     // Skip creatures with summoning sickness
     if (typeLine.includes('creature') && hasCreatureSummoningSickness(perm)) continue;
+    if (permanentCannotActivateTapAbilities(perm, game.state)) continue;
     
     // Check what colors this produces
     let producedColors = getManaProduction(perm.card);
@@ -242,6 +244,7 @@ export async function executeAITapLandsForMana(
     
     // Skip creatures with summoning sickness
     if (typeLine.includes('creature') && hasCreatureSummoningSickness(perm)) continue;
+    if (permanentCannotActivateTapAbilities(perm, game.state)) continue;
     
     let producedColors = getManaProduction(perm.card);
     

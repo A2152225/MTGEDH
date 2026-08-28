@@ -20,6 +20,7 @@ import {
   inferGenericTriggeredAbilityTargetMetadata,
 } from "../triggers/target-metadata.js";
 import { queueDredgeDrawReplacementStep } from "./zonesDrawReplacementDredgeQueue.js";
+import { queueSkipDrawReplacementStep } from "./zonesDrawReplacementSkipDrawQueue.js";
 import { queueZursWeirdingDrawReplacementStep } from "./zonesDrawReplacementZursQueue.js";
 
 export type DrawCardsOptions = {
@@ -83,29 +84,42 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
     return zones[pid] || (zones[pid] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
   };
   const drawOneForPlayer = (pid: string, returnToOriginal: boolean): boolean => {
-    const lib = ctx.libraries.get(pid as PlayerID) || [];
     const z = getZone(pid);
-    if (lib.length <= 0) {
-      emptyDrawByPlayer[pid] = true;
-      debug(2, `[drawCards] Player ${pid} attempted to draw from empty library`);
-      return false;
-    }
+    let lib = ctx.libraries.get(pid as PlayerID) || [];
+    while (lib.length > 0) {
+      const c = lib.shift()!;
+      const cardId = String((c as any)?.id || '').trim();
+      if (cardId) {
+        const alreadyInHand = (Array.isArray(z.hand) ? z.hand : []).some(
+          (entry: any) => String(entry?.id || '').trim() === cardId,
+        );
+        if (alreadyInHand) {
+          debug(2, `[drawCards] skipped library ghost already in hand`, { playerId: pid, cardId });
+          ctx.libraries.set(pid as PlayerID, lib);
+          z.libraryCount = lib.length;
+          continue;
+        }
+      }
+      drawnByPlayer[pid] = drawnByPlayer[pid] || [];
+      const drawNumber = getPreviousDrawCount(pid) + drawnByPlayer[pid].length + 1;
+      if (drawNumber === 1) {
+        (c as any).isFirstDrawnThisTurn = true;
+        (c as any).drawnAt = Date.now();
+      }
 
-    const c = lib.shift()!;
-    drawnByPlayer[pid] = drawnByPlayer[pid] || [];
-    const drawNumber = getPreviousDrawCount(pid) + drawnByPlayer[pid].length + 1;
-    if (drawNumber === 1) {
-      (c as any).isFirstDrawnThisTurn = true;
-      (c as any).drawnAt = Date.now();
+      (z.hand as any[]).push(c);
+      drawnByPlayer[pid].push(c);
+      if (returnToOriginal) drawn.push(c);
+      ctx.libraries.set(pid as PlayerID, lib);
+      z.handCount = (z.hand as any[]).length;
+      z.libraryCount = lib.length;
+      return true;
     }
-
-    (z.hand as any[]).push(c);
-    drawnByPlayer[pid].push(c);
-    if (returnToOriginal) drawn.push(c);
+    emptyDrawByPlayer[pid] = true;
+    debug(2, `[drawCards] Player ${pid} attempted to draw from empty library`);
     ctx.libraries.set(pid as PlayerID, lib);
-    z.handCount = (z.hand as any[]).length;
     z.libraryCount = lib.length;
-    return true;
+    return false;
   };
 
   if (normalizedCount >= 2) {
@@ -142,8 +156,10 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
         drawIndex: drawNumber,
         metadata: {
           isFirstDrawStepDraw: currentStep.includes('draw') && drawNumber === 1,
+          isDrawStepDraw: currentStep.includes('draw'),
           skipDredgeReplacement: (ctx as any)._suppressDredgeReplacement === true,
           skipZursWeirdingReplacement: (ctx as any)._suppressZursWeirdingReplacement === true,
+          skipSkipDrawReplacement: (ctx as any)._suppressSkipDrawReplacement === true,
           remainingDrawCountAfterChoice: Math.max(0, normalizedCount - i - 1),
         },
       });
@@ -173,6 +189,24 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
         );
         const replayNextEventType = String((ctx as any)._replayNextEventType || '').trim();
         if (queued || ((ctx as any).isReplaying && replayNextEventType === 'dredgeDrawReplacementResolve')) {
+          break;
+        }
+      }
+
+      if (replacement.choiceRequired && replacement.effectId === 'skip-draw-step-replacement') {
+        drawReplacementChoices.push(replacement.metadata);
+        const queued = queueSkipDrawReplacementStep(
+          ctx,
+          originalPlayerId,
+          {
+            ...(replacement.metadata || {}),
+            sourceName: replacement.sourceName,
+            sourcePermanentId: String((replacement.metadata as any)?.sourcePermanentId || '').trim(),
+          },
+          Math.max(0, normalizedCount - i - 1),
+        );
+        const replayNextEventType = String((ctx as any)._replayNextEventType || '').trim();
+        if (queued || ((ctx as any).isReplaying && replayNextEventType === 'skipDrawReplacementResolve')) {
           break;
         }
       }
@@ -284,6 +318,10 @@ export function drawCardsByIds(ctx: GameContext, playerId: PlayerID, cardIds: st
   for (const id of normalizedIds) {
     const card = byId.get(id);
     if (!card) continue;
+    const alreadyInHand = (Array.isArray(z.hand) ? z.hand : []).some(
+      (entry: any) => String(entry?.id || '').trim() === id,
+    );
+    if (alreadyInHand) continue;
     const drawNumber = previousDrawCount + drawn.length + 1;
     if (drawNumber === 1) {
       (card as any).isFirstDrawnThisTurn = true;

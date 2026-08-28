@@ -133,6 +133,58 @@ describe('oracle IR trigger execution', () => {
     expect(playerAfter.life).toBe(lifeBefore + 2);
   });
 
+  it('deals 1 damage to the attacking creature\'s controller for Vengeful Ancestor', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const game = createInitialGameState('oracle_ir_trigger_vengeful_ancestor');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+
+    for (const player of (game.state as any).players || []) {
+      player.life = 40;
+    }
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).battlefield = [
+      {
+        id: 'ancestor_1',
+        controller: p1,
+        card: {
+          name: 'Vengeful Ancestor',
+          type_line: 'Creature — Spirit Dragon',
+          oracle_text: 'Whenever a goaded creature attacks, it deals 1 damage to its controller.',
+        },
+      },
+      {
+        id: 'bear_1',
+        controller: p2,
+        attacking: p1,
+        goadedBy: [p1],
+        card: { name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+      },
+    ];
+
+    const outcome = tryResolveTriggerViaOracleIR(game as any, {
+      controller: p1,
+      sourceName: 'Vengeful Ancestor',
+      effectText: 'it deals 1 damage to its controller.',
+      triggerItem: {
+        id: 'trigger-vengeful',
+        source: 'ancestor_1',
+        permanentId: 'ancestor_1',
+        effectData: { attackingCreatureId: 'bear_1', attackingPlayerId: p2 },
+      },
+    });
+
+    expect(outcome.handled).toBe(true);
+    expect(outcome.applied).toBeGreaterThan(0);
+    const p1After = (game.state as any).players.find((entry: any) => entry.id === p1);
+    const p2After = (game.state as any).players.find((entry: any) => entry.id === p2);
+    expect(Number(p2After?.life)).toBe(39);
+    expect(Number(p1After?.life)).toBe(40);
+  });
+
   it('primary mode queues copy_permanent target selection via server zone sync', () => {
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
 

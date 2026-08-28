@@ -509,6 +509,11 @@ export function tryResolveRequestCastSpellCandidateZone(
     }
 
     // Get oracle text (possibly from card face if split/adventure)
+    if (isFreeCast) {
+      (cardForCast as any).castWithoutPayingManaCost = true;
+      const freeCostId = String(options?.forcedAlternateCostId || 'free').trim() || 'free';
+      (cardForCast as any).forcedAlternateCostId = freeCostId;
+    }
     let oracleTextRaw = cardForCast.oracle_text || "";
     const sharedGraveyardManaCost = castSourceZone === 'graveyard'
       ? String((cardForCast as any).graveyardCastManaCost || '')

@@ -33,8 +33,47 @@ export function applyTapOrUntapStep(
   if (special) return special;
 
   const effectiveTarget = effectiveStepTarget(step) || step.target;
-  let targetIds = resolveTapOrUntapTargetIds(state, effectiveTarget as any, ctx);
   const targetText = String((effectiveTarget as any)?.text || '').trim().toLowerCase();
+  if (/^(?:each of )?those permanents$/i.test(targetText)) {
+    const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+    const battlefieldIds = new Set(
+      battlefield.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean),
+    );
+    const antecedentIds = [
+      ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds)
+        ? ctx.lastAntecedentBattlefieldPermanentIds
+        : []),
+      ...(Array.isArray(ctx.lastMovedBattlefieldPermanentIds)
+        ? ctx.lastMovedBattlefieldPermanentIds
+        : []),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter((id) => id && battlefieldIds.has(id));
+    const targetIds = Array.from(new Set(antecedentIds));
+    if (targetIds.length === 0) {
+      return {
+        applied: true,
+        state,
+        log: ['No permanents to tap/untap'],
+        lastTappedMatchingPermanentCount: 0,
+        lastTappedMatchingPermanentIds: [],
+      };
+    }
+    const choice: 'tap' | 'untap' = step.mode ?? 'untap';
+    return {
+      applied: true,
+      state: applyTapOrUntapToBattlefield(state, targetIds, choice),
+      log: [`${choice === 'tap' ? 'Tapped' : 'Untapped'} ${targetIds.length} permanent(s)`],
+      ...(choice === 'tap'
+        ? {
+            lastTappedMatchingPermanentCount: targetIds.length,
+            lastTappedMatchingPermanentIds: targetIds,
+          }
+        : {}),
+    };
+  }
+
+  let targetIds = resolveTapOrUntapTargetIds(state, effectiveTarget as any, ctx);
   if (targetIds.length === 0) {
     const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
     const directTargets = resolveDirectBattlefieldPermanents(battlefield, effectiveTarget as any, ctx);

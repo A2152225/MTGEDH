@@ -231,4 +231,83 @@ describe('replay idempotency repairs stale source zones', () => {
     expect(ctx.state.zones.p1.handCount).toBe(0);
     expect((ctx.state.stack || []).map((entry: any) => entry.card?.id)).toEqual(['spell_1']);
   });
+
+  it('replay permanent-spell entry scrubs the same card id out of hand', async () => {
+    const { replayEnsurePermanentSpellBattlefieldEntryById } = await import('../src/state/modules/replay-prompt-cleanup.js');
+    const card = {
+      id: 'sages_1',
+      name: 'Fire Sages',
+      type_line: 'Creature — Human Shaman',
+    };
+    const ctx: any = {
+      isReplaying: true,
+      state: {
+        zones: {
+          p1: {
+            hand: [{ ...card, zone: 'hand' }],
+            handCount: 1,
+            graveyard: [],
+            exile: [],
+          },
+        },
+        battlefield: [{
+          id: 'perm_sages',
+          controller: 'p1',
+          owner: 'p1',
+          card: { ...card, zone: 'battlefield' },
+        }],
+        stack: [{
+          id: 'perm_sages',
+          type: 'spell',
+          controller: 'p1',
+          card: { ...card, zone: 'stack' },
+        }],
+      },
+      libraries: new Map(),
+      bumpSeq: () => undefined,
+    };
+
+    expect(replayEnsurePermanentSpellBattlefieldEntryById(ctx, 'perm_sages')).toBe(true);
+    expect((ctx.state.zones.p1.hand || []).map((entry: any) => entry.id)).toEqual([]);
+    expect(ctx.state.zones.p1.handCount).toBe(0);
+  });
+
+  it('repairIntraZoneDuplicateCardIds keeps one hand copy and strips library ghosts of the same id', async () => {
+    const { repairAllDualZoneGhosts } = await import('../src/state/modules/stackReplayUtils.js');
+    const windfall = {
+      id: 'windfall_1',
+      name: 'Windfall',
+      type_line: 'Sorcery',
+    };
+    const other = {
+      id: 'windfall_2',
+      name: 'Windfall',
+      type_line: 'Sorcery',
+    };
+    const lib = [
+      { ...windfall, zone: 'library' },
+      { id: 'island_1', name: 'Island', type_line: 'Basic Land — Island' },
+    ];
+    const ctx: any = {
+      state: {
+        zones: {
+          p1: {
+            hand: [{ ...windfall, zone: 'hand' }, { ...windfall, zone: 'hand' }, { ...other, zone: 'hand' }],
+            handCount: 3,
+            libraryCount: 2,
+            graveyard: [],
+            exile: [],
+          },
+        },
+        battlefield: [],
+      },
+      libraries: new Map([['p1', lib]]),
+    };
+
+    expect(repairAllDualZoneGhosts(ctx)).toBeGreaterThanOrEqual(2);
+    expect((ctx.state.zones.p1.hand || []).map((entry: any) => entry.id)).toEqual(['windfall_1', 'windfall_2']);
+    expect(ctx.state.zones.p1.handCount).toBe(2);
+    expect(lib.map((entry: any) => entry.id)).toEqual(['island_1']);
+    expect(ctx.state.zones.p1.libraryCount).toBe(1);
+  });
 });

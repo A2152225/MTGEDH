@@ -15,9 +15,15 @@ import {
   getManaPerActivation,
   getSourceAvailableQuantity,
   parseManaSpendRestrictionFromOracleText,
+  buildProducedColorsForSelectedMana,
   type ManaPool,
   type ManaPaymentSource,
 } from './manaUtils';
+import { sortPaymentItemsForSequentialActivation } from './manaSuggestedPaymentActivation';
+import {
+  collectLandAuraManaBonuses,
+  resolveClientPermanentChosenColorSymbol,
+} from './manaSourceLandAuraBonuses';
 
 type InlineSelectedPaymentAbility = {
   id: string;
@@ -601,13 +607,17 @@ function buildManaSourceStackKey(source: ManaPaymentSource): string | null {
   const optionsKey = (source.options || []).join(',');
   const producedKey = Array.isArray(source.producedColors) ? source.producedColors.join(',') : '';
   const amountKey = typeof source.amount === 'number' && source.amount > 0 ? String(source.amount) : '1';
+  const bonusKey = Array.isArray(source.manaBonuses)
+    ? source.manaBonuses.map((chunk) => `${(chunk.options || []).join('/')}:${chunk.amount}:${chunk.sameColor ? '1' : '0'}`).join(',')
+    : '';
   const abilityKey = semanticManaSourceAbilityKey(source.abilityId);
   const nameKey = String(source.name || '');
   const labelKey = String(source.label || '');
   const restrictionKey = source.spendRestriction
     ? `${source.spendRestriction.restriction}:${source.spendRestriction.restrictedTo || ''}`
     : '';
-  return [nameKey, labelKey, abilityKey, optionsKey, producedKey, amountKey, restrictionKey].join('||');
+  const activationKey = String(source.activationManaCost || '');
+  return [nameKey, labelKey, abilityKey, optionsKey, producedKey, amountKey, bonusKey, restrictionKey, activationKey].join('||');
 }
 
 /**
@@ -697,8 +707,10 @@ function buildInlineManaSourcesForPermanent(
     if (!supportsInlineSelectedPaymentAbility(ability)) continue;
     if (isCreature && ability.requiresTap && !canCreatureUseTapAbilityNow(perm, globalBattlefield)) continue;
 
-    const parsedEffect = parseChosenColorManaEffect(ability.effect, (perm as any).chosenColor)
-      || parseRepresentableManaEffect(ability.effect);
+    const parsedEffect = parseChosenColorManaEffect(
+      ability.effect,
+      resolveClientPermanentChosenColorSymbol(perm) || undefined,
+    ) || parseRepresentableManaEffect(ability.effect);
     if (!parsedEffect) continue;
 
     const sacrificeCost = getSacrificeCostForAbility(card.name, ability);
@@ -738,10 +750,11 @@ function buildInlineManaSourcesForPermanent(
     const consumable = abilitySelfSacrificesSource(card.name, ability.cost, ability) ? true : undefined;
 
     const groupedQuantity = getGroupedTokenUsableQuantity(perm);
+    const manaBonuses = collectLandAuraManaBonuses(perm, globalBattlefield);
 
     for (let index = 0; index < instanceCount; index += 1) {
       const sourceId = instanceCount > 1 ? `${sourceBaseId}#${index}` : sourceBaseId;
-      const keepSeparate = permanentHasAttachments(perm, globalBattlefield);
+      const keepSeparate = permanentHasAttachments(perm, globalBattlefield) || manaBonuses.length > 0;
       const spendRestriction = parseManaSpendRestrictionFromOracleText(
         [String(ability.effect || ''), String(ability.description || ''), String((card as any).oracle_text || '')].join('\n'),
       ) || undefined;
@@ -759,7 +772,9 @@ function buildInlineManaSourcesForPermanent(
         ...(computedAmount > 1 ? { amount: computedAmount } : {}),
         ...(groupedQuantity > 1 ? { availableQuantity: groupedQuantity } : {}),
         ...(keepSeparate ? { keepSeparate: true } : {}),
+        ...(manaBonuses.length > 0 ? { manaBonuses } : {}),
         ...(spendRestriction ? { spendRestriction } : {}),
+        ...(ability.manaCost ? { activationManaCost: ability.manaCost } : {}),
       });
     }
   }
@@ -799,17 +814,16 @@ export function createPaymentItemFromSource(
   mana: ManaColor,
   sacrificedPermanentIds?: string[],
 ): PaymentItem {
-  const count = typeof source.amount === 'number' && source.amount > 0
-    ? source.amount
-    : getTotalManaProduction(source.options);
+  const count = getManaPerActivation(source);
   const actualPermanentId = getSourcePermanentId(source);
+  const producedColors = buildProducedColorsForSelectedMana(source, mana);
 
   return {
     permanentId: actualPermanentId,
     ...(source.id !== actualPermanentId ? { paymentSourceId: source.id } : {}),
     ...(source.abilityId ? { abilityId: source.abilityId } : {}),
     mana,
-    ...(Array.isArray(source.producedColors) && source.producedColors.length > 0 ? { producedColors: source.producedColors } : {}),
+    ...(Array.isArray(producedColors) && producedColors.length > 0 ? { producedColors } : {}),
     count,
     ...(Array.isArray(sacrificedPermanentIds) && sacrificedPermanentIds.length > 0 ? { sacrificedPermanentIds } : {}),
   };
@@ -817,7 +831,7 @@ export function createPaymentItemFromSource(
 
 export function createSuggestedPaymentItem(
   sourceId: string,
-  selection: { color: ManaColor; count: number },
+  selection: { color: ManaColor; count: number; producedColors?: ManaColor[] },
   sourceById: ReadonlyMap<string, ManaPaymentSource>,
 ): PaymentItem {
   const items = createSuggestedPaymentItemsFromSource(sourceId, selection, sourceById);
@@ -825,6 +839,9 @@ export function createSuggestedPaymentItem(
     permanentId: sourceId,
     mana: selection.color,
     count: selection.count,
+    ...(Array.isArray(selection.producedColors) && selection.producedColors.length > 0
+      ? { producedColors: selection.producedColors }
+      : {}),
   };
 }
 
@@ -835,7 +852,7 @@ export function createSuggestedPaymentItem(
  */
 export function createSuggestedPaymentItemsFromSource(
   sourceId: string,
-  selection: { color: ManaColor; count: number },
+  selection: { color: ManaColor; count: number; producedColors?: ManaColor[] },
   sourceById: ReadonlyMap<string, ManaPaymentSource>,
 ): PaymentItem[] {
   const source = sourceById.get(sourceId);
@@ -844,6 +861,9 @@ export function createSuggestedPaymentItemsFromSource(
       permanentId: sourceId,
       mana: selection.color,
       count: selection.count,
+      ...(Array.isArray(selection.producedColors) && selection.producedColors.length > 0
+        ? { producedColors: selection.producedColors }
+        : {}),
     }];
   }
 
@@ -857,21 +877,28 @@ export function createSuggestedPaymentItemsFromSource(
   if (quantity <= 0) return [];
 
   const items: PaymentItem[] = [];
+  const suggestedProduced = Array.isArray(selection.producedColors) ? selection.producedColors : [];
   for (let index = 0; index < quantity; index += 1) {
     const base = createPaymentItemFromSource(source, selection.color);
+    const producedSlice = suggestedProduced.length > 0
+      ? suggestedProduced.slice(index * manaPerActivation, (index + 1) * manaPerActivation)
+      : [];
+    const withSuggestedColors = producedSlice.length > 0
+      ? { ...base, producedColors: producedSlice, count: Math.max(base.count || 1, producedSlice.length) }
+      : base;
     const stackId = Array.isArray(source.stackPermanentIds) && index < source.stackPermanentIds.length
       ? String(source.stackPermanentIds[index] || '').trim()
       : '';
-    if (!stackId || stackId === String(base.permanentId || '')) {
+    if (!stackId || stackId === String(withSuggestedColors.permanentId || '')) {
       // Keep paymentSourceId stable so PaymentPicker can count stack rows.
       items.push({
-        ...base,
+        ...withSuggestedColors,
         paymentSourceId: source.id,
       });
       continue;
     }
     items.push({
-      ...base,
+      ...withSuggestedColors,
       permanentId: stackId,
       paymentSourceId: source.id,
     });
@@ -998,5 +1025,5 @@ export function buildSuggestedPaymentItems(
     dedupedItems.push(item);
   }
 
-  return dedupedItems;
+  return sortPaymentItemsForSequentialActivation(dedupedItems, sourceById);
 }

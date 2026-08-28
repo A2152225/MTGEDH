@@ -409,9 +409,14 @@ export function tryMatchPlaneswalkerTemplateControlFightNamedDamage(text: string
     return { id: "PUT_P1P1_COUNTER_ON_UP_TO_ONE_TARGET_SUBTYPE_UNTAP_IT_IT_GAINS_DEATHTOUCH_EOT", matchedText: text };
   }
 
-  if (PUT_P1P1_COUNTERS_ON_TARGET_CREATURE_IT_BECOMES_AN_ANGEL_IN_ADDITION_TO_ITS_OTHER_TYPES_AND_GAINS_FLYING_REGEX.test(text)) {
+  const mBecomesTypedGainsKeywords = text.match(PUT_P1P1_COUNTERS_ON_TARGET_CREATURE_IT_BECOMES_AN_ANGEL_IN_ADDITION_TO_ITS_OTHER_TYPES_AND_GAINS_FLYING_REGEX);
+  if (mBecomesTypedGainsKeywords) {
+    const subtype = String(mBecomesTypedGainsKeywords[2] || "").toLowerCase();
+    const keywords = String(mBecomesTypedGainsKeywords[3] || "").toLowerCase();
     return {
-      id: "PUT_P1P1_COUNTERS_ON_TARGET_CREATURE_IT_BECOMES_AN_ANGEL_IN_ADDITION_TO_ITS_OTHER_TYPES_AND_GAINS_FLYING",
+      id: subtype === "angel" && keywords === "flying"
+        ? "PUT_P1P1_COUNTERS_ON_TARGET_CREATURE_IT_BECOMES_AN_ANGEL_IN_ADDITION_TO_ITS_OTHER_TYPES_AND_GAINS_FLYING"
+        : "PUT_P1P1_COUNTERS_ON_TARGET_CREATURE_IT_BECOMES_A_TYPED_CREATURE_IN_ADDITION_TO_ITS_OTHER_TYPES_AND_GAINS_KEYWORDS",
       matchedText: text,
     };
   }
@@ -439,8 +444,13 @@ export function tryMatchPlaneswalkerTemplateControlFightNamedDamage(text: string
     return { id: "DESTROY_TARGET_PLANESWALKER", matchedText: text };
   }
 
-  if (DESTROY_ALL_NON_ZOMBIE_CREATURES_REGEX.test(text)) {
-    return { id: "DESTROY_ALL_NON_ZOMBIE_CREATURES", matchedText: text };
+  const mDestroyNonTyped = text.match(DESTROY_ALL_NON_ZOMBIE_CREATURES_REGEX);
+  if (mDestroyNonTyped) {
+    const subtype = String(mDestroyNonTyped[1] || "").toLowerCase();
+    return {
+      id: subtype === "zombie" ? "DESTROY_ALL_NON_ZOMBIE_CREATURES" : "DESTROY_ALL_NON_TYPED_CREATURES",
+      matchedText: text,
+    };
   }
 
   if (DESTROY_ALL_LANDS_TARGET_PLAYER_CONTROLS_REGEX.test(text)) {

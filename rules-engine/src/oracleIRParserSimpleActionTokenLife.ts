@@ -5,6 +5,9 @@
  */
 
 import type { OracleEffectStep } from './oracleIR';
+import { tryParseAttackTaxThisTurnClause } from './oracleIRParserAttackTaxThisTurn';
+import { tryParseAttackYouProhibitedExceptKeywordsClause } from './oracleIRParserAttackYouProhibitedExceptKeywords';
+import { tryParseBlockTaxThisTurnClause } from './oracleIRParserBlockTaxThisTurn';
 import { tryParsePreventLifeGainThisTurnClause } from './oracleIRParserPreventLifeGainThisTurn';
 import { parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 import type { SimpleActionClauseParseArgs } from './oracleIRParserSimpleActionHelpers';
@@ -631,6 +634,21 @@ export function tryParseSimpleActionTokenLifeClauses(args: SimpleActionClausePar
     {
       const thisTurnLock = tryParsePreventLifeGainThisTurnClause({ clause, rawClause, withMeta });
       if (thisTurnLock) return thisTurnLock;
+    }
+
+    {
+      const attackYouLock = tryParseAttackYouProhibitedExceptKeywordsClause({ clause, rawClause, withMeta });
+      if (attackYouLock) return attackYouLock;
+    }
+
+    {
+      const thisTurnTax = tryParseAttackTaxThisTurnClause({ clause, rawClause, withMeta });
+      if (thisTurnTax) return thisTurnTax;
+    }
+
+    {
+      const thisTurnBlockTax = tryParseBlockTaxThisTurnClause({ clause, rawClause, withMeta });
+      if (thisTurnBlockTax) return thisTurnBlockTax;
     }
 
     if (/^(?:your\s+opponents|each\s+opponent)\s+can(?:not|'t)\s+gain\s+life$/i.test(clause)) {

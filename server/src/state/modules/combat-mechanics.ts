@@ -391,8 +391,10 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
       shroud: hasKeywordOrGranted("shroud"),
       haste: hasKeywordOrGranted("haste"),
       defender: hasKeywordOrGranted("defender"),
-      cantAttack: hasBlanketCantAttack(oracleText) || hasKeywordOrGranted("defender"),
-      cantBlock: oracleText.includes("can't block"),
+      cantAttack: hasBlanketCantAttack(oracleText)
+        || hasKeywordOrGranted("defender")
+        || hasKeywordOrGranted("can't attack"),
+      cantBlock: oracleText.includes("can't block") || hasKeywordOrGranted("can't block"),
     };
     
     // Always log the parsed result with active keywords

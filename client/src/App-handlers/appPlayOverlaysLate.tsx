@@ -27,6 +27,7 @@ import { AutoPassSettingsPanel } from "../components/AutoPassSettingsPanel";
 import { TriggerShortcutsPanel } from "../components/TriggerShortcutsPanel";
 import { LoopShortcutPanel } from "../components/LoopShortcutPanel";
 import { clampLoopShortcutIterations } from "../utils/loopShortcuts";
+import { GameRebuildProgressOverlay } from "../components/GameRebuildProgressOverlay";
 
 export function renderAppPlayOverlaysLate(p: Record<string, any>) {
   const {
@@ -137,6 +138,7 @@ export function renderAppPlayOverlaysLate(p: Record<string, any>) {
   } = p;
   return (
     <>
+      <GameRebuildProgressOverlay gameId={safeView?.id} />
       {/* Join Forces Modal (Collective Voyage, Minds Aglow, etc.) */}
       <JoinForcesModal
         open={resolutionPromptOpen(joinForcesModalOpen, joinForcesRequest?.id)}
@@ -230,7 +232,9 @@ export function renderAppPlayOverlaysLate(p: Record<string, any>) {
             ? () => minimizeResolutionStep(
                 optionChoiceRequest.stepId,
                 optionChoiceRequest.sourceName
-                  ? `${optionChoiceRequest.sourceName}: choice`
+                  ? (optionChoiceRequest.causeName
+                    ? `${optionChoiceRequest.sourceName}: ${optionChoiceRequest.causeName}`
+                    : `${optionChoiceRequest.sourceName}: choice`)
                   : 'Pending choice',
               )
             : undefined

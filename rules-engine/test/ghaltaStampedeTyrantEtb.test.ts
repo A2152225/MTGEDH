@@ -57,6 +57,20 @@ describe('Ghalta, Stampede Tyrant — put any number of creatures from hand', ()
     expect(result.state.battlefield || []).toHaveLength(0);
   });
 
+  it('still requires a player choice when the ETB subject is bound as chosenObjectIds', () => {
+    const step = ghaltaMoveStep();
+    const result = applyOracleIRStepsToGameState(ghaltaHandState(), [step], {
+      controllerId,
+      sourceId: 'ghalta-1',
+      sourceName: 'Ghalta, Stampede Tyrant',
+      selectorContext: { chosenObjectIds: ['ghalta-1'] },
+    }, { haltOnPlayerChoiceRequired: true });
+
+    expect((result.automationGaps || []).some((gap) => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect((result.state.players[0]?.hand || []).map((card: any) => card.id)).toEqual(['bear-1', 'bolt-1', 'elf-1']);
+    expect(result.state.battlefield || []).toHaveLength(0);
+  });
+
   it('puts only the chosen creature cards onto the battlefield', () => {
     const step = ghaltaMoveStep();
     const result = applyOracleIRStepsToGameState(ghaltaHandState(), [step], {

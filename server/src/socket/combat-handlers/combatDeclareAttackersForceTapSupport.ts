@@ -5,7 +5,8 @@
 //   the declare-attackers sockets close over.
 // Public entry symbols: enqueueSupportedExertChoiceSteps,
 //   enqueueSupportedEnlistChoiceSteps, getCreatureGoadStatus,
-//   findForcedAttackViolation, processTapTriggersForAttackers.
+//   findForcedAttackViolation, resolveForcedAttackerDeclarations,
+//   processTapTriggersForAttackers.
 
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
@@ -28,7 +29,9 @@ import {
   canPermanentAttack,
 } from "./combatLegalityGates.js";
 import { hasLegalMustAttackDefender } from "./combatDeclareAttackersSupport.js";
+import { getGoadedAttackTargets } from "../../../../rules-engine/src/actions/combat-handlers/combatGoadHelpers.js";
 import { getNearestOpponentDirectionAllowedDefenderId } from "../../state/modules/nearestOpponentDirectionAttackRestriction.js";
+import { playerIsLegalAttackTarget } from "../../../../rules-engine/src/playerInGameStatus.js";
 
 export function enqueueSupportedExertChoiceSteps(
   gameId: string,
@@ -168,20 +171,99 @@ type ForcedAttackViolation = {
   message: string;
 };
 
+export type ForcedAttackerDeclaration = {
+  creatureId: string;
+  defendingPlayerId: string;
+};
+
+type ForcedAttackKind = 'goad' | 'mustAttack';
+
+type ForcedAttackEntry = {
+  perm: any;
+  kind: ForcedAttackKind;
+};
+
 function creatureCanBeForcedToAttack(
   perm: any,
   battlefield: any[],
   playerId: PlayerID,
   players: any[],
+  gameState?: unknown,
 ): boolean {
   if ((perm as any).tapped) return false;
   if (permanentHasKeyword(perm, battlefield, playerId, 'defender')) return false;
   if (hasBlanketCantAttack(perm.card?.oracle_text || '')) return false;
   if (permanentHasSummoningSickness(perm, battlefield, playerId)) return false;
-  if (!canPermanentAttack(perm, battlefield, playerId).canAttack) return false;
+  if (!canPermanentAttack(perm, battlefield, playerId, gameState).canAttack) return false;
   return (Array.isArray(players) ? players : []).some(
-    (player: any) => player?.id && player.id !== playerId && !player.hasLost,
+    (player: any) => playerIsLegalAttackTarget(player, playerId),
   );
+}
+
+function isActiveCombatPlayer(player: any): boolean {
+  return playerIsLegalAttackTarget(player);
+}
+
+function collectForcedAttackEntries(game: any, playerId: PlayerID): ForcedAttackEntry[] {
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const currentTurn = Number((game?.state as any)?.turn || 0);
+  const players = Array.isArray((game?.state as any)?.players) ? (game.state as any).players : [];
+  const entries: ForcedAttackEntry[] = [];
+
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== playerId) continue;
+    if (!isCurrentlyCreature(perm, battlefield, playerId)) continue;
+    if (!creatureCanBeForcedToAttack(perm, battlefield, playerId, players, game?.state)) continue;
+    const allowedDefenderId = getNearestOpponentDirectionAllowedDefenderId(game.state, playerId);
+    if (allowedDefenderId === null) continue;
+
+    const goadInfo = getCreatureGoadStatus(perm, battlefield, playerId, currentTurn);
+    if (goadInfo.isGoaded) {
+      entries.push({ perm, kind: 'goad' });
+      continue;
+    }
+
+    if (
+      permanentHasMustAttackRequirement(perm, battlefield) &&
+      hasLegalMustAttackDefender(perm, playerId, players)
+    ) {
+      entries.push({ perm, kind: 'mustAttack' });
+    }
+  }
+
+  return entries;
+}
+
+function pickForcedAttackDefender(
+  game: any,
+  playerId: PlayerID,
+  perm: any,
+): string {
+  const players = Array.isArray((game?.state as any)?.players) ? (game.state as any).players : [];
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const currentTurn = Number((game?.state as any)?.turn || 0);
+  const activeIds = players.filter(isActiveCombatPlayer).map((player: any) => String(player.id));
+  const encoreId = String((perm as any).encoreAttackPlayerId || '').trim();
+  if (encoreId && encoreId !== playerId && activeIds.includes(encoreId)) {
+    return encoreId;
+  }
+
+  const allowedDefenderId = getNearestOpponentDirectionAllowedDefenderId(game.state, playerId);
+  let candidates = getGoadedAttackTargets(perm, activeIds, currentTurn, battlefield);
+  if (typeof allowedDefenderId === 'string' && allowedDefenderId) {
+    const directionMatches = candidates.filter((id) => id === allowedDefenderId);
+    candidates = directionMatches.length > 0 ? directionMatches : [allowedDefenderId];
+  }
+
+  if (candidates.length === 0) {
+    candidates = activeIds.filter((id) => id !== playerId);
+  }
+
+  return candidates.reduce((lowest, current) => {
+    const currentLife = players.find((player: any) => player.id === current)?.life ?? 40;
+    const lowestLife = players.find((player: any) => player.id === lowest)?.life ?? 40;
+    return currentLife < lowestLife ? current : lowest;
+  }, candidates[0] || '');
 }
 
 /**
@@ -193,35 +275,16 @@ export function findForcedAttackViolation(
   playerId: PlayerID,
   attackerIds: readonly string[],
 ): ForcedAttackViolation | null {
-  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
-  const currentTurn = Number((game?.state as any)?.turn || 0);
-  const players = Array.isArray((game?.state as any)?.players) ? (game.state as any).players : [];
   const attacking = new Set(attackerIds.map((id) => String(id)));
+  const missing = collectForcedAttackEntries(game, playerId)
+    .filter((entry) => !attacking.has(String(entry.perm.id)));
 
-  const goadedNames: string[] = [];
-  const mustAttackNames: string[] = [];
-
-  for (const perm of battlefield) {
-    if (!perm || perm.controller !== playerId) continue;
-    if (!isCurrentlyCreature(perm, battlefield, playerId)) continue;
-    if (attacking.has(String(perm.id))) continue;
-    if (!creatureCanBeForcedToAttack(perm, battlefield, playerId, players)) continue;
-    const allowedDefenderId = getNearestOpponentDirectionAllowedDefenderId(game.state, playerId);
-    if (allowedDefenderId === null) continue;
-
-    const goadInfo = getCreatureGoadStatus(perm, battlefield, playerId, currentTurn);
-    if (goadInfo.isGoaded) {
-      goadedNames.push(perm.card?.name || 'Unknown');
-      continue;
-    }
-
-    if (
-      permanentHasMustAttackRequirement(perm, battlefield) &&
-      hasLegalMustAttackDefender(perm, playerId, players)
-    ) {
-      mustAttackNames.push(perm.card?.name || 'Unknown');
-    }
-  }
+  const goadedNames = missing
+    .filter((entry) => entry.kind === 'goad')
+    .map((entry) => entry.perm.card?.name || 'Unknown');
+  const mustAttackNames = missing
+    .filter((entry) => entry.kind === 'mustAttack')
+    .map((entry) => entry.perm.card?.name || 'Unknown');
 
   if (goadedNames.length > 0) {
     return {
@@ -236,6 +299,26 @@ export function findForcedAttackViolation(
     };
   }
   return null;
+}
+
+/**
+ * Build legal attacker declarations for every creature that must attack if able.
+ * Used by AI so empty/hold-back plans still satisfy Rule 701.15b / 701.38b.
+ */
+export function resolveForcedAttackerDeclarations(
+  game: any,
+  playerId: PlayerID,
+): ForcedAttackerDeclaration[] {
+  const declarations: ForcedAttackerDeclaration[] = [];
+  for (const entry of collectForcedAttackEntries(game, playerId)) {
+    const defendingPlayerId = pickForcedAttackDefender(game, playerId, entry.perm);
+    if (!defendingPlayerId) continue;
+    declarations.push({
+      creatureId: String(entry.perm.id),
+      defendingPlayerId,
+    });
+  }
+  return declarations;
 }
 
 /**

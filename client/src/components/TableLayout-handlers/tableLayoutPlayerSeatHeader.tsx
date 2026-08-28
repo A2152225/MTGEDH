@@ -70,6 +70,7 @@ export function TableLayoutPlayerSeatHeader({
   canTargetPlayer,
   isPlayerSelected,
 }: TableLayoutPlayerSeatHeaderProps) {
+  const isEliminated = Boolean(pb.player.hasLost) || Boolean(pb.player.eliminated) || lifeVal <= 0;
   return (
     <>
                         {/* Header row */}
@@ -93,6 +94,9 @@ export function TableLayoutPlayerSeatHeader({
                             }}
                           >
                             <span style={{ fontSize: 14 }}>{pb.player.name}</span>
+                            {isEliminated ? (
+                              <span title={pb.player.lostReason || 'Eliminated'} style={{ fontSize: 11, color: '#f87171' }}>eliminated</span>
+                            ) : null}
                             {speed?.[pb.player.id] !== undefined ? (
                               <span title="Speed" style={{ fontSize: 12, color: '#fbbf24' }}>🏁 {speed[pb.player.id]}</span>
                             ) : null}

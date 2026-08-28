@@ -601,14 +601,15 @@ export function appendEtbDetectionEarly(state: EtbDetectionState): void {
   // const thisEquipmentEtbMatch = oracleText.match(/when(?:ever)? this equipment enters(?: the battlefield)?,?\s*([^.]+)/i);
 
   const thisOrAnotherTypedEtbMatch = oracleText.match(
-    /whenever this creature or another ([\w]+) you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
+    /whenever this creature or another ([\w]+) you control(?: with (flying|reach|trample|haste|vigilance|deathtouch|lifelink|menace|hexproof|indestructible|defender))?\s+enters?(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (
     thisOrAnotherTypedEtbMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_typed_etb')
   ) {
     const tribalType = String(thisOrAnotherTypedEtbMatch[1] || '').trim().toLowerCase();
-    const effectText = timingTriggerEffect(oracleText, thisOrAnotherTypedEtbMatch, 2);
+    const requiredKeyword = String(thisOrAnotherTypedEtbMatch[2] || '').trim().toLowerCase();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherTypedEtbMatch, 3);
     if (
       effectText &&
       !['creature', 'artifact', 'enchantment', 'ally', 'permanent'].includes(tribalType)
@@ -622,6 +623,7 @@ export function appendEtbDetectionEarly(state: EtbDetectionState): void {
         mandatory: !effectText.toLowerCase().includes('you may'),
         controlledOnly: true,
         requiredTypePhrase: tribalType,
+        ...(requiredKeyword ? { requiredKeyword } : {}),
         doThisOnlyOnceEachTurn: oracleTextHasDoThisOnlyOnceEachTurn(oracleText),
         oncePerTurn: oracleTextHasTriggersOnlyOnceEachTurn(oracleText),
       } as any);

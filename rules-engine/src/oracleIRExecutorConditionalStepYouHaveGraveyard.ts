@@ -15,6 +15,7 @@ import {
   objectEnteredFromOrWasCastFromGraveyard,
   parseSmallNumberWord,
   topCardSharesCreatureTypeWithSource,
+  topCardSharesCreatureTypeWithControlledCreature,
 } from './oracleIRExecutorConditionalStepSupportHelpers.js';
 import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
@@ -118,28 +119,61 @@ export function tryEvaluateConditionalYouHaveGraveyard(
     normalizedRaw === 'this spell was cast from a graveyard' ||
     normalizedRaw === 'it entered from your graveyard'
   ) {
+    if (normalizedRaw === 'it entered from your graveyard') {
+      const sourceId = String(ctx.sourceId || '').trim();
+      const referencedObject = sourceId
+        ? findObjectByIdInState(nextState, battlefield as any, sourceId)
+        : getReferencedConditionalObject(nextState, battlefield, ctx);
+      const provenance = referencedObject
+        ? getConditionalObjectZoneProvenance(referencedObject)
+        : {
+            enteredFromZone: String(ctx.enteredFromZone || (ctx.selectorContext as any)?.enteredFromZone || '')
+              .trim()
+              .toLowerCase() || undefined,
+          };
+      return provenance.enteredFromZone === 'graveyard';
+    }
+    const ctxZone = String(
+      ctx.castFromZone || (ctx.selectorContext as any)?.castFromZone || '',
+    ).trim().toLowerCase();
+    if (ctxZone) return ctxZone === 'graveyard';
+    if ((ctx as any).castFromGraveyard === true || (ctx.selectorContext as any)?.castFromGraveyard === true) {
+      return true;
+    }
     const sourceId = String(ctx.sourceId || '').trim();
     const referencedObject = sourceId
       ? findObjectByIdInState(nextState, battlefield as any, sourceId)
       : getReferencedConditionalObject(nextState, battlefield, ctx);
     const provenance = referencedObject
       ? getConditionalObjectZoneProvenance(referencedObject)
-      : {
-          castFromZone: String(ctx.castFromZone || (ctx.selectorContext as any)?.castFromZone || '')
-            .trim()
-            .toLowerCase() || undefined,
-          enteredFromZone: String(ctx.enteredFromZone || (ctx.selectorContext as any)?.enteredFromZone || '')
-            .trim()
-            .toLowerCase() || undefined,
-        };
-    if (normalizedRaw === 'it entered from your graveyard') {
-      return provenance.enteredFromZone === 'graveyard';
-    }
-    return provenance.castFromZone === 'graveyard';
+      : undefined;
+    return provenance?.castFromZone === 'graveyard';
   }
 
   if (normalizedRaw === 'this spell was cast from your hand') {
     return String(ctx.castFromZone || '').trim().toLowerCase() === 'hand';
+  }
+
+  if (normalizedRaw === 'you cast it from your hand') {
+    const castFromZone = String(
+      ctx.castFromZone || (ctx.selectorContext as any)?.castFromZone || '',
+    ).trim().toLowerCase();
+    if (castFromZone) return castFromZone === 'hand';
+    if ((ctx as any).castFromHand === true || (ctx.selectorContext as any)?.castFromHand === true) return true;
+    if ((ctx as any).castFromHand === false || (ctx.selectorContext as any)?.castFromHand === false) return false;
+    const source = getContextSourceObject(ctx, (idRaw: string) =>
+      findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, idRaw)
+    );
+    const fromHand = (source as any)?.castFromHand ?? (source as any)?.card?.castFromHand;
+    if (typeof fromHand === 'boolean') return fromHand;
+    const sourceZone = String(
+      (source as any)?.castSourceZone
+      || (source as any)?.castFromZone
+      || (source as any)?.card?.castSourceZone
+      || '',
+    ).trim().toLowerCase();
+    if (sourceZone) return sourceZone === 'hand';
+    return null;
   }
 
   if (
@@ -523,6 +557,18 @@ export function tryEvaluateConditionalYouHaveGraveyard(
   if (normalizedRaw === 'the vote is tied' || normalizedRaw === 'vote is tied') {
     const winningVoteChoice = deriveWinningVoteChoice(ctx);
     return winningVoteChoice === null ? true : typeof winningVoteChoice === 'undefined' ? null : false;
+  }
+
+  if (
+    normalizedRaw === "it's a creature card that shares a creature type with a creature you control" ||
+    normalizedRaw === 'it is a creature card that shares a creature type with a creature you control' ||
+    normalizedRaw === 'that card is a creature card that shares a creature type with a creature you control' ||
+    normalizedRaw === 'it shares a creature type with a creature you control' ||
+    normalizedRaw === 'that card shares a creature type with a creature you control'
+  ) {
+    const libraryOwnerId = String(ctx.lastTopLibraryOwnerId || controllerId || '').trim();
+    if (!libraryOwnerId) return null;
+    return topCardSharesCreatureTypeWithControlledCreature(nextState, libraryOwnerId, controllerId);
   }
 
   {

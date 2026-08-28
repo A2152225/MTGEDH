@@ -35,6 +35,7 @@ export type AIHandlerDeps = {
     game: any,
     playerId: PlayerID,
     cost: { colors: Record<string, number>; generic: number },
+    options?: { restrictedSpendPurpose?: any },
   ) => Array<{
     sourceId: string;
     produceColor: string;
@@ -63,6 +64,7 @@ export type AIHandlerDeps = {
     playerId: PlayerID,
     parsedCost: any,
     excludePermanentIds?: string[],
+    restrictedSpendPurpose?: any,
   ) => { payment: Array<{ permanentId: string; mana: string; count?: number; abilityId?: string }> } | null;
   chooseAISacrificePermanentsForManaAbility: (
     game: any,

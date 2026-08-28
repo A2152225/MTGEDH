@@ -143,4 +143,43 @@ describe('Oracle IR gap batch 355 — top condition clusters', () => {
     );
     expect(result.automationGaps?.some((gap) => gap.reasonCode === 'unsupported_condition_clause')).toBe(false);
   });
+
+  it('does not create a Soldier when that player does not control more creatures than you', () => {
+    const ir = parseOracleTextToIR(
+      "At the beginning of each opponent's end step, if that player controls more creatures than you, create a 1/1 white Soldier creature token.",
+      'Keeper of the Accord'
+    );
+    const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
+    expect(step).toBeTruthy();
+
+    const state = {
+      players: [{ id: controllerId }, { id: 'p2' }],
+      battlefield: [
+        { id: 'bf-you-1', controller: controllerId, type_line: 'Creature — Human Soldier' },
+        { id: 'bf-you-2', controller: controllerId, type_line: 'Creature — Human Soldier' },
+        { id: 'bf-you-3', controller: controllerId, type_line: 'Creature — Human Soldier' },
+        { id: 'bf-them', controller: 'p2', type_line: 'Creature — Goblin' },
+      ],
+    } as GameState;
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'that player controls more creatures than you' },
+        nextState: state,
+        controllerId,
+        ctx: { ...baseParams.ctx, targetPlayerId: 'p2', selectorContext: { targetPlayerId: 'p2' } },
+        lastActionOutcome: null,
+      })
+    ).toBe(false);
+
+    const result = applyOracleIRStepsToGameState(
+      state,
+      [step!],
+      { controllerId, sourceId: 'bf-you-1', targetPlayerId: 'p2', selectorContext: { targetPlayerId: 'p2' } }
+    );
+    expect(result.appliedSteps.some((entry) => entry.kind === 'create_token')).toBe(false);
+    expect(
+      (result.state.battlefield || []).some((perm: any) => String(perm?.card?.name || '').includes('Soldier') && perm?.isToken)
+    ).toBe(false);
+  });
 });

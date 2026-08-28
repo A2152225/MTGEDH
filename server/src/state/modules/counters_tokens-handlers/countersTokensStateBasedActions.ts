@@ -26,6 +26,8 @@ import { applyStatefulPaperKeywordSBAs } from "../statefulPaperKeywords.js";
 import { hydrateGameStateOracleText } from "../cardOracleHydration.js";
 import { movePermanentToGraveyard } from "./countersTokensMoveToGraveyard.js";
 import { getCountersTokensHandlerDeps } from "./countersTokensHandlerDeps.js";
+import { markPlayerOutOfPriority } from "../priorityEligibility.js";
+import { removeLeavingPlayerGameObjects } from "../playerLeavingGame.js";
 
 function updateGodCreatureStatus(ctx: GameContext): void {
   getCountersTokensHandlerDeps().updateGodCreatureStatus(ctx);
@@ -230,6 +232,8 @@ export function runSBA(ctx: GameContext) {
         player.hasLost = true;
         player.lostReason = 'Life total reached 0 or less';
         debug(1, `[runSBA] Player ${playerId} has lost the game (life <= 0)`);
+        markPlayerOutOfPriority(ctx as any, playerId);
+        removeLeavingPlayerGameObjects(state, playerId, { gameId: String((ctx as any).gameId || '') });
         changed = true;
       }
     }
@@ -244,6 +248,7 @@ export function runSBA(ctx: GameContext) {
     }
     for (const playerId of outcome.applied) {
       debug(1, `[runSBA] Player ${playerId} has lost the game (empty library draw)`);
+      removeLeavingPlayerGameObjects(state, playerId, { gameId: String((ctx as any).gameId || '') });
       changed = true;
     }
   }

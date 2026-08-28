@@ -26,6 +26,8 @@ import { leave as leaveModule } from "../join";
 import { debugWarn } from "../../../utils/debug.js";
 import { clearOracleIrPendingCompoundResumeOnState } from "../oracleIrTransitionPipeline.js";
 import { reset, skip, unskip, remove } from "./applyEventLifecycleResetHandlers.js";
+import { removeLeavingPlayerGameObjects } from "../playerLeavingGame.js";
+import { markPlayerOutOfPriority } from "../priorityEligibility.js";
 
 export function applyLobbySetupEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -153,9 +155,37 @@ export function applyLobbySetupEvents(ctx: GameContext, e: GameEvent): boolean {
       }
 
       case "randomizeStartingPlayer": {
-        // Pregame: random first player. Live: game-actions randomizeStartingPlayer.
+        // Pregame: shuffle seating / first player. Live: game-actions randomizeStartingPlayer.
         try {
           const selected = String((e as any).selectedPlayerId || "").trim();
+          const rawOrder = Array.isArray((e as any).playerOrder) ? (e as any).playerOrder : [];
+          const playerOrder = rawOrder
+            .map((id: unknown) => String(id || "").trim())
+            .filter(Boolean);
+          const players = Array.isArray(ctx.state?.players) ? (ctx.state.players as any[]) : [];
+          if (playerOrder.length > 0 && players.length > 0) {
+            const byId = new Map(players.map((p: any) => [String(p?.id || ""), p]));
+            const seen = new Set<string>();
+            const ordered: any[] = [];
+            for (const id of playerOrder) {
+              const p = byId.get(id);
+              if (!p || seen.has(id)) continue;
+              seen.add(id);
+              ordered.push(p);
+            }
+            for (const p of players) {
+              const id = String(p?.id || "");
+              if (!id || seen.has(id)) continue;
+              ordered.push(p);
+            }
+            ordered.forEach((p, idx) => {
+              p.seat = idx;
+            });
+            ctx.state.players = ordered;
+            (ctx.state as any).turnOrder = ordered
+              .filter((p: any) => p && !p.spectator && !p.isSpectator)
+              .map((p: any) => p.id);
+          }
           if (selected) {
             (ctx.state as any).turnPlayer = selected;
             (ctx.state as any).startingPlayerId = selected;
@@ -305,11 +335,15 @@ export function applyLobbySetupEvents(ctx: GameContext, e: GameEvent): boolean {
             : [];
           const battlefield = Array.isArray(ctx.state?.battlefield) ? (ctx.state.battlefield as any[]) : [];
 
-          for (const permanentId of permanentIds) {
-            const exists = battlefield.some((entry: any) => entry && String(entry.id || '') === permanentId);
-            if (exists) {
-              movePermanentToExile(ctx as any, permanentId);
+          if (permanentIds.length > 0) {
+            for (const permanentId of permanentIds) {
+              const exists = battlefield.some((entry: any) => entry && String(entry.id || '') === permanentId);
+              if (exists) {
+                movePermanentToExile(ctx as any, permanentId);
+              }
             }
+          } else {
+            removeLeavingPlayerGameObjects(ctx.state, playerId, { gameId: String((ctx as any).gameId || '') });
           }
 
           const players = Array.isArray(stateAny.players) ? stateAny.players : [];
@@ -318,6 +352,7 @@ export function applyLobbySetupEvents(ctx: GameContext, e: GameEvent): boolean {
             (player as any).hasLost = true;
             (player as any).eliminated = true;
             (player as any).lossReason = String((e as any).lossReason || 'Conceded');
+            markPlayerOutOfPriority(ctx as any, playerId);
           }
 
           if (stateAny.autoPassForTurn && typeof stateAny.autoPassForTurn === 'object') {

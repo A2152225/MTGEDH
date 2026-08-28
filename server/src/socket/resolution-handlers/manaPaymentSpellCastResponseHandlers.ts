@@ -322,8 +322,34 @@ export async function handleSpellPaymentChoiceResponse(
     } else if (stillPendingCast) {
       // Payment step was consumed but cast did not finish and no follow-up prompt exists.
       // Re-queue so the player can pay again instead of being stuck.
-      debugWarn(1, `[Resolution] Spell payment for ${cardName} did not complete; re-queuing payment step (effectId='${effectId}')`);
       const pendingCast = (game.state as any).pendingSpellCasts[effectId];
+      if (isAIPlayer(gameId, pid as any)) {
+        const retries = Number(pendingCast?._aiSpellPaymentRetryCount || 0);
+        if (retries >= 1) {
+          debugWarn(1, `[Resolution] AI spell payment for ${cardName} failed repeatedly; abandoning cast (effectId='${effectId}')`);
+          rememberAIFailedSpellCast(game, String(pid), String(cardId || ''));
+          delete (game.state as any).pendingSpellCasts[effectId];
+          if (effectId && (game.state as any)?.pendingTargets?.[effectId]) {
+            delete (game.state as any).pendingTargets[effectId];
+          }
+          appendCastSpellContinuationEvent(gameId, game, {
+            playerId: pid,
+            cardId,
+            effectId: effectId || undefined,
+            resolvedStepId: String((step as any).id || '').trim(),
+            resolvedStepType: String((step as any).type || ''),
+            cancelled: true,
+          });
+          if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+          broadcastGame(io, game, gameId);
+          helpers.emitNextPendingResolutionStep(io, gameId, String(pid));
+          return;
+        }
+        if (pendingCast) {
+          pendingCast._aiSpellPaymentRetryCount = retries + 1;
+        }
+      }
+      debugWarn(1, `[Resolution] Spell payment for ${cardName} did not complete; re-queuing payment step (effectId='${effectId}')`);
       const requeued = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.MANA_PAYMENT_CHOICE,
         playerId: pid as any,

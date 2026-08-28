@@ -32,6 +32,8 @@ export interface PlayerRef {
   counters?: Record<string, number>;
   hasLost?: boolean;
   lostReason?: string; // Reason why player lost (e.g., "Life total reached 0 or less")
+  isAI?: boolean;
+  deckName?: string;
   commanderDamage?: Record<string, number>;
   manaPool?: ManaPool;
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getConditionalManaAbilityStatus, parseActivatedAbilities } from '../src/utils/activatedAbilityParser';
+import { stampAnyPlayerMayActivate } from '../src/utils/activatedAbilityParser-handlers/stampAnyPlayerMayActivate';
 import type { KnownCardRef } from '../../shared/src';
 
 describe('parseActivatedAbilities station parsing', () => {
@@ -540,5 +541,56 @@ describe('parseActivatedAbilities station parsing', () => {
       requiresTap: true,
       requiresTarget: true,
     }));
+  });
+});
+
+describe('any-player activated abilities', () => {
+  it('stamps Xantcha {3} as anyPlayerMayActivate', () => {
+    const card: KnownCardRef = {
+      id: 'xantcha-card',
+      name: 'Xantcha, Sleeper Agent',
+      type_line: 'Legendary Creature — Phyrexian Minion',
+      oracle_text:
+        "Xantcha enters under the control of an opponent of your choice.\n" +
+        "Xantcha attacks each combat if able and can't attack its owner or planeswalkers its owner controls.\n" +
+        "{3}: Xantcha's controller loses 2 life and you draw a card. Any player may activate this ability.",
+    };
+
+    const abilities = parseActivatedAbilities(card);
+    const payThree = abilities.find((ability) => ability.manaCost === '{3}' || ability.cost === '{3}');
+    expect(payThree).toBeTruthy();
+    expect(payThree?.anyPlayerMayActivate).toBe(true);
+    expect(payThree?.effect).toMatch(/controller loses 2 life/i);
+  });
+
+  it('stamps Xantcha {3} even when the parsed effect dropped the reminder sentence', () => {
+    const card: KnownCardRef = {
+      id: 'xantcha-card',
+      name: 'Xantcha, Sleeper Agent',
+      type_line: 'Legendary Creature — Phyrexian Minion',
+      oracle_text:
+        "Xantcha enters under the control of an opponent of your choice.\n" +
+        "Xantcha attacks each combat if able and can't attack its owner or planeswalkers its owner controls.\n" +
+        "{3}: Xantcha's controller loses 2 life and you draw a card. Any player may activate this ability.",
+    };
+
+    const abilities = stampAnyPlayerMayActivate(
+      [{
+        id: 'xantcha-card-ability-0',
+        label: '{3}: ...',
+        description: "Xantcha's controller loses 2 life and you draw a card.",
+        cost: '{3}',
+        effect: "Xantcha's controller loses 2 life and you draw a card.",
+        requiresTap: false,
+        requiresUntap: false,
+        requiresSacrifice: false,
+        manaCost: '{3}',
+        isManaAbility: false,
+        isLoyaltyAbility: false,
+        isFetchAbility: false,
+      }],
+      card.oracle_text,
+    );
+    expect(abilities[0]?.anyPlayerMayActivate).toBe(true);
   });
 });

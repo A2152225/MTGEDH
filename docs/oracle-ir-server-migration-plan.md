@@ -5,7 +5,7 @@
 **Last updated:** 2026-08-12 (D5 other-event fire closed; scripted live soak **51/51**, D2 **0**)  
 **Owner:** Project maintainers  
 
-> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** for Track E live-readiness + remaining choice shapes. Latest: **Aug 2026 IR live-readiness**; D3 export ratchet **0**; scripted live soak **51/51** (live D2 **0**); Phase 4 dual-path + Phase 5 depth remain. Real multiplayer telemetry is still the long soak.
+> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** for Track E live-readiness + remaining choice shapes. Latest: **Aug 2026 Phase 4 closed under IR primary**; D3 export ratchet **0**; scripted live soak **51/51** (live D2 **0**); Phase 5 depth remains. Real multiplayer telemetry is still the long soak. Do not flip `vitest.setup.ts` unless asked.
 
 **Rules for new work:** `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` — **no card-name routing**, **no new `KNOWN_*` table rows**; extend parser → executor → `applyOracleIRStepsOnServer` → resolution queue.
 
@@ -27,7 +27,7 @@ The project has **three distinct layers**. Layers 1–2 are **complete** for com
 |-------|------------|--------|
 | **1 — Parse** | `parseOracleTextToIR` → `OracleEffectStep[]` (+ compiled overlay merge for gaps) | **Complete** for corpus; **overlay path** for new/custom cards |
 | **2 — Execute** | `applyOracleIRStepsToGameState` in rules-engine | **Complete** — `full_card`: **100%** assisted (47,514/47,514); parse→execute **0**; `ir_gap` **0** |
-| **3 — Integrate** | Server routes live gameplay through IR + resolution UI | **Beta-ready** — migration ~**889/889**; IR primary on; D3 export ratchet **0**; Phase 4 = infrastructure dual-path collapse |
+| **3 — Integrate** | Server routes live gameplay through IR + resolution UI | **Beta-ready** — migration ~**889/889**; IR primary on; D3 export ratchet **0**; Phase 4 **closed** under IR primary |
 
 **Goal:** Make Layer 3 match Layer 2 for every effect that decomposes into wired atomic steps — including **new-set cards** via overlays or parser batches. See [oracle-ir-track-e-remaining-work.md § Goal: Semantic atomic parsing](./oracle-ir-track-e-remaining-work.md#goal-semantic-atomic-parsing--seamless-effect-automation-new-cards).
 
@@ -1479,6 +1479,8 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
 
 **Objective:** Remove redundant code paths after parity proof.
 
+**Progress (2026-08-26):** Phase 4 **closed under IR primary**. Sevinne GY-cast copy is IR-owned (may-only then-branch). PRIMARY=1 special-case no longer fills Rite windows or Summons amass/mill. `categorizeSpell` / `executeSpellEffect` stay for PRIMARY=0 opt-out until `vitest.setup.ts` is flipped. Stack-targeting opcodes stay until Phase 5.
+
 **Ratchet + telemetry (batch 466):** the legacy surface is now mechanically shrink-only — `server/tests/oracle-ir-legacy-handler-ratchet.unit.test.ts` fails if `applyRetiredTriggerLegacy*` / spell legacy export counts rise (ceilings 86 / 1; lower them when deleting). Deletion is **evidence-driven**: `legacy_handled` events from `oracleIrGapTelemetry` (`GET /api/oracle-ir/telemetry`) show which handler families still fire under IR primary in live play; families that never fire after a soak are dead code.
 
 **Progress (batch 172):** Exert attack-reward corridor validated end-to-end under test harness (primary OFF) and primary-ON suites. Copy-token `create_token` steps with `"copy of …"` hints now resolve correctly in rules-engine (regex fix). Remaining exert-adjacent legacy: `grant_temporary_ability` combat evasion handlers, counter-scaled `modify_pt` (see session handoff).
@@ -1504,9 +1506,9 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
 **Objective:** Migrate remaining non-IR systems.
 
 - Planeswalker loyalty → IR + Effect Program (`buildEffectProgramsFromOracleText` per loyalty ability); keep `FALLBACK_MANUAL_RESOLUTION` only for true unknowns (`planeswalker/templates/resolve.ts`)
-- Supplemental oracle (`applySupplementalOracleIRForResolvedSpell`) → parser postprocess
-- Card-specific stack branches (Rite of Harmony, Divine Reckoning, Summons of Saruman) → IR or explicit `unknown` + manual ack
-- **Continuous & replacement effects** — **5.1–5.5 landed** (declarative specs + overlays + telemetry); remaining **depth** work (more event families, layer/conditional coverage). Design: [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md)
+- Supplemental oracle (`applySupplementalOracleIRForResolvedSpell`) → parser postprocess (no-op under IR primary)
+- ~~Card-specific stack branches (Rite of Harmony, Divine Reckoning, Summons of Saruman)~~ ✅ IR-owned; PRIMARY=0 trampolines to IR
+- **Continuous & replacement effects** — **5.1–5.5 landed** (declarative specs + overlays + telemetry); **2026-08-27:** one-shot `cant_attack` in fallback; `librarySearchEffects` KNOWN table removed. Remaining **depth** work (more event families, layer/conditional coverage). Design: [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md)
 - **`KNOWN_*` detectors** — parallel track in `triggers/card-data-tables.ts`: no new card-name rows; replace with generic detectors before deleting rows (not Phase 4 effect retirement)
 - **RulesBridge destiny** — validate/AI/sim facade; live mutator stays `applyEvent` + IR/EP ([architecture.md](./architecture.md))
 - **Feature-flag endgame (P4e)** — **done (2026-08-05):** `ORACLE_IR_*_LEGACY` aliases ignored; opt-out is `ORACLE_IR_*_PRIMARY=0` only. Categorize resolve matrix empty (`resolveSpell` → `[]`).

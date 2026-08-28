@@ -10,7 +10,8 @@ import type { PlayerID } from "../../../../../shared/src/types.js";
 
 function isUntilNextTurnGrantEntry(entry: any): boolean {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
-  if (String(entry.duration || '').trim() === 'until_next_turn') return true;
+  const duration = String(entry.duration || '').trim();
+  if (duration === 'until_next_turn' || duration === 'until_your_next_turn') return true;
   if (String(entry.expiresOnControllerTurn || '').trim()) return true;
   return false;
 }
@@ -97,6 +98,7 @@ export function removeExpiredUntilNextTurnEffects(ctx: GameContext, currentPlaye
   }
 
   filterUntilNextTurnGrantBag(stateAny, 'staticAbilityGrantEffects', isExpiredUntilNextTurnGrant);
+  filterUntilNextTurnGrantBag(stateAny, 'lastingEffects', isExpiredUntilNextTurnGrant);
 
   for (const player of Array.isArray(stateAny?.players) ? stateAny.players : []) {
     if (!player || typeof player !== 'object') continue;

@@ -24,6 +24,7 @@ Public API unchanged: parent still exports `applyMoveZoneStep` / `MoveZoneStepHa
 | `oracleIRExecutorMoveZoneGuardsCommandZonePermanentToHand.ts` | Remaining inline guard-arg builds + leftover selector runs (first leftover: `parsedCommandZonePermanent && step.to === 'hand'`). Entry: `tryApplyMoveZoneGuardsFromCommandZonePermanentToHand`. **34.1 KB** — do not append. |
 | `oracleIRExecutorMoveZoneGuardsUnsupportedSelectorEarlyOut.ts` | All-selector unsupported early-out. Returns the skip result or `undefined`. Not named `GuardsFromGraveyard`. |
 | `oracleIRExecutorMoveZoneSeventhFromTop.ts` | `move_zone` to owner’s library seventh from the top when the source is this spell / this card / it and that object is still on the stack. Inserts at index `min(6, library.length)` and removes it from the stack. Entry: `tryApplyMoveZoneSeventhFromTop`. Called from `applyMoveZoneStep` after early guards. |
+| `oracleIRExecutorMoveZoneStackSpellToExile.ts` | `move_zone` to exile when the referent is it / that spell / this spell and that object is still a **spell** on the stack (Possibility Storm “that player exiles it”). Binds via `targetSpellId`, not the trigger source name. Entry: `tryApplyMoveZoneStackSpellToExile`. Called from `applyMoveZoneStep` after seventh-from-top. Stamps `copiedFromStackItemId` so later “may cast that card” cannot treat the original spell as the until-hit. Share-type impulse keeps the until-hit in exile for the live may-cast prompt; misses still go to the bottom. |
 
 Parent is **32.1 KB**. Leftover: `finalizeAppliedResult` prologue (closes over mutable `nextState` / `effectiveBattlefieldAdd*`). `MoveZoneGuardArgs` already carries the extra locals from these chains.
 
@@ -33,14 +34,15 @@ Parent is **32.1 KB**. Leftover: `finalizeAppliedResult` prologue (closes over m
 | --- | --- |
 | `oracleIRExecutorZoneOpsCardTypeMatchers.ts` | Simple card-type parsing and matching. Entries: `SimpleCardType`, `parseSimpleCardTypeFromText`, `cardMatchesType`, `cardMatchesTotalPowerToughnessLte`. Parent re-exports the public API. |
 | `oracleIRExecutorZoneOpsShuffleIntoLibrary.ts` | Shuffle-all / typed cards from a player's graveyard into their library. Entries: `parseMoveZoneShuffleAllFromYourGraveyardIntoLibrary`, `shufflePlayerGraveyardIntoLibrary`, `shuffleTypedCardsFromPlayerGraveyardIntoLibrary`. Parent re-exports the public API. |
+| `oracleIRExecutorZoneOpsBattlefieldEntry.ts` | `createBattlefieldPermanentsFromCards`. Ghalta-style `move_zone` entries set `summoningSickness` and `enteredThisTurn`. |
 
 ### `oracleIRExecutorPlayerUtils*` (extracted from `oracleIRExecutorPlayerUtils.ts`)
 
-Public API unchanged: parent re-exports. Do not import the parent from a leaf. Parent is **38.2 KB** (under ceiling). Leftover: graveyard/exile permission markers, vote/quantity helpers, mill-until / reveal-until, draw / exile-top, shuffle-rest / library-bottom, `adjustLife`, `adjustPlayerCounter`, mill. Pre-existing dual copy: `isThatOwnerOrControllerSelector` / `isThoseOpponentsSelector` also live in `oracleIRParserUtils.ts`.
+Public API unchanged: parent re-exports. Do not import the parent from a leaf. Parent is **38.2 KB** (under ceiling). Leftover: graveyard/exile permission markers, vote/quantity helpers, mill-until / reveal-until, draw / exile-top, shuffle-rest / library-bottom, `adjustLife`, `adjustPlayerCounter`, mill. `collectTopLibraryObservationForPlayers` reads via `readPlayerZoneCards` so empty `player.library` still sees `ctx.libraries` / `__serverLibraries` after restore. Pre-existing dual copy: `isThatOwnerOrControllerSelector` / `isThoseOpponentsSelector` also live in `oracleIRParserUtils.ts`.
 
 | Module | Owns |
 | --- | --- |
-| `oracleIRExecutorPlayerResolvePlayers.ts` | `resolvePlayers`, `resolvePlayersFromDamageTarget`, `countControlledLands`, `listEligibleChooseOpponentIds`, `isThatOwnerOrControllerSelector`, `isThoseOpponentsSelector`. |
+| `oracleIRExecutorPlayerResolvePlayers.ts` | `resolvePlayers`, `resolvePlayersFromDamageTarget`, `countControlledLands`, `listEligibleChooseOpponentIds`, `isThatOwnerOrControllerSelector`, `isThoseOpponentsSelector`. `resolvePlayers` skips `hasLost` / `eliminated` / `leftGame` players for each-opponent / each-player selectors so Hive Mind “each other player copies” does not target a defeated player. Selector `you` still returns `controllerId` even with stale `leftGame` after reconnect/restore so Scry/Surveil (Lifecrafter's Bestiary) can queue. |
 | `oracleIRExecutorPlayerImpulsePermissionMarkers.ts` | `applyImpulsePermissionMarkers`. |
 | `oracleIRExecutorPlayerZoneAccess.ts` | `readPlayerZoneCards`, `writePlayerZoneCards`, `getCurrentTurnNumber`, `stampCardPutIntoGraveyardThisTurn`, `stampCardsPutIntoGraveyardThisTurn`. |
 | `oracleIRExecutorPlayerLookSelectTop.ts` | `lookSelectTopCardsForPlayer`. |
@@ -49,9 +51,9 @@ Public API unchanged: parent re-exports. Do not import the parent from a leaf. P
 | `oracleIRExecutorPlayerLookChooseSelector.ts` | Mana-value `X or less` uses `ctx.xValue`. `any number of` / `cards with mana value` stripped before type match. |
 | `oracleIRParserPostprocessLookChooseFromTopCensus.ts` | Sibling of `oracleIRParserPostprocessLookChooseFromTop.ts`. Entries: `parseRevealTopAnyNumberPermanentsToBattlefieldTriple` (Genesis Wave), `parseLookTopExileOneFaceDownRestBottom` (Siphon Insight), `parseLookTopReorderAllOnLibrary` (Ponder/Index put-them-back + optional shuffle → `look_select_top` dest=`library_top`). Called from `mergeLookChooseFromTopAbilities`. |
 | `oracleIRExecutorPlayerCardInspect.ts` | `normalizeOracleText`, `getCardTypeLineLower`. |
-| `oracleIRExecutorPlayerExileUntilAmount.ts` | `resolveUnknownExileUntilAmountForPlayer`, `getCardTypesFromTypeLine`, `getCardManaValue`. |
+| `oracleIRExecutorPlayerExileUntilAmount.ts` | `resolveUnknownExileUntilAmountForPlayer`, `getCardTypesFromTypeLine`, `getCardManaValue`, `resolveReferencedSpellManaValue`. Discover until-text `mana value that spell's mana value or less` uses `referenceSpellManaValue`, then the stack spell at `targetSpellId`, then `xValue`. |
 | `oracleIRExecutorPlayerDiscardCards.ts` | `discardCardsForPlayer` / `discardSpecificCardsForPlayer` stamp `discardedByPlayerId` + `discardedOnTurn` (`turnNumber ?? turn`) onto GY cards in `players[].graveyard` and `state.zones` so Mayhem / Nibelheim GY riders see discard provenance. |
-| `oracleIRExecutorCardZoneTransitionCommit.ts` | Zone-change apply merges proposed `event.object` extraFields over the source-zone copy (hand copy otherwise drops discard stamps). |
+| `oracleIRExecutorCardZoneTransitionCommit.ts` | Zone-change apply merges proposed `event.object` extraFields over the source-zone copy (hand copy otherwise drops discard stamps). `commitLibraryTopObservation` does not halt on same-zone library observations (Chaos Warp reveal → permanent ETB). `moveBattlefieldPermanentsByIdToOwnersLibraries(..., { shuffle })` shuffles the owner's library after "shuffles it into their library". |
 | `oracleIRExecutorPlayerGraveyardPermissionSteps.ts` | Grant/modify/keyword GY permission apply. `grant_graveyard_permission` + `modify_graveyard_permissions` (`castCost: 'mana_cost'`) stamp `temporaryGraveyardKeywordGrants` with keyword from raw and printed mana cost (Past in Flames / Will of the Jeskai family). |
 | `oracleIRExecutorPlayerGraveyardPermissionHelpers.ts` | GY/exile permission target resolvers plus keyword-grant stamp helpers (`extractGrantedGraveyardKeywordFromRaw`, `resolvePrintedManaCostForGraveyardGrant`, `mergeTemporaryGraveyardKeywordGrantStamps`). |
 | `oracleIRExecutorPlayerAddManaToPool.ts` | `addManaToPoolForPlayer`. |
@@ -63,7 +65,7 @@ Public API unchanged: parent re-exports. Do not import the parent from a leaf. P
 | Module | Owns |
 | --- | --- |
 | `oracleIRExecutorCreatureBattlefieldLookup.ts` | `getProcessedBattlefield`, `readPermanentPower`, `readPermanentToughness`, `permanentIsCreature`, `isMassTapOrUntapSelectorText`, `permanentHasSubtype`, `getSourceBattlefieldPermanent`, `getControlledPermanents`. |
-| `oracleIRExecutorCreatureBattlefieldHelpers.ts` | `readPowerForComparison`, `readToughnessForComparison`, `readCreatureStatForComparison`, `isAttackingPermanent`, `resolveBlockersOfPermanent`, `resolveBlockingCreatureIds`, `isUnblockedAttackingPermanent`, `permanentHasKeyword`. |
+| `oracleIRExecutorCreatureBattlefieldHelpers.ts` | `readPowerForComparison`, `readToughnessForComparison`, `readCreatureStatForComparison`, `isAttackingPermanent`, `isBlockingPermanent`, `resolveBlockersOfPermanent`, `resolveBlockingCreatureIds`, `isUnblockedAttackingPermanent`, `permanentHasKeyword`. Live `attacking` is a defender/permanent id; live `blocking` is an attacker-id array. |
 | `oracleIRExecutorCreatureSingleTarget.ts` | `resolveSingleCreatureTargetId`, `resolveMentorTargetCreatureIdFromBattlefield`, `resolveCreatureExtremaQualifiedTargetIdFromBattlefield`, `resolveBolsterTargetCreatureIdFromBattlefield`, `resolveTrepanationBoostTargetCreatureId`. |
 | `oracleIRExecutorCreatureTargetIds.ts` | `resolveCreatureTargetIds` (plus private `permanentMatchesControlledQualifier` / `readBaseStatForQualifier`). |
 
@@ -79,7 +81,7 @@ Public API unchanged: parent still exports `applyModifyPtStep`, `applyModifyPtPe
 
 ### `oracleIRExecutorDamageStepHandlers-handlers/` (extracted from `oracleIRExecutorDamageStepHandlers.ts`)
 
-Public API unchanged: parent re-exports. Do not import the parent from a leaf. Parent is **28.3 KB** (done). Leftover: deal-damage apply (`applyDealDamageStep`) and amount/source/battlefield helpers, `applyDamageCantBePreventedStep`. Never create `oracleIRExecutorDamageStepHandlers/` beside the `.ts`.
+Public API unchanged: parent re-exports. Do not import the parent from a leaf. Parent leftover: deal-damage apply (`applyDealDamageStep`) and amount/source/battlefield helpers, `applyDamageCantBePreventedStep`. `resolveDamageSourceKeywords` reads `sourceGrantedAbilities` after the stack item is popped and stamps `deathtouchDamageMarked` on damaged creatures. Never create `oracleIRExecutorDamageStepHandlers/` beside the `.ts`.
 
 | Module | Owns |
 | --- | --- |
@@ -110,10 +112,11 @@ Parent is a **2.8 KB** barrel: `trySpecialExileStep` dispatches Batch386–389 t
 | `oracleIRExecutorSpecialTargetResolve.ts` | `resolveSourcePermanent`, `resolveEnchantedHost`, `resolveContextualCreature`. |
 | `oracleIRExecutorExileLookedContextualHandlers.ts` | `tryApplyExileLookedContextualStep` (looked/contextual, top mill, mass nontoken, “the rest”). |
 | `oracleIRExecutorExilePileCounterAndTargetedHandlers.ts` | `tryApplyExilePileCounterAndTargetedStep` (face-down piles, source counters, until-leaves, targeted). |
-| `oracleIRExecutorSpecialTargetDestroyHandlers.ts` | `trySpecialDestroyStep`. |
+| `oracleIRExecutorSpecialTargetDestroyHandlers.ts` | `trySpecialDestroyStep`. Mass `all non-<subtype> creatures` is not intercepted (generic destroy / GY). |
 | `oracleIRExecutorSpecialTargetAddRemoveCounterHandlers.ts` | `trySpecialAddCounterStep`, `trySpecialRemoveCounterStep`. |
 | `oracleIRExecutorSpecialTargetRegenerateDamageHandlers.ts` | `trySpecialRegenerateStep`, `trySpecialDealDamageStep`, `trySpecialPreventDamageStep`. |
 | `oracleIRExecutorChosenCreaturePowerSweepDamage.ts` | `tryChosenCreaturePowerSweepDealDamageStep` — chosen/targeted creature deals damage equal to its power to each other creature (skips the bound source). Generic `deal_damage` excludeSourceId only drops the spell. |
+| `oracleIRExecutorFightStep.ts` | `tryApplyFightDealDamageStep` — CR 701.14 fight from `deal_damage` steps (`X fights Y`, those creatures fight each other). Marks power damage both ways. Called from `applyDealDamageStep` before the Batch391 log-only stubs. |
 | `oracleIRExecutorSpecialTargetDoubleCountersHandlers.ts` | `trySpecialDoubleCountersStep`. |
 | `oracleIRExecutorSpecialTargetSacrificeHandlers.ts` | `trySpecialSacrificeStep`. |
 | `oracleIRExecutorSpecialTargetCopyPermanentHandlers.ts` | `trySpecialCopyPermanentStep`. |
@@ -126,11 +129,12 @@ Parent is a **5.7 KB** dispatcher: unless-kind + if/as_long_as normalize, then `
 
 | Module | Owns |
 | --- | --- |
-| `oracleIRExecutorConditionalStepSupportHelpers.ts` | Shared types + helpers (`ConditionalCondition`, `resolveUnlessPayInnerCondition`, …). |
-| `oracleIRExecutorConditionalStepUnlessPay.ts` | `tryEvaluateConditionalUnlessPayYouDoOtherwise` (unless-pay, you-do/otherwise, enters-this-way, lands, first-combat). |
+| `oracleIRExecutorConditionalStepSupportHelpers.ts` | Shared types + helpers (`ConditionalCondition`, `resolveUnlessPayInnerCondition`, …). `getConditionalObjectZoneProvenance` only treats known zone names as `source` (player ids are not zones) and maps flashback-family / `castFromGraveyard` to graveyard. Re-exports share-type library-top helpers from `oracleIRExecutorConditionalStepShareTypeHelpers.ts`. |
+| `oracleIRExecutorConditionalStepShareTypeHelpers.ts` | `topCardSharesCreatureTypeWithSource` (kinship) and `topCardSharesCreatureTypeWithControlledCreature` (Descendants' Path). Do not import SupportHelpers. |
+| `oracleIRExecutorConditionalStepUnlessPay.ts` | `tryEvaluateConditionalUnlessPayYouDoOtherwise` (unless-pay, you-do/otherwise, enters-this-way, lands, first-combat). Share-type-with-you-control / kinship clauses return `undefined` so YouHaveGraveyard can own them. |
 | `oracleIRExecutorConditionalStepCreaturesDied.ts` | `tryEvaluateConditionalCreaturesDiedThisTurn` (died, suspected, attacking, hand-size, legendary). |
 | `oracleIRExecutorConditionalStepKicked.ts` | `tryEvaluateConditionalKicked` (kicked, composite and/or, graveyard-there-are). |
-| `oracleIRExecutorConditionalStepYouHaveGraveyard.ts` | `tryEvaluateConditionalYouHaveGraveyard` (you-have-graveyard, entered-from, vote, mana-spent). |
+| `oracleIRExecutorConditionalStepYouHaveGraveyard.ts` | `tryEvaluateConditionalYouHaveGraveyard` (you-have-graveyard, entered-from, vote, mana-spent). `this spell was cast from a graveyard` prefers `ctx.castFromZone`, then `castFromGraveyard` / flashback-family flags, then object provenance. `you cast it from your hand` uses `castFromZone` / `castFromHand` provenance (null if unknown). Share-type-with-a-creature-you-control is evaluated before the generic “it's a … card” prefix matcher. |
 | `oracleIRExecutorWinIfControlDifferentNames.ts` | `tryEvaluateWinIfControlDifferentNames` — unique-name control count. Runs before the broader “you control N or more X” matcher so “Gates with different names” is not treated as a type. |
 | `oracleIRExecutorWinIfCastSameNameThisGame.ts` | `tryEvaluateWinIfCastSameNameThisGame` — cast-from-hand + another same-name-this-game. Reads `namedSpellsCastThisGame` persisted by `persistNamedSpellCastThisGame` (live via `recordSpellCastThisTurn`; also GY replay, replay `castSpell`, `copyStackItem`, live/IR/delayed stack copies, replay copy-resolve). |
 
@@ -143,11 +147,12 @@ Parent is a **15.9 KB** dispatcher: `thisWay` → `would` → existing `evaluate
 | `oracleIRExecutorConditionalStepExtendedTypes.ts` | `ExtendedConditionalParams`, `LastActionOutcome`, `EXILE_THIS_WAY_STEP_KINDS`. |
 | `oracleIRExecutorConditionalStepExtendedClauseHelpers.ts` | Shared helpers including `getControlledTypeEnteredThisTurnCount`. |
 | `oracleIRExecutorConditionalStepExtendedThisWay.ts` | `evaluateThisWayClause`. |
+| `oracleIRExecutorConditionalStepTypedCreatureClause.ts` | `tryEvaluateTypedCreatureClause`. Generic N-type conditionals (dealt damage / sacrificed / exiled this way, attacking, equipped, mana spent, entered/died this turn, GY+counter, opponent doesn't control, enchanted TYPE or TYPE). Not Dinosaur/Goblin/Pirate-only. |
 | `oracleIRExecutorConditionalStepExtendedWarriorDamage.ts` | `tryEvaluateExtendedWarriorDamageClause` (warrior damage through surge-cost-paid). |
-| `oracleIRExecutorConditionalStepExtendedProwl.ts` | `tryEvaluateExtendedProwlClause` (prowl through graveyard-has-flying). |
+| `oracleIRExecutorConditionalStepExtendedProwl.ts` | `tryEvaluateExtendedProwlClause` (prowl through graveyard-has-flying). `you control four or more lands` is generic land-count (Fabled Passage). `you have the city's blessing` reads `state.cityBlessing` (fallback `citysBlessing`). |
 | `oracleIRExecutorConditionalStepExtendedLessonCard.ts` | `tryEvaluateExtendedLessonCardClause` (lesson in graveyard …). |
 | `oracleIRExecutorConditionalStepExtendedCycledCard.ts` | `tryEvaluateExtendedCycledCardClause`. |
-| `oracleIRExecutorConditionalStepExtendedVotedChoice.ts` | `tryEvaluateExtendedVotedChoiceClause`. |
+| `oracleIRExecutorConditionalStepExtendedVotedChoice.ts` | `tryEvaluateExtendedVotedChoiceClause`. `you cast it from your hand` is not a true-stub; provenance lives in YouHaveGraveyard. |
 | `oracleIRExecutorConditionalStepExtendedCommanderControl.ts` | `tryEvaluateExtendedCommanderControlClause`. |
 
 ### `oracleIRExecutorBattlefield*` (extracted from `oracleIRExecutorBattlefieldStepHandlers.ts`)
@@ -156,17 +161,26 @@ Parent is a **34.7 KB** barrel. Keep the `oracleIRExecutorBattlefield*` prefix. 
 
 | Module | Owns |
 | --- | --- |
-| `oracleIRExecutorBattlefieldCantAttackStep.ts` | `applyCantAttackStep` |
-| `oracleIRExecutorBattlefieldTapUntapSteps.ts` | tap / skip / optional untap |
+| `oracleIRExecutorBattlefieldCantAttackStep.ts` | `applyCantAttackStep`. One-shot / this-turn / until-next-turn / static stamps `temporaryEffects` `"can't attack"`. In `ORACLE_IR_FALLBACK_STEP_KINDS` (with `cant_block`). Combat reads those descriptions via `getCombinedPermanentText` / `hasBlanketCantAttack`. |
+| `oracleIRExecutorBattlefieldTapUntapSteps.ts` | tap / skip / optional untap. Mass “all/each/every” selectors (Intruder Alarm “untap all creatures”) ignore ETB `targetPermanentId` pronoun binding in `resolveTapOrUntapTargetIds`. Singular “that land” / “that creature” / “it” prefers last-moved, then `lastAntecedentBattlefieldPermanentIds` (steal), then `targetCreatureId` / `targetPermanentId`, then `chosenObjectIds` — never `battlefield.find` over the bound set (ETB watchers also stamp the entering source). Chosen library card ids bind via `perm.card.id`. “those permanents” after random control assignment uses `lastAntecedentBattlefieldPermanentIds` and does not queue a target prompt. |
+| `oracleIRExecutorBattlefieldGainControlSteps.ts` | Generic `gain_control` uses `targetPermanentId` or `targetCreatureId` (trigger IR stamps both). Records `controlChangeEffects` and `lastAntecedentBattlefieldPermanentIds` so “Untap that creature. It gains flying and haste” follows the stolen permanent. Missing target returns `applied: false` — do not invent audit ids. Seat-order rotation lives in `oracleIRExecutorLoyaltyDirectionGainControl.ts`. |
+| `oracleIRExecutorBattlefieldContextualTargets.ts` | `buildContextualBattlefieldTargetIds`. Singular “that land” / “that creature” after a search or put includes `lastMovedBattlefieldPermanentIds`. Plural “those permanents” also uses `lastAntecedentBattlefieldPermanentIds`. Chosen library card ids resolve to the new permanent’s `perm.id`. |
+| `oracleIRExecutorBattlefieldContextualResolvers.ts` | `parseContextualBattlefieldReference`, `resolveContextualBattlefieldPermanents`, `resolveBoundSelectorMatches`. Mode `self` (`it` / `this creature`) skips ids that are not on the battlefield (attack-trigger defending-player bindings in `chosenObjectIds`) and, for `this creature`, skips non-creatures then falls back to the source or attached creature. Named self-references use `buildNameReferenceAliases` (comma-head length ≥ 3, so “put a loyalty counter on Ral” resolves to the source). |
+| `oracleIRExecutorBattlefieldRecentlyMoved.ts` | `resolveRecentlyMovedBattlefieldPermanents` includes `that land`. |
 | `oracleIRExecutorBattlefieldDoubleMoveCountersSteps.ts` | double / move counters |
 | `oracleIRExecutorBattlefieldExchangeAndCopySteps.ts` | exchange control, copy permanent |
 | `oracleIRExecutorBattlefieldCantActivateAbilitiesStep.ts` | `applyCantActivateAbilitiesStep` |
-| `oracleIRExecutorBattlefieldGrantStaticAbilityStep.ts` | `applyGrantStaticAbilityStep` |
+| `oracleIRExecutorBattlefieldGrantStaticAbilityStep.ts` | `applyGrantStaticAbilityStep`. Stack-spell keyword grants (`that spell` / `this spell`) go through `tryApplyGrantKeywordsToStackSpell` before the battlefield fallback. |
+| `oracleIRExecutorBattlefieldGrantStackSpell.ts` | `tryApplyGrantKeywordsToStackSpell` — stamps `grantedAbilities` on the stack spell at `targetSpellId` (“that spell gains deathtouch and lifelink”). Damage after pop uses `sourceGrantedAbilities` on the IR context. |
 | `oracleIRExecutorPreventLifeGainThisTurn.ts` | `tryApplyPreventLifeGainThisTurnGrant` — stamps `lastingEffects.preventLifeGain` (with `this_turn` / `end_of_turn` duration) for you / target player / players / opponents. Cleanup expires those stamps. Continuous `static` unchanged. Alchemy A- skipped. |
+| `oracleIRExecutorAttackTaxThisTurn.ts` | `tryApplyAttackTaxThisTurnGrant` — stamps `lastingEffects.attackTaxGeneric` (global War Tax / optional attack-you). |
+| `oracleIRExecutorBlockTaxThisTurn.ts` | `tryApplyBlockTaxThisTurnGrant` — stamps `lastingEffects.blockTaxGeneric` (global War Cadence). |
+| `oracleIRExecutorAttackYouProhibitedExceptKeywords.ts` | `tryApplyAttackYouProhibitedExceptKeywordsGrant` — stamps `lastingEffects.attackYouProhibitedExceptKeywords` until your next turn. |
 | `oracleIRExecutorUntilEotProtectionOverride.ts` | `tryApplyUntilEotProtectionOverrideGrant` — stamps `lastingEffects` `protectionKeywordOverride` (`asThoughController` / `remove`) until cleanup. Idle land is not a continuous static. |
 | `oracleIRExecutorBattlefieldGrantTemporaryTargetText.ts` | infer/normalize grant target text |
-| `oracleIRExecutorBattlefieldGrantTemporaryAbilityEarlyCases.ts` / `…GrantTemporaryAbilityStep.ts` | grant-temporary split |
-| `oracleIRExecutorBattlefieldDestroyTargets.ts` / `…DestroyStep.ts` | destroy targeting + step |
+| `oracleIRExecutorBattlefieldGrantTemporaryAbilityEarlyCases.ts` / `…GrantTemporaryAbilityStep.ts` | grant-temporary split. Empty-target `it gains … until end of turn` stamps the source/attached creature (`temporaryEffects` / `grantedAbilities`); that rider is not a player-level `staticAbilityGrantEffects` bag (combat and badges do not read that bag for deathtouch/indestructible). |
+| `oracleIRExecutorBattlefieldDestroyTargets.ts` / `…DestroyStep.ts` | destroy targeting + step. `all non-<subtype> creatures` is generic (Wakening Sun's Avatar / Hythonia). Mass non-subtype destroy is not a special exile intercept. CR 702.12: generic destroy skips indestructible (until-EOT grants, keywords, counters, attachments). Special "destroy a permanent with indestructible" still goes through `trySpecialDestroyStep`. |
+| `oracleIRExecutorBattlefieldIndestructible.ts` | `executorPermanentHasIndestructible`. Used by `applyDestroyStep`. Does not treat Equipment/Aura oracle that *grants* indestructible as a self-grant. |
 | `oracleIRExecutorBattlefieldBendAndAnimateSteps.ts` | airbend, earthbend, animate |
 | `oracleIRExecutorBattlefieldExileStep.ts` | exile step + zone/stack/metadata helper siblings |
 | `oracleIRExecutorBattlefieldSacrificeSteps.ts` | sacrifice apply + helper siblings (`…SacrificeWhat.ts` already existed) |
@@ -184,7 +198,7 @@ Parent is a **29.4 KB** dispatcher. Each family returns `result | undefined` (un
 | `oracleIRExecutorMainLoopCounterSpellStep.ts` | `applyCounterSpellStep`, `isPlayerStillInGame` |
 | `oracleIRExecutorMainLoopExileRestrictionSteps.ts` | `tryApplyMainLoopExileRestrictionSteps` |
 | `oracleIRExecutorMainLoopCoinDieDrawSteps.ts` | `tryApplyMainLoopCoinDieDrawSteps` |
-| `oracleIRExecutorMainLoopLibraryTurnControlSteps.ts` | `tryApplyMainLoopLibraryTurnControlSteps` |
+| `oracleIRExecutorMainLoopLibraryTurnControlSteps.ts` | `tryApplyMainLoopLibraryTurnControlSteps`. Includes `join_forces` and `tempting_offer` halt cases (`applyJoinForcesStep` / `applyTemptingOfferStep`). |
 | `oracleIRExecutorMainLoopChoiceKeywordLookSteps.ts` | `tryApplyMainLoopChoiceKeywordLookSteps` |
 | `oracleIRExecutorMainLoopMillPtTokenSteps.ts` | `tryApplyMainLoopMillPtTokenSteps` |
 | `oracleIRExecutorMainLoopCopyDestroySteps.ts` | `tryApplyMainLoopCopyDestroySteps` |
@@ -194,4 +208,4 @@ Parent is a **29.4 KB** dispatcher. Each family returns `result | undefined` (un
 | `oracleIRExecutorSecretOpponentChoiceDamage.ts` | `secret_opponent_choice_damage` (Prisoner's Dilemma family). |
 | `oracleIRExecutorMayCastFromAmong.ts` | `may_cast_from_among` (mill-from-among may-cast). Needs `ctx.lastMilledCards` after mill; `applyMillStep` restores those cards after server-bridge ledger omit. |
 | `oracleIRExecutorMayRevealHandWinIfOwnNamed.ts` | `may_reveal_hand_then_win_if_own_named_in_zones` (may-reveal four-zone named-copy win). Entries: `applyMayRevealHandWinIfOwnNamedStep`, `playerOwnsNamedCardInFourWinZones`, `applyWinIfOwnNamedInFourZones`. Apply returns `player_choice_required`; win is stamped after Reveal. |
-| `oracleIRExecutorLoyaltyDirectionGainControl.ts` | Seat-order rotation for Choose left or right `gain_control` (lands + source PW stay). |
+| `oracleIRExecutorLoyaltyDirectionGainControl.ts` | Seat-order rotation for Choose left or right `gain_control` (lands + source PW stay). Random “for each (nonland) permanent, choose a player at random / for which they were chosen” lives in `oracleIRExecutorBattlefieldGainControlSteps.ts` (Scrambleverse). |

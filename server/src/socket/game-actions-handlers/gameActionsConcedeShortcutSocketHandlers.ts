@@ -20,6 +20,8 @@ import { appendEvent } from "../../db";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { broadcastGame, ensureGame, getPlayerName } from "../util";
 import type { EnsureInGameRoom } from "./gameActionsSocketRoomGuard.js";
+import { removeLeavingPlayerGameObjects } from "../../state/modules/playerLeavingGame.js";
+import { markPlayerOutOfPriority } from "../../state/modules/priorityEligibility.js";
 
 
 /**
@@ -65,24 +67,7 @@ export async function handleConcedeRequest(
     const immediateConcede = Boolean((game.state as any)?.houseRules?.immediateConcede);
 
     if (immediateConcede) {
-      const battlefield = game.state.battlefield || [];
-      const concedingPermanents = battlefield.filter((permanent: any) => permanent.controller === playerId);
-
-      if (concedingPermanents.length > 0) {
-        const zones = (game.state as any).zones = (game.state as any).zones || {};
-        const playerZones = zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-        (playerZones as any).exile = (playerZones as any).exile || [];
-
-        for (const perm of concedingPermanents) {
-          (playerZones as any).exile.push({
-            id: perm.id,
-            ...perm.card,
-            zone: 'exile',
-          });
-        }
-
-        game.state.battlefield = battlefield.filter((permanent: any) => permanent.controller !== playerId);
-      }
+      removeLeavingPlayerGameObjects(game.state, playerId, { gameId });
 
       (player as any).hasLost = true;
       (player as any).eliminated = true;
@@ -90,6 +75,7 @@ export async function handleConcedeRequest(
       delete (player as any).conceded;
       delete (player as any).concededAt;
       (player as any).departureMode = 'concede';
+      markPlayerOutOfPriority((game as any).ctx || game, playerId);
 
       const stateAny = game.state as any;
       if (stateAny.autoPassForTurn && typeof stateAny.autoPassForTurn === 'object') {
@@ -190,6 +176,7 @@ export async function handleConcedeRequest(
     (player as any).conceded = true;
     (player as any).concededAt = Date.now();
     (player as any).departureMode = "concede";
+    markPlayerOutOfPriority((game as any).ctx || game, playerId);
     // Note: We do NOT set hasLost or eliminated yet - that happens when their turn would start
     // This allows their permanents to remain on the field for other players to interact with
 

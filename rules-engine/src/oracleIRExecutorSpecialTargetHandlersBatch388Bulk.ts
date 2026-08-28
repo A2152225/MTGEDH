@@ -388,10 +388,16 @@ export function tryBatch388CopyPermanentStep(
     const sourceTypeLine = String((reference as any)?.type_line || (reference as any)?.card?.type_line || '').trim();
     const nextBattlefield = battlefield.map((perm: any) => {
       if (String(perm?.id || '').trim() !== sourcePermanentId) return perm;
+      const existingCard = (perm?.card && typeof perm.card === 'object') ? perm.card : {};
       return {
         ...perm,
         ...(copiedName ? { name: copiedName } : {}),
         ...(sourceTypeLine ? { type_line: sourceTypeLine, cardType: sourceTypeLine } : {}),
+        card: {
+          ...existingCard,
+          ...(copiedName ? { name: copiedName } : {}),
+          ...(sourceTypeLine ? { type_line: sourceTypeLine } : {}),
+        },
       };
     });
     return {

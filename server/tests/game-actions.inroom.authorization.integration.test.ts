@@ -243,6 +243,7 @@ describe('game-actions in-room authorization (integration)', () => {
     expect(() => handlers['setHouseRules'](undefined as any)).not.toThrow();
     expect(() => handlers['equipAbility'](undefined as any)).not.toThrow();
     expect(() => handlers['foretellCard'](undefined as any)).not.toThrow();
+    expect(() => handlers['foretell'](undefined as any)).not.toThrow();
     expect(() => handlers['castForetold'](undefined as any)).not.toThrow();
     expect(() => handlers['requestGraveyardTargets'](undefined as any)).not.toThrow();
     expect(() => handlers['requestOpponentSelection'](undefined as any)).not.toThrow();

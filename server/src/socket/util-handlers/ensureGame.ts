@@ -9,6 +9,7 @@ import { createGameIfNotExists, getEvents, gameExistsInDb } from "../../db/index
 import { createInitialGameState } from "../../state/index.js";
 import type { InMemoryGame } from "../../state/types.js";
 import { GameManager } from "../../GameManager.js";
+import { isUndoProbeGameId } from "../../gameRestoreState.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { BOOT_ID } from "../../utils/bootId.js";
 import { pruneObsoleteResolutionQueueAfterReplay } from "../../state/resolution/replayCleanup.js";
@@ -38,6 +39,7 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
     debugError(1, "[ensureGame] " + msg, { bootId: BOOT_ID });
     throw new Error(msg);
   }
+  if (isUndoProbeGameId(gameId)) return undefined;
 
   // Prefer GameManager to keep a single source of truth for game creation/reset, if it's exposing helper methods.
   try {
@@ -162,6 +164,7 @@ export async function ensureGameAsync(
     debugError(1, "[ensureGameAsync] " + msg, { bootId: BOOT_ID });
     throw new Error(msg);
   }
+  if (isUndoProbeGameId(gameId)) return undefined;
 
   try {
     if (GameManager && typeof (GameManager as any).ensureGameAsync === "function") {

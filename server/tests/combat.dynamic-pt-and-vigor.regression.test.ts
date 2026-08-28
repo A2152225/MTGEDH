@@ -421,6 +421,7 @@ describe('combat regression: dynamic P/T and Vigor', () => {
     expect(battlefield.some((perm: any) => perm?.id === attackerId)).toBe(false);
     expect(blocker).toBeTruthy();
     expect(Number(blocker?.markedDamage || 0)).toBe(2);
+    expect(Number(blocker?.damageMarked || 0)).toBe(2);
   });
 });
 

@@ -551,6 +551,9 @@ export function registerGameActions(io: Server, socket: Socket) {
    */
   socket.on("foretellCard", (payload?: { gameId?: unknown; cardId?: unknown }) =>
     handleForetellCardRequest(io, socket, ensureInGameRoom, payload));
+  // Client TableLayout historically emitted "foretell"; keep the alias so the click is not dropped.
+  socket.on("foretell", (payload?: { gameId?: unknown; cardId?: unknown }) =>
+    handleForetellCardRequest(io, socket, ensureInGameRoom, payload));
 
   socket.on("castForetold", async (payload?: { gameId?: unknown; cardId?: unknown }) =>
     handleCastForetoldRequest(io, socket, ensureInGameRoom, handleCastSpellFromHand, payload));

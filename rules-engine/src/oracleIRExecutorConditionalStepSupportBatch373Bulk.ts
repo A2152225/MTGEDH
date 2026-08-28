@@ -2,7 +2,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
-import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
+import { getProcessedBattlefield, isBlockingPermanent } from './oracleIRExecutorCreatureStepUtils';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
@@ -222,7 +222,7 @@ export function evaluateBatch373BulkConditionalClause(params: Batch373BulkParams
     if ((source as any)?.attackedThisTurn === true || (source as any)?.blockedThisTurn === true) return true;
     if ((source as any)?.attackedThisTurn === false && (source as any)?.blockedThisTurn === false) return false;
     if (params.isPermanentAttackingFn(source)) return true;
-    if ((source as any)?.isBlocking === true) return true;
+    if (isBlockingPermanent(source)) return true;
     return null;
   }
 

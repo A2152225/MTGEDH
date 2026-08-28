@@ -41,7 +41,7 @@ export function inferGenericTriggeredAbilityTargetMetadata(effectText: string): 
   }
 
   let targetConstraint: 'opponent' | 'you' | undefined;
-  if (lower.includes('target opponent')) {
+  if (lower.includes('target opponent') || lower.includes("you don't control") || lower.includes('opponent controls')) {
     targetConstraint = 'opponent';
   } else if (lower.includes('you control') || lower.includes('your graveyard')) {
     targetConstraint = 'you';

@@ -107,6 +107,7 @@ import {
 
 import {
   getLibraryPlacement,
+  moveStepShufflesIntoLibrary,
   getOneOfThemSplitKind,
   getOnePileSplitKind,
   isOnePileReference,
@@ -139,6 +140,7 @@ import {
 
 import { tryApplyMoveZoneEarlyGuardSteps } from './oracleIRExecutorMoveZoneEarlyGuardSteps';
 import { tryApplyMoveZoneSeventhFromTop } from './oracleIRExecutorMoveZoneSeventhFromTop';
+import { tryApplyMoveZoneStackSpellToExile } from './oracleIRExecutorMoveZoneStackSpellToExile';
 
 export function applyMoveZoneStep(
   state: GameState,
@@ -162,6 +164,9 @@ export function applyMoveZoneStep(
 
   const seventhFromTopResult = tryApplyMoveZoneSeventhFromTop(state, step, ctx);
   if (seventhFromTopResult) return seventhFromTopResult;
+
+  const stackSpellToExileResult = tryApplyMoveZoneStackSpellToExile(state, step, ctx);
+  if (stackSpellToExileResult) return stackSpellToExileResult;
 
   let nextState = state;
   const log: string[] = [];
@@ -378,7 +383,8 @@ export function applyMoveZoneStep(
             : moveBattlefieldPermanentsByIdToOwnersLibraries(
                 nextState,
                 [directBattlefieldTargetId],
-                directLibraryPlacement === 'top' ? 'top' : 'bottom'
+                directLibraryPlacement === 'top' ? 'top' : 'bottom',
+                { shuffle: moveStepShufflesIntoLibrary(step) },
               );
         return finalizeAppliedResult(result);
       }
@@ -392,7 +398,8 @@ export function applyMoveZoneStep(
           : moveBattlefieldPermanentsByIdToOwnersLibraries(
               nextState,
               [selfBattlefieldPermanentId],
-              directLibraryPlacement === 'top' ? 'top' : 'bottom'
+              directLibraryPlacement === 'top' ? 'top' : 'bottom',
+              { shuffle: moveStepShufflesIntoLibrary(step) },
             );
       return finalizeAppliedResult(result);
     }
@@ -406,7 +413,8 @@ export function applyMoveZoneStep(
             : moveBattlefieldPermanentsByIdToOwnersLibraries(
                 nextState,
                 [enchantedPermanentId],
-                directLibraryPlacement === 'top' ? 'top' : 'bottom'
+                directLibraryPlacement === 'top' ? 'top' : 'bottom',
+                { shuffle: moveStepShufflesIntoLibrary(step) },
               );
         return finalizeAppliedResult(result);
       }

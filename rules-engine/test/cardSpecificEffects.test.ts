@@ -456,6 +456,16 @@ describe('Card-Specific Effects', () => {
       expect(getCascadeCount(apexDevastator)).toBe(4);
     });
 
+    it('does not treat Wild-Magic Sorcerer grant text as the creature having cascade', () => {
+      const wildMagic =
+        'The first spell you cast from exile each turn has cascade. (When you cast your first spell from exile, exile cards from the top of your library until you exile a nonland card that costs less. You may cast it without paying its mana cost. Put the exiled cards on the bottom in a random order.)';
+      expect(hasCascade(wildMagic)).toBe(false);
+      expect(getCascadeCount(wildMagic)).toBe(0);
+      const info = detectCastTrigger(wildMagic, 'Creature — Orc Shaman Sorcerer');
+      expect(info.hasCascade).toBeFalsy();
+      expect(info.triggerType).toBe('none');
+    });
+
     it('should detect "when you cast this" triggers (Eldrazi)', () => {
       const kozilek = 'When you cast this spell, draw four cards.\nAnnihilator 4';
       expect(hasCastTrigger(kozilek)).toBe(true);

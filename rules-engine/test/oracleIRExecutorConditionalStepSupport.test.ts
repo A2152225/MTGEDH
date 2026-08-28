@@ -436,4 +436,62 @@ describe('oracleIRExecutorConditionalStepSupport', () => {
       })
     ).toBe(false);
   });
+
+  it('treats "this spell was cast from a graveyard" from ctx.castFromZone even when the stack item source is not a zone', () => {
+    const stackItem = {
+      id: 'stack-sevinne',
+      source: 'p1',
+      castFromGraveyard: true,
+      card: { name: "Sevinne's Reclamation", source: 'p1' },
+    };
+    const state = {
+      players: [{ id: 'p1', graveyard: [], hand: [], library: [], exile: [], life: 40 }],
+      battlefield: [],
+      stack: [stackItem],
+    } as any;
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'this spell was cast from a graveyard' } as any,
+        nextState: state,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1', sourceId: 'stack-sevinne', castFromZone: 'graveyard' } as any,
+        lastActionOutcome: null,
+      }),
+    ).toBe(true);
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'this spell was cast from a graveyard' } as any,
+        nextState: state,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1', sourceId: 'stack-sevinne', castFromZone: 'hand' } as any,
+        lastActionOutcome: null,
+      }),
+    ).toBe(false);
+  });
+
+  it('falls back to flashback / castFromGraveyard flags when ctx.castFromZone is unset', () => {
+    const stackItem = {
+      id: 'stack-sevinne',
+      source: 'p1',
+      castFromGraveyard: true,
+      card: { name: "Sevinne's Reclamation", castWithAbility: 'flashback' },
+    };
+    const state = {
+      players: [{ id: 'p1', graveyard: [], hand: [], library: [], exile: [], life: 40 }],
+      battlefield: [],
+      stack: [stackItem],
+    } as any;
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'this spell was cast from a graveyard' } as any,
+        nextState: state,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1', sourceId: 'stack-sevinne' } as any,
+        lastActionOutcome: null,
+      }),
+    ).toBe(true);
+  });
 });

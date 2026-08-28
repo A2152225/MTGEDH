@@ -17,6 +17,7 @@ import { queueOptionalPaymentStep } from "../optional-payment-prompts.js";
 import { broadcastGame, ensureGame } from "../util.js";
 import { isCurrentlyCreature } from "./combatLegalityGates.js";
 import { persistTriggeredAbilityPush } from "./combatDeclareBlockersRequest.js";
+import { playerIsLegalAttackTarget } from "../../../../rules-engine/src/playerInGameStatus.js";
 import {
   emitDeclareAttackersChat,
   formatEnergyCost,
@@ -135,6 +136,18 @@ export async function handleDeclareControlledAttackers(
         socket.emit("error", {
           code: "NOT_A_CREATURE",
           message: `${(creature as any).card?.name || "This permanent"} is not a creature`,
+        });
+        return;
+      }
+
+      const attackingPlayerId = String(creature.controller || '');
+      const defendingPlayer = players.find(
+        (player: any) => String(player?.id || '').trim() === String(attacker.targetPlayerId || '').trim(),
+      );
+      if (!playerIsLegalAttackTarget(defendingPlayer, attackingPlayerId)) {
+        socket.emit("error", {
+          code: "INVALID_ATTACK_TARGET",
+          message: "That player has left the game and cannot be attacked",
         });
         return;
       }

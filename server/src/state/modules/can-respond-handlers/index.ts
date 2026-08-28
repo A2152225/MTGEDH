@@ -80,6 +80,9 @@ export { getHandCastEvaluationCards, normalizeParsedCostForAnyTypeManaSpending }
 // Castable spell candidates across hand / GY / exile / library.
 export { getCastableSpellCandidates } from "./canRespondCastableSpellCandidates.js";
 
+// Per-priority-pass cache for spell candidates / canRespond / canAct.
+export { getOrComputeCachedBoolean, getOrComputeCachedSpellCandidates } from "./canRespondPriorityCache.js";
+
 export { isInMainPhase } from "./canRespondMainPhase.js";
 export { canCastAnySpell } from "./canRespondCanCastAnySpell.js";
 export { isActivatedAbilityConditionMet } from "./canRespondActivatedAbilityCondition.js";

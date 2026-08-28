@@ -159,4 +159,21 @@ describe('undo/replay Medium #7: silent drawCards / mill persistence', () => {
       }),
     );
   });
+
+  it('drawCards skips a library ghost whose id is already in hand and draws the next card', () => {
+    const game = createInitialGameState('t_draw_skip_hand_ghost');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    seedLibrary(game, p1, [
+      { id: 'windfall_1', name: 'Windfall' },
+      { id: 'island_1', name: 'Island' },
+    ]);
+    game.state.zones[p1].hand = [{ id: 'windfall_1', name: 'Windfall' }];
+    game.state.zones[p1].handCount = 1;
+
+    const drawn = drawCards(game as any, p1, 1, { skipEventPersistence: true });
+    expect(drawn.map((card) => card.id)).toEqual(['island_1']);
+    expect((game.state.zones[p1].hand || []).map((card: any) => card.id)).toEqual(['windfall_1', 'island_1']);
+    expect(game.state.zones[p1].handCount).toBe(2);
+  });
 });

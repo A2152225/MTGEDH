@@ -4,7 +4,9 @@ import {
   attackerHasAllAbleCreaturesMustBlock,
   attackerHasMustBeBlockedIfAble,
   attackerMustBeBlockedByKeywords,
+  attackerIsAttackingDefender,
   findMustBeBlockedIfAbleViolation,
+  listAttackersAgainstDefender,
   resolveMustBeBlockedIfAbleAssignments,
 } from '../src/socket/combat-handlers/combatMustBeBlockedIfAble.js';
 import {
@@ -586,5 +588,48 @@ describe('must be blocked by a creature with flying if able', () => {
       defendingPlayerId: 'p2',
       assignments: [],
     })).toEqual([{ blockerId: 'drake_1', attackerId: 'typed_1' }]);
+  });
+});
+
+describe('listAttackersAgainstDefender', () => {
+  it('matches attackers whose attacking field is the defending player id', () => {
+    const attacker = creature({
+      id: 'bear_1',
+      controller: 'p1',
+      name: 'Grizzly Bears',
+      attacking: 'p2',
+    });
+    const other = creature({
+      id: 'bear_2',
+      controller: 'p1',
+      name: 'Other Bear',
+      attacking: 'p3',
+    });
+    const battlefield = [attacker, other];
+
+    expect(attackerIsAttackingDefender(attacker, 'p2', battlefield)).toBe(true);
+    expect(listAttackersAgainstDefender(battlefield, 'p2').map((perm: any) => perm.id)).toEqual(['bear_1']);
+    expect(listAttackersAgainstDefender(battlefield, 'p2')).not.toEqual(
+      battlefield.filter((perm: any) => perm.attacking === true),
+    );
+  });
+
+  it('matches attackers aimed at a planeswalker the defending player controls', () => {
+    const walker = {
+      id: 'pw_1',
+      controller: 'p2',
+      card: { name: 'Jace, the Mind Sculptor', type_line: 'Legendary Planeswalker — Jace' },
+    };
+    const attacker = creature({
+      id: 'bear_1',
+      controller: 'p1',
+      name: 'Grizzly Bears',
+      attacking: 'pw_1',
+    });
+    const battlefield = [walker, attacker];
+
+    expect(attackerIsAttackingDefender(attacker, 'p2', battlefield)).toBe(true);
+    expect(listAttackersAgainstDefender(battlefield, 'p2').map((perm: any) => perm.id)).toEqual(['bear_1']);
+    expect(listAttackersAgainstDefender(battlefield, 'p3')).toEqual([]);
   });
 });

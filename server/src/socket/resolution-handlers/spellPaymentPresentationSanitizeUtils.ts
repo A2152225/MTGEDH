@@ -93,6 +93,14 @@ export function hydrateSpellPaymentPresentationFieldsForClient(
       if (!fields.forcedAlternateCostId && pending.forcedAlternateCostId) {
         fields.forcedAlternateCostId = pending.forcedAlternateCostId;
       }
+      if (
+        pending.castWithoutPayingManaCost === true
+        || String(pending.forcedAlternateCostId || fields.forcedAlternateCostId || '').trim().toLowerCase() === 'free'
+      ) {
+        fields.manaCost = '{0}';
+        fields.forcedAlternateCostId = fields.forcedAlternateCostId || 'free';
+        fields.castWithoutPayingManaCost = true;
+      }
       if (!fields.convokeOptions && pending.convokeOptions) {
         fields.convokeOptions = pending.convokeOptions;
       }

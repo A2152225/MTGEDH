@@ -53,23 +53,30 @@ export async function handleAIResolutionKeywordAndMiscSteps(
 
       case 'mana_payment_choice': {
         const stepData = step as any;
+        let paymentResponse;
         if (
           stepData.spellPaymentRequired === true ||
           stepData.sacrificeUnlessPayChoice === true ||
           stepData.activationPaymentChoice === true
         ) {
           const selections = await getAIHandlerDeps().chooseAISpellPaymentSelections(io as any, gameId, game, playerId as any, stepData);
-          ResolutionQueueManager.completeStep(
-            gameId,
-            step.id,
-            selections ? createResponse(selections) : createResponse({ payment: [] }, true),
-          );
           debug(1, `[AI] mana_payment_choice: ${selections ? 'assembled payment' : 'could not assemble payment'}`);
-          break;
+          paymentResponse = selections ? createResponse(selections) : createResponse({ payment: [] }, true);
+        } else {
+          debug(1, `[AI] mana_payment_choice: unsupported payment prompt, cancelling`);
+          paymentResponse = createResponse({ payment: [] }, true);
         }
 
-        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({ payment: [] }, true));
-        debug(1, `[AI] mana_payment_choice: unsupported payment prompt, cancelling`);
+        const completed = ResolutionQueueManager.completeStep(gameId, step.id, paymentResponse);
+        const effectId = String(stepData.effectId || '').trim();
+        const stillPendingCast = Boolean(effectId && (game.state as any)?.pendingSpellCasts?.[effectId]);
+        // completeStep only records the choice. Resume/cancel the pending cast the
+        // same way a human submitResolutionResponse does, or the next priority
+        // pass treats the leftover pendingSpellCast as "orphaned" and retries.
+        if (completed || stillPendingCast) {
+          const { applyResolutionStepSideEffects } = await import('../resolution.js');
+          await applyResolutionStepSideEffects(io, game, gameId, step, paymentResponse);
+        }
         break;
       }
 

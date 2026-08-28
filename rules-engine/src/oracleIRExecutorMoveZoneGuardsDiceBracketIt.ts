@@ -24,6 +24,7 @@ import {
 import { findBoundCardZoneLocation, getChosenObjectIds, getTargetPlayerId } from './oracleIRExecutorMoveZoneReferenceResolvers';
 import {
   getLibraryPlacement,
+  moveStepShufflesIntoLibrary,
   getSacrificedCreaturePowerFromCtx,
   moveContextualCardToDestination,
   resolveAmongThemCriteriaWithX,
@@ -62,11 +63,17 @@ export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs)
         return finalizeAppliedResult(result);
       }
       const placement = getLibraryPlacement(step) || 'bottom';
-      const result = moveBattlefieldPermanentsByIdToOwnersLibraries(nextState, [targetId], placement || 'bottom');
+      const result = moveBattlefieldPermanentsByIdToOwnersLibraries(
+        nextState,
+        [targetId],
+        placement || 'bottom',
+        { shuffle: moveStepShufflesIntoLibrary(step) },
+      );
       return finalizeAppliedResult({
         applied: true,
         state: result.state,
         log: result.log.length > 0 ? result.log : [`Moved target to library: ${step.raw}`],
+        ...(Array.isArray(result.movedCards) ? { movedCards: result.movedCards } : {}),
       });
     }
   }

@@ -381,6 +381,45 @@ function safeParseJSON(text: string | null): unknown {
 }
 
 /**
+ * After nextStep() runs, the row was inserted with the *previous* step's
+ * turn/phase/step (append-before-apply). Restamp the latest matching row from
+ * live state and optionally merge payload fields (draw-step card ids).
+ */
+export function restampLatestEvent(
+  gameId: string,
+  type: string,
+  boundary?: { turnNumber?: number; phase?: string; step?: string },
+  payloadPatch?: Record<string, unknown>,
+): boolean {
+  if (!gameId || !type) return false;
+  try {
+    ensureDB();
+  } catch {
+    return false;
+  }
+  const row = db!.prepare(
+    `SELECT id, payload FROM events WHERE game_id = ? AND type = ? ORDER BY id DESC LIMIT 1`,
+  ).get(gameId, type) as { id: number; payload: string | null } | undefined;
+  if (!row) return false;
+
+  const prev = safeParseJSON(row.payload);
+  const mergedPayload = payloadPatch && typeof payloadPatch === 'object'
+    ? { ...(prev && typeof prev === 'object' && !Array.isArray(prev) ? prev as Record<string, unknown> : {}), ...payloadPatch }
+    : prev;
+  const payloadJson = mergedPayload == null ? null : JSON.stringify(mergedPayload);
+  const turnNumber = typeof boundary?.turnNumber === 'number' && Number.isFinite(boundary.turnNumber)
+    ? Math.floor(boundary.turnNumber)
+    : null;
+  const phase = typeof boundary?.phase === 'undefined' ? null : String(boundary.phase);
+  const step = typeof boundary?.step === 'undefined' ? null : String(boundary.step);
+
+  db!.prepare(
+    `UPDATE events SET payload = ?, turn_number = COALESCE(?, turn_number), phase = COALESCE(?, phase), step = COALESCE(?, step) WHERE id = ?`,
+  ).run(payloadJson, turnNumber, phase, step, row.id);
+  return true;
+}
+
+/**
  * Return a list of persisted games (basic metadata including creator info).
  */
 export function listGames(): { 

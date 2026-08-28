@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { detectSpellCastTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectOpponentSpellCastTriggers } from '../src/state/modules/triggers/spell-cast.js';
+import { isModalChooseModesEffectText } from '../src/state/modules/inferTriggeredAbilityTargetMetadata.js';
 
 const permanent = { id: 'P1', controller: 'P1' };
 
@@ -23,6 +24,16 @@ describe('spell cast trigger detection gaps', () => {
     }, permanent);
     expect(triggers.length).toBeGreaterThan(0);
     expect(triggers[0]?.casterScope).toBe('opponent');
+  });
+
+  it('detects any-player instant or sorcery copy triggers (Hive Mind)', () => {
+    const triggers = detectOpponentSpellCastTriggers({
+      name: 'Hive Mind',
+      oracle_text:
+        'Whenever a player casts an instant or sorcery spell, each other player copies that spell. Each of those players may choose new targets for their copy.',
+    }, permanent);
+    expect(triggers.some((t) => t.casterScope === 'any_player' && t.spellCondition === 'instant_sorcery')).toBe(true);
+    expect(triggers.some((t) => /each other player copies that spell/i.test(String(t.benefitIfNotPaid || '')))).toBe(true);
   });
 
   it('detects any-player cast triggers', () => {
@@ -139,12 +150,23 @@ describe('spell cast trigger detection gaps', () => {
     expect(triggers.length).toBeGreaterThan(0);
   });
 
+  it('detects any-player cast-from-hand triggers (Possibility Storm)', () => {
+    const triggers = detectOpponentSpellCastTriggers({
+      name: 'Possibility Storm',
+      oracle_text: 'Whenever a player casts a spell from their hand, that player exiles it, then exiles cards from the top of their library until they exile a card that shares a card type with it. That player may cast that card without paying its mana cost. Then they put all cards exiled with Possibility Storm on the bottom of their library in a random order.',
+    }, permanent);
+    expect(triggers.some((t) => t.casterScope === 'any_player')).toBe(true);
+    expect(triggers.some((t) => t.sourceZoneRequirement === 'hand')).toBe(true);
+    expect(triggers.some((t) => /^that player exiles it/i.test(String(t.benefitIfNotPaid || '')))).toBe(true);
+  });
+
   it('detects any-player cast triggers (Jin-Gitaxias)', () => {
     const triggers = detectOpponentSpellCastTriggers({
       name: 'Jin-Gitaxias, Progress Tyrant',
       oracle_text: 'Whenever a player casts a spell, counter it unless that player pays {3}.',
     }, permanent);
     expect(triggers.some((t) => t.casterScope === 'any_player')).toBe(true);
+    expect(triggers.every((t) => t.sourceZoneRequirement === undefined)).toBe(true);
   });
 
   it('detects cast-from-hand triggers', () => {
@@ -182,5 +204,23 @@ describe('spell cast trigger detection gaps', () => {
       oracle_text: 'Whenever you cast a Dragon spell from your graveyard, exile it instead of putting it into your graveyard as it resolves.',
     }, permanent);
     expect(triggers.some((t) => t.sourceZoneRequirement === 'graveyard' && t.tribalType === 'dragon')).toBe(true);
+  });
+
+  it('detects Judith modal instant/sorcery choose-one without a token shortcut', () => {
+    const triggers = detectSpellCastTriggers({
+      name: 'Judith, Carnage Connoisseur',
+      oracle_text:
+        'Whenever you cast an instant or sorcery spell, choose one —\n' +
+        '\u2022 That spell gains deathtouch and lifelink.\n' +
+        '\u2022 Create a 2/2 red Imp creature token with "When this token dies, it deals 2 damage to each opponent."',
+    }, permanent);
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0]?.spellCondition).toBe('instant_sorcery');
+    expect(triggers[0]?.createsToken).toBeFalsy();
+    expect(triggers[0]?.tokenDetails).toBeUndefined();
+    expect(String(triggers[0]?.effect || '')).toMatch(/choose one/i);
+    expect(String(triggers[0]?.effect || '')).toMatch(/deathtouch and lifelink/i);
+    expect(String(triggers[0]?.effect || '')).toMatch(/create a 2\/2 red imp/i);
+    expect(isModalChooseModesEffectText(String(triggers[0]?.effect || ''))).toBe(true);
   });
 });

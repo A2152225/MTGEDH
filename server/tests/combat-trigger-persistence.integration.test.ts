@@ -1040,4 +1040,181 @@ describe('combat trigger persistence', () => {
     );
     expect(collectBattlefieldAbilityBadgesForView(agent, [])).toEqual([]);
   });
+
+  it('does not queue Agent of the Shadow Thieves when another opponent has more life than the attacked player', async () => {
+    const gameId = `test_agent_background_attack_trigger_low_life_${Date.now()}`;
+    trackedGameIds.add(gameId);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+    const p3 = 'p3';
+    const p4 = 'p4';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 36 },
+      { id: p3, name: 'P3', spectator: false, life: 40 },
+      { id: p4, name: 'P4', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 36, [p3]: 40, [p4]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).step = 'declareAttackers';
+    (game.state as any).phase = 'combat';
+    (game.state as any).priority = p1;
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p3]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p4]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'baeloth_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: false,
+        isCommander: true,
+        counters: {},
+        temporaryAbilities: [],
+        basePower: 2,
+        baseToughness: 5,
+        card: {
+          id: 'baeloth_card_1',
+          name: 'Baeloth Barrityl, Entertainer',
+          type_line: 'Legendary Creature — Elf Shaman',
+          oracle_text: 'Choose a Background',
+          power: '2',
+          toughness: '5',
+        },
+      },
+      {
+        id: 'agent_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: 'agent_card_1',
+          name: 'Agent of the Shadow Thieves',
+          type_line: 'Legendary Enchantment — Background',
+          oracle_text: 'Commander creatures you own have "Whenever this creature attacks a player, if no opponent has more life than that player, put a +1/+1 counter on this creature. It gains deathtouch and indestructible until end of turn."',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    (socket.data as any).gameId = gameId;
+
+    const io = createMockIo(emitted, [socket]);
+    registerCombatHandlers(io as any, socket as any);
+
+    await handlers['declareAttackers']({
+      gameId,
+      attackers: [{ creatureId: 'baeloth_1', targetPlayerId: p2 }],
+    });
+
+    const stack = (game.state as any).stack || [];
+    const trigger = stack.find(
+      (item: any) => item?.type === 'triggered_ability' && item?.source === 'baeloth_1'
+    );
+    expect(trigger).toBeUndefined();
+  });
+
+  it('queues Agent of the Shadow Thieves when the attacked player is tied for most life among opponents', async () => {
+    const gameId = `test_agent_background_attack_trigger_highest_life_${Date.now()}`;
+    trackedGameIds.add(gameId);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+    const p3 = 'p3';
+    const p4 = 'p4';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+      { id: p3, name: 'P3', spectator: false, life: 36 },
+      { id: p4, name: 'P4', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40, [p3]: 36, [p4]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).step = 'declareAttackers';
+    (game.state as any).phase = 'combat';
+    (game.state as any).priority = p1;
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p3]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p4]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'baeloth_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: false,
+        isCommander: true,
+        counters: {},
+        temporaryAbilities: [],
+        basePower: 2,
+        baseToughness: 5,
+        card: {
+          id: 'baeloth_card_1',
+          name: 'Baeloth Barrityl, Entertainer',
+          type_line: 'Legendary Creature — Elf Shaman',
+          oracle_text: 'Choose a Background',
+          power: '2',
+          toughness: '5',
+        },
+      },
+      {
+        id: 'agent_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: 'agent_card_1',
+          name: 'Agent of the Shadow Thieves',
+          type_line: 'Legendary Enchantment — Background',
+          oracle_text: 'Commander creatures you own have "Whenever this creature attacks a player, if no opponent has more life than that player, put a +1/+1 counter on this creature. It gains deathtouch and indestructible until end of turn."',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    (socket.data as any).gameId = gameId;
+
+    const io = createMockIo(emitted, [socket]);
+    registerCombatHandlers(io as any, socket as any);
+
+    await handlers['declareAttackers']({
+      gameId,
+      attackers: [{ creatureId: 'baeloth_1', targetPlayerId: p2 }],
+    });
+
+    const stack = (game.state as any).stack || [];
+    const trigger = stack.find(
+      (item: any) => item?.type === 'triggered_ability' && item?.source === 'baeloth_1'
+    );
+    expect(trigger).toBeTruthy();
+
+    game.resolveTopOfStack();
+
+    const baeloth = ((game.state as any).battlefield || []).find((perm: any) => perm?.id === 'baeloth_1');
+    expect(baeloth?.counters?.['+1/+1']).toBe(1);
+  });
 });

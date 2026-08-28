@@ -7,6 +7,7 @@ import {
   type ReplacementEffect,
 } from './game-state-effects.js';
 import { computeCounterPlacementModifiedDeltas } from './replacementCounterPlacementUtils.js';
+import { applyPlayerDamageLifeFloorCaps } from './replacementEffectsDamageLifeFloor.js';
 
 export type ReplacementZone = 'battlefield' | 'graveyard' | 'exile' | 'hand' | 'library' | 'command' | 'stack';
 
@@ -560,18 +561,36 @@ const damageAmountReplacementEvaluator: ReplacementEffectEvaluator = (event) => 
   }
 
   const replacement = replacementEffectModifiedAmount(originalAmount, event.metadata?.replacementEffects);
-  if (!replacement || replacement.finalAmount === originalAmount) return null;
+  if (replacement && replacement.finalAmount !== originalAmount) {
+    return {
+      applied: true,
+      eventType: event.type,
+      effectId: replacement.finalAmount === 0 ? 'damage-prevented' : 'damage-amount-modified',
+      originalAmount,
+      replacementAmount: replacement.finalAmount,
+      preventedAmount: Math.max(0, originalAmount - replacement.finalAmount),
+      reason: 'damage_amount_replacement',
+      metadata: {
+        appliedEffects: replacement.appliedEffects,
+      },
+    };
+  }
+
+  // Cap-only: Worship / Fortune Thief floorLifeAt. Do not fold Furnace/Gisela here —
+  // combat already ran calculateModifiedDamage before this evaluator.
+  const floor = applyPlayerDamageLifeFloorCaps(event);
+  if (!floor || floor.finalAmount === originalAmount) return null;
 
   return {
     applied: true,
     eventType: event.type,
-    effectId: replacement.finalAmount === 0 ? 'damage-prevented' : 'damage-amount-modified',
+    effectId: floor.finalAmount === 0 ? 'damage-prevented' : 'damage-life-floor',
     originalAmount,
-    replacementAmount: replacement.finalAmount,
-    preventedAmount: Math.max(0, originalAmount - replacement.finalAmount),
-    reason: 'damage_amount_replacement',
+    replacementAmount: floor.finalAmount,
+    preventedAmount: Math.max(0, originalAmount - floor.finalAmount),
+    reason: 'damage_life_floor_replacement',
     metadata: {
-      appliedEffects: replacement.appliedEffects,
+      appliedEffects: floor.appliedEffects,
     },
   };
 };

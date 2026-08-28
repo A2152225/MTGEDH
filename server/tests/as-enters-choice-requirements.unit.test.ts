@@ -60,4 +60,14 @@ describe('as-enters choice requirements', () => {
     expect(req.required).toBe(true);
     expect(req.reason).toMatch(/color word/i);
   });
+
+  it('detects as-enters copy of any land for Vesuva', () => {
+    const card = {
+      name: 'Vesuva',
+      oracle_text: 'You may have this land enter tapped as a copy of any land on the battlefield.',
+    };
+    const reqs = getAsEntersChoiceRequirements(card);
+    expect(reqs.some((r) => r.kind === 'copy_permanent' && r.copyType === 'land' && r.enterTappedIfCopied)).toBe(true);
+    expect(reqs.every((r) => r.kind !== 'copy_permanent' || r.mandatory === false)).toBe(true);
+  });
 });

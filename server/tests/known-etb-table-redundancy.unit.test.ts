@@ -95,6 +95,10 @@ describe('KNOWN_ETB_TRIGGERS redundancy (P4b creature_etb pack)', () => {
     }
   });
 
+  it('no longer lists Bojuka Bog; generic self-ETB targeting covers it', () => {
+    expect(KNOWN_ETB_TRIGGERS['bojuka bog']).toBeUndefined();
+  });
+
   it('keeps tutor searchFilter metadata rows', () => {
     expect(KNOWN_ETB_TRIGGERS['imperial recruiter']?.searchFilter?.maxPower).toBe(2);
     expect(KNOWN_ETB_TRIGGERS['wood elves']?.searchFilter?.subtypes).toBeTruthy();

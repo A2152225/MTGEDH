@@ -21,6 +21,7 @@ import {
 } from './combatGoadHelpers.js';
 import { getGoadedAttackers } from './combatGoadedAttackers.js';
 import { canPermanentAttack, isCurrentlyCreature } from './combatLegalityHelpers.js';
+import { playerIsLegalAttackTarget } from '../../playerInGameStatus.js';
 
 /**
  * Validate declare attackers action
@@ -47,9 +48,20 @@ export function validateDeclareAttackers(
   if (activePlayer?.id !== action.playerId) {
     return { legal: false, reason: 'Only active player can declare attackers' };
   }
+
+  const legalAttackTargetIds = (state.players || [])
+    .filter((player: any) => playerIsLegalAttackTarget(player, action.playerId))
+    .map((player: any) => String(player.id));
   
   // Validate each attacker using comprehensive validation
   for (const attacker of action.attackers) {
+    const defendingPlayer = (state.players || []).find(
+      (player: any) => String(player?.id || '').trim() === String(attacker.defendingPlayerId || '').trim(),
+    );
+    if (!playerIsLegalAttackTarget(defendingPlayer, action.playerId)) {
+      return { legal: false, reason: 'Cannot attack a player who has left the game' };
+    }
+
     const attackProhibitionSource = getAttackProhibitionSourceForPlayer(battlefield, attacker.defendingPlayerId);
     if (attackProhibitionSource) {
       return {
@@ -76,11 +88,10 @@ export function validateDeclareAttackers(
     // Check goad restrictions (Rule 701.15b)
     // Static goad effects (Baeloth) are now handled via isStaticallyGoaded flag
     if (isGoaded(permanent, state.turn, battlefield)) {
-      const allPlayerIds = state.players.map(p => p.id);
       const goadCheck = canGoadedCreatureAttack(
         permanent,
         attacker.defendingPlayerId,
-        allPlayerIds,
+        legalAttackTargetIds,
         state.turn,
         battlefield
       );
@@ -109,12 +120,7 @@ export function validateDeclareAttackers(
     }
   }
 
-  const opponentIds = (state.players || [])
-    .filter((player: any) => {
-      const id = String(player?.id || '').trim();
-      return Boolean(id) && id !== action.playerId && !player?.hasLost;
-    })
-    .map((player: any) => String(player.id));
+  const opponentIds = legalAttackTargetIds;
 
   for (const perm of battlefield) {
     if (String(perm?.controller || '') !== action.playerId) continue;

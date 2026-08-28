@@ -118,23 +118,26 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
     });
   }
 
-  // Pattern for "each opponent's end step" (Keeper of the Accord style)
-  const opponentEndStepMatch = oracleText.match(/at the beginning of each opponent['']?s end step,?\s*([^.]+)/i);
-  if (opponentEndStepMatch) {
-    const effect = timingTriggerEffect(oracleText, opponentEndStepMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'end_step_effect',
-      description: effect,
-      effect: effect,
-      mandatory: !effect.toLowerCase().includes('you may'),
-      triggersOnOpponentEndStep: true,
-      requiresChoice: detectRequiresChoice(effect),
-      affectsAllPlayers: detectAffectsAllPlayers(effect),
-    });
-    return triggers; // Don't match other patterns if this matched
+  // Every "each opponent's end step" ability is its own trigger (Keeper of the Accord has two).
+  const opponentEndStepPattern = /at the beginning of each opponent['’']?s end step,?\s*([^.]+)/gi;
+  const opponentEndStepMatches = [...String(oracleText || '').matchAll(opponentEndStepPattern)];
+  if (opponentEndStepMatches.length > 0) {
+    for (const opponentEndStepMatch of opponentEndStepMatches) {
+      const effect = timingTriggerEffect(oracleText, opponentEndStepMatch);
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'end_step_effect',
+        description: effect,
+        effect: effect,
+        mandatory: !effect.toLowerCase().includes('you may'),
+        triggersOnOpponentEndStep: true,
+        requiresChoice: detectRequiresChoice(effect),
+        affectsAllPlayers: detectAffectsAllPlayers(effect),
+      });
+    }
+    return triggers;
   }
   
   // Pattern for regular end step triggers: "At the beginning of your/each end step"
@@ -157,6 +160,8 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
     });
   }
 
+  // Repeating card triggers only. "the next" / "your next" end step is a delayed
+  // trigger created by another resolving ability (CR 603.7), not this detector.
   const endStepMatch = oracleText.match(
     /at the beginning of (?:(?:the )?next|your next|each(?: player's)?|your|the) end step,?\s*([^.]+\.?)/i,
   );

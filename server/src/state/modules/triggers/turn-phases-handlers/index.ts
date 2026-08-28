@@ -17,3 +17,11 @@ export { detectRequiresChoice, detectAffectsAllPlayers } from "./turnPhaseEffect
 
 // Beginning-of-end-step detector (known table + generic oracle patterns).
 export { detectEndStepTriggers } from "./turnPhaseEndStepTriggers.js";
+
+// Other-players' untap-step turn actions (Unwinding Clock, Seedborn Muse, Waterskin).
+export type { UntapStepEffect } from "./turnPhaseUntapStepEffects.js";
+export {
+  detectUntapStepEffects,
+  getUntapStepEffects,
+  applyUntapStepEffect,
+} from "./turnPhaseUntapStepEffects.js";

@@ -75,6 +75,9 @@ export interface BattlefieldPermanent {
   temporaryEffects?: readonly TemporaryEffect[];
   // Creature type choice for changeling/tribal effects (e.g., Mistform Ultimus)
   chosenCreatureType?: string;
+  /** Color chosen as this permanent entered (Thriving lands, Painter's Servant, Utopia Sprawl). */
+  chosenColor?: string;
+  chosenMana?: string;
   // Class cards use battlefield state to track their current level designation
   level?: number;
   // Phasing support

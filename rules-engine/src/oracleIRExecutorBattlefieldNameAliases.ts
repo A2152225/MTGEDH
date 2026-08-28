@@ -13,7 +13,8 @@ export function buildNameReferenceAliases(value: string): readonly string[] {
   for (const face of normalized.split(/\s*\/\/\s*/).map(part => part.trim()).filter(Boolean)) {
     aliases.add(face);
     const commaHead = String(face.split(',')[0] || '').trim();
-    if (commaHead.length >= 4) aliases.add(commaHead);
+    // 3 letters covers planeswalker shorthand (Ral, Oko); 2-letter heads stay excluded.
+    if (commaHead.length >= 3) aliases.add(commaHead);
   }
 
   return [...aliases];

@@ -25,6 +25,7 @@ import {
   dyingCreatureIsEnchanted,
   getPermanentRulesTextFragments,
 } from "./death-emission-helpers.js";
+import { collectDelayedDiesWatcherTriggers } from "./delayed-dies-watchers.js";
 
 export type { DeathTriggerResult } from "./death-emission-helpers.js";
 
@@ -82,6 +83,8 @@ export function getDeathTriggers(
   }
   const dyingTypeLine = (dyingCreature?.card?.type_line || '').toLowerCase();
   const isCreature = dyingTypeLine.includes('creature');
+
+  results.push(...collectDelayedDiesWatcherTriggers(ctx, dyingCreature));
 
   appendDetectedSelfDeathTriggers(results, dyingCreature, dyingCreatureController);
 

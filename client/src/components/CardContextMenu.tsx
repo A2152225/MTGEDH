@@ -144,7 +144,11 @@ export function CardContextMenu({
     () => (card ? parseAbilitiesFull(card, permanent.grantedAbilities) : []),
     [card, permanent.grantedAbilities],
   );
-  const abilities = parsedAbilities.map(convertToMenuOption);
+  const isOwnPermanent = !playerId || String(permanent.controller || '') === String(playerId);
+  const abilities = (isOwnPermanent
+    ? parsedAbilities
+    : parsedAbilities.filter((ability) => ability.anyPlayerMayActivate)
+  ).map(convertToMenuOption);
   const tapActionDecision = useMemo(() => {
     if (isTapped) {
       return { kind: 'tap' } as const;
@@ -352,7 +356,7 @@ export function CardContextMenu({
               activationContext,
               battlefield || [permanent],
             );
-            const canUse = canActivate && activationStatus.canActivate;
+            const canUse = (isOwnPermanent ? canActivate : hasPriority) && activationStatus.canActivate;
             const title = activationStatus.reason
               ? `${ability.description} (${activationStatus.reason})`
               : ability.description;

@@ -24,6 +24,7 @@
 import type { GameState, BattlefieldPermanent } from '../../shared/src';
 import type { ManaCost } from './types/mana';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
+import { controllerHasLeftTheGame } from './playerInGameStatus';
 
 /**
  * Types of attack cost effects
@@ -221,6 +222,7 @@ export function collectPillowfortEffects(
   // Check defender's permanents on centralized battlefield
   if (battlefield.length > 0) {
     for (const permanent of battlefield as any[]) {
+      if (controllerHasLeftTheGame(state, permanent.controller || permanent.controllerId)) continue;
       if (permanent.controller === defendingPlayerId || permanent.controllerId === defendingPlayerId) {
         const effect = detectPillowfortEffect(permanent, defendingPlayerId);
         if (effect) {

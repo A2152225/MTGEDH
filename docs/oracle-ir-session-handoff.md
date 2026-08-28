@@ -1,34 +1,210 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-08-25 (SPELL_PRIMARY=1 spell-resolve census 0 failed / 239)
+Last updated: 2026-08-27 (Phase 5 depth: leftovers — War Cadence this-turn, AI block tax, Island Sanctuary skip-draw)
 
 > **Cost reducers / alternate costs** (separate workstream): see [`docs/cost-reduction-handoff.md`](cost-reduction-handoff.md).
 
 ## Next session prompt (copy-paste)
 
 ```
-Continue MTGEDH Oracle IR migration — post LIFE_MODIFIERS retirement; Phase 4 special-case spells IR-owned.
+Continue MTGEDH Oracle IR migration — Phase 4 closed; Phase 5 depth in progress (5.1–5.5 already landed).
 
 Read first:
 - docs/oracle-ir-session-handoff.md (this prompt)
 - docs/oracle-ir-track-e-remaining-work.md (§ IR live-readiness Aug 2026, D4–D7)
+- docs/oracle-ir-phase5-continuous-effects-design.md
 - docs/oracle-ir-smoke-soak.md (scripted card-list soaks; edh-readiness live is the green bar)
 - .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
 
 Done recently:
-- Bounded SPELL_PRIMARY=1 vitest census (`npm run oracle-ir:primary-census`) is **0 failed / 239** on the 27-file spell-resolve slice. `vitest.setup.ts` still defaults PRIMARY=0 — do not flip until asked.
-- Deferred flashback exile while a prompt is open: tests accept PRIMARY=0 immediate exile or PRIMARY=1 `oracleIrDeferredFinalize` (CR 608.2m). Do not revert deferred finalize.
-- Look/search: Memory Deluge look_select_top, Genesis Wave look_choose rest GY, Siphon Insight opponent exile, Ponder/Index reorder → PONDER_EFFECT, Loot look-at-six keeps the full slice in availableCards (Genesis Wave GY remainder stays selectable-only).
-- Phase 4 + census leftovers IR-owned: Divine/Prisoner replay exile, Summons mill-from-among GRAVEYARD_SELECTION (not EP Yes/No), Past in Flames grants, Galvanic delayed copy, Electroduplicate except-copy haste/sac, Nibelheim discard stamps, Brave sourceId, Will of the Jeskai mode_N / commander maxModes, Gearhulk replay exile.
+- Phase 4 infrastructure dual-path under IR primary is closed. Sevinne's Reclamation GY-cast copy is IR-owned. PRIMARY=1 special-case no Rite/Summons fills. Bounded SPELL_PRIMARY=1 census 0 failed / 243. vitest.setup.ts still defaults PRIMARY=0 — do not flip until asked.
+- One-shot cant_attack is in ORACLE_IR_FALLBACK_STEP_KINDS (next to cant_block). Mixed reanimate + can't-attack-this-turn applies both. Combat honors temporaryEffects via getCombinedPermanentText / hasBlanketCantAttack. Live declare also reads temporaryEffect stamps and continuous "can't attack" grants.
+- Unused librarySearchEffects KNOWN_SEARCH_RESTRICTIONS table removed. detectSearchRestrictions is oracle-only. Live search still uses evaluateLibrarySearchReplacementEvent.
+- Pacifism / Bound in Silence host combat locks are StaticEffectSpec grants. processLifeChange and resolvePlayerDamage go through evaluateLifeLossReplacementEvent.
+- Worship / Fortune Thief floorLifeAt caps apply through evaluateDamageReplacementEvent (cap-only). Furnace/Gisela amount-modify stays on calculateModifiedDamage so combat does not double-apply. Empty KNOWN_STATIC_EFFECT_CARDS shell deleted.
+- Mass combat locks are StaticEffectSpec: Moat (without flying), Katabatic (with flying), Ensnaring Bridge (power > hand), Peacekeeper (all creatures), Doomed Artisan (type you control). This-turn still skipped. Live declare passes game state so Bridge can see hand size.
+- PRIMARY=0 evaluateTargeting COUNTER_TARGET_SPELL includes the caster's own stack spell (IR-primary parseTargetRequirements already did). Replay applyEvent CounterSpell stays.
+- ADDITIONAL_LAND_PLAY_CARDS name table deleted. Extra land drops are oracle-only (Exploration +1, Azusa +2, Fastbond unlimited, Orrery each-player). Station extra land still uses getActiveStationAbilities.
+- ADDITIONAL_DRAW_CARDS name table deleted. Mandatory draw-step extra cards are oracle-only (Howling Mine untapped, Font +2, your-draw-step controller-only, Well of Ideas both clauses). Optional you-may (Sylvan Library) and compound then-discard (Anvil) stay on the stack. Upkeep extras (Seizan) are not draw-step extras.
+- TOP_OF_LIBRARY_CARDS name table deleted. Look / play lands / cast from top are oracle-only (Future Sight lands-and-spells, Mystic Forge artifact-or-colorless, Augur coven, Elsha flash, Snoop Goblin). Durable library permissions still apply.
+- HAND_REVEAL_CARDS name table deleted. Static Telepathy/Revelation grants are oracle-only. Glasses of Urza look-at-hand activations are not ongoing grants.
+- TEMPORARY_LAND_PLAY_SPELLS name table deleted. This-turn extra land drops are oracle-only (Summer Bloom +3, Explore/Urban +1). Growth Spiral put-onto-battlefield and Wayward continuous extras are not this-turn spell bonuses.
+- Katabatic / Serra Bestiary `{T}`-cost activation locks are StaticEffectSpec (`can't activate tap abilities`). Live activate, tapPermanent, mana availability, can-respond, and AI payment skip those taps.
+- Gravity Sphere / Mystic Decree `All creatures lose [keywords]` is `removeAbilities` on all_creatures. Moat / Katabatic with/without-keyword conditions use layer-6 effective keywords (grants then removals), so Sphere + Moat locks printed flyers and Levitation flies over Moat. Until-EOT lose (Whiteout) and Humility lose-all are skipped.
+- Pillowfort attack-you tax is oracle `StaticEffectSpec` (`attackYouTaxGeneric` plus `attackYouTaxPhyrexian` for `{W/P}`). Live declare no longer name-routes Ghostly Prison / Propaganda / Sphere of Safety / Baird / Norn's Annex / Archangel of Tithes. `{W/P}` is color-or-2-life (mix allowed), not generic 2. War Tax this-turn stamps `lastingEffects.attackTaxGeneric` (idle enchantment does not tax). War Cadence this-turn stamps `lastingEffects.blockTaxGeneric` (idle enchantment does not tax). Island Sanctuary idle does not lock; draw-step skip-draw is an optional `ReplacementEffectSpec`, and skipping stamps `lastingEffects.attackYouProhibitedExceptKeywords`. Elephant Grass color-gated tax/prohibition and Blazing Archon `attackYouProhibited` evaluate per attacker. Gated `can't attack you`: Form of the Dragon without-keyword, Sandwurm with-keyword, Reverence power-at-most, Combat Calligrapher creature type, Island Sanctuary `target_lacks_all_keywords`. Layer-6 flying grants/losses apply (Levitation / Gravity Sphere). Vow / Spectral Grasp / Assault Suit host `attackYouProhibited` (self-scope on the enchanted/equipped creature). Crawlspace `attackYouMaxAttackers` (min cap). Teferi's Moat chosen-color without-keyword (needs `chosenColor` on the permanent). Eriette aura-you-control. Silent Arbiter / Dueling Grounds / Caverns of Despair `maxAttackersEachCombat` and `maxBlockersEachCombat` (global; live declare and AI execute honor caps; AI blockers trim to the cap). Archangel of Tithes `blockTaxGeneric` while attacking (live declare prompts; unique blockers; AI pays generic mana or drops optional extras). Blanket `can't attack` still not granted.
 
 Verify:
-cd server ; npm run oracle-ir:primary-census
-cd server ; Remove-Item Env:ORACLE_IR_CENSUS_SPELL_PRIMARY -ErrorAction SilentlyContinue ; npx vitest run tests/cast-from-graveyard.graveyard-replay.integration.test.ts tests/resolve-spell-prompt.integration.test.ts tests/resolve-top-of-stack-prompt.integration.test.ts tests/stack.generic-library-and-untap.regression.test.ts --pool=threads --maxWorkers=1
+cd server ; npx vitest run tests/attack-you-tax-oracle-detect.unit.test.ts tests/attack-cost-phyrexian.resolution-queue.integration.test.ts tests/attack-tax-this-turn.unit.test.ts tests/block-tax-this-turn.unit.test.ts tests/combat-ai-max-attackers-blockers.socket.test.ts tests/block-cost-payment.resolution-queue.integration.test.ts tests/skip-draw-replacement.replay.test.ts tests/combat-max-blockers-each-combat.socket.test.ts tests/attack-cost-payment.resolution-queue.integration.test.ts tests/static-effect-spec-leftover-templates.unit.test.ts --pool=threads --maxWorkers=1
+cd rules-engine ; npx vitest run test/attackRestrictionText.test.ts test/oracleIRAttackYouProhibitedExceptKeywords.test.ts test/oracleIRAttackTaxThisTurn.test.ts test/oracleIRBlockTaxThisTurn.test.ts --pool=threads --maxWorkers=1
 
 Next work (priority):
-1. Do not flip vitest.setup.ts unless explicitly asked. Next leftovers outside the green census: Sevinne's Reclamation graveyard-cast copy (`all_or_nothing_failure` on `conditional` — test still passes via fallback), real EDH tables → GET /api/oracle-ir/telemetry.
-2. Alchemy stays unwired. TRIGGER_PRIMARY census is a later mountain.
+1. Do not flip vitest.setup.ts unless explicitly asked. Keep categorizeSpell / executeSpellEffect for PRIMARY=0 opt-out until that flip. Real EDH tables → GET /api/oracle-ir/telemetry.
+2. Phase 5 remaining depth: replay CounterSpell / CounterAbility dual-path (keep until asked); drive static:/replacement:owned_but_unhandled toward zero. Live player damage still uses calculateModifiedDamage first; registry now matches for floor caps.
+3. Alchemy stays unwired. TRIGGER_PRIMARY census is a later mountain.
 ```
+
+## Session 2026-08-27 — Phase 5 depth: leftovers (War Cadence / AI block tax / Island Sanctuary skip-draw)
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **War Cadence this-turn** | Idle activation oracle does not tax. Applied `This turn, creatures can't block unless … pays {X}` stamps `lastingEffects.blockTaxGeneric`. `collectBlockTax` adds those stamps to Archangel static tax. Cleanup expires this_turn. | `oracleIRParserBlockTaxThisTurn.ts`, `oracleIRExecutorBlockTaxThisTurn.ts`, `staticEffectSpecBlockTaxThisTurn.ts`, `block-tax-this-turn.unit.test.ts`, `oracleIRBlockTaxThisTurn.test.ts` |
+| **AI block tax** | AI `executeDeclareBlockers` pays generic mana for Archangel / War Cadence tax. If unaffordable, drops optional unique blockers (keeps must-block-if-able) or refuses. | `aiPriorityPassCombatBlockTax.ts`, `combat-ai-max-attackers-blockers.socket.test.ts` |
+| **Island Sanctuary skip-draw** | Draw-step “you may skip that draw” is a per-card `ReplacementEffectSpec`. Skip stamps the except-flying/islandwalk lock; draw proceeds. Main-phase draws are not replaced. AI prefers skip. | `replacementEffectSpecDrawOracleTemplates.ts`, `zonesDrawReplacementSkipDrawQueue.ts`, `zonesDrawReplacementSkipDrawApply.ts`, `skip-draw-replacement.replay.test.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: leftovers (Island Sanctuary / War Tax / `{W/P}` / AI caps)
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Island Sanctuary except-flying** | Idle replacement wrapper does not lock. Standalone / IR-applied `until your next turn, you can't be attacked except by creatures with flying and/or islandwalk` stamps `lastingEffects.attackYouProhibitedExceptKeywords`. Condition `target_lacks_all_keywords`. Draw-step skip-draw you-may replacement is wired. | `staticEffectSpecOracleParsingAttackYouTax.ts`, `oracleIRParserAttackYouProhibitedExceptKeywords.ts`, `oracleIRExecutorAttackYouProhibitedExceptKeywords.ts`, `attack-you-tax-oracle-detect.unit.test.ts` |
+| **War Tax this-turn** | Idle activation oracle does not tax. Applied `This turn, creatures can't attack unless … pays {X}` stamps `lastingEffects.attackTaxGeneric` (global). Forbidding Spirit until-next-turn attack-you `{2}` uses the same stamp with `global: false`. Cleanup expires this_turn; until-next-turn expires at the controller’s next turn. Live declare adds stamps into the attack-cost total. War Cadence this-turn block tax is wired. | `oracleIRParserAttackTaxThisTurn.ts`, `oracleIRExecutorAttackTaxThisTurn.ts`, `staticEffectSpecAttackTaxThisTurn.ts`, `attack-tax-this-turn.unit.test.ts`, `oracleIRAttackTaxThisTurn.test.ts` |
+| **Norn's Annex `{W/P}`** | Grant is `attackYouTaxPhyrexian` (white or 2 life per creature, mix allowed), not generic 2. Live declare prompts Phyrexian choices; AI prefers mana then life. `attackRestrictionText` no longer treats Baird/Annex “or planeswalkers you control unless” as a hard lock. | `staticEffectSpecAttackYouTaxPhyrexian.ts`, `attackCostPhyrexianPayment.ts`, `attack-cost-phyrexian.resolution-queue.integration.test.ts`, `attackRestrictionText.test.ts` |
+| **AI combat caps** | `executeDeclareAttackers` throws `TOO_MANY_ATTACKERS` (Silent Arbiter / Crawlspace). AI `executeDeclareBlockers` trims unique blockers to `maxBlockersEachCombat`. AI pays Archangel / War Cadence block tax. | `combatDeclareAttackersExecute.ts`, `aiPriorityPassCombatExecutors.ts`, `combat-ai-max-attackers-blockers.socket.test.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: Archangel of Tithes block tax
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Archangel of Tithes** | `As long as this creature is attacking, creatures can't block unless their controller pays {N}` is `blockTaxGeneric` with `source_is_attacking`. Live declare charges unique blockers and prompts like attack-you tax. War Cadence this-turn is stamped `blockTaxGeneric`. AI pays or trims. | `staticEffectSpecOracleParsingAttackYouTax.ts`, `staticEffectSpecAttackYouTax.ts` (`collectBlockTax`), `combatDeclareBlockersRequest.ts`, `blockCostPaymentBeforeCompleteHandlers.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: Silent Arbiter block cap
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Silent Arbiter / Dueling Grounds / Caverns of Despair** | Global `maxBlockersEachCombat` from `No more than N creature(s) can block each combat`. Live declare counts unique blockers (`TOO_MANY_BLOCKERS`). Crawlspace stays attack-you only. AI declare blockers still bypasses the cap (same as AI attackers vs the attack cap). | `staticEffectSpecOracleParsingAttackYouTax.ts`, `staticEffectSpecAttackYouTax.ts`, `combatDeclareBlockersRequest.ts` |
+| **Left unwired** | Archangel of Tithes block tax while attacking; Island Sanctuary except-flying; War Tax this-turn; real `{W/P}` phyrexian. Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: Teferi's Moat / Eriette / Silent Arbiter
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Teferi's Moat** | `Creatures of the chosen color without flying can't attack you` is `attackYouProhibited` with `target_has_mana_color_and_lacks_keyword`. No `chosenColor` on the permanent stays unparsed (fail closed). | `staticEffectSpecOracleParsingAttackYouTax.ts`, `staticEffectSpecConditionEval.ts` |
+| **Eriette** | `Each creature that's enchanted by an Aura you control can't attack you` uses `target_enchanted_by_aura_you_control`. Enemy auras do not count. | same |
+| **Silent Arbiter / Dueling Grounds** | Global `maxAttackersEachCombat` (not Crawlspace’s per-you cap). Live declare counts all attackers. Block-each-combat cap skipped. | `staticEffectSpecAttackYouTax.ts`, `combatDeclareAttackersRequest.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: Vow host + Crawlspace
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Host can't-attack-you** | Vow / Spectral Grasp enchanted and Assault Suit equipped parse `attackYouProhibited` on the host (`scope: self`, aura/equipment controller is `you`). Other creatures can still attack that player; the host can still attack someone else. Unattached auras do not lock. Blanket `can't attack` still not granted. | `staticEffectSpecOracleParsingAttackYouTax.ts`, `staticEffectSpecAttackYouTax.ts` |
+| **Crawlspace cap** | `No more than two creatures can attack you each combat` is `attackYouMaxAttackers: 2`. Live declare rejects extra player-attacks (`TOO_MANY_ATTACKERS`). Planeswalker attacks are not counted. Silent Arbiter global “each combat” cap skipped. | `combatDeclareAttackersRequest.ts`, `attack-you-tax-oracle-detect.unit.test.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: gated can't-attack-you
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Keyword / power / type gates** | Form of the Dragon `without flying`, Sandwurm Convergence `with flying`, Reverence `power 2 or less`, Combat Calligrapher `Inklings` parse as `attackYouProhibited` with `target_lacks_keyword` / `target_has_keyword` / `target_power_at_most` / `target_has_creature_type`. Collector uses layer-6 keyword resolver (Levitation flies over Dragon form; Sphere grounds printed flyers). Teferi's Moat chosen-color skipped. This-turn / Island Sanctuary except-flying / Vow host still skipped. | `staticEffectSpecOracleParsingAttackYouTax.ts`, `staticEffectSpecAttackYouTax.ts`, `staticEffectSpecConditionEval.ts`, `attack-you-tax-oracle-detect.unit.test.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: Elephant Grass / Blazing Archon attack-you
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Color-gated tax / prohibition** | Elephant Grass: black creatures get `attackYouProhibited`; nonblack get `{2}` `attackYouTaxGeneric` with `target_is_not_black_creature`. Collector and live declare evaluate per attacker. Ghostly Prison still taxes black and nonblack. | `staticEffectSpecOracleParsingAttackYouTax.ts`, `staticEffectSpecAttackYouTax.ts`, `combatDeclareAttackersRequest.ts` |
+| **Blazing Archon** | `Creatures can't attack you.` is `attackYouProhibited` (not blanket `can't attack`). Player-wide regex no longer matches `Black creatures can't attack you`. This-turn War Tax still skipped. Island Sanctuary except-flying still skipped. | `attackRestrictionText.ts`, `attack-you-tax-oracle-detect.unit.test.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: oracle pillowfort attack-you tax
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Attack-you tax** | Oracle `StaticEffectSpec` `attackYouTaxGeneric` for Ghostly Prison / Propaganda / Windborn Muse `{2}`, Baird `{1}` (plural planeswalkers), Sphere of Safety enchantment count, Collective Restraint domain, Norn's Annex `{W/P}` as generic 2, Archangel of Tithes while untapped. Live declare deleted card-name routing. This-turn / color-gated skipped. Blanket `can't attack` still not granted. | `staticEffectSpecOracleParsingAttackYouTax.ts`, `staticEffectSpecAttackYouTax.ts`, `combatDeclareAttackersRequest.ts`, `attack-you-tax-oracle-detect.unit.test.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: Katabatic tap lock + Gravity Sphere vs Moat
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Katabatic / Serra `{T}` lock** | Same-sentence `activated abilities with {T} in their costs can't be activated` grants `"can't activate tap abilities"`. Live activate / tapPermanent / mana availability / can-respond / AI payment honor it. Non-tap activated abilities still work. | `staticEffectSpecOracleParsingCantAttack.ts`, `staticEffectSpecOracleParsingMassCantAttack.ts`, `staticEffectSpecActivationLocks.ts`, leftover-template tests |
+| **Gravity Sphere vs Moat** | `All creatures lose [keywords]` is `removeAbilities` on `all_creatures` (Mystic Decree flying+islandwalk). Until-EOT and Humility lose-all skipped. Moat/Katabatic keyword conditions use layer-6 grants then removals, so Sphere makes printed flyers lack flying (Moat locks them) and Levitation flies over Moat. Sphere also drops Katabatic locks. | `staticEffectSpecOracleParsingLoseKeywords.ts`, `staticEffectSpec.ts`, `staticEffectSpecConditionEval.ts`, leftover-template tests |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: oracle-only hand reveal + this-turn land bonuses
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Hand reveal** | Deleted `HAND_REVEAL_CARDS`. `recalculateHandVisibility` uses `detectHandRevealEffect` only. Telepathy opponents-revealed and Revelation each-player. Glasses of Urza look-at-hand is not a static grant. | `gameStateEffectsTopLibrary.ts`, `hand-reveal-oracle-detect.unit.test.ts` |
+| **This-turn land bonuses** | Deleted `TEMPORARY_LAND_PLAY_SPELLS`. `detectSpellLandBonus` is oracle-only. Growth Spiral put-onto-battlefield and Wayward each-turn extras are not this-turn spell bonuses. | `gameStateEffectsLandPlayDraw.ts`, `temp-land-bonus-oracle-detect.unit.test.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: oracle-only top-of-library look/play/cast
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Top of library** | Deleted `TOP_OF_LIBRARY_CARDS`. Look / play lands / cast from top parse from oracle (Future Sight lands-and-spells, Mystic Forge artifact-or-colorless including legacy template, Augur coven, Elsha flash, Snoop Goblin, Realmwalker chosen type). Durable library permissions still apply. `HAND_REVEAL_CARDS` left in place. | `gameStateEffectsTopLibrary.ts`, `top-library-oracle-detect.unit.test.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; `HAND_REVEAL_CARDS`; `TEMPORARY_LAND_PLAY_SPELLS`; Katabatic tap-activated lock; Gravity Sphere vs Moat; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: oracle-only additional draw-step extras
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Extra draws** | Deleted `ADDITIONAL_DRAW_CARDS`. `calculateAdditionalDraws` uses `parseAdditionalDrawClausesFromOracle` only. Howling Mine / Font / Rites / your-draw-step / Well of Ideas both clauses. Optional you-may and compound then-discard stay stack triggers. Upkeep extras (Seizan) are not draw-step extras. `TEMPORARY_LAND_PLAY_SPELLS` left in place. | `gameStateEffectsLandPlayDraw.ts`, `draw-step-oracle-detect.unit.test.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; `TOP_OF_LIBRARY_CARDS`; Katabatic tap-activated lock; Gravity Sphere vs Moat; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: own-spell Counterspell targets + oracle-only extra lands
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **COUNTER_TARGET_SPELL own spells** | `evaluateTargeting` no longer skips `stackItem.controller === caster`. PRIMARY=0 `hasValidTargetsForSpell` can counter your own stack spell. Abilities / `canBeCountered === false` still skipped. Live resolve stays IR `counter_spell`; categorize `COUNTER_TARGET_SPELL` still no-ops. Replay `applyEvent` `CounterSpell` kept. | `targeting.ts`, `counterspell-stack-targeting.unit.test.ts` |
+| **Extra land drops** | Deleted `ADDITIONAL_LAND_PLAY_CARDS`. `calculateMaxLandsPerTurn` is oracle-only (`detectAdditionalLandPlayFromOracle`). Station extra land still uses active station text. `ADDITIONAL_DRAW_CARDS` / `TEMPORARY_LAND_PLAY_SPELLS` left in place. | `gameStateEffectsLandPlayDraw.ts`, `land-play-oracle-detect.unit.test.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; `TOP_OF_LIBRARY_CARDS`; `ADDITIONAL_DRAW_CARDS`; Katabatic tap-activated lock; Gravity Sphere vs Moat; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: mass Moat/Bridge combat locks
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Mass combat locks** | Oracle `StaticEffectSpec` for Moat (without flying), Katabatic (with flying attack/block), Ensnaring Bridge (power > source-controller hand), Peacekeeper (all creatures), Doomed Artisan (creature type you control). Pillowfort / this-turn / host Pacifism text skipped. | `staticEffectSpecOracleParsingMassCantAttack.ts`, `staticEffectSpecConditionEval.ts`, leftover-template tests |
+| **Live declare** | `canPermanentAttack` / `canBlockAttacker` take optional game state so Bridge hand size is visible. | `combatLegalityGates.ts`, `combatDeclareAttackersExecute.ts` / `Request` / `ForceTapSupport` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Phase 5 remaining depth (stack-targeting opcodes); real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: floorLifeAt damage registry + empty static KNOWN
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **floorLifeAt registry** | `evaluateDamageReplacementEvent` applies oracle `floorLifeAt` caps (Worship creature-gate, Fortune Thief). Cap-only — Furnace/Gisela amount-modify stays on `calculateModifiedDamage`. Already-capped amounts and permanent targets are no-ops. First-match declarative eval skips `floorLifeAt` so it can stack. | `replacementEffectsDamageLifeFloor.ts`, `replacement-effects.ts`, `replacementEffectSpec.ts`, `replacement-effect-spec.unit.test.ts` |
+| **Empty static KNOWN** | Deleted unused `KNOWN_STATIC_EFFECT_CARDS` `{}` shell and re-exports. Behavior remains oracle `StaticEffectSpec`. | `staticEffects.ts`, `staticEffects-handlers/index.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Phase 5 remaining depth (stack-targeting opcodes); real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-27 — Phase 5 depth: cant_attack + unused search KNOWN table
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **One-shot cant_attack** | Added to `ORACLE_IR_FALLBACK_STEP_KINDS` next to `cant_block` (activated union inherits it). Mixed GY-return + "target creature can't attack this turn" is fully wired and applies both. Combat refuses attack from the `"can't attack"` temporaryEffect stamp. | `trigger-runtime-wiring.ts`, `oracleIRExecutorBattlefieldCantAttackStep.ts`, `oracle-ir-step-wiring.test.ts`, `combatLegalityHelpers.ts` / `permanentText.ts` |
+| **librarySearchEffects KNOWN table** | Deleted. `detectSearchRestrictions` is oracle-only: pay-to-ignore, can't-cause-search, opponent-controls-while-searching, top-N instead, whenever-search triggers, this-turn duration. Players-can't-search now affects both controller and opponents. Live play unchanged (`evaluateLibrarySearchReplacementEvent`). | `librarySearchEffects.ts`, `librarySearchEffects.test.ts` |
+| **Pacifism StaticEffectSpec** | Enchanted/equipped/this-creature “can't attack or block” grants `"can't attack"` / `"can't block"` on the host. Live declare/block gates honor continuous grants and temporaryEffect stamps. Pillowfort / this-turn skipped. | `staticEffectSpecOracleParsingCantAttack.ts`, `combatLegalityGates.ts`, `combat-mechanics.ts`, leftover-template tests |
+| **Life-loss on damage** | `processLifeChange` and `resolvePlayerDamage` call `evaluateLifeLossReplacementEvent` (Bloodletter doubles damage-caused life loss on the controller's turn). | `gameStateEffectsLifeModifierOraclePatterns.ts`, `combat-damage-processing.ts`, `life-modifiers-oracle-pattern.unit.test.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Phase 5 remaining depth (stack-targeting opcodes); real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
+
+## Session 2026-08-26 — Phase 4 closed under IR primary
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Sevinne GY-cast copy** | May-only `conditional` then-branch (optional `copy_spell` this_spell) is complete for all-or-nothing. Optional this-spell copies still stamp `oracleIrOptionalCopyThisSpell` and do not auto-push (post-resolution may-copy). GY-cast condition prefers `ctx.castFromZone`, then flashback / `castFromGraveyard` flags. | `oracleIrStepWiring.ts`, `oracleIrServerCopySpellSync.ts`, `oracleIRExecutorConditionalStepYouHaveGraveyard.ts`, `oracleIRCopySpellServerDefer.test.ts`, graveyard-replay Sevinne tests, `oracle-ir-step-wiring.test.ts` |
+| **PRIMARY=1 special-case** | No Rite missing-window fill and no Summons replay amass/mill under IR primary. PRIMARY=0 trampoline + fills remain for opt-out. | `stackResolveSpellSpecialCaseUtils.ts`, `oracle-ir-temporary-etb-window.unit.test.ts`, `oracle-ir-phase4-choice-families.unit.test.ts` |
+| **Dual-path kept on purpose** | `categorizeSpell` / `executeSpellEffect` stay for PRIMARY=0. Uncategorized fallback stays thin. Supplemental riders no-op under PRIMARY=1. Stack-targeting opcodes stay until Phase 5. | `oracleIrSpellLegacyRouting.ts`, `stackResolveSpellUncategorizedUtils.ts` |
+| **Census** | `npm run oracle-ir:primary-census` **0 failed / 243**. Setup still PRIMARY=0. | `server/scripts/out/oracle-ir-primary-census.json` |
+| **Still open (not Phase 4)** | Real EDH tables / telemetry; do not flip setup; TRIGGER_PRIMARY census later; Phase 5 depth. | |
 
 ## Session 2026-08-25 — SPELL_PRIMARY=1 spell-resolve census green
 
@@ -43,7 +219,7 @@ Next work (priority):
 | **Divine/Prisoner + Gearhulk replay** | applyEvent choice+batch resume deferred finalize; stale GY-cast prompts cleared so replay exile runs. | `applyEventDungeonVoteEvents.ts`, `stackReplayUtils.ts` |
 | **Past in Flames / Galvanic / Nibelheim** | GY keyword grants, delayed next-cast copy rider, discard provenance stamps. | executor GY permission / discard; `stackResolveSpellPostCategorizeRidersUtils.ts` |
 | **Loot look-at-six** | Last census red: battlefield dest was treated like Genesis Wave (selectable-only). Rest-bottom look-at keeps all 6 in `availableCards`. | `oracleIrServerLibrarySearchLookChoosePilePrompts.ts` |
-| **Still open** | Sevinne's Reclamation GY-cast copy telemetry (`unapplied_mandatory_step: conditional`). Do not flip setup. TRIGGER_PRIMARY census later. | graveyard-replay Sevinne test still passes |
+| **Still open (closed 2026-08-26)** | Sevinne's Reclamation GY-cast copy telemetry. | graveyard-replay Sevinne test |
 
 ## Session 2026-08-25 — deferred flashback exile (CR 608.2m)
 
@@ -294,7 +470,7 @@ Historical snapshot from earlier that day (**28 failed / 238**). Not the current
 |------|---------|-------------------|
 | **Source-self combat** | Generic parse for “would deal combat damage to a player, instead put that many +1/+1 counters … and that player mills”. Applies only to the source permanent (not other creatures you control). Mills `millTargets` rather than always milling all opponents. | `game-state-effects.ts`, `mindskinner-damage-replacement.unit.test.ts` |
 
-**Still open:** Davriel Alchemy offers; `cant_attack` stays out of fallback (unwired canary — see oracle-ir-step-wiring.test.ts); real multiplayer telemetry; unused `librarySearchEffects` KNOWN_* table.
+**Still open (closed 2026-08-27 for cant_attack fallback + librarySearchEffects KNOWN table):** Davriel Alchemy offers; real multiplayer telemetry.
 
 ## Session 2026-08-14 (later) — library-search oracle-pattern + prevent-and-mill first-match
 
@@ -318,7 +494,7 @@ Historical snapshot from earlier that day (**28 failed / 238**). Not the current
 | Area | Outcome | Key files / tests |
 |------|---------|-------------------|
 | **PW leftover lines** | Compound until-next-turn P/T+keyword, until-next-turn whenever, modal `+X/+X or -X/-X`, perpetual P/T, until-next-turn animate, GY+ward, and related residual grants now survive `parseOracleTextToIR` (bare-fragment recovery after reminder prune / empty `gets` stubs). Loyalty IR **878 (99.0%) → 886 (99.9%)** of 887. | `oracleIRParser.ts`, `oracleIRParserModifyPtClauses.ts`, `oracleIRParserPostprocess.ts`, `oracle-ir-activated-ability.test.ts`, `oracle-ir-step-wiring.test.ts` |
-| **Left unwired** | Davriel, Soul Broker Alchemy offers/conditions (`unknown`). `cant_attack` stays out of fallback (unwired canary). | — |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers/conditions (`unknown`). `cant_attack` later moved into fallback (2026-08-27). | — |
 
 **Still open:** 1 Alchemy loyalty line; real multiplayer telemetry.
 
@@ -1182,7 +1358,7 @@ Reports written to `server/scripts/out/*.json` (gitignored).
 | **419** | Replay `castSpellContinuation` sacrifice step with durable `additionalCost` | `oracle-ir-broodship-graveyard-cast.socket.integration.test.ts` |
 | **420** | Full cast completes; second graveyard cast blocked (`castFromGraveyardThisTurn`) | same |
 | **421** | `mirrorGraveyardCastingPermissionsToDurable` on EP `applyRunResultState` | `effectProgramResolutionService.ts`, `effect-program-graveyard-mirror.unit.test.ts` |
-| **3+ land** | Station threshold-aware `calculateMaxLandsPerTurn` (skip Exploration partial-name false positive) | `game-state-effects.ts`, `oracle-ir-station-multi-threshold.integration.test.ts` |
+| **3+ land** | Station threshold-aware `calculateMaxLandsPerTurn` (active station text; extra-drop name table gone) | `gameStateEffectsLandPlayDraw.ts`, `oracle-ir-station-multi-threshold.integration.test.ts` |
 | **Generic** | Six retrace + Kess discard `additionalCost` durable restore | `durable-permissions.test.ts` |
 | **422** | Adagia Station/`12+` create_token boundary regression guard | `oracleIRGapBatch422.test.ts` |
 

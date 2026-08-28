@@ -12,6 +12,7 @@ import { canPlayerPayLife } from '../src/state/modules/game-state-effects-handle
 import { collectOraclePatternLifeGainReplacementSpecsFromState } from '../src/state/modules/replacementEffectSpec-handlers/replacementEffectSpecLifeGainOracleTemplates.js';
 import { collectOraclePatternLifeLossReplacementSpecsFromState } from '../src/state/modules/replacementEffectSpec-handlers/replacementEffectSpecLifeLossOracleTemplates.js';
 import { evaluateLifeLossReplacementEvent } from '../src/state/modules/replacement-effects.js';
+import { resolvePlayerDamage } from '../src/state/modules/combat-damage-processing.js';
 
 // Oracle text copied from mtg_data.db (is_token = 0).
 const PLATINUM_EMPERION_ORACLE =
@@ -312,6 +313,31 @@ describe('oracle-pattern life modifiers (no LIFE_MODIFIERS name table)', () => {
       }],
     });
     expect(processLifeChange(otherTurn, 'p2', 5, false)).toMatchObject({ finalAmount: 5, prevented: false });
+  });
+
+  it('Bloodletter doubles life loss from player damage on the controller turn', () => {
+    const ctx = makeCtx({
+      turnPlayer: 'p1',
+      life: { p1: 40, p2: 40 },
+      players: [{ id: 'p1', life: 40 }, { id: 'p2', life: 40 }],
+      battlefield: [{
+        id: 'letter_1',
+        controller: 'p1',
+        card: {
+          name: 'Custom Aclazotz Bat',
+          oracle_text: BLOODLETTER_ORACLE,
+          type_line: 'Creature — Vampire Demon',
+        },
+      }],
+    });
+
+    const resolved = resolvePlayerDamage(ctx, {
+      targetPlayerId: 'p2',
+      amount: 5,
+      skipAmountReplacements: true,
+    });
+    expect(resolved.lifeLost).toBe(10);
+    expect(ctx.state.life.p2).toBe(30);
   });
 
   it('generic "a player would lose life during your turn" doubles any player on the controller turn', () => {

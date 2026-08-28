@@ -14,14 +14,17 @@ import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueMa
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { tryAutoStartGameFromPreGame } from "../pregame-auto-start.js";
+import { isGameReplayLocked } from "../../gameRestoreState.js";
 import { broadcastGame, ensureGame } from "../util.js";
 import { AI_REACTION_DELAY_MS, AI_THINK_TIME_MS } from "./aiConstants.js";
+import { commitAIKeepHand } from "./aiKeepHand.js";
 import {
   autoSelectAICommander,
   ensureAIPreGameDeckLoaded,
   getAILibraryCards,
 } from "./aiPregameHandlers.js";
 import { runExclusiveAIAction, scheduleAIGameFlow, scheduleAIPriority } from "./aiScheduler.js";
+import { playerCannotReceivePriority } from "../../state/modules/priorityEligibility.js";
 
 /**
  * Handle AI game flow - called when game state changes
@@ -47,20 +50,22 @@ export async function handleAIGameFlow(
   if (!game || !game.state) {
     return;
   }
-  
-  // Check if this AI player has lost the game
-  const players = game.state.players || [];
-  const aiPlayer = players.find((p: any) => p.id === playerId);
-  if (aiPlayer?.hasLost) {
-    debug(1, '[AI] handleAIGameFlow: AI player has lost the game, skipping:', { gameId, playerId });
+  if (isGameReplayLocked(game, gameId)) {
+    debug(2, '[AI] handleAIGameFlow skipped during undo/restore replay', { gameId, playerId });
     return;
   }
-  
-  // Check if this AI player is in the inactive set
+
+  const players = game.state.players || [];
+  const aiPlayer = players.find((p: any) => p.id === playerId);
   const ctx = (game as any).ctx || game;
-  const inactiveSet = ctx.inactive instanceof Set ? ctx.inactive : new Set();
-  if (inactiveSet.has(playerId)) {
-    debug(1, '[AI] handleAIGameFlow: AI player is inactive, skipping:', { gameId, playerId });
+  if (playerCannotReceivePriority(aiPlayer, ctx) || (ctx.inactive instanceof Set && ctx.inactive.has(playerId))) {
+    if (game.state.priority === playerId) {
+      debug(1, '[AI] handleAIGameFlow: eliminated/inactive AI still holds priority; auto-passing:', { gameId, playerId });
+      const { executePassPriority } = await import('./aiPriorityPassCombatExecutors.js');
+      await executePassPriority(io, gameId, playerId);
+    } else {
+      debug(1, '[AI] handleAIGameFlow: AI player has left the game, skipping:', { gameId, playerId });
+    }
     return;
   }
   
@@ -134,27 +139,15 @@ export async function handleAIGameFlow(
         const keepHand = await handleAIMulligan(io, gameId, playerId);
         
         if (keepHand) {
-          // Keep the hand
           debug(1, '[AI] AI keeping hand');
-          
-          (game.state as any).mulliganState = (game.state as any).mulliganState || {};
-          (game.state as any).mulliganState[playerId] = {
-            hasKeptHand: true,
-            mulligansTaken: aiMulliganState?.mulligansTaken || 0,
-          };
-          
-          // Bump sequence to propagate state change
-          if (typeof (game as any).bumpSeq === 'function') {
-            (game as any).bumpSeq();
-          }
-          
-          debug(1, '[AI] AI is ready to start game (hand kept)');
-          
-          // Broadcast updated state so human players see AI has kept hand
-          broadcastGame(io, game, gameId);
-          await tryAutoStartGameFromPreGame(io, game, gameId, 'ai_keep_hand');
-          
-          // After keeping hand, re-trigger game flow if still pre-game
+          await commitAIKeepHand(
+            io,
+            game,
+            gameId,
+            playerId,
+            aiMulliganState?.mulligansTaken || 0,
+            'ai_keep_hand',
+          );
           scheduleAIGameFlow(io, gameId, playerId, AI_THINK_TIME_MS);
           return;
         } else {
@@ -167,14 +160,14 @@ export async function handleAIGameFlow(
           // Check if player can still mulligan (max 7 mulligans = 0 cards)
           if (newMulliganCount > 7) {
             debugWarn(1, '[AI] AI cannot mulligan further - would have 0 cards');
-            // Force keep the hand
-            (game.state as any).mulliganState = (game.state as any).mulliganState || {};
-            (game.state as any).mulliganState[playerId] = {
-              hasKeptHand: true,
-              mulligansTaken: currentMulligans,
-            };
-            broadcastGame(io, game, gameId);
-            await tryAutoStartGameFromPreGame(io, game, gameId, 'ai_forced_keep');
+            await commitAIKeepHand(
+              io,
+              game,
+              gameId,
+              playerId,
+              currentMulligans,
+              'ai_forced_keep',
+            );
             scheduleAIGameFlow(io, gameId, playerId, AI_THINK_TIME_MS);
             return;
           }
@@ -246,6 +239,13 @@ export async function handleAIGameFlow(
       }
       
       // AI has already kept hand — try auto-start once the table is ready
+      const waitingForKeep = (players || [])
+        .filter((p: any) => p && !p.spectator && !p.isSpectator)
+        .filter((p: any) => !(mulliganState?.[p.id]?.hasKeptHand))
+        .map((p: any) => p.id);
+      if (waitingForKeep.length > 0) {
+        debug(1, '[AI] Pregame waiting for keep', { gameId, playerId, waitingForKeep });
+      }
       await tryAutoStartGameFromPreGame(io, game, gameId, 'ai_pregame_ready');
     }
     return;
@@ -259,7 +259,9 @@ export async function handleAIGameFlow(
 
   // Resume/reconnect: resolve this AI's pending prompts even when another player has priority.
   // Those steps block global priority passing and are not re-fired as STEP_ADDED after load.
-  if (!hasPriority && !isCleanupStep) {
+  // Cleanup also needs this: bounce-land return choices can open during cleanup, when
+  // priority is withheld (Rule 514.1) and the previous `!isCleanupStep` skip deadlocked.
+  if (!hasPriority) {
     try {
       if (ResolutionQueueManager.playerHasPendingSteps(gameId, playerId)) {
         const queue = ResolutionQueueManager.getQueue(gameId);

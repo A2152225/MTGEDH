@@ -1,7 +1,7 @@
 /**
  * Origin parent: oracleIRExecutorCreatureStepUtils.ts
  * Cluster moved: P/T comparison readers, attacking/blocking helpers, permanentHasKeyword
- * Public: isAttackingPermanent, permanentHasKeyword, readPowerForComparison,
+ * Public: isAttackingPermanent, isBlockingPermanent, permanentHasKeyword, readPowerForComparison,
  *   readCreatureStatForComparison, readToughnessForComparison, resolveBlockersOfPermanent,
  *   resolveBlockingCreatureIds, isUnblockedAttackingPermanent
  */
@@ -49,7 +49,23 @@ export function readCreatureStatForComparison(
 }
 
 export function isAttackingPermanent(permanent: BattlefieldPermanent | any): boolean {
-  return Boolean((permanent as any)?.attacking || (permanent as any)?.defendingPlayerId || (permanent as any)?.attackingPlayerId);
+  if (!permanent) return false;
+  if ((permanent as any)?.isAttacking === true) return true;
+  return Boolean(
+    (permanent as any)?.attacking
+    || (permanent as any)?.defendingPlayerId
+    || (permanent as any)?.attackingPlayerId,
+  );
+}
+
+export function isBlockingPermanent(permanent: BattlefieldPermanent | any): boolean {
+  if (!permanent) return false;
+  if ((permanent as any)?.isBlocking === true) return true;
+  const blocking = (permanent as any)?.blocking;
+  if (blocking === true) return true;
+  if (Array.isArray(blocking) && blocking.length > 0) return true;
+  if (typeof blocking === 'string' && blocking.trim()) return true;
+  return false;
 }
 
 export function resolveBlockersOfPermanent(state: GameState, blockedPermanentId: string): string[] {

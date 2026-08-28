@@ -28,6 +28,7 @@ import {
 } from "../../../../shared/src/controlledCreatureCombatGate.js";
 import { sanitizeOracleTextForStaticEffectScan } from "../../../../rules-engine/src/staticEffectOracleSanitize.js";
 import { protectionPreventsSource } from "../../state/modules/combat-mechanics.js";
+import { getContinuousGrantedAbilitiesForPermanent } from "../../state/modules/staticEffectSpec.js";
 import { getEffectivePower } from "../util.js";
 import { debug } from "../../utils/debug.js";
 
@@ -381,13 +382,15 @@ export function getTemporaryCombatAbilityTexts(permanent: any): string[] {
     ...(Array.isArray(permanent?.tempAbilities) ? permanent.tempAbilities : []),
     ...(Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : []),
     ...(Array.isArray(permanent?.temporaryAbilities) ? permanent.temporaryAbilities : []),
+    ...(Array.isArray(permanent?.temporaryEffects) ? permanent.temporaryEffects : []),
   ]
     .map((entry: any) => {
       if (typeof entry === 'string') {
         return entry;
       }
-      if (entry && typeof entry === 'object' && typeof entry.ability === 'string') {
-        return entry.ability;
+      if (entry && typeof entry === 'object') {
+        if (typeof entry.ability === 'string') return entry.ability;
+        if (typeof entry.description === 'string') return entry.description;
       }
       return '';
     })
@@ -453,10 +456,20 @@ export function getControlledCreatureGateViolationForPermanent(
   });
 }
 
+function continuousGrantState(battlefield: any[] = [], gameState?: unknown): unknown {
+  if (gameState && typeof gameState === 'object') {
+    const record = gameState as { battlefield?: unknown };
+    if (Array.isArray(record.battlefield)) return gameState;
+    return { ...(gameState as object), battlefield };
+  }
+  return { battlefield };
+}
+
 export function canPermanentAttack(
   permanent: any,
   battlefield: any[] = [],
-  controllerId?: string
+  controllerId?: string,
+  gameState?: unknown,
 ): { canAttack: boolean; reason?: string } {
   const creatureGate = getControlledCreatureGateViolationForPermanent(
     permanent,
@@ -478,6 +491,19 @@ export function canPermanentAttack(
     };
   }
   
+  const continuousAbilities = getContinuousGrantedAbilitiesForPermanent(
+    permanent,
+    continuousGrantState(battlefield, gameState),
+  );
+  if (continuousAbilities.some((ability) => ability === "can't attack")) {
+    return { canAttack: false, reason: "This creature cannot attack" };
+  }
+
+  const restrictionTexts = getTemporaryCombatAbilityTexts(permanent);
+  if (restrictionTexts.some((entry) => entry === "can't attack" || entry.includes("can't attack this turn"))) {
+    return { canAttack: false, reason: "This creature cannot attack" };
+  }
+
   // Check for defender
   const defenderCheck = hasEffectiveAbility(permanent, 'defender', battlefield, controllerId);
   
@@ -529,7 +555,8 @@ export function canBlockAttacker(
   blocker: any,
   attacker: any,
   battlefield: any[] = [],
-  blockerControllerId?: string
+  blockerControllerId?: string,
+  gameState?: unknown,
 ): { canBlock: boolean; reason?: string } {
   const creatureGate = getControlledCreatureGateViolationForPermanent(
     blocker,
@@ -555,6 +582,17 @@ export function canBlockAttacker(
     return {
       canBlock: false,
       reason: 'Unleashed creature has a +1/+1 counter',
+    };
+  }
+
+  const continuousBlockAbilities = getContinuousGrantedAbilitiesForPermanent(
+    blocker,
+    continuousGrantState(battlefield, gameState),
+  );
+  if (continuousBlockAbilities.some((ability) => ability === "can't block")) {
+    return {
+      canBlock: false,
+      reason: "Blocker can't block",
     };
   }
 

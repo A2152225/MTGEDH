@@ -404,10 +404,8 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
       if (spec.spellTypeFilter === 'NONCREATURE' && typeLine.includes('creature')) continue;
       if (spec.spellTypeFilter === 'CREATURE_SPELL' && !typeLine.includes('creature')) continue;
       if (spec.spellTypeFilter === 'INSTANT_SORCERY' && !typeLine.includes('instant') && !typeLine.includes('sorcery')) continue;
-      
-      // Don't target your own spells (usually)
-      if (stackItem.controller === caster) continue;
-      
+
+      // A spell can target any legal spell on the stack, including the caster's.
       out.push({ kind: 'stack', id: stackItem.id });
     }
     return out;

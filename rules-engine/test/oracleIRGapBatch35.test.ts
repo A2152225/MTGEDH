@@ -38,6 +38,7 @@ describe('Oracle IR gap batch 35 support', () => {
       'x life and you gain x',
       'until end of turn, that player can\'t cast spells, you may look at the top card of their library any time, you may play the top card of their library, and you may spend mana as though it were mana of any color to cast spells this way',
       'storied matriarch, return up to one target goblin card from your graveyard to your hand',
+      'return up to one target vampire card from your graveyard to your hand',
       'bert, and william die, if they were a creature, return them to the battlefield',
       'vehicles you control have crew 1',
       'you may move all counters from this permanent onto target creature',

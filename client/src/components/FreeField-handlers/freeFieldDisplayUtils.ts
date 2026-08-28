@@ -1,7 +1,7 @@
 // Origin parent: client/src/components/FreeField.tsx
 // Cluster moved: permanentIdsForPositionUpdate, parsePT, computeDisplayPT,
-// getPTColor, getLoyaltyColor, buildPTTooltip, getAbilityDisplay.
-// Public entry symbols: those seven functions.
+// getPTColor, getLoyaltyColor, buildPTTooltip, getAbilityDisplay, readPermanentDamageMarked.
+// Public entry symbols: those eight functions.
 // Leaf must not import FreeField.tsx or FreeField-handlers/index.ts.
 
 import type { BattlefieldPermanent, KnownCardRef } from '../../../../shared/src';
@@ -149,6 +149,11 @@ function getAbilityDisplay(abilityName: string): { short: string; color: string;
   };
 }
 
+/** Combat stores `markedDamage`; the remaining-health badge reads `damageMarked`. */
+function readPermanentDamageMarked(perm: { damageMarked?: number; markedDamage?: number; damageTaken?: number } | null | undefined): number {
+  return Number(perm?.damageMarked || perm?.markedDamage || perm?.damageTaken || 0);
+}
+
 export {
   permanentIdsForPositionUpdate,
   parsePT,
@@ -157,4 +162,5 @@ export {
   getLoyaltyColor,
   buildPTTooltip,
   getAbilityDisplay,
+  readPermanentDamageMarked,
 };

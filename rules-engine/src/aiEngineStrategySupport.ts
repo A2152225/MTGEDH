@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent } from '../../shared/src';
+import { getGoadedAttackers } from './actions/combat';
 import { AIDecisionType, type AIDecision, type AIDecisionContext, type AIPlayerConfig } from './AIEngine';
 
 function listActiveOpponentPlayers(gameState: AIDecisionContext['gameState'], playerId: string) {
@@ -13,14 +14,46 @@ function listActiveOpponentPlayers(gameState: AIDecisionContext['gameState'], pl
   );
 }
 
-function emptyAttackersDecision(playerId: string, reasoning: string, confidence = 0.8): AIDecision {
+function keepForcedAttackersWhenHolding(
+  decision: AIDecision,
+  context: AIDecisionContext,
+  holdReason: string,
+): AIDecision {
+  const goadedIds = new Set(getGoadedAttackers(context.gameState, context.playerId));
+  const attackers = (decision.action?.attackers || []).filter(
+    (attacker: { creatureId?: string }) => Boolean(attacker?.creatureId) && goadedIds.has(String(attacker.creatureId)),
+  );
   return {
-    type: AIDecisionType.DECLARE_ATTACKERS,
-    playerId,
-    action: { attackers: [] },
-    reasoning,
-    confidence,
+    ...decision,
+    action: { attackers },
+    reasoning: attackers.length > 0
+      ? `${holdReason}; attacking with ${attackers.length} goaded creature(s)`
+      : holdReason,
+    confidence: attackers.length > 0 ? 0.9 : 0.8,
   };
+}
+
+/** All strategies share one attack builder with universal combat sanity checks. */
+function makeStrategyAttackDecision(
+  context: AIDecisionContext,
+  config: AIPlayerConfig,
+  deps: {
+    makeBasicDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
+    getProcessedBattlefield?: (gameState: AIDecisionContext['gameState']) => BattlefieldPermanent[];
+    hasPermanentType?: (perm: BattlefieldPermanent, type: string) => boolean;
+    shouldAttack?: (context: AIDecisionContext) => boolean;
+    holdReason?: string;
+  },
+): AIDecision {
+  const decision = deps.makeBasicDecision(context, config);
+  if (deps.shouldAttack && !deps.shouldAttack(context)) {
+    return keepForcedAttackersWhenHolding(
+      decision,
+      context,
+      deps.holdReason || 'Strategy: holding attackers',
+    );
+  }
+  return decision;
 }
 
 function shouldDefensiveStrategyAttack(context: AIDecisionContext): boolean {
@@ -74,27 +107,6 @@ function shouldComboStrategyAttack(
     )
     : 0;
   return life > 15 || myCreatureCount > maxOpponentCreatures + 3;
-}
-
-/** All strategies share one attack builder with universal combat sanity checks. */
-function makeStrategyAttackDecision(
-  context: AIDecisionContext,
-  config: AIPlayerConfig,
-  deps: {
-    makeBasicDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
-    getProcessedBattlefield?: (gameState: AIDecisionContext['gameState']) => BattlefieldPermanent[];
-    hasPermanentType?: (perm: BattlefieldPermanent, type: string) => boolean;
-    shouldAttack?: (context: AIDecisionContext) => boolean;
-    holdReason?: string;
-  },
-): AIDecision {
-  if (deps.shouldAttack && !deps.shouldAttack(context)) {
-    return emptyAttackersDecision(
-      context.playerId,
-      deps.holdReason || 'Strategy: holding attackers',
-    );
-  }
-  return deps.makeBasicDecision(context, config);
 }
 
 export function makeAggressiveDecision(

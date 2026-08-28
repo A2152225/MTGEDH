@@ -1,29 +1,23 @@
 /**
  * librarySearchEffects.ts
- * 
- * Handles effects that modify or restrict library searching.
- * 
- * Key cards implemented:
- * - Aven Mindcensor: Search top 4 cards instead of entire library
- * - Leonin Arbiter: Players can't search libraries (can pay {2} to ignore)
- * - Stranglehold: Opponents can't search libraries
- * - Ob Nixilis, Unshackled: Opponent searches trigger sacrifice + life loss
- * - Opposition Agent: Control opponents while they search
- * - Ashiok, Dream Render: Opponents can't search libraries
- * - Shadow of Doubt: Players can't search libraries this turn
- * - Mindlock Orb: Players can't search libraries
- * - Maralen of the Mornsong: Players can't draw cards, search library at upkeep
+ *
+ * Oracle-pattern library-search restrictions. Live play uses
+ * evaluateLibrarySearchReplacementEvent; this helper is the same families
+ * without card-name routing.
+ *
+ * Families: can't-search / pay-to-ignore, top-N instead, opponent-controls-search,
+ * whenever-search triggers, this-turn duration.
  */
 
 /**
  * Library search restriction types
  */
 export type SearchRestrictionType = 
-  | 'cannot_search'           // Leonin Arbiter, Stranglehold, Ashiok
-  | 'limited_search'          // Aven Mindcensor (top N cards only)
-  | 'search_triggers_effect'  // Ob Nixilis (triggers on search)
-  | 'opponent_controls'       // Opposition Agent
-  | 'pay_to_search';          // Leonin Arbiter ({2} to ignore)
+  | 'cannot_search'
+  | 'limited_search'
+  | 'search_triggers_effect'
+  | 'opponent_controls'
+  | 'pay_to_search';
 
 /**
  * Library search restriction effect
@@ -55,73 +49,22 @@ export interface SearchRestrictionResult {
   readonly reason?: string;
 }
 
-/**
- * Known cards with library search restrictions
- */
-export const KNOWN_SEARCH_RESTRICTIONS: Record<string, Omit<LibrarySearchRestriction, 'id' | 'sourceId' | 'controllerId'>> = {
-  "aven mindcensor": {
-    sourceName: "Aven Mindcensor",
-    type: 'limited_search',
-    affectsOpponents: true,
-    affectsSelf: false,
-    limitedSearchCount: 4,
-    duration: 'permanent',
-  },
-  "leonin arbiter": {
-    sourceName: "Leonin Arbiter",
-    type: 'pay_to_search',
-    affectsOpponents: true,
-    affectsSelf: true,
-    paymentToIgnore: "{2}",
-    duration: 'permanent',
-  },
-  "stranglehold": {
-    sourceName: "Stranglehold",
-    type: 'cannot_search',
-    affectsOpponents: true,
-    affectsSelf: false,
-    duration: 'permanent',
-  },
-  "ob nixilis, unshackled": {
-    sourceName: "Ob Nixilis, Unshackled",
-    type: 'search_triggers_effect',
-    affectsOpponents: true,
-    affectsSelf: false,
-    triggerEffect: "Sacrifice a creature and lose 10 life",
-    duration: 'permanent',
-  },
-  "opposition agent": {
-    sourceName: "Opposition Agent",
-    type: 'opponent_controls',
-    affectsOpponents: true,
-    affectsSelf: false,
-    duration: 'permanent',
-  },
-  "ashiok, dream render": {
-    sourceName: "Ashiok, Dream Render",
-    type: 'cannot_search',
-    affectsOpponents: true,
-    affectsSelf: false,
-    duration: 'permanent',
-  },
-  "mindlock orb": {
-    sourceName: "Mindlock Orb",
-    type: 'cannot_search',
-    affectsOpponents: true,
-    affectsSelf: true,
-    duration: 'permanent',
-  },
-  "shadow of doubt": {
-    sourceName: "Shadow of Doubt",
-    type: 'cannot_search',
-    affectsOpponents: true,
-    affectsSelf: true,
-    duration: 'until_end_of_turn',
-  },
-};
+function cannotSearchAudience(oracleText: string): { affectsOpponents: boolean; affectsSelf: boolean } {
+  if (/players can(?:not|'t)\s+search/i.test(oracleText)) {
+    return { affectsOpponents: true, affectsSelf: true };
+  }
+  const affectsOpponents = /\bopponents?\b/.test(oracleText);
+  return { affectsOpponents, affectsSelf: !affectsOpponents };
+}
+
+function hasCannotSearchClause(oracleText: string): boolean {
+  return /can(?:not|'t)\s+search/i.test(oracleText)
+    || /can(?:not|'t)\s+cause\b[^.]*\bsearch/i.test(oracleText);
+}
 
 /**
- * Detect library search restrictions from a permanent's oracle text
+ * Detect library search restrictions from a permanent's oracle text.
+ * No card-name routing — live play uses evaluateLibrarySearchReplacementEvent.
  */
 export function detectSearchRestrictions(
   card: { name?: string; oracle_text?: string },
@@ -129,40 +72,55 @@ export function detectSearchRestrictions(
   controllerId: string
 ): LibrarySearchRestriction[] {
   const restrictions: LibrarySearchRestriction[] = [];
-  const cardName = (card.name || '').toLowerCase();
   const oracleText = (card.oracle_text || '').toLowerCase();
-  
-  // Check known cards first
-  for (const [knownName, info] of Object.entries(KNOWN_SEARCH_RESTRICTIONS)) {
-    if (cardName.includes(knownName)) {
-      restrictions.push({
-        id: `${permanentId}-search-restriction`,
-        sourceId: permanentId,
-        controllerId,
-        ...info,
-      });
-      return restrictions; // Known card found, no need for generic detection
-    }
-  }
-  
-  // Generic detection for "can't search" effects
-  if (oracleText.includes("can't search") || oracleText.includes("cannot search")) {
-    const affectsOpponents = oracleText.includes("opponent") || oracleText.includes("your opponents");
-    const affectsSelf = !affectsOpponents || oracleText.includes("players can't search");
-    
+  const sourceName = card.name || 'Unknown';
+
+  const payMatch = oracleText.match(/pay\s+(\{[^}]+\})/i);
+  if (
+    payMatch
+    && hasCannotSearchClause(oracleText)
+    && /ignore this effect/i.test(oracleText)
+  ) {
     restrictions.push({
       id: `${permanentId}-search-restriction`,
       sourceId: permanentId,
-      sourceName: card.name || 'Unknown',
+      sourceName,
+      controllerId,
+      type: 'pay_to_search',
+      affectsOpponents: true,
+      affectsSelf: true,
+      paymentToIgnore: payMatch[1],
+      duration: 'permanent',
+    });
+  } else if (hasCannotSearchClause(oracleText)) {
+    const { affectsOpponents, affectsSelf } = cannotSearchAudience(oracleText);
+    const duration =
+      /\bthis turn\b/.test(oracleText) ? 'until_end_of_turn' : 'permanent';
+    restrictions.push({
+      id: `${permanentId}-search-restriction`,
+      sourceId: permanentId,
+      sourceName,
       controllerId,
       type: 'cannot_search',
       affectsOpponents,
       affectsSelf,
+      duration,
+    });
+  }
+
+  if (/you control (?:your )?opponents? while (?:they(?:'re| are)) searching/i.test(oracleText)) {
+    restrictions.push({
+      id: `${permanentId}-search-control`,
+      sourceId: permanentId,
+      sourceName,
+      controllerId,
+      type: 'opponent_controls',
+      affectsOpponents: true,
+      affectsSelf: false,
       duration: 'permanent',
     });
   }
-  
-  // Generic detection for "searches the top N cards" effects
+
   const topNMatch = oracleText.match(/search(?:es)?\s+(?:the\s+)?top\s+(\d+|four|three|five|six|seven)\s+cards?/i);
   if (topNMatch) {
     const countStr = topNMatch[1].toLowerCase();
@@ -170,32 +128,29 @@ export function detectSearchRestrictions(
       'three': 3, 'four': 4, 'five': 5, 'six': 6, 'seven': 7
     };
     const count = countMap[countStr] || parseInt(countStr, 10) || 4;
-    
+
     restrictions.push({
       id: `${permanentId}-limited-search`,
       sourceId: permanentId,
-      sourceName: card.name || 'Unknown',
+      sourceName,
       controllerId,
       type: 'limited_search',
-      affectsOpponents: oracleText.includes("opponent"),
-      affectsSelf: !oracleText.includes("opponent"),
+      affectsOpponents: oracleText.includes('opponent'),
+      affectsSelf: !oracleText.includes('opponent'),
       limitedSearchCount: count,
       duration: 'permanent',
     });
   }
-  
-  // Generic detection for "whenever a player/opponent searches"
-  if (oracleText.includes("whenever") && oracleText.includes("search")) {
-    const affectsOpponents = oracleText.includes("opponent");
-    
-    // Extract the effect (text after the trigger condition)
+
+  if (oracleText.includes('whenever') && oracleText.includes('search')) {
+    const affectsOpponents = oracleText.includes('opponent');
     const effectMatch = oracleText.match(/whenever.*?search.*?(?:library|libraries),?\s*([^.]+)/i);
     const triggerEffect = effectMatch ? effectMatch[1].trim() : 'triggered effect';
-    
+
     restrictions.push({
       id: `${permanentId}-search-trigger`,
       sourceId: permanentId,
-      sourceName: card.name || 'Unknown',
+      sourceName,
       controllerId,
       type: 'search_triggers_effect',
       affectsOpponents,
@@ -204,7 +159,7 @@ export function detectSearchRestrictions(
       duration: 'permanent',
     });
   }
-  
+
   return restrictions;
 }
 
@@ -353,7 +308,6 @@ export function createSearchRestrictionMessage(result: SearchRestrictionResult):
 }
 
 export default {
-  KNOWN_SEARCH_RESTRICTIONS,
   detectSearchRestrictions,
   getActiveSearchRestrictions,
   checkSearchRestrictions,

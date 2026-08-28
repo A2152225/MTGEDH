@@ -291,7 +291,7 @@ export function findCastableCommander(
       }
       return true;
     })
-    .find((entry) => entry.cost && canAIAssembleSpellPaymentPlan(game, playerId, entry.payableCost || entry.cost)) || null;
+    .find((entry) => entry.cost && canAIAssembleSpellPaymentPlan(game, playerId, entry.payableCost || entry.cost, undefined, entry.card)) || null;
 
   if (!candidate) {
     debug(2, '[AI] No castable commanders found', {

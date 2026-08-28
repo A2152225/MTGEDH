@@ -68,6 +68,21 @@ describe('AI combat-dependent spell context', () => {
 
     expect(isAISpellContextuallyUseful(attackingAI, 'ai' as any, fog)).toBe(true);
     expect(isAISpellContextuallyUseful(attackingBystander, 'ai' as any, fog)).toBe(false);
+
+    const attackingWalker = buildGame([
+      {
+        id: 'jace',
+        controller: 'ai',
+        card: { name: 'Jace, the Mind Sculptor', type_line: 'Legendary Planeswalker — Jace' },
+      },
+      {
+        id: 'bear',
+        controller: 'attacker',
+        attacking: 'jace',
+        card: { name: 'Bear', type_line: 'Creature — Bear', toughness: '2' },
+      },
+    ]);
+    expect(isAISpellContextuallyUseful(attackingWalker, 'ai' as any, fog)).toBe(true);
     expect(isAISpellContextuallyUseful(attackingAI, 'ai' as any, selflessSquire)).toBe(true);
     expect(isAISpellContextuallyUseful(attackingBystander, 'ai' as any, selflessSquire)).toBe(false);
   });

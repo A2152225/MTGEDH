@@ -37,6 +37,8 @@ import {
 } from "./phaseWhoseTurn.js";
 import { detectKeywords } from "../keyword-detection.js";
 import { getActualPowerToughness, normalizeCardNameForOracleText } from "../../utils.js";
+import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.js";
+import { parseAnyTargetThatIsntCreatureType } from "./damage-redirect-target-type.js";
 import { detectAttackTriggers } from "./attack-detection.js";
 import { detectBlockTriggers } from "./block-detection.js";
 import type { BlockTrigger } from "./block-trigger-type.js";
@@ -67,7 +69,7 @@ export {
 
 export type { AttachmentAttackTrigger } from "./attachment-attack-detection.js";
 
-const ATTACK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:annihilator\s+\d+|firebending\s+\d+|melee|myriad|exalted|battle cry|dethrone|mentor|training)\b/i;
+const ATTACK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:annihilator\s+\d+|firebending\s+(?:\d+|x(?:,\s*where x is [^.]+)?)|melee|myriad|exalted|battle cry|dethrone|mentor|training)\b/i;
 const BLOCK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:afflict\s+\d+|bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
 
 /** Names used in oracle text (~, comma-short, or "Svyelun of Sea and Sky" -> "Svyelun"). */
@@ -528,7 +530,7 @@ export interface DamageReceivedTriggerInfo {
   sourceName: string;
   controller: string;
   damageAmount: number;
-  targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'each_opponent' | 'controller' | 'opponent_or_planeswalker';
+  targetType: 'opponent' | 'any' | `any_non_${string}` | 'chosen_player' | 'each_opponent' | 'controller' | 'opponent_or_planeswalker';
   targetRestriction?: string;
 }
 
@@ -566,18 +568,19 @@ export function checkDamageReceivedTrigger(
   if (!hasTrigger) return null;
   
   // Determine target type from oracle text
-  let targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'each_opponent' | 'controller' | 'opponent_or_planeswalker' = 'any';
+  let targetType: 'opponent' | 'any' | `any_non_${string}` | 'chosen_player' | 'each_opponent' | 'controller' | 'opponent_or_planeswalker' = 'any';
   let targetRestriction = '';
   
+  const anyNonType = parseAnyTargetThatIsntCreatureType(oracleText);
   if (oracleText.includes("target opponent or planeswalker")) {
     targetType = 'opponent_or_planeswalker';
     targetRestriction = 'opponent or planeswalker';
   } else if (oracleText.includes("target opponent")) {
     targetType = 'opponent';
     targetRestriction = 'opponent';
-  } else if (oracleText.includes("any target that isn't a dragon")) {
-    targetType = 'any_non_dragon';
-    targetRestriction = "that isn't a Dragon";
+  } else if (anyNonType) {
+    targetType = anyNonType.targetType;
+    targetRestriction = anyNonType.targetRestriction;
   } else if (oracleText.includes("the chosen player")) {
     targetType = 'chosen_player';
     targetRestriction = 'chosen player';
@@ -695,8 +698,15 @@ export function getBlockedTriggersForCreatures(
   for (const attacker of blockedCreatures) {
     if (!attacker) continue;
 
-    const keywordText = String(attacker?.card?.oracle_text || '') ||
-      (Array.isArray(attacker?.card?.keywords) ? (attacker?.card?.keywords || []).join('\n') : '');
+    const grantedKeywordText = [
+      ...(Array.isArray(attacker?.grantedAbilities) ? attacker.grantedAbilities : []),
+      ...getContinuousGrantedAbilitiesForPermanent(attacker, ctx.state),
+    ].join('\n');
+    const keywordText = [
+      String(attacker?.card?.oracle_text || ''),
+      Array.isArray(attacker?.card?.keywords) ? (attacker?.card?.keywords || []).join('\n') : '',
+      grantedKeywordText,
+    ].filter(Boolean).join('\n');
     const blockKeywords = detectKeywords(keywordText, attacker?.card?.name || 'Unknown').keywords
       .filter((keyword) => keyword.timing === 'blocks');
     if (blockKeywords.length === 0) continue;

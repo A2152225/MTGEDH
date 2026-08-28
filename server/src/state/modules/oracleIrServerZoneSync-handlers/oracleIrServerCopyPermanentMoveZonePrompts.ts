@@ -116,6 +116,7 @@ function buildMoveZoneLibrarySearchPrompt(
     remainderPlayerChoosesOrder: built.remainderPlayerChoosesOrder,
     availableCards,
     nonSelectableCards,
+    selectableCardIds: [...selectableIds],
     filter: built.filter,
     searchZone: built.searchZone,
     persistLibrarySearchResolve: true,
@@ -160,13 +161,19 @@ function collectMoveZoneChoiceSteps(
   for (const step of result.skippedSteps || []) {
     if (step.kind !== 'move_zone') continue;
     const moveStep = step as Extract<OracleEffectStep, { kind: 'move_zone' }>;
-    const isDestinationChoiceGap = (result.automationGaps || []).some((gap) => {
+    const matchingGaps = (result.automationGaps || []).filter((gap) => {
       if (String(gap.stepKind || '') !== 'move_zone') return false;
+      return findSkippedOracleStep(result, gap) === moveStep
+        || String(gap.raw || '') === String((moveStep as any).raw || '');
+    });
+    const isDestinationChoiceGap = matchingGaps.some((gap) => {
       const destinations = (gap.metadata as any)?.moveZoneDestinationChoice;
-      if (!Array.isArray(destinations) || destinations.length === 0) return false;
-      return findSkippedOracleStep(result, gap) === moveStep;
+      return Array.isArray(destinations) && destinations.length > 0;
     });
     if (isDestinationChoiceGap) continue;
+    // Unsupported / impossible skips must not re-queue the same LIBRARY_SEARCH
+    // (Emeria upkeep reanimate looped when a non-creature pick failed to apply).
+    if (!matchingGaps.some((gap) => isOracleIrPlayerChoiceGap(gap))) continue;
     if (isLandPlayFromHandStep(moveStep)) continue;
     const key = `${String((moveStep as any).raw || '')}:${String((moveStep.what as any)?.text || '')}`;
     if (seen.has(key)) continue;

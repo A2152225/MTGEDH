@@ -34,6 +34,22 @@ describe('oracle quantity helpers', () => {
     expect(unknowns).toHaveLength(0);
   });
 
+  it('parses draw a card for each other subtype you control as reference_amount', () => {
+    expect(parseQuantity('a card for each other Dinosaur you control')).toEqual({
+      kind: 'reference_amount',
+      raw: 'a card for each other dinosaur you control',
+    });
+    const ir = parseOracleTextToIR(
+      'When this creature enters, draw a card for each other Dinosaur you control.',
+      'Earthshaker Dreadmaw',
+    );
+    const draw = ir.abilities.flatMap(a => a.steps).find(s => s.kind === 'draw');
+    expect((draw as any)?.amount).toEqual({
+      kind: 'reference_amount',
+      raw: 'a card for each other dinosaur you control',
+    });
+  });
+
   it('parses impulse exile until instant or sorcery quantity', () => {
     expect(parseQuantity('until they exile an instant or sorcery card')).toEqual({
       kind: 'reference_amount',

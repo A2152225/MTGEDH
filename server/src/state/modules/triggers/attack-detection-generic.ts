@@ -135,8 +135,11 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
     });
   }
 
+  // Same self-referents as ETB_STATIC_ALTERNATIVES (this permanent, this enchantment, …).
+  // Duskmourn Overlords: "Whenever this permanent enters or attacks, …"
+  const attackSelfSubject = `~|this creature|this permanent|this enchantment|this artifact|this land|this planeswalker|this vehicle|(?:${attackNameVariants.join('|')})`;
   const selfEntersOrAttacksPattern = new RegExp(
-    `whenever\\s+(?:~|this creature|this vehicle|(?:${attackNameVariants.join('|')}))\\s+enters(?: the battlefield)?\\s+or\\s+attacks,?\\s*([^.]+)`,
+    `whenever\\s+(?:${attackSelfSubject})\\s+enters(?: the battlefield)?\\s+or\\s+attacks,?\\s*([^.]+)`,
     'i',
   );
 
@@ -154,8 +157,27 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
     });
   }
 
+  const equippedCreatureAttacksOrBlocksMatch = oracleText.match(
+    /whenever equipped creature attacks or blocks,?\s*([^.]+)/i,
+  );
+  if (
+    equippedCreatureAttacksOrBlocksMatch
+    && !triggers.some((t) => t.triggerType === 'equipped_creature_attacks_or_blocks')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, equippedCreatureAttacksOrBlocksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'equipped_creature_attacks_or_blocks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   const attacksOrDiesAttackMatch = oracleText.match(
-    new RegExp(`whenever\\s+(?:~|this creature|this vehicle|(?:${attackNameVariants.join('|')}))\\s+attacks\\s+or\\s+dies,?\\s*([^.]+)`, 'i'),
+    new RegExp(`whenever\\s+(?:${attackSelfSubject})\\s+attacks\\s+or\\s+dies,?\\s*([^.]+)`, 'i'),
   );
   if (attacksOrDiesAttackMatch && !triggers.some((t) => t.triggerType === 'attacks_or_dies')) {
     const effectText = timingTriggerEffect(oracleText, attacksOrDiesAttackMatch);
@@ -202,7 +224,8 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      controlledOnly: true,
+    } as any);
   }
 
   const attackInBandMatch = oracleText.match(
@@ -338,7 +361,8 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      requiredTypePhrase: String(thisAndTypedAttackMatch[1] || '').trim(),
+    } as any);
   }
 
   const nontokenCreatureAttacksMatch = oracleText.match(
@@ -411,7 +435,8 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
         description: effectText,
         effect: effectText,
         mandatory: !effectText.toLowerCase().includes('you may'),
-      });
+        requiredTypePhrase: String(anotherTypedCreatureAttacksMatch[1] || '').trim(),
+      } as any);
     }
   }
 
@@ -429,10 +454,28 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
     });
   }
 
+  // Vengeful Ancestor: "Whenever a goaded creature attacks, it deals 1 damage to its controller."
+  const goadedCreatureAttacksMatch = oracleText.match(
+    /whenever a goaded creature(?: you control)? attacks,?\s*([^.]+)/i,
+  );
+  if (goadedCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'goaded_creature_attacks')) {
+    const effectText = timingTriggerEffect(oracleText, goadedCreatureAttacksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'goaded_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   // Soulblade Corrupter: "Whenever a creature with a +1/+1 counter on it attacks one of your opponents"
   // Also covers "a creature you control with a +1/+1 counter on it attacks"
+  // Soulblade Corrupter: +1/+1. Skyboon Evangelist: any counter, attacking an opponent.
   const counterCreatureAttacksMatch = oracleText.match(
-    /whenever a creature(?: you control)? with a \+1\/\+1 counter on it attacks(?:\s+(?:one of your opponents|an opponent|a player))?,?\s*([^.]+)/i,
+    /whenever a creature(?: you control)? with a(?: \+1\/\+1)? counter on it attacks(?:\s+(?:one of your opponents|an opponent|a player))?,?\s*([^.]+)/i,
   );
   if (counterCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'counter_creature_attacks')) {
     const effectText = timingTriggerEffect(oracleText, counterCreatureAttacksMatch);
@@ -447,6 +490,7 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
       mandatory: !effectText.toLowerCase().includes('you may'),
       controlledOnly: /\ba creature you control\b/i.test(matchText),
       requiresOpponentDefender: /\battacks(?:\s+one of your opponents|\s+an opponent)/i.test(matchText),
+      anyCounter: !/\+1\/\+1/.test(matchText),
     } as any);
   }
 
@@ -471,16 +515,20 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
     /whenever a ([\w]+(?: or [\w]+)*) you control attacks alone,?\s*([^.]+)/i,
   );
   if (typedAttacksAloneMatch && !triggers.some((t) => t.triggerType === 'typed_attacks_alone')) {
-    const effectText = timingTriggerEffect(oracleText, typedAttacksAloneMatch, 2);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'typed_attacks_alone',
-      description: effectText,
-      effect: effectText,
-      mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+    const requiredTypePhrase = String(typedAttacksAloneMatch[1] || '').trim();
+    if (!/^(?:creatures?|permanents?)$/i.test(requiredTypePhrase)) {
+      const effectText = timingTriggerEffect(oracleText, typedAttacksAloneMatch, 2);
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'typed_attacks_alone',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+        requiredTypePhrase,
+      } as any);
+    }
   }
 
   const creatureAttacksAloneMatch = oracleText.match(
@@ -559,7 +607,7 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
   }
 
   const attacksOrBlocksMatch = oracleText.match(
-    new RegExp(`when(?:ever)? (?:~|this creature|(?:${attackNameVariants.join('|')})) attacks or blocks,?\\s*([^.]+)`, 'i'),
+    new RegExp(`when(?:ever)? (?:${attackSelfSubject}) attacks or blocks,?\\s*([^.]+)`, 'i'),
   );
   if (attacksOrBlocksMatch && !triggers.some((t) => t.triggerType === 'attacks_or_blocks')) {
     const effectText = timingTriggerEffect(oracleText, attacksOrBlocksMatch);
@@ -648,7 +696,7 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
   }
 
   const typedSubtypeAttacksMatch = oracleText.match(
-    /whenever an? ([\w]+(?: or [\w]+)*) you control attacks,?\s*([^.]+)/i,
+    /whenever an? ([\w]+(?: or [\w]+)*)(?: you control)? attacks,?\s*([^.]+)/i,
   );
   const typedSubtypeExcluded = new Set([
     'creature',
@@ -665,14 +713,15 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
     typedSubtypeAttacksMatch &&
     !typedSubtypeExcluded.has(String(typedSubtypeAttacksMatch[1] || '').trim().toLowerCase()) &&
     !/\bcreature\b/i.test(String(typedSubtypeAttacksMatch[1] || '')) &&
-    !triggers.some((t) => t.triggerType === 'typed_subtype_attacks')
+    !triggers.some((t) => t.triggerType === 'typed_subtype_attacks' || t.triggerType === 'typed_subtype_attacks_any')
   ) {
     const effectText = timingTriggerEffect(oracleText, typedSubtypeAttacksMatch, 2);
+    const anyController = !/\byou control\b/i.test(String(typedSubtypeAttacksMatch[0] || ''));
     triggers.push({
       permanentId,
       cardName,
       controllerId,
-      triggerType: 'typed_subtype_attacks',
+      triggerType: anyController ? 'typed_subtype_attacks_any' : 'typed_subtype_attacks',
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
@@ -681,26 +730,31 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
   }
 
   const typedCreatureAttacksMatch = oracleText.match(
-    /whenever an? (?:[\w]+\s+)+creature you control attacks,?\s*([^.]+)/i,
+    /whenever an? ((?:[\w-]+\s+)+)creature you control attacks,?\s*([^.]+)/i,
   );
+  const typedCreatureQualifier = String(typedCreatureAttacksMatch?.[1] || '').trim();
   if (
     typedCreatureAttacksMatch &&
+    typedCreatureQualifier &&
+    !/^goaded$/i.test(typedCreatureQualifier) &&
     !lowerOracle.includes('a creature you control attacks') &&
     !lowerOracle.includes('nontoken creature you control attacks') &&
     !lowerOracle.includes('another creature you control attacks') &&
     !lowerOracle.includes('equipped creature you control attacks') &&
     !lowerOracle.includes('modified creature you control attacks') &&
-    !triggers.some((t) => t.triggerType === 'typed_creature_attacks')
+    !triggers.some((t) => t.triggerType === 'typed_creature_attacks' || t.triggerType === 'goaded_creature_attacks')
   ) {
-    const effectText = timingTriggerEffect(oracleText, typedCreatureAttacksMatch);
+    const effectText = timingTriggerEffect(oracleText, typedCreatureAttacksMatch, 2);
     triggers.push({
       permanentId,
       cardName,
+      controllerId,
       triggerType: 'typed_creature_attacks',
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      requiredTypePhrase: typedCreatureQualifier,
+    } as any);
   }
 
   const deathtouchCreatureAttacksMatch = oracleText.match(
@@ -713,6 +767,96 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
       cardName,
       controllerId,
       triggerType: 'deathtouch_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    } as any);
+  }
+
+  const menaceCreatureAttacksMatch = oracleText.match(
+    /whenever a creature you control with menace attacks,?\s*([^.]+)/i,
+  );
+  if (menaceCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'menace_creature_attacks')) {
+    const effectText = timingTriggerEffect(oracleText, menaceCreatureAttacksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'menace_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    } as any);
+  }
+
+  const enteredThisTurnAttacksMatch = oracleText.match(
+    /whenever a creature you control that entered(?: the battlefield)? this turn attacks,?\s*([^.]+)/i,
+  );
+  if (enteredThisTurnAttacksMatch && !triggers.some((t) => t.triggerType === 'entered_this_turn_attacks')) {
+    const effectText = timingTriggerEffect(oracleText, enteredThisTurnAttacksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'entered_this_turn_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const basePtAttacksMatch = oracleText.match(
+    /whenever a creature you control with base power and toughness (\d+)\/(\d+) attacks,?\s*([^.]+)/i,
+  );
+  if (basePtAttacksMatch && !triggers.some((t) => t.triggerType === 'base_pt_creature_attacks')) {
+    const effectText = timingTriggerEffect(oracleText, basePtAttacksMatch, 3);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'base_pt_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      basePower: parseInt(String(basePtAttacksMatch[1] || ''), 10),
+      baseToughness: parseInt(String(basePtAttacksMatch[2] || ''), 10),
+    } as any);
+  }
+
+  const ownButDontControlAttacksMatch = oracleText.match(
+    /whenever a creature you own but don't control attacks,?\s*([^.]+)/i,
+  );
+  if (
+    ownButDontControlAttacksMatch
+    && !triggers.some((t) => t.triggerType === 'own_but_dont_control_attacks')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, ownButDontControlAttacksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'own_but_dont_control_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const manaAbilityCreatureAttacksMatch = oracleText.match(
+    /whenever a creature you control with a mana ability attacks,?\s*([^.]+)/i,
+  );
+  if (
+    manaAbilityCreatureAttacksMatch
+    && !triggers.some((t) => t.triggerType === 'mana_ability_creature_attacks')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, manaAbilityCreatureAttacksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'mana_ability_creature_attacks',
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),

@@ -13,6 +13,8 @@
 import type { GameContext } from "../../context.js";
 import type { PlayerID } from "../../../../../shared/src/index.js";
 import { checkThassasOracleWin } from "../../../../../rules-engine/src/winEffectCards.js";
+import { markPlayerOutOfPriority } from "../priorityEligibility.js";
+import { removeLeavingPlayerGameObjects } from "../playerLeavingGame.js";
 import { collectOraclePatternWinConditions, sourcePermanentHasDevotionLibraryWin } from "./gameStateEffectsWinConditionOraclePatterns.js";
 import {
   collectOraclePatternLoseGameReplacementSpecsFromState,
@@ -385,14 +387,8 @@ export function applyEmptyLibraryDrawConsequences(
     player.lostReason = result.reason || 'Attempted to draw from an empty library';
     player.lossReason = player.lostReason;
     applied.push(playerId);
-    try {
-      if (!(ctx as any).inactive || !((ctx as any).inactive instanceof Set)) {
-        (ctx as any).inactive = new Set<string>();
-      }
-      (ctx as any).inactive.add(playerId);
-    } catch {
-      // best-effort
-    }
+    markPlayerOutOfPriority(ctx as any, playerId);
+    removeLeavingPlayerGameObjects(state, playerId, { gameId: String((ctx as any).gameId || '') });
   }
 
   return { applied, wins, ignored };

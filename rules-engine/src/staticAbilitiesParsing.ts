@@ -15,6 +15,7 @@ export function parseStaticAbilities(
 ): StaticAbility[] {
   const abilities: StaticAbility[] = [];
   const oracleText = sanitizeOracleTextForStaticEffectScan(card.oracle_text || '').toLowerCase();
+  if (!oracleText) return abilities;
   const name = card.name || '';
 
   // Backgrounds grant quoted triggered abilities to commanders — not static keyword grants on themselves.
@@ -202,8 +203,29 @@ export function parseStaticAbilities(
     });
   }
 
+  const otherSubtypeAbilityGrantMatch = oracleText.match(
+    /other\s+(\w+?)s?\s+(?:creatures?\s+)?you\s+control\s+have\s+(flying|trample|lifelink|deathtouch|vigilance|haste|first strike|double strike|hexproof|indestructible|menace|reach)/i
+  );
+  if (otherSubtypeAbilityGrantMatch) {
+    abilities.push({
+      id: `${permanentId}-other-type-grant-${otherSubtypeAbilityGrantMatch[2]}`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.GRANT_ABILITY,
+      filter: {
+        types: [otherSubtypeAbilityGrantMatch[1]],
+        cardTypes: ['creature'],
+        controller: 'you',
+        other: true,
+      },
+      value: otherSubtypeAbilityGrantMatch[2].toLowerCase(),
+      layer: 6,
+    });
+  }
+
   const abilityGrantMatch = oracleText.match(/creatures?\s+you\s+control\s+have\s+(flying|trample|lifelink|deathtouch|vigilance|haste|first strike|double strike|hexproof|indestructible|menace|reach)/i);
-  if (abilityGrantMatch) {
+  if (abilityGrantMatch && !/\bother creatures? you control have\b/i.test(oracleText)) {
     abilities.push({
       id: `${permanentId}-grant-${abilityGrantMatch[1]}`,
       sourceId: permanentId,

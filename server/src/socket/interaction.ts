@@ -3,6 +3,7 @@ import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.j
 import crypto from "crypto";
 import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, validateAndConsumeManaCostFromPool, clearHumanAutoPassPauseOnAction, resolveClientStyleManaAbilityById, addRestrictedManaToPool } from "./util";
 import { syncDerivedContinuousEffects } from "../state/modules/staticEffectSpec.js";
+import { permanentCannotActivateTapAbilities } from "../state/modules/staticEffectSpecActivationLocks.js";
 import { appendEvent } from "../db";
 import { games } from "./socket.js";
 import { 
@@ -12,6 +13,8 @@ import {
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
 import { parseEquipAbilitiesFromOracle, permanentMatchesEquipQualifier } from "../../../shared/src/equipAbilities.js";
 import { getAttachmentGrantedActivatedAbilityTexts } from "../../../shared/src/attachmentAbilityGrants.js";
+import { abilityAllowsAnyPlayerActivation } from "../../../shared/src/anyPlayerActivatedAbility.js";
+import { hydratePermanentCardOracleInPlace } from "../state/modules/cardOracleHydration.js";
 import { isSacrificeCreatureOfChosenTypeCost } from "../state/modules/chosen-creature-type.js";
 import { adjustActivationManaCostForPayment, isActivatedManaAbilityText } from "../state/modules/ability-cost-adjustments.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
@@ -361,7 +364,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const resolvedPermanentId =
       resolveGroupedPermanentRef(game, pid as any, String(permanentId)) || String(permanentId);
     
-    const permIndex = battlefield.findIndex((p: any) => p?.id === resolvedPermanentId && p?.controller === pid);
+    const permIndex = battlefield.findIndex((p: any) => p?.id === resolvedPermanentId);
     if (permIndex === -1) {
       socket.emit("error", {
         code: "PERMANENT_NOT_FOUND",
@@ -371,6 +374,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     const permanent = battlefield[permIndex];
+    hydratePermanentCardOracleInPlace(permanent);
     permanentId = String(permanent.id);
     const card = (permanent as any).card;
     const cardName = card?.name || "Unknown";
@@ -406,6 +410,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       scopedAbilityFullText = String(scopedActivatedAbility.fullAbilityText || scopedAbilityText || oracleText || '').trim();
     }
     const isGenericActivatedAbilityId = /-ability-(\d+)$/i.test(abilityId) || /-granted-(\d+)$/i.test(abilityId);
+
+    if (
+      String(permanent.controller || '') !== String(pid)
+      && !abilityAllowsAnyPlayerActivation({
+        scopedAbilityText: scopedAbilityFullText,
+        cardOracleText: card?.oracle_text,
+      })
+    ) {
+      socket.emit("error", {
+        code: "PERMANENT_NOT_FOUND",
+        message: "Permanent not found or not controlled by you",
+      });
+      return;
+    }
 
     const activateCtx: ActivateBattlefieldAbilityContext = {
       io,
@@ -610,8 +628,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // activateBattlefieldAbility event can rebuild that exact stack identity on replay.
     let persistedStackItemId: string | undefined;
 
-    const isManaAbility = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana(?:\s+of\s+(?:the\s+chosen\s+colou?r|any(?:\s+one)?\s+colou?r))?|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) && 
+    let isManaAbility = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana(?:\s+of\s+(?:the\s+chosen\s+colou?r|any(?:\s+one)?\s+colou?r))?|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) && 
                           !/target/i.test(abilityText);
+    // Restore/replay can leave basic lands without oracle_text. The client still
+    // sends `-ability-0`; type-line native mana must still tap immediately.
+    if (!isManaAbility && !String(abilityText || '').trim()) {
+      const nativeManaAbilities = getManaAbilitiesForPermanent(game.state, permanent, pid);
+      if (nativeManaAbilities.length > 0) {
+        isManaAbility = true;
+        if (!requiresTap) requiresTap = true;
+      }
+    }
 
     // Chosen-name activation restrictions (e.g., Pithing Needle / Phyrexian Revoker)
     // Important: we check after identifying whether THIS specific activation is a mana ability,
@@ -622,6 +649,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       socket.emit('error', {
         code: 'CANNOT_ACTIVATE_CHOSEN_NAME',
         message: `Activated abilities of sources named "${cardName}" can't be activated (${blocker} chose that name).`,
+      });
+      return;
+    }
+
+    if (requiresTap && permanentCannotActivateTapAbilities(permanent, game.state)) {
+      socket.emit('error', {
+        code: 'CANNOT_ACTIVATE_TAP_ABILITY',
+        message: `${cardName}'s activated abilities with {T} in their costs can't be activated.`,
       });
       return;
     }

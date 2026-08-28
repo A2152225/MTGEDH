@@ -245,7 +245,7 @@ export function renderAppPlayOverlaysChoice(p: Record<string, any>) {
         description={librarySearchData?.description}
         filter={librarySearchData?.filter}
         minSelections={librarySearchData?.minSelections ?? 1}
-        maxSelections={librarySearchData?.maxSelections || 1}
+        maxSelections={librarySearchData?.maxSelections ?? 1}
         maxTotalManaValue={librarySearchData?.maxTotalManaValue}
         moveTo={librarySearchData?.moveTo || 'hand'}
         mandatory={librarySearchData?.mandatory ?? true}
@@ -507,6 +507,16 @@ export function renderAppPlayOverlaysChoice(p: Record<string, any>) {
                 ...phyrexianManaModalData.castSpellArgs,
                 phyrexianChoices: choices,
               });
+            } else if (phyrexianManaModalData.attackCostPayment && phyrexianManaModalData.stepId) {
+              socket.emit('submitResolutionResponse', {
+                gameId: safeView.id,
+                stepId: phyrexianManaModalData.stepId,
+                selections: {
+                  optionId: 'pay_attack_cost',
+                  phyrexianChoices: choices,
+                },
+                cancelled: false,
+              });
             } else if (phyrexianManaModalData.stepId) {
               socket.emit('submitResolutionResponse', {
                 gameId: safeView.id,
@@ -520,7 +530,14 @@ export function renderAppPlayOverlaysChoice(p: Record<string, any>) {
           }
         }}
         onCancel={() => {
-          if (safeView?.id && phyrexianManaModalData?.stepId && phyrexianManaModalData.mandatory === false) {
+          if (safeView?.id && phyrexianManaModalData?.attackCostPayment && phyrexianManaModalData.stepId) {
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId: phyrexianManaModalData.stepId,
+              selections: 'cancel_attack',
+              cancelled: false,
+            });
+          } else if (safeView?.id && phyrexianManaModalData?.stepId && phyrexianManaModalData.mandatory === false) {
             socket.emit('cancelResolutionStep', {
               gameId: safeView.id,
               stepId: phyrexianManaModalData.stepId,

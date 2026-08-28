@@ -1,5 +1,5 @@
 import type { GameContext } from '../context.js';
-import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
+import { pushCardToGraveyardFromLibrary } from './graveyardEntryUtils.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
 import { appendEvent } from '../../db/index.js';
 import { debugWarn } from '../../utils/debug.js';
@@ -95,7 +95,7 @@ export function millCardsFromLibrary(
     }
     if (!card) break;
     if (ctx) {
-      pushCardToPlayerGraveyardWithReplacements(ctx, playerId, card, zones.graveyard);
+      pushCardToGraveyardFromLibrary(ctx, playerId, card, zones.graveyard);
     } else {
       zones.graveyard.push({ ...card, zone: 'graveyard' });
     }

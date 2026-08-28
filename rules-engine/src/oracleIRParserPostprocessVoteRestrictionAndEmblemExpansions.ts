@@ -397,8 +397,7 @@ function isStandaloneAnyPlayerMayActivateAbility(ability: OracleIRAbility): bool
   const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
     .replace(/\s+/g, ' ')
     .trim();
-  if (!/^any player may activate this ability[.)]*$/i.test(normalizedText)) return false;
-  return ability.steps.length > 0 && ability.steps.every((step) => isRedundantAnyPlayerMayActivateUnknownStep(step));
+  return /^any player may activate this ability[.)]*$/i.test(normalizedText);
 }
 
 function isRedundantAnyPlayerMayActivateUnknownStep(step: OracleEffectStep): boolean {
@@ -415,14 +414,29 @@ function isRedundantAnyPlayerMayActivateUnknownStep(step: OracleEffectStep): boo
 export function pruneRedundantAnyPlayerMayActivateUnknownAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
-  return abilities
-    .filter((ability) => !isStandaloneAnyPlayerMayActivateAbility(ability))
-    .map((ability) => {
-    if (ability.type !== 'activated') return ability;
-    if (!ability.steps.some((step) => step.kind !== 'unknown')) return ability;
-    const nextSteps = ability.steps.filter(step => !isRedundantAnyPlayerMayActivateUnknownStep(step));
-    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
-  });
+  const out: OracleIRAbility[] = [];
+  for (const ability of abilities) {
+    if (isStandaloneAnyPlayerMayActivateAbility(ability)) {
+      for (let index = out.length - 1; index >= 0; index -= 1) {
+        if (out[index].type === 'activated') {
+          out[index] = { ...out[index], anyPlayerMayActivate: true };
+          break;
+        }
+      }
+      continue;
+    }
+    const textAllows = /\bany player may activate this ability\b/i.test(
+      String(ability.text || ability.effectText || ''),
+    );
+    const nextSteps = ability.steps.filter((step) => !isRedundantAnyPlayerMayActivateUnknownStep(step));
+    const pruned = nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+    if (ability.type === 'activated' && (textAllows || nextSteps.length !== ability.steps.length)) {
+      out.push({ ...pruned, anyPlayerMayActivate: true });
+    } else {
+      out.push(pruned);
+    }
+  }
+  return out;
 }
 
 function isRedundantImpulseCleanupUnknownStep(step: OracleEffectStep): boolean {

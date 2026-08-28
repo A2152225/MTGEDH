@@ -15,6 +15,7 @@ export {
   getLoyaltyColor,
   buildPTTooltip,
   getAbilityDisplay,
+  readPermanentDamageMarked,
 } from './freeFieldDisplayUtils';
 
 // Battlefield-tile overlay badges (token/combat/P/T/loyalty/ability buttons).

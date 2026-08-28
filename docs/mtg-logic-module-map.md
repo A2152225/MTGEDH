@@ -49,26 +49,29 @@ See [`mtg-logic-module-map-resolution.md`](mtg-logic-module-map-resolution.md).
 - **ETB untap / auto-sacrifice dual copies reconciled:** leftover `detectETBUntapEffects` / `getETBUntapEffects` / `applyETBUntapEffect` / `checkETBAutoSacrifice` re-export from `zone-changes.js`; live bodies in `etb-untap.ts`. **One** `export function` each.
 - **Attack dual copies reconciled:** leftover `detectAttackTriggers` re-exports from `triggers/zone-changes.js`; live body in `attack-detection.ts` (+ generic/watchers/state). `combat.ts` re-exports the leaf. **One** `export function`.
 - **`getAttackTriggersForCreatures` dual copies reconciled:** live body in `attack-triggers-for-creatures.ts` (production combat implementation; leftover simpler copy replaced). `combat.ts` and leftover re-export. **One** `export function`.
-- Folder members under ceiling: `turn-phases.ts` is **37.4 KB** (done). `zone-change.ts` is **32.3 KB** (done). `card-data-tables.ts` is **39.1 KB** (done). `combat.ts` is **30.1 KB** (done). `intervening-if.ts` is **12.6 KB** (done). `zone-changes.ts` is now ~1.9 KB (re-export barrel).
+- Folder members under ceiling: `turn-phases.ts` is **31.8 KB** (untap-step effects extracted). `zone-change.ts` is **32.3 KB** (done). `card-data-tables.ts` is **39.1 KB** (done). `combat.ts` is **30.1 KB** (done). `intervening-if.ts` is **12.6 KB** (done). `zone-changes.ts` is now ~1.9 KB (re-export barrel).
 
 | Module (`triggers/`) | Owns |
 | --- | --- |
 | `detectorTriggeredAbility.ts` | Leftover detector `TriggeredAbility` wire type (distinct from skinny `triggers/types.ts`). |
 | `cardNameRegexAlternatives.ts` | Card-name regex variants for detectors. Entry: `buildCardNameRegexAlternatives`. |
 | `enters-or-other-event-prefix.ts` | Compound "enters or \<event\>" prefix. Entry: `ENTERS_OR_OTHER_EVENT_PREFIX`. |
-| `death-detection.ts` (+ `death-detection-early/mid/late/state.ts`) | `detectDeathTriggers`. Pattern runs mutate shared `DeathDetectionState`. |
-| `death-emission.ts` | Leftover-merged death emission: `getDeathTriggers`, `getDeathTriggersForCreature`, `processUndyingPersist`, `getPlayersWhoMustSacrifice`. Re-exported through `zone-changes.ts` and leftover. |
+| `death-detection.ts` (+ `death-detection-early/mid/late/state.ts`) | `detectDeathTriggers`. Pattern runs mutate shared `DeathDetectionState`. Late: `any_typed_creature_dies` / `typed_opponent_creature_dies` (Hungry Lynx / Hansk), `named_counter_dies`, `opponent_commander_dies`, list-typed `another_multi_typed_creature_dies`. |
+| `death-emission.ts` | Leftover-merged death emission: `getDeathTriggers`, `getDeathTriggersForCreature`, `processUndyingPersist`, `getPlayersWhoMustSacrifice`. Re-exported through `zone-changes.ts` and leftover. Also fires delayed `WHEN_DIES` watchers via `delayed-dies-watchers.ts`. |
 | `death-emission-helpers.ts` | Leftover-rich `DeathTriggerResult` plus detector-to-emitter adapters used by `getDeathTriggers`. |
-| `etb-detection.ts` (+ `etb-detection-early/mid/late/helpers/state.ts`) | `detectETBTriggers`, `getETBTriggersForPermanent` (detector wire type, not skinny). |
+| `delayed-dies-watchers.ts` | Spell-created `WHEN_DIES` delayed triggers on `state.delayedTriggerRegistry` (Reckless Blaze / Skeletonize “dealt damage this way dies this turn”). Entry: `collectDelayedDiesWatcherTriggers`. |
+| `delayed-end-step-watchers.ts` | Spell/ability-created `NEXT_END_STEP` delayed triggers on `state.delayedTriggerRegistry` (Swooping Pteranodon “target land deals 3 damage to that creature”). Entry: `collectDelayedEndStepRegistryTriggers`. Called from `getEndStepTriggers`. “At the beginning of the next end step” is a delayed rider (CR 603.7), not `detectEndStepTriggers`. |
+| `etb-detection.ts` (+ `etb-detection-early/mid/late/helpers/state.ts`) | `detectETBTriggers`, `getETBTriggersForPermanent` (detector wire type, not skinny). Late: `land_you_control_etb` / `enchanted_player_land_etb` / `any_land_etb` / `multi_typed_you_control_etb` (live-seam watcher scan; landfall.ts still emits land enters). |
 | `hideaway-ability.ts` | `detectHideawayAbility`. |
 | `detect-target-type.ts` | `detectTargetType`. |
-| `etb-untap.ts` | Leftover-merged ETB untap + auto-sacrifice: `detectETBUntapEffects`, `getETBUntapEffects`, `applyETBUntapEffect`, `checkETBAutoSacrifice`, `ETBUntapEffect`. Re-exported through `zone-changes.ts` and leftover. |
-| `attack-detection.ts` (+ generic/watchers/reflexive/state) | Live `detectAttackTriggers`. Leftover and `combat.ts` re-export. Reflexive `when you do` / `when they do` / exert riders are detection-only (`isReflexiveDelayedDoTriggerType`); combat does not auto-queue them on declare attackers. |
+| `etb-untap.ts` | Leftover-merged ETB untap + auto-sacrifice: `detectETBUntapEffects`, `getETBUntapEffects`, `applyETBUntapEffect`, `checkETBAutoSacrifice`, `ETBUntapEffect`. Re-exported through `zone-changes.ts` and leftover. Live Intruder Alarm uses generic `creature_etb` plus IR `tap_or_untap` / `tryApplyUntapAllYouControlTrigger`, not `applyETBUntapEffect`. |
+| `attack-detection.ts` (+ generic/watchers/reflexive/state) | Live `detectAttackTriggers`. Leftover and `combat.ts` re-export. Reflexive `when you do` / `when they do` / exert riders are detection-only (`isReflexiveDelayedDoTriggerType`); combat does not auto-queue them on declare attackers. Firebending matches N and `Firebending X, where X is …` (this creature's / CARDNAME's power, creatures you control, experience counters); `getAttackTriggersForCreatures` passes battlefield/experience so X can resolve. Generic watchers include keyword/status (`goaded`/`flying`/`haste`/`menace`/…) and typed N-phrase (`requiredTypePhrase`, not Dinosaur-only; hyphenated `non-Human`). `typed_subtype_attacks_any` is “Whenever a Warrior attacks” without you-control (Najeela). `mana_ability_creature_attacks` is “Whenever a creature you control with a mana ability attacks” (Raggadragga). Self `enters or attacks` / `attacks or dies` / `attacks or blocks` use the same subject set as ETB (`this permanent`, `this enchantment`, …) so Duskmourn Overlords hit both detectors. Watchers: `commander_you_control_etb_or_attack` (Norn's Choirmaster; ETB queued from `triggerEtbPermanentEffects.ts` / token path), `typed_token_power_or_greater_attacks` (Dreadhorde), `equipped_creature_other_than_self_attacks_or_dies` (Rhuk), `equipped_creature_attacks_or_blocks` (Wand of Orcus). Continuous granted quoted attack lines are merged into detector oracle when `gameState` is passed. `KNOWN_ATTACK_TRIGGERS` must be real attack triggers — activated put-from-hand (Elvish Piper) is IR `move_zone`, not this table. |
 | `ltb-detection.ts` | Leftover LTB detector. |
 | `ability-activated-detection.ts` | Leftover ability-activated **detection** (not emission `ability-activated.ts`). |
 | `combat-damage-detection.ts` (+ early/mid/late/state) | Leftover combat-damage detect. `combat.ts` re-exports. |
 | `tap-detection.ts` | Leftover tap detect. `tap-untap.ts` re-exports. |
-| `spell-cast-detection.ts` (+ mid/late/state/helpers/effect-text/trigger-type) | Leftover `detectSpellCastTriggers`. Also `spell-cast-get-triggers.ts`, `spell-cast-untap-detection.ts`. |
+| `spell-cast-detection.ts` (+ mid/late/state/helpers/effect-text/trigger-type) | Leftover `detectSpellCastTriggers`. Also `spell-cast-get-triggers.ts`, `spell-cast-untap-detection.ts`. Modal `choose one —` bullets are not token-create shortcuts (`getSpellCastEffectMetadata`). |
+| `spell-cast.ts` | Opponent / any-player spell-cast detect+emit (`detectOpponentSpellCastTriggers`, `getOpponentSpellCastTriggers`). `from their/your hand|exile|graveyard|library` is a **cast-zone qualifier**, not effect text — consumed before the effect clause so Possibility Storm’s effect starts at “that player exiles it”, and `sourceZoneRequirement` skips exile/graveyard/library casts. |
 | `planeswalker-loyalty.ts` / `special-card-effect-tables.ts` / `static-special-effect-detectors.ts` / `mimic-vat-modal-and-storm.ts` | Leftover unique bottom tables/detectors. |
 | `dealt-damage-detection.ts` / `status-keyword-detection.ts` / `status-event-detection.ts` / `returned-to-hand-detection.ts` | Leftover unique detectors. |
 | `block-detection.ts` + `block-trigger-type.ts` | Leftover `detectBlockTriggers`. |
@@ -78,7 +81,8 @@ See [`mtg-logic-module-map-resolution.md`](mtg-logic-module-map-resolution.md).
 | `enchanted-by-aura.ts` | From `combat.ts`. `isEnchantedByAuraYouControl`. |
 | `combat-triggered-ability.ts` | From `combat.ts`. `CombatTriggeredAbility`. |
 | `trigger-doublers.ts` | From `combat.ts`. `detectTriggerDoublers`, `applyTriggerDoublers`, `pushTriggerDoublerCopies`, `playerHasDungeonRoomAbilityDoubler`, `TriggerDoublerEventContext`. |
-| `attack-watcher-queue.ts` | From `combat.ts`. `planAttackWatcherQueue`, `isAttackWatcherTriggerType`. |
+| `attack-watcher-queue.ts` | From `combat.ts`. `planAttackWatcherQueue`, `isAttackWatcherTriggerType`. Keyword/status watchers (`goaded`/`flying`/`haste`/`deathtouch`/`menace`/`trample`/`reach`/`toxic`) fire per matching attacker. Typed subtype phrases (`requiredTypePhrase`) are generic N-type, not Dinosaur-only. `typed_subtype_attacks_any` is any-controller subtype (Najeela). |
+| `damage-redirect-target-type.ts` | `parseAnyTargetThatIsntCreatureType`, `excludedCreatureTypeFromDamageTargetType`. "Any target that isn't a [type]" is generic N-type (`any_non_dragon` still matches Dragon). |
 | `combat-attack-trigger-helpers.ts` | From `combat.ts`. `mergeCombatTriggerValue`, `extractCommanderOwnedGrantedAbilityTexts`. |
 | `card-data-tables.ts` | Public `KNOWN_*` trigger lookup tables. `KNOWN_TAP_UNTAP_ABILITIES` re-exported from `card-data-tables-handlers/`. **39.1 KB** (done). Never create `card-data-tables/` beside the `.ts`. Extract existing tables only — do not add card-name rows. |
 | `card-data-tables-handlers/index.ts` | Internal TOC barrel. Named re-exports only. Leaves must not import the parent or this index. |
@@ -86,15 +90,17 @@ See [`mtg-logic-module-map-resolution.md`](mtg-logic-module-map-resolution.md).
 | `zone-change.ts` | Public exile-from-battlefield get/queue, put-into-graveyard-from-anywhere, left-graveyard. **32.3 KB** (done). Distinct from `zone-changes.ts` (death/ETB/attack barrel). Never create `triggers/zone-change/` beside the `.ts`. |
 | `zone-change-handlers/index.ts` | Internal TOC for extracts from `triggers/zone-change.ts`. Named re-exports only. Leaves must not import the parent or this index. |
 | `zone-change-handlers/exileFromBattlefieldDetection.ts` | From `triggers/zone-change.ts`. `ExiledFromBattlefieldTrigger`, `detectExiledFromBattlefieldTriggers`. Parent re-exports. Distinct from death/ETB/attack. |
-| `turn-phases.ts` | Public turn-phase detectors/emitters. **37.4 KB** (done). `EndStepTrigger` and `detectEndStepTriggers` re-exported from `turn-phases-handlers/`. Never create `turn-phases/` beside the `.ts`. |
+| `turn-phases.ts` | Public turn-phase detectors/emitters. Re-exports `UntapStepEffect` / `detectUntapStepEffects` / `getUntapStepEffects` / `applyUntapStepEffect`. `EndStepTrigger` and `detectEndStepTriggers` re-exported from `turn-phases-handlers/`. Never create `turn-phases/` beside the `.ts`. |
 | `turn-phases-handlers/index.ts` | Internal TOC barrel. Named re-exports only. Leaves must not import the parent or this index. |
 | `turn-phases-handlers/turnPhaseTriggerTypes.ts` | From `turn-phases.ts`. `EndStepTrigger`. Parent re-exports. |
 | `turn-phases-handlers/turnPhaseActivePermanentFace.ts` | From `turn-phases.ts`. `getActivePermanentCardFace`. |
 | `turn-phases-handlers/turnPhaseEffectChoiceHelpers.ts` | From `turn-phases.ts`. `detectRequiresChoice`, `detectAffectsAllPlayers`. |
-| `turn-phases-handlers/turnPhaseEndStepTriggers.ts` | From `turn-phases.ts`. `detectEndStepTriggers`. Parent re-exports. |
+| `turn-phases-handlers/turnPhaseEndStepTriggers.ts` | From `turn-phases.ts`. `detectEndStepTriggers`. Collects every “each opponent's end step” ability with its intervening-if (Keeper of the Accord is two triggers, not a `KNOWN_END_STEP_TRIGGERS` mash). Does **not** match “the next” / “your next” end step — those are delayed triggers from `delayed-end-step-watchers.ts`. Parent re-exports. |
+| `turn-phases-handlers/turnPhaseUntapStepEffects.ts` | From `turn-phases.ts`. Other-players' untap-step turn actions: Unwinding Clock / Seedborn Muse “untap all …”, filtered groups (Prophet of Kruphix creatures+lands, Murkfiend Liege colors, Ohabi Caleria Archers, Ivorytusk +1/+1, Quest for Renewal counter gate), plus self-untap (Bender's Waterskin, Victory Chimes, Endbringer) and Urban Burgeoning-style grants. Parent re-exports. |
 
 ## Oracle IR parser / postprocess (`rules-engine/src/`)
 
+- `oracleOwnKeywordText.ts` — `oracleTextHasOwnKeyword`, `oracleTextGrantsKeywordOnlyToOthers`, `grantedAbilityIsOwnKeyword`: printed/self keywords vs lord grants (`Other Dinosaurs you control have haste`) and token-create tails. Used by haste / summoning sickness and goad must-attack (Rule 701.15b if able).
 - `oracleIRParserPostprocess.ts` is a **12.5 KB barrel** (named re-exports + a few leftover imports). All `oracleIRParserPostprocess*.ts` siblings are under the ceiling (largest: `oracleIRParserPostprocessGapClosureStepRepairs.ts` at 37.0 KB). Add a new family file; do not append to a sibling near 36–40 KB.
 - `oracleIRParser.ts` is a **0.1 KB barrel**: `export { parseOracleTextToIR } from './oracleIRParserParseOracleTextToIR'`.
 - `oracleIR.ts` is a **1.0 KB barrel**: re-exports shared types + `OracleEffectStep` (`A | B | C`) plus leftover `OracleIRAbility` / `OracleIRResult`. Never create `oracleIR/` beside `oracleIR.ts`.
@@ -105,6 +111,7 @@ See [`mtg-logic-module-map-resolution.md`](mtg-logic-module-map-resolution.md).
 | --- | --- | --- |
 | `oracleIRParserEffectClauseToStep.ts` | `oracleIRParser.ts` | `parseEffectClauseToStep` |
 | `oracleIRParserTemporaryEtbWindowClauses.ts` | `oracleIRParserEffectClauseToStep.ts` | `tryParseTemporaryEtbWindowClause`, `isTemporaryEtbWindowSpellLine` — Rite of Harmony family “whenever a [types] you control enters this turn” |
+| `oracleIRParserTemporaryTriggeredClauses.ts` | `oracleIRParserEffectClauseToStep.ts` | `tryParseTemporaryGrantedDiesTriggerClause`, `isDealtDamageThisWayDiesThisTurnSpellLine` — quoted until-EOT dies grants plus Reckless Blaze / Skeletonize “dealt damage this way dies this turn” delayed windows |
 | `oracleIRParserPhase4ChoiceFamilyClauses.ts` | `oracleIRParserEffectClauseToStep.ts` | `tryParsePhase4ChoiceFamilyClause` dispatcher: each-player choose-then-destroy-rest, secret opponent damage, mill-from-among may-cast, may-reveal four-zone named-copy win. |
 | `oracleIRParserEachPlayerChooseDestroyRest.ts` | Phase 4 choice family | `tryParseEachPlayerChooseThenDestroyRest` — Divine Reckoning family. |
 | `oracleIRParserSecretOpponentChoiceDamage.ts` | Phase 4 choice family | `tryParseSecretOpponentChoiceDamage` — Prisoner's Dilemma family. |
@@ -115,8 +122,13 @@ See [`mtg-logic-module-map-resolution.md`](mtg-logic-module-map-resolution.md).
 | `oracleIRParserWinIfControlDifferentNames.ts` | leftover win-if | `tryParseWinIfControlDifferentNamesStep`, `expandWinIfControlDifferentNamesAbilities` — “if you control N or more [type] with different names, you win the game” (Maze's End activated family). Not an immediate battlefield scan. |
 | `oracleIRParserWinIfCastSameNameThisGame.ts` | leftover win-if | `tryParseWinIfCastSameNameThisGameStep`, `expandWinIfCastSameNameThisGameAbilities` — “cast from hand + another spell with this card’s current name this game, you win” (Approach of the Second Sun family). Not `detectWinConditions`. |
 | `oracleIRParserPreventLifeGainThisTurn.ts` | leftover life | `tryParsePreventLifeGainThisTurnClause` — this-turn / trailing or leading until-EOT “can't gain life” → `grant_static_ability` duration `this_turn` / `end_of_turn`. Continuous “Players can't gain life” stays ReplacementEffectSpec. |
+| `oracleIRParserAttackTaxThisTurn.ts` | leftover combat | `tryParseAttackTaxThisTurnClause` — War Tax “this turn, creatures can't attack unless … pays {X}” → `grant_static_ability` duration `this_turn`. |
+| `oracleIRParserBlockTaxThisTurn.ts` | leftover combat | `tryParseBlockTaxThisTurnClause` — War Cadence “this turn, creatures can't block unless … pays {X}” → `grant_static_ability` duration `this_turn`. |
+| `oracleIRParserAttackYouProhibitedExceptKeywords.ts` | leftover combat | `tryParseAttackYouProhibitedExceptKeywordsClause` — Island Sanctuary “until your next turn, you can't be attacked except by creatures with flying and/or islandwalk”. |
 | `oracleIRParserUntilEotProtectionOverride.ts` | leftover static | `tryParseUntilEotProtectionOverrideClause` — leading until-EOT activated lose / as-though hexproof-shroud (Detection Tower / Arcane Lighthouse) → `grant_static_ability` duration `end_of_turn`. Continuous statics stay StaticEffectSpec. |
 | `oracleIRParserLoyaltyDirectionChoice.ts` | leftover PW loyalty | `tryParseChooseLeftOrRightLoyaltySteps`, `expandChooseLeftOrRightLoyaltyAbilities` — generic Choose left or right (Aminatou −6 / Teyo −2). Do not add card-name cases. |
+| `oracleIRParserChaosZoneTemplates.ts` | leftover chaos spells | Warp World / Thieves' Auction / library chaos / Scrambleverse-style “for each (nonland) permanent, choose a player at random”. Entries: `expandChaosZoneTemplateAbilities`, `tryParseRandomControlAssignmentTemplate`. |
+| `oracleIRParserRevealTopShareTypeMayCast.ts` | leftover reveal-top | `mergeRevealTopShareTypeMayCastAbilities` — reveal top, then “if it's a creature card that shares a creature type with a creature you control, you may cast it” (Descendants' Path). Else bottoms the miss; the match stays on library top for a during-resolution free-cast prompt. |
 | `oracleIRParserAbilityMerges.ts` | `oracleIRParser.ts` | `mergeSplitChooseModeParsedAbilities` |
 | `oracleIRParserImpulseExileTop.ts` | `oracleIRParser.ts` | impulse-exile-top parse (was a closure of `parseAbilityToIRAbility`) |
 | `oracleIRParserExileTopOnlyLegacy.ts` | `oracleIRParser.ts` | exile-top-only legacy parse |
@@ -124,6 +136,9 @@ See [`mtg-logic-module-map-resolution.md`](mtg-logic-module-map-resolution.md).
 | `oracleIRParserParseOracleTextToIR.ts` | `oracleIRParser.ts` | `parseOracleTextToIR` |
 | `oracleIRParserParseOracleTextToIRLatePasses.ts` | `oracleIRParser.ts` | late passes of `parseOracleTextToIR` |
 | `oracleIRParserSimpleActionHelpers.ts` / `…EarlyClauses.ts` / `…AddManaChoice.ts` / `…DrawTurn.ts` / `…CounterSearch.ts` / `…DiscardVote.ts` | `oracleIRParserSimpleActionClauses.ts` | Family `tryX` runs of `tryParseSimpleActionClause`. Leaves take parse args; null = fall through. Recursion is a `parseRest` callback — do not import the parent. |
+| `oracleIRParserSpellKeywordGrants.ts` | `oracleIRParserSimpleActionClauses.ts` / residual grant chain | `that spell` / `this spell` gains keywords. Entries: `parseSpellGainsKeywordGrantSteps`, `tryParseSpellGainsKeywordGrantClause`. |
+| `oracleIRParserEntersUnderOpponentControl.ts` | `oracleIRParserSimpleActionClauses.ts` | As-enters `gain_control` for "enters under the control of an opponent of your choice" (Xantcha), including the replacement-effect fragment after `SELF_ENTERS_SHORT_PATTERN` splits off "enters". Entry: `tryParseEntersUnderOpponentControlClause`. |
+| `shared/src/anyPlayerActivatedAbility.ts` | `server/src/socket/interaction.ts`, client stamp | CR 602.3: `textAllowsAnyPlayerActivation` plus `abilityAllowsAnyPlayerActivation` so truncated `{cost}: first sentence` extracts still match the oracle paragraph that says "Any player may activate this ability." |
 | `oracleIRParserEffectImpulsePermission-handlers/index.ts` | `oracleIRParserEffectImpulsePermission.ts` | Internal TOC barrel. Named re-exports only. Never create `oracleIRParserEffectImpulsePermission/` beside the `.ts`. |
 | `oracleIRParserEffectImpulsePermission-handlers/oracleIRParserEffectImpulsePermissionLateDurations.ts` | `oracleIRParserEffectImpulsePermission.ts` | Late next-turn / until-end / remains-exiled if-chain of `parseEffectLevelImpulsePermissionClause`. `undefined` = fall through. Do not import the parent. |
 | `oracleIRParserStaticAbilityClauses-handlers/oracleIRParserStaticAbilityGrantParseUtils.ts` | `oracleIRParserStaticAbilityClauses.ts` | `WithMeta` plus keyword-list, signed P/T, and graveyard grant parse helpers. |
@@ -166,7 +181,7 @@ Coordinator merges owed extract-family rows there.
 | `oracleIRParserPostprocessKeywordStaticGrantSteps.ts` | Keyword static grants (annihilator/ward metadata). |
 | `oracleIRParserPostprocessGraveyardAdditionalCostPermission.ts` | GY additional-cost permission. |
 | `oracleIRParserPostprocessExileAndGraveyardPermissionModifiers.ts` | Exile/GY permission modifiers. |
-| `oracleIRParserPostprocessCopySpellTailHelpers.ts` / `…CopySpellUnknownSteps.ts` | Copy-spell tail + unknown-step lowering. |
+| `oracleIRParserPostprocessCopySpellTailHelpers.ts` / `…CopySpellUnknownSteps.ts` | Copy-spell tail + unknown-step lowering. `each other player copies that spell` (Hive Mind) is `copy_spell` with `who: each_opponent` plus the “each of those players may choose new targets” tail. |
 | `oracleIRParserPostprocessKeywordReminderPrunes.ts` | Keyword reminder prunes. |
 | `oracleIRParserPostprocessGraveyardKeywordExpansions.ts` | GY keyword expansions. |
 | `oracleIRParserPostprocessTokenCreationMetadata.ts` | Token-create metadata. |
@@ -187,16 +202,17 @@ Coordinator merges owed extract-family rows there.
 | `oracleIRParserPostprocessVanishingModularStaticPrunes.ts` | Vanishing/modular static prunes. |
 | `oracleIRParserPostprocessReminderPlatformTextPredicates.ts` | Reminder/platform-only text predicates. |
 | `oracleIRParserPostprocessCrewChampionLateKeywordPrunes.ts` | Crew/champion late keyword prunes. |
-| `oracleIRParserPostprocessTriggerEffectFragmentPrunes.ts` | Trigger-effect fragment prunes. |
+| `oracleIRParserPostprocessBareTriggerFragmentSteps.ts` | Isolated trigger-effect fragments. `parseBareTriggerEffectFragmentSteps` also wraps leading `if <cond>, <effect>` (Wakening Sun's Avatar “if you cast it from your hand, destroy all non-Dinosaur creatures”). |
 | `oracleIRParserPostprocessFutureSpellAndTokenReminderPrunes.ts` | Future-spell / token reminder prunes. |
 | `oracleIRParserPostprocessDeterministicBodyAndConditionalExpansions.ts` | Deterministic body + conditional expansions. |
 | `oracleIRParserPostprocessResidualUnknownLowering.ts` | Residual unknown-step lowering (head/tail of the elephant). |
-| `oracleIRParserPostprocessInsteadReplacementSteps.ts` | `repairIntraAbilityInsteadConditionalSteps` — fold "create N of those tokens instead" into the base create. |
+| `oracleIRParserPostprocessInsteadReplacementSteps.ts` | `repairIntraAbilityInsteadConditionalSteps` — fold "create N of those tokens instead" and same-target add_counter instead (Andúril city's blessing) into the base step. |
 | `oracleIRParserPostprocessQuotedAbilityRiders.ts` | `extractQuotedAbilityRiderSteps` — lift quoted riders and rewrite leftover unknown residuals. |
 | `oracleIRParserPostprocessCurrentBatchSurfaces.ts` | `repairCurrentBatchSurfaceSteps` — restore executable step kinds swallowed by residual rewrites. |
 | `oracleIRExecutorExileOneOfThemHandlers.ts` | From `oracleIRExecutorSpecialTargetHandlers.ts`. `tryApplyExileOneOfThemLookedCards`. |
 | `oracleIRExecutorExileLookedContextualHandlers.ts` | From `oracleIRExecutorSpecialTargetHandlers.ts`. `tryApplyExileLookedContextualStep`. |
 | `oracleIRExecutorExilePileCounterAndTargetedHandlers.ts` | From `oracleIRExecutorSpecialTargetHandlers.ts`. `tryApplyExilePileCounterAndTargetedStep`. |
+| `aiAutoPassContextualIdle.ts` / `canRespondPriorityCache.ts` | AI off-turn auto-pass skips legal-but-pointless instants/flash; spell/`canRespond`/`canAct` cache per priority fingerprint. Any-player Xantcha `{3}` still counts as a real action. See extract-families-handlers. |
 
 ## Card data and SQLite connections (`server/src/services/`)
 

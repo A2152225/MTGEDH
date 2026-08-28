@@ -3,7 +3,7 @@
 // "the rest" / "the other" split kinds, the shared contextual card mover, contextual bound-card zone
 // lookup, criteria X-resolution, and the died/sacrificed creature context readers those criteria use.
 // Public entry symbols: getDiedCreatureManaValueFromCtx, getSacrificedCreaturePowerFromCtx,
-// getLibraryPlacement, isOneOfThemReference, isOneReference, isOnePileReference, isTheRestReference,
+// getLibraryPlacement, moveStepShufflesIntoLibrary, isOneOfThemReference, isOneReference, isOnePileReference, isTheRestReference,
 // isTheOtherReference, isOneOfThemToHandBounce, getContextualThemSplitKind,
 // moveContextualCardToDestination, getOneOfThemSplitKind, getOnePileSplitKind,
 // resolveContextualBoundCardZone, resolveAmongThemCriteriaWithX,
@@ -21,7 +21,7 @@ import {
   collectMostRecentLedgerCards,
   collectRevealedThisWayCardsLedgerFirst,
 } from './oracleIRLedgerCardAccess';
-import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
+import { getCardManaValue, readPlayerZoneCards } from './oracleIRExecutorPlayerUtils';
 import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import {
   moveTargetedCardFromExile,
@@ -88,6 +88,12 @@ export function getLibraryPlacement(step: Extract<OracleEffectStep, { kind: 'mov
   if (hasBottom) return 'bottom';
   if (/\bshuffle\b/i.test(raw) || /\binto\b.+\blibrary\b/i.test(raw)) return 'bottom';
   return '';
+}
+
+/** True when the move itself is "shuffle it/them into [a] library", not a later "then shuffle". */
+export function moveStepShufflesIntoLibrary(step: { readonly to?: string; readonly raw?: string }): boolean {
+  if (step.to !== 'library') return false;
+  return /\bshuffles?\b/i.test(String(step.raw || ''));
 }
 
 export function isOneOfThemReference(what: unknown): boolean {
@@ -407,6 +413,16 @@ export function resolveContextualBoundCardZone(
       if (revealedId) {
         const location = findBoundCardZoneLocation(state, revealedId);
         if (location) return { ...location, cardId: revealedId };
+      }
+    }
+    const ownerId = String((ctx as any)?.lastTopLibraryOwnerId || '').trim() as PlayerID;
+    if (ownerId) {
+      const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === ownerId);
+      const library = readPlayerZoneCards(state, ownerId, player, 'library');
+      const topId = String((library[0] as any)?.id || '').trim();
+      if (topId) {
+        const location = findBoundCardZoneLocation(state, topId);
+        if (location) return { ...location, cardId: topId };
       }
     }
   }

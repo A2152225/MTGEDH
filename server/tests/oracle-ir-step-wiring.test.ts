@@ -4,7 +4,7 @@ import type { OracleEffectStep } from '../../rules-engine/src/oracleIR.js';
 import {
   isTriggerEffectOwnedByOracleIrPrimary,
 } from '../src/state/modules/oracleIrTriggerLegacyRouting.js';
-import { ORACLE_IR_FALLBACK_STEP_KINDS } from '../src/state/modules/trigger-runtime-wiring.js';
+import { ORACLE_IR_FALLBACK_STEP_KINDS, collectSpellResolutionEffectSteps } from '../src/state/modules/trigger-runtime-wiring.js';
 import {
   ORACLE_IR_ACTIVATED_STEP_KINDS,
   areAllOracleEffectStepsRuntimeWired,
@@ -15,6 +15,9 @@ import {
   tryApplyOracleIRToActivatedAbility,
 } from '../src/state/modules/oracleIrAbilityExecution.js';
 import { isOracleIrExecutionHandled } from '../src/state/modules/oracleIrSpellExecution.js';
+import { applyOracleIRStepsToGameState } from '../../rules-engine/src/oracleIRExecutor.js';
+import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutorExecutionContext.js';
+import { canPermanentAttack } from '../../rules-engine/src/actions/combat-handlers/combatLegalityHelpers.js';
 import {
   describeOracleIrExecutionHandledIncomplete,
   describeMissingMandatoryOracleIrSteps,
@@ -54,6 +57,8 @@ function seedWhipState() {
 
 describe('oracle IR step wiring guardrails', () => {
   it('includes reanimation rider kinds in fallback and activated allowlists', () => {
+    expect(ORACLE_IR_FALLBACK_STEP_KINDS.has('cant_attack')).toBe(true);
+    expect(ORACLE_IR_ACTIVATED_STEP_KINDS.has('cant_attack')).toBe(true);
     for (const kind of [
       'grant_temporary_ability',
       'grant_static_ability',
@@ -74,6 +79,36 @@ describe('oracle IR step wiring guardrails', () => {
     );
     expect(steps.some((step) => step.kind === 'create_emblem')).toBe(true);
     expect(isActivatedAbilityEffectFullyWired(steps)).toBe(true);
+  });
+
+  it('keeps loyalty create_emblem / create_token whose granted text is a quoted When/Whenever', () => {
+    const emblem = collectActivatedAbilitySteps(
+      'You get an emblem with "Whenever you cast a spell, this emblem deals 5 damage to any target."',
+      'Chandra, Torch of Defiance',
+    );
+    expect(emblem.map((step) => step.kind)).toEqual(['create_emblem']);
+    expect(isActivatedAbilityEffectFullyWired(emblem)).toBe(true);
+
+    const token = collectActivatedAbilitySteps(
+      'Create three 1/1 black Assassin creature tokens with "Whenever this token deals combat damage to a player, that player loses the game."',
+      'Vraska the Unseen',
+    );
+    expect(token.map((step) => step.kind)).toEqual(['create_token']);
+    expect(isActivatedAbilityEffectFullyWired(token)).toBe(true);
+
+    const namedToken = collectActivatedAbilitySteps(
+      'Create a 2/2 white Cat Soldier creature token named Ajani\'s Pridemate with "Whenever you gain life, put a +1/+1 counter on this token."',
+      'Ajani, Strength of the Pride',
+    );
+    expect(namedToken.map((step) => step.kind)).toEqual(['create_token']);
+    expect(isActivatedAbilityEffectFullyWired(namedToken)).toBe(true);
+
+    const kaito = collectActivatedAbilitySteps(
+      'You get an emblem with "Whenever a player casts a spell, you create a 2/1 blue Ninja creature token."',
+      'Kaito, Cunning Infiltrator',
+    );
+    expect(kaito.map((step) => step.kind)).toEqual(['create_emblem']);
+    expect(isActivatedAbilityEffectFullyWired(kaito)).toBe(true);
   });
 
   it('wires gain_control, grant_exile_permission, and skip_next_untap for loyalty/fallback', () => {
@@ -208,6 +243,25 @@ describe('oracle IR step wiring guardrails', () => {
       }),
     ]);
     expect(isActivatedAbilityEffectFullyWired(untilNextTurnWhenever)).toBe(true);
+
+    const herdHeirloomGrant = collectActivatedAbilitySteps(
+      '{T}: Until end of turn, target creature you control with power 4 or greater gains trample and "Whenever this creature deals combat damage to a player, draw a card."',
+      'Herd Heirloom',
+    );
+    expect(herdHeirloomGrant.some((step) => step.kind === 'draw')).toBe(false);
+    expect(herdHeirloomGrant).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_temporary_ability' }),
+    ]));
+    expect(isActivatedAbilityEffectFullyWired(herdHeirloomGrant)).toBe(true);
+
+    const verdantRebirth = collectActivatedAbilitySteps(
+      'Until end of turn, target creature gains "When this creature dies, return it to its owner\'s hand." Draw a card.',
+      'Verdant Rebirth',
+    );
+    expect(verdantRebirth.map((step) => step.kind)).toEqual(expect.arrayContaining([
+      'grant_temporary_dies_trigger',
+      'draw',
+    ]));
 
     const perpetualPt = collectActivatedAbilitySteps(
       'Target creature an opponent controls perpetually gets -3/-3.',
@@ -483,6 +537,97 @@ describe('oracle IR step wiring guardrails', () => {
     expect(describeOracleIrMandatoryExecutionIncomplete(parsedSteps, result)).toEqual([]);
   });
 
+  it('treats a may-only then-branch as complete when earlier mandatory steps applied', () => {
+    const moveStep: OracleEffectStep = {
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'target permanent card with mana value 3 or less from your graveyard' },
+      to: 'battlefield',
+      raw: 'Return target permanent card with mana value 3 or less from your graveyard to the battlefield',
+    } as OracleEffectStep;
+    const copyStep: OracleEffectStep = {
+      kind: 'copy_spell',
+      subject: 'this_spell',
+      optional: true,
+      allowNewTargets: true,
+      raw: 'you may copy this spell and may choose a new target for the copy',
+    } as OracleEffectStep;
+    const parsedSteps: OracleEffectStep[] = [
+      moveStep,
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'this spell was cast from a graveyard' },
+        steps: [copyStep],
+        raw: 'If this spell was cast from a graveyard, you may copy this spell and may choose a new target for the copy',
+      } as OracleEffectStep,
+    ];
+    const result = {
+      state: {},
+      log: [],
+      appliedSteps: [moveStep],
+      skippedSteps: [],
+      automationGaps: [],
+      pendingOptionalSteps: [],
+    } as any;
+
+    expect(isOracleIrMandatoryExecutionComplete(parsedSteps, result)).toBe(true);
+    expect(isOracleIrExecutionHandled(result, 0, 0, parsedSteps)).toBe(true);
+    expect(describeOracleIrMandatoryExecutionIncomplete(parsedSteps, result)).toEqual([]);
+  });
+
+  it("completes Sevinne GY-cast copy when optional this-spell copy is deferred to the server", () => {
+    const oracleText =
+      'Return target permanent card with mana value 3 or less from your graveyard to the battlefield. If this spell was cast from a graveyard, you may copy this spell and may choose a new target for the copy.';
+    const steps = collectSpellResolutionEffectSteps(oracleText, "Sevinne's Reclamation");
+    expect(steps.some((step) => step.kind === 'conditional')).toBe(true);
+
+    const state: any = {
+      players: [{
+        id: 'p1',
+        name: 'P1',
+        life: 40,
+        library: [],
+        hand: [],
+        graveyard: [
+          { id: 'target-a', name: "Wayfarer's Bauble", type_line: 'Artifact', mana_value: 1 },
+          { id: 'target-b', name: 'Mind Stone', type_line: 'Artifact', mana_value: 2 },
+        ],
+        exile: [],
+      }],
+      battlefield: [],
+      stack: [],
+      zones: {
+        p1: {
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'target-a', name: "Wayfarer's Bauble", type_line: 'Artifact', mana_value: 1 },
+            { id: 'target-b', name: 'Mind Stone', type_line: 'Artifact', mana_value: 2 },
+          ],
+          exile: [],
+        },
+      },
+    };
+    const irCtx = buildOracleIRExecutionContext({
+      controllerId: 'p1',
+      sourceId: 'stack_sevinne',
+      sourceName: "Sevinne's Reclamation",
+      sourceObjectType: 'spell',
+      castFromZone: 'graveyard',
+      targetPermanentId: 'target-a',
+      deferStackSpellCopiesToServer: true,
+      selectorContext: { targetPermanentId: 'target-a', chosenObjectIds: ['target-a'] },
+    });
+    const result = applyOracleIRStepsToGameState(state, steps, irCtx, {
+      allowOptional: true,
+      haltOnPlayerChoiceRequired: true,
+    });
+
+    expect(isOracleIrExecutionHandled(result, 0, 0, steps, result.state)).toBe(true);
+    expect(describeOracleIrExecutionHandledIncomplete(result, 0, 0, steps, result.state)).toEqual([]);
+    expect(result.appliedSteps.some((step) => step.kind === 'move_zone')).toBe(true);
+    expect(result.automationGaps.some((gap) => gap.reasonCode === 'server_stack_copy_required')).toBe(true);
+  });
+
   it('still rejects a conditional whose then-branch did not apply', () => {
     const exileStep: OracleEffectStep = {
       kind: 'exile',
@@ -517,10 +662,10 @@ describe('oracle IR step wiring guardrails', () => {
     )).toBe(true);
   });
 
-  it('refuses activated IR when an unwired step kind is present', () => {
+  it('applies reanimate plus one-shot cant_attack this turn', () => {
     const ctx = {
       state: seedWhipState(),
-      gameId: 'test_partial_activated',
+      gameId: 'test_cant_attack_activated',
       bumpSeq: () => {},
       libraries: new Map(),
     };
@@ -530,7 +675,7 @@ describe('oracle IR step wiring guardrails', () => {
 
     const steps = collectActivatedAbilitySteps(oracleText, 'Test Source');
     expect(steps.some((step) => step.kind === 'cant_attack')).toBe(true);
-    expect(isActivatedAbilityEffectFullyWired(steps)).toBe(false);
+    expect(isActivatedAbilityEffectFullyWired(steps)).toBe(true);
 
     const result = tryApplyOracleIRToActivatedAbility(ctx as any, {
       controller: 'p1' as any,
@@ -540,9 +685,68 @@ describe('oracle IR step wiring guardrails', () => {
       targets: ['whip_target_1'],
     });
 
-    expect(result.handled).toBe(false);
-    expect(result.applied).toBe(0);
-    expect((ctx.state as any).battlefield.some((perm: any) => perm?.card?.id === 'whip_target_1')).toBe(false);
+    expect(result.handled).toBe(true);
+    expect(result.applied).toBeGreaterThanOrEqual(2);
+
+    const perm = (ctx.state as any).battlefield.find((entry: any) => entry?.card?.id === 'whip_target_1');
+    expect(perm).toBeTruthy();
+    const descriptions = (perm?.temporaryEffects || []).map((effect: any) => String(effect?.description || '').toLowerCase());
+    expect(descriptions.some((text: string) => text.includes("can't attack"))).toBe(true);
+    expect(canPermanentAttack(perm, 'p1', (ctx.state as any).battlefield).canParticipate).toBe(false);
+  });
+
+  it("stamps can't-attack this turn on a battlefield creature", () => {
+    const oracleText = "Target creature can't attack this turn.";
+    const steps = collectActivatedAbilitySteps(oracleText, 'Test Source');
+    expect(steps.some((step) => step.kind === 'cant_attack')).toBe(true);
+    expect(isActivatedAbilityEffectFullyWired(steps)).toBe(true);
+
+    const ctx = {
+      state: {
+        players: [{ id: 'p1', name: 'P1' }],
+        life: { p1: 40 },
+        turnNumber: 5,
+        battlefield: [
+          {
+            id: 'whip_1',
+            controller: 'p1',
+            owner: 'p1',
+            card: { id: 'whip_card_1', name: 'Whip of Erebos', oracle_text: '' },
+          },
+          {
+            id: 'bear_1',
+            controller: 'p1',
+            owner: 'p1',
+            type_line: 'Creature - Bear',
+            card: {
+              id: 'bear_1',
+              name: 'Grizzly Bears',
+              type_line: 'Creature - Bear',
+              oracle_text: '',
+              power: '2',
+              toughness: '2',
+            },
+          },
+        ],
+        zones: { p1: { graveyard: [], graveyardCount: 0 } },
+      },
+      gameId: 'test_cant_attack_stamp',
+      bumpSeq: () => {},
+      libraries: new Map(),
+    };
+
+    const result = tryApplyOracleIRToActivatedAbility(ctx as any, {
+      controller: 'p1' as any,
+      sourceName: 'Test Source',
+      oracleText,
+      sourcePermanentId: 'whip_1',
+      targets: ['bear_1'],
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.applied).toBeGreaterThanOrEqual(1);
+    const perm = (ctx.state as any).battlefield.find((entry: any) => entry?.id === 'bear_1');
+    expect(canPermanentAttack(perm, 'p1', (ctx.state as any).battlefield).canParticipate).toBe(false);
   });
 
   it('treats reanimate plus take_extra_turn as fully wired activated steps', () => {

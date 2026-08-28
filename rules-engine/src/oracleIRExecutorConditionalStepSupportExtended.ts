@@ -118,6 +118,7 @@ import {
 
 
 import { evaluateThisWayClause } from './oracleIRExecutorConditionalStepExtendedThisWay';
+import { tryEvaluateTypedCreatureClause } from './oracleIRExecutorConditionalStepTypedCreatureClause';
 import { tryEvaluateExtendedWarriorDamageClause } from './oracleIRExecutorConditionalStepExtendedWarriorDamage';
 import { tryEvaluateExtendedProwlClause } from './oracleIRExecutorConditionalStepExtendedProwl';
 import { tryEvaluateExtendedLessonCardClause } from './oracleIRExecutorConditionalStepExtendedLessonCard';
@@ -160,6 +161,9 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
 
   const thisWay = evaluateThisWayClause(params);
   if (thisWay !== null) return thisWay;
+
+  const typedCreature = tryEvaluateTypedCreatureClause(params);
+  if (typedCreature !== null) return typedCreature;
 
   const would = evaluateWouldReplacementClause(normalizedRaw);
   if (would !== null) return would;

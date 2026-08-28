@@ -27,12 +27,14 @@ import {
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
 import { creatureHasHaste } from "../game-actions.js";
+import { permanentCannotActivateTapAbilities } from "../../state/modules/staticEffectSpecActivationLocks.js";
 import { resolveGroupedPermanentRef } from "../tokenGroupResolve.js";
 import {
   addRestrictedManaToPool,
   broadcastGame,
   broadcastManaPoolUpdate,
   calculateManaProduction,
+  shouldSkipScalingManaForColorlessTap,
   calculateTotalAvailableMana,
   consumeManaFromPool,
   getOrInitManaPool,
@@ -112,6 +114,14 @@ export async function handleTapPermanentRequest(
       return;
     }
   }
+
+  if (permanentCannotActivateTapAbilities(permanent, game.state)) {
+    socket.emit("error", {
+      code: "CANNOT_ACTIVATE_TAP_ABILITY",
+      message: `${cardName}'s activated abilities with {T} in their costs can't be activated.`,
+    });
+    return;
+  }
   
   // Set tapped on the permanent
   (permanent as any).tapped = true;
@@ -153,7 +163,13 @@ export async function handleTapPermanentRequest(
   // These are special scaling mana abilities (Karametra's Acolyte, Priest of Titania, etc.)
   // ========================================================================
   let devotionMana = getDevotionManaAmount(game.state, permanent, pid);
-  let creatureCountMana = getCreatureCountManaAmount(game.state, permanent, pid);
+  let creatureCountMana = shouldSkipScalingManaForColorlessTap({
+    cardName,
+    selectedAbilityText: '',
+    oracleText: String(card?.oracle_text || ''),
+  })
+    ? null
+    : getCreatureCountManaAmount(game.state, permanent, pid);
   
   // Debug logging for devotion mana
   if (cardName.toLowerCase().includes('karametra') || cardName.toLowerCase().includes('acolyte')) {

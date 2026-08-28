@@ -10,6 +10,8 @@ import { tryParseSimpleActionDiscardVoteClauses } from './oracleIRParserSimpleAc
 import { tryParseSimpleActionBlightScryClauses } from './oracleIRParserSimpleActionBlightScry';
 import { tryParseSimpleActionMillClauses } from './oracleIRParserSimpleActionMill';
 import { tryParseSimpleActionTokenLifeClauses } from './oracleIRParserSimpleActionTokenLife';
+import { tryParseEntersUnderOpponentControlClause } from './oracleIRParserEntersUnderOpponentControl';
+import { tryParseSpellGainsKeywordGrantClause } from './oracleIRParserSpellKeywordGrants';
 
 export function tryParseSimpleActionClause(args: {
   clause: string;
@@ -23,6 +25,16 @@ export function tryParseSimpleActionClause(args: {
   {
     const early = tryParseSimpleActionEarlyClauses({ clause, rawClause, withMeta, parseRest: tryParseSimpleActionClause });
     if (early) return early;
+  }
+
+  {
+    const entersUnderOpponent = tryParseEntersUnderOpponentControlClause({
+      clause,
+      rawClause,
+      withMeta,
+      parseRest: tryParseSimpleActionClause,
+    });
+    if (entersUnderOpponent) return entersUnderOpponent;
   }
 
   {
@@ -56,6 +68,16 @@ export function tryParseSimpleActionClause(args: {
 
     const tokenLife = tryParseSimpleActionTokenLifeClauses({ clause, rawClause, withMeta, parseRest: tryParseSimpleActionClause });
     if (tokenLife) return tokenLife;
+  }
+
+  {
+    const spellKeywordGrant = tryParseSpellGainsKeywordGrantClause({
+      clause,
+      rawClause,
+      withMeta,
+      parseRest: tryParseSimpleActionClause,
+    });
+    if (spellKeywordGrant) return spellKeywordGrant;
   }
 
   {

@@ -12,8 +12,30 @@
  *   - permanentHasKeyword
  */
 import { attachmentOracleGrantsKeyword } from "../../../../shared/src/attachmentKeywordGrants.js";
+import {
+  grantedAbilityIsOwnKeyword,
+  oracleTextGrantsKeywordOnlyToOthers,
+  oracleTextHasOwnKeyword,
+} from "../../../../rules-engine/src/oracleOwnKeywordText.js";
 import { debugWarn } from "../../utils/debug.js";
 import { extractCreatureTypes } from "./gameActionsCastCostReduction.js";
+
+function cardListsKeyword(card: any, keyword: string): boolean {
+  const keywords = Array.isArray(card?.keywords) ? card.keywords : [];
+  const lower = keyword.toLowerCase();
+  return keywords.some((entry: unknown) => String(entry || '').toLowerCase() === lower);
+}
+
+function grantorGivesKeywordToOtherCreaturesYouControl(oracle: string, keyword: string): boolean {
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(String.raw`\bother creatures you control have ${escaped}\b`, 'i').test(oracle);
+}
+
+function grantorGivesKeywordToCreaturesYouControlIncludingSelf(oracle: string, keyword: string): boolean {
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (grantorGivesKeywordToOtherCreaturesYouControl(oracle, keyword)) return false;
+  return new RegExp(String.raw`\bcreatures you control have ${escaped}\b`, 'i').test(oracle);
+}
 
 /**
  * Check if a creature has haste (either inherently or from effects)
@@ -52,16 +74,27 @@ export function creatureHasHaste(permanent: any, battlefield: any[], controller:
     const permTypeLine = (permCard.type_line || "").toLowerCase();
     const permOracleText = (permCard.oracle_text || "").toLowerCase();
     
-    // 1. Check creature's own oracle text
-    if (permOracleText.includes('haste')) {
+    const otherHasteLord = oracleTextGrantsKeywordOnlyToOthers(permOracleText, 'haste');
+
+    // 1. Printed haste on this creature — not lord text like
+    // "Other Dinosaurs you control have haste."
+    if (oracleTextHasOwnKeyword(permOracleText, 'haste')) {
+      return true;
+    }
+    // Scryfall/keyword lists can be filled by a naive full-oracle scan of a lord grant.
+    if (cardListsKeyword(permCard, 'haste') && !otherHasteLord) {
       return true;
     }
     
-    // 2. Check granted abilities on the permanent
+    // 2. Check granted abilities on the permanent. Exact keyword only — lord wording
+    // containing "haste" is not self-haste. Other-only lords may also be stamped with
+    // a 'haste' badge from their own grant; ignore that and look at other sources.
     const grantedAbilities = permanent?.grantedAbilities || [];
-    if (Array.isArray(grantedAbilities) && grantedAbilities.some((a: string) => 
-      a && a.toLowerCase().includes('haste')
-    )) {
+    if (
+      !otherHasteLord &&
+      Array.isArray(grantedAbilities) &&
+      grantedAbilities.some((a: string) => grantedAbilityIsOwnKeyword(a, 'haste'))
+    ) {
       return true;
     }
 
@@ -72,10 +105,9 @@ export function creatureHasHaste(permanent: any, battlefield: any[], controller:
     ];
     if (tempAbilities.some((entry: any) => {
       if (typeof entry === 'string') {
-        return entry.toLowerCase().includes('haste');
+        return grantedAbilityIsOwnKeyword(entry, 'haste');
       }
-      const abilityText = String(entry?.ability || entry?.keyword || entry?.name || '').toLowerCase();
-      return abilityText.includes('haste');
+      return grantedAbilityIsOwnKeyword(entry?.ability || entry?.keyword || entry?.name, 'haste');
     })) {
       return true;
     }
@@ -132,8 +164,15 @@ export function creatureHasHaste(permanent: any, battlefield: any[], controller:
       
       // Check for global "creatures you control have haste" effects
       if (grantorController === controller) {
-        if (grantorOracle.includes('creatures you control have haste') ||
-            grantorOracle.includes('other creatures you control have haste')) {
+        const grantorId = String(perm.id || '');
+        const recipientId = String(permanent.id || '');
+        if (grantorGivesKeywordToCreaturesYouControlIncludingSelf(grantorOracle, 'haste')) {
+          return true;
+        }
+        if (
+          grantorGivesKeywordToOtherCreaturesYouControl(grantorOracle, 'haste') &&
+          grantorId !== recipientId
+        ) {
           return true;
         }
         
@@ -156,9 +195,13 @@ export function creatureHasHaste(permanent: any, battlefield: any[], controller:
           // Check if creature type appears before "have haste" with no period between them
           if (typeIndex !== -1 && hasteIndex !== -1 && typeIndex < hasteIndex) {
             const textBetween = grantorOracle.slice(typeIndex, hasteIndex);
-            if (!textBetween.includes('.')) {
-              return true;
+            if (textBetween.includes('.')) continue;
+            const prefix = grantorOracle.slice(Math.max(0, typeIndex - 10), typeIndex);
+            const isOtherGrant = /\bother\s+$/i.test(prefix);
+            if (isOtherGrant && String(perm.id || '') === String(permanent.id || '')) {
+              continue;
             }
+            return true;
           }
         }
         
@@ -224,17 +267,23 @@ export function permanentHasKeyword(permanent: any, battlefield: any[], controll
     const permTypeLine = (permCard.type_line || "").toLowerCase();
     const permOracleText = (permCard.oracle_text || "").toLowerCase();
     
-    // 1. Check permanent's own oracle text
-    const keywordRegex = new RegExp(`\\b${lowerKeyword}\\b`, 'i');
-    if (keywordRegex.test(permOracleText)) {
+    const otherOnlyGrant = oracleTextGrantsKeywordOnlyToOthers(permOracleText, lowerKeyword);
+
+    // 1. Printed keyword on this permanent — not lord text that grants it to others.
+    if (oracleTextHasOwnKeyword(permOracleText, lowerKeyword)) {
+      return true;
+    }
+    if (cardListsKeyword(permCard, lowerKeyword) && !otherOnlyGrant) {
       return true;
     }
     
     // 2. Check granted abilities on the permanent
     const grantedAbilities = permanent?.grantedAbilities || [];
-    if (Array.isArray(grantedAbilities) && grantedAbilities.some((a: string) => 
-      a && a.toLowerCase().includes(lowerKeyword)
-    )) {
+    if (
+      !otherOnlyGrant &&
+      Array.isArray(grantedAbilities) &&
+      grantedAbilities.some((a: string) => grantedAbilityIsOwnKeyword(a, lowerKeyword))
+    ) {
       return true;
     }
     
@@ -315,8 +364,14 @@ export function permanentHasKeyword(permanent: any, battlefield: any[], controll
         }
 
         // Global grants: "creatures you control have [keyword]"
-        if (grantorOracle.includes(`creatures you control have ${lowerKeyword}`) ||
-            grantorOracle.includes(`other creatures you control have ${lowerKeyword}`)) {
+        // Do not treat "other creatures you control have X" as granting X to the source.
+        if (grantorGivesKeywordToCreaturesYouControlIncludingSelf(grantorOracle, lowerKeyword)) {
+          return true;
+        }
+        if (
+          grantorGivesKeywordToOtherCreaturesYouControl(grantorOracle, lowerKeyword) &&
+          String(perm.id || '') !== String(permanent.id || '')
+        ) {
           return true;
         }
         
@@ -327,9 +382,13 @@ export function permanentHasKeyword(permanent: any, battlefield: any[], controll
           const keywordIndex = grantorOracle.indexOf(`have ${lowerKeyword}`);
           if (typeIndex !== -1 && keywordIndex !== -1 && typeIndex < keywordIndex) {
             const textBetween = grantorOracle.slice(typeIndex, keywordIndex);
-            if (!textBetween.includes('.')) {
-              return true;
+            if (textBetween.includes('.')) continue;
+            const prefix = grantorOracle.slice(Math.max(0, typeIndex - 10), typeIndex);
+            const isOtherGrant = /\bother\s+$/i.test(prefix);
+            if (isOtherGrant && String(perm.id || '') === String(permanent.id || '')) {
+              continue;
             }
+            return true;
           }
         }
         

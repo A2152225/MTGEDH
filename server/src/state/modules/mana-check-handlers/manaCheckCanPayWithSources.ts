@@ -14,6 +14,7 @@ import {
   buildExactSacrificeCandidates,
   buildExactHandCandidates,
   type ExactManaPaymentOptions,
+  type ExactManaSpendPurpose,
   exactManaSpendRestrictionAllowsPurpose,
   removeSacrificeCandidates,
   removeHandCandidates,
@@ -27,9 +28,11 @@ import {
   type ExactSacrificeCandidate,
   type ExactHandCandidate,
   type SimpleManaKey,
+  SIMPLE_MANA_KEYS,
   createSimpleManaPool,
   getManaPoolFromState,
   addProducedMana,
+  manaSymbolToColorKey,
 } from "./manaCheckSimplePool.js";
 
 export function getPlayerLifeTotal(state: any, playerId: PlayerID): number {
@@ -49,9 +52,53 @@ export function getPlayerLifeTotal(state: any, playerId: PlayerID): number {
   return 40;
 }
 
+function restrictedFloatingEntryColorKey(entry: { type?: string } | null | undefined): SimpleManaKey | undefined {
+  const raw = String(entry?.type || '').trim();
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase();
+  if ((SIMPLE_MANA_KEYS as readonly string[]).includes(lower)) {
+    return lower as SimpleManaKey;
+  }
+  return manaSymbolToColorKey(raw.toUpperCase());
+}
 
+/**
+ * Fold already-floating restricted pool mana (Secluded Courtyard / Cavern of Souls)
+ * into a simple WUBRGC pool when the spend purpose is legal. Untapped restricted
+ * sources are handled by the exact search; once those lands are tapped the mana
+ * lives only on `pool.restricted` and was previously ignored, so Smart Pass treated
+ * a tapped-out main phase as idle.
+ */
+function withMatchingRestrictedFloatingMana<TPool extends Record<string, number>>(
+  pool: TPool,
+  rawPool: any,
+  purpose: ExactManaSpendPurpose | undefined,
+): TPool {
+  if (!purpose) return pool;
+  const restricted = Array.isArray(rawPool?.restricted) ? rawPool.restricted : [];
+  if (restricted.length === 0) return pool;
 
-
+  let changed = false;
+  const next: TPool = { ...pool };
+  for (const entry of restricted) {
+    if (!entry) continue;
+    const amount = Number(entry.amount || 0);
+    if (!(amount > 0)) continue;
+    const restriction = String(entry.restriction || '').trim();
+    if (!restriction) continue;
+    if (!exactManaSpendRestrictionAllowsPurpose(
+      { restriction, restrictedTo: entry.restrictedTo },
+      purpose,
+    )) {
+      continue;
+    }
+    const colorKey = restrictedFloatingEntryColorKey(entry);
+    if (!colorKey) continue;
+    next[colorKey] = Number(next[colorKey] || 0) + amount;
+    changed = true;
+  }
+  return changed ? next : pool;
+}
 
 /**
  * Check whether the player can pay a mana cost using their floating mana plus untapped mana sources.
@@ -68,7 +115,13 @@ export function canPayManaCostWithAvailableSources(
   const effectiveLifeAvailable = Number.isFinite(Number(lifeAvailable))
     ? Number(lifeAvailable)
     : getPlayerLifeTotal(state, playerId);
-  const floatingPool = createSimpleManaPool(getManaPoolFromState(state, playerId));
+  const rawFloatingPool = getManaPoolFromState(state, playerId);
+  const restrictedSpendPurpose = options?.restrictedSpendPurpose;
+  const floatingPool = withMatchingRestrictedFloatingMana(
+    createSimpleManaPool(rawFloatingPool),
+    rawFloatingPool,
+    restrictedSpendPurpose,
+  );
   if (canPayManaCost(floatingPool, parsedCost, effectiveLifeAvailable)) {
     return true;
   }
@@ -102,7 +155,6 @@ export function canPayManaCostWithAvailableSources(
     source.options.some((option) => option.removeCounterCost || option.batteryColorFix),
   );
   const hasBranchingSource = sources.some((source) => source.options.length > 1);
-  const restrictedSpendPurpose = options?.restrictedSpendPurpose;
   const hasRestrictedSpendSource = sources.some((source) =>
     source.options.some((option) => Boolean(option.spendRestriction?.restriction)),
   );
@@ -120,7 +172,11 @@ export function canPayManaCostWithAvailableSources(
     !hasBranchingSource &&
     !(hasRestrictedSpendSource && restrictedSpendPurpose)
   ) {
-    return canPayManaCost(getAvailableMana(state, playerId), parsedCost, effectiveLifeAvailable);
+    return canPayManaCost(
+      withMatchingRestrictedFloatingMana(getAvailableMana(state, playerId), rawFloatingPool, restrictedSpendPurpose),
+      parsedCost,
+      effectiveLifeAvailable,
+    );
   }
 
   const memo = new Map<string, boolean>();
@@ -351,7 +407,11 @@ export function canPayManaCostWithAvailableSources(
 
   if (budgetExceeded) {
     debug(2, `[mana-check] exact payment search hit node budget (${EXACT_MANA_SEARCH_NODE_BUDGET}); falling back to available-mana estimate`);
-    return canPayManaCost(getAvailableMana(state, playerId), parsedCost, effectiveLifeAvailable);
+    return canPayManaCost(
+      withMatchingRestrictedFloatingMana(getAvailableMana(state, playerId), rawFloatingPool, restrictedSpendPurpose),
+      parsedCost,
+      effectiveLifeAvailable,
+    );
   }
 
   return false;

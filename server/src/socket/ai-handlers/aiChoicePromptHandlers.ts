@@ -339,6 +339,19 @@ export function chooseAIDredgeDrawReplacementSelection(
     : { selections: [drawId], cancelled: false };
 }
 
+export function chooseAISkipDrawReplacementSelection(
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const skipId = optionIds.find((id) => /^skip(?:_draw)?$/i.test(id));
+  const drawId = optionIds.find((id) => /^draw$/i.test(id))
+    || optionIds.find((id) => /^(?:decline|no|cancel)$/i.test(id))
+    || optionIds[0]
+    || 'draw';
+  return { selections: [skipId || drawId], cancelled: false };
+}
+
 function scoreAIPlayerBoardDevelopment(game: any, candidateId: string): number {
   const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
   const permanents = battlefield.filter((permanent: any) => String(permanent?.controller || '') === candidateId);

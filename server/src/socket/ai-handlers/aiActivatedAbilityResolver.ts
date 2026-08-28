@@ -322,7 +322,8 @@ export function didAIAbilityActivationProgress(
     after.handCount !== before.handCount ||
     after.exileCount !== before.exileCount ||
     after.permanentExists !== before.permanentExists ||
-    after.permanentTapped !== before.permanentTapped
+    after.permanentTapped !== before.permanentTapped ||
+    after.battlefieldTappedKey !== before.battlefieldTappedKey
   );
 }
 
@@ -396,14 +397,17 @@ export async function requestAISharedBattlefieldAbilityActivation(
         }
 
         const manaBefore = JSON.stringify(getOrInitManaPool(game.state, String(playerId)) || {});
-        const pendingBefore = Array.isArray(queue?.steps) ? queue.steps.length : 0;
+        const stepId = String(aiStep.id || '');
         await handleAIResolutionStep(io, gameId, playerId, aiStep);
         await Promise.resolve();
 
         const nextQueue = ResolutionQueueManager.getQueue(gameId);
         const manaAfter = JSON.stringify(getOrInitManaPool(game.state, String(playerId)) || {});
-        const pendingAfter = Array.isArray(nextQueue?.steps) ? nextQueue.steps.length : 0;
-        if (manaAfter === manaBefore && pendingAfter >= pendingBefore) {
+        const stillSameStep = Array.isArray(nextQueue?.steps)
+          && nextQueue.steps.some((step: any) => String(step?.id || '') === stepId);
+        // A tap-other cost step is often replaced 1-for-1 by the ability's mill/target prompt.
+        // Stopping on `pendingAfter >= pendingBefore` aborted that follow-up and reported no progress.
+        if (stillSameStep && manaAfter === manaBefore) {
           break;
         }
       }

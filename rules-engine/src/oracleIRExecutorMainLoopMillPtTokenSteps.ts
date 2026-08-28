@@ -461,6 +461,17 @@ export function tryApplyMainLoopMillPtTokenSteps(
         });
         applyHandledStepResult(step, result, (appliedResult) => {
           lastExcessDamageDealtThisWay = Math.max(0, Number(appliedResult.excessDamageDealtThisWay) || 0);
+          const damagedIds = Array.isArray(appliedResult.lastDamagedBattlefieldPermanentIds)
+            ? appliedResult.lastDamagedBattlefieldPermanentIds
+                .map((id: unknown) => String(id || '').trim())
+                .filter(Boolean)
+            : [];
+          if (damagedIds.length > 0) {
+            currentCtx = {
+              ...currentCtx,
+              lastDamagedBattlefieldPermanentIds: damagedIds,
+            };
+          }
         });
         break;
       }

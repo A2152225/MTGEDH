@@ -97,4 +97,31 @@ describe('AI Fog Spell Casting Heuristics Evaluation', () => {
     // Attacking me with power 10, gives +12 bonus.
     expect(value).toBeGreaterThan(10);
   });
+
+  it('treats an attack on the AI planeswalker as attacking the AI', () => {
+    const gameState = {
+      turn: 3,
+      battlefield: [
+        {
+          id: 'pw1',
+          controller: 'player1',
+          card: { name: 'Jace, the Mind Sculptor', type_line: 'Legendary Planeswalker — Jace' },
+        },
+        {
+          id: 'creature1',
+          controller: 'player2',
+          attacking: 'pw1',
+          card: {
+            name: 'Colossal Dreadmaw',
+            type_line: 'Creature — Dinosaur',
+            power: '6',
+            toughness: '6',
+          },
+        },
+      ],
+    };
+
+    const value = evaluateSpellValue(fogCard, gameState, 'player1', mockDeps);
+    expect(value).toBeGreaterThan(5);
+  });
 });

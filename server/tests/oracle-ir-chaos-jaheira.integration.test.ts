@@ -195,6 +195,12 @@ describe('Oracle IR Chaos Warp and Jaheira Respite integration', () => {
         opponentId,
         [
           {
+            id: 'library_bolt',
+            name: 'Lightning Bolt',
+            type_line: 'Instant',
+            zone: 'library',
+          },
+          {
             id: 'revealed_creature',
             name: 'Elite Vanguard',
             type_line: 'Creature — Human Soldier',

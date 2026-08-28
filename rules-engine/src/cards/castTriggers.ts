@@ -33,6 +33,34 @@ function stripTrailingReminderText(clause: string): string {
     .replace(/\.\s*$/g, '');
 }
 
+function stripReminderParentheticals(oracleText: string): string {
+  return String(oracleText || '').replace(/\([^)]*\)/g, ' ');
+}
+
+/** True when this `cascade` token is a grant ("has cascade") rather than the spell's own keyword. */
+function isGrantedCascadeOccurrence(text: string, matchIndex: number): boolean {
+  const before = text.slice(Math.max(0, matchIndex - 64), matchIndex);
+  return /\b(?:have|has|gains?|gained)\s+$/i.test(before);
+}
+
+/**
+ * Count printed Cascade keywords on this card (Apex Devastator = 4).
+ * Does not count grants such as Wild-Magic Sorcerer's "has cascade".
+ */
+export function getNativeCascadeCount(oracleText: string): number {
+  const stripped = stripReminderParentheticals(oracleText);
+  const re = /\bcascade\b/gi;
+  let count = 0;
+  let match: RegExpExecArray | null = re.exec(stripped);
+  while (match) {
+    if (!isGrantedCascadeOccurrence(stripped, match.index)) {
+      count += 1;
+    }
+    match = re.exec(stripped);
+  }
+  return count;
+}
+
 /**
  * Extract each "When you cast this spell," clause from oracle text.
  * Uses the full paragraph line (not first-period truncation) and absorbs following
@@ -83,15 +111,15 @@ export function detectCastTrigger(oracleText: string, typeLine?: string): CastTr
     };
   }
   
-  // Check for Cascade keyword (count multiple cascades)
-  const cascadeMatches = text.match(/cascade/gi);
-  if (cascadeMatches && cascadeMatches.length > 0) {
+  // Check for Cascade keyword (count multiple native cascades; skip "has cascade" grants)
+  const nativeCascadeCount = getNativeCascadeCount(oracleText);
+  if (nativeCascadeCount > 0) {
     return {
       hasCastTrigger: true,
       triggerType: 'self_cast',
       hasCascade: true,
-      cascadeCount: cascadeMatches.length,
-      effect: `Cascade${cascadeMatches.length > 1 ? ` (×${cascadeMatches.length})` : ''} - Exile cards until you exile a nonland card that costs less. Cast it free.`,
+      cascadeCount: nativeCascadeCount,
+      effect: `Cascade${nativeCascadeCount > 1 ? ` (×${nativeCascadeCount})` : ''} - Exile cards until you exile a nonland card that costs less. Cast it free.`,
     };
   }
   
@@ -201,13 +229,12 @@ export function getStormCount(spellsCastThisTurn: number): number {
  * Check if a card has Cascade
  */
 export function hasCascade(oracleText: string): boolean {
-  return oracleText.toLowerCase().includes('cascade');
+  return getNativeCascadeCount(oracleText) > 0;
 }
 
 /**
  * Get cascade count (some cards like Apex Devastator have multiple cascades)
  */
 export function getCascadeCount(oracleText: string): number {
-  const matches = oracleText.toLowerCase().match(/cascade/gi);
-  return matches ? matches.length : 0;
+  return getNativeCascadeCount(oracleText);
 }

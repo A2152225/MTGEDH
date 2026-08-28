@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io';
-import { appendEvent } from '../db/index.js';
+import { appendEvent, restampLatestEvent } from '../db/index.js';
 import type { InMemoryGame } from '../state/types';
 import { emitPendingDamageTriggers } from './damage-triggers.js';
 import { debugWarn } from '../utils/debug.js';
@@ -39,6 +39,28 @@ export function advanceStepPersistingEvent(
     debugWarn(1, 'advanceStepPersistingEvent: appendEvent(nextStep) failed:', err);
   }
   (game as any).nextStep();
+  try {
+    const stateAny = ((game as any)?.state || {}) as any;
+    const drawnCardIds = Array.isArray(stateAny._lastDrawStepCardIds)
+      ? (stateAny._lastDrawStepCardIds as unknown[])
+          .map((id) => String(id || '').trim())
+          .filter(Boolean)
+      : [];
+    const rawTurnNumber = Number(stateAny?.turnNumber ?? stateAny?.turn);
+    restampLatestEvent(
+      gameId,
+      'nextStep',
+      {
+        turnNumber: Number.isFinite(rawTurnNumber) && rawTurnNumber > 0 ? rawTurnNumber : undefined,
+        phase: typeof stateAny?.phase === 'undefined' ? undefined : String(stateAny.phase),
+        step: typeof stateAny?.step === 'undefined' ? undefined : String(stateAny.step),
+      },
+      drawnCardIds.length > 0 ? { drawnCardIds } : undefined,
+    );
+    delete stateAny._lastDrawStepCardIds;
+  } catch (err) {
+    debugWarn(2, 'advanceStepPersistingEvent: restamp nextStep failed:', err);
+  }
   flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
   return true;
 }

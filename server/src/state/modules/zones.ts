@@ -16,7 +16,7 @@ import { ResolutionStepType } from "../resolution/types.js";
 import { recordCardPutIntoGraveyardThisTurn, recordPermanentPutIntoHandFromBattlefieldThisTurn } from "./turn-tracking.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
-import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
+import { pushCardToGraveyardFromLibrary } from "./graveyardEntryUtils.js";
 import { processLinkedExileReturns } from "./triggers/linked-exile.js";
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
 import {
@@ -342,7 +342,7 @@ export function applyDredgeDrawReplacementChoice(ctx: GameContext, event: {
 
   const milledCards = library.splice(0, dredgeAmount).map((card: any) => ({ ...card, zone: 'graveyard' }));
   for (const milledCard of milledCards) {
-    pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), milledCard, graveyard);
+    pushCardToGraveyardFromLibrary(ctx, String(playerId), milledCard, graveyard);
   }
 
   const [returnedCard] = graveyard.splice(dredgeIndex, 1);
@@ -376,6 +376,7 @@ export {
   drawCardsByIds,
   processDrawTriggers,
 };
+export { applySkipDrawReplacementChoice } from "./zones-handlers/zonesDrawReplacementSkipDrawApply.js";
 
 import { processMillTriggers } from "./zones-handlers/zonesProcessMillTriggers.js";
 export { processMillTriggers };
@@ -472,7 +473,7 @@ export function selectFromLibrary(ctx: GameContext, playerId: PlayerID, cardIds:
       moved.push(c);
     } else if (moveTo === 'graveyard') {
       (z as any).graveyard = (z as any).graveyard || [];
-      if (pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), c, (z as any).graveyard)) {
+      if (pushCardToGraveyardFromLibrary(ctx, String(playerId), c, (z as any).graveyard)) {
         moved.push(c);
       }
     } else if (moveTo === 'exile') {
@@ -582,7 +583,7 @@ export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: 
   for (const id of toGraveyard) {
     const c = byId.get(id);
     if (c) {
-      pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), c, (z as any).graveyard, {
+      pushCardToGraveyardFromLibrary(ctx, String(playerId), c, (z as any).graveyard, {
         extraFields: { faceDown: false },
       });
     }
@@ -650,7 +651,7 @@ export function applyExplore(
     
     if (toGraveyard) {
       (z as any).graveyard = (z as any).graveyard || [];
-      pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), topCard, (z as any).graveyard, {
+      pushCardToGraveyardFromLibrary(ctx, String(playerId), topCard, (z as any).graveyard, {
         extraFields: { faceDown: false },
       });
       (z as any).graveyardCount = ((z as any).graveyard || []).length;

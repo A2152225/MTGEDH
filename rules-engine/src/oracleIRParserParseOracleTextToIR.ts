@@ -13,6 +13,7 @@ import {
 } from './oracleIRParserAbilityMerges';
 import { parseAbilityToIRAbility as parseAbilityToIRAbilityFromModule } from './oracleIRParserAbilityToIR';
 import { expandChaosZoneTemplateAbilities } from './oracleIRParserChaosZoneTemplates';
+import { mergeRevealTopShareTypeMayCastAbilities } from './oracleIRParserRevealTopShareTypeMayCast';
 import {
   annotateCounterMetadataAbilities,
   annotateDamageMetadataAbilities,
@@ -292,6 +293,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = upgradeConditionalIfYouDoImpulseAbilities(abilities);
   abilities = expandUnlessSacrificeAbilities(abilities);
   abilities = expandOtherwiseConditionalUnknownAbilities(abilities);
+  abilities = mergeRevealTopShareTypeMayCastAbilities(abilities);
   abilities = expandExilePermissionUnknownAbilities(abilities);
   abilities = expandTokenCreationReplacementUnknownAbilities(abilities);
   abilities = expandGraveyardPermissionUnknownAbilities(abilities);

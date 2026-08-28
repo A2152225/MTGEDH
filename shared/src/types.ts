@@ -510,7 +510,7 @@ export interface GameState {
     controller: PlayerID;
     damageAmount: number;
     triggerType: string;
-    targetType?: 'opponent' | 'any' | 'each_opponent' | 'any_non_dragon' | 'controller' | 'chosen_player' | 'opponent_or_planeswalker' | 'none';
+    targetType?: 'opponent' | 'any' | 'each_opponent' | `any_non_${string}` | 'controller' | 'chosen_player' | 'opponent_or_planeswalker' | 'none';
     targetRestriction?: string;
     effect?: string;
     effectMode?: 'gain_life' | 'gain_life_and_attacking_player_loses_life';

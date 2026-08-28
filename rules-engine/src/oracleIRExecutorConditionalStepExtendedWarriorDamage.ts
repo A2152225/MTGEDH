@@ -16,6 +16,7 @@ import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
 import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
+import { normalizeCreatureTypeWord } from '../../shared/src/creatureTypes';
 
 export function tryEvaluateExtendedWarriorDamageClause(params: ExtendedConditionalParams): boolean | null {
   const {
@@ -69,23 +70,43 @@ export function tryEvaluateExtendedWarriorDamageClause(params: ExtendedCondition
   if (/^if an opponent would draw/.test(normalizedRaw)) return true;
   if (/^if enchanted (?:land|creature|permanent) would be destroyed/.test(normalizedRaw)) return true;
   if (/^draw a card if an opponent has cast/.test(normalizedRaw)) return true;
-  if (/^if you revealed a dragon/.test(normalizedRaw)) return true;
-  if (/^if you controlled a dragon/.test(normalizedRaw)) return true;
-  if (/^you revealed a dragon card or controlled a dragon as you cast this spell$/.test(normalizedRaw)) {
-    const revealed =
-      ctx.revealedDragonAsCast === true || ctx.selectorContext?.revealedDragonAsCast === true;
-    const controlled =
-      ctx.controlledDragonAsCast === true || ctx.selectorContext?.controlledDragonAsCast === true;
-    if (revealed || controlled) return true;
-    if (
-      ctx.revealedDragonAsCast === false &&
-      ctx.controlledDragonAsCast === false &&
-      ctx.selectorContext?.revealedDragonAsCast === false &&
-      ctx.selectorContext?.controlledDragonAsCast === false
-    ) {
-      return false;
+  {
+    const revealedIf = normalizedRaw.match(/^if you revealed an? ([a-z][a-z'-]*)/);
+    if (revealedIf && normalizeCreatureTypeWord(String(revealedIf[1] || ''))) return true;
+  }
+  {
+    const controlledIf = normalizedRaw.match(/^if you controlled an? ([a-z][a-z'-]*)/);
+    if (controlledIf && normalizeCreatureTypeWord(String(controlledIf[1] || ''))) return true;
+  }
+  {
+    const revealedOrControlled = normalizedRaw.match(
+      /^you revealed an? ([a-z][a-z'-]*) card or controlled an? \1 as you cast this spell$/,
+    );
+    const typeName = revealedOrControlled
+      ? normalizeCreatureTypeWord(String(revealedOrControlled[1] || ''))
+      : null;
+    if (typeName) {
+      const cap = `${typeName[0].toUpperCase()}${typeName.slice(1)}`;
+      const revealed =
+        (ctx as any)?.[`revealed${cap}AsCast`] === true
+        || ctx.selectorContext?.[`revealed${cap}AsCast`] === true
+        || (typeName === 'dragon' && (ctx.revealedDragonAsCast === true || ctx.selectorContext?.revealedDragonAsCast === true));
+      const controlled =
+        (ctx as any)?.[`controlled${cap}AsCast`] === true
+        || ctx.selectorContext?.[`controlled${cap}AsCast`] === true
+        || (typeName === 'dragon' && (ctx.controlledDragonAsCast === true || ctx.selectorContext?.controlledDragonAsCast === true));
+      if (revealed || controlled) return true;
+      if (
+        typeName === 'dragon'
+        && ctx.revealedDragonAsCast === false
+        && ctx.controlledDragonAsCast === false
+        && ctx.selectorContext?.revealedDragonAsCast === false
+        && ctx.selectorContext?.controlledDragonAsCast === false
+      ) {
+        return false;
+      }
+      return true;
     }
-    return true;
   }
   if (normalizedRaw === "it isn't a mana ability" || normalizedRaw === 'it is not a mana ability') {
     const isMana =
@@ -95,13 +116,12 @@ export function tryEvaluateExtendedWarriorDamageClause(params: ExtendedCondition
   }
   if (/^if that player discards/.test(normalizedRaw)) return true;
   if (/^if they can'?t$/.test(normalizedRaw)) return false;
-  if (/^if this creature is a (?:warrior|spirit|zombie|vampire|angel|demon|dragon|elf|human|goblin|soldier|wizard)$/.test(normalizedRaw)) {
-    return true;
-  }
   {
-    const thisCreatureSubtypeMatch = normalizedRaw.match(/^this creature is a ([a-z]+)$/i);
+    const thisCreatureSubtypeMatch = normalizedRaw.match(/^(?:if )?this creature is a ([a-z]+)$/i);
     if (thisCreatureSubtypeMatch) {
-      const subtype = String(thisCreatureSubtypeMatch[1] || '').trim().toLowerCase();
+      const subtype = normalizeCreatureTypeWord(String(thisCreatureSubtypeMatch[1] || ''))
+        ?? String(thisCreatureSubtypeMatch[1] || '').trim().toLowerCase();
+      if (!subtype) return null;
       const source = getContextSourceObject(ctx, (idRaw: string) =>
         findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, idRaw)
       );

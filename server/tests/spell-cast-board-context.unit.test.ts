@@ -19,6 +19,12 @@ const forceSpike = {
   oracle_text: 'Counter target spell unless its controller pays {1}.',
 };
 
+const counterspell = {
+  name: 'Counterspell',
+  type_line: 'Instant',
+  oracle_text: 'Counter target spell.',
+};
+
 const windfall = {
   id: 'windfall-1',
   name: 'Windfall',
@@ -84,6 +90,38 @@ describe('spell cast board context (AI + soak)', () => {
     expect(isSpellCastBoardContextUseful(withHands, 'ai', windfall, { excludeCardId: 'windfall-1' })).toBe(true);
   });
 
+  it('does not treat the AI countering its own stack spell as useful context', () => {
+    const ownTithe = buildGame({
+      stack: [{
+        id: 'tithe',
+        type: 'spell',
+        controller: 'ai',
+        card: { name: 'Smothering Tithe', type_line: 'Enchantment' },
+      }],
+    });
+    expect(isAISpellContextuallyUseful(ownTithe, 'ai' as any, counterspell)).toBe(false);
+    expect(isAISpellContextuallyUseful(ownTithe, 'ai' as any, forceSpike)).toBe(false);
+    expect(getSpellCastBoardGaps(ownTithe, 'ai', counterspell)).toContain('no_stack_spell_target');
+
+    const mixed = buildGame({
+      stack: [
+        {
+          id: 'tithe',
+          type: 'spell',
+          controller: 'ai',
+          card: { name: 'Smothering Tithe', type_line: 'Enchantment' },
+        },
+        {
+          id: 'bolt',
+          type: 'spell',
+          controller: 'p2',
+          card: { name: 'Lightning Bolt', type_line: 'Instant' },
+        },
+      ],
+    });
+    expect(isSpellCastBoardContextUseful(mixed, 'ai', counterspell)).toBe(true);
+  });
+
   it('provisions the same gaps the AI would skip', () => {
     const game = buildGame();
     const remaining = provisionSpellCastBoardContext(game, 'ai', pathToExile, { opponentIds: ['p2'] });
@@ -99,5 +137,39 @@ describe('spell cast board context (AI + soak)', () => {
     const windGame = buildGame({ hands: { ai: [windfall], p2: [] } });
     provisionSpellCastBoardContext(windGame, 'ai', windfall, { excludeCardId: 'windfall-1', opponentIds: ['p2'] });
     expect(isSpellCastBoardContextUseful(windGame, 'ai', windfall, { excludeCardId: 'windfall-1' })).toBe(true);
+  });
+
+  it('skips empty-stack Summary Dismissal and off-turn Flash creatures that are not combat tricks', () => {
+    const summaryDismissal = {
+      name: 'Summary Dismissal',
+      type_line: 'Instant',
+      oracle_text: 'Exile all other spells and counter all abilities.',
+    };
+    const horizonChimera = {
+      name: 'Horizon Chimera',
+      type_line: 'Creature — Chimera',
+      oracle_text: 'Flash\nFlying, trample\nWhenever you draw a card, you gain 1 life.',
+      keywords: ['Flash', 'Flying', 'Trample'],
+    };
+
+    const empty = buildGame();
+    empty.state.turnPlayer = 'p2';
+    expect(isAISpellContextuallyUseful(empty, 'ai' as any, summaryDismissal)).toBe(false);
+    expect(getSpellCastBoardGaps(empty, 'ai', summaryDismissal)).toContain('no_stack_spell_target');
+    expect(isAISpellContextuallyUseful(empty, 'ai' as any, horizonChimera)).toBe(false);
+    expect(getSpellCastBoardGaps(empty, 'ai', horizonChimera)).toContain('off_turn_flash_permanent');
+
+    empty.state.turnPlayer = 'ai';
+    expect(isAISpellContextuallyUseful(empty, 'ai' as any, horizonChimera)).toBe(true);
+
+    const withStack = buildGame({
+      stack: [{
+        id: 'bolt',
+        type: 'spell',
+        controller: 'p2',
+        card: { name: 'Lightning Bolt', type_line: 'Instant' },
+      }],
+    });
+    expect(isSpellCastBoardContextUseful(withStack, 'ai', summaryDismissal)).toBe(true);
   });
 });

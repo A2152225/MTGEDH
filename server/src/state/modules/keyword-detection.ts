@@ -771,7 +771,7 @@ function isGrantedKeywordAbilityMatch(
     ? match.index
     : String(text || '').toLowerCase().indexOf(keyword.toLowerCase());
   if (idx < 0) return false;
-  const before = String(text || '').slice(Math.max(0, idx - 48), idx);
+  const before = String(text || '').slice(Math.max(0, idx - 64), idx);
   return /\b(?:have|has|gains?|gained)\s+$/i.test(before);
 }
 
@@ -838,9 +838,12 @@ export function detectKeywords(oracleText: string, cardName: string = ''): Keywo
     }
     
     if (match) {
-      // "Nontoken creatures you control have riot" grants riot to others; the source
-      // itself does not have riot as a keyword (Rhythm of the Wild).
-      if (pattern.keyword === 'riot' && isGrantedKeywordAbilityMatch(matchedIn, match, 'riot')) {
+      // "Nontoken creatures you control have riot" / "the first spell you cast … has cascade"
+      // grant the keyword to others; the source itself does not have it.
+      if (
+        (pattern.keyword === 'riot' || pattern.keyword === 'cascade')
+        && isGrantedKeywordAbilityMatch(matchedIn, match, pattern.keyword)
+      ) {
         continue;
       }
 

@@ -5834,6 +5834,17 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(String(create.token || '').toLowerCase()).toContain('treasure');
   });
 
+  it("parses suffix 'token for each creature you control' as a dynamic amount", () => {
+    const text = 'Create a 1/1 white Kor Soldier creature token for each creature you control.';
+    const ir = parseOracleTextToIR(text);
+    const create = ir.abilities[0].steps.find(s => s.kind === 'create_token') as any;
+
+    expect(create).toBeTruthy();
+    expect(create.amount).toEqual({ kind: 'x' });
+    expect(String(create.raw || '')).toMatch(/for each creature you control/i);
+    expect(String(create.token || '').toLowerCase()).toContain('kor soldier');
+  });
+
   it('parses twice-X token creation without absorbing X into the token descriptor', () => {
     const text = 'Create twice X 1/1 black and green Pest creature tokens with "When this token dies, you gain 1 life."';
     const ir = parseOracleTextToIR(text);
@@ -10172,6 +10183,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     const ability = ir.abilities[0] as any;
     expect(ability.steps.some((step: any) => /any player may activate this ability/i.test(String(step?.raw || '')))).toBe(false);
     expect(ability.steps.map((step: any) => step.kind)).toEqual(['lose_life', 'draw']);
+    expect(ability.anyPlayerMayActivate).toBe(true);
   });
 
   it('prunes standalone any-player activation permission abilities', () => {

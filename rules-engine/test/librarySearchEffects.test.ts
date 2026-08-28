@@ -3,7 +3,6 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  KNOWN_SEARCH_RESTRICTIONS,
   detectSearchRestrictions,
   getActiveSearchRestrictions,
   checkSearchRestrictions,
@@ -13,47 +12,6 @@ import {
 } from '../src/librarySearchEffects';
 
 describe('Library Search Effects', () => {
-  describe('KNOWN_SEARCH_RESTRICTIONS', () => {
-    it('includes Aven Mindcensor with top 4 limit', () => {
-      const restriction = KNOWN_SEARCH_RESTRICTIONS['aven mindcensor'];
-      expect(restriction).toBeDefined();
-      expect(restriction.type).toBe('limited_search');
-      expect(restriction.limitedSearchCount).toBe(4);
-      expect(restriction.affectsOpponents).toBe(true);
-      expect(restriction.affectsSelf).toBe(false);
-    });
-
-    it('includes Leonin Arbiter with pay to search', () => {
-      const restriction = KNOWN_SEARCH_RESTRICTIONS['leonin arbiter'];
-      expect(restriction).toBeDefined();
-      expect(restriction.type).toBe('pay_to_search');
-      expect(restriction.paymentToIgnore).toBe('{2}');
-      expect(restriction.affectsOpponents).toBe(true);
-      expect(restriction.affectsSelf).toBe(true);
-    });
-
-    it('includes Stranglehold preventing opponent searches', () => {
-      const restriction = KNOWN_SEARCH_RESTRICTIONS['stranglehold'];
-      expect(restriction).toBeDefined();
-      expect(restriction.type).toBe('cannot_search');
-      expect(restriction.affectsOpponents).toBe(true);
-      expect(restriction.affectsSelf).toBe(false);
-    });
-
-    it('includes Ob Nixilis, Unshackled with trigger effect', () => {
-      const restriction = KNOWN_SEARCH_RESTRICTIONS['ob nixilis, unshackled'];
-      expect(restriction).toBeDefined();
-      expect(restriction.type).toBe('search_triggers_effect');
-      expect(restriction.triggerEffect).toContain('Sacrifice');
-    });
-
-    it('includes Opposition Agent with opponent control', () => {
-      const restriction = KNOWN_SEARCH_RESTRICTIONS['opposition agent'];
-      expect(restriction).toBeDefined();
-      expect(restriction.type).toBe('opponent_controls');
-    });
-  });
-
   describe('detectSearchRestrictions', () => {
     it('detects Aven Mindcensor', () => {
       const card = {
@@ -66,6 +24,8 @@ describe('Library Search Effects', () => {
       expect(restrictions.length).toBe(1);
       expect(restrictions[0].type).toBe('limited_search');
       expect(restrictions[0].limitedSearchCount).toBe(4);
+      expect(restrictions[0].affectsOpponents).toBe(true);
+      expect(restrictions[0].affectsSelf).toBe(false);
     });
 
     it('detects Stranglehold', () => {
@@ -92,6 +52,8 @@ describe('Library Search Effects', () => {
       
       expect(restrictions.length).toBe(1);
       expect(restrictions[0].type).toBe('cannot_search');
+      expect(restrictions[0].affectsOpponents).toBe(true);
+      expect(restrictions[0].affectsSelf).toBe(true);
     });
 
     it('detects generic "search top N" effects', () => {
@@ -116,6 +78,69 @@ describe('Library Search Effects', () => {
       const restrictions = detectSearchRestrictions(card, 'perm1', 'player1');
       
       expect(restrictions.some(r => r.type === 'search_triggers_effect')).toBe(true);
+    });
+
+    it('detects pay-to-search from ignore-this-effect oracle', () => {
+      const restrictions = detectSearchRestrictions({
+        name: 'Leonin Arbiter',
+        oracle_text: "Players can't search libraries. Any player may pay {2} for that player to ignore this effect until end of turn.",
+      }, 'perm1', 'player1');
+
+      expect(restrictions).toHaveLength(1);
+      expect(restrictions[0].type).toBe('pay_to_search');
+      expect(restrictions[0].paymentToIgnore).toBe('{2}');
+      expect(restrictions[0].affectsOpponents).toBe(true);
+      expect(restrictions[0].affectsSelf).toBe(true);
+    });
+
+    it('detects opponent-controlled searches from while-searching oracle', () => {
+      const restrictions = detectSearchRestrictions({
+        name: 'Opposition Agent',
+        oracle_text: "Flash\nYou control your opponents while they're searching their libraries.\nWhile an opponent is searching their library, they exile each card they find. You may play those cards for as long as they remain exiled, and you may spend mana as though it were mana of any color to cast them.",
+      }, 'perm1', 'player1');
+
+      expect(restrictions.some((r) => r.type === 'opponent_controls')).toBe(true);
+      const control = restrictions.find((r) => r.type === 'opponent_controls');
+      expect(control?.affectsOpponents).toBe(true);
+      expect(control?.affectsSelf).toBe(false);
+    });
+
+    it("detects can't-cause-to-search as opponent cannot_search", () => {
+      const restrictions = detectSearchRestrictions({
+        name: 'Ashiok, Dream Render',
+        oracle_text: "Spells and abilities your opponents control can't cause their controller to search their library.\n[−1]: Target player mills four cards. Then exile each opponent's graveyard.",
+      }, 'perm1', 'player1');
+
+      expect(restrictions.some((r) => r.type === 'cannot_search')).toBe(true);
+      const prevent = restrictions.find((r) => r.type === 'cannot_search');
+      expect(prevent?.affectsOpponents).toBe(true);
+      expect(prevent?.affectsSelf).toBe(false);
+    });
+
+    it("detects this-turn players-can't-search duration", () => {
+      const restrictions = detectSearchRestrictions({
+        name: 'Shadow of Doubt',
+        oracle_text: "({U/B} can be paid with either {U} or {B}.)\nPlayers can't search libraries this turn.\nDraw a card.",
+      }, 'perm1', 'player1');
+
+      expect(restrictions).toHaveLength(1);
+      expect(restrictions[0].type).toBe('cannot_search');
+      expect(restrictions[0].duration).toBe('until_end_of_turn');
+      expect(restrictions[0].affectsOpponents).toBe(true);
+      expect(restrictions[0].affectsSelf).toBe(true);
+    });
+
+    it('detects whenever-search sacrifice trigger without a name table', () => {
+      const restrictions = detectSearchRestrictions({
+        name: 'Ob Nixilis, Unshackled',
+        oracle_text: 'Flying, trample\nWhenever an opponent searches their library, that player sacrifices a creature of their choice and loses 10 life.\nWhenever another creature dies, put a +1/+1 counter on Ob Nixilis.',
+      }, 'perm1', 'player1');
+
+      const trigger = restrictions.find((r) => r.type === 'search_triggers_effect');
+      expect(trigger).toBeDefined();
+      expect(String(trigger?.triggerEffect || '')).toMatch(/sacrifices a creature/i);
+      expect(trigger?.affectsOpponents).toBe(true);
+      expect(trigger?.affectsSelf).toBe(false);
     });
   });
 

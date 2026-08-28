@@ -1,3 +1,5 @@
+import { controllerHasLeftTheGame } from '../../../../rules-engine/src/playerInGameStatus.js';
+
 export type StaticEffectSourceType = 'battlefield' | 'emblem' | 'plane' | 'scheme';
 
 export interface StaticEffectSource {
@@ -89,6 +91,7 @@ export function collectStaticEffectSources(
     const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
     for (const permanent of battlefield) {
       if (!permanent?.card) continue;
+      if (controllerHasLeftTheGame(state, permanent.controller)) continue;
 
       sources.push({
         sourceType: 'battlefield',
@@ -113,6 +116,7 @@ export function collectStaticEffectSources(
     const emblems = Array.isArray((state as any)?.emblems) ? (state as any).emblems : [];
     for (const emblem of emblems) {
       if (!emblem) continue;
+      if (controllerHasLeftTheGame(state, emblem.controller)) continue;
 
       sources.push({
         sourceType: 'emblem',

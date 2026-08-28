@@ -281,10 +281,10 @@ function parseLibrarySearchUnknownStep(step: OracleEffectStep): OracleEffectStep
     return null;
   }
 
-  const searchStart = raw.match(/\b((?:(?:you|its controller|that player|that opponent)\s+may\s+)?search\s+(?:your|their|that player's|that player�s|target player's|target player�s|that opponent's|that opponent�s|its controller's|its owner's)\s+library[\s\S]*)$/i);
+  const searchStart = raw.match(/\b((?:(?:you|each player|its controller|that player|that opponent)\s+(?:may\s+)?)?search(?:es)?\s+(?:your|their|that player's|that player�s|target player's|target player�s|that opponent's|that opponent�s|its controller's|its owner's)\s+library[\s\S]*)$/i);
   if (!searchStart) return null;
   const searchClause = String(searchStart[1] || '').trim();
-  const searchMatch = searchClause.match(/^(?:(you|its controller|that player|that opponent)\s+may\s+)?search\s+(your|their|that player's|that player�s|target player's|target player�s|that opponent's|that opponent�s|its controller's|its owner's)\s+library(?:\s+(?:and\/or|and)\s+graveyard)?\s+for\s+([\s\S]+)$/i);
+  const searchMatch = searchClause.match(/^(?:(you|each player|its controller|that player|that opponent)\s+(?:may\s+)?)?search(?:es)?\s+(your|their|that player's|that player�s|target player's|target player�s|that opponent's|that opponent�s|its controller's|its owner's)\s+library(?:\s+(?:and\/or|and)\s+graveyard)?\s+for\s+([\s\S]+)$/i);
   if (!searchMatch) return null;
 
   const subject = String(searchMatch[1] || '').trim();
@@ -403,13 +403,21 @@ function parseForEachManaGainLifeUnknownStep(step: OracleEffectStep): OracleEffe
 function parseEnterAsCopyUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
   if (step.kind !== 'unknown') return null;
   const raw = normalizeOracleText(String(step.raw || '')).trim();
-  if (!/^you\s+may\s+have\s+this\s+creature\s+enter\s+as\s+a\s+copy\s+of\s+any\s+creature\s+on\s+the\s+battlefield$/i.test(raw)) {
-    return null;
-  }
+  const enterAsCopy = raw.match(
+    /^you\s+may\s+have\s+this\s+(creature|land|permanent)\s+enter(?:\s+tapped)?\s+as\s+a\s+copy\s+of\s+any\s+(creature|land|permanent)\s+on\s+the\s+battlefield$/i,
+  );
+  if (!enterAsCopy) return null;
+  const selfKind = String(enterAsCopy[1] || 'creature').toLowerCase();
+  const copyOf = String(enterAsCopy[2] || 'creature').toLowerCase();
+  const tapped = /\benter\s+tapped\s+as\s+a\s+copy\b/i.test(raw);
   return {
     kind: 'grant_static_ability',
-    target: parseObjectSelector('this creature'),
-    effectText: ['may enter as a copy of any creature on the battlefield'],
+    target: parseObjectSelector(selfKind === 'land' ? 'this land' : 'this creature'),
+    effectText: [
+      tapped
+        ? `may enter tapped as a copy of any ${copyOf} on the battlefield`
+        : `may enter as a copy of any ${copyOf} on the battlefield`,
+    ],
     duration: 'static',
     raw,
   } as unknown as OracleEffectStep;

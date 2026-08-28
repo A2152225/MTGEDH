@@ -5,6 +5,8 @@
 // detectManaModifiers.
 // Leaf must not import mana-abilities.ts or mana-abilities-handlers/index.ts.
 
+import { controllerHasLeftTheGame } from '../../../../../rules-engine/src/playerInGameStatus.js';
+
 export interface ManaAbility {
   id: string;
   cost: string; // Usually "{T}" for tap, can include additional costs like "{T}, Pay 1 life"
@@ -95,6 +97,7 @@ function getModifierBasicLandTypes(modifier: ManaModifier): Set<BasicLandType> {
 export function isRealityTwistActive(gameState: any): boolean {
   return Array.isArray(gameState?.battlefield) && gameState.battlefield.some((entry: any) =>
     String(entry?.card?.name || '').trim().toLowerCase() === 'reality twist'
+    && !controllerHasLeftTheGame(gameState, entry?.controller)
   );
 }
 
@@ -480,6 +483,7 @@ export function detectManaModifiers(
   
   for (const permanent of battlefield) {
     if (!permanent) continue;
+    if (controllerHasLeftTheGame(gameState, permanent.controller)) continue;
     
     const cardName = (permanent.card?.name || "").toLowerCase();
     const oracleText = (permanent.card?.oracle_text || "").toLowerCase();

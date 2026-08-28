@@ -14,7 +14,8 @@ export type AsEntersChoiceKind =
   | 'basic_land_type'
   | 'card_name'
   | 'player'
-  | 'opponent';
+  | 'opponent'
+  | 'copy_permanent';
 
 export interface AsEntersChoiceRequirement {
   kind: AsEntersChoiceKind;
@@ -23,6 +24,10 @@ export interface AsEntersChoiceRequirement {
   colors?: MagicColorName[];
   excludedColors?: MagicColorName[];
   excludedCreatureTypes?: string[];
+  copyType?: 'land' | 'creature' | 'permanent';
+  enterTappedIfCopied?: boolean;
+  /** Permanent enters under the chosen opponent's control (Xantcha-style replacement). */
+  appliesControlChange?: boolean;
 }
 
 const ALL_COLORS: readonly MagicColorName[] = ['white', 'blue', 'black', 'red', 'green'];
@@ -66,7 +71,33 @@ function collectIrAsEntersChoices(oracleText: string, cardName: string): AsEnter
       const kind = String((step as any).kind || '');
       const raw = String((step as any).raw || '');
       const optional = Boolean((step as any).optional);
-      const looksAsEnters = /\bas\s+.+\s+enters\b/i.test(raw) || requirements.length > 0;
+      const looksAsEnters = /\bas\s+.+\s+enters\b/i.test(raw)
+        || /enter(?:s)?(?:\s+tapped)?\s+as\s+a\s+copy\b/i.test(raw)
+        || requirements.length > 0;
+
+      if (kind === 'grant_static_ability') {
+        const effectText = Array.isArray((step as any).effectText)
+          ? (step as any).effectText.map((entry: unknown) => String(entry || '')).join(' ')
+          : '';
+        const copySource = `${effectText} ${raw}`;
+        const copyMatch = copySource.match(
+          /may enter(?:\s+tapped)? as a copy of any (land|creature|permanent) on the battlefield/i,
+        );
+        if (copyMatch) {
+          const copyType = String(copyMatch[1] || 'permanent').toLowerCase() as 'land' | 'creature' | 'permanent';
+          const enterTappedIfCopied = /enter(?:s)?\s+tapped\s+as\s+a\s+copy/i.test(copySource);
+          requirements.push({
+            kind: 'copy_permanent',
+            mandatory: false,
+            reason: enterTappedIfCopied
+              ? `You may have this ${copyType} enter tapped as a copy of any ${copyType} on the battlefield`
+              : `You may have this ${copyType} enter as a copy of any ${copyType} on the battlefield`,
+            copyType,
+            enterTappedIfCopied,
+          });
+        }
+        continue;
+      }
 
       // Accept standalone choose_* from as-enters abilities and compound follow-ups.
       if (kind === 'choose_color') {
@@ -129,6 +160,22 @@ function collectIrAsEntersChoices(oracleText: string, cardName: string): AsEnter
           kind: 'opponent',
           mandatory: !optional,
           reason: 'Choose an opponent',
+        });
+        continue;
+      }
+
+      if (
+        kind === 'gain_control'
+        && (
+          /enters(?: the battlefield)? under the control of an opponent/i.test(raw)
+          || /under the control of an opponent of your choice/i.test(raw)
+        )
+      ) {
+        requirements.push({
+          kind: 'opponent',
+          mandatory: !optional,
+          reason: 'Choose an opponent to control this permanent',
+          appliesControlChange: true,
         });
         continue;
       }

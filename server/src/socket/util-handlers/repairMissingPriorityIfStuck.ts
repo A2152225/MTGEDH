@@ -5,9 +5,10 @@
 // Public entry symbols: ts, repairMissingPriorityIfStuck.
 
 import type { InMemoryGame } from "../../state/types.js";
-import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import { contextPendingResolutionSummary } from "../../state/resolution/resolutionQueueGameIds.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { BOOT_ID } from "../../utils/bootId.js";
+import { reassignPriorityIfHolderCannotReceive } from "../../state/modules/priorityEligibility.js";
 
 /**
  * Timeout for clearing the priority restoration flag.
@@ -38,6 +39,14 @@ export function repairMissingPriorityIfStuck(
   debugCallId?: string,
 ): boolean {
   const stateAny = (game.state as any) || {};
+  const ctx = (game as any).ctx || game;
+  if (reassignPriorityIfHolderCannotReceive(ctx)) {
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    debug(1, `${ts()} ${logScope} Moved priority off eliminated holder to ${stateAny.priority}`);
+    return true;
+  }
   if (stateAny.priority) return false;
 
   const phase = String(stateAny?.phase || '').toLowerCase();
@@ -45,7 +54,7 @@ export function repairMissingPriorityIfStuck(
   if (phase === 'pre_game' || phase === 'pre-game') return false;
   if (['UNTAP', 'CLEANUP'].includes(step)) return false;
 
-  const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
+  const pendingSummary = contextPendingResolutionSummary(game, gameId);
   if (pendingSummary.hasPending) return false;
 
   const turnPlayer = String(stateAny.turnPlayer || '').trim();
@@ -65,6 +74,7 @@ export function repairMissingPriorityIfStuck(
   });
 
   stateAny.priority = turnPlayer;
+  reassignPriorityIfHolderCannotReceive(ctx);
   stateAny._priorityJustRestored = true;
   if (typeof (game as any).bumpSeq === 'function') {
     (game as any).bumpSeq();

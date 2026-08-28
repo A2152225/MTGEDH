@@ -1,5 +1,6 @@
 import type { BattlefieldPermanent, GameState } from '../../shared/src';
 import { isCurrentlyCreature } from './actions/combat';
+import { isAttackingPermanent } from './oracleIRExecutorCreatureStepUtils-handlers/oracleIRExecutorCreatureBattlefieldHelpers';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import type { SpellTimingRestriction } from './castingRestrictionsTypes';
 
@@ -131,9 +132,7 @@ export function hasValidTargetsForSpell(
     }
 
     const attackingCreatures = battlefield.filter(perm => {
-      const isCreature = isCurrentlyCreature(perm);
-      const isAttacking = (perm as any).attacking === true;
-      return isCreature && isAttacking;
+      return isCurrentlyCreature(perm) && isAttackingPermanent(perm);
     });
 
     if (attackingCreatures.length === 0) {

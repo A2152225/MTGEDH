@@ -6,6 +6,7 @@
 
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import type { DeathDetectionState } from "./death-detection-state.js";
+import { normalizeCreatureTypeWord } from "../../../../../shared/src/creatureTypes.js";
 
 export function appendDeathDetectionMid(state: DeathDetectionState): void {
   const {
@@ -172,6 +173,27 @@ export function appendDeathDetectionMid(state: DeathDetectionState): void {
     });
   }
 
+  const equippedCreatureOtherThanSelfAttacksOrDiesMatch = oracleText.match(
+    new RegExp(
+      `whenever an equipped creature you control other than (?:this creature|this permanent|${dieNameVariants.join('|')}) attacks or dies,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    equippedCreatureOtherThanSelfAttacksOrDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'equipped_creature_other_than_self_attacks_or_dies')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, equippedCreatureOtherThanSelfAttacksOrDiesMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'equipped_creature_other_than_self_attacks_or_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   const heroesControlCreatureDiesMatch = oracleText.match(
     /whenever a creature the heroes control dies,?\s*([^.]+)/i,
   );
@@ -220,22 +242,33 @@ export function appendDeathDetectionMid(state: DeathDetectionState): void {
     });
   }
 
-  const anotherGoblinGyFromBfMatch = oracleText.match(
-    /whenever another Goblin you control is put into a graveyard from the battlefield,?\s*([^.]+)/i,
+  const anotherTypedGyFromBfMatch = oracleText.match(
+    /whenever another ([A-Za-z][A-Za-z'-]*) you control is put into a graveyard from the battlefield,?\s*([^.]+)/i,
   );
+  const anotherTypedGyType = anotherTypedGyFromBfMatch
+    ? normalizeCreatureTypeWord(String(anotherTypedGyFromBfMatch[1] || ''))
+    : null;
   if (
-    anotherGoblinGyFromBfMatch &&
-    !triggers.some((t) => t.triggerType === 'another_goblin_graveyard_from_battlefield')
+    anotherTypedGyFromBfMatch
+    && anotherTypedGyType
+    && !triggers.some((t) =>
+      t.triggerType === 'another_typed_graveyard_from_battlefield'
+      || t.triggerType === 'another_goblin_graveyard_from_battlefield',
+    )
   ) {
-    const effectText = timingTriggerEffect(oracleText, anotherGoblinGyFromBfMatch);
+    const effectText = timingTriggerEffect(oracleText, anotherTypedGyFromBfMatch, 2);
     triggers.push({
       permanentId,
       cardName,
-      triggerType: 'another_goblin_graveyard_from_battlefield',
+      triggerType:
+        anotherTypedGyType === 'goblin'
+          ? 'another_goblin_graveyard_from_battlefield'
+          : 'another_typed_graveyard_from_battlefield',
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      requiredTypePhrase: anotherTypedGyType,
+    } as any);
   }
 
   const oneOfEnchantedCreaturesDiesMatch = oracleText.match(/when one of the enchanted creatures dies,?\s*([^.]+)/i);

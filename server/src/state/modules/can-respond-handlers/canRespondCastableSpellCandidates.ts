@@ -44,6 +44,7 @@ import {
   hasForetellOrCanCastFromExile,
   isCardPlayableFromExile,
 } from './canRespondTopLibraryFlashExile.js';
+import { getOrComputeCachedSpellCandidates } from './canRespondPriorityCache.js';
 
 function spellMatchesCandidateMode(card: any, mode: SharedSpellCandidateMode, grantsFlash: boolean): boolean {
   if (mode === 'main') {
@@ -182,6 +183,34 @@ export function getCastableSpellCandidates(
     conservativeTargets?: boolean;
   },
 ): SharedSpellCastCandidate[] {
+  const mode = options?.mode || 'main';
+  const skipIgnoredCards = options?.skipIgnoredCards === true;
+  const allowAlternateCosts = options?.allowAlternateCosts !== false;
+  const allowUnknownCostFallback = options?.allowUnknownCostFallback !== false;
+  const conservativeTargets = options?.conservativeTargets !== false;
+  const optionKey = `${mode}|${skipIgnoredCards}|${allowAlternateCosts}|${allowUnknownCostFallback}|${conservativeTargets}`;
+  return getOrComputeCachedSpellCandidates(ctx, playerId, optionKey, () =>
+    collectCastableSpellCandidates(ctx, playerId, {
+      mode,
+      skipIgnoredCards,
+      allowAlternateCosts,
+      allowUnknownCostFallback,
+      conservativeTargets,
+    }),
+  );
+}
+
+function collectCastableSpellCandidates(
+  ctx: GameContext,
+  playerId: PlayerID,
+  options: {
+    mode: SharedSpellCandidateMode;
+    skipIgnoredCards: boolean;
+    allowAlternateCosts: boolean;
+    allowUnknownCostFallback: boolean;
+    conservativeTargets: boolean;
+  },
+): SharedSpellCastCandidate[] {
   try {
     const { state } = ctx;
     if (!state) return [];
@@ -193,11 +222,13 @@ export function getCastableSpellCandidates(
     const zones = state.zones?.[playerId];
     if (!zones) return [];
 
-    const mode = options?.mode || 'main';
-    const skipIgnoredCards = options?.skipIgnoredCards === true;
-    const allowAlternateCosts = options?.allowAlternateCosts !== false;
-    const allowUnknownCostFallback = options?.allowUnknownCostFallback !== false;
-    const conservativeTargets = options?.conservativeTargets !== false;
+    const {
+      mode,
+      skipIgnoredCards,
+      allowAlternateCosts,
+      allowUnknownCostFallback,
+      conservativeTargets,
+    } = options;
     const ignoredCards = (state as any).ignoredCardsForAutoPass?.[playerId] || {};
     const stateAny = state as any;
     const currentTurn = Number(stateAny?.turnNumber ?? 0);

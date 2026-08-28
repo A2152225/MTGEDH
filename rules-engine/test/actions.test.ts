@@ -296,6 +296,32 @@ describe('Combat Actions', () => {
     expect(result.legal).toBe(true);
   });
 
+  it('should reject attacks against a player who has already lost', () => {
+    gameState.players.push({
+      id: 'player3',
+      name: 'Player 3',
+      seat: 2,
+      life: 0,
+      hasLost: true,
+      eliminated: true,
+      library: [],
+      hand: [],
+      graveyard: [],
+      manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    } as any);
+    gameState.life.player3 = 0;
+    gameState.turnOrder = ['player1', 'player2', 'player3'];
+
+    const result = validateDeclareAttackers(gameState, {
+      type: 'declareAttackers' as const,
+      playerId: 'player1',
+      attackers: [{ creatureId: 'creature1', defendingPlayerId: 'player3' }],
+    });
+
+    expect(result.legal).toBe(false);
+    expect(result.reason).toMatch(/left the game/i);
+  });
+
   it('should reject attacks against a defender that does not satisfy a defender-dependent land restriction', () => {
     gameState.players.push({
       id: 'player3',
@@ -718,6 +744,18 @@ describe('Combat Validation Helpers', () => {
         card: { oracle_text: '' },
       };
       expect(hasHaste(creature)).toBe(true);
+    });
+
+    it('does not treat Other [type] you control have haste as self haste', () => {
+      const alpha = {
+        id: 'regisaur-1',
+        grantedAbilities: ['haste'],
+        card: {
+          oracle_text: 'Other Dinosaurs you control have haste.',
+          keywords: ['Haste'],
+        },
+      };
+      expect(hasHaste(alpha)).toBe(false);
     });
   });
 

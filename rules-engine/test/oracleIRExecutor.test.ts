@@ -8741,9 +8741,9 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
     expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
     expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1', 'p1c2']);
-    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c4', 'p2c1', 'p2c2', 'p2c3']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c4', 'p2c1', 'p2c2']);
     expect(p1.exile || []).toHaveLength(0);
-    expect((p2.exile || []).map((c: any) => c.id)).toEqual([]);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c3']);
   });
 
   it('applies Cascade reminder text when reference spell mana value context is provided', () => {

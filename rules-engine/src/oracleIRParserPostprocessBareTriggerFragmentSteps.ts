@@ -9,9 +9,13 @@
 //   parseBareTriggerEffectFragmentSteps
 
 import type { OracleEffectStep } from './oracleIR';
+import { parseEffectClauseToStep } from './oracleIRParserEffectClauseToStep';
 import { parseStructuredKeywordActionGrant } from './oracleIRParserPostprocessKeywordStaticGrantSteps';
 import { parseStructuredTriggerResidualGrant } from './oracleIRParserPostprocessStructuredTriggerResidualChain';
-import { normalizeLeadingConditionalCondition } from './oracleIRParserSacrificeHelpers';
+import {
+  normalizeLeadingConditionalCondition,
+  tryParseLeadingConditionalStep,
+} from './oracleIRParserSacrificeHelpers';
 import { normalizeOracleText, parseObjectSelector, parseQuantity, splitAttachClauseBody } from './oracleIRParserUtils';
 
 function parseBlightActionFragmentSteps(
@@ -238,6 +242,15 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
       } as unknown as OracleEffectStep,
     ];
   }
+
+  // Isolated trigger effects keep the intervening-if: "if you cast it from your hand,
+  // destroy all non-Dinosaur creatures" (Wakening Sun's Avatar). Full-card parse often
+  // never sees this fragment as an ability clause.
+  const leadingConditional = tryParseLeadingConditionalStep({
+    rawClause: normalized,
+    parseEffectClauseToStep,
+  });
+  if (leadingConditional) return [leadingConditional];
 
   return null;
 }

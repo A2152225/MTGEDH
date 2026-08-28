@@ -881,7 +881,9 @@ export async function tryHandleOptionChoiceEarlySpecialsConfirmCastPayment(
     oracleIrPaymentCtx.gameId = gameId;
     oracleIrPaymentCtx.state = game.state;
     oracleIrPaymentCtx.io = io;
-    if (typeof game.bumpSeq === 'function') {
+    // Live GameContext already has bumpSeq. Replacing it with game.bumpSeq.bind(game)
+    // used to cycle (game.bumpSeq → ctx.bumpSeq → game.bumpSeq) on shock-land pay-2-life.
+    if (typeof oracleIrPaymentCtx.bumpSeq !== 'function' && typeof game.bumpSeq === 'function') {
       oracleIrPaymentCtx.bumpSeq = game.bumpSeq.bind(game);
     }
     if (

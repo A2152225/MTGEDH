@@ -10,6 +10,7 @@
 import type { Server, Socket } from "socket.io";
 import type { PaymentItem, PlayerID } from "../../../../shared/src/index.js";
 import {
+  canUseFreeAlternateCost,
   parseKeywordAlternateManaCost,
   parseMadnessCost,
   parseMutateCost,
@@ -155,6 +156,13 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
       // We must not tap mana or consume floating mana.
       const isForceAltCostPaid = isForceAltCostRequested && (cardInHand as any).forceAltCostPaid === true;
       const isFreeCast = alternateCostId === 'free' || (cardInHand as any).castWithoutPayingManaCost === true;
+      if (isFreeCast && !canUseFreeAlternateCost(game as any, playerId, cardInHand)) {
+        socket.emit('error', {
+          code: 'INVALID_ALTERNATE_COST',
+          message: `${String(cardInHand?.name || 'That spell')} cannot be cast without paying its mana cost.`,
+        });
+        return;
+      }
       const usesWubrgAlternateCost = alternateCostId === 'wubrg_self' || alternateCostId === 'wubrg_external';
       const resolvedMiracleCost = alternateCostId === 'miracle'
         ? (checkMiracle(cardInHand).miracleCost || '')
@@ -360,6 +368,7 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
         spellCard: cardInHand,
         ...(castingCreatureSpell ? { isCreature: true } : {}),
         ...(castingArtifactSpell ? { isArtifact: true } : {}),
+        ...(castSourceZone === 'command' ? { isCommander: true } : {}),
       };
       
       // Get existing mana pool (floating mana from previous spells)

@@ -33,3 +33,6 @@ export {
 
 // Native + granted tap-for-mana abilities for one permanent.
 export { getManaAbilitiesForPermanent } from "./manaAbilitiesForPermanent.js";
+
+// Continuous tap_for_* grants (Riftstone Portal / Cryptolith) → ManaAbility rows.
+export { manaAbilitiesFromContinuousTapGrants } from "./manaAbilityContinuousTapGrants.js";

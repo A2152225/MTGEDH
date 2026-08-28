@@ -148,6 +148,7 @@ export function applyManaPoolEvents(ctx: GameContext, e: GameEvent): boolean {
                   abilityId,
                   sourceName: cardName,
                   description: `${searchDescription}, put ${maxSelections > 1 ? 'them' : 'it'} onto the battlefield${entersTapped ? ' tapped' : ''}, then shuffle`,
+                  activatedAbilityText: replayAbilityText,
                   abilityType: 'fetch-land',
                   searchParams: {
                     filter,

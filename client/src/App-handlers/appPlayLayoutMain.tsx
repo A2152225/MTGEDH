@@ -10,6 +10,7 @@ import { ResolutionMinimizedChip, ResolutionPromptMinimizeButton } from "../comp
 import { SeatStrip } from "../components/SeatStrip";
 import { GameStatusIndicator } from "../components/GameStatusIndicator";
 import { DeckManagerModal } from "../components/DeckManagerModal";
+import { AddAIToGameControl } from "../components/AddAIToGameControl";
 import GameList from "../components/GameList";
 
 export function renderAppPlayLayoutMain(p: Record<string, any>) {
@@ -104,6 +105,21 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
     you,
     yourLibraryCount,
   } = p;
+  const seatedPlayerCount = ((safeView?.players || []) as any[]).filter(
+    (player: any) => player && !player.spectator && !player.isSpectator,
+  ).length;
+  const seatedAIs = ((safeView?.players || []) as any[])
+    .filter((player: any) => player && !player.spectator && !player.isSpectator && player.isAI)
+    .map((player: any) => ({
+      id: String(player.id),
+      name: String(player.name || 'AI Opponent'),
+      deckName: typeof player.deckName === 'string' && player.deckName.trim()
+        ? player.deckName
+        : undefined,
+    }));
+  const showAddAIControl = Boolean(
+    isYouPlayer && isPreGame && !allPlayersKeptHands && safeView?.id,
+  );
   return (
     <>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -384,6 +400,14 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
                   </button>
                 )}
 
+                {showAddAIControl && (
+                  <AddAIToGameControl
+                    gameId={safeView.id}
+                    seatedPlayerCount={seatedPlayerCount}
+                    seatedAIs={seatedAIs}
+                  />
+                )}
+
                 {showTopPanelPregameActions && (
                   <div
                     style={{
@@ -466,7 +490,7 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
                         fontSize: 12,
                         fontWeight: 600,
                       }}
-                      title="Randomly select which player goes first"
+                      title="Randomize seating and which player goes first"
                     >
                       🎲 Random Start
                     </button>
@@ -574,7 +598,43 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
               >
                 {pickingRandomDeck ? 'Rolling…' : 'Random Deck'}
               </button>
+              {showAddAIControl && (
+                <AddAIToGameControl
+                  gameId={safeView.id}
+                  seatedPlayerCount={seatedPlayerCount}
+                  seatedAIs={seatedAIs}
+                  compact
+                />
+              )}
             </div>
+          </div>
+        )}
+
+        {showMobileChrome && showAddAIControl && !needsDeckImport && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+              flexWrap: "wrap",
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(96, 165, 250, 0.4)",
+              background: "rgba(30, 58, 138, 0.28)",
+            }}
+          >
+            <div style={{ fontSize: 13, color: "#dbeafe" }}>
+              {seatedAIs.length > 0
+                ? 'Add, remove, or replace AI opponents before everyone keeps their hand.'
+                : 'Add an AI opponent before everyone keeps their hand.'}
+            </div>
+            <AddAIToGameControl
+              gameId={safeView.id}
+              seatedPlayerCount={seatedPlayerCount}
+              seatedAIs={seatedAIs}
+              compact
+            />
           </div>
         )}
 

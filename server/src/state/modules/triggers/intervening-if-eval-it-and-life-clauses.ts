@@ -18,6 +18,7 @@ import {
   isPermanentBlocked,
   getTurnPlayerId,
 } from "./intervening-if-permanent-and-player.js";
+import { getDefendingPlayerIdForInterveningIf } from "./intervening-if-eval-support.js";
 import type { InterveningIfPhaseArgs, InterveningIfInternalResult } from "./intervening-if-eval-support.js";
 
 export function tryEvaluateInterveningIfItAndLifeClauses(args: InterveningIfPhaseArgs): InterveningIfInternalResult | undefined {
@@ -587,6 +588,25 @@ export function tryEvaluateInterveningIfItAndLifeClauses(args: InterveningIfPhas
       if (unknown) return null;
       if (!opponents.length) return true;
       return opponents.every((opp) => getPlayerLife(ctx, opp) <= yourLife);
+    }
+
+    // Agent of the Shadow Thieves / Guild Artisan: "attacks a player, if no opponent has more life than that player"
+    const noOppMoreThanThatPlayer = clause.match(/^if\s+no\s+opponent\s+has\s+more\s+life\s+than\s+that\s+player$/i);
+    if (noOppMoreThanThatPlayer) {
+      const thatPlayerId = String(
+        refs?.thatPlayerId
+          ?? refs?.referencedPlayerId
+          ?? refs?.theirPlayerId
+          ?? (sourcePermanent as any)?.thatPlayerId
+          ?? getDefendingPlayerIdForInterveningIf(sourcePermanent, refs)
+          ?? '',
+      ).trim();
+      if (!thatPlayerId) return null;
+      const thatPlayerLife = getPlayerLife(ctx, thatPlayerId);
+      const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
+      if (!opponents.length) return true;
+      return opponents.every((opp) => getPlayerLife(ctx, opp) <= thatPlayerLife);
     }
 
     const oppMore = clause.match(/^if\s+an\s+opponent\s+has\s+more\s+life\s+than\s+you$/i);

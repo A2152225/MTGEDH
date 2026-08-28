@@ -22,6 +22,7 @@ import {
   isKeywordOnlyStaticAbilityText,
 } from './oracleIRParserPostprocessKeywordStaticGrantSteps';
 import { hasCreateTokenStepInTree } from './oracleIRParserPostprocessTokenCreationMetadata';
+import { parseSpellGainsKeywordGrantSteps } from './oracleIRParserSpellKeywordGrants';
 import { parseTriggerResidualCompoundPtAndKeywordGrantsOne } from './oracleIRParserPostprocessTriggerResidualCompoundPtAndKeywordGrants';
 import { parseTriggerResidualCopyAndGameStateFragmentsOne } from './oracleIRParserPostprocessTriggerResidualCopyAndGameStateFragments';
 import { parseTriggerResidualMassTemporaryPtGrantsOne } from './oracleIRParserPostprocessTriggerResidualMassTemporaryPtGrants';
@@ -45,6 +46,9 @@ function parseStructuredTriggerResidualGrant(
 
   const hoistedTriggerResidualScaledAndSubtypePtGrantsOne = parseTriggerResidualScaledAndSubtypePtGrantsOne(raw, sequence);
   if (hoistedTriggerResidualScaledAndSubtypePtGrantsOne) return hoistedTriggerResidualScaledAndSubtypePtGrantsOne;
+
+  const spellGainsKeywordGrant = parseSpellGainsKeywordGrantSteps(raw, sequence);
+  if (spellGainsKeywordGrant) return spellGainsKeywordGrant;
 
   const hoistedTriggerResidualCompoundPtAndKeywordGrantsOne = parseTriggerResidualCompoundPtAndKeywordGrantsOne(raw, sequence);
   if (hoistedTriggerResidualCompoundPtAndKeywordGrantsOne) return hoistedTriggerResidualCompoundPtAndKeywordGrantsOne;

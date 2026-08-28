@@ -22,11 +22,11 @@ import {
   TARGET_CREATURE_GETS_PT_EOT_REGEX,
   TARGET_CREATURE_GETS_PLUSX_PLUSX_EOT_WHERE_X_IS_NUMBER_OF_CREATURES_YOU_CONTROL_REGEX,
   TARGET_CREATURE_GETS_PLUSX_MINUSX_EOT_WHERE_X_IS_NUMBER_OF_ARTIFACTS_YOU_CONTROL_REGEX,
-  TARGET_CREATURE_GETS_MINUSX_MINUSX_EOT_WHERE_X_IS_NUMBER_OF_ZOMBIES_YOU_CONTROL_REGEX,
+  TARGET_CREATURE_GETS_MINUSX_MINUSX_EOT_WHERE_X_IS_NUMBER_OF_TYPED_YOU_CONTROL_REGEX,
   DESTROY_TARGET_NONCREATURE_PERMANENT_REGEX,
   DESTROY_TARGET_CREATURE_REGEX,
   DESTROY_ALL_CREATURES_POWER_GE_N_REGEX,
-  DESTROY_ALL_NON_DRAGON_CREATURES_REGEX,
+  DESTROY_ALL_NON_TYPED_CREATURES_REGEX,
   DESTROY_ALL_CREATURES_YOU_DONT_CONTROL_REGEX,
   DESTROY_ALL_OTHER_PERMANENTS_EXCEPT_LANDS_AND_TOKENS_REGEX,
   DESTROY_ALL_CREATURES_TARGET_OPPONENT_CONTROLS_THEN_DEALS_DAMAGE_EQUAL_TO_THEIR_TOTAL_POWER_REGEX,
@@ -91,6 +91,7 @@ import {
   PUT_LOYALTY_COUNTERS_ON_SOURCE_FOR_EACH_CREATURE_YOU_CONTROL_REGEX,
   PUT_LOYALTY_COUNTERS_ON_SOURCE_FOR_EACH_CREATURE_TARGET_OPPONENT_CONTROLS_REGEX,
   ADD_RESTRICTED_MANA_SPEND_ONLY_REGEX,
+  ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_TYPED_SPELLS_REGEX,
   ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_DRAGONS_REGEX,
   ADD_TWO_MANA_ANY_COMBINATION_REGEX,
   ADD_TEN_MANA_ANY_ONE_COLOR_REGEX,
@@ -111,8 +112,15 @@ import {
 } from "./planeswalkerTemplateControlSearchNamedDamageRegexes.js";
 
 export function tryMatchPlaneswalkerTemplatePumpLifeCreate(text: string): PlaneswalkerTemplateMatch | null {
-  if (DRAGON_CARDS_IN_HAND_PERPETUALLY_GAIN_COST_REDUCTION_AND_PAY_X_REGEX.test(text)) {
-    return { id: "DRAGON_CARDS_IN_HAND_PERPETUALLY_GAIN_COST_REDUCTION_AND_PAY_X", matchedText: text };
+  const mTypedHandCostReduction = text.match(DRAGON_CARDS_IN_HAND_PERPETUALLY_GAIN_COST_REDUCTION_AND_PAY_X_REGEX);
+  if (mTypedHandCostReduction) {
+    const subtype = String(mTypedHandCostReduction[1] || "").toLowerCase();
+    return {
+      id: subtype === "dragon"
+        ? "DRAGON_CARDS_IN_HAND_PERPETUALLY_GAIN_COST_REDUCTION_AND_PAY_X"
+        : "TYPED_CARDS_IN_HAND_PERPETUALLY_GAIN_COST_REDUCTION_AND_PAY_X",
+      matchedText: text,
+    };
   }
 
   if (UP_TO_ONE_TARGET_CREATURE_BASE_POWER_PERPETUALLY_BECOMES_TOUGHNESS_AND_GAINS_ATTACK_NO_DEFENDER_REGEX.test(text)) {
@@ -213,8 +221,15 @@ export function tryMatchPlaneswalkerTemplatePumpLifeCreate(text: string): Planes
     return { id: "ADD_RESTRICTED_MANA_SPEND_ONLY", matchedText: text };
   }
 
-  if (ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_DRAGONS_REGEX.test(text)) {
-    return { id: "ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_DRAGONS", matchedText: text };
+  const mSpendTypedSpells = text.match(ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_TYPED_SPELLS_REGEX);
+  if (mSpendTypedSpells) {
+    const subtype = String(mSpendTypedSpells[1] || "").toLowerCase();
+    return {
+      id: subtype === "dragon"
+        ? "ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_DRAGONS"
+        : "ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_TYPED_SPELLS",
+      matchedText: text,
+    };
   }
 
   if (ADD_TWO_MANA_ANY_COMBINATION_REGEX.test(text)) {
@@ -324,9 +339,9 @@ export function tryMatchPlaneswalkerTemplatePumpLifeCreate(text: string): Planes
     };
   }
 
-  if (TARGET_CREATURE_GETS_MINUSX_MINUSX_EOT_WHERE_X_IS_NUMBER_OF_ZOMBIES_YOU_CONTROL_REGEX.test(text)) {
+  if (TARGET_CREATURE_GETS_MINUSX_MINUSX_EOT_WHERE_X_IS_NUMBER_OF_TYPED_YOU_CONTROL_REGEX.test(text)) {
     return {
-      id: "TARGET_CREATURE_GETS_MINUSX_MINUSX_EOT_WHERE_X_IS_NUMBER_OF_ZOMBIES_YOU_CONTROL",
+      id: "TARGET_CREATURE_GETS_MINUSX_MINUSX_EOT_WHERE_X_IS_NUMBER_OF_TYPED_YOU_CONTROL",
       matchedText: text,
     };
   }
@@ -343,8 +358,17 @@ export function tryMatchPlaneswalkerTemplatePumpLifeCreate(text: string): Planes
     return { id: "DESTROY_ALL_CREATURES_POWER_GE_N", matchedText: text };
   }
 
-  if (DESTROY_ALL_NON_DRAGON_CREATURES_REGEX.test(text)) {
-    return { id: "DESTROY_ALL_NON_DRAGON_CREATURES", matchedText: text };
+  const mDestroyNonTyped = text.match(DESTROY_ALL_NON_TYPED_CREATURES_REGEX);
+  if (mDestroyNonTyped) {
+    const subtype = String(mDestroyNonTyped[1] || "").toLowerCase();
+    return {
+      id: subtype === "zombie"
+        ? "DESTROY_ALL_NON_ZOMBIE_CREATURES"
+        : subtype === "dragon"
+          ? "DESTROY_ALL_NON_DRAGON_CREATURES"
+          : "DESTROY_ALL_NON_TYPED_CREATURES",
+      matchedText: text,
+    };
   }
 
   if (DESTROY_ALL_CREATURES_YOU_DONT_CONTROL_REGEX.test(text)) {

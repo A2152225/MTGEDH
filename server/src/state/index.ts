@@ -103,7 +103,12 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     setTurnDirection: (dir: 1 | -1) => setTurnDirection(ctx, dir),
     nextTurn: () => nextTurn(ctx),
     nextStep: () => nextStep(ctx),
-    bumpSeq: () => ctx.bumpSeq(),
+    // Increment seq directly. Never delegate to ctx.bumpSeq(): handlers that use
+    // `(game.ctx || game)` have rebound ctx.bumpSeq to game.bumpSeq.bind(game),
+    // which would recurse until Maximum call stack size exceeded.
+    bumpSeq: () => {
+      ctx.seq.value++;
+    },
 
     // RNG helpers
     seedRng: (seed: number) =>
@@ -116,7 +121,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
               (ctx.state as any).rngSeed = seed >>> 0;
             } catch {}
           })(),
-          ctx.bumpSeq()),
+          ctx.seq.value++),
     hasRngSeed: () => !!(ctx.rngSeed),
 
     // spectator grants
@@ -267,6 +272,11 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     enumerable: false,
     configurable: true,
   });
+
+  // Socket handlers use `(game as any).ctx || game`. Without this, they see the
+  // wrapper (whose gameId can diverge from the live context) and queue prompts
+  // on a different ResolutionQueue than passPriority / auto-pass consult.
+  (game as any).ctx = ctx;
 
   return game;
 }

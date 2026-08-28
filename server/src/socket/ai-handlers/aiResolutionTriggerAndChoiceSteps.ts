@@ -54,15 +54,16 @@ export async function handleAIResolutionTriggerAndChoiceSteps(
       case 'target_selection': {
         const targetsToSelect = chooseAITargetSelectionsForChoiceStep(game, playerId, step);
         const targetResponse = createResponse(targetsToSelect);
-        ResolutionQueueManager.completeStep(gameId, step.id, targetResponse);
-        if ((step as any)?.oracleIrLibraryChaosTargetSelection === true) {
-          const { resolveLibraryChaosTargetSelectionForAI } = await import('../resolution.js');
-          await resolveLibraryChaosTargetSelectionForAI(io, game, gameId, step, targetResponse);
-        } else if ((step as any)?.planeswalkerAbility) {
-          // completeStep only records the choice. Loyalty cost + stack item live in
-          // applyResolutionStepSideEffects (same path as a human target response).
-          const { applyResolutionStepSideEffects } = await import('../resolution.js');
-          await applyResolutionStepSideEffects(io, game, gameId, step, targetResponse);
+        if (ResolutionQueueManager.completeStep(gameId, step.id, targetResponse)) {
+          if ((step as any)?.oracleIrLibraryChaosTargetSelection === true) {
+            const { resolveLibraryChaosTargetSelectionForAI } = await import('../resolution.js');
+            await resolveLibraryChaosTargetSelectionForAI(io, game, gameId, step, targetResponse);
+          } else {
+            // completeStep only records the choice. Mill/player targets (Drowner of Secrets)
+            // and loyalty costs live in applyResolutionStepSideEffects.
+            const { applyResolutionStepSideEffects } = await import('../resolution.js');
+            await applyResolutionStepSideEffects(io, game, gameId, step, targetResponse);
+          }
         }
         debug(1, `[AI] Target selection: Selected ${targetsToSelect.length} target(s)`);
         break;

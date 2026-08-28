@@ -208,6 +208,16 @@ function matchesDrawSpec(spec: ReplacementEffectSpec, event: CardDrawReplacement
     return false;
   }
 
+  if (match.requireEventMetadataTrue
+    && event.metadata?.[match.requireEventMetadataTrue] !== true) {
+    return false;
+  }
+
+  if (match.exactDrawCount !== undefined) {
+    const count = Math.max(0, Math.floor(Number(event.count || 0)));
+    if (count !== match.exactDrawCount) return false;
+  }
+
   if (match.drawingPlayerIsOpponentOfSource === true
     && String(event.playerId || '') === String(spec.sourceController || '')) {
     return false;
@@ -1076,6 +1086,10 @@ export function evaluateDeclarativeReplacementEvent(
         || event.type === 'token-creation'
       )
     ) {
+      continue;
+    }
+    // Life-floor caps aggregate via detectDamageReplacementEffects (type: 'cap').
+    if (event.type === 'damage' && Number(spec.instead.floorLifeAt) > 0) {
       continue;
     }
     const result = evaluateReplacementEffectSpec(spec, event);

@@ -202,6 +202,38 @@ export function triggerETBEffectsForToken(
         pendingExternalEtbTriggers.push(stackItem);
         debug(2, `[triggerETBEffectsForToken] âš¡ ${trigger.cardName}'s chosen-type enters-or-attacks trigger for token: ${trigger.description}`);
       }
+
+      if (trigger.triggerType === 'commander_you_control_etb_or_attack') {
+        const enteringIsCommander =
+          token?.isCommander === true || token?.commander === true || token?.card?.isCommander === true;
+        if (!enteringIsCommander) {
+          continue;
+        }
+        const triggerController = perm.controller || controller;
+        if (controller !== triggerController) {
+          continue;
+        }
+
+        const triggerId = uid('trigger');
+        const stackItem = {
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          permanentId: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+          effect: trigger.effect || trigger.description,
+          card: perm.card,
+          sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
+          interveningIfSubjectPermanentId: token.id,
+          interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
+        } as any;
+        pendingExternalEtbTriggers.push(stackItem);
+        debug(2, `[triggerETBEffectsForToken] ${trigger.cardName}'s commander enters-or-attacks trigger for token: ${trigger.description}`);
+      }
       
       // another_permanent_etb triggers
       if (trigger.triggerType === 'another_permanent_etb') {

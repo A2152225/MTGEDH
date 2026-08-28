@@ -361,5 +361,169 @@ describe('Goad AI Integration', () => {
       expect(attack).toBeDefined();
       expect(attack.defendingPlayerId).toBe('player3');
     });
+
+    it('CONTROL strategy still attacks with a goaded commander when holding back', async () => {
+      const aiEngine = new AIEngine();
+      aiEngine.registerAI({
+        playerId: 'ai-player',
+        strategy: AIStrategy.CONTROL,
+        difficulty: 0.8,
+      });
+
+      const battlefield: BattlefieldPermanent[] = [
+        {
+          id: 'kynaios',
+          controller: 'ai-player',
+          owner: 'ai-player',
+          isCommander: true,
+          card: {
+            name: 'Kynaios and Tiro of Meletis',
+            type_line: 'Legendary Creature — Human Advisor',
+            power: '2',
+            toughness: '8',
+          },
+          goadedBy: ['player2'],
+          tapped: false,
+        } as BattlefieldPermanent,
+        {
+          id: 'opp-1',
+          controller: 'player2',
+          owner: 'player2',
+          card: { name: 'Bear 1', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+          tapped: false,
+        } as BattlefieldPermanent,
+        {
+          id: 'opp-2',
+          controller: 'player2',
+          owner: 'player2',
+          card: { name: 'Bear 2', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+          tapped: false,
+        } as BattlefieldPermanent,
+        {
+          id: 'opp-3',
+          controller: 'player2',
+          owner: 'player2',
+          card: { name: 'Bear 3', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+          tapped: false,
+        } as BattlefieldPermanent,
+      ];
+
+      const gameState: GameState = {
+        turn: 5,
+        step: GameStep.DECLARE_ATTACKERS,
+        activePlayerIndex: 0,
+        battlefield,
+        players: [
+          { id: 'ai-player', life: 40, battlefield } as any,
+          { id: 'player2', life: 40, battlefield: [] } as any,
+          { id: 'player3', life: 40, battlefield: [] } as any,
+        ],
+      } as GameState;
+
+      const decision = await aiEngine.makeDecision({
+        gameState,
+        playerId: 'ai-player',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      });
+
+      const attack = decision.action.attackers.find((a: any) => a.creatureId === 'kynaios');
+      expect(attack).toBeDefined();
+      expect(attack.defendingPlayerId).not.toBe('player2');
+      expect(attack.defendingPlayerId).toBe('player3');
+    });
+
+    it('DEFENSIVE strategy still attacks with goaded creatures when holding back', async () => {
+      const aiEngine = new AIEngine();
+      aiEngine.registerAI({
+        playerId: 'ai-player',
+        strategy: AIStrategy.DEFENSIVE,
+        difficulty: 0.8,
+      });
+
+      const battlefield: BattlefieldPermanent[] = [
+        {
+          id: 'goaded-creature',
+          controller: 'ai-player',
+          owner: 'ai-player',
+          card: { name: 'Goaded Bear', type_line: 'Creature — Bear', power: '3', toughness: '3' },
+          goadedBy: ['player2'],
+          tapped: false,
+        } as BattlefieldPermanent,
+      ];
+
+      const gameState: GameState = {
+        turn: 5,
+        step: GameStep.DECLARE_ATTACKERS,
+        activePlayerIndex: 0,
+        battlefield,
+        players: [
+          { id: 'ai-player', life: 15, battlefield } as any,
+          { id: 'player2', life: 40, battlefield: [] } as any,
+          { id: 'player3', life: 40, battlefield: [] } as any,
+        ],
+      } as GameState;
+
+      const decision = await aiEngine.makeDecision({
+        gameState,
+        playerId: 'ai-player',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      });
+
+      const attack = decision.action.attackers.find((a: any) => a.creatureId === 'goaded-creature');
+      expect(attack).toBeDefined();
+      expect(attack.defendingPlayerId).toBe('player3');
+    });
+
+    it('COMBO strategy still attacks with goaded creatures when holding back', async () => {
+      const aiEngine = new AIEngine();
+      aiEngine.registerAI({
+        playerId: 'ai-player',
+        strategy: AIStrategy.COMBO,
+        difficulty: 0.8,
+      });
+
+      const battlefield: BattlefieldPermanent[] = [
+        {
+          id: 'goaded-creature',
+          controller: 'ai-player',
+          owner: 'ai-player',
+          card: { name: 'Goaded Bear', type_line: 'Creature — Bear', power: '3', toughness: '3' },
+          goadedBy: ['player2'],
+          tapped: false,
+        } as BattlefieldPermanent,
+        {
+          id: 'opp-1',
+          controller: 'player2',
+          owner: 'player2',
+          card: { name: 'Bear 1', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+          tapped: false,
+        } as BattlefieldPermanent,
+      ];
+
+      const gameState: GameState = {
+        turn: 5,
+        step: GameStep.DECLARE_ATTACKERS,
+        activePlayerIndex: 0,
+        battlefield,
+        players: [
+          { id: 'ai-player', life: 10, battlefield } as any,
+          { id: 'player2', life: 40, battlefield: [] } as any,
+          { id: 'player3', life: 40, battlefield: [] } as any,
+        ],
+      } as GameState;
+
+      const decision = await aiEngine.makeDecision({
+        gameState,
+        playerId: 'ai-player',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      });
+
+      const attack = decision.action.attackers.find((a: any) => a.creatureId === 'goaded-creature');
+      expect(attack).toBeDefined();
+      expect(attack.defendingPlayerId).toBe('player3');
+    });
   });
 });

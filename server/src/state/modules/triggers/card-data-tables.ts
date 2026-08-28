@@ -111,7 +111,6 @@ export const KNOWN_ATTACK_TRIGGERS: Record<string, {
   "combat celebrant": { effect: "Exert for additional combat phase" },
   "aurelia, the warleader": { effect: "Additional combat phase (first attack each turn)" },
   "moraug, fury of akoum": { effect: "Additional combat phase when landfall" },
-  "najeela, the blade-blossom": { effect: "Create 1/1 Warrior token" },
   "marisi, breaker of the coil": { effect: "Goad all creatures that player controls" },
   "grand warlord radha": { effect: "Add mana for each attacking creature" },
   "neheb, the eternal": { effect: "Add {R} for each life opponent lost (postcombat)" },
@@ -141,10 +140,6 @@ export const KNOWN_ATTACK_TRIGGERS: Record<string, {
   "summoner's grimoire": { effect: "Put a creature card from hand onto battlefield (if enchantment, enters tapped and attacking)", putFromHand: true, conditionalTappedAttacking: 'enchantment' },
   "sneak attack": { effect: "Put creature from hand, sacrifice at end step", putFromHand: true },
   "champion of rhonas": { effect: "Exert to put creature from hand", putFromHand: true },
-  "elvish piper": { effect: "Put creature from hand onto battlefield" }, // Not attack trigger but related
-  "quicksilver amulet": { effect: "Put creature from hand onto battlefield" },
-  "descendants' path": { effect: "Reveal top card, put creature onto battlefield if shares type" },
-  "belbe's portal": { effect: "Put creature of chosen type from hand" },
   "casal, lurkwood pathfinder": { 
     effect: "You may pay {1}{G}. If you do, transform her.", 
     value: 0, // No token creation
@@ -376,10 +371,9 @@ export const KNOWN_ETB_TRIGGERS: Record<string, {
     effect: "Whenever another Elf enters the battlefield under your control, put a +1/+1 counter on Marwyn, the Nurturer",
     triggerOn: 'creature',
   },
-  "bojuka bog": {
-    effect: "Target player exiles all cards from their graveyard",
-    triggerOn: 'self',
-  },
+  // P4c: Bojuka Bog retired — generic self-ETB detection sets requiresTarget /
+  // targetType from "When this land enters, exile target player's graveyard."
+  // The table row queued an etb without targeting metadata and skipped that path.
 };
 
 // ============================================================================
@@ -484,7 +478,7 @@ export const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, {
   "combat celebrant": { effect: "You may exert for additional combat phase" },
   "grand warlord radha": { effect: "Add mana equal to attacking creatures at beginning of combat" },
   "saskia the unyielding": { effect: "Damage to chosen player is dealt to them again" },
-  // NOTE: Najeela moved to KNOWN_ATTACK_TRIGGERS because she triggers when a Warrior attacks, not at beginning of combat
+  // Najeela is typed_subtype_attacks_any (Whenever a Warrior attacks), not this table.
   "grand arbiter augustin iv": { effect: "Your spells cost less; opponent spells cost more" },
   // NOTE: Hero of Bladehold, Hanweir Garrison, Brimaz, Adeline, and Rabble Rousing moved to KNOWN_ATTACK_TRIGGERS
   // because they trigger when attacking, not at beginning of combat
@@ -626,14 +620,6 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
     requiresChoice: true,
     affectsAllPlayers: true,
   },
-  // Keeper of the Accord - At the beginning of each opponent's end step triggers
-  "keeper of the accord": {
-    effect: "Create a 1/1 white Soldier token if opponent controls more creatures. Search for a basic Plains if opponent controls more lands.",
-    mandatory: false,  // "you may" for the Plains search
-    requiresChoice: true,
-    affectsAllPlayers: false,
-    triggersOnOpponentEndStep: true,
-  },
 };
 
 // ============================================================================
@@ -653,7 +639,7 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
  */
 export const KNOWN_DAMAGE_RECEIVED_TRIGGERS: Record<string, { 
   effect: string;
-  targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'controller' | 'opponent_or_planeswalker' | 'none';
+  targetType: 'opponent' | 'any' | `any_non_${string}` | 'chosen_player' | 'controller' | 'opponent_or_planeswalker' | 'none';
   triggerOn: 'self' | 'dragon_controlled' | 'creature_controlled';
   effectMode?: 'gain_life' | 'gain_life_and_attacking_player_loses_life';
 }> = {

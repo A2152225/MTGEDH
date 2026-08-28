@@ -92,4 +92,18 @@ describe('triggerEffectTextExtraction', () => {
     expect(effect.toLowerCase()).toBe('create that many tokens that are copies of it.');
     expect(effect.toLowerCase()).not.toContain('other elves');
   });
+
+  it("keeps Andúril's city's-blessing instead sentence on the attack trigger", () => {
+    const oracle =
+      "Ascend (If you control ten or more permanents, you get the city's blessing for the rest of the game.)\nWhenever equipped creature attacks, put a +1/+1 counter on each creature you control. If you have the city's blessing, put two +1/+1 counters on each creature you control instead.\nEquip {3}";
+    const match = oracle.match(/whenever (?:this creature or )?equipped creature attacks,?\s*([^\n]+)/i);
+    expect(match).not.toBeNull();
+
+    const effect = extractTriggeredEffectFromTimingMatch(oracle, match!);
+    expect(effect.toLowerCase()).toContain('put a +1/+1 counter on each creature you control');
+    expect(effect.toLowerCase()).toContain("if you have the city's blessing");
+    expect(effect.toLowerCase()).toContain('put two +1/+1 counters');
+    expect(effect.toLowerCase()).toContain('instead');
+    expect(effect.toLowerCase()).not.toContain('equip');
+  });
 });

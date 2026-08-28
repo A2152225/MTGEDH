@@ -8,6 +8,7 @@
 import React, { useEffect, useState } from 'react';
 import { ResolutionPromptMinimizeButton } from './ResolutionMinimizedChip';
 import { getCardPreviewHandlers } from './CardPreviewLayer';
+import { ResolutionPromptCause } from './ResolutionPromptCause';
 
 export interface OptionChoiceOption {
   id: string;
@@ -24,6 +25,9 @@ export interface OptionChoiceRequest {
   sourceId?: string;
   sourceName?: string;
   sourceImage?: string;
+  causeName?: string;
+  causeImage?: string;
+  causeLabel?: string;
   description: string;
   options: OptionChoiceOption[];
   minSelections?: number;
@@ -52,7 +56,7 @@ export function OptionChoiceModal({
 
   if (!open || !request) return null;
 
-  const { sourceName, sourceImage, description, options, minSelections = 0, maxSelections = 1, mandatory } = request;
+  const { sourceName, sourceImage, causeName, causeImage, causeLabel, description, options, minSelections = 0, maxSelections = 1, mandatory } = request;
   const hasExplicitDeclineOption = options.some((option) => option.id === 'decline');
   const effectiveMinSelections = options.length > 0 ? Math.max(1, minSelections) : minSelections;
 
@@ -121,6 +125,7 @@ export function OptionChoiceModal({
             <div style={{ color: '#60a5fa', fontSize: 14, marginTop: 4 }}>
               {description}
             </div>
+            <ResolutionPromptCause causeName={causeName} causeImage={causeImage} causeLabel={causeLabel} />
           </div>
           {onMinimize ? <ResolutionPromptMinimizeButton onMinimize={onMinimize} /> : null}
         </div>

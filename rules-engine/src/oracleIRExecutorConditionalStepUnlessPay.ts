@@ -304,6 +304,16 @@ export function tryEvaluateConditionalUnlessPayYouDoOtherwise(
     return !hasLegalSacrifice;
   }
 
+  // Kinship / Descendants' Path share-type clauses are owned by YouHaveGraveyard.
+  // Generic "it's a … card" and extended type-list matchers steal them as false.
+  if (
+    /\bshares a (?:creature|card) type with (?:a creature you control|this creature|this permanent)\b/i.test(
+      normalizedRaw,
+    )
+  ) {
+    return undefined;
+  }
+
   {
     // "Reveal the top card of your library. If it's a creature card, ..." reads the same way for
     // every card type, so the descriptor is captured rather than hard-coded to "permanent".

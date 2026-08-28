@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   applyXValueToParsedCost,
   buildRestrictedManaPurposeForSpell,
+  calculateRemainingCostAfterFloatingMana,
   calculateSuggestedPayment,
+  canUseRestrictedManaClient,
   manaSourceAllowsSpendPurpose,
   parseManaCost,
   parseManaSpendRestrictionFromOracleText,
@@ -85,6 +87,51 @@ describe('calculateSuggestedPayment', () => {
     expect(suggestion.size).toBe(2);
     expect(suggestion.get('forest_1')).toEqual({ color: 'G', count: 1 });
     expect(suggestion.get('treasure_1')).toEqual({ color: 'W', count: 1 });
+  });
+
+  it('uses Fertile Ground bonus mana as a different color from the enchanted land', () => {
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 1, B: 0, R: 0, G: 1, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      [
+        {
+          id: 'forest_fg',
+          name: 'Forest',
+          options: ['G'],
+          manaBonuses: [{ options: ['W', 'U', 'B', 'R', 'G'], amount: 1 }],
+        },
+      ],
+      new Set(),
+    );
+
+    expect(suggestion.get('forest_fg')?.count).toBe(2);
+    expect(suggestion.get('forest_fg')?.producedColors?.slice().sort()).toEqual(['G', 'U']);
+  });
+
+  it('prefers a native Island over Fertile Ground bonus when paying blue', () => {
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 1, B: 0, R: 0, G: 0, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      [
+        {
+          id: 'forest_fg',
+          name: 'Forest',
+          options: ['G'],
+          manaBonuses: [{ options: ['W', 'U', 'B', 'R', 'G'], amount: 1 }],
+        },
+        { id: 'island_1', name: 'Island', options: ['U'] },
+      ],
+      new Set(),
+    );
+
+    expect(suggestion.get('island_1')).toEqual({ color: 'U', count: 1 });
+    expect(suggestion.has('forest_fg')).toBe(false);
   });
 });
 
@@ -254,5 +301,60 @@ describe('restricted mana sources (Vibranium / Powerstone)', () => {
       vehiclePurpose,
     );
     expect(vehicleSuggestion.get('vib_1')).toEqual({ color: 'C', count: 1 });
+  });
+
+  it('allows Secluded Courtyard restricted mana for matching creature spells and commanders', () => {
+    const dinosaurPurpose = buildRestrictedManaPurposeForSpell({
+      type_line: 'Legendary Creature — Dinosaur',
+      name: 'Pantlaza, Sun-Favored',
+    }, { isCommander: true });
+    const handDinosaurPurpose = buildRestrictedManaPurposeForSpell({
+      type_line: 'Creature — Dinosaur',
+      name: 'Hunting Velociraptor',
+    });
+    const enchantmentPurpose = buildRestrictedManaPurposeForSpell({
+      type_line: 'Enchantment',
+      name: 'Propaganda',
+    });
+    const courtyardEntry = {
+      type: 'green' as const,
+      amount: 1,
+      restriction: 'chosen_type_creature_source',
+      restrictedTo: 'dinosaur',
+    };
+    const courtyardSource = {
+      id: 'courtyard_1',
+      name: 'Secluded Courtyard',
+      options: ['G'] as const,
+      spendRestriction: { restriction: 'chosen_type_creature_source', restrictedTo: 'dinosaur' },
+    };
+
+    expect(canUseRestrictedManaClient(courtyardEntry, dinosaurPurpose)).toBe(true);
+    expect(canUseRestrictedManaClient(courtyardEntry, handDinosaurPurpose)).toBe(true);
+    expect(canUseRestrictedManaClient(courtyardEntry, enchantmentPurpose)).toBe(false);
+    expect(manaSourceAllowsSpendPurpose(courtyardSource, dinosaurPurpose)).toBe(true);
+    expect(manaSourceAllowsSpendPurpose(courtyardSource, enchantmentPurpose)).toBe(false);
+
+    const remaining = calculateRemainingCostAfterFloatingMana(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 1, C: 0 },
+        generic: 2,
+        hybrids: [],
+      },
+      {
+        white: 0,
+        blue: 0,
+        black: 0,
+        red: 1,
+        green: 1,
+        colorless: 0,
+        restricted: [courtyardEntry],
+      },
+      handDinosaurPurpose,
+    );
+    expect(remaining.generic).toBe(0);
+    expect(remaining.colors.G).toBe(0);
+    expect(remaining.usedFromPool.green).toBe(2);
+    expect(remaining.usedFromPool.red).toBe(1);
   });
 });

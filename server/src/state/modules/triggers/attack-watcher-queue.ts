@@ -4,7 +4,9 @@
  * Public: planAttackWatcherQueue, isAttackWatcherTriggerType
  */
 
-import { permanentHasCreatureType } from "../../../../../shared/src/creatureTypes.js";
+import { isGoaded } from "../../../../../rules-engine/src/actions/combat.js";
+import { oracleTextHasOwnKeyword } from "../../../../../rules-engine/src/oracleOwnKeywordText.js";
+import { isCreatureTypeWord, permanentHasCreatureType } from "../../../../../shared/src/creatureTypes.js";
 import { getActualPowerToughness } from "../../utils.js";
 import type { CombatTriggeredAbility } from "./combat-triggered-ability.js";
 import { isEnchantedByAuraYouControl } from "./enchanted-by-aura.js";
@@ -14,6 +16,7 @@ const ATTACK_WATCHER_TRIGGER_TYPES = new Set([
   'creature_attacks',
   'typed_creature_attacks',
   'typed_subtype_attacks',
+  'typed_subtype_attacks_any',
   'another_typed_creature_attacks',
   'another_creature_attacks',
   'opponent_creature_attacks',
@@ -22,8 +25,37 @@ const ATTACK_WATCHER_TRIGGER_TYPES = new Set([
   'creature_attacks_alone',
   'typed_attacks_alone',
   'modified_creature_attacks',
+  'goaded_creature_attacks',
+  'flying_creature_attacks',
+  'haste_creature_attacks',
+  'deathtouch_creature_attacks',
+  'menace_creature_attacks',
+  'trample_creature_attacks',
+  'reach_creature_attacks',
+  'toxic_creature_attacks',
+  'flying_or_haste_attacks',
+  'power_equals_toughness_attacks',
+  'one_or_more_typed_attack',
+  'one_or_more_nontoken_typed_attack',
+  'one_or_more_artifact_creatures_attack',
+  'one_or_more_modified_creatures_attack',
+  'one_or_more_creatures_attack',
+  'multi_typed_you_control_attacks',
+  'multi_typed_creature_attacks_any',
+  'this_and_typed_creature_attack',
+  'three_or_more_flying_creatures_attack',
+  'two_or_more_creatures_attack',
+  'you_attack_with_two_or_more',
+  'you_attack_with_exactly_two_creatures',
+  'you_attack_with_three_or_more_creatures',
+  'vehicle_attacks',
   'counter_creature_attacks',
   'low_power_creature_attacks',
+  'entered_this_turn_attacks',
+  'base_pt_creature_attacks',
+  'own_but_dont_control_attacks',
+  'mana_ability_creature_attacks',
+  'equipped_creature_attacks_or_blocks',
   'equipped_creature_attacks',
   'nontoken_creature_attacks',
   'one_or_more_enchanted_by_aura_you_control_attack',
@@ -32,6 +64,9 @@ const ATTACK_WATCHER_TRIGGER_TYPES = new Set([
   'curse_attack',
   'opponents_two_or_more_creatures_attack',
   'chosen_type_creature_etb_or_attack',
+  'commander_you_control_etb_or_attack',
+  'typed_token_power_or_greater_attacks',
+  'equipped_creature_other_than_self_attacks_or_dies',
   'exalted',
   'you_attack',
   'you_attack_with_commander',
@@ -52,6 +87,15 @@ function hasPlusOnePlusOneCounter(permanent: any): boolean {
   if (!counters || typeof counters !== 'object') return false;
   const n = Number((counters as any)['+1/+1'] ?? (counters as any).p1p1 ?? 0);
   return Number.isFinite(n) && n > 0;
+}
+
+function hasAnyCounter(permanent: any): boolean {
+  const counters = permanent?.counters;
+  if (!counters || typeof counters !== 'object') return false;
+  for (const value of Object.values(counters)) {
+    if (typeof value === 'number' && value > 0) return true;
+  }
+  return false;
 }
 
 function isCreatureEquipped(battlefield: readonly any[], creature: any): boolean {
@@ -79,6 +123,34 @@ function isAttackingCreatureModified(battlefield: readonly any[], creature: any)
     if (String(perm?.attachedTo || perm?.enchanting || '').trim() !== id) return false;
     return /\baura\b/i.test(String(perm?.card?.type_line || perm?.type_line || ''));
   });
+}
+
+function attackerHasManaAbility(attacker: any): boolean {
+  const texts: string[] = [String(attacker?.card?.oracle_text || attacker?.oracle_text || '')];
+  for (const list of [attacker?.grantedAbilities, attacker?.card?.keywords]) {
+    if (!Array.isArray(list)) continue;
+    for (const entry of list) texts.push(String(entry || ''));
+  }
+  return texts.some((text) => {
+    const lower = String(text || '').toLowerCase();
+    if (/^tap_for_/.test(lower.trim())) return true;
+    return /\{t\}(?:,[^:]*)?:\s*add\b/i.test(lower);
+  });
+}
+
+function attackerHasKeyword(attacker: any, keyword: string): boolean {
+  const kw = String(keyword || '').trim().toLowerCase();
+  if (!kw) return false;
+  if (oracleTextHasOwnKeyword(String(attacker?.card?.oracle_text || attacker?.oracle_text || ''), kw)) return true;
+  const lists = [attacker?.card?.keywords, attacker?.keywords, attacker?.grantedAbilities];
+  return lists.some((list) => (
+    Array.isArray(list) && list.some((entry) => String(entry || '').trim().toLowerCase() === kw)
+  ));
+}
+
+function triggerControlledOnly(trigger: CombatTriggeredAbility, defaultValue = true): boolean {
+  if (typeof (trigger as any).controlledOnly === 'boolean') return (trigger as any).controlledOnly;
+  return defaultValue;
 }
 
 const ATTACK_COLOR_NAMES = new Set(['white', 'blue', 'black', 'red', 'green']);
@@ -111,20 +183,24 @@ function attackerHasColor(attacker: any, colorName: string): boolean {
 function attackerMatchesSingleTypeToken(attacker: any, token: string): boolean {
   const t = String(token || '').trim().toLowerCase();
   if (!t) return false;
+  const nonInner = t.match(/^non-?(.+)$/)?.[1];
+  if (nonInner) return !attackerMatchesSingleTypeToken(attacker, nonInner);
   if (ATTACK_COLOR_NAMES.has(t)) return attackerHasColor(attacker, t);
   if (t === 'token') return isTokenPermanent(attacker);
-  if (t === 'nontoken') return !isTokenPermanent(attacker);
   const typeLine = String(attacker?.card?.type_line || '').toLowerCase();
   if (['artifact', 'enchantment', 'legendary', 'vehicle', 'creature'].includes(t)) {
     return typeLine.includes(t);
   }
-  return permanentHasCreatureType(attacker, t);
+  const typeWord = (
+    t.endsWith('s') && t.length > 2 && !isCreatureTypeWord(t) && isCreatureTypeWord(t.slice(0, -1))
+  ) ? t.slice(0, -1) : t;
+  return permanentHasCreatureType(attacker, typeWord);
 }
 
 function attackerMatchesTypePhrase(attacker: any, phrase: string): boolean {
   const parts = String(phrase || '')
-    .split(/\s+or\s+/i)
-    .map((part) => part.trim())
+    .split(/\s*,\s*|\s+or\s+/i)
+    .map((part) => part.trim().replace(/^(?:and\s+)/i, ''))
     .filter(Boolean);
   if (parts.length === 0) return false;
   return parts.some((part) => attackerMatchesSingleTypeToken(attacker, part));
@@ -144,6 +220,7 @@ export function planAttackWatcherQueue(
   attackedPlayerIds: string[],
   battlefield: readonly any[],
   resolveAttackedPlayerId: (attacker: any) => string,
+  currentTurn?: number,
 ): AttackWatcherQueuePlan {
   const triggerType = String(trigger.triggerType || '');
   const sourceController = String(trigger.controllerId || sourcePermanent?.controller || '');
@@ -159,9 +236,16 @@ export function planAttackWatcherQueue(
       return { kind: 'per_attacker', attackers: attackingCreatures.filter((attacker) => youControl(attacker) && notSource(attacker)) };
     case 'typed_creature_attacks':
     case 'typed_subtype_attacks':
+    case 'multi_typed_you_control_attacks':
       return {
         kind: 'per_attacker',
         attackers: attackingCreatures.filter((attacker) => youControl(attacker) && attackerMatchesTypePhrase(attacker, typePhrase)),
+      };
+    case 'typed_subtype_attacks_any':
+    case 'multi_typed_creature_attacks_any':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => attackerMatchesTypePhrase(attacker, typePhrase)),
       };
     case 'another_typed_creature_attacks':
       return {
@@ -184,23 +268,196 @@ export function planAttackWatcherQueue(
         attackers: attackingCreatures.filter((attacker) => youControl(attacker) && !isTokenPermanent(attacker)),
       };
     case 'equipped_creature_attacks':
+    case 'equipped_creature_attacks_or_blocks':
       return {
         kind: 'per_attacker',
         attackers: attackingCreatures.filter((attacker) => youControl(attacker) && isCreatureEquipped(battlefield, attacker)),
+      };
+    case 'equipped_creature_other_than_self_attacks_or_dies':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => (
+          youControl(attacker) && notSource(attacker) && isCreatureEquipped(battlefield, attacker)
+        )),
       };
     case 'modified_creature_attacks':
       return {
         kind: 'per_attacker',
         attackers: attackingCreatures.filter((attacker) => youControl(attacker) && isAttackingCreatureModified(battlefield, attacker)),
       };
+    case 'goaded_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => isGoaded(attacker, currentTurn, battlefield as any[])),
+      };
+    case 'flying_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => (
+          (!triggerControlledOnly(trigger, false) || youControl(attacker))
+          && attackerHasKeyword(attacker, 'flying')
+        )),
+      };
+    case 'haste_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => youControl(attacker) && attackerHasKeyword(attacker, 'haste')),
+      };
+    case 'deathtouch_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => youControl(attacker) && attackerHasKeyword(attacker, 'deathtouch')),
+      };
+    case 'menace_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => youControl(attacker) && attackerHasKeyword(attacker, 'menace')),
+      };
+    case 'trample_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => youControl(attacker) && attackerHasKeyword(attacker, 'trample')),
+      };
+    case 'reach_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => youControl(attacker) && attackerHasKeyword(attacker, 'reach')),
+      };
+    case 'toxic_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => (
+          youControl(attacker) && notSource(attacker) && attackerHasKeyword(attacker, 'toxic')
+        )),
+      };
+    case 'flying_or_haste_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => (
+          youControl(attacker)
+          && (attackerHasKeyword(attacker, 'flying') || attackerHasKeyword(attacker, 'haste'))
+        )),
+      };
+    case 'power_equals_toughness_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => {
+          if (!youControl(attacker)) return false;
+          const { power, toughness } = getActualPowerToughness(attacker, { battlefield });
+          return Number(power) === Number(toughness);
+        }),
+      };
+    case 'one_or_more_typed_attack': {
+      const anyTyped = attackingCreatures.some((attacker) => (
+        youControl(attacker) && attackerMatchesTypePhrase(attacker, typePhrase)
+      ));
+      return anyTyped ? { kind: 'once' } : { kind: 'skip' };
+    }
+    case 'one_or_more_nontoken_typed_attack': {
+      const anyTyped = attackingCreatures.some((attacker) => (
+        youControl(attacker)
+        && !isTokenPermanent(attacker)
+        && attackerMatchesTypePhrase(attacker, typePhrase)
+      ));
+      return anyTyped ? { kind: 'once' } : { kind: 'skip' };
+    }
+    case 'one_or_more_artifact_creatures_attack': {
+      const anyArtifact = attackingCreatures.some((attacker) => (
+        youControl(attacker) && attackerMatchesSingleTypeToken(attacker, 'artifact')
+      ));
+      return anyArtifact ? { kind: 'once' } : { kind: 'skip' };
+    }
+    case 'one_or_more_modified_creatures_attack': {
+      const anyModified = attackingCreatures.some((attacker) => (
+        youControl(attacker) && isAttackingCreatureModified(battlefield, attacker)
+      ));
+      return anyModified ? { kind: 'once' } : { kind: 'skip' };
+    }
+    case 'one_or_more_creatures_attack': {
+      const any = attackingCreatures.some((attacker) => (
+        !triggerControlledOnly(trigger, false) || youControl(attacker)
+      ));
+      return any ? { kind: 'once' } : { kind: 'skip' };
+    }
+    case 'two_or_more_creatures_attack':
+      return attackingCreatures.length >= 2 ? { kind: 'once' } : { kind: 'skip' };
+    case 'you_attack_with_two_or_more': {
+      if (sourceController !== attackingPlayer) return { kind: 'skip' };
+      return attackingCreatures.filter(youControl).length >= 2 ? { kind: 'once' } : { kind: 'skip' };
+    }
+    case 'you_attack_with_exactly_two_creatures': {
+      if (sourceController !== attackingPlayer) return { kind: 'skip' };
+      return attackingCreatures.filter(youControl).length === 2 ? { kind: 'once' } : { kind: 'skip' };
+    }
+    case 'you_attack_with_three_or_more_creatures': {
+      if (sourceController !== attackingPlayer) return { kind: 'skip' };
+      return attackingCreatures.filter(youControl).length >= 3 ? { kind: 'once' } : { kind: 'skip' };
+    }
+    case 'vehicle_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => (
+          youControl(attacker) && attackerMatchesSingleTypeToken(attacker, 'vehicle')
+        )),
+      };
+    case 'this_and_typed_creature_attack': {
+      const sourceAttacking = attackingCreatures.some((attacker) => String(attacker?.id || '') === sourceId);
+      if (!sourceAttacking) return { kind: 'skip' };
+      const otherTyped = attackingCreatures.some((attacker) => (
+        notSource(attacker) && attackerMatchesTypePhrase(attacker, typePhrase)
+      ));
+      return otherTyped ? { kind: 'once' } : { kind: 'skip' };
+    }
+    case 'three_or_more_flying_creatures_attack': {
+      const flyers = attackingCreatures.filter((attacker) => (
+        youControl(attacker) && attackerHasKeyword(attacker, 'flying')
+      ));
+      return flyers.length >= 3 ? { kind: 'once' } : { kind: 'skip' };
+    }
     case 'counter_creature_attacks':
       return {
         kind: 'per_attacker',
         attackers: attackingCreatures.filter((attacker) => {
-          if (!hasPlusOnePlusOneCounter(attacker)) return false;
+          const hasCounter = (trigger as any).anyCounter
+            ? hasAnyCounter(attacker)
+            : hasPlusOnePlusOneCounter(attacker);
+          if (!hasCounter) return false;
           if ((trigger as any).controlledOnly && !youControl(attacker)) return false;
           return true;
         }),
+      };
+    case 'entered_this_turn_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => youControl(attacker) && attacker?.enteredThisTurn === true),
+      };
+    case 'base_pt_creature_attacks': {
+      const basePower = Number((trigger as any).basePower);
+      const baseToughness = Number((trigger as any).baseToughness);
+      if (!Number.isFinite(basePower) || !Number.isFinite(baseToughness)) return { kind: 'skip' };
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => {
+          if (!youControl(attacker)) return false;
+          const printedPower = Number(attacker?.card?.power ?? attacker?.power);
+          const printedToughness = Number(attacker?.card?.toughness ?? attacker?.toughness);
+          return printedPower === basePower && printedToughness === baseToughness;
+        }),
+      };
+    }
+    case 'own_but_dont_control_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => {
+          const owner = String(attacker?.owner || attacker?.card?.owner || '');
+          const controller = String(attacker?.controller || '');
+          return owner === sourceController && controller !== sourceController;
+        }),
+      };
+    case 'mana_ability_creature_attacks':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => youControl(attacker) && attackerHasManaAbility(attacker)),
       };
     case 'low_power_creature_attacks': {
       const maxPower = Number(trigger.maxPower ?? (trigger as any).value?.maxPower);
@@ -224,6 +481,27 @@ export function planAttackWatcherQueue(
         attackers: attackingCreatures.filter((attacker) => (
           youControl(attacker) && permanentHasCreatureType(attacker, chosenType)
         )),
+      };
+    }
+    case 'commander_you_control_etb_or_attack':
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => (
+          youControl(attacker)
+          && (attacker?.isCommander === true || attacker?.commander === true || attacker?.card?.isCommander === true)
+        )),
+      };
+    case 'typed_token_power_or_greater_attacks': {
+      const minPower = Number((trigger as any).minPower ?? (trigger as any).value?.minPower);
+      if (!Number.isFinite(minPower)) return { kind: 'skip' };
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => {
+          if (!youControl(attacker) || !isTokenPermanent(attacker)) return false;
+          if (!attackerMatchesTypePhrase(attacker, typePhrase)) return false;
+          const { power } = getActualPowerToughness(attacker, { battlefield });
+          return Number(power) >= minPower;
+        }),
       };
     }
     case 'creature_attacks_alone':

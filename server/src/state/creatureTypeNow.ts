@@ -151,6 +151,7 @@ export function getCreatureTypesNow(permanent: any): Set<string> {
 
   // Some effects track creature types separately.
   for (const t of normalizeCreatureTypeList(permanent?.typeAdditions)) out.add(t);
+  for (const t of normalizeCreatureTypeList(permanent?.continuousTypeAdditions)) out.add(t);
   for (const t of normalizeCreatureTypeList(permanent?.grantedCreatureTypes)) out.add(t);
 
   // Legacy tracking (stack.addCreatureType)

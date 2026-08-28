@@ -100,5 +100,13 @@ export function isOracleIrOptionalStepBridgedToDedicatedResolutionPrompt(
   if (isPerPlayerOptionalOracleStep(step)) return true;
   if (isControllerMayPutLandFromHandOracleStep(step)) return true;
   // Mill-from-among free-cast queues GRAVEYARD_SELECTION, not generic Yes/No.
-  return String(step.kind || '') === 'may_cast_from_among';
+  if (String(step.kind || '') === 'may_cast_from_among') return true;
+  // Revealed-library during-resolution may-cast (Descendants' Path family).
+  if (
+    String(step.kind || '') === 'grant_exile_permission' &&
+    String((step as { duration?: string }).duration || '') === 'during_resolution'
+  ) {
+    return true;
+  }
+  return false;
 }

@@ -7,6 +7,7 @@
 import type { GameContext } from "../../context.js";
 import type { PlayerID } from "../../../../../shared/src/types.js";
 import { debugWarn } from "../../../utils/debug.js";
+import { getActivePriorityPlayers, reassignPriorityIfHolderCannotReceive } from "../priorityEligibility.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -41,15 +42,13 @@ export function passPriority(ctx: GameContext, playerId?: PlayerID) {
   try {
     ensureSeq(ctx);
     const state: any = (ctx as any).state || {};
-    const players = Array.isArray(state.players) ? state.players.map((p: any) => p.id) : [];
-
-    // Ensure active set exists
-    const inactiveSet: Set<string> =
-      (ctx as any).inactive instanceof Set ? (ctx as any).inactive : new Set<string>();
-
-    const active = players.filter((id: string) => !inactiveSet.has(id));
+    const active = getActivePriorityPlayers(ctx).map((p) => p.id);
     if (!active.length) {
       return { changed: false, resolvedNow: false, advanceStep: false };
+    }
+
+    if (state.priority && !active.includes(state.priority)) {
+      reassignPriorityIfHolderCannotReceive(ctx);
     }
 
     // If no priority set, give to first active

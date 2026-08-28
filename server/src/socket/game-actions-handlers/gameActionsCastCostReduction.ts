@@ -27,6 +27,7 @@ import {
 } from "../../state/modules/casting-modifiers.js";
 import { hasDelirium } from "../../state/modules/game-state-effects";
 import { cardManaValue } from "../../state/utils";
+import { applySpellSelfCreaturePowerCostReduction } from "../../state/modules/spellSelfCreaturePowerCostReduction.js";
 import { applySpellSelfTotalManaValueCostReduction } from "../../state/modules/spellSelfTotalManaValueCostReduction.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
@@ -141,7 +142,7 @@ export function calculateCostReduction(
   try {
     const battlefield = game.state?.battlefield || [];
     const cardTypeLine = (card.type_line || "").toLowerCase();
-    const cardOracleText = (card.oracle_text || "").toLowerCase();
+    const cardOracleText = (card.oracle_text || card.oracleText || "").toLowerCase();
     const cardColors = card.colors || [];
     const cardCreatureTypes = extractCreatureTypes(cardTypeLine);
     const cardName = card.name || "Unknown";
@@ -536,6 +537,22 @@ export function calculateCostReduction(
       if (totalMvSelfReduction.generic > 0) {
         reduction.generic += totalMvSelfReduction.generic;
         reduction.messages.push(...totalMvSelfReduction.messages);
+      }
+    }
+
+    // "This spell costs {X} less to cast, where X is the total/greatest power ... creatures you control"
+    // Handles: Ghalta, Primal Hunger (total power), The Great Henge (greatest power).
+    {
+      const creaturePowerSelfReduction = applySpellSelfCreaturePowerCostReduction({
+        oracleText: cardOracleText,
+        cardName,
+        battlefield,
+        playerId,
+        gameState: game?.state,
+      });
+      if (creaturePowerSelfReduction.generic > 0) {
+        reduction.generic += creaturePowerSelfReduction.generic;
+        reduction.messages.push(...creaturePowerSelfReduction.messages);
       }
     }
 

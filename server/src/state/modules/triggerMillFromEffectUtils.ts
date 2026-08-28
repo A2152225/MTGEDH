@@ -1,7 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { applyMillReplacements } from './game-state-effects.js';
-import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
+import { pushCardToGraveyardFromLibrary } from './graveyardEntryUtils.js';
 import { processMillTriggers } from './zones.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { appendEvent } from '../../db/index.js';
@@ -45,7 +45,7 @@ export function millPlayerCardsFromTrigger(
     for (let i = 0; i < millCount && lib.length > 0; i++) {
       const milled = lib.shift();
       if (milled) {
-        pushCardToPlayerGraveyardWithReplacements(ctx, String(targetPlayerId), milled, z.graveyard);
+        pushCardToGraveyardFromLibrary(ctx, String(targetPlayerId), milled, z.graveyard);
         milledCards.push({ ...milled, zone: 'graveyard' });
       }
     }

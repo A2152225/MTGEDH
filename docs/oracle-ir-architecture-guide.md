@@ -14,7 +14,7 @@ Oracle IR (Intermediate Representation) is the project's canonical pipeline for 
 oracle text → parse → OracleEffectStep[] → execute → server sync → resolution UI → resume
 ```
 
-**Corpus status (2026-07-02):** Layers **1–2 are complete** for commander-legal scope. Layer **3 is beta-ready** — production runs IR-primary for spells, triggers, and activated abilities; migration bar **797/797**. Zone steps use the pre-commit transition pipeline and step ledger; legacy fallbacks remain as migration debt (Phase 4) but are gated when IR primary owns the effect.
+**Corpus status (2026-07-02):** Layers **1–2 are complete** for commander-legal scope. Layer **3 is beta-ready** — production runs IR-primary for spells, triggers, and activated abilities; migration bar **797/797**. Zone steps use the pre-commit transition pipeline and step ledger. Phase 4 dual-path under IR primary is closed; PRIMARY=0 opt-out (`categorizeSpell` / `executeSpellEffect`) remains until the harness flip.
 
 **New cards not in the parser:** **Compiled overlays are the default ingestion path** (atomic native steps); the delta audit (`npm run oracle-ir:delta`) finds the gaps and emits the work queue — see §15 and [oracle-ir-track-e-remaining-work.md § Goal: Semantic atomic parsing](./oracle-ir-track-e-remaining-work.md#goal-semantic-atomic-parsing--seamless-effect-automation-new-cards).
 
@@ -26,7 +26,7 @@ oracle text → parse → OracleEffectStep[] → execute → server sync → res
 |-------|----------|----------------|--------|
 | **1 — Parse** | `rules-engine/src/oracleIRParser.ts` | `parseOracleTextToIR()` → `OracleEffectStep[]`; overlay merge for gaps | ✅ Corpus green; overlay path for new cards |
 | **2 — Execute** | `rules-engine/src/oracleIRExecutor.ts` | `applyOracleIRStepsToGameState()` dry-run | ✅ Green (full_card 100% assisted) |
-| **3 — Integrate** | `server/src/state/modules/oracleIr*.ts` | Live state, queue prompts, resume, pre-commit transitions | ✅ Beta-ready (**797/797**); Phase 4 legacy debt remains |
+| **3 — Integrate** | `server/src/state/modules/oracleIr*.ts` | Live state, queue prompts, resume, pre-commit transitions | ✅ Beta-ready (**797/797**); Phase 4 closed under IR primary |
 
 **Never call** `applyOracleIRStepsToGameState` directly on live server state. Always use **`applyOracleIRStepsOnServer`**.
 
@@ -496,7 +496,7 @@ New-set support cost is now proportional to the **delta**, not the corpus.
 
 ### 15.4 Legacy retirement ratchet (Phase 4 / D3)
 
-**D3 export retirement is complete:** `TRIGGER_LEGACY_EXPORT_CEILING = 0` and `SPELL_LEGACY_EXPORT_CEILING = 0` — no `applyRetiredTriggerLegacy*` / spell-legacy export handlers remain. Remaining Phase 4 risk is **infrastructure dual-path** (`categorizeSpell` + `executeSpellEffect`, uncategorized fallbacks, spell riders), gated by IR primary + ownership helpers.
+**D3 export retirement is complete:** `TRIGGER_LEGACY_EXPORT_CEILING = 0` and `SPELL_LEGACY_EXPORT_CEILING = 0` — no `applyRetiredTriggerLegacy*` / spell-legacy export handlers remain. **Phase 4 dual-path under IR primary is closed** (Sevinne GY-cast copy IR-owned; PRIMARY=1 special-case no Rite/Summons fills). `categorizeSpell` / `executeSpellEffect` remain for PRIMARY=0 opt-out until the harness flip. Stack-targeting opcodes stay until Phase 5.
 
 Shrink-only mechanisms still apply:
 
@@ -528,7 +528,7 @@ Server-side IR queues novel resolution steps faster than the client grows bespok
 
 ### 15.7 Phase 5 ceiling
 
-Continuous and replacement effects are the class step IR alone cannot fully express. **5.1–5.5 are landed** (declarative `StaticEffectSpec` / `ReplacementEffectSpec`, registry hooks, overlay ability types, gap telemetry). Remaining work is **depth**: more event families through the replacement choke point, layer/conditional static coverage, and driving `static:`/`replacement:owned_but_unhandled` toward zero. Design: [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md).
+Continuous and replacement effects are the class step IR alone cannot fully express. **5.1–5.5 are landed** (declarative `StaticEffectSpec` / `ReplacementEffectSpec`, registry hooks, overlay ability types, gap telemetry). **2026-08-27 depth:** one-shot `cant_attack` is in spell/trigger/activated fallback (combat honors `temporaryEffects`); unused `librarySearchEffects` card-name table removed; Pacifism host combat locks are `StaticEffectSpec`; mass Moat / Katabatic / Ensnaring Bridge / Peacekeeper / type-you-control combat locks are `StaticEffectSpec`; life-loss registry on player damage; Worship / Fortune Thief `floorLifeAt` caps apply through `evaluateDamageReplacementEvent` (cap-only; Furnace/Gisela stay on `calculateModifiedDamage`); empty `KNOWN_STATIC_EFFECT_CARDS` shell deleted; PRIMARY=0 `COUNTER_TARGET_SPELL` `evaluateTargeting` includes the caster's own stack spell (replay `CounterSpell` stays); `ADDITIONAL_LAND_PLAY_CARDS` deleted (extra land drops are oracle-only; station still uses `getActiveStationAbilities`); `ADDITIONAL_DRAW_CARDS` deleted (mandatory draw-step extra cards are oracle-only; optional you-may / compound then-discard stay on the stack); `TOP_OF_LIBRARY_CARDS` deleted (look / play lands / cast from top are oracle-only); `HAND_REVEAL_CARDS` deleted (static Telepathy/Revelation grants are oracle-only); `TEMPORARY_LAND_PLAY_SPELLS` deleted (this-turn extra land drops are oracle-only); Katabatic / Serra Bestiary `{T}`-cost activation locks are `StaticEffectSpec`; Gravity Sphere / Mystic Decree all-creatures lose-keyword is `removeAbilities`, and Moat/Katabatic keyword conditions use layer-6 grants then removals; pillowfort attack-you tax is oracle `attackYouTaxGeneric` plus `attackYouTaxPhyrexian` for `{W/P}` (live declare no longer name-routes Ghostly Prison / Sphere / Baird / Annex / Archangel); War Tax this-turn stamps `lastingEffects.attackTaxGeneric`; War Cadence this-turn stamps `lastingEffects.blockTaxGeneric`; Island Sanctuary skip-draw is an optional draw-step `ReplacementEffectSpec` that stamps except-flying/islandwalk (idle replacement wrapper does not lock); Elephant Grass color-gated tax/prohibition, Blazing Archon, Form of the Dragon / Sandwurm keyword gates, Reverence power-at-most, Combat Calligrapher type, Vow/Spectral Grasp/Assault Suit host, Teferi's Moat chosen-color, and Eriette aura-you-control evaluate per attacker (`attackYouProhibited`); Crawlspace `attackYouMaxAttackers`; Silent Arbiter / Dueling Grounds / Caverns of Despair `maxAttackersEachCombat` and `maxBlockersEachCombat` (human and AI execute); Archangel of Tithes `blockTaxGeneric` while attacking (live declare prompts; AI pays or trims). Remaining work is **depth**: replay CounterSpell dual-path, more event families through the replacement choke point, and driving `static:`/`replacement:owned_but_unhandled` toward zero. Design: [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md).
 
 ---
 

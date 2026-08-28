@@ -378,10 +378,17 @@ export function tryLoyaltyTemplateLoyaltyCountersMill(
       return true;
     }
 
+    case "ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_TYPED_SPELLS":
     case "ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_DRAGONS": {
       const gameId = getGameId(ctx);
       const isReplaying = !!(ctx as any).isReplaying;
       if (!gameId || gameId === "unknown" || isReplaying) return false;
+
+      const typeMatch = text.match(
+        /^add two mana in any combination of colors\.?\s*spend this mana only to cast ([a-z][a-z-]*) spells\.?$/i
+      );
+      const typeName = String(typeMatch?.[1] || "dragon").toLowerCase();
+      const typeTitle = typeName.replace(/[a-z]+/gi, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
 
       const sourceId = triggerItem?.sourceId || triggerItem?.sourcePermanentId || triggerItem?.planeswalker?.id;
       const colorOptions = [
@@ -395,7 +402,7 @@ export function tryLoyaltyTemplateLoyaltyCountersMill(
       ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.OPTION_CHOICE,
         playerId: controller,
-        description: `${sourceName}: Choose a color for the first mana (spend only to cast Dragon spells)`,
+        description: `${sourceName}: Choose a color for the first mana (spend only to cast ${typeTitle} spells)`,
         mandatory: true,
         sourceName: sourceName,
         options: colorOptions,
@@ -405,7 +412,7 @@ export function tryLoyaltyTemplateLoyaltyCountersMill(
         chooseManaColorsController: controller,
         chooseManaColorsSourceName: sourceName,
         chooseManaColorsSourceId: sourceId,
-        chooseManaColorsRestriction: "dragon_spells",
+        chooseManaColorsRestriction: `${typeName}_spells`,
         chooseManaColorsSelectionsTotal: 2,
         chooseManaColorsAmountPerSelection: 1,
       } as any);

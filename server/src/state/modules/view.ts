@@ -11,7 +11,7 @@ import type { GameContext } from "../context.js";
 import { sumActiveTemporaryPTMods } from "./temporaryPtMods.js";
 import { parsePT, calculateVariablePT, calculateAllPTBonusesWithSources, resolveSetBasePTFromAttachedAuras, type PTBonusSource } from "../utils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
-import { getContinuousGrantedAbilitiesForPermanent, syncDerivedContinuousEffects } from "./staticEffectSpec.js";
+import { getContinuousGrantedAbilitiesForPermanent, resolveSetBasePTFromStaticSpecs, syncDerivedContinuousEffects } from "./staticEffectSpec.js";
 import { collectBattlefieldAbilityBadgesForView } from "./battlefieldAbilityBadges.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
 import { maskFaceDownExileCardForViewer } from "./impulse-exile-utils.js";
@@ -167,6 +167,11 @@ export function viewFor(
       if (setBasePT) {
         baseP = setBasePT.power;
         baseT = setBasePT.toughness;
+      }
+      const staticSetBasePT = resolveSetBasePTFromStaticSpecs(perm, state);
+      if (staticSetBasePT) {
+        baseP = staticSetBasePT.power;
+        baseT = staticSetBasePT.toughness;
       }
       
       if (typeof baseP === "number" && typeof baseT === "number") {
@@ -356,12 +361,29 @@ export function viewFor(
   }
 
   const projectedPlayers: PlayerRef[] = (state.players as any as PlayerRef[]).map(
-    (p) => ({
-      id: p.id,
-      name: p.name,
-      seat: p.seat,
-      inactive: inactive.has(p.id),
-    })
+    (p) => {
+      const lifeTotal = (state as any).life?.[p.id] ?? (p as any).life;
+      const lifeNum = Number(lifeTotal);
+      const outOfGame =
+        inactive.has(p.id)
+        || Boolean((p as any).hasLost)
+        || Boolean((p as any).eliminated)
+        || (Number.isFinite(lifeNum) && lifeNum <= 0);
+      return {
+        id: p.id,
+        name: p.name,
+        seat: p.seat,
+        inactive: outOfGame,
+        hasLost: Boolean((p as any).hasLost) || (Number.isFinite(lifeNum) && lifeNum <= 0),
+        eliminated: Boolean((p as any).eliminated) || outOfGame,
+        lostReason: (p as any).lostReason || (p as any).lossReason,
+        life: lifeTotal,
+        isAI: Boolean((p as any).isAI),
+        deckName: typeof (p as any).deckName === 'string' && (p as any).deckName.trim()
+          ? (p as any).deckName
+          : undefined,
+      };
+    }
   );
 
   debug(3, "[VIEW_FOR_DEBUG]", {

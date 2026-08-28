@@ -290,7 +290,7 @@ export function buildMoveZoneSelectionOptions(
 
   return {
     playerId,
-    availableCards: fromHand && candidates.length > 0 ? candidates : pool,
+    availableCards: (fromHand || fromGraveyard) && candidates.length > 0 ? candidates : pool,
     selectableCardIds: candidates
       .map((card) => String(card?.id || '').trim())
       .filter(Boolean),

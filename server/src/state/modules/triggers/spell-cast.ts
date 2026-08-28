@@ -159,29 +159,6 @@ export function applySpellCastUntapEffect(ctx: GameContext, effect: SpellCastUnt
 // General Spell-Cast Triggered Abilities
 // ============================================================================
 
-/**
- * Extract creature types from a type line
- */
-function extractCreatureTypes(typeLine: string): string[] {
-  const types: string[] = [];
-  const lowerTypeLine = typeLine.toLowerCase();
-  
-  const knownTypes = [
-    'merfolk', 'goblin', 'elf', 'wizard', 'shaman', 'warrior', 'soldier', 'zombie',
-    'vampire', 'dragon', 'angel', 'demon', 'beast', 'elemental', 'spirit', 'human',
-    'knight', 'cleric', 'rogue', 'druid', 'pirate', 'dinosaur', 'cat', 'bird',
-    'snake', 'spider', 'sliver', 'ally', 'rebel', 'mercenary', 'horror', 'faerie',
-  ];
-  
-  for (const type of knownTypes) {
-    if (lowerTypeLine.includes(type)) {
-      types.push(type);
-    }
-  }
-  
-  return types;
-}
-
 // detectSpellCastTriggers lives in spell-cast-detection.ts (leftover-merged).
 
 // getSpellCastTriggers lives in spell-cast-get-triggers.ts (leftover-merged).
@@ -205,6 +182,7 @@ export interface OpponentSpellCastTrigger {
   paymentAmount?: number; // X value for variable payments (Esper Sentinel)
   benefitIfNotPaid: string; // Effect if opponent doesn't pay
   mandatory: boolean;
+  sourceZoneRequirement?: OpponentCastSourceZone;
 }
 
 /**
@@ -232,10 +210,13 @@ export type OpponentCastSpellCondition =
   | 'any'
   | 'noncreature'
   | 'creature'
+  | 'instant_sorcery'
   | 'first_noncreature'
   | 'first_any';
 
 export type OpponentCastCasterScope = 'opponent' | 'any_player';
+
+export type OpponentCastSourceZone = 'hand' | 'library' | 'exile' | 'graveyard' | 'not_hand';
 
 export type DetectedOpponentSpellCastTrigger = {
   triggerType: OpponentCastTriggerType;
@@ -245,7 +226,27 @@ export type DetectedOpponentSpellCastTrigger = {
   paymentIsVariable?: boolean;
   benefitIfNotPaid: string;
   description: string;
+  sourceZoneRequirement?: OpponentCastSourceZone;
 };
+
+function parseOpponentCastSourceZone(raw: string): OpponentCastSourceZone | undefined {
+  const zone = String(raw || '').trim().toLowerCase();
+  if (zone === 'hand' || zone === 'exile' || zone === 'graveyard' || zone === 'library') {
+    return zone;
+  }
+  return undefined;
+}
+
+export function opponentCastSourceZoneMatches(
+  requirement: OpponentCastSourceZone | undefined,
+  castSourceZone?: string,
+): boolean {
+  if (!requirement) return true;
+  const zone = String(castSourceZone || '').trim().toLowerCase();
+  if (requirement === 'not_hand') return zone !== 'hand';
+  if (!zone) return true;
+  return zone === requirement;
+}
 
 function parseOpponentCastSpellType(rawType: string): Pick<DetectedOpponentSpellCastTrigger, 'spellCondition' | 'triggerType'> {
   const typeToken = String(rawType || '').trim().toLowerCase();
@@ -260,6 +261,13 @@ function parseOpponentCastSpellType(rawType: string): Pick<DetectedOpponentSpell
   }
   if (typeToken === 'creature' || (typeToken.includes('creature') && !typeToken.includes('noncreature'))) {
     return { spellCondition: 'creature', triggerType: 'opponent_casts_creature' };
+  }
+  if (
+    typeToken === 'instant'
+    || typeToken === 'sorcery'
+    || (typeToken.includes('instant') && typeToken.includes('sorcery') && !typeToken.includes('artifact'))
+  ) {
+    return { spellCondition: 'instant_sorcery', triggerType: 'opponent_casts_noncreature' };
   }
   if (
     typeToken.includes('instant') ||
@@ -557,15 +565,15 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
     casterScope: OpponentCastCasterScope;
   }> = [
     {
-      pattern: /when(?:ever)? an opponent casts (?:a |an )?((?:[\w]+(?:\s+[\w]+)*?))?\s*spell(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+      pattern: /when(?:ever)? an opponent casts (?:a |an )?((?:[\w]+(?:\s+[\w]+)*?))?\s*spell(?: from (?:(?:their|your|his or her) )?(?:a |the )?(?:hand|exile|graveyard|library))?(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
       casterScope: 'opponent',
     },
     {
-      pattern: /when(?:ever)? a player casts (?:a |an )?((?:[\w]+(?:\s+[\w]+)*?))?\s*spell(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+      pattern: /when(?:ever)? a player casts (?:a |an )?((?:[\w]+(?:\s+[\w]+)*?))?\s*spell(?: from (?:(?:their|your|his or her) )?(?:a |the )?(?:hand|exile|graveyard|library))?(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
       casterScope: 'any_player',
     },
     {
-      pattern: /when(?:ever)? each opponent casts (?:a |an )?((?:[\w]+(?:\s+[\w]+)*?))?\s*spell(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+      pattern: /when(?:ever)? each opponent casts (?:a |an )?((?:[\w]+(?:\s+[\w]+)*?))?\s*spell(?: from (?:(?:their|your|his or her) )?(?:a |the )?(?:hand|exile|graveyard|library))?(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
       casterScope: 'opponent',
     },
   ];
@@ -589,13 +597,16 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
       const rawType = String(match[1] || '').trim();
+      const sourceZoneRequirement = parseOpponentCastSourceZone(
+        String(match[0] || '').match(/\bfrom (?:(?:their|your|his or her) )?(?:a |the )?(hand|exile|graveyard|library)\b/i)?.[1] || '',
+      );
       const effectText = timingTriggerEffect(oracleText, match, 2);
       if (!effectText) continue;
       const parsed = parseOpponentCastSpellType(rawType);
       const triggerType: OpponentCastTriggerType = casterScope === 'any_player'
         ? parsed.spellCondition === 'creature'
           ? 'any_player_casts_creature'
-          : parsed.spellCondition === 'noncreature'
+          : parsed.spellCondition === 'noncreature' || parsed.spellCondition === 'instant_sorcery'
             ? 'any_player_casts_noncreature'
             : 'any_player_casts_any'
         : parsed.triggerType;
@@ -607,6 +618,7 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
         paymentCost: unlessPayment?.[1] || '',
         benefitIfNotPaid: effectText,
         description: timingTriggerEffect(oracleText, match, 0),
+        ...(sourceZoneRequirement ? { sourceZoneRequirement } : {}),
       });
     }
   }
@@ -629,7 +641,8 @@ export function getOpponentSpellCastTriggers(
   casterId: string,
   spellCard: any,
   allPlayerIds: string[],
-  isFirstNoncreatureThisTurnByCaster: boolean = false
+  isFirstNoncreatureThisTurnByCaster: boolean = false,
+  castSourceZone?: string,
 ): OpponentSpellCastTrigger[] {
   const triggers: OpponentSpellCastTrigger[] = [];
   
@@ -645,6 +658,7 @@ export function getOpponentSpellCastTriggers(
     
     for (const trigger of permTriggers) {
       if (trigger.casterScope === 'opponent' && casterId === controller) continue;
+      if (!opponentCastSourceZoneMatches(trigger.sourceZoneRequirement, castSourceZone)) continue;
       let shouldTrigger = false;
       
       switch (trigger.spellCondition) {
@@ -653,6 +667,9 @@ export function getOpponentSpellCastTriggers(
           break;
         case 'noncreature':
           shouldTrigger = isNoncreatureSpell;
+          break;
+        case 'instant_sorcery':
+          shouldTrigger = /\binstant\b/.test(spellTypeLine) || /\bsorcery\b/.test(spellTypeLine);
           break;
         case 'creature':
           shouldTrigger = isCreatureSpell;
@@ -689,7 +706,10 @@ export function getOpponentSpellCastTriggers(
           paymentCost: trigger.paymentIsVariable ? `{${paymentAmount}}` : trigger.paymentCost,
           paymentAmount,
           benefitIfNotPaid: trigger.benefitIfNotPaid,
-          mandatory: false, // These are "may" abilities
+          // Tax abilities (Rhystic Study) are optional "you may". Possibility Storm
+          // and similar "that player exiles it" replacements are mandatory.
+          mandatory: !/\byou may\b/i.test(String(trigger.benefitIfNotPaid || trigger.description || '')),
+          ...(trigger.sourceZoneRequirement ? { sourceZoneRequirement: trigger.sourceZoneRequirement } : {}),
         });
       }
     }

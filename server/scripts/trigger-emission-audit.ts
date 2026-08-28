@@ -466,6 +466,15 @@ const FAMILIES: readonly TriggerEmissionFamily[] = [
     exampleCards: ['Pili-Pala', 'Training Grounds payoffs'],
     notes: 'Whitelist emitter + generic detectAbilityActivatedTriggers path.',
   },
+  {
+    id: 'exile_time_counter',
+    label: 'Time counter removed from this card while exiled (suspend payoffs)',
+    detectors: ['detectCounterRemovedTriggers'],
+    emitters: ['queueExiledTimeCounterRemovedTriggers'],
+    requiresIrPath: false,
+    exampleCards: ['Dinosaurs on a Spaceship', 'Jhoira of the Ghitu', 'Cyclical Evolution'],
+    notes: 'Detector exists (time_counter_removed_from_exiled_self). Suspend upkeep emits via queueExiledTimeCounterRemovedTriggers. Per-card scan: npm run oracle-ir:live-seam.',
+  },
 ];
 
 export function classifyPathBucket(relPath: string): PathBucket {

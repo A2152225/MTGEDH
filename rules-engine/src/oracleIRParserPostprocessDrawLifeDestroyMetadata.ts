@@ -215,7 +215,7 @@ function annotateDrawMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
     const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
     if (
       effectTexts.some((effectText) =>
-        /^\s*when(?:ever)?\b/i.test(String(effectText || '')) ||
+        /\bwhen(?:ever)?\b/i.test(String(effectText || '')) ||
         (/\bdraws?\b/i.test(String(effectText || '')) && /\bactivate only as a sorcery\b/i.test(String(effectText || '')))
       )
     ) {

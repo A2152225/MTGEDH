@@ -615,6 +615,13 @@ function isSpellInstructionLineInner(trimmed: string): boolean {
     return true;
   }
 
+  // Delayed "dealt damage this way dies this turn" windows (Reckless Blaze / Skeletonize).
+  if (
+    /^when(?:ever)?\s+a\s+creature(?:\s+you\s+control)?\s+dealt\s+damage\s+this\s+way\s+dies\s+this\s+turn,/i.test(trimmed)
+  ) {
+    return true;
+  }
+
   // Triggered / continuous / replacement leads that are not resolution instructions.
   // Exception: "Only the chosen creatures can attack…" is a spell-created combat restriction.
   if (

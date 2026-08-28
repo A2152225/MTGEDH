@@ -354,6 +354,7 @@ export function resolveCreatureTargetIds(
 
   if (targetText === 'all creatures') {
     return battlefield
+      .filter((permanent) => isExecutorCreature(permanent))
       .map(permanent => String((permanent as any)?.id || '').trim())
       .filter(Boolean);
   }

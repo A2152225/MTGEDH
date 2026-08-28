@@ -1,10 +1,11 @@
 // Extracted from oracleIRExecutorPlayerStepHandlers.ts.
 // Cluster: applyCreateEmblemStep, grant/modify graveyard+exile permission steps,
-// applyModifyTokenCreationStep, applyJoinForcesStep (+ exclusive GY permission ID helpers).
+// applyModifyTokenCreationStep, applyJoinForcesStep, applyTemptingOfferStep
+// (+ exclusive GY permission ID helpers).
 // Public entries: applyCreateEmblemStep, applyGrantGraveyardPermissionStep,
 // applyGrantGraveyardKeywordAbilityStep, applyGrantExilePermissionStep,
 // applyModifyGraveyardPermissionsStep, applyModifyTokenCreationStep,
-// applyJoinForcesStep, mergeGrantedGraveyardPermissionSourceText.
+// applyJoinForcesStep, applyTemptingOfferStep, mergeGrantedGraveyardPermissionSourceText.
 
 import type { GameState, PlayerID } from '../../shared/src';
 import { createCustomEmblem } from './emblemSupport';
@@ -741,6 +742,21 @@ export function applyJoinForcesStep(
   return {
     applied: false,
     message: `Deferred join forces mana contributions (requires player choice): ${step.raw}`,
+    reason: 'player_choice_required',
+    options: {
+      classification: 'player_choice',
+    },
+  };
+}
+
+export function applyTemptingOfferStep(
+  _state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'tempting_offer' }>,
+  _ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  return {
+    applied: false,
+    message: `Deferred tempting offer (requires opponent choice): ${step.raw}`,
     reason: 'player_choice_required',
     options: {
       classification: 'player_choice',

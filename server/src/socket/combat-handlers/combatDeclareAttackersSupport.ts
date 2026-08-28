@@ -16,6 +16,7 @@ import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { formatDeclareAttackersMessage } from "../../../../shared/src/gameLogFormat.js";
 import { getIllegalDefendingPlayerRestriction } from "../../../../rules-engine/src/attackRestrictionText.js";
+import { playerIsLegalAttackTarget } from "../../../../rules-engine/src/playerInGameStatus.js";
 import { getAttackTriggersForCreatures } from "../../state/modules/triggers/combat.js";
 import { isInterveningIfSatisfied } from "../../state/modules/triggers/intervening-if.js";
 import { transformPermanentToFace } from "../../state/modules/day-night.js";
@@ -161,7 +162,7 @@ export function isAttackingOwnerPlaneswalker(creature: any, attacker: any, battl
 
 export function hasLegalMustAttackDefender(permanent: any, playerId: string, players: any[]): boolean {
   return (Array.isArray(players) ? players : [])
-    .filter((player: any) => player?.id && player.id !== playerId && !player.hasLost)
+    .filter((player: any) => playerIsLegalAttackTarget(player, playerId))
     .some((player: any) => !getOwnerAttackRestrictionReason(permanent, String(player.id)));
 }
 

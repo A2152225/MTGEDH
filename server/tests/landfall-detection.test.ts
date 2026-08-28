@@ -166,4 +166,39 @@ describe('landfall detection', () => {
       getLandfallTriggers({ state: { battlefield: [sentinel, basic] } } as any, 'p2', basic),
     ).toEqual([]);
   });
+
+  it('fires enchanted-player land enters for Curse of the Restless Dead', () => {
+    const curse = {
+      id: 'curse',
+      controller: 'p1',
+      attachedTo: 'p2',
+      card: {
+        name: 'Curse of the Restless Dead',
+        oracle_text:
+          "Enchant player\nWhenever a land enchanted player controls enters, you create a 2/2 black Zombie creature token with decayed. (It can't block. When it attacks, sacrifice it at end of combat.)",
+      },
+    };
+    const enchantedLand = {
+      id: 'swamp_p2',
+      controller: 'p2',
+      card: { name: 'Swamp', type_line: 'Basic Land — Swamp' },
+    };
+    const ownLand = {
+      id: 'swamp_p1',
+      controller: 'p1',
+      card: { name: 'Swamp', type_line: 'Basic Land — Swamp' },
+    };
+
+    expect(detectLandfallTriggers(curse.card, curse)).toEqual([
+      expect.objectContaining({ triggerType: 'enchanted_player_land_enter' }),
+    ]);
+    expect(
+      getLandfallTriggers({ state: { battlefield: [curse, enchantedLand] } } as any, 'p2', enchantedLand),
+    ).toEqual([
+      expect.objectContaining({ cardName: 'Curse of the Restless Dead', triggerType: 'enchanted_player_land_enter' }),
+    ]);
+    expect(
+      getLandfallTriggers({ state: { battlefield: [curse, ownLand] } } as any, 'p1', ownLand),
+    ).toEqual([]);
+  });
 });

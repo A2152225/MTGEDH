@@ -19,6 +19,7 @@ import type {
   OracleIRExecutionContext,
   OracleIRExecutionResult,
 } from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import { resolvePlayers } from '../../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
 import {
   buildLookChooseFromTopSelectionOptions,
   buildLookSelectTopSelectionOptions,
@@ -305,108 +306,113 @@ export function queueSearchLibraryChoicePromptsFromOracleIRResult(
     const step = findSkippedOracleStep(result, gap);
     if (!step || step.kind !== 'search_library') continue;
 
-    const stepRaw = String((step as any).raw || 'Search your library');
+    const searchStep = step as Extract<OracleEffectStep, { kind: 'search_library' }>;
+    const stepRaw = String((searchStep as any).raw || 'Search your library');
+    const searchers = resolvePlayers(state, searchStep.who, params.irCtx);
+    const chooserIds = searchers.length > 0 ? searchers : [params.controller];
 
-    const built = buildSearchLibrarySelectionOptions(
-      state,
-      step as Extract<OracleEffectStep, { kind: 'search_library' }>,
-      params.irCtx,
-    );
-    if (!built || built.matches.length === 0) continue;
+    for (const searcherId of chooserIds) {
+      // Per-player who:you so Collective Voyage (each_player) gets one LIBRARY_SEARCH each.
+      // Single-player tutors stay a one-iteration loop with the original controller.
+      const playerStep = { ...searchStep, who: { kind: 'you' as const } };
+      const playerIrCtx = { ...params.irCtx, controllerId: searcherId };
+      const built = buildSearchLibrarySelectionOptions(state, playerStep, playerIrCtx);
+      if (!built || built.matches.length === 0) continue;
 
-    const queueKey = `search_library:${String((step as any).raw || '')}:${built.playerId}`;
-    if (queuedKeys.has(queueKey)) continue;
-    queuedKeys.add(queueKey);
+      const queueKey = `search_library:${String((searchStep as any).raw || '')}:${searcherId}`;
+      if (queuedKeys.has(queueKey)) continue;
+      queuedKeys.add(queueKey);
 
-    const splitPlan = inferSplitLibrarySearchPlan(stepRaw);
-    const tutorInfo = detectTutorSpell(stepRaw);
-    const splitDestination = splitPlan?.splitDestination === true || tutorInfo.splitDestination === true;
-    const destination = splitDestination
-      ? 'split'
-      : built.destination === 'battlefield'
-        ? 'battlefield'
-        : built.destination === 'graveyard'
-          ? 'graveyard'
-          : built.destination === 'exile'
-            ? 'exile'
-            : built.destination === 'top'
-              ? 'top'
-              : built.destination === 'bottom'
-                ? 'bottom'
-                : 'hand';
-    const criteriaText = String((step as any).criteria?.text || tutorInfo.searchCriteria || '');
-    const filter = parseLibrarySearchFilter(criteriaText);
-    const criteriaLower = criteriaText.toLowerCase();
-    const totalManaValueCapMatch = criteriaLower.match(/total mana value (\d+) or less/);
-    const maxTotalManaValue = totalManaValueCapMatch
-      ? Math.max(0, Number(totalManaValueCapMatch[1]) || 0)
-      : undefined;
-    if (
-      typeof filter.maxCmc !== 'number'
-      && maxTotalManaValue === undefined
-      && /(?:mana value|converted mana cost|cmc)\s+x\s+or\s+less/.test(criteriaLower)
-    ) {
-      const xValue = Number(params.irCtx.xValue);
-      if (Number.isFinite(xValue)) {
-        filter.maxCmc = Math.max(0, Math.floor(xValue));
-      }
-    }
-
-    const sourceItem = params.sourceItem;
-    const chosenType = String(
-      params.irCtx.selectorContext?.chosenCreatureType
-      || (params.irCtx as any).chosenCreatureType
-      || sourceItem?.chosenCreatureType
-      || sourceItem?.card?.chosenCreatureType
-      || '',
-    ).trim();
-    const beholdPaid = Boolean(
-      sourceItem?.additionalCostPaid ?? sourceItem?.card?.additionalCostPaid,
-    );
-    const chosenTypeBattlefieldIfPaid =
-      beholdPaid
-      && chosenType
-      && (
-        isCelestialReunionOracle(stepRaw)
-        || /creature card with mana value x or less/i.test(stepRaw)
-      )
-        ? { chosenType, additionalCostPaid: true as const }
+      const splitPlan = inferSplitLibrarySearchPlan(stepRaw);
+      const tutorInfo = detectTutorSpell(stepRaw);
+      const splitDestination = splitPlan?.splitDestination === true || tutorInfo.splitDestination === true;
+      const destination = splitDestination
+        ? 'split'
+        : built.destination === 'battlefield'
+          ? 'battlefield'
+          : built.destination === 'graveyard'
+            ? 'graveyard'
+            : built.destination === 'exile'
+              ? 'exile'
+              : built.destination === 'top'
+                ? 'top'
+                : built.destination === 'bottom'
+                  ? 'bottom'
+                  : 'hand';
+      const criteriaText = String((searchStep as any).criteria?.text || tutorInfo.searchCriteria || '');
+      const filter = parseLibrarySearchFilter(criteriaText);
+      const criteriaLower = criteriaText.toLowerCase();
+      const totalManaValueCapMatch = criteriaLower.match(/total mana value (\d+) or less/);
+      const maxTotalManaValue = totalManaValueCapMatch
+        ? Math.max(0, Number(totalManaValueCapMatch[1]) || 0)
         : undefined;
+      if (
+        typeof filter.maxCmc !== 'number'
+        && maxTotalManaValue === undefined
+        && /(?:mana value|converted mana cost|cmc)\s+x\s+or\s+less/.test(criteriaLower)
+      ) {
+        const xValue = Number(params.irCtx.xValue);
+        if (Number.isFinite(xValue)) {
+          filter.maxCmc = Math.max(0, Math.floor(xValue));
+        }
+      }
 
-    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
-      type: ResolutionStepType.LIBRARY_SEARCH,
-      playerId: built.playerId,
-      description: `${sourceName}: ${stepRaw}`,
-      mandatory: (step as any).optional !== true,
-      sourceId,
-      sourceName,
-      searchCriteria: stepRaw,
-      minSelections: built.minSelections,
-      maxSelections: built.maxSelections,
-      destination,
-      reveal: Boolean((step as any).revealFound),
-      shuffleAfter: (step as any).shuffle !== false,
-      filter,
-      availableCards: built.matches.map(normalizeTopLibraryPromptCard),
-      persistLibrarySearchResolve: true,
-      persistLibrarySearchResolveReason: 'stack_resolution',
-      ...(maxTotalManaValue !== undefined ? { maxTotalManaValue } : {}),
-      ...(chosenTypeBattlefieldIfPaid ? { chosenTypeBattlefieldIfPaid } : {}),
-      ...(splitDestination
-        ? {
-            splitDestination: true,
-            toBattlefield: splitPlan?.toBattlefield ?? tutorInfo.toBattlefield ?? 1,
-            toHand: splitPlan?.toHand ?? tutorInfo.toHand ?? 1,
-            entersTapped: splitPlan?.entersTapped === true
-              || tutorInfo.entersTapped === true
-              || Boolean((step as any).entersTapped),
-          }
-        : ((step as any).entersTapped ? { entersTapped: true } : {})),
-      oracleIrChoiceStepJson: JSON.stringify([step]),
-      oracleIrControllerId: params.controller,
-      oracleIrSourceId: sourceId,
-      oracleIrSourceName: sourceName,
-    } as any, result, params) as any);
+      const sourceItem = params.sourceItem;
+      const chosenType = String(
+        params.irCtx.selectorContext?.chosenCreatureType
+        || (params.irCtx as any).chosenCreatureType
+        || sourceItem?.chosenCreatureType
+        || sourceItem?.card?.chosenCreatureType
+        || '',
+      ).trim();
+      const beholdPaid = Boolean(
+        sourceItem?.additionalCostPaid ?? sourceItem?.card?.additionalCostPaid,
+      );
+      const chosenTypeBattlefieldIfPaid =
+        beholdPaid
+        && chosenType
+        && (
+          isCelestialReunionOracle(stepRaw)
+          || /creature card with mana value x or less/i.test(stepRaw)
+        )
+          ? { chosenType, additionalCostPaid: true as const }
+          : undefined;
+
+      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+        type: ResolutionStepType.LIBRARY_SEARCH,
+        playerId: searcherId,
+        description: `${sourceName}: ${stepRaw}`,
+        mandatory: (searchStep as any).optional !== true,
+        sourceId,
+        sourceName,
+        searchCriteria: stepRaw,
+        minSelections: built.minSelections,
+        maxSelections: built.maxSelections,
+        destination,
+        reveal: Boolean((searchStep as any).revealFound),
+        shuffleAfter: (searchStep as any).shuffle !== false,
+        filter,
+        availableCards: built.matches.map(normalizeTopLibraryPromptCard),
+        persistLibrarySearchResolve: true,
+        persistLibrarySearchResolveReason: 'stack_resolution',
+        ...(maxTotalManaValue !== undefined ? { maxTotalManaValue } : {}),
+        ...(chosenTypeBattlefieldIfPaid ? { chosenTypeBattlefieldIfPaid } : {}),
+        ...(splitDestination
+          ? {
+              splitDestination: true,
+              toBattlefield: splitPlan?.toBattlefield ?? tutorInfo.toBattlefield ?? 1,
+              toHand: splitPlan?.toHand ?? tutorInfo.toHand ?? 1,
+              entersTapped: splitPlan?.entersTapped === true
+                || tutorInfo.entersTapped === true
+                || Boolean((searchStep as any).entersTapped),
+            }
+          : ((searchStep as any).entersTapped ? { entersTapped: true } : {})),
+        oracleIrChoiceStepJson: JSON.stringify([playerStep]),
+        oracleIrControllerId: searcherId,
+        oracleIrSourceId: sourceId,
+        oracleIrSourceName: sourceName,
+      } as any, result, { ...params, controller: searcherId }) as any);
+    }
   }
 }
 

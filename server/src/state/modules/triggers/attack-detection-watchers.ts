@@ -49,6 +49,48 @@ export function appendAttackDetectionWatchers(state: AttackDetectionState): void
     }
   }
 
+  const commanderYouControlEtbOrAttackMatch = oracleText.match(
+    /whenever a commander you control enters or attacks,?\s*([^.]+)/i,
+  );
+  if (
+    commanderYouControlEtbOrAttackMatch &&
+    !triggers.some((t) => t.triggerType === 'commander_you_control_etb_or_attack')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, commanderYouControlEtbOrAttackMatch);
+    if (effectText) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'commander_you_control_etb_or_attack',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const typedTokenPowerOrGreaterAttacksMatch = oracleText.match(
+    /whenever an? ([\w-]+) token you control with power (\d+) or greater attacks,?\s*([^.]+)/i,
+  );
+  if (
+    typedTokenPowerOrGreaterAttacksMatch &&
+    !triggers.some((t) => t.triggerType === 'typed_token_power_or_greater_attacks')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, typedTokenPowerOrGreaterAttacksMatch, 3);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'typed_token_power_or_greater_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiredTypePhrase: String(typedTokenPowerOrGreaterAttacksMatch[1] || '').trim(),
+      minPower: parseInt(String(typedTokenPowerOrGreaterAttacksMatch[2] || '0'), 10),
+    } as any);
+  }
+
   const thatCreatureAttacksMatch = oracleText.match(/whenever that creature attacks,?\s*([^.]+)/i);
   if (thatCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'that_creature_attacks')) {
     const effectText = timingTriggerEffect(oracleText, thatCreatureAttacksMatch);
@@ -129,7 +171,8 @@ export function appendAttackDetectionWatchers(state: AttackDetectionState): void
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      controlledOnly: true,
+    } as any);
   }
 
   const powerEqualsToughnessAttacksMatch = oracleText.match(
@@ -148,7 +191,8 @@ export function appendAttackDetectionWatchers(state: AttackDetectionState): void
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      controlledOnly: true,
+    } as any);
   }
 
   const vehicleAttacksMatch = oracleText.match(/whenever a vehicle you control attacks,?\s*([^.]+)/i);
@@ -213,16 +257,20 @@ export function appendAttackDetectionWatchers(state: AttackDetectionState): void
     oneOrMoreTypedAttackMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_typed_attack')
   ) {
-    const effectText = timingTriggerEffect(oracleText, oneOrMoreTypedAttackMatch, 2);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'one_or_more_typed_attack',
-      description: effectText,
-      effect: effectText,
-      mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+    const requiredTypePhrase = String(oneOrMoreTypedAttackMatch[1] || '').trim();
+    if (!/^(?:creatures?|permanents?|tokens?)$/i.test(requiredTypePhrase)) {
+      const effectText = timingTriggerEffect(oracleText, oneOrMoreTypedAttackMatch, 2);
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'one_or_more_typed_attack',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+        requiredTypePhrase,
+      } as any);
+    }
   }
 
   const creatureAttacksYouOrPlaneswalkerMatch = oracleText.match(
@@ -257,7 +305,8 @@ export function appendAttackDetectionWatchers(state: AttackDetectionState): void
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      controlledOnly: true,
+    } as any);
   }
 
   const twoOrMoreCreaturesAttackMatch = oracleText.match(
@@ -283,16 +332,20 @@ export function appendAttackDetectionWatchers(state: AttackDetectionState): void
     oneOrMoreNontokenTypedAttackMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_nontoken_typed_attack')
   ) {
-    const effectText = timingTriggerEffect(oracleText, oneOrMoreNontokenTypedAttackMatch, 2);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'one_or_more_nontoken_typed_attack',
-      description: effectText,
-      effect: effectText,
-      mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+    const requiredTypePhrase = String(oneOrMoreNontokenTypedAttackMatch[1] || '').trim();
+    if (!/^(?:creatures?|permanents?|tokens?)$/i.test(requiredTypePhrase)) {
+      const effectText = timingTriggerEffect(oracleText, oneOrMoreNontokenTypedAttackMatch, 2);
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'one_or_more_nontoken_typed_attack',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+        requiredTypePhrase,
+      } as any);
+    }
   }
 
   const oneOrMoreArtifactCreaturesAttackMatch = oracleText.match(
@@ -546,7 +599,8 @@ export function appendAttackDetectionWatchers(state: AttackDetectionState): void
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      controlledOnly: /\byou control\b/i.test(String(oneOrMoreAttackMatch[0] || '')),
+    } as any);
   }
 
   const oneOrMoreAttackYouMatch = oracleText.match(/whenever one or more creatures attack you,?\s*([^.]+)/i);
@@ -670,7 +724,8 @@ export function appendAttackDetectionWatchers(state: AttackDetectionState): void
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      requiredTypePhrase: String(multiTypedCreatureAttacksAnyMatch[1] || '').trim(),
+    } as any);
   }
 
   const reachCreatureAttacksMatch = oracleText.match(
@@ -686,7 +741,8 @@ export function appendAttackDetectionWatchers(state: AttackDetectionState): void
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      controlledOnly: true,
+    } as any);
   }
 
   const magnetCounterCreatureAttacksMatch = oracleText.match(
@@ -748,7 +804,8 @@ export function appendAttackDetectionWatchers(state: AttackDetectionState): void
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      requiredTypePhrase: String(multiTypedYouControlAttacksMatch[1] || '').trim(),
+    } as any);
   }
 
   const youAttackWithThreeOrMoreMatch = oracleText.match(
@@ -873,7 +930,8 @@ export function appendAttackDetectionWatchers(state: AttackDetectionState): void
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      controlledOnly: true,
+    } as any);
   }
 
   const threeOrMoreFlyingAttackMatch = oracleText.match(
@@ -905,7 +963,8 @@ export function appendAttackDetectionWatchers(state: AttackDetectionState): void
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      controlledOnly: /\ba creature you control\b/i.test(String(flyingAttacksMatch[0] || '')),
+    } as any);
   }
 
   const playerAttacksWithPattern = /whenever (?:a|another) player attacks with (?:\w+|\d+) or more creatures,?\s*([^.]+)/gi;

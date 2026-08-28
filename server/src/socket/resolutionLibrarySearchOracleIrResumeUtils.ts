@@ -56,7 +56,8 @@ export function oracleIrLibrarySearchResumeApplied(resumed: unknown): boolean {
     return kind === 'search_library'
       || kind === 'player_choice'
       || kind === 'look_choose_from_top'
-      || kind === 'look_select_top';
+      || kind === 'look_select_top'
+      || kind === 'move_zone';
   });
 }
 

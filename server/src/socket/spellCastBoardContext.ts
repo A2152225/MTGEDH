@@ -18,7 +18,8 @@ export type SpellCastBoardGap =
   | 'no_stack_spell_target'
   | 'no_hand_cards'
   | 'no_hostile_combat'
-  | 'no_attacking_creature';
+  | 'no_attacking_creature'
+  | 'off_turn_flash_permanent';
 
 export type SpellCastBoardInspectOptions = {
   /** Card id to ignore when counting the caster's hand (the spell about to leave). */
@@ -68,6 +69,15 @@ function isEachPlayerDiscardHandEffect(oracleText: string): boolean {
     /\beach player discards (their hand|their hands|all (?:the )?cards? in their hand)\b/.test(text)
     || /\bdiscard your hand, then draw\b/.test(text)
   );
+}
+
+/** "Counter target spell/ability" that is not aimed at something you control. */
+function isHostileCounterTargetEffect(oracleText: string): boolean {
+  const text = oracleText.toLowerCase();
+  if (!/\bcounter target\b/.test(text)) return false;
+  // e.g. "counter target spell you control" — own stack objects are the intended targets.
+  if (/\bcounter target\b[^.]{0,80}\byou control\b/.test(text)) return false;
+  return true;
 }
 
 function classifyTargetGap(targetTypes: readonly string[]): SpellCastBoardGap {
@@ -178,6 +188,32 @@ export function getSpellCastBoardGaps(
     if (!hasOppAttacker) gaps.push('no_attacking_creature');
   }
 
+  const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
+  const isUntargetedStackWipe =
+    /\bexile all (?:other )?spells\b/.test(oracleLower)
+    || /\bcounter all (?:activated and triggered )?abilities\b/.test(oracleLower)
+    || (/\bexile all\b/.test(oracleLower) && /\bcounter all abilities\b/.test(oracleLower));
+  if (isUntargetedStackWipe && stack.length === 0) {
+    gaps.push('no_stack_spell_target');
+  }
+
+  const step = String(game?.state?.step || '').toUpperCase();
+  const inBlockWindow = step.includes('ATTACKERS') || step.includes('BLOCKERS');
+  const turnPlayer = String(game?.state?.turnPlayer || '');
+  const isOffTurn = Boolean(turnPlayer) && turnPlayer !== String(playerId);
+  const keywordFlash = Array.isArray(card?.keywords)
+    && card.keywords.some((keyword: any) => String(keyword || '').toLowerCase() === 'flash');
+  const isFlashPermanent =
+    /\b(creature|artifact|enchantment|planeswalker)\b/.test(typeLower)
+    && (/\bflash\b/.test(oracleLower) || keywordFlash);
+  const isCombatTrickFlash =
+    isPersonalDamagePreventionFlash
+    || isCombatDamageFog
+    || /\bprevent all (?:combat )?damage\b/.test(oracleLower);
+  if (isFlashPermanent && isOffTurn && !inBlockWindow && !isCombatTrickFlash) {
+    gaps.push('off_turn_flash_permanent');
+  }
+
   if (isEachPlayerDiscardHandEffect(oracleText)) {
     const players = Array.isArray(game?.state?.players) ? game.state.players : [];
     const anyoneHasCards = players.some((player: any) => {
@@ -200,7 +236,13 @@ export function getSpellCastBoardGaps(
       ? { needsTargets: true, targetTypes: ['creature'], minTargets: 1, maxTargets: 1, targetDescription: 'enchanted creature' }
       : targetReqs;
     const valid = buildSpellTargetListFromRequirements(game, String(playerId), reqs);
-    if (valid.length < minTargets) {
+    let usefulCount = valid.length;
+    // Legal to counter your own spell, but the AI should not — Morpholk spent Counterspell
+    // on its just-cast Smothering Tithe because the only stack object was its own.
+    if (isHostileCounterTargetEffect(oracleText)) {
+      usefulCount = valid.filter((target) => target.kind === 'stack' && target.isOpponent === true).length;
+    }
+    if (usefulCount < minTargets) {
       gaps.push(classifyTargetGap(reqs?.targetTypes || ['permanent']));
     }
   }

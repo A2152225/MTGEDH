@@ -9,6 +9,10 @@ import type { BattlefieldStepHandlerResult } from './oracleIRExecutorBattlefield
 import { resolveAttachedStaticAbilityGrantTargets } from './oracleIRExecutorBattlefieldAttachedGrantTargets';
 import { resolveDirectBattlefieldPermanents } from './oracleIRExecutorBattlefieldPermanentSelectors';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
+import { tryApplyGrantKeywordsToStackSpell } from './oracleIRExecutorBattlefieldGrantStackSpell';
+import { tryApplyAttackTaxThisTurnGrant } from './oracleIRExecutorAttackTaxThisTurn';
+import { tryApplyAttackYouProhibitedExceptKeywordsGrant } from './oracleIRExecutorAttackYouProhibitedExceptKeywords';
+import { tryApplyBlockTaxThisTurnGrant } from './oracleIRExecutorBlockTaxThisTurn';
 import { tryApplyPreventLifeGainThisTurnGrant } from './oracleIRExecutorPreventLifeGainThisTurn';
 import { tryApplyUntilEotProtectionOverrideGrant } from './oracleIRExecutorUntilEotProtectionOverride';
 
@@ -19,8 +23,16 @@ export function applyGrantStaticAbilityStep(
 ): BattlefieldStepHandlerResult {
   const thisTurnLock = tryApplyPreventLifeGainThisTurnGrant(state, step, ctx);
   if (thisTurnLock) return thisTurnLock;
+  const attackYouLock = tryApplyAttackYouProhibitedExceptKeywordsGrant(state, step, ctx);
+  if (attackYouLock) return attackYouLock;
+  const thisTurnAttackTax = tryApplyAttackTaxThisTurnGrant(state, step, ctx);
+  if (thisTurnAttackTax) return thisTurnAttackTax;
+  const thisTurnBlockTax = tryApplyBlockTaxThisTurnGrant(state, step, ctx);
+  if (thisTurnBlockTax) return thisTurnBlockTax;
   const untilEotOverride = tryApplyUntilEotProtectionOverrideGrant(state, step, ctx);
   if (untilEotOverride) return untilEotOverride;
+  const stackSpellGrant = tryApplyGrantKeywordsToStackSpell(state, step, ctx);
+  if (stackSpellGrant) return stackSpellGrant;
 
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const attachedTargets = resolveAttachedStaticAbilityGrantTargets(battlefield, step.target as any, ctx);

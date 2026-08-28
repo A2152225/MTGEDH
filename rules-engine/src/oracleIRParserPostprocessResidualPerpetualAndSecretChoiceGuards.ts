@@ -756,7 +756,7 @@ export function parseResidualPerpetualAndSecretChoiceGuardsFour(
     return staticMetadata('you', raw);
   }
 
-  if (/^the creature is a vampire in addition to its other types$/i.test(raw)) {
+  if (/^the creature is an? ([a-z]+) in addition to its other types$/i.test(raw)) {
     return staticMetadata('that creature', raw);
   }
 

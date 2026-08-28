@@ -63,6 +63,26 @@ function parseTokenQuantity(raw: string | undefined) {
   return parseQuantity(raw);
 }
 
+function tokenAmountForEachControlSuffix(clauseText: string): { kind: 'x' } | null {
+  const normalized = String(clauseText || '')
+    .replace(/[.]+$/g, '')
+    .trim();
+  const match = normalized.match(
+    /\btokens?(?:\s+that(?:'s| is| are)\s+[\w\s]+?)?\s+for each\s+(.+)$/i,
+  );
+  if (!match) return null;
+  const counted = String(match[1] || '').trim();
+  if (!counted || /\bthis way\b/i.test(counted)) return null;
+  if (
+    !/\b(?:you|they|that player|target player|target opponent|that opponent)\s+control(?:s)?\b/i.test(
+      counted,
+    )
+  ) {
+    return null;
+  }
+  return { kind: 'x' };
+}
+
 function hasTappedAndAttackingClause(clauseText: string): boolean {
   return /\bthat(?:'s| is| are)\s+tapped\s+and\s+attacking\b/i.test(clauseText);
 }
@@ -419,7 +439,7 @@ export function tryParseSimpleCreateTokenClause(args: {
   );
   if (create) {
     const who = parseCreateTokenWhoFromSubject(create[1]);
-    const amount = parseTokenQuantity(create[2]);
+    const amount = tokenAmountForEachControlSuffix(clause) ?? parseTokenQuantity(create[2]);
     const tappedAndAttacking = tokenIsAttacking(create[3], clause);
     const entersTapped = tokenEntersTapped(create[3], clause);
     const token = appendCreateTokenWithTail(normalizeTokenDescriptor(String(create[4] || '')), clause);
@@ -475,7 +495,7 @@ export function tryParseSimpleCreateTokenClause(args: {
     return withMeta({
       kind: 'create_token',
       who: { kind: 'you' },
-      amount: parseTokenQuantity(createDefault[1]),
+      amount: tokenAmountForEachControlSuffix(clause) ?? parseTokenQuantity(createDefault[1]),
       token,
       entersTapped: entersTapped || undefined,
       ...(tappedAndAttacking || combatEntry.attacking ? { attacking: combatEntry.attacking ?? ('defending_player' as const) } : {}),

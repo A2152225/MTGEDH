@@ -66,38 +66,6 @@ export function tryResolveInstantSorceryLegacyResolution(
     // The primary IR execution has already applied the spell's instructions.
     // Only zone finalization remains; legacy special cases and body handlers
     // would otherwise apply the same text a second time.
-    // Replay short-circuits IR-owned spells without re-running steps — restore
-    // a missing this-turn ETB window from the oracle-pattern special case.
-    if (isRiteOfHarmonyStyleWindow) {
-      applyInstantSorcerySpecialCaseSpellEffects(ctx, {
-        controller,
-        card,
-        effectiveCard,
-        item,
-        gameId,
-        spellXValue,
-        isRiteOfHarmonyStyleWindow: true,
-        isDivineReckoningStyleChoice: false,
-        isPrisonersDilemmaStyleChoice: false,
-        isSummonsOfSarumanStyle: false,
-      });
-    }
-    // Replay short-circuits IR-owned spells without re-running steps. Restore
-    // amass + mill (queue is skipped while replaying).
-    if (isSummonsOfSarumanStyle && (ctx as any).isReplaying) {
-      applyInstantSorcerySpecialCaseSpellEffects(ctx, {
-        controller,
-        card,
-        effectiveCard,
-        item,
-        gameId,
-        spellXValue,
-        isRiteOfHarmonyStyleWindow: false,
-        isDivineReckoningStyleChoice: false,
-        isPrisonersDilemmaStyleChoice: false,
-        isSummonsOfSarumanStyle: true,
-      });
-    }
     // IR may handle next-cast copy text as copy_spell without stamping delayedSpellCopiesThisTurn.
     // The copy rider still skips Increasing Vengeance-style target copies when IR emitted copy_spell.
     applyInstantSorceryCopyStackSpellRiders(ctx, {

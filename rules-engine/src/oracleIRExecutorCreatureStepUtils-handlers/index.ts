@@ -24,6 +24,7 @@ export {
   readToughnessForComparison,
   readCreatureStatForComparison,
   isAttackingPermanent,
+  isBlockingPermanent,
   resolveBlockersOfPermanent,
   resolveBlockingCreatureIds,
   isUnblockedAttackingPermanent,

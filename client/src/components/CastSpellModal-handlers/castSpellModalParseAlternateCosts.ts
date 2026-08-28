@@ -3,7 +3,8 @@
  *
  * Cluster moved: parseAlternateCosts (oracle-text alternate-cost parse).
  *
- * Public entry symbols: AlternateCost, parseAlternateCosts.
+ * Public entry symbols: AlternateCost, parseAlternateCosts,
+ * oracleGrantsSelfSpellFreeAlternateCost.
  */
 
 /**
@@ -16,6 +17,21 @@ export interface AlternateCost {
   manaCost: string;
   additionalCost?: string; // e.g., "Discard a card", "Sacrifice a creature"
   isDefault?: boolean;
+}
+
+/**
+ * True when oracle grants a {0} alternate cost on this spell itself.
+ * "Cast that card / it / the copy / the exiled card without paying" is an effect
+ * on another object (Possibility Storm, Neera, cascade, discover) and must not
+ * become Free Cast here.
+ * Rebound's "cast this card from exile" is a later permission, not a hand/command-zone alt cost.
+ */
+export function oracleGrantsSelfSpellFreeAlternateCost(oracleText: string): boolean {
+  const text = String(oracleText || '').toLowerCase();
+  if (!text) return false;
+  if (/cast this spell without paying (?:its|the) mana cost/.test(text)) return true;
+  if (/cast this card(?! from exile) without paying (?:its|the) mana cost/.test(text)) return true;
+  return false;
 }
 
 /**
@@ -431,8 +447,9 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
     });
   }
   
-  // "You may cast ~ without paying its mana cost" (free cast)
-  if (lowerText.includes('without paying its mana cost') || lowerText.includes('without paying the mana cost')) {
+  // Alternate cost on THIS spell ("cast this spell/this card without paying").
+  // Do not match triggered/cascade/discover wording that free-casts THAT card / it.
+  if (oracleGrantsSelfSpellFreeAlternateCost(text)) {
     const isCommanderFree =
       lowerText.includes('if you control') && lowerText.includes('commander');
     costs.push({

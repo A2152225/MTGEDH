@@ -9,6 +9,7 @@ import {
   buildTriggerSourcePermanentSnapshot,
   getTriggerSourcePermanent,
 } from './triggerSourceUtils.js';
+import { resolveResolutionPromptCause } from './resolutionPromptCause.js';
 
 export function tryDeferTriggeredAbilitySpecialPrompts(
   ctx: GameContext,
@@ -224,6 +225,39 @@ export function tryDeferTriggeredAbilitySpecialPrompts(
         debug(2, `[resolveTopOfStack] SOLDIER Military Program: player ${canChooseBoth ? 'controls' : 'does not control'} a commander`);
       }
 
+      const triggeringStackItemId = String(
+        (item as any).triggeringStackItemId
+        || (item as any).effectData?.triggeringStackItemId
+        || '',
+      ).trim();
+      const rawTriggeringSpell = (item as any).triggeringSpell || (item as any).effectData?.triggeringSpell;
+      const existingEffectData = (item as any).effectData && typeof (item as any).effectData === 'object'
+        ? { ...(item as any).effectData }
+        : {};
+      const stackCause = triggeringStackItemId && Array.isArray(state?.stack)
+        ? (state.stack as any[]).find((entry: any) => String(entry?.id || '').trim() === triggeringStackItemId)
+        : null;
+      const stackCauseImage = String(
+        stackCause?.imageUrl
+        || stackCause?.card?.image_uris?.small
+        || stackCause?.card?.image_uris?.normal
+        || '',
+      ).trim();
+      const triggeringSpell = rawTriggeringSpell && typeof rawTriggeringSpell === 'object'
+        ? {
+            ...rawTriggeringSpell,
+            ...(!String((rawTriggeringSpell as any).imageUrl || '').trim() && stackCauseImage
+              ? { imageUrl: stackCauseImage }
+              : {}),
+          }
+        : rawTriggeringSpell;
+      const promptCause = resolveResolutionPromptCause({
+        sourceName,
+        triggerType,
+        triggeringStackItemId,
+        triggeringSpell,
+      }, state);
+
       const modalOptions: ChoiceOption[] = [];
 
       if (isSoldierProgram) {
@@ -250,8 +284,8 @@ export function tryDeferTriggeredAbilitySpecialPrompts(
         const optionTexts: string[] = modalOptionsFromItem.length > 0
           ? modalOptionsFromItem
           : Array.from(new Set(
-              (oracleText.match(/â€¢\s*([^â€¢]+)/g) || [])
-                .map((match) => match.replace(/^â€¢\s*/, '').trim())
+              (oracleText.match(/[\u2022•]\s*([^\u2022•]+)/g) || [])
+                .map((match) => match.replace(/^[\u2022•]\s*/, '').trim())
                 .filter(Boolean),
             ));
 
@@ -279,6 +313,7 @@ export function tryDeferTriggeredAbilitySpecialPrompts(
           minSelections: 1,
           maxSelections: canChooseBoth ? 2 : 1,
           ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+          ...(promptCause || {}),
           triggerData: {
             triggerType,
             sourceName,
@@ -288,6 +323,15 @@ export function tryDeferTriggeredAbilitySpecialPrompts(
             modalTrigger: !isSoldierProgram,
             controllerId: triggerController,
             mandatory: (item as any).mandatory !== false,
+            casterId: triggerController,
+            ...(triggeringStackItemId ? { triggeringStackItemId } : null),
+            ...(triggeringSpell ? { triggeringSpell } : null),
+            effectData: {
+              ...existingEffectData,
+              casterId: triggerController,
+              ...(triggeringStackItemId ? { triggeringStackItemId } : {}),
+              ...(triggeringSpell ? { triggeringSpell } : {}),
+            },
           },
         } as any);
 

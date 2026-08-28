@@ -25,6 +25,7 @@ import {
   supportsNoUntilTargetsChangePreference,
 } from '../../../shared/src/mayAutoPreference';
 import { ResolutionPromptMinimizeButton } from './ResolutionMinimizedChip';
+import { ResolutionPromptCause } from './ResolutionPromptCause';
 
 export interface MayAbilityModalData {
   /** Resolution queue step ID to respond to */
@@ -47,6 +48,10 @@ export interface MayAbilityModalData {
   persistMayAutoPreference?: boolean;
   /** Whether this modal should save trigger shortcuts */
   persistTriggerShortcut?: boolean;
+  /** Distinct object that caused this prompt (e.g. the spell you just cast). */
+  causeName?: string;
+  causeImage?: string;
+  causeLabel?: string;
 }
 
 export interface MayAbilityModalProps {
@@ -170,6 +175,11 @@ export function MayAbilityModal({ open, data, onMinimize, onYes, onNo }: MayAbil
             <div style={{ fontSize: 16, fontWeight: 700, color: '#d4c4ff', lineHeight: 1.2 }}>
               {data.sourceName}
             </div>
+            <ResolutionPromptCause
+              causeName={data.causeName}
+              causeImage={data.causeImage}
+              causeLabel={data.causeLabel}
+            />
           </div>
           {onMinimize ? <ResolutionPromptMinimizeButton onMinimize={onMinimize} /> : null}
         </div>

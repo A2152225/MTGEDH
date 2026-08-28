@@ -183,7 +183,7 @@ export function finalizeResolvedInstantOrSorceryResolution(
     return true;
   }
 
-  if (shouldQueueResolvedSpellCopyChoice(options.item, options.oracleText)) {
+  if (shouldQueueResolvedSpellCopyChoice(options.item, options.oracleText, ctx)) {
     queueResolvedSpellCopyChoice(
       ctx,
       options.item,

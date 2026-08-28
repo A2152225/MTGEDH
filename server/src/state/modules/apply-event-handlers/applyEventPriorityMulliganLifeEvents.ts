@@ -4,7 +4,7 @@
 // Cluster: Priority passing, mulligans, life totals, cleanup/discard, mill and draw replacements.
 // Public entry: applyPriorityMulliganLifeEvents(ctx, e) -> true when it handled the event.
 //
-// Handles: passPriority, mulligan, keepHand, unkeepHand, mulliganPutToBottom, setLife, adjustLife, cleanupDiscard, increasePlayerSpeed, discardEffect, mill, zursWeirdingDrawReplacementResolve, dredgeDrawReplacementResolve, playOpeningHandCards, skipOpeningHandActions
+// Handles: passPriority, mulligan, keepHand, unkeepHand, mulliganPutToBottom, setLife, adjustLife, cleanupDiscard, increasePlayerSpeed, discardEffect, mill, zursWeirdingDrawReplacementResolve, dredgeDrawReplacementResolve, skipDrawReplacementResolve, playOpeningHandCards, skipOpeningHandActions
 import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
 import { pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
@@ -13,6 +13,7 @@ import {
   drawCards,
   moveHandToLibrary,
   applyDredgeDrawReplacementChoice,
+  applySkipDrawReplacementChoice,
   applyZursWeirdingOpponentChoice,
 } from "../zones";
 import { passPriority } from "../turn";
@@ -436,6 +437,34 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
           });
         } catch (err) {
           debugWarn(1, 'applyEvent(dredgeDrawReplacementResolve): failed', err);
+        }
+        break;
+      }
+
+      case "skipDrawReplacementResolve": {
+        const playerId = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.skipDrawReplacementChoice === true && (!playerId || String(step?.playerId || '').trim() === playerId);
+            });
+          }
+
+          applySkipDrawReplacementChoice(ctx as any, {
+            playerId,
+            choiceId: String((e as any).choiceId || '').trim() || 'draw',
+            remainingDrawCountAfterChoice: Number((e as any).remainingDrawCountAfterChoice || 0),
+            exceptKeywords: (e as any).exceptKeywords,
+            sourcePermanentId: String((e as any).sourcePermanentId || '').trim(),
+            sourceName: String((e as any).sourceName || '').trim(),
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(skipDrawReplacementResolve): failed', err);
         }
         break;
       }

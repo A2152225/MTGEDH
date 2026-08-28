@@ -12,6 +12,7 @@ import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { queueTributeChoiceOnEntry } from "../state/modules/triggerTributeChoiceUtils.js";
 import { queueSelfETBTriggersForPermanent } from "../state/modules/triggerEtbEntryEffects.js";
+import { applyGraveyardTypeEntryCounterGrants } from "../state/modules/graveyardTypeEntryCounterBonus.js";
 
 /**
  * Helper function to put a card onto the battlefield
@@ -81,6 +82,7 @@ export async function putCardOntoBattlefield(
   } as any;
   
   battlefield.push(newPermanent);
+  applyGraveyardTypeEntryCounterGrants(state, newPermanent, String(controller));
   
   // ====================================================================================
   // Shock Land Handling: Emit prompt for "pay 2 life or enter tapped" lands

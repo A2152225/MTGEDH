@@ -3,7 +3,8 @@
 // chosen-object id normalization, name aliasing, source permanent power/loyalty, graveyard target
 // selection, and bound-card zone location lookup.
 // Public entry symbols: getControllerId, getOpponents, getTargetPlayerId, getTopCardLibraryOwnerId,
-// getBottomCardLibraryOwnerId, getChosenObjectIds, hasExplicitChosenObjectIds, normalizeReferenceText,
+// getBottomCardLibraryOwnerId, getChosenObjectIds, hasExplicitChosenObjectIds,
+// chosenObjectIdsAreMatchingCardSelection, normalizeReferenceText,
 // buildNameReferenceAliases, getTargetObjectId, getSourcePermanentPower, getSourcePermanentLoyalty,
 // isAnotherTargetReference, getBoundTargetObjectId, isUpToOneTargetReference,
 // buildNoOpOptionalSingleTargetResult, resolveUniqueChosenGraveyardTargetId,
@@ -105,6 +106,27 @@ export function hasExplicitChosenObjectIds(ctx: OracleIRExecutionContext): boole
   return Array.isArray(ctx.selectorContext?.chosenObjectIds);
 }
 
+/**
+ * True when chosenObjectIds is a real selection among `matchingCardIds`:
+ * an explicit empty list (chose zero) or at least one id that is currently matching.
+ *
+ * Trigger bindings stamp interveningIfSubjectPermanentId (the entering permanent)
+ * into chosenObjectIds. That must not count as "the player already picked these
+ * cards from hand" (Ghalta, Stampede Tyrant ETB via Savage Order).
+ */
+export function chosenObjectIdsAreMatchingCardSelection(
+  ctx: OracleIRExecutionContext,
+  matchingCardIds: Iterable<string>,
+): boolean {
+  if (!hasExplicitChosenObjectIds(ctx)) return false;
+  const preferred = getChosenObjectIds(ctx);
+  if (preferred.length === 0) return true;
+  const matching = matchingCardIds instanceof Set
+    ? matchingCardIds
+    : new Set(Array.from(matchingCardIds).map((id) => String(id || '').trim()).filter(Boolean));
+  return preferred.some((id) => matching.has(id));
+}
+
 export function normalizeReferenceText(value: unknown): string {
   return String(value || '')
     .replace(/\u2019/g, "'")
@@ -123,7 +145,7 @@ export function buildNameReferenceAliases(value: unknown): readonly string[] {
   for (const face of normalized.split(/\s*\/\/\s*/).map(part => part.trim()).filter(Boolean)) {
     aliases.add(face);
     const commaHead = String(face.split(',')[0] || '').trim();
-    if (commaHead.length >= 4) aliases.add(commaHead);
+    if (commaHead.length >= 3) aliases.add(commaHead);
   }
 
   return [...aliases];
@@ -244,7 +266,7 @@ export function resolveUniqueChosenGraveyardTargetId(
 
   const chosen = new Set(getChosenObjectIds(ctx));
 
-  const graveyard = Array.isArray(player.graveyard) ? player.graveyard : [];
+  const graveyard = readPlayerOrZoneCards(state, player, playerId, 'graveyard');
   const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
   const excluded = new Set<string>();
   const graveyardIds = new Set<string>();

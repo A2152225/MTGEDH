@@ -43,6 +43,52 @@ describe('Conditional Mana Sources', () => {
       expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{U}{R}'))).toBe(true);
     });
 
+    it('nets Three Tree City {2} invest against {T}: Add {C} in optimistic mana', () => {
+      const threeTreeOracle =
+        'As Three Tree City enters, choose a creature type.\n{T}: Add {C}.\n{2}, {T}: Choose a color. Add an amount of mana of that color equal to the number of creatures you control of the chosen type.';
+      const state = {
+        battlefield: [
+          ...Array.from({ length: 6 }, (_, index) => ({
+            id: `forest_${index + 1}`,
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '({T}: Add {G}.)',
+            },
+          })),
+          {
+            id: 'three_tree_1',
+            controller: 'player1',
+            tapped: false,
+            chosenCreatureType: 'Elf',
+            card: {
+              name: 'Three Tree City',
+              type_line: 'Legendary Land',
+              oracle_text: threeTreeOracle,
+            },
+          },
+          ...Array.from({ length: 4 }, (_, index) => ({
+            id: `elf_${index + 1}`,
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: `Elf ${index + 1}`,
+              type_line: 'Creature — Elf',
+              oracle_text: '',
+            },
+          })),
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      // 6 Forests + invest net (4 elves - {2}) = 8 unique mana, not 6+4 unpaid invest.
+      expect(getTotalManaFromPool(getAvailableMana(state, 'player1'))).toBe(8);
+    });
+
     it('does not let a single any-color source satisfy colored plus generic costs', () => {
       const state = {
         battlefield: [

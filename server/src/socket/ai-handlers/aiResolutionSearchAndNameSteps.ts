@@ -51,7 +51,20 @@ export async function handleAIResolutionSearchAndNameSteps(
         const librarySearch = chooseAILibrarySearchResponse(
           game,
           playerId,
-          Array.isArray(step?.availableCards) ? step.availableCards : [],
+          (Array.isArray(step?.availableCards) ? step.availableCards : []).filter((card: any) => {
+            const cardId = String(card?.id || '').trim();
+            if (!cardId) return false;
+            const selectableIds = Array.isArray((step as any)?.selectableCardIds)
+              ? (step as any).selectableCardIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+              : [];
+            if (selectableIds.length > 0) return selectableIds.includes(cardId);
+            const nonSelectableIds = new Set(
+              (Array.isArray((step as any)?.nonSelectableCards) ? (step as any).nonSelectableCards : [])
+                .map((entry: any) => String(entry?.id || '').trim())
+                .filter(Boolean),
+            );
+            return !nonSelectableIds.has(cardId);
+          }),
           {
             minSelections: Number(step?.minSelections ?? 0),
             maxSelections: Number(step?.maxSelections ?? 1),

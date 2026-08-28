@@ -13,9 +13,9 @@ import {
   canUseRestrictedManaClient,
   buildRestrictedManaPurposeForSpell,
   manaSourceAllowsSpendPurpose,
-  getTotalManaProduction,
   getManaPerActivation,
   getSourceAvailableQuantity,
+  getManaSourceDisplayOptions,
   type ManaPaymentSource,
   type SuggestedPaymentSelection,
   type OtherCardInfo,
@@ -105,6 +105,8 @@ export interface PaymentPickerProps {
   otherCardsInHand?: OtherCardInfo[];
   floatingMana?: ManaPool;
   typeLine?: string;
+  oracleText?: string;
+  isCommander?: boolean;
   isActivatedAbilityPayment?: boolean;
   // Convoke support
   hasConvoke?: boolean;
@@ -130,8 +132,10 @@ export function PaymentPicker(props: PaymentPickerProps) {
     onChange, 
     otherCardsInHand = [], 
     floatingMana,
-  typeLine,
-  isActivatedAbilityPayment = false,
+    typeLine,
+    oracleText,
+    isCommander = false,
+    isActivatedAbilityPayment = false,
     hasConvoke = false,
     convokeCreatures = [],
     chosenConvokeCreatures = [],
@@ -145,6 +149,16 @@ export function PaymentPicker(props: PaymentPickerProps) {
   // Fold X into generic only while {X} symbols remain. Payment steps often pass an
   // already-expanded cost ({10}{W}{W}) with xValue still set; do not double-count.
   const cost = useMemo(() => applyXValueToParsedCost(parsed, xValue), [parsed, xValue]);
+
+  const restrictedPurpose = useMemo(
+    () => (isActivatedAbilityPayment
+      ? { isActivatedAbility: true, isAbility: true }
+      : buildRestrictedManaPurposeForSpell(
+        { type_line: typeLine || '', oracle_text: oracleText },
+        { isCommander },
+      )),
+    [isActivatedAbilityPayment, typeLine, oracleText, isCommander],
+  );
   
   // Calculate remaining cost after floating mana
   const floatingSources = useMemo(() => {
@@ -180,7 +194,6 @@ export function PaymentPicker(props: PaymentPickerProps) {
       colorless: 'C',
     };
     if (floatingMana.restricted) {
-      const restrictedPurpose = (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' }));
       floatingMana.restricted.forEach((entry, restrictedIndex) => {
         if (!canUseRestrictedManaClient(entry as any, restrictedPurpose)) return;
         const poolKey = String(entry.type || 'colorless');
@@ -197,7 +210,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
     }
 
     return entries;
-  }, [floatingMana, manualFloatingManaSelection]);
+  }, [floatingMana, manualFloatingManaSelection, restrictedPurpose]);
 
   const effectiveSources = useMemo(
     () => (manualFloatingManaSelection ? [...floatingSources, ...sources] : sources),
@@ -214,8 +227,8 @@ export function PaymentPicker(props: PaymentPickerProps) {
       };
     }
 
-    return calculateRemainingCostAfterFloatingMana(cost, floatingMana, (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' })));
-  }, [cost, floatingMana, manualFloatingManaSelection]);
+    return calculateRemainingCostAfterFloatingMana(cost, floatingMana, restrictedPurpose);
+  }, [cost, floatingMana, manualFloatingManaSelection, restrictedPurpose]);
   const costForPayment = useMemo(() => ({ 
     colors: costAfterFloating, 
     generic: genericAfterFloating, 
@@ -261,12 +274,6 @@ export function PaymentPicker(props: PaymentPickerProps) {
 
   // Calculate colors needed by other cards in hand
   const colorsToPreserve = useMemo(() => computeColorsNeededByOtherCards(otherCardsInHand), [otherCardsInHand]);
-  const restrictedPurpose = useMemo(
-    () => (isActivatedAbilityPayment
-      ? { isActivatedAbility: true, isAbility: true }
-      : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' })),
-    [isActivatedAbilityPayment, typeLine],
-  );
   const sourcesEligibleForSuggestion = useMemo(
     () => effectiveSources.filter((source) => !source.sacrificeCost && manaSourceAllowsSpendPurpose(source, restrictedPurpose)),
     [effectiveSources, restrictedPurpose]
@@ -347,21 +354,8 @@ export function PaymentPicker(props: PaymentPickerProps) {
     return `${prefix} consumable mana source${warnedSources.length === 1 ? '' : 's'}: ${sourceNames}. These will be used up as part of payment.`;
   }, [selectedConsumableSources, selectedSacrificeCostSources, suggestedConsumableSources]);
 
-  // Helper to get mana count for a source - uses amount if specified (for Priest of Titania, etc.)
-  // Uses getTotalManaProduction which correctly handles choice sources vs multi-mana sources:
-  // - Sol Ring ['C','C'] = 2 mana (duplicates = multi-mana)
-  // - Command Tower ['W','U','B','R','G'] = 1 mana (all unique = choice)
-  // - Priest of Titania with amount=7 ['G'] = 7 mana
-  const getManaCountForSource = (permanentId: string): number => {
-    const source = effectiveSources.find(s => s.id === permanentId);
-    if (!source) return 1;
-    // Use explicit amount if provided (for devotion/creature-count mana)
-    if (source.amount && source.amount > 0) return source.amount;
-    return getTotalManaProduction(source.options);
-  };
-
   const createPaymentItem = (source: ManaPaymentSource, mana: Color, sacrificedPermanentIds?: string[]): PaymentItem =>
-    createPaymentItemFromSource({ ...source, amount: getManaCountForSource(source.id) }, mana, sacrificedPermanentIds);
+    createPaymentItemFromSource(source, mana, sacrificedPermanentIds);
 
   const buildStackPaymentItems = (source: ManaPaymentSource, mana: Color, quantity: number): PaymentItem[] => {
     const maxQty = getSourceAvailableQuantity(source);
@@ -540,7 +534,8 @@ export function PaymentPicker(props: PaymentPickerProps) {
           const isAutoSelected = autoSelectedQty > 0;
           const isSuggested = suggested !== undefined && !used && chosen.length === 0;
           const showGreenHighlight = isAutoSelected || isSuggested;
-          const hasAmount = s.amount && s.amount > 1;
+          const hasAmount = getManaPerActivation(s) > 1;
+          const displayOptions = getManaSourceDisplayOptions(s);
           const isFloatingSource = s.id.startsWith('__pool__:');
           const spendAllowed = manaSourceAllowsSpendPurpose(s, restrictedPurpose);
           const displayName = stackQty > 1 ? `${s.name} (${stackQty})` : s.name;
@@ -641,7 +636,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
                     backgroundColor: 'rgba(37, 99, 235, 0.1)',
                     border: '1px solid rgba(37, 99, 235, 0.3)'
                   }}>
-                    {s.amount}×
+                    {getManaPerActivation(s)}×
                   </span>
                 )}
                 {stackQty > 1 && (
@@ -686,9 +681,11 @@ export function PaymentPicker(props: PaymentPickerProps) {
                     </button>
                   </div>
                 )}
-                {s.options.map(opt => {
-                  const isSuggestedColor = suggested?.color === opt;
-                  const displayText = hasAmount && s.options.length === 1 ? `{${opt}}` : opt;
+                {displayOptions.map(opt => {
+                  const isSuggestedColor = suggested?.producedColors
+                    ? suggested.producedColors.includes(opt)
+                    : suggested?.color === opt;
+                  const displayText = hasAmount && displayOptions.length === 1 ? `{${opt}}` : opt;
                   const selectedMana = chosen.find((payment) => getPaymentItemKey(payment) === s.id)?.mana;
                   const disabledColor = !spendAllowed || (stackQty > 1
                     ? (chosenQty >= stackQty && selectedMana === opt)
@@ -715,7 +712,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
                             ? `Suggested: Add ${suggestedQty || suggested?.count || 1}× ${opt}`
                             : stackQty > 1
                               ? `Add one ${opt} (qty ${chosenQty}/${stackQty})`
-                              : `Add ${hasAmount ? `${s.amount}×` : ''}${opt}`
+                              : `Add ${hasAmount ? `${getManaPerActivation(s)}×` : ''}${opt}`
                       }
                     >
                       {displayText}

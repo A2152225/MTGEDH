@@ -7,7 +7,7 @@
 // Leaf must not import game-state-effects.ts or game-state-effects-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
-import { pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
+import { pushCardToGraveyardFromLibrary } from "../graveyardEntryUtils.js";
 import { cardHasCreatureType, permanentHasCreatureTypeNow } from "../../creatureTypeNow.js";
 import { getActivePermanents } from "./gameStateEffectsBattlefieldQueries.js";
 import {
@@ -485,7 +485,7 @@ export function millSpecifiedPlayers(
       });
       oppZones.graveyard = oppZones.graveyard || [];
       for (const card of milledCards) {
-        pushCardToPlayerGraveyardWithReplacements(ctx, opponentId, card, oppZones.graveyard);
+        pushCardToGraveyardFromLibrary(ctx, opponentId, card, oppZones.graveyard);
       }
       oppZones.libraryCount = lib.length;
       oppZones.graveyardCount = (oppZones.graveyard || []).length;
@@ -496,7 +496,7 @@ export function millSpecifiedPlayers(
           const card = zones.library.shift();
           if (!card) break;
           zones.graveyard = zones.graveyard || [];
-          pushCardToPlayerGraveyardWithReplacements(ctx, opponentId, card, zones.graveyard);
+          pushCardToGraveyardFromLibrary(ctx, opponentId, card, zones.graveyard);
           milled += 1;
         }
         zones.libraryCount = zones.library.length;

@@ -6,6 +6,7 @@
 
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
 import { KNOWN_ETB_TRIGGERS } from "./card-data-tables.js";
+import { detectTargetType } from "./detect-target-type.js";
 import { stripReminderParentheticals } from "../../../../../rules-engine/src/oracleReminderText.js";
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
 import type { EtbDetectionState } from "./etb-detection-state.js";
@@ -60,6 +61,10 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       default:
         triggerType = 'etb';
     }
+
+    const knownEffectText = String(info.effect || '');
+    const knownTargetType = detectTargetType(knownEffectText);
+    const knownRequiresTarget = /\btarget\b/i.test(knownEffectText) || !!knownTargetType;
     
     const trigger: TriggeredAbility = {
       permanentId,
@@ -70,6 +75,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       millAmount: info.millAmount,
       mandatory: !String(info.effect || '').toLowerCase().includes('you may'),
       requiresChoice: String(info.effect || '').toLowerCase().includes('you may'),
+      requiresTarget: knownRequiresTarget,
+      targetType: knownTargetType,
     };
     
     // Add search filter info if present

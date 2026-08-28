@@ -11,6 +11,7 @@ import {
   recordCommittedCrimeThisTurn,
   recordGraveyardPermanentTypesCastThisTurn,
 } from './turn-tracking.js';
+import { getCascadeInstancesForCast } from './cascadeCastGrants.js';
 
 function removeCardIdFromZonesLibrary(zones: Record<string, any>, playerId: string, cardId: string): boolean {
   const playerZones = zones?.[playerId];
@@ -365,6 +366,7 @@ export function castSpell(
     // best-effort only
   }
 
+  const hadCastFromExileThisTurn = Boolean((state as any).castFromExileThisTurn?.[String(playerId)]);
   if (castFromExile) {
     try {
       const stateAny = state as any;
@@ -394,13 +396,15 @@ export function castSpell(
     }
   }
 
-  const oracleTextLower = (card?.oracle_text || '').toLowerCase();
-  const cascadeMatches = oracleTextLower.match(/\bcascade\b/g);
-  if (cascadeMatches && cascadeMatches.length > 0) {
+  const cascadeCount = getCascadeInstancesForCast(state, String(playerId), card, {
+    castSourceZone,
+    isFirstSpellCastFromExileThisTurn: castFromExile && !hadCastFromExileThisTurn,
+  });
+  if (cascadeCount > 0) {
     (state as any).pendingCascade = (state as any).pendingCascade || {};
     const queue = (state as any).pendingCascade[playerId] = (state as any).pendingCascade[playerId] || [];
     const baseLen = queue.length;
-    for (let i = 0; i < cascadeMatches.length; i++) {
+    for (let i = 0; i < cascadeCount; i++) {
       queue.push({
         sourceName: card?.name || 'Cascade',
         sourceCardId: card?.id,

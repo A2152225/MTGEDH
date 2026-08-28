@@ -1092,7 +1092,7 @@ export function detectTriggeredAbilityEvent<T extends string>(
     return { event: triggerEventValues.EXILED, filter: text };
   }
 
-  if (/^whenever a permanent you control transforms into a non-human creature\b/.test(text)) {
+  if (/^whenever a permanent you control transforms into a non-([a-z]+) creature\b/.test(text)) {
     return { event: triggerEventValues.TRANSFORMED, filter: text };
   }
 

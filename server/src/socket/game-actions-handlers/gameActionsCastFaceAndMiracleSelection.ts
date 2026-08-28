@@ -59,7 +59,11 @@ export function resolveEffectiveSpellBaseManaCost(pendingCast: any): string {
     return String(checkMiracle(card).miracleCost || rawManaCost || manaCost || '').trim();
   }
 
-  if (forcedAlternateCostId && forcedAlternateCostId !== 'normal' && forcedAlternateCostId !== 'free') {
+  if (forcedAlternateCostId === 'free' || pendingCast?.castWithoutPayingManaCost === true) {
+    return '{0}';
+  }
+
+  if (forcedAlternateCostId && forcedAlternateCostId !== 'normal') {
     const keywordCost = parseKeywordAlternateManaCost(oracleText, forcedAlternateCostId);
     if (keywordCost) return keywordCost;
   }

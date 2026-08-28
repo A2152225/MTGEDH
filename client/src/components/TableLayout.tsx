@@ -983,8 +983,7 @@ export function TableLayout(props: {
               if (abilityId === 'cycling' || /-cycling-\d+$/i.test(String(abilityId || ''))) {
                 socket.emit('activateCycling', { gameId, cardId, abilityId });
               } else if (abilityId === 'foretell') {
-                // Handle foretell
-                socket.emit('foretell', { gameId, cardId });
+                socket.emit('foretellCard', { gameId, cardId });
               }
             }
           }}

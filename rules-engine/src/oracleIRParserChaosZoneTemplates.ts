@@ -1,7 +1,8 @@
 /**
  * Generic chaos-zone templates: Warp World / Glimpse of Tomorrow / Morphic Tide
- * owned-permanent shuffle+reveal waves, and Thieves' Auction style repeated drafts.
- * No card-name routing — matches oracle phrasing only.
+ * owned-permanent shuffle+reveal waves, Thieves' Auction style repeated drafts,
+ * and Scrambleverse-style random control assignment. No card-name routing —
+ * matches oracle phrasing only.
  */
 import type { OracleEffectStep, OracleIRAbility, OracleObjectSelector, OraclePlayerSelector } from './oracleIR';
 import { normalizeOracleText } from './oracleIRParserUtils';
@@ -123,6 +124,9 @@ export function tryParseOwnedPermanentsShuffleRevealTemplate(rawText: string): O
   return steps;
 }
 
+const RANDOM_CONTROL_ASSIGNMENT_PATTERN =
+  /^for each (nonland )?permanents?,\s*choose a player at random\.\s*then each player gains control of each permanent for which they were chosen\.\s*untap those permanents\.?$/i;
+
 const AUCTION_PATTERN =
   /^exile all nontoken permanents\.\s*starting with you,\s*each player chooses one of the exiled cards and puts it onto the battlefield tapped under their control\.\s*repeat this process until all cards exiled this way have been chosen\.?$/i;
 
@@ -134,6 +138,38 @@ const EACH_PLAYER_LIBRARY_CHAOS_PATTERN =
 
 const SINGLE_TARGET_LIBRARY_CHAOS_PATTERN =
   /^the owner of target (.+?) shuffles it into their library,\s*then exiles the top card of their library\.\s*if it's a land card,\s*they put it onto the battlefield\.\s*otherwise,\s*they may cast it without paying its mana cost\.?$/i;
+
+/**
+ * Parse Scrambleverse-style random control assignment: for each (nonland)
+ * permanent, choose a player at random, transfer control, then untap those.
+ */
+export function tryParseRandomControlAssignmentTemplate(rawText: string): OracleEffectStep[] | null {
+  const normalized = stripReminderAndPhenomena(rawText).replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+  const match = normalized.match(RANDOM_CONTROL_ASSIGNMENT_PATTERN);
+  if (!match) return null;
+
+  const nonland = Boolean(match[1]);
+  const whatText = nonland ? 'each nonland permanent' : 'each permanent';
+  return [
+    {
+      kind: 'gain_control',
+      what: parseObjectSelector(whatText),
+      newController: { kind: 'each_player' },
+      duration: 'indefinite',
+      raw: `For each ${nonland ? 'nonland ' : ''}permanent, choose a player at random. Then each player gains control of each permanent for which they were chosen.`,
+    } as OracleEffectStep,
+    {
+      kind: 'tap_or_untap',
+      target: parseObjectSelector('those permanents'),
+      mode: 'untap',
+      sequence: 'then',
+      thisWayAntecedentStepIndex: 0,
+      thisWayAntecedentStepKind: 'gain_control',
+      raw: 'Untap those permanents',
+    } as OracleEffectStep,
+  ];
+}
 
 export function tryParseLibraryChaosExchangeTemplate(rawText: string): OracleEffectStep[] | null {
   const normalized = stripReminderAndPhenomena(rawText).replace(/\s+/g, ' ').trim();
@@ -230,21 +266,34 @@ function abilityEffectText(ability: OracleIRAbility): string {
 /**
  * Replace misparsed residual static grants / split abilities with executable chaos templates.
  */
+function asChaosSpellAbility(
+  text: string,
+  steps: OracleEffectStep[],
+  base?: OracleIRAbility,
+): OracleIRAbility {
+  return {
+    ...(base || {}),
+    type: 'spell',
+    text,
+    effectText: text,
+    steps,
+  } as OracleIRAbility;
+}
+
 export function expandChaosZoneTemplateAbilities(
   abilities: readonly OracleIRAbility[],
   fullOracleText?: string,
 ): OracleIRAbility[] {
   if (!Array.isArray(abilities)) return [];
+  const fullText = String(fullOracleText || '').trim();
+  const randomControlFromFull = tryParseRandomControlAssignmentTemplate(fullText);
+  if (randomControlFromFull) {
+    return [asChaosSpellAbility(fullText, randomControlFromFull, abilities[0])];
+  }
   if (abilities.length === 0) {
-    const fullText = String(fullOracleText || '').trim();
     const libraryChaosSteps = tryParseLibraryChaosExchangeTemplate(fullText);
     if (!libraryChaosSteps) return [];
-    return [{
-      type: 'spell',
-      text: fullText,
-      effectText: fullText,
-      steps: libraryChaosSteps,
-    } as OracleIRAbility];
+    return [asChaosSpellAbility(fullText, libraryChaosSteps)];
   }
 
   // Merge consecutive spell/static fragments that together form auction text.
@@ -259,6 +308,12 @@ export function expandChaosZoneTemplateAbilities(
   let changed = false;
   const next: OracleIRAbility[] = abilities.map((ability) => {
     const text = abilityEffectText(ability);
+    const randomControlSteps = tryParseRandomControlAssignmentTemplate(text);
+    if (randomControlSteps) {
+      changed = true;
+      return asChaosSpellAbility(text, randomControlSteps, ability);
+    }
+
     const pileSteps = tryParseSeparateControlledPermanentsIntoPilesTemplate(text);
     if (pileSteps) {
       changed = true;

@@ -21,6 +21,7 @@ import {
   collectTopLibraryObservationForPlayers,
   lookSelectTopCardsForPlayer,
   quantityToNumber,
+  readPlayerZoneCards,
   resolvePlayers,
   resolveRevealUntilReferenceAmountForPlayer,
 } from './oracleIRExecutorPlayerUtils';
@@ -355,7 +356,7 @@ export function applyRevealTopStep(
     }
 
     const player = state.players.find(entry => entry.id === playerId) as any;
-    const library = Array.isArray(player?.library) ? player.library : [];
+    const library = readPlayerZoneCards(state, playerId, player, 'library');
     const revealedCount = Math.max(0, Math.min(library.length, amount | 0));
     totalRevealed += revealedCount;
     if (revealedCount > 0) {
@@ -401,6 +402,7 @@ export function applyRevealTopStep(
           state,
           log,
           lastRevealedCardCount: totalRevealed,
+          ...(revealedCards.length > 0 ? { lastMovedCards: revealedCards, lastRevealedCards: revealedCards } : {}),
           ...(players.length === 1 ? { lastTopLibraryOwnerId: players[0] } : {}),
         }, ledgerRecordedViaBridge);
       }

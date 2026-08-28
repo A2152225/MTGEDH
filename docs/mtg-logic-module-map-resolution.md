@@ -5,7 +5,7 @@ Coordinator owns this file. Extract chats must not edit it — paste owed rows.
 
 ## Socket resolution
 
-- Public barrel: `server/src/socket/resolution.ts` (**39.2 KB**, under ceiling). Remaining cores: `handleAIResolutionStep`, `initializeAIResolutionHandler`, `initializePriorityResolutionHandler`, `applyResolutionStepSideEffects`, plus AI library-chaos helpers. `handleStepResponse` / `handleTargetSelectionResponse` / `handleOptionChoiceResponse` / `registerResolutionHandlers` / `sanitizeStepForClient` live in `resolution-handlers/` (parent re-exports the last three).
+- Public barrel: `server/src/socket/resolution.ts` (`handleAIResolutionStep` is exported). Remaining cores: `handleAIResolutionStep`, `initializeAIResolutionHandler`, `initializePriorityResolutionHandler` (enters resolution mode on `hasPending`, not `pendingCount === 1`), `applyResolutionStepSideEffects`, plus AI library-chaos helpers. `handleStepResponse` / `handleTargetSelectionResponse` / `handleOptionChoiceResponse` / `registerResolutionHandlers` / `sanitizeStepForClient` live in `resolution-handlers/` (parent re-exports the last three).
 - Runtime seam: `server/src/socket/resolutionHandlerDeps.ts` — `ResolutionHandlerDeps` / `createResolutionHandlerDeps` / `getResolutionHandlerDeps`. Extracted handlers are injected here; **extracted files must not import `resolution.ts`**.
 - Internal TOC: `server/src/socket/resolution-handlers/index.ts` (named re-exports only).
 - Pre-complete validation is split across siblings (do not append to a near-ceiling file):
@@ -33,8 +33,9 @@ Coordinator owns this file. Extract chats must not edit it — paste owed rows.
 | `resolutionJoinForcesTemptingOfferResponseHandlers.ts`, `resolutionJoinForcesTemptingZoneChoiceResponseHandlers.ts` | Join forces and tempting offer *(exports TBD)* |
 | `resolutionKeywordChoiceHandlers.ts` (35.6 KB) | Keyword choices *(exports TBD)* |
 | `resolutionLibrarySearchHandlers.ts`, `resolutionLibrarySearchStepUtils.ts`, `resolutionLibrarySearchOracleIrChoiceResume.ts`, `resolutionLibrarySearchOracleIrResumeUtils.ts`, `resolutionLibraryLookResponseHandlers.ts` | Library search / look, including Oracle IR resume (leaf-import example) *(exports TBD)* |
-| `resolutionModalChoiceResponseHandlers.ts` | Modal choices *(exports TBD)* |
-| `resolutionOptionChoiceEarlySpecialsPrefixHandlers.ts` (39.5 KB), `resolutionOptionChoiceEarlySpecialsConfirmCastPaymentHandlers.ts` (36.9 KB) | Early `handleOptionChoiceResponse` specials; try-handle boolean prefix pattern. ConfirmCastPayment reflexive consume `validateLifePayment` passes `ctx` + `controllerId`. |
+| `resolutionModalChoiceResponseHandlers.ts` | Modal choices. Choose-one resume copies `triggeringStackItemId` / `effectData` / caster onto the synthetic trigger so “that spell” still binds. |
+| `resolutionOptionChoiceEarlySpecialsPrefixHandlers.ts` (39.5 KB), `resolutionOptionChoiceEarlySpecialsConfirmCastPaymentHandlers.ts` (36.9 KB) | Early `handleOptionChoiceResponse` specials; try-handle boolean prefix pattern. ConfirmCastPayment reflexive consume `validateLifePayment` passes `ctx` + `controllerId`. Optional-payment path must not overwrite live `ctx.bumpSeq` with `game.bumpSeq` (that cycle blew the stack on shock-land pay-2-life). |
+| `resolutionOptionChoiceSkipDrawReplacementHandlers.ts` | Island Sanctuary skip-draw OPTION_CHOICE (`tryHandleSkipDrawReplacementChoice`). |
 | `resolutionPaymentManaUtils.ts`, `resolutionWardUtils.ts` | Mana payment and ward helpers *(exports TBD)* |
 | `resolutionProcessPendingHandlers.ts` | Pending-resolution processing *(exports TBD)* |
 | `resolutionPutCardOntoBattlefieldUtils.ts`, `resolutionCloneQueuedPromptUtils.ts`, `resolutionStepTypeSpecificFieldsUtils.ts`, `resolutionSyntheticCastSocketUtils.ts` | Shared step/prompt utilities *(exports TBD)* |
@@ -73,7 +74,7 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `targetSelectionWardPromptHandlers.ts` | Post-pass ward payment prompts. Entry: `maybeQueueWardPaymentPromptsForTargetSelection`. |
 | `targetSelectionSacrificeFollowupHandlers.ts` | Sacrifice-then-benefit TARGET_SELECTION. |
 | `targetSelectionGraveyardCastHandlers.ts` | Cast-from-graveyard continuations. |
-| `targetSelectionScavengeAndCopyHandlers.ts` | Scavenge + become-a-copy. |
+| `targetSelectionScavengeAndCopyHandlers.ts` | Scavenge + become-a-copy. After applying the copy, `runSBA` so CR 704.5j covers legendary lands (Vesuva). |
 | `targetSelectionImmediateBattlefieldActions.ts` | `step.action` battlefield chain (soulbond, destroy, tap-or-untap, …). |
 | `targetSelectionGraveyardCardActions.ts` | `step.action` GY card moves. |
 | `targetSelectionSpellCastPaymentHandlers.ts` | Auto-unignore + CR 601.2h payment request. |
@@ -116,6 +117,7 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `aiCostAndExploreStepResponses.ts` | AI station/life/explore/mode/squad/…. |
 | `aiTargetSelectionStepResponses.ts` | AI fight/tap-untap/counters/mutate. |
 | `aiHandAndDraftStepResponses.ts` | AI X / mana-color / hand-to-bottom / hideaway / draft. |
+| `resolutionAutoResolveGate.ts` | `shouldAutoResolveResolutionStep` — AI seats auto-answer STEP_ADDED prompts. Humans (including idle Smart Pass) keep a fresh per-step clock for APNAP choices such as Kynaios; timeout auto-completes those choices. Direct parent import. |
 | `xValueSelectionResponseHandlers.ts` | X_VALUE_SELECTION (spell-cast X + Blight X). On deps. |
 | `triggerOrderResponseHandlers.ts` | TRIGGER_ORDER. On deps. |
 | `extortPaymentResponseHandlers.ts` | EXTORT_PAYMENT. On deps. Do not merge into `resolutionKeywordChoiceHandlers.ts`. |
@@ -126,12 +128,13 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `optionChoiceResponseHandlers.ts` | Remaining OPTION_CHOICE dispatcher. Direct parent import. |
 | `stepResponseHandlers.ts` | `handleStepResponse` core. Direct parent import. |
 | `registerResolutionHandlers.ts` | Socket register (query/submit/cancel/preference/disconnect). Parent re-export. |
-| `sanitizeStepForClient.ts` | Client sanitizer. Parent re-export. |
+| `sanitizeStepForClient.ts` | Client sanitizer. Copies `causeName` / `causeImage` / `causeLabel` from the triggering spell (or explicit step fields) so choose-one prompts can show what caused them. Does not send `triggerData`. Parent re-export. |
 | `emitResolutionStepPrompt.ts` | Prompt emit. Parent re-export. |
-| `resolutionStepTimeoutAndCancelHandlers.ts` | Timeout, cancel side-effects, next-step emit. |
+| `resolutionStepTimeoutAndCancelHandlers.ts` | Per-step timeout, cancel side-effects, next-step emit. `scheduleResolutionStepTimeoutForGame(gameId, step)` starts/resets that step’s clock on STEP_ADDED so every APNAP seat gets a fresh timer when the effect is queued. Completing one step does not rewind the others. Kynaios / Join Forces / Tempting Offer time out into a default choice instead of marking the source broken. |
 | `resolutionPriorityHandlerState.ts` | Shared `{ initialized, io }` for priority + timeout. |
 | `effectProgramSpellColorChoiceFinalize.ts` | EffectProgram COLOR_CHOICE finalize after resume. |
-| `attackCostPaymentBeforeCompleteHandlers.ts` | Attack-tax payment before complete. |
+| `attackCostPaymentBeforeCompleteHandlers.ts` | Attack-tax payment before complete (generic plus `{W/P}` via `attackCostPhyrexianPayment.ts`). |
+| `blockCostPaymentBeforeCompleteHandlers.ts` | Block-tax payment before complete (Archangel of Tithes while attacking). |
 | `rulesChoiceGroupResponseHandlers.ts` | Grouped rules-choice + selection-id extractors. |
 | `spellPaymentPresentationSanitizeUtils.ts` | Mana-payment presentation hydration. |
 | `panglacialSearchCastUtils.ts` | Panglacial castable-card helpers. |

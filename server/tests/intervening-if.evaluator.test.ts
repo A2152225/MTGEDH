@@ -558,6 +558,28 @@ describe('Intervening-if evaluator (expanded templates)', () => {
     expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
   });
 
+  it('supports "if no opponent has more life than that player" for Background attack grants', () => {
+    const g = createInitialGameState('t_intervening_if_eval_life_no_opp_more_than_that_player');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+    const p4 = 'p4' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+    addPlayer(g, p3, 'P3');
+    addPlayer(g, p4, 'P4');
+
+    const desc =
+      'Whenever this creature attacks a player, if no opponent has more life than that player, put a +1/+1 counter on this creature.';
+
+    (g.state as any).life = { [p1]: 40, [p2]: 40, [p3]: 36, [p4]: 40 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, undefined, { thatPlayerId: p2, defendingPlayerId: p2 })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, undefined, { thatPlayerId: p3, defendingPlayerId: p3 })).toBe(false);
+
+    (g.state as any).life = { [p1]: 40, [p2]: 36, [p3]: 36, [p4]: 36 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, undefined, { thatPlayerId: p2, defendingPlayerId: p2 })).toBe(true);
+  });
+
   it('supports comma-delimited upkeep template: "..., if an opponent has more life than you"', () => {
     const g = createInitialGameState('t_intervening_if_eval_life_opp_more');
     const p1 = 'p1' as PlayerID;

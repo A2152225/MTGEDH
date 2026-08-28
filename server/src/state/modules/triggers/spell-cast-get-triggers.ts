@@ -4,6 +4,7 @@
  * Public: getSpellCastTriggers
  */
 
+import { extractCreatureTypes as extractCreatureTypesFromTypeLine } from "../../../../../shared/src/creatureTypes.js";
 import { debug } from "../../../utils/debug.js";
 import type { GameContext } from "../../context.js";
 import { cardHasCreatureType } from "../../creatureTypeNow.js";
@@ -127,22 +128,5 @@ export function getSpellCastTriggers(
  * Extract creature types from a type line
  */
 function extractCreatureTypes(typeLine: string): string[] {
-  const types: string[] = [];
-  const lowerTypeLine = typeLine.toLowerCase();
-  
-  // Common creature types
-  const knownTypes = [
-    'merfolk', 'goblin', 'elf', 'wizard', 'shaman', 'warrior', 'soldier', 'zombie',
-    'vampire', 'dragon', 'angel', 'demon', 'beast', 'elemental', 'spirit', 'human',
-    'knight', 'cleric', 'rogue', 'druid', 'pirate', 'dinosaur', 'cat', 'bird',
-    'snake', 'spider', 'sliver', 'ally', 'rebel', 'mercenary', 'horror', 'faerie',
-  ];
-  
-  for (const type of knownTypes) {
-    if (lowerTypeLine.includes(type)) {
-      types.push(type);
-    }
-  }
-  
-  return types;
+  return extractCreatureTypesFromTypeLine(typeLine).map((type) => String(type || '').toLowerCase());
 }

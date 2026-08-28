@@ -209,10 +209,33 @@ export function cancelStep(queue: ResolutionQueue, stepId: string): ResolutionSt
 }
 
 function isUnresolvedStep(step: ResolutionStep | undefined): step is ResolutionStep {
-  return Boolean(
-    step &&
-    (step.status === ResolutionStepStatus.PENDING || step.status === ResolutionStepStatus.ACTIVE),
-  );
+  if (!step) return false;
+  // Completed steps are spliced out of queue.steps. Treat missing/unknown status as
+  // still live so Smart Pass cannot drain the stack under an open choice prompt.
+  if (
+    step.status === ResolutionStepStatus.COMPLETED
+    || step.status === ResolutionStepStatus.CANCELLED
+    || step.status === ResolutionStepStatus.TIMED_OUT
+  ) {
+    return false;
+  }
+  return true;
+}
+
+const MANA_PAYMENT_STEP_TYPE = 'mana_payment_choice';
+
+/**
+ * True when a non-payment prompt is still in the queue (Mox Diamond, Neera
+ * bottom/reveal, ETB choices, …). Mana payment is allowed while a spell is
+ * being paid for; every other live step must keep the stack from resolving.
+ */
+export function hasBlockingNonPaymentResolutionSteps(queue: ResolutionQueue): boolean {
+  const isBlocking = (step: ResolutionStep | undefined): boolean => {
+    if (!isUnresolvedStep(step)) return false;
+    return String(step.type || '') !== MANA_PAYMENT_STEP_TYPE;
+  };
+  if (isBlocking(queue.activeStep)) return true;
+  return queue.steps.some(isBlocking);
 }
 
 /**
@@ -469,6 +492,7 @@ export default {
   cancelStep,
   hasPendingSteps,
   playerHasPendingSteps,
+  hasBlockingNonPaymentResolutionSteps,
   getPendingSummary,
   orderByAPNAP,
   choiceEventToStep,

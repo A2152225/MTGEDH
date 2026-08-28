@@ -1,9 +1,9 @@
 import type { GameState, PlayerID } from '../../../shared/src';
 import { sanitizeOracleTextForStaticEffectScan } from '../../../rules-engine/src/staticEffectOracleSanitize.js';
+import { controllerHasLeftTheGame } from '../../../rules-engine/src/playerInGameStatus.js';
 
 import { getTotalManaFromPool } from '../state/modules/mana-check.js';
 import { infinityGrantedAbility, maxSpeedGrantedAbility } from '../state/modules/statefulPaperKeywords.js';
-export { KNOWN_STATIC_EFFECT_CARDS } from './staticEffects-handlers/staticEffectsKnownCards.js';
 export type { ContinuousEffectResult } from './staticEffects-handlers/staticEffectsScanHelpers.js';
 import { applyMonumentLordAndSharedTypeEffects } from './staticEffects-handlers/staticEffectsMonumentLordAndSharedType.js';
 import {
@@ -73,6 +73,7 @@ export function computeContinuousEffects(
   }
 
   for (const source of state.battlefield) {
+    if (controllerHasLeftTheGame(state, source.controller)) continue;
     const oracle = sanitizeOracleTextForStaticEffectScan((source.card as any)?.oracle_text || '').toLowerCase();
     if (!oracle) continue;
     const controller = source.controller;
@@ -277,6 +278,26 @@ export function computeContinuousEffects(
         for (const perm of state.battlefield) {
           // "other" means exclude the source permanent itself
           if (perm.controller === controller && isCreature(perm) && perm.id !== source.id) {
+            const agg = perPermanent.get(perm.id)!;
+            for (const a of abilities) agg.abilities.add(a);
+          }
+        }
+      }
+    }
+
+    // "Other Dinosaurs you control have haste." — subtype without the word "creatures".
+    const otherTypedHaveMatch = oracle.match(/other ([a-z]+)s? you control have ([^.]+)/);
+    if (otherTypedHaveMatch && !/^creatures?$/i.test(String(otherTypedHaveMatch[1] || ''))) {
+      const subtype = String(otherTypedHaveMatch[1] || '').replace(/s$/i, '').toLowerCase();
+      const abilities = resolveGrantedAbilities(source, otherTypedHaveMatch[2]);
+      if (subtype && abilities.length) {
+        for (const perm of state.battlefield) {
+          if (
+            perm.controller === controller
+            && isCreature(perm)
+            && perm.id !== source.id
+            && hasCreatureType(perm, subtype)
+          ) {
             const agg = perPermanent.get(perm.id)!;
             for (const a of abilities) agg.abilities.add(a);
           }
@@ -647,6 +668,7 @@ export function computeContinuousEffects(
   const typeAdditions = new Map<string, string[]>();
   
   for (const source of state.battlefield) {
+    if (controllerHasLeftTheGame(state, source.controller)) continue;
     const cardName = ((source.card as any)?.name || '').toLowerCase();
     
     // Check known global type-addition cards

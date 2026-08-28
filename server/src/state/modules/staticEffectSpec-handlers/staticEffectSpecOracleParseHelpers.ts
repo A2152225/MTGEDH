@@ -6,7 +6,8 @@
 //   parseLordAbilitiesFromTail, parseLordCreatureType, buildSpec.
 
 import type { BattlefieldPermanent } from '../../../../../shared/src/index.js';
-import { isCreatureTypeWord } from '../../../../../shared/src/creatureTypes.js';
+import { extractQuotedAbilityTexts } from '../../../../../shared/src/attachmentAbilityGrants.js';
+import { isCreatureTypeWord, normalizeCreatureTypeWord } from '../../../../../shared/src/creatureTypes.js';
 import type { StaticEffectGrant, StaticEffectSpec } from '../staticEffectSpec.js';
 
 export const ABILITY_WORDS = [
@@ -14,6 +15,9 @@ export const ABILITY_WORDS = [
   'deathtouch', 'lifelink', 'haste', 'menace', 'reach', 'first strike',
   'double strike', 'protection', 'ward',
   'swampwalk', 'islandwalk', 'mountainwalk', 'forestwalk', 'plainswalk',
+  'riot', 'exalted', 'skulk', 'intimidate', 'myriad',
+  'wither', 'fear', 'horsemanship', 'prowess', 'training',
+  'evolve', 'dethrone', 'unleash', 'melee', 'exploit', 'extort',
 ];
 
 export const COLOR_WORDS = ['white', 'blue', 'black', 'red', 'green'];
@@ -56,19 +60,31 @@ export function parseBuffSegment(seg: string): { power: number; toughness: numbe
 
 export function parseAbilitiesFromTail(tail: string): string[] {
   const found: string[] = [];
-  const lower = String(tail || '').toLowerCase();
+  const text = String(tail || '');
+  const lower = text.toLowerCase();
   for (const ability of ABILITY_WORDS) {
     if (new RegExp(`\\b${ability}\\b`, 'i').test(lower)) {
       found.push(ability);
     }
   }
-  if (/\{t\}:\s*add\s+one\s+mana\s+of\s+any\s+color/i.test(lower)) {
+  for (const match of lower.matchAll(/\b(afflict|toxic|fabricate|annihilator|bushido|rampage)\s+(\d+)\b/g)) {
+    found.push(`${match[1]} ${match[2]}`);
+  }
+  const outlastMatch = lower.match(/\boutlast\s+(\{[^}]+\})/i);
+  if (outlastMatch) found.push(`outlast ${outlastMatch[1]}`);
+  if (/\{t\}(?:,[^:]*)?:\s*add\s+(?:one\s+)?mana of any(?: one)?(?: of this creature's)? color/i.test(lower)) {
     found.push('tap_for_any_color');
   }
-  const tapColor = lower.match(/\{t\}:\s*add\s+\{([wubrgc])\}/i);
-  if (tapColor) {
-    const grant = TAP_FOR_COLOR_GRANT[String(tapColor[1] || '').toLowerCase()];
-    if (grant) found.push(grant);
+  const tapAddMatch = lower.match(/\{t\}(?:,[^:]*)?:\s*add\s+([^.]+)/i);
+  if (tapAddMatch && !/any\s+color/i.test(tapAddMatch[1])) {
+    for (const symbolMatch of tapAddMatch[1].matchAll(/\{([wubrgc])\}/gi)) {
+      const grant = TAP_FOR_COLOR_GRANT[String(symbolMatch[1] || '').toLowerCase()];
+      if (grant) found.push(grant);
+    }
+  }
+  for (const quoted of extractQuotedAbilityTexts(text)) {
+    const trimmed = String(quoted || '').trim();
+    if (trimmed) found.push(trimmed);
   }
   return [...new Set(found)];
 }
@@ -116,12 +132,12 @@ export function parseLordAbilitiesFromTail(tail: string): string[] {
 export function parseLordCreatureType(raw: string): string {
   const lower = String(raw || '').trim().toLowerCase();
   if (!lower) return '';
+  const normalized = normalizeCreatureTypeWord(lower);
+  if (normalized) return normalized;
   // "Pegasus" / "Homunculus" already end in s; do not strip a valid type to "pegasu".
   if (isCreatureTypeWord(lower)) return lower;
   if (lower.endsWith('s') && lower.length > 2) {
-    const singular = lower.slice(0, -1);
-    if (isCreatureTypeWord(singular)) return singular;
-    return singular;
+    return lower.slice(0, -1);
   }
   return lower;
 }

@@ -6,6 +6,8 @@ import type { PlayerID } from "../../../shared/src/types";
 import { syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { ResolutionStepType } from "../state/resolution/types.js";
+import { getAsEntersChoiceRequirements } from "../state/modules/asEntersChoiceRequirements.js";
+import { mustAttackEachCombat, cantAttackOwner } from "../state/modules/triggers/control-change.js";
 
 /**
  * Generic player selection system
@@ -214,6 +216,12 @@ export function handleDeclinedPlayerSelection(
     if (permanent) {
       delete (permanent as any).pendingPlayerSelection;
       delete (permanent as any).pendingControlChange;
+      if (effectData.type === 'control_change') {
+        (permanent as any).chosenPlayer = String(permanent.controller || playerId || '').trim() || playerId;
+        if (permanent.card && typeof permanent.card === 'object') {
+          (permanent.card as any).chosenPlayer = (permanent as any).chosenPlayer;
+        }
+      }
     }
   }
   
@@ -284,6 +292,10 @@ export function applyPlayerSelectionEffect(
           const previousController = String(permanent.controller || '');
           permanent.controller = selectedPlayerId;
           syncPreparedPermanentAfterControlChange(game.state, permanent, previousController);
+          (permanent as any).chosenPlayer = selectedPlayerId;
+          if (permanent.card && typeof permanent.card === 'object') {
+            (permanent.card as any).chosenPlayer = selectedPlayerId;
+          }
           delete (permanent as any).pendingPlayerSelection;
           delete (permanent as any).pendingControlChange;
 
@@ -430,6 +442,37 @@ export function detectETBPlayerSelection(card: any): {
   
   const name = (card.name || "").toLowerCase();
   const oracleText = (card.oracle_text || "").toLowerCase();
+
+  const asEntersControl = getAsEntersChoiceRequirements(card).find(
+    (requirement) => requirement.kind === 'opponent' && requirement.appliesControlChange,
+  );
+  if (asEntersControl) {
+    return {
+      required: true,
+      description: asEntersControl.reason || "Choose an opponent to control this permanent",
+      effectData: {
+        type: 'control_change',
+        mustAttackEachCombat: mustAttackEachCombat(card),
+        cantAttackOwner: cantAttackOwner(card),
+      },
+      allowOpponentsOnly: true,
+      isOptional: !asEntersControl.mandatory,
+    };
+  }
+
+  if (/enters(?: the battlefield)? under the control of an opponent of your choice/i.test(oracleText)) {
+    return {
+      required: true,
+      description: "Choose an opponent to control this permanent",
+      effectData: {
+        type: 'control_change',
+        mustAttackEachCombat: mustAttackEachCombat(card),
+        cantAttackOwner: cantAttackOwner(card),
+      },
+      allowOpponentsOnly: true,
+      isOptional: false,
+    };
+  }
   
   // Stuffy Doll - "As Stuffy Doll enters, choose a player"
   if (name.includes("stuffy doll")) {
@@ -442,23 +485,12 @@ export function detectETBPlayerSelection(card: any): {
     };
   }
   
-  // Xantcha - "As Xantcha enters, choose an opponent"
-  if (name.includes("xantcha")) {
+  // Optional give-control ETB (Vislor Turlough)
+  if (/you may have an opponent gain control/i.test(oracleText)) {
     return {
       required: true,
-      description: "Choose an opponent to control Xantcha",
-      effectData: { type: 'control_change', mustAttackEachCombat: true },
-      allowOpponentsOnly: true,
-      isOptional: false,
-    };
-  }
-  
-  // Vislor Turlough - "You may have an opponent gain control"
-  if (name.includes("vislor turlough")) {
-    return {
-      required: true,
-      description: "Choose an opponent to control Vislor Turlough (optional)",
-      effectData: { type: 'control_change', goadsOnChange: true },
+      description: `Choose an opponent to control ${card.name || 'this permanent'} (optional)`,
+      effectData: { type: 'control_change', goadsOnChange: /goaded/i.test(oracleText) },
       allowOpponentsOnly: true,
       isOptional: true,
     };

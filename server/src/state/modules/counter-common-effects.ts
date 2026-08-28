@@ -153,6 +153,12 @@ export function applyDamageToPermanentWithCounterEffects(
   }
 
   permanent[damageField] = Number(permanent[damageField] || 0) + normalizedAmount;
+  // Combat writes `markedDamage`; the client P/T remaining-health badge reads `damageMarked`.
+  const markedTotal = Number(permanent[damageField] || 0);
+  if (damageField === 'damage' || damageField === 'markedDamage' || damageField === 'damageMarked') {
+    permanent.damageMarked = markedTotal;
+    permanent.markedDamage = markedTotal;
+  }
   if (options?.fromDeathtouch && normalizedAmount > 0) {
     markPermanentDeathtouchDamage(permanent);
   }

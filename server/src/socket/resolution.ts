@@ -18,6 +18,9 @@ import {
   type ResolutionStep,
   type ResolutionStepResponse,
   type TargetSelectionStep,
+  bindCanonicalResolutionQueueGameId,
+  contextHasBlockingNonPaymentResolutionSteps,
+  contextHasPendingResolutionSteps,
 } from "../state/resolution/index.js";
 import { inferResolutionStepMandatory } from "../state/resolution/mandatoryInference.js";
 import {
@@ -275,6 +278,7 @@ import { buildAiSimpleChoiceStepResponse } from "./resolution-handlers/aiSimpleC
 import { buildAiCostAndExploreStepResponse } from "./resolution-handlers/aiCostAndExploreStepResponses.js";
 import { buildAiTargetSelectionStepResponse } from "./resolution-handlers/aiTargetSelectionStepResponses.js";
 import { buildAiHandAndDraftStepResponse } from "./resolution-handlers/aiHandAndDraftStepResponses.js";
+import { shouldAutoResolveResolutionStep } from "./resolution-handlers/resolutionAutoResolveGate.js";
 import {
   applySelectedManaPaymentForResolutionCost,
   applyWardManaPaymentSelection,
@@ -346,6 +350,7 @@ import { handleOptionChoiceResponse } from "./resolution-handlers/optionChoiceRe
 import { priorityResolutionHandlerState } from "./resolution-handlers/resolutionPriorityHandlerState.js";
 import {
   applyCancelledResolutionStepSideEffects,
+  clearScheduledResolutionStepTimeout,
   emitNextPendingResolutionStep,
   scheduleResolutionStepTimeoutForGame,
 } from "./resolution-handlers/resolutionStepTimeoutAndCancelHandlers.js";
@@ -462,10 +467,11 @@ const RESOLUTION_PAYMENT_MANA_KEYS = ['white', 'blue', 'black', 'red', 'green', 
 
 // triggeredSourceExilesSpellCastThisWay -> extracted helper/utils
 
-async function handleAIResolutionStep(
+export async function handleAIResolutionStep(
   io: Server,
   gameId: string,
-  step: ResolutionStep
+  step: ResolutionStep,
+  options?: { force?: boolean },
 ): Promise<void> {
   try {
     const game = ensureGame(gameId);
@@ -490,12 +496,9 @@ async function handleAIResolutionStep(
       return;
     }
     
-    const player = (game.state?.players || []).find((p: any) => p.id === step.playerId);
-    const isAI = player && (player as any).isAI;
-    
-    if (!isAI) return; // Not an AI player, skip
-    
-    debug(2, `[Resolution] AI player ${step.playerId} auto-resolving step: ${step.type}`);
+    if (!options?.force && !shouldAutoResolveResolutionStep(game, step.playerId)) return;
+
+    debug(2, `[Resolution] Auto-resolving step for ${step.playerId}: ${step.type}`);
     
     let response: ResolutionStepResponse | null = null;
     
@@ -733,7 +736,7 @@ export function initializePriorityResolutionHandler(io: Server): void {
   priorityResolutionHandlerState.initialized = true;
 
   // Import priority management functions
-  import("../state/modules/priority.js").then(({ enterResolutionMode, exitResolutionMode }) => {
+  import("../state/modules/priority.js").then(({ enterResolutionModeIfQueuePending, exitResolutionMode }) => {
     const priorityHandler = (
       event: ResolutionQueueEvent,
       gameId: string,
@@ -744,45 +747,39 @@ export function initializePriorityResolutionHandler(io: Server): void {
       
       const ctx = (game as any).ctx || game;
       if (!ctx) return;
-      // Ensure resolution-mode enter/exit and pending checks can see this game's queue.
-      if (!(ctx as any).gameId) (ctx as any).gameId = gameId;
+      // Heal "unknown"/missing ctx.gameId so enter/exit consult the same queue
+      // that queueResolveTopOfStackPrompt wrote (state.id / event gameId).
+      bindCanonicalResolutionQueueGameId(ctx, gameId);
       
-      // When first step is added, enter resolution mode (set priority = null)
+      // When any step is added, enter resolution mode (set priority = null).
+      // APNAP batches queue every step before the first STEP_ADDED emit.
       if (event === ResolutionQueueEvent.STEP_ADDED) {
-        const summary = ResolutionQueueManager.getPendingSummary(gameId);
-        // If this is the first step (count = 1), enter resolution mode
-        if (summary.pendingCount === 1 && ctx.state.priority !== null) {
-          enterResolutionMode(ctx);
+        if (enterResolutionModeIfQueuePending(ctx, gameId)) {
           broadcastGame(priorityResolutionHandlerState.io || io, game, gameId);
         }
       }
       
-      // When last step completes, exit resolution mode (restore priority)
-      if (event === ResolutionQueueEvent.STEP_COMPLETED) {
-        const summary = ResolutionQueueManager.getPendingSummary(gameId);
-        // If no more pending steps, exit resolution mode
-        if (!summary.hasPending && ctx.state.priority === null) {
-          exitResolutionMode(ctx);
-          broadcastGame(priorityResolutionHandlerState.io || io, game, gameId);
-        }
-      }
-
-      // When a step is cancelled, we may also need to exit resolution mode.
-      // This matters for workflows like spell-casting target selection where the player cancels.
-      if (event === ResolutionQueueEvent.STEP_CANCELLED) {
-        const summary = ResolutionQueueManager.getPendingSummary(gameId);
-        if (!summary.hasPending && ctx.state.priority === null) {
-          exitResolutionMode(ctx);
-          broadcastGame(priorityResolutionHandlerState.io || io, game, gameId);
-        }
-      }
-
+      // When last step completes or is cancelled, exit resolution mode.
       if (
-        event === ResolutionQueueEvent.STEP_ADDED ||
-        event === ResolutionQueueEvent.STEP_COMPLETED ||
-        event === ResolutionQueueEvent.STEP_CANCELLED ||
-        event === ResolutionQueueEvent.QUEUE_CHANGED
+        (event === ResolutionQueueEvent.STEP_COMPLETED || event === ResolutionQueueEvent.STEP_CANCELLED)
+        && ctx.state.priority === null
+        && !contextHasPendingResolutionSteps(ctx, gameId)
+        && !contextHasBlockingNonPaymentResolutionSteps(ctx, gameId)
       ) {
+        exitResolutionMode(ctx);
+        broadcastGame(priorityResolutionHandlerState.io || io, game, gameId);
+      }
+
+      if (event === ResolutionQueueEvent.STEP_ADDED && step) {
+        scheduleResolutionStepTimeoutForGame(gameId, step);
+      }
+      if (
+        (event === ResolutionQueueEvent.STEP_COMPLETED || event === ResolutionQueueEvent.STEP_CANCELLED)
+        && step
+      ) {
+        clearScheduledResolutionStepTimeout(gameId, String(step.id || ''));
+      }
+      if (event === ResolutionQueueEvent.QUEUE_CHANGED) {
         scheduleResolutionStepTimeoutForGame(gameId);
       }
     };

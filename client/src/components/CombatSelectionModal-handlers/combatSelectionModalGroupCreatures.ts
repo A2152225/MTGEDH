@@ -6,6 +6,7 @@
 import type { BattlefieldPermanent } from '../../../../shared/src';
 import type { DangerIndicators } from './combatSelectionModalCreatureInfo';
 import { getCreatureInfo } from './combatSelectionModalCreatureInfo';
+import { groupedTokenMemberCount } from '../../utils/expandGroupedTokens';
 
 /**
  * Group identical creatures (tokens) for easier selection
@@ -32,8 +33,8 @@ export function groupCreatures(creatures: BattlefieldPermanent[]): CreatureGroup
     
     // Handle server-side grouped tokens (optimization for games with many tokens)
     // If this is a grouped token, we need to expand it into virtual creatures
-    if ((c as any).isGroupedTokens && Number((c as any).tokenCount) > 1) {
-      const tokenCount = (c as any).tokenCount as number;
+    if (groupedTokenMemberCount(c) > 1) {
+      const tokenCount = groupedTokenMemberCount(c);
       const groupedIds = (c as any).groupedTokenIds as string[] | undefined;
       const groupId = c.id;
       

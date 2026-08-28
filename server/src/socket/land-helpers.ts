@@ -14,7 +14,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import type { GameContext } from "../state/context.js";
 import { canPlayerPayLife } from "../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
 import { detectTeamworkAdditionalCost } from '../state/modules/marvelMechanicsHelpers.js';
-import { matchOpponentsControlLandsETB } from '../../../rules-engine/src/oracleIREtbTappedPattern.js';
+import { matchOpponentsControlLandsETB, isPayLifeOrEnterTapped } from '../../../rules-engine/src/oracleIREtbTappedPattern.js';
 
 // ============================================================================
 // Additional Cost Detection
@@ -261,9 +261,8 @@ export function isShockLand(cardName: string, oracleText?: string): boolean {
     return true;
   }
 
-  const normalizedOracleText = (oracleText || '').toLowerCase();
-  return normalizedOracleText.includes('you may pay 2 life') &&
-    normalizedOracleText.includes("if you don't, it enters tapped");
+  const normalizedOracleText = (oracleText || '').toLowerCase().replace(/\u2019/g, "'");
+  return isPayLifeOrEnterTapped(normalizedOracleText);
 }
 
 /**
@@ -453,7 +452,14 @@ export function evaluateConditionalLandETB(
   controlledPermanents?: any[],
   opponentLandCount?: number,
 ): ConditionalLandETBResult {
-  const text = (oracleText || '').toLowerCase();
+  const text = (oracleText || '').toLowerCase().replace(/\u2019/g, "'");
+
+  if (isPayLifeOrEnterTapped(text)) {
+    return {
+      shouldEnterTapped: true,
+      reason: 'May pay 2 life to enter untapped',
+    };
+  }
   
   // BFZ Tango/Battle lands (Cinder Glade, Canopy Vista, etc.)
   // Old template: "enters the battlefield tapped unless you control two or more basic lands"

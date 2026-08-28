@@ -5,6 +5,7 @@
  * between snapshotAIAbilityActivationState and didAIAbilityActivationProgress.
  *
  * Public entry symbols: resolveAIPaymentManaAbilityId,
+ * permanentHasAIManaAbilityResolverCandidates,
  * selectAIManaRetentionActivationAction, selectAINonTapManaActivationAction,
  * getAINonTapManaActionAmount, chooseAIReturnToHandPermanentForManaAbility,
  * tryActivateAINonTapManaAbilityForSpellPaymentSimulation,
@@ -30,7 +31,10 @@ import {
   getPermanentCounterAmount,
   parseRemoveCounterActivationCost,
   permanentHasManaBatteryCounterLoop,
+  resolvePaymentManaAbilitySpendRestriction,
+  restrictedManaSpendRestrictionAllowsPurpose,
   validateManaPayment,
+  type RestrictedManaSpendPurpose,
 } from "../util.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { COLOR_IDENTITY_MAP } from "./aiConstants.js";
@@ -46,6 +50,8 @@ import {
   hasManaAbility,
   scoreAISacrificePermanentForManaAbility,
 } from "./aiManaCostHelpers.js";
+import { shouldAIPreferPaidScalingManaOverColorlessTap } from "./aiManaColorNeedHelpers.js";
+import { permanentCannotActivateTapAbilities } from "../../state/modules/staticEffectSpecActivationLocks.js";
 
 function buildAIActivatedAbilityResolverCandidates(permanent: any): AIActivatedAbilityResolverCandidate[] {
   return getAIHandlerDeps().buildAIActivatedAbilityResolverCandidates(permanent);
@@ -65,8 +71,9 @@ function getPaymentSources(
   game: any,
   playerId: PlayerID,
   cost: { colors: Record<string, number>; generic: number },
+  options?: { restrictedSpendPurpose?: RestrictedManaSpendPurpose },
 ) {
-  return getAIHandlerDeps().getPaymentSources(game, playerId, cost);
+  return getAIHandlerDeps().getPaymentSources(game, playerId, cost, options);
 }
 
 function cloneAISpellPaymentSimulationGame(game: any): any {
@@ -138,7 +145,17 @@ function getAINonTapManaAbilityCandidates(
       .filter((color) => ['W', 'U', 'B', 'R', 'G', 'C'].includes(color)))];
   }
 
-export function resolveAIPaymentManaAbilityId(game: any, playerId: PlayerID, permanent: any, manaColor: string): string | undefined {
+export function permanentHasAIManaAbilityResolverCandidates(permanent: any): boolean {
+    return buildAIActivatedAbilityResolverCandidates(permanent).some(isAIManaAbilityResolverCandidate);
+  }
+
+export function resolveAIPaymentManaAbilityId(
+    game: any,
+    playerId: PlayerID,
+    permanent: any,
+    manaColor: string,
+    restrictedSpendPurpose?: RestrictedManaSpendPurpose,
+  ): string | undefined {
     const normalizedManaColor = String(manaColor || '').toUpperCase();
     const candidates = buildAIActivatedAbilityResolverCandidates(permanent).filter(isAIManaAbilityResolverCandidate);
     if (candidates.length === 0) {
@@ -153,6 +170,19 @@ export function resolveAIPaymentManaAbilityId(game: any, playerId: PlayerID, per
       const normalizedText = String(candidate?.text || '').toLowerCase();
       const normalizedEffect = String(candidate?.effect || '').toLowerCase();
       const isAnyColorCandidate = /one mana of any color|any color of mana|mana of any one color|one mana of any type/i.test(normalizedEffect);
+      const spendRestriction = resolvePaymentManaAbilitySpendRestriction(
+        game.state,
+        permanent,
+        String(playerId),
+        candidate.id,
+      );
+      if (
+        restrictedSpendPurpose &&
+        spendRestriction &&
+        !restrictedManaSpendRestrictionAllowsPurpose(spendRestriction, restrictedSpendPurpose)
+      ) {
+        continue;
+      }
 
       let score = 0;
       if (normalizedManaColor) {
@@ -169,13 +199,24 @@ export function resolveAIPaymentManaAbilityId(game: any, playerId: PlayerID, per
         }
       }
 
-      const producedAmount = Number(
-        calculateManaProduction(game.state, permanent, String(playerId), normalizedManaColor, candidate.id).totalAmount || 0
-      );
+      const manaInfo = calculateManaProduction(game.state, permanent, String(playerId), normalizedManaColor, candidate.id);
+      const producedAmount = Number(manaInfo.totalAmount || 0);
+      const isPaidScalingCandidate = /choose a colou?r/i.test(normalizedEffect)
+        && (/creatures of the chosen type/i.test(normalizedEffect) || /devotion to that colou?r/i.test(normalizedEffect));
+      if (isPaidScalingCandidate && !shouldAIPreferPaidScalingManaOverColorlessTap({
+        producedAmount,
+        activationGenericCost: Number(parseManaCost(String(manaInfo.activationCost || '')).generic || 0),
+        neededColor: normalizedManaColor,
+      })) {
+        continue;
+      }
       if (producedAmount <= 0) {
         continue;
       }
       score += producedAmount * 25;
+      if (!spendRestriction) {
+        score += 20;
+      }
 
       if (!/pay\s+\d+\s+life/i.test(normalizedText)) {
         score += 4;
@@ -844,6 +885,7 @@ export function tryActivateAINonTapManaAbilityForSpellPaymentSimulation(
         if (!permanent || permanent.controller !== playerId || permanent.tapped) return false;
         if (excludePermanentIds.has(String(permanent?.id || ''))) return false;
         if (hasCreatureSummoningSickness(permanent)) return false;
+        if (permanentCannotActivateTapAbilities(permanent, game.state)) return false;
         if (!hasManaAbility(permanent.card)) return false;
         return getAIManaProductionOptions(game, playerId, permanent).length > 0;
       })
@@ -1024,6 +1066,7 @@ export async function tryAIManaBatteryColorFixForSpellPayment(
           if (!entry || entry.controller !== playerId || entry.tapped) return false;
           if (excludeIds.has(String(entry?.id || ''))) return false;
           if (hasCreatureSummoningSickness(entry)) return false;
+          if (permanentCannotActivateTapAbilities(entry, game.state)) return false;
           if (!hasManaAbility(entry.card)) return false;
           return true;
         })

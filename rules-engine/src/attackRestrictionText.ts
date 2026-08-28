@@ -265,10 +265,15 @@ export function getAttackProhibitionSourceForPlayer(
     }
 
     const oracleText = normalizeAttackRestrictionText(String(permanent?.card?.oracle_text || ''));
-    if (/\byou can't be attacked\b/i.test(oracleText)) {
+    if (/\byou can't be attacked(?!\s+except)\b/i.test(oracleText)) {
       return String(permanent?.card?.name || 'an effect');
     }
-    if (/\bcreatures can't attack you(?!\s+unless)\b/i.test(oracleText)) {
+    // Color-prefixed "Black creatures can't attack you" is gated (StaticEffectSpec),
+    // not a blanket player lock. "Flying Creatures can't attack you" still matches.
+    // Pillowfort with "or planeswalkers you control unless …" is tax, not a lock.
+    if (
+      /(?<!(?:nonblack|nonwhite|nonblue|nonred|nongreen|black|white|blue|red|green)\s)\bcreatures can't attack you(?!(?: or planeswalkers? you control)?\s+unless)/i.test(oracleText)
+    ) {
       return String(permanent?.card?.name || 'an effect');
     }
   }

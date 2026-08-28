@@ -24,6 +24,36 @@ import {
   registerDelayedTrigger,
 } from './delayedTriggeredAbilities';
 
+function permanentDamageSourceIds(perm: any): string[] {
+  return Array.isArray(perm?.damageSourceIds)
+    ? perm.damageSourceIds.map((value: unknown) => String(value || '').trim()).filter(Boolean)
+    : [];
+}
+
+function resolveCreaturesDealtDamageThisWay(
+  battlefield: readonly BattlefieldPermanent[],
+  ctx: OracleIRExecutionContext,
+  youControlOnly: boolean,
+): BattlefieldPermanent[] {
+  const sourceId = String(ctx.sourceId || '').trim();
+  const lastDamaged = Array.isArray((ctx as any).lastDamagedBattlefieldPermanentIds)
+    ? ((ctx as any).lastDamagedBattlefieldPermanentIds as readonly unknown[])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    : [];
+  const boundIds = collectBoundBattlefieldIds(ctx);
+  const idSet = new Set([...lastDamaged, ...boundIds]);
+  const controllerId = String(ctx.controllerId || '').trim();
+  return battlefield.filter((perm: any) => {
+    if (!permanentMatchesType(perm, 'creature')) return false;
+    const id = String(perm?.id || '').trim();
+    const marked = idSet.has(id) || (sourceId.length > 0 && permanentDamageSourceIds(perm).includes(sourceId));
+    if (!marked) return false;
+    if (youControlOnly && controllerId && String(perm?.controller || '').trim() !== controllerId) return false;
+    return true;
+  });
+}
+
 export function applyGrantTemporaryDiesTriggerStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'grant_temporary_dies_trigger' }>,
@@ -70,6 +100,19 @@ export function applyGrantTemporaryDiesTriggerStep(
       if (String(perm?.controller || '').trim() !== String(ctx.controllerId || '').trim()) return false;
       return permanentMatchesType(perm, 'creature');
     });
+  }
+
+  const thisWayRaw = `${normalizedTargetText} ${String(step.raw || '')}`;
+  if (/creature(?:s)?(?: you control)? dealt damage this way/i.test(thisWayRaw)) {
+    const youControlOnly = /creature(?:s)? you control dealt damage this way/i.test(thisWayRaw);
+    targets = resolveCreaturesDealtDamageThisWay(battlefield, ctx, youControlOnly);
+    if (targets.length === 0) {
+      return {
+        applied: true,
+        state,
+        log: ['No creatures dealt damage this way for delayed dies trigger'],
+      };
+    }
   }
 
   if (targets.length === 0) {

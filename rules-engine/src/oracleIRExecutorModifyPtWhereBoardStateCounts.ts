@@ -11,6 +11,25 @@ type GetColorsFromObject = (obj: unknown) => readonly string[];
 type NormalizeOracleText = (value: string) => string;
 type FindObjectByName = (name: string) => unknown | null;
 
+function subtypeMatchCandidates(phrase: string): string[] {
+  const raw = String(phrase || '').trim().toLowerCase();
+  if (!raw) return [];
+  const candidates = new Set<string>([raw]);
+  if (raw.endsWith('ves') && raw.length > 3) {
+    candidates.add(`${raw.slice(0, -3)}f`);
+  }
+  if (raw.endsWith('s') && raw.length > 2) {
+    candidates.add(raw.slice(0, -1));
+  }
+  return [...candidates];
+}
+
+function typeLineHasSubtype(typeLine: string, subtype: string): boolean {
+  const escaped = String(subtype || '').trim().toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!escaped) return false;
+  return new RegExp(`\\b${escaped}s?\\b`, 'i').test(String(typeLine || ''));
+}
+
 export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
   state: GameState;
   raw: string;
@@ -454,14 +473,23 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
   }
 
   {
-    const m = raw.match(/^x is the number of other elves you control$/i);
+    const m = raw.match(/^x is the number of other (.+?) you control$/i);
     if (m) {
-      const sourceId = String(ctx?.sourceId || '').trim();
-      return controlled.filter((perm: any) => {
-        const id = String(perm?.id || '').trim();
-        if (sourceId && id === sourceId) return false;
-        return typeLineLower(perm).includes('elf');
-      }).length;
+      const phrase = String(m[1] || '').trim().toLowerCase();
+      if (
+        phrase
+        && !/^(?:creatures?|permanents?|cards?|lands?|artifacts?|enchantments?|tokens?|players?|opponents?)$/i.test(phrase)
+      ) {
+        const sourceId = String(ctx?.sourceId || '').trim();
+        const subtypes = subtypeMatchCandidates(phrase);
+        return controlled.filter((perm: any) => {
+          const id = String(perm?.id || '').trim();
+          if (sourceId && id === sourceId) return false;
+          const typeLine = typeLineLower(perm);
+          if (!/\bcreature\b/i.test(typeLine) && !hasExecutorClass(perm, 'creature')) return false;
+          return subtypes.some((subtype) => typeLineHasSubtype(typeLine, subtype));
+        }).length;
+      }
     }
   }
 

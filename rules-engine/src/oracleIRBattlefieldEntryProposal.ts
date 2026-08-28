@@ -1,4 +1,9 @@
-import { detectETBTappedPattern, matchOpponentsControlLandsETB } from './oracleIREtbTappedPattern';
+import {
+  collectControllerLandStats,
+  detectETBTappedPattern,
+  evaluateConditionalEntersTappedFromBattlefield,
+  isPayLifeOrEnterTapped,
+} from './oracleIREtbTappedPattern';
 import type { OracleIRPendingTransition } from './oracleIRTransitionTypes';
 import { nextOracleIRSnapshotId, snapshotObjectAtZone } from './oracleIRSnapshotFactory';
 
@@ -39,32 +44,26 @@ export function detectOpponentEntersTappedFromBattlefield(
   return false;
 }
 
-function countOpponentLands(battlefield: readonly unknown[], controllerId: string): number {
-  let count = 0;
-  for (const perm of battlefield) {
-    if (!perm) continue;
-    const controller = String((perm as any)?.controller ?? '');
-    if (!controller || controller === controllerId) continue;
-    const typeLine = String((perm as any)?.card?.type_line ?? '').toLowerCase();
-    if (typeLine.includes('land')) count += 1;
-  }
-  return count;
-}
-
 export function resolvePermanentEntersTapped(args: {
   battlefield: readonly unknown[];
   controllerId: string;
   card: unknown;
+  opponentCount?: number;
 }): boolean {
   const ownText = String((args.card as any)?.oracle_text ?? '');
+  if (isPayLifeOrEnterTapped(ownText)) return true;
+
   const pattern = detectETBTappedPattern(ownText);
   if (pattern === 'always') return true;
   if (pattern === 'conditional') {
-    const opponentsLandThreshold = matchOpponentsControlLandsETB(
-      ownText,
-      countOpponentLands(args.battlefield, args.controllerId),
+    const stats = collectControllerLandStats(
+      args.battlefield,
+      args.controllerId,
+      args.opponentCount,
     );
-    if (opponentsLandThreshold?.shouldEnterTapped) return true;
+    const fromRules = evaluateConditionalEntersTappedFromBattlefield(ownText, stats);
+    if (fromRules !== null) return fromRules;
+    return true;
   }
   return detectOpponentEntersTappedFromBattlefield(args.battlefield, args.controllerId, args.card);
 }
@@ -84,10 +83,13 @@ export function proposeBattlefieldEntryTransition(args: {
   const battlefield = Array.isArray((args.state as any)?.battlefield)
     ? (args.state as any).battlefield
     : [];
+  const players = Array.isArray((args.state as any)?.players) ? (args.state as any).players : [];
+  const opponentCount = players.filter((player: any) => String(player?.id || '') !== args.controllerId).length;
   const entersTapped = resolvePermanentEntersTapped({
     battlefield,
     controllerId: args.controllerId,
     card: args.card,
+    opponentCount,
   });
 
   const transitionId = nextOracleIRSnapshotId('ir-bfe');

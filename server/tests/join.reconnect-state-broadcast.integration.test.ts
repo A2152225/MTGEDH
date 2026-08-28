@@ -114,4 +114,41 @@ describe('joinGame reconnect broadcast delivery (integration)', () => {
       },
     ]);
   });
+
+  it('clears deferred-leave flags so the reconnecting player is in-game again', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      {
+        id: playerId,
+        name: 'Reconnect Tester',
+        spectator: false,
+        life: 40,
+        seatToken: 'seat_reconnect',
+        leftGame: true,
+        conceded: true,
+        departureMode: 'leave',
+        connected: false,
+      },
+    ];
+    (game.state as any).autoPassForTurn = { [playerId]: true };
+    (game as any).participantsList.length = 0;
+    (game as any).joinedBySocket.clear();
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket('fresh_socket', emitted);
+
+    registerJoinHandlers(io as any, socket as any);
+    await handlers['joinGame']({ gameId, fixedPlayerId: playerId });
+
+    const sitting = (game.state as any).players.find((entry: any) => entry.id === playerId);
+    expect(sitting.leftGame).toBeUndefined();
+    expect(sitting.conceded).toBeUndefined();
+    expect(sitting.departureMode).toBeUndefined();
+    expect(sitting.connected).toBe(true);
+    expect((game.state as any).autoPassForTurn[playerId]).toBeUndefined();
+  });
 });

@@ -7,7 +7,7 @@
 // turn-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
-import { drawCards } from "../zones.js";
+import { drawCards, drawCardsByIds } from "../zones.js";
 import { runSBA } from "../counters_tokens.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 
@@ -31,8 +31,18 @@ export function runTurnStepDrawTurnAction(
             // Calculate total cards to draw: 1 (base) + any additional draws from effects
             const additionalDraws = (ctx as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
             const totalDraws = 1 + additionalDraws;
+            const replayDrawnCardIds = (Array.isArray((ctx.state as any)?._replayDrawStepCardIds)
+              ? (ctx.state as any)._replayDrawStepCardIds
+              : [])
+              .map((id: unknown) => String(id || '').trim())
+              .filter(Boolean);
 
-            const drawn = drawCards(ctx, turnPlayer, totalDraws, { skipEventPersistence: true });
+            const drawn = replayDrawnCardIds.length > 0
+              ? drawCardsByIds(ctx, turnPlayer, replayDrawnCardIds)
+              : drawCards(ctx, turnPlayer, totalDraws, { skipEventPersistence: true });
+            (ctx.state as any)._lastDrawStepCardIds = (Array.isArray(drawn) ? drawn : [])
+              .map((card: any) => String(card?.id || '').trim())
+              .filter(Boolean);
             debug(2,
               `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step (base: 1, additional: ${additionalDraws})`
             );

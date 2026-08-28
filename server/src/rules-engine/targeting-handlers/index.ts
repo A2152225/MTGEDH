@@ -39,6 +39,22 @@ export {
 } from "./targetingParseTargetRequirementRestrictions.js";
 export type { ParsedTargetRequirementStatKeywordFilters } from "./targetingParseTargetRequirementRestrictions.js";
 
+// Bolt Bend / Redirect: stamped single target, or a single-target ability
+// whose effect still needs a target (deferred Aura Shards-style triggers).
+export {
+  countStackItemTargets,
+  stackItemHasExactlyOneTarget,
+  stackItemMeetsSingleTargetRequirement,
+} from "./targetingStackObjectSingleTarget.js";
+
+// Untargeted mass bounce/removal whose affected set is attacking/blocking creatures.
+export {
+  inferUntargetedCombatRoleMassEffect,
+  battlefieldHasUntargetedCombatRole,
+  evaluateUntargetedCombatRoleMassEffectLegality,
+} from "./targetingUntargetedCombatRoleMassEffect.js";
+export type { UntargetedCombatRole } from "./targetingUntargetedCombatRoleMassEffect.js";
+
 // categorizeSpellWithoutPrimaryRetirement pattern families (null = fall through).
 export { tryCategorizeStackCounterSimpleTemplates } from "./targetingCategorizeStackCounterSimpleTemplates.js";
 export { tryCategorizeScryMillMassRemoval } from "./targetingCategorizeScryMillMassRemoval.js";

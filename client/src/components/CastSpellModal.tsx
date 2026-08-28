@@ -108,6 +108,12 @@ export function resolveEffectiveManaCostForCastStep(options: {
   costAdjustment?: DisplayedCostAdjustment;
 }): string {
   const selectedManaCost = options.selectedManaCost || options.queuedManaCost || options.costAdjustment?.adjustedManaCost || '';
+  if (
+    String(options.forcedAlternateCostId || '').toLowerCase() === 'free'
+    && (options.selectedCostId === 'free' || options.selectedCostId === 'normal' || !options.selectedCostId)
+  ) {
+    return '{0}';
+  }
   if (!selectedManaCost) return selectedManaCost;
 
   const usesServerResolvedPaymentLine =
@@ -227,6 +233,18 @@ export function CastSpellModal({
     setXValue(Number.isFinite(initialXValue) ? Math.max(0, Math.floor(Number(initialXValue))) : 0);
   }, [open, initialXValue]);
 
+  const restrictedPurpose = useMemo(
+    () => (
+      isActivatedAbilityPayment
+        ? { isActivatedAbility: true, isAbility: true }
+        : buildRestrictedManaPurposeForSpell(
+          { type_line: typeLine || '', oracle_text: oracleText, name: cardName },
+          { isCommander: castFromZone === 'command' },
+        )
+    ),
+    [isActivatedAbilityPayment, typeLine, oracleText, cardName, castFromZone],
+  );
+
   // Parse alternate costs from oracle text
   const alternateCosts = useMemo(() => {
     let costs = parseAlternateCosts(oracleText || '', manaCost || '', cardName);
@@ -260,8 +278,22 @@ export function CastSpellModal({
       costs = costs.filter((cost) => cost.id !== 'web_slinging');
     }
 
-    return filterAlternateCostsForCastZone(costs, castFromZone);
-  }, [oracleText, manaCost, cardName, castFromZone, extraAlternateCosts, currentStep, sneakOptions, webSlingingOptions]);
+    costs = filterAlternateCostsForCastZone(costs, castFromZone);
+
+    if (forcedAlternateCostId === 'free' && !costs.some((cost) => cost.id === 'free')) {
+      costs = [
+        ...costs,
+        {
+          id: 'free',
+          label: 'Free Cast',
+          description: 'Cast without paying its mana cost',
+          manaCost: '{0}',
+        },
+      ];
+    }
+
+    return costs;
+  }, [oracleText, manaCost, cardName, castFromZone, extraAlternateCosts, currentStep, sneakOptions, webSlingingOptions, forcedAlternateCostId]);
 
   // Get the currently selected cost
   const currentCost = useMemo(() => {
@@ -327,7 +359,6 @@ export function CastSpellModal({
       colorless: 'C',
     };
     if (floatingMana.restricted) {
-      const restrictedPurpose = (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' }));
       floatingMana.restricted.forEach((entry, restrictedIndex) => {
         if (!canUseRestrictedManaClient(entry as any, restrictedPurpose)) return;
         const poolKey = String(entry.type || 'colorless');
@@ -344,7 +375,7 @@ export function CastSpellModal({
     }
 
     return entries;
-  }, [floatingMana, manualFloatingManaSelection]);
+  }, [floatingMana, manualFloatingManaSelection, restrictedPurpose]);
 
   const effectiveSuggestedSources = useMemo(
     () => (manualFloatingManaSelection ? [...floatingPaymentSources, ...availableSources] : availableSources),
@@ -361,15 +392,16 @@ export function CastSpellModal({
     if (!floatingMana) return null;
     const costToUse = effectiveManaCost || currentCost?.manaCost || manaCost;
     const cost = applyXValueToParsedCost(parseManaCost(costToUse), xValue);
-    const { usedFromPool } = calculateRemainingCostAfterFloatingMana(cost, floatingMana, (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' })));
+    const { usedFromPool } = calculateRemainingCostAfterFloatingMana(cost, floatingMana, restrictedPurpose);
     const totalUsed = Object.values(usedFromPool).reduce((a, b) => a + b, 0);
     return totalUsed > 0 ? usedFromPool : null;
-  }, [currentCost, effectiveManaCost, manaCost, xValue, floatingMana]);
+  }, [currentCost, effectiveManaCost, manaCost, xValue, floatingMana, restrictedPurpose]);
 
   const isForceAltCostSelected = selectedCostId === 'force_of_will';
+  const skipManaPaymentPicker = isForceAltCostSelected || selectedCostId === 'free';
 
   const explicitPaymentSelectionRequired = useMemo(() => {
-    if (!manualFloatingManaSelection || isForceAltCostSelected) return false;
+    if (!manualFloatingManaSelection || skipManaPaymentPicker) return false;
 
     const costToUse = effectiveManaCost || currentCost?.manaCost || manaCost || '{0}';
     const parsed = parseManaCost(costToUse);
@@ -379,7 +411,7 @@ export function CastSpellModal({
     const totalCost = Number(parsed.generic || 0) + colorCost + hybridCost + xCost;
 
     return totalCost > 0;
-  }, [currentCost, effectiveManaCost, isForceAltCostSelected, manaCost, manualFloatingManaSelection, xValue]);
+  }, [currentCost, effectiveManaCost, skipManaPaymentPicker, manaCost, manualFloatingManaSelection, xValue]);
 
   const suggestedPaymentItems = useMemo(() => {
     const colorsToPreserve = computeColorsNeededByOtherCards(otherCardsInHand);
@@ -388,7 +420,7 @@ export function CastSpellModal({
       effectiveSuggestedSources.filter((source) => !source.sacrificeCost),
       colorsToPreserve,
       floatingMana,
-      { includeExplicitPoolItems: manualFloatingManaSelection, purpose: (isActivatedAbilityPayment ? { isActivatedAbility: true, isAbility: true } : buildRestrictedManaPurposeForSpell({ type_line: typeLine || '' })) },
+      { includeExplicitPoolItems: manualFloatingManaSelection, purpose: restrictedPurpose },
     );
   }, [
     spellCostForPayment,
@@ -396,8 +428,7 @@ export function CastSpellModal({
     otherCardsInHand,
     floatingMana,
     manualFloatingManaSelection,
-    typeLine,
-    isActivatedAbilityPayment,
+    restrictedPurpose,
   ]);
 
   useEffect(() => {
@@ -743,7 +774,7 @@ export function CastSpellModal({
           </div>
         )}
 
-        {isForceAltCostSelected ? (
+        {skipManaPaymentPicker ? (
           <div style={{
             marginTop: 8,
             padding: 12,
@@ -753,7 +784,9 @@ export function CastSpellModal({
             fontSize: 13,
             color: '#cbd5e1',
           }}>
-            No mana payment required. You’ll be prompted to exile a blue card (and pay life if applicable) after confirming.
+            {isForceAltCostSelected
+              ? 'No mana payment required. You’ll be prompted to exile a blue card (and pay life if applicable) after confirming.'
+              : 'No mana payment required. This spell is being cast without paying its mana cost.'}
           </div>
         ) : (
           <PaymentPicker
@@ -768,6 +801,8 @@ export function CastSpellModal({
             otherCardsInHand={otherCardsInHand}
             floatingMana={floatingMana}
             typeLine={typeLine}
+            oracleText={oracleText}
+            isCommander={castFromZone === 'command'}
             isActivatedAbilityPayment={isActivatedAbilityPayment}
             manualFloatingManaSelection={manualFloatingManaSelection}
             autoSelectedPayment={suggestedPaymentItems}

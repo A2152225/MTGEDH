@@ -28,6 +28,7 @@ import {
 } from '../../../../rules-engine/src/keywordAbilities/mutate.js';
 import { syncArcaneAdaptationForNewCreature } from './chosen-creature-type.js';
 import { applyMetallicMimicEntryBonus } from './triggerChosenTypeSpellUtils.js';
+import { applyGraveyardTypeEntryCounterGrants } from './graveyardTypeEntryCounterBonus.js';
 import { cardEntersPrepared, setPermanentPrepared } from './prepared.js';
 import { hydratePermanentCardOracleInPlace, hydrateCardOracleInPlace } from './cardOracleHydration.js';
 import { lookupLocalCardByNameSync } from '../../services/localCardLookup.js';
@@ -650,6 +651,7 @@ export function resolvePermanentSpellBattlefieldEntry(
   state.battlefield.push(newPermanent);
   syncArcaneAdaptationForNewCreature(state, newPermanent);
   applyMetallicMimicEntryBonus(ctx, newPermanent, controller as PlayerID);
+  applyGraveyardTypeEntryCounterGrants(state, newPermanent, String(controller));
 
   if (cardEntersPrepared(newPermanent.card)) {
     setPermanentPrepared(state, newPermanent);

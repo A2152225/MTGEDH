@@ -25,6 +25,7 @@ import {
   getPrintedUnearthInfo,
 } from "../../state/modules/graveyard-permissions.js";
 import { creatureHasHaste } from "../game-actions.js";
+import { permanentCannotActivateTapAbilities } from "../../state/modules/staticEffectSpecActivationLocks.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { isInMainPhase } from "./utilMainPhaseCheck.js";
 
@@ -202,7 +203,7 @@ export function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): stri
       let hasActivatableAbility = false;
       
       // Check for tap abilities
-      if (/\{T\}:/.test(oracleText) && !perm.tapped) {
+      if (/\{T\}:/.test(oracleText) && !perm.tapped && !permanentCannotActivateTapAbilities(perm, state)) {
         const abilityMatch = oracleText.match(/\{T\}(?:,\s*([^:]+))?:\s*(.+)/i);
         if (abilityMatch) {
           const effect = abilityMatch[2] || "";
@@ -218,8 +219,10 @@ export function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): stri
         }
       }
       
-      // Check for other activated abilities with costs
-      const activatedAbilityPattern = /(\{[^}]+\}(?:\s*,\s*\{[^}]+\})*)\s*:\s*(.+)/gi;
+      // Check for other activated abilities with costs.
+      // Commas between symbols are optional so concatenated costs like {1}{R}{R}
+      // are captured in full (a required comma truncated those to the last {R}).
+      const activatedAbilityPattern = /(\{[^}]+\}(?:\s*,?\s*\{[^}]+\})*)\s*:\s*(.+)/gi;
       const matches = [...oracleText.matchAll(activatedAbilityPattern)];
       
       for (const match of matches) {

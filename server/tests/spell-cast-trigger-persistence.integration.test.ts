@@ -101,7 +101,8 @@ describe('cast spell trigger persistence (integration)', () => {
   const disturbTriggerGameId = 'test_spell_cast_trigger_persistence_disturb_trigger';
   const sourceZoneReplayGameId = 'test_spell_cast_trigger_persistence_replay_source_zone';
   const rhysticApnapGameId = 'test_spell_cast_trigger_persistence_rhystic_apnap';
-  const resetGameIds = [merrowGameId, rhysticGameId, vegaHandGameId, vegaExileGameId, appaHandGameId, appaExileGameId, grafkeeperFlashbackGameId, rhysticFlashbackGameId, ominousRoostFlashbackGameId, ominousRoostFlashbackAuraGameId, heroicFlashbackGameId, heroicFlashbackAuraGameId, jumpStartTargetGameId, disturbTriggerGameId, sourceZoneReplayGameId, rhysticApnapGameId];
+  const judithGameId = 'test_spell_cast_trigger_persistence_judith';
+  const resetGameIds = [merrowGameId, rhysticGameId, vegaHandGameId, vegaExileGameId, appaHandGameId, appaExileGameId, grafkeeperFlashbackGameId, rhysticFlashbackGameId, ominousRoostFlashbackGameId, ominousRoostFlashbackAuraGameId, heroicFlashbackGameId, heroicFlashbackAuraGameId, jumpStartTargetGameId, disturbTriggerGameId, sourceZoneReplayGameId, rhysticApnapGameId, judithGameId];
 
   beforeAll(async () => {
     await initDb();
@@ -1189,5 +1190,68 @@ describe('cast spell trigger persistence (integration)', () => {
     const activateEvent = [...getEvents(jumpStartTargetGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
     expect(activateEvent?.payload?.targets).toEqual(['heroic_target_1']);
     expect(activateEvent?.payload?.discardedCardIds).toEqual(['discard_for_jump_start_1']);
+  });
+
+  it('puts Judith choose-one on the stack instead of silently creating an Imp', async () => {
+    const game = setupCastingGame(judithGameId);
+    (game.state as any).battlefield = [
+      {
+        id: 'judith_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'judith_card',
+          name: 'Judith, Carnage Connoisseur',
+          type_line: 'Legendary Creature — Human Shaman',
+          oracle_text:
+            'Whenever you cast an instant or sorcery spell, choose one —\n' +
+            '\u2022 That spell gains deathtouch and lifelink.\n' +
+            '\u2022 Create a 2/2 red Imp creature token with "When this token dies, it deals 2 damage to each opponent."',
+        },
+      },
+    ];
+    (game.state as any).zones.p1.hand = [
+      {
+        id: 'reckless_blaze_1',
+        name: 'Reckless Blaze',
+        mana_cost: '{0}',
+        manaCost: '{0}',
+        type_line: 'Sorcery — Lesson',
+        oracle_text:
+          'Reckless Blaze deals 5 damage to each creature. Whenever a creature you control dealt damage this way dies this turn, add {R}.',
+      },
+    ];
+    (game.state as any).zones.p1.handCount = 1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', judithGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['castSpellFromHand']({
+      gameId: judithGameId,
+      cardId: 'reckless_blaze_1',
+      targets: [],
+    });
+
+    const stack = (game.state as any).stack || [];
+    const reckless = stack.find((item: any) => item?.card?.name === 'Reckless Blaze' || item?.card?.id === 'reckless_blaze_1');
+    const judithTrigger = stack.find(
+      (item: any) => item?.type === 'triggered_ability' && item?.sourceName === 'Judith, Carnage Connoisseur',
+    );
+    expect(reckless).toBeDefined();
+    expect(judithTrigger).toBeDefined();
+    expect(judithTrigger?.requiresChoice).toBe(true);
+    expect(String(judithTrigger?.effect || '')).toMatch(/choose one/i);
+    expect(String(judithTrigger?.effect || '')).toMatch(/deathtouch and lifelink/i);
+    expect(String(judithTrigger?.triggeringStackItemId || judithTrigger?.effectData?.triggeringStackItemId || '')).toBe(
+      String(reckless?.id || ''),
+    );
+
+    const imps = ((game.state as any).battlefield || []).filter((perm: any) =>
+      String(perm?.card?.name || perm?.name || '').toLowerCase().includes('imp'),
+    );
+    expect(imps).toHaveLength(0);
   });
 });

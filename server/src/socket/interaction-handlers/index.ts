@@ -124,6 +124,8 @@ export { tryHandleActivateSacrificeDraw } from "./interactionActivateSacrificeDr
 
 // Grant-keyword / control-change / fight / counter / tap-untap families.
 export { tryHandleActivateGrantFightCounterTap } from "./interactionActivateGrantFightCounterTap.js";
+// Grant-ability target phrase (target Dinosaur / target creature you control).
+export { parseGrantAbilityCreatureTarget } from "./interactionActivateGrantAbilityTargetParse.js";
 
 // Level-up / outlast / monstrosity / adapt / creature-upgrade families.
 export { tryHandleActivateLevelOutlastUpgrade } from "./interactionActivateLevelOutlastUpgrade.js";

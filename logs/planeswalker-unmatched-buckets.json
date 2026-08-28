@@ -1,14 +1,14 @@
 {
-  "generatedAt": "2026-08-13T07:49:12.487Z",
+  "generatedAt": "2026-08-28T03:25:24.893Z",
   "totals": {
-    "unmatched": 242,
-    "buckets": 72
+    "unmatched": 272,
+    "buckets": 76
   },
   "topBuckets": [
     {
       "bucket": "FIRSTWORD_YOU",
       "label": "FIRSTWORD_YOU",
-      "count": 23,
+      "count": 24,
       "sampleCards": [
         {
           "name": "Chandra, Spark Hunter",
@@ -76,8 +76,12 @@
     {
       "bucket": "UNTIL_END_OF_TURN",
       "label": "Until end of turn, …",
-      "count": 14,
+      "count": 15,
       "sampleCards": [
+        {
+          "name": "Greensleeves",
+          "oracleId": "20b90808-0279-46eb-ae51-6990ac679a83"
+        },
         {
           "name": "Elspeth, Undaunted Hero",
           "oracleId": "3f9a797b-85e7-474e-aefe-7e2ec08fc5b7"
@@ -93,18 +97,14 @@
         {
           "name": "Sarkhan the Masterless",
           "oracleId": "67dbc5dd-6d05-43e7-83f7-70e10eb54807"
-        },
-        {
-          "name": "Sorin, Vampire Lord",
-          "oracleId": "753dcc18-3697-49c5-80c6-2d8dc8ee8c9a"
         }
       ],
       "sampleEffects": [
+        "Until end of turn, creatures you control have base power and toughness 8/8 and gain trample.",
         "Until end of turn, creatures you control gain flying and get +X/+X, where X is your devotion to white.",
         "Until end of turn, Gideon becomes a Human Soldier creature with power and toughness each equal to the number of loyalty counters on him and gains indestructible. He's still a planeswalker. Prevent all damage that would be dealt to him this turn.",
         "Until end of turn, whenever a creature you control deals combat damage to a player, put a loyalty counter on Dovin.",
-        "Until end of turn, each planeswalker you control becomes a 4/4 red Dragon creature and gains flying.",
-        "Until end of turn, each Vampire you control gains \"{T}: Gain control of target creature.\""
+        "Until end of turn, each planeswalker you control becomes a 4/4 red Dragon creature and gains flying."
       ]
     },
     {
@@ -142,6 +142,108 @@
       ]
     },
     {
+      "bucket": "EACH_OPPONENT",
+      "label": "Each opponent …",
+      "count": 10,
+      "sampleCards": [
+        {
+          "name": "Garruk, Veiled Butcher",
+          "oracleId": "4a6972fe-348a-4a19-a1d0-bdf8f1f9c792"
+        },
+        {
+          "name": "Nicol Bolas, the Deceiver",
+          "oracleId": "524b00ea-0372-40f9-a6a1-76a8497a1ea6"
+        },
+        {
+          "name": "Nicol Bolas, Dragon-God",
+          "oracleId": "581eedc4-efe4-4ae4-baf2-88071e7e6f6d"
+        },
+        {
+          "name": "Liliana, Dreadhorde General",
+          "oracleId": "5e958212-6a5b-4288-8d31-f1572619d7dc"
+        },
+        {
+          "name": "Sifa Grent",
+          "oracleId": "9a3d148c-e1bb-4e7a-a588-00a24041ebf7"
+        }
+      ],
+      "sampleEffects": [
+        "Each opponent discards two cards. For each opponent who didn't discard two nonland cards this way, you draw a card.",
+        "Each opponent loses 3 life unless that player sacrifices a nonland permanent of their choice or discards a card.",
+        "Each opponent who doesn't control a legendary creature or planeswalker loses the game.",
+        "Each opponent chooses a permanent they control of each permanent type and sacrifices the rest.",
+        "Each opponent exiles the top two cards of their library. Until end of turn, you may play those cards without paying their mana costs."
+      ]
+    },
+    {
+      "bucket": "UNTIL_YOUR_NEXT_TURN",
+      "label": "Until your next turn, …",
+      "count": 9,
+      "sampleCards": [
+        {
+          "name": "Vivien, Champion of the Wilds",
+          "oracleId": "146eb8c8-93d5-4dd5-af7a-46d5acd4a89d"
+        },
+        {
+          "name": "Garruk, Curse Breaker",
+          "oracleId": "184d4672-05a9-4182-8b3f-3561fb33ed62"
+        },
+        {
+          "name": "Davriel, Soul Broker",
+          "oracleId": "22b5721d-c187-4e0f-b752-52c2a26f3505"
+        },
+        {
+          "name": "Tasha, Unholy Archmage",
+          "oracleId": "33ad9da4-35d0-467f-be3b-abb77c00c3d3"
+        },
+        {
+          "name": "Sivitri, Dragon Master",
+          "oracleId": "5cf86603-cc47-4644-890a-0997c694817f"
+        }
+      ],
+      "sampleEffects": [
+        "Until your next turn, up to one target creature gains reach and vigilance.",
+        "Until your next turn, whenever one or more creatures attack one of your opponents, those creatures get +2/+2 and gain trample until end of turn.",
+        "Until your next turn, whenever an opponent attacks you and/or planeswalkers you control, they discard a card. If they can't, they sacrifice an attacking creature.",
+        "Until your next turn, whenever a creature attacks you or Tasha, Unholy Archmage, put a -1/-1 counter on that creature.",
+        "Until your next turn, creatures can't attack you or planeswalkers you control unless their controller pays 2 life for each of those creatures."
+      ]
+    },
+    {
+      "bucket": "FIRSTWORD_DRAW",
+      "label": "FIRSTWORD_DRAW",
+      "count": 9,
+      "sampleCards": [
+        {
+          "name": "Oko, the Ringleader",
+          "oracleId": "4372b729-dc3d-4469-8fc5-811cc787d653"
+        },
+        {
+          "name": "The Royal Scions",
+          "oracleId": "4ecde8d1-e4ec-4bd9-8a80-49885b032557"
+        },
+        {
+          "name": "Feroz, Ulgrotha's Warden",
+          "oracleId": "724bcd6b-4deb-49c0-aa0e-1245bb40dd56"
+        },
+        {
+          "name": "Jace, Mirror Mage",
+          "oracleId": "7ca99e2f-faf2-4301-a0ae-7cb880ba965b"
+        },
+        {
+          "name": "Tasha, the Witch Queen",
+          "oracleId": "863a148c-596a-492b-b68e-3e1cbfcb140f"
+        }
+      ],
+      "sampleEffects": [
+        "Draw two cards. If you've committed a crime this turn, discard a card. Otherwise, discard two cards.",
+        "Draw four cards. When you do, The Royal Scions deals damage to any target equal to the number of cards in your hand.",
+        "Draw a card. You may put a permanent card with mana value 4 or less from your hand onto the battlefield.",
+        "Draw a card and reveal it. Remove a number of loyalty counters equal to that card's mana value from Jace.",
+        "Draw a card. For each opponent, exile up to one target instant or sorcery card from that player's graveyard and put a page counter on it."
+      ]
+    },
+    {
       "bucket": "FIRSTWORD_UP",
       "label": "FIRSTWORD_UP",
       "count": 9,
@@ -176,105 +278,139 @@
       ]
     },
     {
-      "bucket": "FIRSTWORD_DRAW",
-      "label": "FIRSTWORD_DRAW",
+      "bucket": "FIRSTWORD_FOR",
+      "label": "FIRSTWORD_FOR",
       "count": 8,
       "sampleCards": [
+        {
+          "name": "The Eternal Wanderer",
+          "oracleId": "20a1671d-e8a4-4cf1-87a7-f2f6319f4b9e"
+        },
+        {
+          "name": "Jace, Architect of Thought",
+          "oracleId": "2274c7ae-5a40-4fd4-a4ac-6f56b23034e4"
+        },
         {
           "name": "Oko, the Ringleader",
           "oracleId": "4372b729-dc3d-4469-8fc5-811cc787d653"
         },
         {
-          "name": "The Royal Scions",
-          "oracleId": "4ecde8d1-e4ec-4bd9-8a80-49885b032557"
+          "name": "Vraska, Regal Gorgon",
+          "oracleId": "7616e834-4852-40c8-9de6-d89f96119f12"
         },
         {
-          "name": "Jace, Mirror Mage",
-          "oracleId": "7ca99e2f-faf2-4301-a0ae-7cb880ba965b"
-        },
-        {
-          "name": "Tasha, the Witch Queen",
-          "oracleId": "863a148c-596a-492b-b68e-3e1cbfcb140f"
-        },
-        {
-          "name": "Ral, Caller of Storms",
-          "oracleId": "d7b10518-b6dc-4a39-881a-edd346034f28"
+          "name": "Vronos, Masked Inquisitor",
+          "oracleId": "86851bdb-9b2f-4407-97a1-a6a9f2e0ef66"
         }
       ],
       "sampleEffects": [
-        "Draw two cards. If you've committed a crime this turn, discard a card. Otherwise, discard two cards.",
-        "Draw four cards. When you do, The Royal Scions deals damage to any target equal to the number of cards in your hand.",
-        "Draw a card and reveal it. Remove a number of loyalty counters equal to that card's mana value from Jace.",
-        "Draw a card. For each opponent, exile up to one target instant or sorcery card from that player's graveyard and put a page counter on it.",
-        "Draw seven cards. Ral deals 7 damage to each creature your opponents control."
+        "For each player, choose a creature that player controls. Each player sacrifices all creatures they control not chosen this way.",
+        "For each player, search that player's library for a nonland card and exile it, then that player shuffles. You may cast those cards without paying their mana costs.",
+        "For each other nonland permanent you control, create a token that's a copy of that permanent.",
+        "For each creature card in your graveyard, put a +1/+1 counter on each creature you control.",
+        "For each opponent, return up to one target nonland permanent that player controls to its owner's hand."
       ]
     },
     {
-      "bucket": "EACH_OPPONENT",
-      "label": "Each opponent …",
-      "count": 8,
-      "sampleCards": [
-        {
-          "name": "Nicol Bolas, the Deceiver",
-          "oracleId": "524b00ea-0372-40f9-a6a1-76a8497a1ea6"
-        },
-        {
-          "name": "Nicol Bolas, Dragon-God",
-          "oracleId": "581eedc4-efe4-4ae4-baf2-88071e7e6f6d"
-        },
-        {
-          "name": "Liliana, Dreadhorde General",
-          "oracleId": "5e958212-6a5b-4288-8d31-f1572619d7dc"
-        },
-        {
-          "name": "Professor Onyx",
-          "oracleId": "9df2e909-ed13-456a-9636-7398732009a9"
-        },
-        {
-          "name": "Professor Onyx",
-          "oracleId": "9df2e909-ed13-456a-9636-7398732009a9"
-        }
-      ],
-      "sampleEffects": [
-        "Each opponent loses 3 life unless that player sacrifices a nonland permanent of their choice or discards a card.",
-        "Each opponent who doesn't control a legendary creature or planeswalker loses the game.",
-        "Each opponent chooses a permanent they control of each permanent type and sacrifices the rest.",
-        "Each opponent sacrifices a creature with the greatest power among creatures that player controls.",
-        "Each opponent may discard a card. If they don't, they lose 3 life. Repeat this process six more times."
-      ]
-    },
-    {
-      "bucket": "UNTIL_YOUR_NEXT_TURN",
-      "label": "Until your next turn, …",
+      "bucket": "FIRSTWORD_MILL",
+      "label": "FIRSTWORD_MILL",
       "count": 7,
       "sampleCards": [
         {
-          "name": "Davriel, Soul Broker",
-          "oracleId": "22b5721d-c187-4e0f-b752-52c2a26f3505"
+          "name": "Greensleeves",
+          "oracleId": "20b90808-0279-46eb-ae51-6990ac679a83"
         },
         {
-          "name": "Tasha, Unholy Archmage",
-          "oracleId": "33ad9da4-35d0-467f-be3b-abb77c00c3d3"
+          "name": "Wrenn and Realmbreaker",
+          "oracleId": "4566fb92-448e-4b3f-9045-9d74323c35d1"
         },
         {
-          "name": "Sivitri, Dragon Master",
-          "oracleId": "5cf86603-cc47-4644-890a-0997c694817f"
+          "name": "Liliana, Untouched by Death",
+          "oracleId": "4f66489c-5a19-40ad-9126-461fa8231f1b"
         },
         {
-          "name": "Karn, the Great Creator",
-          "oracleId": "a20dd48d-d344-4db1-b0e9-a2b71c3cc9d1"
+          "name": "Liliana, the Last Hope",
+          "oracleId": "64a9a6b4-26b5-4d23-be86-85c54e9c4727"
         },
         {
-          "name": "Gideon of the Trials",
-          "oracleId": "a9bbaad7-c016-4908-a6a7-2c26112a6bf6"
+          "name": "Estrid, the Masked",
+          "oracleId": "7cf1fa2e-1572-4d9d-8e93-e49016b34458"
         }
       ],
       "sampleEffects": [
-        "Until your next turn, whenever an opponent attacks you and/or planeswalkers you control, they discard a card. If they can't, they sacrifice an attacking creature.",
-        "Until your next turn, whenever a creature attacks you or Tasha, Unholy Archmage, put a -1/-1 counter on that creature.",
-        "Until your next turn, creatures can't attack you or planeswalkers you control unless their controller pays 2 life for each of those creatures.",
-        "Until your next turn, up to one target noncreature artifact becomes an artifact creature with power and toughness each equal to its mana value.",
-        "Until your next turn, prevent all damage target permanent would deal."
+        "Mill three cards. Put all permanent cards from among them into your hand.",
+        "Mill three cards. You may put a permanent card from among the milled cards into your hand.",
+        "Mill three cards. If at least one Zombie card is milled this way, each opponent loses 2 life and you gain 2 life.",
+        "Mill two cards, then you may return a creature card from your graveyard to your hand.",
+        "Mill seven cards. Return all non-Aura enchantment cards from your graveyard to the battlefield, then do the same for Aura cards."
+      ]
+    },
+    {
+      "bucket": "FIRSTWORD_SEARCH",
+      "label": "FIRSTWORD_SEARCH",
+      "count": 7,
+      "sampleCards": [
+        {
+          "name": "Nissa, Worldwaker",
+          "oracleId": "468f9b8e-4423-4131-8611-d34b0aa3d96f"
+        },
+        {
+          "name": "Chandra, Heart of Fire",
+          "oracleId": "58ad45fc-b625-4484-8d49-ebc42db9040a"
+        },
+        {
+          "name": "Ugin, Eye of the Storms",
+          "oracleId": "5c58353a-fd60-4528-bf0d-669626cda0b2"
+        },
+        {
+          "name": "Saheeli Rai",
+          "oracleId": "5f3fe679-aff1-41b3-8d75-c78c2c0636f0"
+        },
+        {
+          "name": "Dyfed, the Guiding Hand",
+          "oracleId": "ab23a9e4-2d62-4b01-9d52-593de40811b0"
+        }
+      ],
+      "sampleEffects": [
+        "Search your library for any number of basic land cards, put them onto the battlefield, then shuffle. Those lands become 4/4 Elemental creatures with trample. They're still lands.",
+        "Search your graveyard and library for any number of red instant and/or sorcery cards, exile them, then shuffle. You may cast them this turn. Add six {R}.",
+        "Search your library for any number of colorless nonland cards, exile them, then shuffle. Until end of turn, you may cast those cards without paying their mana costs.",
+        "Search your library for up to three artifact cards with different names, put them onto the battlefield, then shuffle.",
+        "Search your library for an artifact card, put it onto the battlefield, then shuffle."
+      ]
+    },
+    {
+      "bucket": "FIRSTWORD_EXILE",
+      "label": "FIRSTWORD_EXILE",
+      "count": 7,
+      "sampleCards": [
+        {
+          "name": "Kaya, Ghost Assassin",
+          "oracleId": "5e4c81b9-a31e-45e6-983f-30f11b8a05c0"
+        },
+        {
+          "name": "Kaya, Orzhov Usurper",
+          "oracleId": "7dd4a1a1-d5f4-4ac7-a9f6-34af411f070b"
+        },
+        {
+          "name": "Quintorius Kand",
+          "oracleId": "91babc5f-ebeb-4894-8c35-b0f60249cb80"
+        },
+        {
+          "name": "Kaya, Ghost Haunter",
+          "oracleId": "a51c0803-cef7-4b8b-aaed-38ded8fae3bd"
+        },
+        {
+          "name": "Kaya, Geist Hunter",
+          "oracleId": "e0edb2fc-2533-407c-85e5-4337f4233f05"
+        }
+      ],
+      "sampleEffects": [
+        "Exile Kaya or up to one target creature. Return that card to the battlefield under its owner's control at the beginning of your next upkeep. You lose 2 life.",
+        "Exile up to two target cards from a single graveyard. You gain 2 life if at least one creature card was exiled this way.",
+        "Exile any number of target cards from your graveyard. Add {R} for each card exiled this way. You may play those cards this turn.",
+        "Exile Kaya, Ghost Haunter haunting target creature for as long as that creature remains on the battlefield.",
+        "Exile all cards from all graveyards, then create a 1/1 white Spirit creature token with flying for each card exiled this way."
       ]
     },
     {
@@ -312,139 +448,139 @@
       ]
     },
     {
-      "bucket": "FIRSTWORD_FOR",
-      "label": "FIRSTWORD_FOR",
+      "bucket": "CREATE_TOKEN",
+      "label": "Create token(s)",
       "count": 6,
       "sampleCards": [
         {
-          "name": "The Eternal Wanderer",
-          "oracleId": "20a1671d-e8a4-4cf1-87a7-f2f6319f4b9e"
+          "name": "Worzel, the Protector",
+          "oracleId": "15084803-8470-469b-8cd9-154c2341b96d"
         },
         {
-          "name": "Jace, Architect of Thought",
-          "oracleId": "2274c7ae-5a40-4fd4-a4ac-6f56b23034e4"
+          "name": "Greensleeves",
+          "oracleId": "20b90808-0279-46eb-ae51-6990ac679a83"
         },
         {
-          "name": "Oko, the Ringleader",
-          "oracleId": "4372b729-dc3d-4469-8fc5-811cc787d653"
+          "name": "Feroz, Ulgrotha's Warden",
+          "oracleId": "724bcd6b-4deb-49c0-aa0e-1245bb40dd56"
         },
         {
-          "name": "Vraska, Regal Gorgon",
-          "oracleId": "7616e834-4852-40c8-9de6-d89f96119f12"
+          "name": "Vivien, Monsters' Advocate",
+          "oracleId": "7256b03e-4fd5-4a0a-9b20-7b88870edfec"
         },
         {
-          "name": "Vronos, Masked Inquisitor",
-          "oracleId": "86851bdb-9b2f-4407-97a1-a6a9f2e0ef66"
+          "name": "Arzakon",
+          "oracleId": "a95d29b9-c30b-4e63-afcb-dec7ed522c5a"
         }
       ],
       "sampleEffects": [
-        "For each player, choose a creature that player controls. Each player sacrifices all creatures they control not chosen this way.",
-        "For each player, search that player's library for a nonland card and exile it, then that player shuffles. You may cast those cards without paying their mana costs.",
-        "For each other nonland permanent you control, create a token that's a copy of that permanent.",
-        "For each creature card in your graveyard, put a +1/+1 counter on each creature you control.",
-        "For each opponent, return up to one target nonland permanent that player controls to its owner's hand."
+        "Create ten Scryb Sprites tokens. (They're {G} 1/1 Faerie creatures with flying.)",
+        "Create a Giant Badger token. (It's a {1}{G}{G} 2/2 Badger creature with \"Whenever this token blocks, it gets +2/+2 until end of turn.\")",
+        "Create a Feroz's Ban token. (It's a {6} artifact with \"Creature spells cost {2} more to cast.\")",
+        "Create a 3/3 green Beast creature token. Put your choice of a reach counter, a vigilance counter, or a trample counter on it.",
+        "Create a Black Lotus token. (It's a {0} artifact with \"{T}, Sacrifice this token: Add three mana of any one color.\")"
       ]
     },
     {
-      "bucket": "FIRSTWORD_MILL",
-      "label": "FIRSTWORD_MILL",
+      "bucket": "UNTAP",
+      "label": "Untap …",
       "count": 6,
       "sampleCards": [
         {
-          "name": "Wrenn and Realmbreaker",
-          "oracleId": "4566fb92-448e-4b3f-9045-9d74323c35d1"
+          "name": "Garruk, Curse Breaker",
+          "oracleId": "184d4672-05a9-4182-8b3f-3561fb33ed62"
         },
         {
-          "name": "Liliana, Untouched by Death",
-          "oracleId": "4f66489c-5a19-40ad-9126-461fa8231f1b"
+          "name": "Nissa, Vital Force",
+          "oracleId": "31d4d8ce-36ba-4297-8c7a-34a83ba25255"
         },
         {
-          "name": "Liliana, the Last Hope",
-          "oracleId": "64a9a6b4-26b5-4d23-be86-85c54e9c4727"
+          "name": "Kiora, the Tide's Fury",
+          "oracleId": "6918a8b7-ced8-4f32-8780-69dfc8b9d11b"
         },
         {
-          "name": "Estrid, the Masked",
-          "oracleId": "7cf1fa2e-1572-4d9d-8e93-e49016b34458"
+          "name": "Dyfed, the Guiding Hand",
+          "oracleId": "ab23a9e4-2d62-4b01-9d52-593de40811b0"
         },
         {
-          "name": "Tyvar, Jubilant Brawler",
-          "oracleId": "848c2b8f-8086-4047-8ad0-24b701dc4d0d"
+          "name": "Nissa, Steward of Elements",
+          "oracleId": "fdb96b5c-ecac-4db3-8b9a-24f824149f91"
         }
       ],
       "sampleEffects": [
-        "Mill three cards. You may put a permanent card from among the milled cards into your hand.",
-        "Mill three cards. If at least one Zombie card is milled this way, each opponent loses 2 life and you gain 2 life.",
-        "Mill two cards, then you may return a creature card from your graveyard to your hand.",
-        "Mill seven cards. Return all non-Aura enchantment cards from your graveyard to the battlefield, then do the same for Aura cards.",
-        "Mill three cards, then you may return a creature card with mana value 2 or less from your graveyard to the battlefield."
+        "Untap up to two target lands.",
+        "Untap target land you control. Until your next turn, it becomes a 5/5 Elemental creature with haste. It's still a land.",
+        "Untap target creature or land. Prevent all damage that would be dealt to and dealt by that permanent until your next turn.",
+        "Untap X target artifacts.",
+        "Untap up to two target lands you control. They become 5/5 Elemental creatures with flying and haste until end of turn. They're still lands."
       ]
     },
     {
-      "bucket": "FIRSTWORD_SEARCH",
-      "label": "FIRSTWORD_SEARCH",
+      "bucket": "FIRSTWORD_DISCARD",
+      "label": "FIRSTWORD_DISCARD",
       "count": 6,
       "sampleCards": [
         {
-          "name": "Nissa, Worldwaker",
-          "oracleId": "468f9b8e-4423-4131-8611-d34b0aa3d96f"
+          "name": "Chandra Ablaze",
+          "oracleId": "3fae28e6-2ffc-460e-9dd3-e321e8a53ba9"
         },
         {
-          "name": "Chandra, Heart of Fire",
-          "oracleId": "58ad45fc-b625-4484-8d49-ebc42db9040a"
+          "name": "Ajani Unrelenting",
+          "oracleId": "71620e92-45a4-49cb-94d5-348013ecf886"
         },
         {
-          "name": "Ugin, Eye of the Storms",
-          "oracleId": "5c58353a-fd60-4528-bf0d-669626cda0b2"
+          "name": "Chandra, Flame's Catalyst",
+          "oracleId": "7721e800-fba6-4ae7-855e-631b2ecc8d6b"
         },
         {
-          "name": "Saheeli Rai",
-          "oracleId": "5f3fe679-aff1-41b3-8d75-c78c2c0636f0"
+          "name": "Jaya Ballard",
+          "oracleId": "a56c5ca5-70eb-4d5f-8116-2acbe5f5a3cb"
         },
         {
-          "name": "Nahiri, the Harbinger",
-          "oracleId": "d492eb9a-1f3b-4bf2-9a5d-0f4a4433f33f"
+          "name": "The Unluckiest Planeswalker",
+          "oracleId": "c7ea2ce7-f684-44a2-94b2-d4aa7353f6fc"
         }
       ],
       "sampleEffects": [
-        "Search your library for any number of basic land cards, put them onto the battlefield, then shuffle. Those lands become 4/4 Elemental creatures with trample. They're still lands.",
-        "Search your graveyard and library for any number of red instant and/or sorcery cards, exile them, then shuffle. You may cast them this turn. Add six {R}.",
-        "Search your library for any number of colorless nonland cards, exile them, then shuffle. Until end of turn, you may cast those cards without paying their mana costs.",
-        "Search your library for up to three artifact cards with different names, put them onto the battlefield, then shuffle.",
-        "Search your library for an artifact or creature card, put it onto the battlefield, then shuffle. It gains haste. Return it to your hand at the beginning of the next end step."
+        "Discard a card. If a red card is discarded this way, Chandra deals 4 damage to any target.",
+        "Discard your hand, then draw a card for each creature you control.",
+        "Discard your hand, then draw seven cards. Until end of turn, you may cast spells from your hand without paying their mana costs.",
+        "Discard up to three cards, then draw that many cards.",
+        "Discard your hand, then draw cards equal to twice the number of Auras you control. For each Aura attached to you, attach it to an opponent of your choice."
       ]
     },
     {
-      "bucket": "FIRSTWORD_EXILE",
-      "label": "FIRSTWORD_EXILE",
-      "count": 6,
+      "bucket": "ADD_MANA",
+      "label": "Add mana",
+      "count": 5,
       "sampleCards": [
         {
-          "name": "Kaya, Ghost Assassin",
-          "oracleId": "5e4c81b9-a31e-45e6-983f-30f11b8a05c0"
+          "name": "Domri, Chaos Bringer",
+          "oracleId": "2a5408ed-8b47-4896-97e4-aa102a4b85c9"
         },
         {
-          "name": "Kaya, Orzhov Usurper",
-          "oracleId": "7dd4a1a1-d5f4-4ac7-a9f6-34af411f070b"
+          "name": "Chandra, Flameshaper",
+          "oracleId": "818f908c-9af6-4edc-bb0e-193bc830e2e4"
         },
         {
-          "name": "Quintorius Kand",
-          "oracleId": "91babc5f-ebeb-4894-8c35-b0f60249cb80"
+          "name": "Xenagos, the Reveler",
+          "oracleId": "942a318e-90eb-4f10-bb30-2e10f5cc922a"
         },
         {
-          "name": "Kaya, Ghost Haunter",
-          "oracleId": "a51c0803-cef7-4b8b-aaed-38ded8fae3bd"
+          "name": "Domri, Anarch of Bolas",
+          "oracleId": "afc2269c-d3b5-487d-9445-800c7a8e526b"
         },
         {
-          "name": "Kaya, Geist Hunter",
-          "oracleId": "e0edb2fc-2533-407c-85e5-4337f4233f05"
+          "name": "The Unluckiest Planeswalker",
+          "oracleId": "c7ea2ce7-f684-44a2-94b2-d4aa7353f6fc"
         }
       ],
       "sampleEffects": [
-        "Exile Kaya or up to one target creature. Return that card to the battlefield under its owner's control at the beginning of your next upkeep. You lose 2 life.",
-        "Exile up to two target cards from a single graveyard. You gain 2 life if at least one creature card was exiled this way.",
-        "Exile any number of target cards from your graveyard. Add {R} for each card exiled this way. You may play those cards this turn.",
-        "Exile Kaya, Ghost Haunter haunting target creature for as long as that creature remains on the battlefield.",
-        "Exile all cards from all graveyards, then create a 1/1 white Spirit creature token with flying for each card exiled this way."
+        "Add {R} or {G}. If that mana is spent on a creature spell, it gains riot. (It enters with your choice of a +1/+1 counter or haste.)",
+        "Add {R}{R}{R}. Exile the top three cards of your library. Choose one. You may play that card this turn.",
+        "Add X mana in any combination of {R} and/or {G}, where X is the number of creatures you control.",
+        "Add {R} or {G}. Creature spells you cast this turn can't be countered.",
+        "Add one mana of any color. When you spend this mana to cast an Aura spell this turn, create a 1/1 red Gremlin creature token."
       ]
     },
     {
@@ -516,93 +652,6 @@
       ]
     },
     {
-      "bucket": "ADD_MANA",
-      "label": "Add mana",
-      "count": 4,
-      "sampleCards": [
-        {
-          "name": "Domri, Chaos Bringer",
-          "oracleId": "2a5408ed-8b47-4896-97e4-aa102a4b85c9"
-        },
-        {
-          "name": "Chandra, Flameshaper",
-          "oracleId": "818f908c-9af6-4edc-bb0e-193bc830e2e4"
-        },
-        {
-          "name": "Xenagos, the Reveler",
-          "oracleId": "942a318e-90eb-4f10-bb30-2e10f5cc922a"
-        },
-        {
-          "name": "Domri, Anarch of Bolas",
-          "oracleId": "afc2269c-d3b5-487d-9445-800c7a8e526b"
-        }
-      ],
-      "sampleEffects": [
-        "Add {R} or {G}. If that mana is spent on a creature spell, it gains riot. (It enters with your choice of a +1/+1 counter or haste.)",
-        "Add {R}{R}{R}. Exile the top three cards of your library. Choose one. You may play that card this turn.",
-        "Add X mana in any combination of {R} and/or {G}, where X is the number of creatures you control.",
-        "Add {R} or {G}. Creature spells you cast this turn can't be countered."
-      ]
-    },
-    {
-      "bucket": "UNTAP",
-      "label": "Untap …",
-      "count": 4,
-      "sampleCards": [
-        {
-          "name": "Nissa, Vital Force",
-          "oracleId": "31d4d8ce-36ba-4297-8c7a-34a83ba25255"
-        },
-        {
-          "name": "Kiora, the Tide's Fury",
-          "oracleId": "6918a8b7-ced8-4f32-8780-69dfc8b9d11b"
-        },
-        {
-          "name": "Nissa, Steward of Elements",
-          "oracleId": "fdb96b5c-ecac-4db3-8b9a-24f824149f91"
-        },
-        {
-          "name": "Jace, Ingenious Mind-Mage",
-          "oracleId": "fe0fcb4e-92fd-4e64-99d1-043092ea21e3"
-        }
-      ],
-      "sampleEffects": [
-        "Untap target land you control. Until your next turn, it becomes a 5/5 Elemental creature with haste. It's still a land.",
-        "Untap target creature or land. Prevent all damage that would be dealt to and dealt by that permanent until your next turn.",
-        "Untap up to two target lands you control. They become 5/5 Elemental creatures with flying and haste until end of turn. They're still lands.",
-        "Untap all creatures you control."
-      ]
-    },
-    {
-      "bucket": "FIRSTWORD_DISCARD",
-      "label": "FIRSTWORD_DISCARD",
-      "count": 4,
-      "sampleCards": [
-        {
-          "name": "Chandra Ablaze",
-          "oracleId": "3fae28e6-2ffc-460e-9dd3-e321e8a53ba9"
-        },
-        {
-          "name": "Chandra, Flame's Catalyst",
-          "oracleId": "7721e800-fba6-4ae7-855e-631b2ecc8d6b"
-        },
-        {
-          "name": "Jaya Ballard",
-          "oracleId": "a56c5ca5-70eb-4d5f-8116-2acbe5f5a3cb"
-        },
-        {
-          "name": "Daretti, Scrap Savant",
-          "oracleId": "ea9f4de3-fc35-435a-8dff-a5657d14a9bd"
-        }
-      ],
-      "sampleEffects": [
-        "Discard a card. If a red card is discarded this way, Chandra deals 4 damage to any target.",
-        "Discard your hand, then draw seven cards. Until end of turn, you may cast spells from your hand without paying their mana costs.",
-        "Discard up to three cards, then draw that many cards.",
-        "Discard up to two cards, then draw that many cards."
-      ]
-    },
-    {
       "bucket": "FIRSTWORD_CAST",
       "label": "FIRSTWORD_CAST",
       "count": 4,
@@ -629,6 +678,35 @@
         "Cast a copy of one of the following cards chosen at random-Ignorant Bliss, Crack the Earth, Blazing Volley.",
         "Cast a copy of one of the following cards chosen at random-Seething Song, Dance with Devils, Flamebreak.",
         "Cast a copy of one of the following cards chosen at random-Hellion Eruption, Insurrection, Warp World."
+      ]
+    },
+    {
+      "bucket": "DRAW_THEN",
+      "label": "Draw … then …",
+      "count": 4,
+      "sampleCards": [
+        {
+          "name": "Jace, the Mind Sculptor",
+          "oracleId": "7f77a84e-5a4b-4834-aefa-3cecc175ae8e"
+        },
+        {
+          "name": "The Theorist, Jace Beleren",
+          "oracleId": "89a6e876-0b00-4671-9652-766fd7ef9bf2"
+        },
+        {
+          "name": "Narset of the Ancient Way",
+          "oracleId": "b7ac6e89-941f-4ad9-a437-38ec38ec5263"
+        },
+        {
+          "name": "Kaito Shizuki",
+          "oracleId": "ba48e067-f4d9-45b2-ade1-71cf8cda418c"
+        }
+      ],
+      "sampleEffects": [
+        "Draw three cards, then put two cards from your hand on top of your library in any order.",
+        "Draw three cards. Then put X +1/+1 counters on each creature you control, where X is the number of cards in your hand.",
+        "Draw a card, then you may discard a card. When you discard a nonland card this way, Narset deals damage equal to that card's mana value to target creature or planeswalker.",
+        "Draw a card. Then discard a card unless you attacked this turn."
       ]
     },
     {
@@ -677,6 +755,54 @@
         "Sacrifice a creature. When you do, Minsc & Boo deals X damage to any target, where X is that creature's power. If the sacrificed creature was a Hamster, draw X cards.",
         "Sacrifice a creature. When you do, Minsc & Boo, Timeless Heroes deals X damage to any target, where X is that creature's power. If the sacrificed creature was a Hamster, draw X cards.",
         "Sacrifice an artifact. If you do, return target artifact card from your graveyard to the battlefield."
+      ]
+    },
+    {
+      "bucket": "FIRSTWORD_AJANI",
+      "label": "FIRSTWORD_AJANI",
+      "count": 3,
+      "sampleCards": [
+        {
+          "name": "Ajani, Outland Chaperone",
+          "oracleId": "3ba809ce-3556-415c-9fcc-291cb10a43cd"
+        },
+        {
+          "name": "Ajani Unrelenting",
+          "oracleId": "71620e92-45a4-49cb-94d5-348013ecf886"
+        },
+        {
+          "name": "Ajani Vengeant",
+          "oracleId": "f953afdf-96f7-4851-994c-1617e8f5e5c9"
+        }
+      ],
+      "sampleEffects": [
+        "Ajani deals 4 damage to target tapped creature.",
+        "Ajani deals 4 damage to each creature except for tokens you control.",
+        "Ajani deals 3 damage to any target and you gain 3 life."
+      ]
+    },
+    {
+      "bucket": "EACH_PLAYER",
+      "label": "Each player …",
+      "count": 3,
+      "sampleCards": [
+        {
+          "name": "Garruk, Veiled Butcher",
+          "oracleId": "4a6972fe-348a-4a19-a1d0-bdf8f1f9c792"
+        },
+        {
+          "name": "Arzakon",
+          "oracleId": "a95d29b9-c30b-4e63-afcb-dec7ed522c5a"
+        },
+        {
+          "name": "Liliana, Waker of the Dead",
+          "oracleId": "e0df8e2a-96d2-4e4d-b065-aa2e162abbfe"
+        }
+      ],
+      "sampleEffects": [
+        "Each player sacrifices a creature of their choice. If you sacrificed a creature this way, create a 4/4 green Beast creature token with trample.",
+        "Each player shuffles their hand and graveyard into their library, then draws seven cards.",
+        "Each player discards a card. Each opponent who can't loses 3 life."
       ]
     },
     {
@@ -773,30 +899,6 @@
         "Return a creature card with a name printed in a Kamigawa expansion from your graveyard to the battlefield.",
         "Return all enchantment cards from your graveyard to the battlefield.",
         "Return all creature cards from your graveyard to the battlefield."
-      ]
-    },
-    {
-      "bucket": "DRAW_THEN",
-      "label": "Draw … then …",
-      "count": 3,
-      "sampleCards": [
-        {
-          "name": "Jace, the Mind Sculptor",
-          "oracleId": "7f77a84e-5a4b-4834-aefa-3cecc175ae8e"
-        },
-        {
-          "name": "Narset of the Ancient Way",
-          "oracleId": "b7ac6e89-941f-4ad9-a437-38ec38ec5263"
-        },
-        {
-          "name": "Kaito Shizuki",
-          "oracleId": "ba48e067-f4d9-45b2-ade1-71cf8cda418c"
-        }
-      ],
-      "sampleEffects": [
-        "Draw three cards, then put two cards from your hand on top of your library in any order.",
-        "Draw a card, then you may discard a card. When you discard a nonland card this way, Narset deals damage equal to that card's mana value to target creature or planeswalker.",
-        "Draw a card. Then discard a card unless you attacked this turn."
       ]
     },
     {
@@ -902,25 +1004,6 @@
       "sampleEffects": [
         "Exile the top card of your library face down and look at it. Create a 2/2 colorless Spirit creature token. When that token leaves the battlefield, put the exiled card into your hand.",
         "Exile the top card of your library. Create a number of 1/1 blue Faerie Dragon creature tokens with flying equal to that card's mana value."
-      ]
-    },
-    {
-      "bucket": "FIRSTWORD_AJANI",
-      "label": "FIRSTWORD_AJANI",
-      "count": 2,
-      "sampleCards": [
-        {
-          "name": "Ajani, Outland Chaperone",
-          "oracleId": "3ba809ce-3556-415c-9fcc-291cb10a43cd"
-        },
-        {
-          "name": "Ajani Vengeant",
-          "oracleId": "f953afdf-96f7-4851-994c-1617e8f5e5c9"
-        }
-      ],
-      "sampleEffects": [
-        "Ajani deals 4 damage to target tapped creature.",
-        "Ajani deals 3 damage to any target and you gain 3 life."
       ]
     },
     {
@@ -1180,6 +1263,20 @@
       ]
     },
     {
+      "bucket": "LOOK_AT_TOP_N",
+      "label": "Look at the top N …",
+      "count": 1,
+      "sampleCards": [
+        {
+          "name": "Worzel, the Protector",
+          "oracleId": "15084803-8470-469b-8cd9-154c2341b96d"
+        }
+      ],
+      "sampleEffects": [
+        "Look at the top six cards of your library. You may reveal a planeswalker or basic Plains card from among them and put it into your hand. Put the rest on the bottom of your library in a random order."
+      ]
+    },
+    {
       "bucket": "TARGET_PLAYER_DRAWS",
       "label": "Target player draws",
       "count": 1,
@@ -1191,48 +1288,6 @@
       ],
       "sampleEffects": [
         "Target player draws two cards. Until your next turn, instant, sorcery, and planeswalker spells that player casts cost {2} less to cast."
-      ]
-    },
-    {
-      "bucket": "FIRSTWORD_EQUIPPED",
-      "label": "FIRSTWORD_EQUIPPED",
-      "count": 1,
-      "sampleCards": [
-        {
-          "name": "Luxior, Ignited",
-          "oracleId": "23b10fbe-8de0-4829-ac49-6ff425acca1e"
-        }
-      ],
-      "sampleEffects": [
-        "Equipped creature gets +2/+2 and gains double strike until end of turn."
-      ]
-    },
-    {
-      "bucket": "FIRSTWORD_HUATLI",
-      "label": "FIRSTWORD_HUATLI",
-      "count": 1,
-      "sampleCards": [
-        {
-          "name": "Huatli, Warrior Poet",
-          "oracleId": "3ec889bc-f4d7-492a-91c3-d3691eb90eac"
-        }
-      ],
-      "sampleEffects": [
-        "Huatli deals X damage divided as you choose among any number of target creatures. Creatures dealt damage this way can't block this turn."
-      ]
-    },
-    {
-      "bucket": "FIRSTWORD_ATTACH",
-      "label": "FIRSTWORD_ATTACH",
-      "count": 1,
-      "sampleCards": [
-        {
-          "name": "The Aetherspark",
-          "oracleId": "483c747a-b602-4747-95bc-72c2c17ed509"
-        }
-      ],
-      "sampleEffects": [
-        "Attach The Aetherspark to up to one target creature you control. Put a +1/+1 counter on that creature."
       ]
     }
   ]

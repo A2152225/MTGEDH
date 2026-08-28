@@ -142,9 +142,21 @@ export function getControlledCreatureCombatGateViolation(args: {
   };
 }
 
+function battlefieldPermanentInstanceCount(permanent: { isGroupedTokens?: boolean; tokenCount?: number; groupedTokenIds?: string[] } | null | undefined): number {
+  if (permanent && (permanent as any).isGroupedTokens === true) {
+    const groupedLen = Array.isArray((permanent as any).groupedTokenIds)
+      ? (permanent as any).groupedTokenIds.length
+      : 0;
+    const explicit = Math.floor(Number((permanent as any).tokenCount) || 0);
+    return Math.max(1, explicit || groupedLen || 1);
+  }
+  return 1;
+}
+
 /**
  * Count creatures controlled by a player for gate evaluation.
  * `isCreature` must match the game's live creature definition (crewed vehicles, etc.).
+ * Grouped emit token piles count as tokenCount / groupedTokenIds, not one row.
  */
 export function countControlledCreaturesForCombatGate(args: {
   battlefield: ReadonlyArray<{ id?: string; controller?: string } | null | undefined>;
@@ -163,7 +175,7 @@ export function countControlledCreaturesForCombatGate(args: {
     if (String(permanent.controller || '').trim() !== controllerId) continue;
     if (excludeId && String(permanent.id || '').trim() === excludeId) continue;
     if (!args.isCreature(permanent)) continue;
-    count += 1;
+    count += battlefieldPermanentInstanceCount(permanent);
   }
   return count;
 }

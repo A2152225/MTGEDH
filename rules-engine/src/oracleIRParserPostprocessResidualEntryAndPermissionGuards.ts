@@ -10,6 +10,7 @@
 
 import type { OracleEffectStep } from './oracleIR';
 import { parseObjectSelector, parsePlayerSelector } from './oracleIRParserUtils';
+import { normalizeCreatureTypeWord } from '../../shared/src/creatureTypes';
 
 export function parseResidualEntryAndPermissionGuardsOne(
   raw: string, sequence: { sequence?: 'then' }, clauseBody: string
@@ -673,8 +674,13 @@ export function parseResidualEntryAndPermissionGuardsNine(
     ...sequence,
   } as unknown as OracleEffectStep];
 
-  if (/^you\s+may\s+reveal\s+a\s+dinosaur\s+card\s+from\s+your\s+hand$/i.test(raw)) {
-    return staticMetadata('your hand', 'you may reveal a Dinosaur card');
+  {
+    const revealType = raw.match(/^you\s+may\s+reveal\s+an?\s+([a-z]+)\s+card\s+from\s+your\s+hand$/i);
+    const typeName = revealType ? normalizeCreatureTypeWord(String(revealType[1] || '')) : null;
+    if (typeName) {
+      const typeLabel = `${typeName.charAt(0).toUpperCase()}${typeName.slice(1)}`;
+      return staticMetadata('your hand', `you may reveal a ${typeLabel} card`);
+    }
   }
 
   if (/^you\s+may\s+reveal\s+the\s+first\s+card\s+you\s+draw\s+each\s+turn\s+as\s+you\s+draw\s+it$/i.test(raw)) {

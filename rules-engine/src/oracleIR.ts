@@ -16,6 +16,8 @@ export type { OracleEffectStep };
 export interface OracleIRAbility {
   readonly type: AbilityType;
   readonly text: string;
+  /** True when the ability text includes "Any player may activate this ability." */
+  readonly anyPlayerMayActivate?: boolean;
   readonly cost?: string;
   /** Station / Spacecraft charge-counter gate (N in `N+ | {cost}: effect`). */
   readonly stationChargeThreshold?: number;

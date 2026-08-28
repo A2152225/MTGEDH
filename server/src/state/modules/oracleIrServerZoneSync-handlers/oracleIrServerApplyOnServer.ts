@@ -17,7 +17,7 @@ import type { OracleIRTransitionHaltState } from '../../../../../rules-engine/sr
 import { createEmptyStepLedger } from '../../../../../rules-engine/src/oracleIRStepLedger.js';
 import type { GameContext } from '../../context.js';
 import { ResolutionQueueManager } from '../../resolution/index.js';
-import { persistOracleIrReplayMutationsFromExecution, persistCounterDiffsFromOracleIR } from '../../effects/effectProgramReplayMutationPersistence.js';
+import { persistOracleIrReplayMutationsFromExecution, persistCounterDiffsFromOracleIR, persistTemporaryEtbWindowsFromOracleIR } from '../../effects/effectProgramReplayMutationPersistence.js';
 import { persistBattlefieldPermanentPatchesFromOracleIR, snapshotBattlefieldPermanentReplayPatches } from '../../effects/battlefieldPermanentReplayPersistence.js';
 import { queueTopLibraryChoicePromptsFromOracleIRResult } from '../oracleIrServerScrySurveilPromptUtils.js';
 import { queueBlightChoicePromptsFromOracleIRResult } from '../oracleIrServerBlightPromptUtils.js';
@@ -30,6 +30,8 @@ import { resyncPreparedExileCopiesWithControllers } from '../prepared.js';
 import { queueEachPlayerCounterPlacementPromptsFromOracleIRResult } from '../triggerCounterPlacementPromptUtils.js';
 import { bridgeGameStateOracleEffectsAfterOracleIR } from '../triggerGameStateOracleBridgeUtils.js';
 import { bridgeCreatedTokenEtbTriggersAfterOracleIR } from '../triggerOracleIrTokenEtbBridge.js';
+import { bridgeEnteredPermanentEtbTriggersAfterOracleIR } from '../triggerOracleIrPermanentEtbBridge.js';
+import { queueBattlefieldEntryReplacementPromptsAfterOracleIR } from '../oracleIrBattlefieldEntryPrompts.js';
 import { queueOracleIrReflexiveWhenYouDoFollowups } from '../triggerReflexiveWhenYouDoQueueUtils.js';
 import { syncDerivedContinuousEffects } from '../staticEffectSpec.js';
 import { mirrorGraveyardCastingPermissionsToDurable } from '../graveyard-permissions.js';
@@ -58,6 +60,7 @@ import {
 } from './oracleIrServerLibrarySearchLookChoosePilePrompts.js';
 import {
   queueJoinForcesPromptsFromOracleIRResult,
+  queueTemptingOfferPromptsFromOracleIRResult,
   queueVotePromptsFromOracleIRResult,
 } from './oracleIrServerVoteJoinForcesPrompts.js';
 import { queueChoiceFamilyPromptsFromOracleIRResult } from './oracleIrServerChoiceFamilyPrompts.js';
@@ -86,6 +89,8 @@ import {
   queueChooseOneImpulseExilePlayPromptsFromOracleIRResult,
   queueDiscoverCastOrHandPromptsFromOracleIRResult,
 } from './oracleIrServerImpulseDiscoverGyPermissionPrompts.js';
+import { queueDuringResolutionShareTypeCastPromptFromOracleIRResult } from './oracleIrServerImpulseDuringResolutionCastPrompts.js';
+import { queueRevealedLibraryCastPromptsFromOracleIRResult } from './oracleIrServerRevealedLibraryCastPrompts.js';
 import { queueOptionalStepChoicePromptsFromOracleIRResult } from './oracleIrServerOptionalStepChoicePrompts.js';
 import {
   persistUnqueuedPendingContinuationFromOracleIRResult,
@@ -402,6 +407,16 @@ export function applyOracleIRStepsOnServer(
     effectText: String(params?.oracleText || adjustedSteps.map((step) => String((step as any).raw || '')).filter(Boolean).join(' ')),
   });
   bridgeCreatedTokenEtbTriggersAfterOracleIR(ctx, state, result);
+  queueBattlefieldEntryReplacementPromptsAfterOracleIR(
+    ctx,
+    state,
+    new Set(triggerEmissionBefore.permanents.keys()),
+  );
+  bridgeEnteredPermanentEtbTriggersAfterOracleIR(
+    ctx,
+    state,
+    new Set(triggerEmissionBefore.permanents.keys()),
+  );
   queueOracleIrReflexiveWhenYouDoFollowups(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -417,6 +432,12 @@ export function applyOracleIRStepsOnServer(
     triggerItem: resolutionTriggerItem,
   });
   queueJoinForcesPromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueTemptingOfferPromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
@@ -454,6 +475,17 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
   });
   queueDiscoverCastOrHandPromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+  });
+  queueDuringResolutionShareTypeCastPromptFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueRevealedLibraryCastPromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
@@ -660,6 +692,10 @@ export function applyOracleIRStepsOnServer(
       sourceId: String(irCtx.sourceId || '').trim() || undefined,
       sourceName: String(irCtx.sourceName || '').trim() || undefined,
       ...(params?.compoundResume ? { compoundResume: true } : {}),
+    });
+    persistTemporaryEtbWindowsFromOracleIR(ctx, result, state, {
+      sourceId: String(irCtx.sourceId || '').trim() || undefined,
+      sourceName: String(irCtx.sourceName || '').trim() || undefined,
     });
   }
   return result;

@@ -757,8 +757,23 @@ export function tryQueueRequestCastSpellNoTargetPayment(
         forcedAlternateCostId: options?.forcedAlternateCostId,
         castWithoutPayingManaCost: isFreeCast ? true : undefined,
         oracleText: warpPaymentExtras.oracleText,
-        extraAlternateCosts: warpPaymentExtras.extraAlternateCosts,
-        preferredAlternateCostId: warpPaymentExtras.preferredAlternateCostId,
+        extraAlternateCosts: (() => {
+          const extras = Array.isArray(warpPaymentExtras.extraAlternateCosts)
+            ? [...warpPaymentExtras.extraAlternateCosts]
+            : [];
+          if (isFreeCast && !extras.some((cost: any) => String(cost?.id || '') === 'free')) {
+            extras.push({
+              id: 'free',
+              label: 'Free Cast',
+              description: 'Cast without paying its mana cost',
+              manaCost: '{0}',
+            });
+          }
+          return extras.length > 0 ? extras : warpPaymentExtras.extraAlternateCosts;
+        })(),
+        preferredAlternateCostId: isFreeCast
+          ? (warpPaymentExtras.preferredAlternateCostId || 'free')
+          : warpPaymentExtras.preferredAlternateCostId,
         fromZone: castSourceZone,
         // Required for Vibranium/Powerstone no_nonartifact_spells (Vehicles/Equipment/etc.).
         typeLine: String(cardForCast?.type_line || cardInHand?.type_line || ''),

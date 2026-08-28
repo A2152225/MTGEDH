@@ -116,6 +116,39 @@ describe('attackRestrictionText', () => {
     ];
     expect(getAttackProhibitionSourceForPlayer(battlefield, 'p2')).toBe('Archon');
     expect(getAttackProhibitionSourceForPlayer(battlefield, 'p3')).toBeNull();
+
+    const annexBattlefield = [{
+      id: 'annex',
+      controller: 'p2',
+      card: {
+        name: 'White Gate',
+        oracle_text:
+          "({W/P} can be paid with either {W} or 2 life.)\nCreatures can't attack you or planeswalkers you control unless their controller pays {W/P} for each of those creatures.",
+      },
+    }];
+    expect(getAttackProhibitionSourceForPlayer(annexBattlefield, 'p2')).toBeNull();
+
+    const sanctuaryBattlefield = [{
+      id: 'sanctuary',
+      controller: 'p2',
+      card: {
+        name: 'Harbor Charm',
+        oracle_text:
+          "If you would draw a card during your draw step, instead you may skip that draw. If you do, until your next turn, you can't be attacked except by creatures with flying and/or islandwalk.",
+      },
+    }];
+    expect(getAttackProhibitionSourceForPlayer(sanctuaryBattlefield, 'p2')).toBeNull();
+
+    const grassBattlefield = [{
+      id: 'grass',
+      controller: 'p2',
+      card: {
+        name: 'Grass',
+        oracle_text:
+          "Cumulative upkeep {1}\nBlack creatures can't attack you.\nNonblack creatures can't attack you unless their controller pays {2} for each creature they control that's attacking you.",
+      },
+    }];
+    expect(getAttackProhibitionSourceForPlayer(grassBattlefield, 'p2')).toBeNull();
   });
 
   it('prevents sacrifice from self oracle and equipped-creature text', () => {

@@ -481,6 +481,7 @@ function shouldSkipDrawMetadataCandidate(candidate: string): boolean {
   const normalized = normalizeOracleText(candidate).trim();
   if (/sacrifice this artifact:\s*draw/i.test(normalized) && /loses all other abilities/i.test(normalized)) return true;
   if (/^draw a card["']?\s*(?:and loses all other abilities|\.\s*\()/i.test(normalized)) return true;
+  if (/^(?:when|whenever)\b/i.test(normalized) && /\bdraws?\b/i.test(normalized)) return true;
   if (/\bequipped creature gets\b/i.test(normalized) && /\bhas\s+"/i.test(normalized)) return true;
   if (/\bwhen (?:this|target|enchanted|that) .+\b(?:draws?|discards?)\b/i.test(normalized)) return true;
   if (/\bdraws?\s+a\s+card\s+and\s+gains?\b/i.test(normalized)) return true;

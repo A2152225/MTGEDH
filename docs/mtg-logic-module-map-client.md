@@ -24,10 +24,10 @@ Public leftover **36.0 KB** (near ceiling — do not append). Keeps `App` (**35.
 | `appResolutionStepPromptLate.ts` | `handleAppResolutionStepPromptLate`. **30.3 KB**. |
 | `appResolutionStepPromptEffects.ts` | `useAppResolutionStepPromptEffects`. **14.6 KB**. |
 | `appPlayModalHandlers.ts` | `useAppPlayModalHandlers`. **19.6 KB**. |
-| `appPlayCombatHandlers.ts` | `useAppPlayCombatHandlers`. **19.4 KB**. |
-| `appPlayLayoutMain.tsx` | `renderAppPlayLayoutMain`. **31.3 KB**. |
+| `appPlayCombatHandlers.ts` | `useAppPlayCombatHandlers`. Combat lists use `expandGroupedTokensForDisplay`; defender untapped-creature pills use `tokenDisplayInstanceCount`. Declare-attackers defender lists omit players who have left the game (`playerIsLegalAttackTarget`). |
+| `appPlayLayoutMain.tsx` | `renderAppPlayLayoutMain`. **31.3 KB**. Pre-game `AddAIToGameControl` lives in `client/src/components/AddAIToGameControl.tsx` (add/remove AI before hands lock). |
 | `appPlayLayoutRail.tsx` | `renderAppPlayLayoutRail`. **23.2 KB**. |
-| `appPlayOverlaysLate.tsx` | `renderAppPlayOverlaysLate`. **28.1 KB**. |
+| `appPlayOverlaysLate.tsx` | `renderAppPlayOverlaysLate`. **28.1 KB**. Wires `GameRebuildProgressOverlay` (Your Turn–style centered pill; `pointerEvents: none`; listens for `gameResumeProgress`). |
 | `appPlayOverlaysMid.tsx` | `renderAppPlayOverlaysMid`. **17.8 KB**. |
 | `appPlayOverlaysChoice.tsx` | `renderAppPlayOverlaysChoice`. **20.7 KB**. |
 | `appPlayOverlaysCombat.tsx` | `renderAppPlayOverlaysCombat`. **19.0 KB**. |
@@ -100,14 +100,14 @@ Public leftover **26.6 KB**. Re-exports `buildResolutionResponsePayload`, types,
 
 ### `CombatSelectionModal-handlers/` (extracted from `CombatSelectionModal.tsx`)
 
-Public leftover **28.7 KB**. Keeps `CombatSelectionModal` (27.0 KB leftover: hooks/state, minimized chip, header banners, confirm/skip). Re-exports public types. Never create `CombatSelectionModal/` beside the `.tsx`. Leaves must not import the parent or the index.
+Public leftover **28.7 KB**. Keeps `CombatSelectionModal` (27.0 KB leftover: hooks/state, minimized chip, header banners, confirm/skip). Re-exports public types. Attack-target defender lists omit players who have left the game (`playerIsLegalAttackTarget`). Never create `CombatSelectionModal/` beside the `.tsx`. Leaves must not import the parent or the index.
 
 | Module | Owns |
 | --- | --- |
 | `CombatSelectionModal-handlers/index.ts` | Internal TOC. Named re-exports only. |
 | `combatSelectionModalTypes.ts` | `DefenderAttackInfo`, `CombatSelectionModalProps`, `AttackerSelection`, `BlockerSelection`. |
 | `combatSelectionModalCreatureInfo.ts` | `getCreatureInfo`, `DangerIndicators`. |
-| `combatSelectionModalGroupCreatures.ts` | `groupCreatures`, `CreatureGroup`. |
+| `combatSelectionModalGroupCreatures.ts` | `groupCreatures`, `CreatureGroup`. Expands grouped emit piles via `groupedTokenMemberCount`. |
 | `combatSelectionModalDangerBadges.tsx` | `DangerBadge`, `DangerIndicatorBadges`. |
 | `combatSelectionModalAttackTarget.tsx` | `resolveAttackTargetLabel`, `AttackTargetBadge`, `getCombatCardPreviewHandlers`. |
 | `combatSelectionModalSelectionSupport.ts` | `checkMenaceBlocking`, `cloneSelectedBlockers`, `getBlockerAssignments`, `countBlockingCreatures`, `countTotalBlockAssignments`, `splitCreatureGroups`, `buildAttackerSelections`. |
@@ -116,7 +116,7 @@ Public leftover **28.7 KB**. Keeps `CombatSelectionModal` (27.0 KB leftover: hoo
 
 ### `activatedAbilityParser-handlers/` (extracted from `client/src/utils/activatedAbilityParser.ts`)
 
-Public leftover **10.5 KB**. Status / icon / format helpers (`getThresholdActivationStatus`, `canActivateTapAbility`, `getConditionalManaAbilityStatus`, `getActivatedAbilityActivationStatus`, `grantsHasteForTapAbilities`, `getAbilityIcon`, `formatAbilityCost`). Re-exports `parseActivatedAbilities`. Never create `activatedAbilityParser/` beside the `.ts`. Do not merge with rules-engine `parseActivatedAbilitiesFromText`. Do not append to `parseActivatedAbilities.ts` (**39.0 KB**). Leaves must not import the parent or the index.
+Public leftover **10.5 KB**. Status / icon / format helpers (`getThresholdActivationStatus`, `canActivateTapAbility`, `getConditionalManaAbilityStatus`, `getActivatedAbilityActivationStatus`, `grantsHasteForTapAbilities`, `getAbilityIcon`, `formatAbilityCost`). Public `parseActivatedAbilities` wraps the leaf and stamps `anyPlayerMayActivate`. Never create `activatedAbilityParser/` beside the `.ts`. Do not merge with rules-engine `parseActivatedAbilitiesFromText`. Do not append to `parseActivatedAbilities.ts` (**39.0 KB**). Leaves must not import the parent or the index.
 
 | Module | Owns |
 | --- | --- |
@@ -128,6 +128,7 @@ Public leftover **10.5 KB**. Status / icon / format helpers (`getThresholdActiva
 | `parseActivatedAbilityCostAndMill.ts` | `parseMillEffect`, `isSelfTapCost`, `parseCostComponents`. |
 | `appendGrantedActivatedAbilities.ts` | `appendGrantedActivatedAbilities`, `pushUniqueParsedAbility`, `normalizeGrantedActivatedAbilityText`, `buildParsedAbilityFromGrantedLine`. |
 | `parseActivatedAbilities.ts` | `parseActivatedAbilities` (**39.0 KB** — do not append). |
+| `stampAnyPlayerMayActivate.ts` | Stamp `anyPlayerMayActivate` from “Any player may activate this ability.” Public barrel wraps the parse leaf and passes full oracle so a truncated effect line still stamps. |
 
 ### `FreeField-handlers/` (extracted from `FreeField.tsx`)
 
@@ -136,7 +137,7 @@ Public leftover **34.9 KB**. Keeps `FreeField` (33.6 KB leftover). Never create 
 | Module | Owns |
 | --- | --- |
 | `FreeField-handlers/index.ts` | Internal TOC. Named re-exports only. |
-| `freeFieldDisplayUtils.ts` | `permanentIdsForPositionUpdate`, `parsePT`, `computeDisplayPT`, `getPTColor`, `getLoyaltyColor`, `buildPTTooltip`, `getAbilityDisplay`. |
+| `freeFieldDisplayUtils.ts` | `permanentIdsForPositionUpdate`, `parsePT`, `computeDisplayPT`, `getPTColor`, `getLoyaltyColor`, `buildPTTooltip`, `getAbilityDisplay`, `readPermanentDamageMarked` (combat `markedDamage` + UI `damageMarked`). |
 | `FreeFieldPermanentOverlays.tsx` | `FreeFieldPermanentOverlays` — battlefield-tile overlay badges. **35.5 KB**. |
 | `useFreeFieldBattlefieldLayout.ts` | `useFreeFieldBattlefieldLayout` — grid placement + display-item `useMemo`. |
 
@@ -156,4 +157,19 @@ Public leftover **32.1 KB**. Re-exports `parseAlternateCosts` / `AlternateCost`.
 | Module | Owns |
 | --- | --- |
 | `CastSpellModal-handlers/index.ts` | Internal TOC. Named re-exports only. |
-| `castSpellModalParseAlternateCosts.ts` | `AlternateCost`, `parseAlternateCosts`. Parent re-exports. |
+| `castSpellModalParseAlternateCosts.ts` | `AlternateCost`, `parseAlternateCosts`, `oracleGrantsSelfSpellFreeAlternateCost`. Free Cast only for **this spell/this card**, not triggered "cast that card / it" (Possibility Storm, Neera, cascade). Parent re-exports. |
+
+### Payment mana sources (`client/src/utils/`)
+
+| Module | Owns |
+| --- | --- |
+| `manaSourceBuilder.ts` | Cast/ability payment rows from battlefield permanents. **38.6 KB** — do not append. Stamps `activationManaCost` on Signet-style `{1}{T}` rows. |
+| `manaSuggestedPaymentActivation.ts` | Sequential auto-pay for `{1}, {T}` mana abilities (Signets): mixed-bundle assign, activation pip charge, free-tap-first payment order. |
+| `manaUtils.ts` | Parse cost, suggest payment, `manaBonuses` native+aura assignment. Re-exports restricted-mana purpose helpers. Auto-pay prefers free taps and charges Signet activation into remaining generic. **37.4 KB**. |
+| `manaRestrictedSpendPurpose.ts` | Client `canUseRestrictedManaClient` / `buildRestrictedManaPurposeForSpell`, including Secluded Courtyard `chosen_type_*` matching for hand and commander casts. |
+| `manaSourceLandAuraBonuses.ts` | Stored chosen-color resolve (Thriving Grove) + tap-for-mana aura bonuses (Fertile Ground, Wild Growth, Utopia Sprawl). |
+| `expandGroupedTokens.ts` | Emit token-stack instance counts (`groupedTokenMemberCount`, `tokenDisplayInstanceCount`, `shouldCollapseTokenGroups`, `expandGroupedTokensForDisplay`). Combat attacker lists expand `groupedTokenIds` even when `tokenCount` is missing. |
+| `resolutionChoicePrimitives.ts` | Generic option / library-search / X mapping. `readResolutionPromptCause` copies `causeName` / `causeImage` / `causeLabel` for choose-one and optional-ability prompts. |
+| `ResolutionPromptCause.tsx` | Shared “You cast Reckless Blaze” chip on option-choice and may-ability prompts. |
+| `turnAttentionNotify.ts` | Unfocused-tab your-turn alert: title flash + short chime. `notifyUnfocusedYourTurn`, `isPageUnfocused`. |
+| `creatureUtils.ts` | Creature combat helpers: `isCurrentlyCreature`, `hasCurrentKeyword` / `hasCurrentHaste`, `canCreatureAttackNow`. Other-only lords are not self-haste; sickness is summoningSickness or enteredThisTurn. CombatSelectionModal force-selects goaded attackers only when `canCreatureAttackNow` is true. |

@@ -23,6 +23,7 @@ import {
   applyModifyTokenCreationStep,
   applyPayManaStep,
   applyJoinForcesStep,
+  applyTemptingOfferStep,
   applyRetainManaStep,
   applyExileNamedCardsFromZonesStep,
   applySearchLibraryStep,
@@ -280,7 +281,7 @@ export function tryApplyMainLoopLibraryTurnControlSteps(
       }
       case 'gain_control': {
         const result = applyGainControlStep(nextState, step, currentCtx);
-        applyHandledStepResult(step, result, () => {
+        applyHandledStepResult(step, result, (appliedResult) => {
           const referencedPermanentId = String(
             currentCtx.targetPermanentId ||
               currentCtx.targetCreatureId ||
@@ -288,8 +289,25 @@ export function tryApplyMainLoopLibraryTurnControlSteps(
               currentCtx.selectorContext?.targetCreatureId ||
               ''
           ).trim();
-          if (referencedPermanentId) {
-            currentCtx = { ...currentCtx, lastReferencedPermanentId: referencedPermanentId };
+          const antecedentIds = Array.isArray(appliedResult.lastAntecedentBattlefieldPermanentIds)
+            ? appliedResult.lastAntecedentBattlefieldPermanentIds
+                .map((id: unknown) => String(id || '').trim())
+                .filter(Boolean)
+            : [];
+          if (referencedPermanentId || antecedentIds.length > 0) {
+            currentCtx = {
+              ...currentCtx,
+              ...(referencedPermanentId ? { lastReferencedPermanentId: referencedPermanentId } : {}),
+              ...(antecedentIds.length > 0
+                ? {
+                    lastAntecedentBattlefieldPermanentIds: antecedentIds,
+                    lastMovedBattlefieldPermanentIds: antecedentIds,
+                  }
+                : {}),
+            };
+          }
+          if (antecedentIds.length > 0) {
+            lastMovedBattlefieldPermanentIds = [...antecedentIds];
           }
         });
         break;
@@ -395,6 +413,11 @@ export function tryApplyMainLoopLibraryTurnControlSteps(
       }
       case 'join_forces': {
         const result = applyJoinForcesStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'tempting_offer': {
+        const result = applyTemptingOfferStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

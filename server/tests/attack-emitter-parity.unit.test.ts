@@ -399,4 +399,163 @@ describe('attack emitter — detector watchers fire for generic attack templates
     const queued = collect([watcher, a, b], [a, b]).filter((trigger) => trigger.triggerType === 'creature_attacks');
     expect(queued).toHaveLength(2);
   });
+
+  it('queues goaded-creature attack watchers only for goaded attackers', () => {
+    const ancestor = perm('ancestor_1', 'p1', {
+      name: 'Vengeful Ancestor',
+      type_line: 'Creature — Spirit Dragon',
+      oracle_text:
+        'Flying\nWhenever this creature enters or attacks, goad target creature. (Until your next turn, that creature attacks each combat if able and attacks a player other than you if able.)\nWhenever a goaded creature attacks, it deals 1 damage to its controller.',
+    });
+    const goaded = perm('bear_1', 'p2', {
+      name: 'Sample Bear',
+      type_line: 'Creature — Bear',
+      oracle_text: '',
+      power: '2',
+      toughness: '2',
+    }, { attacking: 'p1', goadedBy: ['p1'], goadedUntil: { p1: 9 } });
+    const ungoaded = perm('bear_2', 'p2', {
+      name: 'Sample Ally',
+      type_line: 'Creature — Bear',
+      oracle_text: '',
+      power: '2',
+      toughness: '2',
+    }, { attacking: 'p1' });
+
+    const whenGoadedAttacks = collect([ancestor, goaded], [goaded], 'p2', 'p1');
+    const goadedQueued = whenGoadedAttacks.filter((trigger) => trigger.triggerType === 'goaded_creature_attacks');
+    expect(goadedQueued).toHaveLength(1);
+    expect(goadedQueued[0]?.permanentId).toBe(ancestor.id);
+    expect((goadedQueued[0] as any).value?.attackingCreatureId).toBe(goaded.id);
+
+    const whenUngoadedAttacks = collect([ancestor, ungoaded], [ungoaded], 'p2', 'p1');
+    expect(whenUngoadedAttacks.some((trigger) => trigger.triggerType === 'goaded_creature_attacks')).toBe(false);
+  });
+
+  it('queues flying-creature watchers for any attacking flyer, not just yours', () => {
+    const well = perm('well_1', 'p1', {
+      name: 'Gravity Well',
+      type_line: 'Enchantment',
+      oracle_text: 'Whenever a creature with flying attacks, it loses flying until end of turn.',
+    });
+    const flyer = perm('bird_1', 'p2', {
+      name: 'Sample Bird',
+      type_line: 'Creature — Bird',
+      oracle_text: 'Flying',
+      keywords: ['Flying'],
+      power: '1',
+      toughness: '1',
+    }, { attacking: 'p1' });
+    const grounded = perm('bear_1', 'p2', {
+      name: 'Sample Bear',
+      type_line: 'Creature — Bear',
+      oracle_text: '',
+      power: '2',
+      toughness: '2',
+    }, { attacking: 'p1' });
+
+    const whenFlyerAttacks = collect([well, flyer], [flyer], 'p2', 'p1');
+    expect(whenFlyerAttacks.some((trigger) => (
+      trigger.triggerType === 'flying_creature_attacks' && (trigger as any).value?.attackingCreatureId === flyer.id
+    ))).toBe(true);
+
+    const whenGroundedAttacks = collect([well, grounded], [grounded], 'p2', 'p1');
+    expect(whenGroundedAttacks.some((trigger) => trigger.triggerType === 'flying_creature_attacks')).toBe(false);
+  });
+
+  it('queues typed color-creature watchers only for matching attackers you control', () => {
+    const linden = perm('linden_1', 'p1', {
+      name: 'Linden, the Steadfast Queen',
+      type_line: 'Legendary Creature — Human Noble',
+      oracle_text: 'Whenever a white creature you control attacks, you gain 1 life.',
+    });
+    const white = perm('soldier_1', 'p1', {
+      name: 'Sample Soldier',
+      type_line: 'Creature — Human Soldier',
+      colors: ['W'],
+      oracle_text: '',
+      power: '2',
+      toughness: '2',
+    }, { attacking: 'p2' });
+    const red = perm('goblin_1', 'p1', {
+      name: 'Sample Goblin',
+      type_line: 'Creature — Goblin',
+      colors: ['R'],
+      oracle_text: '',
+      power: '1',
+      toughness: '1',
+    }, { attacking: 'p2' });
+
+    const detected = detectAttackTriggers(linden.card, linden);
+    expect(String(detected.find((trigger) => trigger.triggerType === 'typed_creature_attacks')?.requiredTypePhrase || '')).toMatch(/white/i);
+
+    const queued = collect([linden, white, red], [white, red]).filter((trigger) => trigger.triggerType === 'typed_creature_attacks');
+    expect(queued).toHaveLength(1);
+    expect((queued[0] as any).value?.attackingCreatureId).toBe(white.id);
+  });
+
+  it('queues one-or-more typed attacks once for Goblins, not Bears', () => {
+    const watcher = perm('warchief_1', 'p1', {
+      name: 'Sample Warchief',
+      type_line: 'Creature — Goblin Warrior',
+      oracle_text: 'Whenever one or more Goblins you control attack, draw a card.',
+    });
+    const goblin = perm('goblin_1', 'p1', {
+      name: 'Sample Goblin',
+      type_line: 'Creature — Goblin',
+      oracle_text: '',
+      power: '1',
+      toughness: '1',
+    }, { attacking: 'p2' });
+    const extraGoblin = perm('goblin_2', 'p1', {
+      name: 'Sample Lackey',
+      type_line: 'Creature — Goblin',
+      oracle_text: '',
+      power: '1',
+      toughness: '1',
+    }, { attacking: 'p2' });
+    const bear = perm('bear_1', 'p1', {
+      name: 'Sample Bear',
+      type_line: 'Creature — Bear',
+      oracle_text: '',
+      power: '2',
+      toughness: '2',
+    }, { attacking: 'p2' });
+
+    const withGoblins = collect([watcher, goblin, extraGoblin], [goblin, extraGoblin])
+      .filter((trigger) => trigger.triggerType === 'one_or_more_typed_attack');
+    expect(withGoblins).toHaveLength(1);
+
+    const withBear = collect([watcher, bear], [bear]);
+    expect(withBear.some((trigger) => trigger.triggerType === 'one_or_more_typed_attack')).toBe(false);
+  });
+
+  it('queues multi-typed you-control attacks for Elf or Goblin, not Bears', () => {
+    const watcher = perm('realmwalker_1', 'p1', {
+      name: 'Sample Chorus',
+      type_line: 'Creature — Elf',
+      oracle_text: 'Whenever an Elf, Goblin, or Orc you control attacks, draw a card.',
+    });
+    const elf = perm('elf_1', 'p1', {
+      name: 'Sample Elf',
+      type_line: 'Creature — Elf',
+      oracle_text: '',
+      power: '1',
+      toughness: '1',
+    }, { attacking: 'p2' });
+    const bear = perm('bear_1', 'p1', {
+      name: 'Sample Bear',
+      type_line: 'Creature — Bear',
+      oracle_text: '',
+      power: '2',
+      toughness: '2',
+    }, { attacking: 'p2' });
+
+    const detected = detectAttackTriggers(watcher.card, watcher);
+    expect(String(detected.find((trigger) => trigger.triggerType === 'multi_typed_you_control_attacks')?.requiredTypePhrase || '')).toMatch(/elf/i);
+
+    const queued = collect([watcher, elf, bear], [elf, bear]).filter((trigger) => trigger.triggerType === 'multi_typed_you_control_attacks');
+    expect(queued).toHaveLength(1);
+    expect((queued[0] as any).value?.attackingCreatureId).toBe(elf.id);
+  });
 });

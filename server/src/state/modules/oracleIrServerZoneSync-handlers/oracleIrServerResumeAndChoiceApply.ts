@@ -321,6 +321,22 @@ export function resumeOracleIRUnlessPayFromResolution(
   );
 }
 
+function bindChosenIdsToBattlefieldPermanentIds(state: any, chosenIds: readonly string[]): string[] {
+  const wanted = new Set(chosenIds.map((id) => String(id || '').trim()).filter(Boolean));
+  if (wanted.size === 0) return [];
+  const resolved: string[] = [];
+  const seen = new Set<string>();
+  for (const perm of (state?.battlefield || []) as any[]) {
+    const permanentId = String(perm?.id || '').trim();
+    const cardId = String(perm?.card?.id || '').trim();
+    if (!permanentId || seen.has(permanentId)) continue;
+    if (!wanted.has(permanentId) && !wanted.has(cardId)) continue;
+    seen.add(permanentId);
+    resolved.push(permanentId);
+  }
+  return resolved;
+}
+
 export function resumeOracleIRRemainingStepsFromResolution(
   ctx: GameContext,
   params: {
@@ -347,8 +363,14 @@ export function resumeOracleIRRemainingStepsFromResolution(
   const chosenObjectIds = (params.chosenObjectIds || [])
     .map((id) => String(id || '').trim())
     .filter(Boolean);
+  const boundBattlefieldIds = bindChosenIdsToBattlefieldPermanentIds(state, chosenObjectIds);
+  const resumeChosenIds = boundBattlefieldIds.length > 0 ? boundBattlefieldIds : chosenObjectIds;
   const selectorContext = params.selectorContext
-    ?? (chosenObjectIds.length > 0 ? { chosenObjectIds } : undefined);
+    ? {
+        ...params.selectorContext,
+        ...(resumeChosenIds.length > 0 ? { chosenObjectIds: resumeChosenIds } : {}),
+      }
+    : (resumeChosenIds.length > 0 ? { chosenObjectIds: resumeChosenIds } : undefined);
   const xValue = Number(params.xValue);
 
   const irCtx = buildOracleIRExecutionContext(
@@ -362,6 +384,7 @@ export function resumeOracleIRRemainingStepsFromResolution(
       appliedStepKinds: readAppliedStepKindsFromState(state),
       ...(Number.isFinite(xValue) ? { xValue } : {}),
       ...(selectorContext ? { selectorContext } : {}),
+      ...(boundBattlefieldIds.length > 0 ? { lastMovedBattlefieldPermanentIds: boundBattlefieldIds } : {}),
       ...(params.voteChoiceCounts ? { voteChoiceCounts: params.voteChoiceCounts } : {}),
       ...(typeof params.winningVoteChoice !== 'undefined'
         ? { winningVoteChoice: params.winningVoteChoice }
@@ -370,7 +393,7 @@ export function resumeOracleIRRemainingStepsFromResolution(
     {
       targetPlayerId: params.targetPlayerId,
       targetSpellId: params.targetSpellId,
-      ...(chosenObjectIds.length > 0 ? { chosenObjectIds } : {}),
+      ...(resumeChosenIds.length > 0 ? { chosenObjectIds: resumeChosenIds } : {}),
       ...(params.voteChoiceCounts ? { voteChoiceCounts: params.voteChoiceCounts } : {}),
       ...(typeof params.winningVoteChoice !== 'undefined'
         ? { winningVoteChoice: params.winningVoteChoice }

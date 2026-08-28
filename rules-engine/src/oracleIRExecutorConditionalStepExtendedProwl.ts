@@ -333,7 +333,7 @@ export function tryEvaluateExtendedProwlClause(params: ExtendedConditionalParams
       if (threshold === null) return null;
       const landCount = (nextState.battlefield || []).filter((perm: any) => {
         if (String(perm?.controller || '').trim() !== controllerId) return false;
-        return /\bland\b/i.test(String(perm?.type_line || perm?.card?.type_line || ''));
+        return hasExecutorClass(perm, 'land');
       }).length;
       return landCount >= threshold;
     }
@@ -571,7 +571,10 @@ export function tryEvaluateExtendedProwlClause(params: ExtendedConditionalParams
     return opponentIds.some(id => controlledCreatures(nextState, id as PlayerID).length > yours);
   }
   if (normalizedRaw === 'you have the city\'s blessing') {
-    return Boolean(((nextState as any)?.citysBlessing || {})?.[controllerId]);
+    // Live game state uses cityBlessing (shared GameState / client UI). citysBlessing is a
+    // leftover executor-only key kept as a fallback for older fixtures.
+    const blessing = (nextState as any)?.cityBlessing || (nextState as any)?.citysBlessing || {};
+    return Boolean(blessing?.[controllerId]);
   }
 
   if (
@@ -625,7 +628,7 @@ export function tryEvaluateExtendedProwlClause(params: ExtendedConditionalParams
 
   {
     const typedCardMatch = normalizedRaw.match(/^it'?s an? (.+?) cards?$/i);
-    if (typedCardMatch) {
+    if (typedCardMatch && !/\bshares a (?:creature|card) type\b/i.test(String(typedCardMatch[1] || ''))) {
       const ref = getConditionalSubjectCard(params);
       if (!ref) {
         const ownerId = String(ctx.lastTopLibraryOwnerId || controllerId || '').trim();

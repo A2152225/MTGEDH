@@ -69,7 +69,11 @@ export { parseSpelledOutAmount } from "./manaProductionAmountParse.js";
 
 // Devotion color regexes and color-choice gate used by dynamic mana production.
 export { DEVOTION_COLOR_PATTERNS } from "./manaProductionDevotionPatterns.js";
-export { shouldApplyDevotionColorChoiceMana } from "./manaProductionDevotionHelpers.js";
+export {
+  shouldApplyDevotionColorChoiceMana,
+  shouldApplyChosenTypeColorChoiceMana,
+  shouldSkipScalingManaForColorlessTap,
+} from "./manaProductionDevotionHelpers.js";
 
 // STEP 1 land/basic / any-color / legacy overlay inside calculateManaProduction.
 export { tryCalculateManaProductionLandBasic } from "./tryCalculateManaProductionLandBasic.js";

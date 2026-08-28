@@ -64,6 +64,7 @@ import { runTurnStepUpkeep } from "./turn-handlers/turnStepUpkeep.js";
 import { runTurnStepDraw } from "./turn-handlers/turnStepDraw.js";
 import { runTurnStepUntap } from "./turn-handlers/turnStepUntap.js";
 import { checkPendingInteractions } from "./turn-handlers/checkPendingInteractions.js";
+import { getActivePriorityPlayers } from "./priorityEligibility.js";
 import { clearTemporaryRetainedManaDuration } from "./turn-handlers/turnTemporaryRetainedMana.js";
 import { clearManaPool } from "./turn-handlers/turnClearManaPool.js";
 import { getCombatCreatureStats, applyCombatDamagePreventionEffects } from "./turn-handlers/turnCombatDamageStatsPrevention.js";
@@ -289,17 +290,7 @@ function safeBumpSeq(ctx: any) {
  */
 function activePlayers(ctx: GameContext): string[] {
   try {
-    const players = Array.isArray(ctx.state.players) ? (ctx.state.players as any[]) : [];
-    return players
-      .filter(
-        (p) =>
-          !(
-            (ctx as any).inactive &&
-            (ctx as any).inactive.has &&
-            (ctx as any).inactive.has(p.id)
-          )
-      )
-      .map((p) => p.id);
+    return getActivePriorityPlayers(ctx).map((p) => p.id);
   } catch {
     return [];
   }
@@ -585,12 +576,8 @@ export function nextTurn(ctx: GameContext) {
       : [];
     if (!allPlayers.length) return;
     
-    // Get inactive set to filter out defeated players
-    const inactiveSet: Set<string> = 
-      (ctx as any).inactive instanceof Set ? (ctx as any).inactive : new Set<string>();
-    
-    // Filter to only active (non-defeated) players
-    const players = allPlayers.filter((id: string) => !inactiveSet.has(id));
+    // Living players only (hasLost / 0 life / poison / inactive), not merely ctx.inactive.
+    const players = getActivePriorityPlayers(ctx).map((p) => p.id);
     if (!players.length) {
       debug(2, `${ts()} [nextTurn] No active players remaining, game should end`);
       return;
@@ -639,8 +626,8 @@ export function nextTurn(ctx: GameContext) {
       // Take the first extra turn from the stack
       const extraTurn = extraTurns.shift();
       next = extraTurn.playerId;
-      // Skip extra turn if player is inactive
-      if (inactiveSet.has(next)) {
+      // Skip extra turn if player is out of the game
+      if (!players.includes(next)) {
         debug(1, `${ts()} [nextTurn] Skipping extra turn for inactive player ${next}`);
         // Recursive call to get next turn
         nextTurn(ctx);

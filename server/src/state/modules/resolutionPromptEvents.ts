@@ -2,6 +2,7 @@ import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debugWarn } from '../../utils/debug.js';
 import { ResolutionQueueManager, type CreateResolutionStepConfig } from '../resolution/index.js';
+import { bindCanonicalResolutionQueueGameId } from '../resolution/resolutionQueueGameIds.js';
 import { attachZoneHandSnapshotToStep } from './promptZoneHandSnapshot.js';
 
 export function appendQueuedResolutionPromptEvent(
@@ -13,7 +14,7 @@ export function appendQueuedResolutionPromptEvent(
     queuedResolutionSteps?: any[];
   },
 ): void {
-  const gameId = String((ctx as any).gameId || 'unknown');
+  const gameId = bindCanonicalResolutionQueueGameId(ctx) || String((ctx as any).gameId || '').trim();
   const playerId = String(options.playerId || '').trim();
   const state = (ctx as any)?.state;
   const queuedResolutionSteps = Array.isArray(options.queuedResolutionSteps)
@@ -67,8 +68,8 @@ export function queueResolveTopOfStackPrompt(
   ctx: GameContext,
   config: CreateResolutionStepConfig,
 ): void {
-  const gameId = String((ctx as any).gameId || 'unknown');
-  const step = ResolutionQueueManager.addStep(gameId, config);
+  const gameId = bindCanonicalResolutionQueueGameId(ctx) || String((ctx as any).gameId || '').trim();
+  const step = ResolutionQueueManager.addStep(gameId || 'unknown', config);
 
   appendQueuedResolutionPromptEvent(ctx, {
     playerId: String((step as any).playerId || (config as any).playerId || '').trim(),

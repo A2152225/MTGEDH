@@ -27,7 +27,12 @@ import { pushManaAbilityGrantSpecs } from './staticEffectSpec-handlers/staticEff
 import { pushTapUntapAbilityGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingTapUntapAbilityGrants.js';
 import { pushMustBeBlockedSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingMustBeBlocked.js';
 import { pushMustBeBlockedByTypeSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingMustBeBlockedByType.js';
+import { pushCantAttackBlockSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingCantAttack.js';
+import { pushMassCantAttackBlockSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingMassCantAttack.js';
 import { pushLoseKeywordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingLoseKeywords.js';
+import { pushAttackYouTaxSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingAttackYouTax.js';
+import { pushTypedAndKeywordLordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingTypedAndKeywordLords.js';
+import { pushQuotedNumericAndBasePTLordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingQuotedNumericBasePT.js';
 
 /** Lightning Greaves / Swiftfoot Boots: grant keywords to the equipped/enchanted host. */
 function pushAttachedHostKeywordGrants(
@@ -172,15 +177,33 @@ function pushAbilityGrantSpecs(
   if (otherTypedAbilityMatch) {
     const creatureType = parseLordCreatureType(String(otherTypedAbilityMatch[1] || ''));
     const abilities = parseAbilitiesFromTail(otherTypedAbilityMatch[2] || '');
-    if (creatureType && abilities.length > 0) {
+    if (creatureType && isCreatureTypeWord(creatureType) && abilities.length > 0) {
       specs.push(buildSpec(
         source,
         `other-${creatureType}-ability-grant`,
         { kind: 'other_creatures_you_control', creatureType },
         { abilities },
       ));
+      return;
     }
-    return;
+  }
+
+  // "Other Dinosaurs you control have haste." — subtype without the word "creatures".
+  const otherTypedNoCreatureWordMatch = oracle.match(
+    /other\s+([a-z]+)s?\s+you\s+control\s+have\s+([^.]+)/i,
+  );
+  if (otherTypedNoCreatureWordMatch) {
+    const creatureType = parseLordCreatureType(String(otherTypedNoCreatureWordMatch[1] || ''));
+    const abilities = parseAbilitiesFromTail(otherTypedNoCreatureWordMatch[2] || '');
+    if (creatureType && isCreatureTypeWord(creatureType) && abilities.length > 0) {
+      specs.push(buildSpec(
+        source,
+        `other-${creatureType}-ability-grant`,
+        { kind: 'other_creatures_you_control', creatureType },
+        { abilities },
+      ));
+      return;
+    }
   }
 
   const otherCreaturesAbilityMatch = oracle.match(/other creatures you control have ([^.]+)/i);
@@ -592,6 +615,8 @@ export function parseStaticEffectSpecsFromOraclePermanent(
   }
 
   pushLordSpecs(specs, source, oracle);
+  pushTypedAndKeywordLordSpecs(specs, source, oracle);
+  pushQuotedNumericAndBasePTLordSpecs(specs, source, oracle);
   pushOtherCreatureAndOpponentPolaritySpecs(specs, source, oracle);
   pushAbilityGrantSpecs(specs, source, perm, oracle);
   pushTapUntapAbilityGrantSpecs(specs, source, oracle);
@@ -601,6 +626,9 @@ export function parseStaticEffectSpecsFromOraclePermanent(
   pushLoseKeywordSpecs(specs, source, oracle);
   pushMustBeBlockedSpecs(specs, source, perm, oracle);
   pushMustBeBlockedByTypeSpecs(specs, source, perm, oracle);
+  pushCantAttackBlockSpecs(specs, source, perm, oracle);
+  pushMassCantAttackBlockSpecs(specs, source, perm, oracle);
+  pushAttackYouTaxSpecs(specs, source, oracle, perm);
   pushColorAnthemSpecs(specs, source, oracle);
 
   if (chosenColor) {

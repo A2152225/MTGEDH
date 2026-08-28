@@ -1,7 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { uid, cardManaValue } from '../utils.js';
-import { ResolutionStepType } from '../resolution/index.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 
 export function wasSpellCastFromGraveyard(item: any): boolean {
@@ -14,13 +14,27 @@ export function wasSpellCastFromGraveyard(item: any): boolean {
     || ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'harmonize', 'graveyard-cast'].includes(castWithAbility);
 }
 
-export function shouldQueueResolvedSpellCopyChoice(item: any, oracleText: string): boolean {
+export function shouldQueueResolvedSpellCopyChoice(item: any, oracleText: string, ctx?: GameContext): boolean {
   if (!item || item?.isCopy === true) {
     return false;
   }
 
   if (!wasSpellCastFromGraveyard(item)) {
     return false;
+  }
+
+  const gameId = String((ctx as any)?.gameId || '').trim();
+  if (gameId && gameId !== 'unknown') {
+    const sourceId = String(item?.id || '').trim();
+    const alreadyQueued = ResolutionQueueManager.getQueue(gameId).steps?.some((step: any) => (
+      step?.resolvedSpellCopyChoice === true
+      && (!sourceId || String(step?.sourceId || '').trim() === sourceId)
+    ));
+    if (alreadyQueued) return false;
+  }
+
+  if (item?.oracleIrOptionalCopyThisSpell === true) {
+    return true;
   }
 
   return /if\s+this\s+spell\s+was\s+cast\s+from\s+a\s+graveyard\s*,\s*you\s+may\s+copy\s+this\s+spell\s+and\s+may\s+choose\s+a\s+new\s+target\s+for\s+the\s+copy/i.test(
@@ -56,7 +70,7 @@ export function buildResolvedSpellCopySnapshot(
     ...item,
     id: uid('copied_spell'),
     type: String(item?.type || 'spell'),
-    controller: String(item?.controller || controller),
+    controller: String(controller || item?.controller || ''),
     targets: Array.isArray(item?.targets)
       ? item.targets.map((target: any) => (
           target && typeof target === 'object' && !Array.isArray(target)
@@ -101,7 +115,7 @@ export function buildResolvedAbilityCopySnapshot(
     ...item,
     id: uid('copied_ability'),
     type: String(item?.type || 'ability'),
-    controller: String(item?.controller || controller),
+    controller: String(controller || item?.controller || ''),
     targets: Array.isArray(item?.targets)
       ? item.targets.map((target: any) => (
           target && typeof target === 'object' && !Array.isArray(target)

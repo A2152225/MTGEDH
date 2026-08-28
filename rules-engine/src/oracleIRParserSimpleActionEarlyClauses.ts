@@ -67,6 +67,19 @@ export function tryParseSimpleActionEarlyClauses(args: SimpleActionClauseParseAr
   }
 
   {
+    // Tempting offer — [effect]. Match rawClause: normalizeClauseForParse strips
+    // "Tempting offer - " before "search …", which would otherwise become a
+    // caster-only search_library and skip the opponent accept/decline prompt.
+    if (/^tempting offer\s*[-—–]\s*.+/i.test(String(rawClause || '').trim())) {
+      return withMeta({
+        kind: 'tempting_offer',
+        who: { kind: 'each_opponent' },
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
+  {
     // "That player taps an untapped artifact, creature, or land they control for each
     // fade counter on this artifact." (Tangle Wire). The leading "a"/"an" before "untapped"
     // is grammatical (one permanent per counter), not the tap amount — the real amount comes
@@ -523,24 +536,27 @@ export function tryParseSimpleActionEarlyClauses(args: SimpleActionClauseParseAr
   }
 
   {
+    // Jaheira's Respite: "Search your library for up to X basic land cards... put those cards onto the battlefield tapped, then shuffle."
+    // Collective Voyage: "Each player searches their library for up to X basic land cards... puts them onto the battlefield tapped, then shuffles."
     const searchBattlefieldMultiple = clause.match(
       new RegExp(
-        `^search your library for up to (${COUNTER_AMOUNT_PATTERN}) (.+?) cards(?:,\\s*where\\s+x\\s+is\\s+(.+?))?\\s*,\\s*(?:reveal them,\\s*)?put (?:them|those cards) onto the battlefield( tapped)?(?: under your control)?(?:,\\s*(?:then\\s+)?shuffle(?: your library)?)?$`,
+        `^${PLAYER_SUBJECT_PREFIX}search(?:es)?\\s+(?:your|their)\\s+library for up to (${COUNTER_AMOUNT_PATTERN}) (.+?) cards(?:,\\s*where\\s+x\\s+is\\s+(.+?))?\\s*,\\s*(?:reveal them,\\s*)?puts? (?:them|those cards) onto the battlefield( tapped)?(?: under (?:your|their) control)?(?:,\\s*(?:then\\s+)?shuffles?(?: (?:your|their) library)?)?$`,
         'i'
       )
     );
     if (searchBattlefieldMultiple) {
-      const amountToken = String(searchBattlefieldMultiple[1] || '').trim().toLowerCase();
-      const whereRaw = String(searchBattlefieldMultiple[3] || '').trim();
-      const maxResults = parseSmallNumber(searchBattlefieldMultiple[1]);
+      const subject = String(searchBattlefieldMultiple[1] || '').trim();
+      const amountToken = String(searchBattlefieldMultiple[2] || '').trim().toLowerCase();
+      const whereRaw = String(searchBattlefieldMultiple[4] || '').trim();
+      const maxResults = parseSmallNumber(searchBattlefieldMultiple[2]);
       if ((maxResults && maxResults > 0) || amountToken === 'x' || whereRaw) {
         return withMeta({
           kind: 'search_library',
-          who: { kind: 'you' },
-          criteria: { kind: 'raw', text: String(searchBattlefieldMultiple[2] || '').trim() },
+          who: subject ? parsePlayerSelector(subject) : { kind: 'you' },
+          criteria: { kind: 'raw', text: String(searchBattlefieldMultiple[3] || '').trim() },
           destination: 'battlefield',
-          entersTapped: Boolean(searchBattlefieldMultiple[4]),
-          shuffle: /\bshuffle\b/i.test(clause) || undefined,
+          entersTapped: Boolean(searchBattlefieldMultiple[5]),
+          shuffle: /\bshuffle/i.test(clause) || undefined,
           ...(maxResults && maxResults > 0 ? { maxResults } : {}),
           ...(whereRaw ? { whereX: { kind: 'where', raw: whereRaw } } : {}),
           optional: true,

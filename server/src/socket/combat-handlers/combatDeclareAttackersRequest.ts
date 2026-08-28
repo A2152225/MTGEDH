@@ -7,6 +7,7 @@ import type { Server, Socket } from "socket.io";
 import { appendEvent } from "../../db/index.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { getAttackProhibitionSourceForPlayer } from "../../../../rules-engine/src/attackRestrictionText.js";
+import { playerIsLegalAttackTarget } from "../../../../rules-engine/src/playerInGameStatus.js";
 import { processEquippedAttackRevealUntilLandPumps, emitEquippedAttackRevealPumpMessages } from "../../state/modules/equippedAttackRevealPump.js";
 import { permanentHasKeyword, permanentHasSummoningSickness } from "../game-actions.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
@@ -15,7 +16,6 @@ import { normalizeAttackerSelections } from "../tokenGroupResolve.js";
 import {
   broadcastGame,
   ensureGame,
-  getMaxGenericManaAvailable,
   getPlayerName,
   millUntilLand,
 } from "../util.js";
@@ -39,6 +39,19 @@ import {
 } from "./combatDeclareAttackersForceTapSupport.js";
 import { setCombatControl } from "./combatControlState.js";
 import { getNearestOpponentDirectionAttackViolation } from "../../state/modules/nearestOpponentDirectionAttackRestriction.js";
+import {
+  collectAttackYouMaxAttackersForDefender,
+  collectAttackYouProhibitionForAttacker,
+  collectAttackYouTaxForDefender,
+  collectMaxAttackersEachCombat,
+} from "../../state/modules/staticEffectSpecAttackYouTax.js";
+import { collectThisTurnAttackTaxForAttacker } from "../../state/modules/staticEffectSpecAttackTaxThisTurn.js";
+import { collectAttackYouTaxPhyrexianForDefender } from "../../state/modules/staticEffectSpecAttackYouTaxPhyrexian.js";
+import type { AttackYouTaxPhyrexianItem } from "../../state/modules/staticEffectSpecAttackYouTaxPhyrexian.js";
+import {
+  buildAttackCostPhyrexianChoices,
+  canAffordAttackCostPayment,
+} from "./attackCostPhyrexianPayment.js";
 
 /**
  * Declare attackers - player selects which creatures to attack with
@@ -126,87 +139,43 @@ export async function handleDeclareAttackers(
     }
     const attackerIds: string[] = [];
     const currentTurn = (game.state as any).turn || 0;
-    
-    // Check for Ghostly Prison, Windborn Muse, Propaganda, etc. effects
-    // These require payment per attacking creature
-    const attackCostPerDefender: Map<string, { cost: number; sources: string[] }> = new Map();
-    
-    for (const perm of battlefield) {
-      const permController = (perm as any).controller;
-      if (permController === playerId) continue; // Only opponents' effects matter
-      
-      const oracleText = ((perm as any).card?.oracle_text || "").toLowerCase();
-      const cardName = ((perm as any).card?.name || "").toLowerCase();
-      
-      // Pattern: "Creatures can't attack you unless their controller pays {X} for each creature"
-      // Ghostly Prison: "{2}"
-      // Propaganda: "{2}"
-      // Windborn Muse: "{2}"
-      // Sphere of Safety: "{1} for each enchantment you control"
-      // Norn's Annex: "{W/P}"
-      // Baird, Steward of Argive: "{1}"
-      
-      let attackCost = 0;
-      const costMatch = oracleText.match(/creatures can't attack you (?:or a planeswalker you control )?unless their controller pays \{(\d+)\}/i);
-      
-      if (costMatch) {
-        attackCost = parseInt(costMatch[1], 10);
-      } else if (cardName.includes('ghostly prison') || cardName.includes('propaganda')) {
-        attackCost = 2; // Default for these known cards
-      } else if (cardName.includes('windborn muse')) {
-        attackCost = 2;
-      } else if (cardName.includes('sphere of safety')) {
-        // Count enchantments controlled by that player
-        const enchantmentCount = battlefield.filter((p: any) => 
-          p.controller === permController && 
-          ((p.card?.type_line || '').toLowerCase().includes('enchantment'))
-        ).length;
-        attackCost = enchantmentCount;
-      } else if (cardName.includes('baird, steward of argive')) {
-        attackCost = 1;
-      } else if (cardName.includes('norn\'s annex')) {
-        attackCost = 2; // Or pay 2 life with Phyrexian mana
-      } else if (cardName.includes('archangel of tithes')) {
-        // {1} for each creature attacking you if Archangel is untapped
-        if (!(perm as any).tapped) {
-          attackCost = 1;
-        }
-      } else if (cardName.includes('war tax') || cardName.includes('pendrell mists') ||
-                 (oracleText.includes("can't attack") && oracleText.includes("unless") && oracleText.includes("pays"))) {
-        // Generic detection for other pillowfort effects
-        const genericCostMatch = oracleText.match(/pays?\s*\{(\d+)\}/);
-        if (genericCostMatch) {
-          attackCost = parseInt(genericCostMatch[1], 10);
-        }
-      }
-      
-      if (attackCost > 0) {
-        const existingCost = attackCostPerDefender.get(permController) || { cost: 0, sources: [] };
-        existingCost.cost += attackCost;
-        existingCost.sources.push((perm as any).card?.name || 'Unknown');
-        attackCostPerDefender.set(permController, existingCost);
-      }
-    }
-    
-    // Calculate total attack cost based on which players are being attacked
+
+    // Pillowfort attack-you tax from oracle StaticEffectSpec, per attacking creature
+    // (Ghostly Prison is uniform; Elephant Grass is color-gated).
     let totalAttackCostRequired = 0;
     const attackCostBreakdown: { playerId: string; cost: number; sources: string[] }[] = [];
     const attackCostByDefender = new Map<string, { cost: number; sources: string[] }>();
-    
+    const attackCostPhyrexianItems: AttackYouTaxPhyrexianItem[] = [];
+
     for (const attacker of resolvedAttackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
       const defendingPlayerId = resolveDefendingPlayerIdForAttackTarget(attacker, battlefield, players);
-      if (defendingPlayerId && attackCostPerDefender.has(defendingPlayerId)) {
-        const costInfo = attackCostPerDefender.get(defendingPlayerId)!;
-        totalAttackCostRequired += costInfo.cost;
-        const existing = attackCostByDefender.get(defendingPlayerId);
-        if (existing) {
-          existing.cost += costInfo.cost;
-        } else {
-          attackCostByDefender.set(defendingPlayerId, {
-            cost: costInfo.cost,
-            sources: [...costInfo.sources],
-          });
+      if (!defendingPlayerId) continue;
+      const attackingCreature = battlefield.find((perm: any) =>
+        perm.id === attacker.creatureId && perm.controller === playerId
+      );
+      const tax = collectAttackYouTaxForDefender(game.state, defendingPlayerId, attackingCreature);
+      const thisTurnTax = collectThisTurnAttackTaxForAttacker(game.state, defendingPlayerId);
+      const phyrexianTax = collectAttackYouTaxPhyrexianForDefender(game.state, defendingPlayerId, attackingCreature);
+      attackCostPhyrexianItems.push(...phyrexianTax.items);
+      const combinedCost = tax.cost + thisTurnTax.cost;
+      if (combinedCost <= 0 && phyrexianTax.items.length === 0) continue;
+      totalAttackCostRequired += combinedCost;
+      const combinedSources = [
+        ...tax.sources,
+        ...thisTurnTax.sources,
+        ...phyrexianTax.items.map((item) => item.source),
+      ];
+      const existing = attackCostByDefender.get(defendingPlayerId);
+      if (existing) {
+        existing.cost += combinedCost;
+        for (const source of combinedSources) {
+          if (!existing.sources.includes(source)) existing.sources.push(source);
         }
+      } else {
+        attackCostByDefender.set(defendingPlayerId, {
+          cost: combinedCost,
+          sources: combinedSources,
+        });
       }
     }
 
@@ -217,20 +186,36 @@ export async function handleDeclareAttackers(
         sources: costInfo.sources,
       });
     }
+
+    const attackersVsPlayer = new Map<string, number>();
+    for (const attacker of resolvedAttackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
+      const targetPlayerId = String(attacker.targetPlayerId || '').trim();
+      if (!targetPlayerId) continue;
+      attackersVsPlayer.set(targetPlayerId, (attackersVsPlayer.get(targetPlayerId) || 0) + 1);
+    }
+    for (const [defendingPlayerId, count] of attackersVsPlayer.entries()) {
+      const cap = collectAttackYouMaxAttackersForDefender(game.state, defendingPlayerId);
+      if (cap.max != null && count > cap.max) {
+        const defenderName = getPlayerName(game, defendingPlayerId);
+        socket.emit('error', {
+          code: 'TOO_MANY_ATTACKERS',
+          message: `No more than ${cap.max} creatures can attack ${defenderName} this combat.`,
+        });
+        return;
+      }
+    }
+
+    const globalAttackCap = collectMaxAttackersEachCombat(game.state);
+    if (globalAttackCap.max != null && resolvedAttackers.length > globalAttackCap.max) {
+      socket.emit('error', {
+        code: 'TOO_MANY_ATTACKERS',
+        message: `No more than ${globalAttackCap.max} creatures can attack this combat.`,
+      });
+      return;
+    }
     
     for (const attacker of resolvedAttackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
       const targetPlayerId = String(attacker.targetPlayerId || '').trim();
-      if (targetPlayerId) {
-        const attackProhibitionSource = getAttackProhibitionSourceForPlayer(battlefield, targetPlayerId);
-        if (attackProhibitionSource) {
-          socket.emit('error', {
-            code: 'ATTACK_PROHIBITED',
-            message: `${getPlayerName(game, targetPlayerId)} can't be attacked while ${attackProhibitionSource} is on the battlefield.`,
-          });
-          return;
-        }
-      }
-
       const creature = battlefield.find((perm: any) => 
         perm.id === attacker.creatureId && 
         perm.controller === playerId
@@ -242,6 +227,19 @@ export async function handleDeclareAttackers(
           message: `Creature ${attacker.creatureId} not found or not controlled by you`,
         });
         return;
+      }
+
+      if (targetPlayerId) {
+        const specProhibition = collectAttackYouProhibitionForAttacker(game.state, targetPlayerId, creature);
+        const attackProhibitionSource = specProhibition
+          || getAttackProhibitionSourceForPlayer(battlefield, targetPlayerId);
+        if (attackProhibitionSource) {
+          socket.emit('error', {
+            code: 'ATTACK_PROHIBITED',
+            message: `${getPlayerName(game, targetPlayerId)} can't be attacked while ${attackProhibitionSource} is on the battlefield.`,
+          });
+          return;
+        }
       }
 
       // Check if permanent is actually a creature (Rule 508.1a)
@@ -256,7 +254,7 @@ export async function handleDeclareAttackers(
       }
 
       // Check for defender and "as though it didn't have defender" effects (Rule 508.1c)
-      const canAttackCheck = canPermanentAttack(creature, battlefield, playerId);
+      const canAttackCheck = canPermanentAttack(creature, battlefield, playerId, game.state);
       if (!canAttackCheck.canAttack) {
         socket.emit("error", {
           code: "CANT_ATTACK",
@@ -266,6 +264,16 @@ export async function handleDeclareAttackers(
       }
 
       const defendingPlayerId = resolveDefendingPlayerIdForAttackTarget(attacker, battlefield, players);
+      const defendingPlayer = players.find(
+        (player: any) => String(player?.id || '').trim() === String(defendingPlayerId || '').trim(),
+      );
+      if (defendingPlayerId && !playerIsLegalAttackTarget(defendingPlayer, playerId)) {
+        socket.emit("error", {
+          code: "INVALID_ATTACK_TARGET",
+          message: "That player has left the game and cannot be attacked",
+        });
+        return;
+      }
       const ownerRestrictionReason = getOwnerAttackRestrictionReason(creature, defendingPlayerId, {
         targetIsOwnerPlaneswalker: isAttackingOwnerPlaneswalker(creature, attacker, battlefield),
       });
@@ -331,7 +339,7 @@ export async function handleDeclareAttackers(
             // Get all possible opponents (not the controller)
             const players = (game.state as any).players || [];
             const allOpponents = players
-              .filter((p: any) => p?.id && p.id !== playerId && !p.hasLost)
+              .filter((p: any) => playerIsLegalAttackTarget(p, playerId))
               .map((p: any) => p.id);
             
             // Check if there are non-goader opponents available
@@ -364,7 +372,7 @@ export async function handleDeclareAttackers(
       const forcedAttackPlayerId = String((creature as any).encoreAttackPlayerId || '').trim();
       if (forcedAttackPlayerId) {
         const players = Array.isArray((game.state as any).players) ? (game.state as any).players : [];
-        const forcedOpponentStillActive = players.some((player: any) => String(player?.id || '') === forcedAttackPlayerId && !player?.hasLost);
+        const forcedOpponentStillActive = players.some((player: any) => playerIsLegalAttackTarget(player, playerId) && String(player?.id || '') === forcedAttackPlayerId);
         if (forcedOpponentStillActive) {
           const declaredTargetPlayerId = String(attacker.targetPlayerId || '').trim();
           if (declaredTargetPlayerId !== forcedAttackPlayerId) {
@@ -391,16 +399,18 @@ export async function handleDeclareAttackers(
       return;
     }
 
-    if (totalAttackCostRequired > 0) {
+    if (totalAttackCostRequired > 0 || attackCostPhyrexianItems.length > 0) {
       const attackerIdsToExclude = resolvedAttackers.map((entry) => String(entry.creatureId || ''));
-      const totalAvailable = getMaxGenericManaAvailable(game.state, playerId, {
+      const afford = canAffordAttackCostPayment(game.state, playerId, {
+        generic: totalAttackCostRequired,
+        items: attackCostPhyrexianItems,
         excludedPermanentIds: attackerIdsToExclude,
       });
 
-      if (totalAvailable < totalAttackCostRequired) {
+      if (!afford.ok) {
         socket.emit("error", {
           code: "INSUFFICIENT_MANA_FOR_ATTACK",
-          message: `Cannot attack. Need to pay {${totalAttackCostRequired}} for ${attackCostBreakdown.map(b => b.sources.join(', ')).join('; ')}. You have {${totalAvailable}} available.`,
+          message: `Cannot attack. Need to pay ${attackCostPhyrexianItems.length > 0 ? '{W/P} and ' : ''}{${totalAttackCostRequired}} for ${attackCostBreakdown.map(b => b.sources.join(', ')).join('; ')}. ${afford.error || ''}`.trim(),
         });
         return;
       }
@@ -409,21 +419,29 @@ export async function handleDeclareAttackers(
         .find((step: any) => step?.attackCostPayment === true);
 
       if (!existingPrompt) {
+        const phyrexianChoices = buildAttackCostPhyrexianChoices(attackCostPhyrexianItems);
+        const phyrexianLabel = phyrexianChoices.length > 0
+          ? `${phyrexianChoices.map((choice) => choice.symbol).join('')} (or 2 life each)`
+          : '';
+        const genericLabel = totalAttackCostRequired > 0 ? `{${totalAttackCostRequired}}` : '';
+        const costLabel = [phyrexianLabel, genericLabel].filter(Boolean).join(' and ') || '{0}';
         const attackCostStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.OPTION_CHOICE,
           playerId: playerId as any,
           sourceName: 'Attack Cost',
-          description: `Pay {${totalAttackCostRequired}} to attack (${attackCostBreakdown.map((entry) => entry.sources.join(', ')).join('; ')})`,
+          description: `Pay ${costLabel} to attack (${attackCostBreakdown.map((entry) => entry.sources.join(', ')).join('; ')})`,
           mandatory: true,
           minSelections: 1,
           maxSelections: 1,
           options: [
-            { id: 'pay_attack_cost', label: `Pay {${totalAttackCostRequired}} and attack` },
+            { id: 'pay_attack_cost', label: `Pay ${costLabel} and attack` },
             { id: 'cancel_attack', label: 'Cancel attack' },
           ],
           attackCostPayment: true,
           attackCostAmount: totalAttackCostRequired,
           attackCostBreakdown,
+          attackCostPhyrexianItems,
+          attackCostPhyrexianChoices: phyrexianChoices,
           attackers: resolvedAttackers,
         } as any);
 

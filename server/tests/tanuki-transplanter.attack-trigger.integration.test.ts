@@ -249,6 +249,74 @@ describe('Firebending uses the same retain-mana duration buckets', () => {
     expect(String(firebending?.effect || firebending?.description || '')).toMatch(/add \{r\}\{r\}\. this mana lasts until end of combat/i);
   });
 
+  it('detects firebending X as this creature\'s current power', () => {
+    const studentOracle =
+      "Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\n" +
+      "Firebending X, where X is this creature's power. (Whenever this creature attacks, add X {R}. This mana lasts until end of combat.)";
+    const studentCard = {
+      name: 'Firebending Student',
+      type_line: 'Creature — Human Monk',
+      oracle_text: studentOracle,
+      power: '1',
+      toughness: '2',
+    };
+
+    const baseTriggers = detectAttackTriggers(studentCard, { id: 'student_1', controller: 'p1' });
+    const baseFirebending = baseTriggers.find((trigger) => trigger.triggerType === 'firebending');
+    expect(baseFirebending).toBeTruthy();
+    expect((baseFirebending as any)?.value?.amount ?? baseFirebending?.value).toBe(1);
+    expect(String(baseFirebending?.effect || baseFirebending?.description || '')).toMatch(/add \{r\}\. this mana lasts until end of combat/i);
+
+    const prowessTriggers = detectAttackTriggers(studentCard, {
+      id: 'student_1',
+      controller: 'p1',
+      temporaryPowerBoost: 2,
+    });
+    const prowessFirebending = prowessTriggers.find((trigger) => trigger.triggerType === 'firebending');
+    expect((prowessFirebending as any)?.value?.amount ?? prowessFirebending?.value).toBe(3);
+    expect(String(prowessFirebending?.effect || prowessFirebending?.description || '')).toMatch(/add \{r\}\{r\}\{r\}\. this mana lasts until end of combat/i);
+  });
+
+  it('resolves firebending X from creatures you control when attacking', () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+    const sunWarriors: any = {
+      id: 'sun_warriors',
+      controller: p1,
+      owner: p1,
+      card: {
+        name: 'Sun Warriors',
+        type_line: 'Creature — Human Warrior Ally',
+        oracle_text: 'Firebending X, where X is the number of creatures you control. (Whenever this creature attacks, add X {R}. This mana lasts until end of combat.)',
+        power: '3',
+        toughness: '3',
+      },
+    };
+    const ally: any = {
+      id: 'ally_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        name: 'Ally Token',
+        type_line: 'Creature — Ally',
+        oracle_text: '',
+        power: '1',
+        toughness: '1',
+      },
+    };
+    const ctx: any = {
+      state: {
+        battlefield: [sunWarriors, ally],
+        players: [{ id: p1 }, { id: p2 }],
+      },
+    };
+
+    const firebendingTriggers = getAttackTriggersForCreatures(ctx, [sunWarriors], p1, p2)
+      .filter((trigger: any) => trigger?.triggerType === 'firebending');
+    expect(firebendingTriggers).toHaveLength(1);
+    expect(firebendingTriggers[0]?.value?.amount ?? firebendingTriggers[0]?.value).toBe(2);
+  });
+
   it('keeps firebending mana through combat steps and empties it when combat ends', () => {
     const game = createInitialGameState('firebending_unified_retain_mana');
 

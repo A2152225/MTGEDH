@@ -178,7 +178,7 @@ export function tryEvaluateExtendedVotedChoiceClause(params: ExtendedConditional
     const last = getSpellsCastLastTurnCount(nextState);
     return last === null ? true : last === 0;
   }
-  if (normalizedRaw === 'you cast it' || normalizedRaw === 'you cast it from your hand') {
+  if (normalizedRaw === 'you cast it') {
     return true;
   }
   if (normalizedRaw === 'you discarded a nonland card') {

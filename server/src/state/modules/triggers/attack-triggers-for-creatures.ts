@@ -39,6 +39,12 @@ export function getAttackTriggersForCreatures(
 ): CombatTriggeredAbility[] {
   const triggers: CombatTriggeredAbility[] = [];
   const battlefield = ctx.state?.battlefield || [];
+  const detectGameState = ctx.state
+    ? {
+        ...ctx.state,
+        experienceCounters: (ctx.state as any).experienceCounters ?? (ctx as any).experience,
+      }
+    : undefined;
   
   const playerIds = Array.isArray((ctx as any).state?.players)
     ? (ctx as any).state.players.map((player: any) => String(player?.id || '')).filter(Boolean)
@@ -79,7 +85,7 @@ export function getAttackTriggersForCreatures(
   // Self-attack abilities on the attacking creatures (keywords, "whenever this attacks", Join Forces).
   // Watcher types are queued once below so an attacking source is not double-counted.
   for (const attacker of attackingCreatures) {
-    const attackerTriggers = detectAttackTriggers(attacker.card, attacker);
+    const attackerTriggers = detectAttackTriggers(attacker.card, attacker, detectGameState);
     const defendingPlayerId = resolveAttackedPlayerId(attacker);
     triggers.push(
       ...attackerTriggers
@@ -102,10 +108,11 @@ export function getAttackTriggersForCreatures(
   // Watchers on any battlefield permanent: typed/another/any/opponent/alone/modified/curse/exalted/...
   for (const permanent of battlefield) {
     if (!permanent) continue;
-    const permTriggers = detectAttackTriggers(permanent.card, permanent);
+    const permTriggers = detectAttackTriggers(permanent.card, permanent, detectGameState);
     for (const trigger of permTriggers) {
       if (!isAttackWatcherTriggerType(trigger.triggerType)) continue;
       const sourceController = String((trigger as any).controllerId || permanent.controller || '');
+      const turnNumber = Number((ctx.state as any)?.turnNumber);
       const plan = planAttackWatcherQueue(
         { ...trigger, controllerId: sourceController },
         permanent,
@@ -114,6 +121,7 @@ export function getAttackTriggersForCreatures(
         attackedPlayerIds,
         battlefield,
         resolveAttackedPlayerId,
+        Number.isFinite(turnNumber) ? turnNumber : undefined,
       );
       if (plan.kind === 'skip') continue;
       if (plan.kind === 'per_attacked_player') {

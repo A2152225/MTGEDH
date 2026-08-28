@@ -114,11 +114,9 @@ export function tryParseSimpleActionDrawTurnClauses(args: SimpleActionClausePars
       return withMeta({
         kind: 'draw',
         who: parsePlayerSelector(drawForEach[1]),
-        amount: /\b(?:land\s+)?cards?\s+discarded\s+this\s+way\b/i.test(forEachText)
-          ? { kind: 'reference_amount', raw: amountText }
-          : parsedAmount.kind === 'reference_amount'
-            ? parsedAmount
-            : { kind: 'unknown', raw: amountText },
+        amount: parsedAmount.kind === 'reference_amount'
+          ? parsedAmount
+          : { kind: 'reference_amount', raw: amountText },
         raw: rawClause,
         });
     }

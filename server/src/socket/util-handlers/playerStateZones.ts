@@ -6,7 +6,7 @@
 // Re-exported from util.ts (millUntilLand) so the "./util.js" import path keeps working.
 
 import { appendEvent } from "../../db/index.js";
-import { pushCardToPlayerGraveyardWithReplacements } from "../../state/modules/graveyardEntryUtils.js";
+import { pushCardToGraveyardFromLibrary } from "../../state/modules/graveyardEntryUtils.js";
 import { debugWarn } from "../../utils/debug.js";
 
 /* ------------------- Defensive normalization helpers ------------------- */
@@ -130,7 +130,7 @@ export function millUntilLand(
       if (!card) break;
       result.milled.push(card);
       const isLand = (card.type_line || "").toLowerCase().includes("land");
-      pushCardToPlayerGraveyardWithReplacements(millCtx, targetPlayerId, card, zones.graveyard);
+      pushCardToGraveyardFromLibrary(millCtx, targetPlayerId, card, zones.graveyard);
       if (isLand) {
         result.landHit = card;
         break;

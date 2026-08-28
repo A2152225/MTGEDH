@@ -9,6 +9,7 @@ import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { appendEvent } from "../../db/index.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { isGameReplayLocked } from "../../gameRestoreState.js";
 import { persistAndResolveTopOfStack, ensureGame, broadcastGame } from "../util.js";
 import { runPostResolutionPermanentPromptChecks } from "../game-actions.js";
 import { advanceStepPersistingEvent } from "../step-advance.js";
@@ -17,6 +18,11 @@ import {
   findMustBeBlockedIfAbleViolation,
   resolveMustBeBlockedIfAbleAssignments,
 } from "../combat-handlers/combatMustBeBlockedIfAble.js";
+import {
+  resolveForcedAttackerDeclarations,
+} from "../combat-handlers/combatDeclareAttackersForceTapSupport.js";
+import { collectMaxBlockersEachCombat } from "../../state/modules/staticEffectSpecAttackYouTax.js";
+import { applyAIDeclareBlockersBlockTax } from "./aiPriorityPassCombatBlockTax.js";
 import { AI_REACTION_DELAY_MS } from "./aiConstants.js";
 import { scheduleAIPriority } from "./aiScheduler.js";
 import { isAIPlayer } from "./aiPlayerRegistry.js";
@@ -33,7 +39,11 @@ export async function executePassPriority(
 ): Promise<void> {
   const game = ensureGame(gameId);
   if (!game) return;
-  
+  if (isGameReplayLocked(game, gameId)) {
+    debug(2, '[AI] executePassPriority skipped during undo/restore replay', { gameId, playerId });
+    return;
+  }
+
   debug(1, '[AI] Passing priority:', { gameId, playerId });
   
   try {
@@ -120,11 +130,25 @@ export async function executeDeclareAttackers(
 ): Promise<void> {
   const game = ensureGame(gameId);
   if (!game) return;
+
+  const forced = resolveForcedAttackerDeclarations(game, playerId);
+  const seen = new Set<string>();
+  const merged: Array<{ creatureId: string; defendingPlayerId: string }> = [];
+  for (const attacker of forced) {
+    if (seen.has(attacker.creatureId)) continue;
+    seen.add(attacker.creatureId);
+    merged.push(attacker);
+  }
+  for (const attacker of attackers) {
+    if (!attacker?.creatureId || seen.has(attacker.creatureId)) continue;
+    seen.add(attacker.creatureId);
+    merged.push(attacker);
+  }
   
-  debug(1, '[AI] Declaring attackers:', { gameId, playerId, attackers });
+  debug(1, '[AI] Declaring attackers:', { gameId, playerId, attackers: merged });
   
   try {
-    if (attackers.length === 0) {
+    if (merged.length === 0) {
       await executeCombatDeclareAttackers(io, gameId, playerId, []);
       await executePassPriority(io, gameId, playerId);
       return;
@@ -134,7 +158,7 @@ export async function executeDeclareAttackers(
       io,
       gameId,
       playerId,
-      attackers.map((attacker) => ({
+      merged.map((attacker) => ({
         creatureId: attacker.creatureId,
         targetPlayerId: attacker.defendingPlayerId,
       })),
@@ -143,6 +167,11 @@ export async function executeDeclareAttackers(
     
   } catch (error) {
     debugError(1, '[AI] Error declaring attackers:', error);
+    const code = String((error as any)?.code || '');
+    if (code === 'GOAD_MUST_ATTACK' || code === 'MUST_ATTACK') {
+      debugError(1, '[AI] Forced-attack declaration failed; not passing priority', { gameId, playerId, code });
+      return;
+    }
     await executePassPriority(io, gameId, playerId);
   }
 }
@@ -189,6 +218,47 @@ export async function executeDeclareBlockers(
       });
       return;
     }
+
+    const uniqueBlockerIds: string[] = [];
+    const seenBlockerIds = new Set<string>();
+    for (const assignment of assignments) {
+      const blockerId = String(assignment?.blockerId || '').trim();
+      if (!blockerId || seenBlockerIds.has(blockerId)) continue;
+      seenBlockerIds.add(blockerId);
+      uniqueBlockerIds.push(blockerId);
+    }
+    const globalBlockCap = collectMaxBlockersEachCombat(state);
+    if (globalBlockCap.max != null && uniqueBlockerIds.length > globalBlockCap.max) {
+      const keep = new Set(uniqueBlockerIds.slice(0, globalBlockCap.max));
+      assignments = assignments.filter((assignment) =>
+        keep.has(String(assignment?.blockerId || '').trim()),
+      );
+      const afterCapViolation = findMustBeBlockedIfAbleViolation({
+        state,
+        defendingPlayerId: playerId,
+        assignments,
+      });
+      if (afterCapViolation) {
+        debugWarn(1, '[AI] Refusing declare blockers that leaves a must-be-blocked-if-able attacker unblocked:', {
+          gameId,
+          playerId,
+          attackerIds: afterCapViolation.attackerIds,
+        });
+        return;
+      }
+    }
+
+    const taxResult = applyAIDeclareBlockersBlockTax({
+      io,
+      game,
+      gameId,
+      playerId,
+      assignments,
+    });
+    if (!taxResult.ok) {
+      return;
+    }
+    assignments = taxResult.assignments;
 
     // Apply blocker assignments to permanents
     for (const blocker of assignments) {

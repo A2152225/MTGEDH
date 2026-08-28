@@ -2,19 +2,15 @@
 // Socket handlers for the undo system with player approval
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName, transformDbEventsForReplay, clearScheduledHumanAutoPassForGame, suppressAutomationOnNextBroadcast, pauseHumanAutoPassUntilAction } from "./util";
-import { getEvents, truncateEventsForUndo, getEventCount } from "../db";
-import { markGameRestoring, clearGameRestoring } from "../gameRestoreState.js";
-import GameManager from "../GameManager.js";
-import { reconcileCommandZoneZoneConsistency } from "../state/modules/commander.js";
+import { ensureGame, broadcastGame, getPlayerName } from "./util";
+import { getEvents, getEventCount } from "../db";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
-import { createInitialGameState } from "../state/gameState.js";
-import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
-import { clearScheduledAIActionsForGame, scheduleAIGameFlow } from "./ai.js";
+import { scheduleAIGameFlow } from "./ai.js";
 import {
   buildPlayerNameMap,
   calculateSmartUndoCounts,
   listUndoTurnPhaseTargets,
+  performUndo,
   resolveUndoToTurnPhaseCount,
 } from "./undo-handlers/index.js";
 import type { PersistedEvent, UndoBoundaryPreview } from "./undo-handlers/index.js";
@@ -158,214 +154,6 @@ function checkAnyRejected(request: UndoRequest): boolean {
   return Object.values(request.approvals).some(v => v === false);
 }
 
-/**
- * Perform the actual undo by:
- * 1. Getting the current event count
- * 2. Calculating how many events to keep
- * 3. Truncating the event log in the database
- * 4. Resetting the existing game state (preserving socket/participant mappings)
- * 5. Replaying the remaining events on the SAME game context
- * 
- * IMPORTANT: We use the existing game's reset + replay methods rather than creating
- * a fresh game. This ensures:
- * - The RNG state is properly reset and re-seeded from the rngSeed event
- * - Libraries (card arrays) are properly rebuilt from deckImportResolved events
- * - Socket/participant mappings are preserved (joinedBySocket, participantsList, etc.)
- * - Life/poison/experience counters are properly restored
- * - All internal context state matches what was replayed
- * 
- * Returns true on success, false on failure
- */
-function performUndo(gameId: string, actionsToUndo: number, eventCountOverride?: number): { success: boolean; error?: string } {
-  try {
-    clearScheduledHumanAutoPassForGame(gameId);
-    clearScheduledAIActionsForGame(gameId);
-
-    // Get current event count
-    let eventCount: number;
-    if (typeof eventCountOverride === 'number' && Number.isFinite(eventCountOverride) && eventCountOverride >= 0) {
-      eventCount = Math.floor(eventCountOverride);
-    } else {
-      try {
-        eventCount = getEventCount(gameId);
-      } catch (e) {
-        debugWarn(1, `[undo] Failed to get event count for game ${gameId}:`, e);
-        return { success: false, error: "Database not available" };
-      }
-    }
-    
-    if (eventCount === 0) {
-      return { success: false, error: "No actions to undo" };
-    }
-    
-    // Calculate how many events to keep
-    const eventsToKeep = Math.max(0, eventCount - actionsToUndo);
-    
-    debug(2, `[undo] Performing undo for game ${gameId}: keeping ${eventsToKeep} of ${eventCount} events`);
-    
-    // Truncate the event log in the database
-    try {
-      truncateEventsForUndo(gameId, eventsToKeep);
-    } catch (e) {
-      debugError(1, `[undo] Failed to truncate events for game ${gameId}:`, e);
-      return { success: false, error: "Failed to truncate event log" };
-    }
-    
-    // Get the remaining events
-    let remainingEvents: any[];
-    try {
-      remainingEvents = getEvents(gameId);
-    } catch (e) {
-      debugWarn(1, `[undo] Failed to get events after truncation:`, e);
-      remainingEvents = [];
-    }
-    
-    // Get the existing game - we'll reset and replay on the SAME game context
-    // This preserves socket mappings and internal state references
-    const existingGame = GameManager.getGame(gameId);
-    
-    if (!existingGame) {
-      debugError(1, `[undo] Game ${gameId} not found in GameManager`);
-      return { success: false, error: "Game not found" };
-    }
-    
-    // Save participant mappings before reset (in case reset clears them)
-    let savedParticipants: Array<{ socketId: string; playerId: string; spectator: boolean }> = [];
-    try {
-      if (typeof existingGame.participants === 'function') {
-        savedParticipants = existingGame.participants().map((p: any) => ({
-          socketId: p.socketId,
-          playerId: p.playerId,
-          spectator: !!(p.spectator || p.isSpectator),
-        }));
-      }
-    } catch (e) {
-      debugWarn(1, '[undo] Failed to save participants:', e);
-    }
-    
-    // Reset the game state while preserving player roster
-    // This clears libraries, zones, battlefield, stack, counters, etc.
-    // but keeps the player list so replay can work with existing player IDs
-    if (typeof existingGame.reset === 'function') {
-      try {
-        existingGame.reset(true); // preservePlayers = true
-        debug(2, `[undo] Reset game state for ${gameId}`);
-      } catch (resetErr) {
-        debugError(1, `[undo] Reset failed for game ${gameId}:`, resetErr);
-        return { success: false, error: "Failed to reset game state" };
-      }
-    } else {
-      debugError(1, `[undo] Game ${gameId} does not have reset method`);
-      return { success: false, error: "Game does not support reset" };
-    }
-    
-    // Replay the remaining events on the SAME game context
-    // This rebuilds all state including:
-    // - RNG seed and state (from rngSeed event)
-    // - Libraries (from deckImportResolved events)
-    // - Shuffled order (from shuffleLibrary events)  
-    // - Hand contents (from drawCards events)
-    // - Mulligan results (from mulligan events)
-    // - All other game actions
-    if (remainingEvents.length > 0 && typeof existingGame.replay === 'function') {
-      // Transform events from DB format to replay format using shared utility
-      const replayEvents = transformDbEventsForReplay(remainingEvents);
-      
-      markGameRestoring(gameId);
-      try {
-        existingGame.replay(replayEvents);
-        debug(2, `[undo] Replayed ${replayEvents.length} events for game ${gameId}`);
-      } catch (replayErr) {
-        debugError(1, `[undo] Replay failed for game ${gameId}:`, replayErr);
-        return { success: false, error: "Failed to replay events" };
-      } finally {
-        clearGameRestoring(gameId);
-      }
-    } else if (remainingEvents.length === 0) {
-      debug(2, `[undo] No events to replay for game ${gameId} (undid all actions)`);
-    }
-    
-    // Restore participant socket mappings if they were lost during reset
-    // This ensures connected clients stay connected after undo
-    try {
-      if (savedParticipants.length > 0 && typeof existingGame.join === 'function') {
-        // Check if participants were preserved
-        const currentParticipants = typeof existingGame.participants === 'function' 
-          ? existingGame.participants() 
-          : [];
-        
-        // If participants were lost during reset, try to restore them
-        if (currentParticipants.length === 0 && savedParticipants.length > 0) {
-          debug(2, `[undo] Restoring ${savedParticipants.length} participant(s) for game ${gameId}`);
-          for (const p of savedParticipants) {
-            if (p.socketId && p.playerId) {
-              try {
-                existingGame.join(p.socketId, p.playerId, p.spectator, p.playerId);
-              } catch (joinErr) {
-                debugWarn(1, `[undo] Failed to restore participant ${p.playerId}:`, joinErr);
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      debugWarn(1, '[undo] Failed to restore participants:', e);
-    }
-    
-    try {
-      const purged = reconcileCommandZoneZoneConsistency((existingGame as any)?.state);
-      if (purged.removedBattlefield || purged.removedStack) {
-        debugWarn(1, `[undo] Reconciled command-zone/BF ghosts for ${gameId}`, purged);
-      }
-    } catch (reconcileErr) {
-      debugWarn(1, `[undo] reconcileCommandZoneZoneConsistency failed for ${gameId}:`, reconcileErr);
-    }
-
-    // Bump seq to trigger UI updates
-    if (typeof existingGame.bumpSeq === 'function') {
-      existingGame.bumpSeq();
-    }
-
-    try {
-      const stateAny = (existingGame.state as any) || {};
-      const turnPlayer = String(stateAny.turnPlayer || '').trim();
-      const phase = String(stateAny.phase || '').toLowerCase();
-      const step = String(stateAny.step || '').toUpperCase();
-      const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
-
-      if (turnPlayer) {
-        pauseHumanAutoPassUntilAction(existingGame as any, turnPlayer);
-      }
-
-      if (
-        turnPlayer &&
-        !pendingSummary.hasPending &&
-        phase !== 'pre_game' &&
-        phase !== 'pre-game' &&
-        !['UNTAP', 'CLEANUP'].includes(step)
-      ) {
-        stateAny.priority = turnPlayer;
-      }
-    } catch (priorityErr) {
-      debugWarn(1, `[undo] Failed to restore priority/autopass pause for game ${gameId}:`, priorityErr);
-    }
-
-    suppressAutomationOnNextBroadcast(existingGame as any);
-
-    void import('./ai.js').then((aiModule) => {
-      if (typeof aiModule.rehydrateAIGameRuntime === 'function') {
-        aiModule.rehydrateAIGameRuntime(gameId, { refreshDeckProfiles: true });
-      }
-    }).catch((err) => {
-      debugWarn(1, `[undo] Failed to rehydrate AI runtime for game ${gameId}:`, err);
-    });
-    
-    return { success: true };
-  } catch (err: any) {
-    debugError(1, `[undo] performUndo failed for game ${gameId}:`, err);
-    return { success: false, error: err?.message || "Unknown error" };
-  }
-}
 
 function emitUndoCountsUpdate(io: Server, gameId: string, game: any): void {
   try {
@@ -513,7 +301,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
     return actionsToUndo;
   };
 
-  const handleRequestUndo = (
+  const handleRequestUndo = async (
     gameId: string,
     rawActionsToUndo: unknown,
     description?: string,
@@ -552,7 +340,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
     // If single player, auto-approve and perform undo immediately
     if (playerIds.length === 1) {
-      const undoResult = performUndo(gameId, actionsToUndo);
+      const undoResult = await performUndo(gameId, actionsToUndo, undefined, io);
 
       if (undoResult.success) {
         io.to(gameId).emit("chat", {
@@ -601,7 +389,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
     // If all approvals are already satisfied, perform immediately.
     if (checkAllApproved(request, playerIds)) {
       request.status = 'approved';
-      const undoResult = performUndo(gameId, actionsToUndo);
+      const undoResult = await performUndo(gameId, actionsToUndo, undefined, io);
 
       if (undoResult.success) {
         io.to(gameId).emit("chat", {
@@ -677,7 +465,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   };
 
   // Request an undo
-  socket.on("requestUndo", (payload?: { gameId?: unknown; actionsToUndo?: unknown }) => {
+  socket.on("requestUndo", async (payload?: { gameId?: unknown; actionsToUndo?: unknown }) => {
     const gameId = payload?.gameId;
     const actionsToUndo = payload?.actionsToUndo ?? 1;
     try {
@@ -685,7 +473,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Missing gameId.' });
         return;
       }
-      handleRequestUndo(gameId, actionsToUndo);
+      await handleRequestUndo(gameId, actionsToUndo);
 
     } catch (err: any) {
       debugError(1, `requestUndo error for game ${gameId}:`, err);
@@ -697,7 +485,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Respond to an undo request
-  socket.on("respondUndo", (payload?: { gameId?: unknown; undoId?: unknown; approved?: unknown }) => {
+  socket.on("respondUndo", async (payload?: { gameId?: unknown; undoId?: unknown; approved?: unknown }) => {
     const gameId = payload?.gameId;
     const undoId = payload?.undoId;
     const approved = payload?.approved;
@@ -815,7 +603,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         request.status = 'approved';
 
         // Actually perform the undo by replaying events
-        const undoResult = performUndo(gameId, request.actionsToUndo, request.eventCountAtRequest);
+        const undoResult = await performUndo(gameId, request.actionsToUndo, request.eventCountAtRequest, io);
 
         if (undoResult.success) {
           io.to(gameId).emit("undoConfirmed", {
@@ -1041,7 +829,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Request undo to step (convenience wrapper)
-  socket.on("requestUndoToStep", (payload?: { gameId?: unknown }) => {
+  socket.on("requestUndoToStep", async (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') {
@@ -1061,7 +849,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
       const { stepCount: actionsToUndo, previews } = calculateSmartUndoCounts(ctx.game, events);
       if (actionsToUndo > 0) {
-        handleRequestUndo(gameId, actionsToUndo, 'Undo current step', 'step', previews.step);
+        await handleRequestUndo(gameId, actionsToUndo, 'Undo current step', 'step', previews.step);
       }
     } catch (err: any) {
       debugError(1, `requestUndoToStep error for game ${gameId}:`, err);
@@ -1069,7 +857,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Request undo to phase (convenience wrapper)
-  socket.on("requestUndoToPhase", (payload?: { gameId?: unknown }) => {
+  socket.on("requestUndoToPhase", async (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') {
@@ -1089,7 +877,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
       const { phaseCount: actionsToUndo, previews } = calculateSmartUndoCounts(ctx.game, events);
       if (actionsToUndo > 0) {
-        handleRequestUndo(gameId, actionsToUndo, 'Undo current phase', 'phase', previews.phase);
+        await handleRequestUndo(gameId, actionsToUndo, 'Undo current phase', 'phase', previews.phase);
       }
     } catch (err: any) {
       debugError(1, `requestUndoToPhase error for game ${gameId}:`, err);
@@ -1097,7 +885,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Request undo to previous phase (convenience wrapper)
-  socket.on("requestUndoToPreviousPhase", (payload?: { gameId?: unknown }) => {
+  socket.on("requestUndoToPreviousPhase", async (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') {
@@ -1117,7 +905,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
       const { previousPhaseCount: actionsToUndo, previews } = calculateSmartUndoCounts(ctx.game, events);
       if (actionsToUndo > 0) {
-        handleRequestUndo(gameId, actionsToUndo, 'Undo to previous phase', 'previousPhase', previews.previousPhase);
+        await handleRequestUndo(gameId, actionsToUndo, 'Undo to previous phase', 'previousPhase', previews.previousPhase);
       }
     } catch (err: any) {
       debugError(1, `requestUndoToPreviousPhase error for game ${gameId}:`, err);
@@ -1125,7 +913,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Request undo to turn (convenience wrapper)
-  socket.on("requestUndoToTurn", (payload?: { gameId?: unknown }) => {
+  socket.on("requestUndoToTurn", async (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') {
@@ -1145,7 +933,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
       const { turnCount: actionsToUndo, previews } = calculateSmartUndoCounts(ctx.game, events);
       if (actionsToUndo > 0) {
-        handleRequestUndo(gameId, actionsToUndo, 'Undo current turn', 'turn', previews.turn);
+        await handleRequestUndo(gameId, actionsToUndo, 'Undo current turn', 'turn', previews.turn);
       }
     } catch (err: any) {
       debugError(1, `requestUndoToTurn error for game ${gameId}:`, err);
@@ -1177,7 +965,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
     }
   });
 
-  socket.on("requestUndoToTurnPhase", (payload?: {
+  socket.on("requestUndoToTurnPhase", async (payload?: {
     gameId?: unknown;
     turnNumber?: unknown;
     phase?: unknown;
@@ -1218,7 +1006,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         const label = preview?.summary
           ? `Undo to ${preview.summary}`
           : `Undo to turn ${turnNumber ?? '?'} / ${phase}`;
-        handleRequestUndo(gameId, actionsToUndo, label, undefined, preview);
+        await handleRequestUndo(gameId, actionsToUndo, label, undefined, preview);
       }
     } catch (err: any) {
       debugError(1, `requestUndoToTurnPhase error for game ${gameId}:`, err);

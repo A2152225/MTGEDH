@@ -396,8 +396,9 @@ import {
   function getAvailableSourceManaPaymentOptions(
     gameState: any,
     playerId: string,
+    excludedPermanentIds?: string[],
   ): Array<{ permanent: any; options: Array<{ additions: Record<string, number>; sacrificesSelf: boolean }> }> {
-    const candidates = getGenericAutoPaymentCandidates(gameState, playerId);
+    const candidates = getGenericAutoPaymentCandidates(gameState, playerId, excludedPermanentIds);
     const symbolToPoolKey: Record<string, string> = {
       W: 'white',
       U: 'blue',
@@ -459,13 +460,14 @@ import {
     gameState: any,
     playerId: string,
     manaCost: string,
+    excludedPermanentIds?: string[],
   ): AvailableSourceManaPaymentPlanEntry[] | null {
     const startingPool = getPoolNumericSnapshot(getOrInitManaPool(gameState, playerId));
     if (validateAndConsumeManaCostFromPool({ ...startingPool }, manaCost).ok) {
       return [];
     }
 
-    const sources = getAvailableSourceManaPaymentOptions(gameState, playerId);
+    const sources = getAvailableSourceManaPaymentOptions(gameState, playerId, excludedPermanentIds);
     const memo = new Set<string>();
 
     const search = (
@@ -509,19 +511,31 @@ import {
     gameState: any,
     playerId: string,
     manaCost: string,
+    options?: GenericManaPaymentOptions,
   ): boolean {
-    return findAvailableSourceManaPaymentPlan(gameState, playerId, manaCost) !== null;
+    return findAvailableSourceManaPaymentPlan(
+      gameState,
+      playerId,
+      manaCost,
+      options?.excludedPermanentIds,
+    ) !== null;
   }
 
   export function payManaCostWithAvailableSources(
     gameState: any,
     playerId: string,
     manaCost: string,
+    options?: GenericManaPaymentOptions,
   ): AvailableSourceManaPaymentResult {
     const pool = getOrInitManaPool(gameState, playerId) as any;
     const beforePool = getPoolNumericSnapshot(pool);
     const emptyConsumed = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
-    const plan = findAvailableSourceManaPaymentPlan(gameState, playerId, manaCost);
+    const plan = findAvailableSourceManaPaymentPlan(
+      gameState,
+      playerId,
+      manaCost,
+      options?.excludedPermanentIds,
+    );
     if (!plan) {
       return {
         ok: false,

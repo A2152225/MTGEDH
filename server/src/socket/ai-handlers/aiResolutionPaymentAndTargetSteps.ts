@@ -284,11 +284,16 @@ export async function handleAIResolutionPaymentAndTargetSteps(
           .slice(0, targetCount)
           .map((perm: any) => String(perm.id));
 
-        ResolutionQueueManager.completeStep(
-          gameId,
-          step.id,
-          createResponse({ targetIds: chosenIds, action: stepData.action === 'untap' ? 'untap' : 'tap' }, chosenIds.length < targetCount),
+        const tapResponse = createResponse(
+          { targetIds: chosenIds, action: stepData.action === 'untap' ? 'untap' : 'tap' },
+          chosenIds.length < targetCount,
         );
+        // completeStep only records the choice. Tap-other activation costs (Drowner of Secrets)
+        // actually tap and resume inside applyResolutionStepSideEffects.
+        if (ResolutionQueueManager.completeStep(gameId, step.id, tapResponse)) {
+          const { applyResolutionStepSideEffects } = await import('../resolution.js');
+          await applyResolutionStepSideEffects(io, game, gameId, step, tapResponse);
+        }
         debug(1, `[AI] tap_untap_target: selected ${chosenIds.length} target(s)`);
         break;
       }

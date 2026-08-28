@@ -20,6 +20,7 @@ import {
 } from './keywordAbilities/regeneration';
 import { trySpecialDestroyStep } from './oracleIRExecutorSpecialTargetHandlers';
 import { bridgedZoneStepResult } from './oracleIRStepLedgerRuntime';
+import { executorPermanentHasIndestructible } from './oracleIRExecutorBattlefieldIndestructible';
 
 export function applyDestroyStep(
   state: GameState,
@@ -64,15 +65,27 @@ export function applyDestroyStep(
     };
   }
 
+  const log: string[] = [];
+  // CR 702.12: indestructible is still a legal target; the destroy instruction is a no-op.
+  // Special "destroy a permanent with indestructible" cards are handled above.
+  const destroyable = toRemove.filter((perm) => {
+    if (!executorPermanentHasIndestructible(perm, battlefield)) return true;
+    const name = String((perm as any)?.card?.name || (perm as any)?.name || perm.id || 'permanent');
+    log.push(`${name} is indestructible and wasn't destroyed`);
+    return false;
+  });
+  if (destroyable.length === 0) {
+    return { applied: true, state, log };
+  }
+
   const removed: BattlefieldPermanent[] = [];
   const removedIds = new Set<string>();
   let nextShields = Array.isArray((state as any).regenerationShields)
     ? [...((state as any).regenerationShields as any[])]
     : [];
   const regeneratedById = new Map<string, BattlefieldPermanent>();
-  const log: string[] = [];
 
-  for (const perm of toRemove) {
+  for (const perm of destroyable) {
     const permanentId = String((perm as any)?.id || '').trim();
     if (step.cantBeRegenerated) {
       removed.push(perm);

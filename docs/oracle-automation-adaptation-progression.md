@@ -50,6 +50,7 @@ Oracle text (one card)
 |---|---|---|---|
 | **T1 — Trigger effect execute** | Does assisted dry-run apply the **effect text** of triggered abilities? | `npm run executor:coverage` (default scope) | 0 parse→execute gaps; benign choice only |
 | **T2 — Trigger detect + IF** | Does the server **fire** the trigger and evaluate intervening-if? | `npm run trigger:coverage` | 0 `not_detected`, 0 `effect_ir_gap` |
+| **S1 — Live seams** | Do lords, compound timings, watchers, and exile/GY sources survive *outside* the assisted fixture? | `npm run oracle-ir:live-seam` | Actionable seam counts trending down; suspend exile emission wired |
 | **F1 — Full-card execute** | Does every **static/activated/saga** clause dry-run? | `EXECUTOR_COVERAGE_SCOPE=full_card` | 0 parse→execute gaps |
 | **P1 — Parser IR** | Does text produce known `OracleEffectStep` kinds? | `npx tsx tools/oracle-ir-gap-audit.ts` | Top clusters → 0; see backlog doc |
 | **K1 — Keyword semantics** | Are keywords the right IR **shape** (static vs triggered)? | `npm run executor:keyword-audit` | 0 missing metadata patterns |
@@ -129,6 +130,7 @@ Work phases **in order** unless a live bug forces a hotfix. Within a phase, work
 cd server
 npm run trigger:coverage
 npm run executor:coverage
+npm run oracle-ir:live-seam
 $env:EXECUTOR_COVERAGE_SCOPE="full_card"; npm run executor:coverage
 npm run executor:keyword-audit
 cd ..

@@ -146,10 +146,23 @@ describe('goad must attack — skipDeclareAttackers (socket)', () => {
     expect(String((game.state as any).step)).toBe('declareAttackers');
   });
 
-  it('allows skipDeclareAttackers when the goaded creature is tapped', async () => {
+  it('allows skipDeclareAttackers when the goaded creature has summoning sickness and no haste', async () => {
     const game = seedDeclareAttackersGame(gameId, attackerId, defenderId);
     (game.state as any).battlefield = [
-      createCreature('c1', attackerId, { goadedBy: [defenderId], tapped: true }),
+      createCreature('c1', attackerId, {
+        goadedBy: [defenderId],
+        summoningSickness: true,
+        enteredThisTurn: true,
+        card: {
+          id: 'c1-card',
+          name: 'Regisaur Alpha',
+          type_line: 'Creature — Dinosaur',
+          oracle_text: 'Other Dinosaurs you control have haste.\nWhen this creature enters, create a 3/3 green Dinosaur creature token with trample.',
+          power: '7',
+          toughness: '7',
+          keywords: [],
+        },
+      }),
     ];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];

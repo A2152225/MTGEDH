@@ -357,6 +357,69 @@ describe('G1 card regression helpers', () => {
     expect(permanentHasSummoningSickness(creature, [creature], 'p1')).toBe(true);
   });
 
+  it('does not treat Other [type]s you control have haste as self haste', () => {
+    const alpha = {
+      id: 'regisaur_1',
+      controller: 'p1',
+      summoningSickness: true,
+      enteredThisTurn: true,
+      card: {
+        name: 'Regisaur Alpha',
+        type_line: 'Creature — Dinosaur',
+        oracle_text:
+          'Other Dinosaurs you control have haste.\nWhen this creature enters, create a 3/3 green Dinosaur creature token with trample.',
+        keywords: [],
+      },
+    };
+    const otherDino = {
+      id: 'dreadmaw_1',
+      controller: 'p1',
+      summoningSickness: true,
+      enteredThisTurn: true,
+      card: {
+        name: 'Earthshaker Dreadmaw',
+        type_line: 'Creature — Dinosaur',
+        oracle_text: 'Trample',
+        keywords: ['Trample'],
+      },
+    };
+    const battlefield = [alpha, otherDino];
+    expect(permanentHasSummoningSickness(alpha, battlefield, 'p1')).toBe(true);
+    expect(permanentHasSummoningSickness(otherDino, battlefield, 'p1')).toBe(false);
+  });
+
+  it('ignores a self-stamped haste badge on an Other [type] haste lord', () => {
+    const alpha = {
+      id: 'regisaur_1',
+      controller: 'p1',
+      summoningSickness: true,
+      enteredThisTurn: true,
+      grantedAbilities: ['haste'],
+      card: {
+        name: 'Regisaur Alpha',
+        type_line: 'Creature — Dinosaur',
+        oracle_text:
+          'Other Dinosaurs you control have haste.\nWhen this creature enters, create a 3/3 green Dinosaur creature token with trample.',
+        keywords: ['Haste'],
+      },
+    };
+    const otherDino = {
+      id: 'dreadmaw_1',
+      controller: 'p1',
+      summoningSickness: true,
+      enteredThisTurn: true,
+      card: {
+        name: 'Earthshaker Dreadmaw',
+        type_line: 'Creature — Dinosaur',
+        oracle_text: 'Trample',
+        keywords: ['Trample'],
+      },
+    };
+    const battlefield = [alpha, otherDino];
+    expect(permanentHasSummoningSickness(alpha, battlefield, 'p1')).toBe(true);
+    expect(permanentHasSummoningSickness(otherDino, battlefield, 'p1')).toBe(false);
+  });
+
   it('preserves offeredCreatureTypes on creature type choice steps sent to client', () => {
     const offered = ['Elemental', 'Elf', 'Merfolk'];
     const sanitized = sanitizeStepForClient('game_test', {

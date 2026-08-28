@@ -196,6 +196,7 @@ export function isCurrentBatchReminderRulesClarification(normalizedText: string,
     /^attach it to another permanent it can enchant\.?$/i.test(normalizedText) ||
     /^target opponent exiles a creature or planeswalker they control with the greatest mana value among .+$/i.test(normalizedText) ||
     /^addendum\s*[-�]\s*.+$/i.test(normalizedText) ||
+    // Type-list reminder skip stays whitelist-only; widening would no-op real "if this creature is a [type]" abilities.
     /^if this creature is a (?:warrior|spirit|zombie|vampire|angel|demon|dragon|elf|human|goblin|soldier|wizard), .+$/i.test(normalizedText) ||
     /^unless either one is a color the other isn'?t\.?$/i.test(normalizedText) ||
     /^shuffle this permanent and up to \w+ target cards from a single graveyard into their owners'? libraries\.?$/i.test(normalizedText) ||

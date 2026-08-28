@@ -21,6 +21,7 @@ import {
   type CreateResolutionStepConfig,
 } from './types.js';
 import { debugError } from "../../utils/debug.js";
+import { isUndoProbeGameId } from "../../gameRestoreState.js";
 import {
   createResolutionQueue,
   createResolutionStep,
@@ -34,11 +35,11 @@ import {
   cancelStep,
   hasPendingSteps,
   playerHasPendingSteps,
+  hasBlockingNonPaymentResolutionSteps as queueHasBlockingNonPaymentResolutionSteps,
   getPendingSummary,
   orderByAPNAP,
   choiceEventToStep,
   stepResponseToChoiceResponse,
-  clearStepsForPlayer,
   clearAllSteps,
 } from './ResolutionQueue.js';
 
@@ -209,6 +210,7 @@ class ResolutionQueueManagerClass {
     step?: ResolutionStep,
     response?: ResolutionStepResponse
   ): void {
+    if (isUndoProbeGameId(gameId)) return;
     for (const handler of this.eventHandlers) {
       try {
         handler(event, gameId, step, response);
@@ -400,15 +402,28 @@ class ResolutionQueueManagerClass {
   }
 
   /**
-   * Clear all steps for a player (e.g., when they leave the game)
+   * True when a non-payment resolution prompt is still open. Smart Pass / stack
+   * resolve must not drain the stack while that prompt is unanswered.
+   */
+  hasBlockingNonPaymentResolutionSteps(gameId: string): boolean {
+    const queue = this.getQueue(gameId);
+    return queueHasBlockingNonPaymentResolutionSteps(queue);
+  }
+
+  /**
+   * Clear all steps for a player (e.g., when they leave the game).
+   * Cancels each step so STEP_CANCELLED fires: Hive Mind retarget / "may
+   * cast the copy" prompts close, and resolution-mode priority can resume
+   * for the remaining players.
    */
   clearStepsForPlayer(gameId: string, playerId: PlayerID): number {
     const queue = this.getQueue(gameId);
-    const removed = clearStepsForPlayer(queue, playerId);
-    if (removed > 0) {
-      this.emit(ResolutionQueueEvent.QUEUE_CHANGED, gameId);
+    const toCancel = queue.steps.filter((step) => step.playerId === playerId);
+    if (toCancel.length === 0) return 0;
+    for (const step of toCancel) {
+      this.cancelStep(gameId, step.id);
     }
-    return removed;
+    return toCancel.length;
   }
 
   /**

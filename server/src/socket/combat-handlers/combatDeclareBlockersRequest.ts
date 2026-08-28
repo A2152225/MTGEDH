@@ -3,8 +3,8 @@
 // Cluster moved: the declareBlockers socket.on body plus the private helpers it
 // closes over (battlefield name lookup, declare-blockers chat, triggered-ability
 // persist).
-// Public entry symbols: handleDeclareBlockers, lookupBattlefieldPermanentName,
-//   emitDeclareBlockersChat, persistTriggeredAbilityPush.
+// Public entry symbols: handleDeclareBlockers, executeDeclareBlockers,
+//   lookupBattlefieldPermanentName, emitDeclareBlockersChat, persistTriggeredAbilityPush.
 
 import type { Server, Socket } from "socket.io";
 import { appendEvent } from "../../db/index.js";
@@ -18,12 +18,17 @@ import {
   resolveGroupedAttackerRef,
   resolveGroupedPermanentRef,
 } from "../tokenGroupResolve.js";
-import { broadcastGame, ensureGame, getEffectivePower, getPlayerName } from "../util.js";
+import { broadcastGame, ensureGame, getEffectivePower, getMaxGenericManaAvailable, getPlayerName } from "../util.js";
 import {
   canBlockAttacker,
   isCurrentlyCreature,
 } from "./combatLegalityGates.js";
 import { findMustBeBlockedIfAbleViolation } from "./combatMustBeBlockedIfAble.js";
+import {
+  collectBlockTax,
+  collectMaxBlockersEachCombat,
+} from "../../state/modules/staticEffectSpecAttackYouTax.js";
+import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 
 export function lookupBattlefieldPermanentName(battlefield: any[], permanentId: string): string {
   const perm = battlefield.find((entry: any) => entry?.id === permanentId);
@@ -64,6 +69,282 @@ export function persistTriggeredAbilityPush(
   } catch (err) {
     debugWarn(1, `[combat] appendEvent(pushTriggeredAbility ${reason}) failed:`, err);
   }
+}
+
+function applyBlockerAssignment(
+  game: any,
+  playerId: PlayerID,
+  blocker: { blockerId: string; attackerId: string },
+  blockerCreature: any,
+  attackerCreature: any,
+): void {
+  (blockerCreature as any).blocking = (blockerCreature as any).blocking || [];
+  (blockerCreature as any).blocking.push(blocker.attackerId);
+
+  try {
+    (blockerCreature as any).blockedThisTurn = true;
+    const stateAny = game.state as any;
+    stateAny.attackedOrBlockedThisCombatByPermanentId = stateAny.attackedOrBlockedThisCombatByPermanentId || {};
+    stateAny.attackedOrBlockedThisCombatByPermanentId[String(blocker.blockerId)] = true;
+
+    stateAny.blockersDeclaredThisCombatByPlayer = stateAny.blockersDeclaredThisCombatByPlayer || {};
+    stateAny.blockersDeclaredThisCombatByPlayer[String(playerId)] = Array.isArray(stateAny.blockersDeclaredThisCombatByPlayer[String(playerId)])
+      ? stateAny.blockersDeclaredThisCombatByPlayer[String(playerId)]
+      : [];
+    const list = stateAny.blockersDeclaredThisCombatByPlayer[String(playerId)];
+    const bid = String(blocker.blockerId);
+    if (bid && !list.some((e: any) => String(e?.id ?? e?.creatureId ?? e).trim() === bid)) {
+      list.push({
+        id: bid,
+        name: String((blockerCreature as any)?.card?.name ?? (blockerCreature as any)?.name ?? ''),
+        type_line: String((blockerCreature as any)?.card?.type_line ?? ''),
+      });
+    }
+  } catch {
+    // best-effort only
+  }
+
+  (attackerCreature as any).blockedBy = (attackerCreature as any).blockedBy || [];
+  (attackerCreature as any).blockedBy.push(blocker.blockerId);
+
+  try {
+    (attackerCreature as any).wasBlockedThisTurn = true;
+  } catch {
+    // best-effort only
+  }
+}
+
+/**
+ * Commit already-validated blocker assignments (live path after tax=0, or after
+ * the defender pays Archangel of Tithes block tax).
+ */
+export async function executeDeclareBlockers(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  resolvedBlockers: Array<{ blockerId: string; attackerId: string }>,
+  options?: {
+    blockCostPaid?: boolean;
+    blockCostAmount?: number;
+    blockCostSources?: string[];
+    blockCostTappedPermanents?: string[];
+    blockCostSacrificedPermanents?: string[];
+    blockCostPaymentManaDelta?: Record<string, number>;
+  },
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) {
+    throw Object.assign(new Error('Game not found'), { code: 'DECLARE_BLOCKERS_ERROR' });
+  }
+  const battlefield = game.state?.battlefield || [];
+
+  for (const blocker of resolvedBlockers) {
+    const blockerCreature = battlefield.find((perm: any) =>
+      perm.id === blocker.blockerId &&
+      perm.controller === playerId
+    );
+    const attackerCreature = battlefield.find((perm: any) =>
+      perm.id === blocker.attackerId &&
+      (perm as any).attacking
+    );
+    if (!blockerCreature || !attackerCreature) {
+      throw Object.assign(
+        new Error(`Creature ${blocker.blockerId} not found or attacker is not attacking`),
+        { code: 'DECLARE_BLOCKERS_ERROR' },
+      );
+    }
+    applyBlockerAssignment(game, playerId, blocker, blockerCreature, attackerCreature);
+  }
+
+  if (typeof (game as any).declareBlockers === "function") {
+    try {
+      (game as any).declareBlockers(playerId, resolvedBlockers);
+    } catch (e) {
+      debugWarn(1, "[combat] game.declareBlockers failed:", e);
+    }
+  }
+
+  try {
+    await appendEvent(gameId, (game as any).seq || 0, "declareBlockers", {
+      playerId,
+      blockers: resolvedBlockers,
+      ...(options?.blockCostPaid
+        ? {
+            blockCostPaid: true,
+            blockCostAmount: options.blockCostAmount,
+            blockCostSources: options.blockCostSources,
+            tappedPermanents: options.blockCostTappedPermanents,
+            sacrificedPermanents: options.blockCostSacrificedPermanents,
+            paymentManaDelta: options.blockCostPaymentManaDelta,
+          }
+        : {}),
+    });
+  } catch (e) {
+    debugWarn(1, "[combat] Failed to persist declareBlockers event:", e);
+  }
+
+  emitDeclareBlockersChat(io, gameId, game, playerId, resolvedBlockers);
+
+  try {
+    const blockingCreatures = resolvedBlockers.map(b =>
+      battlefield.find((perm: any) => perm.id === b.blockerId)
+    ).filter(Boolean);
+
+    if (blockingCreatures.length > 0) {
+      const ctx = {
+        state: game.state,
+        bumpSeq: () => {
+          if (typeof (game as any).bumpSeq === "function") {
+            (game as any).bumpSeq();
+          }
+        }
+      };
+
+      const { getBlockTriggersForCreatures, getBlockedTriggersForCreatures } = await import("../../state/modules/triggers/index.js");
+
+      const blockTriggers = getBlockTriggersForCreatures(
+        ctx as any,
+        blockingCreatures,
+        playerId
+      );
+      const blockedCreatures = Array.from(
+        new Map(
+          resolvedBlockers
+            .map((blocker) => battlefield.find((perm: any) => perm?.id === blocker.attackerId && (perm as any).attacking))
+            .filter(Boolean)
+            .map((creature: any) => [String(creature.id || ''), creature])
+        ).values()
+      );
+      const blockedTriggers = getBlockedTriggersForCreatures(
+        ctx as any,
+        blockedCreatures,
+        playerId
+      );
+      const triggers = orderTriggersByAPNAP(ctx as any, [...blockTriggers, ...blockedTriggers]);
+
+      if (triggers.length > 0) {
+        debug(2, `[combat] Found ${triggers.length} block trigger(s) for game ${gameId}`);
+
+        for (const trigger of triggers) {
+          const triggerControllerId = ((trigger as any).controllerId || playerId) as PlayerID;
+          try {
+            const controller = String(triggerControllerId);
+            const sourcePerm = battlefield.find((p: any) => p?.id === (trigger as any).permanentId);
+            const raw = String(trigger.description || trigger.effect || '').trim();
+            let textForEval = raw;
+            const hasTriggerPrefix = /^(?:when|whenever|at)\b/i.test(textForEval);
+            const triggerTypeForEval = String((trigger as any).triggerType || 'blocks');
+            if (!hasTriggerPrefix && textForEval) {
+              const oracleLower = String(sourcePerm?.card?.oracle_text || '').toLowerCase();
+              if (triggerTypeForEval === 'blocked' || triggerTypeForEval === 'afflict' || triggerTypeForEval === 'flanking' || triggerTypeForEval === 'rampage') {
+                textForEval = `Whenever ~ becomes blocked, ${textForEval}`;
+              } else if (triggerTypeForEval === 'bushido') {
+                textForEval = `Whenever ~ blocks or becomes blocked, ${textForEval}`;
+              } else if (oracleLower.includes('blocks a creature')) {
+                textForEval = `Whenever ~ blocks a creature, ${textForEval}`;
+              } else {
+                textForEval = `Whenever ~ blocks, ${textForEval}`;
+              }
+            }
+
+            const valueObj = (trigger as any).value && typeof (trigger as any).value === 'object' ? (trigger as any).value : undefined;
+            const blockedCreatureId = String(valueObj?.blockedCreatureId || '');
+            const blockedCreature = blockedCreatureId
+              ? battlefield.find((p: any) => p?.id === blockedCreatureId)
+              : undefined;
+            const blockedCreatureControllerId = String(blockedCreature?.controller || '');
+
+            const defendingPlayerId = String(playerId || '');
+
+            const ok = isInterveningIfSatisfied(
+              ctx as any,
+              controller,
+              textForEval,
+              sourcePerm,
+              {
+                ...(defendingPlayerId ? { defendingPlayerId } : {}),
+                ...(/\bthat player\b/i.test(textForEval) && blockedCreatureControllerId
+                  ? {
+                      thatPlayerId: blockedCreatureControllerId,
+                      referencedPlayerId: blockedCreatureControllerId,
+                      theirPlayerId: blockedCreatureControllerId,
+                    }
+                  : {}),
+              }
+            );
+            if (ok === false) {
+              debug(2, `[combat] Skipping block trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
+              continue;
+            }
+          } catch {
+            // Conservative fallback: keep the trigger if evaluation fails.
+          }
+
+          game.state.stack = game.state.stack || [];
+          const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const stackTriggerType = String((trigger as any).triggerType || 'blocks');
+          const stackItem: any = {
+            id: triggerId,
+            type: 'triggered_ability',
+            controller: triggerControllerId,
+            source: trigger.permanentId,
+            permanentId: trigger.permanentId,
+            sourceName: trigger.cardName,
+            description: trigger.description,
+            triggerType: stackTriggerType,
+            mandatory: trigger.mandatory,
+            value: trigger.value,
+          };
+
+          const defendingPlayerId = String((trigger.value as any)?.defendingPlayer || '');
+          if (defendingPlayerId) {
+            stackItem.defendingPlayer = defendingPlayerId;
+            stackItem.targetPlayer = defendingPlayerId;
+          }
+
+          game.state.stack.push(stackItem);
+          persistTriggeredAbilityPush(gameId, game, {
+            triggerId,
+            sourceId: trigger.permanentId,
+            permanentId: trigger.permanentId,
+            sourceName: trigger.cardName,
+            controllerId: triggerControllerId,
+            description: trigger.description,
+            triggerType: stackTriggerType,
+            effect: String((trigger as any).effect || trigger.description || '').trim(),
+            mandatory: trigger.mandatory,
+            ...(typeof trigger.value !== 'undefined' ? { value: trigger.value } : {}),
+            ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : {}),
+            ...(stackItem.defendingPlayer ? { defendingPlayer: stackItem.defendingPlayer } : {}),
+          }, 'block trigger');
+
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`,
+            ts: Date.now(),
+          });
+        }
+      }
+    }
+  } catch (triggerErr) {
+    debugWarn(1, "[combat] Error processing block triggers:", triggerErr);
+  }
+
+  const state = game.state as any;
+  state.blockersDeclaredBy = state.blockersDeclaredBy || [];
+  if (!state.blockersDeclaredBy.includes(playerId)) {
+    state.blockersDeclaredBy.push(playerId);
+  }
+
+  if (typeof (game as any).bumpSeq === "function") {
+    (game as any).bumpSeq();
+  }
+
+  broadcastGame(io, game, gameId);
+
+  debug(2, `[combat] Player ${playerId} declared ${resolvedBlockers.length} blockers in game ${gameId}`);
 }
 
 /**
@@ -186,6 +467,18 @@ export async function handleDeclareBlockers(
       resolvedBlockers.push({ blockerId: actualBlockerId, attackerId: actualAttackerId });
     }
 
+    const uniqueBlockerIds = new Set(
+      resolvedBlockers.map((entry) => String(entry.blockerId || '').trim()).filter(Boolean),
+    );
+    const globalBlockCap = collectMaxBlockersEachCombat(game.state);
+    if (globalBlockCap.max != null && uniqueBlockerIds.size > globalBlockCap.max) {
+      socket.emit("error", {
+        code: "TOO_MANY_BLOCKERS",
+        message: `No more than ${globalBlockCap.max} creatures can block this combat.`,
+      });
+      return;
+    }
+
     const mustBlockViolation = findMustBeBlockedIfAbleViolation({
       state: game.state,
       defendingPlayerId: playerId,
@@ -199,7 +492,7 @@ export async function handleDeclareBlockers(
       return;
     }
 
-    // Now process the resolved blockers
+    // Validate assignments before charging block tax.
     for (const blocker of resolvedBlockers) {
       // Find the blocker creature
       const blockerCreature = battlefield.find((perm: any) =>
@@ -314,242 +607,64 @@ export async function handleDeclareBlockers(
           return;
         }
       }
-
-      // Mark the blocker as blocking
-      (blockerCreature as any).blocking = (blockerCreature as any).blocking || [];
-      (blockerCreature as any).blocking.push(blocker.attackerId);
-
-      // Intervening-if support:
-      // - the blocker "blocked this turn" (per-turn)
-      // - the blocker "attacked or blocked this combat" (per-combat)
-      try {
-        (blockerCreature as any).blockedThisTurn = true;
-        const stateAny = game.state as any;
-        stateAny.attackedOrBlockedThisCombatByPermanentId = stateAny.attackedOrBlockedThisCombatByPermanentId || {};
-        stateAny.attackedOrBlockedThisCombatByPermanentId[String(blocker.blockerId)] = true;
-
-        // Per-combat snapshot used by intervening-if templates like
-        // "if it was attacking or blocking alone".
-        stateAny.blockersDeclaredThisCombatByPlayer = stateAny.blockersDeclaredThisCombatByPlayer || {};
-        stateAny.blockersDeclaredThisCombatByPlayer[String(playerId)] = Array.isArray(stateAny.blockersDeclaredThisCombatByPlayer[String(playerId)])
-          ? stateAny.blockersDeclaredThisCombatByPlayer[String(playerId)]
-          : [];
-        const list = stateAny.blockersDeclaredThisCombatByPlayer[String(playerId)];
-        const bid = String(blocker.blockerId);
-        if (bid && !list.some((e: any) => String(e?.id ?? e?.creatureId ?? e).trim() === bid)) {
-          list.push({
-            id: bid,
-            name: String((blockerCreature as any)?.card?.name ?? (blockerCreature as any)?.name ?? ''),
-            type_line: String((blockerCreature as any)?.card?.type_line ?? ''),
-          });
-        }
-      } catch {
-        // best-effort only
-      }
-
-      // Mark the attacker as being blocked
-      (attackerCreature as any).blockedBy = (attackerCreature as any).blockedBy || [];
-      (attackerCreature as any).blockedBy.push(blocker.blockerId);
-
-      // Intervening-if support: "if it was blocked this turn" (per-turn, attacker-side)
-      try {
-        (attackerCreature as any).wasBlockedThisTurn = true;
-      } catch {
-        // best-effort only
-      }
     }
 
-    // Use game's declareBlockers method if available
-    if (typeof (game as any).declareBlockers === "function") {
-      try {
-        (game as any).declareBlockers(playerId, resolvedBlockers);
-      } catch (e) {
-        debugWarn(1, "[combat] game.declareBlockers failed:", e);
-      }
-    }
-
-    // Persist the event (use resolved blockers for replay consistency)
-    try {
-      await appendEvent(gameId, (game as any).seq || 0, "declareBlockers", {
-        playerId,
-        blockers: resolvedBlockers,
+    const perBlockerTax = collectBlockTax(game.state);
+    const totalBlockCostRequired = perBlockerTax.cost * uniqueBlockerIds.size;
+    if (totalBlockCostRequired > 0) {
+      const totalAvailable = getMaxGenericManaAvailable(game.state, playerId, {
+        excludedPermanentIds: [...uniqueBlockerIds],
       });
-    } catch (e) {
-      debugWarn(1, "[combat] Failed to persist declareBlockers event:", e);
-    }
 
-    emitDeclareBlockersChat(io, gameId, game, playerId, resolvedBlockers);
+      if (totalAvailable < totalBlockCostRequired) {
+        socket.emit("error", {
+          code: "INSUFFICIENT_MANA_FOR_BLOCK",
+          message: `Cannot block. Need to pay {${totalBlockCostRequired}} for ${perBlockerTax.sources.join(', ')}. You have {${totalAvailable}} available.`,
+        });
+        return;
+      }
 
-    // Process block triggers
-    try {
-      const blockingCreatures = resolvedBlockers.map(b =>
-        battlefield.find((perm: any) => perm.id === b.blockerId)
-      ).filter(Boolean);
+      const existingPrompt = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as any)
+        .find((step: any) => step?.blockCostPayment === true);
 
-      if (blockingCreatures.length > 0) {
-        // Create a minimal context for trigger detection
-        const ctx = {
-          state: game.state,
-          bumpSeq: () => {
-            if (typeof (game as any).bumpSeq === "function") {
-              (game as any).bumpSeq();
-            }
-          }
-        };
+      if (!existingPrompt) {
+        const blockCostStep = ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.OPTION_CHOICE,
+          playerId: playerId as any,
+          sourceName: 'Block Cost',
+          description: `Pay {${totalBlockCostRequired}} to block (${perBlockerTax.sources.join(', ')})`,
+          mandatory: true,
+          minSelections: 1,
+          maxSelections: 1,
+          options: [
+            { id: 'pay_block_cost', label: `Pay {${totalBlockCostRequired}} and block` },
+            { id: 'cancel_block', label: 'Cancel block' },
+          ],
+          blockCostPayment: true,
+          blockCostAmount: totalBlockCostRequired,
+          blockCostSources: perBlockerTax.sources,
+          blockers: resolvedBlockers,
+        } as any);
 
-        // Import block trigger functions dynamically to avoid circular dependencies
-        const { getBlockTriggersForCreatures, getBlockedTriggersForCreatures } = await import("../../state/modules/triggers/index.js");
-
-        const blockTriggers = getBlockTriggersForCreatures(
-          ctx as any,
-          blockingCreatures,
-          playerId
-        );
-        const blockedCreatures = Array.from(
-          new Map(
-            resolvedBlockers
-              .map((blocker) => battlefield.find((perm: any) => perm?.id === blocker.attackerId && (perm as any).attacking))
-              .filter(Boolean)
-              .map((creature: any) => [String(creature.id || ''), creature])
-          ).values()
-        );
-        const blockedTriggers = getBlockedTriggersForCreatures(
-          ctx as any,
-          blockedCreatures,
-          playerId
-        );
-        const triggers = orderTriggersByAPNAP(ctx as any, [...blockTriggers, ...blockedTriggers]);
-
-        // Push triggers to stack and notify clients
-        if (triggers.length > 0) {
-          debug(2, `[combat] Found ${triggers.length} block trigger(s) for game ${gameId}`);
-
-          for (const trigger of triggers) {
-            // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-            const triggerControllerId = ((trigger as any).controllerId || playerId) as PlayerID;
-            try {
-              const controller = String(triggerControllerId);
-              const sourcePerm = battlefield.find((p: any) => p?.id === (trigger as any).permanentId);
-              const raw = String(trigger.description || trigger.effect || '').trim();
-              let textForEval = raw;
-              const hasTriggerPrefix = /^(?:when|whenever|at)\b/i.test(textForEval);
-              const triggerTypeForEval = String((trigger as any).triggerType || 'blocks');
-              if (!hasTriggerPrefix && textForEval) {
-                const oracleLower = String(sourcePerm?.card?.oracle_text || '').toLowerCase();
-                if (triggerTypeForEval === 'blocked' || triggerTypeForEval === 'afflict' || triggerTypeForEval === 'flanking' || triggerTypeForEval === 'rampage') {
-                  textForEval = `Whenever ~ becomes blocked, ${textForEval}`;
-                } else if (triggerTypeForEval === 'bushido') {
-                  textForEval = `Whenever ~ blocks or becomes blocked, ${textForEval}`;
-                } else if (oracleLower.includes('blocks a creature')) {
-                  textForEval = `Whenever ~ blocks a creature, ${textForEval}`;
-                } else {
-                  textForEval = `Whenever ~ blocks, ${textForEval}`;
-                }
-              }
-
-              const valueObj = (trigger as any).value && typeof (trigger as any).value === 'object' ? (trigger as any).value : undefined;
-              const blockedCreatureId = String(valueObj?.blockedCreatureId || '');
-              const blockedCreature = blockedCreatureId
-                ? battlefield.find((p: any) => p?.id === blockedCreatureId)
-                : undefined;
-              const blockedCreatureControllerId = String(blockedCreature?.controller || '');
-
-              // In DECLARE_BLOCKERS, `playerId` is the current defending player.
-              const defendingPlayerId = String(playerId || '');
-
-              const ok = isInterveningIfSatisfied(
-                ctx as any,
-                controller,
-                textForEval,
-                sourcePerm,
-                {
-                  ...(defendingPlayerId ? { defendingPlayerId } : {}),
-                  ...(/\bthat player\b/i.test(textForEval) && blockedCreatureControllerId
-                    ? {
-                        thatPlayerId: blockedCreatureControllerId,
-                        referencedPlayerId: blockedCreatureControllerId,
-                        theirPlayerId: blockedCreatureControllerId,
-                      }
-                    : {}),
-                }
-              );
-              if (ok === false) {
-                debug(2, `[combat] Skipping block trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
-                continue;
-              }
-            } catch {
-              // Conservative fallback: keep the trigger if evaluation fails.
-            }
-
-            // Push onto stack
-            game.state.stack = game.state.stack || [];
-            const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-            const stackTriggerType = String((trigger as any).triggerType || 'blocks');
-            const stackItem: any = {
-              id: triggerId,
-              type: 'triggered_ability',
-              controller: triggerControllerId,
-              source: trigger.permanentId,
-              permanentId: trigger.permanentId,
-              sourceName: trigger.cardName,
-              description: trigger.description,
-              triggerType: stackTriggerType,
-              mandatory: trigger.mandatory,
-              value: trigger.value,
-            };
-
-            const defendingPlayerId = String((trigger.value as any)?.defendingPlayer || '');
-            if (defendingPlayerId) {
-              stackItem.defendingPlayer = defendingPlayerId;
-              stackItem.targetPlayer = defendingPlayerId;
-            }
-
-            game.state.stack.push(stackItem);
-            persistTriggeredAbilityPush(gameId, game, {
-              triggerId,
-              sourceId: trigger.permanentId,
-              permanentId: trigger.permanentId,
-              sourceName: trigger.cardName,
-              controllerId: triggerControllerId,
-              description: trigger.description,
-              triggerType: stackTriggerType,
-              effect: String((trigger as any).effect || trigger.description || '').trim(),
-              mandatory: trigger.mandatory,
-              ...(typeof trigger.value !== 'undefined' ? { value: trigger.value } : {}),
-              ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : {}),
-              ...(stackItem.defendingPlayer ? { defendingPlayer: stackItem.defendingPlayer } : {}),
-            }, 'block trigger');
-
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`,
-              ts: Date.now(),
-            });
-          }
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'resolveTopOfStackPrompt', {
+            playerId,
+            sourceId: 'block-cost',
+            queuedResolutionStep: { ...(blockCostStep as any) },
+          });
+        } catch (err) {
+          debugWarn(1, '[combat] appendEvent(resolveTopOfStackPrompt blockCostPayment) failed:', err);
         }
       }
-    } catch (triggerErr) {
-      debugWarn(1, "[combat] Error processing block triggers:", triggerErr);
+
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+      return;
     }
 
-    // Mark that blockers have been declared for this player
-    // This allows step advancement to proceed past DECLARE_BLOCKERS
-    const state = game.state as any;
-    state.blockersDeclaredBy = state.blockersDeclaredBy || [];
-    if (!state.blockersDeclaredBy.includes(playerId)) {
-      state.blockersDeclaredBy.push(playerId);
-    }
-
-    // Bump sequence and broadcast
-    if (typeof (game as any).bumpSeq === "function") {
-      (game as any).bumpSeq();
-    }
-
-    broadcastGame(io, game, gameId);
-
-    debug(2, `[combat] Player ${playerId} declared ${resolvedBlockers.length} blockers in game ${gameId}`);
+    await executeDeclareBlockers(io, gameId, playerId, resolvedBlockers);
 
     // NOTE: Do NOT auto-advance the step here!
     // Per MTG rules, after blockers are declared, all players get priority
@@ -560,7 +675,7 @@ export async function handleDeclareBlockers(
   } catch (err: any) {
     debugError(1, `[combat] declareBlockers error for game ${gameId}:`, err);
     socket.emit("error", {
-      code: "DECLARE_BLOCKERS_ERROR",
+      code: err?.code || "DECLARE_BLOCKERS_ERROR",
       message: err?.message ?? String(err),
     });
   }

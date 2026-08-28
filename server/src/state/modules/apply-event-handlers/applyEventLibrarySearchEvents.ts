@@ -8,6 +8,7 @@
 import type { GameContext } from "../../context";
 import type { PlayerID, GameEvent } from "../../types";
 import { applyArcaneAdaptationToControllerCreatures } from "../chosen-creature-type.js";
+import { runSBA } from "../counters_tokens.js";
 import { applyPermanentBecomeCopyOfTargetPermanent } from "../permanent-copy.js";
 import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "../durable-permissions.js";
 import { generateDeterministicId, clearReplayQueuedSteps } from "../applyEventReplayZoneCommanderManaHelpers.js";
@@ -465,6 +466,12 @@ export function applyLibrarySearchEvents(ctx: GameContext, e: GameEvent): boolea
               copyFromPermanentId,
               retainedAbilityText,
             );
+            if ((e as any).enterTappedIfCopied === true) {
+              const copiedPermanent = (Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [])
+                .find((permanent: any) => String(permanent?.id || '') === copyOntoPermanentId);
+              if (copiedPermanent) copiedPermanent.tapped = true;
+            }
+            runSBA(ctx);
           }
           ctx.bumpSeq();
         } catch (err) {

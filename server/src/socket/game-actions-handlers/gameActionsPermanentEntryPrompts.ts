@@ -11,6 +11,7 @@
 import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { getAsEntersChoiceRequirements } from "../../state/modules/asEntersChoiceRequirements.js";
+import { checkAsEntersCopyChoiceForNewPermanents } from "../../state/modules/asEntersCopyChoice.js";
 import { detectETBTriggers } from "../../state/modules/triggered-abilities";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { oracleTextReferencesCard } from "../../state/utils";
@@ -262,6 +263,8 @@ export function checkPlayerSelectionForNewPermanents(
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
 
+    if ((permanent as any).asEntersControlChangeQueued) continue;
+
     const existingPlayer = String(permanent.chosenPlayer || permanent.card?.chosenPlayer || '').trim();
     if (existingPlayer) {
       if (!permanent.chosenPlayer) {
@@ -384,6 +387,7 @@ export function runPostResolutionPermanentPromptChecks(
 ): void {
   checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
   checkColorChoiceForNewPermanents(io, game, gameId);
+  checkAsEntersCopyChoiceForNewPermanents(game, gameId);
   checkPlayerSelectionForNewPermanents(io, game, gameId);
   checkEnchantmentETBTriggers(io, game, gameId);
 }

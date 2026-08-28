@@ -7,6 +7,14 @@
 
 import type { OracleEffectStep, OracleIRAbility } from './oracleIR';
 import { normalizeUnknownStepText } from './oracleIRParserPostprocessCopySpellTailHelpers';
+import { normalizeCreatureTypeWord } from '../../shared/src/creatureTypes';
+
+function isTypedGraveyardReturnFragment(normalized: string): boolean {
+  const match = normalized.match(
+    /^(?:[^,]+,\s*)?return up to one target ([a-z]+) card from your graveyard to your hand$/i,
+  );
+  return Boolean(match && normalizeCreatureTypeWord(String(match[1] || '')));
+}
 
 function isRedundantTriggerEffectFragmentUnknownStep(step: OracleEffectStep): boolean {
   const normalized = normalizeUnknownStepText(step);
@@ -140,7 +148,10 @@ function isRedundantTriggerEffectFragmentUnknownStep(step: OracleEffectStep): bo
     /^a card if you had no cards in hand at the beginning of this turn$/i.test(normalized) ||
     /^then you may pay \{x\}, where x is the number of \+1\/\+1 counters on it$/i.test(normalized) ||
     /^you may look at that card for as long as it remains exiled$/i.test(normalized) ||
-    /^you may have it become a copy of another target dinosaur you control/i.test(normalized) ||
+    (() => {
+      const copyType = normalized.match(/^you may have it become a copy of another target ([a-z]+) you control/i);
+      return Boolean(copyType && normalizeCreatureTypeWord(String(copyType[1] || '')));
+    })() ||
     /^the next instant or sorcery spell you cast this turn costs \{x\} less to cast/i.test(normalized) ||
     /^three cards if three or more creatures died this turn$/i.test(normalized) ||
     /^you may pay an amount of \{e\} equal to target nonland permanent's mana value$/i.test(normalized) ||
@@ -204,7 +215,7 @@ function isRedundantTriggerEffectFragmentUnknownStep(step: OracleEffectStep): bo
     /^where x is this creature's power$/i.test(normalized) ||
     /^this permanent's power$/i.test(normalized) ||
     /^until end of turn, that player can't cast spells, you may look at the top card of their library any time, you may play the top card of their library, and you may spend mana as though it were mana of any color to cast spells this way$/i.test(normalized) ||
-    /^storied matriarch, return up to one target goblin card from your graveyard to your hand$/i.test(normalized) ||
+    isTypedGraveyardReturnFragment(normalized) ||
     /^bert, and william die, if they were a creature, return them to the battlefield$/i.test(normalized) ||
     /^vehicles you control have crew 1$/i.test(normalized) ||
     /^you may move all counters from this permanent onto target creature$/i.test(normalized) ||

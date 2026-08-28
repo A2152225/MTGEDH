@@ -5,6 +5,7 @@ export interface OracleIrTargetBinding {
   readonly targetPermanentId?: string;
   readonly targetCreatureId?: string;
   readonly targetPlayerId?: PlayerID;
+  readonly targetOwnerId?: PlayerID;
   readonly targetOpponentId?: PlayerID;
   readonly targetSpellId?: string;
   readonly chosenObjectIds?: readonly string[];
@@ -59,6 +60,17 @@ function extractPermanentController(permanent: any): string {
   ).trim();
 }
 
+function extractPermanentOwner(permanent: any): string {
+  return String(
+    permanent?.owner
+    || permanent?.ownerId
+    || permanent?.card?.owner
+    || permanent?.card?.ownerId
+    || extractPermanentController(permanent)
+    || '',
+  ).trim();
+}
+
 /**
  * Infer IR execution bindings from stack/spell/ability target ids.
  * Covers battlefield permanents, players, stack spells, and cards in player zones
@@ -90,13 +102,20 @@ export function inferOracleIrTargetBinding(
         .map(({ permanent }) => extractPermanentController(permanent))
         .filter(Boolean),
     );
+    const owners = new Set(
+      battlefieldPermanents
+        .map(({ permanent }) => extractPermanentOwner(permanent))
+        .filter(Boolean),
+    );
     const first = battlefieldPermanents[0];
     const sharedController = controllers.size === 1 ? [...controllers][0] : '';
+    const sharedOwner = owners.size === 1 ? [...owners][0] : '';
     const isOpponent = Boolean(controller) && sharedController && sharedController !== controller;
     return {
       targetPermanentId: first.id,
       ...(isCreatureObject(first.permanent) ? { targetCreatureId: first.id } : {}),
       ...(sharedController ? { targetPlayerId: sharedController as PlayerID } : {}),
+      ...(sharedOwner ? { targetOwnerId: sharedOwner as PlayerID } : {}),
       ...(isOpponent ? { targetOpponentId: sharedController as PlayerID } : {}),
       chosenObjectIds: ids,
     };
@@ -106,11 +125,13 @@ export function inferOracleIrTargetBinding(
     const permanent = battlefield.find((entry: any) => String(entry?.id || '').trim() === id);
     if (permanent) {
       const permanentController = extractPermanentController(permanent) as PlayerID;
+      const permanentOwner = extractPermanentOwner(permanent) as PlayerID;
       const isOpponent = Boolean(controller) && permanentController && permanentController !== controller;
       return {
         targetPermanentId: id,
         ...(isCreatureObject(permanent) ? { targetCreatureId: id } : {}),
         ...(permanentController ? { targetPlayerId: permanentController } : {}),
+        ...(permanentOwner ? { targetOwnerId: permanentOwner } : {}),
         ...(isOpponent ? { targetOpponentId: permanentController } : {}),
         chosenObjectIds: ids,
       };
@@ -148,6 +169,7 @@ export function oracleIrTargetBindingToBaseContext(
     selectorContext: {
       ...(binding.chosenObjectIds ? { chosenObjectIds: binding.chosenObjectIds } : {}),
       ...(binding.targetPlayerId ? { targetPlayerId: binding.targetPlayerId } : {}),
+      ...(binding.targetOwnerId ? { targetOwnerId: binding.targetOwnerId } : {}),
       ...(binding.targetOpponentId ? { targetOpponentId: binding.targetOpponentId } : {}),
       ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
       ...(binding.targetPermanentId ? { targetPermanentId: binding.targetPermanentId } : {}),

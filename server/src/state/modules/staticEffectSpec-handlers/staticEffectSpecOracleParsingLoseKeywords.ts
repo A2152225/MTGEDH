@@ -1,7 +1,8 @@
 // server/src/state/modules/staticEffectSpec-handlers/staticEffectSpecOracleParsingLoseKeywords.ts
 // Origin parent: server/src/state/modules/staticEffectSpecOracleParsing.ts
 // Cluster: opponent lose / as-though-didn't-have keywords
-//   (Archetype of Endurance, Glaring Spotlight, Nowhere to Run, Kaya).
+//   (Archetype of Endurance, Glaring Spotlight, Nowhere to Run, Kaya)
+//   plus all-creatures lose (Gravity Sphere / Mystic Decree).
 // Public entry symbols: pushLoseKeywordSpecs.
 
 import type { StaticEffectScope, StaticEffectSpec } from '../staticEffectSpec.js';
@@ -13,6 +14,9 @@ import {
 
 const OPPONENT_LOSE_KEYWORD_RE =
   /(?:^|[.\n;])\s*creatures your opponents control lose ([^.]+)/gi;
+
+const ALL_CREATURES_LOSE_KEYWORD_RE =
+  /(?:^|[.\n;])\s*all creatures lose ([^.]+)/gi;
 
 const AS_THOUGH_YOU_CONTROL_RE =
   /(?:^|[.\n;])\s*creatures your opponents control(?: with [^.]+?)? can be the targets? of spells and abilities you control as though they didn'?t have ([^.]+)/gi;
@@ -28,6 +32,10 @@ const WARD_ABILITIES_DONT_TRIGGER_RE =
 
 function isUntilEndOfTurnClause(raw: string): boolean {
   return /until end of turn/i.test(raw);
+}
+
+function isLoseAllAbilitiesTail(tail: string): boolean {
+  return /^\s*all abilities\b/i.test(String(tail || ''));
 }
 
 function hasWardAbilitiesDontTrigger(oracle: string): boolean {
@@ -76,8 +84,12 @@ function sourceAlreadyHasWardAsThough(
  * Nowhere to Run: "…spells and abilities as though they didn't have hexproof."
  * Kaya: "Your opponents and permanents your opponents control with hexproof can be
  *   the targets of spells and abilities you control as though they didn't have hexproof."
+ * Gravity Sphere: "All creatures lose flying."
+ * Mystic Decree: "All creatures lose flying and islandwalk."
  *
  * Until-EOT activated clauses are skipped (Arcane Lighthouse, Detection Tower).
+ * Until-EOT mass lose (Whiteout, Hour of Devastation) is skipped.
+ * "Lose all abilities" (Humility) is not a keyword list.
  * Ward rider ("Ward abilities of those creatures don't trigger.") is encoded as
  * asThoughNoAbilities 'ward' on the same opponent_creatures spec (or a sibling).
  */
@@ -93,12 +105,28 @@ export function pushLoseKeywordSpecs(
     const clause = String(match[0] || '');
     const tail = String(match[1] || '');
     if (isUntilEndOfTurnClause(clause) || isUntilEndOfTurnClause(tail)) continue;
+    if (isLoseAllAbilitiesTail(tail)) continue;
     pushKeywordGrant(
       specs,
       source,
       'opponent-creatures-lose-keywords',
       tail,
       { kind: 'opponent_creatures' },
+      'remove',
+    );
+  }
+
+  for (const match of text.matchAll(ALL_CREATURES_LOSE_KEYWORD_RE)) {
+    const clause = String(match[0] || '');
+    const tail = String(match[1] || '');
+    if (isUntilEndOfTurnClause(clause) || isUntilEndOfTurnClause(tail)) continue;
+    if (isLoseAllAbilitiesTail(tail)) continue;
+    pushKeywordGrant(
+      specs,
+      source,
+      'all-creatures-lose-keywords',
+      tail,
+      { kind: 'all_creatures' },
       'remove',
     );
   }

@@ -10,6 +10,7 @@ import {
   isCounterPreventingAttack,
   isCounterPreventingBlock,
 } from '../../../../shared/src/counterCombatRestrictions';
+import { textAllowsAnyPlayerActivation } from '../../../../shared/src/anyPlayerActivatedAbility';
 import { ActivatedAbilityButtons } from '../ActivatedAbilityButtons';
 import {
   parseStationThreshold,
@@ -120,6 +121,13 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
     hasThousandYearElixirEffect,
     onActivateAbility,
   } = props;
+  const viewerId = String(playerId || '');
+  const controllerId = String(raw.controller || '');
+  const showOwnAbilityButtons = !!showActivatedAbilityButtons && !!viewerId && controllerId === viewerId;
+  const showAnyPlayerAbilityButtons = !!showActivatedAbilityButtons && !!viewerId
+    && controllerId !== viewerId
+    && textAllowsAnyPlayerActivation((raw.card as { oracle_text?: string } | undefined)?.oracle_text);
+  const showNonPlaneswalkerAbilityButtons = (showOwnAbilityButtons || showAnyPlayerAbilityButtons) && !isPlaneswalker;
   return (
     <>
             {/* Token count badge - shown for grouped tokens or any token with count > 1 */}
@@ -841,7 +849,7 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
             )}
 
             {/* Activated Ability Buttons - for non-planeswalkers or non-loyalty abilities */}
-            {showActivatedAbilityButtons && raw.controller === playerId && !isPlaneswalker && (
+            {showNonPlaneswalkerAbilityButtons && (
               <ActivatedAbilityButtons
                 perm={raw}
                 battlefield={allBattlefieldPerms || perms}
@@ -853,6 +861,7 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
                 currentStep={currentStep}
                 hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                 onActivateAbility={onActivateAbility}
+                viewerPlayerId={playerId}
                 showOnHover={false}
                 maxVisible={5}
                 position="left"

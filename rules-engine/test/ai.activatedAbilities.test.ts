@@ -536,4 +536,67 @@ describe('AI Activated Abilities', () => {
       expect(decision.action?.activate).toBe(false);
     });
   });
+
+  describe('Any-player activations (Xantcha, Sleeper Agent)', () => {
+    const xantchaOracle =
+      "Xantcha enters under the control of an opponent of your choice.\n" +
+      "Xantcha attacks each combat if able and can't attack its owner or planeswalkers its owner controls.\n" +
+      "{3}: Xantcha's controller loses 2 life and you draw a card. Any player may activate this ability.";
+
+    function xantchaPermanent(controller: PlayerID): BattlefieldPermanent {
+      return {
+        id: 'xantcha-1',
+        controller,
+        owner: opponentId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'xantcha_card',
+          name: 'Xantcha, Sleeper Agent',
+          type_line: 'Legendary Creature — Phyrexian Minion',
+          oracle_text: xantchaOracle,
+          power: '5',
+          toughness: '5',
+        },
+      };
+    }
+
+    function xantchaContext(controller: PlayerID, turnPlayer: PlayerID = opponentId): AIDecisionContext {
+      const gameState: Partial<GameState> = {
+        phase: 'precombatMain',
+        step: 'MAIN1',
+        turnPlayer,
+        priority: playerId,
+        battlefield: [xantchaPermanent(controller)],
+        stack: [{ id: 'spell1', type: 'spell' } as any],
+        players: [
+          { id: playerId, name: 'AI', life: 40, hand: [], battlefield: [] } as any,
+          { id: opponentId, name: 'Opponent', life: 40, hand: [], battlefield: [] } as any,
+        ],
+        manaPool: {
+          [playerId]: { white: 1, blue: 0, black: 0, red: 1, green: 2, colorless: 0 },
+        },
+      };
+      return {
+        gameState: gameState as GameState,
+        playerId,
+        decisionType: AIDecisionType.ACTIVATE_ABILITY,
+        options: [],
+      };
+    }
+
+    it('activates opponent-controlled Xantcha to draw and ping the controller', async () => {
+      const decision = await aiEngine.makeDecision(xantchaContext(opponentId));
+      expect(decision.action?.activate).toBe(true);
+      expect(decision.action?.cardName).toBe('Xantcha, Sleeper Agent');
+      expect(decision.action?.permanentId).toBe('xantcha-1');
+      expect(String(decision.action?.abilityText || '')).toMatch(/controller loses 2 life and you draw a card/i);
+    });
+
+    it('does not fire Xantcha at itself (controller would lose the 2 life)', async () => {
+      const decision = await aiEngine.makeDecision(xantchaContext(playerId, playerId));
+      expect(decision.action?.activate).toBe(false);
+    });
+  });
 });

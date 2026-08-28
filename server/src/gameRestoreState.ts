@@ -5,6 +5,11 @@
  */
 const restoringGameIds = new Set<string>();
 
+/** Scratch id used by undo boundary planning (`undo_probe_${liveGameId}`). Not a real table. */
+export function isUndoProbeGameId(gameId: string): boolean {
+  return String(gameId || '').startsWith('undo_probe_');
+}
+
 export function markGameRestoring(gameId: string): void {
   const id = String(gameId || '').trim();
   if (id) restoringGameIds.add(id);
@@ -18,4 +23,11 @@ export function clearGameRestoring(gameId: string): void {
 export function isGameRestoring(gameId: string): boolean {
   const id = String(gameId || '').trim();
   return Boolean(id && restoringGameIds.has(id));
+}
+
+/** True while undo/restart is replaying the event log — AI and broadcasts must not run. */
+export function isGameReplayLocked(game: any, gameId?: string): boolean {
+  if (game?.isReplaying) return true;
+  const id = String(gameId || game?.gameId || '').trim();
+  return Boolean(id && isGameRestoring(id));
 }

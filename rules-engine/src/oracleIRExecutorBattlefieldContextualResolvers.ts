@@ -18,8 +18,8 @@ import {
   resolveBolsterTargetCreatureIdFromBattlefield,
   resolveMentorTargetCreatureIdFromBattlefield,
 } from './oracleIRExecutorCreatureStepUtils';
-import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
-import { normalizeOracleText } from './oracleIRExecutorPlayerUtils';
+import { buildNameReferenceAliases } from './oracleIRExecutorBattlefieldNameAliases';
+import { getExecutorTypeLineLower, isExecutorCreature } from './oracleIRExecutorPermanentUtils';
 import { canTargetPermanent } from './permanentTargeting';
 
 type ContextualBattlefieldReference =
@@ -105,6 +105,10 @@ export function parseContextualBattlefieldReference(
     return { mode: 'contextual', type: 'creature', plural: true };
   }
 
+  if (/^(?:each of )?those permanents$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'permanent', plural: true };
+  }
+
   if (/^that permanent$/i.test(normalized)) {
     return { mode: 'contextual', type: 'permanent' };
   }
@@ -173,14 +177,14 @@ export function resolveContextualBattlefieldPermanents(
       const sourcePermanent = battlefield.find(
         (perm: any) => String((perm as any)?.id || '').trim() === sourceId,
       ) as any;
-      const sourceNames = [
-        String(sourcePermanent?.card?.name || '').trim(),
-        String(sourcePermanent?.name || '').trim(),
-        String(ctx.sourceName || '').trim(),
-      ]
-        .map((name) => normalizeOracleText(name).toLowerCase())
-        .filter(Boolean);
-      if (sourceNames.includes(normalizeOracleText(rawText).toLowerCase())) {
+      const sourceNameAliases = new Set(
+        [
+          String(sourcePermanent?.card?.name || '').trim(),
+          String(sourcePermanent?.name || '').trim(),
+          String(ctx.sourceName || '').trim(),
+        ].flatMap((name) => buildNameReferenceAliases(name)),
+      );
+      if (buildNameReferenceAliases(rawText).some((alias) => sourceNameAliases.has(alias))) {
         return sourcePermanent ? [sourcePermanent] : [];
       }
     }
@@ -220,13 +224,40 @@ export function resolveContextualBattlefieldPermanents(
   if (parsed.mode === 'self') {
     const lastReferencedId = String((ctx as any).lastReferencedPermanentId || '').trim();
     const boundTargetId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
-    const chosenId = Array.isArray(ctx.selectorContext?.chosenObjectIds)
-      ? String(ctx.selectorContext.chosenObjectIds[0] || '').trim()
+    const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+      ? ctx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const selfText = target.kind === 'raw'
+      ? normalizeBattlefieldTargetReferenceText(String((target as any).text || ''))
       : '';
-    const resolvedId = lastReferencedId || boundTargetId || chosenId || sourceId;
-    if (!resolvedId) return [];
-    const selfPermanent = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === resolvedId);
-    return selfPermanent ? [selfPermanent] : [];
+    const wantsCreature = /^this creature$/i.test(selfText);
+    const candidateIds = [lastReferencedId, boundTargetId, ...chosenIds, sourceId];
+    const seen = new Set<string>();
+    for (const candidateId of candidateIds) {
+      if (!candidateId || seen.has(candidateId)) continue;
+      seen.add(candidateId);
+      const selfPermanent = battlefield.find(
+        (perm: any) => String((perm as any)?.id || '').trim() === candidateId,
+      );
+      if (!selfPermanent) continue;
+      if (wantsCreature && !isExecutorCreature(selfPermanent)) continue;
+      return [selfPermanent];
+    }
+    if (wantsCreature && sourceId) {
+      const sourcePermanent = battlefield.find(
+        (perm: any) => String((perm as any)?.id || '').trim() === sourceId,
+      ) as any;
+      const attachedToId = String(
+        sourcePermanent?.attachedTo || sourcePermanent?.enchanting || '',
+      ).trim();
+      if (attachedToId) {
+        const attached = battlefield.find(
+          (perm: any) => String((perm as any)?.id || '').trim() === attachedToId,
+        );
+        if (attached && isExecutorCreature(attached)) return [attached];
+      }
+    }
+    return [];
   }
 
   const resolvedContextualTargetIds = buildContextualBattlefieldTargetIds(

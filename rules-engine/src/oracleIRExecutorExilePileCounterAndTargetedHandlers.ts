@@ -119,14 +119,16 @@ export function tryApplyExilePileCounterAndTargetedStep(
     return { applied: true, state, log: ['Death counter condition not met; no exile'] };
   }
 
-  if (/until this (?:permanent|creature|vehicle|artifact|enchantment) leaves the battlefield/.test(raw) ||
+    if (/until this (?:permanent|creature|vehicle|artifact|enchantment) leaves the battlefield/.test(raw) ||
       /until it leaves the battlefield/.test(raw)) {
-    if (/non-angel creatures you control/.test(raw)) {
+    const nonTypedCreatures = raw.match(/non-([a-z]+) creatures you control/);
+    if (nonTypedCreatures) {
+      const excluded = String(nonTypedCreatures[1] || '').toLowerCase();
       return exileControllerPermanentsMatching(
         state,
         ctx,
-        (perm) => permanentMatchesType(perm, 'creature') && !typeLineHasSubtype(perm, 'angel') && !(perm as any)?.isToken,
-        'until leaves (non-angel creatures)',
+        (perm) => permanentMatchesType(perm, 'creature') && !typeLineHasSubtype(perm, excluded) && !(perm as any)?.isToken,
+        `until leaves (non-${excluded} creatures)`,
         undefined
       );
     }

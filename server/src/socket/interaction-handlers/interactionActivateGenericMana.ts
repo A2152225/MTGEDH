@@ -32,6 +32,7 @@ import {
   broadcastManaPoolUpdate,
   calculateManaProduction,
   getPlayerName,
+  shouldSkipScalingManaForColorlessTap,
   recordCreatureSpellHasteManaProduced,
   recordManaProducedByPermanentSource,
 } from "../util";
@@ -225,8 +226,21 @@ export async function tryHandleActivateGenericMana(
     // Check for devotion-based mana abilities (Karametra's Acolyte, etc.)
     const devotionMana = getDevotionManaAmount(game.state, permanent, pid);
     
-    // Check for creature-count-based mana abilities (Priest of Titania, etc.)
-    const creatureCountMana = getCreatureCountManaAmount(game.state, permanent, pid);
+    // Check for creature-count-based mana abilities (Priest of Titania, etc.).
+    // Dual-ability lands like Three Tree City also have `{T}: Add {C}` — do not
+    // treat that tap as the paid {2} invest line (0 chosen-type creatures must
+    // still add colorless).
+    const selectedManaAbilityText = String(
+      selectedAbilityOracleLine || selectedAbilityFullText || resolvedActivatedAbilityText || resolvedAbilityText || abilityText || '',
+    );
+    const creatureCountMana = shouldSkipScalingManaForColorlessTap({
+      cardName,
+      abilityId,
+      selectedAbilityText: selectedManaAbilityText,
+      oracleText: String(card?.oracle_text || ''),
+    })
+      ? null
+      : getCreatureCountManaAmount(game.state, permanent, pid);
     
     // Get mana multiplier
     const manaMultiplier = getManaMultiplier(game.state, permanent, pid);

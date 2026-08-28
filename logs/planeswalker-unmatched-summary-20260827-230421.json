@@ -1,0 +1,1024 @@
+{
+  "generatedAt": "2026-08-28T03:04:21.124Z",
+  "totals": {
+    "totalLoyaltyLines": 926,
+    "irFullyWired": 896,
+    "matchedByTemplate": 637,
+    "matchedByEnginePatterns": 17,
+    "unmatched": 272
+  },
+  "topIrUnwiredKinds": [
+    {
+      "kind": "(empty)",
+      "count": 29
+    },
+    {
+      "kind": "unknown",
+      "count": 1
+    }
+  ],
+  "topUnmatchedFirstWord": [
+    {
+      "word": "until",
+      "count": 24
+    },
+    {
+      "word": "you",
+      "count": 24
+    },
+    {
+      "word": "target",
+      "count": 20
+    },
+    {
+      "word": "each",
+      "count": 15
+    },
+    {
+      "word": "exile",
+      "count": 14
+    },
+    {
+      "word": "draw",
+      "count": 13
+    },
+    {
+      "word": "choose",
+      "count": 10
+    },
+    {
+      "word": "put",
+      "count": 9
+    },
+    {
+      "word": "up",
+      "count": 9
+    },
+    {
+      "word": "for",
+      "count": 8
+    },
+    {
+      "word": "look",
+      "count": 7
+    },
+    {
+      "word": "mill",
+      "count": 7
+    },
+    {
+      "word": "search",
+      "count": 7
+    },
+    {
+      "word": "create",
+      "count": 6
+    },
+    {
+      "word": "untap",
+      "count": 6
+    },
+    {
+      "word": "discard",
+      "count": 6
+    },
+    {
+      "word": "return",
+      "count": 6
+    },
+    {
+      "word": "add",
+      "count": 5
+    },
+    {
+      "word": "gain",
+      "count": 5
+    },
+    {
+      "word": "cast",
+      "count": 4
+    },
+    {
+      "word": "distribute",
+      "count": 3
+    },
+    {
+      "word": "sacrifice",
+      "count": 3
+    },
+    {
+      "word": "ajani",
+      "count": 3
+    },
+    {
+      "word": "creatures",
+      "count": 3
+    },
+    {
+      "word": "destroy",
+      "count": 3
+    },
+    {
+      "word": "chandra",
+      "count": 3
+    },
+    {
+      "word": "flip",
+      "count": 2
+    },
+    {
+      "word": "whenever",
+      "count": 2
+    },
+    {
+      "word": "artifacts",
+      "count": 2
+    },
+    {
+      "word": "when",
+      "count": 2
+    },
+    {
+      "word": "during",
+      "count": 2
+    },
+    {
+      "word": "roll",
+      "count": 2
+    },
+    {
+      "word": "tap",
+      "count": 2
+    },
+    {
+      "word": "if",
+      "count": 2
+    },
+    {
+      "word": "surveil",
+      "count": 2
+    },
+    {
+      "word": "reveal",
+      "count": 2
+    },
+    {
+      "word": "ral",
+      "count": 2
+    },
+    {
+      "word": "nicol",
+      "count": 1
+    },
+    {
+      "word": "any",
+      "count": 1
+    },
+    {
+      "word": "equipped",
+      "count": 1
+    },
+    {
+      "word": "huatli",
+      "count": 1
+    },
+    {
+      "word": "attach",
+      "count": 1
+    },
+    {
+      "word": "chandra,",
+      "count": 1
+    },
+    {
+      "word": "spirits",
+      "count": 1
+    },
+    {
+      "word": "exchange",
+      "count": 1
+    },
+    {
+      "word": "scry",
+      "count": 1
+    },
+    {
+      "word": "artifact,",
+      "count": 1
+    },
+    {
+      "word": "niko",
+      "count": 1
+    },
+    {
+      "word": "wrenn",
+      "count": 1
+    },
+    {
+      "word": "remove",
+      "count": 1
+    }
+  ],
+  "topUnmatchedEffects": [
+    {
+      "effect": "For each opponent, return up to one target nonland permanent that player controls to its owner's hand.",
+      "count": 2
+    },
+    {
+      "effect": "Nicol Bolas deals 7 damage to target player or planeswalker. That player or that planeswalker's controller discards seven cards, then sacrifices seven permanents of their choice.",
+      "count": 1
+    },
+    {
+      "effect": "Any number of target players each discard a card.",
+      "count": 1
+    },
+    {
+      "effect": "Flip five coins. Target opponent skips their next X turns, where X is the number of coins that came up heads.",
+      "count": 1
+    },
+    {
+      "effect": "Put a ghostform counter on up to one target nontoken creature. It gains \"When this creature dies or is put into exile, return it to its owner's hand and create a 1/1 white Spirit creature token with flying.\"",
+      "count": 1
+    },
+    {
+      "effect": "Until your next turn, up to one target creature gains reach and vigilance.",
+      "count": 1
+    },
+    {
+      "effect": "Look at the top six cards of your library. You may reveal a planeswalker or basic Plains card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
+      "count": 1
+    },
+    {
+      "effect": "Create ten Scryb Sprites tokens. (They're {G} 1/1 Faerie creatures with flying.)",
+      "count": 1
+    },
+    {
+      "effect": "Untap up to two target lands.",
+      "count": 1
+    },
+    {
+      "effect": "Until your next turn, whenever one or more creatures attack one of your opponents, those creatures get +2/+2 and gain trample until end of turn.",
+      "count": 1
+    },
+    {
+      "effect": "Exile the top card of your library face down and look at it. Create a 2/2 colorless Spirit creature token. When that token leaves the battlefield, put the exiled card into your hand.",
+      "count": 1
+    },
+    {
+      "effect": "For each player, choose a creature that player controls. Each player sacrifices all creatures they control not chosen this way.",
+      "count": 1
+    },
+    {
+      "effect": "Create a Giant Badger token. (It's a {1}{G}{G} 2/2 Badger creature with \"Whenever this token blocks, it gets +2/+2 until end of turn.\")",
+      "count": 1
+    },
+    {
+      "effect": "Mill three cards. Put all permanent cards from among them into your hand.",
+      "count": 1
+    },
+    {
+      "effect": "Until end of turn, creatures you control have base power and toughness 8/8 and gain trample.",
+      "count": 1
+    },
+    {
+      "effect": "Target player draws two cards. Until your next turn, instant, sorcery, and planeswalker spells that player casts cost {2} less to cast.",
+      "count": 1
+    },
+    {
+      "effect": "For each player, search that player's library for a nonland card and exile it, then that player shuffles. You may cast those cards without paying their mana costs.",
+      "count": 1
+    },
+    {
+      "effect": "Until your next turn, whenever an opponent attacks you and/or planeswalkers you control, they discard a card. If they can't, they sacrifice an attacking creature.",
+      "count": 1
+    },
+    {
+      "effect": "Equipped creature gets +2/+2 and gains double strike until end of turn.",
+      "count": 1
+    },
+    {
+      "effect": "Choose target creature an opponent controls. Whenever you attack this turn, Jaya deals damage equal to the number of attacking creatures to that creature.",
+      "count": 1
+    },
+    {
+      "effect": "Choose up to one target creature. Put a +1/+1 counter and a counter from among flying, first strike, lifelink, or vigilance on it.",
+      "count": 1
+    },
+    {
+      "effect": "Add {R} or {G}. If that mana is spent on a creature spell, it gains riot. (It enters with your choice of a +1/+1 counter or haste.)",
+      "count": 1
+    },
+    {
+      "effect": "You may sacrifice an artifact or discard a card. If you do, draw a card.",
+      "count": 1
+    },
+    {
+      "effect": "Untap target land you control. Until your next turn, it becomes a 5/5 Elemental creature with haste. It's still a land.",
+      "count": 1
+    },
+    {
+      "effect": "Until your next turn, whenever a creature attacks you or Tasha, Unholy Archmage, put a -1/-1 counter on that creature.",
+      "count": 1
+    },
+    {
+      "effect": "Target opponent puts a creature card of their choice from their graveyard onto the battlefield under your control. That creature gains ward {2}.",
+      "count": 1
+    },
+    {
+      "effect": "Target opponent reveals cards from the top of their library until they reveal three creature cards. Put those cards onto the battlefield under your control. That player puts the rest into their graveyard.",
+      "count": 1
+    },
+    {
+      "effect": "Distribute three +1/+1 counters among up to three target creatures. They gain vigilance until end of turn.",
+      "count": 1
+    },
+    {
+      "effect": "Sacrifice a creature. When you do, Minsc & Boo deals X damage to any target, where X is that creature's power. If the sacrificed creature was a Hamster, draw X cards.",
+      "count": 1
+    },
+    {
+      "effect": "Ajani deals 4 damage to target tapped creature.",
+      "count": 1
+    },
+    {
+      "effect": "Look at the top X cards of your library, where X is your life total. You may put any number of nonland permanent cards with mana value 3 or less from among them onto the battlefield. Then shuffle.",
+      "count": 1
+    },
+    {
+      "effect": "Distribute two +1/+1 counters among up to two target creatures. They gain trample until end of turn.",
+      "count": 1
+    },
+    {
+      "effect": "You may reveal a creature card you own from outside the game and put it into your hand.",
+      "count": 1
+    },
+    {
+      "effect": "Huatli deals X damage divided as you choose among any number of target creatures. Creatures dealt damage this way can't block this turn.",
+      "count": 1
+    },
+    {
+      "effect": "Until end of turn, creatures you control gain flying and get +X/+X, where X is your devotion to white.",
+      "count": 1
+    },
+    {
+      "effect": "Discard a card. If a red card is discarded this way, Chandra deals 4 damage to any target.",
+      "count": 1
+    },
+    {
+      "effect": "Cast any number of red instant and/or sorcery cards from your graveyard without paying their mana costs.",
+      "count": 1
+    },
+    {
+      "effect": "Draw two cards. If you've committed a crime this turn, discard a card. Otherwise, discard two cards.",
+      "count": 1
+    },
+    {
+      "effect": "For each other nonland permanent you control, create a token that's a copy of that permanent.",
+      "count": 1
+    },
+    {
+      "effect": "Up to one target land you control becomes a 3/3 Elemental creature with vigilance, hexproof, and haste until your next turn. It's still a land.",
+      "count": 1
+    },
+    {
+      "effect": "Mill three cards. You may put a permanent card from among the milled cards into your hand.",
+      "count": 1
+    },
+    {
+      "effect": "Search your library for any number of basic land cards, put them onto the battlefield, then shuffle. Those lands become 4/4 Elemental creatures with trample. They're still lands.",
+      "count": 1
+    },
+    {
+      "effect": "Attach The Aetherspark to up to one target creature you control. Put a +1/+1 counter on that creature.",
+      "count": 1
+    },
+    {
+      "effect": "Chandra, Gremlin Wrangler deals X damage to target creature or player, where X is the number of Gremlins you control.",
+      "count": 1
+    },
+    {
+      "effect": "Whenever one or more nontoken creatures attack this turn, create that many 1/1 white Soldier creature tokens that are tapped and attacking.",
+      "count": 1
+    },
+    {
+      "effect": "Each player sacrifices a creature of their choice. If you sacrificed a creature this way, create a 4/4 green Beast creature token with trample.",
+      "count": 1
+    },
+    {
+      "effect": "Each opponent discards two cards. For each opponent who didn't discard two nonland cards this way, you draw a card.",
+      "count": 1
+    },
+    {
+      "effect": "Artifacts you control become artifact creatures with base power and toughness 5/5 until end of turn.",
+      "count": 1
+    },
+    {
+      "effect": "Creatures you control get +2/+2 until end of turn. Tap all creatures your opponents control.",
+      "count": 1
+    },
+    {
+      "effect": "Draw four cards. When you do, The Royal Scions deals damage to any target equal to the number of cards in your hand.",
+      "count": 1
+    },
+    {
+      "effect": "Mill three cards. If at least one Zombie card is milled this way, each opponent loses 2 life and you gain 2 life.",
+      "count": 1
+    },
+    {
+      "effect": "You may cast Zombie spells from your graveyard this turn.",
+      "count": 1
+    },
+    {
+      "effect": "Each opponent loses 3 life unless that player sacrifices a nonland permanent of their choice or discards a card.",
+      "count": 1
+    },
+    {
+      "effect": "Exile the top five cards of your library. Until the end of your next turn, you may cast an instant or sorcery spell from among those exiled cards.",
+      "count": 1
+    },
+    {
+      "effect": "Exile the top card of your library. Create a number of 1/1 blue Faerie Dragon creature tokens with flying equal to that card's mana value.",
+      "count": 1
+    },
+    {
+      "effect": "You draw a card. Each opponent exiles a card from their hand or a permanent they control.",
+      "count": 1
+    },
+    {
+      "effect": "Each opponent who doesn't control a legendary creature or planeswalker loses the game.",
+      "count": 1
+    },
+    {
+      "effect": "Until end of turn, Gideon becomes a Human Soldier creature with power and toughness each equal to the number of loyalty counters on him and gains indestructible. He's still a planeswalker. Prevent all damage that would be dealt to him this turn.",
+      "count": 1
+    },
+    {
+      "effect": "Search your graveyard and library for any number of red instant and/or sorcery cards, exile them, then shuffle. You may cast them this turn. Add six {R}.",
+      "count": 1
+    },
+    {
+      "effect": "Until end of turn, whenever a creature you control deals combat damage to a player, put a loyalty counter on Dovin.",
+      "count": 1
+    },
+    {
+      "effect": "You may discard a card. If you do, draw two cards, then mill a card.",
+      "count": 1
+    },
+    {
+      "effect": "Spirits you control gain double strike and vigilance until end of turn.",
+      "count": 1
+    },
+    {
+      "effect": "Search your library for any number of colorless nonland cards, exile them, then shuffle. Until end of turn, you may cast those cards without paying their mana costs.",
+      "count": 1
+    },
+    {
+      "effect": "Destroy up to three target creatures and/or other planeswalkers. Return each card put into a graveyard this way to the battlefield under your control.",
+      "count": 1
+    },
+    {
+      "effect": "Until your next turn, creatures can't attack you or planeswalkers you control unless their controller pays 2 life for each of those creatures.",
+      "count": 1
+    },
+    {
+      "effect": "Exile Kaya or up to one target creature. Return that card to the battlefield under its owner's control at the beginning of your next upkeep. You lose 2 life.",
+      "count": 1
+    },
+    {
+      "effect": "Each opponent chooses a permanent they control of each permanent type and sacrifices the rest.",
+      "count": 1
+    },
+    {
+      "effect": "Target opponent chooses a permanent they control and returns it to its owner's hand. Then they shuffle each nonland permanent they control into its owner's library.",
+      "count": 1
+    },
+    {
+      "effect": "Search your library for up to three artifact cards with different names, put them onto the battlefield, then shuffle.",
+      "count": 1
+    },
+    {
+      "effect": "Exchange control of target artifact or creature you control and target creature an opponent controls with power 3 or less.",
+      "count": 1
+    },
+    {
+      "effect": "You may cast target instant or sorcery card with mana value 3 or less from your graveyard. If that spell would be put into your graveyard, exile it instead.",
+      "count": 1
+    },
+    {
+      "effect": "Put any number of land cards from your hand onto the battlefield tapped.",
+      "count": 1
+    },
+    {
+      "effect": "Mill two cards, then you may return a creature card from your graveyard to your hand.",
+      "count": 1
+    },
+    {
+      "effect": "Target player exiles the top X cards of their library, where X is the total mana value of cards you own in exile.",
+      "count": 1
+    },
+    {
+      "effect": "Until end of turn, each planeswalker you control becomes a 4/4 red Dragon creature and gains flying.",
+      "count": 1
+    },
+    {
+      "effect": "Scry 1. You may tap an untapped artifact you control. If you do, draw a card.",
+      "count": 1
+    },
+    {
+      "effect": "Chandra deals 1 damage to target player or planeswalker and 1 damage to up to one target creature that player or that planeswalker's controller controls. That creature can't block this turn.",
+      "count": 1
+    },
+    {
+      "effect": "Exile the top ten cards of your library. Choose an instant or sorcery card exiled this way and copy it three times. You may cast the copies without paying their mana costs.",
+      "count": 1
+    },
+    {
+      "effect": "Untap target creature or land. Prevent all damage that would be dealt to and dealt by that permanent until your next turn.",
+      "count": 1
+    },
+    {
+      "effect": "You may sacrifice a Kraken. If you do, create an 8/8 blue Kraken creature token.",
+      "count": 1
+    },
+    {
+      "effect": "Target opponent creates a 1/1 black Skeleton creature token with \"When this creature dies, each opponent gains 2 life.\"",
+      "count": 1
+    },
+    {
+      "effect": "Discard your hand, then draw a card for each creature you control.",
+      "count": 1
+    },
+    {
+      "effect": "Ajani deals 4 damage to each creature except for tokens you control.",
+      "count": 1
+    },
+    {
+      "effect": "Return a creature card with a name printed in a Kamigawa expansion from your graveyard to the battlefield.",
+      "count": 1
+    },
+    {
+      "effect": "Each creature target opponent controls phases out. Until the end of your next turn, they can't phase in. (Treat them and anything attached to them as though they don't exist.)",
+      "count": 1
+    },
+    {
+      "effect": "Draw a card. You may put a permanent card with mana value 4 or less from your hand onto the battlefield.",
+      "count": 1
+    },
+    {
+      "effect": "Create a Feroz's Ban token. (It's a {6} artifact with \"Creature spells cost {2} more to cast.\")",
+      "count": 1
+    },
+    {
+      "effect": "Create a 3/3 green Beast creature token. Put your choice of a reach counter, a vigilance counter, or a trample counter on it.",
+      "count": 1
+    },
+    {
+      "effect": "When you next cast a creature spell this turn, search your library for a creature card with lesser mana value, put it onto the battlefield, then shuffle.",
+      "count": 1
+    },
+    {
+      "effect": "During target opponent's next turn, creatures that player controls attack Gideon Jura if able.",
+      "count": 1
+    },
+    {
+      "effect": "Until end of turn, each Vampire you control gains \"{T}: Gain control of target creature.\"",
+      "count": 1
+    },
+    {
+      "effect": "Artifact, instant, and sorcery spells you cast this turn cost {2} less to cast. You gain 2 life.",
+      "count": 1
+    },
+    {
+      "effect": "Artifacts and planeswalkers you control gain indestructible until end of turn. Destroy all nonland permanents.",
+      "count": 1
+    },
+    {
+      "effect": "Choose a nonland card name, then reveal the top four cards of your library. Put all cards with the chosen name from among them into your hand and the rest into your graveyard.",
+      "count": 1
+    },
+    {
+      "effect": "Flip five coins. Take an extra turn after this one for each coin that comes up heads.",
+      "count": 1
+    },
+    {
+      "effect": "For each creature card in your graveyard, put a +1/+1 counter on each creature you control.",
+      "count": 1
+    },
+    {
+      "effect": "You may cast target red instant or sorcery card from your graveyard. If that spell would be put into your graveyard, exile it instead.",
+      "count": 1
+    },
+    {
+      "effect": "Discard your hand, then draw seven cards. Until end of turn, you may cast spells from your hand without paying their mana costs.",
+      "count": 1
+    },
+    {
+      "effect": "Up to one target creature you control can't be blocked this turn. Whenever that creature deals damage this turn, return it to its owner's hand.",
+      "count": 1
+    },
+    {
+      "effect": "Niko Aris deals 2 damage to target tapped creature for each card you've drawn this turn.",
+      "count": 1
+    },
+    {
+      "effect": "You may sacrifice another creature or planeswalker. If you do, draw two cards, then draw another card if the sacrificed permanent was a commander.",
+      "count": 1
+    },
+    {
+      "effect": "Gain control of all commanders. Put all commanders from the command zone onto the battlefield under your control.",
+      "count": 1
+    },
+    {
+      "effect": "Chandra deals X damage to target creature or planeswalker. If a permanent dealt damage this way would die this turn, exile it instead.",
+      "count": 1
+    },
+    {
+      "effect": "Wrenn and One gains \"{T}: Add {G}\" until your next turn.",
+      "count": 1
+    },
+    {
+      "effect": "Draw a card and reveal it. Remove a number of loyalty counters equal to that card's mana value from Jace.",
+      "count": 1
+    },
+    {
+      "effect": "Mill seven cards. Return all non-Aura enchantment cards from your graveyard to the battlefield, then do the same for Aura cards.",
+      "count": 1
+    },
+    {
+      "effect": "Exile up to two target cards from a single graveyard. You gain 2 life if at least one creature card was exiled this way.",
+      "count": 1
+    },
+    {
+      "effect": "You draw X cards and Commodore Guff deals X damage to each opponent, where X is the number of planeswalkers you control.",
+      "count": 1
+    },
+    {
+      "effect": "Look at the top card of target player's library. You may put that card on the bottom of that player's library.",
+      "count": 1
+    },
+    {
+      "effect": "Draw three cards, then put two cards from your hand on top of your library in any order.",
+      "count": 1
+    },
+    {
+      "effect": "Target creature gets +2/+1 and gains haste until end of turn. Scry 1.",
+      "count": 1
+    },
+    {
+      "effect": "Until end of turn, Sarkhan becomes a legendary 4/4 red Dragon creature with flying, indestructible, and haste. (He doesn't lose loyalty while he's not a planeswalker.)",
+      "count": 1
+    },
+    {
+      "effect": "Up to one other target creature you control gains your choice of vigilance, lifelink, or indestructible until end of turn.",
+      "count": 1
+    },
+    {
+      "effect": "Add {R}{R}{R}. Exile the top three cards of your library. Choose one. You may play that card this turn.",
+      "count": 1
+    },
+    {
+      "effect": "Chandra deals 8 damage divided as you choose among any number of target creatures and/or planeswalkers.",
+      "count": 1
+    },
+    {
+      "effect": "Until end of turn, creatures you control gain deathtouch and \"Whenever this creature deals damage to an opponent, that player loses the game.\"",
+      "count": 1
+    },
+    {
+      "effect": "Mill three cards, then you may return a creature card with mana value 2 or less from your graveyard to the battlefield.",
+      "count": 1
+    },
+    {
+      "effect": "Draw a card. For each opponent, exile up to one target instant or sorcery card from that player's graveyard and put a page counter on it.",
+      "count": 1
+    },
+    {
+      "effect": "You may cast a spell from among cards in exile with page counters on them without paying its mana cost.",
+      "count": 1
+    },
+    {
+      "effect": "Up to two other target planeswalkers you control phase out at the beginning of the next end step. (Treat them and anything attached to them as though they don't exist until your next turn.)",
+      "count": 1
+    },
+    {
+      "effect": "Target artifact you control becomes a 9/9 Construct artifact creature and gains vigilance, indestructible, and \"This creature can't be blocked.\"",
+      "count": 1
+    },
+    {
+      "effect": "For each opponent, return up to one target artifact or creature that player controls to its owner's hand.",
+      "count": 1
+    },
+    {
+      "effect": "Draw three cards. Then put X +1/+1 counters on each creature you control, where X is the number of cards in your hand.",
+      "count": 1
+    },
+    {
+      "effect": "Target player loses X life and you gain X life, where X is twice the number of artifacts you control.",
+      "count": 1
+    },
+    {
+      "effect": "Remove a loyalty counter from each of any number of permanents you control. Exile that many cards from the top of your library. You may play them this turn.",
+      "count": 1
+    },
+    {
+      "effect": "Lukka deals X damage divided as you choose among any number of target creatures and/or planeswalkers, where X is the greatest power among creatures you control as you activate this ability.",
+      "count": 1
+    },
+    {
+      "effect": "Discover 4.",
+      "count": 1
+    },
+    {
+      "effect": "Exile any number of target cards from your graveyard. Add {R} for each card exiled this way. You may play those cards this turn.",
+      "count": 1
+    },
+    {
+      "effect": "Tibalt, Wicked Tormentor deals 4 damage to target creature or planeswalker unless its controller has Tibalt deal 4 damage to them. If they do, you may discard a card. If you do, draw a card.",
+      "count": 1
+    },
+    {
+      "effect": "Target creature gets +X/+X or -X/-X until end of turn, where X is the number of Swamps you control.",
+      "count": 1
+    },
+    {
+      "effect": "You draw two cards. Then each opponent may scry 1.",
+      "count": 1
+    },
+    {
+      "effect": "Exile target creature or enchantment. If it wasn't an Aura, create a token that's a copy of it, except it's a 1/1 white Spirit creature with flying in addition to its other types.",
+      "count": 1
+    },
+    {
+      "effect": "Target player mills four cards. Then exile each opponent's graveyard.",
+      "count": 1
+    },
+    {
+      "effect": "Add X mana in any combination of {R} and/or {G}, where X is the number of creatures you control.",
+      "count": 1
+    },
+    {
+      "effect": "Sacrifice a creature. When you do, Minsc & Boo, Timeless Heroes deals X damage to any target, where X is that creature's power. If the sacrificed creature was a Hamster, draw X cards.",
+      "count": 1
+    },
+    {
+      "effect": "Roll a six-sided die. Put a number of loyalty counters on Mr. Monopoly equal to the result.",
+      "count": 1
+    },
+    {
+      "effect": "Heist! - Exile the top two cards of target opponent's library. Until end of turn, you may play those cards, and mana of any type can be spent to cast them.",
+      "count": 1
+    },
+    {
+      "effect": "Shut Down! - Destroy target artifact.",
+      "count": 1
+    },
+    {
+      "effect": "Pass Go - Create 200 Treasure tokens.",
+      "count": 1
+    },
+    {
+      "effect": "Choose up to one target artifact, up to one target creature, and up to one target land. Untap the chosen permanents you control. Tap the chosen permanents you don't control. You gain 2 life.",
+      "count": 1
+    },
+    {
+      "effect": "Goad up to two target creatures.",
+      "count": 1
+    },
+    {
+      "effect": "Each opponent exiles the top two cards of their library. Until end of turn, you may play those cards without paying their mana costs.",
+      "count": 1
+    },
+    {
+      "effect": "Until end of turn, creatures you control get +1/+1 for each Forest you control and gain trample.",
+      "count": 1
+    },
+    {
+      "effect": "Choose up to two target creatures. Until your next turn, whenever either of those creatures deals combat damage, you draw a card.",
+      "count": 1
+    },
+    {
+      "effect": "Choose a card name from among Enlightened Tutor, Mystical Tutor, Booster Tutor, Imperial Recruiter, and Worldly Tutor. Create a copy of the card with the chosen name. You may cast the copy without paying its mana cost.",
+      "count": 1
+    },
+    {
+      "effect": "You lose 1 life. Look at the top three cards of your library. Put one of them into your hand and the rest into your graveyard.",
+      "count": 1
+    },
+    {
+      "effect": "Each opponent sacrifices a creature with the greatest power among creatures that player controls.",
+      "count": 1
+    },
+    {
+      "effect": "Each opponent may discard a card. If they don't, they lose 3 life. Repeat this process six more times.",
+      "count": 1
+    },
+    {
+      "effect": "Employees and Dogs you control get +X/+0 until end of turn.",
+      "count": 1
+    },
+    {
+      "effect": "Until your next turn, up to one target noncreature artifact becomes an artifact creature with power and toughness each equal to its mana value.",
+      "count": 1
+    },
+    {
+      "effect": "You may reveal an artifact card you own from outside the game or choose a face-up artifact card you own in exile. Put that card into your hand.",
+      "count": 1
+    },
+    {
+      "effect": "Tap all permanents target opponent controls. That player skips their next untap step.",
+      "count": 1
+    },
+    {
+      "effect": "Exile Kaya, Ghost Haunter haunting target creature for as long as that creature remains on the battlefield.",
+      "count": 1
+    },
+    {
+      "effect": "Discard up to three cards, then draw that many cards.",
+      "count": 1
+    },
+    {
+      "effect": "Distribute three +1/+1 counters among one, two, or three target creatures you control.",
+      "count": 1
+    },
+    {
+      "effect": "Each opponent loses 2 life unless they discard a card. If you control a Demon or Devil, you gain 2 life.",
+      "count": 1
+    },
+    {
+      "effect": "Put all creature cards from all graveyards onto the battlefield under your control.",
+      "count": 1
+    },
+    {
+      "effect": "Arzakon deals 3 damage to any other target.",
+      "count": 1
+    },
+    {
+      "effect": "Create a Black Lotus token. (It's a {0} artifact with \"{T}, Sacrifice this token: Add three mana of any one color.\")",
+      "count": 1
+    },
+    {
+      "effect": "Each player shuffles their hand and graveyard into their library, then draws seven cards.",
+      "count": 1
+    },
+    {
+      "effect": "Until your next turn, prevent all damage target permanent would deal.",
+      "count": 1
+    },
+    {
+      "effect": "Untap X target artifacts.",
+      "count": 1
+    },
+    {
+      "effect": "Search your library for an artifact card, put it onto the battlefield, then shuffle.",
+      "count": 1
+    },
+    {
+      "effect": "Target artifact you control becomes a copy of another target artifact or creature you control until end of turn, except it's an artifact in addition to its other types.",
+      "count": 1
+    },
+    {
+      "effect": "You may sacrifice an artifact. If you do, destroy target artifact or creature.",
+      "count": 1
+    },
+    {
+      "effect": "Choose target artifact card in a graveyard or artifact on the battlefield. Create three tokens that are copies of it.",
+      "count": 1
+    },
+    {
+      "effect": "Add {R} or {G}. Creature spells you cast this turn can't be countered.",
+      "count": 1
+    },
+    {
+      "effect": "You gain X life and draw X cards, where X is the number of lands you control.",
+      "count": 1
+    },
+    {
+      "effect": "If you don't control a creature named Mowu, create Mowu, a legendary 3/3 green Dog creature token.",
+      "count": 1
+    },
+    {
+      "effect": "Until end of turn, target creature gains trample and gets +X/+X, where X is the number of lands you control.",
+      "count": 1
+    },
+    {
+      "effect": "Choose target creature. Until your next turn, if that creature would deal combat damage to one of your opponents, it deals triple that damage to that player instead.",
+      "count": 1
+    },
+    {
+      "effect": "Put a creature card with mana value X exiled with Ashiok onto the battlefield under your control. That creature is a Nightmare in addition to its other types.",
+      "count": 1
+    },
+    {
+      "effect": "You gain 2 life. Add {U}, {R}, or {W}. Spend this mana only to cast a noncreature spell.",
+      "count": 1
+    },
+    {
+      "effect": "Draw a card, then you may discard a card. When you discard a nonland card this way, Narset deals damage equal to that card's mana value to target creature or planeswalker.",
+      "count": 1
+    },
+    {
+      "effect": "Draw a card. Then discard a card unless you attacked this turn.",
+      "count": 1
+    },
+    {
+      "effect": "Look at the top two cards of each other player's library, then put any number of them on the bottom of that library and the rest on top in any order. Scry 2.",
+      "count": 1
+    },
+    {
+      "effect": "You control target player during that player's next turn.",
+      "count": 1
+    },
+    {
+      "effect": "Up to X target Beebles can't be blocked this turn, where X is the number of cards in your hand.",
+      "count": 1
+    },
+    {
+      "effect": "If you have at least 15 life more than your starting life total, exile Ajani and each artifact and creature your opponents control.",
+      "count": 1
+    },
+    {
+      "effect": "Surveil 1. If you put a noncreature, nonland card into your graveyard this way, put that card into your hand.",
+      "count": 1
+    },
+    {
+      "effect": "Tap target artifact or creature. Put X stun counters on it.",
+      "count": 1
+    },
+    {
+      "effect": "Add one mana of any color. When you spend this mana to cast an Aura spell this turn, create a 1/1 red Gremlin creature token.",
+      "count": 1
+    },
+    {
+      "effect": "Discard your hand, then draw cards equal to twice the number of Auras you control. For each Aura attached to you, attach it to an opponent of your choice.",
+      "count": 1
+    },
+    {
+      "effect": "Target opponent exiles cards from the top of their library until they exile a nonland card. Until end of turn, you may cast that card without paying its mana cost.",
+      "count": 1
+    },
+    {
+      "effect": "Each opponent exiles two cards from their hand.",
+      "count": 1
+    },
+    {
+      "effect": "You may exile a nonland card with mana value 3 or less from your hand. If you do, it becomes plotted.",
+      "count": 1
+    },
+    {
+      "effect": "Until end of turn, whenever you cast a spell, copy it. You may choose new targets for the copy.",
+      "count": 1
+    },
+    {
+      "effect": "Put target creature card from a graveyard onto the battlefield under your control.",
+      "count": 1
+    },
+    {
+      "effect": "Creatures in each sector can be blocked this turn only by creatures in the same sector.",
+      "count": 1
+    },
+    {
+      "effect": "Put a +1/+1 counter on each creature in the sector of your choice.",
+      "count": 1
+    },
+    {
+      "effect": "Destroy all creatures in the sector of your choice.",
+      "count": 1
+    },
+    {
+      "effect": "Return target creature card with mana value X from your graveyard to the battlefield. That creature is a Vampire in addition to its other types.",
+      "count": 1
+    },
+    {
+      "effect": "Tezzeret deals X damage to each opponent, where X is the number of artifacts you control. You gain X life.",
+      "count": 1
+    },
+    {
+      "effect": "Whenever one or more creatures you control deal combat damage to a player this turn, draw a card, then discard a card.",
+      "count": 1
+    },
+    {
+      "effect": "Up to one target legendary creature gains vigilance, lifelink, and indestructible until your next turn.",
+      "count": 1
+    },
+    {
+      "effect": "Reveal the top four cards of your library. Put any number of legendary cards from among them into your hand and the rest into your graveyard. Create a Treasure token for each card put into your graveyard this way.",
+      "count": 1
+    },
+    {
+      "effect": "Gain control of all nonland permanents until end of turn. Untap them. They gain haste until end of turn.",
+      "count": 1
+    },
+    {
+      "effect": "Search your library for an artifact or creature card, put it onto the battlefield, then shuffle. It gains haste. Return it to your hand at the beginning of the next end step.",
+      "count": 1
+    },
+    {
+      "effect": "Target opponent loses 2 life for each creature card in their graveyard.",
+      "count": 1
+    },
+    {
+      "effect": "Until your next turn, up to one target creature attacks a player each combat if able.",
+      "count": 1
+    }
+  ]
+}

@@ -13,6 +13,7 @@ import { VoteModal } from "../components/VoteModal";
 import { CastSpellModal } from "../components/CastSpellModal";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "../components/CombatSelectionModal";
 import { CombatControlModal } from "../components/CombatControlModal";
+import { expandGroupedTokensForDisplay } from "../utils/expandGroupedTokens";
 import { ReturnControlledPermanentChoiceModal } from "../components/ReturnControlledPermanentChoiceModal";
 import { CardSelectionModal } from "../components/CardSelectionModal";
 import { ProliferateModal } from "../components/ProliferateModal";
@@ -338,7 +339,7 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
           open={combatControlModalOpen && combatControlEffect.controllerId === you}
           mode={combatControlMode}
           combatControl={combatControlEffect}
-          allCreatures={(safeView.battlefield || []) as BattlefieldPermanent[]}
+          allCreatures={expandGroupedTokensForDisplay((safeView.battlefield || []) as BattlefieldPermanent[])}
           currentAttackers={attackingCreatures as BattlefieldPermanent[]}
           defenders={combatModalAttackersDefenders as any}
           players={(safeView.players || []) as any}

@@ -689,6 +689,87 @@ describe('AI response-window integration', () => {
     );
   });
 
+  it('does not counter its own spell when that is the only stack object', async () => {
+    const gameId = createTestGameId('hand_counterspell_own_tithe');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [
+      {
+        id: 'tithe_stack',
+        controller: playerId,
+        card: {
+          id: 'tithe_card',
+          name: 'Smothering Tithe',
+          type_line: 'Enchantment',
+          mana_cost: '{3}{W}',
+          oracle_text: 'Whenever an opponent draws a card, that player may pay {2}. If the player doesn\'t, you create a Treasure token.',
+        },
+      },
+    ];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 2, black: 0, red: 0, green: 0, colorless: 0 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'counterspell_hand',
+            name: 'Counterspell',
+            type_line: 'Instant',
+            oracle_text: 'Counter target spell.',
+            mana_cost: '{U}{U}',
+            cmc: 2,
+            zone: 'hand',
+          },
+        ],
+        handCount: 1,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      opp1: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    vi.spyOn(AIEngine.prototype, 'makeDecision').mockResolvedValue({
+      type: AIDecisionType.ACTIVATE_ABILITY,
+      playerId,
+      action: {},
+      reasoning: 'No activated ability available',
+      confidence: 1,
+    } as any);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(requestCastSpellForSocket).not.toHaveBeenCalled();
+  });
+
   it('does not attempt a cast when the only discard payment would require discarding the spell being cast', async () => {
     const gameId = createTestGameId('hand_instant_non_tap_discard_requires_other_card');
     createGameIfNotExists(gameId, 'commander', 40);

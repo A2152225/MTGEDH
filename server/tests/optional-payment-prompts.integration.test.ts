@@ -204,6 +204,7 @@ describe('shared optional payment prompts (integration)', () => {
     expect(Number((game.state as any).life[playerId])).toBe(38);
     expect(Number((game.state as any).players[0]?.life)).toBe(38);
     expect(Number((game.state as any).lifeLostThisTurn?.[playerId] || 0)).toBe(2);
+    expect(() => (game as any).bumpSeq()).not.toThrow();
   });
 
   it('pays Emperor Mihail II optional {1} from an untapped mana source', async () => {

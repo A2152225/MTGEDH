@@ -3,6 +3,7 @@
 
 import React, { useState } from 'react';
 import type { BattlefieldPermanent, KnownCardRef, PlayerID, PTBonusSource } from '../../../shared/src';
+import { readPermanentDamageMarked } from './FreeField-handlers/freeFieldDisplayUtils';
 
 interface Props {
   perm: BattlefieldPermanent;
@@ -131,7 +132,7 @@ export function CardOverlay({
   const ptSources = perm.ptSources || [];
 
   // Damage marked on the creature (sustained damage this turn)
-  const damageMarked = perm.damageMarked ?? 0;
+  const damageMarked = readPermanentDamageMarked(perm);
 
   // Attack indicator
   const attackingPlayer = perm.attacking;

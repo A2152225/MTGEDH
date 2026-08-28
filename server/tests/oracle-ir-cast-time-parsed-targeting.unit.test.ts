@@ -420,13 +420,13 @@ describe('IR-primary cast-time targeting from parseTargetRequirements', () => {
       {
         id: 'attacker_1',
         controller: p2,
-        attacking: true,
+        attacking: p1,
         card: { name: 'Craw Wurm', type_line: 'Creature — Wurm' },
       },
       {
         id: 'blocker_1',
         controller: p1,
-        blocking: true,
+        blocking: ['attacker_1'],
         card: { name: 'Wall of Wood', type_line: 'Creature — Wall' },
       },
     ];
@@ -437,6 +437,54 @@ describe('IR-primary cast-time targeting from parseTargetRequirements', () => {
 
     (game.state as any).battlefield = [(game.state as any).battlefield[0]];
     expect(hasValidTargetsForSpell(game.state, p1, verdict)).toBe(false);
+  });
+
+  it('untargeted all-attacking-creatures spells need an attacking creature', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const aetherize = requireOracle('Aetherize');
+    // Quoted from mtg_data.db (is_token = 0): "Return all attacking creatures to their owner's hand."
+    expect(aetherize.oracle_text).toMatch(/return all attacking creatures to their owner's hand/i);
+
+    const targeting = resolveCastSpellParsedTargeting({
+      cardName: aetherize.name,
+      oracleText: aetherize.oracle_text,
+    });
+    expect(targeting.targetReqs.needsTargets).toBe(false);
+
+    const game = createInitialGameState('ir_primary_aetherize_attacking');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    game.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    game.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+    (game.state as any).battlefield = [
+      {
+        id: 'idle_1',
+        controller: p2,
+        card: { name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+      },
+    ];
+    expect(hasValidTargetsForSpell(game.state, p1, aetherize)).toBe(false);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'attacker_1',
+        controller: p2,
+        attacking: true,
+        card: { name: 'Craw Wurm', type_line: 'Creature — Wurm' },
+      },
+    ];
+    expect(hasValidTargetsForSpell(game.state, p1, aetherize)).toBe(true);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'attacker_string_1',
+        controller: p2,
+        attacking: p1,
+        card: { name: 'Serra Angel', type_line: 'Creature — Angel' },
+      },
+    ];
+    expect(hasValidTargetsForSpell(game.state, p1, aetherize)).toBe(true);
   });
 
   it('power-or-toughness compound lists either-stat matches', () => {

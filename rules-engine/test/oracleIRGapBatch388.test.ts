@@ -148,6 +148,44 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
     );
   });
 
+  it("copies a legendary land's name and type onto Thespian's Stage so the legend rule can see it", () => {
+    const stage = parseOracleTextToIR(
+      "This land becomes a copy of target land, except it has this ability.",
+      "Thespian's Stage"
+    );
+    const copyStep = stage.abilities.flatMap((a) => a.steps || []).find((s) => s.kind === 'copy_permanent');
+    expect(copyStep).toBeTruthy();
+    const result = applyOracleIRStepsToGameState(
+      {
+        players: [{ id: controllerId }],
+        battlefield: [
+          {
+            id: 'bf-stage',
+            controller: controllerId,
+            type_line: 'Land',
+            card: { name: "Thespian's Stage", type_line: 'Land' },
+          },
+          {
+            id: 'bf-ruins',
+            controller: controllerId,
+            type_line: 'Legendary Land',
+            card: { name: 'Academy Ruins', type_line: 'Legendary Land' },
+          },
+        ],
+      } as GameState,
+      [copyStep!],
+      {
+        controllerId,
+        sourceId: 'bf-stage',
+        selectorContext: { chosenObjectIds: ['bf-ruins'] },
+      } as any,
+      { allowOptional: true },
+    );
+    const copied = (result.state?.battlefield || []).find((perm: any) => perm.id === 'bf-stage') as any;
+    expect(String(copied?.name || copied?.card?.name || '')).toBe('Academy Ruins');
+    expect(String(copied?.card?.type_line || copied?.type_line || '').toLowerCase()).toContain('legendary');
+  });
+
   it('executes set_base_pt, force_block, and animate clusters', () => {
     const katsumasa = parseOracleTextToIR(
       'It has base power and toughness 1/1 until end of turn.',

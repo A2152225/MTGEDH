@@ -64,6 +64,9 @@ export {
 // Pregame commander/deck recovery and post-delay priority schedule.
 export { handleAIGameFlow } from "./aiGameFlowHandlers.js";
 
+// Persist + broadcast AI keepHand the same way humans do (survives resume).
+export { commitAIKeepHand } from "./aiKeepHand.js";
+
 // London mulligan keep/mulligan decision for AI players.
 export { handleAIMulligan } from "./aiMulliganHandlers.js";
 
@@ -77,6 +80,15 @@ export {
   unregisterAIPlayer,
 } from "./aiPlayerRegistry.js";
 
+// Join + deck load when adding an AI opponent to an existing pre-game table.
+export {
+  addAIOpponentToExistingGame,
+  MAX_TOTAL_AI_TABLE_SEATS,
+} from "./aiAddOpponentToGame.js";
+
+// Pre-game remove of a seated AI opponent (removeAIFromGame).
+export { removeAIOpponentFromExistingGame } from "./aiRemoveOpponentFromGame.js";
+
 // Socket registration for createGame / addAI / toggle AI / strategies. Parent wraps this.
 export { registerAIHandlers } from "./aiRegisterHandlers.js";
 
@@ -88,6 +100,7 @@ export {
   chooseAIAdministrativeConfirmSelection,
   chooseAICastFreePromptSelection,
   chooseAIDredgeDrawReplacementSelection,
+  chooseAISkipDrawReplacementSelection,
   chooseAIExertChoiceSelection,
   chooseAIForbiddenOrchardTargetSelection,
   chooseAILandWouldEnterSacrificeSelection,
@@ -191,6 +204,12 @@ export {
   executePassPriority,
 } from "./aiPriorityPassCombatExecutors.js";
 
+export {
+  collectAIManaColorNeedWeights,
+  pickAIManaColorByNeedWeights,
+  shouldAIPreferPaidScalingManaOverColorlessTap,
+} from "./aiManaColorNeedHelpers.js";
+
 // Mana production, additional-cost payability, and activation color choice.
 export {
   applyAIManaLifeLoss,
@@ -223,6 +242,7 @@ export { snapshotAIAbilityActivationState } from "./aiAbilityActivationSnapshot.
 export {
   chooseAIReturnToHandPermanentForManaAbility,
   getAINonTapManaActionAmount,
+  permanentHasAIManaAbilityResolverCandidates,
   resolveAIPaymentManaAbilityId,
   selectAIManaRetentionActivationAction,
   selectAINonTapManaActivationAction,
@@ -265,6 +285,9 @@ export { handleAIPriority } from "./aiPriorityHandlers.js";
 
 // Affordable-spell enumeration for main-phase and response candidates.
 export { findCastableSpells } from "./aiFindCastableSpells.js";
+
+// AI autoPassLoop: treat legal-but-pointless instants/flash as idle.
+export { isAiContextuallyIdleForAutoPass } from "./aiAutoPassContextualIdle.js";
 
 // Mana-retention land tapping before combat.
 export {

@@ -78,6 +78,7 @@ export {
   cancelStep,
   hasPendingSteps,
   playerHasPendingSteps,
+  hasBlockingNonPaymentResolutionSteps,
   getPendingSummary,
   orderByAPNAP,
   choiceEventToStep,
@@ -92,6 +93,16 @@ export {
   ResolutionQueueEvent,
   type ResolutionQueueEventHandler,
 } from './ResolutionQueueManager.js';
+
+export {
+  isInvalidResolutionQueueGameId,
+  collectResolutionQueueGameIds,
+  collectResolutionQueueGameIdsFromContext,
+  bindCanonicalResolutionQueueGameId,
+  contextHasBlockingNonPaymentResolutionSteps,
+  contextHasPendingResolutionSteps,
+  contextPendingResolutionSummary,
+} from './resolutionQueueGameIds.js';
 
 // Default export is the manager singleton
 export { ResolutionQueueManager as default } from './ResolutionQueueManager.js';

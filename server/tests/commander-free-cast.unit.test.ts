@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildCommanderFreeCastPaymentExtras,
+  canUseFreeAlternateCost,
   hasCommanderFreeAlternateCost,
 } from '../src/state/modules/alternate-costs.js';
 import { sanitizeStepForClient } from '../src/socket/resolution.js';
@@ -217,5 +218,42 @@ describe('alternate-cost payment presentation', () => {
     expect(sanitized.fromZone).toBe('graveyard');
     expect(sanitized.graveyardSpellCastManaPayment).toBe(true);
     expect(sanitized.abilityId).toBe('flashback');
+  });
+});
+
+const POSSIBILITY_STORM_ORACLE =
+  'Whenever a player casts a spell from their hand, that player exiles it, then exiles cards from the top of their library until they exile a card that shares a card type with it. That player may cast that card without paying its mana cost. Then they put all cards exiled with this enchantment on the bottom of their library in a random order.';
+
+describe('canUseFreeAlternateCost', () => {
+  it('does not treat Possibility Storm trigger text as a self Free Cast', () => {
+    const ctx = createTestContext({ battlefield: [] });
+    expect(canUseFreeAlternateCost(ctx, 'p1' as PlayerID, {
+      name: 'Possibility Storm',
+      oracle_text: POSSIBILITY_STORM_ORACLE,
+    })).toBe(false);
+  });
+
+  it('allows Omniscience and stamped without-paying casts', () => {
+    const omniscienceCtx = createTestContext({
+      battlefield: [{
+        id: 'omni_1',
+        controller: 'p1',
+        card: {
+          name: 'Omniscience',
+          oracle_text: 'You may cast spells from your hand without paying their mana costs.',
+        },
+      }],
+    });
+    expect(canUseFreeAlternateCost(omniscienceCtx, 'p1' as PlayerID, {
+      name: 'Lightning Bolt',
+      oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+    })).toBe(true);
+
+    const emptyCtx = createTestContext({ battlefield: [] });
+    expect(canUseFreeAlternateCost(emptyCtx, 'p1' as PlayerID, {
+      name: 'Lightning Bolt',
+      oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+      castWithoutPayingManaCost: true,
+    })).toBe(true);
   });
 });

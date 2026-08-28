@@ -7,6 +7,7 @@ import { ActivatedAbilityButtons } from './ActivatedAbilityButtons';
 import { AbilitySelectionModal } from './AbilitySelectionModal';
 import { parseActivatedAbilities, getActivatedAbilityActivationStatus, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
+import { textAllowsAnyPlayerActivation } from '../../../shared/src/anyPlayerActivatedAbility';
 
 function canonicalLandKey(typeLine?: string, name?: string) {
   const tl = (typeLine || '').toLowerCase();
@@ -170,12 +171,17 @@ export function LandRow(props: {
 
   // Handle double-click on a land / mana-source tile
   const handleDoubleClick = useCallback((perm: BattlefieldPermanent) => {
-    if (!canActivate || !onActivateAbility) {
+    if (!onActivateAbility) {
+      window.alert('Cannot activate: game not ready.');
+      return;
+    }
+    const isOwnPermanent = String(perm.controller || '') === String(playerId || '');
+    if (isOwnPermanent && !canActivate) {
       window.alert('Cannot activate: not your battlefield or game not ready.');
       return;
     }
-    if (String(perm.controller || '') !== String(playerId || '')) {
-      window.alert('Cannot activate: you do not control this permanent.');
+    if (!isOwnPermanent && !hasPriority) {
+      window.alert('Cannot activate: you need priority.');
       return;
     }
 
@@ -186,10 +192,11 @@ export function LandRow(props: {
     }
 
     // Parse abilities from the card (include granted lines / attachment grants)
-    const abilities = parseActivatedAbilities(kc, perm.grantedAbilities, {
+    const parsed = parseActivatedAbilities(kc, perm.grantedAbilities, {
       permanent: perm,
       battlefield: allBattlefieldPerms || lands,
     });
+    const abilities = isOwnPermanent ? parsed : parsed.filter((ability) => ability.anyPlayerMayActivate);
     if (abilities.length === 0) {
       window.alert(`No activated abilities found on ${kc.name || perm.id}.`);
       return;
@@ -572,7 +579,9 @@ export function LandRow(props: {
 
             {showActivatedAbilityButtons && playerId && (() => {
               const permanent = lands.find((entry) => entry.id === it.id) || (it as any);
-              if (!permanent || permanent.controller !== playerId) return null;
+              if (!permanent) return null;
+              const isOwn = String(permanent.controller || '') === String(playerId || '');
+              if (!isOwn && !textAllowsAnyPlayerActivation(permanent.card?.oracle_text)) return null;
               return (
                 <ActivatedAbilityButtons
                   perm={permanent}
@@ -585,6 +594,7 @@ export function LandRow(props: {
                   currentStep={currentStep}
                   hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                   onActivateAbility={onActivateAbility}
+                  viewerPlayerId={playerId}
                   showOnHover={false}
                   maxVisible={4}
                   position="left"

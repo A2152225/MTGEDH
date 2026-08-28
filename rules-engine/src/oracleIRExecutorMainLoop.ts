@@ -46,6 +46,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'move_zone',
   'pay_mana',
   'join_forces',
+  'tempting_offer',
   'player_choice',
   'proliferate',
   'redistribute_life_totals',
@@ -599,6 +600,7 @@ export function applyOracleIRStepsToGameStateImpl(
       case 'retain_mana':
       case 'pay_mana':
       case 'join_forces':
+      case 'tempting_offer':
       case 'choose_opponent':
       case 'choose_color':
       case 'choose_creature_type':

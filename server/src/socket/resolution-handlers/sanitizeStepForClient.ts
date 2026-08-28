@@ -23,6 +23,7 @@ import { ensureGame } from "../util.js";
 import { getPanglacialCastableCards } from "./panglacialSearchCastUtils.js";
 import { getFilteredValidTargetsForStep } from "./resolutionTargetSelectionDistinctTargetUtils.js";
 import { hydrateSpellPaymentPresentationFieldsForClient } from "./spellPaymentPresentationSanitizeUtils.js";
+import { resolveResolutionPromptCause } from "../../state/modules/resolutionPromptCause.js";
 
 export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any {
   const oracleText = getOracleTextFromResolutionStep(step);
@@ -132,6 +133,17 @@ export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any
       (typeSpecificFields as any).castableWhileSearchingCards = castableWhileSearchingCards;
     }
   }
+
+  let causeFields = resolveResolutionPromptCause(step);
+  if (causeFields && !causeFields.causeImage) {
+    try {
+      const game = ensureGame(gameId);
+      causeFields = resolveResolutionPromptCause(step, game?.state) || causeFields;
+    } catch {
+      // image lookup is best-effort; name/label already resolved
+    }
+  }
+
   return {
     id: step.id,
     type: step.type,
@@ -144,6 +156,7 @@ export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any
     createdAt: step.createdAt,
     timeoutMs: step.timeoutMs,
     oracleContext,
+    ...(causeFields || {}),
     // Include type-specific fields
     ...typeSpecificFields,
   };

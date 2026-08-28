@@ -4,6 +4,7 @@ import type { OracleIRReplayMutation } from '../../../../rules-engine/src/oracle
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
+import { applyGraveyardTypeEntryCounterGrants } from './graveyardTypeEntryCounterBonus.js';
 import { queueTokenCreatedTriggers } from './triggers/tokens.js';
 
 function collectCreateTokenMutations(
@@ -41,6 +42,8 @@ export function bridgeCreatedTokenEtbTriggersAfterOracleIR(
 
     const controller = String(permanent.controller || mutation.controllerId || '').trim() as PlayerID;
     if (!controller) continue;
+
+    applyGraveyardTypeEntryCounterGrants(state, permanent, controller);
 
     try {
       triggerETBEffectsForPermanent(ctx, permanent, controller);

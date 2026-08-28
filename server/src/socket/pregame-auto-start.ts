@@ -1,6 +1,7 @@
 import type { Server } from 'socket.io';
 import { appendEvent } from '../db';
 import { broadcastGame, getPlayerName } from './util.js';
+import { appendGameEvent } from './util-handlers/appendGameEvent.js';
 import { ResolutionQueueManager } from '../state/resolution/ResolutionQueueManager.js';
 import { ResolutionStepType } from '../state/resolution/types.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from './step-advance.js';
@@ -61,6 +62,41 @@ function hasPendingPreGameResolutionSteps(gameId: string): boolean {
   }
 }
 
+function shuffleCopy<T>(items: T[]): T[] {
+  const next = items.slice();
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = next[i];
+    next[i] = next[j];
+    next[j] = tmp;
+  }
+  return next;
+}
+
+/**
+ * Persist a shuffled pre-game seating / turn order. Replay applies the same
+ * permutation via `randomizeStartingPlayer` + `playerOrder`.
+ */
+export function randomizeAndPersistPregameTurnOrder(
+  game: any,
+  gameId: string,
+  by?: string,
+): { selectedPlayerId: string; playerOrder: string[] } | null {
+  const active = getActivePlayers(game);
+  if (active.length === 0) return null;
+
+  const playerOrder = shuffleCopy(active.map((p: any) => String(p?.id || '').trim()).filter(Boolean));
+  if (playerOrder.length === 0) return null;
+
+  const selectedPlayerId = playerOrder[0];
+  appendGameEvent(game, gameId, 'randomizeStartingPlayer', {
+    selectedPlayerId,
+    playerOrder,
+    by,
+  });
+  return { selectedPlayerId, playerOrder };
+}
+
 function ensureStartingPlayer(game: any): string | null {
   const activePlayers = getActivePlayers(game);
   if (activePlayers.length === 0) return null;
@@ -105,6 +141,12 @@ export async function tryAutoStartGameFromPreGame(
 
     if (Array.isArray(game.state?.stack) && game.state.stack.length > 0) {
       return false;
+    }
+
+    // Last keep is the official moment to shuffle seating / who goes first.
+    // Skip when this start was itself triggered by a manual Random Start click.
+    if (reason !== 'randomizeStartingPlayer') {
+      randomizeAndPersistPregameTurnOrder(game, gameId);
     }
 
     const startingPlayerId = ensureStartingPlayer(game);

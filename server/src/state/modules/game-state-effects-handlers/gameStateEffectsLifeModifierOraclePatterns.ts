@@ -6,7 +6,7 @@
 // Leaf must not import game-state-effects.ts or game-state-effects-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
-import { evaluateLifeGainReplacementEvent } from "../replacement-effects.js";
+import { evaluateLifeGainReplacementEvent, evaluateLifeLossReplacementEvent } from "../replacement-effects.js";
 import {
   collectOraclePatternLifeGainReplacementSpecsFromState,
   overlaySpecsMatchLifeGain,
@@ -249,12 +249,21 @@ export function processLifeChange(
     return { finalAmount: 0, prevented: true, reason: "Life total can't change" };
   }
 
+  const state = stateFromCtx(ctx);
+
   if (!isGain) {
+    const replacement = evaluateLifeLossReplacementEvent({
+      state,
+      playerId,
+      amount,
+    });
+    if (replacement.applied && Number.isFinite(Number(replacement.replacementAmount))) {
+      return { finalAmount: Math.max(0, Number(replacement.replacementAmount)), prevented: false };
+    }
     const lossResult = applyLifeLossReplacements(ctx, amount, playerId);
     return { finalAmount: lossResult.finalAmount, prevented: false };
   }
 
-  const state = stateFromCtx(ctx);
   const replacement = evaluateLifeGainReplacementEvent({
     state,
     playerId,

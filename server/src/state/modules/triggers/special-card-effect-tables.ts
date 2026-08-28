@@ -10,7 +10,6 @@
  */
 
 import { getActualPowerToughness } from "../../utils.js";
-import { handleEldraziShuffle, hasGraveyardMassShuffleIntoLibraryTrigger } from "../zone-manipulation.js";
 // ============================================================================
 // Utility Land Activated Abilities
 // ============================================================================
@@ -319,31 +318,8 @@ export function detectUmbraEffect(card: any, permanent: any): TotemArmorEffect |
   return null;
 }
 
-// ============================================================================
-// Graveyard Triggers (Eldrazi mass shuffle, etc.)
-// ============================================================================
-
-/**
- * Check for graveyard triggers on a card
- * Returns true if a trigger was processed (like shuffling graveyard into library)
- */
-export function checkGraveyardTrigger(ctx: any, card: any, ownerId: string): boolean {
-  if (!hasGraveyardMassShuffleIntoLibraryTrigger(card)) {
-    return false;
-  }
-
-  const shuffledCount = handleEldraziShuffle(ctx, ownerId, card);
-
-  if (shuffledCount > 0) {
-    if (ctx.bumpSeq && typeof ctx.bumpSeq === 'function') {
-      ctx.bumpSeq();
-    }
-
-    return true;
-  }
-
-  return false;
-}
+// Graveyard Triggers (Eldrazi mass shuffle / Gaea's Blessing mill-shuffle)
+export { checkGraveyardTrigger } from "../zone-manipulation.js";
 
 // ============================================================================
 // Control Change Effects (Reins of Power, Humble Defector, etc.)

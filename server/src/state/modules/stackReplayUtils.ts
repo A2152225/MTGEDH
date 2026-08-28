@@ -296,7 +296,87 @@ export function repairAllDualZoneGhosts(ctxOrState: any): number {
     + repairBattlefieldDualZoneGhosts(ctxOrState)
     + repairGraveyardDualZoneGhosts(ctxOrState)
     + repairExileDualZoneGhosts(ctxOrState)
+    + repairIntraZoneDuplicateCardIds(ctxOrState)
   );
+}
+
+/**
+ * Same card.id twice in hand (or library), or still in the library after it
+ * was drawn into hand — undo/replay splice misses. Keep the first hand copy;
+ * drop later duplicates and library ghosts of ids already in that hand.
+ */
+export function repairIntraZoneDuplicateCardIds(ctxOrState: any): number {
+  const state = ctxOrState?.state || ctxOrState;
+  const zones = state?.zones;
+  if (!state || !zones || typeof zones !== 'object') {
+    return 0;
+  }
+
+  const libraries = ctxOrState?.libraries || state?.libraries;
+  let total = 0;
+
+  const dedupeArrayKeepFirst = (cards: any[]): number => {
+    const seen = new Set<string>();
+    let removed = 0;
+    for (let i = 0; i < cards.length; ) {
+      const id = String(cards[i]?.id || cards[i]?.card?.id || '').trim();
+      if (!id || !seen.has(id)) {
+        if (id) seen.add(id);
+        i += 1;
+        continue;
+      }
+      cards.splice(i, 1);
+      removed += 1;
+    }
+    return removed;
+  };
+
+  for (const [playerId, zone] of Object.entries(zones as Record<string, any>)) {
+    if (!zone || typeof zone !== 'object') continue;
+    if (Array.isArray(zone.hand)) {
+      const removed = dedupeArrayKeepFirst(zone.hand);
+      if (removed > 0) {
+        zone.handCount = zone.hand.length;
+        total += removed;
+      }
+    }
+
+    const handIds = new Set(
+      (Array.isArray(zone.hand) ? zone.hand : [])
+        .map((entry: any) => String(entry?.id || entry?.card?.id || '').trim())
+        .filter(Boolean),
+    );
+
+    let lib: any[] | undefined;
+    if (libraries instanceof Map) {
+      lib = libraries.get(playerId);
+    } else if (libraries && typeof libraries === 'object') {
+      lib = (libraries as Record<string, any[]>)[playerId];
+    }
+    if (!Array.isArray(lib)) continue;
+
+    const before = lib.length;
+    const kept: any[] = [];
+    const seenLib = new Set<string>();
+    for (const card of lib) {
+      const id = String(card?.id || card?.card?.id || '').trim();
+      if (id && (handIds.has(id) || seenLib.has(id))) {
+        continue;
+      }
+      if (id) seenLib.add(id);
+      kept.push(card);
+    }
+    if (kept.length !== before) {
+      lib.length = 0;
+      lib.push(...kept);
+      if (libraries instanceof Map) {
+        libraries.set(playerId, lib);
+      }
+      zone.libraryCount = lib.length;
+      total += before - kept.length;
+    }
+  }
+  return total;
 }
 
 const STACK_GRAVEYARD_EXILE_ABILITIES = new Set([

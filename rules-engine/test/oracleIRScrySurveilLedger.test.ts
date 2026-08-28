@@ -59,6 +59,40 @@ describe('oracleIR scry surveil observation ledger', () => {
     )).toBe(2);
   });
 
+  it('observes library cards from the server libraries map when player.library is empty', () => {
+    const libraryCards = [
+      { id: 'lib-1', name: 'Bolt', type_line: 'Instant' },
+    ];
+    const libraries = new Map([['p1', libraryCards]]);
+    const state: any = {
+      players: [{
+        id: 'p1',
+        hand: [],
+        graveyard: [],
+        exile: [],
+        library: [],
+      }],
+      battlefield: [],
+      __serverLibraries: libraries,
+    };
+
+    const steps: OracleEffectStep[] = [{
+      kind: 'scry',
+      raw: 'Scry 1',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+    }];
+
+    const result = applyOracleIRStepsToGameState(
+      state,
+      steps,
+      buildOracleIRExecutionContext({ controllerId: 'p1' as PlayerID, sourceId: 'src' }),
+      { allowOptional: true },
+    );
+    expect(result.appliedSteps).toHaveLength(0);
+    expect(result.automationGaps.some((gap) => gap.reasonCode === 'player_choice_required')).toBe(true);
+  });
+
   it('records surveil library observations on choice-deferred server path', () => {
     const state: any = {
       players: [{

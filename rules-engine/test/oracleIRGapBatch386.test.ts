@@ -64,6 +64,24 @@ describe('Oracle IR gap batch 386 — target clusters (Track E2 mega-batch)', ()
       } as GameState,
       { controllerId, sourceId: 'bf-src' }
     );
+
+    const goblinRise = parseOracleTextToIR('Regenerate all Goblin creatures you control.', 'Typed Regeneration');
+    const goblinRegenerate = goblinRise.abilities.flatMap((a) => a.steps || []).find((s) => s.kind === 'regenerate');
+    expect(goblinRegenerate).toBeTruthy();
+    const goblinResult = expectNoTargetGaps(
+      [goblinRegenerate!],
+      {
+        players: [{ id: controllerId }],
+        battlefield: [
+          { id: 'bf-goblin', controller: controllerId, type_line: 'Creature — Goblin' },
+          { id: 'bf-human', controller: controllerId, type_line: 'Creature — Human' },
+        ],
+      } as GameState,
+      { controllerId, sourceId: 'bf-src' }
+    );
+    const goblinShields = ((goblinResult.state as any)?.regenerationShields || []) as Array<{ permanentId?: string }>;
+    expect(goblinShields.some((shield) => shield.permanentId === 'bf-goblin')).toBe(true);
+    expect(goblinShields.some((shield) => shield.permanentId === 'bf-human')).toBe(false);
   });
 
   it('executes loyalty move, planeswalker counters, distribute snow, and luck counters', () => {

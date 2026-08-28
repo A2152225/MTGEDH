@@ -15,10 +15,50 @@ import {
 } from "../../../../shared/src/gameLogFormat.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import { isGameReplayLocked } from "../../gameRestoreState.js";
 import { ts } from "./repairMissingPriorityIfStuck.js";
+import {
+  playerCannotReceivePriority,
+  reassignPriorityIfHolderCannotReceive,
+} from "../../state/modules/priorityEligibility.js";
 
 /** AI reaction delay - matches timing in ai.ts */
 const AI_REACTION_DELAY_MS = 300;
+
+function isPreGamePhase(phase: unknown): boolean {
+  const normalized = String(phase || "").toLowerCase();
+  return normalized === "pre_game" || normalized === "pre-game" || normalized === "pregame" || normalized === "";
+}
+
+function aiNeedsPregameWork(state: any, player: any): boolean {
+  if (!player?.isAI || player.spectator || player.isSpectator || player.hasLost || player.eliminated) {
+    return false;
+  }
+  const playerId = String(player.id || "").trim();
+  if (!playerId) return false;
+  const commanderInfo = state?.commandZone?.[playerId];
+  const hasCommander = Array.isArray(commanderInfo?.commanderIds) && commanderInfo.commanderIds.length > 0;
+  const zones = state?.zones?.[playerId];
+  const hasHand = (Number(zones?.handCount) || 0) > 0 || (Array.isArray(zones?.hand) && zones.hand.length > 0);
+  const mulliganState = state?.mulliganState?.[playerId];
+  const hasKeptHand = Boolean(mulliganState?.hasKeptHand);
+  const pendingBottom = Number(mulliganState?.pendingBottomCount || 0) > 0;
+  return !hasCommander || !hasHand || !hasKeptHand || pendingBottom;
+}
+
+function schedulePregameAIGameFlow(io: Server, gameId: string, playerId: string): void {
+  void import("../ai.js").then((aiModule) => {
+    if (typeof aiModule.scheduleAIGameFlow === "function") {
+      aiModule.scheduleAIGameFlow(io, gameId, playerId, AI_REACTION_DELAY_MS);
+    } else if (typeof aiModule.handleAIGameFlow === "function") {
+      void aiModule.handleAIGameFlow(io, gameId, playerId).catch((e: any) => {
+        debugError(1, "[util] Failed to trigger AI handler:", { gameId, playerId, error: e });
+      });
+    }
+  }).catch((e) => {
+    debugError(1, "[util] Failed to trigger AI handler:", { gameId, playerId, error: e });
+  });
+}
 
 /**
  * DEPRECATED: Legacy Kynaios choice prompt checker
@@ -179,6 +219,7 @@ export function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, ga
  */
 export function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void {
   try {
+    if (isGameReplayLocked(game, gameId)) return;
     const stateAny = game.state as any;
     // Live IR soaks drive choices themselves; AI auto-play races the driver.
     if (stateAny?.oracleIrLiveSoak === true) return;
@@ -205,7 +246,7 @@ export function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string
         const stepPlayerId = String(step.playerId || '').trim();
         if (!stepPlayerId) continue;
         const owner = players.find((p: any) => p?.id === stepPlayerId);
-        if (owner?.isAI === true) {
+        if (owner?.isAI === true && !playerCannotReceivePriority(owner, (game as any).ctx || game)) {
           pendingAiPlayerIds.add(stepPlayerId);
         }
       }
@@ -263,34 +304,54 @@ export function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string
       }
     }
     
+    // Pre-game: every unfinished AI needs commander/keep, not only the priority
+    // holder. After resume, restored AIs have commander+hand from replayed
+    // draws but no keepHand event, so hasKeptHand is false until they re-keep.
+    if (isPreGamePhase(stateAny?.phase)) {
+      const scheduled = new Set<string>();
+      for (const player of players) {
+        if (!aiNeedsPregameWork(stateAny, player)) continue;
+        const playerId = String(player?.id || "").trim();
+        if (!playerId || scheduled.has(playerId)) continue;
+        scheduled.add(playerId);
+        schedulePregameAIGameFlow(io, gameId, playerId);
+      }
+      const priorityPlayer = players.find((p: any) => p?.id === priority);
+      const priorityId = String(priority || "").trim();
+      if (priorityPlayer?.isAI && priorityId && !scheduled.has(priorityId)) {
+        schedulePregameAIGameFlow(io, gameId, priorityId);
+      }
+      return;
+    }
+
     if (!priority) return;
-    
-    // Check if the current priority holder is an AI player
-    const priorityPlayer = players.find((p: any) => p?.id === priority);
-    
+
+    const ctx = (game as any).ctx || game;
+    if (reassignPriorityIfHolderCannotReceive(ctx)) {
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    }
+
+    const priorityHolderId = String(stateAny?.priority || '');
+    const priorityPlayer = players.find((p: any) => p?.id === priorityHolderId);
+
+    if (priorityPlayer && playerCannotReceivePriority(priorityPlayer, ctx)) {
+      return;
+    }
+
     if (priorityPlayer && priorityPlayer.isAI) {
-      // Pre-game still needs commander/mulligan via gameFlow. In-game broadcasts
-      // must schedule priority directly — stacking gameFlow + another reaction
-      // delay leaves UNTAP/UPKEEP handoffs outside the 600ms test window.
-      const phase = String(stateAny?.phase || '').toLowerCase();
-      const isPreGame = phase === 'pre_game' || phase === 'pre-game' || phase === '';
-      // Dynamically import AI handler to avoid circular deps
+      // In-game broadcasts must schedule priority directly — stacking gameFlow
+      // + another reaction delay leaves UNTAP/UPKEEP handoffs outside the 600ms
+      // test window. Pregame commander/mulligan uses scheduleAIGameFlow above.
       void import('../ai.js').then((aiModule) => {
-        if (isPreGame && typeof aiModule.scheduleAIGameFlow === 'function') {
-          aiModule.scheduleAIGameFlow(io, gameId, priority, AI_REACTION_DELAY_MS);
-        } else if (typeof aiModule.scheduleAIPriority === 'function') {
-          aiModule.scheduleAIPriority(io, gameId, priority, AI_REACTION_DELAY_MS);
-        } else if (isPreGame && typeof aiModule.handleAIGameFlow === 'function') {
-          void aiModule.handleAIGameFlow(io, gameId, priority).catch((e: any) => {
-            debugError(1, '[util] Failed to trigger AI handler:', { gameId, playerId: priority, error: e });
-          });
+        if (typeof aiModule.scheduleAIPriority === 'function') {
+          aiModule.scheduleAIPriority(io, gameId, priorityHolderId, AI_REACTION_DELAY_MS);
         } else if (typeof aiModule.handleAIPriority === 'function') {
-          void aiModule.handleAIPriority(io, gameId, priority).catch((e: any) => {
-            debugError(1, '[util] Failed to trigger AI handler:', { gameId, playerId: priority, error: e });
+          void aiModule.handleAIPriority(io, gameId, priorityHolderId).catch((e: any) => {
+            debugError(1, '[util] Failed to trigger AI handler:', { gameId, playerId: priorityHolderId, error: e });
           });
         }
       }).catch((e) => {
-        debugError(1, '[util] Failed to trigger AI handler:', { gameId, playerId: priority, error: e });
+        debugError(1, '[util] Failed to trigger AI handler:', { gameId, playerId: priorityHolderId, error: e });
       });
     }
   } catch (e) {

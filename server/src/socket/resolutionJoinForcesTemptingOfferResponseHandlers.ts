@@ -172,6 +172,7 @@ export function handleJoinForcesResponse(
       const ctx = ((game as any).ctx || game) as any;
       ctx.gameId = gameId;
       ctx.state = game.state;
+      const queueLenBeforeResume = ResolutionQueueManager.getQueue(gameId).steps.length;
       const resumeResult = maybeResumeOracleIRStepsAfterResolution(ctx, {
         ...stepData,
         oracleIrResumeStepsJson: resumeJson,
@@ -179,10 +180,10 @@ export function handleJoinForcesResponse(
         oracleIrControllerId: String(stepData.oracleIrControllerId || initiator || pid).trim(),
       });
       const appliedCount = Array.isArray(resumeResult?.appliedSteps) ? resumeResult.appliedSteps.length : 0;
-      const queuedFollowUpChoice = (resumeResult?.automationGaps || []).some(
-        (gap: any) => String(gap?.classification || '') === 'player_choice',
-      );
-      oracleIrResumed = Boolean(resumeResult) && (appliedCount > 0 || queuedFollowUpChoice);
+      const queuedNewSteps = ResolutionQueueManager.getQueue(gameId).steps.length > queueLenBeforeResume;
+      // A player_choice gap is not "resumed" unless a follow-up prompt was actually queued.
+      // Collective Voyage previously skipped applyJoinForcesEffect here with no LIBRARY_SEARCH.
+      oracleIrResumed = Boolean(resumeResult) && (appliedCount > 0 || queuedNewSteps);
     }
 
     const completionPayload = oracleIrResumed

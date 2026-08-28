@@ -224,10 +224,19 @@ export function getCommandZoneCommanderCandidates(
           ? normalizeParsedCostForAnyTypeManaSpending(adjustedCost)
           : adjustedCost;
         const addCost = getEffectiveAdditionalCost(commander, commander.oracle_text || commander.oracleText || '');
-        const canPayCost = canPayManaCostWithAvailableSources(state, playerId, payableCost)
+        const typeLine = String(commander?.type_line || commander?.typeLine || '').toLowerCase();
+        const canPayCost = canPayManaCostWithAvailableSources(state, playerId, payableCost, Infinity, {
+          restrictedSpendPurpose: {
+            spellCard: commander,
+            isCommander: true,
+            ...(typeLine.includes('creature') ? { isCreature: true } : {}),
+            ...(typeLine.includes('artifact') ? { isArtifact: true } : {}),
+            ...((typeLine.includes('instant') || typeLine.includes('sorcery')) ? { isInstantOrSorcery: true } : {}),
+            ...(typeLine.includes('legendary') ? { isLegendary: true } : {}),
+          },
+        })
           && (!addCost || canPaySourceGrantedAdditionalCost(state, playerId, commander, addCost as any));
 
-        const typeLine = String(commander?.type_line || commander?.typeLine || '').toLowerCase();
         const cmc = adjustedCost.generic + Object.values(adjustedCost.colors).reduce((sum, value) => sum + value, 0);
 
         candidates.push({

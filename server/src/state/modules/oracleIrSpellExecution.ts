@@ -96,12 +96,26 @@ function chosenColorToChosenMana(raw: string | undefined): string | undefined {
   return colorNameToSymbol[trimmed.toLowerCase()] || undefined;
 }
 
+function readSourceGrantedAbilities(sourceItem: any): string[] | undefined {
+  const raw = sourceItem?.grantedAbilities;
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const names = raw
+    .map((value: unknown) => (
+      typeof value === 'string'
+        ? value.trim()
+        : String((value as any)?.name || (value as any)?.type || '').trim()
+    ))
+    .filter(Boolean);
+  return names.length > 0 ? names : undefined;
+}
+
 function buildSpellIrContext(
   params: TryResolveSpellViaOracleIRParams,
   targetBinding: ReturnType<typeof inferOracleIrTargetBinding>,
 ) {
   const chosenMana = chosenColorToChosenMana(params.chosenColor);
   const sourceManaSpentTotal = getAmountOfManaSpent(params.sourceItem);
+  const sourceGrantedAbilities = readSourceGrantedAbilities(params.sourceItem);
   return buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
@@ -110,6 +124,7 @@ function buildSpellIrContext(
       sourceObjectType: 'spell',
       xValue: params.xValue,
       ...(sourceManaSpentTotal !== null ? { sourceManaSpentTotal } : {}),
+      ...(sourceGrantedAbilities ? { sourceGrantedAbilities } : {}),
       sourceColors: params.sourceColors,
       ...(typeof params.giftPromised === 'boolean' ? { giftPromised: params.giftPromised } : {}),
       ...(typeof params.teamworkWasPaid === 'boolean' ? { teamworkWasPaid: params.teamworkWasPaid } : {}),

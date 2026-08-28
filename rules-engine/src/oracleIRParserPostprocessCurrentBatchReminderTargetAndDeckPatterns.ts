@@ -34,6 +34,7 @@ export function isCurrentBatchReminderTargetOrDeckPattern(normalizedText: string
     /^creatures dealt damage this way can'?t be regenerated this turn\.?$/i.test(normalizedText) ||
     /^this artifact becomes a copy of target artifact, except it has this ability\.?$/i.test(normalizedText) ||
     /^put the bottom card of your library into your graveyard\. if it'?s .+$/i.test(normalizedText) ||
+    // Dinosaur-only reminder skip until a generic GY-type-has-keyword grant_static_ability parser exists.
     /^each dinosaur card in your graveyard has escape\b.+/i.test(normalizedText) ||
     /^during your turn, equipped creature has hexproof and can'?t be blocked\.?$/i.test(normalizedText) ||
     /^if you discard a card with madness, discard it into exile\.?$/i.test(normalizedText) ||

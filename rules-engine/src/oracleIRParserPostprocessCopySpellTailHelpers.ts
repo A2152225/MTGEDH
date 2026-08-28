@@ -62,7 +62,7 @@ function stripInlineCopyRetargetTail(text: string): { readonly body: string; rea
   let allowNewTargets = false;
   const nextBody = body
     .replace(
-      /(?:\.\s*|,?\s+and\s+)(?:(?:you|they|that player|the player|its controller|that spell's controller|that spell�s controller)\s+)?may choose\s+(?:a new target|new targets)\s+for\s+(?:the|that|their)\s+cop(?:y|ies)(?:\s+they\s+control)?$/i,
+      /(?:\.\s*|,?\s+and\s+)(?:(?:you|they|that player|the player|its controller|that spell's controller|that spell['’]s controller|each of those players|each other player)\s+)?may choose\s+(?:a new target|new targets)\s+for\s+(?:the|that|their)\s+cop(?:y|ies)(?:\s+they\s+control)?$/i,
       () => {
         allowNewTargets = true;
         return '';
@@ -80,7 +80,7 @@ function stripInlineCopyRetargetTail(text: string): { readonly body: string; rea
 function parseCopySpellRetargetTail(step: OracleEffectStep | undefined): string | null {
   const normalized = normalizeUnknownStepText(step);
   if (!normalized) return null;
-  return /^(?:(?:you|they|that player|the player|its controller|that spell's controller|that spell�s controller)\s+)?may choose\s+(?:a new target|new targets)\s+for\s+(?:the|that|their)\s+cop(?:y|ies)(?:\s+they\s+control)?$/i.test(normalized.replace(/[.)\s]+$/g, '').trim())
+  return /^(?:(?:you|they|that player|the player|its controller|that spell's controller|that spell['’]s controller|each of those players|each other player)\s+)?may choose\s+(?:a new target|new targets)\s+for\s+(?:the|that|their)\s+cop(?:y|ies)(?:\s+they\s+control)?$/i.test(normalized.replace(/[.)\s]+$/g, '').trim())
     ? normalized
     : null;
 }

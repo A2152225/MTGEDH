@@ -20,4 +20,6 @@ export interface EndStepTrigger {
   affectsAllPlayers?: boolean;
   triggersOnOpponentEndStep?: boolean;  // For cards like Keeper of the Accord
   whoseTurn?: PhaseWhoseTurn;
+  /** Extra fields copied onto the stack item (delayed-registry bindings, GY returns). */
+  stackItem?: Record<string, unknown>;
 }

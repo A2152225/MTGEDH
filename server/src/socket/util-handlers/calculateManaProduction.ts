@@ -16,6 +16,7 @@ import { tryCalculateManaProductionDynamic } from "./tryCalculateManaProductionD
 import { tryCalculateManaProductionCreaturePower } from "./tryCalculateManaProductionCreaturePower.js";
 import { tryCalculateManaProductionStorageBattery } from "./tryCalculateManaProductionStorageBattery.js";
 import { tryCalculateManaProductionBonusesAndTotal } from "./tryCalculateManaProductionBonusesAndTotal.js";
+import { getContinuousGrantedAbilitiesForPermanent } from "../../state/modules/staticEffectSpec.js";
 
 /**
  * 
@@ -49,9 +50,12 @@ export function calculateManaProduction(
   const typeLine = (card.type_line || '').toLowerCase();
   const cardName = (card.name || '').toLowerCase();
   const battlefield = gameState?.battlefield || [];
-  const grantedAbilities = Array.isArray(permanent?.grantedAbilities)
+  const stampedGrantedAbilities = Array.isArray(permanent?.grantedAbilities)
     ? permanent.grantedAbilities.map((ability: any) => String(ability || '').toLowerCase())
     : [];
+  const continuousGrantedAbilities = getContinuousGrantedAbilitiesForPermanent(permanent, gameState)
+    .map((ability) => String(ability || '').toLowerCase());
+  const grantedAbilities = [...new Set([...stampedGrantedAbilities, ...continuousGrantedAbilities])];
   const normalizedChosenColor = ['W', 'U', 'B', 'R', 'G', 'C'].includes(String(chosenColor || '').toUpperCase())
     ? String(chosenColor).toUpperCase()
     : undefined;
@@ -116,6 +120,8 @@ export function calculateManaProduction(
     chosenColor,
     selectedAbilityLine,
     selectedAbilityEffectText,
+    abilityId,
+    selectedLegacyManaAbility,
   });
   const creaturePower = tryCalculateManaProductionCreaturePower({
     result,

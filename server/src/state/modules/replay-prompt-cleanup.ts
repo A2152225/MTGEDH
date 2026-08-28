@@ -6,13 +6,16 @@ import { isPermanentTypeLine } from './stackResolvePermanentSpellTypeUtils.js';
 import { resolvePermanentSpellBattlefieldEntry } from './stackResolvePermanentEntryUtils.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import { enterResolutionMode, exitResolutionMode } from './priority.js';
+import { reassignPriorityIfHolderCannotReceive } from './priorityEligibility.js';
 import { clearOptionalPaymentCallbacks } from '../../socket/optional-payment-prompts.js';
 import { maybeResumeDeferredOracleIrStackSpell } from './oracleIrDeferredStackFinalize.js';
 import { restoreAllPendingEffectProgramRuntimes } from '../effects/effectProgramReplayRestore.js';
 import { resumeOracleIrPendingCompoundStepsFromState } from './oracleIrServerZoneSync.js';
 import { scrubStalePerPlayerOptionalEffectProgramSteps } from './triggerCounterPlacementPromptUtils.js';
 import { pruneObsoleteResolutionQueueAfterReplay } from '../resolution/replayCleanup.js';
+import { isUndoProbeGameId } from '../../gameRestoreState.js';
 import { wouldAutoDeclineOptionalTriggeredAbility } from './stackResolveTriggeredAbilityOptionalUtils.js';
+import { repairReplayCardSourceZones } from './stackReplayUtils.js';
 
 /**
  * Legacy / in-flight prompt state that must not survive event replay.
@@ -210,6 +213,17 @@ function removeStackItemAtIndex(ctx: GameContext, index: number): void {
   (ctx.state as any).stack = next;
 }
 
+function scrubReplayPermanentSourceZones(ctx: GameContext, controller: string, cardId: string): void {
+  const playerId = String(controller || '').trim();
+  const id = String(cardId || '').trim();
+  if (!playerId || !id) return;
+  try {
+    repairReplayCardSourceZones(ctx, playerId, id);
+  } catch (err) {
+    debugWarn(1, '[replay] source-zone scrub after permanent entry failed:', err);
+  }
+}
+
 /**
  * Materialize a permanent spell still on the stack onto the battlefield during
  * replay. Used when legacy logs recorded as-enters prompts / ETB pushes *before*
@@ -228,6 +242,13 @@ export function replayEnsurePermanentSpellBattlefieldEntryById(
   if (!wanted) return false;
 
   if (isPermanentAlreadyOnBattlefield(ctx, { stackItemId: wanted })) {
+    const existing = (Array.isArray((ctx.state as any).battlefield) ? (ctx.state as any).battlefield : [])
+      .find((perm: any) => perm && String(perm.id || '').trim() === wanted);
+    scrubReplayPermanentSourceZones(
+      ctx,
+      String(existing?.controller || existing?.owner || '').trim(),
+      String(existing?.card?.id || '').trim(),
+    );
     return true;
   }
 
@@ -251,6 +272,7 @@ export function replayEnsurePermanentSpellBattlefieldEntryById(
     if (options?.removeFromStack !== false) {
       removeStackItemAtIndex(ctx, index);
     }
+    scrubReplayPermanentSourceZones(ctx, controller, cardId);
     return true;
   }
 
@@ -279,6 +301,7 @@ export function replayEnsurePermanentSpellBattlefieldEntryById(
     }
   }
 
+  scrubReplayPermanentSourceZones(ctx, controller, cardId);
   return isPermanentAlreadyOnBattlefield(ctx, { stackItemId: wanted, controller, cardId });
 }
 
@@ -737,6 +760,7 @@ export function scrubStaleReplayedStackAfterFullReplay(ctx: GameContext): void {
       state.priority = turnPlayer;
       state.priorityPassedBy = new Set<string>();
       state.priorityClaimed = new Set<string>();
+      reassignPriorityIfHolderCannotReceive(ctx);
     }
   } catch {
     // best-effort only
@@ -764,6 +788,18 @@ export function clearReplayTransientPromptState(state: any): void {
 export function finalizeGameStateAfterReplay(ctx: GameContext): void {
   const gameId = String(ctx?.gameId || '').trim();
   if (!gameId) return;
+
+  // Undo boundary planning replays into a scratch `undo_probe_*` context.
+  // Do not resume deferred stack/IR or emit live resolution handlers for it.
+  if (isUndoProbeGameId(gameId)) {
+    try {
+      ResolutionQueueManager.endReplay(gameId);
+      ResolutionQueueManager.clearAllSteps(gameId);
+    } catch {
+      // best-effort only
+    }
+    return;
+  }
 
   try {
     hydrateAsEntersChoicesOnBattlefield(ctx.state as any);
@@ -854,6 +890,12 @@ export function finalizeGameStateAfterReplay(ctx: GameContext): void {
 
   try {
     scrubStaleReplayedStackAfterFullReplay(ctx);
+  } catch {
+    // best-effort only
+  }
+
+  try {
+    reassignPriorityIfHolderCannotReceive(ctx);
   } catch {
     // best-effort only
   }

@@ -415,3 +415,63 @@ describe('mana pool synergy activated abilities', () => {
     expect(greenFixValue).toBeGreaterThan(colorlessValue);
   });
 });
+
+describe('quoted granted combat-damage draws', () => {
+  it('does not treat Herd Heirloom\'s quoted combat-damage trigger as an immediate draw', () => {
+    const gameState = {
+      turnPlayer: 'p1',
+      phase: 'main1',
+      step: 'precombat_main',
+      players: [{ id: 'p1' }],
+      manaPool: { p1: {} },
+      battlefield: [
+        perm({
+          id: 'heirloom',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Herd Heirloom',
+            type_line: 'Artifact',
+            oracle_text: '{T}: Add one mana of any color. Spend this mana only to cast a creature spell.\n{T}: Until end of turn, target creature you control with power 4 or greater gains trample and "Whenever this creature deals combat damage to a player, draw a card."',
+          },
+        }),
+      ],
+      stack: [],
+    } as any;
+
+    const grantValue = evaluateActivatedAbilityValue(
+      gameState.battlefield[0],
+      '{T}: Until end of turn, target creature you control with power 4 or greater gains trample and "Whenever this creature deals combat damage to a player, draw a card."',
+      gameState,
+      'p1',
+      { strategy: AIStrategy.AGGRESSIVE, deckProfile: null } as AIPlayerConfig,
+      {
+        ...deps,
+        getProcessedBattlefield: () => gameState.battlefield,
+      },
+    );
+    const realDrawValue = evaluateActivatedAbilityValue(
+      perm({
+        id: 'defector',
+        controller: 'p1',
+        tapped: false,
+        card: {
+          name: 'Humble Defector',
+          type_line: 'Creature — Human Rogue',
+          oracle_text: '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
+        },
+      }),
+      '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
+      gameState,
+      'p1',
+      { strategy: AIStrategy.AGGRESSIVE, deckProfile: null } as AIPlayerConfig,
+      {
+        ...deps,
+        getProcessedBattlefield: () => gameState.battlefield,
+      },
+    );
+
+    expect(grantValue).toBeLessThan(10);
+    expect(realDrawValue).toBeGreaterThan(grantValue);
+  });
+});

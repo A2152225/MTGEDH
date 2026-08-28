@@ -17,6 +17,7 @@ import { applyFightDamageBetweenCreatures } from "../../../modules/combat-damage
 import { ResolutionQueueManager } from "../../../resolution/index.js";
 import { ResolutionStepType } from "../../../resolution/types.js";
 import { permanentHasCreatureTypeNow } from "../../../creatureTypeNow.js";
+import { normalizeCreatureTypeWord } from "../../../../../../shared/src/creatureTypes.js";
 import { drawCards as drawCardsFromZone } from "../../../modules/zones.js";
 
 export function tryLoyaltyTemplateP1P1FightDamage(
@@ -594,9 +595,11 @@ export function tryLoyaltyTemplateP1P1FightDamage(
       return true;
     }
 
-    case "TARGET_CREATURE_GETS_MINUSX_MINUSX_EOT_WHERE_X_IS_NUMBER_OF_ZOMBIES_YOU_CONTROL": {
-      const m = text.match(/^target creature gets -x\/-x until end of turn, where x is the number of zombies you control\.?$/i);
+    case "TARGET_CREATURE_GETS_MINUSX_MINUSX_EOT_WHERE_X_IS_NUMBER_OF_ZOMBIES_YOU_CONTROL":
+    case "TARGET_CREATURE_GETS_MINUSX_MINUSX_EOT_WHERE_X_IS_NUMBER_OF_TYPED_YOU_CONTROL": {
+      const m = text.match(/^target creature gets -x\/-x until end of turn, where x is the number of ([a-z]+)s? you control\.?$/i);
       if (!m) return false;
+      const subtype = normalizeCreatureTypeWord(String(m[1] || 'zombie')) || String(m[1] || 'zombie').toLowerCase();
 
       const [targetPermanentId] = getTargets(triggerItem);
       if (!targetPermanentId) return false;
@@ -611,7 +614,7 @@ export function tryLoyaltyTemplateP1P1FightDamage(
       const x = battlefield.filter((p: any) => {
         if (!p?.card) return false;
         if (p.controller !== controller) return false;
-        return permanentHasCreatureTypeNow(p, 'zombie');
+        return permanentHasCreatureTypeNow(p, subtype);
       }).length;
 
       (target as any).ptModsEOT = Array.isArray((target as any).ptModsEOT) ? (target as any).ptModsEOT : [];
@@ -716,9 +719,12 @@ export function tryLoyaltyTemplateP1P1FightDamage(
       return true;
     }
 
-    case "DESTROY_ALL_NON_DRAGON_CREATURES": {
-      const m = text.match(/^destroy all non-dragon creatures\.?$/i);
+    case "DESTROY_ALL_NON_ZOMBIE_CREATURES":
+    case "DESTROY_ALL_NON_DRAGON_CREATURES":
+    case "DESTROY_ALL_NON_TYPED_CREATURES": {
+      const m = text.match(/^destroy all non-([a-z]+) creatures\.?$/i);
       if (!m) return false;
+      const excluded = String(m[1] || 'dragon').toLowerCase();
 
       const battlefield = getBattlefield(ctx);
       const toDestroy: string[] = [];
@@ -726,7 +732,7 @@ export function tryLoyaltyTemplateP1P1FightDamage(
         if (!perm?.card) continue;
         const tl = String(perm.card?.type_line || '').toLowerCase();
         if (!tl.includes('creature')) continue;
-        if (tl.includes('dragon')) continue;
+        if (tl.includes(excluded)) continue;
         toDestroy.push(perm.id);
       }
 

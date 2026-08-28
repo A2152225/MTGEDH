@@ -16,6 +16,7 @@ import { isExecutorCreature } from '../oracleIRExecutorPermanentUtils';
 import { applyStaticAbilitiesToBattlefield } from '../staticAbilities';
 import {
   isAttackingPermanent,
+  isBlockingPermanent,
   readCreatureStatForComparison,
   readPowerForComparison,
 } from './oracleIRExecutorCreatureBattlefieldHelpers';
@@ -380,12 +381,6 @@ export function resolveSingleCreatureTargetId(
   if (combatRoleTargetMatch) {
     const role = String(combatRoleTargetMatch[1] || '').toLowerCase();
     const youControlOnly = /\byou control\b/i.test(targetText);
-    const isBlockingPermanent = (permanent: BattlefieldPermanent | any): boolean => {
-      const blocking = (permanent as any)?.blocking;
-      if (Array.isArray(blocking) && blocking.length > 0) return true;
-      if (typeof blocking === 'string' && blocking.trim().length > 0) return true;
-      return Boolean((permanent as any)?.isBlocking);
-    };
     const pool = creatures.filter((permanent) => {
       if (youControlOnly && String((permanent as any)?.controller || '').trim() !== controllerId) {
         return false;
@@ -466,13 +461,21 @@ export function resolveSingleCreatureTargetId(
     return resolveTrepanationBoostTargetCreatureId(state, ctx);
   }
 
-  if (
-    (targetText === 'that creature' || targetText === 'the creature')
-    && String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim()
-  ) {
-    const triggerTargetId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
-    if (creatures.some((permanent) => String((permanent as any)?.id || '').trim() === triggerTargetId)) {
-      return triggerTargetId;
+  if (targetText === 'that creature' || targetText === 'the creature') {
+    const preferredIds = [
+      ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds) ? ctx.lastAntecedentBattlefieldPermanentIds : []),
+      String(ctx.targetCreatureId || ''),
+      String(ctx.targetPermanentId || ''),
+      String(ctx.lastReferencedPermanentId || ''),
+      ...(Array.isArray(ctx.lastMovedBattlefieldPermanentIds) ? ctx.lastMovedBattlefieldPermanentIds : []),
+      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : []),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    for (const preferredId of preferredIds) {
+      if (creatures.some((permanent) => String((permanent as any)?.id || '').trim() === preferredId)) {
+        return preferredId;
+      }
     }
   }
 

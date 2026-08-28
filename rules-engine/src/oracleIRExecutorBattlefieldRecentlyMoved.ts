@@ -24,13 +24,14 @@ export function resolveRecentlyMovedBattlefieldPermanents(
   const normalized = normalizeSelfReferenceText(String((target as any).text || ''));
   if (!normalized) return [];
 
-  const singular = /^(?:it|that card|that creature|that permanent|that token)$/i.test(normalized);
+  const singular = /^(?:it|that card|that creature|that land|the land|that permanent|that token)$/i.test(normalized);
   const plural =
-    /^(?:them|those creatures|those permanents|those auras)$/i.test(normalized);
+    /^(?:them|those creatures|those permanents|those auras|those lands)$/i.test(normalized);
   if (!singular && !plural) return [];
 
   const requiredType =
     /those auras/i.test(normalized) ? 'enchantment' :
+    /\blands?\b/i.test(normalized) ? 'land' :
     normalized.includes('creature') ? 'creature' :
     normalized.includes('permanent') || normalized === 'it' || normalized === 'that card' || normalized === 'them'
       ? 'permanent'

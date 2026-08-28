@@ -38,6 +38,26 @@ describe('resolveEffectiveManaCostForCastStep', () => {
     })).toBe('{W}');
   });
 
+  it('treats a forced free-cast payment line as {0} even if the queued cost is printed', () => {
+    expect(resolveEffectiveManaCostForCastStep({
+      selectedManaCost: '{4}{R}',
+      queuedManaCost: '{4}{R}',
+      selectedCostId: 'free',
+      forcedAlternateCostId: 'free',
+      costAdjustment: {
+        originalManaCost: '{4}{R}',
+        adjustedManaCost: '{4}{R}',
+        genericReduction: 0,
+        coloredReductions: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        genericTax: 0,
+        reductionMessages: [],
+        taxMessages: [],
+        sources: [],
+        kind: 'reduction',
+      },
+    })).toBe('{0}');
+  });
+
   it('treats a forced alternate-cost payment line from the server as authoritative', () => {
     expect(resolveEffectiveManaCostForCastStep({
       selectedManaCost: '{1}{U}',
@@ -226,6 +246,21 @@ describe('resolveEffectiveManaCostForCastStep', () => {
       manaCost: '{0}',
       description: 'Cast for free (you control a commander)',
     });
+  });
+
+  it('does not treat "cast that card" free-cast effects as an alternate cost on this spell', () => {
+    const neera =
+      "Whenever you cast a spell, you may put it on the bottom of its owner's library. If you do, reveal cards from the top of your library until you reveal a nonland card. You may cast that card without paying its mana cost. Then put all revealed cards not cast this way on the bottom of your library in a random order. This ability triggers only once each turn.";
+    const costs = parseAlternateCosts(neera, '{4}{U}{R}', 'Neera, Wild Mage');
+    expect(costs.map((c) => c.id)).toEqual(['normal']);
+
+    const cascadeReminder =
+      'Cascade (When you cast this spell, exile cards from the top of your library until you exile a nonland card that costs less. You may cast it without paying its mana cost. Put the exiled cards on the bottom of your library in a random order.)\nHaste';
+    expect(parseAlternateCosts(cascadeReminder, '{2}{R}{G}', 'Bloodbraid Elf').some((c) => c.id === 'free')).toBe(false);
+
+    const possibilityStorm =
+      'Whenever a player casts a spell from their hand, that player exiles it, then exiles cards from the top of their library until they exile a card that shares a card type with it. That player may cast that card without paying its mana cost. Then they put all cards exiled with this enchantment on the bottom of their library in a random order.';
+    expect(parseAlternateCosts(possibilityStorm, '{3}{R}{R}', 'Possibility Storm').map((c) => c.id)).toEqual(['normal']);
   });
 
   it('offers Force of Will style alternate cost', () => {

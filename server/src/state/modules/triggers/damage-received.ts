@@ -32,7 +32,9 @@ import {
   isThatMuchDamageRedirectOracle,
   processDelayedDealtDamageWatchers,
   processPermanentDealtDamageWatchers,
+  processSelfDealtDamageNonRedirectTriggers,
 } from "./dealt-damage-watchers.js";
+import { excludedCreatureTypeFromDamageTargetType } from "./damage-redirect-target-type.js";
 
 function escapeRegex(text: string): string {
   return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -62,7 +64,7 @@ export interface DamageTriggerInfo {
   controller: string;
   damageAmount: number;
   triggerType: 'dealt_damage';
-  targetType: 'opponent' | 'any' | 'each_opponent' | 'any_non_dragon' | 'controller' | 'chosen_player' | 'opponent_or_planeswalker' | 'none';
+  targetType: 'opponent' | 'any' | 'each_opponent' | `any_non_${string}` | 'controller' | 'chosen_player' | 'opponent_or_planeswalker' | 'none';
   targetRestriction?: string;
   effect: string;
   effectMode?: 'gain_life' | 'gain_life_and_attacking_player_loses_life';
@@ -166,6 +168,11 @@ export function getDamageReceivedTrigger(
     || oracleText.includes('whenever equipped creature is dealt combat damage');
 
   if (matchesSelfClause || (detectedSelf && isSelfDealtDamageClause(oracleText, creatureName))) {
+    // Brash Taunter-style "deals that much damage" / gain-life redirects stay here.
+    // Enrage fight (Apex Altisaur) and other non-redirect effects go on the stack.
+    if (!isThatMuchDamageRedirectOracle(card.oracle_text || oracleText)) {
+      return null;
+    }
     const inferred = inferDamageReceivedEffectFromOracle(oracleText);
     return {
       controllerId: permanent.controller,
@@ -237,6 +244,8 @@ export function processDamageReceivedTriggers(
         attackingPlayerId,
       });
     }
+  } else {
+    processSelfDealtDamageNonRedirectTriggers(ctx, permanent, damageAmount);
   }
 
   processPermanentDealtDamageWatchers(ctx, permanent, damageAmount, (hit) => {
@@ -386,17 +395,21 @@ export function dispatchDamageReceivedTrigger(ctx: GameContext, triggerInfo: Dam
     targetDescription = 'you';
     targetTypes = ['player'];
     addDamageTriggerPlayerTargets(validTargets, players, player => String(player.id) === controllerId);
-  } else if (targetType === 'any_non_dragon') {
-    targetDescription = "any target that isn't a Dragon";
-    targetTypes = ['any_target'];
-    addDamageTriggerPlayerTargets(validTargets, players, _player => true);
-    addDamageTriggerPermanentTargets(validTargets, battlefield, (_perm, typeLineLower) => {
-      const isTargetKind = typeLineLower.includes('creature') || typeLineLower.includes('planeswalker');
-      return isTargetKind && !typeLineLower.includes('dragon');
-    });
   } else {
-    addDamageTriggerPlayerTargets(validTargets, players, _player => true);
-    addDamageTriggerPermanentTargets(validTargets, battlefield, (_perm, typeLineLower) => typeLineLower.includes('creature') || typeLineLower.includes('planeswalker'));
+    const excludedType = excludedCreatureTypeFromDamageTargetType(String(targetType || ''));
+    if (excludedType) {
+      const pretty = `${excludedType.charAt(0).toUpperCase()}${excludedType.slice(1)}`;
+      targetDescription = `any target that isn't a ${pretty}`;
+      targetTypes = ['any_target'];
+      addDamageTriggerPlayerTargets(validTargets, players, _player => true);
+      addDamageTriggerPermanentTargets(validTargets, battlefield, (_perm, typeLineLower) => {
+        const isTargetKind = typeLineLower.includes('creature') || typeLineLower.includes('planeswalker');
+        return isTargetKind && !typeLineLower.includes(excludedType);
+      });
+    } else {
+      addDamageTriggerPlayerTargets(validTargets, players, _player => true);
+      addDamageTriggerPermanentTargets(validTargets, battlefield, (_perm, typeLineLower) => typeLineLower.includes('creature') || typeLineLower.includes('planeswalker'));
+    }
   }
 
   if (validTargets.length === 0) {

@@ -13,6 +13,7 @@ import { applyLifeGain } from '../src/state/utils.js';
 import { upsertCompiledOracleIROverlaySync } from '../src/services/oracleIrCompiledOverlayStore.js';
 import {
   evaluateCounterPlacementReplacementEvent,
+  evaluateDamageReplacementEvent,
   evaluateMillReplacementEvent,
   evaluateLibrarySearchReplacementEvent,
 } from '../src/state/modules/replacement-effects.js';
@@ -823,6 +824,16 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
 
     const modified = calculateModifiedDamage(ctx, 3, 'p2', 'p1');
     expect(modified.amount).toBe(6);
+
+    // Amount-modify stays on calculateModifiedDamage; the damage registry is cap-only.
+    const registry = evaluateDamageReplacementEvent({
+      state: ctx.state,
+      amount: 3,
+      targetPlayerId: 'p1',
+      metadata: { damageDealer: 'p2' },
+    });
+    expect(registry.applied).toBe(false);
+    expect(registry.replacementAmount).toBe(3);
   });
 
   it('applies Gisela-style opponent-double / self-halve from oracle text alone', () => {
@@ -1774,6 +1785,29 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
       },
     } as any;
     expect(calculateModifiedDamage(worshipCtx, 10, 'p2', 'p1').amount).toBe(4);
+    const worshipRegistry = evaluateDamageReplacementEvent({
+      state: worshipCtx.state,
+      amount: 10,
+      targetPlayerId: 'p1',
+      metadata: { damageDealer: 'p2' },
+    });
+    expect(worshipRegistry.applied).toBe(true);
+    expect(worshipRegistry.replacementAmount).toBe(4);
+    expect(worshipRegistry.effectId).toBe('damage-life-floor');
+    expect(evaluateDamageReplacementEvent({
+      state: worshipCtx.state,
+      amount: 4,
+      targetPlayerId: 'p1',
+      metadata: { damageDealer: 'p2' },
+    }).applied).toBe(false);
+    expect(evaluateDamageReplacementEvent({
+      state: worshipCtx.state,
+      amount: 10,
+      targetPlayerId: 'p1',
+      target: creature,
+      targetId: creature.id,
+      metadata: { damageDealer: 'p2' },
+    }).applied).toBe(false);
 
     const worshipNoCreature = {
       state: {
@@ -1787,6 +1821,12 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
       },
     } as any;
     expect(calculateModifiedDamage(worshipNoCreature, 10, 'p2', 'p1').amount).toBe(10);
+    expect(evaluateDamageReplacementEvent({
+      state: worshipNoCreature.state,
+      amount: 10,
+      targetPlayerId: 'p1',
+      metadata: { damageDealer: 'p2' },
+    }).applied).toBe(false);
 
     const fortuneCtx = {
       state: {
@@ -1800,5 +1840,13 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
       },
     } as any;
     expect(calculateModifiedDamage(fortuneCtx, 8, 'p2', 'p1').amount).toBe(2);
+    const fortuneRegistry = evaluateDamageReplacementEvent({
+      state: fortuneCtx.state,
+      amount: 8,
+      targetPlayerId: 'p1',
+      metadata: { damageDealer: 'p2' },
+    });
+    expect(fortuneRegistry.applied).toBe(true);
+    expect(fortuneRegistry.replacementAmount).toBe(2);
   });
 });

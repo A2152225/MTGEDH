@@ -149,7 +149,9 @@ export function tryCalculateManaProductionLandBasic(
     tap_for_green: 'G',
     tap_for_colorless: 'C',
   };
-  const grantedSpecificManaColor = Object.entries(grantedManaColorMap).find(([ability]) => grantedAbilities.includes(ability))?.[1];
+  const grantedSpecificColors = Object.entries(grantedManaColorMap)
+    .filter(([ability]) => grantedAbilities.includes(ability))
+    .map(([, color]) => color);
   const hasGrantedAnyColorMana = grantedAbilities.some((ability) =>
     ability === 'tap_for_any_color' ||
     /\{t\}:\s*add\s+(?:one\s+)?mana of any color/.test(ability) ||
@@ -167,8 +169,11 @@ export function tryCalculateManaProductionLandBasic(
       result.colors = ['any'];
       result.requiresColorChoice = true;
     }
-  } else if (grantedSpecificManaColor && result.colors.length === 0) {
-    result.colors = [grantedSpecificManaColor];
+  } else if (grantedSpecificColors.length > 0) {
+    for (const color of grantedSpecificColors) {
+      if (!result.colors.includes(color)) result.colors.push(color);
+    }
+    if (result.colors.length > 1) result.requiresColorChoice = true;
   }
 
   const isMoxAmberConditionalSource = isMoxAmberConditionalManaSource(cardName, oracleText);

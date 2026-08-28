@@ -5,9 +5,6 @@
 // The public compatibility path stays server/src/rules-engine/staticEffects.ts
 // ("./staticEffects.js"). Never create staticEffects/ beside staticEffects.ts.
 
-// Known-card static-effect table (extracted as-is; unused by computeContinuousEffects).
-export { KNOWN_STATIC_EFFECT_CARDS } from "./staticEffectsKnownCards.js";
-
 // Parse/battlefield helpers plus ContinuousEffectResult / EffectAggregate.
 export {
   COLOR_WORDS,

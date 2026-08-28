@@ -405,6 +405,38 @@ export function triggerETBEffectsForPermanent(
         pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
         debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s chosen-type enters-or-attacks trigger: ${trigger.description}`);
       }
+
+      if (trigger.triggerType === 'commander_you_control_etb_or_attack') {
+        const enteringIsCommander =
+          permanent?.isCommander === true || permanent?.commander === true || permanent?.card?.isCommander === true;
+        if (!enteringIsCommander) {
+          continue;
+        }
+        const triggerController = perm.controller || controller;
+        if (controller !== triggerController) {
+          continue;
+        }
+
+        const triggerId = uid('trigger');
+        const stackItem = {
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          permanentId: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+          effect: trigger.effect || trigger.description,
+          card: perm.card,
+          sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
+          interveningIfSubjectPermanentId: permanent.id,
+          interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
+        } as any;
+        pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
+        debug(2, `[triggerETBEffectsForPermanent] ${trigger.cardName}'s commander enters-or-attacks trigger: ${trigger.description}`);
+      }
       
       // another_permanent_etb triggers
       if (trigger.triggerType === 'another_permanent_etb') {
@@ -664,6 +696,9 @@ export function triggerETBEffectsForPermanent(
   // Check for pending control change effects (Vislor Turlough, Xantcha, Akroan Horse)
   if ((permanent as any).pendingControlChange) {
     const controlChangeInfo = (permanent as any).pendingControlChange;
+    if (permanent.chosenPlayer || (permanent as any).asEntersControlChangeQueued) {
+      delete (permanent as any).pendingControlChange;
+    } else {
     debug(2, `[triggerETBEffectsForPermanent] ${permanent.card?.name} has pending control change: ${controlChangeInfo.type}`);
     
     // Queue a resolution step for the control change
@@ -675,6 +710,12 @@ export function triggerETBEffectsForPermanent(
       controlChangeInfo.type === 'opponent_gains'
     ) {
       const isOptional = controlChangeInfo.type === 'may_give_opponent';
+      const alreadyQueued = ResolutionQueueManager.getQueue(gameId).steps.some(
+        (step: any) => step?.type === ResolutionStepType.PLAYER_CHOICE && String(step?.permanentId || '') === String(permanent.id),
+      );
+      if (alreadyQueued) {
+        debug(2, `[triggerETBEffectsForPermanent] Skipping duplicate control change step for ${permanent.card?.name}`);
+      } else {
       const validOpponents = Array.isArray(state.players)
         ? state.players
             .filter((player: any) => player && String(player.id || '') !== String(controller) && !player.hasLost)
@@ -716,6 +757,8 @@ export function triggerETBEffectsForPermanent(
         },
       });
       debug(2, `[triggerETBEffectsForPermanent] Queued control change step for ${permanent.card?.name} (optional: ${isOptional})`);
+      }
+    }
     }
   }
 }

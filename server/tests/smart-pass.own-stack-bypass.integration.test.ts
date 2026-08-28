@@ -8,6 +8,7 @@ import {
 } from '../src/socket/util.js';
 import { createContext } from '../src/state/context.js';
 import { passPriority } from '../src/state/modules/priority.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 const AUTO_PASS_DELAY_MS = 150;
 
@@ -125,6 +126,7 @@ describe('Smart Pass own-stack bypass', () => {
     for (const id of [
       'smart_pass_opp_spell',
       'smart_pass_own_spell',
+      'smart_pass_own_spell_pending_choice',
       'smart_pass_rest_of_turn',
       'smart_pass_timeout_opp',
       'smart_pass_missing_controller',
@@ -136,6 +138,7 @@ describe('Smart Pass own-stack bypass', () => {
     ]) {
       clearPriorityTimer(id);
       games.delete(id);
+      ResolutionQueueManager.removeQueue(id);
     }
     vi.useRealTimers();
   });
@@ -243,6 +246,49 @@ describe('Smart Pass own-stack bypass', () => {
     // priorityPassedBy is cleared once the stack object resolves.
     expect(resolveTopOfStack).toHaveBeenCalled();
     expect(ctx.state.stack).toHaveLength(0);
+  });
+
+  it('does not Smart Pass an own spell while a non-payment resolution prompt is open', async () => {
+    const gameId = 'smart_pass_own_spell_pending_choice';
+    const { ctx, game, io, resolveTopOfStack } = createHarness(gameId, {
+      turnPlayer: 'p_human',
+      stack: [
+        {
+          id: 'mindmoil_own',
+          type: 'spell',
+          controller: 'p_human',
+          card: {
+            id: 'mindmoil_card',
+            name: 'Mindmoil',
+            type_line: 'Enchantment',
+            mana_cost: '{4}{R}',
+            oracle_text: 'Whenever you cast a spell, put the cards in your hand on the bottom of your library in any order, then draw that many cards.',
+          },
+        },
+      ],
+      priorityPassedBy: new Set<string>(),
+    });
+    games.set(game.gameId, game);
+
+    const queued = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: 'p_human' as any,
+      description: "Neera, Wild Mage: Put Mindmoil on the bottom of its owner's library and reveal until a nonland card?",
+      mandatory: false,
+      options: [
+        { id: 'yes', label: 'Use ability' },
+        { id: 'no', label: 'Decline' },
+      ],
+    } as any);
+    // Live prompts can lose status in persisted copies; still block Smart Pass.
+    (queued as any).status = undefined;
+
+    checkAndTriggerAutoPass(io, game, game.gameId);
+    await vi.advanceTimersByTimeAsync(AUTO_PASS_DELAY_MS + 50);
+
+    expect(resolveTopOfStack).not.toHaveBeenCalled();
+    expect(ctx.state.stack).toHaveLength(1);
+    expect(ctx.state.stack[0].id).toBe('mindmoil_own');
   });
 
   it('autoPassForTurn still drains opponent spells', async () => {

@@ -195,16 +195,18 @@ export function tryLoyaltyTemplateManualDraft(
       return true;
     }
 
+    case "UNTAP_UP_TO_ONE_TARGET_TYPED_THAT_TYPE_AND_RANDOM_TYPE_IN_HAND_PERPETUALLY_GET_P1P1":
     case "UNTAP_UP_TO_ONE_TARGET_ELF_THAT_ELF_AND_RANDOM_ELF_IN_HAND_PERPETUALLY_GET_P1P1": {
       const m = text.match(
-        /^untap up to one target elf\. that elf and a random elf creature card in your hand perpetually get \+1\/\+1\.?$/i
+        /^untap up to one target ([a-z][a-z-]*)\. that \1 and a random \1 creature card in your hand perpetually get \+1\/\+1\.?$/i
       );
       if (!m) return false;
 
+      const typeTitle = String(m[1] || "Elf").replace(/[a-z]+/gi, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
       const gameId = getGameId(ctx);
       const isReplaying = !!(ctx as any).isReplaying;
 
-      const description = `[Manual resolution] ${sourceName}: Untap up to one target Elf. That Elf and a random Elf creature card in your hand perpetually get +1/+1.`;
+      const description = `[Manual resolution] ${sourceName}: Untap up to one target ${typeTitle}. That ${typeTitle} and a random ${typeTitle} creature card in your hand perpetually get +1/+1.`;
       debug(1, `[planeswalker/templates] ${description}`);
 
       if (gameId && gameId !== 'unknown' && !isReplaying) {
@@ -223,13 +225,16 @@ export function tryLoyaltyTemplateManualDraft(
       return true;
     }
 
+    case "SEEK_A_TYPED_CARD":
     case "SEEK_AN_ELF_CARD": {
-      const m = text.match(/^seek an elf card\.?$/i);
+      const m = text.match(/^seek an? ([a-z][a-z-]*) card\.?$/i);
       if (!m) return false;
 
+      const typeTitle = String(m[1] || "Elf").replace(/[a-z]+/gi, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+      const article = /^[aeiou]/i.test(typeTitle) ? "an" : "a";
       const gameId = getGameId(ctx);
       const isReplaying = !!(ctx as any).isReplaying;
-      const description = `[Manual resolution] ${sourceName}: Seek an Elf card.`;
+      const description = `[Manual resolution] ${sourceName}: Seek ${article} ${typeTitle} card.`;
 
       debug(1, `[planeswalker/templates] ${description}`);
 

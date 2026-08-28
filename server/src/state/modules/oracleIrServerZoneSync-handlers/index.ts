@@ -28,10 +28,11 @@ export {
   queueChoosePileChoicePromptsFromOracleIRResult,
 } from "./oracleIrServerLibrarySearchLookChoosePilePrompts.js";
 
-// JOIN_FORCES / VOTE queues for join-forces contribution and council-vote
-// automation gaps.
+// JOIN_FORCES / TEMPTING_OFFER / VOTE queues for join-forces contribution,
+// tempting-offer accept/decline, and council-vote automation gaps.
 export {
   queueJoinForcesPromptsFromOracleIRResult,
+  queueTemptingOfferPromptsFromOracleIRResult,
   queueVotePromptsFromOracleIRResult,
 } from "./oracleIrServerVoteJoinForcesPrompts.js";
 
@@ -82,6 +83,8 @@ export {
   queueChooseOneImpulseExilePlayPromptsFromOracleIRResult,
   queueDiscoverCastOrHandPromptsFromOracleIRResult,
 } from "./oracleIrServerImpulseDiscoverGyPermissionPrompts.js";
+export { queueDuringResolutionShareTypeCastPromptFromOracleIRResult } from "./oracleIrServerImpulseDuringResolutionCastPrompts.js";
+export { queueRevealedLibraryCastPromptsFromOracleIRResult } from "./oracleIrServerRevealedLibraryCastPrompts.js";
 
 // Optional-step choice prompts and optional life-payment helpers.
 export {

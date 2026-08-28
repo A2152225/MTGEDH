@@ -7,7 +7,6 @@ import { useMemo, type MutableRefObject } from 'react';
 import type { BattlefieldPermanent, KnownCardRef, PlayerID } from '../../../../shared/src';
 import type { ImagePref } from '../BattlefieldGrid';
 import { isCurrentlyCreature } from '../../utils/creatureUtils';
-import { expandGroupedTokensForDisplay } from '../../utils/expandGroupedTokens';
 import {
   assignPermanentsToCells,
   battlefieldGridContentHeight,
@@ -17,7 +16,7 @@ import {
   countOccupiedCells,
   createBattlefieldGridFromDimensions,
 } from '../../utils/battlefieldGrid';
-import { parsePT } from './freeFieldDisplayUtils';
+import { parsePT, readPermanentDamageMarked } from './freeFieldDisplayUtils';
 
 export type FreeFieldBattlefieldLayoutArgs = {
   perms: BattlefieldPermanent[];
@@ -85,8 +84,9 @@ export function useFreeFieldBattlefieldLayout(args: FreeFieldBattlefieldLayoutAr
     const placementEntries: Array<{ id: string; preferred: { x: number; y: number; z?: number } | null }> = [];
     const permMeta = new Map<string, Omit<(typeof placed)[number], 'id' | 'pos' | 'stackIndex' | 'stackTotal' | 'cellX' | 'cellY'>>();
 
-    // Expand emit-side token groups so each real permanent stays visible/tappable.
-    const displayPerms = expandGroupedTokensForDisplay(perms);
+    // Keep emit-side token groups collapsed (Nx badge). Expanding them into N tiles
+    // undoes TokenOptimization and lags every game-state broadcast (AI token swarms).
+    const displayPerms = perms;
 
     for (const p of displayPerms) {
       const kc = p.card as KnownCardRef;
@@ -143,7 +143,7 @@ export function useFreeFieldBattlefieldLayout(args: FreeFieldBattlefieldLayoutAr
       });
 
       // Damage marked on the creature
-      const damageMarked = p.damageMarked ?? 0;
+      const damageMarked = readPermanentDamageMarked(p);
 
       // P/T bonus sources
       const ptSources = p.ptSources || [];

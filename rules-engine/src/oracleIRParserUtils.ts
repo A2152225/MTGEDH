@@ -350,7 +350,7 @@ export function parsePlayerSelector(raw: string | undefined): OraclePlayerSelect
   if (s === 'target player') return { kind: 'target_player' };
   if (/^target\s+player\s+other\s+than\s+.+?\s+owner$/.test(s)) return { kind: 'target_player' };
   if (s === 'target opponent') return { kind: 'target_opponent' };
-  if (s === 'an opponent' || s === 'the opponent') return { kind: 'target_opponent' };
+  if (s === 'an opponent' || s === 'the opponent' || s === 'an opponent of your choice') return { kind: 'target_opponent' };
   if (s === 'the player') return { kind: 'target_player' };
   if (s === 'the player with the most life') return { kind: 'raw', text: 'the player with the most life' };
   if (s === 'the player with the lowest life total') return { kind: 'raw', text: 'the player with the lowest life total' };

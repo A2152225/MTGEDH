@@ -55,7 +55,7 @@ export function optimizeBattlefieldTokensForEmit(
     const hasEquipment = perm.attachedEquipment?.length > 0 || perm.isEquipped;
     const hasAuras = perm.attachments?.length > 0;
     const isAttachedToSomething = !!perm.attachedTo;
-    const hasDamage = (perm.damageTaken || 0) > 0 || (perm.damageMarked || 0) > 0;
+    const hasDamage = (perm.damageTaken || 0) > 0 || (perm.damageMarked || 0) > 0 || (perm.markedDamage || 0) > 0;
     // `attacking` is the live combat flag set by declareAttackers (string player/planeswalker id).
     // `isAttacking` is not consistently set, so omit it and attacking tokens stay grouped as
     // `group_*` during declare blockers — client then sends invalid attackerIds.

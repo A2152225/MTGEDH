@@ -8,6 +8,8 @@ import {
   resolveCopiedTargetSpellStackItem,
   resolveCopySpellCount,
 } from '../../../../rules-engine/src/oracleIRExecutorCopySpellSupport.js';
+import { resolvePlayers } from '../../../../rules-engine/src/oracleIRExecutorPlayerResolvePlayers.js';
+import { controllerHasLeftTheGame } from '../../../../rules-engine/src/playerInGameStatus.js';
 import { resolveCommanderCastsFromCommandZoneThisGame } from '../../../../rules-engine/src/oracleIRExecutorCommanderCastCount.js';
 import {
   applyRandomRetargetToStackSpells,
@@ -314,6 +316,95 @@ function resolveCopyRetargetMetadata(
   };
 }
 
+function orderCopyControllerIdsByAPNAP(state: any, controllerIds: readonly string[]): string[] {
+  const wanted = new Set(
+    controllerIds.map((id) => String(id || '').trim()).filter(Boolean),
+  );
+  if (wanted.size === 0) return [];
+
+  const players = Array.isArray(state?.players) ? state.players : [];
+  const turnOrder = players
+    .map((player: any) => String(player?.id || '').trim())
+    .filter(Boolean);
+  const activePlayerId = String(
+    state?.activePlayer || state?.turnPlayer || turnOrder[0] || '',
+  ).trim();
+  const activeIndex = Math.max(0, turnOrder.indexOf(activePlayerId));
+  const apnapOrder = activeIndex > 0
+    ? [...turnOrder.slice(activeIndex), ...turnOrder.slice(0, activeIndex)]
+    : turnOrder;
+
+  const ordered = apnapOrder.filter((id: string) => wanted.has(id));
+  for (const id of wanted) {
+    if (!ordered.includes(id)) ordered.push(id);
+  }
+  return ordered;
+}
+
+function copySpellIsEachOtherPlayer(
+  step: Extract<OracleEffectStep, { kind: 'copy_spell' }>,
+): boolean {
+  const raw = String(step.raw || '');
+  const whoText = step.who?.kind === 'raw' ? String(step.who.text || '') : '';
+  return /each other player/i.test(raw) || /each other player/i.test(whoText);
+}
+
+/**
+ * Hive Mind copies aren't cast, so other players never announced modes (CR 601.2b).
+ * Drop inherited selectedModes so each copy controller gets a choose_mode prompt.
+ */
+function withoutInheritedSpellModeChoices(copiedItem: any): any {
+  if (!copiedItem || typeof copiedItem !== 'object') return copiedItem;
+  const next = { ...copiedItem };
+  delete next.selectedModes;
+  delete next.selectedModeDescriptions;
+  if (next.card && typeof next.card === 'object' && !Array.isArray(next.card)) {
+    const nextCard = { ...next.card };
+    delete nextCard.selectedModes;
+    delete nextCard.selectedModeDescriptions;
+    next.card = nextCard;
+  }
+  return next;
+}
+
+function resolveCopySpellControllerIds(
+  state: any,
+  step: Extract<OracleEffectStep, { kind: 'copy_spell' }>,
+  irCtx: OracleIRExecutionContext,
+  params: {
+    triggerControllerId: string;
+    copiedSpellControllerId: string;
+  },
+): string[] {
+  const triggerControllerId = String(params.triggerControllerId || '').trim();
+  const livingTriggerController = triggerControllerId && !controllerHasLeftTheGame(state, triggerControllerId)
+    ? [triggerControllerId]
+    : [];
+  if (!step.who) {
+    return livingTriggerController;
+  }
+
+  const isEachOtherPlayer = copySpellIsEachOtherPlayer(step);
+  const referenceControllerId = isEachOtherPlayer
+    ? (String(params.copiedSpellControllerId || '').trim() || triggerControllerId)
+    : triggerControllerId;
+
+  const resolved = resolvePlayers(
+    state,
+    step.who,
+    {
+      ...irCtx,
+      controllerId: (referenceControllerId || irCtx.controllerId) as PlayerID,
+    },
+  );
+  const ids = resolved.map((id) => String(id || '').trim()).filter(Boolean)
+    .filter((id) => !controllerHasLeftTheGame(state, id));
+  if (ids.length === 0) {
+    return livingTriggerController;
+  }
+  return orderCopyControllerIdsByAPNAP(state, ids);
+}
+
 function appendCopyTriggeredSpellResolveEvent(
   ctx: GameContext,
   options: {
@@ -359,6 +450,7 @@ function queueSpellCopyRetargetChoice(
 ): void {
   const gameId = String((ctx as any).gameId || '').trim();
   if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+  if (controllerHasLeftTheGame(ctx.state, params.controller)) return;
 
   const validTargets = Array.isArray(params.copiedItem?.copyRetargetValidTargets)
     ? params.copiedItem.copyRetargetValidTargets
@@ -473,6 +565,17 @@ export function queueCopySpellStackPushFromOracleIRResult(
     if (!copyStep) continue;
 
     const targetStackItem = resolveDeferredCopyTargetStackItem(state, copyStep, params.irCtx, triggerItem);
+
+    if (copyStep.optional === true && copyStep.subject === 'this_spell') {
+      const snapshotItem = targetStackItem || params.sourceItem;
+      if (snapshotItem && typeof snapshotItem === 'object') {
+        (snapshotItem as any).oracleIrOptionalCopyThisSpell = true;
+      }
+      queuedKeys.add(queueKey);
+      bridged = true;
+      continue;
+    }
+
     if (!targetStackItem) continue;
 
     queuedKeys.add(queueKey);
@@ -500,60 +603,79 @@ export function queueCopySpellStackPushFromOracleIRResult(
       || '',
     ).trim();
     const triggerStackItemId = String(triggerItem?.id || '').trim();
+    const copiedSpellControllerId = String(
+      targetStackItem?.controller
+      || targetStackItem?.controllerId
+      || '',
+    ).trim();
+    const copyControllers = resolveCopySpellControllerIds(state, copyStep, params.irCtx, {
+      triggerControllerId: String(params.controller || ''),
+      copiedSpellControllerId,
+    });
+    if (copyControllers.length === 0) continue;
 
-    for (let copyIndex = 0; copyIndex < copyCount; copyIndex += 1) {
-      const abilityCopy = isAbilityCopyStep(copyStep) || isAbilityStackItem(targetStackItem);
-      const copiedItem = abilityCopy
-        ? {
-          ...buildResolvedAbilityCopySnapshot(targetStackItem, sourceName, params.controller),
-          ...(randomCopyRetarget ? {} : retargetMetadata),
+    let pushedCopyCount = 0;
+    for (const copyController of copyControllers) {
+      const copyControllerId = copyController as PlayerID;
+      if (controllerHasLeftTheGame(state, copyControllerId)) continue;
+      for (let copyIndex = 0; copyIndex < copyCount; copyIndex += 1) {
+        const abilityCopy = isAbilityCopyStep(copyStep) || isAbilityStackItem(targetStackItem);
+        let copiedItem = abilityCopy
+          ? {
+            ...buildResolvedAbilityCopySnapshot(targetStackItem, sourceName, copyControllerId),
+            ...(randomCopyRetarget ? {} : retargetMetadata),
+          }
+          : {
+            ...buildResolvedSpellCopySnapshot(targetStackItem, sourceName, copyControllerId),
+            ...(randomCopyRetarget ? {} : retargetMetadata),
+          };
+        if (!abilityCopy && copySpellIsEachOtherPlayer(copyStep)) {
+          copiedItem = withoutInheritedSpellModeChoices(copiedItem);
         }
-        : {
-          ...buildResolvedSpellCopySnapshot(targetStackItem, sourceName, params.controller),
-          ...(randomCopyRetarget ? {} : retargetMetadata),
-        };
-      appendCopiedSpellToServerStack(state, copiedItem);
+        appendCopiedSpellToServerStack(state, copiedItem);
+        pushedCopyCount += 1;
 
-      if (abilityCopy) {
-        appendCopyTriggeredAbilityResolveEvent(ctx, {
-          sourceId: copySourceId || undefined,
-          sourceName,
-          controllerId: params.controller,
-          paid: true,
-          triggerStackItemId: triggerStackItemId || undefined,
-          triggeringStackItemId,
-          copiedStackItemId: String(copiedItem?.id || '').trim() || undefined,
-        });
-      } else {
-        appendCopyTriggeredSpellResolveEvent(ctx, {
-          sourceId: copySourceId || undefined,
-          sourceName,
-          controllerId: params.controller,
-          triggeringStackItemId,
-          copiedStackItemId: String(copiedItem?.id || '').trim() || undefined,
-        });
-      }
-
-      if (randomCopyRetarget) {
-        const retargeted = applyRandomRetargetToStackSpells(
-          state,
-          [String(copiedItem?.id || '').trim()].filter(Boolean),
-          params.irCtx,
-          randomCopyRetarget.exclude,
-          resolveChangeTargetExcludeText(randomCopyRetarget),
-        );
-        if (retargeted.state && retargeted.state !== state) {
-          Object.assign(state, retargeted.state);
-        }
-      } else if (copyStep.allowNewTargets) {
         if (abilityCopy) {
-          queueAbilityCopyRetargetPrompt(ctx, sourceName, params.controller, copiedItem);
-        } else {
-          queueSpellCopyRetargetChoice(ctx, {
-            controller: params.controller,
+          appendCopyTriggeredAbilityResolveEvent(ctx, {
+            sourceId: copySourceId || undefined,
             sourceName,
-            copiedItem,
+            controllerId: copyControllerId,
+            paid: true,
+            triggerStackItemId: triggerStackItemId || undefined,
+            triggeringStackItemId,
+            copiedStackItemId: String(copiedItem?.id || '').trim() || undefined,
           });
+        } else {
+          appendCopyTriggeredSpellResolveEvent(ctx, {
+            sourceId: copySourceId || undefined,
+            sourceName,
+            controllerId: copyControllerId,
+            triggeringStackItemId,
+            copiedStackItemId: String(copiedItem?.id || '').trim() || undefined,
+          });
+        }
+
+        if (randomCopyRetarget) {
+          const retargeted = applyRandomRetargetToStackSpells(
+            state,
+            [String(copiedItem?.id || '').trim()].filter(Boolean),
+            params.irCtx,
+            randomCopyRetarget.exclude,
+            resolveChangeTargetExcludeText(randomCopyRetarget),
+          );
+          if (retargeted.state && retargeted.state !== state) {
+            Object.assign(state, retargeted.state);
+          }
+        } else if (copyStep.allowNewTargets) {
+          if (abilityCopy) {
+            queueAbilityCopyRetargetPrompt(ctx, sourceName, copyControllerId, copiedItem);
+          } else {
+            queueSpellCopyRetargetChoice(ctx, {
+              controller: copyControllerId,
+              sourceName,
+              copiedItem,
+            });
+          }
         }
       }
     }
@@ -562,13 +684,13 @@ export function queueCopySpellStackPushFromOracleIRResult(
       id: `m_${Date.now()}_${queuedKeys.size}`,
       gameId,
       from: 'system',
-      message: `${sourceName} copies ${targetName}${copyCount > 1 ? ` ${copyCount} times` : ''}.`,
+      message: `${sourceName} copies ${targetName}${pushedCopyCount > 1 ? ` ${pushedCopyCount} times` : ''}.`,
       ts: Date.now(),
     });
 
     debug(
       2,
-      `[oracleIR] ${sourceName}: pushed ${copyCount} stack ${isAbilityCopyStep(copyStep) || isAbilityStackItem(targetStackItem) ? 'abilit' : 'spell'} cop${copyCount === 1 ? 'y' : 'ies'} of ${targetName}`,
+      `[oracleIR] ${sourceName}: pushed ${pushedCopyCount} stack ${isAbilityCopyStep(copyStep) || isAbilityStackItem(targetStackItem) ? 'abilit' : 'spell'} cop${pushedCopyCount === 1 ? 'y' : 'ies'} of ${targetName}`,
     );
     bridged = true;
   }
@@ -604,6 +726,7 @@ export function queueCastableCopiedSpellPromptsFromOracleIRResult(
 
   const controllerId = String(params.controller || '').trim();
   if (!controllerId) return;
+  if (controllerHasLeftTheGame(state, controllerId)) return;
 
   const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
   const sourceId = String(params.sourceId || '').trim() || undefined;

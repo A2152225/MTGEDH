@@ -37,6 +37,12 @@ export function applyScheduleDelayedTriggerStep(
   const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
   const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
   const targetPermanentId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim() || undefined;
+  const lastAntecedentBattlefieldPermanentIds = Array.from(new Set([
+    ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds)
+      ? ctx.lastAntecedentBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : []),
+    ...(targetPermanentId ? [targetPermanentId] : []),
+  ]));
   const baseChosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
     ? ctx.selectorContext.chosenObjectIds
         .map((id: unknown) => String(id || '').trim())
@@ -122,6 +128,9 @@ export function applyScheduleDelayedTriggerStep(
         targetPlayerId,
         targetOpponentId,
       },
+      effectData: lastAntecedentBattlefieldPermanentIds.length > 0
+        ? { lastAntecedentBattlefieldPermanentIds }
+        : undefined,
     }
   );
 

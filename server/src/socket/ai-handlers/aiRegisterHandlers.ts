@@ -17,6 +17,8 @@ import { parseDecklist } from "../../services/scryfall.js";
 import { resolveDeckList } from "../../services/deckImport.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { broadcastGame, ensureGame } from "../util.js";
+import { addAIOpponentToExistingGame } from "./aiAddOpponentToGame.js";
+import { removeAIOpponentFromExistingGame } from "./aiRemoveOpponentFromGame.js";
 import { AI_FAST_CONTINUE_MS, AI_THINK_TIME_MS } from "./aiConstants.js";
 import { handleAIGameFlow } from "./aiGameFlowHandlers.js";
 import { createConfiguredGame } from "./aiGameSetupHandlers.js";
@@ -599,18 +601,22 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     }
   });
   
-  // Add AI to existing game
+  // Add AI to existing game (pre-game only, before all hands are kept)
   socket.on('addAIToGame', async (payload?: {
     gameId?: unknown;
     aiName?: unknown;
     aiStrategy?: unknown;
     aiDifficulty?: unknown;
     aiDeckId?: unknown;
+    aiDeckText?: unknown;
+    aiDeckName?: unknown;
   }) => {
     const gameId = payload?.gameId;
     const aiName = payload?.aiName;
-    const aiStrategy = payload?.aiStrategy;
     const aiDifficulty = payload?.aiDifficulty;
+    const aiDeckId = payload?.aiDeckId;
+    const aiDeckText = payload?.aiDeckText;
+    const aiDeckName = payload?.aiDeckName;
 
     try {
       if (!gameId || typeof gameId !== 'string') {
@@ -660,27 +666,28 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         });
         return;
       }
-      
-      const aiPlayerId = `ai_${Date.now().toString(36)}`;
-      const difficulty = typeof aiDifficulty === 'number' ? aiDifficulty : 0.5;
-      const aiDisplayName = typeof aiName === 'string' && aiName.trim() ? aiName : 'AI Opponent';
-      
-      // Add AI to game state
-      game.state = (game.state || {}) as any;
-      game.state.players = game.state.players || [];
-      game.state.players.push({
-        id: aiPlayerId,
-        name: aiDisplayName,
-        life: (game.state as any).startingLife || 40,
-        isAI: true,
-        difficulty: difficulty,
-      } as any);
-      
-      const strategy = registerAIPlayer(gameId, aiPlayerId, aiDisplayName, difficulty);
-      
-      socket.emit('aiPlayerCreated', { gameId, aiPlayerId, aiName: aiDisplayName, strategy, difficulty });
-      broadcastGame(io, game, gameId);
-      
+
+      const result = await addAIOpponentToExistingGame(io, game, gameId, {
+        aiName,
+        aiDifficulty,
+        aiDeckId,
+        aiDeckText,
+        aiDeckName,
+      });
+      if (result.ok === false) {
+        socket.emit('error', { code: result.code, message: result.message });
+        return;
+      }
+
+      socket.emit('aiPlayerCreated', {
+        gameId,
+        aiPlayerId: result.aiPlayerId,
+        aiName: result.aiName,
+        strategy: result.strategy,
+        difficulty: result.difficulty,
+        deckLoaded: result.deckLoaded,
+        deckName: result.deckName,
+      });
     } catch (error) {
       debugError(1, '[AI] Error adding AI to game:', error);
       socket.emit('error', { code: 'AI_ADD_FAILED', message: 'Failed to add AI opponent' });
@@ -754,17 +761,14 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         });
         return;
       }
-      
-      // Remove from AI registry
-      unregisterAIPlayer(gameId, aiPlayerId);
-      
-      // Remove from game state
-      if (game.state && Array.isArray(game.state.players)) {
-        game.state.players = game.state.players.filter((p: any) => p.id !== aiPlayerId);
+
+      const result = await removeAIOpponentFromExistingGame(io, game, gameId, aiPlayerId);
+      if (result.ok === false) {
+        socket.emit('error', { code: result.code, message: result.message });
+        return;
       }
-      
-      socket.emit('aiPlayerRemoved', { gameId, aiPlayerId });
-      broadcastGame(io, game, gameId);
+
+      socket.emit('aiPlayerRemoved', { gameId, aiPlayerId: result.aiPlayerId, aiName: result.aiName });
       
     } catch (error) {
       debugError(1, '[AI] Error removing AI from game:', error);

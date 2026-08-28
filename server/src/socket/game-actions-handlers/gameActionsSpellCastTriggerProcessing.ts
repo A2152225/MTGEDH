@@ -12,7 +12,7 @@ import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { appendEvent } from "../../db";
 import { updateCounters } from "../../state/modules/counters_tokens.js";
-import { inferTriggeredAbilityTargetMetadata } from "../../state/modules/inferTriggeredAbilityTargetMetadata.js";
+import { inferTriggeredAbilityTargetMetadata, isModalChooseModesEffectText } from "../../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { isOracleIrTriggerPrimaryEnabled } from "../../state/modules/oracleIrFeatureFlags.js";
 import { tryResolveTriggerViaOracleIR } from "../../state/modules/oracleIrTriggerExecution.js";
 import { isTriggerEffectOwnedByOracleIrPrimary } from "../../state/modules/oracleIrTriggerLegacyRouting.js";
@@ -22,6 +22,7 @@ import { orderTriggersByAPNAP } from "../../state/modules/triggers/ordering.js";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../../state/resolution/index.js";
 import { uid } from "../../state/utils";
 import { debug, debugWarn } from "../../utils/debug.js";
+import { findTriggeringSpellOnStack } from "../../state/modules/triggerCastSpellStackBinding.js";
 import { queueOptionalPaymentStep } from "../optional-payment-prompts.js";
 import { deriveCastUsedManaFromPermanentSource, getPlayerName, millUntilLand } from "../util";
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
@@ -51,10 +52,17 @@ export function processSpellCastTriggersForCast(
   try {
     const ctxForInterveningIf = { state: game.state } as any;
     const normalizedCastSourceZone = normalizeSpellCastSourceZone(castSourceZone);
+    const triggeringSpellImageUrl = String(
+      spellCard?.image_uris?.small
+      || spellCard?.image_uris?.normal
+      || spellCard?.imageUrl
+      || '',
+    ).trim();
     const triggeringSpellSnapshot = {
       id: spellCard?.id,
       name: spellCard?.name,
       type_line: spellCard?.type_line,
+      ...(triggeringSpellImageUrl ? { imageUrl: triggeringSpellImageUrl } : null),
       ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone } : null),
     };
     const stackArr: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
@@ -232,7 +240,8 @@ export function processSpellCastTriggersForCast(
       }
 
       const effectLowerForShortcut = trigger.effect.toLowerCase();
-      const hasShortcut = (
+      const modalChooseModes = isModalChooseModesEffectText(String(trigger.effect || trigger.description || ''));
+      const hasShortcut = !modalChooseModes && (
         effectLowerForShortcut.includes('draw a card') || effectLowerForShortcut.includes('draw cards') || effectLowerForShortcut.includes('draws a card') ||
         effectLowerForShortcut.includes('untap') ||
         trigger.copiesSpell === true ||
@@ -293,6 +302,7 @@ export function processSpellCastTriggersForCast(
           ...(inferredTargetMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
           ...(typeof inferredTargetMetadata.minTargets === 'number' ? { minTargets: inferredTargetMetadata.minTargets } : null),
           ...(typeof inferredTargetMetadata.maxTargets === 'number' ? { maxTargets: inferredTargetMetadata.maxTargets } : null),
+          ...(modalChooseModes ? { requiresChoice: true } : null),
         } as any;
 
         game.state.stack = game.state.stack || [];
@@ -336,6 +346,7 @@ export function processSpellCastTriggersForCast(
             ...(inferredTargetMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
             ...(typeof inferredTargetMetadata.minTargets === 'number' ? { minTargets: inferredTargetMetadata.minTargets } : null),
             ...(typeof inferredTargetMetadata.maxTargets === 'number' ? { maxTargets: inferredTargetMetadata.maxTargets } : null),
+            ...(modalChooseModes ? { requiresChoice: true } : null),
           });
         } catch (err) {
           debugWarn(1, '[processSpellCastTriggersForCast] appendEvent(pushTriggeredAbility spell-cast generic) failed:', err);
@@ -551,18 +562,53 @@ export function processOpponentSpellCastTriggersForCast(
   casterId: string,
   spellCard: any,
   castSourceZone?: SpellCastSourceZone,
+  triggeringStackItemId?: string,
 ): void {
   try {
     const allPlayerIds = (game.state?.players || []).map((player: any) => player.id);
     const battlefield = game.state?.battlefield || [];
     const ctxForInterveningIf = { state: game.state } as any;
     const normalizedCastSourceZone = normalizeSpellCastSourceZone(castSourceZone);
+    const triggeringSpellImageUrl = String(
+      spellCard?.image_uris?.small
+      || spellCard?.image_uris?.normal
+      || spellCard?.imageUrl
+      || '',
+    ).trim();
     const triggeringSpellSnapshot = {
       id: spellCard?.id,
       name: spellCard?.name,
       type_line: spellCard?.type_line,
+      ...(triggeringSpellImageUrl ? { imageUrl: triggeringSpellImageUrl } : null),
       ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone } : null),
     };
+    const stackArr: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+    let triggeringStackItem: any = null;
+    const normalizedTriggeringStackItemId = String(triggeringStackItemId || '').trim();
+    if (normalizedTriggeringStackItemId) {
+      triggeringStackItem = stackArr.find((item: any) => item && String(item.id || '') === normalizedTriggeringStackItemId) || null;
+    }
+    if (!triggeringStackItem) {
+      for (let i = stackArr.length - 1; i >= 0; i--) {
+        const item = stackArr[i];
+        if (!item || String(item.controller || '') !== String(casterId)) continue;
+        if (String(item.type || '').trim().toLowerCase() === 'triggered_ability') continue;
+        const itemCardId = String(item?.card?.id || '');
+        if (itemCardId && itemCardId === String(spellCard?.id || '')) {
+          triggeringStackItem = item;
+          break;
+        }
+      }
+    }
+    const resolvedTriggeringStackItemId = triggeringStackItem
+      ? String(triggeringStackItem.id || '')
+      : String(findTriggeringSpellOnStack(game.state, {
+          triggeringPlayer: casterId,
+          effectData: {
+            casterId,
+            triggeringSpell: triggeringSpellSnapshot,
+          },
+        }, { casterId, cardId: String(spellCard?.id || '') })?.id || '') || undefined;
     const spellTypeLine = String(spellCard?.type_line || '').toLowerCase();
     const isNoncreatureSpell = !spellTypeLine.includes('creature');
     const noncreatureSpellsThisTurn = (game.state?.noncreatureSpellsCastThisTurn || {})[casterId] || 0;
@@ -581,6 +627,7 @@ export function processOpponentSpellCastTriggersForCast(
         spellCard,
         allPlayerIds,
         isFirstNoncreatureThisTurn,
+        normalizedCastSourceZone,
       ),
     );
 
@@ -591,6 +638,11 @@ export function processOpponentSpellCastTriggersForCast(
         triggerText = `Whenever an opponent casts a spell, ${triggerText}`;
       }
       const resolvedCasterId = String((trigger as any).casterId || casterId || '').trim();
+      const wantsHandCast = /\bfrom (?:their|your|his or her) hand\b/i.test(triggerText);
+      if (wantsHandCast && normalizedCastSourceZone && normalizedCastSourceZone !== 'hand') {
+        debug(2, `[processOpponentSpellCastTriggersForCast] Skipping ${trigger.cardName}: spell was not cast from hand`);
+        continue;
+      }
       const sourcePerm = (game.state?.battlefield || []).find((perm: any) => perm && perm.id === (trigger as any).permanentId);
       const needsThatPlayerRef = /\bthat player\b/i.test(triggerText);
       const ok = isInterveningIfSatisfied(
@@ -625,10 +677,12 @@ export function processOpponentSpellCastTriggersForCast(
         mandatory: trigger.mandatory,
         targetPlayer: String((trigger as any).casterId || casterId || ''),
         triggeringPlayer: String((trigger as any).casterId || casterId || ''),
+        ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
         ...(normalizedCastSourceZone ? { triggeringSpellCastSourceZone: normalizedCastSourceZone } : null),
         effectData: {
           casterId: trigger.casterId,
           ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone, sourceCastZone: normalizedCastSourceZone } : null),
+          ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
           triggeringSpell: triggeringSpellSnapshot,
           paymentCost: trigger.paymentCost,
           paymentAmount: trigger.paymentAmount,
@@ -650,6 +704,7 @@ export function processOpponentSpellCastTriggersForCast(
           mandatory: trigger.mandatory,
           targetPlayer: stackItem.targetPlayer,
           triggeringPlayer: stackItem.triggeringPlayer,
+          ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
           ...(normalizedCastSourceZone ? { triggeringSpellCastSourceZone: normalizedCastSourceZone } : null),
           effectData: stackItem.effectData,
         });

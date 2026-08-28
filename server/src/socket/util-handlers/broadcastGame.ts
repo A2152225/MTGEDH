@@ -9,6 +9,7 @@
 import type { Server } from "socket.io";
 import type { InMemoryGame } from "../../state/types.js";
 import { emitPendingCombatDamageChat } from "../combatLogUtils.js";
+import { isGameReplayLocked } from "../../gameRestoreState.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import {
   clearScheduledAutomationResume,
@@ -50,6 +51,9 @@ export function runBroadcastGame(
   deps: BroadcastGameDeps,
 ) {
   const { scheduleAutomationResume, checkAndTriggerAutoPass } = deps;
+  if (isGameReplayLocked(game, gameId)) {
+    return;
+  }
   // Loop-shortcut batch runs suppress mid-batch broadcasts; caller emits once at end.
   if (Number((game.state as any)?._suppressBroadcastCount || 0) > 0) {
     return;

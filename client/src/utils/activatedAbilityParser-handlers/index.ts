@@ -43,3 +43,4 @@ export {
 
 // Full printed + granted activated-ability parse.
 export { parseActivatedAbilities } from './parseActivatedAbilities';
+export { stampAnyPlayerMayActivate } from './stampAnyPlayerMayActivate';

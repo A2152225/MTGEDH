@@ -6,6 +6,8 @@
 
 import { hasTrainingKeyword } from "../../../../../rules-engine/src/keywordAbilities/training.js";
 import { stripReminderParentheticals } from "../../../../../rules-engine/src/oracleReminderText.js";
+import { getEffectivePower } from "../../../socket/util-handlers/getEffectivePowerToughness.js";
+import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.js";
 import { KNOWN_ATTACK_TRIGGERS } from "./card-data-tables.js";
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
@@ -16,18 +18,99 @@ import { appendAttackDetectionWatchers } from "./attack-detection-watchers.js";
 import { findFirstRegexMatchAcrossOracleLines, timingTriggerEffect } from "./timing-effect-extraction.js";
 import { escapeCardNameForRegex } from "./types.js";
 
+/** Firebending N, or Firebending X with a following "where X is …" clause. */
+const FIREBENDING_INSTANCE_PATTERN = /firebending\s+(\d+|x)(?:,\s*where\s+x\s+is\s+([^.(]+))?/gi;
+
+function collectFirebendingMatches(text: string): RegExpMatchArray[] {
+  return [...String(text || '').matchAll(new RegExp(FIREBENDING_INSTANCE_PATTERN.source, 'gi'))];
+}
+
+function resolveFirebendingAmount(
+  token: string,
+  whereClause: string | undefined,
+  card: any,
+  permanent: any,
+  gameState?: any,
+): number {
+  const amountToken = String(token || '').trim();
+  if (/^\d+$/.test(amountToken)) {
+    return parseInt(amountToken, 10) || 0;
+  }
+
+  const where = String(whereClause || '')
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+  const sourcePermanent = {
+    ...(permanent && typeof permanent === 'object' ? permanent : {}),
+    card: permanent?.card || card,
+  };
+  const controllerId = String(permanent?.controller || sourcePermanent.controller || '');
+
+  if (!where || /(?:this (?:creature|permanent|card)|it)'s power$/.test(where) || /'s power$/.test(where)) {
+    return Math.max(0, Number(getEffectivePower(sourcePermanent, gameState)) || 0);
+  }
+
+  if (/number of creatures you control/.test(where)) {
+    const battlefield = Array.isArray(gameState?.battlefield) ? gameState.battlefield : [];
+    return battlefield.filter((candidate: any) => {
+      if (String(candidate?.controller || '') !== controllerId) return false;
+      return /\bcreature\b/i.test(String(candidate?.card?.type_line || candidate?.type_line || ''));
+    }).length;
+  }
+
+  if (/experience counters you have/.test(where)) {
+    const experience = gameState?.experienceCounters?.[controllerId] ?? gameState?.experience?.[controllerId] ?? 0;
+    return Math.max(0, Number(experience) || 0);
+  }
+
+  return 0;
+}
+
+function pushFirebendingTrigger(
+  triggers: TriggeredAbility[],
+  args: { permanentId: string; cardName: string; amount: number },
+): void {
+  const n = args.amount;
+  if (!(n > 0)) return;
+  const effectText = `Add ${'{R}'.repeat(n)}. This mana lasts until end of combat.`;
+  triggers.push({
+    permanentId: args.permanentId,
+    cardName: args.cardName,
+    triggerType: 'firebending',
+    description: effectText,
+    effect: effectText,
+    value: { amount: n },
+    mandatory: true,
+    requiresTarget: false,
+  });
+}
+
 /**
  * Detect attack triggers from a permanent's abilities
  */
-export function detectAttackTriggers(card: any, permanent: any): TriggeredAbility[] {
+export function detectAttackTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
-  const oracleText = stripReminderParentheticals(String(card?.oracle_text || ""));
+  const printedOracle = stripReminderParentheticals(String(card?.oracle_text || ""));
+  const continuousGranted = gameState
+    ? getContinuousGrantedAbilitiesForPermanent(permanent, gameState)
+    : [];
+  const abilityLikeGranted = continuousGranted.filter((entry) => (
+    /when(?:ever)?\b|at the |:/.test(String(entry || ''))
+  ));
+  const oracleText = abilityLikeGranted.length > 0
+    ? `${printedOracle}\n${abilityLikeGranted.join('\n')}`
+    : printedOracle;
   const lowerOracle = oracleText.toLowerCase();
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
-  const grantedAbilities = Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : [];
+  const grantedAbilities = [
+    ...(Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : []),
+    ...continuousGranted,
+  ];
   const temporaryAbilities = Array.isArray(permanent?.temporaryAbilities)
     ? permanent.temporaryAbilities
         .map((entry: any) => (typeof entry === 'string' ? entry : entry?.ability))
@@ -37,7 +120,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const optionalManaPaymentPattern = /you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*(?:if|when) you do,?\s*(.+)/i;
 
-  const attackKeywordReminderLinePattern = /^(?:annihilator\s+\d+|firebending\s+\d+|melee|myriad|exalted|battle cry|dethrone|mentor|training)\b/i;
+  const attackKeywordReminderLinePattern = /^(?:annihilator\s+\d+|firebending\s+(?:\d+|x(?:,\s*where x is [^.]+)?)|melee|myriad|exalted|battle cry|dethrone|mentor|training)\b/i;
 
   const attackNameVariants = buildCardNameRegexAlternatives(cardName);
   const attackSubjectPattern = `(?:~|this creature(?:\\s+or\\s+equipped creature)?|this vehicle|this artifact|this land|this permanent|(?:${attackNameVariants.join('|')})|equipped creature|enchanted creature)`;
@@ -55,7 +138,8 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
       ],
     );
   
-  // Check known cards
+  // Known-card table is attack-trigger lookup only. Activated put-from-hand
+  // (Elvish Piper) is IR `move_zone`, not a fake `attacks` trigger.
   for (const [knownName, info] of Object.entries(KNOWN_ATTACK_TRIGGERS)) {
     if (lowerName.includes(knownName)) {
       // Supported "you may exert as it attacks" rewards are queued as an exert
@@ -121,25 +205,24 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     });
   }
 
-  // Firebending N - Avatar set mechanic.
-  // Check native text plus granted/temporary abilities, and allow multiple instances to stack.
+  // Firebending N / Firebending X — Avatar mechanic. Native text plus granted
+  // or temporary instances stack. X is resolved from the "where X is …" clause
+  // (this creature's power, creatures you control, experience counters).
   const firebendingMatches = [
-    ...oracleText.matchAll(/firebending\s+(\d+)/gi),
-    ...supplementalAbilityText.matchAll(/firebending\s+(\d+)/gi),
+    ...collectFirebendingMatches(oracleText),
+    ...collectFirebendingMatches(supplementalAbilityText),
   ];
   for (const firebendingMatch of firebendingMatches) {
-    const n = parseInt(String(firebendingMatch[1] || '0'), 10);
-    if (!(n > 0)) continue;
-    const effectText = `Add ${'{R}'.repeat(n)}. This mana lasts until end of combat.`;
-    triggers.push({
+    pushFirebendingTrigger(triggers, {
       permanentId,
       cardName,
-      triggerType: 'firebending',
-      description: effectText,
-      effect: effectText,
-      value: { amount: n },
-      mandatory: true,
-      requiresTarget: false,
+      amount: resolveFirebendingAmount(
+        String(firebendingMatch[1] || ''),
+        firebendingMatch[2],
+        card,
+        permanent,
+        gameState,
+      ),
     });
   }
   

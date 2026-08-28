@@ -5,7 +5,8 @@
 //   routing. All-able vs at-least-one are distinct grants. "If able" reuses
 //   canBlockAttacker plus creature/tap gates.
 // Public: attackerHasMustBeBlockedIfAble, attackerHasAllAbleCreaturesMustBlock,
-//   attackerMustBeBlockedByKeywords, findMustBeBlockedIfAbleViolation,
+//   attackerMustBeBlockedByKeywords, attackerIsAttackingDefender,
+//   listAttackersAgainstDefender, findMustBeBlockedIfAbleViolation,
 //   resolveMustBeBlockedIfAbleAssignments.
 
 import { getContinuousGrantedAbilitiesForPermanent } from '../../state/modules/staticEffectSpec.js';
@@ -83,7 +84,7 @@ function isAttackingPermanent(permanent: any): boolean {
   return Boolean(String(permanent.attacking || '').trim());
 }
 
-function attackerIsAttackingDefender(
+export function attackerIsAttackingDefender(
   attacker: any,
   defendingPlayerId: string,
   battlefield: any[],
@@ -108,6 +109,11 @@ function attackerIsAttackingDefender(
 
   const targetPerm = battlefield.find((perm: any) => readPermanentId(perm) === targetRef);
   return Boolean(targetPerm && readControllerId(targetPerm) === defenderId);
+}
+
+export function listAttackersAgainstDefender(battlefield: any[], defendingPlayerId: string): any[] {
+  const bf = Array.isArray(battlefield) ? battlefield : [];
+  return bf.filter((perm) => attackerIsAttackingDefender(perm, defendingPlayerId, bf));
 }
 
 function creatureCanAssignAsBlocker(

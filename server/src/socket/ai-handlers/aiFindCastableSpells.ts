@@ -26,7 +26,6 @@ import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import type { AICastableSpellCandidate } from "./aiActionCandidateTypes.js";
 import { getAIParsedManaCostAmount } from "./aiChoicePromptHandlers.js";
 import { canAIPayAdditionalCost } from "./aiManaCostHelpers.js";
-import { canAIAssembleSpellPaymentPlan } from "./aiSpellPaymentPlanHelpers.js";
 
 function getAIActionContext(game: any): any {
   return getAIHandlerDeps().getAIActionContext(game);
@@ -182,7 +181,10 @@ export function findCastableSpells(
         (candidate as any).__aiPaymentCost = paymentCost;
       }
 
-      return canAIAssembleSpellPaymentPlan(game, playerId, paymentCost, excludedHandCardIds);
+      // Shared candidates already passed canPayManaCostWithAvailableSources.
+      // Do not JSON-clone the full game to simulate non-tap mana abilities here —
+      // assemble the real payment plan only when the AI commits to the cast.
+      return true;
     })
     .map((candidate) => {
       const typeLine = String(candidate.castCard?.type_line || '').toLowerCase();

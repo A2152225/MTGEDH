@@ -19,6 +19,7 @@ import { canCreatureAttackNow, canCreatureBlockNow, getCounterCombatRestrictionR
 import { canBlockAttacker } from '../utils/combatBlocking';
 import { getBlockerCapacity } from '../utils/blockerCapacity';
 import { getCombinedPermanentText } from '../utils/permanentText';
+import { playerIsLegalAttackTarget } from '../../../rules-engine/src/playerInGameStatus';
 
 export interface CombatControlModalProps {
   open: boolean;
@@ -192,12 +193,16 @@ export function CombatControlModal({
   combatControl,
   allCreatures,
   currentAttackers = [],
-  defenders = [],
+  defenders: defendersProp = [],
   players,
   currentPlayerId,
   onConfirm,
   onCancel,
 }: CombatControlModalProps) {
+  const defenders = useMemo(
+    () => defendersProp.filter((player) => playerIsLegalAttackTarget(player)),
+    [defendersProp],
+  );
   // Attackers: map creature ID to target player ID
   const [selectedAttackers, setSelectedAttackers] = useState<Map<string, PlayerID>>(new Map());
   // Blockers: map blocker ID to attacker IDs

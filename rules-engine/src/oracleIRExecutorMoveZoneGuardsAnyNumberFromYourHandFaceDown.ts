@@ -25,10 +25,10 @@ import {
   addBattlefieldPermanentsToState,
 } from './oracleIRExecutorZoneOps';
 import {
+  chosenObjectIdsAreMatchingCardSelection,
   getChosenObjectIds,
   getOpponents,
   getTargetPlayerId,
-  hasExplicitChosenObjectIds,
 } from './oracleIRExecutorMoveZoneReferenceResolvers';
 import { buildAppliedResult } from './oracleIRExecutorMoveZoneStepResultBuilders';
 
@@ -318,7 +318,8 @@ export function tryApplyMoveZoneGuardsFromAnyNumberFromYourHandFaceDown(args: Mo
       const cardId = String(card?.id || '').trim();
       return Boolean(cardId && cardMatchesType(card, parsedAnyNumberFromYourHand.cardType));
     });
-    if (!hasExplicitChosenObjectIds(ctx)) {
+    const matchingIds = matchingCards.map((card: any) => String(card?.id || '').trim()).filter(Boolean);
+    if (!chosenObjectIdsAreMatchingCardSelection(ctx, matchingIds)) {
       if (matchingCards.length === 0) {
         return buildAppliedResult({ state: nextState, log: [`No matching hand cards: ${step.raw}`] });
       }

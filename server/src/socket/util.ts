@@ -365,7 +365,11 @@ export {
 } from "./util-handlers/manaAbilityLineResolvers.js";
 
 
-export { shouldApplyDevotionColorChoiceMana } from "./util-handlers/manaProductionDevotionHelpers.js";
+export {
+  shouldApplyDevotionColorChoiceMana,
+  shouldApplyChosenTypeColorChoiceMana,
+  shouldSkipScalingManaForColorlessTap,
+} from "./util-handlers/manaProductionDevotionHelpers.js";
 
 
 export { calculateManaProduction } from "./util-handlers/calculateManaProduction.js";

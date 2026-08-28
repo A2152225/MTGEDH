@@ -25,7 +25,7 @@ export const CREATURE_TYPES = [
   // G
   'Gamer', 'Gargoyle', 'Germ', 'Giant', 'Gith', 'Gnoll', 'Gnome', 'Goat', 'Goblin', 'God', 'Golem', 'Gorgon', 'Graveborn', 'Gremlin', 'Griffin', 'Guest',
   // H
-  'Hag', 'Halfling', 'Hamster', 'Harpy', 'Hellion', 'Hippo', 'Hippogriff', 'Homarid', 'Homunculus', 'Horror', 'Horse', 'Human', 'Hydra', 'Hyena',
+  'Hag', 'Halfling', 'Hamster', 'Harpy', 'Hellion', 'Hero', 'Hippo', 'Hippogriff', 'Homarid', 'Homunculus', 'Horror', 'Horse', 'Human', 'Hydra', 'Hyena',
   // I
   'Illusion', 'Imp', 'Incarnation', 'Inkling', 'Inquisitor', 'Insect',
   // J
@@ -58,7 +58,7 @@ export const CREATURE_TYPES = [
   // U
   'Unicorn', 'Utrom',
   // V
-  'Vampire', 'Vedalken', 'Viashino', 'Volver',
+  'Vampire', 'Vedalken', 'Viashino', 'Villain', 'Volver',
   // W
   'Wall', 'Walrus', 'Warlock', 'Warrior', 'Weasel', 'Weird', 'Werewolf', 'Whale', 'Wizard', 'Wolf', 'Wolverine', 'Wombat', 'Worm', 'Wraith', 'Wurm',
   // Y-Z
@@ -79,6 +79,37 @@ export function isCreatureTypeWord(word: string): boolean {
   const lower = String(word || '').trim().toLowerCase();
   if (!lower) return false;
   return CREATURE_TYPES.some((type) => type.toLowerCase() === lower);
+}
+
+/**
+ * Lowercase creature type, singularized ("Goblins" → "goblin", "Elves" → "elf").
+ * Leaves already-valid types that end in s (Pegasus) unchanged.
+ */
+const IRREGULAR_CREATURE_TYPE_PLURALS: Record<string, string> = {
+  elves: 'elf',
+  dwarves: 'dwarf',
+  mice: 'mouse',
+  wolves: 'wolf',
+  oxen: 'ox',
+  allies: 'ally',
+  heroes: 'hero',
+};
+
+export function normalizeCreatureTypeWord(word: string): string | null {
+  const lower = String(word || '').trim().toLowerCase();
+  if (!lower) return null;
+  if (isCreatureTypeWord(lower)) return lower;
+  const irregular = IRREGULAR_CREATURE_TYPE_PLURALS[lower];
+  if (irregular && isCreatureTypeWord(irregular)) return irregular;
+  if (lower.endsWith('ves') && lower.length > 4) {
+    const fForm = `${lower.slice(0, -3)}f`;
+    if (isCreatureTypeWord(fForm)) return fForm;
+  }
+  if (lower.endsWith('s') && lower.length > 2) {
+    const singular = lower.slice(0, -1);
+    if (isCreatureTypeWord(singular)) return singular;
+  }
+  return null;
 }
 
 /**

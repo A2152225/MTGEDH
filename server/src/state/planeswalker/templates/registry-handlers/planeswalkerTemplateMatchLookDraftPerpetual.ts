@@ -184,9 +184,13 @@ export function tryMatchPlaneswalkerTemplateLookDraftPerpetual(text: string): Pl
     };
   }
 
-  if (TARGET_CREATURE_YOU_CONTROL_GAINS_DEATHTOUCH_AND_LIFELINK_EOT_IF_VAMPIRE_P1P1_REGEX.test(text)) {
+  const mIfTypedP1P1 = text.match(TARGET_CREATURE_YOU_CONTROL_GAINS_DEATHTOUCH_AND_LIFELINK_EOT_IF_VAMPIRE_P1P1_REGEX);
+  if (mIfTypedP1P1) {
+    const subtype = String(mIfTypedP1P1[1] || "").toLowerCase();
     return {
-      id: "TARGET_CREATURE_YOU_CONTROL_GAINS_DEATHTOUCH_AND_LIFELINK_EOT_IF_VAMPIRE_P1P1",
+      id: subtype === "vampire"
+        ? "TARGET_CREATURE_YOU_CONTROL_GAINS_DEATHTOUCH_AND_LIFELINK_EOT_IF_VAMPIRE_P1P1"
+        : "TARGET_CREATURE_YOU_CONTROL_GAINS_DEATHTOUCH_AND_LIFELINK_EOT_IF_TYPED_P1P1",
       matchedText: text,
     };
   }
@@ -485,12 +489,24 @@ export function tryMatchPlaneswalkerTemplateLookDraftPerpetual(text: string): Pl
     return { id: "TARGET_CREATURE_AN_OPPONENT_CONTROLS_PERPETUALLY_GETS_MINUS3_MINUS3", matchedText: text };
   }
 
-  if (UNTAP_UP_TO_ONE_TARGET_ELF_THAT_ELF_AND_RANDOM_ELF_IN_HAND_PERPETUALLY_GET_P1P1_REGEX.test(text)) {
-    return { id: "UNTAP_UP_TO_ONE_TARGET_ELF_THAT_ELF_AND_RANDOM_ELF_IN_HAND_PERPETUALLY_GET_P1P1", matchedText: text };
+  const mUntapTypedHandP1P1 = text.match(UNTAP_UP_TO_ONE_TARGET_ELF_THAT_ELF_AND_RANDOM_ELF_IN_HAND_PERPETUALLY_GET_P1P1_REGEX);
+  if (mUntapTypedHandP1P1) {
+    const subtype = String(mUntapTypedHandP1P1[1] || "").toLowerCase();
+    return {
+      id: subtype === "elf"
+        ? "UNTAP_UP_TO_ONE_TARGET_ELF_THAT_ELF_AND_RANDOM_ELF_IN_HAND_PERPETUALLY_GET_P1P1"
+        : "UNTAP_UP_TO_ONE_TARGET_TYPED_THAT_TYPE_AND_RANDOM_TYPE_IN_HAND_PERPETUALLY_GET_P1P1",
+      matchedText: text,
+    };
   }
 
-  if (SEEK_AN_ELF_CARD_REGEX.test(text)) {
-    return { id: "SEEK_AN_ELF_CARD", matchedText: text };
+  const mSeekTypedCard = text.match(SEEK_AN_ELF_CARD_REGEX);
+  if (mSeekTypedCard) {
+    const subtype = String(mSeekTypedCard[1] || "").toLowerCase();
+    return {
+      id: subtype === "elf" ? "SEEK_AN_ELF_CARD" : "SEEK_A_TYPED_CARD",
+      matchedText: text,
+    };
   }
 
   if (CONJURE_A_CARD_NAMED_ONTO_THE_BATTLEFIELD_REGEX.test(text)) {

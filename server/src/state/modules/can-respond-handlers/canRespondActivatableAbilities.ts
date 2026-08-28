@@ -15,7 +15,9 @@ import { debug, debugWarn } from '../../../utils/debug.js';
 import { parseWordNumber } from '../../utils.js';
 import { canPlayerPayLife } from '../game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js';
 import { findPermanentsWithCreatureType } from '../../../../../shared/src/creatureTypes.js';
+import { abilityAllowsAnyPlayerActivation, textAllowsAnyPlayerActivation } from '../../../../../shared/src/anyPlayerActivatedAbility.js';
 import { isAbilityActivationProhibitedByChosenName } from '../chosen-name-restrictions.js';
+import { permanentCannotActivateTapAbilities } from '../staticEffectSpecActivationLocks.js';
 import { canActivateLoyaltyAtInstantSpeed } from '../triggered-abilities.js';
 import { isSplitSecondLockActive } from './canRespondSplitSecondLandPredicates.js';
 import { parseWordNumberForGraveyardCost } from './canRespondParseWordNumber.js';
@@ -232,7 +234,7 @@ function hasActivatableAbility(
   
   const { state } = ctx;
   const controller = permanent.controller;
-  if (controller !== playerId) return false;
+  if (controller !== playerId && !textAllowsAnyPlayerActivation(permanent.card?.oracle_text)) return false;
   
   const oracleText = permanent.card.oracle_text || "";
   const typeLine = (permanent.card.type_line || "").toLowerCase();
@@ -256,8 +258,9 @@ function hasActivatableAbility(
   // Using [^:]* to match any costs between {T} and : (e.g., ", Pay 1 life, Sacrifice ~")
   // This is safe because ability patterns always end with a colon before the effect
   const hasTapAbility = /\{T\}(?:\s*,?\s*[^:]*)?:/i.test(oracleText);
+  const tapAbilitiesLocked = permanentCannotActivateTapAbilities(permanent, state);
   
-  if (hasTapAbility) {
+  if (hasTapAbility && !tapAbilitiesLocked) {
     // Can only activate if not tapped
     if (permanent.tapped) return false;
     
@@ -403,17 +406,26 @@ function hasActivatableAbility(
   }
 
   // Check for other activated abilities: "{Cost}: Effect"
-  // Pattern: Mana symbols or other costs followed by colon
-  const activatedAbilityPattern = /(\{[^}]+\}(?:\s*,\s*\{[^}]+\})*)\s*:\s*(.+)/gi;
+  // Commas between symbols are optional so concatenated costs like {1}{R}{R} are
+  // captured in full. Requiring a comma truncated those to the last {R} and
+  // treated Fire Sages as a 1-mana activation.
+  const activatedAbilityPattern = /(\{[^}]+\}(?:\s*,?\s*\{[^}]+\})*)\s*:\s*(.+)/gi;
   const matches = [...oracleText.matchAll(activatedAbilityPattern)];
   
   for (const match of matches) {
     const costPart = match[1];
     const effectPart = match[2];
     const fullAbilityText = `${String(costPart || '').trim()}: ${String(effectPart || '').trim()}`;
-    
+    if (
+      controller !== playerId
+      && !abilityAllowsAnyPlayerActivation({
+        scopedAbilityText: fullAbilityText,
+        cardOracleText: oracleText,
+      })
+    ) continue;
+
     // Skip if this is just a mana ability we already checked
-    if (costPart.includes("{T}") && hasTapAbility) continue;
+    if (costPart.includes("{T}") && (hasTapAbility || tapAbilitiesLocked)) continue;
 
     if (!isActivatedAbilityConditionMet(ctx, playerId, fullAbilityText, oracleText, match.index)) {
       continue;

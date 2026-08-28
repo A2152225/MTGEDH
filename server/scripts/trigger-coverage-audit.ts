@@ -1490,6 +1490,8 @@ export function serverDetectsTrigger(card: OracleCard, trigger: TriggeredAbility
   }
 
   if (/\benters or attacks\b/.test(conditionText) || /\benters or attacks\b/.test(oracleLower)) {
+    // OR is a known false-green: either detector alone still marks the card covered.
+    // Honest AND lives in npm run oracle-ir:live-seam (compound_enters_or_attacks).
     if (detectAttackTriggers(cardObj, probePermanent).length > 0) return true;
     if (detectETBTriggers(cardObj, probePermanent).length > 0) return true;
   }

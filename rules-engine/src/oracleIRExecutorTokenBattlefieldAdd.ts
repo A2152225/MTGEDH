@@ -389,14 +389,17 @@ function resolveTokenAmount(
 
   const suffixForEachMatch = raw.match(/\bfor each\s+(.+?)\.?$/i);
   if (suffixForEachMatch) {
-    const count = evaluateTokenAmountExpression(
-      state,
-      controllerId,
-      String(suffixForEachMatch[1] || '').trim(),
-      ctx,
-      runtime,
-      step,
-    );
+    const countedExpression = String(suffixForEachMatch[1] || '').trim();
+    const count =
+      evaluateTokenAmountExpression(state, controllerId, countedExpression, ctx, runtime, step) ??
+      evaluateTokenAmountExpression(
+        state,
+        controllerId,
+        `the number of ${pluralizeCountExpression(countedExpression)}`,
+        ctx,
+        runtime,
+        step,
+      );
     if (count !== null) return count;
   }
 

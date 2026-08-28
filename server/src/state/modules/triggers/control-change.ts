@@ -62,13 +62,13 @@ export interface ControlChangeEffect {
  * Pattern: "enters under the control of an opponent of your choice"
  * Examples: Xantcha, Sleeper Agent
  */
-const ENTERS_OPPONENT_CHOICE_PATTERN = /(?:~|this creature|this permanent) enters (?:the battlefield )?under the control of an opponent of your choice/i;
+const ENTERS_OPPONENT_CHOICE_PATTERN = /(?:~|this creature|this permanent|[^\n.]+?) enters (?:the battlefield )?under the control of an opponent of your choice/i;
 
 /**
  * Pattern: "enters under the control of an opponent" (no choice - random/specific)
  * Examples: Some cards where opponent is determined
  */
-const ENTERS_OPPONENT_PATTERN = /(?:~|this creature|this permanent) enters (?:the battlefield )?under (?:the control of )?an opponent/i;
+const ENTERS_OPPONENT_PATTERN = /(?:~|this creature|this permanent|[^\n.]+?) enters (?:the battlefield )?under (?:the control of )?an opponent/i;
 
 /**
  * Pattern: "you may have an opponent gain control of it"

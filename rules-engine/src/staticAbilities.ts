@@ -38,9 +38,10 @@ export {
 } from './staticAbilitiesShared';
 
 export function collectStaticAbilities(
-  battlefield: BattlefieldPermanent[]
+  battlefield: BattlefieldPermanent[],
+  gameState?: GameState
 ): StaticAbility[] {
-  return collectStaticAbilitiesImpl(battlefield, parseStaticAbilities);
+  return collectStaticAbilitiesImpl(battlefield, parseStaticAbilities, gameState);
 }
 
 /**

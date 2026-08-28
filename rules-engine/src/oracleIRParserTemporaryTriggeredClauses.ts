@@ -30,6 +30,15 @@ function trimGrantedDiesReminderTail(effectText: string): string {
     .trim();
 }
 
+const DEALT_DAMAGE_THIS_WAY_DIES_THIS_TURN =
+  /^when(?:ever)?\s+a\s+creature(\s+you\s+control)?\s+dealt\s+damage\s+this\s+way\s+dies\s+this\s+turn,?\s*(.+)$/i;
+
+export function isDealtDamageThisWayDiesThisTurnSpellLine(text: string): boolean {
+  const normalized = normalizeOracleText(String(text || '')).replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  return DEALT_DAMAGE_THIS_WAY_DIES_THIS_TURN.test(normalized);
+}
+
 export function tryParseTemporaryGrantedDiesTriggerClause(args: {
   clause: string;
   rawClause: string;
@@ -38,6 +47,20 @@ export function tryParseTemporaryGrantedDiesTriggerClause(args: {
   const { clause, rawClause, withMeta } = args;
   const normalized = normalizeOracleText(clause).trim();
   if (!normalized) return null;
+
+  const thisWayDiesMatch = normalized.match(DEALT_DAMAGE_THIS_WAY_DIES_THIS_TURN);
+  if (thisWayDiesMatch) {
+    const youControl = Boolean(String(thisWayDiesMatch[1] || '').trim());
+    return buildGrantedDiesTriggerStep({
+      targetText: youControl
+        ? 'creatures you control dealt damage this way'
+        : 'creatures dealt damage this way',
+      effectText: trimGrantedDiesReminderTail(String(thisWayDiesMatch[2] || '')),
+      rawClause,
+      duration: 'until_end_of_turn',
+      withMeta,
+    });
+  }
 
   if (
     /^(?:until end of turn,\s+)?.+?\s+gets\s+.+?\s+and\s+gains?\s+"when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,/i.test(

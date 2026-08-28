@@ -140,6 +140,7 @@ export function buildOracleIRExecutionContext(
   const hintNoncreatureSpellCastCountThisTurn = Number(hint?.noncreatureSpellCastCountThisTurn);
   const baseTargetOpponentId = normalizeId(baseSel?.targetOpponentId);
   const baseTargetPlayerId = normalizeId(baseSel?.targetPlayerId);
+  const baseTargetOwnerId = normalizeId(baseSel?.targetOwnerId);
   const baseTargetSpellId = normalizeId(baseSel?.targetSpellId);
   const baseSourceObjectType = normalizeSourceObjectType(base.sourceObjectType);
   const baseSourceColors = normalizeSourceColors(base.sourceColors);
@@ -229,6 +230,7 @@ export function buildOracleIRExecutionContext(
       inferredTargetOpponentId ??
       baseTargetOpponentId ??
       baseTargetFromPlayer,
+    ...(baseTargetOwnerId ? { targetOwnerId: baseTargetOwnerId } : {}),
     ...(hintTargetSpellId || baseTargetSpellId ? { targetSpellId: hintTargetSpellId ?? baseTargetSpellId } : {}),
     ...(hintTargetPermanentId || base.targetPermanentId
       ? { targetPermanentId: hintTargetPermanentId ?? normalizeId(base.targetPermanentId) }

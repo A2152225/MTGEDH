@@ -7,7 +7,7 @@
 // Handles: executeEffect, foretellCard, suspendCard, morphTurnFaceUp, phaseOutPermanents
 import type { GameContext } from "../../context";
 import type { PlayerID, GameEvent } from "../../types";
-import { pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
+import { pushCardToGraveyardFromLibrary } from "../graveyardEntryUtils.js";
 import { parsePT } from "../../utils";
 import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "../durable-permissions.js";
 import { clearReplayQueuedSteps, clearReplayQueuedStepById } from "../applyEventReplayZoneCommanderManaHelpers.js";
@@ -24,6 +24,7 @@ import { hydratePermanentCardOracleInPlace } from "../cardOracleHydration.js";
 import { ResolutionStepType } from "../../resolution/index.js";
 import { consumeReplayedTriggeredAbilityStackItems } from "../replay-prompt-cleanup.js";
 import { getOrInitManaPool } from "../../../socket/util.js";
+import { addTemporaryEtbTrigger } from "../triggerEtbEntryEffects-handlers/triggerEtbTemporaryEntryTriggers.js";
 
 export function applyExecuteEffectEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -275,12 +276,29 @@ export function applyExecuteEffectEvents(ctx: GameContext, e: GameEvent): boolea
                   const milledCard = zones.library.shift();
                   if (milledCard) {
                     zones.graveyard = zones.graveyard || [];
-                    pushCardToPlayerGraveyardWithReplacements(ctx as any, String(targetId), milledCard, zones.graveyard);
+                    pushCardToGraveyardFromLibrary(ctx as any, String(targetId), milledCard, zones.graveyard);
                   }
                 }
                 zones.libraryCount = zones.library.length;
                 zones.graveyardCount = (zones.graveyard || []).length;
                 debug(2, `[applyEvent] ${targetId} milled ${amount} card(s)`);
+              }
+              break;
+            }
+            case 'grantTemporaryEtbTrigger': {
+              const entry = (e as any).entry;
+              if (entry && typeof entry === 'object') {
+                const existing = Array.isArray((ctx.state as any)?.temporaryEtbTriggers)
+                  ? (ctx.state as any).temporaryEtbTriggers
+                  : [];
+                const alreadyPresent = existing.some((current: any) => (
+                  String(current?.controller || '') === String(entry?.controller || '')
+                  && String(current?.sourceName || '') === String(entry?.sourceName || '')
+                  && String(current?.effect || current?.description || '') === String(entry?.effect || entry?.description || '')
+                ));
+                if (!alreadyPresent) {
+                  addTemporaryEtbTrigger(ctx.state, entry);
+                }
               }
               break;
             }

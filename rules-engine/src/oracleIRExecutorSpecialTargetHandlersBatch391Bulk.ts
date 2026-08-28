@@ -15,59 +15,15 @@ function readPower(entry: unknown): number | null {
   return Number.isFinite(power) ? Math.max(0, power) : null;
 }
 
-function collectFightCreatureIds(ctx: OracleIRExecutionContext): string[] {
-  const ids = [
-    ...(Array.isArray(ctx.lastMovedBattlefieldPermanentIds) ? ctx.lastMovedBattlefieldPermanentIds : []),
-    ...(Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : []),
-    String(ctx.targetCreatureId || '').trim(),
-    String(ctx.selectorContext?.targetCreatureId || '').trim(),
-  ]
-    .map((id) => String(id || '').trim())
-    .filter(Boolean);
-  return [...new Set(ids)];
-}
-
 export function tryBatch391DealDamageStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'deal_damage' }>,
   ctx: OracleIRExecutionContext,
-  amount: number
+  _amount: number
 ): SpecialTargetStepResult | null {
   const raw = normalizeRaw(step);
-  const targetText =
-    step.target?.kind === 'raw' ? String(step.target.text || '').trim().toLowerCase() : '';
 
-  if (/those creatures fight each other/.test(raw) || targetText === 'each other') {
-    const ids = collectFightCreatureIds(ctx);
-    const fighters = ids
-      .map((id) => (state.battlefield || []).find((entry: any) => String(entry?.id || '').trim() === id))
-      .filter(Boolean);
-    const powers = fighters.map((fighter) => readPower(fighter) ?? 0);
-    const total = powers.reduce((sum, power) => sum + power, 0);
-    return {
-      applied: true,
-      state,
-      log: [`${fighters.length} creature(s) fought each other (${total} total damage)`],
-    };
-  }
-
-  if (/fights target creature you don't control/.test(raw)) {
-    const attackerId = String(ctx.sourceId || ctx.targetCreatureId || '').trim();
-    const defenderId = String(
-      ctx.selectorContext?.targetCreatureId ||
-        ctx.targetCreatureId ||
-        'bf-opponent-creature'
-    ).trim();
-    const attacker = (state.battlefield || []).find((entry: any) => String(entry?.id || '').trim() === attackerId);
-    const defender = (state.battlefield || []).find((entry: any) => String(entry?.id || '').trim() === defenderId);
-    const dealt =
-      (readPower(attacker) ?? amount ?? 0) + (readPower(defender) ?? 0);
-    return {
-      applied: true,
-      state,
-      log: [`${attackerId || 'source'} fought ${defenderId || 'target'} (${dealt} total damage)`],
-    };
-  }
+  // Fight clauses are applied by tryApplyFightDealDamageStep (marks damage both ways).
 
   // "deals damage equal to that card's mana value" is deliberately absent: it reported a damage total
   // in the log without marking any permanent. The generic deal_damage handler resolves the same

@@ -302,6 +302,7 @@ export {
   applyGrantGraveyardKeywordAbilityStep,
   applyGrantGraveyardPermissionStep,
   applyJoinForcesStep,
+  applyTemptingOfferStep,
   applyModifyGraveyardPermissionsStep,
   applyModifyTokenCreationStep,
   mergeGrantedGraveyardPermissionSourceText,

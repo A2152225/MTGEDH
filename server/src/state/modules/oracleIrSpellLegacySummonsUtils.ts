@@ -7,7 +7,7 @@ import { cardManaValue } from '../utils.js';
 import { applyMillReplacements } from './game-state-effects.js';
 import { addCreatureType } from './triggerDelayedEffectUtils.js';
 import { createToken, updateCounters } from './counters_tokens.js';
-import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
+import { pushCardToGraveyardFromLibrary } from './graveyardEntryUtils.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 
 function cardTypeLine(card: any): string {
@@ -148,7 +148,7 @@ export function applySummonsOfSarumanEffect(
   for (let index = 0; index < millCount && library.length > 0; index += 1) {
     const milled = library.shift();
     if (!milled) continue;
-    pushCardToPlayerGraveyardWithReplacements(ctx, String(controller), milled, controllerZones.graveyard);
+    pushCardToGraveyardFromLibrary(ctx, String(controller), milled, controllerZones.graveyard);
     milledCards.push({ ...(milled as any), zone: 'graveyard' });
   }
 

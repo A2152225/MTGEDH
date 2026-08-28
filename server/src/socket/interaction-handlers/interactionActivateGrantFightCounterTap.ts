@@ -8,11 +8,13 @@
  */
 
 import type { PlayerID } from "../../../../shared/src/index.js";
+import { permanentHasCreatureType } from "../../../../shared/src/creatureTypes.js";
 import { getActivatedAbilityConfig } from "../../../../rules-engine/src/cards/activatedAbilityCards.js";
 import { creatureHasHaste } from "../game-actions.js";
 import { requestPlayerSelection } from "../player-selection.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
+import { parseGrantAbilityCreatureTarget } from "./interactionActivateGrantAbilityTargetParse.js";
 import {
   broadcastGame,
   calculateTotalAvailableMana,
@@ -72,44 +74,64 @@ export async function tryHandleActivateGrantFightCounterTap(
   // and leading-duration text ("Until end of turn, target creature gains ...").
   // Examples: Fire Nation Palace ("{1}{R}, {T}: Target creature you control gains firebending 4")
   //           Sokrates, Athenian Teacher ("{T}: Until end of turn, target creature gains ...")
+  //           Otepec Huntmaster ("{T}: Target Dinosaur gains haste until end of turn.")
   // Note: This also applies to instants/sorceries that grant abilities, but those are handled
   // during spell resolution via the targeting system
   const scopedGrantResolvedAbilityText = String(scopedAbilityFullText).replace(/^[^:]+:\s*/, '').trim();
   const scopedGrantActivatedAbilityText = String(scopedAbilityFullText || '').trim();
-  const grantAbilityMatch = scopedGrantResolvedAbilityText.match(/^(?:until end of turn,\s*)?target\s+creature(?:\s+(you control|an opponent controls))?.*?\s+(gains?|gets?)\s+(.+)$/i);
+  const parsedGrantTarget = parseGrantAbilityCreatureTarget(scopedGrantResolvedAbilityText);
   const hasExplicitGrantAbilityId = /-grant-ability-(\d+)$/i.test(abilityId) || abilityId === 'grant-ability';
 
-  if (grantAbilityMatch && (hasExplicitGrantAbilityId || isGenericActivatedAbilityId)) {
-    const targetRestriction = grantAbilityMatch[1]?.toLowerCase() || 'any';
-    let abilityGranted = grantAbilityMatch[3].trim();
-    
-    // Clean up the ability text
-    abilityGranted = abilityGranted.replace(/\s+until end of turn\.?$/i, '').trim();
-    abilityGranted = abilityGranted.replace(/\.$/, '').trim();
-    if (abilityGranted.startsWith('"') && abilityGranted.endsWith('"')) {
-      abilityGranted = abilityGranted.slice(1, -1).trim();
-    }
+  if (parsedGrantTarget && (hasExplicitGrantAbilityId || isGenericActivatedAbilityId)) {
+    const targetRestriction = parsedGrantTarget.controllerRestriction === 'you'
+      ? 'you control'
+      : parsedGrantTarget.controllerRestriction === 'opponent'
+        ? 'an opponent controls'
+        : 'any';
+    const abilityGranted = parsedGrantTarget.abilityGranted;
+    const creatureTypeFilter = parsedGrantTarget.creatureType;
     
     debug(2, `[activateBattlefieldAbility] Grant ability detected: ${cardName} - "${abilityGranted}" (restriction: ${targetRestriction})`);
+
+    const costPrefix = String(scopedAbilityFullText).split(':')[0] || '';
+    const requiresTap = /\{t\}/i.test(costPrefix);
+    const manaCost = (costPrefix.match(/\{[^}]+\}/g) || [])
+      .filter((symbol) => !/^\{t\}$/i.test(symbol))
+      .join('');
     
     // Determine if this targets own or opponent creatures
     const targetsOwnCreatures = targetRestriction.includes('you control');
     const targetsOpponentCreatures = targetRestriction.includes("opponent");
+    const typeNoun = creatureTypeFilter || 'creature';
     const targetDescription = targetsOpponentCreatures
-      ? 'creature an opponent controls'
+      ? `${typeNoun} an opponent controls`
       : targetsOwnCreatures
-        ? 'creature you control'
-        : 'creature';
+        ? `${typeNoun} you control`
+        : typeNoun;
     const promptTargetDescription = targetsOpponentCreatures
-      ? 'a target creature an opponent controls'
+      ? `a target ${typeNoun} an opponent controls`
       : targetsOwnCreatures
-        ? 'a target creature you control'
-        : 'a target creature';
+        ? `a target ${typeNoun} you control`
+        : `a target ${typeNoun}`;
+    const powerAtLeastMatch = scopedGrantResolvedAbilityText.match(/\bwith power (\d+) or greater\b/i);
+    const powerAtMostMatch = scopedGrantResolvedAbilityText.match(/\bwith power (\d+) or less\b/i);
+    const minPower = powerAtLeastMatch ? Number(powerAtLeastMatch[1]) : undefined;
+    const maxPower = powerAtMostMatch ? Number(powerAtMostMatch[1]) : undefined;
     
     // Get valid target creatures
     const validTargets = battlefield.filter((p: any) => {
       const pTypeLine = (p.card?.type_line || "").toLowerCase();
-      if (!pTypeLine.includes("creature")) return false;
+      if (creatureTypeFilter) {
+        if (!permanentHasCreatureType(p, creatureTypeFilter)) return false;
+      } else if (!pTypeLine.includes("creature")) {
+        return false;
+      }
+      if (typeof minPower === 'number' && Number.isFinite(minPower) && getEffectivePower(p) < minPower) {
+        return false;
+      }
+      if (typeof maxPower === 'number' && Number.isFinite(maxPower) && getEffectivePower(p) > maxPower) {
+        return false;
+      }
       
       if (targetsOpponentCreatures) {
         return p.controller !== pid; // Opponent's creatures
@@ -125,14 +147,54 @@ export async function tryHandleActivateGrantFightCounterTap(
     if (validTargets.length === 0) {
       socket.emit("error", {
         code: "NO_VALID_TARGETS",
-        message: targetsOpponentCreatures 
-          ? "No opponent creatures to target"
+        message: targetsOpponentCreatures
+          ? `No opponent ${typeNoun}s to target`
           : targetsOwnCreatures
-            ? "You have no creatures to target"
-            : "No creatures to target",
+            ? `You have no ${typeNoun}s to target`
+            : `No ${typeNoun}s to target`,
       });
       return true;
     }
+
+    const isCreaturePermanent = /\bcreature\b/i.test(typeLine) && !/\bland\b/i.test(typeLine);
+    if (requiresTap && isCreaturePermanent) {
+      if ((permanent as any).summoningSickness && !creatureHasHaste(permanent, battlefield, pid)) {
+        socket.emit('error', {
+          code: 'SUMMONING_SICKNESS',
+          message: `${cardName} has summoning sickness and cannot use tap abilities this turn`,
+        });
+        return true;
+      }
+    }
+
+    if (requiresTap && (permanent as any).tapped) {
+      socket.emit("error", {
+        code: "ALREADY_TAPPED",
+        message: `${cardName} is already tapped`,
+      });
+      return true;
+    }
+
+    let manaPoolBeforePayment: Record<string, number> | undefined;
+    let poolAfterPayment: any;
+    if (manaCost) {
+      const parsedCost = parseManaCost(manaCost);
+      const pool = getOrInitManaPool(game.state, pid);
+      manaPoolBeforePayment = snapshotInteractionManaPool(pool);
+      const totalAvailable = calculateTotalAvailableMana(pool, []);
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+        return true;
+      }
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:grant-ability]');
+      poolAfterPayment = pool;
+    }
+
+    if (requiresTap) {
+      (permanent as any).tapped = true;
+    }
+    const tappedPermanentsForCost = requiresTap ? [String(permanentId)] : [];
 
     // Unified Resolution Queue prompt
     const existing = ResolutionQueueManager
@@ -140,7 +202,7 @@ export async function tryHandleActivateGrantFightCounterTap(
       .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.battlefieldAbilityTargetSelection === true && String((s as any)?.abilityId || '') === String(abilityId) && String(s?.sourceId) === String(permanentId));
 
     if (!existing) {
-      ResolutionQueueManager.addStep(gameId, {
+      const queuedStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: pid as PlayerID,
         sourceId: permanentId,
@@ -165,11 +227,30 @@ export async function tryHandleActivateGrantFightCounterTap(
         cardName,
         abilityText: scopedGrantResolvedAbilityText,
         activatedAbilityText: scopedGrantActivatedAbilityText || undefined,
+        tappedPermanentsForCost,
       } as any);
 
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
+      persistQueuedBattlefieldAbilityStepActivation({
+        gameId,
+        game,
+        playerId: String(pid),
+        permanentId: String(permanentId),
+        abilityId: String(abilityId),
+        cardName,
+        abilityText: scopedGrantResolvedAbilityText,
+        activatedAbilityText: scopedGrantActivatedAbilityText || undefined,
+        tappedPermanents: tappedPermanentsForCost,
+        paymentManaDelta: manaPoolBeforePayment && poolAfterPayment
+          ? calculateInteractionManaPoolDelta(manaPoolBeforePayment, poolAfterPayment)
+          : undefined,
+        queuedStep: {
+          ...(queuedStep as any),
+          id: String((queuedStep as any)?.id || ''),
+        },
+      });
       broadcastGame(io, game, gameId);
     }
     return true;

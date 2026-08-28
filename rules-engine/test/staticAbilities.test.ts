@@ -201,6 +201,40 @@ describe('Enhanced Static Abilities', () => {
       expect(lordAbility?.toughnessMod).toBe(1);
     });
 
+    it('grants Other [type]s you control have haste without granting it to the lord', () => {
+      const alpha = createMockPermanent(
+        'regisaur-1',
+        'player1',
+        'Regisaur Alpha',
+        'Creature — Dinosaur',
+        'Other Dinosaurs you control have haste.\nWhen this creature enters, create a 3/3 green Dinosaur creature token with trample.',
+        7,
+        6,
+      );
+      const otherDino = createMockPermanent(
+        'dreadmaw-1',
+        'player1',
+        'Earthshaker Dreadmaw',
+        'Creature — Dinosaur',
+        'Trample',
+        6,
+        6,
+      );
+
+      const abilities = parseStaticAbilities(alpha.card as KnownCardRef, 'regisaur-1', 'player1');
+      const hasteGrant = abilities.find(
+        (ability) => ability.effectType === StaticEffectType.GRANT_ABILITY && ability.value === 'haste',
+      );
+      expect(hasteGrant?.filter.other).toBe(true);
+      expect(hasteGrant?.filter.types?.some((type) => type.toLowerCase().includes('dinosaur'))).toBe(true);
+
+      const applied = applyStaticAbilitiesToBattlefield([alpha, otherDino]);
+      const appliedAlpha = applied.find((perm) => perm.id === 'regisaur-1') as any;
+      const appliedOther = applied.find((perm) => perm.id === 'dreadmaw-1') as any;
+      expect(appliedAlpha?.grantedAbilities || []).not.toContain('haste');
+      expect(appliedOther?.grantedAbilities || []).toContain('haste');
+    });
+
     it('should buff other squirrels but not itself', () => {
       // Create Squirrel Sovereign
       const squirrelSovereign = createMockPermanent(
@@ -523,6 +557,56 @@ describe('Enhanced Static Abilities', () => {
       expect(processedCreature?.effectivePower).toBe(4);
       expect(processedCreature?.effectiveToughness).toBe(4);
       expect(processedCreature?.grantedAbilities).toContain('flying');
+    });
+  });
+
+  describe('identical token swarm performance', () => {
+    function createSoldierToken(id: string, tapped: boolean): BattlefieldPermanent {
+      return {
+        ...createMockPermanent(
+          id,
+          'player1',
+          'Soldier',
+          'Token Artifact Creature — Soldier',
+          '',
+          1,
+          1,
+        ),
+        isToken: true,
+        tapped,
+      };
+    }
+
+    it('applies a lord once across a large identical soldier swarm', () => {
+      const anthem = createMockPermanent(
+        'anthem-1',
+        'player1',
+        'Glorious Anthem',
+        'Enchantment',
+        'Creatures you control get +1/+1.',
+      );
+      const soldiers = [
+        ...Array.from({ length: 40 }, (_, i) => createSoldierToken(`tok_tapped_${i}`, true)),
+        ...Array.from({ length: 10 }, (_, i) => createSoldierToken(`tok_ready_${i}`, false)),
+      ];
+      const processed = applyStaticAbilitiesToBattlefield([anthem, ...soldiers]);
+      const tokens = processed.filter((perm) => perm.isToken);
+      expect(tokens).toHaveLength(50);
+      expect(tokens.every((perm) => perm.effectivePower === 2 && perm.effectiveToughness === 2)).toBe(true);
+    });
+
+    it('does not recompute when applying static abilities to an already-processed snapshot', () => {
+      const anthem = createMockPermanent(
+        'anthem-1',
+        'player1',
+        'Honor of the Pure',
+        'Enchantment',
+        'White creatures you control get +1/+1.',
+      );
+      const soldier = createSoldierToken('tok_1', false);
+      const once = applyStaticAbilitiesToBattlefield([anthem, soldier]);
+      const twice = applyStaticAbilitiesToBattlefield(once);
+      expect(twice).toBe(once);
     });
   });
 });

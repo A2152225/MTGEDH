@@ -142,12 +142,15 @@ function resolveBattlefieldPermanentBySelector(
     return '';
   }
 
-  if (/^target non-human creature you control$/.test(normalized)) {
+  if (/^target non-([a-z]+) creature you control$/.test(normalized)) {
+    const excluded = String(normalized.match(/^target non-([a-z]+) creature you control$/)?.[1] || '').toLowerCase();
     const matches = battlefield.filter(
       perm =>
         (perm as any)?.controller === controllerId &&
         hasExecutorClass(perm as any, 'creature') &&
-        !/\bhuman\b/i.test(String((perm as any)?.type_line || (perm as any)?.card?.type_line || ''))
+        !new RegExp(`\\b${excluded.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(
+          String((perm as any)?.type_line || (perm as any)?.card?.type_line || ''),
+        )
     );
     const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
     if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();

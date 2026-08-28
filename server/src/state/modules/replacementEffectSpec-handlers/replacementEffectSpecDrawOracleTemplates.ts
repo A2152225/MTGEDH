@@ -84,9 +84,42 @@ const ORACLE_DRAW_REPLACEMENT_TEMPLATES: readonly OracleDrawReplacementTemplate[
       reason: 'extra_draw',
     },
   },
+  {
+    templateId: 'controller-skip-draw-step-optional',
+    oracleMustIncludeAll: [
+      'if you would draw a card during your draw step',
+      'instead you may skip that draw',
+      'if you do',
+      "you can't be attacked except by creatures with",
+    ],
+    spec: {
+      event: 'card-draw',
+      match: {
+        drawingPlayerIsSourceController: true,
+        requireEventMetadataTrue: 'isDrawStepDraw',
+        skipWhenEventMetadataTrue: 'skipSkipDrawReplacement',
+        exactDrawCount: 1,
+      },
+      instead: { choiceRequired: true },
+      effectId: 'skip-draw-step-replacement',
+      reason: 'skip_draw_step_replacement',
+    },
+  },
 ];
 
 
+
+function extractSkipDrawExceptKeywords(oracle: string): string[] {
+  const match = String(oracle || '').match(
+    /can(?:not|'t|’t)\s+be\s+attacked\s+except\s+by\s+creatures\s+with\s+(.+?)(?:\.|$)/i,
+  );
+  if (!match) return [];
+  return String(match[1] || '')
+    .replace(/\.+$/, '')
+    .split(/\s*(?:,\s*(?:and\/or|and|or)\s+|and\/or|\s+or\s+|\s+and\s+|,\s+)\s*/i)
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => /^[a-z][a-z\s]*$/.test(part));
+}
 
 export function collectOraclePatternDrawReplacementSpecsFromState(state: unknown): ReplacementEffectSpec[] {
   const specs: ReplacementEffectSpec[] = [];
@@ -112,12 +145,23 @@ export function collectOraclePatternDrawReplacementSpecsFromState(state: unknown
     for (const template of ORACLE_DRAW_REPLACEMENT_TEMPLATES) {
       if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
       if (template.oracleMustExcludeAny?.some((phrase) => oracle.includes(phrase))) continue;
+      const extraMetadata: Record<string, unknown> = {};
+      if (template.templateId === 'controller-skip-draw-step-optional') {
+        const exceptKeywords = extractSkipDrawExceptKeywords(oracle);
+        if (exceptKeywords.length === 0) continue;
+        extraMetadata.exceptKeywords = exceptKeywords;
+        extraMetadata.sourcePermanentId = sourcePermanentId;
+      }
       specs.push({
         ...template.spec,
         id: `${sourcePermanentId}:${template.templateId}`,
         sourcePermanentId,
         sourceController,
         sourceName,
+        metadata: {
+          ...(template.spec.metadata || {}),
+          ...extraMetadata,
+        },
       });
     }
   }

@@ -59,6 +59,7 @@ import {
   persistAndResolveTopOfStack,
 } from "../util.js";
 import { processAttackCostPaymentBeforeStepComplete } from "./attackCostPaymentBeforeCompleteHandlers.js";
+import { processBlockCostPaymentBeforeStepComplete } from "./blockCostPaymentBeforeCompleteHandlers.js";
 import { emitResolutionStepPrompt } from "./emitResolutionStepPrompt.js";
 import { handlePanglacialWurmSearchCast } from "./panglacialSearchCastHandlers.js";
 import { getPanglacialCastCardId } from "./panglacialSearchCastUtils.js";
@@ -391,6 +392,24 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       }
     }
 
+    if (
+      step.type === ResolutionStepType.OPTION_CHOICE &&
+      (step as any)?.blockCostPayment === true
+    ) {
+      const blockCostResult = await processBlockCostPaymentBeforeStepComplete(
+        io,
+        game,
+        gameId,
+        step,
+        response,
+        socket,
+      );
+      if (blockCostResult === 'abort') {
+        broadcastGame(io, game, gameId);
+        return;
+      }
+    }
+
     const completedStep = ResolutionQueueManager.completeStep(gameId, stepId, response);
     
     if (completedStep) {
@@ -588,6 +607,15 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
               step: sanitizeStepForClient(eventGameId, step),
             });
           }
+        }
+        break;
+
+      case ResolutionQueueEvent.STEP_CANCELLED:
+        if (step && step.playerId === socket.data.playerId) {
+          socket.emit("resolutionStepCancelled", {
+            gameId: eventGameId,
+            stepId: step.id,
+          });
         }
         break;
         

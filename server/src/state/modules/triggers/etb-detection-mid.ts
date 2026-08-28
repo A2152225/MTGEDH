@@ -454,17 +454,39 @@ export function appendEtbDetectionMid(state: EtbDetectionState): void {
     }
   }
 
+  const commanderYouControlEtbOrAttackMatch = oracleText.match(
+    /whenever a commander you control enters or attacks,?\s*([^.]+)/i,
+  );
+  if (
+    commanderYouControlEtbOrAttackMatch &&
+    !triggers.some((t) => t.triggerType === 'commander_you_control_etb_or_attack')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, commanderYouControlEtbOrAttackMatch);
+    if (effectText) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'commander_you_control_etb_or_attack',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
   if (creatureETBMatch && !hasOpponentCreatureRestriction && !triggers.some(t => t.triggerType === 'creature_etb')) {
     const requiredTypePhrase = creatureETBMatch[1].trim();
     const effectText = timingTriggerEffect(oracleText, creatureETBMatch, 2);
     // Land / land-subtype subjects belong to landfall detection, not creature_etb.
     // Otherwise Scute Swarm / Titania dual-classify and can double-fire on land-creatures.
     // Chosen-type "enters or attacks" is owned by chosen_type_creature_etb_or_attack.
+    // Commander "enters or attacks" is owned by commander_you_control_etb_or_attack.
     if (
       !isLandfallEtbSubjectPhrase(requiredTypePhrase)
       && !isSwallowedCompoundEnterEffect(effectText)
       && !/\bchosen type\b/i.test(requiredTypePhrase)
       && !triggers.some((t) => t.triggerType === 'chosen_type_creature_etb_or_attack')
+      && !triggers.some((t) => t.triggerType === 'commander_you_control_etb_or_attack')
       && !(/^\s*(?:nontoken\s+)?(?:artifact|enchantment|land|planeswalker|equipment|battle)s?\s*$/i.test(requiredTypePhrase))
     ) {
       const isNontokenOnly = /\b(?:nontoken|non-token)\b/i.test(requiredTypePhrase);

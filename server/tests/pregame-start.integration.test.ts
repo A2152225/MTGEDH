@@ -131,6 +131,8 @@ describe('pre-game start and first draw', () => {
 
     expect(started).toBe(true);
     expect(g.state.phase).toBe(GamePhase.BEGINNING);
-    expect(g.state.turnPlayer).toBe(p1);
+    expect([p1, p2]).toContain(g.state.turnPlayer);
+    expect((g.state as any).startingPlayerId).toBe(g.state.turnPlayer);
+    expect((g.state.players as any[]).map((p: any) => p.id).sort()).toEqual([p1, p2].sort());
   });
 });

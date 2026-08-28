@@ -32,4 +32,6 @@ export type AIAbilityActivationSnapshot = {
   exileCount: number;
   permanentExists: boolean;
   permanentTapped: boolean;
+  /** Tap/untap of *other* permanents (tap-a-Merfolk costs) is progress even if the source stays untapped. */
+  battlefieldTappedKey: string;
 };

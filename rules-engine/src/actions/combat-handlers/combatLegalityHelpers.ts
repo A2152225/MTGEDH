@@ -11,6 +11,11 @@ import { isCreatureTypeWord, permanentHasCreatureType } from '../../../../shared
 import { getLandwalkUnblockableReason } from '../../../../shared/src/combatLandwalk.js';
 import { getIllegalDefendingPlayerRestriction, hasBlanketCantAttack } from '../../attackRestrictionText';
 import { getCombinedPermanentText } from '../../permanentText';
+import {
+  grantedAbilityIsOwnKeyword,
+  oracleTextGrantsKeywordOnlyToOthers,
+  oracleTextHasOwnKeyword,
+} from '../../oracleOwnKeywordText';
 import { isStationPermanentCreatureNow, isStationPermanentTypeLine } from '../../stationPermanentUtils';
 import { getPermanentForGoadAnalysis } from './combatGoadPermanentLookup.js';
 import { getPermanentPower } from './combatPermanentPower.js';
@@ -407,14 +412,27 @@ export function canPermanentAttack(
  */
 export function hasHaste(permanent: any): boolean {
   if (!permanent) return false;
-  const combinedText = getCombinedPermanentText(permanent);
-  if (combinedText.includes('haste')) return true;
+  const ownOracle = String(permanent.card?.oracle_text || permanent.oracle_text || '');
+  const otherOnlyGrant = oracleTextGrantsKeywordOnlyToOthers(ownOracle, 'haste');
+
+  if (oracleTextHasOwnKeyword(ownOracle, 'haste')) return true;
+
+  const keywords = Array.isArray(permanent.card?.keywords) ? permanent.card.keywords : [];
+  if (
+    !otherOnlyGrant &&
+    keywords.some((keyword: unknown) => String(keyword || '').toLowerCase() === 'haste')
+  ) {
+    return true;
+  }
   
   // Check granted abilities
-  if (permanent.grantedAbilities && Array.isArray(permanent.grantedAbilities)) {
-    if (permanent.grantedAbilities.some((a: string) => a.toLowerCase() === 'haste')) {
-      return true;
-    }
+  if (
+    !otherOnlyGrant &&
+    permanent.grantedAbilities &&
+    Array.isArray(permanent.grantedAbilities) &&
+    permanent.grantedAbilities.some((a: string) => grantedAbilityIsOwnKeyword(a, 'haste'))
+  ) {
+    return true;
   }
   
   // Check modifiers for granted haste

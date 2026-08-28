@@ -16,6 +16,7 @@ import type { OracleIRExecutionResult } from '../../../../../rules-engine/src/or
 import type { GameContext } from '../../context.js';
 import { processMillTriggers } from '../zones.js';
 import { recordCardPutIntoGraveyardThisTurn } from '../turn-tracking.js';
+import { checkGraveyardTrigger } from '../zone-manipulation.js';
 import { scheduleExiledCardReturnToBattlefield } from '../executeSpellEffect.js';
 import { scheduleDelayedDrawAtNextUpkeep } from '../triggerDelayedEffectUtils.js';
 import { enrichTokenCardImages } from '../../../services/tokens.js';
@@ -410,6 +411,12 @@ export function syncOracleIRPlayerZonesToContext(
 
       for (const card of newlyMilled) {
         recordCardPutIntoGraveyardThisTurn(ctx, playerId, card, { fromBattlefield: false });
+        checkGraveyardTrigger(
+          ctx,
+          card,
+          playerId,
+          String((card as any)?.putIntoGraveyardFrom || ''),
+        );
       }
       if (newlyMilled.length > 0) {
         try {

@@ -105,10 +105,13 @@ const CHOOSE_LEFT_OR_RIGHT_EACH_PLAYER_GAINS_CONTROL_NONLAND_PERMANENTS_REGEX =
 const TARGET_CREATURE_AN_OPPONENT_CONTROLS_PERPETUALLY_GETS_MINUS3_MINUS3_REGEX =
   /^target creature an opponent controls perpetually gets -3\/-3\.?$/i;
 
+const UNTAP_UP_TO_ONE_TARGET_TYPED_THAT_TYPE_AND_RANDOM_TYPE_IN_HAND_PERPETUALLY_GET_P1P1_REGEX =
+  /^untap up to one target ([a-z][a-z-]*)\. that \1 and a random \1 creature card in your hand perpetually get \+1\/\+1\.?$/i;
 const UNTAP_UP_TO_ONE_TARGET_ELF_THAT_ELF_AND_RANDOM_ELF_IN_HAND_PERPETUALLY_GET_P1P1_REGEX =
-  /^untap up to one target elf\. that elf and a random elf creature card in your hand perpetually get \+1\/\+1\.?$/i;
+  UNTAP_UP_TO_ONE_TARGET_TYPED_THAT_TYPE_AND_RANDOM_TYPE_IN_HAND_PERPETUALLY_GET_P1P1_REGEX;
 
-const SEEK_AN_ELF_CARD_REGEX = /^seek an elf card\.?$/i;
+const SEEK_A_TYPED_CARD_REGEX = /^seek an? ([a-z][a-z-]*) card\.?$/i;
+const SEEK_AN_ELF_CARD_REGEX = SEEK_A_TYPED_CARD_REGEX;
 
 const CONJURE_A_CARD_NAMED_ONTO_THE_BATTLEFIELD_REGEX =
   /^conjure a card named ([^\.]+?) onto the battlefield\.?$/i;
@@ -131,8 +134,10 @@ const OPEN_SEALED_KAMIGAWA_BOOSTER_PACK_AND_DRAFT_TWO_REGEX =
 const CHOOSE_CREATURE_CARD_IN_HAND_PERPETUALLY_GETS_P1P1_AND_COSTS_1_LESS_REGEX =
   /^choose a creature card in your hand\. it perpetually gets \+1\/\+1 and perpetually gains "this spell costs \{1\} less to cast\."\.?$/i;
 
+const TYPED_CARDS_IN_HAND_PERPETUALLY_GAIN_COST_REDUCTION_AND_PAY_X_REGEX =
+  /^([a-z][a-z-]*) cards in your hand perpetually gain "this spell costs \{1\} less to cast," and "you may pay \{x\} rather than pay this spell(?:'|’)s mana cost, where x is its mana value\."\.?$/i;
 const DRAGON_CARDS_IN_HAND_PERPETUALLY_GAIN_COST_REDUCTION_AND_PAY_X_REGEX =
-  /^dragon cards in your hand perpetually gain "this spell costs \{1\} less to cast," and "you may pay \{x\} rather than pay this spell(?:'|’)s mana cost, where x is its mana value\."\.?$/i;
+  TYPED_CARDS_IN_HAND_PERPETUALLY_GAIN_COST_REDUCTION_AND_PAY_X_REGEX;
 
 const UP_TO_ONE_TARGET_CREATURE_BASE_POWER_PERPETUALLY_BECOMES_TOUGHNESS_AND_GAINS_ATTACK_NO_DEFENDER_REGEX =
   /^up to one target creature(?:'|’)s base power perpetually becomes equal to its toughness\. it perpetually gains "this creature can attack as though it didn(?:'|’)t have defender\."\.?$/i;
@@ -194,8 +199,10 @@ const UNTIL_YOUR_NEXT_TURN_UP_TO_ONE_TARGET_CREATURE_GAINS_VIGILANCE_AND_REACH_R
 const PUT_P1P1_COUNTER_ON_UP_TO_ONE_TARGET_SUBTYPE_UNTAP_IT_IT_GAINS_DEATHTOUCH_EOT_REGEX =
   /^put a \+1\/\+1 counter on up to one target ([a-z][a-z-]*)\. untap it\. it gains deathtouch until end of turn\.?$/i;
 
+const PUT_P1P1_COUNTERS_ON_TARGET_CREATURE_IT_BECOMES_A_TYPED_CREATURE_IN_ADDITION_TO_ITS_OTHER_TYPES_AND_GAINS_KEYWORDS_REGEX =
+  /^put (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) \+1\/\+1 counters? on target creature\. it becomes an? ([a-z][a-z-]*) in addition to its other types and gains ([a-z][a-z-]*(?: [a-z]+)?(?: and [a-z][a-z-]*(?: [a-z]+)?)*)\.?$/i;
 const PUT_P1P1_COUNTERS_ON_TARGET_CREATURE_IT_BECOMES_AN_ANGEL_IN_ADDITION_TO_ITS_OTHER_TYPES_AND_GAINS_FLYING_REGEX =
-  /^put (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) \+1\/\+1 counters? on target creature\. it becomes an angel in addition to its other types and gains flying\.?$/i;
+  PUT_P1P1_COUNTERS_ON_TARGET_CREATURE_IT_BECOMES_A_TYPED_CREATURE_IN_ADDITION_TO_ITS_OTHER_TYPES_AND_GAINS_KEYWORDS_REGEX;
 
 const PUT_P1P1_COUNTER_ON_EACH_CREATURE_YOU_CONTROL_REGEX =
   /^put a \+1\/\+1 counter on each creature you control(?:\. those creatures gain vigilance until end of turn)?\.?$/i;
@@ -229,8 +236,10 @@ const EXILE_TOP_CARD_OF_YOUR_LIBRARY_YOU_MAY_CAST_THAT_CARD_IF_YOU_DONT_DEALS_DA
 const ADD_RESTRICTED_MANA_SPEND_ONLY_REGEX =
   /^add (\{[WUBRGC]\}(?:\{[WUBRGC]\})*)\.\s*spend this mana only to (?:cast )?([^\.]+?)\.?$/i;
 
+const ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_TYPED_SPELLS_REGEX =
+  /^add two mana in any combination of colors\.?\s*spend this mana only to cast ([a-z][a-z-]*) spells\.?$/i;
 const ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_DRAGONS_REGEX =
-  /^add two mana in any combination of colors\.?\s*spend this mana only to cast dragon spells\.?$/i;
+  ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_TYPED_SPELLS_REGEX;
 
 const ADD_TWO_MANA_ANY_COMBINATION_REGEX = /^add two mana in any combination of colors\.?$/i;
 
@@ -286,7 +295,9 @@ export {
   CHOOSE_LEFT_OR_RIGHT_UNTIL_YOUR_NEXT_TURN_ATTACK_NEAREST_OPPONENT_REGEX,
   CHOOSE_LEFT_OR_RIGHT_EACH_PLAYER_GAINS_CONTROL_NONLAND_PERMANENTS_REGEX,
   TARGET_CREATURE_AN_OPPONENT_CONTROLS_PERPETUALLY_GETS_MINUS3_MINUS3_REGEX,
+  UNTAP_UP_TO_ONE_TARGET_TYPED_THAT_TYPE_AND_RANDOM_TYPE_IN_HAND_PERPETUALLY_GET_P1P1_REGEX,
   UNTAP_UP_TO_ONE_TARGET_ELF_THAT_ELF_AND_RANDOM_ELF_IN_HAND_PERPETUALLY_GET_P1P1_REGEX,
+  SEEK_A_TYPED_CARD_REGEX,
   SEEK_AN_ELF_CARD_REGEX,
   CONJURE_A_CARD_NAMED_ONTO_THE_BATTLEFIELD_REGEX,
   CONJURE_A_CARD_NAMED_INTO_YOUR_HAND_REGEX,
@@ -295,6 +306,7 @@ export {
   ROLL_A_D20_SKIP_NEXT_TURN_OR_DRAW_A_CARD_REGEX,
   OPEN_SEALED_KAMIGAWA_BOOSTER_PACK_AND_DRAFT_TWO_REGEX,
   CHOOSE_CREATURE_CARD_IN_HAND_PERPETUALLY_GETS_P1P1_AND_COSTS_1_LESS_REGEX,
+  TYPED_CARDS_IN_HAND_PERPETUALLY_GAIN_COST_REDUCTION_AND_PAY_X_REGEX,
   DRAGON_CARDS_IN_HAND_PERPETUALLY_GAIN_COST_REDUCTION_AND_PAY_X_REGEX,
   UP_TO_ONE_TARGET_CREATURE_BASE_POWER_PERPETUALLY_BECOMES_TOUGHNESS_AND_GAINS_ATTACK_NO_DEFENDER_REGEX,
   CREATE_3_3_GREEN_BEAST_TOKEN_THEN_IF_OPPONENT_CONTROLS_MORE_CREATURES_PUT_LOYALTY_COUNTER_ON_SOURCE_REGEX,
@@ -316,6 +328,7 @@ export {
   CREATURES_YOU_CONTROL_GAIN_FLYING_AND_DOUBLE_STRIKE_EOT_REGEX,
   UNTIL_YOUR_NEXT_TURN_UP_TO_ONE_TARGET_CREATURE_GAINS_VIGILANCE_AND_REACH_REGEX,
   PUT_P1P1_COUNTER_ON_UP_TO_ONE_TARGET_SUBTYPE_UNTAP_IT_IT_GAINS_DEATHTOUCH_EOT_REGEX,
+  PUT_P1P1_COUNTERS_ON_TARGET_CREATURE_IT_BECOMES_A_TYPED_CREATURE_IN_ADDITION_TO_ITS_OTHER_TYPES_AND_GAINS_KEYWORDS_REGEX,
   PUT_P1P1_COUNTERS_ON_TARGET_CREATURE_IT_BECOMES_AN_ANGEL_IN_ADDITION_TO_ITS_OTHER_TYPES_AND_GAINS_FLYING_REGEX,
   PUT_P1P1_COUNTER_ON_EACH_CREATURE_YOU_CONTROL_REGEX,
   PUT_MINUS1_MINUS1_COUNTER_ON_UP_TO_ONE_TARGET_CREATURE_REGEX,
@@ -328,6 +341,7 @@ export {
   EACH_OPPONENT_LOSES_LIFE_EQUAL_TO_NUMBER_OF_CREATURE_CARDS_IN_YOUR_GRAVEYARD_REGEX,
   EXILE_TOP_CARD_OF_YOUR_LIBRARY_YOU_MAY_CAST_THAT_CARD_IF_YOU_DONT_DEALS_DAMAGE_TO_EACH_OPPONENT_REGEX,
   ADD_RESTRICTED_MANA_SPEND_ONLY_REGEX,
+  ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_TYPED_SPELLS_REGEX,
   ADD_TWO_MANA_ANY_COMBINATION_SPEND_ONLY_DRAGONS_REGEX,
   ADD_TWO_MANA_ANY_COMBINATION_REGEX,
   ADD_TEN_MANA_ANY_ONE_COLOR_REGEX,

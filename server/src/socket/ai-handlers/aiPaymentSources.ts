@@ -12,6 +12,9 @@ import { parseManaCost } from "../../state/modules/mana-check.js";
 import {
   calculateManaProduction,
   paymentActivationCostHasUnsupportedAdditionalCosts,
+  resolvePaymentManaAbilitySpendRestriction,
+  restrictedManaSpendRestrictionAllowsPurpose,
+  type RestrictedManaSpendPurpose,
 } from "../util.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { COLOR_IDENTITY_MAP } from "./aiConstants.js";
@@ -21,11 +24,20 @@ import {
   hasCreatureSummoningSickness,
   hasManaAbility,
 } from "./aiManaCostHelpers.js";
-import { resolveAIPaymentManaAbilityId } from "./aiManaActivationHelpers.js";
+import { permanentCannotActivateTapAbilities } from "../../state/modules/staticEffectSpecActivationLocks.js";
+import { permanentHasAIManaAbilityResolverCandidates, resolveAIPaymentManaAbilityId } from "./aiManaActivationHelpers.js";
 import { chooseAISacrificePermanentsForManaAbility } from "./aiSpellPaymentPlanHelpers.js";
 
 function buildAIActivatedAbilityResolverCandidates(permanent: any): AIActivatedAbilityResolverCandidate[] {
   return getAIHandlerDeps().buildAIActivatedAbilityResolverCandidates(permanent);
+}
+
+function parsedActivationManaPips(activationCostText: string): number {
+  const text = String(activationCostText || '').trim();
+  if (!text) return 0;
+  const parsed = parseManaCost(text);
+  return Number(parsed.generic || 0)
+    + Object.values(parsed.colors || {}).reduce((sum, amount) => sum + Number(amount || 0), 0);
 }
 
 function getAISpellPaymentSourceCostText(
@@ -127,7 +139,31 @@ function getAISupportedSpellPaymentSource(
   manaColor: string,
   abilityId?: string,
   unavailablePermanentIds?: Set<string>,
+  restrictedSpendPurpose?: RestrictedManaSpendPurpose,
 ): { manaAmount: number; abilityId?: string; sacrificedPermanentIds?: string[] } | null {
+  const normalizedAbilityId = String(abilityId || '').trim();
+  if (
+    restrictedSpendPurpose &&
+    !normalizedAbilityId &&
+    permanentHasAIManaAbilityResolverCandidates(permanent)
+  ) {
+    return null;
+  }
+
+  const spendRestriction = resolvePaymentManaAbilitySpendRestriction(
+    game.state,
+    permanent,
+    String(playerId),
+    abilityId,
+  );
+  if (
+    restrictedSpendPurpose &&
+    spendRestriction &&
+    !restrictedManaSpendRestrictionAllowsPurpose(spendRestriction, restrictedSpendPurpose)
+  ) {
+    return null;
+  }
+
   const manaInfo = calculateManaProduction(game.state, permanent, String(playerId), manaColor, abilityId);
   const manaAmount = Number(manaInfo.totalAmount || 0);
   if (manaAmount <= 0) {
@@ -172,13 +208,19 @@ function getAISupportedSpellPaymentSource(
  * Get untapped mana sources (lands, artifacts, creatures) that can pay for a spell
  * Returns source IDs in the order they should be tapped, with the color each should produce
  */
-export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record<string, number>; generic: number }): Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number; sacrificedPermanentIds?: string[] }> {
+export function getPaymentSources(
+  game: any,
+  playerId: PlayerID,
+  cost: { colors: Record<string, number>; generic: number },
+  options?: { restrictedSpendPurpose?: RestrictedManaSpendPurpose },
+): Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number; sacrificedPermanentIds?: string[] }> {
   const battlefield = game.state?.battlefield || [];
   const payments: Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number; sacrificedPermanentIds?: string[] }> = [];
   const usedSourceIds = new Set<string>(); // Track which sources we've already assigned
   const reservedSacrificeIds = new Set<string>();
   const colorsPaid: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
   let genericPaid = 0;
+  const restrictedSpendPurpose = options?.restrictedSpendPurpose;
   
   // Collect all available mana sources with their produced colors
   const availableSources: Array<{ perm: any; producedColors: string[]; isLand: boolean }> = [];
@@ -189,6 +231,7 @@ export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors:
       
       // Creatures with summoning sickness can't tap for mana
       if (hasCreatureSummoningSickness(perm)) continue;
+      if (permanentCannotActivateTapAbilities(perm, game.state)) continue;
       
       const producedColors = getAIManaProductionOptions(game, playerId, perm);
       if (producedColors.length === 0) continue;
@@ -219,7 +262,7 @@ export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors:
         if (usedSourceIds.has(source.perm.id) || reservedSacrificeIds.has(String(source.perm.id || ''))) continue;
         if (!source.producedColors.includes(color)) continue;
 
-        const abilityId = resolveAIPaymentManaAbilityId(game, playerId, source.perm, color);
+        const abilityId = resolveAIPaymentManaAbilityId(game, playerId, source.perm, color, restrictedSpendPurpose);
         const supportedSource = getAISupportedSpellPaymentSource(
           game,
           playerId,
@@ -230,6 +273,7 @@ export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors:
             ...Array.from(usedSourceIds).map((id) => String(id || '')),
             ...Array.from(reservedSacrificeIds).map((id) => String(id || '')),
           ]),
+          restrictedSpendPurpose,
         );
         if (!supportedSource) continue;
         const manaAmount = supportedSource.manaAmount;
@@ -291,6 +335,13 @@ export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors:
         let score = 0;
         if (source.producedColors.length === 1) score += 10; // Single color is better
         if (source.isLand) score += 5; // Lands are slightly preferred over rocks
+        const spendRestriction = resolvePaymentManaAbilitySpendRestriction(
+          game.state,
+          source.perm,
+          String(playerId),
+          abilityId,
+        );
+        if (!spendRestriction) score += 25;
         score += Math.min(manaAmount, needed - colorsPaid[color]) * 20;
         if (activationManaNeeded > 0) {
           score += (manaAmount - activationManaNeeded) * 15;
@@ -337,10 +388,13 @@ export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors:
       let bestColor = colorOptions[0] || 'C';
       let bestAbilityId: string | undefined;
       let bestAmount = 0;
+      let bestActivationManaNeeded = 0;
+      let bestNetAmount = 0;
       let bestSacrificedPermanentIds: string[] | undefined;
+      let bestGenericScore = Number.NEGATIVE_INFINITY;
 
       for (const colorOption of colorOptions) {
-        const abilityId = resolveAIPaymentManaAbilityId(game, playerId, source.perm, colorOption);
+        const abilityId = resolveAIPaymentManaAbilityId(game, playerId, source.perm, colorOption, restrictedSpendPurpose);
         const supportedSource = getAISupportedSpellPaymentSource(
           game,
           playerId,
@@ -351,9 +405,67 @@ export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors:
             ...Array.from(usedSourceIds).map((id) => String(id || '')),
             ...Array.from(reservedSacrificeIds).map((id) => String(id || '')),
           ]),
+          restrictedSpendPurpose,
         );
-        if (supportedSource && supportedSource.manaAmount > bestAmount) {
+        if (!supportedSource) continue;
+        const manaInfo = calculateManaProduction(
+          game.state,
+          source.perm,
+          String(playerId),
+          colorOption,
+          abilityId,
+        );
+        const activationManaNeeded = parsedActivationManaPips(String(manaInfo?.activationCost || ''));
+        const netAmount = Math.max(0, supportedSource.manaAmount - activationManaNeeded);
+        if (activationManaNeeded > 0) {
+          const freeCandidates = availableSources.filter((candidate) => {
+            if (usedSourceIds.has(candidate.perm.id) || reservedSacrificeIds.has(String(candidate.perm.id || ''))) {
+              return false;
+            }
+            if (String(candidate.perm.id || '') === String(source.perm.id || '')) return false;
+            const freeAbilityId = resolveAIPaymentManaAbilityId(game, playerId, candidate.perm, candidate.producedColors[0] || 'C');
+            const freeInfo = calculateManaProduction(
+              game.state,
+              candidate.perm,
+              String(playerId),
+              candidate.producedColors[0] || 'C',
+              freeAbilityId,
+            );
+            return parsedActivationManaPips(String(freeInfo?.activationCost || '')) === 0
+              && Number(freeInfo?.totalAmount || 0) > 0;
+          });
+          const freeManaRemaining = freeCandidates.reduce((sum, candidate) => {
+            const freeAbilityId = resolveAIPaymentManaAbilityId(game, playerId, candidate.perm, candidate.producedColors[0] || 'C');
+            const freeInfo = calculateManaProduction(
+              game.state,
+              candidate.perm,
+              String(playerId),
+              candidate.producedColors[0] || 'C',
+              freeAbilityId,
+            );
+            return sum + Number(freeInfo?.totalAmount || 0);
+          }, 0);
+          // If free taps already cover remaining generic, do not spend them on an invest line.
+          if (freeManaRemaining >= genericNeeded) continue;
+          if (freeCandidates.length < activationManaNeeded) continue;
+          if (netAmount <= 0) continue;
+        }
+        const spendRestriction = resolvePaymentManaAbilitySpendRestriction(
+          game.state,
+          source.perm,
+          String(playerId),
+          abilityId,
+        );
+        // Prefer net mana so Three Tree City's {2} line does not look like 4–8 free pips.
+        let genericScore = netAmount * 100;
+        if (activationManaNeeded === 0) genericScore += 40;
+        if (!spendRestriction) genericScore += 50;
+        if (String(colorOption || '').toUpperCase() === 'C') genericScore += 10;
+        if (genericScore > bestGenericScore) {
+          bestGenericScore = genericScore;
           bestAmount = supportedSource.manaAmount;
+          bestActivationManaNeeded = activationManaNeeded;
+          bestNetAmount = netAmount;
           bestColor = colorOption;
           bestAbilityId = abilityId;
           bestSacrificedPermanentIds = supportedSource.sacrificedPermanentIds;
@@ -365,11 +477,18 @@ export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors:
         color: bestColor,
         abilityId: bestAbilityId,
         amount: bestAmount,
+        activationManaNeeded: bestActivationManaNeeded,
+        netAmount: bestNetAmount,
         sacrificedPermanentIds: bestSacrificedPermanentIds,
       };
     })
     .filter((entry) => entry.amount > 0)
-    .sort((left, right) => right.amount - left.amount);
+    .sort((left, right) => {
+      const leftPaid = left.activationManaNeeded > 0 ? 1 : 0;
+      const rightPaid = right.activationManaNeeded > 0 ? 1 : 0;
+      if (leftPaid !== rightPaid) return leftPaid - rightPaid;
+      return right.netAmount - left.netAmount;
+    });
 
   for (const entry of remainingSources) {
     if (genericNeeded <= 0) break;
@@ -378,6 +497,8 @@ export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors:
     for (const sacrificedId of entry.sacrificedPermanentIds || []) {
       reservedSacrificeIds.add(String(sacrificedId || ''));
     }
+    const creditAmount = entry.activationManaNeeded > 0 ? entry.netAmount : entry.amount;
+    const credited = Math.min(creditAmount, genericNeeded);
     const spendCount = Math.min(entry.amount, genericNeeded);
     payments.push({
       sourceId: entry.source.perm.id,
@@ -389,8 +510,8 @@ export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors:
         : {}),
     });
 
-    genericNeeded -= spendCount;
-    genericPaid += spendCount;
+    genericNeeded -= credited;
+    genericPaid += credited;
   }
 
   const getPaymentEntryActivationManaNeeded = (
@@ -406,11 +527,51 @@ export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors:
       entry.abilityId,
     );
     const activationCostText = String(manaInfo?.activationCost || '').trim();
-    if (!activationCostText) return 0;
-    const parsedActivation = parseManaCost(activationCostText);
-    return Number(parsedActivation.generic || 0)
-      + Object.values(parsedActivation.colors || {}).reduce((sum, amount) => sum + Number(amount || 0), 0);
+    return parsedActivationManaPips(activationCostText);
   };
+
+  const getPaymentEntryProducedAmount = (
+    entry: { sourceId: string; produceColor: string; abilityId?: string },
+  ): number => {
+    const permanent = battlefield.find((perm: any) => String(perm?.id || '') === String(entry.sourceId || ''));
+    if (!permanent) return 0;
+    return Number(calculateManaProduction(
+      game.state,
+      permanent,
+      String(playerId),
+      entry.produceColor,
+      entry.abilityId,
+    )?.totalAmount || 0);
+  };
+
+  const collectUnusedFreeTapCandidates = () => availableSources
+    .filter((source) => !usedSourceIds.has(source.perm.id) && !reservedSacrificeIds.has(String(source.perm.id || '')))
+    .map((source) => {
+      const color = source.producedColors[0] || 'C';
+      const abilityId = resolveAIPaymentManaAbilityId(game, playerId, source.perm, color);
+      const supportedSource = getAISupportedSpellPaymentSource(
+        game,
+        playerId,
+        source.perm,
+        color,
+        abilityId,
+        new Set<string>([
+          ...Array.from(usedSourceIds).map((id) => String(id || '')),
+          ...Array.from(reservedSacrificeIds).map((id) => String(id || '')),
+        ]),
+        restrictedSpendPurpose,
+      );
+      if (!supportedSource) return null;
+      const manaInfo = calculateManaProduction(game.state, source.perm, String(playerId), color, abilityId);
+      return {
+        source,
+        color,
+        abilityId,
+        activationNeeded: parsedActivationManaPips(String(manaInfo?.activationCost || '')),
+        amount: Number(manaInfo?.totalAmount || 0),
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry) && entry.activationNeeded === 0 && entry.amount > 0);
 
   // Ensure invest-cost lines (Three Tree {2}{T}, Nykthos, etc.) have enough free taps in the
   // same batched payment to float their activation cost.
@@ -420,23 +581,7 @@ export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors:
   );
   let freeSourcesInPayment = payments.filter((entry) => getPaymentEntryActivationManaNeeded(entry) === 0).length;
   if (totalActivationManaNeeded > freeSourcesInPayment) {
-    const freeCandidates = availableSources
-      .filter((source) => !usedSourceIds.has(source.perm.id) && !reservedSacrificeIds.has(String(source.perm.id || '')))
-      .map((source) => {
-        const color = source.producedColors[0] || 'C';
-        const abilityId = resolveAIPaymentManaAbilityId(game, playerId, source.perm, color);
-        const manaInfo = calculateManaProduction(game.state, source.perm, String(playerId), color, abilityId);
-        const activationCostText = String(manaInfo?.activationCost || '').trim();
-        const parsedActivation = activationCostText ? parseManaCost(activationCostText) : null;
-        const activationNeeded = parsedActivation
-          ? Number(parsedActivation.generic || 0)
-            + Object.values(parsedActivation.colors || {}).reduce((sum, amount) => sum + Number(amount || 0), 0)
-          : 0;
-        return { source, color, abilityId, activationNeeded, amount: Number(manaInfo?.totalAmount || 0) };
-      })
-      .filter((entry) => entry.activationNeeded === 0 && entry.amount > 0);
-
-    for (const entry of freeCandidates) {
+    for (const entry of collectUnusedFreeTapCandidates()) {
       if (freeSourcesInPayment >= totalActivationManaNeeded) break;
       usedSourceIds.add(entry.source.perm.id);
       payments.push({
@@ -445,6 +590,28 @@ export function getPaymentSources(game: any, playerId: PlayerID, cost: { colors:
         ...(entry.abilityId ? { abilityId: entry.abilityId } : {}),
       });
       freeSourcesInPayment += 1;
+    }
+  }
+
+  // Invest lines credit gross production toward generic, but {2} is paid from the same
+  // batch. Keep adding unused free taps until net mana covers the spell.
+  const totalSpellManaNeeded = Object.values(cost.colors || {}).reduce(
+    (sum, amount) => sum + Number(amount || 0),
+    0,
+  ) + Number(cost.generic || 0);
+  const paymentNetMana = () => payments.reduce(
+    (sum, entry) => sum + getPaymentEntryProducedAmount(entry) - getPaymentEntryActivationManaNeeded(entry),
+    0,
+  );
+  if (paymentNetMana() < totalSpellManaNeeded) {
+    for (const entry of collectUnusedFreeTapCandidates()) {
+      if (paymentNetMana() >= totalSpellManaNeeded) break;
+      usedSourceIds.add(entry.source.perm.id);
+      payments.push({
+        sourceId: entry.source.perm.id,
+        produceColor: entry.color,
+        ...(entry.abilityId ? { abilityId: entry.abilityId } : {}),
+      });
     }
   }
 

@@ -37,6 +37,8 @@ function createMockIo(emitted: Array<{ room?: string; event: string; payload: an
 describe('resolution timeout recovery', () => {
   const liveGameId = 'test_resolution_timeout_recovery_live';
   const replayGameId = 'test_resolution_timeout_recovery_replay';
+  const independentGameId = 'test_resolution_timeout_independent_steps';
+  const kynaiosTimeoutGameId = 'test_resolution_timeout_kynaios_autocomplete';
 
   beforeAll(async () => {
     await initDb();
@@ -48,8 +50,12 @@ describe('resolution timeout recovery', () => {
     vi.useFakeTimers();
     ResolutionQueueManager.removeQueue(liveGameId);
     ResolutionQueueManager.removeQueue(replayGameId);
+    ResolutionQueueManager.removeQueue(independentGameId);
+    ResolutionQueueManager.removeQueue(kynaiosTimeoutGameId);
     games.delete(liveGameId as any);
     games.delete(replayGameId as any);
+    games.delete(independentGameId as any);
+    games.delete(kynaiosTimeoutGameId as any);
   });
 
   afterEach(async () => {
@@ -57,8 +63,12 @@ describe('resolution timeout recovery', () => {
     vi.useRealTimers();
     ResolutionQueueManager.removeQueue(liveGameId);
     ResolutionQueueManager.removeQueue(replayGameId);
+    ResolutionQueueManager.removeQueue(independentGameId);
+    ResolutionQueueManager.removeQueue(kynaiosTimeoutGameId);
     games.delete(liveGameId as any);
     games.delete(replayGameId as any);
+    games.delete(independentGameId as any);
+    games.delete(kynaiosTimeoutGameId as any);
   });
 
   it('times out a stuck resolution step, logs it as broken, and restores priority', async () => {
@@ -182,5 +192,140 @@ describe('resolution timeout recovery', () => {
 
     expect(ResolutionQueueManager.getQueue(replayGameId).steps).toHaveLength(0);
     expect((game.state as any).priority).toBe('p1');
+  });
+
+  it('gives every pending step its own clock so later APNAP seats do not wait on the first', async () => {
+    createGameIfNotExists(independentGameId, 'commander', 40);
+    const game = ensureGame(independentGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    Object.assign(game.state as any, {
+      active: true,
+      phase: 'main',
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', name: 'P1', spectator: false, life: 40 },
+        { id: 'p2', name: 'P2', spectator: false, life: 40 },
+      ],
+      zones: {
+        p1: { hand: [], library: [], graveyard: [], exile: [] },
+        p2: { hand: [], library: [], graveyard: [], exile: [] },
+      },
+      battlefield: [],
+      stack: [],
+    });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const playerSockets = [
+      {
+        data: { playerId: 'p1', spectator: false },
+        emit: (event: string, payload: any) => emitted.push({ event, payload }),
+        rooms: new Set([independentGameId]),
+      },
+      {
+        data: { playerId: 'p2', spectator: false },
+        emit: (event: string, payload: any) => emitted.push({ event, payload }),
+        rooms: new Set([independentGameId]),
+      },
+    ];
+    const io = createMockIo(emitted, playerSockets);
+    initializePriorityResolutionHandler(io as any);
+
+    ResolutionQueueManager.addStep(independentGameId, {
+      id: 'step_slow',
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: 'p1' as any,
+      description: 'Slow choice',
+      mandatory: true,
+      sourceName: 'Slow Spell',
+      timeoutMs: 2000,
+      validTargets: [{ id: 'p2', label: 'P2', description: 'player' }],
+      targetTypes: ['player'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'player',
+    } as any);
+    ResolutionQueueManager.addStep(independentGameId, {
+      id: 'step_fast',
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: 'p2' as any,
+      description: 'Fast choice',
+      mandatory: true,
+      sourceName: 'Fast Spell',
+      timeoutMs: 1000,
+      validTargets: [{ id: 'p1', label: 'P1', description: 'player' }],
+      targetTypes: ['player'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'player',
+    } as any);
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    const remainingIds = ResolutionQueueManager.getQueue(independentGameId).steps.map((step) => step.id);
+    expect(remainingIds).toEqual(['step_slow']);
+    expect(emitted.some((entry) =>
+      entry.event === 'resolutionStepCancelled' && entry.payload?.stepId === 'step_fast'
+    )).toBe(true);
+  });
+
+  it('auto-completes a timed-out Kynaios choice instead of marking the source broken', async () => {
+    createGameIfNotExists(kynaiosTimeoutGameId, 'commander', 40);
+    const game = ensureGame(kynaiosTimeoutGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    Object.assign(game.state as any, {
+      active: true,
+      phase: 'ending',
+      step: 'END',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', name: 'P1', isAI: false, spectator: false, life: 40 },
+        { id: 'p2', name: 'P2', isAI: false, spectator: false, life: 40 },
+      ],
+      zones: {
+        p1: { hand: [], library: [], graveyard: [], exile: [] },
+        p2: { hand: [], library: [{ id: 'lib_1', name: 'Island' }], graveyard: [], exile: [] },
+      },
+      battlefield: [],
+      stack: [],
+      autoPassPlayers: new Set(['p2']),
+    });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted, []);
+    initializePriorityResolutionHandler(io as any);
+
+    ResolutionQueueManager.addStep(kynaiosTimeoutGameId, {
+      id: 'step_kynaios_p2',
+      type: ResolutionStepType.KYNAIOS_CHOICE,
+      playerId: 'p2' as any,
+      description: 'Put a land or draw',
+      mandatory: false,
+      sourceName: 'Kynaios and Tiro of Meletis',
+      timeoutMs: 1000,
+      isController: false,
+      canPlayLand: true,
+      landsInHand: [{ id: 'land_1', name: 'Forest' }],
+      options: ['play_land', 'draw_card'],
+      kynaiosBatchId: 'batch_kynaios_timeout',
+    } as any);
+
+    expect(ResolutionQueueManager.getQueue(kynaiosTimeoutGameId).steps).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ResolutionQueueManager.getQueue(kynaiosTimeoutGameId).steps).toHaveLength(0);
+    expect(emitted.some((entry) =>
+      typeof entry.payload?.message === 'string' && String(entry.payload.message).includes('marked as broken')
+    )).toBe(false);
+    expect(ResolutionQueueManager.getQueue(kynaiosTimeoutGameId).completedSteps.some((step) =>
+      step.id === 'step_kynaios_p2'
+    )).toBe(true);
   });
 });

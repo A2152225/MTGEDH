@@ -22,6 +22,7 @@ import {
 } from "./mayAbilityAndOptionalTriggerHandlers.js";
 import { handleMayRevealHandWinIfOwnNamedChoice } from "./optionChoiceMayRevealHandWinHandlers.js";
 import { sanitizeStepForClient } from "./sanitizeStepForClient.js";
+import { tryHandleSkipDrawReplacementChoice } from "../resolutionOptionChoiceSkipDrawReplacementHandlers.js";
 
 /** OPTION_CHOICE: dispatch the chosen prompt flag to the specialized handler. */
 /**
@@ -40,6 +41,10 @@ export async function handleOptionChoiceResponse(
   const playerId = response.playerId;
   
   debug(2, `[Resolution] Option choice response from ${playerId}: ${selectedOption}`);
+
+  if (await tryHandleSkipDrawReplacementChoice(io, game, gameId, step, response)) {
+    return;
+  }
 
   const extractId = (sel: any): string | null => {
     if (typeof sel === 'string') return sel;
@@ -129,6 +134,12 @@ export async function handleOptionChoiceResponse(
   // ===== COMBAT: ATTACK TAX (Ghostly Prison / Propaganda style) =====
   // Applied in processAttackCostPaymentBeforeStepComplete before the step is consumed.
   if (stepData?.attackCostPayment === true) {
+    return;
+  }
+
+  // ===== COMBAT: BLOCK TAX (Archangel of Tithes while attacking) =====
+  // Applied in processBlockCostPaymentBeforeStepComplete before the step is consumed.
+  if (stepData?.blockCostPayment === true) {
     return;
   }
 

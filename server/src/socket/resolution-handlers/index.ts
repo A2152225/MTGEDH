@@ -82,6 +82,9 @@ export { handleMutateTargetSelectionResponse } from "./mutateTargetSelectionResp
 // Attack-tax payment that commits declare-attackers before the step is consumed.
 export { processAttackCostPaymentBeforeStepComplete } from "./attackCostPaymentBeforeCompleteHandlers.js";
 
+// Block-tax payment that commits declare-blockers before the step is consumed.
+export { processBlockCostPaymentBeforeStepComplete } from "./blockCostPaymentBeforeCompleteHandlers.js";
+
 // Grouped rules-choice resolution plus selection-id extractors.
 export {
   extractResolutionSelectionId,
@@ -130,6 +133,7 @@ export { emitResolutionStepPrompt } from "./emitResolutionStepPrompt.js";
 // Timeout, cancel side-effects, and next-step emit.
 export {
   applyCancelledResolutionStepSideEffects,
+  clearScheduledResolutionStepTimeout,
   emitNextPendingResolutionStep,
   scheduleResolutionStepTimeoutForGame,
 } from "./resolutionStepTimeoutAndCancelHandlers.js";
@@ -445,3 +449,6 @@ export {
   getPreviouslyChosenTargetsForSource,
   stepIndicatesDifferentTarget,
 } from "./resolutionTargetSelectionDistinctTargetUtils.js";
+
+// STEP_ADDED auto-answer gate: AI seats only. Human APNAP choices wait for click or timeout.
+export { shouldAutoResolveResolutionStep } from "./resolutionAutoResolveGate.js";

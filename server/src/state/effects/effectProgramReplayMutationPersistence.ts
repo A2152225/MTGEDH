@@ -219,6 +219,29 @@ export function persistOracleIrReplayMutationsFromExecution(
   }
 }
 
+/** Persist this-turn ETB windows granted by IR so coarse resolveTopOfStack replay restores them. */
+export function persistTemporaryEtbWindowsFromOracleIR(
+  ctx: GameContext,
+  result: OracleIRExecutionResult,
+  state: any,
+  bridge?: OracleIrReplayMutationBridge,
+): void {
+  if ((ctx as any).isReplaying) return;
+  const granted = (result.appliedSteps || []).some((step) => step.kind === 'grant_temporary_etb_trigger');
+  if (!granted) return;
+
+  const sourceName = String(bridge?.sourceName || '').trim();
+  const windows = Array.isArray(state?.temporaryEtbTriggers) ? state.temporaryEtbTriggers : [];
+  for (const entry of windows) {
+    if (sourceName && String(entry?.sourceName || '').trim() !== sourceName) continue;
+    appendMutationEvent(ctx, 'executeEffect', {
+      effectType: 'grantTemporaryEtbTrigger',
+      entry,
+      ...buildReplayMutationPayload(bridge),
+    });
+  }
+}
+
 /** Persist replay mutations emitted by oracle_ir_execution effect-program events. */
 export function persistEffectProgramReplayMutationsFromRun(
   ctx: GameContext,

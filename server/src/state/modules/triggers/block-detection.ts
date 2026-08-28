@@ -8,6 +8,7 @@ import type { BlockTrigger } from "./block-trigger-type.js";
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
 import { isOracleIndexInsideParenthetical } from "./etb-detection-helpers.js";
 import { findFirstRegexMatchAcrossOracleLines, timingTriggerEffect } from "./timing-effect-extraction.js";
+import { normalizeCreatureTypeWord } from "../../../../../shared/src/creatureTypes.js";
 export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
   const triggers: BlockTrigger[] = [];
   const oracleText = (card?.oracle_text || "");
@@ -285,6 +286,25 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     } as BlockTrigger);
   }
 
+  const equippedAttacksOrBlocksMatch = oracleText.match(
+    /whenever equipped creature attacks or blocks,?\s*([^.]+)/i,
+  );
+  if (
+    equippedAttacksOrBlocksMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'equipped_creature_attacks_or_blocks')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, equippedAttacksOrBlocksMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'equipped_creature_attacks_or_blocks' as any,
+    } as BlockTrigger);
+  }
+
   const blockNameVariantsEarly = buildCardNameRegexAlternatives(cardName);
   const attacksOrBlocksMatch = oracleText.match(
     new RegExp(`when(?:ever)? (?:~|this creature|this vehicle|(?:${blockNameVariantsEarly.join('|')})) attacks or blocks,?\\s*([^.]+)`, 'i'),
@@ -337,23 +357,34 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     });
   }
 
-  const equippedBlocksOrBlockedByVampireMatch = oracleText.match(
-    /whenever equipped creature blocks or becomes blocked by a Vampire,?\s*([^.]+)/i,
+  const equippedBlocksOrBlockedByTypedMatch = oracleText.match(
+    /whenever equipped creature blocks or becomes blocked by an? ([A-Za-z][A-Za-z'-]*),?\s*([^.]+)/i,
   );
+  const equippedBlockedByType = equippedBlocksOrBlockedByTypedMatch
+    ? normalizeCreatureTypeWord(String(equippedBlocksOrBlockedByTypedMatch[1] || ''))
+    : null;
   if (
-    equippedBlocksOrBlockedByVampireMatch &&
-    !triggers.some((t) => t.triggerType === 'equipped_blocks_or_blocked_by_vampire')
+    equippedBlocksOrBlockedByTypedMatch
+    && equippedBlockedByType
+    && !triggers.some((t) =>
+      t.triggerType === 'equipped_blocks_or_blocked_by_typed'
+      || t.triggerType === 'equipped_blocks_or_blocked_by_vampire',
+    )
   ) {
-    const effectText = timingTriggerEffect(oracleText, equippedBlocksOrBlockedByVampireMatch);
+    const effectText = timingTriggerEffect(oracleText, equippedBlocksOrBlockedByTypedMatch, 2);
     triggers.push({
       permanentId,
       cardName,
       controllerId,
-      triggerType: 'equipped_blocks_or_blocked_by_vampire',
+      triggerType:
+        equippedBlockedByType === 'vampire'
+          ? 'equipped_blocks_or_blocked_by_vampire'
+          : 'equipped_blocks_or_blocked_by_typed',
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
-    });
+      requiredTypePhrase: equippedBlockedByType,
+    } as BlockTrigger);
   }
 
   const defenderBlocksMatch = oracleText.match(

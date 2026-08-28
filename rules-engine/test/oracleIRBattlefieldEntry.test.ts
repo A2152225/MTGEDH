@@ -192,6 +192,36 @@ describe('resolvePermanentEntersTapped — opponents control N lands', () => {
     })).toBe(false);
   });
 
+  it('taps shock lands that would otherwise enter free and untapped', () => {
+    expect(resolvePermanentEntersTapped({
+      battlefield: [],
+      controllerId: 'p1',
+      card: {
+        name: 'Steam Vents',
+        type_line: 'Land — Island Mountain',
+        oracle_text: "As Steam Vents enters, you may pay 2 life. If you don't, it enters tapped.\n{T}: Add {U} or {R}.",
+      },
+    })).toBe(true);
+  });
+
+  it('taps Canopy Vista unless two basic lands are already controlled', () => {
+    const canopy = {
+      name: 'Canopy Vista',
+      type_line: 'Land — Forest Plains',
+      oracle_text: 'This land enters tapped unless you control two or more basic lands.',
+    };
+    expect(resolvePermanentEntersTapped({
+      battlefield: [land('forest-1', 'p1')],
+      controllerId: 'p1',
+      card: canopy,
+    })).toBe(true);
+    expect(resolvePermanentEntersTapped({
+      battlefield: [land('forest-1', 'p1'), land('plains-1', 'p1')],
+      controllerId: 'p1',
+      card: canopy,
+    })).toBe(false);
+  });
+
   it('does not tap opponent creatures just because Turbulent Moor is on the battlefield', () => {
     expect(detectOpponentEntersTappedFromBattlefield(
       [{

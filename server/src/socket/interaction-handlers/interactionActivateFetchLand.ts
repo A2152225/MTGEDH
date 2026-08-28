@@ -256,6 +256,7 @@ export async function tryHandleActivateFetchLand(
       abilityId,
       sourceName: cardName,
       description: `${searchDescription}, put ${maxSelections > 1 ? 'them' : 'it'} onto the battlefield${entersTapped ? ' tapped' : ''}, then shuffle`,
+      activatedAbilityText: fetchAbilityText,
       abilityType: 'fetch-land',
       // Store search parameters for when the ability resolves
       searchParams: {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
 import type { OracleEffectStep } from '../src/oracleIR';
 
 const MINDS_AGLOW_DRAW: Extract<OracleEffectStep, { kind: 'draw' }> = {
@@ -78,6 +79,23 @@ describe('oracleIR Join Forces', () => {
     expect(result.skippedSteps).toHaveLength(0);
     expect(result.state.players[0].hand).toHaveLength(0);
     expect(result.state.players[1].hand).toHaveLength(0);
+  });
+
+  it('parses Collective Voyage as join_forces then each-player search_library', () => {
+    const ir = parseOracleTextToIR(
+      'Join forces — Starting with you, each player may pay any amount of mana. Each player searches their library for up to X basic land cards, where X is the total amount of mana paid this way, puts them onto the battlefield tapped, then shuffles.',
+      'Collective Voyage',
+    );
+    const steps = (ir.abilities || []).flatMap((ability: any) => ability.steps || []);
+    expect(steps.map((step: any) => step.kind)).toEqual(['join_forces', 'search_library']);
+    expect(steps[1]).toMatchObject({
+      kind: 'search_library',
+      who: { kind: 'each_player' },
+      destination: 'battlefield',
+      entersTapped: true,
+      optional: true,
+    });
+    expect(String((steps[1] as any).whereX?.raw || '')).toMatch(/total amount of mana paid this way/i);
   });
 
   it('draws X cards for each player from mana paid this way', () => {

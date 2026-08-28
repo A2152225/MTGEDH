@@ -11,6 +11,7 @@ import { socket } from "../socket";
 import { toast } from "../components/ToastHost";
 import { isLandTypeLine, prettyPhase, prettyStep } from "../utils/gameDisplayHelpers";
 import { buildAvailableManaSourcesForPlayer } from "../utils/manaSourceBuilder";
+import { notifyUnfocusedYourTurn } from "../utils/turnAttentionNotify";
 
 export function useAppPlayDerivedEffects(p: Record<string, any>) {
   const {
@@ -282,6 +283,7 @@ export function useAppPlayDerivedEffects(p: Record<string, any>) {
 
     if (becameYourTurn) {
       setYourTurnBannerVisible(true);
+      notifyUnfocusedYourTurn();
     }
   }, [safeView?.id, safeView?.turnPlayer, you, isPreGame]);
 

@@ -20,6 +20,7 @@ import {
   countPermanentCardsInGraveyard,
   getAttackersDeclaredThisCombat,
   isPermanentAttacking,
+  isPermanentBlocking,
   getAllPlayerIds,
   anyCreatureAttackedThisTurn,
   getControlledCreatures,
@@ -177,9 +178,7 @@ export function tryEvaluateInterveningIfCombatRevoltClauses(args: InterveningIfP
     if (!p) return null;
     const attackedRaw = p.attackedThisTurn;
     if (typeof attackedRaw === 'boolean') return !attackedRaw;
-    const a = p.attacking;
-    const attackedNow = (typeof a === 'string' && a.trim() !== '') || p.isAttacking === true;
-    if (attackedNow) return false;
+    if (isPermanentAttacking(p)) return false;
     return null;
   }
 
@@ -201,9 +200,7 @@ export function tryEvaluateInterveningIfCombatRevoltClauses(args: InterveningIfP
     if (!p) return null;
     const attackedRaw = p.attackedThisTurn;
     if (typeof attackedRaw === 'boolean') return attackedRaw;
-    const a = p.attacking;
-    const attackedNow = (typeof a === 'string' && a.trim() !== '') || p.isAttacking === true;
-    return attackedNow ? true : null;
+    return isPermanentAttacking(p) ? true : null;
   }
 
   // "if <Name> attacked this turn" (best-effort; assumes <Name> refers to the source permanent)
@@ -330,13 +327,13 @@ export function tryEvaluateInterveningIfCombatRevoltClauses(args: InterveningIfP
     const attacked =
       typeof attackedRaw === 'boolean'
         ? attackedRaw
-        : ((typeof p.attacking === 'string' && p.attacking.trim() !== '') || p.isAttacking === true ? true : null);
+        : (isPermanentAttacking(p) ? true : null);
 
     const blockedRaw = p.blockedThisTurn;
     const blocked =
       typeof blockedRaw === 'boolean'
         ? blockedRaw
-        : ((typeof p.blocking === 'string' && p.blocking.trim() !== '') || p.isBlocking === true ? true : null);
+        : (isPermanentBlocking(p) ? true : null);
 
     if (attacked === true || blocked === true) return true;
     if (attacked === false && blocked === false) return false;
@@ -391,8 +388,8 @@ export function tryEvaluateInterveningIfCombatRevoltClauses(args: InterveningIfP
     const tracked = (ctx as any).state?.attackedOrBlockedThisCombatByPermanentId;
     if (id && tracked && typeof tracked === 'object' && Object.prototype.hasOwnProperty.call(tracked, id)) return tracked[id] === true;
 
-    const attacked = p.attackedThisTurn === true || (typeof p.attacking === 'string' && p.attacking.trim() !== '') || p.isAttacking === true;
-    const blocked = p.blockedThisTurn === true || (typeof p.blocking === 'string' && p.blocking.trim() !== '') || p.isBlocking === true;
+    const attacked = p.attackedThisTurn === true || isPermanentAttacking(p);
+    const blocked = p.blockedThisTurn === true || isPermanentBlocking(p);
     if (attacked || blocked) return true;
     return null;
   }

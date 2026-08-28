@@ -85,6 +85,82 @@ describe('for each quantity resolution', () => {
     );
     expect(count).toBe(2);
   });
+
+  it('resolves a card for each other dinosaur you control, excluding the source', () => {
+    const state = makeState({
+      battlefield: [
+        {
+          id: 'dreadmaw',
+          name: 'Earthshaker Dreadmaw',
+          controller: 'p1',
+          type_line: 'Creature — Dinosaur',
+        },
+        {
+          id: 'alpha',
+          name: 'Regisaur Alpha',
+          controller: 'p1',
+          type_line: 'Creature — Dinosaur',
+        },
+        {
+          id: 'ghalta',
+          name: 'Ghalta, Stampede Tyrant',
+          controller: 'p1',
+          type_line: 'Legendary Creature — Elder Dinosaur',
+        },
+        {
+          id: 'bear',
+          name: 'Grizzly Bears',
+          controller: 'p1',
+          type_line: 'Creature — Bear',
+        },
+      ],
+    });
+    const count = resolveOracleQuantity(
+      state,
+      'p1' as PlayerID,
+      { kind: 'reference_amount', raw: 'a card for each other dinosaur you control' },
+      { controllerId: 'p1' as PlayerID, sourceId: 'dreadmaw' },
+    );
+    expect(count).toBe(2);
+  });
+
+  it('resolves a card for each other goblin you control, excluding the source', () => {
+    const state = makeState({
+      battlefield: [
+        {
+          id: 'warchief',
+          name: 'Goblin Warchief',
+          controller: 'p1',
+          type_line: 'Creature — Goblin Warrior',
+        },
+        {
+          id: 'lackey',
+          name: 'Goblin Lackey',
+          controller: 'p1',
+          type_line: 'Creature — Goblin',
+        },
+        {
+          id: 'ringleader',
+          name: 'Goblin Ringleader',
+          controller: 'p1',
+          type_line: 'Creature — Goblin',
+        },
+        {
+          id: 'bear',
+          name: 'Grizzly Bears',
+          controller: 'p1',
+          type_line: 'Creature — Bear',
+        },
+      ],
+    });
+    const count = resolveOracleQuantity(
+      state,
+      'p1' as PlayerID,
+      { kind: 'reference_amount', raw: 'a card for each other goblin you control' },
+      { controllerId: 'p1' as PlayerID, sourceId: 'warchief' },
+    );
+    expect(count).toBe(2);
+  });
 });
 
 describe('damage where X patterns', () => {

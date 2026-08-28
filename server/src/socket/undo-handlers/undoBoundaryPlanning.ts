@@ -7,7 +7,7 @@
 // step/phase/previous-phase/turn smart undo counts.
 // Public entry symbols: countSemanticActions, calculateSmartUndoCounts,
 //   calculateBoundaryUndoCount, buildUndoBoundaryPreview, buildBoundaryHistoryFromPersistedMetadata,
-//   buildBoundaryHistoryFromReplay, boundaryHistoryHasKey, getBoundaryKey,
+//   buildBoundaryHistoryFromReplay, resolveBoundaryHistoryForUndo, boundaryHistoryHasKey, getBoundaryKey,
 //   normalizePhaseToken, normalizeStepToken, phaseOrderRank, stepOrderRank,
 //   humanizeBoundaryToken, snapshotBoundaryState, sliceEventsForBoundaryPlan.
 // undo.ts re-exports countSemanticActions so the "./undo.js" import path keeps working.
@@ -435,6 +435,8 @@ export function buildBoundaryHistoryFromReplay(
   boundaryKind: BoundaryKind,
 ): { history: BoundaryHistoryEntry[]; eventCount: number } {
   const replayEvents = transformDbEventsForReplay(events as any);
+  // Scratch id must stay distinct from the live table (`game_mt9pcfvk` vs
+  // `undo_probe_game_mt9pcfvk`). ensureGame / resolution handlers ignore this prefix.
   const scratch = createContext(`undo_probe_${game?.gameId || 'game'}` as any);
   const history: BoundaryHistoryEntry[] = [];
   let previousBoundaryKey = getBoundaryKey((scratch as any).state || {}, boundaryKind);
@@ -454,6 +456,138 @@ export function buildBoundaryHistoryFromReplay(
   });
 
   return { history, eventCount: replayEvents.length };
+}
+
+type UndoBoundaryHistoryCache = {
+  eventCount: number;
+  lastEventType: string;
+  byKind: Partial<Record<BoundaryKind, BoundaryHistoryEntry[]>>;
+};
+
+const undoBoundaryProbeCache = new WeakMap<object, UndoBoundaryHistoryCache>();
+
+function getCachedProbeHistory(
+  game: any,
+  eventCount: number,
+  lastEventType: string,
+  kind: BoundaryKind,
+): BoundaryHistoryEntry[] | undefined {
+  if (!game || typeof game !== 'object') return undefined;
+  const cached = undoBoundaryProbeCache.get(game);
+  if (!cached || cached.eventCount !== eventCount || cached.lastEventType !== lastEventType) {
+    return undefined;
+  }
+  return cached.byKind[kind];
+}
+
+function setCachedProbeHistories(
+  game: any,
+  eventCount: number,
+  lastEventType: string,
+  byKind: Record<BoundaryKind, BoundaryHistoryEntry[]>,
+): void {
+  if (!game || typeof game !== 'object') return;
+  undoBoundaryProbeCache.set(game, { eventCount, lastEventType, byKind });
+}
+
+function attachLiveBoundaryIfMissing(
+  history: BoundaryHistoryEntry[],
+  liveBoundaryKey: string,
+  liveState: any,
+  lastEventIndex: number,
+): BoundaryHistoryEntry[] {
+  if (!liveBoundaryKey || boundaryHistoryHasKey(history, liveBoundaryKey)) {
+    return history;
+  }
+  return [
+    ...history,
+    {
+      key: liveBoundaryKey,
+      entryIndex: Math.max(0, lastEventIndex),
+      state: snapshotBoundaryState(liveState),
+    },
+  ];
+}
+
+function probeAllBoundaryKinds(
+  events: PersistedEvent[],
+  game: any,
+): Record<BoundaryKind, BoundaryHistoryEntry[]> {
+  const replayEvents = transformDbEventsForReplay(events as any);
+  const scratch = createContext(`undo_probe_${game?.gameId || 'game'}` as any);
+  const kinds: BoundaryKind[] = ['step', 'phase', 'turn'];
+  const histories = {} as Record<BoundaryKind, BoundaryHistoryEntry[]>;
+  const previousKeys: Record<BoundaryKind, string> = {} as Record<BoundaryKind, string>;
+
+  for (const kind of kinds) {
+    const initialState = snapshotBoundaryState((scratch as any).state || {});
+    previousKeys[kind] = getBoundaryKey((scratch as any).state || {}, kind);
+    histories[kind] = [{
+      key: previousKeys[kind],
+      entryIndex: -1,
+      state: initialState,
+    }];
+  }
+
+  replayOnContext(scratch as any, replayEvents as any, (replayCtx, _event, index) => {
+    for (const kind of kinds) {
+      const nextKey = getBoundaryKey((replayCtx as any).state || {}, kind);
+      if (nextKey !== previousKeys[kind]) {
+        histories[kind].push({
+          key: nextKey,
+          entryIndex: index,
+          state: snapshotBoundaryState((replayCtx as any).state || {}),
+        });
+        previousKeys[kind] = nextKey;
+      }
+    }
+  });
+
+  return histories;
+}
+
+/**
+ * Prefer stamped event metadata (already stored on each persisted row). If
+ * nextStep was recorded before apply, the live step can be one ahead of the
+ * last stamp — attach live state instead of replaying the whole log. Probe
+ * only when the log has no usable stamps, and cache that probe per game.
+ */
+export function resolveBoundaryHistoryForUndo(
+  events: PersistedEvent[],
+  game: any,
+  kind: BoundaryKind,
+): { history: BoundaryHistoryEntry[]; eventCount: number } {
+  const eventCount = Array.isArray(events) ? events.length : 0;
+  if (eventCount <= 0) {
+    return { history: [], eventCount: 0 };
+  }
+
+  const liveState = (game?.state || {}) as any;
+  const liveKey = getBoundaryKey(liveState, kind);
+  const persisted = buildBoundaryHistoryFromPersistedMetadata(events, kind);
+  if (persisted) {
+    const history = liveKey
+      ? attachLiveBoundaryIfMissing(persisted, liveKey, liveState, eventCount - 1)
+      : persisted;
+    return { history, eventCount };
+  }
+
+  const lastEventType = String(events[eventCount - 1]?.type || '');
+  const cached = getCachedProbeHistory(game, eventCount, lastEventType, kind);
+  if (cached) {
+    return { history: cached, eventCount };
+  }
+
+  const probed = probeAllBoundaryKinds(events, game);
+  const byKind = {} as Record<BoundaryKind, BoundaryHistoryEntry[]>;
+  for (const probedKind of ['step', 'phase', 'turn'] as BoundaryKind[]) {
+    const probedLiveKey = getBoundaryKey(liveState, probedKind);
+    byKind[probedKind] = probedLiveKey
+      ? attachLiveBoundaryIfMissing(probed[probedKind], probedLiveKey, liveState, eventCount - 1)
+      : probed[probedKind];
+  }
+  setCachedProbeHistories(game, eventCount, lastEventType, byKind);
+  return { history: byKind[kind], eventCount };
 }
 
 function planFromBoundaryHistory(
@@ -506,14 +640,7 @@ export function calculateBoundaryUndoCount(
   const liveBoundaryKey = getBoundaryKey(currentState, boundaryKind);
   if (!liveBoundaryKey) return { count: 0 };
 
-  const persistedHistory = buildBoundaryHistoryFromPersistedMetadata(events, boundaryKind);
-  if (persistedHistory && boundaryHistoryHasKey(persistedHistory, liveBoundaryKey)) {
-    return planFromBoundaryHistory(persistedHistory, events.length, liveBoundaryKey, boundaryOffset);
-  }
-
-  // Metadata missing the live boundary (lagging stamps, or pre-fix polluted tails):
-  // rebuild from payload replay so step/phase/turn undo can still target "now".
-  const { history, eventCount } = buildBoundaryHistoryFromReplay(events, game, boundaryKind);
+  const { history, eventCount } = resolveBoundaryHistoryForUndo(events, game, boundaryKind);
   return planFromBoundaryHistory(history, eventCount, liveBoundaryKey, boundaryOffset);
 }
 

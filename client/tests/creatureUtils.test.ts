@@ -233,6 +233,64 @@ describe('current combat keyword helpers', () => {
     expect(canCreatureAttackNow(creature, battlefield)).toBe(true);
   });
 
+  it('does not treat Other [type]s you control have haste as current haste on the lord', () => {
+    const alpha = {
+      ...createMockPermanent(
+        'Creature — Dinosaur',
+        'Other Dinosaurs you control have haste.\nWhen this creature enters, create a 3/3 green Dinosaur creature token with trample.',
+      ),
+      id: 'regisaur-1',
+      summoningSickness: true,
+    } as BattlefieldPermanent;
+
+    expect(hasCurrentHaste(alpha, [alpha])).toBe(false);
+    expect(canCreatureAttackNow(alpha, [alpha])).toBe(false);
+  });
+
+  it('does not let a goaded lord attack from a stamped haste badge or keyword list', () => {
+    const alpha = {
+      ...createMockPermanent(
+        'Creature — Dinosaur',
+        'Other Dinosaurs you control have haste.\nWhen this creature enters, create a 3/3 green Dinosaur creature token with trample.',
+      ),
+      id: 'regisaur-1',
+      summoningSickness: true,
+      enteredThisTurn: true,
+      isStaticallyGoaded: true,
+      grantedAbilities: ['haste'],
+      card: {
+        id: 'regisaur-card',
+        name: 'Regisaur Alpha',
+        type_line: 'Creature — Dinosaur',
+        oracle_text:
+          'Other Dinosaurs you control have haste.\nWhen this creature enters, create a 3/3 green Dinosaur creature token with trample.',
+        keywords: ['Haste'],
+      },
+    } as BattlefieldPermanent;
+    const otherDino = {
+      ...createMockPermanent('Creature — Dinosaur', 'Trample'),
+      id: 'pteranodon-1',
+      summoningSickness: true,
+      enteredThisTurn: true,
+    } as BattlefieldPermanent;
+    const battlefield = [alpha, otherDino];
+
+    expect(hasCurrentHaste(alpha, battlefield)).toBe(false);
+    expect(canCreatureAttackNow(alpha, battlefield)).toBe(false);
+    expect(hasCurrentHaste(otherDino, battlefield)).toBe(true);
+    expect(canCreatureAttackNow(otherDino, battlefield)).toBe(true);
+  });
+
+  it('treats enteredThisTurn as sickness even when summoningSickness is false', () => {
+    const creature = {
+      ...createMockPermanent('Creature — Beast', ''),
+      summoningSickness: false,
+      enteredThisTurn: true,
+    } as BattlefieldPermanent;
+
+    expect(canCreatureAttackNow(creature, [creature])).toBe(false);
+  });
+
   it('treats attached keyword-granting text as current evasion keywords', () => {
     const creature = {
       ...createMockPermanent('Creature — Human Soldier', ''),

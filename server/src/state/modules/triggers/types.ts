@@ -132,7 +132,8 @@ export interface DeathTriggerResult {
   sacrificeFrom?: string; // Player ID who must sacrifice
 }
 
-// NOTE: UntapStepEffect has been moved to turn-phases.ts
+// NOTE: UntapStepEffect lives in turn-phases-handlers/turnPhaseUntapStepEffects.ts
+// (re-exported from turn-phases.ts).
 
 /**
  * ETB untap effect (Intruder Alarm, etc.)

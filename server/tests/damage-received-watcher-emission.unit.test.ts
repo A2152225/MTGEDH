@@ -59,7 +59,70 @@ describe('damage-received watcher emission', () => {
     });
     expect(detectDealtDamageTriggers(permanent.card, permanent).some((trigger) => trigger.triggerType === 'dealt_damage')).toBe(true);
     const info = getDamageReceivedTrigger(permanent, { battlefield: [permanent] });
-    expect(info).toBeTruthy();
+    expect(info).toBeNull();
+    const ctx = makeCtx([permanent]);
+    processDamageReceivedTriggers(ctx, permanent, 2, () => {});
+    expect((ctx as any).state.stack.some((item: any) => (
+      item.permanentId === permanent.id
+      && item.triggerType === 'dealt_damage'
+      && /loses that much life/i.test(String(item.effect || ''))
+    ))).toBe(true);
+  });
+
+  it('queues Apex Altisaur Enrage as a fight trigger instead of a that-much-damage redirect', () => {
+    const apex = perm('apex_1', 'p1', {
+      name: 'Apex Altisaur',
+      type_line: 'Creature — Dinosaur',
+      power: '10',
+      toughness: '10',
+      oracle_text:
+        "When this creature enters, it fights up to one target creature you don't control.\nEnrage — Whenever this creature is dealt damage, it fights up to one target creature you don't control.",
+    });
+    expect(getDamageReceivedTrigger(apex, { battlefield: [apex] })).toBeNull();
+    const ctx = makeCtx([apex]);
+    const redirects: any[] = [];
+    processDamageReceivedTriggers(ctx, apex, 1, (trigger) => {
+      redirects.push(trigger);
+    });
+    expect(redirects).toEqual([]);
+    expect((ctx as any).state.stack.some((item: any) => (
+      item.permanentId === apex.id
+      && item.triggerType === 'dealt_damage'
+      && /fights up to one target creature you don't control/i.test(String(item.effect || ''))
+    ))).toBe(true);
+  });
+
+  it('applies Apex Altisaur fight damage to both creatures via Oracle IR', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    const apex = perm('apex_1', 'p1', {
+      name: 'Apex Altisaur',
+      type_line: 'Creature — Dinosaur',
+      power: '10',
+      toughness: '10',
+      oracle_text:
+        "When this creature enters, it fights up to one target creature you don't control.\nEnrage — Whenever this creature is dealt damage, it fights up to one target creature you don't control.",
+    }, { type_line: 'Creature — Dinosaur', power: 10, toughness: 10 });
+    const bear = perm('bear_1', 'p2', {
+      name: 'Grizzly Bears',
+      type_line: 'Creature — Bear',
+      power: '2',
+      toughness: '2',
+      oracle_text: '',
+    }, { type_line: 'Creature — Bear', power: 2, toughness: 2 });
+    const ctx = makeCtx([apex, bear]);
+    processDamageReceivedTriggers(ctx, apex, 1, () => {});
+    const trigger = (ctx as any).state.stack.find((item: any) => (
+      item.permanentId === apex.id && /fights/i.test(String(item.effect || ''))
+    ));
+    expect(trigger).toBeTruthy();
+    trigger.targets = [bear.id];
+    executeTriggerEffect(ctx, 'p1', 'Apex Altisaur', String(trigger.effect), trigger);
+    const resolvedApex = (ctx as any).state.battlefield.find((permanent: any) => permanent.id === apex.id);
+    const resolvedBear = (ctx as any).state.battlefield.find((permanent: any) => permanent.id === bear.id);
+    expect(Number(resolvedApex?.damageMarked || 0)).toBe(2);
+    if (resolvedBear) {
+      expect(Number(resolvedBear.damageMarked || 0)).toBe(10);
+    }
   });
 
   it('queues a creature-you-control watcher when another creature you control is damaged', () => {
@@ -143,6 +206,30 @@ describe('damage-received watcher emission', () => {
       trigger.sourceId === dragon.id
       && trigger.controller === 'p1'
       && trigger.targetType === 'any_non_dragon'
+      && trigger.damageAmount === 4
+    ))).toBe(true);
+  });
+
+  it('fires a typed Goblin watcher as a that-much redirect excluding Goblins, not only Dragons', () => {
+    const watcher = perm('wrath_1', 'p1', {
+      name: 'Sample Wrathful Goblin',
+      type_line: 'Creature — Goblin',
+      oracle_text: "Whenever a Goblin you control is dealt damage, it deals that much damage to any target that isn't a Goblin.",
+    });
+    const goblin = perm('goblin_1', 'p1', {
+      name: 'Sample Goblin',
+      type_line: 'Creature — Goblin',
+      oracle_text: 'Haste',
+    });
+    const ctx = makeCtx([watcher, goblin]);
+    const hits: any[] = [];
+    processDamageReceivedTriggers(ctx, goblin, 4, (trigger) => {
+      hits.push(trigger);
+    });
+    expect(hits.some((trigger) => (
+      trigger.sourceId === goblin.id
+      && trigger.controller === 'p1'
+      && trigger.targetType === 'any_non_goblin'
       && trigger.damageAmount === 4
     ))).toBe(true);
   });

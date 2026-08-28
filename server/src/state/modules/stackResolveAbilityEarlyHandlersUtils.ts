@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { enqueueLibrarySearchStep } from './triggerLibrarySearchUtils.js';
 import { millCardsFromLibrary } from './triggerLibraryMillUtils.js';
+import { tryApplyOracleIRToActivatedAbility } from './oracleIrAbilityExecution.js';
 import type { StackActivatedAbilityHandlerContext } from './stackResolveSharedTypes.js';
 
 export type { StackActivatedAbilityHandlerContext } from './stackResolveSharedTypes.js';
@@ -10,6 +11,29 @@ export type { StackActivatedAbilityHandlerContext } from './stackResolveSharedTy
 function resolveFetchLandAbility(ctx: GameContext, item: any, controller: PlayerID): void {
   const sourceName = item?.sourceName || 'Unknown';
   debug(2, `[resolveFetchLandAbility] Resolving fetch land ability from ${sourceName} for ${controller}`);
+
+  const oracleText = String(
+    item?.activatedAbilityText
+    || item?.card?.oracle_text
+    || item?.description
+    || '',
+  ).trim();
+  if (oracleText) {
+    const irResult = tryApplyOracleIRToActivatedAbility(ctx, {
+      controller,
+      sourceName,
+      oracleText,
+      sourcePermanentId: String(item?.source || ''),
+      stackItemId: String(item?.id || ''),
+      sourceItem: item,
+      card: item?.card,
+      allowOptional: false,
+    });
+    if (irResult.handled) {
+      debug(2, `[resolveFetchLandAbility] Oracle IR resolved fetch land from ${sourceName} (${irResult.applied} step(s))`);
+      return;
+    }
+  }
 
   const searchParams = item?.searchParams || {};
   enqueueLibrarySearchStep(ctx, controller, {

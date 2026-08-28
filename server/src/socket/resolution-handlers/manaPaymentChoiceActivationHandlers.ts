@@ -51,6 +51,7 @@ import {
   buildActivatedAbilityRestrictedManaPurpose,
   emitToPlayer,
   getPlayerName,
+  shouldSkipScalingManaForColorlessTap,
   type RestrictedManaSpendPurpose,
 } from "../util.js";
 import {
@@ -372,7 +373,14 @@ export async function tryHandleManaPaymentChoiceActivation(
     const isLand = typeLine.includes('land');
     const isBasic = typeLine.includes('basic');
     const devotionMana = getDevotionManaAmount(game.state, permanent, pid);
-    const creatureCountMana = getCreatureCountManaAmount(game.state, permanent, pid);
+    const creatureCountMana = shouldSkipScalingManaForColorlessTap({
+      cardName,
+      abilityId,
+      selectedAbilityText: activatedAbilityText || abilityText,
+      oracleText: String(permanent?.card?.oracle_text || ''),
+    })
+      ? null
+      : getCreatureCountManaAmount(game.state, permanent, pid);
     const manaMultiplier = getManaMultiplier(game.state, permanent, pid);
     let effectiveMultiplier = manaMultiplier;
     if (manaMultiplier > 1 && !isBasic && isLand) {

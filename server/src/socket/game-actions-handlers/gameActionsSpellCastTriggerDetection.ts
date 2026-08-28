@@ -54,6 +54,9 @@ export function getSpellCastTriggersForCard(game: any, casterId: string, spellCa
     sourcePermanent?: any,
     spellSourceZone = castSourceZone,
   ): boolean => {
+    if (trigger.sourceZoneRequirement === 'hand' && spellSourceZone && spellSourceZone !== 'hand') {
+      return false;
+    }
     if (trigger.sourceZoneRequirement === 'library' && spellSourceZone !== 'library') {
       return false;
     }

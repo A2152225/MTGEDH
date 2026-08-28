@@ -8,7 +8,7 @@
 import type { GameContext } from "../../context";
 import type { PlayerID, GameEvent } from "../../types";
 import { recordCardPutIntoGraveyardThisTurn } from "../turn-tracking.js";
-import { pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
+import { pushCardToGraveyardFromLibrary } from "../graveyardEntryUtils.js";
 import { drawCards, movePermanentToHand } from "../zones";
 import { updateCounters, createToken, destroyPermanent, runSBA, movePermanentToExile } from "../counters_tokens";
 import { cleanupCardLeavingExile } from "../playable-from-exile";
@@ -304,7 +304,7 @@ export function applyStackCoreEvents(ctx: GameContext, e: GameEvent): boolean {
                     for (let i = 0; i < count && lib.length > 0; i++) {
                       const milled = lib.shift();
                       if (milled) {
-                        pushCardToPlayerGraveyardWithReplacements(ctx as any, String(playerId), milled, z.graveyard);
+                        pushCardToGraveyardFromLibrary(ctx as any, String(playerId), milled, z.graveyard);
                       }
                     }
                     (ctx as any).libraries?.set?.(playerId, lib);

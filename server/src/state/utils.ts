@@ -6,6 +6,7 @@ import { summarizeLifeGainAmountReplacements } from './modules/replacementEffect
 import { canPlayerPayLife } from './modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js';
 import { calculateVariablePT } from './utils-handlers/variablePTCalculator.js';
 import { resolveSetBasePTFromAttachedAuras } from './utils-handlers/ptAttachedBonusParseHelpers.js';
+import { resolveSetBasePTFromStaticSpecs } from './modules/staticEffectSpec.js';
 
 export function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -695,6 +696,11 @@ export function getActualPowerToughness(
   if (setBasePT) {
     basePower = setBasePT.power;
     baseToughness = setBasePT.toughness;
+  }
+  const staticSetBasePT = resolveSetBasePTFromStaticSpecs(permanent, gameState);
+  if (staticSetBasePT) {
+    basePower = staticSetBasePT.power;
+    baseToughness = staticSetBasePT.toughness;
   }
   
   // Apply counters

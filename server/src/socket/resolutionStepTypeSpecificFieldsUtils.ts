@@ -365,6 +365,22 @@ export function getTypeSpecificFields(step: ResolutionStep): Record<string, any>
         fields.roomPermanentId = (step as any).roomPermanentId;
       }
 
+      if ((step as any)?.attackCostPayment === true) {
+        fields.attackCostPayment = true;
+        fields.attackCostAmount = (step as any).attackCostAmount;
+        fields.attackCostBreakdown = (step as any).attackCostBreakdown;
+        fields.attackCostPhyrexianChoices = (step as any).attackCostPhyrexianChoices;
+        fields.attackers = (step as any).attackers;
+      }
+
+      if ((step as any)?.skipDrawReplacementChoice === true) {
+        fields.skipDrawReplacementChoice = true;
+        fields.exceptKeywords = (step as any).exceptKeywords;
+        fields.remainingDrawCountAfterChoice = (step as any).remainingDrawCountAfterChoice;
+        fields.skipDrawSourcePermanentId = (step as any).skipDrawSourcePermanentId;
+        fields.skipDrawSourceName = (step as any).skipDrawSourceName;
+      }
+
       if ((step as any)?.counterPlacementTrigger === true || (step as any)?.agitatorAntTrigger === true) {
         fields.counterPlacementTrigger = (step as any).counterPlacementTrigger === true;
         fields.agitatorAntTrigger = (step as any).agitatorAntTrigger === true;

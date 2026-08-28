@@ -27,6 +27,8 @@ import {
   resolvePermanentChosenColorSymbol,
   resolvePowerThresholdInsteadManaAbility,
 } from "./manaAbilityColorRestrictionUtils.js";
+import { manaAbilitiesFromContinuousTapGrants } from "./manaAbilityContinuousTapGrants.js";
+import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.js";
 
 /**
  * Get all mana abilities for a permanent, including granted abilities
@@ -729,6 +731,11 @@ export function getManaAbilitiesForPermanent(
       });
     }
   }
+
+  abilities.push(...manaAbilitiesFromContinuousTapGrants(
+    getContinuousGrantedAbilitiesForPermanent(permanent, gameState),
+    String(permanent?.id || ''),
+  ));
 
   // Apply granted abilities from modifiers
   for (const modifier of modifiers) {

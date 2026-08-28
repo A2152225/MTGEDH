@@ -75,10 +75,26 @@ export function parseKeywordsFromOracleText(oracleText: string): string[] {
   const text = oracleText.toLowerCase();
 
   for (const keyword of ORACLE_KEYWORDS) {
-    const pattern = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-    if (pattern.test(text)) {
-      keywords.push(keyword);
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`\\b${escaped}\\b`, 'i');
+    if (!pattern.test(text)) continue;
+    // Do not treat "Other [type]s you control have haste" as a printed self-keyword.
+    // Keep this local: importing oracleOwnKeywordText here cycles with oracleReminderText.
+    const otherGrant = new RegExp(
+      String.raw`\bother\b[^.?\n]*\b(?:have|has|gains?)\b[^.?\n]*\b${escaped}\b`,
+      'i',
+    );
+    if (otherGrant.test(oracleText)) {
+      const withoutOtherGrants = oracleText.replace(
+        new RegExp(
+          String.raw`\bother\b[^.?\n]*\b(?:have|has|gains?)\b[^.?\n]*\b${escaped}\b[^.?\n]*`,
+          'gi',
+        ),
+        ' ',
+      );
+      if (!pattern.test(withoutOtherGrants)) continue;
     }
+    keywords.push(keyword);
   }
 
   return keywords;

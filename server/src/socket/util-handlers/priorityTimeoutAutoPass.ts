@@ -19,6 +19,7 @@ import { debug, debugWarn } from "../../utils/debug.js";
 import { BOOT_ID } from "../../utils/bootId.js";
 import { shouldBypassIdleForNonEmptyStack } from "./autoPassTimerState.js";
 import { ts } from "./repairMissingPriorityIfStuck.js";
+import { listAttackersAgainstDefender } from "../combat-handlers/combatMustBeBlockedIfAble.js";
 
 export type PriorityTimeoutAutoPassDeps = {
   broadcastGame: (io: Server, game: InMemoryGame, gameId: string) => void;
@@ -176,7 +177,7 @@ function doAutoPass(
     // In multiplayer, defending player is anyone being attacked, not just "not the turn player"
     // Check if this player has creatures attacking them
     const battlefield = game.state?.battlefield || [];
-    const isBeingAttacked = battlefield.some((perm: any) => perm?.attacking === playerId);
+    const isBeingAttacked = listAttackersAgainstDefender(battlefield, playerId).length > 0;
     
     // Check if player has potential blockers (untapped creatures)
     const hasPotentialBlockers = battlefield.some((perm: any) => {

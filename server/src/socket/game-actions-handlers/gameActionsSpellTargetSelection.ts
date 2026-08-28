@@ -19,6 +19,7 @@ import {
   matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType,
 } from "../../rules-engine/targeting";
 import { permanentMatchesTargetRequirementStatKeywordFilters } from "../../rules-engine/targeting-handlers/targetingParseTargetRequirementRestrictions.js";
+import { stackItemMeetsSingleTargetRequirement } from "../../rules-engine/targeting-handlers/targetingStackObjectSingleTarget.js";
 import { cardManaValue } from "../../state/utils";
 import { resolveCastSpellParsedTargeting } from "./gameActionsCastSpellParsedTargeting.js";
 
@@ -190,6 +191,7 @@ export function buildSpellTargetListFromRequirements(game: any, playerId: string
     if (isRequirementStackSpellTargetType(targetTypeLower) || targetTypeLower === 'spell') {
       const stackItems = (game.state.stack || []).filter((entry: any) =>
         stackItemMatchesSpellTargetType(entry, targetTypeLower)
+        && stackItemMeetsSingleTargetRequirement(entry, targetReqs)
       );
       for (const item of stackItems) {
         validTargetList.push({
@@ -330,7 +332,10 @@ export function buildSpellTargetListFromRequirements(game: any, playerId: string
     }
 
     if (targetTypeLower === 'ability') {
-      const stackItems = (game.state.stack || []).filter((entry: any) => entry?.type === 'ability' || entry?.type === 'triggered_ability' || entry?.type === 'activated_ability');
+      const stackItems = (game.state.stack || []).filter((entry: any) =>
+        (entry?.type === 'ability' || entry?.type === 'triggered_ability' || entry?.type === 'activated_ability')
+        && stackItemMeetsSingleTargetRequirement(entry, targetReqs)
+      );
       for (const item of stackItems) {
         validTargetList.push({
           id: item.id,

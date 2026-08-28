@@ -232,14 +232,6 @@ export function trySpecialDestroyStep(
     return exileBattlefieldPermanents(state, matches, ctx, 'untapped non-attacker destroy');
   }
 
-  if (/destroy all non-dinosaur creatures/.test(raw)) {
-    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
-    const matches = battlefield.filter(
-      (perm: any) => permanentMatchesType(perm, 'creature') && !typeLineHasSubtype(perm, 'dinosaur')
-    );
-    return exileBattlefieldPermanents(state, matches, ctx, 'non-dinosaur');
-  }
-
   if (/destroy that wall/.test(raw)) {
     const boundIds = new Set(collectBoundIds(ctx));
     const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];

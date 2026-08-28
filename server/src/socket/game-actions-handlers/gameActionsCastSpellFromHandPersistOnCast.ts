@@ -35,6 +35,7 @@ import { broadcastGame, getPlayerName } from "../util";
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
 import { recordSpellCastThisTurn } from "./gameActionsSpellCastTriggerDetection.js";
 import { processSpellCastTriggersForCast } from "./gameActionsSpellCastTriggerProcessing.js";
+import { findTriggeringSpellOnStack } from "../../state/modules/triggerCastSpellStackBinding.js";
 import {
   applyHeroicTrigger,
   consumeDelayedSpellCopiesForCast,
@@ -606,6 +607,29 @@ export async function persistAndProcessCastSpellFromHand(
         const allPlayerIds = (game.state?.players || []).map((p: any) => p.id);
         const battlefield = game.state?.battlefield || [];
         const ctxForInterveningIf = { state: game.state } as any;
+        const opponentCastStackArr: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+        const boundCastSpell = findTriggeringSpellOnStack(game.state, {
+          triggeringPlayer: playerId,
+          effectData: {
+            casterId: playerId,
+            triggeringSpell: {
+              id: cardId,
+              name: cardInHand?.name,
+            },
+          },
+        }, { casterId: playerId, cardId: String(cardId || '') });
+        let opponentCastTriggeringStackItemId = String(boundCastSpell?.id || '');
+        if (!opponentCastTriggeringStackItemId) {
+          for (let i = opponentCastStackArr.length - 1; i >= 0; i--) {
+            const item = opponentCastStackArr[i];
+            if (!item || String(item.controller || '') !== String(playerId)) continue;
+            if (String(item.type || '').trim().toLowerCase() === 'triggered_ability') continue;
+            if (String(item?.card?.id || '') === String(cardId)) {
+              opponentCastTriggeringStackItemId = String(item.id || '');
+              break;
+            }
+          }
+        }
         
         // Track if this is the first noncreature spell the caster has cast this turn
         const spellTypeLine = (cardInHand?.type_line || '').toLowerCase();
@@ -628,7 +652,8 @@ export async function persistAndProcessCastSpellFromHand(
             playerId, // The caster (opponent to the trigger controllers)
             cardInHand,
             allPlayerIds,
-            isFirstNoncreatureThisTurn
+            isFirstNoncreatureThisTurn,
+            castSourceZone,
           ),
         );
         
@@ -642,6 +667,11 @@ export async function persistAndProcessCastSpellFromHand(
           const casterId = String((trigger as any).casterId || playerId || '').trim();
           const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
           const needsThatPlayerRef = /\bthat player\b/i.test(triggerText);
+          const wantsHandCast = /\bfrom (?:their|your|his or her) hand\b/i.test(triggerText);
+          if (wantsHandCast && castSourceZone && castSourceZone !== 'hand') {
+            debug(2, `[castSpellFromHand] Skipping opponent spell trigger: ${trigger.cardName} (spell was not cast from hand)`);
+            continue;
+          }
           const ok = isInterveningIfSatisfied(
             ctxForInterveningIf,
             String(trigger.controllerId),
@@ -675,15 +705,18 @@ export async function persistAndProcessCastSpellFromHand(
             permanentId: trigger.permanentId,
             sourceName: trigger.cardName,
             description: trigger.description,
+            effect: (trigger as any).effect || trigger.benefitIfNotPaid || trigger.description,
             triggerType: trigger.triggerType,
             mandatory: trigger.mandatory,
             // Context for resolution-time checks and pronoun binding (e.g., "that player")
             targetPlayer: String((trigger as any).casterId || playerId || ''),
             triggeringPlayer: String((trigger as any).casterId || playerId || ''),
+            ...(opponentCastTriggeringStackItemId ? { triggeringStackItemId: opponentCastTriggeringStackItemId } : null),
             ...(castSourceZone ? { triggeringSpellCastSourceZone: castSourceZone } : null),
             effectData: {
               casterId: trigger.casterId,
               ...(castSourceZone ? { castSourceZone, sourceCastZone: castSourceZone } : null),
+              ...(opponentCastTriggeringStackItemId ? { triggeringStackItemId: opponentCastTriggeringStackItemId } : null),
               triggeringSpell: {
                 id: cardInHand?.id,
                 name: cardInHand?.name,
@@ -709,6 +742,7 @@ export async function persistAndProcessCastSpellFromHand(
             mandatory: trigger.mandatory,
             targetPlayer: stackItem.targetPlayer,
             triggeringPlayer: stackItem.triggeringPlayer,
+            ...(opponentCastTriggeringStackItemId ? { triggeringStackItemId: opponentCastTriggeringStackItemId } : null),
             ...(castSourceZone ? { triggeringSpellCastSourceZone: castSourceZone } : null),
             effectData: stackItem.effectData,
           }, 'opponent spell-cast');

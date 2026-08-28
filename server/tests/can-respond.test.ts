@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates, isPlayerIdleForAutoPass, hasFlashOrInstant } from '../src/state/modules/can-respond';
+import { getPlayableCardIds } from '../src/socket/util-handlers/getPlayableCardIds';
 import { buildDurableCommandZonePermission, buildDurableGraveyardPermission, buildDurableLibraryPermission, buildDurablePlayableFromExilePermission } from '../src/state/modules/durable-permissions';
 import { applyPlayableFromGraveyardPermissionFromText, applyTemporaryGraveyardKeywordGrantFromText, clearTemporaryGraveyardKeywordGrants } from '../src/state/modules/graveyard-permissions';
 import type { GameContext } from '../src/state/context';
@@ -1514,6 +1515,47 @@ describe('canActivateAnyAbility', () => {
     });
 
     expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should require the full concatenated mana cost for Fire Sages, not just the last {R}', () => {
+    // Oracle: Firebending 1 reminder plus "{1}{R}{R}: Put a +1/+1 counter on this creature."
+    // A cost regex that required commas between symbols matched only the final {R}
+    // and treated two Mountains as enough to activate.
+    const fireSagesOracle =
+      'Firebending 1 (Whenever this creature attacks, add {R}. This mana lasts until end of combat.)\n{1}{R}{R}: Put a +1/+1 counter on this creature.';
+    const makeCtx = (red: number, colorless = 0) => createTestContext({
+      phase: 'beginning',
+      step: 'UPKEEP',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+      zones: {
+        p1: { hand: [], graveyard: [], exile: [] },
+      },
+      battlefield: [
+        {
+          id: 'fire_sages',
+          controller: 'p1',
+          tapped: false,
+          summoningSickness: false,
+          card: {
+            name: 'Fire Sages',
+            type_line: 'Creature — Human Cleric',
+            oracle_text: fireSagesOracle,
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red, green: 0, colorless },
+      },
+    });
+
+    expect(canActivateAnyAbility(makeCtx(2), 'p1' as PlayerID)).toBe(false);
+    expect(canAct(makeCtx(2), 'p1' as PlayerID)).toBe(false);
+    expect(getPlayableCardIds({ state: makeCtx(2).state } as any, 'p1' as PlayerID)).not.toContain('fire_sages');
+    expect(canActivateAnyAbility(makeCtx(2, 1), 'p1' as PlayerID)).toBe(true);
+    expect(canAct(makeCtx(2, 1), 'p1' as PlayerID)).toBe(true);
+    expect(getPlayableCardIds({ state: makeCtx(2, 1).state } as any, 'p1' as PlayerID)).toContain('fire_sages');
   });
 
   it('should skip an ignored battlefield permanent regardless of whether ignore is keyed by permanent id or card id', () => {
@@ -4010,6 +4052,87 @@ describe('canAct', () => {
     });
 
     expect(canAct(ctx, 'p2' as PlayerID)).toBe(true);
+  });
+
+  it('does not force a goaded creature without haste to attack while summoning sick', () => {
+    const regisaurOracle =
+      'Other Dinosaurs you control have haste.\nWhen this creature enters, create a 3/3 green Dinosaur creature token with trample.';
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'regisaur_1',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          summoningSickness: true,
+          enteredThisTurn: true,
+          goadedBy: ['p1'],
+          goadedUntil: { p1: 99 },
+          card: {
+            id: 'regisaur_card_1',
+            name: 'Regisaur Alpha',
+            type_line: 'Creature — Dinosaur',
+            oracle_text: regisaurOracle,
+            power: '7',
+            toughness: '7',
+            keywords: [],
+          },
+        },
+      ],
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      step: 'DECLARE_ATTACKERS',
+      turn: 5,
+      turnPlayer: 'p2',
+      priority: 'p2',
+      stack: [],
+    });
+
+    expect(canAct(ctx, 'p2' as PlayerID)).toBe(false);
+  });
+
+  it('does not force a goaded Other [type] haste lord with a stamped haste badge', () => {
+    const regisaurOracle =
+      'Other Dinosaurs you control have haste.\nWhen this creature enters, create a 3/3 green Dinosaur creature token with trample.';
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'regisaur_1',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          summoningSickness: true,
+          enteredThisTurn: true,
+          goadedBy: ['p1'],
+          goadedUntil: { p1: 99 },
+          grantedAbilities: ['haste'],
+          card: {
+            id: 'regisaur_card_1',
+            name: 'Regisaur Alpha',
+            type_line: 'Creature — Dinosaur',
+            oracle_text: regisaurOracle,
+            power: '7',
+            toughness: '7',
+            keywords: ['Haste'],
+          },
+        },
+      ],
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      step: 'DECLARE_ATTACKERS',
+      turn: 5,
+      turnPlayer: 'p2',
+      priority: 'p2',
+      stack: [],
+    });
+
+    expect(canAct(ctx, 'p2' as PlayerID)).toBe(false);
   });
 
   it('should return true when a modal DFC has a spell face and a land face in hand', () => {

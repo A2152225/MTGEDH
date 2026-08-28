@@ -19,7 +19,8 @@ export function buildSelfReferenceAliases(cardName?: string): string[] {
     pushAlias(face);
 
     const commaHead = face.split(',')[0]?.trim();
-    if (commaHead && commaHead.length >= 4) {
+    // 3 letters covers planeswalker shorthand (Ral, Oko); 2-letter heads stay excluded.
+    if (commaHead && commaHead.length >= 3) {
       pushAlias(commaHead);
     }
   }

@@ -22,10 +22,10 @@ import {
 } from './oracleIRExecutorZoneOps';
 import {
   findBoundCardZoneLocation,
+  chosenObjectIdsAreMatchingCardSelection,
   getChosenObjectIds,
   getTargetObjectId,
   getTargetPlayerId,
-  hasExplicitChosenObjectIds,
   resolveUniqueChosenAnyGraveyardTargetId,
 } from './oracleIRExecutorMoveZoneReferenceResolvers';
 import {
@@ -102,7 +102,7 @@ export function tryApplyMoveZoneGuardsFromAnotherFromGraveyard(args: MoveZoneGua
       .filter((card: any) => cardMatchesMoveZoneSingleTargetCriteria(card, effectiveCriteria))
       .map((card: any) => String(card?.id || '').trim())
       .filter(Boolean);
-    if (!hasExplicitChosenObjectIds(ctx)) {
+    if (!chosenObjectIdsAreMatchingCardSelection(ctx, matchingIds)) {
       if (matchingIds.length === 0 || dynamicMaxCount <= 0) {
         return buildAppliedResult({ state: nextState, log: [`No matching hand cards: ${step.raw}`] });
       }
@@ -154,7 +154,8 @@ export function tryApplyMoveZoneGuardsFromAnotherFromGraveyard(args: MoveZoneGua
       const cardId = String(card?.id || '').trim();
       return Boolean(cardId && cardMatchesType(card, parsedAnyNumberCardsFromYourHand.cardType));
     });
-    if (!hasExplicitChosenObjectIds(ctx)) {
+    const matchingIds = matchingCards.map((card: any) => String(card?.id || '').trim()).filter(Boolean);
+    if (!chosenObjectIdsAreMatchingCardSelection(ctx, matchingIds)) {
       if (matchingCards.length === 0) {
         return buildAppliedResult({ state: nextState, log: [`No matching hand cards: ${step.raw}`] });
       }

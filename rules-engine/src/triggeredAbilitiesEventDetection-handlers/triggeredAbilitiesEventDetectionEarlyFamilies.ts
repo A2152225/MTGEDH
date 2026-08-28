@@ -40,6 +40,10 @@ export function tryParseTriggeredAbilityEventEarlyFamilies<T extends string>(
     return { event: triggerEventValues.NONCREATURE_SPELL_CAST, filter: text };
   }
 
+  if (/^this creature or another [a-z]+ you control(?: with [a-z]+)? enters\b/.test(text)) {
+    return { event: triggerEventValues.ENTERS_BATTLEFIELD, filter: text };
+  }
+
   if (
     /\b(?:you|an opponent|opponent|a player|each opponent|enchanted player|the chosen player)\s+casts?\b/.test(text) ||
     /\byou next cast\b/.test(text) ||

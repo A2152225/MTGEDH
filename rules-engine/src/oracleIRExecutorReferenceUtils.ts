@@ -182,6 +182,11 @@ export function resolveReferencedObjectPlayerIds(
       .filter(Boolean)
   );
 
+  if (role === 'owner') {
+    const boundOwnerId = normalizeId(ctx.selectorContext?.targetOwnerId);
+    if (boundOwnerId && allPlayerIds.has(boundOwnerId)) return [boundOwnerId as PlayerID];
+  }
+
   const singleChosenId = getSingleChosenObjectId(ctx);
   if (singleChosenId) {
     const referencedObject = resolveReferencedObject(state, ctx, runtime);
@@ -191,14 +196,29 @@ export function resolveReferencedObjectPlayerIds(
     }
   }
 
-  const boundPlayerId = normalizeId(ctx.selectorContext?.targetPlayerId) || normalizeId(ctx.targetPlayerId);
-  if (boundPlayerId && allPlayerIds.has(boundPlayerId)) return [boundPlayerId as PlayerID];
+  // targetPlayerId is the targeted permanent's controller. Owner-of-referenced-object
+  // must not use that shortcut — Chaos Warp reveals from the owner's library.
+  if (role !== 'owner') {
+    const boundPlayerId = normalizeId(ctx.selectorContext?.targetPlayerId) || normalizeId(ctx.targetPlayerId);
+    if (boundPlayerId && allPlayerIds.has(boundPlayerId)) return [boundPlayerId as PlayerID];
+  }
 
   const referencedObject = resolveReferencedObject(state, ctx, runtime);
   if (referencedObject) {
     const playerId = getPlayerIdFromObject(referencedObject, role);
     if (playerId && allPlayerIds.has(playerId)) return [playerId as PlayerID];
   }
+
+  if (role === 'owner') {
+    const movedSnapshots = collectMovedSnapshots(ctx, runtime);
+    for (let index = movedSnapshots.length - 1; index >= 0; index -= 1) {
+      const ownerId = getPlayerIdFromObject(movedSnapshots[index], 'owner');
+      if (ownerId && allPlayerIds.has(ownerId)) return [ownerId as PlayerID];
+    }
+  }
+
+  const boundPlayerId = normalizeId(ctx.selectorContext?.targetPlayerId) || normalizeId(ctx.targetPlayerId);
+  if (boundPlayerId && allPlayerIds.has(boundPlayerId)) return [boundPlayerId as PlayerID];
 
   return [];
 }

@@ -15,9 +15,10 @@ export {
   canBlockAttacker,
 } from "./combatLegalityGates.js";
 
-// declareBlockers socket request plus the chat/persist helpers it closed over.
+// declareBlockers socket request plus executeDeclareBlockers (paid block-tax path).
 export {
   handleDeclareBlockers,
+  executeDeclareBlockers,
   lookupBattlefieldPermanentName,
   emitDeclareBlockersChat,
   persistTriggeredAbilityPush,
@@ -26,7 +27,9 @@ export {
 // Derived must-be-blocked-if-able declare-blockers legality (Lure / Shinen / Nemesis Mask grants).
 export {
   attackerHasMustBeBlockedIfAble,
+  attackerIsAttackingDefender,
   findMustBeBlockedIfAbleViolation,
+  listAttackersAgainstDefender,
   resolveMustBeBlockedIfAbleAssignments,
 } from "./combatMustBeBlockedIfAble.js";
 
@@ -51,7 +54,9 @@ export {
   findForcedAttackViolation,
   getCreatureGoadStatus,
   processTapTriggersForAttackers,
+  resolveForcedAttackerDeclarations,
 } from "./combatDeclareAttackersForceTapSupport.js";
+export type { ForcedAttackerDeclaration } from "./combatDeclareAttackersForceTapSupport.js";
 
 // executeDeclareAttackers (AI / paid-attack / resolution-queue path).
 export { executeDeclareAttackers } from "./combatDeclareAttackersExecute.js";

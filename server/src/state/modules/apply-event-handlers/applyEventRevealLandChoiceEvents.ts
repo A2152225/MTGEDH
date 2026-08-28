@@ -177,6 +177,10 @@ export function applyRevealLandChoiceEvents(ctx: GameContext, e: GameEvent): boo
             playerZones.library = cloneLibraryCards(libraryAfter);
             playerZones.libraryCount = libraryAfter.length;
             ctx.libraries.set(playerId as any, cloneLibraryCards(libraryAfter));
+            const player = Array.isArray((ctx.state as any)?.players)
+              ? (ctx.state as any).players.find((entry: any) => String(entry?.id || '') === playerId)
+              : undefined;
+            if (player) player.library = cloneLibraryCards(libraryAfter);
           }
 
           if (stackItem) {

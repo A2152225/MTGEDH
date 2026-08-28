@@ -204,6 +204,17 @@ describe('spell-cast reveal/cast queue flow (integration)', () => {
       .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
     expect(paymentStep).toBeDefined();
     expect(String(paymentStep.manaCost || '{0}')).toContain('0');
+    expect(String(paymentStep.forcedAlternateCostId || '')).toBe('free');
+    expect(
+      (Array.isArray(paymentStep.extraAlternateCosts) ? paymentStep.extraAlternateCosts : [])
+        .some((cost: any) => String(cost?.id || '') === 'free' && String(cost?.manaCost || '') === '{0}'),
+    ).toBe(true);
+
+    const pendingCasts = Object.values((game.state as any).pendingSpellCasts || {}) as any[];
+    const pendingCast = pendingCasts.find((entry: any) => String(entry?.cardId || '') === 'hit_1') || pendingCasts[0];
+    expect(pendingCast?.castWithoutPayingManaCost).toBe(true);
+    expect(String(pendingCast?.costMetadata?.paymentModel?.effectiveManaCost || '')).toBe('{0}');
+    expect(pendingCast?.costMetadata?.paymentModel?.castWithoutPayingManaCost).toBe(true);
 
     await handlers['submitResolutionResponse']({
       gameId,

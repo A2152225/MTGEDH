@@ -9,7 +9,7 @@
  * Later ZoneOps extracts also moved toTitleCaseWords, parseCreatureSubtypeWord, and
  * parseCompoundCardTypeFromText here so parser leaves do not import the parent.
  */
-import { isValidCreatureType } from '../../shared/src/creatureTypes';
+import { isValidCreatureType, normalizeCreatureTypeWord } from '../../shared/src/creatureTypes';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 
 export type SimpleCardType =
@@ -39,7 +39,8 @@ export type SimpleCardType =
   | 'legendary_permanent'
   | 'nonlegendary_permanent'
   | 'equipment'
-  | 'noncreature';
+  | 'noncreature'
+  | `non_${string}_creature`;
 
 const COLOR_WORD_TO_SYMBOL: Record<string, string> = {
   white: 'W',
@@ -271,7 +272,11 @@ export function parseSimpleCardTypeFromText(text: string): SimpleCardType | null
   if (lower === 'permanent') return 'permanent';
   if (lower === 'nonland') return 'nonland';
   if (lower === 'aura') return 'aura';
-  if (lower === 'non-dragon creature') return 'non_dragon_creature';
+  {
+    const nonTypedCreature = lower.match(/^non-([a-z]+) creature$/);
+    const excluded = nonTypedCreature ? normalizeCreatureTypeWord(String(nonTypedCreature[1] || '')) : null;
+    if (excluded) return `non_${excluded}_creature`;
+  }
   if (lower === 'legendary creature') return 'legendary_creature';
   if (lower === 'legendary permanent') return 'legendary_permanent';
   if (lower === 'nonlegendary permanent') return 'nonlegendary_permanent';
@@ -327,7 +332,12 @@ export function cardMatchesType(card: any, type: SimpleCardType): boolean {
   if (type === 'creature_instant_or_sorcery') {
     return typeLine.includes('creature') || typeLine.includes('instant') || typeLine.includes('sorcery');
   }
-  if (type === 'non_dragon_creature') return typeLine.includes('creature') && !typeLine.includes('dragon');
+  {
+    const nonSubtype = String(type).match(/^non_([a-z]+)_creature$/);
+    if (nonSubtype) {
+      return typeLine.includes('creature') && !typeLine.includes(String(nonSubtype[1] || ''));
+    }
+  }
   if (type === 'legendary_creature') return typeLine.includes('legendary') && typeLine.includes('creature');
   if (type === 'legendary_permanent') return typeLine.includes('legendary') && cardMatchesType(card, 'permanent');
   if (type === 'nonlegendary_permanent') return !typeLine.includes('legendary') && cardMatchesType(card, 'permanent');

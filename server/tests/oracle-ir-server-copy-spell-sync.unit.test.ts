@@ -257,4 +257,68 @@ describe('queueCopySpellStackPushFromOracleIRResult', () => {
     ResolutionQueueManager.removeQueue(gameId);
     vi.restoreAllMocks();
   });
+
+  it('stamps optional this-spell copies for a later may-copy prompt instead of auto-pushing', () => {
+    const gameId = 'test_optional_this_spell_copy_sync';
+    const playerId = 'p1';
+    const stackId = 'stack_sevinne_1';
+    const state: any = {
+      stack: [{
+        id: stackId,
+        type: 'spell',
+        controller: playerId,
+        castFromGraveyard: true,
+        card: {
+          id: 'sevinne_1',
+          name: "Sevinne's Reclamation",
+          type_line: 'Sorcery',
+          oracle_text: 'Return target permanent card with mana value 3 or less from your graveyard to the battlefield. If this spell was cast from a graveyard, you may copy this spell and may choose a new target for the copy.',
+        },
+        targets: ['sevinne_target_1'],
+      }],
+    };
+    const copyStep = {
+      kind: 'copy_spell',
+      subject: 'this_spell',
+      optional: true,
+      allowNewTargets: true,
+      raw: 'you may copy this spell and may choose a new target for the copy',
+    } as const;
+    const result: any = {
+      appliedSteps: [copyStep],
+      skippedSteps: [],
+      automationGaps: [{
+        reasonCode: 'server_stack_copy_required',
+        stepKind: 'copy_spell',
+        raw: copyStep.raw,
+        metadata: { copyCount: 1 },
+      }],
+    };
+    const irCtx = buildOracleIRExecutionContext({
+      controllerId: playerId,
+      sourceId: stackId,
+      sourceName: "Sevinne's Reclamation",
+    });
+    const ctx: any = {
+      gameId,
+      state: { seq: 0 },
+      bumpSeq: vi.fn(),
+      io: { to: () => ({ emit: vi.fn() }) },
+    };
+
+    ResolutionQueueManager.removeQueue(gameId);
+    const bridged = queueCopySpellStackPushFromOracleIRResult(ctx, state, result, {
+      controller: playerId,
+      sourceName: "Sevinne's Reclamation",
+      irCtx,
+      sourceItem: state.stack[0],
+    });
+
+    expect(bridged).toBe(true);
+    expect(state.stack[0].oracleIrOptionalCopyThisSpell).toBe(true);
+    expect(getStackItems(state.stack)).toHaveLength(1);
+    expect(ResolutionQueueManager.getQueue(gameId).steps || []).toHaveLength(0);
+
+    ResolutionQueueManager.removeQueue(gameId);
+  });
 });

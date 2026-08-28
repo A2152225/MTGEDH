@@ -7,6 +7,7 @@
 import type { InMemoryGame } from "../../state/types.js";
 import { appendEvent } from "../../db/index.js";
 import { isGameRestoring } from "../../gameRestoreState.js";
+import { contextHasBlockingNonPaymentResolutionSteps } from "../../state/resolution/resolutionQueueGameIds.js";
 import { debugWarn } from "../../utils/debug.js";
 
 /**
@@ -69,6 +70,14 @@ export function persistAndResolveTopOfStack(
   }
 
   if ((game as any)?.isReplaying || isGameRestoring(gameId)) {
+    return false;
+  }
+
+  if (contextHasBlockingNonPaymentResolutionSteps(game, gameId)) {
+    debugWarn(
+      2,
+      '[persistAndResolveTopOfStack] Refusing to resolve stack — blocking non-payment resolution prompt still open',
+    );
     return false;
   }
 

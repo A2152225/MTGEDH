@@ -147,4 +147,17 @@ describe('trigger effect text extraction (server registration)', () => {
     const chosen = triggers.find((trigger) => trigger.triggerType === 'chosen_type_creature_etb_or_attack');
     expect(chosen?.effect?.toLowerCase()).toContain('draw a card');
   });
+
+  it('keeps delayed next-end-step land damage on the flying-dinosaur ETB', () => {
+    const oracle =
+      'Flying, haste\nWhenever this creature or another Dinosaur you control with flying enters, gain control of target creature an opponent controls until end of turn. Untap that creature. It gains flying and haste until end of turn. At the beginning of the next end step, target land deals 3 damage to that creature.';
+    const triggers = detectETBTriggers(
+      { name: 'Swooping Pteranodon', oracle_text: oracle },
+      { id: 'ptera-1', controller: 'p1' },
+    );
+    const watcher = triggers.find((trigger) => trigger.triggerType === 'this_or_another_typed_etb');
+    expect(watcher?.effect?.toLowerCase()).toContain('gain control of target creature');
+    expect(watcher?.effect?.toLowerCase()).toContain('at the beginning of the next end step');
+    expect(watcher?.effect?.toLowerCase()).toContain('target land deals 3 damage to that creature');
+  });
 });

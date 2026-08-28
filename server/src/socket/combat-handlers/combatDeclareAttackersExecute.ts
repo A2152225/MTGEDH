@@ -30,6 +30,11 @@ import {
   processTapTriggersForAttackers,
 } from "./combatDeclareAttackersForceTapSupport.js";
 import { getNearestOpponentDirectionAttackViolation } from "../../state/modules/nearestOpponentDirectionAttackRestriction.js";
+import { playerIsLegalAttackTarget } from "../../../../rules-engine/src/playerInGameStatus.js";
+import {
+  collectAttackYouMaxAttackersForDefender,
+  collectMaxAttackersEachCombat,
+} from "../../state/modules/staticEffectSpecAttackYouTax.js";
 
 export async function executeDeclareAttackers(
   io: Server,
@@ -66,6 +71,35 @@ export async function executeDeclareAttackers(
   if (forcedViolation) {
     throw Object.assign(new Error(forcedViolation.message), { code: forcedViolation.code });
   }
+
+  // Human declare already rejects Crawlspace / Silent Arbiter caps. The paid-attack
+  // prompt path validated before enqueueing; skip a second check after payment.
+  if (options?.attackCostPaid !== true) {
+    const attackersVsPlayer = new Map<string, number>();
+    for (const attacker of resolvedAttackers) {
+      const targetPlayerId = String(attacker.targetPlayerId || '').trim();
+      if (!targetPlayerId) continue;
+      attackersVsPlayer.set(targetPlayerId, (attackersVsPlayer.get(targetPlayerId) || 0) + 1);
+    }
+    for (const [defendingPlayerId, count] of attackersVsPlayer.entries()) {
+      const cap = collectAttackYouMaxAttackersForDefender(game.state, defendingPlayerId);
+      if (cap.max != null && count > cap.max) {
+        const defenderName = getPlayerName(game, defendingPlayerId);
+        throw Object.assign(
+          new Error(`No more than ${cap.max} creatures can attack ${defenderName} this combat.`),
+          { code: 'TOO_MANY_ATTACKERS' },
+        );
+      }
+    }
+    const globalAttackCap = collectMaxAttackersEachCombat(game.state);
+    if (globalAttackCap.max != null && resolvedAttackers.length > globalAttackCap.max) {
+      throw Object.assign(
+        new Error(`No more than ${globalAttackCap.max} creatures can attack this combat.`),
+        { code: 'TOO_MANY_ATTACKERS' },
+      );
+    }
+  }
+
   const attackerIds: string[] = [];
 
   // Per-combat/per-turn tracking consumed by intervening-if.
@@ -146,7 +180,7 @@ export async function executeDeclareAttackers(
       );
     }
 
-    const canAttackCheck = canPermanentAttack(creature, battlefield, playerId);
+    const canAttackCheck = canPermanentAttack(creature, battlefield, playerId, game.state);
     if (!canAttackCheck.canAttack) {
       throw Object.assign(
         new Error(`${(creature as any).card?.name || 'Creature'} can't attack (${canAttackCheck.reason})`),
@@ -159,6 +193,15 @@ export async function executeDeclareAttackers(
       battlefield,
       (game.state as any).players,
     );
+    const defendingPlayer = ((game.state as any).players || []).find(
+      (player: any) => String(player?.id || '').trim() === String(defendingPlayerId || '').trim(),
+    );
+    if (defendingPlayerId && !playerIsLegalAttackTarget(defendingPlayer, playerId)) {
+      throw Object.assign(
+        new Error('That player has left the game and cannot be attacked'),
+        { code: 'INVALID_ATTACK_TARGET' },
+      );
+    }
     const ownerRestrictionReason = getOwnerAttackRestrictionReason(creature, defendingPlayerId, {
       targetIsOwnerPlaneswalker: isAttackingOwnerPlaneswalker(creature, attacker, battlefield),
     });

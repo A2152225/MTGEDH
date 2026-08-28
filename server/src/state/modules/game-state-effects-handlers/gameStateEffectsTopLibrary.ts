@@ -1,6 +1,6 @@
 // Origin parent: server/src/state/modules/game-state-effects.ts
-// Cluster moved: TOP_OF_LIBRARY_CARDS, canLookAtTopOfLibrary / canPlayLandsFromTop /
-// canCastFromTop, library-top accessors, hand-reveal Telepathy, recalculatePlayerEffects.
+// Cluster moved: top-of-library look/play/cast (oracle-only; TOP_OF_LIBRARY_CARDS deleted),
+// hand-reveal Telepathy (oracle-only; HAND_REVEAL_CARDS deleted), recalculatePlayerEffects.
 // Public entry symbols: canLookAtTopOfLibrary, canPlayLandsFromTop, canCastFromTop,
 // getLibraryTopCardFromState, libraryTopCardHasType, getTopCardForPlayer,
 // recalculatePlayerEffects.
@@ -20,161 +20,6 @@ import { calculateMaxLandsPerTurn, calculateAdditionalDraws } from "./gameStateE
 // TOP OF LIBRARY EFFECTS
 // =============================================================================
 // Cards that let you look at and/or play cards from the top of your library
-
-/**
- * Configuration for cards that reveal/play from top of library
- */
-interface TopOfLibraryEffect {
-  lookAtTop: boolean;           // Can look at top card at any time
-  playLandsFromTop?: boolean;   // Can play lands from top of library
-  castFromTop?: boolean;        // Can cast spells from top of library
-  castTypes?: string[];         // Only these types can be cast (e.g., ['creature'])
-  noncreatureOnly?: boolean;    // Only noncreature spells can be cast
-  allowColorlessNonland?: boolean; // Can also cast colorless nonland cards
-  creatureTypeFilter?: string;  // Only creatures of this type (e.g., 'Goblin')
-  tribalSpellFilter?: string;   // Any spell whose type line includes tribe (e.g., 'Merfolk')
-  chosenTypeCastFromTop?: boolean; // Creature spells of permanent.chosenCreatureType (Realmwalker)
-  conditionCheck?: string;      // Condition to cast (e.g., 'coven' for Augur of Autumn)
-  grantsFlash?: boolean;        // Matching spells can be cast as though they had flash
-}
-
-/**
- * Cards that grant top of library effects
- * Key: lowercase card name (partial match)
- */
-const TOP_OF_LIBRARY_CARDS: Record<string, TopOfLibraryEffect> = {
-  // Oracle of Mul Daya - "You may play lands from the top of your library" + reveal top
-  "oracle of mul daya": {
-    lookAtTop: true,
-    playLandsFromTop: true,
-  },
-  // Courser of Kruphix - "Play lands from the top of your library" + reveal top
-  "courser of kruphix": {
-    lookAtTop: true,
-    playLandsFromTop: true,
-  },
-  // Future Sight - "You may play the top card of your library"
-  "future sight": {
-    lookAtTop: true,
-    castFromTop: true,
-    playLandsFromTop: true,
-  },
-  // Experimental Frenzy - "You may play the top card of your library" (can't play from hand)
-  "experimental frenzy": {
-    lookAtTop: true,
-    castFromTop: true,
-    playLandsFromTop: true,
-  },
-  // Augur of Autumn - "You may look at the top card of your library" + "You may play lands from the top"
-  // With coven: "You may cast creature spells from the top of your library"
-  "augur of autumn": {
-    lookAtTop: true,
-    playLandsFromTop: true,
-    castFromTop: true,
-    castTypes: ['creature'],
-    conditionCheck: 'coven',
-  },
-  // Conspicuous Snoop - "You may look at the top card of your library any time"
-  // + "You may cast Goblin spells from the top of your library"
-  "conspicuous snoop": {
-    lookAtTop: true,
-    castFromTop: true,
-    castTypes: ['creature'],
-    creatureTypeFilter: 'goblin',
-  },
-  // Eladamri, Korvecdal - "Look at the top card of your library any time"
-  // + "You may cast creature spells from the top of your library"
-  "eladamri, korvecdal": {
-    lookAtTop: true,
-    castFromTop: true,
-    castTypes: ['creature'],
-  },
-  // Radha, Heart of Keld - "You may look at the top card of your library any time"
-  // + "You may play lands from the top of your library"
-  "radha, heart of keld": {
-    lookAtTop: true,
-    playLandsFromTop: true,
-  },
-  // Vizier of the Menagerie - "You may look at the top card of your library any time"
-  // + "You may cast creature spells from the top of your library"
-  "vizier of the menagerie": {
-    lookAtTop: true,
-    castFromTop: true,
-    castTypes: ['creature'],
-  },
-  // Garruk's Horde - "You may look at the top card of your library any time"
-  // + "You may cast creature spells from the top of your library"
-  "garruk's horde": {
-    lookAtTop: true,
-    castFromTop: true,
-    castTypes: ['creature'],
-  },
-  // Melek, Izzet Paragon - "You may look at the top card of your library any time"
-  // + "You may cast instant and sorcery spells from the top of your library"
-  "melek, izzet paragon": {
-    lookAtTop: true,
-    castFromTop: true,
-    castTypes: ['instant', 'sorcery'],
-  },
-  // Bolas's Citadel - "You may look at the top card of your library any time"
-  // + "You may play the top card of your library" (pay life equal to CMC)
-  "bolas's citadel": {
-    lookAtTop: true,
-    castFromTop: true,
-    playLandsFromTop: true,
-  },
-  // Mystic Forge - "You may look at the top card of your library any time"
-  // + "You may cast the top card of your library if it's an artifact card or a colorless nonland card"
-  "mystic forge": {
-    lookAtTop: true,
-    castFromTop: true,
-    castTypes: ['artifact'],
-    allowColorlessNonland: true,
-  },
-  // Magus of the Future - Same as Future Sight
-  "magus of the future": {
-    lookAtTop: true,
-    castFromTop: true,
-    playLandsFromTop: true,
-  },
-  // Vance's Blasting Cannons - "At the beginning of your upkeep, exile the top card of your library. If it's a nonland card, you may cast it this turn"
-  // Different mechanic - not continuous, so not included
-  
-  // The Gitrog Monster - Doesn't reveal top, but can play lands from graveyard
-  // Different mechanic - not included
-  
-  // Elsha of the Infinite - "You may look at the top card of your library any time"
-  // + "You may cast noncreature spells from the top of your library"
-  "elsha of the infinite": {
-    lookAtTop: true,
-    castFromTop: true,
-    noncreatureOnly: true,
-    grantsFlash: true,
-  },
-  // Elven Chorus - look at top any time; cast creature spells from top
-  "elven chorus": {
-    lookAtTop: true,
-    castFromTop: true,
-    castTypes: ['creature'],
-  },
-  // Emperor Mihail II - look at top; cast Merfolk spells from top
-  "emperor mihail ii": {
-    lookAtTop: true,
-    castFromTop: true,
-    tribalSpellFilter: 'merfolk',
-  },
-  // Realmwalker - look at top; cast creature spells of the chosen type from top
-  "realmwalker": {
-    lookAtTop: true,
-    castFromTop: true,
-    castTypes: ['creature'],
-    chosenTypeCastFromTop: true,
-  },
-  // Ulvenwald Channelers - play with top revealed (visibility handled in view.ts)
-  "ulvenwald channelers": {
-    lookAtTop: true,
-  },
-};
 
 type TopOfLibraryCardInput = string | {
   type_line?: string;
@@ -198,6 +43,7 @@ function isTopLibraryCardColorless(card: TopOfLibraryCardInput | undefined): boo
 
 function hasGenericTopLibraryLandPermissionText(oracleText: string): boolean {
   return oracleText.includes('play lands from the top of your library')
+    || oracleText.includes('play lands and cast spells from the top of your library')
     || oracleText.includes('you may play the top card of your library');
 }
 
@@ -209,6 +55,7 @@ function hasGenericTopLibraryLookPermissionText(oracleText: string): boolean {
 function hasGenericTopLibrarySpellPermissionText(oracleText: string): boolean {
   return oracleText.includes('you may cast the top card of your library')
     || oracleText.includes('you may cast spells from the top of your library')
+    || oracleText.includes('cast spells from the top of your library')
     || oracleText.includes('you may play the top card of your library');
 }
 
@@ -218,20 +65,39 @@ type ParsedTopLibraryCastRestriction = {
   creatureTypeFilter?: string;
   tribalSpellFilter?: string;
   unrestricted?: boolean;
+  allowColorlessNonland?: boolean;
+  requiresCoven?: boolean;
+  grantsFlash?: boolean;
 };
 
 function parseTopLibraryCastRestrictionFromOracle(oracleText: string): ParsedTopLibraryCastRestriction | null {
   const text = String(oracleText || '').toLowerCase();
   if (!text) return null;
+  const grantsFlash = /as though (?:it|they) had flash/.test(text);
+  const withFlash = (restriction: ParsedTopLibraryCastRestriction): ParsedTopLibraryCastRestriction => (
+    grantsFlash ? { ...restriction, grantsFlash: true } : restriction
+  );
 
+  if (
+    text.includes('cast artifact spells and colorless spells from the top of your library')
+    || text.includes('artifact card or a colorless nonland')
+  ) {
+    return withFlash({ castTypes: ['artifact'], allowColorlessNonland: true });
+  }
+  if (text.includes('cast creature spells of the chosen type from the top of your library')) {
+    return null;
+  }
   if (text.includes('cast creature spells from the top of your library')) {
-    return { castTypes: ['creature'] };
+    return withFlash({
+      castTypes: ['creature'],
+      requiresCoven: /coven[\s\S]*?cast creature spells from the top of your library/.test(text),
+    });
   }
   if (text.includes('cast instant and sorcery spells from the top of your library')) {
-    return { castTypes: ['instant', 'sorcery'] };
+    return withFlash({ castTypes: ['instant', 'sorcery'] });
   }
   if (text.includes('cast noncreature spells from the top of your library')) {
-    return { noncreatureOnly: true };
+    return withFlash({ noncreatureOnly: true });
   }
 
   const tribalMatch = text.match(/cast ([a-z]+) spells from the top of your library/);
@@ -241,12 +107,12 @@ function parseTopLibraryCastRestrictionFromOracle(oracleText: string): ParsedTop
       'creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker', 'battle',
     ]);
     if (tribe && !knownTypes.has(tribe)) {
-      return { tribalSpellFilter: tribe };
+      return withFlash({ tribalSpellFilter: tribe });
     }
   }
 
   if (hasGenericTopLibrarySpellPermissionText(text)) {
-    return { unrestricted: true };
+    return withFlash({ unrestricted: true });
   }
 
   return null;
@@ -258,6 +124,7 @@ function topLibraryCastRestrictionMatchesCard(
   card: TopOfLibraryCardInput | undefined,
   sourceName: string,
   restrictions: string[],
+  isColorlessNonland: boolean,
 ): boolean {
   const hasCardContext = Boolean(card);
   if (!hasCardContext) return true;
@@ -284,8 +151,13 @@ function topLibraryCastRestrictionMatchesCard(
 
   if (restriction.castTypes && restriction.castTypes.length > 0) {
     const typeMatches = restriction.castTypes.some((entry) => typeLine.includes(entry));
-    if (!typeMatches) {
+    if (!typeMatches && !(restriction.allowColorlessNonland && isColorlessNonland)) {
       restrictions.push(`${sourceName} only allows: ${restriction.castTypes.join(', ')}`);
+      return false;
+    }
+  } else if (restriction.allowColorlessNonland) {
+    if (!isColorlessNonland) {
+      restrictions.push(`${sourceName} only allows colorless nonland cards`);
       return false;
     }
   }
@@ -310,20 +182,8 @@ export function canLookAtTopOfLibrary(ctx: GameContext, playerId: string): { can
   
   for (const perm of battlefield) {
     if (perm.controller !== playerId) continue;
-    
-    const cardName = (perm.card?.name || "").toLowerCase();
     const oracleText = String(perm.card?.oracle_text || '').toLowerCase();
-    let matched = false;
-    
-    for (const [knownName, effect] of Object.entries(TOP_OF_LIBRARY_CARDS)) {
-      if (cardName.includes(knownName) && effect.lookAtTop) {
-        sources.push(perm.card?.name || knownName);
-        matched = true;
-        break;
-      }
-    }
-
-    if (!matched && hasGenericTopLibraryLookPermissionText(oracleText)) {
+    if (hasGenericTopLibraryLookPermissionText(oracleText)) {
       sources.push(perm.card?.name || 'Top-of-library effect');
     }
   }
@@ -340,20 +200,8 @@ export function canPlayLandsFromTop(ctx: GameContext, playerId: string, card?: T
   
   for (const perm of battlefield) {
     if (perm.controller !== playerId) continue;
-    
-    const cardName = (perm.card?.name || "").toLowerCase();
     const oracleText = String(perm.card?.oracle_text || '').toLowerCase();
-    let matched = false;
-    
-    for (const [knownName, effect] of Object.entries(TOP_OF_LIBRARY_CARDS)) {
-      if (cardName.includes(knownName) && effect.playLandsFromTop) {
-        sources.push(perm.card?.name || knownName);
-        matched = true;
-        break;
-      }
-    }
-
-    if (!matched && hasGenericTopLibraryLandPermissionText(oracleText)) {
+    if (hasGenericTopLibraryLandPermissionText(oracleText)) {
       sources.push(perm.card?.name || 'Top-of-library effect');
     }
   }
@@ -392,102 +240,13 @@ export function canCastFromTop(
   
   for (const perm of battlefield) {
     if (perm.controller !== playerId) continue;
-    
-    const cardName = (perm.card?.name || "").toLowerCase();
+
     const oracleText = String(perm.card?.oracle_text || '').toLowerCase();
+    const sourceName = perm.card?.name || 'Top-of-library effect';
     let matched = false;
-    
-    for (const [knownName, effect] of Object.entries(TOP_OF_LIBRARY_CARDS)) {
-      if (cardName.includes(knownName) && effect.castFromTop) {
-        if (!hasCardContext) {
-          sources.push(perm.card?.name || knownName);
-          if (effect.grantsFlash) {
-            flashSources.push(perm.card?.name || knownName);
-          }
-          matched = true;
-          break;
-        }
 
-        let matchedRestriction = false;
-
-        // Check type restrictions
-        if (effect.castTypes && effect.castTypes.length > 0) {
-          const typeMatches = effect.castTypes.some(t => typeLine.includes(t));
-          if (typeMatches) {
-            matchedRestriction = true;
-          } else if (!(effect.allowColorlessNonland && isColorlessNonland)) {
-            restrictions.push(`${perm.card?.name || knownName} only allows: ${effect.castTypes.join(', ')}`);
-            continue;
-          }
-        }
-
-        if (effect.allowColorlessNonland && isColorlessNonland) {
-          matchedRestriction = true;
-        }
-
-        if (effect.noncreatureOnly) {
-          if (typeLine.includes('creature')) {
-            restrictions.push(`${perm.card?.name || knownName} only allows noncreature spells`);
-            continue;
-          }
-          matchedRestriction = true;
-        }
-
-        if (!effect.castTypes?.length && !effect.noncreatureOnly && !effect.allowColorlessNonland) {
-          matchedRestriction = true;
-        }
-
-        if (!matchedRestriction) {
-          continue;
-        }
-        
-        // Check creature type filter (e.g., Conspicuous Snoop for Goblins)
-        if (effect.creatureTypeFilter && typeLine.includes('creature')) {
-          if (!typeLine.includes(effect.creatureTypeFilter)) {
-            restrictions.push(`${perm.card?.name || knownName} only allows ${effect.creatureTypeFilter} creatures`);
-            continue;
-          }
-        }
-
-        if (effect.tribalSpellFilter) {
-          if (!typeLine.includes(effect.tribalSpellFilter)) {
-            restrictions.push(`${perm.card?.name || knownName} only allows ${effect.tribalSpellFilter} spells`);
-            continue;
-          }
-        }
-
-        if (effect.chosenTypeCastFromTop) {
-          const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
-          if (!chosenType) {
-            restrictions.push(`${perm.card?.name || knownName}: no creature type chosen`);
-            continue;
-          }
-          if (hasCardContext && (!typeLine.includes('creature') || !cardHasCreatureType(card, chosenType))) {
-            restrictions.push(`${perm.card?.name || knownName} only allows ${chosenType} creature spells from the top of your library`);
-            continue;
-          }
-        }
-        
-        // Check condition (e.g., coven for Augur of Autumn)
-        if (effect.conditionCheck === 'coven') {
-          if (!hasCoven(ctx, playerId)) {
-            restrictions.push(`${perm.card?.name || knownName} requires coven (3 creatures with different powers)`);
-            continue;
-          }
-        }
-        
-        sources.push(perm.card?.name || knownName);
-        if (effect.grantsFlash) {
-          flashSources.push(perm.card?.name || knownName);
-        }
-        matched = true;
-        break;
-      }
-    }
-
-    if (!matched && oracleText.includes('cast creature spells of the chosen type from the top of your library')) {
+    if (oracleText.includes('cast creature spells of the chosen type from the top of your library')) {
       const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
-      const sourceName = perm.card?.name || 'Permanent';
       if (!chosenType) {
         restrictions.push(`${sourceName}: no creature type chosen`);
       } else if (!hasCardContext) {
@@ -504,9 +263,20 @@ export function canCastFromTop(
     if (!matched) {
       const parsedRestriction = parseTopLibraryCastRestrictionFromOracle(oracleText);
       if (parsedRestriction) {
-        const sourceName = perm.card?.name || 'Top-of-library effect';
-        if (topLibraryCastRestrictionMatchesCard(parsedRestriction, typeLine, card, sourceName, restrictions)) {
+        if (parsedRestriction.requiresCoven && !hasCoven(ctx, playerId)) {
+          restrictions.push(`${sourceName} requires coven (3 creatures with different powers)`);
+        } else if (topLibraryCastRestrictionMatchesCard(
+          parsedRestriction,
+          typeLine,
+          card,
+          sourceName,
+          restrictions,
+          isColorlessNonland,
+        )) {
           sources.push(sourceName);
+          if (parsedRestriction.grantsFlash) {
+            flashSources.push(sourceName);
+          }
         }
       }
     }
@@ -600,25 +370,8 @@ export function getTopCardForPlayer(ctx: GameContext, playerId: string): {
 }
 
 /**
- * Known cards that reveal opponents' hands (static effects only)
- * Key: lowercase card name (partial match)
- * These cards have permanent effects like "Your opponents play with their hands revealed"
- * 
- * NOTE: One-shot effects (Thoughtseize, Duress, etc.) are NOT included here
- * as they don't provide ongoing hand visibility.
- */
-const HAND_REVEAL_CARDS: string[] = [
-  "telepathy",                    // "Your opponents play with their hands revealed."
-  "glasses of urza",             // "Target player plays with their hand revealed"
-  "revelation",                  // "Each player plays with their hand revealed."
-  "zur's weirding",              // "Players play with their hands revealed."
-  "wandering eye",               // "Each player plays with their hand revealed."
-  "seer's vision",               // "Enchanted player plays with their hand revealed."
-];
-
-/**
- * Detect if a permanent grants hand visibility to its controller (sees opponents' hands)
- * Returns true if the permanent has a static effect that reveals opponents' hands
+ * Detect static hand-reveal effects from oracle (Telepathy / Revelation).
+ * One-shot "look at target player's hand" activations are not ongoing grants.
  */
 function detectHandRevealEffect(oracleText: string): { revealsOpponentsHands: boolean; revealsAllHands: boolean } {
   const lowerText = (oracleText || "").toLowerCase();
@@ -653,30 +406,11 @@ function recalculateHandVisibility(ctx: GameContext): void {
   const playersWithHandReveal = new Set<PlayerID>();
   
   for (const perm of battlefield) {
-    const cardName = (perm.card?.name || "").toLowerCase();
     const oracleText = (perm.card?.oracle_text || "");
     const controller = perm.controller as PlayerID;
-    
-    // Check known cards first
-    let hasRevealEffect = false;
-    for (const knownName of HAND_REVEAL_CARDS) {
-      if (cardName.includes(knownName)) {
-        // Check if this is a static effect (not one-shot spells)
-        const reveal = detectHandRevealEffect(oracleText);
-        if (reveal.revealsOpponentsHands) {
-          playersWithHandReveal.add(controller);
-          hasRevealEffect = true;
-          break;
-        }
-      }
-    }
-    
-    // If not in known list, try dynamic detection
-    if (!hasRevealEffect) {
-      const reveal = detectHandRevealEffect(oracleText);
-      if (reveal.revealsOpponentsHands) {
-        playersWithHandReveal.add(controller);
-      }
+    const reveal = detectHandRevealEffect(oracleText);
+    if (reveal.revealsOpponentsHands) {
+      playersWithHandReveal.add(controller);
     }
   }
   

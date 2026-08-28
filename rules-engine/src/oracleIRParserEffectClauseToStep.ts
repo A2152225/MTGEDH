@@ -26,6 +26,9 @@ import { tryParseTemporaryAbilityClause } from './oracleIRParserTemporaryAbility
 import { tryParseTemporaryGrantedDiesTriggerClause } from './oracleIRParserTemporaryTriggeredClauses';
 import { tryParsePhase4ChoiceFamilyClause } from './oracleIRParserPhase4ChoiceFamilyClauses';
 import { tryParseTemporaryEtbWindowClause } from './oracleIRParserTemporaryEtbWindowClauses';
+import { tryParseAttackTaxThisTurnClause } from './oracleIRParserAttackTaxThisTurn';
+import { tryParseAttackYouProhibitedExceptKeywordsClause } from './oracleIRParserAttackYouProhibitedExceptKeywords';
+import { tryParseBlockTaxThisTurnClause } from './oracleIRParserBlockTaxThisTurn';
 import { tryParsePreventLifeGainThisTurnClause } from './oracleIRParserPreventLifeGainThisTurn';
 import { tryParseUntilEotProtectionOverrideClause } from './oracleIRParserUntilEotProtectionOverride';
 import { tryParseWinIfCastSameNameThisGameStep } from './oracleIRParserWinIfCastSameNameThisGame';
@@ -89,6 +92,21 @@ export function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   }
 
   {
+    const parsed = tryParseAttackYouProhibitedExceptKeywordsClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
+    const parsed = tryParseAttackTaxThisTurnClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
+    const parsed = tryParseBlockTaxThisTurnClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
     const parsed = tryParseWinIfControlDifferentNamesStep(clause, sequence ? { sequence } : {});
     if (parsed) return withMeta(parsed);
   }
@@ -110,6 +128,11 @@ export function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   {
     const parsed = tryParseDelayedTriggerClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
+    const parsed = tryParseTemporaryGrantedDiesTriggerClause({ clause, rawClause, withMeta });
     if (parsed) return parsed;
   }
 

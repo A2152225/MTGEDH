@@ -169,13 +169,44 @@ export function shouldQueueNamedOrAnotherTypedEtbTrigger(
     return false;
   }
 
-  // "NAME or another TYPE" always includes the named permanent itself.
+  // "this/NAME or another TYPE" always includes the named permanent itself.
   if (isSelf) return true;
 
   const phrase = String((trigger as any)?.requiredTypePhrase || '').trim();
   if (!phrase) return false;
   const types = phrase.split(/\s+or\s+/i).map((part) => part.trim()).filter(Boolean);
-  return types.some((creatureType) => permanentHasCreatureTypeNow(enteringPermanent, creatureType));
+  if (!types.some((creatureType) => permanentHasCreatureTypeNow(enteringPermanent, creatureType))) {
+    return false;
+  }
+  const requiredKeyword = String((trigger as any)?.requiredKeyword || '').trim().toLowerCase();
+  if (requiredKeyword && !enteringPermanentHasKeyword(enteringPermanent, requiredKeyword)) {
+    return false;
+  }
+  return true;
+}
+
+function enteringPermanentHasKeyword(permanent: any, keyword: string): boolean {
+  const needle = String(keyword || '').trim().toLowerCase();
+  if (!needle) return true;
+  const oracle = String(permanent?.card?.oracle_text || permanent?.oracle_text || '').toLowerCase();
+  if (new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(oracle)) {
+    return true;
+  }
+  const listed = Array.isArray(permanent?.card?.keywords) ? permanent.card.keywords : [];
+  if (listed.some((entry: unknown) => String(entry || '').trim().toLowerCase() === needle)) {
+    return true;
+  }
+  const granted = [
+    ...(Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : []),
+    ...(Array.isArray(permanent?.tempAbilities) ? permanent.tempAbilities : []),
+    ...(Array.isArray(permanent?.temporaryAbilities) ? permanent.temporaryAbilities : []),
+  ];
+  return granted.some((entry: any) => {
+    const text = typeof entry === 'string'
+      ? entry
+      : String(entry?.ability || entry?.keyword || entry?.name || '');
+    return new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text.toLowerCase());
+  });
 }
 
 export function tryBuildTypedPermanentEtbStackItem(

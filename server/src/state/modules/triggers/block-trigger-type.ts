@@ -12,6 +12,7 @@ export interface BlockTrigger {
   effect?: string;
   mandatory: boolean;
   blockedCreatureId?: string;
+  requiredTypePhrase?: string;
   createTokens?: {
     count: number;
     power: number;

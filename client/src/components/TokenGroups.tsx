@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
+import { countTokenDisplayInstances, TOKEN_COLLAPSE_THRESHOLD } from '../utils/expandGroupedTokens';
 
 function sigCounters(c?: Readonly<Record<string, number>>) {
   const entries = Object.entries(c || {}).filter(([, v]) => (v || 0) > 0).sort(([a], [b]) => a.localeCompare(b));
@@ -10,9 +11,6 @@ function sigPT(p?: number, t?: number) {
 }
 
 type GroupMode = 'name' | 'name+counters' | 'name+pt+attach' | 'name+counters+pt+attach';
-
-// Threshold for when to collapse tokens into a popup
-const COLLAPSE_THRESHOLD = 5;
 
 // Get token image URL from card data
 function getTokenImageUrl(token: BattlefieldPermanent): string | undefined {
@@ -114,8 +112,9 @@ export function TokenGroups(props: {
   const [popupOpen, setPopupOpen] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
 
-  // Auto-collapse when there are many tokens
-  const shouldShowCollapseOption = collapsible && tokens.length >= COLLAPSE_THRESHOLD;
+  const tokenInstanceTotal = countTokenDisplayInstances(tokens);
+  // Auto-collapse when there are many tokens (count grouped stacks, not emit rows)
+  const shouldShowCollapseOption = collapsible && tokenInstanceTotal >= TOKEN_COLLAPSE_THRESHOLD;
 
   // Close popup when clicking outside
   useEffect(() => {
@@ -201,7 +200,7 @@ export function TokenGroups(props: {
       }}>
         <span style={{ fontSize: 14 }}>🪙</span>
         <span style={{ color: '#e5e5e5', fontWeight: 500 }}>
-          {tokens.length} Token{tokens.length !== 1 ? 's' : ''} ({groups.length} type{groups.length !== 1 ? 's' : ''})
+          {tokenInstanceTotal} Token{tokenInstanceTotal !== 1 ? 's' : ''} ({groups.length} type{groups.length !== 1 ? 's' : ''})
         </span>
         <button
           onClick={() => setPopupOpen(true)}
@@ -254,7 +253,7 @@ export function TokenGroups(props: {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h3 style={{ margin: 0, color: '#fff', fontSize: 16 }}>
-                🪙 Token Management ({tokens.length} total)
+                🪙 Token Management ({tokenInstanceTotal} total)
               </h3>
               <button
                 onClick={() => setPopupOpen(false)}

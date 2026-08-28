@@ -13,6 +13,7 @@ import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { restoreAllPendingEffectProgramRuntimes } from "../state/effects/index.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { defaultPlayerZones, ensureStateZonesForPlayers } from "./join-handlers/joinEnsureStateZones.js";
+import { clearDeferredLeaveOnReconnect } from "./join-handlers/joinReconnectPlayer.js";
 
 /**
  * Register join handlers.
@@ -728,6 +729,19 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               ensureStateZonesForPlayers(game);
             } catch (e) {
               /* ignore */
+            }
+
+            try {
+              if (!spectator && playerId) {
+                const sittingPlayer = Array.isArray(game.state?.players)
+                  ? (game.state.players as any[]).find((entry) => String(entry?.id || '') === String(playerId))
+                  : undefined;
+                if (sittingPlayer) {
+                  clearDeferredLeaveOnReconnect(sittingPlayer, game.state);
+                }
+              }
+            } catch {
+              // non-fatal
             }
 
             try {

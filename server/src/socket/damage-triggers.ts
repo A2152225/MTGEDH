@@ -5,6 +5,7 @@ import { processLifeChange } from '../state/modules/game-state-effects.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../state/resolution/index.js';
 import { triggerLifeGainEffects } from '../state/utils.js';
 import { debug, debugWarn } from '../utils/debug.js';
+import { excludedCreatureTypeFromDamageTargetType } from '../state/modules/triggers/damage-redirect-target-type.js';
 
 function syncPlayerLife(state: any, playerId: string, lifeTotal: number): void {
   state.life = state.life || {};
@@ -261,21 +262,25 @@ export function emitPendingDamageTriggers(
       targetDescription = 'you';
       targetTypes = ['player'];
       addPlayerTargets(p => String(p.id) === controllerId);
-    } else if (targetTypeStr === 'any_non_dragon') {
-      targetDescription = "any target that isn't a Dragon";
-      targetTypes = ['any_target'];
-      addPlayerTargets(_p => true);
-      addPermanentTargets((_perm, typeLineLower) => {
-        const isTargetKind = typeLineLower.includes('creature') || typeLineLower.includes('planeswalker');
-        if (!isTargetKind) return false;
-        return !typeLineLower.includes('dragon');
-      });
     } else {
-      // Default: any target (players + creature/planeswalker permanents)
-      targetDescription = 'any target';
-      targetTypes = ['any_target'];
-      addPlayerTargets(_p => true);
-      addPermanentTargets((_perm, typeLineLower) => typeLineLower.includes('creature') || typeLineLower.includes('planeswalker'));
+      const excludedType = excludedCreatureTypeFromDamageTargetType(targetTypeStr);
+      if (excludedType) {
+        const pretty = `${excludedType.charAt(0).toUpperCase()}${excludedType.slice(1)}`;
+        targetDescription = `any target that isn't a ${pretty}`;
+        targetTypes = ['any_target'];
+        addPlayerTargets(_p => true);
+        addPermanentTargets((_perm, typeLineLower) => {
+          const isTargetKind = typeLineLower.includes('creature') || typeLineLower.includes('planeswalker');
+          if (!isTargetKind) return false;
+          return !typeLineLower.includes(excludedType);
+        });
+      } else {
+        // Default: any target (players + creature/planeswalker permanents)
+        targetDescription = 'any target';
+        targetTypes = ['any_target'];
+        addPlayerTargets(_p => true);
+        addPermanentTargets((_perm, typeLineLower) => typeLineLower.includes('creature') || typeLineLower.includes('planeswalker'));
+      }
     }
 
     if (validTargets.length === 0) {

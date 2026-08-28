@@ -1,11 +1,21 @@
 import type { PlayerID, PlayerRef } from "../../../../shared/src";
 import type { GameContext } from "../context";
 import { isPlayerIdleForAutoPass, turnPlayerMustDeclareAttackers } from "./can-respond";
+import { isAiContextuallyIdleForAutoPass } from "../../socket/ai-handlers/aiAutoPassContextualIdle.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
-import { ResolutionQueueManager, ResolutionQueueEvent } from "../resolution/ResolutionQueueManager.js";
-import type { ResolutionStep } from "../resolution/types.js";
+import {
+  bindCanonicalResolutionQueueGameId,
+  contextHasBlockingNonPaymentResolutionSteps,
+  contextHasPendingResolutionSteps,
+  contextPendingResolutionSummary,
+} from "../resolution/resolutionQueueGameIds.js";
 import { getPendingInteractions } from "./turn.js";
 import { getTopTriggeredAbilityAutoPassReason } from "../../socket/trigger-shortcuts.js";
+import {
+  getActivePriorityPlayers,
+  nextEligiblePriorityHolder,
+  reassignPriorityIfHolderCannotReceive,
+} from "./priorityEligibility.js";
 
 /**
  * Normalize phase and step strings for comparison.
@@ -28,20 +38,11 @@ function isAtSkipTarget(currentPhase: string, currentStep: string, skipPhase: st
 }
 
 function activePlayersClockwise(ctx: GameContext): PlayerRef[] {
-  const { state, inactive } = ctx;
-  return (state.players as any as PlayerRef[])
-    .filter(p => !inactive.has(p.id))
-    .sort((a, b) => a.seat - b.seat);
+  return getActivePriorityPlayers(ctx) as PlayerRef[];
 }
 
 function advancePriorityClockwise(ctx: GameContext, from: PlayerID): PlayerID {
-  const active = activePlayersClockwise(ctx);
-  const n = active.length;
-  if (n === 0) return from;
-  const idx = active.findIndex(p => p.id === from);
-  const step = ctx.state.turnDirection === -1 ? -1 : 1;
-  const nextIdx = ((idx >= 0 ? idx : 0) + step + n) % n;
-  return active[nextIdx].id as PlayerID;
+  return nextEligiblePriorityHolder(ctx, from) as PlayerID;
 }
 
 function isDeclareAttackersStep(step: string): boolean {
@@ -134,13 +135,18 @@ export function passPriority(
   // complete before priority can be passed.
   // 
   // NOTE: This check is redundant with the priority === null check above (which is now the
-  // primary mechanism), but we keep it as defense-in-depth.
-  const gameId = ctx.gameId;
-  const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
+  // primary mechanism), but we keep it as defense-in-depth. Look up every candidate
+  // game id — ctx.gameId "unknown" must not hide a prompt queued on state.id.
+  bindCanonicalResolutionQueueGameId(ctx);
+  const pendingSummary = contextPendingResolutionSummary(ctx);
   if (pendingSummary.hasPending) {
     const pendingTypes = pendingSummary.pendingTypes.join(', ');
     debug(1, `[priority] Cannot pass priority - pending resolution steps: ${pendingTypes}`);
     // Don't change state, don't bump sequence - just block the priority pass
+    return { changed: false, resolvedNow: false, advanceStep: false };
+  }
+  if (contextHasBlockingNonPaymentResolutionSteps(ctx)) {
+    debug(1, `[priority] Cannot pass priority - blocking non-payment resolution prompt still open`);
     return { changed: false, resolvedNow: false, advanceStep: false };
   }
 
@@ -284,6 +290,7 @@ export function passPriority(
     }
   }
   
+  reassignPriorityIfHolderCannotReceive(ctx);
   bumpSeq();
   return { changed: true, resolvedNow, advanceStep };
 }
@@ -299,6 +306,7 @@ export function passPriority(
  * @export Exported so it can be called from turn.ts after granting priority in nextStep
  */
 export function tryAutoPass(ctx: GameContext): { allPassed: boolean; resolved: boolean; advanceStep: boolean } {
+  reassignPriorityIfHolderCannotReceive(ctx);
   const active = activePlayersClockwise(ctx);
   const result = autoPassLoop(ctx, active);
   
@@ -345,10 +353,10 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   // This enforces MTG Rule 608.2: "Players do not receive priority while a spell
   // or ability is resolving." Auto-passing would effectively grant priority, which
   // violates this rule when resolution steps (choices) are still pending.
-  const gameId = ctx.gameId;
-  const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
-  if (pendingSummary.hasPending) {
-    const pendingTypes = pendingSummary.pendingTypes.join(', ');
+  bindCanonicalResolutionQueueGameId(ctx);
+  const pendingSummary = contextPendingResolutionSummary(ctx);
+  if (pendingSummary.hasPending || contextHasBlockingNonPaymentResolutionSteps(ctx)) {
+    const pendingTypes = pendingSummary.pendingTypes.join(', ') || 'blocking_non_payment';
     debug(2, `[priority] autoPassLoop - blocking due to pending resolution steps: ${pendingTypes}`);
     return { allPassed: false, resolved: false };
   }
@@ -387,12 +395,30 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     iterations++;
     
     const currentPlayer = state.priority;
+
+    // Eliminated / inactive holders stay off the circle; skip them immediately
+    // so the game cannot wait on a dead AI that will never act.
+    if (!currentPlayer || !active.some(p => p.id === currentPlayer)) {
+      if (currentPlayer) stateAny.priorityPassedBy.add(currentPlayer);
+      const nextHolder = currentPlayer
+        ? nextEligiblePriorityHolder(ctx, currentPlayer)
+        : active[0]?.id;
+      if (!nextHolder || nextHolder === currentPlayer) {
+        return { allPassed: active.length === 0 || active.every(p => stateAny.priorityPassedBy.has(p.id)), resolved: false };
+      }
+      state.priority = nextHolder as PlayerID;
+      continue;
+    }
     
     // Check if all players have now passed
     const allPassed = active.every(p => stateAny.priorityPassedBy.has(p.id));
     if (allPassed) {
       // All players have passed - resolve or advance
       if (state.stack.length > 0) {
+        if (contextHasBlockingNonPaymentResolutionSteps(ctx) || contextHasPendingResolutionSteps(ctx)) {
+          debug(2, `[priority] autoPassLoop - all passed but cannot resolve stack (pending resolution prompt)`);
+          return { allPassed: false, resolved: false };
+        }
         // Resolve stack
         stateAny.priorityPassedBy = new Set<string>();
         state.priority = state.turnPlayer as PlayerID;
@@ -487,7 +513,13 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     const loopStackDrain = stateAny.loopShortcutStackDrain?.[currentPlayer] === true;
 
     // Idle auto-pass: no legal actions means pass without requiring the auto-pass preference.
-    if (!loopStackDrain && !isPlayerIdleForAutoPass(ctx, currentPlayer)) {
+    // AI: legal-but-pointless instants/flash (Entrapment with no attackers, empty-stack
+    // Summary Dismissal, off-turn Flash creatures) must not stall the loop into a full think.
+    if (
+      !loopStackDrain
+      && !isPlayerIdleForAutoPass(ctx, currentPlayer)
+      && !isAiContextuallyIdleForAutoPass(ctx, currentPlayer)
+    ) {
       debug(2, `[priority] autoPassLoop - stopping at ${currentPlayer}: player has available actions`);
       return { allPassed: false, resolved: false };
     }
@@ -511,11 +543,24 @@ export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
 }
 
 /**
- * Enter resolution mode: Clear priority per MTG Rule 608.2
- * This is called when the first resolution step is added to an empty queue
- * 
- * Per MTG Rule 608.2: "Players do not receive priority while a spell or ability is resolving"
- * We set state.priority = null to represent that priority doesn't exist during resolution
+ * Enter resolution mode whenever any unresolved prompt is in the queue.
+ *
+ * addStepsWithAPNAP inserts the whole batch before emitting STEP_ADDED, so the
+ * first listener sees pendingCount > 1. Gating on pendingCount === 1 skipped
+ * Kynaios/APNAP batches and left priority live while choices were still open.
+ */
+export function enterResolutionModeIfQueuePending(ctx: GameContext, gameId?: string): boolean {
+  bindCanonicalResolutionQueueGameId(ctx, gameId);
+  if (ctx.state.priority === null) return false;
+  const summary = contextPendingResolutionSummary(ctx, gameId);
+  if (!summary.hasPending) return false;
+  enterResolutionMode(ctx);
+  return true;
+}
+
+/**
+ * Enter resolution mode: Clear priority per MTG Rule 608.2.
+ * Players do not receive priority while a spell or ability is resolving.
  */
 export function enterResolutionMode(ctx: GameContext): void {
   const { state } = ctx;
@@ -550,32 +595,21 @@ export function exitResolutionMode(ctx: GameContext): void {
   // Defense-in-depth: never restore priority while a would-enter / replacement
   // choice (or other non-payment resolution prompt) is still open. Mana payment
   // prompts intentionally allow priority so players can activate mana abilities.
+  bindCanonicalResolutionQueueGameId(ctx);
+  if (contextHasBlockingNonPaymentResolutionSteps(ctx)) {
+    debugWarn(
+      1,
+      '[priority] Refusing to exit resolution mode — blocking non-payment resolution step(s) still pending',
+    );
+    return;
+  }
   const gameId = String((ctx as any).gameId || (ctx as any).id || stateAny?.gameId || stateAny?.id || '').trim();
-  if (gameId) {
-    try {
-      const blocking = ResolutionQueueManager.getQueue(gameId).steps.filter((step: any) => {
-        if (!step) return false;
-        if (step.status !== 'pending' && step.status !== 'active') return false;
-        if (String(step.type || '') === 'mana_payment_choice') return false;
-        return true;
-      });
-      if (blocking.length > 0) {
-        debugWarn(
-          1,
-          `[priority] Refusing to exit resolution mode ? ${blocking.length} blocking step(s) still pending ` +
-            `(${blocking.map((s: any) => s.type).join(', ')})`,
-        );
-        return;
-      }
-    } catch (err) {
-      // Fail closed: if we cannot verify the queue, keep resolution mode.
-      debugWarn(1, '[priority] Refusing to exit resolution mode ? queue guard failed:', err);
+  if (!gameId) {
+    if (state.priority == null) {
+      // No gameId available to verify the queue — do not restore priority blind.
+      debugWarn(1, '[priority] Refusing to exit resolution mode — missing gameId while priority is null');
       return;
     }
-  } else if (state.priority == null) {
-    // No gameId available to verify the queue ? do not restore priority blind.
-    debugWarn(1, '[priority] Refusing to exit resolution mode ? missing gameId while priority is null');
-    return;
   }
   
   // Restore priority to the saved player, or turn player as fallback
@@ -590,6 +624,7 @@ export function exitResolutionMode(ctx: GameContext): void {
     debugWarn(1, '[priority] exitResolutionMode: No priority player saved, defaulting to turn player');
     state.priority = state.turnPlayer as PlayerID;
   }
+  reassignPriorityIfHolderCannotReceive(ctx);
   
   // Clear the saved priority holder
   delete stateAny._priorityAfterResolution;

@@ -30,6 +30,7 @@ import type { EndStepTrigger } from "./turn-phases-handlers/turnPhaseTriggerType
 import { getActivePermanentCardFace } from "./turn-phases-handlers/turnPhaseActivePermanentFace.js";
 import { detectRequiresChoice, detectAffectsAllPlayers } from "./turn-phases-handlers/turnPhaseEffectChoiceHelpers.js";
 import { detectEndStepTriggers } from "./turn-phases-handlers/turnPhaseEndStepTriggers.js";
+import { collectDelayedEndStepRegistryTriggers } from "./delayed-end-step-watchers.js";
 
 // ============================================================================
 // Type Definitions for Turn Phase Triggers
@@ -40,6 +41,12 @@ import { detectEndStepTriggers } from "./turn-phases-handlers/turnPhaseEndStepTr
 // exported from this module. They align with the types.ts definitions.
 
 export type { EndStepTrigger } from "./turn-phases-handlers/turnPhaseTriggerTypes.js";
+export type { UntapStepEffect } from "./turn-phases-handlers/turnPhaseUntapStepEffects.js";
+export {
+  detectUntapStepEffects,
+  getUntapStepEffects,
+  applyUntapStepEffect,
+} from "./turn-phases-handlers/turnPhaseUntapStepEffects.js";
 
 
 export interface DrawStepTrigger {
@@ -49,17 +56,6 @@ export interface DrawStepTrigger {
   description: string;
   effect?: string;
   mandatory: boolean;
-}
-
-export interface UntapStepEffect {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  description: string;
-  effect?: string;
-  untapType: 'artifacts' | 'creatures' | 'all' | 'lands' | 'specific';
-  onOtherPlayersTurn: boolean;
-  onYourTurn: boolean;
 }
 
 function shouldSkipNoOpOptionalCombatDamagePayLife(
@@ -508,7 +504,9 @@ export function getEndStepTriggers(
       triggers.push(trigger);
     }
   }
-  
+
+  triggers.push(...collectDelayedEndStepRegistryTriggers(ctx, activePlayerId));
+
   return triggers;
 }
 
@@ -755,170 +753,6 @@ export function getDrawStepTriggers(
   }
   
   return triggers;
-}
-
-// ============================================================================
-// Untap Step Effects System
-// ============================================================================
-
-/**
- * Detect untap step effects from a card's oracle text
- * Handles cards like:
- * - Unwinding Clock: "Untap all artifacts you control during each other player's untap step"
- * - Seedborn Muse: "Untap all permanents you control during each other player's untap step"
- * - Prophet of Kruphix (banned): Similar to Seedborn Muse
- * - Wilderness Reclamation: "At the beginning of your end step, untap all lands you control"
- */
-export function detectUntapStepEffects(card: any, permanent: any): UntapStepEffect[] {
-  const effects: UntapStepEffect[] = [];
-  const oracleText = (card?.oracle_text || "").toLowerCase();
-  const cardName = card?.name || "Unknown";
-  const permanentId = permanent?.id || "";
-  const controllerId = permanent?.controller || "";
-  
-  // "Untap all artifacts you control during each other player's untap step" (Unwinding Clock)
-  if (oracleText.includes('untap all artifacts') && oracleText.includes('other player')) {
-    effects.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: "Untap all artifacts you control during each other player's untap step",
-      untapType: 'artifacts',
-      onOtherPlayersTurn: true,
-      onYourTurn: false,
-    });
-  }
-  
-  // "Untap all permanents you control during each other player's untap step" (Seedborn Muse)
-  if (oracleText.includes('untap all permanents') && oracleText.includes('other player')) {
-    effects.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: "Untap all permanents you control during each other player's untap step",
-      untapType: 'all',
-      onOtherPlayersTurn: true,
-      onYourTurn: false,
-    });
-  }
-  
-  // "Untap all creatures you control during each other player's untap step"
-  if (oracleText.includes('untap all creatures') && oracleText.includes('other player')) {
-    effects.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: "Untap all creatures you control during each other player's untap step",
-      untapType: 'creatures',
-      onOtherPlayersTurn: true,
-      onYourTurn: false,
-    });
-  }
-  
-  // Generic pattern: "untap all X you control during each other player's untap step"
-  const untapOtherMatch = oracleText.match(/untap all (\w+)(?: you control)? during each other player's untap step/i);
-  if (untapOtherMatch && !effects.length) {
-    const type = untapOtherMatch[1].toLowerCase();
-    let untapType: UntapStepEffect['untapType'] = 'specific';
-    if (type === 'artifacts') untapType = 'artifacts';
-    else if (type === 'creatures') untapType = 'creatures';
-    else if (type === 'permanents') untapType = 'all';
-    else if (type === 'lands') untapType = 'lands';
-    
-    effects.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: `Untap all ${type} you control during each other player's untap step`,
-      untapType,
-      onOtherPlayersTurn: true,
-      onYourTurn: false,
-    });
-  }
-  
-  return effects;
-}
-
-/**
- * Get all untap step effects that apply during a specific player's untap step
- * @param ctx Game context
- * @param untapPlayerId The player whose untap step it is
- * @returns Effects that should trigger
- */
-export function getUntapStepEffects(
-  ctx: GameContext,
-  untapPlayerId: string
-): UntapStepEffect[] {
-  const effects: UntapStepEffect[] = [];
-  const battlefield = ctx.state?.battlefield || [];
-  
-  for (const permanent of battlefield) {
-    if (!permanent || !permanent.card) continue;
-    
-    const permEffects = detectUntapStepEffects(permanent.card, permanent);
-    
-    for (const effect of permEffects) {
-      // Check if this effect applies
-      const isControllersTurn = permanent.controller === untapPlayerId;
-      
-      if (effect.onOtherPlayersTurn && !isControllersTurn) {
-        // Effects like Unwinding Clock trigger on OTHER players' untap steps
-        effects.push(effect);
-      } else if (effect.onYourTurn && isControllersTurn) {
-        // Effects that trigger on your own untap step
-        effects.push(effect);
-      }
-    }
-  }
-  
-  return effects;
-}
-
-/**
- * Apply untap step effects (actually untap the permanents)
- * @param ctx Game context
- * @param effect The untap effect to apply
- */
-export function applyUntapStepEffect(ctx: GameContext, effect: UntapStepEffect): number {
-  const battlefield = ctx.state?.battlefield || [];
-  let untappedCount = 0;
-  
-  for (const permanent of battlefield) {
-    if (!permanent || permanent.controller !== effect.controllerId) continue;
-    if (!permanent.tapped) continue; // Already untapped
-    
-    const typeLine = (permanent.card?.type_line || '').toLowerCase();
-    let shouldUntap = false;
-    
-    switch (effect.untapType) {
-      case 'all':
-        shouldUntap = true;
-        break;
-      case 'artifacts':
-        shouldUntap = typeLine.includes('artifact');
-        break;
-      case 'creatures':
-        shouldUntap = typeLine.includes('creature');
-        break;
-      case 'lands':
-        shouldUntap = typeLine.includes('land');
-        break;
-      case 'specific':
-        // Would need more specific matching based on the effect
-        break;
-    }
-    
-    if (shouldUntap) {
-      permanent.tapped = false;
-      untappedCount++;
-    }
-  }
-  
-  if (untappedCount > 0) {
-    ctx.bumpSeq();
-  }
-  
-  return untappedCount;
 }
 
 // ============================================================================

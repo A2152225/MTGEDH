@@ -210,6 +210,7 @@ export * from "./life-loss.js";
 export * from "./pay-life.js";
 export * from "./sacrifice.js";
 export * from "./counters.js";
+export { queueExiledTimeCounterRemovedTriggers } from "./queueExiledTimeCounterRemoved.js";
 export * from "./zone-change.js";
 export * from "./search.js";
 export * from "./shuffle.js";

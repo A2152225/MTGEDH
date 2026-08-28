@@ -11,6 +11,13 @@ import {
   MUST_BE_BLOCKED_IF_ABLE,
 } from '../src/state/modules/staticEffectSpec-handlers/staticEffectSpecOracleParsingMustBeBlocked.js';
 import { typedMustBeBlockedAbility } from '../src/state/modules/staticEffectSpec-handlers/staticEffectSpecOracleParsingMustBeBlockedByType.js';
+import {
+  CANT_ATTACK,
+  CANT_BLOCK,
+  CANT_ACTIVATE_TAP_ABILITIES,
+} from '../src/state/modules/staticEffectSpec-handlers/staticEffectSpecOracleParsingCantAttack.js';
+import { canPermanentAttack, canBlockAttacker } from '../src/socket/combat-handlers/combatLegalityGates.js';
+import { permanentCannotActivateTapAbilities } from '../src/state/modules/staticEffectSpecActivationLocks.js';
 
 // Quoted from mtg_data.db / oracle-cards (is_token = 0), 2026-08-25.
 const SARYTH_ORACLE =
@@ -61,6 +68,33 @@ const YOU_PLANESWALKERS_OTHER_CREATURES_HEXPROOF_ORACLE =
   'Flying\nYou, planeswalkers you control, and other creatures you control have hexproof.\n{4}{G}{G}: Put a +1/+1 counter on each creature you control.';
 const YOU_AND_OTHER_CREATURES_HEXPROOF_ORACLE =
   'You and other creatures you control have hexproof.';
+// mtg_data.db is_token=0 Pacifism / Bound in Silence
+const PACIFISM_ORACLE =
+  "Enchanted creature can't attack or block.";
+const BOUND_IN_SILENCE_ORACLE =
+  "Enchant creature\nEnchanted creature can't attack or block.";
+const GHOSTLY_PRISON_ORACLE =
+  "Creatures can't attack you unless their controller pays {2} for each creature they control that's attacking you.";
+// mtg_data.db is_token=0, 2026-08-27
+const MOAT_ORACLE =
+  "Creatures without flying can't attack.";
+const ENSNARING_BRIDGE_ORACLE =
+  "Creatures with power greater than the number of cards in your hand can't attack.";
+const KATABATIC_WINDS_ORACLE =
+  "Phasing (This phases in or out before you untap during each of your untap steps. While it's phased out, it's treated as though it doesn't exist.)\nCreatures with flying can't attack or block, and their activated abilities with {T} in their costs can't be activated.";
+const PEACEKEEPER_ORACLE =
+  "At the beginning of your upkeep, sacrifice this creature unless you pay {1}{W}.\nCreatures can't attack.";
+const DOOMED_ARTISAN_ORACLE =
+  'Sculptures you control can\'t attack or block.\nAt the beginning of your end step, create a colorless Sculpture artifact creature token with "This token\'s power and toughness are each equal to the number of Sculptures you control."';
+const SERRA_BESTIARY_ORACLE =
+  "Enchant creature\nAt the beginning of your upkeep, sacrifice this Aura unless you pay {W}{W}.\nEnchanted creature can't attack or block, and its activated abilities with {T} in their costs can't be activated.";
+const GRAVITY_SPHERE_ORACLE = 'All creatures lose flying.';
+const MYSTIC_DECREE_ORACLE = 'All creatures lose flying and islandwalk.';
+const WHITEOUT_ORACLE =
+  'All creatures lose flying until end of turn.\nSacrifice a snow land: Return this card from your graveyard to your hand.';
+const HUMILITY_ORACLE =
+  'All creatures lose all abilities and have base power and toughness 1/1.';
+const LEVITATION_ORACLE = 'Creatures you control have flying.';
 
 describe('staticEffectSpec leftover oracle templates', () => {
   it('grants deathtouch to other tapped creatures and hexproof to other untapped creatures', () => {
@@ -1050,5 +1084,450 @@ describe('staticEffectSpec leftover oracle templates', () => {
     const specs = collectStaticEffectSpecsFromState(state);
     expect(specs.some((spec) => Array.isArray(spec.grant.removeAbilities) && spec.grant.removeAbilities.length > 0))
       .toBe(false);
+  });
+
+  it("grants can't-attack and can't-block to an enchanted host from Pacifism oracle", () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'pacifism_1',
+          controller: 'p1',
+          attachedTo: 'bear_1',
+          card: {
+            name: 'Pacifism',
+            type_line: 'Enchantment — Aura',
+            oracle_text: PACIFISM_ORACLE,
+          },
+        },
+        {
+          id: 'bear_1',
+          controller: 'p2',
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+      ],
+    };
+
+    const specs = collectStaticEffectSpecsFromState(state);
+    expect(specs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scope: { kind: 'self' },
+        grant: { abilities: [CANT_ATTACK, CANT_BLOCK] },
+        sourcePermanentId: 'bear_1',
+      }),
+    ]));
+    expect(getContinuousGrantedAbilitiesForPermanent(state.battlefield[1] as any, state))
+      .toEqual(expect.arrayContaining([CANT_ATTACK, CANT_BLOCK]));
+    expect(getContinuousGrantedAbilitiesForPermanent(state.battlefield[0] as any, state))
+      .not.toEqual(expect.arrayContaining([CANT_ATTACK, CANT_BLOCK]));
+    expect(canPermanentAttack(state.battlefield[1], state.battlefield, 'p2').canAttack).toBe(false);
+    expect(canBlockAttacker(state.battlefield[1], { id: 'atk_1', controller: 'p1' }, state.battlefield, 'p2').canBlock)
+      .toBe(false);
+  });
+
+  it("grants host combat locks from Bound in Silence and skips pillowfort / this-turn text", () => {
+    const attached = {
+      battlefield: [
+        {
+          id: 'silence_1',
+          controller: 'p1',
+          attachedTo: 'bear_1',
+          card: {
+            name: 'Bound in Silence',
+            type_line: 'Kindred Enchantment — Rebel Aura',
+            oracle_text: BOUND_IN_SILENCE_ORACLE,
+          },
+        },
+        {
+          id: 'bear_1',
+          controller: 'p2',
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+      ],
+    };
+    expect(getContinuousGrantedAbilitiesForPermanent(attached.battlefield[1] as any, attached))
+      .toEqual(expect.arrayContaining([CANT_ATTACK, CANT_BLOCK]));
+
+    const pillowfort = {
+      battlefield: [{
+        id: 'prison_1',
+        controller: 'p1',
+        card: {
+          name: 'Ghostly Prison',
+          type_line: 'Enchantment',
+          oracle_text: GHOSTLY_PRISON_ORACLE,
+        },
+      }, {
+        id: 'bear_1',
+        controller: 'p2',
+        card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+      }],
+    };
+    expect(getContinuousGrantedAbilitiesForPermanent(pillowfort.battlefield[1] as any, pillowfort))
+      .not.toEqual(expect.arrayContaining([CANT_ATTACK]));
+
+    const thisTurn = {
+      battlefield: [{
+        id: 'trick_1',
+        controller: 'p1',
+        card: {
+          name: 'Custom Fog Rider',
+          type_line: 'Creature — Spirit',
+          oracle_text: "This creature can't attack this turn.",
+        },
+      }],
+    };
+    expect(collectStaticEffectSpecsFromState(thisTurn).some(
+      (spec) => spec.grant.abilities?.includes(CANT_ATTACK),
+    )).toBe(false);
+  });
+
+  it("grants can't-attack to creatures without flying from Moat oracle", () => {
+    const bear = {
+      id: 'bear_1',
+      controller: 'p2',
+      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '', power: 2 },
+    };
+    const bird = {
+      id: 'bird_1',
+      controller: 'p2',
+      card: { name: "Healer's Hawk", type_line: 'Creature — Bird', oracle_text: 'Flying, lifelink', power: 1 },
+    };
+    const state = {
+      battlefield: [
+        {
+          id: 'moat_1',
+          controller: 'p1',
+          card: { name: 'Moat', type_line: 'Enchantment', oracle_text: MOAT_ORACLE },
+        },
+        bear,
+        bird,
+      ],
+    };
+
+    expect(collectStaticEffectSpecsFromState(state)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scope: { kind: 'all_creatures' },
+        grant: { abilities: [CANT_ATTACK] },
+        condition: { kind: 'target_lacks_keyword', keyword: 'flying' },
+      }),
+    ]));
+    expect(getContinuousGrantedAbilitiesForPermanent(bear as any, state))
+      .toEqual(expect.arrayContaining([CANT_ATTACK]));
+    expect(getContinuousGrantedAbilitiesForPermanent(bird as any, state))
+      .not.toEqual(expect.arrayContaining([CANT_ATTACK]));
+    expect(canPermanentAttack(bear, state.battlefield, 'p2', state).canAttack).toBe(false);
+    expect(canPermanentAttack(bird, state.battlefield, 'p2', state).canAttack).toBe(true);
+  });
+
+  it("grants can't-attack-or-block to creatures with flying from Katabatic Winds oracle", () => {
+    const bear = {
+      id: 'bear_1',
+      controller: 'p2',
+      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '', power: 2 },
+    };
+    const bird = {
+      id: 'bird_1',
+      controller: 'p2',
+      card: { name: 'Healer\'s Hawk', type_line: 'Creature — Bird', oracle_text: 'Flying, lifelink', power: 1 },
+    };
+    const state = {
+      battlefield: [
+        {
+          id: 'winds_1',
+          controller: 'p1',
+          card: { name: 'Katabatic Winds', type_line: 'Enchantment', oracle_text: KATABATIC_WINDS_ORACLE },
+        },
+        bear,
+        bird,
+      ],
+    };
+
+    expect(getContinuousGrantedAbilitiesForPermanent(bird as any, state))
+      .toEqual(expect.arrayContaining([CANT_ATTACK, CANT_BLOCK, CANT_ACTIVATE_TAP_ABILITIES]));
+    expect(getContinuousGrantedAbilitiesForPermanent(bear as any, state))
+      .not.toEqual(expect.arrayContaining([CANT_ATTACK, CANT_ACTIVATE_TAP_ABILITIES]));
+    expect(permanentCannotActivateTapAbilities(bird as any, state)).toBe(true);
+    expect(permanentCannotActivateTapAbilities(bear as any, state)).toBe(false);
+    expect(canPermanentAttack(bird, state.battlefield, 'p2', state).canAttack).toBe(false);
+    expect(canBlockAttacker(bird, { id: 'atk_1', controller: 'p1' }, state.battlefield, 'p2', state).canBlock)
+      .toBe(false);
+    expect(canPermanentAttack(bear, state.battlefield, 'p2', state).canAttack).toBe(true);
+  });
+
+  it("caps attackers whose power exceeds Ensnaring Bridge controller's hand size", () => {
+    const brute = {
+      id: 'ogre_1',
+      controller: 'p2',
+      card: { name: 'Gray Ogre', type_line: 'Creature — Ogre', oracle_text: '', power: 2 },
+    };
+    const cub = {
+      id: 'cub_1',
+      controller: 'p2',
+      card: { name: 'Runeclaw Bear', type_line: 'Creature — Bear', oracle_text: '', power: 1 },
+    };
+    const locked = {
+      battlefield: [
+        {
+          id: 'bridge_1',
+          controller: 'p1',
+          card: { name: 'Ensnaring Bridge', type_line: 'Artifact', oracle_text: ENSNARING_BRIDGE_ORACLE },
+        },
+        brute,
+        cub,
+      ],
+      zones: { p1: { hand: [{ id: 'c1' }], handCount: 1 } },
+    };
+    expect(collectStaticEffectSpecsFromState(locked)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scope: { kind: 'all_creatures' },
+        grant: { abilities: [CANT_ATTACK] },
+        condition: { kind: 'target_power_greater_than_source_controller_hand_size' },
+      }),
+    ]));
+    expect(getContinuousGrantedAbilitiesForPermanent(brute as any, locked))
+      .toEqual(expect.arrayContaining([CANT_ATTACK]));
+    expect(getContinuousGrantedAbilitiesForPermanent(cub as any, locked))
+      .not.toEqual(expect.arrayContaining([CANT_ATTACK]));
+    expect(canPermanentAttack(brute, locked.battlefield, 'p2', locked).canAttack).toBe(false);
+    expect(canPermanentAttack(cub, locked.battlefield, 'p2', locked).canAttack).toBe(true);
+
+    const openHand = {
+      ...locked,
+      zones: { p1: { hand: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }], handCount: 3 } },
+    };
+    expect(getContinuousGrantedAbilitiesForPermanent(brute as any, openHand))
+      .not.toEqual(expect.arrayContaining([CANT_ATTACK]));
+    expect(canPermanentAttack(brute, openHand.battlefield, 'p2', openHand).canAttack).toBe(true);
+  });
+
+  it('locks all creatures from Peacekeeper and sculptures you control from Doomed Artisan', () => {
+    const bear = {
+      id: 'bear_1',
+      controller: 'p1',
+      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '', power: 2 },
+    };
+    const peace = {
+      battlefield: [
+        {
+          id: 'peace_1',
+          controller: 'p1',
+          card: { name: 'Peacekeeper', type_line: 'Creature — Human', oracle_text: PEACEKEEPER_ORACLE, power: 1 },
+        },
+        bear,
+      ],
+    };
+    expect(getContinuousGrantedAbilitiesForPermanent(bear as any, peace))
+      .toEqual(expect.arrayContaining([CANT_ATTACK]));
+    expect(canPermanentAttack(bear, peace.battlefield, 'p1', peace).canAttack).toBe(false);
+
+    const sculpture = {
+      id: 'sculp_1',
+      controller: 'p1',
+      isToken: true,
+      card: { name: 'Sculpture', type_line: 'Artifact Creature — Sculpture', oracle_text: '', power: 1 },
+    };
+    const artisan = {
+      battlefield: [
+        {
+          id: 'artisan_1',
+          controller: 'p1',
+          card: {
+            name: 'Doomed Artisan',
+            type_line: 'Creature — Human Artificer',
+            oracle_text: DOOMED_ARTISAN_ORACLE,
+            power: 1,
+          },
+        },
+        sculpture,
+        bear,
+      ],
+    };
+    expect(getContinuousGrantedAbilitiesForPermanent(sculpture as any, artisan))
+      .toEqual(expect.arrayContaining([CANT_ATTACK, CANT_BLOCK]));
+    expect(getContinuousGrantedAbilitiesForPermanent(bear as any, artisan))
+      .not.toEqual(expect.arrayContaining([CANT_ATTACK]));
+  });
+
+  it("locks enchanted host tap abilities from Serra Bestiary oracle", () => {
+    const bird = {
+      id: 'bird_1',
+      controller: 'p2',
+      card: {
+        name: "Healer's Hawk",
+        type_line: 'Creature — Bird',
+        oracle_text: '{T}: Add {W}.',
+        power: 1,
+      },
+    };
+    const state = {
+      battlefield: [
+        {
+          id: 'bestiary_1',
+          controller: 'p1',
+          attachedTo: 'bird_1',
+          card: {
+            name: 'Serra Bestiary',
+            type_line: 'Enchantment — Aura',
+            oracle_text: SERRA_BESTIARY_ORACLE,
+          },
+        },
+        bird,
+      ],
+    };
+
+    expect(getContinuousGrantedAbilitiesForPermanent(bird as any, state))
+      .toEqual(expect.arrayContaining([CANT_ATTACK, CANT_BLOCK, CANT_ACTIVATE_TAP_ABILITIES]));
+    expect(permanentCannotActivateTapAbilities(bird as any, state)).toBe(true);
+    expect(canPermanentAttack(bird, state.battlefield, 'p2', state).canAttack).toBe(false);
+  });
+
+  it('strips flying from all creatures on Gravity Sphere / Mystic Decree oracle', () => {
+    const bird = {
+      id: 'bird_1',
+      controller: 'p2',
+      card: { name: "Healer's Hawk", type_line: 'Creature — Bird', oracle_text: 'Flying', power: 1 },
+    };
+    const sphere = {
+      battlefield: [
+        {
+          id: 'sphere_1',
+          controller: 'p1',
+          card: { name: 'Gravity Sphere', type_line: 'Enchantment', oracle_text: GRAVITY_SPHERE_ORACLE },
+        },
+        bird,
+      ],
+    };
+    expect(collectStaticEffectSpecsFromState(sphere)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scope: { kind: 'all_creatures' },
+        grant: { removeAbilities: ['flying'] },
+      }),
+    ]));
+
+    const decree = {
+      battlefield: [
+        {
+          id: 'decree_1',
+          controller: 'p1',
+          card: { name: 'Mystic Decree', type_line: 'Enchantment', oracle_text: MYSTIC_DECREE_ORACLE },
+        },
+        bird,
+      ],
+    };
+    expect(collectStaticEffectSpecsFromState(decree)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scope: { kind: 'all_creatures' },
+        grant: { removeAbilities: expect.arrayContaining(['flying', 'islandwalk']) },
+      }),
+    ]));
+
+    const untilEot = {
+      battlefield: [
+        {
+          id: 'whiteout_1',
+          controller: 'p1',
+          card: { name: 'Whiteout', type_line: 'Instant', oracle_text: WHITEOUT_ORACLE },
+        },
+        bird,
+      ],
+    };
+    expect(collectStaticEffectSpecsFromState(untilEot).some((spec) => (
+      Array.isArray(spec.grant.removeAbilities) && spec.grant.removeAbilities.includes('flying')
+    ))).toBe(false);
+
+    const humility = {
+      battlefield: [
+        {
+          id: 'humility_1',
+          controller: 'p1',
+          card: { name: 'Humility', type_line: 'Enchantment', oracle_text: HUMILITY_ORACLE },
+        },
+        bird,
+      ],
+    };
+    expect(collectStaticEffectSpecsFromState(humility).some((spec) => (
+      Array.isArray(spec.grant.removeAbilities) && spec.grant.removeAbilities.length > 0
+    ))).toBe(false);
+  });
+
+  it("lets Gravity Sphere make Moat lock printed flyers, and Levitation fly over Moat", () => {
+    const bear = {
+      id: 'bear_1',
+      controller: 'p2',
+      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '', power: 2 },
+    };
+    const bird = {
+      id: 'bird_1',
+      controller: 'p2',
+      card: { name: "Healer's Hawk", type_line: 'Creature — Bird', oracle_text: 'Flying', power: 1 },
+    };
+    const moatAndSphere = {
+      battlefield: [
+        {
+          id: 'moat_1',
+          controller: 'p1',
+          card: { name: 'Moat', type_line: 'Enchantment', oracle_text: MOAT_ORACLE },
+        },
+        {
+          id: 'sphere_1',
+          controller: 'p1',
+          card: { name: 'Gravity Sphere', type_line: 'Enchantment', oracle_text: GRAVITY_SPHERE_ORACLE },
+        },
+        bear,
+        bird,
+      ],
+    };
+    expect(getContinuousGrantedAbilitiesForPermanent(bird as any, moatAndSphere))
+      .toEqual(expect.arrayContaining([CANT_ATTACK]));
+    expect(canPermanentAttack(bird, moatAndSphere.battlefield, 'p2', moatAndSphere).canAttack).toBe(false);
+    expect(canPermanentAttack(bear, moatAndSphere.battlefield, 'p2', moatAndSphere).canAttack).toBe(false);
+
+    const moatAndLevitation = {
+      battlefield: [
+        {
+          id: 'moat_1',
+          controller: 'p1',
+          card: { name: 'Moat', type_line: 'Enchantment', oracle_text: MOAT_ORACLE },
+        },
+        {
+          id: 'levitation_1',
+          controller: 'p2',
+          card: { name: 'Levitation', type_line: 'Enchantment', oracle_text: LEVITATION_ORACLE },
+        },
+        bear,
+      ],
+    };
+    expect(getContinuousGrantedAbilitiesForPermanent(bear as any, moatAndLevitation))
+      .not.toEqual(expect.arrayContaining([CANT_ATTACK]));
+    expect(canPermanentAttack(bear, moatAndLevitation.battlefield, 'p2', moatAndLevitation).canAttack).toBe(true);
+  });
+
+  it('drops Katabatic locks after Gravity Sphere removes flying', () => {
+    const bird = {
+      id: 'bird_1',
+      controller: 'p2',
+      card: { name: "Healer's Hawk", type_line: 'Creature — Bird', oracle_text: 'Flying\n{T}: Add {W}.', power: 1 },
+    };
+    const state = {
+      battlefield: [
+        {
+          id: 'winds_1',
+          controller: 'p1',
+          card: { name: 'Katabatic Winds', type_line: 'Enchantment', oracle_text: KATABATIC_WINDS_ORACLE },
+        },
+        {
+          id: 'sphere_1',
+          controller: 'p1',
+          card: { name: 'Gravity Sphere', type_line: 'Enchantment', oracle_text: GRAVITY_SPHERE_ORACLE },
+        },
+        bird,
+      ],
+    };
+    expect(getContinuousGrantedAbilitiesForPermanent(bird as any, state))
+      .not.toEqual(expect.arrayContaining([CANT_ATTACK]));
+    expect(getContinuousGrantedAbilitiesForPermanent(bird as any, state))
+      .not.toEqual(expect.arrayContaining([CANT_ACTIVATE_TAP_ABILITIES]));
+    expect(permanentCannotActivateTapAbilities(bird as any, state)).toBe(false);
+    expect(canPermanentAttack(bird, state.battlefield, 'p2', state).canAttack).toBe(true);
   });
 });

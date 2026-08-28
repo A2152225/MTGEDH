@@ -9,7 +9,7 @@ import type { SpellMode } from "../components/ModalSpellSelectionModal";
 import type { TargetOption, TargetSelectionGroup } from "../components/TargetSelectionModal";
 import type { TemptingOfferRequest } from "../components/TemptingOfferModal";
 import type { TriggerPromptData } from "../components/TriggeredAbilityModal";
-import { buildLibrarySearchModalStateFromStep } from "../utils/resolutionChoicePrimitives";
+import { buildLibrarySearchModalStateFromStep, readResolutionPromptCause } from "../utils/resolutionChoicePrimitives";
 import { isResolutionStepMandatory } from "../utils/resolutionStepUtils";
 
 export function handleAppResolutionStepPromptLate(
@@ -430,6 +430,7 @@ export function handleAppResolutionStepPromptLate(
           shortcutCardName: step.sourceName || undefined,
           persistMayAutoPreference: true,
           persistTriggerShortcut: false,
+          ...readResolutionPromptCause(step),
         });
         setMayAbilityModalOpen(true);
       }

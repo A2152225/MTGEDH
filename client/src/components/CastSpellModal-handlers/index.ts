@@ -7,4 +7,4 @@
  */
 
 // Oracle-text alternate-cost parse (flashback, warp, overload, WUBRG, ...).
-export { parseAlternateCosts, type AlternateCost } from './castSpellModalParseAlternateCosts';
+export { parseAlternateCosts, oracleGrantsSelfSpellFreeAlternateCost, type AlternateCost } from './castSpellModalParseAlternateCosts';

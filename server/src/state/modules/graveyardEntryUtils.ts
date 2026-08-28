@@ -1,8 +1,10 @@
 import type { GameContext } from '../context.js';
 import type { ReplacementZone } from './replacement-effects.js';
-import { checkGraveyardTrigger } from './triggered-abilities.js';
 import { recordCardPutIntoGraveyardThisTurn } from './turn-tracking.js';
-import { tryApplyDeclarativeGraveyardDestinationReplacement } from './zone-manipulation.js';
+import {
+  checkGraveyardTrigger,
+  tryApplyDeclarativeGraveyardDestinationReplacement,
+} from './zone-manipulation.js';
 
 export interface PushCardToGraveyardOptions {
   readonly fromBattlefield?: boolean;
@@ -11,6 +13,25 @@ export interface PushCardToGraveyardOptions {
   readonly extraFields?: Record<string, unknown>;
   /** Stamp Mayhem / Jump-start discard provenance onto the graveyard card. */
   readonly asDiscard?: boolean;
+}
+
+function inferGraveyardSourceZone(card: any, options: PushCardToGraveyardOptions): ReplacementZone {
+  if (options.sourceZone) return options.sourceZone;
+  if (options.fromBattlefield) return 'battlefield';
+  const stamped = String((card as any)?.putIntoGraveyardFrom || '').toLowerCase();
+  if (stamped === 'library') return 'library';
+  const zone = String(card?.zone || card?.card?.zone || '').toLowerCase();
+  if (
+    zone === 'library'
+    || zone === 'stack'
+    || zone === 'hand'
+    || zone === 'exile'
+    || zone === 'battlefield'
+    || zone === 'command'
+  ) {
+    return zone;
+  }
+  return 'hand';
 }
 
 /** Fields required for Mayhem and similar "discarded this turn" eligibility. */
@@ -38,8 +59,7 @@ export function pushCardToPlayerGraveyardWithReplacements(
   const ownerId = String(playerId || '').trim();
   if (!ownerId || !card) return false;
 
-  const sourceZone: ReplacementZone = options.sourceZone
-    || (options.fromBattlefield ? 'battlefield' : 'hand');
+  const sourceZone = inferGraveyardSourceZone(card, options);
 
   if (tryApplyDeclarativeGraveyardDestinationReplacement(ctx, card, ownerId, {
     sourceZone,
@@ -64,6 +84,20 @@ export function pushCardToPlayerGraveyardWithReplacements(
     fromBattlefield: options.fromBattlefield === true,
     ...(options.controllerId ? { controllerId: options.controllerId } : {}),
   });
-  checkGraveyardTrigger(ctx, card, ownerId);
+  checkGraveyardTrigger(ctx, card, ownerId, sourceZone);
   return true;
+}
+
+/** Library → graveyard (mill, explore, put-rest). Stamps sourceZone so Gaea's Blessing can fire. */
+export function pushCardToGraveyardFromLibrary(
+  ctx: GameContext,
+  playerId: string,
+  card: any,
+  graveyard: any[],
+  options: Omit<PushCardToGraveyardOptions, 'sourceZone'> = {},
+): boolean {
+  return pushCardToPlayerGraveyardWithReplacements(ctx, playerId, card, graveyard, {
+    ...options,
+    sourceZone: 'library',
+  });
 }

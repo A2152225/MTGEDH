@@ -282,9 +282,10 @@ function endTemporaryEffects(ctx: GameContext) {
         if (type === 'protectionKeywordOverride') {
           return !expiringDurations.has(duration);
         }
-        if (type === 'preventLifeGain') {
-          // Missing duration is the original this-turn stamp (Skullcrack).
-          // Rest-of-game locks must set duration 'game'.
+        if (type === 'preventLifeGain' || type === 'attackTaxGeneric' || type === 'blockTaxGeneric') {
+          // Missing duration is the original this-turn stamp (Skullcrack / War Tax).
+          // Rest-of-game locks must set duration 'game'. until_your_next_turn lasts
+          // until the source controller's next turn (not cleanup).
           if (!duration || expiringDurations.has(duration)) return false;
           return true;
         }
@@ -719,6 +720,31 @@ export function runTurnStepCleanup(ctx: GameContext, isReplaying: boolean): { sh
         debug(2, `${ts()} [nextStep] Player has Sundial effect available, pausing at cleanup for potential action`);
         ctx.bumpSeq();
         return { shouldCallNextTurn: false }; // Stop here - player can use Sundial effect or pass to advance
+      }
+
+      // Rule 514.3: if the stack is still occupied (bounce ETB, leftover trigger),
+      // stay in cleanup and grant priority instead of advancing the turn.
+      // Replay keeps the old auto-advance so recorded nextTurn events stay aligned.
+      if (!isReplaying && !stackEmpty) {
+        debug(2, `${ts()} [nextStep] Cleanup waiting — stack not empty (Rule 514.3)`);
+        ctx.bumpSeq();
+        return { shouldCallNextTurn: false };
+      }
+
+      if (!isReplaying) {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          if (gameId) {
+            const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
+            if (pendingSummary.hasPending) {
+              debug(2, `${ts()} [nextStep] Cleanup waiting — pending resolution steps: ${pendingSummary.pendingTypes.join(', ')}`);
+              ctx.bumpSeq();
+              return { shouldCallNextTurn: false };
+            }
+          }
+        } catch (err) {
+          debugWarn(1, `${ts()} [nextStep] Failed to check pending resolution steps during cleanup:`, err);
+        }
       }
       
       // Rule 514.2: Clear damage from all permanents and end temporary effects

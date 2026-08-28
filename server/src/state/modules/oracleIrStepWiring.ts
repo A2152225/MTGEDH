@@ -71,8 +71,12 @@ export function isOracleEffectStepCoveredByApplied(
   const nested = getOracleEffectStepThenBranch(step);
   if (nested.length === 0) return false;
   const mandatoryNested = nested.filter((inner) => !isOptionalOracleEffectStep(inner));
-  const relevant = mandatoryNested.length > 0 ? mandatoryNested : nested;
-  return relevant.every((inner) =>
+  // May-only then-branch (Sevinne GY copy, etc.): the wrapper is mandatory in the
+  // parse, but it has no mandatory work. A false condition, declined may, or
+  // deferred optional copy is complete. Halt-before-wrapper still fails via
+  // pendingContinuation without a queue bridge.
+  if (mandatoryNested.length === 0) return true;
+  return mandatoryNested.every((inner) =>
     isOracleEffectStepCoveredByApplied(inner, appliedFingerprints, continuationFingerprints),
   );
 }

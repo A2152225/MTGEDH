@@ -35,6 +35,8 @@ export interface OracleIRExecutionOptions {
 export interface OracleIRSelectorContext {
   /** Bound target for selectors parsed as target player. */
   readonly targetPlayerId?: PlayerID;
+  /** Owner of the bound targeted object (may differ from controller). */
+  readonly targetOwnerId?: PlayerID;
   /** Bound target for selectors parsed as target opponent. */
   readonly targetOpponentId?: PlayerID;
   /** Bound target for selectors parsed as target creature. */
@@ -272,6 +274,8 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly xValue?: number;
   /** Mana spent to cast the resolving source when the popped stack item is no longer findable. */
   readonly sourceManaSpentTotal?: number;
+  /** Keywords granted to a resolving spell after it left the stack ("that spell gains deathtouch"). */
+  readonly sourceGrantedAbilities?: readonly string[];
   /** Whether the resolving source is a spell or an ability. */
   readonly sourceObjectType?: 'spell' | 'ability';
   /** Colors of the resolving source spell when relevant to source-sensitive checks. */
@@ -310,6 +314,8 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly lastCollectedEvidence?: boolean;
   /** Internal runtime carry-over for nested follow-up steps that reference battlefield permanents moved by prior steps. */
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
+  /** Internal runtime carry-over for "creatures dealt damage this way" follow-ups. */
+  readonly lastDamagedBattlefieldPermanentIds?: readonly string[];
   /** Internal runtime carry-over for goad follow-ups that reference "those creatures". */
   readonly lastGoadedBattlefieldPermanentIds?: readonly string[];
   /** Battlefield permanents matched by the most recent "for each" / count antecedent (e.g. Inspiring Call draw). */

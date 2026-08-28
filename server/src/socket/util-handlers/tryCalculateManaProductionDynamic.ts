@@ -8,8 +8,9 @@
 
 import type { ManaProductionInfo } from "./manaProductionTypes.js";
 import { DEVOTION_COLOR_PATTERNS } from "./manaProductionDevotionPatterns.js";
-import { shouldApplyDevotionColorChoiceMana } from "./manaProductionDevotionHelpers.js";
+import { shouldApplyDevotionColorChoiceMana, shouldApplyChosenTypeColorChoiceMana } from "./manaProductionDevotionHelpers.js";
 import { battlefieldPermanentInstanceCount, countControlledCreaturesOfChosenType } from "../../state/modules/chosen-creature-type.js";
+import { normalizeCreatureTypeWord } from "../../../../shared/src/creatureTypes.js";
 
 export type CalculateManaProductionDynamicArgs = {
   result: ManaProductionInfo;
@@ -23,6 +24,8 @@ export type CalculateManaProductionDynamicArgs = {
   chosenColor?: string;
   selectedAbilityLine: { lineText: string; costText: string; effectText: string } | undefined;
   selectedAbilityEffectText: string;
+  abilityId?: string | null;
+  selectedLegacyManaAbility?: { id?: string; cost?: string } | null;
 };
 
 export function tryCalculateManaProductionDynamic(
@@ -38,8 +41,9 @@ export function tryCalculateManaProductionDynamic(
     playerId,
     permanent,
     chosenColor,
-    selectedAbilityLine,
     selectedAbilityEffectText,
+    abilityId,
+    selectedLegacyManaAbility,
   } = args;
 
   // ===== STEP 2: Check for dynamic mana production =====
@@ -87,39 +91,39 @@ export function tryCalculateManaProductionDynamic(
   // Three Tree City - Has two abilities:
   // 1. {T}: Add {C}
   // 2. {2}, {T}: Choose a color. Add an amount of mana of that color equal to creatures of the chosen type.
-  // The chosen creature type is stored on the permanent
+  // The chosen creature type is stored on the permanent. Unscoped / native_c / ability-0
+  // must produce {C} even when the chosen-type count is 0 (do not hijack as the {2} line).
   if (cardName.includes("three tree city")) {
-    const selectedThreeTreeIsDynamicLine = !selectedAbilityLine ||
-      (selectedAbilityEffectText.includes('choose a color') && selectedAbilityEffectText.includes('creatures of the chosen type'));
-    const selectedThreeTreeIsColorlessLine = selectedAbilityLine && /\badd\s+\{c\}/i.test(selectedAbilityEffectText);
+    if (shouldApplyChosenTypeColorChoiceMana(
+      cardName,
+      selectedAbilityEffectText,
+      abilityId,
+      selectedLegacyManaAbility?.id,
+    )) {
+      const chosenCreatureType = (permanent?.chosenCreatureType || '').toLowerCase();
+      const creatureCount = chosenCreatureType
+        ? countControlledCreaturesOfChosenType({ battlefield }, playerId, chosenCreatureType)
+        : 0;
 
-    if (selectedThreeTreeIsColorlessLine) {
+      result.isDynamic = true;
+      result.baseAmount = creatureCount;
+      result.dynamicDescription = chosenCreatureType
+        ? `Choose a color. Add ${creatureCount} mana of that color (one for each ${chosenCreatureType} you control)`
+        : 'Choose a color. Add mana equal to creatures you control of the chosen type';
+      result.color = 'any_combination';
+      result.colors = ['W', 'U', 'B', 'R', 'G'];
+      result.activationCost = '{2}';
+      result.requiresColorChoice = true;
+    } else {
       result.baseAmount = 1;
       result.colors = ['C'];
       result.isDynamic = false;
       result.dynamicDescription = undefined;
       result.requiresColorChoice = false;
-    }
-
-    // Get the chosen creature type from the permanent
-    const chosenCreatureType = (permanent?.chosenCreatureType || '').toLowerCase();
-
-    if (selectedThreeTreeIsDynamicLine && chosenCreatureType) {
-      const creatureCount = countControlledCreaturesOfChosenType({ battlefield }, playerId, chosenCreatureType);
-      
-      result.isDynamic = true;
-      result.baseAmount = creatureCount;
-      result.dynamicDescription = `Choose a color. Add ${creatureCount} mana of that color (one for each ${chosenCreatureType} you control)`;
-      // Mark as "any_combination" to trigger color choice prompt
-      result.color = 'any_combination';
-      result.colors = ['W', 'U', 'B', 'R', 'G'];
-      // Mark that this ability requires paying {2}
-      result.activationCost = '{2}';
-      result.requiresColorChoice = true;
-    } else if (!selectedAbilityLine) {
-      // No creature type chosen yet, just produces {C}
-      result.baseAmount = 1;
-      result.colors = ['C'];
+      result.color = undefined;
+      if (!result.activationCost || /\{2\}/.test(String(result.activationCost))) {
+        result.activationCost = '{T}';
+      }
     }
   }
   
@@ -252,18 +256,19 @@ export function tryCalculateManaProductionDynamic(
     }
   }
   
-  // Wirewood Channeler, Priest of Titania style - "Add {G} for each Elf"
-  if (manaOracleText.includes('for each elf') || 
-      (cardName.includes('priest of titania')) ||
-      (cardName.includes('wirewood channeler'))) {
-    const elfCount = battlefield.filter((p: any) =>
+  // "Add {G} for each Elf you control" / Priest of Titania / Wirewood Channeler
+  const forEachTypeMatch = manaOracleText.match(/\bfor each ([a-z]+)s?(?: you control)?\b/i);
+  const forEachType = forEachTypeMatch ? normalizeCreatureTypeWord(String(forEachTypeMatch[1] || '')) : null;
+  if (forEachType || cardName.includes('priest of titania') || cardName.includes('wirewood channeler')) {
+    const typeWord = forEachType || 'elf';
+    const typeCount = battlefield.filter((p: any) =>
       p && p.controller === playerId &&
-      (p.card?.type_line || '').toLowerCase().includes('elf')
+      (p.card?.type_line || '').toLowerCase().includes(typeWord)
     ).length;
     result.isDynamic = true;
-    result.baseAmount = elfCount;
-    result.dynamicDescription = `Mana for each Elf you control (${elfCount})`;
-    if (cardName.includes('wirewood channeler')) {
+    result.baseAmount = typeCount;
+    result.dynamicDescription = `Mana for each ${typeWord} you control (${typeCount})`;
+    if (cardName.includes('wirewood channeler') || /\{w\}\{u\}\{b\}\{r\}\{g\}/i.test(manaOracleText)) {
       result.colors = ['W', 'U', 'B', 'R', 'G'];
       if (chosenColor) result.colors = [chosenColor];
     } else {

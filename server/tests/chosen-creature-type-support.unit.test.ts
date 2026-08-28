@@ -39,7 +39,7 @@ import {
   validateSelectedFloatingPoolMana,
 } from '../src/socket/util.js';
 import { canPayManaCostWithAvailableSources } from '../src/state/modules/mana-check.js';
-import { getCastableSpellCandidates } from '../src/state/modules/can-respond.js';
+import { canAct, getCastableSpellCandidates, isPlayerIdleForAutoPass, getCastableCommanderCandidates } from '../src/state/modules/can-respond.js';
 import { applyCreatureTypeSelection } from '../src/socket/creature-type.js';
 import { cardHasCreatureType, permanentHasCreatureTypeNow } from '../src/state/creatureTypeNow.js';
 import { getManaAbilitiesForPermanent } from '../src/state/modules/mana-abilities.js';
@@ -642,6 +642,183 @@ describe('chosen creature type infrastructure', () => {
     const castableIds = castable.map((candidate) => String(candidate.card?.id || ''));
     expect(castableIds).toContain('propaganda_1');
     expect(castableIds).toContain('merfolk_1');
+  });
+
+  it('keeps main-phase priority after tapping Secluded Courtyard into floating restricted mana', () => {
+    const playerId = 'p1' as PlayerID;
+    const dinosaur = {
+      id: 'velociraptor_1',
+      name: 'Hunting Velociraptor',
+      type_line: 'Creature — Dinosaur',
+      mana_cost: '{2}{G}',
+    };
+    const enchantment = {
+      id: 'propaganda_1',
+      name: 'Propaganda',
+      type_line: 'Enchantment',
+      mana_cost: '{2}{U}',
+    };
+    const state: any = {
+      turnPlayer: playerId,
+      priority: playerId,
+      step: 'MAIN1',
+      stack: [],
+      landsPlayedThisTurn: { [playerId]: 1 },
+      players: [{ id: playerId }, { id: 'p2' }],
+      battlefield: [
+        {
+          id: 'forest_1',
+          controller: playerId,
+          tapped: true,
+          card: { name: 'Forest', type_line: 'Basic Land — Forest' },
+        },
+        {
+          id: 'karplusan_1',
+          controller: playerId,
+          tapped: true,
+          card: {
+            name: 'Karplusan Forest',
+            type_line: 'Land',
+            oracle_text: '{T}: Add {C}.\n{T}: Add {R} or {G}. This land deals 1 damage to you.',
+          },
+        },
+        {
+          id: 'courtyard_1',
+          controller: playerId,
+          tapped: true,
+          chosenCreatureType: 'Dinosaur',
+          card: {
+            name: 'Secluded Courtyard',
+            type_line: 'Land',
+            oracle_text:
+              'As this land enters, choose a creature type.\n'
+              + '{T}: Add {C}.\n'
+              + '{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type, or to activate an ability of a creature or creature card of the chosen type.',
+          },
+        },
+      ],
+      zones: {
+        [playerId]: {
+          hand: [dinosaur, enchantment],
+        },
+      },
+      manaPool: {
+        [playerId]: {
+          white: 0,
+          blue: 0,
+          black: 0,
+          red: 1,
+          green: 1,
+          colorless: 0,
+          restricted: [{
+            type: 'green',
+            amount: 1,
+            restriction: 'chosen_type_creature_source',
+            restrictedTo: 'dinosaur',
+          }],
+        },
+      },
+    };
+
+    const dinosaurCost = { colors: { G: 1 }, generic: 2, hasX: false, hybrid: [], hybrids: [] };
+    const enchantmentCost = { colors: { U: 1 }, generic: 2, hasX: false, hybrid: [], hybrids: [] };
+
+    expect(canPayManaCostWithAvailableSources(state, playerId, dinosaurCost, Infinity, {
+      excludedHandCardIds: [dinosaur.id],
+      restrictedSpendPurpose: { isCreature: true, spellCard: dinosaur },
+    })).toBe(true);
+    expect(canPayManaCostWithAvailableSources(state, playerId, enchantmentCost, Infinity, {
+      excludedHandCardIds: [enchantment.id],
+      restrictedSpendPurpose: { isCreature: false, spellCard: enchantment },
+    })).toBe(false);
+
+    const castableIds = getCastableSpellCandidates({ state } as any, playerId, { mode: 'main' })
+      .map((candidate) => String(candidate.card?.id || ''));
+    expect(castableIds).toContain(dinosaur.id);
+    expect(castableIds).not.toContain(enchantment.id);
+
+    expect(canAct({ state } as any, playerId)).toBe(true);
+    expect(isPlayerIdleForAutoPass({ state } as any, playerId)).toBe(false);
+  });
+
+  it('lets command-zone dinosaur commanders spend floating Secluded Courtyard mana', () => {
+    const playerId = 'p1' as PlayerID;
+    const commander = {
+      id: 'dino_cmd_1',
+      name: 'Test Dinosaur Commander',
+      type_line: 'Legendary Creature — Dinosaur',
+      mana_cost: '{2}{G}',
+      oracle_text: '',
+    };
+    const state: any = {
+      turnPlayer: playerId,
+      priority: playerId,
+      step: 'MAIN1',
+      stack: [],
+      players: [{ id: playerId }, { id: 'p2' }],
+      battlefield: [
+        {
+          id: 'courtyard_1',
+          controller: playerId,
+          tapped: true,
+          chosenCreatureType: 'Dinosaur',
+          card: {
+            name: 'Secluded Courtyard',
+            type_line: 'Land',
+            oracle_text:
+              'As this land enters, choose a creature type.\n'
+              + '{T}: Add {C}.\n'
+              + '{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type, or to activate an ability of a creature or creature card of the chosen type.',
+          },
+        },
+        {
+          id: 'forest_1',
+          controller: playerId,
+          tapped: true,
+          card: { name: 'Forest', type_line: 'Basic Land — Forest' },
+        },
+        {
+          id: 'karplusan_1',
+          controller: playerId,
+          tapped: true,
+          card: {
+            name: 'Karplusan Forest',
+            type_line: 'Land',
+            oracle_text: '{T}: Add {C}.\n{T}: Add {R} or {G}. This land deals 1 damage to you.',
+          },
+        },
+      ],
+      commandZone: {
+        [playerId]: {
+          commanderIds: [commander.id],
+          commanderCards: [commander],
+          inCommandZone: [commander.id],
+          taxById: { [commander.id]: 0 },
+        },
+      },
+      zones: {
+        [playerId]: { hand: [] },
+      },
+      manaPool: {
+        [playerId]: {
+          white: 0,
+          blue: 0,
+          black: 0,
+          red: 1,
+          green: 1,
+          colorless: 0,
+          restricted: [{
+            type: 'green',
+            amount: 1,
+            restriction: 'chosen_type_creature_source',
+            restrictedTo: 'dinosaur',
+          }],
+        },
+      },
+    };
+
+    const candidates = getCastableCommanderCandidates({ state } as any, playerId);
+    expect(candidates.map((candidate) => candidate.commanderId)).toEqual([commander.id]);
   });
 
   it('mirrors chosen creature type onto permanent.card for client badges', () => {

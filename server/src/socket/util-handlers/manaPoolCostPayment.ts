@@ -125,6 +125,11 @@ export function resolvePaymentManaAbilitySpendRestriction(
       restrictedTo: spendRestriction.restrictedTo,
     };
   }
+  // A resolved ability line without its own clause is unrestricted. Do not stamp the
+  // card's other "Spend this mana only..." line onto Secluded Courtyard / Cavern {C}.
+  if (ability && String(abilityId || '').trim()) {
+    return null;
+  }
   return parseManaSpendRestrictionFromOracle(String(permanent?.card?.oracle_text || ''));
 }
 

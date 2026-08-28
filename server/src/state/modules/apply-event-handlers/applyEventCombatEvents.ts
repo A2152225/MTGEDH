@@ -313,6 +313,50 @@ export function applyCombatEvents(ctx: GameContext, e: GameEvent): boolean {
           const stateAny = ctx.state as any;
           const playerId = String((e as any).playerId || '').trim();
 
+          if ((e as any).blockCostPaid === true) {
+            const replayGameId = String((ctx as any).gameId || '').trim();
+            if (replayGameId) {
+              clearReplayQueuedSteps(replayGameId, (step: any) => {
+                if (!step) return false;
+                return (
+                  String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                  (step as any)?.blockCostPayment === true &&
+                  (!playerId || String((step as any)?.playerId || '').trim() === playerId)
+                );
+              });
+            }
+          }
+
+          try {
+            const tapped = Array.isArray((e as any).tappedPermanents)
+              ? ((e as any).tappedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
+              : [];
+            if (tapped.length > 0) {
+              const tappedSet = new Set(tapped);
+              for (const permanent of battlefield as any[]) {
+                if (permanent && tappedSet.has(String(permanent.id || ''))) {
+                  (permanent as any).tapped = true;
+                }
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          try {
+            const manaDelta = (e as any).paymentManaDelta;
+            if (playerId && manaDelta && typeof manaDelta === 'object' && !Array.isArray(manaDelta)) {
+              const pool = getOrInitManaPool(ctx.state as any, playerId as any) as any;
+              for (const [poolKey, rawAmount] of Object.entries(manaDelta as Record<string, unknown>)) {
+                const amount = Number(rawAmount || 0);
+                if (!Number.isFinite(amount) || amount === 0) continue;
+                pool[poolKey] = Number(pool[poolKey] || 0) + amount;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
           stateAny.attackedOrBlockedThisCombatByPermanentId = stateAny.attackedOrBlockedThisCombatByPermanentId || {};
 
           // Clear only THIS player's prior blocker assignments so multiplayer

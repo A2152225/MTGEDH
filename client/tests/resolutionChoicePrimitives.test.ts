@@ -79,6 +79,9 @@ describe('resolutionChoicePrimitives', () => {
           options: [{ id: 'a', label: 'A' }],
           minSelections: 0,
           maxSelections: 1,
+          causeName: 'Reckless Blaze',
+          causeLabel: 'You cast',
+          causeImage: 'https://example.test/reckless.jpg',
         },
         'game-1',
         false,
@@ -89,6 +92,9 @@ describe('resolutionChoicePrimitives', () => {
       minSelections: 0,
       maxSelections: 1,
       mandatory: false,
+      causeName: 'Reckless Blaze',
+      causeLabel: 'You cast',
+      causeImage: 'https://example.test/reckless.jpg',
     });
   });
 

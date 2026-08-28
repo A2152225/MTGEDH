@@ -954,9 +954,22 @@ export async function tryHandleOptionChoiceEarlySpecialsPrefix(
       : [];
     const sourceName = String(stepData.sourceName || step.sourceName || 'Ability');
     const resolvedStepId = String((step as any)?.id || '').trim();
+    const hitCardId = String(hitCard?.id || '').trim();
     const lib = (game as any).libraries?.get(controllerId) || [];
     const zones = game.state.zones = game.state.zones || {};
     const z = zones[controllerId] = zones[controllerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+    const player = Array.isArray(game.state.players)
+      ? game.state.players.find((entry: any) => String(entry?.id || '') === controllerId)
+      : undefined;
+    const spliceFrom = (cards: any[]) => {
+      if (!Array.isArray(cards) || !hitCardId) return;
+      const index = cards.findIndex((card: any) => String(card?.id || '').trim() === hitCardId);
+      if (index >= 0) cards.splice(index, 1);
+    };
+    spliceFrom(lib);
+    if (Array.isArray(player?.library)) spliceFrom(player.library);
+    if (Array.isArray(z.library)) spliceFrom(z.library);
+    z.libraryCount = lib.length;
     const remainingLibraryIds = (Array.isArray(lib) ? lib : [])
       .map((card: any) => String(card?.id || ''))
       .filter(Boolean);
@@ -1011,6 +1024,10 @@ export async function tryHandleOptionChoiceEarlySpecialsPrefix(
     }
 
     (game as any).libraries?.set?.(controllerId, lib);
+    if (Array.isArray(player?.library)) {
+      player.library = [...lib];
+    }
+    z.libraryCount = lib.length;
     appendEvent(gameId, (game as any).seq ?? 0, 'castRevealedFromLibraryResolve', {
       playerId: controllerId,
       resolvedStepId,
@@ -1020,6 +1037,7 @@ export async function tryHandleOptionChoiceEarlySpecialsPrefix(
       remainingLibraryIds,
       bottomCardIds,
       bottomCards,
+      libraryAfter: lib.map((card: any) => ({ ...card })),
       stackItem: revealedCastStackItem,
     });
 

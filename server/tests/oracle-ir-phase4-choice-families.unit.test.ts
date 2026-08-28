@@ -195,6 +195,30 @@ describe('Phase 4 leftover choice-family IR ownership', () => {
     expect(queued.some((step: any) => step?.triggeredAbilityMayCastFromGraveyard === true)).toBe(true);
     ResolutionQueueManager.clearAllSteps(gameId);
   });
+
+  it('PRIMARY=1 Summons special-case no-ops amass/mill fill', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+    const { ctx, playerId, gameId } = createSummonsChoiceCtx();
+    applyInstantSorcerySpecialCaseSpellEffects(ctx, {
+      controller: playerId,
+      card: { id: 'summons_spell_1', name: 'Custom Summons', oracle_text: SUMMONS_OF_SARUMAN },
+      effectiveCard: { name: 'Custom Summons', oracle_text: SUMMONS_OF_SARUMAN },
+      item: { id: 'summons_spell_1', card: { oracle_text: SUMMONS_OF_SARUMAN } },
+      gameId,
+      spellXValue: 2,
+      isRiteOfHarmonyStyleWindow: false,
+      isDivineReckoningStyleChoice: false,
+      isPrisonersDilemmaStyleChoice: false,
+      isSummonsOfSarumanStyle: true,
+    });
+
+    const battlefield = ctx.state.battlefield as Array<{ card?: { type_line?: string } }>;
+    expect(battlefield.some((permanent) => String(permanent.card?.type_line || '').toLowerCase().includes('army'))).toBe(false);
+    const zones = (ctx.state as any).zones?.[playerId];
+    expect((zones?.library || []).map((card: any) => card.id).sort()).toEqual(['mill_bolt', 'mill_land']);
+    expect(ResolutionQueueManager.getQueue(gameId).steps || []).toEqual([]);
+    ResolutionQueueManager.clearAllSteps(gameId);
+  });
 });
 
 function createDivineChoiceCtx(): {

@@ -15,11 +15,12 @@ import { randomUUID } from "crypto";
 import { createInitialGameState } from "./state/index.js";
 import { buildCommanderCardSnapshot, reconcileCommandZoneZoneConsistency } from "./state/modules/commander.js";
 import { hydrateGameStateOracleText } from "./state/modules/cardOracleHydration.js";
+import { reassignPriorityIfHolderCannotReceive } from "./state/modules/priorityEligibility.js";
 import { processDrawTriggers, persistDrawCardsEvent } from "./state/modules/zones.js";
 import { applyEmptyLibraryDrawConsequences } from "./state/modules/game-state-effects.js";
 import { createGameIfNotExists, getEvents, gameExistsInDb } from "./db"; // NEW: import getEvents for replay, gameExistsInDb for deleted game check
 import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
-import { markGameRestoring, clearGameRestoring } from "./gameRestoreState.js";
+import { markGameRestoring, clearGameRestoring, isUndoProbeGameId } from "./gameRestoreState.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
 import { BOOT_ID } from "./utils/bootId.js";
 import { ResolutionQueueManager } from "./state/resolution/index.js";
@@ -718,11 +719,12 @@ class GameManagerClass {
     return this.resumeProgress.get(gameId) ?? null;
   }
 
-  private publishResumeProgress(
+  publishResumeProgress(
     gameId: string,
     current: number,
     total: number,
     done = false,
+    reason: "resume" | "undo" = "resume",
   ): void {
     const percent =
       done || total <= 0
@@ -739,6 +741,7 @@ class GameManagerClass {
         gameId,
         ...progress,
         isRestoring: !done,
+        reason,
       });
     } catch {
       /* best-effort */
@@ -795,10 +798,17 @@ class GameManagerClass {
         debug(2, `[GameManager] RulesBridge initialized for game ${gameId}`);
       }
     }
+    try {
+      reassignPriorityIfHolderCannotReceive((game as any).ctx || game);
+    } catch (e) {
+      debugWarn(1, `[GameManager] reassignPriorityIfHolderCannotReceive failed for ${gameId}`, e);
+    }
     return game;
   }
 
   ensureGame(gameId: string): any | undefined {
+    if (isUndoProbeGameId(gameId)) return undefined;
+
     let g = this.games.get(gameId);
     if (g) return g;
 
@@ -876,6 +886,8 @@ class GameManagerClass {
    * while persisted events are replayed after a server restart.
    */
   async ensureGameAsync(gameId: string): Promise<any | undefined> {
+    if (isUndoProbeGameId(gameId)) return undefined;
+
     const existing = this.games.get(gameId);
     if (existing && !this.restoringGames.has(gameId)) {
       return existing;
@@ -916,6 +928,8 @@ class GameManagerClass {
   }
 
   private async restoreGameAsync(gameId: string): Promise<any | undefined> {
+    if (isUndoProbeGameId(gameId)) return undefined;
+
     const existing = this.games.get(gameId);
     if (existing && !this.restoringGames.has(gameId)) {
       return existing;

@@ -9,6 +9,7 @@
 import type { GameContext } from "../../context.js";
 import { canAct, canRespond } from "../can-respond.js";
 import { tryAutoPass } from "../priority.js";
+import { reassignPriorityIfHolderCannotReceive } from "../priorityEligibility.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
@@ -51,6 +52,7 @@ export function grantTurnStepPriority(
           
           // Also clear priorityClaimed set - players need to claim priority again each step
           (ctx as any).state.priorityClaimed = new Set<string>();
+          reassignPriorityIfHolderCannotReceive(ctx as any);
           
           debug(2, `${ts()} [nextStep] Granting priority to active player ${turnPlayer} (step: ${nextStep ?? 'unknown'}, stack size: ${stackLen})`);
           

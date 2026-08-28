@@ -50,6 +50,7 @@ import {
   checkEnchantmentETBTriggers,
   checkPlayerSelectionForNewPermanents,
 } from "./gameActionsPermanentEntryPrompts.js";
+import { checkAsEntersCopyChoiceForNewPermanents } from "../../state/modules/asEntersCopyChoice.js";
 import { getPlayerLibraryCards, getTopLibraryCard } from "./gameActionsPlayerZoneCards.js";
 
 export function getRequestedLandPlayCandidate(
@@ -344,6 +345,7 @@ export function finalizePlayedLand(
 
   checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
   checkColorChoiceForNewPermanents(io, game, gameId);
+  checkAsEntersCopyChoiceForNewPermanents(game, gameId);
   checkPlayerSelectionForNewPermanents(io, game, gameId);
   checkEnchantmentETBTriggers(io, game, gameId);
 

@@ -306,6 +306,29 @@ export function hasCommanderFreeAlternateCost(
 }
 
 /**
+ * True when `{0}` / Free Cast is a legal payment for this spell.
+ * Triggered "may cast that card without paying" (Possibility Storm) is not a
+ * self alternate cost, even though the same phrase appears on the card.
+ */
+export function canUseFreeAlternateCost(
+  ctx: GameContext,
+  playerId: PlayerID,
+  card: any,
+): boolean {
+  if (!card) return false;
+  if (card.castWithoutPayingManaCost === true) return true;
+  if (hasCommanderFreeAlternateCost(ctx, playerId, card)) return true;
+  if (hasPactAlternateCost(card)) return true;
+  if (getOmniscienceSource(ctx, playerId)) return true;
+
+  const text = String(card.oracle_text || '').toLowerCase();
+  if (text.includes('if you control') && text.includes('commander')) return false;
+  if (/cast this spell without paying (?:its|the) mana cost/.test(text)) return true;
+  if (/cast this card(?! from exile) without paying (?:its|the) mana cost/.test(text)) return true;
+  return false;
+}
+
+/**
  * Payment-modal extras when commander-free alternate cost is currently available.
  * Uses id `free` so it matches the client Free Cast path.
  */

@@ -398,6 +398,22 @@ export async function handleModalChoiceResponse(
       const sourcePermanentSnapshot = getResolutionSourcePermanentSnapshot(game, modalStep as any, sourceId || undefined);
       const normalizedSourceId = String(sourceId || sourcePermanentSnapshot?.id || '').trim();
       const sourceContext = buildTriggeredAbilitySourceContext(sourcePermanentSnapshot);
+      const triggeringStackItemId = String(
+        triggerData.triggeringStackItemId
+        || triggerData.effectData?.triggeringStackItemId
+        || '',
+      ).trim();
+      const triggeringSpell = triggerData.triggeringSpell || triggerData.effectData?.triggeringSpell;
+      const effectData = triggerData.effectData && typeof triggerData.effectData === 'object'
+        ? triggerData.effectData
+        : undefined;
+      const casterId = String(triggerData.casterId || triggerData.controllerId || pid || '').trim();
+      const castSpellBinding = {
+        ...(triggeringStackItemId ? { triggeringStackItemId } : {}),
+        ...(triggeringSpell ? { triggeringSpell } : {}),
+        ...(effectData ? { effectData } : {}),
+        ...(casterId ? { casterId, triggeringPlayer: casterId } : {}),
+      };
       const ctx = {
         state: game.state,
         gameId,
@@ -438,6 +454,7 @@ export async function handleModalChoiceResponse(
           triggerType,
           mandatory: triggerData.mandatory !== false,
           effect: effectText,
+          ...castSpellBinding,
           ...sourceContext,
           ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
           ...(metadata.targetType ? { targetType: metadata.targetType } : null),
@@ -477,6 +494,7 @@ export async function handleModalChoiceResponse(
             triggerType,
             effect: effectText,
             mandatory: triggerData.mandatory !== false,
+            ...castSpellBinding,
             ...sourceContext,
             ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
             ...(metadata.targetType ? { targetType: metadata.targetType } : null),

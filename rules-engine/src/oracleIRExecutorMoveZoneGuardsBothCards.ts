@@ -36,6 +36,7 @@ import {
   permanentHasAnyListedCreatureType,
   resolveTappedThisWayPermanentIds,
 } from './oracleIRExecutorMoveZonePermanentSelectors';
+import { isAttackingPermanent } from './oracleIRExecutorCreatureStepUtils-handlers/oracleIRExecutorCreatureBattlefieldHelpers';
 
 export function tryApplyMoveZoneGuardsFromBothCards(args: MoveZoneGuardArgs): MoveZoneStepHandlerResult | undefined {
   const { state, step, ctx, runtime, nextState, log, controllerId, effectiveWithCounters, battlefieldEntryOverrides, finalizeAppliedResult, attachmentResolution, sourcePermanentPower, boundTargetObjectId } = args;
@@ -555,10 +556,7 @@ export function tryApplyMoveZoneGuardsFromBothCards(args: MoveZoneGuardArgs): Mo
 
   if (parsedEachAttackingCreature && step.to === 'hand') {
     const attackingIds = ((nextState.battlefield || []) as any[])
-      .filter(
-        (perm: any) =>
-          perm?.attacking === true || perm?.isAttacking === true || (perm as any)?.attackedThisTurn === true
-      )
+      .filter((perm: any) => isAttackingPermanent(perm))
       .map((perm: any) => String(perm?.id || '').trim())
       .filter(Boolean);
     const result = moveBattlefieldPermanentsByIdToOwnersHands(nextState, attackingIds);
@@ -567,10 +565,7 @@ export function tryApplyMoveZoneGuardsFromBothCards(args: MoveZoneGuardArgs): Mo
 
   if (parsedEachAttackingCreature && step.to === 'library') {
     const attackingIds = ((nextState.battlefield || []) as any[])
-      .filter(
-        (perm: any) =>
-          perm?.attacking === true || perm?.isAttacking === true || (perm as any)?.attackedThisTurn === true
-      )
+      .filter((perm: any) => isAttackingPermanent(perm))
       .map((perm: any) => String(perm?.id || '').trim())
       .filter(Boolean);
     const placement = getLibraryPlacement(step) === 'top' ? 'top' : 'bottom';

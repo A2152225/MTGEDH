@@ -112,7 +112,7 @@ export function buildSelfReferenceAliases(cardName?: string): string[] {
     pushAlias(face);
 
     const commaHead = face.split(',')[0]?.trim();
-    if (commaHead && commaHead.length >= 4) {
+    if (commaHead && commaHead.length >= 3) {
       pushAlias(commaHead);
     }
   }

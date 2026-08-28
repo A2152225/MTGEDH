@@ -12,13 +12,15 @@
  */
 import type { Server, Socket } from "socket.io";
 import { appendEvent } from "../../db";
-import { pushCardToPlayerGraveyardWithReplacements } from "../../state/modules/graveyardEntryUtils.js";
+import { pushCardToGraveyardFromLibrary } from "../../state/modules/graveyardEntryUtils.js";
 import { queueLifegainTriggers } from "../../state/modules/triggers/lifegain.js";
 import { queueLifeLossTriggers } from "../../state/modules/triggers/life-loss.js";
 import { processMillTriggers } from "../../state/modules/zones.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { broadcastGame, ensureGame, getPlayerName } from "../util";
 import type { EnsureInGameRoom } from "./gameActionsSocketRoomGuard.js";
+import { removeLeavingPlayerGameObjects } from "../../state/modules/playerLeavingGame.js";
+import { markPlayerOutOfPriority } from "../../state/modules/priorityEligibility.js";
 
 export async function handleAdjustLifeRequest(
   io: Server,
@@ -244,6 +246,8 @@ export async function handleSetLifeRequest(
         targetPlayer.hasLost = true;
         targetPlayer.eliminated = true;
         targetPlayer.lossReason = "Life total is 0 or less";
+        markPlayerOutOfPriority((game as any).ctx || game, targetPid);
+        removeLeavingPlayerGameObjects(game.state, targetPid, { gameId });
       }
       
       // Emit elimination event
@@ -369,7 +373,7 @@ export async function handleMillRequest(
     for (let i = 0; i < actualCount; i++) {
       const card = library.shift();
       if (card) {
-        pushCardToPlayerGraveyardWithReplacements(millCtx, String(targetPid), card, zones.graveyard);
+        pushCardToGraveyardFromLibrary(millCtx, String(targetPid), card, zones.graveyard);
         milledCards.push({ ...card, zone: 'graveyard' });
       }
     }

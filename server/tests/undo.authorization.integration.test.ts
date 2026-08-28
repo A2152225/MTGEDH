@@ -995,6 +995,15 @@ describe('undo authorization (integration)', () => {
     expect(smartUpdate).toBeTruthy();
     expect(smartUpdate!.payload.gameId).toBe(wrapperGameId);
     expect(smartUpdate!.payload.totalCount).toBe(2);
+
+    const progressEvents = emitted.filter(e => e.event === 'gameResumeProgress');
+    expect(progressEvents.length).toBeGreaterThan(0);
+    expect(progressEvents[0]!.payload).toMatchObject({
+      gameId: wrapperGameId,
+      isRestoring: true,
+      reason: 'undo',
+    });
+    expect(progressEvents.some(e => e.payload?.isRestoring === false)).toBe(true);
   });
 
   it('does not allow a non-participant to read undo counts', async () => {

@@ -41,7 +41,20 @@ export function buildAiZoneSelectionStepResponse(
     case ResolutionStepType.LIBRARY_SEARCH: {
       // AI selects the best card(s) from the library search
       const searchStep = step as any;
-      const availableCards = searchStep.availableCards || [];
+      const availableCards = (searchStep.availableCards || []).filter((card: any) => {
+        const cardId = String(card?.id || '').trim();
+        if (!cardId) return false;
+        const selectableIds = Array.isArray(searchStep.selectableCardIds)
+          ? searchStep.selectableCardIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+          : [];
+        if (selectableIds.length > 0) return selectableIds.includes(cardId);
+        const nonSelectableIds = new Set(
+          (Array.isArray(searchStep.nonSelectableCards) ? searchStep.nonSelectableCards : [])
+            .map((entry: any) => String(entry?.id || '').trim())
+            .filter(Boolean),
+        );
+        return !nonSelectableIds.has(cardId);
+      });
       const minSelections = searchStep.minSelections || 0;
       const maxSelections = searchStep.maxSelections || 1;
       const destination = searchStep.destination || 'hand';

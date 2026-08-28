@@ -506,6 +506,12 @@ export type OracleEffectStepC =
       readonly castCost?: 'mana_cost' | string;
       /** Whether the copy may choose new target(s) for deterministic replay. */
       readonly allowNewTargets?: boolean;
+      /**
+       * Player(s) who control the created copy. Omitted means the effect
+       * controller. "Each other player copies that spell" (Hive Mind) is
+       * each_opponent resolved against the copied spell's controller.
+       */
+      readonly who?: OraclePlayerSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

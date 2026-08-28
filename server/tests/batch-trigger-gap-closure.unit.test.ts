@@ -427,6 +427,11 @@ const GAP_CASES: GapCase[] = [
     detect: () => detectAttackTriggers({ name: 'Righteous Cause', oracle_text: 'Whenever a creature attacks, you gain 1 life.' }, permanent).some((t) => t.triggerType === 'any_creature_attacks'),
   },
   {
+    name: 'Vengeful Ancestor (goaded creature attacks)',
+    oracle_text: 'Flying\nWhenever this creature enters or attacks, goad target creature. (Until your next turn, that creature attacks each combat if able and attacks a player other than you if able.)\nWhenever a goaded creature attacks, it deals 1 damage to its controller.',
+    detect: () => detectAttackTriggers({ name: 'Vengeful Ancestor', oracle_text: 'Flying\nWhenever this creature enters or attacks, goad target creature. (Until your next turn, that creature attacks each combat if able and attacks a player other than you if able.)\nWhenever a goaded creature attacks, it deals 1 damage to its controller.' }, permanent).some((t) => t.triggerType === 'goaded_creature_attacks'),
+  },
+  {
     name: 'Calix, Guided by Fate (named or another enchantment ETB)',
     oracle_text: 'Constellation — Whenever Calix or another enchantment you control enters, put a +1/+1 counter on target creature.',
     detect: () => detectETBTriggers({ name: 'Calix, Guided by Fate', oracle_text: 'Constellation — Whenever Calix or another enchantment you control enters, put a +1/+1 counter on target creature.' }, permanent).some((t) => t.triggerType === 'named_or_another_enchantment_etb'),
@@ -1258,6 +1263,11 @@ const GAP_CASES: GapCase[] = [
     name: 'Plumecreed Mentor (flying controlled ETB)',
     oracle_text: 'Whenever this creature or another creature you control with flying enters, put a +1/+1 counter on target creature.',
     detect: () => detectETBTriggers({ name: 'Plumecreed Mentor', oracle_text: 'Whenever this creature or another creature you control with flying enters, put a +1/+1 counter on target creature.' }, permanent).some((t) => t.triggerType === 'flying_controlled_etb'),
+  },
+  {
+    name: 'Swooping Pteranodon (this or another flying dinosaur ETB)',
+    oracle_text: 'Whenever this creature or another Dinosaur you control with flying enters, gain control of target creature an opponent controls until end of turn.',
+    detect: () => detectETBTriggers({ name: 'Swooping Pteranodon', oracle_text: 'Whenever this creature or another Dinosaur you control with flying enters, gain control of target creature an opponent controls until end of turn.' }, permanent).some((t) => t.triggerType === 'this_or_another_typed_etb'),
   },
   {
     name: 'Forth Eorlingas! (batched combat damage to multiple players)',
@@ -2196,6 +2206,11 @@ const GAP_CASES: GapCase[] = [
     detect: () => detectBlockTriggers({ name: 'Wooden Stake', oracle_text: 'Whenever equipped creature blocks or becomes blocked by a Vampire, destroy that creature.' }, permanent).some((t) => t.triggerType === 'equipped_blocks_or_blocked_by_vampire'),
   },
   {
+    name: 'Sample stake (equipped blocks Goblin, not only Vampire)',
+    oracle_text: 'Whenever equipped creature blocks or becomes blocked by a Goblin, destroy that creature.',
+    detect: () => detectBlockTriggers({ name: 'Sample Stake', oracle_text: 'Whenever equipped creature blocks or becomes blocked by a Goblin, destroy that creature.' }, permanent).some((t) => t.triggerType === 'equipped_blocks_or_blocked_by_typed' && (t as { requiredTypePhrase?: string }).requiredTypePhrase === 'goblin'),
+  },
+  {
     name: 'Mavren Fein (nontoken Vampires attack)',
     oracle_text: 'Whenever one or more nontoken Vampires you control attack, create a 1/1 white Vampire creature token with lifelink.',
     detect: () => detectAttackTriggers({ name: 'Mavren Fein, Dusk Apostle', oracle_text: 'Whenever one or more nontoken Vampires you control attack, create a 1/1 white Vampire creature token with lifelink.' }, permanent).some((t) => t.triggerType === 'one_or_more_nontoken_typed_attack'),
@@ -3056,6 +3071,11 @@ const GAP_CASES: GapCase[] = [
     name: 'Boggart Shenanigans (another Goblin to GY)',
     oracle_text: 'Whenever another Goblin you control is put into a graveyard from the battlefield, you may have this enchantment deal 1 damage to target player or planeswalker.',
     detect: () => detectDeathTriggers({ name: 'Boggart Shenanigans', oracle_text: 'Whenever another Goblin you control is put into a graveyard from the battlefield, you may have this enchantment deal 1 damage to target player or planeswalker.' }, permanent).some((t) => t.triggerType === 'another_goblin_graveyard_from_battlefield'),
+  },
+  {
+    name: 'Sample shenanigans (another Elf to GY, not only Goblin)',
+    oracle_text: 'Whenever another Elf you control is put into a graveyard from the battlefield, you may have this enchantment deal 1 damage to target player or planeswalker.',
+    detect: () => detectDeathTriggers({ name: 'Sample Shenanigans', oracle_text: 'Whenever another Elf you control is put into a graveyard from the battlefield, you may have this enchantment deal 1 damage to target player or planeswalker.' }, permanent).some((t) => t.triggerType === 'another_typed_graveyard_from_battlefield'),
   },
   {
     name: 'Calim (discard named card)',

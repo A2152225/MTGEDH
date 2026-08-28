@@ -6,6 +6,7 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { normalizeExileTargetReferenceText } from './oracleIRExecutorBattlefieldExileZoneHelpers';
+import { buildNameReferenceAliases } from './oracleIRExecutorBattlefieldNameAliases';
 import { normalizeSelfReferenceText } from './oracleIRExecutorBattlefieldSelfReference';
 
 export function isNamedSelfSacrificeReference(
@@ -16,14 +17,13 @@ export function isNamedSelfSacrificeReference(
   const normalizedWhat = normalizeSelfReferenceText(String((what as any).text || ''));
   if (!normalizedWhat) return false;
 
-  const sourceCandidates = [
-    String(ctx.sourceName || ''),
-    String((ctx as any).cardName || ''),
-  ]
-    .map(normalizeSelfReferenceText)
-    .filter(Boolean);
-
-  return sourceCandidates.includes(normalizedWhat);
+  const sourceAliases = new Set(
+    [
+      String(ctx.sourceName || ''),
+      String((ctx as any).cardName || ''),
+    ].flatMap((name) => buildNameReferenceAliases(name)),
+  );
+  return buildNameReferenceAliases(normalizedWhat).some((alias) => sourceAliases.has(alias));
 }
 
 export function exileSourceStackObject(

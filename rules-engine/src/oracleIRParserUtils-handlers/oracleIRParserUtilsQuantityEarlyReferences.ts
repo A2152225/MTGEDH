@@ -40,7 +40,7 @@ export function tryParseQuantityEarlyReferences(
   if (/^ten cards instead$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^twice x cards$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^twice the number of vehicles you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
-  if (/^twice the number of goblins it devoured$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^twice the number of ([a-z]+)s? it devoured$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^two for each creature sacrificed this way$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^x plus 2$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^the same number$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the same number' };
@@ -362,6 +362,9 @@ export function tryParseQuantityEarlyReferences(
   }
   if (/^a\s+card\s+for\s+each\s+color\s+among\s+permanents\s+you\s+control$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: 'a card for each color among permanents you control' };
+  }
+  if (/^a\s+card\s+for\s+each\s+.+$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
   if (/^a\s+number\s+equal\s+to\s+the\s+amount\s+of\s+mana\s+spent\s+to\s+cast\s+it$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: 'the amount of mana spent to cast it' };

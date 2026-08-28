@@ -12,8 +12,9 @@ import {
   type SimpleBattlefieldSelector,
   type SimplePermanentType,
 } from './oracleIRExecutorBattlefieldParser';
-import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
-import { stampCardPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
+import { isMassTapOrUntapSelectorText, resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
+import { stampCardPutIntoGraveyardThisTurn, writePlayerZoneCards } from './oracleIRExecutorPlayerUtils';
+import { shuffleArray } from './oracleIRExecutorPlayerStepShared';
 import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { putAttractionInJunkyard, shouldAttractionGoToCommandZone } from './remainingCardTypes';
 
@@ -102,6 +103,9 @@ export function resolveTapOrUntapTargetIds(
   const isMassTapSelector =
     /^any number of\b/i.test(text) ||
     /^up to (?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i.test(text);
+  // "untap all creatures" (Intruder Alarm) must not collapse to the ETB subject
+  // bound as targetPermanentId / targetCreatureId.
+  const isMassAllSelector = isMassTapOrUntapSelectorText(text);
 
   const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
     ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
@@ -129,7 +133,40 @@ export function resolveTapOrUntapTargetIds(
     }
   }
 
-  if (!isAnotherTarget && !isMassTapSelector) {
+  // "that creature" / "it" after a prior step: prefer the last moved/referenced
+  // permanent, not battlefield order among chosenObjectIds (ETB watchers bind
+  // the entering source plus the targeted steal).
+  if (/^(?:it|that card|that creature|that land|the land|that permanent|that token)$/i.test(text)) {
+    const lastMovedIds = Array.isArray(ctx.lastMovedBattlefieldPermanentIds)
+      ? ctx.lastMovedBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const lastAntecedentIds = Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds)
+      ? ctx.lastAntecedentBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const preferredIds = [
+      ...lastMovedIds,
+      ...lastAntecedentIds,
+      String((ctx as any).lastReferencedPermanentId || '').trim(),
+      String(ctx.targetCreatureId || '').trim(),
+      String(ctx.targetPermanentId || '').trim(),
+      ...chosenObjectIds,
+    ].filter(Boolean);
+    const requiredType = parseSimplePermanentTypeFromText(text);
+    for (const preferredId of preferredIds) {
+      const match = battlefield.find((perm: any) => {
+        const permanentId = String((perm as any)?.id || '').trim();
+        const cardId = String((perm as any)?.card?.id || '').trim();
+        if (permanentId !== preferredId && cardId !== preferredId) return false;
+        if (requiredType && !permanentMatchesTapTargetType(perm, requiredType)) return false;
+        return true;
+      });
+      if (match) {
+        return [String((match as any)?.id || '').trim()].filter(Boolean);
+      }
+    }
+  }
+
+  if (!isAnotherTarget && !isMassTapSelector && !isMassAllSelector) {
     const explicitPermanentId = String(ctx.targetPermanentId || '').trim();
     if (explicitPermanentId) {
       const matched = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === explicitPermanentId);
@@ -158,9 +195,11 @@ export function resolveTapOrUntapTargetIds(
     }
   }
 
-  const singleCreatureTargetId = resolveSingleCreatureTargetId(state, target as any, ctx);
-  if (singleCreatureTargetId) {
-    return [singleCreatureTargetId];
+  if (!isMassAllSelector) {
+    const singleCreatureTargetId = resolveSingleCreatureTargetId(state, target as any, ctx);
+    if (singleCreatureTargetId) {
+      return [singleCreatureTargetId];
+    }
   }
 
   if (text === 'target permanent' && battlefield.length === 1) {
@@ -307,7 +346,13 @@ function placeRemovedPermanentInOwnerZone(params: {
       ...buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'library'),
       id: resolveZoneCardIdFromPermanent(perm),
     };
-    player.library = libraryPlacement === 'top' ? [movedCard, ...library] : [...library, movedCard];
+    const nextLibrary = libraryPlacement === 'top' ? [movedCard, ...library] : [...library, movedCard];
+    const ownerId = String((player as any)?.id || '').trim() as PlayerID;
+    if (ownerId) {
+      writePlayerZoneCards(state, ownerId, player, 'library', nextLibrary);
+    } else {
+      player.library = nextLibrary;
+    }
     return 'library';
   }
 
@@ -820,8 +865,9 @@ export function moveBattlefieldPermanentsByIdToOwnersHands(
 export function moveBattlefieldPermanentsByIdToOwnersLibraries(
   state: GameState,
   permanentIds: readonly string[],
-  placement: 'top' | 'bottom'
-): { state: GameState; log: string[] } {
+  placement: 'top' | 'bottom',
+  options?: { shuffle?: boolean },
+): { state: GameState; log: string[]; movedCards?: any[] } {
   const wanted = new Set(permanentIds.map(id => String(id || '').trim()).filter(Boolean));
   if (wanted.size === 0) return { state, log: [] };
 
@@ -844,16 +890,27 @@ export function moveBattlefieldPermanentsByIdToOwnersLibraries(
 
   const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
   const players = state.players.map(p => ({ ...p } as any));
+  const nextState = { ...state, battlefield: cleanedKept as any, players: players as any } as GameState;
+  const ownersToShuffle = new Set<PlayerID>();
+  const movedCards: any[] = [];
   let redirectedToExile = 0;
   let redirectedToCommand = 0;
   for (const perm of removed) {
-    if ((perm as any).isToken) continue;
     const ownerId = ((perm as any).owner || (perm as any).ownerId) as PlayerID;
+    if (ownerId) ownersToShuffle.add(ownerId);
+    movedCards.push({
+      ...((perm as any)?.card || {}),
+      id: String((perm as any)?.id || '').trim() || resolveZoneCardIdFromPermanent(perm),
+      owner: ownerId,
+      ownerId,
+      controller: (perm as any)?.controller || (perm as any)?.controllerId,
+    });
+    if ((perm as any).isToken) continue;
     const player = players.find(pp => pp.id === ownerId);
     if (!player) continue;
 
     const actualDestination = moveRemovedPermanentToOwnerZone({
-      state,
+      state: nextState,
       player,
       perm,
       destination: 'library',
@@ -863,10 +920,21 @@ export function moveBattlefieldPermanentsByIdToOwnersLibraries(
     if (actualDestination === 'command') redirectedToCommand += 1;
   }
 
+  if (options?.shuffle) {
+    for (const ownerId of ownersToShuffle) {
+      const player = players.find(pp => pp.id === ownerId);
+      if (!player) continue;
+      const shuffled = shuffleArray(Array.isArray(player.library) ? player.library : []);
+      writePlayerZoneCards(nextState, ownerId, player, 'library', shuffled);
+    }
+  }
+
   return {
-    state: { ...state, battlefield: cleanedKept as any, players: players as any } as any,
+    state: nextState,
     log: [
       `put ${removed.length} permanent(s) on the ${placement} of owners' libraries${
+        options?.shuffle ? ' and shuffled' : ''
+      }${
         redirectedToExile > 0 || redirectedToCommand > 0
           ? ` (${[
               redirectedToExile > 0 ? `${redirectedToExile} exiled instead` : '',
@@ -875,5 +943,6 @@ export function moveBattlefieldPermanentsByIdToOwnersLibraries(
           : ''
       }`,
     ],
+    ...(movedCards.length > 0 ? { movedCards } : {}),
   };
 }

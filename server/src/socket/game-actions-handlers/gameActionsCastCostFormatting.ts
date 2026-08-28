@@ -83,11 +83,22 @@ export function buildPendingCastCostMetadata(
   const costReduction = calculateCostReduction(game, playerId, card);
   const staticCostTax = calculateStaticSourceGenericTax(game, playerId, card);
   const originalManaCost = String(card?.mana_cost || '').trim();
+  const isFreeCast =
+    (card as any)?.castWithoutPayingManaCost === true
+    || String((card as any)?.forcedAlternateCostId || '').trim().toLowerCase() === 'free';
+  const reducedManaCost = formatManaCostWithCostAdjustment(
+    originalManaCost,
+    costReduction,
+    undefined,
+    staticCostTax.generic,
+  );
   const paymentModel = buildNormalizedManaPaymentModel({
     originalManaCost,
-    effectiveManaCost: String(paymentCostAdjustment?.adjustedManaCost || originalManaCost || '{0}'),
-    castWithoutPayingManaCost: (card as any)?.castWithoutPayingManaCost === true,
-    forcedAlternateCostId: String((card as any)?.forcedAlternateCostId || '').trim() || undefined,
+    effectiveManaCost: String(paymentCostAdjustment?.adjustedManaCost || reducedManaCost || originalManaCost || '{0}'),
+    castWithoutPayingManaCost: isFreeCast,
+    forcedAlternateCostId: isFreeCast
+      ? (String((card as any)?.forcedAlternateCostId || '').trim() || 'free')
+      : (String((card as any)?.forcedAlternateCostId || '').trim() || undefined),
     additionalCosts: Array.isArray((card as any)?.additionalCosts) ? (card as any).additionalCosts : [],
   });
 

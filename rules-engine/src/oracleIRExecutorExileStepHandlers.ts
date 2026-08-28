@@ -6,6 +6,8 @@ import {
   exileTopCardsForPlayer,
   getCardManaValue,
   getCardTypeLineLower,
+  getCardTypesFromTypeLine,
+  resolveReferencedSpellManaValue,
   getPlayableUntilTurnForImpulseDuration,
   impulseExileTopIsDiscoverCastOrHand,
   impulseExileTopRequiresChooseOne,
@@ -106,6 +108,8 @@ function resolveDiscoverManaValueThreshold(
   if (amount?.kind === 'x' || /mana value x or less/i.test(raw) || /with that mana value or less/i.test(raw)) {
     const xValue = Number(ctx.xValue);
     if (Number.isFinite(xValue)) return Math.max(0, Math.floor(xValue));
+    const fromSpell = resolveReferencedSpellManaValue(state, ctx);
+    if (fromSpell != null) return fromSpell;
   }
 
   const creatureStatMatch = raw.match(/mana value that creature(?:'|’)?s (power|toughness) or less/i);
@@ -118,6 +122,13 @@ function resolveDiscoverManaValueThreshold(
       ctx,
     );
     return resolved == null ? null : Math.max(0, Math.floor(resolved));
+  }
+
+  if (/mana value (?:this|that) spell(?:'|’)?s mana value or less/i.test(raw)) {
+    const fromSpell = resolveReferencedSpellManaValue(state, ctx);
+    if (fromSpell != null) return fromSpell;
+    const xValue = Number(ctx.xValue);
+    if (Number.isFinite(xValue)) return Math.max(0, Math.floor(xValue));
   }
 
   return null;
@@ -305,12 +316,24 @@ export function applyImpulseExileTopStep(
   // from a library nobody targeted. Whose library is looked at is decided when the target is chosen,
   // so defer to the resolution queue instead of guessing.
   if (String((step.who as any)?.kind || '') === 'target_player') {
-    const boundTargetPlayerId = String(
+    let boundTargetPlayerId = String(
       (ctx as any).targetPlayerId ||
         (ctx as any).targetOpponentId ||
+        (ctx as any).thatPlayerId ||
         ctx.selectorContext?.targetPlayerId ||
+        ctx.selectorContext?.thatPlayerId ||
         ''
     ).trim();
+    if (!boundTargetPlayerId) {
+      const targetSpellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
+      if (targetSpellId) {
+        const stackItem = (state.stack || []).find(
+          (item: any) => String(item?.id || '').trim() === targetSpellId
+            || String(item?.card?.id || '').trim() === targetSpellId,
+        ) as any;
+        boundTargetPlayerId = String(stackItem?.controller || stackItem?.owner || '').trim();
+      }
+    }
     if (!boundTargetPlayerId) {
       return {
         applied: false,
@@ -404,14 +427,22 @@ export function applyImpulseExileTopStep(
     }
 
     if (!requiresChooseOne || keptExiled.length <= 1) {
-      const markerResult = applyImpulsePermissionMarkers(nextState, playerId, keptExiled, {
+      const originalSpellIds = collectOriginalStackSpellIds(nextState, ctx);
+      const markerCards = keptExiled.filter((card) => {
+        const id = String((card as any)?.id ?? (card as any)?.cardId ?? '').trim();
+        return id && !originalSpellIds.has(id);
+      });
+      const markerResult = applyImpulsePermissionMarkers(nextState, playerId, markerCards, {
         permission,
         playableUntilTurn,
         condition,
         exiledBy,
         permissionRecipient: permissionRecipientForWho(playerId),
         ...(spendManaAsThoughAnyType ? { spendManaAsThoughAnyType: true } : {}),
-        ...(impulseExileTopIsDiscoverCastOrHand(impulseStep) ? { withoutPayingManaCost: true } : {}),
+        ...(impulseExileTopIsDiscoverCastOrHand(impulseStep)
+          || String(impulseStep.duration || '') === 'during_resolution'
+          ? { withoutPayingManaCost: true }
+          : {}),
       });
       nextState = markerResult.state;
       if (markerResult.granted > 0) {
@@ -429,9 +460,19 @@ export function applyImpulseExileTopStep(
     }
 
     if (returnUncastToBottom && result.exiled.length > 0) {
-      const bottomResult = putSpecificExiledCardsOnLibraryBottom(nextState, playerId, result.exiled);
-      nextState = bottomResult.state;
-      log.push(...bottomResult.log);
+      const untilHit = shareTypeUntilHitCardStillInExile(impulseStep, keptExiled, ctx);
+      const cardsToBottom = untilHit
+        ? keptExiled.filter((card) => {
+            const id = String((card as any)?.id ?? (card as any)?.cardId ?? '').trim();
+            const hitId = String((untilHit as any)?.id ?? (untilHit as any)?.cardId ?? '').trim();
+            return id && hitId && id !== hitId;
+          })
+        : result.exiled;
+      if (cardsToBottom.length > 0) {
+        const bottomResult = putSpecificExiledCardsOnLibraryBottom(nextState, playerId, cardsToBottom);
+        nextState = bottomResult.state;
+        log.push(...bottomResult.log);
+      }
     }
 
     exiledCardsThisStep.push(...keptExiled);
@@ -446,6 +487,92 @@ export function applyImpulseExileTopStep(
   }, ledgerRecordedViaBridge);
 }
 
+function shareTypeUntilHitCardStillInExile(
+  step: { readonly amount?: { readonly raw?: string } },
+  keptExiled: readonly any[],
+  ctx?: OracleIRExecutionContext,
+): any | null {
+  const amountRaw = normalizeOracleText(String(step?.amount?.raw || ''));
+  if (!/shares a card type with it/.test(amountRaw)) return null;
+  const last = keptExiled.length > 0 ? keptExiled[keptExiled.length - 1] : null;
+  if (!last) return null;
+  const lastTypes = new Set(
+    (getCardTypesFromTypeLine(last) || []).map((type) => String(type || '').toLowerCase()).filter(Boolean),
+  );
+  if (lastTypes.size === 0) return null;
+
+  const hinted = new Set(
+    (Array.isArray(ctx?.referenceSpellTypes) ? ctx.referenceSpellTypes : [])
+      .map((type) => String(type || '').toLowerCase())
+      .filter(Boolean),
+  );
+  const antecedentTypes = new Set<string>();
+  for (const card of [
+    ...(Array.isArray(ctx?.lastExiledCards) ? ctx.lastExiledCards : []),
+    ...(Array.isArray(ctx?.lastMovedCards) ? ctx.lastMovedCards : []),
+  ]) {
+    for (const type of getCardTypesFromTypeLine(card) || []) {
+      const normalized = String(type || '').toLowerCase();
+      if (normalized) antecedentTypes.add(normalized);
+    }
+  }
+  const referenceTypes = hinted.size > 0 ? hinted : antecedentTypes;
+  if (referenceTypes.size === 0) return null;
+  for (const type of lastTypes) {
+    if (referenceTypes.has(type)) return last;
+  }
+  return null;
+}
+
+function collectOriginalStackSpellIds(
+  state: GameState,
+  ctx?: OracleIRExecutionContext,
+): Set<string> {
+  const ids = new Set<string>();
+  const targetSpellId = String(ctx?.targetSpellId || ctx?.selectorContext?.targetSpellId || '').trim();
+  if (targetSpellId) ids.add(targetSpellId);
+
+  const consider = (card: any) => {
+    const id = String(card?.id || '').trim();
+    const cardId = String(card?.card?.id || '').trim();
+    const fromStack = String(card?.copiedFromStackItemId || card?.stackItemId || '').trim();
+    if (!targetSpellId) return;
+    if (id === targetSpellId || cardId === targetSpellId || fromStack === targetSpellId) {
+      if (id) ids.add(id);
+      if (cardId) ids.add(cardId);
+      if (fromStack) ids.add(fromStack);
+    }
+  };
+
+  const stack = Array.isArray((state as any)?.stack) ? ((state as any).stack as any[]) : [];
+  for (const entry of stack) consider(entry?.card || entry);
+  for (const player of state.players || []) {
+    for (const card of Array.isArray((player as any)?.exile) ? (player as any).exile : []) consider(card);
+  }
+  return ids;
+}
+
+function restrictSingularThatCardPermissionCards(
+  step: { readonly raw?: string },
+  lastExiledCards: readonly any[],
+  originalSpellIds: Set<string>,
+): readonly any[] {
+  const raw = normalizeOracleText(String(step.raw || ''));
+  const singularThatCard = /\bthat card\b/.test(raw) && !/\bthose cards\b/.test(raw) && !/\bthe exiled cards\b/.test(raw);
+  if (!singularThatCard) {
+    return lastExiledCards.filter((card) => {
+      const id = String((card as any)?.id ?? (card as any)?.cardId ?? '').trim();
+      return id && !originalSpellIds.has(id);
+    });
+  }
+  for (let index = lastExiledCards.length - 1; index >= 0; index -= 1) {
+    const card = lastExiledCards[index];
+    const id = String((card as any)?.id ?? (card as any)?.cardId ?? '').trim();
+    if (id && !originalSpellIds.has(id)) return [card];
+  }
+  return [];
+}
+
 export function applyModifyExilePermissionsStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'modify_exile_permissions' }>,
@@ -457,8 +584,14 @@ export function applyModifyExilePermissionsStep(
   const lastExiledCards = ctx
     ? collectExiledCardsLedgerFirst(ctx, runtime)
     : (Array.isArray(runtime.lastExiledCards) ? runtime.lastExiledCards : []);
+  const originalSpellIds = collectOriginalStackSpellIds(state, ctx);
+  const permissionCards = restrictSingularThatCardPermissionCards(
+    step,
+    lastExiledCards,
+    originalSpellIds,
+  );
   const exiledIds = new Set(
-    lastExiledCards
+    permissionCards
       .map(card => String((card as any)?.id ?? (card as any)?.cardId ?? '').trim())
       .filter(Boolean)
   );

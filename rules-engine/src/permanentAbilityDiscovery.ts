@@ -15,6 +15,7 @@
  */
 
 import type { BattlefieldPermanent, KnownCardRef } from '../../shared/src';
+import { textAllowsAnyPlayerActivation } from '../../shared/src/anyPlayerActivatedAbility';
 import type { ManaCost } from './types/mana';
 import { CostType, type Cost } from './types/costs';
 import {
@@ -585,7 +586,10 @@ export function discoverPlayerAbilities(
   const results = new Map<string, AbilityDiscoveryResult>();
   
   for (const permanent of permanents) {
-    if (permanent.controller === playerId) {
+    if (
+      permanent.controller === playerId
+      || textAllowsAnyPlayerActivation(permanent.card?.oracle_text)
+    ) {
       const result = discoverPermanentAbilities(permanent, playerId);
       results.set(permanent.id, result);
     }

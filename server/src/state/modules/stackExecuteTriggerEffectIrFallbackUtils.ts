@@ -159,8 +159,8 @@ export function applyOracleIRFallbackForTriggeredEffect(
     targetPlayerId = untappedPermanentController as PlayerID;
   }
   const chosenObjectIds = Array.from(new Set([
-    ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...normalizedTargetIds,
+    ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...(untappedPermanentId ? [untappedPermanentId] : []),
     ...(discardedCardId ? [discardedCardId] : []),
     ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),

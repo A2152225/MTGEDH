@@ -191,8 +191,9 @@ export function tryLoyaltyTemplateNamedDamageFinale(
     }
 
     case "DESTROY_ALL_NON_ZOMBIE_CREATURES": {
-      const m = text.match(/^destroy all non-zombie creatures\.?$/i);
+      const m = text.match(/^destroy all non-([a-z]+) creatures\.?$/i);
       if (!m) return false;
+      const excluded = String(m[1] || 'zombie').toLowerCase();
 
       const battlefield = getBattlefield(ctx);
       const toDestroy: string[] = [];
@@ -200,7 +201,7 @@ export function tryLoyaltyTemplateNamedDamageFinale(
         if (!perm?.card?.type_line) continue;
         const tl = String(perm.card.type_line).toLowerCase();
         if (!tl.includes('creature')) continue;
-        if (tl.includes('zombie')) continue;
+        if (tl.includes(excluded)) continue;
         if (perm.id) toDestroy.push(String(perm.id));
       }
 

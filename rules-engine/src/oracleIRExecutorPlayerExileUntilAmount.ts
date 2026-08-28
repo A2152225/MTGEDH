@@ -2,7 +2,7 @@
 // Cluster: resolveUnknownExileUntilAmountForPlayer plus exclusive
 // getCardTypesFromTypeLine / getCardManaValue helpers.
 // Public entries: getCardTypesFromTypeLine, getCardManaValue,
-// resolveUnknownExileUntilAmountForPlayer.
+// resolveReferencedSpellManaValue, resolveUnknownExileUntilAmountForPlayer.
 
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleQuantity } from './oracleIR';
@@ -17,6 +17,41 @@ export function getCardTypesFromTypeLine(card: any): readonly string[] | null {
   const out = known.filter(type => tl.includes(type));
   if (tl.includes('tribal') && !out.includes('kindred')) out.push('kindred');
   return out.length > 0 ? out : null;
+}
+
+function collectTypesFromCard(card: any): Set<string> | null {
+  const types = getCardTypesFromTypeLine(card);
+  if (!types || types.length === 0) return null;
+  return new Set(types.map(type => String(type || '').toLowerCase()).filter(Boolean));
+}
+
+function resolveShareCardTypeReferenceTypes(
+  state: GameState,
+  ctx?: OracleIRExecutionContext,
+): Set<string> | null {
+  const hinted = Array.isArray(ctx?.referenceSpellTypes)
+    ? ctx.referenceSpellTypes.map(t => String(t || '').toLowerCase()).filter(Boolean)
+    : [];
+  if (hinted.length > 0) return new Set(hinted);
+
+  const antecedentCards = [
+    ...(Array.isArray(ctx?.lastExiledCards) ? ctx.lastExiledCards : []),
+    ...(Array.isArray(ctx?.lastMovedCards) ? ctx.lastMovedCards : []),
+  ];
+  for (const card of antecedentCards) {
+    const fromAntecedent = collectTypesFromCard(card);
+    if (fromAntecedent && fromAntecedent.size > 0) return fromAntecedent;
+  }
+
+  const targetSpellId = String(ctx?.targetSpellId || ctx?.selectorContext?.targetSpellId || '').trim();
+  if (!targetSpellId) return null;
+  const stack = Array.isArray((state as any)?.stack) ? ((state as any).stack as any[]) : [];
+  const stackSpell = stack.find((entry) => {
+    const id = String(entry?.id || '').trim();
+    const cardId = String(entry?.card?.id || '').trim();
+    return id === targetSpellId || cardId === targetSpellId;
+  });
+  return collectTypesFromCard(stackSpell?.card || stackSpell);
 }
 
 export function getCardManaValue(card: any): number | null {
@@ -67,6 +102,38 @@ export function getCardManaValue(card: any): number | null {
   return total;
 }
 
+export function resolveReferencedSpellManaValue(
+  state: GameState,
+  ctx?: OracleIRExecutionContext,
+): number | null {
+  const fromReference = Number(ctx?.referenceSpellManaValue);
+  if (Number.isFinite(fromReference)) return Math.max(0, Math.floor(fromReference));
+
+  const targetSpellId = String(ctx?.targetSpellId || ctx?.selectorContext?.targetSpellId || '').trim();
+  if (!targetSpellId) return null;
+  const stack = Array.isArray((state as any)?.stack) ? ((state as any).stack as any[]) : [];
+  const stackSpell = stack.find((entry) => {
+    const id = String(entry?.id || '').trim();
+    const cardId = String(entry?.card?.id || '').trim();
+    return id === targetSpellId || cardId === targetSpellId;
+  });
+  const manaValue = getCardManaValue(stackSpell?.card || stackSpell);
+  return manaValue == null ? null : Math.max(0, Math.floor(manaValue));
+}
+
+function countUntilNonlandManaValueLte(library: readonly any[], threshold: number): number | null {
+  for (let i = 0; i < library.length; i++) {
+    const typeLine = getCardTypeLineLower(library[i]);
+    if (!typeLine) return null;
+    if (typeLine.includes('land')) continue;
+
+    const manaValue = getCardManaValue(library[i]);
+    if (manaValue === null) return null;
+    if (manaValue <= threshold) return i + 1;
+  }
+  return library.length;
+}
+
 export function resolveUnknownExileUntilAmountForPlayer(
   state: GameState,
   playerId: PlayerID,
@@ -113,7 +180,9 @@ export function resolveUnknownExileUntilAmountForPlayer(
   }
 
   {
-    const discoverMatch = raw.match(/^until (?:they|you) exile a nonland card with mana value (\d+|x) or less$/i);
+    const discoverMatch = raw.match(
+      /^until (?:they|you) exile a nonland card with mana value (\d+|x|(?:that|this) spell'?s mana value) or less$/i,
+    );
     if (discoverMatch) {
       const thresholdRaw = String(discoverMatch[1] || '').trim().toLowerCase();
       let threshold: number;
@@ -121,21 +190,21 @@ export function resolveUnknownExileUntilAmountForPlayer(
         const xValue = Number(ctx?.xValue);
         if (!Number.isFinite(xValue)) return null;
         threshold = Math.max(0, Math.floor(xValue));
+      } else if (/^(?:that|this) spell'?s mana value$/.test(thresholdRaw)) {
+        const fromSpell = resolveReferencedSpellManaValue(state, ctx);
+        if (fromSpell != null) {
+          threshold = fromSpell;
+        } else {
+          const xValue = Number(ctx?.xValue);
+          if (!Number.isFinite(xValue)) return null;
+          threshold = Math.max(0, Math.floor(xValue));
+        }
       } else {
         threshold = Number(thresholdRaw);
         if (!Number.isFinite(threshold) || threshold < 0) return null;
       }
 
-      for (let i = 0; i < library.length; i++) {
-        const typeLine = getCardTypeLineLower(library[i]);
-        if (!typeLine) return null;
-        if (typeLine.includes('land')) continue;
-
-        const manaValue = getCardManaValue(library[i]);
-        if (manaValue === null) return null;
-        if (manaValue <= threshold) return i + 1;
-      }
-      return library.length;
+      return countUntilNonlandManaValueLte(library, threshold);
     }
   }
 
@@ -160,9 +229,7 @@ export function resolveUnknownExileUntilAmountForPlayer(
     raw === 'until they exile a card that shares a card type with it' ||
     raw === 'until you exile a card that shares a card type with it'
   ) {
-    const refTypes = Array.isArray(ctx?.referenceSpellTypes)
-      ? new Set(ctx.referenceSpellTypes.map(t => String(t || '').toLowerCase()).filter(Boolean))
-      : null;
+    const refTypes = resolveShareCardTypeReferenceTypes(state, ctx);
     if (!refTypes || refTypes.size === 0) return null;
 
     for (let i = 0; i < library.length; i++) {

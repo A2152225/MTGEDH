@@ -22,7 +22,7 @@ import {
   parseCopySpellRetargetTail,
   stripInlineCopyRetargetTail,
 } from './oracleIRParserPostprocessCopySpellTailHelpers';
-import { normalizeOracleText, parseObjectSelector, parseQuantity } from './oracleIRParserUtils';
+import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 
 function parseCopySpellUnknownStep(
   step: Extract<OracleEffectStep, { kind: 'unknown' }>,
@@ -356,14 +356,20 @@ function parseCopySpellUnknownStep(
     };
   }
 
-  if (/^(?:(?:you|they|that player|the player|each opponent|each other player|up to one target opponent)\s+may\s+(?:also\s+)?)?copy (?:that spell|the spell|it)$/i.test(normalized)) {
-    const targetText = /the spell/i.test(normalized) ? 'the spell' : /that spell/i.test(normalized) ? 'that spell' : 'it';
+  const copierCopiesThatSpellMatch = normalized.match(
+    /^(?:(you|they|that player|the player|each opponent|each other player|each player|up to one target opponent)(\s+may(?:\s+also)?)?\s+)?cop(?:y|ies)\s+(that spell|the spell|it)$/i,
+  );
+  if (copierCopiesThatSpellMatch) {
+    const copierRaw = String(copierCopiesThatSpellMatch[1] || '').trim();
+    const targetText = String(copierCopiesThatSpellMatch[3] || '').trim() || 'that spell';
+    const copierMay = Boolean(copierCopiesThatSpellMatch[2]);
     return {
       kind: 'copy_spell',
       subject: 'target_spell',
       target: { kind: 'raw', text: targetText },
+      ...(copierRaw ? { who: parsePlayerSelector(copierRaw) } : {}),
       ...(allowNewTargets ? { allowNewTargets: true } : {}),
-      ...(optional ? { optional: true } : {}),
+      ...(optional || copierMay ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: appendFollowupSentence(normalized, rawRetargetTail),
     };

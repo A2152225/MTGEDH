@@ -65,6 +65,10 @@ export interface ReplacementDrawMatch {
   drawingPlayerIsSourceController?: boolean;
   /** Skip when `event.metadata[key] === true`. */
   skipWhenEventMetadataTrue?: string;
+  /** Require `event.metadata[key] === true` (Island Sanctuary draw-step skip). */
+  requireEventMetadataTrue?: string;
+  /** Exact draw count on the event (per-card replacements use 1). */
+  exactDrawCount?: number;
   /** Minimum draw count on the event (e.g. Alms Collector). */
   minimumDrawCount?: number;
 }

@@ -45,6 +45,9 @@ export interface KnownCardRef {
   layout?: string; // card layout type (e.g., 'transform', 'modal_dfc', 'split')
   colors?: readonly string[]; // color identifiers ('W', 'U', 'B', 'R', 'G')
   color_identity?: readonly string[]; // commander legality color identity
+  /** Copied onto the card object when a permanent stores an ETB color choice. */
+  chosenColor?: string;
+  chosenMana?: string;
   cmc?: number; // converted mana cost
   putIntoGraveyardTurn?: number;
 }

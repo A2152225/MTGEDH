@@ -14,6 +14,7 @@ import {
   resolvePowerThresholdInsteadManaAbility,
 } from "../mana-abilities.js";
 import { canCountPermanentManaAbilities } from "./manaCheckActivationGate.js";
+import { permanentCannotActivateTapAbilities } from "../staticEffectSpecActivationLocks.js";
 import { stripReminderTextFromOracle } from "./manaCheckOracleText.js";
 import {
   getManaPoolFromState,
@@ -72,6 +73,10 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
       }
     }
 
+    if (permanentCannotActivateTapAbilities(permanent, state) && /\{T\}/i.test(oracleText)) {
+      continue;
+    }
+
     if (!canCountPermanentManaAbilities(state, playerId, permanent.card.oracle_text || '')) {
       continue;
     }
@@ -115,8 +120,21 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     const scalingMana = getCreatureCountManaAmount(state, permanent, playerId)
       || getDevotionManaAmount(state, permanent, playerId);
     if (scalingMana && Number(scalingMana.amount || 0) > 0) {
-      applyScalingManaToOptimisticPool(pool, scalingMana.color, Number(scalingMana.amount || 0));
-      continue;
+      const scalingAmount = Number(scalingMana.amount || 0);
+      // Dual-ability lands (Three Tree City / Nykthos `{2}, {T}`) must not count the
+      // unpaid invest line as free N mana. Net out mana activation pips; if that
+      // leaves nothing, fall through to `{T}: Add {C}`.
+      let activationPips = 0;
+      for (const token of String((scalingMana as any).activationCost || '').match(/\{[^}]+\}/g) || []) {
+        const clean = token.replace(/[{}]/g, '').toUpperCase();
+        if (/^\d+$/.test(clean)) activationPips += Number.parseInt(clean, 10) || 0;
+        else if (/^[WUBRGC]$/.test(clean)) activationPips += 1;
+      }
+      const netAmount = Math.max(0, scalingAmount - activationPips);
+      if (netAmount > 0) {
+        applyScalingManaToOptimisticPool(pool, scalingMana.color, netAmount);
+        continue;
+      }
     }
     
     // Check for mana abilities in oracle text

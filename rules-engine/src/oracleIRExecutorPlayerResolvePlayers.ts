@@ -13,9 +13,11 @@ import {
   type ReferencedObjectRuntime,
 } from './oracleIRExecutorReferenceUtils';
 import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
+import { playerHasLeftTheGame } from './playerInGameStatus';
 
 function resolvePlayerByLifeTotal(state: GameState, mode: 'most' | 'least'): readonly PlayerID[] {
   const entries = (state.players || [])
+    .filter((player: any) => !playerHasLeftTheGame(player))
     .map((player: any) => ({
       id: String(player?.id || '').trim(),
       life: Number(player?.life ?? 0),
@@ -65,15 +67,19 @@ export function resolvePlayers(
   };
 
   const controllerId = normalizeId(ctx.controllerId) ?? ctx.controllerId;
-  const hasValidController = (state.players || []).some((player: any) => normalizeId(player?.id) === controllerId);
+  const inGamePlayers = (state.players || []).filter((player: any) => {
+    const id = normalizeId(player?.id);
+    return Boolean(id) && !playerHasLeftTheGame(player);
+  });
+  const hasValidController = inGamePlayers.some((player: any) => normalizeId(player?.id) === controllerId);
   const opponents = hasValidController
-    ? (state.players || [])
+    ? inGamePlayers
         .map((player: any) => normalizeId(player?.id))
         .filter((id: PlayerID | undefined): id is PlayerID => Boolean(id) && id !== controllerId)
     : [];
   const opponentIdSet = new Set(opponents);
   const allPlayerIds = new Set(
-    (state.players || [])
+    inGamePlayers
       .map((player: any) => normalizeId(player?.id))
       .filter((id: PlayerID | undefined): id is PlayerID => Boolean(id))
   );
@@ -95,11 +101,15 @@ export function resolvePlayers(
 
   switch (selector.kind) {
     case 'you':
-      return hasValidController ? [controllerId] : [];
+      // The controller of this effect is always "you". Do not require them to
+      // still be in `inGamePlayers`: reconnect-after-restore can leave stale
+      // `leftGame` / `conceded` flags that would skip Scry/Surveil and fail
+      // all-or-nothing IR. Each-player / each-opponent selectors still filter.
+      return controllerId ? [controllerId] : [];
     case 'any_player':
-      return state.players.map(p => p.id);
+      return inGamePlayers.map((player: any) => player.id);
     case 'each_player':
-      return state.players.map(p => p.id);
+      return inGamePlayers.map((player: any) => player.id);
     case 'each_opponent':
       return opponents;
     case 'any_number_of_target_opponents': {
@@ -290,6 +300,7 @@ export function listEligibleChooseOpponentIds(
 ): PlayerID[] {
   const you = String(controllerId || '').trim();
   const opponents = (state.players || [])
+    .filter((player: any) => !playerHasLeftTheGame(player))
     .map((player: any) => String(player?.id || '').trim())
     .filter((id: string) => Boolean(id) && id !== you) as PlayerID[];
   if (!/who\s+controls\s+more\s+lands\s+than\s+you/i.test(String(raw || ''))) {
@@ -313,6 +324,7 @@ export function resolvePlayersFromDamageTarget(
   };
   const allPlayerIds = new Set(
     (state.players || [])
+      .filter((player: any) => !playerHasLeftTheGame(player))
       .map((player: any) => normalizeId(player?.id))
       .filter((id: PlayerID | undefined): id is PlayerID => Boolean(id))
   );

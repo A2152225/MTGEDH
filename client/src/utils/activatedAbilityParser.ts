@@ -16,7 +16,8 @@ import type {
   ActivationContext,
   ParsedActivatedAbility,
 } from './activatedAbilityParser-handlers/activatedAbilityParserTypes';
-import { parseActivatedAbilities } from './activatedAbilityParser-handlers/parseActivatedAbilities';
+import { parseActivatedAbilities as parseActivatedAbilitiesFromOracle } from './activatedAbilityParser-handlers/parseActivatedAbilities';
+import { stampAnyPlayerMayActivate } from './activatedAbilityParser-handlers/stampAnyPlayerMayActivate';
 import { parseStationThreshold } from './activatedAbilityParser-handlers/parseStationAndThresholdHelpers';
 import { parseTimingRestrictionFromText } from './activatedAbilityParser-handlers/parseTimingRestrictionFromText';
 
@@ -25,7 +26,17 @@ export type {
   ParsedActivatedAbility,
   TapOtherPermanentsCost,
 } from './activatedAbilityParser-handlers/activatedAbilityParserTypes';
-export { parseActivatedAbilities, parseStationThreshold, parseTimingRestrictionFromText };
+export { parseStationThreshold, parseTimingRestrictionFromText };
+
+export function parseActivatedAbilities(
+  ...args: Parameters<typeof parseActivatedAbilitiesFromOracle>
+): ReturnType<typeof parseActivatedAbilitiesFromOracle> {
+  const [card, grantedAbilities] = args;
+  const oracleForStamp = [card?.oracle_text, ...(grantedAbilities || [])]
+    .filter(Boolean)
+    .join('\n');
+  return stampAnyPlayerMayActivate(parseActivatedAbilitiesFromOracle(...args), oracleForStamp);
+}
 
 const COLOR_SYMBOL_ORDER = ['W', 'U', 'B', 'R', 'G'] as const;
 

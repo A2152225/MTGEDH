@@ -19,6 +19,7 @@ import {
   parseManaSpendRestrictionFromOracle,
 } from "../mana-abilities.js";
 import { canCountPermanentManaAbilities } from "./manaCheckActivationGate.js";
+import { permanentCannotActivateTapAbilities } from "../staticEffectSpecActivationLocks.js";
 import {
   parsedManaCostHasValue,
   parseLifeCostFromManaAbilityCost,
@@ -761,6 +762,10 @@ export function buildExactManaSources(state: any, playerId: PlayerID): ExactMana
     if (isCreature && !isLand && permanent.summoningSickness) {
       const hasHaste = creatureHasHaste(permanent, battlefield, playerId);
       if (!hasHaste) continue;
+    }
+
+    if (permanentCannotActivateTapAbilities(permanent, state) && /\{T\}/i.test(oracleText)) {
+      continue;
     }
 
     if (!canCountPermanentManaAbilities(state, playerId, permanent.card.oracle_text || '')) {

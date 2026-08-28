@@ -125,6 +125,7 @@ describe('Redemption Arc aura-granted indestructible', () => {
     expect(result.prevented).toBe(false);
     expect(result.appliedAmount).toBe(3);
     expect(Number(host.markedDamage || 0)).toBe(3);
+    expect(Number(host.damageMarked || 0)).toBe(3);
 
     expect(creatureDiesFromCombatDamage(ctx, host, host.markedDamage, false, false, 2)).toBe(false);
 
