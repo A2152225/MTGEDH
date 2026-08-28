@@ -55,8 +55,20 @@ function buildPlayerFingerprint(ctx: GameContext, playerId: PlayerID): string {
   const graveyard = state.zones?.[playerId]?.graveyard;
   const exile = state.zones?.[playerId]?.exile;
   const library = state.zones?.[playerId]?.library;
-  const gyKey = Array.isArray(graveyard) ? graveyard.map((card: any) => String(card?.id || '')).join(',') : '';
-  const exileKey = Array.isArray(exile) ? exile.map((card: any) => String(card?.id || '')).join(',') : '';
+  const gyKey = Array.isArray(graveyard)
+    ? graveyard.map((card: any) => [
+        String(card?.id || ''),
+        String(card?.discardedOnTurn ?? card?.discardedTurnNumber ?? ''),
+        String(card?.discardedByPlayerId || ''),
+      ].join(':')).join(',')
+    : '';
+  const exileKey = Array.isArray(exile)
+    ? exile.map((card: any) => [
+        String(card?.id || ''),
+        String(card?.playableUntilTurn ?? ''),
+        String(card?.canBePlayedBy || ''),
+      ].join(':')).join(',')
+    : '';
   const libraryTop = Array.isArray(library) && library.length > 0 ? String(library[0]?.id || '') : '';
   const gyCasted = state.castFromGraveyardThisTurn?.[playerId] ? '1' : '0';
   const gyPerms = Array.isArray(state.graveyardCastingPermissions)
@@ -70,6 +82,12 @@ function buildPlayerFingerprint(ctx: GameContext, playerId: PlayerID): string {
   const poolKey = pool
     ? [pool.white || 0, pool.blue || 0, pool.black || 0, pool.red || 0, pool.green || 0, pool.colorless || 0].join(',')
     : '';
+  const playableFromExile = state.playableFromExile?.[playerId];
+  const pfeKey = playableFromExile && typeof playableFromExile === 'object' && !Array.isArray(playableFromExile)
+    ? Object.entries(playableFromExile).map(([id, until]) => `${id}:${String(until)}`).sort().join(',')
+    : Array.isArray(playableFromExile)
+      ? playableFromExile.map((id: any) => String(id || '')).join(',')
+      : '';
   return [
     Array.isArray(hand) ? hand.length : 0,
     gyKey,
@@ -78,6 +96,7 @@ function buildPlayerFingerprint(ctx: GameContext, playerId: PlayerID): string {
     gyCasted,
     gyPerms,
     poolKey,
+    pfeKey,
   ].join('|');
 }
 

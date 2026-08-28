@@ -26,7 +26,6 @@ import { debugWarn } from '../../utils/debug.js';
 import { queueDealsDamageToPlayerTriggersFromPermanent } from './triggerLifeDamageUtils.js';
 import { processMillTriggers } from './zones.js';
 import { checkGraveyardTrigger } from './zone-manipulation.js';
-import { runSBA } from './counters_tokens.js';
 
 export type BattlefieldTriggerSnapshot = {
   readonly lifeByPlayer: ReadonlyMap<string, number>;
@@ -319,14 +318,6 @@ export function emitTriggersAfterOracleIRApply(
         const discoverValue = extractDiscoverValueFromImpulseStep(step);
         if (discoverValue == null) continue;
         processDiscoverTriggers(ctx, irController, discoverValue);
-      }
-    }
-
-    if (kinds.has('deal_damage') && !(ctx as any).isReplaying) {
-      try {
-        runSBA(ctx);
-      } catch {
-        // SBA may not be available during replay
       }
     }
   } catch (err) {

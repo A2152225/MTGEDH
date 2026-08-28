@@ -101,7 +101,7 @@ export function filterChosenHandCardIds(
   playerId: PlayerID,
   chosenIds: readonly string[],
 ): readonly string[] {
-  const player = state.players.find((candidate) => candidate.id === playerId) as any;
+  const player = (state.players || []).find((candidate) => candidate.id === playerId) as any;
   const handIds = new Set(
     (Array.isArray(player?.hand) ? player.hand : [])
       .map((card: any) => String(card?.id || card?.card?.id || '').trim())

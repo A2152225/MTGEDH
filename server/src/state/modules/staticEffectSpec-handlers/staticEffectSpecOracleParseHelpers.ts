@@ -16,8 +16,10 @@ export const ABILITY_WORDS = [
   'double strike', 'protection', 'ward',
   'swampwalk', 'islandwalk', 'mountainwalk', 'forestwalk', 'plainswalk',
   'riot', 'exalted', 'skulk', 'intimidate', 'myriad',
-  'wither', 'fear', 'horsemanship', 'prowess', 'training',
+  'wither', 'infect', 'fear', 'horsemanship', 'prowess', 'training',
   'evolve', 'dethrone', 'unleash', 'melee', 'exploit', 'extort',
+  'flash', 'defender', 'shadow', 'flanking', 'persist', 'undying',
+  'battle cry', 'mentor',
 ];
 
 export const COLOR_WORDS = ['white', 'blue', 'black', 'red', 'green'];

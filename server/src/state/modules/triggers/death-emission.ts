@@ -136,6 +136,18 @@ export function getDeathTriggers(
     'ig'
   );
   const seenSelfEffects = new Set<string>();
+  const normalizeDeathEffectKey = (text: string): string =>
+    String(text || '')
+      .trim()
+      .toLowerCase()
+      .replace(/['’]/g, "'")
+      .replace(/^when(?:ever)? this creature dies,?\s*/, '')
+      .replace(/[.]+$/g, '')
+      .trim();
+  for (const existing of results) {
+    const key = normalizeDeathEffectKey(String(existing?.effect || ''));
+    if (key) seenSelfEffects.add(key);
+  }
   for (const rulesText of getPermanentRulesTextFragments(dyingCreature)) {
     const textForScan = stripReminderParentheticals(rulesText);
     const matches = textForScan.matchAll(selfDiesPattern);
@@ -163,7 +175,7 @@ export function getDeathTriggers(
         }
       }
       if (!effect) continue;
-      const effectKey = effect.toLowerCase();
+      const effectKey = normalizeDeathEffectKey(effect);
       if (seenSelfEffects.has(effectKey)) continue;
       seenSelfEffects.add(effectKey);
       const modalOptions = extractChooseOneModalOptions(effect);

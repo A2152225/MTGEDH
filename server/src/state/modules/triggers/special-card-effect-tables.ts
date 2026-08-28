@@ -394,46 +394,39 @@ export interface InfectGrantEffect {
   additionalKeywords?: string[];
 }
 
-const KNOWN_INFECT_GRANTS: Record<string, InfectGrantEffect> = {
-  "triumph of the hordes": {
-    cardName: "Triumph of the Hordes",
-    grantsTo: 'all_creatures',
-    duration: 'until_eot',
-    additionalBoost: { power: 1, toughness: 1 },
-    additionalKeywords: ['trample', 'infect'],
-  },
-  "tainted strike": {
-    cardName: "Tainted Strike",
-    grantsTo: 'target_creature',
-    duration: 'until_eot',
-    additionalBoost: { power: 1, toughness: 0 },
-    additionalKeywords: ['infect'],
-  },
-  "grafted exoskeleton": {
-    cardName: "Grafted Exoskeleton",
-    grantsTo: 'equipped_creature',
-    duration: 'permanent',
-    additionalBoost: { power: 2, toughness: 2 },
-    additionalKeywords: ['infect'],
-  },
-  "phyresis": {
-    cardName: "Phyresis",
-    grantsTo: 'equipped_creature', // Actually enchanted
-    duration: 'permanent',
-    additionalKeywords: ['infect'],
-  },
-};
-
+/**
+ * Oracle-only: "has/gains/have infect" grants (Phyresis, Grafted Exoskeleton,
+ * Triumph of the Hordes, Tainted Strike). Printed Infect keyword and
+ * "creatures you control with infect" filters are not grants. Live combat
+ * uses StaticEffectSpec host/lord grants, not this detector.
+ */
 export function detectInfectGrantEffect(card: any): InfectGrantEffect | null {
-  const cardName = (card?.name || "").toLowerCase();
-  
-  for (const [knownName, effectInfo] of Object.entries(KNOWN_INFECT_GRANTS)) {
-    if (cardName.includes(knownName)) {
-      return effectInfo;
-    }
+  const oracle = String(card?.oracle_text || card?.text || '');
+  if (!oracle) return null;
+  const lower = oracle.toLowerCase();
+  if (!/(?:has|have|gains?|gain)\s+(?:[\w\s,/]+\s+and\s+)?infect\b/.test(lower)) {
+    return null;
   }
-  
-  return null;
+
+  const untilEot = /\buntil end of turn\b/.test(lower);
+  const hostGrant = /(?:equipped|enchanted)\s+creature/.test(lower);
+  const allCreatures = /\bcreatures you control\b/.test(lower);
+  const boostMatch = lower.match(/gets?\s+([+-]?\d+)\s*\/\s*([+-]?\d+)/);
+  const additionalBoost = boostMatch
+    ? { power: parseInt(boostMatch[1], 10), toughness: parseInt(boostMatch[2], 10) }
+    : undefined;
+  const additionalKeywords: string[] = ['infect'];
+  if (/(?:trample and infect|infect and trample)/.test(lower)) {
+    additionalKeywords.unshift('trample');
+  }
+
+  return {
+    cardName: String(card?.name || ''),
+    grantsTo: hostGrant ? 'equipped_creature' : allCreatures ? 'all_creatures' : 'target_creature',
+    duration: untilEot ? 'until_eot' : 'permanent',
+    additionalBoost,
+    additionalKeywords,
+  };
 }
 
 // ============================================================================

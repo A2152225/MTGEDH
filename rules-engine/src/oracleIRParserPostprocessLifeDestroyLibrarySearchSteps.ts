@@ -263,6 +263,13 @@ function normalizeLibrarySearchCriteria(rawCriteria: string): {
     .replace(/\s+/g, ' ')
     .trim();
 
+  // "a card" / "card" is a valid any-card tutor. Stripping the article and
+  // "card(s)" would otherwise leave an empty criteria string. Leave criteria
+  // empty when a count was already extracted ("five cards" → maxResults 5).
+  if (!criteria && maxResults == null && /\bcard/i.test(rawCriteria)) {
+    criteria = 'a card';
+  }
+
   return { text: criteria, maxResults, ...(whereX ? { whereX } : {}) };
 }
 

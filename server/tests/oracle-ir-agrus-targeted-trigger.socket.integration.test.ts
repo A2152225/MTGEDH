@@ -59,7 +59,7 @@ function seedAgrusActivationBoard(game: any, playerId: string) {
   (game.state as any).turnPlayer = playerId;
   (game.state as any).priority = playerId;
   (game.state as any).manaPool = {
-    [playerId]: { white: 1, blue: 0, black: 0, red: 1, green: 0, colorless: 0 },
+    [playerId]: { white: 1, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
   };
   (game.state as any).battlefield = [
     {

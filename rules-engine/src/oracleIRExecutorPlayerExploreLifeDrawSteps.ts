@@ -1018,7 +1018,7 @@ export function applyDrawStep(
       }
     }
     lastCount = amount;
-    const playerBeforeDraw = nextState.players.find((entry: any) => String(entry?.id || '').trim() === playerId) as any;
+    const playerBeforeDraw = (nextState.players || []).find((entry: any) => String(entry?.id || '').trim() === playerId) as any;
     const handIdsBeforeDraw = new Set(
       readPlayerZoneCards(nextState, playerId, playerBeforeDraw, 'hand')
         .map((card: any) => String(card?.id || '').trim())
@@ -1037,7 +1037,7 @@ export function applyDrawStep(
     log.push(...result.log);
     if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
     if (amount > 0) {
-      const playerAfterDraw = nextState.players.find((entry: any) => String(entry?.id || '').trim() === playerId) as any;
+      const playerAfterDraw = (nextState.players || []).find((entry: any) => String(entry?.id || '').trim() === playerId) as any;
       const drawnCardIds = readPlayerZoneCards(nextState, playerId, playerAfterDraw, 'hand')
         .map((card: any) => String(card?.id || '').trim())
         .filter((id: string) => id && !handIdsBeforeDraw.has(id));

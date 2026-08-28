@@ -357,6 +357,21 @@ describe('phase skip continuation', () => {
         },
       },
     ];
+    (game as any).libraries?.set?.(p1, [
+      { id: 'skip_lib_1', name: 'Island', type_line: 'Basic Land — Island' },
+      { id: 'skip_lib_2', name: 'Island', type_line: 'Basic Land — Island' },
+    ]);
+    (game.state as any).zones = {
+      ...(game.state as any).zones,
+      [p1]: {
+        ...((game.state as any).zones?.[p1] || {}),
+        library: [
+          { id: 'skip_lib_1', name: 'Island', type_line: 'Basic Land — Island' },
+          { id: 'skip_lib_2', name: 'Island', type_line: 'Basic Land — Island' },
+        ],
+        libraryCount: 2,
+      },
+    };
 
     completePendingPhaseSkipCore({
       game,

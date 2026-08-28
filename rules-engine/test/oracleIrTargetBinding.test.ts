@@ -28,6 +28,7 @@ describe('inferOracleIrTargetBinding', () => {
       targetPermanentId: 'perm_creature',
       targetCreatureId: 'perm_creature',
       targetPlayerId: 'p2',
+      targetOwnerId: 'p2',
       targetOpponentId: 'p2',
       chosenObjectIds: ['perm_creature'],
     });
@@ -37,6 +38,7 @@ describe('inferOracleIrTargetBinding', () => {
     expect(inferOracleIrTargetBinding(state, ['perm_artifact'], 'p1')).toEqual({
       targetPermanentId: 'perm_artifact',
       targetPlayerId: 'p1',
+      targetOwnerId: 'p1',
       chosenObjectIds: ['perm_artifact'],
     });
   });
@@ -113,6 +115,7 @@ describe('inferOracleIrTargetBinding', () => {
       targetPermanentId: 'perm_v1',
       targetCreatureId: 'perm_v1',
       targetPlayerId: 'p2',
+      targetOwnerId: 'p2',
       targetOpponentId: 'p2',
       chosenObjectIds: ['perm_v1', 'perm_v2'],
     });

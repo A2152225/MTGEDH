@@ -95,6 +95,11 @@ const WHITEOUT_ORACLE =
 const HUMILITY_ORACLE =
   'All creatures lose all abilities and have base power and toughness 1/1.';
 const LEVITATION_ORACLE = 'Creatures you control have flying.';
+// mtg_data.db is_token=0, 2026-08-28
+const PHYRESIS_ORACLE =
+  'Enchant creature\nEnchanted creature has infect. (It deals damage to creatures in the form of -1/-1 counters and to players in the form of poison counters.)';
+const GRAFTED_EXOSKELETON_ORACLE =
+  'Equipped creature gets +2/+2 and has infect. (It deals damage to creatures in the form of -1/-1 counters and to players in the form of poison counters.)\nWhenever this Equipment becomes unattached from a permanent, sacrifice that permanent.\nEquip {2}';
 
 describe('staticEffectSpec leftover oracle templates', () => {
   it('grants deathtouch to other tapped creatures and hexproof to other untapped creatures', () => {
@@ -1529,5 +1534,69 @@ describe('staticEffectSpec leftover oracle templates', () => {
       .not.toEqual(expect.arrayContaining([CANT_ACTIVATE_TAP_ABILITIES]));
     expect(permanentCannotActivateTapAbilities(bird as any, state)).toBe(false);
     expect(canPermanentAttack(bird, state.battlefield, 'p2', state).canAttack).toBe(true);
+  });
+
+  it('grants infect from Phyresis / Grafted Exoskeleton to the attached host, not the Aura or Equipment', () => {
+    const bear = {
+      id: 'bear_1',
+      controller: 'p1',
+      attachedAuras: ['phyresis_1'],
+      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '', power: 2, toughness: 2 },
+    };
+    const phyresis = {
+      battlefield: [
+        {
+          id: 'phyresis_1',
+          controller: 'p1',
+          attachedTo: 'bear_1',
+          card: { name: 'Phyresis', type_line: 'Enchantment — Aura', oracle_text: PHYRESIS_ORACLE },
+        },
+        bear,
+      ],
+    };
+    expect(collectStaticEffectSpecsFromState(phyresis)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourcePermanentId: 'bear_1',
+        scope: { kind: 'self' },
+        grant: { abilities: expect.arrayContaining(['infect']) },
+      }),
+    ]));
+    expect(getContinuousGrantedAbilitiesForPermanent(bear as any, phyresis)).toEqual(
+      expect.arrayContaining(['infect']),
+    );
+    expect(getContinuousGrantedAbilitiesForPermanent(phyresis.battlefield[0] as any, phyresis))
+      .not.toEqual(expect.arrayContaining(['infect']));
+
+    const graftedHost = {
+      id: 'bear_2',
+      controller: 'p1',
+      attachedEquipment: ['grafted_1'],
+      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '', power: 2, toughness: 2 },
+    };
+    const grafted = {
+      battlefield: [
+        {
+          id: 'grafted_1',
+          controller: 'p1',
+          attachedTo: 'bear_2',
+          card: {
+            name: 'Grafted Exoskeleton',
+            type_line: 'Artifact — Equipment',
+            oracle_text: GRAFTED_EXOSKELETON_ORACLE,
+          },
+        },
+        graftedHost,
+      ],
+    };
+    expect(collectStaticEffectSpecsFromState(grafted)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourcePermanentId: 'bear_2',
+        scope: { kind: 'self' },
+        grant: { abilities: expect.arrayContaining(['infect']) },
+      }),
+    ]));
+    expect(getContinuousGrantedAbilitiesForPermanent(graftedHost as any, grafted)).toEqual(
+      expect.arrayContaining(['infect']),
+    );
   });
 });

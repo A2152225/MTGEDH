@@ -100,12 +100,9 @@ export function tryApplyGrantKeywordsToStackSpell(
   if (!isStackSpellGrantTarget(step)) return null;
 
   const keywords = collectGrantedKeywords(step);
-  if (keywords.length === 0) {
-    return {
-      applied: false,
-      message: `Skipped stack-spell keyword grant (no keywords): ${step.raw}`,
-      reason: 'unsupported_object_selector',
-    };
+  if (keywords.length === 0) return null;
+  if (keywords.some((keyword) => /\bcosts?\b|\bless to cast|\bmore to cast/.test(keyword))) {
+    return null;
   }
 
   const found = findStackSpell(state, ctx);

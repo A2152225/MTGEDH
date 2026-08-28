@@ -593,7 +593,7 @@ export function drawCardsForPlayer(
   }
 
   const log: string[] = [];
-  const player = state.players.find(p => p.id === playerId);
+  const player = (state.players || []).find(p => p.id === playerId);
   if (!player) return { state, log: [`Player not found: ${playerId}`] };
 
   const library = readPlayerZoneCards(state, playerId, player, 'library');

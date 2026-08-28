@@ -569,7 +569,7 @@ function finalizeBattlefieldRemovalWithExplicitDestinations(
   verbPastTense: string,
 ): { state: GameState; log: string[] } {
   const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
-  const players = state.players.map((p) => ({ ...p } as any));
+  const players = (state.players || []).map((p) => ({ ...p } as any));
   let redirectedToExile = 0;
   let redirectedToCommand = 0;
   let ceasedToExist = 0;
@@ -703,7 +703,7 @@ function finalizeBattlefieldRemovalDirect(
 ): { state: GameState; log: string[] } {
   const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
 
-  const players = state.players.map(p => ({ ...p } as any));
+  const players = (state.players || []).map(p => ({ ...p } as any));
   let redirectedToExile = 0;
   let redirectedToCommand = 0;
   for (const perm of removed) {
@@ -782,7 +782,7 @@ export function bounceMatchingBattlefieldPermanentsToOwnersHands(
 
   const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
 
-  const players = state.players.map(p => ({ ...p } as any));
+  const players = (state.players || []).map(p => ({ ...p } as any));
   let redirectedToExile = 0;
   let redirectedToCommand = 0;
   for (const perm of removed) {
@@ -833,7 +833,7 @@ export function moveBattlefieldPermanentsByIdToOwnersHands(
   if (removed.length === 0) return { state, log: [] };
 
   const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
-  const players = state.players.map(p => ({ ...p } as any));
+  const players = (state.players || []).map(p => ({ ...p } as any));
   let redirectedToExile = 0;
   let redirectedToCommand = 0;
   for (const perm of removed) {
@@ -889,7 +889,7 @@ export function moveBattlefieldPermanentsByIdToOwnersLibraries(
   if (removed.length === 0) return { state, log: [] };
 
   const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
-  const players = state.players.map(p => ({ ...p } as any));
+  const players = (state.players || []).map(p => ({ ...p } as any));
   const nextState = { ...state, battlefield: cleanedKept as any, players: players as any } as GameState;
   const ownersToShuffle = new Set<PlayerID>();
   const movedCards: any[] = [];

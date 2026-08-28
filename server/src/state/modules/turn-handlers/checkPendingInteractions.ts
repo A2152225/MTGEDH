@@ -6,9 +6,7 @@
 // Leaf must not import turn.ts or turn-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
-import type { PlayerID } from "../../../../../shared/src/types.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
-import { turnPlayerMustDeclareAttackers } from "../can-respond.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
@@ -247,19 +245,11 @@ export function checkPendingInteractions(ctx: GameContext): {
       const attackersDeclaredBy: string[] = Array.isArray(state.attackersDeclaredBy) ? state.attackersDeclaredBy : [];
 
       if (turnPlayer && !attackersDeclaredBy.includes(turnPlayer)) {
-        if (turnPlayerMustDeclareAttackers(ctx, turnPlayer as PlayerID)) {
-          result.hasPending = true;
-          result.pendingTypes.push('attacker_declaration');
-          result.details.attackersNeeded = true;
-          result.details.turnPlayer = turnPlayer;
-          debug(2, `${ts()} [checkPendingInteractions] Waiting for ${turnPlayer} to declare attackers`);
-        } else {
-          debug(2, `${ts()} [checkPendingInteractions] Auto-declaring empty attackers for ${turnPlayer} (no valid attackers)`);
-          attackersDeclaredBy.push(turnPlayer);
-          state.attackersDeclaredBy = attackersDeclaredBy;
-          state.attackedPlayersThisTurnByPlayer = state.attackedPlayersThisTurnByPlayer || {};
-          state.attackedPlayersThisTurnByPlayer[turnPlayer] = [];
-        }
+        result.hasPending = true;
+        result.pendingTypes.push('attacker_declaration');
+        result.details.attackersNeeded = true;
+        result.details.turnPlayer = turnPlayer;
+        debug(2, `${ts()} [checkPendingInteractions] Waiting for ${turnPlayer} to declare attackers`);
       }
     }
 

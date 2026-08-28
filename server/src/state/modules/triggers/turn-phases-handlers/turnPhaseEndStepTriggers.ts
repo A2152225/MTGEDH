@@ -163,7 +163,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
   // Repeating card triggers only. "the next" / "your next" end step is a delayed
   // trigger created by another resolving ability (CR 603.7), not this detector.
   const endStepMatch = oracleText.match(
-    /at the beginning of (?:(?:the )?next|your next|each(?: player's)?|your|the) end step,?\s*([^.]+\.?)/i,
+    /at the beginning of (?:each(?: player's)?|your|the) end step,?\s*([^.]+\.?)/i,
   );
   if (endStepMatch) {
     const effect = timingTriggerEffect(oracleText, endStepMatch);

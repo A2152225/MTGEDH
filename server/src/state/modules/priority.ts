@@ -164,10 +164,8 @@ export function passPriority(
     && playerId === turnPlayer
     && turnPlayerHasNotDeclaredAttackers(stateAny, turnPlayer)
   ) {
-    if (turnPlayerMustDeclareAttackers(ctx, turnPlayer)) {
-      debug(1, `[priority] Cannot pass priority - ${turnPlayer} must declare attackers first`);
-      return { changed: false, resolvedNow: false, advanceStep: false };
-    }
+    debug(1, `[priority] Cannot pass priority - ${turnPlayer} must declare attackers first`);
+    return { changed: false, resolvedNow: false, advanceStep: false };
   }
   
   // Track that this player passed priority

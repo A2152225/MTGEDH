@@ -2,7 +2,7 @@
 
 **Purpose:** Track post–Track D executor/Layer 3 work and document the path to **seamless automation for cards not yet in the corpus** (new sets, custom cards, novel phrasing).
 
-**Last updated:** 2026-08-27 (Phase 5 depth: War Cadence this-turn / AI block tax / Island Sanctuary skip-draw; do not flip vitest.setup.ts unless asked)
+**Last updated:** 2026-08-28 (Phase 5 depth: Phyresis/Grafted host infect grants; do not flip vitest.setup.ts unless asked)
 
 **Read first:** [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) · [oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md) · `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` · `.cursor/rules/oracle-ir-compiled-overlay.mdc`
 
@@ -219,6 +219,7 @@ These are **in-scope migration work** that does not always move the usual metric
 - ~~`TOP_OF_LIBRARY_CARDS` name table~~ ✅ look / play lands / cast from top are oracle-only. Durable library permissions still apply.
 - ~~`HAND_REVEAL_CARDS` name table~~ ✅ static Telepathy/Revelation grants are oracle-only. Look-at-hand activations are not ongoing grants.
 - ~~`TEMPORARY_LAND_PLAY_SPELLS` name table~~ ✅ this-turn extra land drops are oracle-only. Growth Spiral put-onto-battlefield and Wayward continuous extras are not this-turn spell bonuses.
+- ~~`KNOWN_INFECT_GRANTS` name table~~ ✅ Phyresis / Grafted Exoskeleton host infect is `StaticEffectSpec` (`ABILITY_WORDS` includes infect). Live combat poison uses continuous grants. `detectInfectGrantEffect` is oracle-only.
 - ~~Combat prevent-and-mill first-match table~~ ✅ Mindskinner-family parse from oracle
 - ~~Szadek-style source-self combat replace~~ ✅ instead +1/+1 on source + mill that player (not controller-wide)
 - ~~Vigor creature-damage card-name~~ ✅ another-creature prevent + +1/+1 per 1 prevented (oracle pattern)

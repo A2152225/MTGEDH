@@ -241,12 +241,14 @@ function resolveServerStackCopyCount(
     return count;
   }
 
-  // Sticky copyCount:0 from a prior IR miss: re-resolve commander-CZ reference amounts from tax.
+  // Sticky copyCount:0 from a prior IR miss: re-resolve commander-CZ tax and
+  // "other creatures that ability/spell could target" from the live board.
   // Other copy steps keep an explicit 0 so we do not invent copies.
   if (
     Number.isFinite(metadataCount)
     && metadataCount === 0
     && !isCommanderCastFromCommandZoneCopyStep(step)
+    && step.copies?.kind !== 'reference_amount'
   ) {
     return 0;
   }

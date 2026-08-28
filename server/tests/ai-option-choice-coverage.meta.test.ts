@@ -25,6 +25,9 @@ const OPTION_CHOICE_FLAGS_WITHOUT_DIRECT_AI_BOOLEAN_CHECK = new Set([
   'resumeCleanupAfterPrompt',
   'sacrificeUnlessPayChoice',
   'ventureIntoDungeon',
+  // Block tax is paid in processBlockCostPaymentBeforeStepComplete / AI
+  // applyAIDeclareBlockersBlockTax before the option-choice step is consumed.
+  'blockCostPayment',
 ]);
 
 function readSource(filePath: string): string {

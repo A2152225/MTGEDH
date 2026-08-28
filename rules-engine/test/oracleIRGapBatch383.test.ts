@@ -127,7 +127,10 @@ describe('Oracle IR gap batch 383 — target clusters (Track E2)', () => {
       "Target player discards two cards. Then exile that player's graveyard.",
       'Go Blank'
     );
-    const exileStep = goBlank.abilities.flatMap((a) => a.steps || []).find((step) => step.kind === 'exile');
+    const exileStep = goBlank.abilities.flatMap((a) => a.steps || []).find((step) => (
+      step.kind === 'exile'
+      || (step.kind === 'move_zone' && String((step as { to?: string }).to || '') === 'exile')
+    ));
     expect(exileStep).toBeTruthy();
     const exileResult = expectNoTargetGaps(
       [exileStep!],

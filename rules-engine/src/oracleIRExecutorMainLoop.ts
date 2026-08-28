@@ -140,7 +140,7 @@ export function applyOracleIRStepsToGameStateImpl(
   const falseConditionalMarkers = new Set<OracleEffectStep>();
   let anyConditionalProducedSteps = false;
 
-  let nextState = state;
+  let nextState = Array.isArray(state.players) ? state : { ...state, players: [] };
   const pendingOptionalSteps: OracleEffectStep[] = [];
   let haltedForPlayerChoice = false;
   let pendingContinuationSteps: OracleEffectStep[] | undefined;

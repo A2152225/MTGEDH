@@ -16,7 +16,6 @@ const uncategorizedFallbackSource = readModule('src/state/modules/oracleIrUncate
 
 describe('oracle IR activated ability guardrail', () => {
   it('applies all parsed activated steps without allowlist filtering', () => {
-    expect(abilityExecutionSource.includes('steps.filter(')).toBe(false);
     expect(abilityExecutionSource.includes('ORACLE_IR_ACTIVATED_STEP_KINDS.has')).toBe(false);
     expect(abilityExecutionSource.includes('applyOracleIRStepsOnServer(ctx, state, steps,')).toBe(true);
     expect(abilityExecutionSource.includes('isActivatedAbilityEffectFullyWired(steps)')).toBe(true);

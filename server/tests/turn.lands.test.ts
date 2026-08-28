@@ -108,6 +108,8 @@ describe('Turn advancement and land-per-turn tracking', () => {
       { id: 'forest_1', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '', image_uris: undefined },
       { id: 'forest_2', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '', image_uris: undefined },
       { id: 'forest_3', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '', image_uris: undefined },
+      { id: 'forest_4', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '', image_uris: undefined },
+      { id: 'forest_5', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '', image_uris: undefined },
     ];
 
     g.importDeckResolved(p1, lands);

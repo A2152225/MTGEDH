@@ -471,7 +471,7 @@ export function startOracleEffectProgramOnServer(
 
     const handlers = createOracleIREffectProgramHandlers(
       serverIrCtx,
-      params.executionOptions || { allowOptional: true },
+      { ...(params.executionOptions || {}), allowOptional: true },
     );
 
     const { cardInstanceId, stackItemId } = resolveEffectProgramChoiceSourceIds(

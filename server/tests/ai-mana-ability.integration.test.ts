@@ -105,8 +105,11 @@ describe('AI mana ability integration', () => {
         handCount: 1,
         graveyard: [],
         graveyardCount: 0,
-        library: [],
-        libraryCount: 0,
+        library: [
+          { id: 'ai_lib_1', name: 'Swamp', type_line: 'Basic Land — Swamp', oracle_text: '({T}: Add {B}.)' },
+          { id: 'ai_lib_2', name: 'Swamp', type_line: 'Basic Land — Swamp', oracle_text: '({T}: Add {B}.)' },
+        ],
+        libraryCount: 2,
         exile: [],
       },
       opp1: {
@@ -149,6 +152,13 @@ describe('AI mana ability integration', () => {
         },
       },
     ];
+
+    if (typeof (game as any).libraries?.set === 'function') {
+      (game as any).libraries.set(playerId, [
+        { id: 'ai_lib_1', name: 'Swamp', type_line: 'Basic Land — Swamp', oracle_text: '({T}: Add {B}.)' },
+        { id: 'ai_lib_2', name: 'Swamp', type_line: 'Basic Land — Swamp', oracle_text: '({T}: Add {B}.)' },
+      ]);
+    }
 
     registerAIPlayer(localGameId, playerId as any);
     // Even if the decision engine proposes a Swamp tap, the AI must refuse it as a

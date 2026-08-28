@@ -565,13 +565,30 @@ export function resolveOtherCreaturesCopyCouldTargetCount(
     );
     const isCreature = battlefieldPermanent
       ? /\bcreature\b/i.test(String(battlefieldPermanent?.card?.type_line || battlefieldPermanent?.type_line || ''))
-      : targetType === 'permanent';
+      : targetType === 'permanent' || targetType === 'creature';
 
     if (!isCreature) continue;
 
     if (requiresControlledCreatures && !controllerCreatures.has(targetId)) continue;
 
     eligibleIds.add(targetId);
+  }
+
+  // Activated abilities may not stamp copyRetargetValidTargets (or stamp only the
+  // chosen target). Fall back to other creatures the controller controls / all
+  // other battlefield creatures when no other legal retarget remains.
+  if (eligibleIds.size === 0) {
+    for (const creatureId of controllerCreatures) {
+      if (!currentTargetIds.has(creatureId)) eligibleIds.add(creatureId);
+    }
+    if (!requiresControlledCreatures) {
+      for (const permanent of battlefield) {
+        const targetId = String(permanent?.id || '').trim();
+        if (!targetId || currentTargetIds.has(targetId)) continue;
+        if (!/\bcreature\b/i.test(String(permanent?.card?.type_line || permanent?.type_line || ''))) continue;
+        eligibleIds.add(targetId);
+      }
+    }
   }
 
   return eligibleIds.size;

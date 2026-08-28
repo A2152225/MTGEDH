@@ -31,6 +31,21 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
+/** Skip-through-DRAW needs a real library so empty-library SBAs do not eliminate the turn player. */
+function seedSkipDrawLibrary(game: any, playerId: string, count = 3) {
+  const cards = Array.from({ length: count }, (_, i) => ({ id: `lib_${i + 1}`, name: 'Island' }));
+  const zones = ((game.state as any).zones || {})[playerId] || {};
+  (game.state as any).zones = (game.state as any).zones || {};
+  (game.state as any).zones[playerId] = {
+    ...zones,
+    library: cards,
+    libraryCount: cards.length,
+  };
+  if (typeof game.libraries?.set === 'function') {
+    game.libraries.set(playerId, cards.map((card: any) => ({ ...card })));
+  }
+}
+
 async function resetGame(gameId: string) {
   await resetIntegrationGame(gameId);
 }
@@ -225,6 +240,7 @@ describe('skipToPhase continuation (integration)', () => {
       [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
       [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
     };
+    seedSkipDrawLibrary(game, p2);
     (game.state as any).battlefield = [
       {
         id: 'saga_perm',
@@ -487,6 +503,7 @@ describe('skipToPhase continuation (integration)', () => {
       [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
       [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
     };
+    seedSkipDrawLibrary(game, p2);
     (game.state as any).battlefield = [
       {
         id: 'sun_perm',
@@ -704,6 +721,7 @@ describe('skipToPhase continuation (integration)', () => {
         libraryCount: 1,
       },
     };
+    seedSkipDrawLibrary(game, p2);
     (game.state as any).battlefield = [
       {
         id: 'upkeep_perm',
@@ -898,7 +916,7 @@ describe('skipToPhase continuation (integration)', () => {
         libraryCount: 1,
       },
     };
-    game.libraries.set(p2, [{ id: 'lib_1', name: 'Island' }]);
+    seedSkipDrawLibrary(game, p2);
     (game.state as any).battlefield = [
       {
         id: 'tapped_land',

@@ -272,6 +272,14 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     enumerable: false,
     configurable: true,
   });
+  Object.defineProperty(game, "rng", {
+    get: () => ctx.rng,
+    set: (value) => {
+      if (typeof value === "function") ctx.rng = value;
+    },
+    enumerable: false,
+    configurable: true,
+  });
 
   // Socket handlers use `(game as any).ctx || game`. Without this, they see the
   // wrapper (whose gameId can diverge from the live context) and queue prompts

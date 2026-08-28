@@ -1,6 +1,6 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-08-27 (Phase 5 depth: leftovers — War Cadence this-turn, AI block tax, Island Sanctuary skip-draw)
+Last updated: 2026-08-28 (Phase 5 depth: leftovers — Phyresis/Grafted host infect grants)
 
 > **Cost reducers / alternate costs** (separate workstream): see [`docs/cost-reduction-handoff.md`](cost-reduction-handoff.md).
 
@@ -32,9 +32,10 @@ Done recently:
 - Katabatic / Serra Bestiary `{T}`-cost activation locks are StaticEffectSpec (`can't activate tap abilities`). Live activate, tapPermanent, mana availability, can-respond, and AI payment skip those taps.
 - Gravity Sphere / Mystic Decree `All creatures lose [keywords]` is `removeAbilities` on all_creatures. Moat / Katabatic with/without-keyword conditions use layer-6 effective keywords (grants then removals), so Sphere + Moat locks printed flyers and Levitation flies over Moat. Until-EOT lose (Whiteout) and Humility lose-all are skipped.
 - Pillowfort attack-you tax is oracle `StaticEffectSpec` (`attackYouTaxGeneric` plus `attackYouTaxPhyrexian` for `{W/P}`). Live declare no longer name-routes Ghostly Prison / Propaganda / Sphere of Safety / Baird / Norn's Annex / Archangel of Tithes. `{W/P}` is color-or-2-life (mix allowed), not generic 2. War Tax this-turn stamps `lastingEffects.attackTaxGeneric` (idle enchantment does not tax). War Cadence this-turn stamps `lastingEffects.blockTaxGeneric` (idle enchantment does not tax). Island Sanctuary idle does not lock; draw-step skip-draw is an optional `ReplacementEffectSpec`, and skipping stamps `lastingEffects.attackYouProhibitedExceptKeywords`. Elephant Grass color-gated tax/prohibition and Blazing Archon `attackYouProhibited` evaluate per attacker. Gated `can't attack you`: Form of the Dragon without-keyword, Sandwurm with-keyword, Reverence power-at-most, Combat Calligrapher creature type, Island Sanctuary `target_lacks_all_keywords`. Layer-6 flying grants/losses apply (Levitation / Gravity Sphere). Vow / Spectral Grasp / Assault Suit host `attackYouProhibited` (self-scope on the enchanted/equipped creature). Crawlspace `attackYouMaxAttackers` (min cap). Teferi's Moat chosen-color without-keyword (needs `chosenColor` on the permanent). Eriette aura-you-control. Silent Arbiter / Dueling Grounds / Caverns of Despair `maxAttackersEachCombat` and `maxBlockersEachCombat` (global; live declare and AI execute honor caps; AI blockers trim to the cap). Archangel of Tithes `blockTaxGeneric` while attacking (live declare prompts; unique blockers; AI pays generic mana or drops optional extras). Blanket `can't attack` still not granted.
+- Phyresis / Grafted Exoskeleton `"Enchanted/Equipped creature has infect"` is a StaticEffectSpec host grant (`ABILITY_WORDS` includes infect). Live combat poison uses continuous grants. Unused `KNOWN_INFECT_GRANTS` deleted; `detectInfectGrantEffect` is oracle-only.
 
 Verify:
-cd server ; npx vitest run tests/attack-you-tax-oracle-detect.unit.test.ts tests/attack-cost-phyrexian.resolution-queue.integration.test.ts tests/attack-tax-this-turn.unit.test.ts tests/block-tax-this-turn.unit.test.ts tests/combat-ai-max-attackers-blockers.socket.test.ts tests/block-cost-payment.resolution-queue.integration.test.ts tests/skip-draw-replacement.replay.test.ts tests/combat-max-blockers-each-combat.socket.test.ts tests/attack-cost-payment.resolution-queue.integration.test.ts tests/static-effect-spec-leftover-templates.unit.test.ts --pool=threads --maxWorkers=1
+cd server ; npx vitest run tests/static-effect-spec-leftover-templates.unit.test.ts tests/combat.infect-wither.test.ts tests/static-effect-spec.unit.test.ts --pool=threads --maxWorkers=1
 cd rules-engine ; npx vitest run test/attackRestrictionText.test.ts test/oracleIRAttackYouProhibitedExceptKeywords.test.ts test/oracleIRAttackTaxThisTurn.test.ts test/oracleIRBlockTaxThisTurn.test.ts --pool=threads --maxWorkers=1
 
 Next work (priority):
@@ -42,6 +43,15 @@ Next work (priority):
 2. Phase 5 remaining depth: replay CounterSpell / CounterAbility dual-path (keep until asked); drive static:/replacement:owned_but_unhandled toward zero. Live player damage still uses calculateModifiedDamage first; registry now matches for floor caps.
 3. Alchemy stays unwired. TRIGGER_PRIMARY census is a later mountain.
 ```
+
+## Session 2026-08-28 — Phase 5 depth: leftovers (host infect grants)
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Host infect** | `ABILITY_WORDS` includes `infect` (plus `flash`/`defender`/`shadow`/`flanking`/`persist`/`undying`/`battle cry`/`mentor`) so Phyresis / Grafted Exoskeleton `"has infect"` is not dropped by `pushAttachedHostKeywordGrants`. Live combat poison uses continuous grants. | `staticEffectSpecOracleParseHelpers.ts`, leftover-template tests, `combat.infect-wither.test.ts` |
+| **Name table** | Unused `KNOWN_INFECT_GRANTS` deleted. `detectInfectGrantEffect` is oracle-only (printed Infect / “with infect” filters are not grants). | `special-card-effect-tables.ts` |
+| **Left unwired** | Davriel, Soul Broker Alchemy offers. Humility lose-all and Whiteout until-EOT lose flying stay skipped. Do not flip `vitest.setup.ts`. | — |
+| **Still open** | Replay CounterSpell dual-path; real EDH tables / telemetry; TRIGGER_PRIMARY census later. | |
 
 ## Session 2026-08-27 — Phase 5 depth: leftovers (War Cadence / AI block tax / Island Sanctuary skip-draw)
 
