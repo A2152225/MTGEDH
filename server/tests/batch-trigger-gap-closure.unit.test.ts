@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseTriggeredAbilitiesFromText } from '../../rules-engine/src/triggeredAbilitiesParsing.js';
+import { parseDelayedTriggerFromText } from '../../rules-engine/src/delayedTriggeredAbilities.js';
 import {
   detectSpellCastTriggers,
   detectAttackTriggers,
@@ -1377,7 +1378,15 @@ const GAP_CASES: GapCase[] = [
   {
     name: 'Puppeteer Clique (your next end step)',
     oracle_text: "At the beginning of your next end step, return all creatures you control to their owner's hand.",
-    detect: () => detectEndStepTriggers({ name: 'Puppeteer Clique', oracle_text: "At the beginning of your next end step, return all creatures you control to their owner's hand." }, permanent).length > 0,
+    detect: () => {
+      const oracle = "At the beginning of your next end step, return all creatures you control to their owner's hand.";
+      // Repeating detectEndStepTriggers is for "your/each end step" on the card.
+      // "your next end step" is a delayed trigger (CR 603.7), not a repeating ability.
+      if (detectEndStepTriggers({ name: 'Puppeteer Clique', oracle_text: oracle }, permanent).length > 0) {
+        return false;
+      }
+      return parseDelayedTriggerFromText(oracle, 'SRC', 'Puppeteer Clique', 'P1', 1) != null;
+    },
   },
   {
     name: 'Chancellor of the Forge (first upkeep)',

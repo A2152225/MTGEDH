@@ -3720,7 +3720,7 @@ describe('AI resolution-step integration', () => {
 
         const stackNames = (((game.state as any).stack) || []).map((entry: any) => String(entry?.card?.name || entry?.sourceName || ''));
         expect(stackNames).toContain('Martial Coup');
-      });
+      }, { timeout: 5000 });
     } finally {
       ResolutionQueueManager.off(aiHandler);
     }

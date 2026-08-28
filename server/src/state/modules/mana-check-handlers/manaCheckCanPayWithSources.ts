@@ -400,6 +400,34 @@ export function canPayManaCostWithAvailableSources(
     return false;
   };
 
+  const optionHasNonManaExtraCost = (option: ExactManaSource['options'][number]): boolean => Boolean(
+    option.activationCost
+    || Number(option.lifeCost || 0) > 0
+    || option.handCost
+    || option.sacrificeCost
+    || option.returnToHandCost
+    || option.removeCounterCost
+  );
+  const cheapSources = sources
+    .map((source) => ({
+      ...source,
+      options: source.options.filter((option) => !optionHasNonManaExtraCost(option)),
+    }))
+    .filter((source) => source.options.length > 0);
+  // Ashnod's Altar × N tokens is C(N,k) per activation. Lands/rocks that already
+  // pay must win before that tree is explored, or canAct hangs on wide boards.
+  if (
+    cheapSources.length > 0
+    && cheapSources.length < sources.length
+    && search(floatingPool, effectiveLifeAvailable, cheapSources, [], handCandidates)
+  ) {
+    return true;
+  }
+  nodesVisited = 0;
+  budgetExceeded = false;
+  memo.clear();
+  visiting.clear();
+
   const exactResult = search(floatingPool, effectiveLifeAvailable, sources, battlefieldCandidates, handCandidates);
   if (exactResult) {
     return true;

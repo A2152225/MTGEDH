@@ -467,6 +467,15 @@ const RESOLUTION_PAYMENT_MANA_KEYS = ['white', 'blue', 'black', 'red', 'green', 
 
 // triggeredSourceExilesSpellCastThisWay -> extracted helper/utils
 
+const appliedAiResolutionSideEffectKeys = new Set<string>();
+
+function claimAiResolutionSideEffect(gameId: string, stepId: string): boolean {
+  const key = `${gameId}:${stepId}`;
+  if (appliedAiResolutionSideEffectKeys.has(key)) return false;
+  appliedAiResolutionSideEffectKeys.add(key);
+  return true;
+}
+
 export async function handleAIResolutionStep(
   io: Server,
   gameId: string,
@@ -483,15 +492,40 @@ export async function handleAIResolutionStep(
         && queuedStep.status === ResolutionStepStatus.PENDING,
     );
     if (!stillPending) {
-      // Another AI listener may have completeStep'd mutate without applying
-      // pendingSpellCasts.mutateTarget / the payment queue.
-      if (step.type === ResolutionStepType.MUTATE_TARGET_SELECTION) {
-        const completed = ResolutionQueueManager.getQueue(gameId).completedSteps.find(
-          (entry) => entry.id === step.id && entry.response,
-        );
-        if (completed?.response) {
-          await applyResolutionStepSideEffects(io, game, gameId, step, completed.response);
-        }
+      // Another AI listener may have completeStep'd without applying side effects
+      // (stacked initializeAIResolutionHandler in the test suite, or mutate without
+      // pendingSpellCasts.mutateTarget / the payment queue).
+      const completed = ResolutionQueueManager.getQueue(gameId).completedSteps.find(
+        (entry) => entry.id === step.id && entry.response,
+      );
+      const stepAny = step as any;
+      const playerId = String(step.playerId || '');
+      const cardId = String(stepAny?.spellCardId || stepAny?.sourceId || '').trim();
+      const zoneName = String(stepAny?.spellFromZone || 'hand');
+      const zoneCards = (game?.state as any)?.zones?.[playerId]?.[zoneName];
+      const spellCardStillInSourceZone = Boolean(
+        cardId
+        && Array.isArray(zoneCards)
+        && zoneCards.some((card: any) => String(card?.id || '') === cardId),
+      );
+      const hasQueuedSpellPayment = ResolutionQueueManager.getQueue(gameId).steps.some(
+        (queued: any) =>
+          queued?.type === ResolutionStepType.MANA_PAYMENT_CHOICE
+          && queued?.spellPaymentRequired === true
+          && (String(queued?.cardId || '') === cardId || String(queued?.sourceId || '') === cardId),
+      );
+      const shouldCatchUp = Boolean(completed?.response) && (
+        step.type === ResolutionStepType.MUTATE_TARGET_SELECTION
+        || (
+          step.type === ResolutionStepType.X_VALUE_SELECTION
+          && stepAny?.spellCastXSelection === true
+          && !completed?.response?.cancelled
+          && spellCardStillInSourceZone
+          && !hasQueuedSpellPayment
+        )
+      );
+      if (shouldCatchUp && completed?.response && claimAiResolutionSideEffect(gameId, step.id)) {
+        await applyResolutionStepSideEffects(io, game, gameId, step, completed.response);
       }
       return;
     }
@@ -685,7 +719,7 @@ export async function handleAIResolutionStep(
     
     if (response) {
       const success = ResolutionQueueManager.completeStep(gameId, step.id, response);
-      if (success) {
+      if (success && claimAiResolutionSideEffect(gameId, step.id)) {
         await applyResolutionStepSideEffects(io, game, gameId, step, response);
       }
     }
