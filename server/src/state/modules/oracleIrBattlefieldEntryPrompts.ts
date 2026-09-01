@@ -24,6 +24,10 @@ import {
 } from '../../socket/game-actions-handlers/gameActionsPermanentEntryPrompts.js';
 import { checkAsEntersCopyChoiceForNewPermanents } from './asEntersCopyChoice.js';
 import { applyGraveyardTypeEntryCounterGrants } from './graveyardTypeEntryCounterBonus.js';
+import {
+  applyAsEntersAutomaticReplacementsForPermanent,
+  tryApplyAsEntersAutomaticReplacementsForPermanent,
+} from './oracleIrBattlefieldEntryAutomaticReplacements.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { debug } from '../../utils/debug.js';
 
@@ -116,6 +120,17 @@ export function queueBattlefieldEntryReplacementPromptsAfterOracleIR(
     const controller = controllerOf(permanent);
     if (!controller) continue;
     applyGraveyardTypeEntryCounterGrants(state, permanent, controller);
+    try {
+      tryApplyAsEntersAutomaticReplacementsForPermanent(
+        state,
+        permanent,
+        controller,
+        applyAsEntersAutomaticReplacementsForPermanent,
+      );
+    } catch (error) {
+      // Unbound / missing helper must not kill the process (tsx transpile-only).
+      debug(2, `[oracleIR] as-enters automatic replacements skipped: ${error}`);
+    }
     const imageUrl = card.image_uris?.small || card.image_uris?.normal;
     const typeLine = String(card.type_line || '').toLowerCase();
     const isLand = typeLine.includes('land');
