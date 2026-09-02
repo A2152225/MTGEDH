@@ -75,6 +75,10 @@ import { ENTERS_OR_OTHER_EVENT_PREFIX } from "./triggers/enters-or-other-event-p
 import { detectTargetType } from "./triggers/detect-target-type.js";
 import { detectETBTriggers } from "./triggers/etb-detection.js";
 import { detectCombatDamageTriggers } from "./triggers/combat-damage-detection.js";
+import {
+  applyFirstTimeEachTurnFlags,
+  resolveDetectorOracleForPermanent,
+} from "./triggers/detectorGrantedOracle.js";
 
 
 // Re-export from modularized submodules
@@ -618,9 +622,11 @@ export function detectDiscardTriggers(card: any, permanent: any): TriggeredAbili
 /**
  * Detect becomes-the-target triggers from oracle text.
  */
-export function detectTargetedTriggers(card: any, permanent: any): TriggeredAbility[] {
+export function detectTargetedTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
-  const oracleText = String(card?.oracle_text || '');
+  const printedOracle = String(card?.oracle_text || '');
+  const annotated = resolveDetectorOracleForPermanent(permanent, printedOracle, gameState);
+  const oracleText = annotated.oracleText;
   const cardName = String(card?.name || 'Unknown');
   const permanentId = permanent?.id || '';
   const cardNameEscaped = escapeCardNameForRegex(cardName);
@@ -640,19 +646,19 @@ export function detectTargetedTriggers(card: any, permanent: any): TriggeredAbil
     /whenever you and\/or at least one permanent you control becomes the target of (?:a |an )?spell or ability an opponent controls,?\s*([^.]+)/i,
     /whenever a creature you control with a \+1\/\+1 counter on it becomes the target of (?:a |an )?spell(?: or ability)? an opponent controls,?\s*([^.]+)/i,
     /whenever you become the target of (?:a |an )?spell or ability an opponent controls,?\s*([^.]+)/i,
-    /whenever you become the target of (?:a |an )?spell,?\s*([^.]+)/i,
+    /whenever you become the target of (?:a |an )?spell(?! or ability),?\s*([^.]+)/i,
     /whenever a creature becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
-    /when(?:ever)? (?:a |an )?creature becomes the target of (?:a |an )?spell,?\s*([^.]+)/i,
+    /when(?:ever)? (?:a |an )?creature becomes the target of (?:a |an )?spell(?! or ability),?\s*([^.]+)/i,
     /when(?:ever)? (?:a |an )?creature (?:attacks or )?becomes the target of a spell an opponent controls,?\s*([^.]+)/i,
     new RegExp(`when(?:ever)? (?:${targetedNameRefs.join('|')}) (?:attacks or )?becomes the target of a spell an opponent controls,?\\s*([^.]+)`, 'i'),
     /when(?:ever)? (?:a |an )?creature you control becomes the target of (?:a |an )?(?:instant or sorcery )?spell,?\s*([^.]+)/i,
     /when(?:ever)? (?:a |an )?creature you control becomes the target of (?:a |an )?backup ability,?\s*([^.]+)/i,
     new RegExp(`whenever (?:${targetedNameRefs.join('|')}) becomes the target of an ability that targets only it,?\\s*(.+)$`, 'i'),
-    new RegExp(`when(?:ever)? (?:${targetedNameRefs.join('|')}) becomes the target of (?:a |an )?spell,?\\s*([^.]+)`, 'i'),
     new RegExp(`when(?:ever)? (?:${targetedNameRefs.join('|')}) becomes the target of (?:a |an )?spell or ability,?\\s*([^.]+)`, 'i'),
     new RegExp(`whenever (?:${targetedNameRefs.join('|')}) becomes the target of (?:a |an )?spell or ability,?\\s*([^.]+)`, 'i'),
+    new RegExp(`when(?:ever)? (?:${targetedNameRefs.join('|')}) becomes the target of (?:a |an )?spell(?! or ability),?\\s*([^.]+)`, 'i'),
     /whenever (?:a |an |another )?creature you control becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
-    /when(?:ever)? enchanted creature becomes the target of (?:a |an )?spell,?\s*([^.]+)/i,
+    /when(?:ever)? enchanted creature becomes the target of (?:a |an )?spell(?! or ability),?\s*([^.]+)/i,
     /when(?:ever)? enchanted creature becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
     /whenever (?:a |an )?(?:player or permanent|permanent or player) becomes the target of (?:an )?ability you control,?\s*([^.]+)/i,
     /whenever equipped creature becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
@@ -677,7 +683,9 @@ export function detectTargetedTriggers(card: any, permanent: any): TriggeredAbil
     const match = oracleText.match(pattern);
     if (!match) continue;
     const effectText = String(match[match.length - 1] || '').trim();
-    if (!effectText || triggers.some((trigger) => trigger.effect === effectText)) continue;
+    // "spell" must not steal the tail of "spell or ability, …".
+    if (!effectText || /^or ability\b/i.test(effectText)) continue;
+    if (triggers.some((trigger) => trigger.effect === effectText)) continue;
     triggers.push({
       permanentId,
       cardName,
@@ -685,10 +693,11 @@ export function detectTargetedTriggers(card: any, permanent: any): TriggeredAbil
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
+      controllerId: String(permanent?.controller || ''),
     });
   }
 
-  return triggers;
+  return applyFirstTimeEachTurnFlags(triggers, annotated);
 }
 
 export { detectETBTriggers, getETBTriggersForPermanent } from "./triggers/zone-changes.js";

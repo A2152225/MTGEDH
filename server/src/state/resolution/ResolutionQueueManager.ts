@@ -234,7 +234,9 @@ class ResolutionQueueManagerClass {
       return step;
     }
     addStep(queue, step);
-    if (options?.skipEmit) {
+    // Replay restore must rehydrate the queue without notifying live sockets.
+    // Historical scry/surveil prompts otherwise re-open client modals after undo/restart.
+    if (options?.skipEmit || this.replayingGames.has(gameId)) {
       return step;
     }
     if (this.shouldDeferStepAddedEvents(gameId)) {

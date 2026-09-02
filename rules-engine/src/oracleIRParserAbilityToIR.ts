@@ -46,6 +46,27 @@ import {
 import type { ParsedAbility } from './oracleTextParser';
 import { AbilityType } from './oracleTextParser';
 
+const AS_ENTERS_CHOOSE_STEP_KINDS = new Set([
+  'choose_color',
+  'choose_creature_type',
+  'choose_basic_land_type',
+  'choose_card_name',
+  'choose_opponent',
+]);
+
+function stampAsEntersChooseRaw(
+  ability: ParsedAbility,
+  steps: readonly OracleEffectStep[],
+): OracleEffectStep[] {
+  const full = String(ability.text || '').replace(/\.+$/g, '').trim();
+  if (!/^as\s+.+\s+enters/i.test(full)) return [...steps];
+  return steps.map((step) => {
+    if (!AS_ENTERS_CHOOSE_STEP_KINDS.has(String(step.kind || ''))) return step;
+    if (/as\s+.+\s+enters/i.test(String((step as { raw?: string }).raw || ''))) return step;
+    return { ...step, raw: full };
+  });
+}
+
 export function parseAbilityToIRAbility(
   ability: ParsedAbility,
   cardName: string | undefined,
@@ -379,6 +400,6 @@ export function parseAbilityToIRAbility(
     triggerCondition: ability.triggerCondition,
     interveningIf: ability.interveningIf,
     effectText,
-    steps,
+    steps: stampAsEntersChooseRaw(ability, steps),
   };
 }

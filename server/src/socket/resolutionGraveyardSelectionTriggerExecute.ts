@@ -19,6 +19,11 @@ import { broadcastGame, emitToPlayer } from "./util.js";
 export function isConcreteTriggeredGraveyardZoneMove(stepData: any): boolean {
   const destination = String(stepData?.destination || '').toLowerCase();
   const delayedReturnAt = String(stepData?.delayedReturnAt || '').toLowerCase();
+  // Triggered GY→exile clauses (Steward / Hazel) must run executeTriggerEffect
+  // so compound tails (create a Food) and IR provenance stamps apply.
+  if (destination === 'exile' && String(stepData?.triggeredAbilityEffectText || '').trim()) {
+    return false;
+  }
   return (
     destination === 'hand'
     || destination === 'battlefield'

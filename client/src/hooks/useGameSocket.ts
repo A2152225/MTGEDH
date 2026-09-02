@@ -99,7 +99,7 @@ export interface UseGameSocketState {
 
   // actions
   handleJoin: () => void;
-  joinFromList: (gameId: string) => void;
+  joinFromList: (gameId: string, spectator?: boolean) => void;
   leaveGame: (onLeft?: () => void) => void;
   requestImportDeck: (list: string, deckName?: string) => void;
   requestUseSavedDeck: (deckId: string) => void;

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
-import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 
 describe('oracle IR unless-pay queue adapter', () => {
   it('queues sacrifice-unless-pay upkeep prompts for Phantasmal Forces style text under legacy-primary coexistence', () => {
@@ -43,15 +43,11 @@ describe('oracle IR unless-pay queue adapter', () => {
     );
 
     const steps = ResolutionQueueManager.getStepsForPlayer(gameId, p1);
-    const unlessPayStep = steps.find(
-      (step) =>
-        step.type === ResolutionStepType.MANA_PAYMENT_CHOICE &&
-        (step as any)?.sacrificeUnlessPayChoice === true,
-    );
+    const unlessPayStep = steps.find((step) => (step as any)?.oracleIrUnlessPayChoice === true);
 
     expect(unlessPayStep).toBeTruthy();
-    expect((unlessPayStep as any)?.manaCost).toBe('{U}');
-    expect((unlessPayStep as any)?.permanentId).toBe('forces-self');
+    expect((unlessPayStep as any)?.optionalPaymentManaCost).toBe('{U}');
+    expect((unlessPayStep as any)?.oracleIrSourceId || (unlessPayStep as any)?.sourceId).toBe('forces-self');
   });
 
   it('queues unless-pays-mana prompts for Force Spike style text', () => {

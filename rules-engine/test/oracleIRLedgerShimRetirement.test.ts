@@ -105,7 +105,7 @@ describe('oracleIR ledger shim retirement', () => {
     });
 
     expect(sanitized.skipLedgerFlush).toBe(true);
-    expect(sanitized.lastMovedCards).toBeUndefined();
+    expect(sanitized.lastMovedCards).toEqual([{ id: 'stale' }]);
     expect(sanitized.lastExiledCards).toBeUndefined();
     expect(sanitized.lastDiscardedCards).toBeUndefined();
     expect(sanitized.lastMilledCards).toBeUndefined();

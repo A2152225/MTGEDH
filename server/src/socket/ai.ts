@@ -51,12 +51,14 @@ import {
   type ParsedManaCost,
 } from "../state/modules/mana-check.js";
 import { canAct, canPlayLand, canRespond, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates, isCardPlayableAsLandFromHand, type SharedCommanderCastCandidate, type SharedPlayableLandCandidate, type SharedSpellSourceZone } from "../state/modules/can-respond.js";
+import { cardGrantsNoMaximumHandSize } from "../state/modules/handSizeUtils.js";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan } from "../state/modules/cost-adjustments.js";
 import { canCastFromTop, canPlayLandsFromTop } from "../state/modules/game-state-effects.js";
 import { getAvailableReflexiveManaAmountFromPool, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from "../state/modules/reflexive-triggers.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { resolveManaAbilityLifeEffect } from "../state/modules/mana-abilities-handlers/manaAbilitySelfDamage.js";
 import { runSBA } from "../state/modules/counters_tokens.js";
 import { movePermanentToHand } from "../state/modules/zones.js";
 import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
@@ -75,6 +77,7 @@ import {
   getMaxAffordableSpellX,
   isSpellWorthCastingAtX,
 } from "../state/modules/spellXCastUtils.js";
+import { chooseDelayedDrawUpToCount } from "../state/modules/triggerDelayedDrawUpToUtils.js";
 import {
   chooseMultikickerTimesForChargeInvest,
   expandManaCostWithMultikicker,
@@ -343,22 +346,15 @@ export { handleBounceLandETB };
 export { rememberAIFailedSpellCast };
 
 export function chooseAIXValueSelection(game: any, playerId: PlayerID, step: any): number {
+  if (step?.delayedDrawUpTo === true) {
+    return chooseDelayedDrawUpToCount(game, playerId, step);
+  }
   return chooseSpellXValueFromStep(game, playerId, step);
 }
 
 
 function getAIManaLifeEffect(card: any, producesColoredMana: boolean): { amount: number; isDamage: boolean } {
-  if (!producesColoredMana) {
-    return { amount: 0, isDamage: false };
-  }
-
-  const oracleText = String(card?.oracle_text || '').toLowerCase();
-  const isDamage = oracleText.includes('deals 1 damage to you');
-  if (!isDamage) {
-    return { amount: 0, isDamage: false };
-  }
-
-  return { amount: 1, isDamage };
+  return resolveManaAbilityLifeEffect({ card, producesColoredMana });
 }
 
 
@@ -451,16 +447,23 @@ function calculateResponseSpellPriority(
   const typeLine = String(card?.type_line || '').toLowerCase();
   const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
 
-  if (oracleText.includes('counter target') && stack.length > 0) {
-    const hasOpponentStackObject = stack.some(
-      (item: any) => String(item?.controller || item?.controllerId || '') !== String(playerId),
-    );
-    if (hasOpponentStackObject) {
-      priority += 120;
-    }
+  const isUntargetedStackWipe =
+    /\bexile all (?:other )?spells\b/.test(oracleText)
+    || /\bcounter all (?:activated and triggered )?abilities\b/.test(oracleText);
+  const hasOpponentStackObject = stack.some((item: any) => {
+    const controller = String(item?.controller || item?.controllerId || '').trim();
+    return controller.length > 0 && controller !== String(playerId);
+  });
+
+  if (oracleText.includes('counter target') && stack.length > 0 && hasOpponentStackObject) {
+    priority += 120;
   }
 
-  if (oracleText.includes('destroy') || oracleText.includes('exile')) {
+  if (isUntargetedStackWipe && hasOpponentStackObject) {
+    priority += 120;
+  }
+
+  if ((oracleText.includes('destroy') || oracleText.includes('exile')) && !isUntargetedStackWipe) {
     priority += 45;
   }
 
@@ -538,6 +541,7 @@ function needsToDiscard(game: any, playerId: PlayerID): { needsDiscard: boolean;
  * Choose cards for AI to discard - prioritizes keeping castable and valuable spells
  * 
  * Priority for KEEPING (higher score = keep):
+ * - No-max-hand-size permanents (Reliquary Tower / Thought Vessel): +250
  * - Lands: +100 (always valuable)
  * - Castable spells (can be cast next turn): +50
  * - Removal spells: +30
@@ -547,7 +551,7 @@ function needsToDiscard(game: any, playerId: PlayerID): { needsDiscard: boolean;
  * The AI should discard high-CMC spells it can't cast rather than
  * castable spells, even if those spells are technically "better"
  */
-function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: number): string[] {
+export function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: number): string[] {
   const zones = game.state?.zones?.[playerId];
   const hand = Array.isArray(zones?.hand) ? zones.hand : [];
   const profile = ensureAIDeckProfile(game, playerId);
@@ -566,8 +570,13 @@ function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: numbe
     let score = 50; // Base score
     const typeLine = (card?.type_line || '').toLowerCase();
     const oracleText = (card?.oracle_text || '').toLowerCase();
+
+    // Reliquary Tower / Thought Vessel / Spellbook beat cheap castable spells.
+    if (cardGrantsNoMaximumHandSize(card)) {
+      score += 250;
+    }
     
-    // Keep lands (highest priority)
+    // Keep lands (highest priority among remaining cards)
     if (typeLine.includes('land')) {
       score += 100;
       return { card, score };

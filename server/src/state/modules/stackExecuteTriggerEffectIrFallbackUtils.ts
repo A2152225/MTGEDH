@@ -79,7 +79,9 @@ export function applyOracleIRFallbackForTriggeredEffect(
   const players = Array.isArray((ctx as any).state?.players) ? (ctx as any).state.players : [];
   const playerIds = new Set(players.map((player: any) => String(player?.id || '')).filter(Boolean));
 
-  let targetPlayerId = String(triggerItem?.targetPlayerId || '').trim() as PlayerID;
+  let targetPlayerId = String(
+    triggerItem?.targetPlayerId || triggerItem?.thatPlayerId || '',
+  ).trim() as PlayerID;
   if (!targetPlayerId) {
     const defendingPlayerId = String(triggerItem?.defendingPlayer || '').trim();
     if (defendingPlayerId && !defendingPlayerId.startsWith('perm_') && playerIds.has(defendingPlayerId)) {
@@ -109,6 +111,11 @@ export function applyOracleIRFallbackForTriggeredEffect(
     targetPlayerId = resolveTriggeredAbilityTargetPlayerId((ctx as any).state, triggerItem) as PlayerID;
   }
   const sourceId = String(sourcePermanentId || triggerItem?.sourceId || triggerItem?.id || '').trim();
+  const triggeringStackItemId = String(
+    triggerItem?.triggeringStackItemId
+      || triggerItem?.effectData?.triggeringStackItemId
+      || '',
+  ).trim();
 
   const normalizedTargetIds = targets
     .map((targetRef: any) => (typeof targetRef === 'string' ? targetRef : String(targetRef?.id || '')))
@@ -182,7 +189,7 @@ export function applyOracleIRFallbackForTriggeredEffect(
     targetPermanentId:
       targetBinding.targetPermanentId || interveningSubjectPermanentId || untappedPermanentId || undefined,
     targetCreatureId: targetBinding.targetCreatureId,
-    targetSpellId: targetBinding.targetSpellId,
+    targetSpellId: targetBinding.targetSpellId || triggeringStackItemId || undefined,
     chosenObjectIds: chosenObjectIds.length > 0 ? chosenObjectIds : undefined,
     referenceAmount:
       Number.isFinite(lifeLostReference) && lifeLostReference > 0

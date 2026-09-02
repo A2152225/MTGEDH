@@ -63,6 +63,114 @@ describe('activation effect replay semantics', () => {
     expect((game.state as any).zones[p1].libraryCount).toBe(0);
   });
 
+  it('does not replace a populated libraries Map with an empty zones.library on sacrifice-draw replay', () => {
+    const game = createInitialGameState('t_activate_sacrifice_draw_map_not_wiped');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+    };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game as any).libraries = new Map([
+      [p1, [
+        { id: 'top_1', name: 'Top Card', type_line: 'Instant', zone: 'library' },
+        { id: 'lib_2', name: 'Second', type_line: 'Land', zone: 'library' },
+        { id: 'lib_3', name: 'Third', type_line: 'Creature', zone: 'library' },
+      ]],
+    ]);
+    (game.state as any).battlefield = [
+      {
+        id: 'sphere_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'sphere_card_1',
+          name: "Commander's Sphere",
+          type_line: 'Artifact',
+          oracle_text: "Sacrifice this artifact: Draw a card.",
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateSacrificeDrawAbility',
+      playerId: p1,
+      permanentId: 'sphere_1',
+      manaCost: '{2}',
+      requiresTap: false,
+    } as any);
+
+    expect((game.state as any).battlefield).toHaveLength(0);
+    expect((game.state as any).zones[p1].hand).toHaveLength(1);
+    expect((game.state as any).zones[p1].hand[0].id).toBe('top_1');
+    const remaining = (game as any).libraries.get(p1) || [];
+    expect(remaining.map((card: any) => card.id)).toEqual(['lib_2', 'lib_3']);
+    expect((game.state as any).zones[p1].libraryCount).toBe(2);
+    expect((game.state as any).zones[p1].library.map((card: any) => card.id)).toEqual(['lib_2', 'lib_3']);
+  });
+
+  it('replays activateSacrificeDrawAbility drawnCardIds from the libraries Map when zones.library is empty', () => {
+    const game = createInitialGameState('t_activate_sacrifice_draw_by_id');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game as any).libraries = new Map([
+      [p1, [
+        { id: 'skip_1', name: 'Skip', type_line: 'Land', zone: 'library' },
+        { id: 'want_1', name: 'Wanted', type_line: 'Instant', zone: 'library' },
+      ]],
+    ]);
+    (game.state as any).battlefield = [
+      {
+        id: 'clue_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'clue_card_1',
+          name: 'Clue',
+          type_line: 'Token Artifact — Clue',
+          oracle_text: '{2}, Sacrifice this artifact: Draw a card.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateSacrificeDrawAbility',
+      playerId: p1,
+      permanentId: 'clue_1',
+      drawnCardIds: ['want_1'],
+    } as any);
+
+    expect((game.state as any).zones[p1].hand.map((card: any) => card.id)).toEqual(['want_1']);
+    expect(((game as any).libraries.get(p1) || []).map((card: any) => card.id)).toEqual(['skip_1']);
+  });
+
   it('replays activateDoublingCube by paying {3}, doubling the remaining mana, and tapping the cube', () => {
     const game = createInitialGameState('t_activate_doubling_cube_replay');
     const p1 = 'p1' as PlayerID;

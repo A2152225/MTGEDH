@@ -17,9 +17,10 @@ import {
   generateDeterministicId,
   clearReplayQueuedSteps,
 } from "../applyEventReplayZoneCommanderManaHelpers.js";
-import { applyOpponentMayPayResolve } from "../applyEventReplayCardMoveLibraryHelpers.js";
+import { applyOpponentMayPayResolve, pickMutablePlayerLibrary, writePlayerLibrary } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { debugWarn } from "../../../utils/debug.js";
 import { ResolutionStepType } from "../../resolution/index.js";
+import { stampCardExiledWithSource } from "../exileWithSourceStamp.js";
 
 export function applyGraveyardTargetConfirmEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -242,31 +243,25 @@ export function applyGraveyardTargetConfirmEvents(ctx: GameContext, e: GameEvent
               case 'library_top':
                 {
                   const destinationPlayerId = destinationUsesSelectedCardOwner ? sourceOwnerId : pid;
-                  const lib = ctx.libraries.get(destinationPlayerId) || [];
+                  const lib = pickMutablePlayerLibrary(ctx, destinationPlayerId);
                   lib.unshift({ ...card, zone: 'library' });
-                  ctx.libraries.set(destinationPlayerId, lib);
-                  const destinationZones = (zones[destinationPlayerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 }) as any;
-                  zones[destinationPlayerId] = destinationZones;
-                  destinationZones.library = lib;
-                  destinationZones.libraryCount = lib.length;
+                  writePlayerLibrary(ctx, destinationPlayerId, lib);
                   touchedZoneOwners.add(destinationPlayerId);
                 }
                 break;
               case 'library_bottom':
                 {
                   const destinationPlayerId = destinationUsesSelectedCardOwner ? sourceOwnerId : pid;
-                  const libBottom = ctx.libraries.get(destinationPlayerId) || [];
+                  const libBottom = pickMutablePlayerLibrary(ctx, destinationPlayerId);
                   libBottom.push({ ...card, zone: 'library' });
-                  ctx.libraries.set(destinationPlayerId, libBottom);
-                  const destinationZones = (zones[destinationPlayerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 }) as any;
-                  zones[destinationPlayerId] = destinationZones;
-                  destinationZones.library = libBottom;
-                  destinationZones.libraryCount = libBottom.length;
+                  writePlayerLibrary(ctx, destinationPlayerId, libBottom);
                   touchedZoneOwners.add(destinationPlayerId);
                 }
                 break;
               case 'exile':
-                (sourceZones.exile as any[]).push({ ...card, zone: 'exile' });
+                (sourceZones.exile as any[]).push(
+                  stampCardExiledWithSource(card, (e as any).exiledWithSourceId),
+                );
                 sourceZones.exileCount = (sourceZones.exile as any[]).length;
                 break;
             }
@@ -277,7 +272,9 @@ export function applyGraveyardTargetConfirmEvents(ctx: GameContext, e: GameEvent
             ownerZones.graveyard = Array.isArray(ownerZones.graveyard) ? ownerZones.graveyard : [];
             ownerZones.hand = Array.isArray(ownerZones.hand) ? ownerZones.hand : [];
             ownerZones.exile = Array.isArray(ownerZones.exile) ? ownerZones.exile : [];
-            ownerZones.library = Array.isArray(ownerZones.library) ? ownerZones.library : (ctx.libraries.get(ownerId) || []);
+            ownerZones.library = Array.isArray(ownerZones.library) && ownerZones.library.length > 0
+              ? ownerZones.library
+              : pickMutablePlayerLibrary(ctx, ownerId);
             ownerZones.graveyardCount = ownerZones.graveyard.length;
             ownerZones.handCount = ownerZones.hand.length;
             ownerZones.exileCount = ownerZones.exile.length;

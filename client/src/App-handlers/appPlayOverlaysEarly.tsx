@@ -4,7 +4,6 @@
 // Leaf must not import App.tsx or App-handlers/index.ts.
 
 import { socket } from "../socket";
-import { PhaseNavigator } from "../components/PhaseNavigator";
 import { CommanderSelectModal } from "../components/CommanderSelectModal";
 import CommanderConfirmModal from "../components/CommanderConfirmModal";
 import { ScrySurveilModal } from "../components/ScrySurveilModal";
@@ -16,6 +15,7 @@ import { TapUntapTargetModal } from "../components/TapUntapTargetModal";
 import { CounterMovementModal } from "../components/CounterMovementModal";
 import { StationCreatureSelectionModal } from "../components/StationCreatureSelectionModal";
 import { PlayerTargetSelectionModal } from "../components/PlayerTargetSelectionModal";
+import { bottomOrderIdsFromPeekConfirm } from "../utils/bottomOrderConfirm";
 
 export function renderAppPlayOverlaysEarly(p: Record<string, any>) {
   const {
@@ -90,38 +90,6 @@ export function renderAppPlayOverlaysEarly(p: Record<string, any>) {
   } = p;
   return (
     <>
-      {/* Phase Navigator - Floating component for quick phase navigation */}
-      {!showUtilityRail && !showMobileChrome && safeView && you && (
-        <PhaseNavigator
-          currentPhase={safeView.phase}
-          currentStep={safeView.step}
-          turnPlayer={safeView.turnPlayer}
-          you={you}
-          isYourTurn={safeView.turnPlayer != null && safeView.turnPlayer === you}
-          hasPriority={safeView.priority === you}
-          stackEmpty={!((safeView as any).stack?.length > 0)}
-          allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
-          phaseAdvanceBlockReason={phaseAdvanceBlockReason}
-          showDamageReplacementToggle={damageReplacementEffectActiveCount > 1}
-          damageReplacementMode={damageReplacementMode}
-          onSetDamageReplacementMode={(mode) => {
-            if (!safeView?.id) return;
-            setDamageReplacementMode(mode);
-            socket.emit('setReplacementEffectOrder', {
-              gameId: safeView.id,
-              effectType: 'damage',
-              mode,
-              customOrder: [],
-            });
-          }}
-          onOpenReplacementEffectSettings={() => setReplacementEffectSettingsOpen(true)}
-          onAdvanceOneStep={() => socket.emit("nextStep", { gameId: safeView.id })}
-          onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
-          onAdvancingChange={setPhaseNavigatorAdvancing}
-          onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })}
-        />
-      )}
-
       {/* Commander selection UI */}
       {effectiveGameId &&
         cmdModalOpen &&
@@ -366,6 +334,7 @@ export function renderAppPlayOverlaysEarly(p: Record<string, any>) {
       {/* Scry/Surveil */}
       {peek && resolutionPromptOpen(true, peek.stepId) && (
         <ScrySurveilModal
+          key={`${peek.mode}-${peek.stepId || 'peek'}`}
           mode={peek.mode}
           cards={peek.cards}
           imagePref={imagePref}
@@ -381,7 +350,7 @@ export function renderAppPlayOverlaysEarly(p: Record<string, any>) {
 
             const selections =
               peek.mode === "bottom_order"
-                ? { bottomOrder: res.bottomOrder || [] }
+                ? { bottomOrder: bottomOrderIdsFromPeekConfirm(res) }
                 : peek.mode === "scry"
                   ? { keepTopOrder: res.keepTopOrder || [], bottomOrder: res.bottomOrder || [] }
                   : { keepTopOrder: res.keepTopOrder || [], toGraveyard: res.toGraveyard || [] };

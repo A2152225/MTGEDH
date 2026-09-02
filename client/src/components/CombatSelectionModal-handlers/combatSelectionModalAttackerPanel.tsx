@@ -13,7 +13,13 @@ import {
 import { getCreatureInfo } from './combatSelectionModalCreatureInfo';
 import { DangerIndicatorBadges } from './combatSelectionModalDangerBadges';
 import type { CreatureGroup } from './combatSelectionModalGroupCreatures';
-import type { DefenderAttackInfo } from './combatSelectionModalTypes';
+import type { DefenderAttackInfo, CombatSelectionModalProps } from './combatSelectionModalTypes';
+import {
+  defenderInfoToAttackYouTax,
+  formatAttackYouTaxForCount,
+  formatAttackYouTaxPerCreature,
+  formatSelectedAttackersTax,
+} from '../../utils/combatAttackTax';
 
 export interface CombatAttackerSelectionPanelProps {
   mode: 'attackers' | 'blockers';
@@ -41,6 +47,7 @@ export interface CombatAttackerSelectionPanelProps {
   handleSetAttackTarget: (creatureId: string, targetId: string) => void;
   battlefieldForBlocking: BattlefieldPermanent[];
   playerNameById: ReadonlyMap<string, string>;
+  players?: CombatSelectionModalProps['players'];
 }
 
 export function CombatAttackerSelectionPanel({
@@ -69,7 +76,14 @@ export function CombatAttackerSelectionPanel({
   handleSetAttackTarget,
   battlefieldForBlocking,
   playerNameById,
+  players,
 }: CombatAttackerSelectionPanelProps) {
+  const selectedAttackCostLabel = formatSelectedAttackersTax(
+    selectedAttackers.entries(),
+    defenderInfoMap,
+    { defenderNameById: playerNameById, battlefield: battlefieldForBlocking, players },
+  );
+
   return (
     <>
         {/* Attacker Selection Mode */}
@@ -96,6 +110,7 @@ export function CombatAttackerSelectionPanel({
                     {defenders.map(d => {
                       const info = defenderInfoMap[d.id];
                       if (!info) return null;
+                      const perCreature = formatAttackYouTaxPerCreature(defenderInfoToAttackYouTax(info));
                       return (
                         <div key={`info-${d.id}`} style={{
                           fontSize: 11, color: '#94a3b8',
@@ -104,9 +119,9 @@ export function CombatAttackerSelectionPanel({
                         }}>
                           <strong style={{ color: '#f1f5f9' }}>{d.name}</strong>:
                           {' '}{info.untappedCreatureCount} untapped creature{info.untappedCreatureCount !== 1 ? 's' : ''}
-                          {info.attackTaxPerCreature > 0 && (
+                          {perCreature && (
                             <span style={{ color: '#fbbf24', marginLeft: 4 }}>
-                              • {`{${info.attackTaxPerCreature}}`}/attacker tax
+                              • {perCreature} tax
                             </span>
                           )}
                         </div>
@@ -117,9 +132,10 @@ export function CombatAttackerSelectionPanel({
 
                 {/* Attack All buttons - one per defender */}
                 {defenders.map(d => {
-                  const attackTax = defenderInfoMap?.[d.id]?.attackTaxPerCreature ?? 0;
+                  const tax = defenderInfoToAttackYouTax(defenderInfoMap?.[d.id]);
                   const attackersTargetingDefender = Array.from(selectedAttackers.values()).filter((target) => target === d.id).length;
-                  const totalTax = attackTax * attackersTargetingDefender;
+                  const currentCost = formatAttackYouTaxForCount(tax, attackersTargetingDefender);
+                  const perAttacker = formatAttackYouTaxPerCreature(tax);
                   return (
                   <button
                     key={`attack-all-${d.id}`}
@@ -137,11 +153,15 @@ export function CombatAttackerSelectionPanel({
                     }}
                   >
                     Attack All → {d.name} ({unselectedCount})
-                    {attackTax > 0 && totalTax > 0 && (
+                    {currentCost ? (
                       <span style={{ color: '#fde68a', marginLeft: 4 }}>
-                        costs {`{${totalTax}}`}
+                        costs {currentCost}
                       </span>
-                    )}
+                    ) : perAttacker ? (
+                      <span style={{ color: '#fde68a', marginLeft: 4 }}>
+                        {perAttacker}
+                      </span>
+                    ) : null}
                   </button>
                   );
                 })}
@@ -185,9 +205,16 @@ export function CombatAttackerSelectionPanel({
                       fontSize: 12,
                     }}
                   >
-                    {defenders.map(d => (
-                      <option key={d.id} value={d.id}>→ {d.name}</option>
-                    ))}
+                    {defenders.map(d => {
+                      const perCreature = formatAttackYouTaxPerCreature(
+                        defenderInfoToAttackYouTax(defenderInfoMap?.[d.id]),
+                      );
+                      return (
+                        <option key={d.id} value={d.id}>
+                          → {d.name}{perCreature ? ` (${perCreature})` : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                   <button
                     onClick={() => handleBulkAttack(bulkAttackCount, bulkAttackTarget)}
@@ -227,6 +254,21 @@ export function CombatAttackerSelectionPanel({
               </div>
             )}
             
+            {selectedAttackCostLabel && selectedAttackers.size > 0 && (
+              <div style={{
+                marginBottom: 12,
+                padding: '8px 12px',
+                background: 'rgba(251,191,36,0.12)',
+                border: '1px solid rgba(251,191,36,0.45)',
+                borderRadius: 8,
+                fontSize: 13,
+                color: '#fde68a',
+                fontWeight: 600,
+              }}>
+                Current attack costs {selectedAttackCostLabel}
+              </div>
+            )}
+
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
               {isReadOnlyAttackerView ? 'Attacking Creatures Preview' : 'Your Creatures'} ({availableForAttack.length} available, {selectedAttackers.size} selected)
             </div>
@@ -339,11 +381,16 @@ export function CombatAttackerSelectionPanel({
                                 marginBottom: 4,
                               }}
                             >
-                              {defenders.map(d => (
-                                <option key={d.id} value={d.id}>
-                                  → {d.name}
-                                </option>
-                              ))}
+                              {defenders.map(d => {
+                                const perCreature = formatAttackYouTaxPerCreature(
+                                  defenderInfoToAttackYouTax(defenderInfoMap?.[d.id]),
+                                );
+                                return (
+                                  <option key={d.id} value={d.id}>
+                                    → {d.name}{perCreature ? ` (${perCreature})` : ''}
+                                  </option>
+                                );
+                              })}
                             </select>
                           )}
                           
@@ -504,11 +551,16 @@ export function CombatAttackerSelectionPanel({
                             color: '#fff',
                           }}
                         >
-                          {defenders.map(d => (
-                            <option key={d.id} value={d.id}>
-                              → {d.name}
-                            </option>
-                          ))}
+                          {defenders.map(d => {
+                            const perCreature = formatAttackYouTaxPerCreature(
+                              defenderInfoToAttackYouTax(defenderInfoMap?.[d.id]),
+                            );
+                            return (
+                              <option key={d.id} value={d.id}>
+                                → {d.name}{perCreature ? ` (${perCreature})` : ''}
+                              </option>
+                            );
+                          })}
                         </select>
                       )}
                       {isSelected && !isInteractive && (

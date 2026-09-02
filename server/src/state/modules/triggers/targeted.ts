@@ -5,6 +5,11 @@ import { debug } from '../../../utils/debug.js';
 import { appendEvent } from '../../../db/index.js';
 import { detectTargetedTriggers } from '../triggered-abilities.js';
 import { orderTriggersByAPNAP } from './ordering.js';
+import { resolveDetectorOracleForPermanent } from './detectorGrantedOracle.js';
+import {
+  recordFirstTimeEachTurnTriggerQueued,
+  shouldSkipFirstTimeEachTurnTrigger,
+} from '../triggerDoThisOnlyOnceEachTurn.js';
 
 export type AbilityTargetedTriggerEvent = {
   readonly activatedBy: PlayerID;
@@ -209,10 +214,15 @@ function collectTargetedTriggersForTargetedPermanent(
   singleTargetAbility: boolean,
 ): TargetedTriggeredStackItem[] {
   const created: TargetedTriggeredStackItem[] = [];
-  if (!triggerSource?.card?.oracle_text) return created;
+  const annotated = resolveDetectorOracleForPermanent(
+    triggerSource,
+    String(triggerSource?.card?.oracle_text || ''),
+    ctx.state,
+  );
+  const oracleText = annotated.oracleText;
+  if (!oracleText.trim()) return created;
 
-  const oracleText = String(triggerSource.card.oracle_text || '');
-  if (isObserverStyleTargetedWhenClause(oracleText, String(triggerSource.card.name || ''))) {
+  if (isObserverStyleTargetedWhenClause(oracleText, String(triggerSource.card?.name || ''))) {
     return created;
   }
   if (!shouldFireTargetedTriggerForEvent(oracleText, eventKind, singleTargetAbility)) {
@@ -222,9 +232,10 @@ function collectTargetedTriggersForTargetedPermanent(
     return created;
   }
 
-  const detected = detectTargetedTriggers(triggerSource.card, triggerSource);
+  const detected = detectTargetedTriggers(triggerSource.card, triggerSource, ctx.state);
   const trigger = detected.find((entry) => String(entry.effect || entry.description || '').trim());
   if (!trigger) return created;
+  if (shouldSkipFirstTimeEachTurnTrigger(ctx.state, trigger)) return created;
 
   const effectText = String(trigger.effect || trigger.description || '').trim();
   if (created.some((item) =>
@@ -238,6 +249,7 @@ function collectTargetedTriggersForTargetedPermanent(
   if (!controller) return created;
 
   created.push(buildTargetedTriggeredStackItem(ctx, triggerSource, controller, effectText, effectText, event));
+  recordFirstTimeEachTurnTriggerQueued(ctx.state, trigger);
 
   return created;
 }

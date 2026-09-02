@@ -19,6 +19,11 @@ export {
 export { queueDredgeDrawReplacementStep } from "./zonesDrawReplacementDredgeQueue.js";
 export { queueSkipDrawReplacementStep } from "./zonesDrawReplacementSkipDrawQueue.js";
 export { applySkipDrawReplacementChoice } from "./zonesDrawReplacementSkipDrawApply.js";
+export {
+  exileTopOfOpponentLibraryFaceDown,
+  applyOrQueueOpponentLibraryDrawReplacement,
+} from "./zonesDrawReplacementOpponentLibraryExile.js";
+export { applyOpponentLibraryDrawReplacementChoice } from "./zonesDrawReplacementOpponentLibraryExileApply.js";
 
 // Library draw, persist, draw-by-id, and "whenever you draw" trigger emission.
 export {

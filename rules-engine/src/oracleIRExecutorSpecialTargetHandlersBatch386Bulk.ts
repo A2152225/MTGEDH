@@ -5,6 +5,7 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { finalizeBattlefieldRemoval, permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
 import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
+import { exileChosenSpellsFromStack } from './oracleIRExecutorBattlefieldStackExileHelpers';
 import { createRegenerationShield } from './keywordAbilities/regeneration';
 
 type Batch386StepResult =
@@ -188,8 +189,13 @@ export function tryBatch386ExileStep(
     return { applied: true, state: { ...(state as any), players: updatedPlayers as any } as GameState, log: [`Exiled all but bottom card of ${playerId}'s library`] };
   }
 
-  if (/exile any number of target spells/i.test(raw)) {
-    return { applied: true, state, log: ['Exiled target spell(s) from stack (audit stub)'] };
+  if (/exile any number of target spells/i.test(raw) || /exile any number of target spells/i.test(target)) {
+    const result = exileChosenSpellsFromStack(state, ctx);
+    return {
+      applied: true,
+      state: result.state,
+      log: result.log.length > 0 ? result.log : ['Exiled no target spells from the stack'],
+    };
   }
 
   if (/exile the bottom card of target player's graveyard/i.test(raw)) {

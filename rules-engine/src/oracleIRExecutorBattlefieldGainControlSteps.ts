@@ -50,6 +50,26 @@ type StepSkipResult = {
 
 type BattlefieldStepHandlerResult = StepApplyResult | StepSkipResult;
 
+function resolveSelfGainControlPermanentId(
+  step: Extract<OracleEffectStep, { kind: 'gain_control' }>,
+  ctx: OracleIRExecutionContext,
+): string {
+  if (step.what.kind !== 'raw') return '';
+  const targetText = String(step.what.text || '').trim().toLowerCase();
+  if (
+    /^(?:this creature|this artifact|this enchantment|this aura|this land|this planeswalker|this battle|this vehicle|this permanent|this token|this card)$/i.test(
+      targetText,
+    )
+  ) {
+    return String(ctx.sourceId || '').trim();
+  }
+  const sourceName = String(ctx.sourceName || '').trim().toLowerCase();
+  if (sourceName && targetText === sourceName) {
+    return String(ctx.sourceId || '').trim();
+  }
+  return '';
+}
+
 export function applyGainControlStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'gain_control' }>,
@@ -520,26 +540,42 @@ export function applyGainControlStep(
     };
   }
 
-  let targetPermanentId = String(
-    ctx.targetPermanentId ||
-      ctx.targetCreatureId ||
-      ctx.selectorContext?.targetPermanentId ||
-      ctx.selectorContext?.targetCreatureId ||
-      ''
-  ).trim();
-  if (!targetPermanentId && step.what.kind === 'raw') {
-    const targetText = String(step.what.text || '').trim().toLowerCase();
-    if (/^it\b/.test(targetText) || targetText === 'it') {
-      targetPermanentId = String(
-        ctx.targetPermanentId ||
-          ctx.targetCreatureId ||
-          ctx.selectorContext?.targetPermanentId ||
-          ctx.selectorContext?.targetCreatureId ||
-          ''
-      ).trim();
-    }
-    if (!targetPermanentId && targetText.includes('target creature')) {
-      targetPermanentId = String(resolveSingleCreatureTargetId(state, step.what, ctx) || '').trim();
+  if (
+    step.newController.kind === 'target_opponent'
+    && newController === String(ctx.controllerId || '').trim()
+  ) {
+    return {
+      applied: false,
+      message: `Skipped gain-control (target opponent cannot be you): ${step.raw}`,
+      reason: 'impossible_action',
+    };
+  }
+
+  // "This permanent/creature" is the source, never a bound creature target.
+  // Humble Defector's only target is an opponent player.
+  let targetPermanentId = resolveSelfGainControlPermanentId(step, ctx);
+  if (!targetPermanentId) {
+    targetPermanentId = String(
+      ctx.targetPermanentId ||
+        ctx.targetCreatureId ||
+        ctx.selectorContext?.targetPermanentId ||
+        ctx.selectorContext?.targetCreatureId ||
+        ''
+    ).trim();
+    if (!targetPermanentId && step.what.kind === 'raw') {
+      const targetText = String(step.what.text || '').trim().toLowerCase();
+      if (/^it\b/.test(targetText) || targetText === 'it') {
+        targetPermanentId = String(
+          ctx.targetPermanentId ||
+            ctx.targetCreatureId ||
+            ctx.selectorContext?.targetPermanentId ||
+            ctx.selectorContext?.targetCreatureId ||
+            ''
+        ).trim();
+      }
+      if (!targetPermanentId && targetText.includes('target creature')) {
+        targetPermanentId = String(resolveSingleCreatureTargetId(state, step.what, ctx) || '').trim();
+      }
     }
   }
 

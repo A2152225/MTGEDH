@@ -17,6 +17,7 @@ function matchesSnapshotFilter(
 }
 
 export function snapshotToCardLike(snap: RuntimeObjectSnapshot): Record<string, unknown> {
+  const ownerId = String(snap.ownerId || '').trim();
   return {
     id: snap.objectId,
     name: snap.name,
@@ -25,7 +26,19 @@ export function snapshotToCardLike(snap: RuntimeObjectSnapshot): Record<string, 
     toughness: snap.toughness,
     colors: [...snap.colors],
     zone: snap.zone,
+    ...(ownerId ? { owner: ownerId, ownerId } : {}),
   };
+}
+
+/** Warp World put/remainder: revealed pile with per-player owner stamps, not shuffle leftovers. */
+export function resolveRevealedThisWayCardPile(
+  ctx: OracleIRExecutionContext | undefined,
+  step?: OracleEffectStep,
+): readonly any[] {
+  if (!ctx) return [];
+  const fromCtx = Array.isArray(ctx.lastRevealedCards) ? ctx.lastRevealedCards : [];
+  if (fromCtx.length > 0) return fromCtx;
+  return collectRevealedThisWayCardsLedgerFirst(ctx, step);
 }
 
 export function collectLedgerCardsAtAntecedent(

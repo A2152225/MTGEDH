@@ -152,6 +152,10 @@ export function resolvePlayers(
       if (bound && opponentIdSet.has(bound)) return [bound];
       const boundPlayer = normalizeId(ctx.selectorContext?.targetPlayerId);
       if (boundPlayer && opponentIdSet.has(boundPlayer)) return [boundPlayer];
+      const chosenOpponents = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? dedupeOpponents(ctx.selectorContext.chosenObjectIds as PlayerID[])
+        : [];
+      if (chosenOpponents.length === 1) return [chosenOpponents[0]];
       return opponents.length === 1 ? [opponents[0]] : [];
     }
     case 'enchanted_player': {

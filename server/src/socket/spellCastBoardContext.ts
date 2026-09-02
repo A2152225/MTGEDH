@@ -4,6 +4,8 @@
   Used by:
   - AI (`isAISpellContextuallyUseful`) so it does not cast spells that will
     NO_VALID_TARGETS or resolve into a no-op given the current table
+    (including untargeted stack wipes like Summary Dismissal when the only
+    stack objects belong to the caster)
   - Live IR soak (`provisionSpellCastBoardContext`) so the same gaps are filled
     before a scripted free-cast
 */
@@ -78,6 +80,28 @@ function isHostileCounterTargetEffect(oracleText: string): boolean {
   // e.g. "counter target spell you control" — own stack objects are the intended targets.
   if (/\bcounter target\b[^.]{0,80}\byou control\b/.test(text)) return false;
   return true;
+}
+
+function stackEntryController(entry: any): string {
+  return String(entry?.controller || entry?.controllerId || entry?.playerId || '').trim();
+}
+
+function stackHasOpponentControlledObject(game: any, playerId: string): boolean {
+  const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
+  const self = String(playerId);
+  return stack.some((entry: any) => {
+    const controller = stackEntryController(entry);
+    return controller.length > 0 && controller !== self;
+  });
+}
+
+function isUntargetedStackWipeEffect(oracleText: string): boolean {
+  const oracleLower = oracleText.toLowerCase();
+  return (
+    /\bexile all (?:other )?spells\b/.test(oracleLower)
+    || /\bcounter all (?:activated and triggered )?abilities\b/.test(oracleLower)
+    || (/\bexile all\b/.test(oracleLower) && /\bcounter all abilities\b/.test(oracleLower))
+  );
 }
 
 function classifyTargetGap(targetTypes: readonly string[]): SpellCastBoardGap {
@@ -188,12 +212,9 @@ export function getSpellCastBoardGaps(
     if (!hasOppAttacker) gaps.push('no_attacking_creature');
   }
 
-  const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
-  const isUntargetedStackWipe =
-    /\bexile all (?:other )?spells\b/.test(oracleLower)
-    || /\bcounter all (?:activated and triggered )?abilities\b/.test(oracleLower)
-    || (/\bexile all\b/.test(oracleLower) && /\bcounter all abilities\b/.test(oracleLower));
-  if (isUntargetedStackWipe && stack.length === 0) {
+  // Summary Dismissal and similar: treat as a counter, not "something is on the stack".
+  // Wiping only your own spell or trigger is a net loss.
+  if (isUntargetedStackWipeEffect(oracleText) && !stackHasOpponentControlledObject(game, String(playerId))) {
     gaps.push('no_stack_spell_target');
   }
 

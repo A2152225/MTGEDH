@@ -110,7 +110,7 @@ export async function putCardOntoBattlefield(
   }
   const ctx = { 
     state, 
-    gameId: (game as any).gameId,
+    gameId: String((game as any).gameId || gameId || '').trim(),
     inactive: new Set(), 
     libraries: (game as any).libraries, 
     players: state.players 

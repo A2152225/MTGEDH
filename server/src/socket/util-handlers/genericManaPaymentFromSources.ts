@@ -10,12 +10,13 @@
 // Re-exported from util.ts so the "./util.js" import path keeps working.
 
 import { movePermanentToGraveyard } from "../../state/modules/counters_tokens.js";
-import { getManaAbilitiesForPermanent } from "../../state/modules/mana-abilities.js";
+import { getManaAbilitiesForPermanent, getEffectiveBasicLandTypes } from "../../state/modules/mana-abilities.js";
 import { MANA_COLOR_KEYS } from "./manaColorConstants.js";
 import { getOrInitManaPool } from "./manaPoolStateOperations.js";
 import { resolveActivatedAbilityLineById } from "./manaAbilityLineResolvers.js";
 import { calculateManaProduction } from "./calculateManaProduction.js";
 import { consumeManaFromPool } from "./consumeManaFromPool.js";
+import { applyManaAbilityLifeEffectToState, resolveManaAbilityLifeEffect } from "../../state/modules/mana-abilities-handlers/manaAbilitySelfDamage.js";
 import {
   getPoolNumericSnapshot,
   validateAndConsumeManaCostFromPool,
@@ -248,6 +249,9 @@ import {
 
         const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
         const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+        const grantedBasicTypes = typeLine.includes('land')
+          ? getEffectiveBasicLandTypes(gameState, permanent)
+          : [];
         const hasExplicitManaAbility =
           /\{t\}(?:[,\s]*[^:]*)?:\s*add/i.test(oracleText) ||
           oracleText.includes('mana of any color') ||
@@ -256,7 +260,8 @@ import {
           typeLine.includes('island') ||
           typeLine.includes('swamp') ||
           typeLine.includes('mountain') ||
-          typeLine.includes('forest');
+          typeLine.includes('forest') ||
+          grantedBasicTypes.length > 0;
         if (!hasExplicitManaAbility) return false;
 
         return !!getBestGenericAutoPaymentOption(gameState, permanent, playerId);
@@ -366,6 +371,14 @@ import {
 
         pool.colorless = Number(pool.colorless || 0) + entry.amount;
         manaNeeded -= entry.amount;
+        applyManaAbilityLifeEffectToState(
+          gameState,
+          playerId,
+          resolveManaAbilityLifeEffect({
+            card: permanent?.card,
+            producesColoredMana: false,
+          }),
+        );
       }
     }
 
@@ -571,6 +584,17 @@ import {
       for (const [poolKey, rawAmount] of Object.entries(entry.additions)) {
         pool[poolKey] = Number(pool[poolKey] || 0) + Number(rawAmount || 0);
       }
+      const producesColoredMana = Object.entries(entry.additions || {}).some(
+        ([poolKey, rawAmount]) => poolKey !== 'colorless' && Number(rawAmount || 0) > 0,
+      );
+      applyManaAbilityLifeEffectToState(
+        gameState,
+        playerId,
+        resolveManaAbilityLifeEffect({
+          card: permanent?.card,
+          producesColoredMana,
+        }),
+      );
     }
 
     const paid = validateAndConsumeManaCostFromPool(pool, manaCost, {

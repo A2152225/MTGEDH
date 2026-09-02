@@ -49,14 +49,15 @@ export function appendSpellCastDetectionMid(detectionState: SpellCastDetectionSt
         lowerMatchText.includes('spell from your library') ||
         lowerMatchText.includes('spell from your graveyard') ||
         lowerMatchText.includes('spell from exile') ||
-        lowerMatchText.includes('spell from anywhere other than your hand')
+        lowerMatchText.includes('spell from anywhere other than your hand') ||
+        lowerMatchText.includes('shares a creature type')
       ) {
         continue;
       }
       const effectText = extractSpellCastEffect(oracleText, match, 1);
       // Name-specific "that targets ~" clauses are heroic / dedicated detectors.
       // Untyped "whenever you cast a spell, …" must not swallow them as the effect.
-      if (/^that targets\b/i.test(String(effectText || '').trim())) {
+      if (/^that (?:targets|shares a creature type)\b/i.test(String(effectText || '').trim())) {
         continue;
       }
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'any')) {
@@ -145,6 +146,11 @@ export function appendSpellCastDetectionMid(detectionState: SpellCastDetectionSt
     {
       pattern: /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery|colorless|\w+) spell from exile,?\s*([^.]+)/gi,
       sourceZoneRequirement: 'exile' as const,
+    },
+    {
+      pattern: /whenever you cast (?:a |an )?spell from exile,?\s*([^.]+)/gi,
+      sourceZoneRequirement: 'exile' as const,
+      untypedSpell: true,
     },
     {
       pattern: /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery|colorless|\w+) spell from anywhere other than your hand,?\s*([^.]+)/gi,

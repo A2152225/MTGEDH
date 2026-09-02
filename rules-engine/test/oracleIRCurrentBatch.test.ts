@@ -1694,7 +1694,12 @@ describe('Oracle IR current audit batch support', () => {
     ).abilities);
 
     expect(heatStrokeSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'destroy', target: { kind: 'raw', text: 'each creature that blocked or was blocked this turn' }, timing: 'end_of_combat' }),
+      expect.objectContaining({
+        kind: 'schedule_delayed_battlefield_action',
+        action: 'destroy',
+        timing: 'end_of_combat',
+        object: { kind: 'raw', text: 'each creature that blocked or was blocked this turn' },
+      }),
     ]));
     expect(accidentSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'destroy', target: { kind: 'raw', text: 'target creature' } }),

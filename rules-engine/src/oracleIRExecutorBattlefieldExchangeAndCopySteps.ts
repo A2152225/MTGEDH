@@ -19,12 +19,16 @@ import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { getCardTypeLineLower } from './oracleIRExecutorPlayerUtils';
 import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
 import { trySpecialCopyPermanentStep } from './oracleIRExecutorSpecialTargetHandlers';
+import { tryApplyMassExchangeControlStep } from './oracleIRExecutorBattlefieldExchangeMassSteps';
 
 export function applyExchangeControlStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'exchange_control' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
+  const mass = tryApplyMassExchangeControlStep(state, step, ctx);
+  if (mass) return mass;
+
   const battlefieldView = (state.battlefield || []) as BattlefieldPermanent[];
 
   const resolveExchangePermanentId = (selector: OracleObjectSelector | undefined): string => {

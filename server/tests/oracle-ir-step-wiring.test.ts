@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import type { OracleEffectStep } from '../../rules-engine/src/oracleIR.js';
 import {
@@ -24,6 +24,7 @@ import {
   describeOracleIrMandatoryExecutionIncomplete,
   formatOracleIrAllOrNothingFailure,
 } from '../src/state/modules/oracleIrStepWiring.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 const WHIP_EFFECT =
   'Return target creature card from your graveyard to the battlefield. It gains haste. Exile it at the beginning of the next end step. If it would leave the battlefield, exile it instead of putting it anywhere else.';
@@ -56,6 +57,10 @@ function seedWhipState() {
 }
 
 describe('oracle IR step wiring guardrails', () => {
+  afterEach(() => {
+    ResolutionQueueManager.removeQueue('oracle_ir_wiring_shock_growth');
+    ResolutionQueueManager.removeQueue('oracle_ir_wiring_resume_owner');
+  });
   it('includes reanimation rider kinds in fallback and activated allowlists', () => {
     expect(ORACLE_IR_FALLBACK_STEP_KINDS.has('cant_attack')).toBe(true);
     expect(ORACLE_IR_ACTIVATED_STEP_KINDS.has('cant_attack')).toBe(true);
@@ -471,6 +476,90 @@ describe('oracle IR step wiring guardrails', () => {
     expect(reasons.some((reason) => reason.startsWith('skipped_mandatory_step:'))).toBe(true);
     expect(reasons.some((reason) => reason.startsWith('unqueued_player_choice:'))).toBe(true);
     expect(reasons.some((reason) => reason.startsWith('pending_continuation_without_queue_bridge:'))).toBe(true);
+  });
+
+  it('does not treat a shock-land prompt as owning leftover IR steps', () => {
+    const gameId = 'oracle_ir_wiring_shock_growth';
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: 'p1',
+      shockLandChoice: true,
+      permanentId: 'perm_steam',
+      mandatory: true,
+    } as any);
+
+    const parsedSteps: OracleEffectStep[] = [
+      { kind: 'move_zone', what: { kind: 'raw', text: 'a land card' }, to: 'battlefield', raw: 'Put a land card onto the battlefield' },
+      { kind: 'draw', amount: 1, raw: 'Draw a card.' },
+    ];
+    const result = {
+      state: {},
+      log: [],
+      appliedSteps: [parsedSteps[0]],
+      skippedSteps: [],
+      automationGaps: [],
+      pendingOptionalSteps: [],
+      pendingContinuationSteps: [parsedSteps[1]],
+    } as any;
+
+    expect(isOracleIrExecutionHandled(result, 0, 1, parsedSteps, {}, gameId)).toBe(false);
+    const reasons = describeOracleIrExecutionHandledIncomplete(result, 0, 1, parsedSteps, {}, gameId);
+    expect(reasons.some((reason) => reason.startsWith('pending_continuation_without_queue_bridge:'))).toBe(true);
+  });
+
+  it('treats persisted leftover IR steps as a continuation bridge', () => {
+    const parsedSteps: OracleEffectStep[] = [
+      { kind: 'move_zone', what: { kind: 'raw', text: 'a land card' }, to: 'battlefield', raw: 'Put a land card onto the battlefield' },
+      { kind: 'draw', amount: 1, raw: 'Draw a card.' },
+    ];
+    const result = {
+      state: {},
+      log: [],
+      appliedSteps: [parsedSteps[0]],
+      skippedSteps: [],
+      automationGaps: [],
+      pendingOptionalSteps: [],
+      pendingContinuationSteps: [parsedSteps[1]],
+    } as any;
+    const state = {
+      oracleIrPendingResumeStepsJson: JSON.stringify([parsedSteps[1]]),
+    };
+
+    expect(isOracleIrExecutionHandled(result, 0, 1, parsedSteps, state)).toBe(true);
+    expect(describeOracleIrExecutionHandledIncomplete(result, 0, 1, parsedSteps, state)).toEqual([]);
+  });
+
+  it('treats a queued resume JSON prompt as a continuation bridge', () => {
+    const gameId = 'oracle_ir_wiring_resume_owner';
+    ResolutionQueueManager.removeQueue(gameId);
+    const drawStep = { kind: 'draw', amount: 1, raw: 'Draw a card.' };
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.SCRY,
+      playerId: 'p1',
+      oracleIrResumeStepsJson: JSON.stringify([drawStep]),
+      mandatory: true,
+    } as any);
+
+    const parsedSteps: OracleEffectStep[] = [
+      { kind: 'scry', amount: 1, raw: 'Scry 1' },
+      drawStep as OracleEffectStep,
+    ];
+    const result = {
+      state: {},
+      log: [],
+      appliedSteps: [],
+      skippedSteps: [parsedSteps[0]],
+      automationGaps: [{
+        reasonCode: 'player_choice_required',
+        stepKind: 'scry',
+        raw: 'Scry 1',
+      }],
+      pendingOptionalSteps: [],
+      pendingContinuationSteps: [drawStep],
+    } as any;
+
+    expect(isOracleIrExecutionHandled(result, 0, 1, parsedSteps, {}, gameId)).toBe(true);
   });
 
   it('accepts complete mandatory execution when all parsed steps applied', () => {

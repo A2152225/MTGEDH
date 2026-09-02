@@ -14,7 +14,7 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getContinuousGrantedAbilitiesForPermanent, resolveSetBasePTFromStaticSpecs, syncDerivedContinuousEffects } from "./staticEffectSpec.js";
 import { collectBattlefieldAbilityBadgesForView } from "./battlefieldAbilityBadges.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
-import { maskFaceDownExileCardForViewer } from "./impulse-exile-utils.js";
+import { maskFaceDownExileCardForViewer, applyCurrentExiledWithSourcePlayLook } from "./impulse-exile-utils.js";
 import {
   applyCurrentHideawayExamination,
   collectMissingHideawayExileCards,
@@ -332,6 +332,7 @@ export function viewFor(
     }
     const visibleExile = rawExile
       .map((card: any) => applyCurrentHideawayExamination(card, state.battlefield || []))
+      .map((card: any) => applyCurrentExiledWithSourcePlayLook(card, state.battlefield || []))
       .map((card: any) => maskFaceDownExileCardForViewer(card, viewer));
 
     filteredZones[p.id] = {

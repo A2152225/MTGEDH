@@ -328,6 +328,7 @@ export function applyTriggerQueueEvents(ctx: GameContext, e: GameEvent): boolean
             }
 
             const count = Math.max(1, Math.floor(Number(rawEntry?.count || 1)));
+            const upTo = rawEntry?.upTo === true;
             stateAny.pendingDelayedDrawsAtNextUpkeep.push({
               ...(scheduleId ? { scheduleId } : null),
               playerId,
@@ -335,6 +336,7 @@ export function applyTriggerQueueEvents(ctx: GameContext, e: GameEvent): boolean
               sourceId: String(rawEntry?.sourceId || '').trim() || undefined,
               sourceName: String(rawEntry?.sourceName || (e as any).sourceName || 'Delayed trigger').trim() || 'Delayed trigger',
               count,
+              ...(upTo ? { upTo: true } : null),
               fireAtTurnNumber: Number(rawEntry?.fireAtTurnNumber ?? 0) || 0,
               fireAtStep: 'upkeep',
             });

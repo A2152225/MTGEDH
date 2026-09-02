@@ -109,6 +109,7 @@ async function resetGame(gameId: string) {
 
 describe('mana payment choice selection flow', () => {
   const signetGameId = 'test_mana_payment_choice_signet';
+  const landSignetSpellGameId = 'test_mana_payment_choice_land_signet_generic';
   const spellGameId = 'test_mana_payment_choice_spell';
   const pricedDynamoSpellGameId = 'test_mana_payment_choice_spell_priced_dynamo';
   const altarSpellGameId = 'test_mana_payment_choice_spell_altar';
@@ -118,6 +119,7 @@ describe('mana payment choice selection flow', () => {
   const azureDynamoGameId = 'test_mana_payment_choice_azure_dynamo';
   const resetGameIds = [
     signetGameId,
+    landSignetSpellGameId,
     spellGameId,
     pricedDynamoSpellGameId,
     altarSpellGameId,
@@ -576,6 +578,221 @@ describe('mana payment choice selection flow', () => {
     const castEvent = [...getEvents(signetGameId)].reverse().find((event: any) => String(event?.type || '') === 'castSpell') as any;
     expect(castEvent?.payload?.tappedPermanents).toEqual(['signet_1']);
     expect(castEvent?.payload?.paymentManaDelta).toEqual({ colorless: -1 });
+  });
+
+  it('lets spell payment tap a land to activate an Izzet Signet for {2}', async () => {
+    createGameIfNotExists(landSignetSpellGameId, 'commander', 40);
+    const game = ensureGame(landSignetSpellGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    Object.assign((game.state as any), {
+      players: [{ id: playerId, name: 'P1', spectator: false, life: 40 }],
+      startingLife: 40,
+      life: { [playerId]: 40 },
+      phase: 'precombatMain',
+      turnPlayer: playerId,
+      priority: playerId,
+      stack: [],
+      manaPool: {
+        [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      battlefield: [
+        {
+          id: 'plains_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          card: {
+            id: 'plains_card_1',
+            name: 'Plains',
+            type_line: 'Basic Land — Plains',
+            oracle_text: '{T}: Add {W}.',
+          },
+        },
+        {
+          id: 'signet_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          card: {
+            id: 'izzet_signet_card_1',
+            name: 'Izzet Signet',
+            type_line: 'Artifact',
+            oracle_text: '{1}, {T}: Add {U}{R}.',
+          },
+        },
+      ],
+      zones: {
+        [playerId]: {
+          hand: [
+            {
+              id: 'blackblade_1',
+              name: 'Blackblade Reforged',
+              mana_cost: '{2}',
+              manaCost: '{2}',
+              type_line: 'Legendary Artifact — Equipment',
+              oracle_text: 'Equipped creature gets +1/+1 for each land you control.',
+              image_uris: { small: 'https://example.com/blackblade.jpg' },
+            },
+          ],
+          handCount: 1,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+        },
+      },
+    });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, landSignetSpellGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId: landSignetSpellGameId, cardId: 'blackblade_1' });
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(landSignetSpellGameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+
+    emitted.length = 0;
+    await handlers['submitResolutionResponse']({
+      gameId: landSignetSpellGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: 'plains_1', mana: 'W', count: 1 },
+          {
+            permanentId: 'signet_1',
+            mana: 'U',
+            count: 2,
+            abilityId: 'izzet_signet_card_1-ability-0',
+            producedColors: ['U', 'R'],
+          },
+        ],
+      },
+    });
+
+    expect(emitted.find((event) => event.event === 'error')).toBeUndefined();
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'plains_1')?.tapped).toBe(true);
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'signet_1')?.tapped).toBe(true);
+    expect((game.state as any).manaPool[playerId]).toEqual({
+      white: 0,
+      blue: 0,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+
+    const handIds = ((((game.state as any).zones?.[playerId]?.hand) || []) as any[]).map((card: any) => card.id);
+    expect(handIds).not.toContain('blackblade_1');
+    expect((((game.state as any).stack) || []).some((entry: any) => String(entry?.card?.name || '') === 'Blackblade Reforged')).toBe(true);
+  });
+
+  it('rejects a Signet-only {2} payment when the {1} activation is unpaid', async () => {
+    createGameIfNotExists(landSignetSpellGameId, 'commander', 40);
+    const game = ensureGame(landSignetSpellGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    Object.assign((game.state as any), {
+      players: [{ id: playerId, name: 'P1', spectator: false, life: 40 }],
+      startingLife: 40,
+      life: { [playerId]: 40 },
+      phase: 'precombatMain',
+      turnPlayer: playerId,
+      priority: playerId,
+      stack: [],
+      manaPool: {
+        [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      battlefield: [
+        {
+          id: 'plains_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          card: {
+            id: 'plains_card_1',
+            name: 'Plains',
+            type_line: 'Basic Land — Plains',
+            oracle_text: '{T}: Add {W}.',
+          },
+        },
+        {
+          id: 'signet_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          card: {
+            id: 'izzet_signet_card_1',
+            name: 'Izzet Signet',
+            type_line: 'Artifact',
+            oracle_text: '{1}, {T}: Add {U}{R}.',
+          },
+        },
+      ],
+      zones: {
+        [playerId]: {
+          hand: [
+            {
+              id: 'blackblade_1',
+              name: 'Blackblade Reforged',
+              mana_cost: '{2}',
+              manaCost: '{2}',
+              type_line: 'Legendary Artifact — Equipment',
+              oracle_text: 'Equipped creature gets +1/+1 for each land you control.',
+              image_uris: { small: 'https://example.com/blackblade.jpg' },
+            },
+          ],
+          handCount: 1,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+        },
+      },
+    });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, landSignetSpellGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId: landSignetSpellGameId, cardId: 'blackblade_1' });
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(landSignetSpellGameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+
+    emitted.length = 0;
+    await handlers['submitResolutionResponse']({
+      gameId: landSignetSpellGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [{
+          permanentId: 'signet_1',
+          mana: 'U',
+          count: 2,
+          abilityId: 'izzet_signet_card_1-ability-0',
+          producedColors: ['U', 'R'],
+        }],
+      },
+    });
+
+    expect(emitted.some((event) => event.event === 'error')).toBe(true);
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'signet_1')?.tapped).toBe(false);
+    const handIds = ((((game.state as any).zones?.[playerId]?.hand) || []) as any[]).map((card: any) => card.id);
+    expect(handIds).toContain('blackblade_1');
+    expect((((game.state as any).stack) || []).some((entry: any) => String(entry?.card?.name || '') === 'Blackblade Reforged')).toBe(false);
   });
 
   it('lets altar mana payment sacrifice chosen creatures while casting a spell', async () => {

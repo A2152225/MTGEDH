@@ -25,6 +25,7 @@ import {
   cardMatchesMoveZoneSingleTargetCriteria,
   parseTrailingZoneCounterRequirement,
   stripPutIntoGraveyardThisTurnQualifier,
+  graveyardThisTurnCriteriaFromQualifier,
 } from './oracleIRExecutorZoneOpsSingleTargetMatchers';
 
 export function parseMoveZoneCountCardsFromTargetPlayersHand(what: {
@@ -139,7 +140,7 @@ export function parseMoveZoneSingleTargetFromYourGraveyard(what: {
     return {
       ...parsed,
       ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
-      ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
+      ...graveyardThisTurnCriteriaFromQualifier(withTurn),
     };
   }
   return null;
@@ -345,7 +346,7 @@ export function parseMoveZoneSingleTargetFromTargetPlayersGraveyard(what: {
   return {
     ...parsed,
     ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
-    ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
+    ...graveyardThisTurnCriteriaFromQualifier(withTurn),
   };
 }
 
@@ -403,7 +404,7 @@ export function parseMoveZoneSingleTargetFromReferencedPossessiveGraveyard(what:
   return {
     ...parsed,
     ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
-    ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
+    ...graveyardThisTurnCriteriaFromQualifier(withTurn),
   };
 }
 
@@ -493,9 +494,8 @@ export function parseMoveZoneSingleTargetFromAGraveyard(what: {
     if (!parsed) continue;
     return {
       ...parsed,
-      ...(opponentGraveyard ? { graveyardOwner: 'opponent' as const } : {}),
       ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
-      ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
+      ...graveyardThisTurnCriteriaFromQualifier(withTurn),
     };
   }
   return null;

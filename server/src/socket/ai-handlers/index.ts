@@ -265,6 +265,9 @@ export {
 
 // Untapped mana-source selection for spell payment.
 export { getPaymentSources } from "./aiPaymentSources.js";
+export {
+  spendRestrictionGrantsUncounterableChosenTypeCast,
+} from "./aiUncounterableChosenTypeMana.js";
 
 // Action-candidate type aliases for priority / cast / land enumeration.
 export type {
@@ -285,9 +288,18 @@ export { handleAIPriority } from "./aiPriorityHandlers.js";
 
 // Affordable-spell enumeration for main-phase and response candidates.
 export { findCastableSpells } from "./aiFindCastableSpells.js";
+// Join Forces: wait for leftover + other-player mana; AIs pay into shared-positive X.
+export {
+  MIN_JOIN_FORCES_POTENTIAL_MANA,
+  chooseAIJoinForcesContribution,
+  evaluateAIJoinForcesCast,
+  shouldAICastJoinForcesSpell,
+} from "./aiJoinForcesDecision.js";
 
 // AI autoPassLoop: treat legal-but-pointless instants/flash as idle.
 export { isAiContextuallyIdleForAutoPass } from "./aiAutoPassContextualIdle.js";
+// Elixir-like gain-life/shuffle stays live when life, GY, or a removal threat matters.
+export { hasUsefulAiActivatedAbilityForAutoPass, isElixirLikeAbilityUsefulNow } from "./aiActivatedAbilityContextualIdle.js";
 
 // Mana-retention land tapping before combat.
 export {
@@ -330,6 +342,7 @@ export {
 export {
   applyAISelectedLandFace,
   findCastableCommander,
+  chooseAIPlayableLandCandidate,
   findPlayableLand,
   isAIFailedSpellCastCard,
   isCardAlreadyOnBattlefield,

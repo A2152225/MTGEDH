@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { appendEvent } from '../../db/index.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
+import { listLivingGamePlayers } from './priorityEligibility.js';
 
 export function isJoinForcesEffectText(effectText: string): boolean {
   const lower = String(effectText || '').toLowerCase();
@@ -85,7 +86,7 @@ export function queueJoinForcesResolutionSteps(
 
   const cardName = String(params.cardName || 'Join Forces').trim() || 'Join Forces';
   const controller = params.controller;
-  const players = Array.isArray(state?.players) ? state.players : [];
+  const players = listLivingGamePlayers(ctx);
   if (players.length === 0) return false;
 
   const existingQueue = ResolutionQueueManager.getQueue(gameId);

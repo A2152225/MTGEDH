@@ -26,6 +26,7 @@ import { triggerLifeGainEffects } from "../../utils.js";
 import { applyDamageToPermanentWithCounterEffects } from "../counter-common-effects.js";
 import { applyCreatureDamageFromSource, resolvePlayerDamage } from "../combat-damage-processing.js";
 import { detectDealtDamageTriggers } from "./dealt-damage-detection.js";
+import { mergeDetectorOracleWithContinuousGrants } from "./detectorGrantedOracle.js";
 import {
   inferDamageReceivedEffectFromOracle,
   isSelfDealtDamageClause,
@@ -86,9 +87,14 @@ export function getDamageReceivedTrigger(
   if (!permanent) return null;
 
   const card = permanent.card || {};
-  const oracleText = (card.oracle_text || "").toLowerCase();
+  const { oracleText: mergedOracle } = mergeDetectorOracleWithContinuousGrants(
+    String(card.oracle_text || ''),
+    permanent,
+    state,
+  );
+  const oracleText = mergedOracle.toLowerCase();
   const creatureName = (card.name || "").toLowerCase();
-  const oracleTextForInterveningIf = extractDamageReceivedAbilityText(card.oracle_text || "", card.name || "") || (card.oracle_text || "");
+  const oracleTextForInterveningIf = extractDamageReceivedAbilityText(mergedOracle, card.name || "") || mergedOracle;
 
   // Check known cards table first (for optimization)
   if (KNOWN_DAMAGE_RECEIVED_TRIGGERS[creatureName]) {
@@ -135,7 +141,7 @@ export function getDamageReceivedTrigger(
           };
         }
 
-        const attachmentDetected = detectDealtDamageTriggers(attachment.card, attachment)
+        const attachmentDetected = detectDealtDamageTriggers(attachment.card, attachment, state)
           .some((trigger) => trigger.triggerType === 'dealt_damage');
         const attachmentOracle = String(attachment.card?.oracle_text || '');
         if (
@@ -159,7 +165,7 @@ export function getDamageReceivedTrigger(
     }
   }
 
-  const detectedSelf = detectDealtDamageTriggers(card, permanent)
+  const detectedSelf = detectDealtDamageTriggers(card, permanent, state)
     .some((trigger) => trigger.triggerType === 'dealt_damage');
   const matchesSelfClause = isSelfDealtDamageClause(oracleText, creatureName)
     || oracleText.includes('whenever enchanted creature is dealt damage')
@@ -170,10 +176,10 @@ export function getDamageReceivedTrigger(
   if (matchesSelfClause || (detectedSelf && isSelfDealtDamageClause(oracleText, creatureName))) {
     // Brash Taunter-style "deals that much damage" / gain-life redirects stay here.
     // Enrage fight (Apex Altisaur) and other non-redirect effects go on the stack.
-    if (!isThatMuchDamageRedirectOracle(card.oracle_text || oracleText)) {
+    if (!isThatMuchDamageRedirectOracle(mergedOracle)) {
       return null;
     }
-    const inferred = inferDamageReceivedEffectFromOracle(oracleText);
+    const inferred = inferDamageReceivedEffectFromOracle(mergedOracle);
     return {
       controllerId: permanent.controller,
       targetType: inferred.targetType,

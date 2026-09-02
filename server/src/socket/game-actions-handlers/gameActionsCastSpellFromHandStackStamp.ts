@@ -9,6 +9,7 @@
  */
 import { debug } from "../../utils/debug.js";
 import type { PaymentItem } from "../../../../shared/src/index.js";
+import { stampReplayedGraveyardCastStackFlags } from "../../state/modules/stackReplayUtils.js";
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
 
 export type StampCastSpellStackItemFromHandArgs = {
@@ -404,6 +405,31 @@ export function stampCastSpellStackItemFromHand(
                 (topStackItem as any).chosenCreatureType = castChosenCreatureTypeFallback;
                 if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
                   (topStackItem as any).card.chosenCreatureType = castChosenCreatureTypeFallback;
+                }
+              }
+            }
+
+            const stampedStackItem = game.state.stack?.[game.state.stack.length - 1] as any;
+            if (stampedStackItem) {
+              stampReplayedGraveyardCastStackFlags(stampedStackItem, cardInHand);
+              if (String((cardInHand as any)?.leaveBattlefieldReplacementDestination || '').trim().toLowerCase() === 'exile') {
+                stampedStackItem.leaveBattlefieldReplacementDestination = 'exile';
+                if (stampedStackItem.card && typeof stampedStackItem.card === 'object') {
+                  stampedStackItem.card.leaveBattlefieldReplacementDestination = 'exile';
+                }
+              }
+              const replacementSourceName = String((cardInHand as any)?.leaveBattlefieldReplacementSourceName || '').trim();
+              if (replacementSourceName) {
+                stampedStackItem.leaveBattlefieldReplacementSourceName = replacementSourceName;
+                if (stampedStackItem.card && typeof stampedStackItem.card === 'object') {
+                  stampedStackItem.card.leaveBattlefieldReplacementSourceName = replacementSourceName;
+                }
+              }
+              const replacementLifeGain = Number((cardInHand as any)?.leaveBattlefieldReplacementLifeGain || 0);
+              if (replacementLifeGain > 0) {
+                stampedStackItem.leaveBattlefieldReplacementLifeGain = replacementLifeGain;
+                if (stampedStackItem.card && typeof stampedStackItem.card === 'object') {
+                  stampedStackItem.card.leaveBattlefieldReplacementLifeGain = replacementLifeGain;
                 }
               }
             }

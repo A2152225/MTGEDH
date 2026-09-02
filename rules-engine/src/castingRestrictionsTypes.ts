@@ -44,7 +44,8 @@ export interface CastingRestriction {
   readonly spellTypeRestriction?: string;
   readonly cmcRestriction?: {
     comparison: 'equals' | 'less_than' | 'greater_than' | 'less_equal' | 'greater_equal';
-    value: number;
+    value?: number;
+    valueFrom?: 'caster_controlled_lands';
   };
   readonly onlyDuringYourTurn?: boolean;
   readonly timestamp: number;

@@ -260,7 +260,7 @@ export function applyOracleIRUncategorizedSpellFallback(
       const queueAfter = gameId !== 'unknown'
         ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
         : queueStart;
-      if (!isOracleIrExecutionHandled(result, queueStart, queueAfter, parsedSteps)) return;
+      if (!isOracleIrExecutionHandled(result, queueStart, queueAfter, parsedSteps, (ctx as any).state, gameId)) return;
       if (result.appliedSteps.length > 0) {
         applied += result.appliedSteps.length;
         return;

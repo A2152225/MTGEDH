@@ -6,6 +6,7 @@
 
 import { KNOWN_COMBAT_DAMAGE_TRIGGERS } from "./card-data-tables.js";
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
+import { mergeDetectorOracleWithContinuousGrants } from "./detectorGrantedOracle.js";
 import { appendCombatDamageDetectionEarly } from "./combat-damage-detection-early.js";
 import { appendCombatDamageDetectionLate } from "./combat-damage-detection-late.js";
 import { appendCombatDamageDetectionMid } from "./combat-damage-detection-mid.js";
@@ -16,9 +17,9 @@ import { timingTriggerEffect } from "./timing-effect-extraction.js";
 /**
  * Detect combat damage triggers from a permanent's abilities
  */
-export function detectCombatDamageTriggers(card: any, permanent: any): TriggeredAbility[] {
+export function detectCombatDamageTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
-  const oracleText = (card?.oracle_text || "");
+  const { oracleText } = mergeDetectorOracleWithContinuousGrants(card?.oracle_text || "", permanent, gameState);
   const lowerOracle = oracleText.toLowerCase();
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();

@@ -39,6 +39,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'connive',
   'discard',
   'explore',
+  'flip_coin',
   'look_choose_from_top',
   'look_select_top',
   'library_chaos_exchange',
@@ -65,6 +66,9 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'secret_opponent_choice_damage',
   'may_cast_from_among',
   'may_reveal_hand_then_win_if_own_named_in_zones',
+  'unless_pays_mana',
+  'unless_pays_life',
+  'pay_energy',
 ]);
 
 export function applyOracleIRStepsToGameStateImpl(
@@ -287,20 +291,39 @@ export function applyOracleIRStepsToGameStateImpl(
     } else {
       setLastStepOutcome(step, 'applied');
     }
+    if (result?.lastMovedCountByPlayer && typeof result.lastMovedCountByPlayer === 'object') {
+      lastMovedCountByPlayer = { ...result.lastMovedCountByPlayer };
+    }
     currentCtx = {
       ...currentCtx,
       ...(typeof lastReferenceAmount === 'number' && Number.isFinite(lastReferenceAmount)
         ? { referenceAmount: lastReferenceAmount }
         : {}),
+      ...(lastMovedCountByPlayer ? { lastMovedCountByPlayer } : {}),
     };
     const sanitizedCarryOver = sanitizeBridgedStepCarryOver(result);
     const milledForFollowUp = Array.isArray((result as any).lastMilledCards)
       ? ((result as any).lastMilledCards as any[])
       : [];
+    const movedForFollowUp = Array.isArray(result.lastMovedCards)
+      ? (result.lastMovedCards as any[])
+      : [];
+    const revealedForFollowUp = Array.isArray((result as any).lastRevealedCards)
+      ? ((result as any).lastRevealedCards as any[])
+      : [];
+    const appliedPayload = {
+      ...sanitizedCarryOver,
+      ...(milledForFollowUp.length > 0 ? { lastMilledCards: milledForFollowUp } : {}),
+      ...(movedForFollowUp.length > 0 ? { lastMovedCards: movedForFollowUp } : {}),
+      ...(revealedForFollowUp.length > 0 ? { lastRevealedCards: revealedForFollowUp } : {}),
+    };
+    if (movedForFollowUp.length > 0) {
+      lastMovedCards = movedForFollowUp;
+    }
     onApplied?.(
-      milledForFollowUp.length > 0
-        ? { ...sanitizedCarryOver, lastMilledCards: milledForFollowUp }
-        : sanitizedCarryOver,
+      lastMovedCountByPlayer
+        ? { ...appliedPayload, lastMovedCountByPlayer }
+        : appliedPayload,
     );
     trackAppliedStepKind(appliedStepKinds, Number(currentCtx.currentStepIndex ?? 0), step);
     if (!result.skipLedgerFlush) {
@@ -317,6 +340,9 @@ export function applyOracleIRStepsToGameStateImpl(
       ...currentCtx,
       stepLedger: snapshotStepLedger(stepLedger),
       appliedStepKinds: new Map(appliedStepKinds),
+      ...(lastMovedCountByPlayer ? { lastMovedCountByPlayer } : {}),
+      ...(movedForFollowUp.length > 0 ? { lastMovedCards: movedForFollowUp } : {}),
+      ...(revealedForFollowUp.length > 0 ? { lastRevealedCards: revealedForFollowUp } : {}),
     };
     log.push(...result.log);
     appliedSteps.push(step);
@@ -461,6 +487,7 @@ export function applyOracleIRStepsToGameStateImpl(
       currentStepIndex: stepIndex,
       stepLedger: snapshotStepLedger(stepLedger),
       appliedStepKinds: new Map(appliedStepKinds),
+      ...(lastMovedCountByPlayer ? { lastMovedCountByPlayer } : {}),
     };
     if (step.kind !== 'conditional') {
       lastConditionalEvaluation = null;
@@ -603,6 +630,7 @@ export function applyOracleIRStepsToGameStateImpl(
       case 'tempting_offer':
       case 'choose_opponent':
       case 'choose_color':
+      case 'choose_number':
       case 'choose_creature_type':
       case 'choose_basic_land_type':
       case 'choose_card_name': {
@@ -661,6 +689,7 @@ export function applyOracleIRStepsToGameStateImpl(
       case 'gain_life':
       case 'lose_life':
       case 'add_player_counter':
+      case 'pay_energy':
       case 'double_player_counters':
       case 'deal_damage':
       case 'prevent_damage':
@@ -744,6 +773,7 @@ export function applyOracleIRStepsToGameStateImpl(
     ...(lastMovedCards.length > 0 ? { lastMovedCards } : {}),
     ...(lastMilledCards.length > 0 ? { lastMilledCards } : {}),
     ...(lastRevealedCardCount > 0 ? { lastRevealedCardCount } : {}),
+    ...(lastMovedCountByPlayer ? { lastMovedCountByPlayer } : {}),
     ...(replayMutations.length > 0 ? { replayMutations } : {}),
   };
 }

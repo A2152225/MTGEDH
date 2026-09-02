@@ -7,6 +7,10 @@
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
 import { ENTERS_OR_OTHER_EVENT_PREFIX } from "./enters-or-other-event-prefix.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
+import {
+  applyFirstTimeEachTurnFlags,
+  resolveDetectorOracleForPermanent,
+} from "./detectorGrantedOracle.js";
 
 function isOptionalTapTriggerEffect(effectText: string): boolean {
   const normalized = String(effectText || '').trim();
@@ -36,6 +40,10 @@ export interface TapTrigger {
   nontokenOnly?: boolean;
   /** "Whenever one or more … become tapped" fires once per tap event, not per permanent. */
   oneOrMoreBatch?: boolean;
+  /** "Whenever this creature becomes tapped for the first time each turn". */
+  oncePerTurn?: boolean;
+  /** "for the first time during each of your turns". */
+  onlyOnControllerTurn?: boolean;
   mandatory: boolean;
   lifeGain?: number;
   createsToken?: boolean;
@@ -55,9 +63,11 @@ export interface TapTrigger {
  * - Fallowsage: "Whenever Fallowsage becomes tapped, you may draw a card"
  * - Opposition: Tap creatures to tap opponent's permanents
  */
-export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
+export function detectTapTriggers(card: any, permanent: any, gameState?: any): TapTrigger[] {
   const triggers: TapTrigger[] = [];
-  const oracleText = (card?.oracle_text || "");
+  const printedOracle = (card?.oracle_text || "");
+  const annotated = resolveDetectorOracleForPermanent(permanent, printedOracle, gameState);
+  const oracleText = annotated.oracleText;
   const lowerOracle = oracleText.toLowerCase();
   const cardName = card?.name || "Unknown";
   const permanentId = permanent?.id || "";
@@ -842,5 +852,5 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     });
   }
 
-  return triggers;
+  return applyFirstTimeEachTurnFlags(triggers, annotated);
 }

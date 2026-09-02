@@ -143,6 +143,8 @@ export function scheduleDelayedDrawAtNextUpkeep(ctx: GameContext, options: {
   sourceName: string;
   sourceId?: string;
   count?: number;
+  upTo?: boolean;
+  createdBy?: string;
 }): void {
   const stateAny = (ctx as any).state as any;
   if (!stateAny) return;
@@ -151,6 +153,7 @@ export function scheduleDelayedDrawAtNextUpkeep(ctx: GameContext, options: {
   if (!playerId) return;
 
   const count = Math.max(1, Math.floor(Number(options.count || 1)));
+  const upTo = options.upTo === true;
   stateAny.pendingDelayedDrawsAtNextUpkeep = Array.isArray(stateAny.pendingDelayedDrawsAtNextUpkeep)
     ? stateAny.pendingDelayedDrawsAtNextUpkeep
     : [];
@@ -158,10 +161,11 @@ export function scheduleDelayedDrawAtNextUpkeep(ctx: GameContext, options: {
   const pendingEntry = {
     scheduleId: uid('delayed_upkeep_draw'),
     playerId,
-    createdBy: playerId,
+    createdBy: String(options.createdBy || playerId).trim() || playerId,
     sourceId: String(options.sourceId || '').trim() || undefined,
     sourceName: String(options.sourceName || 'Delayed trigger').trim() || 'Delayed trigger',
     count,
+    ...(upTo ? { upTo: true } : null),
     fireAtTurnNumber: getNextUpkeepNotBeforeTurnNumber(stateAny),
     fireAtStep: 'upkeep',
   };

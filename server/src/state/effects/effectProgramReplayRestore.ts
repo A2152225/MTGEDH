@@ -44,6 +44,13 @@ function findStackItemForEffectProgram(
       || String(item?.source || '') === sourceId,
     );
     if (byId) return byId;
+    // Known source id missed — last-known deferred item, never a different same-named stack object.
+    if (deferredItem && typeof deferredItem === 'object') return deferredItem;
+    return undefined;
+  }
+
+  if (deferredItem && typeof deferredItem === 'object') {
+    return deferredItem;
   }
 
   if (sourceName) {
@@ -52,10 +59,6 @@ function findStackItemForEffectProgram(
       || String(item?.card?.name || '') === sourceName,
     );
     if (byName) return byName;
-  }
-
-  if (deferredItem && typeof deferredItem === 'object') {
-    return deferredItem;
   }
 
   return undefined;

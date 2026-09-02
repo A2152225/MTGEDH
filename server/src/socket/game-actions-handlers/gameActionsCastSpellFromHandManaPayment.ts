@@ -15,6 +15,7 @@ import {
   addUnselectedFloatingPoolRemainder,
   castSpellPaymentHasExplicitFloatingRefs,
   reserveCastSpellPaymentPermanentId,
+  subtractConsumedManaFromSelectedPaymentTotals,
 } from "../castSpellPaymentSelectionUtils.js";
 import {
   addCastSpellPaymentProducedMana,
@@ -26,6 +27,8 @@ import {
   paymentActivationCostHasUnsupportedAdditionalCosts,
   recordCreatureSpellHasteManaProduced,
   recordManaProducedByPermanentSource,
+  resolveActivatedAbilityLineById,
+  resolveLegacyManaAbilityById,
   resolvePaymentManaAbilitySpendRestriction,
   resolvePermanentCounterKey,
   restrictedManaSpendRestrictionAllowsPurpose,
@@ -34,6 +37,7 @@ import {
   validateManaPayment,
   type RestrictedManaSpendPurpose,
 } from "../util";
+import { applyManaAbilityLifeEffectToState, resolveManaAbilityLifeEffect } from "../../state/modules/mana-abilities-handlers/manaAbilitySelfDamage.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { creatureHasHaste } from "./gameActionsPermanentKeywordGrants.js";
 import { canCompleteSpellCastAtCurrentTiming } from "./gameActionsSpellCastLock.js";
@@ -137,7 +141,38 @@ export function tryApplyCastSpellManaPaymentFromHand(
         }
 
         const usedPaymentPermanentIds = new Set<string>();
-        
+        const consumePaymentActivationMana = (
+          permName: string,
+          cost: ReturnType<typeof getSupportedPaymentActivationManaCost>,
+        ): boolean => {
+          if (!cost) return true;
+          const activationPool = getOrInitManaPool(game.state, playerId) as any;
+          const activationValidationError = validateManaPayment(
+            snapshotCastSpellManaPool(activationPool),
+            cost.colors,
+            cost.generic,
+          );
+          if (activationValidationError) {
+            abortCastSpellPayment({
+              code: 'INSUFFICIENT_MANA',
+              message: `${permName} requires additional mana to activate. ${activationValidationError}`,
+            });
+            return false;
+          }
+
+          const activationConsumption = consumeManaFromPool(
+            activationPool,
+            cost.colors,
+            cost.generic,
+            `[castSpellFromHand][paymentActivationCost:${permName}]`,
+          );
+          subtractConsumedManaFromSelectedPaymentTotals(
+            selectedPaymentAvailableTotals,
+            activationConsumption.consumed,
+          );
+          return true;
+        };
+
         // Process each payment item: apply the mana ability cost, then add mana to pool
         for (let paymentIdx = 0; paymentIdx < payment.length; paymentIdx++) {
           let { permanentId, mana, count, abilityId, sacrificedPermanentIds, producedColors } = payment[paymentIdx];
@@ -298,27 +333,8 @@ export function tryApplyCastSpellManaPaymentFromHand(
               }
             }
 
-            if (activationManaCost) {
-              const activationPool = getOrInitManaPool(game.state, playerId) as any;
-              const activationValidationError = validateManaPayment(
-                snapshotCastSpellManaPool(activationPool),
-                activationManaCost.colors,
-                activationManaCost.generic,
-              );
-              if (activationValidationError) {
-                abortCastSpellPayment({
-                  code: 'INSUFFICIENT_MANA',
-                  message: `${permCard.name || 'Permanent'} requires additional mana to activate. ${activationValidationError}`,
-                });
-                return;
-              }
-
-              consumeManaFromPool(
-                activationPool,
-                activationManaCost.colors,
-                activationManaCost.generic,
-                `[castSpellFromHand][paymentActivationCost:${permCard.name || permanentId}]`,
-              );
+            if (!consumePaymentActivationMana(String(permCard.name || permanentId), activationManaCost)) {
+              return;
             }
 
             if (activationCostInfo.taps) {
@@ -339,27 +355,8 @@ export function tryApplyCastSpellManaPaymentFromHand(
               sacrificedPaymentPermanents.add(String(sacrificedId));
             }
           } else {
-            if (activationManaCost) {
-              const activationPool = getOrInitManaPool(game.state, playerId) as any;
-              const activationValidationError = validateManaPayment(
-                snapshotCastSpellManaPool(activationPool),
-                activationManaCost.colors,
-                activationManaCost.generic,
-              );
-              if (activationValidationError) {
-                abortCastSpellPayment({
-                  code: 'INSUFFICIENT_MANA',
-                  message: `${permCard.name || 'Permanent'} requires additional mana to activate. ${activationValidationError}`,
-                });
-                return;
-              }
-
-              consumeManaFromPool(
-                activationPool,
-                activationManaCost.colors,
-                activationManaCost.generic,
-                `[castSpellFromHand][paymentActivationCost:${permCard.name || permanentId}]`,
-              );
+            if (!consumePaymentActivationMana(String(permCard.name || permanentId), activationManaCost)) {
+              return;
             }
 
             if (activationCostInfo.taps) {
@@ -528,6 +525,14 @@ export function tryApplyCastSpellManaPaymentFromHand(
             }
             debug(2, `[castSpellFromHand] Added ${bonus.amount} ${bonus.color} bonus mana from enchantments/effects`);
           }
+
+          const manaLifeEffect = resolveManaAbilityLifeEffect({
+            card: permCard,
+            ability: resolveLegacyManaAbilityById(game.state, permanent, playerId, abilityId),
+            abilityText: resolveActivatedAbilityLineById(permanent, abilityId)?.lineText,
+            producesColoredMana: String(mana || '').toUpperCase() !== 'C',
+          });
+          applyManaAbilityLifeEffectToState(game.state, playerId, manaLifeEffect);
         }
       }
 

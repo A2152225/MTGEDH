@@ -18,6 +18,10 @@ import type { SimpleCardType } from './oracleIRExecutorZoneOpsCardTypeMatchers';
 import { normalizeBoundPlayerZoneSelectorText } from './oracleIRExecutorZoneOpsGraveyardCountParsers';
 import { parseMoveZoneSingleTargetCriteria } from './oracleIRExecutorZoneOpsSingleTargetCriteria';
 import type { MoveZoneSingleTargetCriteria } from './oracleIRExecutorZoneOpsSingleTargetCriteria';
+import {
+  graveyardThisTurnCriteriaFromQualifier,
+  stripPutIntoGraveyardThisTurnQualifier,
+} from './oracleIRExecutorZoneOpsSingleTargetMatchers';
 
 export function parseMoveZoneShuffleAllTypedCardsOfThatTypeFromYourGraveyard(what: {
   readonly kind: string;
@@ -81,15 +85,18 @@ export function parseMoveZoneTypedCardFromTargetPlayersGraveyard(what: {
 }): MoveZoneSingleTargetCriteria | null {
   if (what.kind !== 'raw') return null;
   const raw = normalizeBoundPlayerZoneSelectorText(String((what as any).text || '').trim()).replace(/[.\s]+$/g, '');
-  const match = raw.match(/^(?:a|an)\s+(.+?)\s+card\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i);
+  const withTurn = stripPutIntoGraveyardThisTurnQualifier(raw);
+  const match = withTurn.selectorText.match(
+    /^(?:a|an)\s+(.+?)\s+card\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i,
+  );
   if (!match) return null;
   const typeText = String(match[1] || '').trim();
   if (/creature/i.test(typeText) && /land/i.test(typeText)) {
-    return { cardType: 'creature_or_land' };
+    return { cardType: 'creature_or_land', ...graveyardThisTurnCriteriaFromQualifier(withTurn) };
   }
   const parsed = parseSimpleCardTypeFromText(typeText);
   if (!parsed) return null;
-  return { cardType: parsed };
+  return { cardType: parsed, ...graveyardThisTurnCriteriaFromQualifier(withTurn) };
 }
 
 function parseAmongMilledOrTypePart(part: string): MoveZoneSingleTargetCriteria | null {

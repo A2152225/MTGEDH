@@ -46,6 +46,43 @@ export function markOncePerTurnTriggerFired(state: any, permanentId: string, tri
   state.oncePerTurnTriggersFiredThisTurn[key] = true;
 }
 
+export function shouldSkipFirstTimeEachTurnTrigger(
+  state: any,
+  trigger: {
+    oncePerTurn?: boolean;
+    onlyOnControllerTurn?: boolean;
+    permanentId?: string;
+    controllerId?: string;
+    triggerType?: string;
+    triggerCondition?: string;
+  },
+): boolean {
+  if (trigger?.onlyOnControllerTurn) {
+    const turnPlayer = String(state?.turnPlayer || '').trim();
+    const controller = String(trigger.controllerId || '').trim();
+    if (controller && turnPlayer && turnPlayer !== controller) return true;
+  }
+  if (!trigger?.oncePerTurn) return false;
+  const id = String(trigger.permanentId || '').trim();
+  const triggerType = String(trigger.triggerType || trigger.triggerCondition || '').trim();
+  return hasOncePerTurnTriggerFired(state, id, triggerType);
+}
+
+export function recordFirstTimeEachTurnTriggerQueued(
+  state: any,
+  trigger: {
+    oncePerTurn?: boolean;
+    permanentId?: string;
+    triggerType?: string;
+    triggerCondition?: string;
+  },
+): void {
+  if (!trigger?.oncePerTurn) return;
+  const id = String(trigger.permanentId || '').trim();
+  const triggerType = String(trigger.triggerType || trigger.triggerCondition || '').trim();
+  markOncePerTurnTriggerFired(state, id, triggerType);
+}
+
 export function shouldSkipTurnLimitedEtbTrigger(state: any, trigger: any, sourcePermanentId: string): boolean {
   const id = String(sourcePermanentId || trigger?.permanentId || '').trim();
   const triggerType = String(trigger?.triggerType || '').trim();

@@ -9,6 +9,8 @@ import type { Server, Socket } from "socket.io";
 import { createCardFromScryfall } from "../../../../shared/src";
 import type { KnownCardRef, PlayerID } from "../../../../shared/src";
 import { getDeck as getDeckDB } from "../../db/decks";
+import { canReadDeck } from "../../decks/deckAccess.js";
+import { getSocketAccountUserId } from "../../auth/attachSocketAuth.js";
 import { resolveDeckList } from "../../services/deckImport.js";
 import { parseDecklist } from "../../services/scryfall";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
@@ -90,7 +92,7 @@ export function registerUseSavedDeckHandler(io: Server, socket: Socket) {
         }
 
         const saved = getDeckDB(deckId);
-        if (!saved) {
+        if (!saved || !canReadDeck(saved, getSocketAccountUserId(socket))) {
           socket.emit("deckError", {
             gameId,
             message: "Saved deck not found.",

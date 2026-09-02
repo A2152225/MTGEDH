@@ -603,7 +603,7 @@ export function tryParseSimpleActionAddManaChoiceClauses(args: SimpleActionClaus
       return withMeta({
         kind: 'choose_color',
         manaOptions,
-        optional: /you\s+may\s+choose/i.test(clause) || undefined,
+        ...(/you\s+may\s+choose/i.test(clause) ? { optional: true as const } : {}),
         raw: rawClause,
       });
     }
@@ -615,7 +615,7 @@ export function tryParseSimpleActionAddManaChoiceClauses(args: SimpleActionClaus
       return withMeta({
         kind: 'choose_color',
         manaOptions: [...ALL_COLOR_MANA],
-        optional: /you\s+may\s+choose/i.test(clause) || undefined,
+        ...(/you\s+may\s+choose/i.test(clause) ? { optional: true as const } : {}),
         raw: rawClause,
       });
     }

@@ -126,4 +126,140 @@ describe('Conditional Mana Sources - Fellwar Stone, Command Tower, and Exotic Or
     expect(mana.anyColor || 0).toBe(0);
     expect(getTotalManaFromPool(mana)).toBe(1); // choice colors of 5 options from 1 source is 1 total mana
   });
+
+  it('should not recurse when both players have Exotic Orchard and nothing else', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'orchard_1',
+          controller: 'player1',
+          tapped: false,
+          card: {
+            name: 'Exotic Orchard',
+            type_line: 'Land',
+            oracle_text: '{T}: Add one mana of any color that a land an opponent controls could produce.',
+          },
+        },
+        {
+          id: 'orchard_2',
+          controller: 'player2',
+          tapped: false,
+          card: {
+            name: 'Exotic Orchard',
+            type_line: 'Land',
+            oracle_text: '{T}: Add one mana of any color that a land an opponent controls could produce.',
+          },
+        },
+      ],
+      commandZone: {},
+      manaPool: {
+        player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    };
+
+    const mana = getAvailableMana(state, 'player1');
+    expect(mana.white).toBe(0);
+    expect(mana.blue).toBe(0);
+    expect(mana.black).toBe(0);
+    expect(mana.red).toBe(0);
+    expect(mana.green).toBe(0);
+    expect(mana.colorless || 0).toBe(0);
+  });
+
+  it('should mirror opponent Mountain through a second Exotic Orchard without inventing WUBRG', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'orchard_1',
+          controller: 'player1',
+          tapped: false,
+          card: {
+            name: 'Exotic Orchard',
+            type_line: 'Land',
+            oracle_text: '{T}: Add one mana of any color that a land an opponent controls could produce.',
+          },
+        },
+        {
+          id: 'orchard_2',
+          controller: 'player2',
+          tapped: false,
+          card: {
+            name: 'Exotic Orchard',
+            type_line: 'Land',
+            oracle_text: '{T}: Add one mana of any color that a land an opponent controls could produce.',
+          },
+        },
+        {
+          id: 'mountain_opp',
+          controller: 'player2',
+          tapped: false,
+          card: {
+            name: 'Mountain',
+            type_line: 'Basic Land — Mountain',
+            oracle_text: '',
+          },
+        },
+      ],
+      commandZone: {},
+      manaPool: {
+        player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    };
+
+    const mana = getAvailableMana(state, 'player1');
+    expect(mana.red).toBe(1);
+    expect(mana.white || 0).toBe(0);
+    expect(mana.blue || 0).toBe(0);
+    expect(mana.black || 0).toBe(0);
+    expect(mana.green || 0).toBe(0);
+    expect(getTotalManaFromPool(mana)).toBe(1);
+  });
+
+  it('should see Yavimaya-granted Forest on an opponent Mountain', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'orchard_1',
+          controller: 'player1',
+          tapped: false,
+          card: {
+            name: 'Exotic Orchard',
+            type_line: 'Land',
+            oracle_text: '{T}: Add one mana of any color that a land an opponent controls could produce.',
+          },
+        },
+        {
+          id: 'yavimaya',
+          controller: 'player2',
+          tapped: false,
+          card: {
+            name: 'Yavimaya, Cradle of Growth',
+            type_line: 'Legendary Land',
+            oracle_text: 'Each land is a Forest in addition to its other types.',
+          },
+        },
+        {
+          id: 'mountain_opp',
+          controller: 'player2',
+          tapped: false,
+          card: {
+            name: 'Mountain',
+            type_line: 'Basic Land — Mountain',
+            oracle_text: '',
+          },
+        },
+      ],
+      commandZone: {},
+      manaPool: {
+        player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    };
+
+    const mana = getAvailableMana(state, 'player1');
+    expect(mana.red).toBe(1);
+    expect(mana.green).toBe(1);
+    expect(mana.white || 0).toBe(0);
+    expect(mana.blue || 0).toBe(0);
+    expect(mana.black || 0).toBe(0);
+  });
 });

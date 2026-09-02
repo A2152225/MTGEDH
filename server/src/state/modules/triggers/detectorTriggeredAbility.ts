@@ -22,6 +22,8 @@ export interface TriggeredAbility {
   manaCost?: string; // For "sacrifice unless you pay" triggers
   mandatory: boolean;
   oncePerTurn?: boolean;
+  /** "for the first time during each of your turns" (Tale of Katara and Toph). */
+  onlyOnControllerTurn?: boolean;
   requiresTarget?: boolean;
   targetType?: string;
   targetConstraint?: 'opponent' | 'you' | undefined; // For targeting restrictions (e.g., "opponent controls" or "you control")

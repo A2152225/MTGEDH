@@ -5,7 +5,7 @@
 import type { MoveZoneGuardArgs } from './oracleIRExecutorMoveZoneGuardArgs';
 import type { MoveZoneStepHandlerResult } from './oracleIRExecutorMoveZoneStepTypes';
 import type { GameState, PlayerID } from '../../shared/src';
-import { moveBattlefieldPermanentsByIdToOwnersLibraries, moveBattlefieldPermanentsByIdToOwnersHands } from './oracleIRExecutorBattlefieldOps';
+import { moveBattlefieldPermanentsByIdToOwnersLibraries, moveBattlefieldPermanentsByIdToOwnersHands, resolveZoneCardIdFromPermanent } from './oracleIRExecutorBattlefieldOps';
 import {
   moveTargetedCardFromGraveyard,
   moveTargetedCardFromHand,
@@ -31,8 +31,13 @@ import {
   resolveContextualCardIdsInZones,
 } from './oracleIRExecutorMoveZoneContextualCardResolvers';
 import { buildAppliedResult, shuffleCardArray } from './oracleIRExecutorMoveZoneStepResultBuilders';
+import { readPlayerZoneCards, writePlayerZoneCards } from './oracleIRExecutorPlayerUtils';
 import { tryApplyMoveZoneLinkedExileBulkStep } from './oracleIRExecutorMoveZoneLinkedExileProjection';
 import { isSelfBattlefieldReference, resolveSelfBattlefieldPermanentId } from './oracleIRExecutorMoveZonePermanentSelectors';
+import {
+  parseWarpWorldSelectorMaps,
+  trySkipCommanderLibraryChoice,
+} from './oracleIRExecutorWarpWorldInteractive';
 
 export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs): MoveZoneStepHandlerResult | undefined {
   const { state, step, ctx, runtime, nextState, log, controllerId, effectiveWithCounters, battlefieldEntryOverrides, finalizeAppliedResult, attachmentResolution, boundTargetObjectId, sourceCardZone, whatText, parsedDiceBracketIt } = args;
@@ -87,6 +92,16 @@ export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs)
           .filter(Boolean)
       : [controllerId];
 
+    const commanderSkip = trySkipCommanderLibraryChoice({
+      state: nextState,
+      ctx,
+      playerIds,
+      stepRaw: String(step.raw || ''),
+    });
+    if (commanderSkip) return commanderSkip;
+
+    const commanderLibraryChoices = parseWarpWorldSelectorMaps(ctx).commanderLibraryChoices;
+
     let workingState = nextState;
     const combinedLog: string[] = [];
     const movedCardSnapshots: any[] = [];
@@ -107,7 +122,8 @@ export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs)
         if ((perm as any)?.isToken === true) continue;
         movedCardSnapshots.push({
           ...((perm as any)?.card || {}),
-          id: String((perm as any)?.id || (perm as any)?.card?.id || '').trim(),
+          id: resolveZoneCardIdFromPermanent(perm)
+            || String((perm as any)?.id || (perm as any)?.card?.id || '').trim(),
           owner: playerId,
           ownerId: playerId,
         });
@@ -117,20 +133,20 @@ export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs)
         // Tokens cease to exist rather than entering the library; the helper already
         // skips writing token cards into the library while still clearing them from
         // the battlefield when their id is included here.
-        const moveResult = moveBattlefieldPermanentsByIdToOwnersLibraries(workingState, allOwnedIds, 'bottom');
+        const moveResult = moveBattlefieldPermanentsByIdToOwnersLibraries(
+          workingState,
+          allOwnedIds,
+          'bottom',
+          Object.keys(commanderLibraryChoices).length > 0 ? { commanderLibraryChoices } : undefined,
+        );
         workingState = moveResult.state;
         combinedLog.push(...moveResult.log);
       }
 
       const player = workingState.players.find((entry: any) => entry.id === playerId) as any;
       if (player) {
-        const library = shuffleCardArray(Array.isArray(player.library) ? player.library : []);
-        workingState = {
-          ...(workingState as any),
-          players: workingState.players.map((entry: any) =>
-            entry.id === playerId ? { ...entry, library } : entry
-          ),
-        } as GameState;
+        const library = shuffleCardArray(readPlayerZoneCards(workingState, playerId, player, 'library'));
+        writePlayerZoneCards(workingState, playerId, player, 'library', library);
       }
 
       combinedLog.push(`${playerId} shuffled ${totalOwnedCount} owned permanent(s) into their library`);

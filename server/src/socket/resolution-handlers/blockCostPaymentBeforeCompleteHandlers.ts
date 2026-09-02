@@ -71,6 +71,7 @@ export async function processBlockCostPaymentBeforeStepComplete(
   }
 
   const amount = Number(stepData.blockCostAmount || 0) || 0;
+  const lifeAmount = Number(stepData.blockCostLifeAmount || 0) || 0;
   const blockers = Array.isArray(stepData.blockers) ? stepData.blockers : [];
   const sources = Array.isArray(stepData.blockCostSources) ? stepData.blockCostSources : [];
 
@@ -82,9 +83,11 @@ export async function processBlockCostPaymentBeforeStepComplete(
     return 'abort';
   }
 
-  const payment = payGenericManaWithAvailableSources(game.state, controllerId, amount, {
-    excludedPermanentIds: blockers.map((entry: any) => String(entry?.blockerId || '')).filter(Boolean),
-  });
+  const payment = amount > 0
+    ? payGenericManaWithAvailableSources(game.state, controllerId, amount, {
+        excludedPermanentIds: blockers.map((entry: any) => String(entry?.blockerId || '')).filter(Boolean),
+      })
+    : { ok: true, tappedPermanents: [], sacrificedPermanents: [], paymentManaDelta: {} as Record<string, number> };
   if (!payment.ok) {
     socket.emit('error', {
       code: 'INSUFFICIENT_MANA',
@@ -93,8 +96,30 @@ export async function processBlockCostPaymentBeforeStepComplete(
     return 'abort';
   }
 
+  let lifePaid = 0;
+  if (lifeAmount > 0) {
+    const playerLife = Number(
+      game.state?.life?.[controllerId]
+      ?? (game.state?.players || []).find((entry: any) => String(entry?.id || '') === controllerId)?.life
+      ?? 40,
+    );
+    if (playerLife <= lifeAmount) {
+      if (amount > 0) refundGenericManaPayment(game.state, controllerId, payment);
+      socket.emit('error', {
+        code: 'INSUFFICIENT_LIFE',
+        message: `Cannot pay ${lifeAmount} life.`,
+      });
+      return 'abort';
+    }
+    game.state.life = game.state.life || {};
+    game.state.life[controllerId] = playerLife - lifeAmount;
+    const playerObj = (game.state.players || []).find((entry: any) => String(entry?.id || '') === controllerId);
+    if (playerObj) playerObj.life = game.state.life[controllerId];
+    lifePaid = lifeAmount;
+  }
+
   try {
-    debug(1, `[combat] Player ${controllerId} paid {${amount}} to block (${sources.join(', ')})`);
+    debug(1, `[combat] Player ${controllerId} paid {${amount}}${lifePaid ? ` and ${lifePaid} life` : ''} to block (${sources.join(', ')})`);
     broadcastManaPoolUpdate(io, gameId, controllerId, getOrInitManaPool(game.state, controllerId) as any, 'Paid block cost', game);
 
     await executeDeclareBlockers(io, gameId, controllerId as any, blockers, {

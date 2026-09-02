@@ -22,6 +22,7 @@ import {
 import { queueDredgeDrawReplacementStep } from "./zonesDrawReplacementDredgeQueue.js";
 import { queueSkipDrawReplacementStep } from "./zonesDrawReplacementSkipDrawQueue.js";
 import { queueZursWeirdingDrawReplacementStep } from "./zonesDrawReplacementZursQueue.js";
+import { applyOrQueueOpponentLibraryDrawReplacement } from "./zonesDrawReplacementOpponentLibraryExile.js";
 
 export type DrawCardsOptions = {
   /** Parent event (nextStep / dredge|zur choice resolve) already restores draws on replay. */
@@ -85,7 +86,13 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
   };
   const drawOneForPlayer = (pid: string, returnToOriginal: boolean): boolean => {
     const z = getZone(pid);
-    let lib = ctx.libraries.get(pid as PlayerID) || [];
+    let lib = ctx.libraries.get(pid as PlayerID);
+    const zoneLib = Array.isArray((z as any).library) ? (z as any).library : undefined;
+    if (!Array.isArray(lib) || lib.length === 0) {
+      lib = (Array.isArray(zoneLib) && zoneLib.length > 0)
+        ? zoneLib
+        : (Array.isArray(lib) ? lib : []);
+    }
     while (lib.length > 0) {
       const c = lib.shift()!;
       const cardId = String((c as any)?.id || '').trim();
@@ -96,6 +103,7 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
         if (alreadyInHand) {
           debug(2, `[drawCards] skipped library ghost already in hand`, { playerId: pid, cardId });
           ctx.libraries.set(pid as PlayerID, lib);
+          (z as any).library = lib;
           z.libraryCount = lib.length;
           continue;
         }
@@ -112,12 +120,14 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
       if (returnToOriginal) drawn.push(c);
       ctx.libraries.set(pid as PlayerID, lib);
       z.handCount = (z.hand as any[]).length;
+      z.library = lib;
       z.libraryCount = lib.length;
       return true;
     }
     emptyDrawByPlayer[pid] = true;
     debug(2, `[drawCards] Player ${pid} attempted to draw from empty library`);
     ctx.libraries.set(pid as PlayerID, lib);
+    z.library = lib;
     z.libraryCount = lib.length;
     return false;
   };
@@ -211,6 +221,28 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
         }
       }
 
+      if (replacement.choiceRequired && replacement.effectId === 'draw-replaced-by-exile-opponent-library') {
+        const replayNextEventType = String((ctx as any)._replayNextEventType || '').trim();
+        if ((ctx as any).isReplaying && replayNextEventType === 'opponentLibraryDrawReplacementResolve') {
+          break;
+        }
+        drawReplacementChoices.push(replacement.metadata);
+        const queued = applyOrQueueOpponentLibraryDrawReplacement(
+          ctx,
+          originalPlayerId,
+          {
+            ...(replacement.metadata || {}),
+            sourceName: replacement.sourceName,
+            sourcePermanentId: String((replacement.metadata as any)?.sourcePermanentId || '').trim(),
+          },
+          Math.max(0, normalizedCount - i - 1),
+        );
+        if (queued) {
+          break;
+        }
+        continue;
+      }
+
       if (replacement.effectId === 'draw-replaced-by-opponent') {
         const replacementPlayerId = String((replacement.metadata as any)?.replacementPlayerId || '').trim();
         if (replacementPlayerId) {
@@ -292,7 +324,6 @@ export function drawCardsByIds(ctx: GameContext, playerId: PlayerID, cardIds: st
     .filter(Boolean);
   if (normalizedIds.length === 0) return [];
 
-  const lib = ctx.libraries.get(playerId) || [];
   const zones = ctx.state.zones = ctx.state.zones || {};
   const z = zones[playerId] || (zones[playerId] = {
     hand: [],
@@ -301,6 +332,11 @@ export function drawCardsByIds(ctx: GameContext, playerId: PlayerID, cardIds: st
     graveyard: [],
     graveyardCount: 0,
   } as any);
+  const fromMap = ctx.libraries.get(playerId);
+  const fromZones = Array.isArray((z as any).library) ? (z as any).library : [];
+  const lib = (Array.isArray(fromMap) && fromMap.length > 0)
+    ? fromMap
+    : (fromZones.length > 0 ? fromZones : (Array.isArray(fromMap) ? fromMap : []));
 
   const byId = new Map<string, KnownCardRef>();
   for (let i = lib.length - 1; i >= 0; i--) {
@@ -333,6 +369,7 @@ export function drawCardsByIds(ctx: GameContext, playerId: PlayerID, cardIds: st
 
   ctx.libraries.set(playerId, lib);
   z.handCount = (z.hand as any[]).length;
+  z.library = lib;
   z.libraryCount = lib.length;
 
   if (drawn.length > 0 && !(ctx as any).isReplaying) {

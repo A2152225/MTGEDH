@@ -5,7 +5,7 @@
 import type { MoveZoneGuardArgs } from './oracleIRExecutorMoveZoneGuardArgs';
 import type { MoveZoneStepHandlerResult } from './oracleIRExecutorMoveZoneStepTypes';
 import type { GameState } from '../../shared/src';
-import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
+import { getCardManaValue, readPlayerZoneCards } from './oracleIRExecutorPlayerUtils';
 import { moveBattlefieldPermanentsByIdToOwnersHands } from './oracleIRExecutorBattlefieldOps';
 import {
   moveTargetedCardFromHand,
@@ -415,7 +415,7 @@ export function tryApplyMoveZoneGuardsFromThisPermanentAndTheExiledCard(args: Mo
         ? (getTargetPlayerId(ctx) || controllerId)
         : controllerId;
     const player = nextState.players.find((p) => p.id === handOwnerId) as any;
-    const hand = Array.isArray(player?.hand) ? player.hand : [];
+    const hand = readPlayerZoneCards(nextState, handOwnerId, player, 'hand');
     if (hand.length === 0) {
       return buildAppliedResult(
         {

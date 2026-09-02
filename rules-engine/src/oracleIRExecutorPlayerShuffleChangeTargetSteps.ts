@@ -21,7 +21,7 @@ import {
   withDiscardLedgerFlags,
 } from './oracleIRExecutorPlayerStepShared';
 import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
-import { readPlayerZoneCards, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { readPlayerZoneCards, resolvePlayers, writePlayerZoneCards } from './oracleIRExecutorPlayerUtils';
 import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
 import { resolveOracleIrBoundTargetSpellId } from './oracleIrTargetBinding';
 import { usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
@@ -281,6 +281,8 @@ export function applyShuffleZonesIntoLibraryStep(
   const zones = new Set((step.zones || []).map((zone) => String(zone || '').trim().toLowerCase()));
   let nextState = state;
   const log: string[] = [];
+  let ledgerRecordedViaBridge = false;
+  const stepIndex = Number(ctx.currentStepIndex);
 
   for (const playerId of players) {
     const player = nextState.players.find(p => p.id === playerId) as any;
@@ -292,31 +294,86 @@ export function applyShuffleZonesIntoLibraryStep(
       };
     }
 
-    const hand = Array.isArray(player.hand) ? [...player.hand] : [];
-    const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
-    const library = Array.isArray(player.library) ? [...player.library] : [];
-    const movingCards = [
-      ...(zones.has('hand') ? hand : []),
-      ...(zones.has('graveyard') ? graveyard : []),
-    ];
-    const nextLibrary = shuffleArray([...library, ...movingCards]);
+    const stampOwner = (card: any) => ({ ...card, ownerId: playerId, owner: playerId, zone: 'library' });
+    const movingFromHand = zones.has('hand')
+      ? readPlayerZoneCards(nextState, playerId, player, 'hand')
+      : [];
+    const movingFromGraveyard = zones.has('graveyard')
+      ? readPlayerZoneCards(nextState, playerId, player, 'graveyard')
+      : [];
 
-    nextState = {
-      ...(nextState as any),
-      players: nextState.players.map((entry: any) => {
-        if (entry.id !== playerId) return entry;
-        return {
-          ...entry,
-          library: nextLibrary,
-          ...(zones.has('hand') ? { hand: [] } : {}),
-          ...(zones.has('graveyard') ? { graveyard: [] } : {}),
-        };
-      }),
-    } as GameState;
-    log.push(`${playerId} shuffled ${movingCards.length} card(s) from hand/graveyard into their library`);
+    if (zones.has('hand') && movingFromHand.length > 0) {
+      const commitResult = commitCardZoneChanges({
+        state: nextState,
+        playerId,
+        cards: movingFromHand.map(stampOwner),
+        sourceZone: 'hand',
+        intendedDestination: 'library',
+        stepIndex,
+        stepKind: step.kind,
+        cause: 'oracle_ir:shuffle_zones_into_library',
+        ctx,
+        libraryPlacement: 'bottom',
+      });
+      if (commitResult.halted) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state: nextState,
+          log,
+        }, ledgerRecordedViaBridge);
+      }
+      nextState = commitResult.state;
+      if (commitResult.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
+    }
+
+    if (zones.has('graveyard') && movingFromGraveyard.length > 0) {
+      const gyPlayer = nextState.players.find(p => p.id === playerId) as any;
+      const gyCards = gyPlayer
+        ? readPlayerZoneCards(nextState, playerId, gyPlayer, 'graveyard')
+        : movingFromGraveyard;
+      const commitResult = commitCardZoneChanges({
+        state: nextState,
+        playerId,
+        cards: gyCards.map(stampOwner),
+        sourceZone: 'graveyard',
+        intendedDestination: 'library',
+        stepIndex,
+        stepKind: step.kind,
+        cause: 'oracle_ir:shuffle_zones_into_library',
+        ctx,
+        libraryPlacement: 'bottom',
+      });
+      if (commitResult.halted) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state: nextState,
+          log,
+        }, ledgerRecordedViaBridge);
+      }
+      nextState = commitResult.state;
+      if (commitResult.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
+    }
+
+    const livePlayer = nextState.players.find(p => p.id === playerId) as any;
+    if (!livePlayer) {
+      return {
+        applied: false,
+        message: `Skipped shuffle zones into library (player not found): ${step.raw}`,
+        reason: 'failed_to_apply',
+      };
+    }
+    if (zones.has('hand')) {
+      writePlayerZoneCards(nextState, playerId, livePlayer, 'hand', []);
+    }
+    if (zones.has('graveyard')) {
+      writePlayerZoneCards(nextState, playerId, livePlayer, 'graveyard', []);
+    }
+    const nextLibrary = shuffleArray(readPlayerZoneCards(nextState, playerId, livePlayer, 'library'));
+    writePlayerZoneCards(nextState, playerId, livePlayer, 'library', nextLibrary);
+    log.push(`${playerId} shuffled ${movingFromHand.length + movingFromGraveyard.length} card(s) from hand/graveyard into their library`);
   }
 
-  return { applied: true, state: nextState, log };
+  return withDiscardLedgerFlags({ applied: true, state: nextState, log }, ledgerRecordedViaBridge);
 }
 
 export function applyChoosePileStep(

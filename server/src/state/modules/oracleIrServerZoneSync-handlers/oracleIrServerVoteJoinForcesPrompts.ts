@@ -18,6 +18,7 @@ import type {
 import { resolvePlayers } from '../../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
 import type { GameContext } from '../../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
+import { listLivingGamePlayers } from '../priorityEligibility.js';
 import { queueJoinForcesResolutionSteps } from '../joinForcesResolutionQueue.js';
 import { queueTemptingOfferResolutionSteps } from '../temptingOfferResolutionQueue.js';
 import {
@@ -37,17 +38,16 @@ function buildVoteBallotChoices(
 ): string[] {
   const ballot = String((step as any).ballot || 'labels');
   if (ballot === 'players') {
-    const players = Array.isArray(state?.players) ? state.players : [];
+    const livingIds = new Set(
+      listLivingGamePlayers({ state }).map((p: any) => String(p?.id || '').trim()).filter(Boolean),
+    );
     const filter = String((step as any).ballotFilter || '').toLowerCase();
-    return players
-      .map((p: any) => String(p?.id || '').trim())
-      .filter((id: string) => {
-        if (!id) return false;
-        if (/\banother\s+player\b|\beach\s+other\s+player\b/i.test(filter) && id === voterId) {
-          return false;
-        }
-        return true;
-      });
+    return [...livingIds].filter((id: string) => {
+      if (/\banother\s+player\b|\beach\s+other\s+player\b/i.test(filter) && id === voterId) {
+        return false;
+      }
+      return true;
+    });
   }
   if (ballot === 'permanents') {
     const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
@@ -75,9 +75,9 @@ function buildApnapVoterOrder(
   startingWith: string | undefined,
   controller: PlayerID,
 ): string[] {
-  const players = Array.isArray(state?.players)
-    ? state.players.map((p: any) => String(p?.id || '').trim()).filter(Boolean)
-    : [];
+  const players = listLivingGamePlayers({ state })
+    .map((p: any) => String(p?.id || '').trim())
+    .filter(Boolean);
   if (players.length === 0) return [controller];
   const start =
     String(startingWith || '').trim() ||

@@ -282,7 +282,7 @@ function endTemporaryEffects(ctx: GameContext) {
         if (type === 'protectionKeywordOverride') {
           return !expiringDurations.has(duration);
         }
-        if (type === 'preventLifeGain' || type === 'attackTaxGeneric' || type === 'blockTaxGeneric') {
+        if (type === 'preventLifeGain' || type === 'attackTaxGeneric' || type === 'attackTaxLife' || type === 'blockTaxGeneric' || type === 'freeHandCastsThisTurn') {
           // Missing duration is the original this-turn stamp (Skullcrack / War Tax).
           // Rest-of-game locks must set duration 'game'. until_your_next_turn lasts
           // until the source controller's next turn (not cleanup).

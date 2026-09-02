@@ -338,6 +338,9 @@ export function tryParseQuantityEarlyReferences(
   if (/^the\s+number\s+of\s+mountains\s+you\s+control$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: 'the number of mountains you control' };
   }
+  if (/^(?:twice|triple)\s+the\s+number\s+of\s+.+$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
   if (/^the\s+number\s+of\s+.+$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^your\s+devotion\s+to\s+[a-z]+$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^the\s+difference\s+between\s+those\s+results$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the difference between those results' };

@@ -38,9 +38,12 @@ import {
   getFloatingPaymentPoolColorKey,
   getOrInitManaPool,
   parseManaCost,
+  resolveActivatedAbilityLineById,
+  resolveLegacyManaAbilityById,
   validateManaPayment,
   type RestrictedManaSpendPurpose,
 } from "../util.js";
+import { applyManaAbilityLifeEffectToState, resolveManaAbilityLifeEffect } from "../../state/modules/mana-abilities-handlers/manaAbilitySelfDamage.js";
 
 function getFloatingPaymentPoolKey(permanentId: string, mana: string, pool?: any): string | null {
   return getFloatingPaymentPoolColorKey(permanentId, mana, pool);
@@ -309,6 +312,14 @@ export function applyWardManaPaymentSelection(
           selectedPaymentAvailableTotals[bonusKey] = (selectedPaymentAvailableTotals[bonusKey] || 0) + bonusAmount;
         }
       }
+
+      const wardManaLifeEffect = resolveManaAbilityLifeEffect({
+        card: permCard,
+        ability: resolveLegacyManaAbilityById(game.state, permanent, playerId, abilityId),
+        abilityText: resolveActivatedAbilityLineById(permanent, abilityId)?.lineText,
+        producesColoredMana: String(mana || '').toUpperCase() !== 'C',
+      });
+      applyManaAbilityLifeEffectToState(game.state, playerId, wardManaLifeEffect);
     }
 
     if (sacrificedPermanents.length > 0) {
@@ -609,6 +620,14 @@ export function applySelectedManaPaymentForResolutionCost(
           selectedPaymentAvailableTotals[bonusKey] = (selectedPaymentAvailableTotals[bonusKey] || 0) + bonusAmount;
         }
       }
+
+      const resolutionManaLifeEffect = resolveManaAbilityLifeEffect({
+        card: permCard,
+        ability: resolveLegacyManaAbilityById(game.state, permanent, playerId, abilityId),
+        abilityText: resolveActivatedAbilityLineById(permanent, abilityId)?.lineText,
+        producesColoredMana: String(mana || '').toUpperCase() !== 'C',
+      });
+      applyManaAbilityLifeEffectToState(game.state, playerId, resolutionManaLifeEffect);
     }
 
     if (sacrificedPermanents.length > 0) {

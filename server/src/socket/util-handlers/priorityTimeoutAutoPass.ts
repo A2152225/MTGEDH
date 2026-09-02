@@ -18,6 +18,7 @@ import { advanceStepPersistingEvent } from "../step-advance.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { BOOT_ID } from "../../utils/bootId.js";
 import { shouldBypassIdleForNonEmptyStack } from "./autoPassTimerState.js";
+import { isDisconnectAutoPassGraceBlocking } from "../disconnectAutoPassGrace.js";
 import { ts } from "./repairMissingPriorityIfStuck.js";
 import { listAttackersAgainstDefender } from "../combat-handlers/combatMustBeBlockedIfAble.js";
 
@@ -167,6 +168,11 @@ function doAutoPass(
     
     if (!priorityPlayer) {
       debugWarn(2, `[doAutoPass] Priority player ${playerId} not found in game ${gameId}`);
+      return;
+    }
+
+    if (!priorityPlayer.isAI && isDisconnectAutoPassGraceBlocking(gameId, String(playerId), game)) {
+      debug(2, `[doAutoPass] Skipping auto-pass for ${playerId} - disconnect reconnect grace`);
       return;
     }
     

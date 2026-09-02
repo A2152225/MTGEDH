@@ -9,9 +9,9 @@ import type { GameContext } from '../../state/context.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
 import { isSpellCastBoardContextUseful } from '../spellCastBoardContext.js';
 import { getCastableSpellCandidates } from '../../state/modules/can-respond-handlers/canRespondCastableSpellCandidates.js';
-import { canActivateAnyAbility } from '../../state/modules/can-respond-handlers/canRespondActivatableAbilities.js';
 import { canPlayLand } from '../../state/modules/can-respond-handlers/canRespondPlayableLands.js';
 import { getCastableCommanderCandidates } from '../../state/modules/can-respond-handlers/canRespondCommandZoneCandidates.js';
+import { hasUsefulAiActivatedAbilityForAutoPass } from './aiActivatedAbilityContextualIdle.js';
 
 const RESPONSE_CANDIDATE_OPTIONS = {
   mode: 'response' as const,
@@ -38,8 +38,10 @@ function candidateIsUseful(ctx: GameContext, playerId: PlayerID, candidate: { ca
 
 /**
  * True when this AI's only "legal" priority actions are board-context no-ops
- * (Entrapment with no attackers, empty-stack Summary Dismissal, off-turn Flash
- * creatures that are not combat tricks). Humans are never treated as idle here.
+ * (Entrapment with no attackers, empty-stack or own-stack Summary Dismissal, off-turn Flash
+ * creatures that are not combat tricks). Elixir-like gain-life/shuffle stays a
+ * real action when life, a GY shuffle, or a removal/GY-exile threat matters.
+ * Humans are never treated as idle here.
  */
 export function isAiContextuallyIdleForAutoPass(ctx: GameContext, playerId: PlayerID): boolean {
   const player = (Array.isArray((ctx.state as any)?.players) ? (ctx.state as any).players : [])
@@ -64,6 +66,6 @@ export function isAiContextuallyIdleForAutoPass(ctx: GameContext, playerId: Play
     }
   }
 
-  if (canActivateAnyAbility(ctx, playerId)) return false;
+  if (hasUsefulAiActivatedAbilityForAutoPass(ctx, playerId)) return false;
   return true;
 }

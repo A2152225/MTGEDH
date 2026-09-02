@@ -511,8 +511,8 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     const loopStackDrain = stateAny.loopShortcutStackDrain?.[currentPlayer] === true;
 
     // Idle auto-pass: no legal actions means pass without requiring the auto-pass preference.
-    // AI: legal-but-pointless instants/flash (Entrapment with no attackers, empty-stack
-    // Summary Dismissal, off-turn Flash creatures) must not stall the loop into a full think.
+    // AI: legal-but-pointless instants/flash (Entrapment with no attackers, empty-stack or
+    // own-stack Summary Dismissal, off-turn Flash creatures) must not stall the loop into a full think.
     if (
       !loopStackDrain
       && !isPlayerIdleForAutoPass(ctx, currentPlayer)

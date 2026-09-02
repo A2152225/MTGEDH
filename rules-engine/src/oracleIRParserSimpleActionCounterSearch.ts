@@ -278,6 +278,21 @@ export function tryParseSimpleActionCounterSearchClauses(args: SimpleActionClaus
   }
 
   {
+    // normalizeClauseForParse strips leading "you may", so the leftover is "pay any amount of {E}".
+    const payAnyEnergy = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?pay\\s+any\\s+amount\\s+of\\s+\\{e\\}\\s*$`, 'i'),
+    );
+    if (payAnyEnergy) {
+      return withMeta({
+        kind: 'pay_energy',
+        who: parsePlayerSelector(payAnyEnergy[1]),
+        amount: { kind: 'any_number' },
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const addPlayerCounters = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}get(?:s)?\\s+(${REFERENCEABLE_COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?$`, 'i')
     );

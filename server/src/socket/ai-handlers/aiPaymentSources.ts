@@ -27,6 +27,11 @@ import {
 import { permanentCannotActivateTapAbilities } from "../../state/modules/staticEffectSpecActivationLocks.js";
 import { permanentHasAIManaAbilityResolverCandidates, resolveAIPaymentManaAbilityId } from "./aiManaActivationHelpers.js";
 import { chooseAISacrificePermanentsForManaAbility } from "./aiSpellPaymentPlanHelpers.js";
+import {
+  AI_UNCOUNTERABLE_CHOSEN_TYPE_COLOR_SCORE,
+  AI_UNCOUNTERABLE_CHOSEN_TYPE_GENERIC_SCORE,
+  spendRestrictionGrantsUncounterableChosenTypeCast,
+} from "./aiUncounterableChosenTypeMana.js";
 
 function buildAIActivatedAbilityResolverCandidates(permanent: any): AIActivatedAbilityResolverCandidate[] {
   return getAIHandlerDeps().buildAIActivatedAbilityResolverCandidates(permanent);
@@ -38,6 +43,13 @@ function parsedActivationManaPips(activationCostText: string): number {
   const parsed = parseManaCost(text);
   return Number(parsed.generic || 0)
     + Object.values(parsed.colors || {}).reduce((sum, amount) => sum + Number(amount || 0), 0);
+}
+
+function sourceHasInvestManaAbility(permanent: any): boolean {
+  return buildAIActivatedAbilityResolverCandidates(permanent).some((candidate) => {
+    const costText = String(candidate?.text || '').split(':')[0] || '';
+    return parsedActivationManaPips(costText) > 0;
+  });
 }
 
 function getAISpellPaymentSourceCostText(
@@ -342,6 +354,13 @@ export function getPaymentSources(
           abilityId,
         );
         if (!spendRestriction) score += 25;
+        if (spendRestrictionGrantsUncounterableChosenTypeCast(
+          spendRestriction,
+          source.perm,
+          restrictedSpendPurpose,
+        )) {
+          score += AI_UNCOUNTERABLE_CHOSEN_TYPE_COLOR_SCORE;
+        }
         score += Math.min(manaAmount, needed - colorsPaid[color]) * 20;
         if (activationManaNeeded > 0) {
           score += (manaAmount - activationManaNeeded) * 15;
@@ -461,6 +480,13 @@ export function getPaymentSources(
         if (activationManaNeeded === 0) genericScore += 40;
         if (!spendRestriction) genericScore += 50;
         if (String(colorOption || '').toUpperCase() === 'C') genericScore += 10;
+        if (spendRestrictionGrantsUncounterableChosenTypeCast(
+          spendRestriction,
+          source.perm,
+          restrictedSpendPurpose,
+        )) {
+          genericScore += AI_UNCOUNTERABLE_CHOSEN_TYPE_GENERIC_SCORE;
+        }
         if (genericScore > bestGenericScore) {
           bestGenericScore = genericScore;
           bestAmount = supportedSource.manaAmount;
@@ -480,6 +506,8 @@ export function getPaymentSources(
         activationManaNeeded: bestActivationManaNeeded,
         netAmount: bestNetAmount,
         sacrificedPermanentIds: bestSacrificedPermanentIds,
+        genericScore: bestGenericScore,
+        sourceHasInvestLine: sourceHasInvestManaAbility(source.perm),
       };
     })
     .filter((entry) => entry.amount > 0)
@@ -487,11 +515,17 @@ export function getPaymentSources(
       const leftPaid = left.activationManaNeeded > 0 ? 1 : 0;
       const rightPaid = right.activationManaNeeded > 0 ? 1 : 0;
       if (leftPaid !== rightPaid) return leftPaid - rightPaid;
+      if (right.genericScore !== left.genericScore) return right.genericScore - left.genericScore;
       return right.netAmount - left.netAmount;
     });
 
+  const simpleFreeCover = remainingSources
+    .filter((entry) => entry.activationManaNeeded === 0 && !entry.sourceHasInvestLine)
+    .reduce((sum, entry) => sum + Number(entry.netAmount || 0), 0);
+
   for (const entry of remainingSources) {
     if (genericNeeded <= 0) break;
+    if (entry.sourceHasInvestLine && simpleFreeCover >= Number(cost.generic || 0)) continue;
 
     usedSourceIds.add(entry.source.perm.id);
     for (const sacrificedId of entry.sacrificedPermanentIds || []) {

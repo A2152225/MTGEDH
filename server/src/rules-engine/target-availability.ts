@@ -239,14 +239,14 @@ export function hasValidTargetsForSpell(
   if (targetReqs.targetTypes.some(t => String(t).includes("spell"))) {
     for (const si of state.stack || []) {
       if (si?.type === "ability" || si?.type === "triggered_ability" || si?.type === "activated_ability") continue;
-      if (!stackItemMeetsSingleTargetRequirement(si, targetReqs)) continue;
+      if (!stackItemMeetsSingleTargetRequirement(si, targetReqs, state)) continue;
       candidates.add(`stack:${si.id}`);
     }
   }
   if (targetReqs.targetTypes.some(t => String(t).includes("ability"))) {
     for (const si of state.stack || []) {
       if (si?.type === "ability" || si?.type === "triggered_ability" || si?.type === "activated_ability") {
-        if (!stackItemMeetsSingleTargetRequirement(si, targetReqs)) continue;
+        if (!stackItemMeetsSingleTargetRequirement(si, targetReqs, state)) continue;
         candidates.add(`stack:${si.id}`);
       }
     }

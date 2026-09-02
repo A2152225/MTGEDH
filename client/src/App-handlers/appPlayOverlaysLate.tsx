@@ -18,7 +18,6 @@ import { LimDulsVaultModal } from "../components/LimDulsVaultModal";
 import { CascadeModal } from "../components/CascadeModal";
 import { MutateTargetModal } from "../components/MutateTargetModal";
 import { GraveyardSelectionModal } from "../components/GraveyardSelectionModal";
-import { IgnoredCardsPanel } from "../components/IgnoredCardsPanel";
 import { GameCommunicationsPanel } from "../components/GameCommunicationsPanel";
 import { IgnoredTriggersPanel } from "../components/IgnoredTriggersPanel";
 import { MayAutoPreferencesPanel } from "../components/MayAutoPreferencesPanel";
@@ -63,7 +62,6 @@ export function renderAppPlayOverlaysLate(p: Record<string, any>) {
     handleToggleAutoPass,
     handleToggleAutoPassEmptyStackOnOpponentsTurn,
     handleToggleAutoPassForTurn,
-    ignoredCards,
     ignoredTriggerSources,
     imagePref,
     isLoopShortcutRecording,
@@ -709,25 +707,6 @@ export function renderAppPlayOverlaysLate(p: Record<string, any>) {
           onSendChat={sendChat}
           resolvePlayerName={resolvePlayerName}
           bottomInset={showMobileChrome ? mobilePlayLayout.playAreaBottomInset : 0}
-        />
-      )}
-
-      {/* Ignored Cards Panel - Shows cards ignored for auto-pass */}
-      {safeView && you && ignoredCards.length > 0 && (
-        <IgnoredCardsPanel
-          ignoredCards={ignoredCards}
-          you={you}
-          onUnignore={(cardId) => {
-            socket.emit('unignoreCardForAutoPass' as any, {
-              gameId: safeView.id,
-              cardId,
-            });
-          }}
-          onClearAll={() => {
-            socket.emit('clearIgnoredCards' as any, {
-              gameId: safeView.id,
-            });
-          }}
         />
       )}
 

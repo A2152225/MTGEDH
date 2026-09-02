@@ -114,10 +114,12 @@ export function canAffordAttackCostPayment(
     excludedPermanentIds?: string[];
     choices?: readonly AttackCostPhyrexianSelection[];
     lifePaidCount?: number;
+    fixedLife?: number;
   },
 ): { ok: boolean; error?: string } {
   const items = Array.isArray(args.items) ? args.items : [];
   const generic = Math.max(0, Math.floor(Number(args.generic) || 0));
+  const fixedLife = Math.max(0, Math.floor(Number(args.fixedLife) || 0));
   const playerLife = Number(
     gameState?.life?.[playerId]
     ?? (Array.isArray(gameState?.players)
@@ -127,7 +129,7 @@ export function canAffordAttackCostPayment(
   );
 
   const trySplit = (lifeIndexes: ReadonlySet<number>): boolean => {
-    let totalLife = 0;
+    let totalLife = fixedLife;
     const colorCounts: Record<string, number> = {};
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
@@ -197,6 +199,7 @@ export function payAttackCostManaAndLife(
     items: readonly AttackYouTaxPhyrexianItem[];
     choices: readonly AttackCostPhyrexianSelection[];
     excludedPermanentIds?: string[];
+    fixedLife?: number;
   },
 ): AttackCostCombinedPayment {
   const empty: AttackCostCombinedPayment = {
@@ -214,7 +217,7 @@ export function payAttackCostManaAndLife(
   }
 
   const colorCounts: Record<string, number> = {};
-  let lifePaid = 0;
+  let lifePaid = Math.max(0, Math.floor(Number(args.fixedLife) || 0));
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index];
     const choice = choices[index];

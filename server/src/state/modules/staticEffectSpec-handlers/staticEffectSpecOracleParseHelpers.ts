@@ -63,7 +63,11 @@ export function parseBuffSegment(seg: string): { power: number; toughness: numbe
 export function parseAbilitiesFromTail(tail: string): string[] {
   const found: string[] = [];
   const text = String(tail || '');
-  const lower = text.toLowerCase();
+  const quotedTexts = extractQuotedAbilityTexts(text);
+  // Keywords inside quotes belong to the granted ability text (attack-trigger
+  // "it gains deathtouch until end of turn"), not static keyword grants.
+  const withoutQuotes = text.replace(/"[^"]*"/g, ' ');
+  const lower = withoutQuotes.toLowerCase();
   for (const ability of ABILITY_WORDS) {
     if (new RegExp(`\\b${ability}\\b`, 'i').test(lower)) {
       found.push(ability);
@@ -84,7 +88,7 @@ export function parseAbilitiesFromTail(tail: string): string[] {
       if (grant) found.push(grant);
     }
   }
-  for (const quoted of extractQuotedAbilityTexts(text)) {
+  for (const quoted of quotedTexts) {
     const trimmed = String(quoted || '').trim();
     if (trimmed) found.push(trimmed);
   }

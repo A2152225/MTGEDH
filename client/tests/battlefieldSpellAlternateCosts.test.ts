@@ -53,4 +53,37 @@ describe('battlefieldSpellAlternateCosts', () => {
     expect(shouldApplyBattlefieldSpellAlternateCosts({ fromZone: 'graveyard' })).toBe(false);
     expect(shouldApplyBattlefieldSpellAlternateCosts({ fromZone: 'command' })).toBe(false);
   });
+
+  it("does not offer Yusri free casts until the this-turn grant is stamped", () => {
+    const yusriOracle =
+      'Flying\nWhenever Yusri attacks, choose a number between 1 and 5. Flip that many coins. For each flip you win, draw a card. For each flip you lose, Yusri deals 2 damage to you. If you won five flips this way, you may cast spells from your hand this turn without paying their mana costs.';
+    expect(buildBattlefieldSpellAlternateCosts({
+      spellToCast: { fromZone: 'hand' },
+      controllerId: 'p1',
+      battlefield: [{
+        controller: 'p1',
+        card: { name: "Yusri, Fortune's Flame", oracle_text: yusriOracle },
+      }],
+    })).toEqual([]);
+
+    const withGrant = buildBattlefieldSpellAlternateCosts({
+      spellToCast: { fromZone: 'hand' },
+      controllerId: 'p1',
+      battlefield: [{
+        controller: 'p1',
+        card: { name: "Yusri, Fortune's Flame", oracle_text: yusriOracle },
+      }],
+      lastingEffects: [{
+        type: 'freeHandCastsThisTurn',
+        controllerId: 'p1',
+        sourceName: "Yusri, Fortune's Flame",
+      }],
+    });
+    expect(withGrant).toEqual([
+      expect.objectContaining({
+        id: 'free',
+        label: "Free Cast (Yusri, Fortune's Flame)",
+      }),
+    ]);
+  });
 });

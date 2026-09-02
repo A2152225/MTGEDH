@@ -14,8 +14,10 @@ const REFLEXIVE_WHEN_YOU_DO_SENTENCE = /^when you do(?: so)?\b/i;
 const DELAYED_TRIGGER_CONTINUATION_SENTENCE =
   /^(?:at the beginning of (?:the |your )?next (?:end step|upkeep)|at the beginning of your next (?:end step|upkeep))\b/i;
 
+// Same-paragraph follow-ups only. Generic "Each …" / "You may play an additional land"
+// after a newline is a new ability; anaphoric "you may play those cards" continues.
 const CONTINUATION_SENTENCE =
-  /^(?:then|each|if you (?:do|win)|when you do(?: so)?|otherwise|you may|that player|those|they|it|choose|target|create|otherwise|search|reveal (?:those|them|it))\b/i;
+  /^(?:then|each|if you (?:do|win)|when you do(?: so)?|otherwise|you may|that player|those|they|it|choose|target|create|otherwise|search|reveal (?:those|them|it)|flip (?:a coin|that many coins|coins)|for each)\b/i;
 
 function isNewTriggerTimingSentence(sentence: string): boolean {
   const trimmed = String(sentence || '').trim();
@@ -26,6 +28,24 @@ function isNewTriggerTimingSentence(sentence: string): boolean {
   // this resolving ability (CR 603.7), not a separate card trigger.
   if (DELAYED_TRIGGER_CONTINUATION_SENTENCE.test(trimmed)) return false;
   return NEW_TRIGGER_TIMING_SENTENCE.test(trimmed);
+}
+
+/**
+ * Continuations that may start a new oracle paragraph of the same ability.
+ * Generic "Each …" / "You may …" lines after a newline are a *new* ability
+ * (Rites of Flourishing extra land, Gitrog extra land, Jin-Gitaxias hand size).
+ */
+function isSameAbilityContinuationAcrossParagraph(sentence: string): boolean {
+  const trimmed = String(sentence || '').trim();
+  if (!trimmed) return false;
+  if (/^[\u2022•]/.test(trimmed)) return true;
+  if (REFLEXIVE_WHEN_YOU_DO_SENTENCE.test(trimmed)) return true;
+  if (DELAYED_TRIGGER_CONTINUATION_SENTENCE.test(trimmed)) return true;
+  if (/^(?:then|if you (?:do|win)|otherwise)\b/i.test(trimmed)) return true;
+  // Anaphoric play permissions ("those cards" / "them" / "this way") continue the
+  // same trigger across a newline. Generic "You may play an additional land"
+  // paragraphs (Rites of Flourishing / Gitrog) stay a new ability.
+  return /^(?:until (?:end of turn|the end of (?:your )?next turn|your next turn),?\s+)?you may (?:play|cast)\b[\s\S]*\b(?:those|them|that|this way)\b/i.test(trimmed);
 }
 
 function splitSentences(text: string): string[] {
@@ -99,43 +119,41 @@ function sliceClosedReminderTail(tail: string, openParenCount: number): string |
 export function truncateAtAbilityBoundary(text: string): string {
   const source = String(text || '');
   const boundary = source.match(ABILITY_LINE_BOUNDARY);
-  if (boundary?.index != null && boundary.index > 0) {
-    return source.slice(0, boundary.index).trim();
-  }
+  const sliced =
+    boundary?.index != null && boundary.index > 0
+      ? source.slice(0, boundary.index).trim()
+      : source;
 
-  const newlineIdx = source.indexOf('\n');
+  const newlineIdx = sliced.indexOf('\n');
   if (newlineIdx > 0) {
-    const firstLine = source.slice(0, newlineIdx).trim();
-    const rest = source.slice(newlineIdx + 1).trim();
+    const firstLine = sliced.slice(0, newlineIdx).trim();
+    const rest = sliced.slice(newlineIdx + 1).trim();
     if (firstLine.endsWith('.') && rest) {
       const restIsContinuation =
-        CONTINUATION_SENTENCE.test(rest)
-        || isNewTriggerTimingSentence(rest)
-        // Modal / random-choice modes continue on bullet lines after the lead sentence.
-        || /^[\u2022•]/.test(rest);
+        isSameAbilityContinuationAcrossParagraph(rest)
+        || isNewTriggerTimingSentence(rest);
       if (!restIsContinuation) {
         return firstLine;
       }
     }
   }
 
-  return source.trim();
+  return sliced.trim();
 }
 
 function shouldIncludeContinuationSentence(sentence: string, fullTail: string): boolean {
   const trimmed = String(sentence || '').trim();
   if (!trimmed) return false;
   if (isNewTriggerTimingSentence(trimmed)) return false;
-  if (CONTINUATION_SENTENCE.test(trimmed)) return true;
-  // Modal / random-choice modes continue on bullet lines.
   if (/^[\u2022•]/.test(trimmed)) return true;
 
   const sentenceStart = fullTail.indexOf(trimmed);
-  if (sentenceStart > 0) {
-    const between = fullTail.slice(0, sentenceStart);
-    if (!between.includes('\n')) return true;
+  if (sentenceStart > 0 && fullTail.slice(0, sentenceStart).includes('\n')) {
+    return isSameAbilityContinuationAcrossParagraph(trimmed);
   }
-  return false;
+
+  if (CONTINUATION_SENTENCE.test(trimmed)) return true;
+  return sentenceStart > 0;
 }
 
 /**

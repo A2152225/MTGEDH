@@ -148,6 +148,7 @@ export function tryApplyMainLoopChoiceKeywordLookSteps(
         lastMovedCards,
         lastScryLookedAtCount,
         lastReferenceAmount,
+        lastMovedCountByPlayer,
         lastStepOutcome,
         lastActionOutcome,
         replayMutations,
@@ -163,6 +164,7 @@ export function tryApplyMainLoopChoiceKeywordLookSteps(
       lastMovedCards,
       lastScryLookedAtCount,
       lastReferenceAmount,
+      lastMovedCountByPlayer,
       lastStepOutcome,
       lastActionOutcome,
       replayMutations,
@@ -181,6 +183,7 @@ export function tryApplyMainLoopChoiceKeywordLookSteps(
       lastMovedCards,
       lastScryLookedAtCount,
       lastReferenceAmount,
+      lastMovedCountByPlayer,
       lastStepOutcome,
       lastActionOutcome,
       replayMutations,
@@ -198,6 +201,7 @@ export function tryApplyMainLoopChoiceKeywordLookSteps(
       lastMovedCards,
       lastScryLookedAtCount,
       lastReferenceAmount,
+      lastMovedCountByPlayer,
       lastStepOutcome,
       lastActionOutcome,
       replayMutations,
@@ -215,6 +219,7 @@ export function tryApplyMainLoopChoiceKeywordLookSteps(
       lastMovedCards,
       lastScryLookedAtCount,
       lastReferenceAmount,
+      lastMovedCountByPlayer,
       lastStepOutcome,
       lastActionOutcome,
       replayMutations,
@@ -542,7 +547,13 @@ export function tryApplyMainLoopChoiceKeywordLookSteps(
         break;
       }
       case 'reveal_top': {
-        const result = applyRevealTopStep(nextState, step, currentCtx);
+        if (lastMovedCountByPlayer) {
+          currentCtx = { ...currentCtx, lastMovedCountByPlayer };
+        }
+        if (Array.isArray(lastMovedCards) && lastMovedCards.length > 0) {
+          currentCtx = { ...currentCtx, lastMovedCards };
+        }
+        const result = applyRevealTopStep(nextState, step, currentCtx, lastMovedCountByPlayer);
         applyHandledStepResult(step, result, (appliedResult) => {
           if (typeof appliedResult.lastRevealedCardCount === 'number') {
             lastRevealedCardCount = Math.max(0, Number(appliedResult.lastRevealedCardCount) || 0);

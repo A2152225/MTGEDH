@@ -5,6 +5,8 @@ import {
   reassignPriorityIfHolderCannotReceive,
   getActivePriorityPlayers,
 } from '../src/state/modules/priorityEligibility.js';
+import { checkPendingInteractions } from '../src/state/modules/turn-handlers/checkPendingInteractions.js';
+import { computeNextStepPhaseAdvance } from '../src/state/modules/turn-handlers/turnStepPhaseAdvance.js';
 import { repairMissingPriorityIfStuck } from '../src/socket/util-handlers/repairMissingPriorityIfStuck.js';
 
 function createCtx(state: any): GameContext {
@@ -128,5 +130,95 @@ describe('eliminated players do not receive priority', () => {
     const repaired = repairMissingPriorityIfStuck(game as any, 'eliminated_priority', '[test]');
     expect(repaired).toBe(true);
     expect(state.priority).toBe('p_alive_ai');
+  });
+});
+
+describe('eliminated turn player during DECLARE_ATTACKERS', () => {
+  it('does not wait for attacker declaration from a turn player who cannot receive priority', () => {
+    const state = createEliminatedPriorityState({
+      turnPlayer: 'p_dead_ai',
+      priority: 'p_human',
+      phase: 'combat',
+      step: 'DECLARE_ATTACKERS',
+      attackersDeclaredBy: [],
+    });
+    const ctx = createCtx(state);
+
+    const pending = checkPendingInteractions(ctx);
+    expect(pending.pendingTypes).not.toContain('attacker_declaration');
+    expect(state.attackersDeclaredBy).toContain('p_dead_ai');
+  });
+
+  it('still waits for a living turn player to declare attackers', () => {
+    const state = createEliminatedPriorityState({
+      turnPlayer: 'p_human',
+      priority: 'p_alive_ai',
+      phase: 'combat',
+      step: 'DECLARE_ATTACKERS',
+      attackersDeclaredBy: [],
+    });
+    const ctx = createCtx(state);
+
+    const pending = checkPendingInteractions(ctx);
+    expect(pending.pendingTypes).toContain('attacker_declaration');
+    expect(state.attackersDeclaredBy || []).not.toContain('p_human');
+  });
+
+  it('does not ping-pong priority when living players pass during the eliminated player\'s attack step', () => {
+    const state = createEliminatedPriorityState({
+      turnPlayer: 'p_dead_ai',
+      priority: 'p_human',
+      phase: 'combat',
+      step: 'DECLARE_ATTACKERS',
+      attackersDeclaredBy: [],
+    });
+    const ctx = createCtx(state);
+
+    const first = passPriority(ctx, 'p_human', true);
+    expect(state.attackersDeclaredBy).toContain('p_dead_ai');
+    expect(state.priority).not.toBe('p_dead_ai');
+
+    if (first.advanceStep) {
+      expect(first.advanceStep).toBe(true);
+      return;
+    }
+
+    expect(state.priority).toBe('p_alive_ai');
+    const second = passPriority(ctx, 'p_alive_ai', true);
+    expect(second.changed).toBe(true);
+    expect(second.advanceStep).toBe(true);
+    expect(state.priority).not.toBe('p_dead_ai');
+  });
+
+  it('auto-declares empty attackers when the turn player is only in inactive', () => {
+    const state = createEliminatedPriorityState({
+      turnPlayer: 'p_alive_ai',
+      priority: 'p_human',
+      phase: 'combat',
+      step: 'DECLARE_ATTACKERS',
+      attackersDeclaredBy: [],
+    });
+    const ctx = createCtx(state);
+    ctx.inactive = new Set(['p_alive_ai']);
+
+    const pending = checkPendingInteractions(ctx);
+    expect(pending.pendingTypes).not.toContain('attacker_declaration');
+    expect(state.attackersDeclaredBy).toContain('p_alive_ai');
+  });
+
+  it('skips extra combat when the active player cannot receive priority', () => {
+    const state = createEliminatedPriorityState({
+      turnPlayer: 'p_dead_ai',
+      priority: 'p_human',
+      phase: 'combat',
+      step: 'END_COMBAT',
+      extraCombats: [{ source: 'Aurelia, the Warleader', untapAttackers: true }],
+    });
+    const ctx = createCtx(state);
+
+    const next = computeNextStepPhaseAdvance(ctx, 'combat', 'END_COMBAT', () => ({}));
+    expect(next?.nextPhase).toBe('postcombatMain');
+    expect(next?.nextStep).toBe('MAIN2');
+    expect(state.extraCombats).toEqual([]);
   });
 });

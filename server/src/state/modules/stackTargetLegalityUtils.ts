@@ -31,7 +31,7 @@ export function inferStackTargetLocations(oracleText: string): Set<StackTargetLo
   }
 
   if (
-    /\btarget\s+(?:(?:noncreature|creature|instant|sorcery|artifact|enchantment)\s+)?spell\b/.test(normalized) ||
+    /\btarget\s+(?:(?:noncreature|creature|instant|sorcery|artifact|enchantment)\s+)?spells?\b/.test(normalized) ||
     /\btarget\s+(?:activated|triggered)?\s*ability\b/.test(normalized)
   ) {
     locations.add('stack');

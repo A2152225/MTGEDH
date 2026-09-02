@@ -34,7 +34,7 @@ export interface ManaModifier {
   permanentId: string;
   cardName: string;
   type: 'grant_ability' | 'land_type' | 'mana_multiplier' | 'extra_mana';
-  affects: 'lands' | 'creatures' | 'all_lands' | 'nonbasic_lands' | 'basic_lands' | 'specific';
+  affects: 'lands' | 'creatures' | 'all_lands' | 'nonbasic_lands' | 'basic_lands' | 'specific' | 'nontoken_creatures';
   grantedAbility?: ManaAbility;
   landTypes?: string[]; // For land type modifiers
   multiplier?: number; // For mana doubling (2 = double, 3 = triple)
@@ -45,10 +45,170 @@ export interface ManaModifier {
   requiresImprintedLandType?: boolean; // For Extraplanar Lens
   affectsAllPlayers?: boolean; // For symmetric effects like Mana Flare
   untilEndOfTurn?: boolean; // For effects that only last until end of turn
+  hostPermanentId?: string; // Aura host for "Enchanted land is an Island"
 }
 
 export const BASIC_LAND_TYPES = ['plains', 'island', 'swamp', 'mountain', 'forest'] as const;
 export type BasicLandType = typeof BASIC_LAND_TYPES[number];
+
+const BASIC_LAND_TYPE_WORDS: Record<string, BasicLandType> = {
+  plains: 'plains',
+  island: 'island',
+  islands: 'island',
+  swamp: 'swamp',
+  swamps: 'swamp',
+  mountain: 'mountain',
+  mountains: 'mountain',
+  forest: 'forest',
+  forests: 'forest',
+};
+
+function parseOracleLandTypeGrant(permanent: any): Omit<ManaModifier, 'permanentId' | 'cardName'> | null {
+  const oracle = String(permanent?.card?.oracle_text || '').toLowerCase();
+  if (!oracle) return null;
+
+  if (/lands you control are every basic land type in addition/.test(oracle)) {
+    return {
+      type: 'land_type',
+      affects: 'lands',
+      landTypes: [...BASIC_LAND_TYPES],
+      grantedAbility: { id: 'oracle_every_basic', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] },
+    };
+  }
+
+  const youControlChosen =
+    /lands you control are the chosen (?:basic )?land type in addition/.test(oracle)
+    || /lands you control are the chosen type in addition/.test(oracle);
+  if (youControlChosen) {
+    const raw = String(
+      permanent?.chosenBasicLandType
+      || permanent?.card?.chosenBasicLandType
+      || permanent?.chosenOption
+      || '',
+    ).trim().toLowerCase();
+    const landType = BASIC_LAND_TYPE_WORDS[raw];
+    if (landType) {
+      return {
+        type: 'land_type',
+        affects: 'lands',
+        landTypes: [landType],
+        grantedAbility: {
+          id: `oracle_chosen_${landType}`,
+          cost: '{T}',
+          produces: [DEFAULT_BASIC_LAND_MANA_MAP[landType]],
+        },
+      };
+    }
+  }
+
+  const eachLand = oracle.match(/each land is an? (plains|island|swamp|mountain|forest) in addition/);
+  if (eachLand) {
+    const landType = BASIC_LAND_TYPE_WORDS[eachLand[1]];
+    if (landType) {
+      return {
+        type: 'land_type',
+        affects: 'all_lands',
+        landTypes: [landType],
+        grantedAbility: {
+          id: `oracle_each_${landType}`,
+          cost: '{T}',
+          produces: [DEFAULT_BASIC_LAND_MANA_MAP[landType]],
+        },
+      };
+    }
+  }
+
+  const allLands = oracle.match(/all lands are (plains|islands|swamps|mountains|forests) in addition/);
+  if (allLands) {
+    const landType = BASIC_LAND_TYPE_WORDS[allLands[1]];
+    if (landType) {
+      return {
+        type: 'land_type',
+        affects: 'all_lands',
+        landTypes: [landType],
+        grantedAbility: {
+          id: `oracle_all_${landType}`,
+          cost: '{T}',
+          produces: [DEFAULT_BASIC_LAND_MANA_MAP[landType]],
+        },
+      };
+    }
+  }
+
+  const youControl = oracle.match(/lands you control are (plains|islands|swamps|mountains|forests) in addition/);
+  if (youControl) {
+    const landType = BASIC_LAND_TYPE_WORDS[youControl[1]];
+    if (landType) {
+      return {
+        type: 'land_type',
+        affects: 'lands',
+        landTypes: [landType],
+        grantedAbility: {
+          id: `oracle_control_${landType}`,
+          cost: '{T}',
+          produces: [DEFAULT_BASIC_LAND_MANA_MAP[landType]],
+        },
+      };
+    }
+  }
+
+  const attachedTo = String(permanent?.attachedTo || permanent?.enchanting || '').trim();
+  if (attachedTo && /enchanted land is /.test(oracle) && !/\benchanted land is a \d+\/\d+\b/.test(oracle)) {
+    if (/enchanted land is every basic land type in addition/.test(oracle)) {
+      return {
+        type: 'land_type',
+        affects: 'specific',
+        hostPermanentId: attachedTo,
+        landTypes: [...BASIC_LAND_TYPES],
+        grantedAbility: {
+          id: 'oracle_enchanted_every_basic',
+          cost: '{T}',
+          produces: ['W', 'U', 'B', 'R', 'G'],
+        },
+      };
+    }
+
+    const enchantedTypes = oracle.match(
+      /enchanted land is ((?:an? )?(?:plains|island|swamp|mountain|forest)(?:(?:,|, and | and )(?:an? )?(?:plains|island|swamp|mountain|forest))*)/,
+    );
+    if (enchantedTypes) {
+      const landTypes = [...new Set(
+        (enchantedTypes[1].match(/plains|island|swamp|mountain|forest/g) || [])
+          .map((word) => BASIC_LAND_TYPE_WORDS[word])
+          .filter((landType): landType is BasicLandType => Boolean(landType)),
+      )];
+      if (landTypes.length > 0) {
+        const inAddition = /enchanted land is .+\bin addition\b/.test(oracle);
+        return {
+          type: 'land_type',
+          affects: 'specific',
+          hostPermanentId: attachedTo,
+          landTypes,
+          overridesExisting: !inAddition,
+          grantedAbility: {
+            id: `oracle_enchanted_${landTypes.join('_')}`,
+            cost: '{T}',
+            produces: landTypes.map((landType) => DEFAULT_BASIC_LAND_MANA_MAP[landType]),
+          },
+        };
+      }
+    }
+  }
+
+  const creatureForests = oracle.match(
+    /(nontoken\s+)?creatures you control are forest lands in addition/,
+  );
+  if (creatureForests) {
+    return {
+      type: 'land_type',
+      affects: 'nontoken_creatures',
+      landTypes: ['forest'],
+      grantedAbility: { id: 'oracle_creature_forest', cost: '{T}', produces: ['G'] },
+    };
+  }
+
+  return null;
+}
 
 type OrderedLandTypeModifier = {
   modifier: ManaModifier;
@@ -106,8 +266,19 @@ function modifierAppliesToLand(
   permanent: any,
   playerId: string,
   isBasic: boolean,
+  isLand: boolean,
 ): boolean {
   if (modifier.type !== 'land_type') return false;
+  if (modifier.affects === 'specific') {
+    return String(permanent?.id || '') === String(modifier.hostPermanentId || '');
+  }
+  if (modifier.affects === 'nontoken_creatures') {
+    const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+    return typeLine.includes('creature')
+      && permanent?.isToken !== true
+      && String(permanent?.controller || '') === playerId;
+  }
+  if (!isLand) return false;
   if (modifier.affects === 'all_lands') return true;
   if (modifier.affects === 'nonbasic_lands') return !isBasic;
   if (modifier.affects === 'basic_lands') return isBasic;
@@ -160,7 +331,7 @@ function isLandTypeModifierSourceActive(
     if (!otherEffect.modifier.overridesExisting) {
       return false;
     }
-    return modifierAppliesToLand(otherEffect.modifier, sourcePermanent, sourceController, sourceIsBasic);
+    return modifierAppliesToLand(otherEffect.modifier, sourcePermanent, sourceController, sourceIsBasic, true);
   });
 }
 
@@ -178,13 +349,18 @@ export function getOverridingLandTypeModifier(gameState: any, permanent: any): O
   const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
   const isBasic = typeLine.includes('basic');
   const activeModifiers = getActiveLandTypeModifiers(gameState, playerId);
+  const isLand = typeLine.includes('land')
+    || activeModifiers.some((effect) => (
+      effect.modifier.affects === 'nontoken_creatures'
+      && modifierAppliesToLand(effect.modifier, permanent, playerId, isBasic, true)
+    ));
 
   for (let index = activeModifiers.length - 1; index >= 0; index -= 1) {
     const effect = activeModifiers[index];
     if (!effect.modifier.overridesExisting) {
       continue;
     }
-    if (modifierAppliesToLand(effect.modifier, permanent, playerId, isBasic)) {
+    if (modifierAppliesToLand(effect.modifier, permanent, playerId, isBasic, isLand)) {
       return effect;
     }
   }
@@ -194,18 +370,23 @@ export function getOverridingLandTypeModifier(gameState: any, permanent: any): O
 
 export function getEffectiveBasicLandTypes(gameState: any, permanent: any): BasicLandType[] {
   const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
-  if (!typeLine.includes('land')) {
-    return [];
-  }
-
   const playerId = String(permanent?.controller || '').trim();
   const isBasic = typeLine.includes('basic');
   const modifiers = playerId ? getActiveLandTypeModifiers(gameState, playerId) : [];
+  const printedLand = typeLine.includes('land');
+  const isLand = printedLand
+    || modifiers.some((effect) => (
+      effect.modifier.affects === 'nontoken_creatures'
+      && modifierAppliesToLand(effect.modifier, permanent, playerId, isBasic, true)
+    ));
+  if (!isLand) {
+    return [];
+  }
 
   let effectiveTypes = getPrintedBasicLandTypes(typeLine);
 
   for (const effect of modifiers) {
-    if (!modifierAppliesToLand(effect.modifier, permanent, playerId, isBasic)) {
+    if (!modifierAppliesToLand(effect.modifier, permanent, playerId, isBasic, isLand)) {
       continue;
     }
 
@@ -506,6 +687,25 @@ export function detectManaModifiers(
       }
     }
     
+    const oracleLandTypeGrant = parseOracleLandTypeGrant(permanent);
+    if (oracleLandTypeGrant) {
+      const isGlobalEffect = oracleLandTypeGrant.affects === 'all_lands'
+        || oracleLandTypeGrant.affects === 'nonbasic_lands';
+      const isHostedGrant = oracleLandTypeGrant.affects === 'specific';
+      if (
+        (controller === playerId || isGlobalEffect || isHostedGrant)
+        && !modifiers.some((modifier) => (
+          modifier.permanentId === permanent.id && modifier.type === 'land_type'
+        ))
+      ) {
+        modifiers.push({
+          permanentId: permanent.id,
+          cardName: permanent.card?.name || "Unknown",
+          ...oracleLandTypeGrant,
+        });
+      }
+    }
+
     // Generic detection for "lands you control have" patterns
     if (controller === playerId) {
       if (oracleText.includes("lands you control have") && oracleText.includes("add one mana of any color")) {

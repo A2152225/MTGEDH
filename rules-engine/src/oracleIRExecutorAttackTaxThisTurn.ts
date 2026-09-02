@@ -33,19 +33,25 @@ function resolveTaxAmount(
   effectText: string,
   step: Extract<OracleEffectStep, { kind: 'grant_static_ability' }>,
   ctx: OracleIRExecutionContext,
-): number | null {
+): { generic: number; life: number } | null {
+  const life = effectText.match(/pays\s+(\d+)\s+life/i);
+  if (life) {
+    const parsed = Number.parseInt(String(life[1] || ''), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return null;
+    return { generic: 0, life: parsed };
+  }
   const mana = effectText.match(/\{(x|\d+)\}/i);
   if (!mana) return null;
   if (String(mana[1] || '').toLowerCase() === 'x') {
     const fromStep = Number((step as { xValue?: number }).xValue);
     const fromCtx = Number(ctx.xValue);
     const resolved = Number.isFinite(fromStep) ? fromStep : fromCtx;
-    if (!Number.isFinite(resolved)) return 0;
-    return Math.max(0, Math.floor(resolved));
+    if (!Number.isFinite(resolved)) return { generic: 0, life: 0 };
+    return { generic: Math.max(0, Math.floor(resolved)), life: 0 };
   }
   const parsed = Number.parseInt(String(mana[1] || ''), 10);
   if (!Number.isFinite(parsed)) return null;
-  return Math.max(0, parsed);
+  return { generic: Math.max(0, parsed), life: 0 };
 }
 
 function currentTurnNumber(state: GameState): number {
@@ -82,6 +88,13 @@ export function tryApplyAttackTaxThisTurnGrant(
 
   const amount = resolveTaxAmount(effectText, step, ctx);
   if (amount === null) return null;
+  if (amount.generic <= 0 && amount.life <= 0) {
+    return {
+      applied: true,
+      state,
+      log: [`Skipped zero this-turn attack tax: ${step.raw}`],
+    };
+  }
 
   const attackYou = /\bcan(?:not|'t)\s+attack\s+you\b/.test(effectText);
   const source = sourceName || 'This-turn attack tax';
@@ -89,11 +102,22 @@ export function tryApplyAttackTaxThisTurnGrant(
     ? [...((state as { lastingEffects: unknown[] }).lastingEffects)]
     : [];
 
-  const stamp = attackYou
+  const stamp = amount.life > 0
+    ? {
+        type: 'attackTaxLife',
+        duration: duration === 'until_next_turn' ? 'until_your_next_turn' : 'this_turn',
+        amount: amount.life,
+        defenderId: String(ctx.controllerId || '').trim(),
+        global: false,
+        source,
+        controllerId: String(ctx.controllerId || '').trim() || undefined,
+        turnApplied: currentTurnNumber(state),
+      }
+    : attackYou
     ? {
         type: 'attackTaxGeneric',
         duration: duration === 'until_next_turn' ? 'until_your_next_turn' : 'this_turn',
-        amount,
+        amount: amount.generic,
         defenderId: String(ctx.controllerId || '').trim(),
         global: false,
         source,
@@ -103,7 +127,7 @@ export function tryApplyAttackTaxThisTurnGrant(
     : {
         type: 'attackTaxGeneric',
         duration: 'this_turn',
-        amount,
+        amount: amount.generic,
         global: true,
         source,
       };
@@ -114,6 +138,6 @@ export function tryApplyAttackTaxThisTurnGrant(
       ...(state as object),
       lastingEffects: [...existing, stamp],
     } as GameState,
-    log: [`Stamped ${stamp.duration} attackTaxGeneric ${amount} (${stamp.global ? 'global' : 'attack_you'})`],
+    log: [`Stamped ${stamp.duration} ${stamp.type} ${amount.life || amount.generic} (${stamp.global ? 'global' : 'attack_you'})`],
   };
 }

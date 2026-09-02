@@ -74,12 +74,20 @@ export function applyTemporaryEffectToPermanents(
       untilEndOfTurn = { ...(untilEndOfTurn || {}), grantedAbilitiesToRemove };
     }
 
+    const justChangedController = Array.isArray((state as any)?.controlChangeEffects)
+      && (state as any).controlChangeEffects.some(
+        (entry: any) => String(entry?.permanentId || '').trim() === permanentId,
+      );
+
     return {
       ...perm,
       ...(existingEffects.length > 0 ? { temporaryEffects: existingEffects } : {}),
       ...(existingGrantedAbilities.length > 0 ? { grantedAbilities: existingGrantedAbilities } : {}),
       ...(untilEndOfTurn ? { untilEndOfTurn } : {}),
-      ...(grantsHaste ? { summoningSickness: false } : {}),
+      // Control-change already stamped summoning sickness; haste lets them attack
+      // despite that flag (combat checks haste). Clearing it here would disagree
+      // with Act of Treason / Reins of Power server semantics.
+      ...(grantsHaste && !justChangedController ? { summoningSickness: false } : {}),
     } as any;
   });
 

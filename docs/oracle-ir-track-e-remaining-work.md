@@ -56,7 +56,7 @@ For **new cards**, step collection may hit the overlay **before** a parser batch
 | **L3 Overlays** | Probe / validate / import / upsert scripts; `@OracleIRCompiler` agent | ✅ In migration suite (batch 458) |
 | **Data refresh** | `npm run card-lookup:refresh` — oracle index + local SQLite rebuild | ✅ Script exists |
 | **Trigger detect** | `trigger:coverage` — timing phrases fire on server | ✅ 15,741/15,741 |
-| **Live seams** | `oracle-ir:live-seam` — lords / compound timings / watchers / exile-GY | ⬜ Catch false greens that assisted IR dry-run misses |
+| **Live seams** | `oracle-ir:live-seam` — lords / compound timings / watchers / exile-GY / granted quoted triggers on recipients | ⬜ Catch false greens that assisted IR dry-run misses. Steward / Hazel copy-exiled-activated stamps `exiledWithSourceId`. Granted quoted targeted / counters-put / becomes-tapped / spell-cast / becomes-blocked / LTB / upkeep / GY-from-battlefield (Kira / Danny / Katara / Dionus / Cursed Wombat / Folk Hero / Passionate Archaeologist / Retaliation / Candlekeep Sage / Tavern Brawler / Agent of the Iron Throne / Tabernacle / Energy Flux / Aura Flux) merge onto recipients. |
 
 **Bottom line:** For a **new card whose effects map to existing step kinds**, you can often ship **same-day automation** via a compiled overlay + optional integration test, without bespoke server handlers.
 

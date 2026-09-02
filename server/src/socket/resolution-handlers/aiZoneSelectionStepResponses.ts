@@ -7,13 +7,14 @@
  * search found nothing), GRAVEYARD_SELECTION, SCRY, SURVEIL (bin lands, keep the rest on top),
  * BOTTOM_ORDER and LIM_DULS_VAULT (both keep the given order), DANCE_WITH_CALAMITY (continue while
  * the total mana value is safe) and DANCE_WITH_CALAMITY_CAST (cast biggest first), and
- * DISCARD_SELECTION (discard the highest-CMC non-lands first, reading the live hand when present).
+ * DISCARD_SELECTION (discard the highest-CMC non-lands first, but keep no-max-hand-size
+ * cards; reading the live hand when present).
  * Public entry symbol: buildAiZoneSelectionStepResponse.
  *
  * The nine `case` bodies became one dispatcher because they were contiguous in the parent switch
  * and each ended in a plain `break`, so the call site is a single fallthrough group of `case`
- * labels assigning `response = buildAiZoneSelectionStepResponse(game, step);`. Heuristics and debug
- * strings are unchanged. Returns null only for a step type outside this group.
+ * labels assigning `response = buildAiZoneSelectionStepResponse(game, step);`. DISCARD_SELECTION
+ * keeps Reliquary Tower / Thought Vessel. Returns null only for a step type outside this group.
  *
  * Reads `game` but never `io` or the queue, so resolution.ts imports it directly. Must not import
  * resolution.ts.
@@ -31,6 +32,7 @@ import {
   chooseAIScrySelection,
 } from "../ai.js";
 import { normalizeResolutionCardId } from "../resolutionDiscardResponseCoreHandlers.js";
+import { cardGrantsNoMaximumHandSize } from "../../state/modules/handSizeUtils.js";
 
 /** AI answer for the zone card-selection prompts listed in the module header. */
 export function buildAiZoneSelectionStepResponse(
@@ -249,6 +251,10 @@ export function buildAiZoneSelectionStepResponse(
         // Keep lands lower priority to discard (they're free to play)
         if (typeLine.includes('land')) {
           score -= 5;
+        }
+        // Reliquary Tower / Thought Vessel must not be dumped to make hand size.
+        if (cardGrantsNoMaximumHandSize(card)) {
+          score -= 100;
         }
 
         return { card, score };

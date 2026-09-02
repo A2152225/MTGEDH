@@ -283,6 +283,8 @@ The casting UI surfaces alternate costs and sends the chosen `alternateCostId` b
 
 Keyword alternates resolved generically via `parseKeywordAlternateManaCost` unless explicitly branched: `warp`, `dash`, `blitz`, `miracle`, `madness`, `surge`, `spectacle`, `mutate`, etc.
 
+Self “you may pay {X} rather than pay this spell's mana cost”: `alternate` via `getSelfRatherThanPayAlternateManaCost`. Trap conditions such as Mindbreak Trap (“If an opponent cast three or more spells this turn”) are checked against `spellsCastThisTurn` per caster, not the table total. Archive Trap (“If an opponent searched their library this turn”) uses `playersWhoSearchedOwnLibraryThisTurn`, stamped when a player searches **their own** library (`queueLibrarySearchTriggers` / `recordOwnLibrarySearchThisTurn`).
+
 External WUBRG: `wubrg_external` (Leyline of Mutation, Jodah's Avenger) and `wubrg_self` (Bringer cycle).
 
 ### Special cases

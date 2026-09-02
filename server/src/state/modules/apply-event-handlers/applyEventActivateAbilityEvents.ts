@@ -16,6 +16,7 @@ import {
   applyAIActivateAbilityReplay,
   extractReplayActivationCost,
   snapshotLibraryForReplay,
+  applySacrificeDrawFromAuthoritativeLibrary,
 } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { debugWarn } from "../../../utils/debug.js";
 import { parsePlaneswalkerAbilities } from "../triggered-abilities.js";
@@ -49,15 +50,6 @@ export function applyActivateAbilityEvents(ctx: GameContext, e: GameEvent): bool
           const permIndex = battlefield.findIndex((perm: any) => perm && String(perm.id || '') === permanentId);
           if (permIndex === -1) break;
 
-          const zones = stateAny.zones = stateAny.zones || {};
-          const zoneState = zones[playerId] = zones[playerId] || {
-            hand: [],
-            handCount: 0,
-            libraryCount: 0,
-            graveyard: [],
-            graveyardCount: 0,
-          };
-
           if (manaCost) {
             stateAny.manaPool = stateAny.manaPool || {};
             stateAny.manaPool[playerId] = stateAny.manaPool[playerId] || {
@@ -73,23 +65,10 @@ export function applyActivateAbilityEvents(ctx: GameContext, e: GameEvent): bool
 
           movePermanentToGraveyard(ctx as any, permanentId, true);
 
-          const libraries = (ctx as any).libraries;
-          const mapLibrary = libraries && typeof libraries.get === 'function' ? libraries.get(playerId) : undefined;
-          const zoneLibrary = Array.isArray(zoneState.library) ? zoneState.library : undefined;
-          const activeLibrary = Array.isArray(zoneLibrary) ? zoneLibrary : (Array.isArray(mapLibrary) ? mapLibrary : []);
-          if (activeLibrary.length > 0) {
-            const drawnCard = activeLibrary.shift();
-            zoneState.hand = Array.isArray(zoneState.hand) ? zoneState.hand : [];
-            (zoneState.hand as any[]).push({ ...drawnCard, zone: 'hand' });
-            zoneState.handCount = (zoneState.hand as any[]).length;
-          }
-          zoneState.libraryCount = activeLibrary.length;
-          if (Array.isArray(zoneLibrary)) {
-            zoneState.library = activeLibrary;
-          }
-          if (libraries && typeof libraries.set === 'function') {
-            libraries.set(playerId, activeLibrary);
-          }
+          const drawnCardIds = (Array.isArray((e as any).drawnCardIds) ? (e as any).drawnCardIds : [])
+            .map((id: unknown) => String(id || '').trim())
+            .filter(Boolean);
+          applySacrificeDrawFromAuthoritativeLibrary(ctx, playerId, drawnCardIds);
 
           ctx.bumpSeq();
         } catch (err) {

@@ -1,6 +1,7 @@
 import { io, type Socket } from 'socket.io-client';
 import type { ServerToClientEvents, ClientToServerEvents } from '../../shared/src';
 import { debug, debugWarn, debugError } from "./utils/debug";
+import { getStoredSessionToken } from "./utils/authSessionStorage";
 
 
 // Point to your server explicitly when client and server run on different ports.
@@ -10,6 +11,7 @@ const URL = import.meta.env?.VITE_SOCKET_URL || undefined; // undefined => same 
 export const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(URL, {
   path: '/socket.io',
   autoConnect: true,
+  auth: { token: getStoredSessionToken() || undefined },
   // Prefer pure WebSocket to avoid long-polling interference with Vite dev server
   transports: ['websocket'],
   // Robust reconnection defaults

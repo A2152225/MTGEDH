@@ -31,11 +31,28 @@ CREATE TABLE IF NOT EXISTS users (
   bio TEXT,
   rating INTEGER DEFAULT 1500,
   games_played INTEGER DEFAULT 0,
-  games_won INTEGER DEFAULT 0
+  games_won INTEGER DEFAULT 0,
+  is_admin INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS users_username_idx ON users(username);
 CREATE INDEX IF NOT EXISTS users_rating_idx ON users(rating DESC);
 `);
+try {
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_idx
+    ON users(email) WHERE email IS NOT NULL AND email != ''`);
+} catch (err) {
+  debugWarn(1, '[DB] users email unique index skipped:', err);
+}
+
+try {
+  const userCols = db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>;
+  if (!userCols.some((col) => col.name === 'is_admin')) {
+    db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
+    debug(2, '[DB] Added is_admin column to users table');
+  }
+} catch (err) {
+  debugWarn(1, '[DB] users is_admin migration skipped:', err);
+}
 
 // Friend relationships schema
 db.exec(`
@@ -67,12 +84,22 @@ CREATE INDEX IF NOT EXISTS sessions_expires_idx ON sessions(expires_at);
 
 // Prepared statements
 const insertUserStmt = db.prepare(`
-  INSERT INTO users (id, username, display_name, password_hash, email, created_at)
-  VALUES (@id, @username, @display_name, @password_hash, @email, @created_at)
+  INSERT INTO users (id, username, display_name, password_hash, email, created_at, is_admin)
+  VALUES (@id, @username, @display_name, @password_hash, @email, @created_at, @is_admin)
 `);
 
 const getUserByUsernameStmt = db.prepare(`
   SELECT * FROM users WHERE username = ?
+`);
+
+const getUserByEmailStmt = db.prepare(`
+  SELECT * FROM users WHERE email = ? AND email IS NOT NULL AND email != ''
+`);
+
+const deleteUserStmt = db.prepare(`DELETE FROM users WHERE id = ?`);
+const deleteSessionsForUserStmt = db.prepare(`DELETE FROM sessions WHERE user_id = ?`);
+const deleteFriendsForUserStmt = db.prepare(`
+  DELETE FROM friends WHERE user_id = ? OR friend_id = ?
 `);
 
 const getUserByIdStmt = db.prepare(`
@@ -167,6 +194,7 @@ export interface User {
   rating: number;
   games_played: number;
   games_won: number;
+  is_admin?: number;
 }
 
 export interface PublicUser {
@@ -222,10 +250,26 @@ function verifyPassword(password: string, storedHash: string): boolean {
 
 // API functions
 
+export type RegisterUserResult =
+  | { ok: true; user: User }
+  | { ok: false; reason: 'username_taken' | 'email_taken' | 'invalid' };
+
 /**
  * Register a new user account.
+ * Username is stored lowercase and is the unique login key.
  */
-export function registerUser(username: string, password: string, displayName?: string, email?: string): User | null {
+export function registerUser(username: string, password: string, displayName?: string, email?: string, isAdmin = false): RegisterUserResult {
+  const normalizedUsername = String(username || '').trim().toLowerCase();
+  const normalizedEmail = email && String(email).trim() ? String(email).trim().toLowerCase() : null;
+  if (!normalizedUsername || !password) {
+    return { ok: false, reason: 'invalid' };
+  }
+  if (getUserByUsernameStmt.get(normalizedUsername)) {
+    return { ok: false, reason: 'username_taken' };
+  }
+  if (normalizedEmail && getUserByEmailStmt.get(normalizedEmail)) {
+    return { ok: false, reason: 'email_taken' };
+  }
   try {
     const id = generateId();
     const passwordHash = hashPassword(password);
@@ -233,26 +277,39 @@ export function registerUser(username: string, password: string, displayName?: s
     
     insertUserStmt.run({
       id,
-      username: username.toLowerCase(),
+      username: normalizedUsername,
       display_name: displayName || username,
       password_hash: passwordHash,
-      email: email || null,
+      email: normalizedEmail,
       created_at: now,
+      is_admin: isAdmin ? 1 : 0,
     });
     
     const user = getUserByIdStmt.get(id) as User | undefined;
     if (user) {
       delete user.password_hash;
-      return user;
+      return { ok: true, user };
     }
-    return null;
+    return { ok: false, reason: 'invalid' };
   } catch (err: any) {
     if (err?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-      return null; // Username already exists
+      const msg = String(err?.message || '');
+      if (msg.toLowerCase().includes('email')) {
+        return { ok: false, reason: 'email_taken' };
+      }
+      return { ok: false, reason: 'username_taken' };
     }
     debugError(1, '[DB] registerUser failed:', err);
     throw err;
   }
+}
+
+/** Test/admin helper: remove a user and their sessions/friends. */
+export function deleteUserCascade(userId: string): boolean {
+  deleteSessionsForUserStmt.run(userId);
+  deleteFriendsForUserStmt.run(userId, userId);
+  const info = deleteUserStmt.run(userId);
+  return info.changes > 0;
 }
 
 /**

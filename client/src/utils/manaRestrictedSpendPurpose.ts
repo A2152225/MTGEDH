@@ -5,7 +5,7 @@
 //   lives here so manaUtils stays under the 40KB ceiling.
 // Public entry symbols: RestrictedManaPoolEntry, RestrictedManaSpendPurpose,
 //   typeLineIndicatesArtifactSpell, canUseRestrictedManaClient,
-//   buildRestrictedManaPurposeForSpell.
+//   buildRestrictedManaPurposeForSpell, sourcePrefersUncounterableChosenTypeCast.
 
 import { cardHasCreatureType } from '../../../shared/src/creatureTypes';
 
@@ -189,4 +189,29 @@ export function buildRestrictedManaPurposeForSpell(
     ...(typeLine.includes('legendary') ? { isLegendary: true } : {}),
     ...(extras?.isCommander === true ? { isCommander: true } : {}),
   };
+}
+
+/**
+ * Prefer Cavern of Souls any-color only when the spell can spend that restricted
+ * mana (matching creature type). `{C}` on the same land never sets this flag.
+ */
+export function sourcePrefersUncounterableChosenTypeCast(
+  source: {
+    grantsUncounterableOnSpend?: boolean;
+    spendRestriction?: { restriction: string; restrictedTo?: string };
+  },
+  purpose?: RestrictedManaSpendPurpose | null,
+): boolean {
+  if (source?.grantsUncounterableOnSpend !== true) return false;
+  const restriction = source.spendRestriction;
+  if (!restriction?.restriction) return false;
+  return canUseRestrictedManaClient(
+    {
+      restriction: restriction.restriction,
+      restrictedTo: restriction.restrictedTo,
+      amount: 1,
+      type: 'colorless',
+    },
+    purpose,
+  );
 }

@@ -5,6 +5,7 @@ import { queueTributeChoiceOnEntry } from './triggerTributeChoiceUtils.js';
 import { queuePermanentAsEntersBattlefieldChoiceSteps } from './stackResolvePermanentEtbChoiceUtils.js';
 import { queuePermanentEntersBattlefieldTriggerStackItems } from './stackResolvePermanentEtbTriggerUtils.js';
 import { applyPermanentSquadTokenCopiesOnEntry } from './stackResolvePermanentSquadUtils.js';
+import { applyAsEntersAutomaticReplacementsForPermanent } from './oracleIrAsEntersAutomaticReplacements.js';
 import type { PermanentSpellPostEntryOptions } from './stackResolveSharedTypes.js';
 
 export function applyPermanentSpellPostEntrySteps(
@@ -20,6 +21,8 @@ export function applyPermanentSpellPostEntrySteps(
     newPermId,
     isCreature,
   });
+
+  applyAsEntersAutomaticReplacementsForPermanent(ctx, newPermanent);
 
   const tributeChoiceDeferred = queueTributeChoiceOnEntry(ctx, newPermanent, controller);
   if (!tributeChoiceDeferred) {

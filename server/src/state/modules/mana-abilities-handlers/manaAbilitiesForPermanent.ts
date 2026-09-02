@@ -28,6 +28,7 @@ import {
   resolvePowerThresholdInsteadManaAbility,
 } from "./manaAbilityColorRestrictionUtils.js";
 import { manaAbilitiesFromContinuousTapGrants } from "./manaAbilityContinuousTapGrants.js";
+import { appendTapAddMultiManaAbility } from "./manaAbilitySelfDamage.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.js";
 
 /**
@@ -68,11 +69,11 @@ export function getManaAbilitiesForPermanent(
     .replace(/as long as the top card of your library is a land card, this(?: creature)? has\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '');
   const cardName = String(card.name || '').toLowerCase();
   
-  const isLand = typeLine.includes("land");
   const isCreature = typeLine.includes("creature");
   const isBasic = typeLine.includes("basic");
   const isPlaneswalker = typeLine.includes("planeswalker");
   const effectiveBasicLandTypes = new Set<BasicLandType>(getEffectiveBasicLandTypes(gameState, permanent));
+  const isLand = typeLine.includes("land") || effectiveBasicLandTypes.size > 0;
   const landTypeOverride = isLand ? getOverridingLandTypeModifier(gameState, permanent) : undefined;
   const landOracleText = landTypeOverride ? '' : oracleText;
   const realityTwistActive = isRealityTwistActive(gameState);
@@ -123,41 +124,13 @@ export function getManaAbilitiesForPermanent(
   
   if (isLand && landOracleText && !powerInsteadAbility) {
     // ========================================================================
-    // Check for multi-mana producers (bounce lands like Rakdos Carnarium)
+    // Check for multi-mana producers (bounce lands like Rakdos Carnarium,
+    // Ancient Tomb {C}{C} with optional same-ability self-damage)
     // Pattern: "{T}: Add {X}{Y}..." where X, Y are mana symbols (same or different)
     // These lands produce BOTH colors at once (not a choice)
     // ========================================================================
-    const multiManaMatch = landOracleText.match(/\{t\}:\s*add\s+((?:\{[wubrgc]\}){2,})/i);
-    if (multiManaMatch) {
-      const manaSymbols = multiManaMatch[1].match(/\{([wubrgc])\}/gi) || [];
-      const colors: string[] = [];
-      for (const sym of manaSymbols) {
-        const color = sym.replace(/[{}]/g, '').toUpperCase();
-        if (!colors.includes(color)) {
-          colors.push(color);
-        }
-      }
-      // Check if this produces multiple different colors (like {B}{R})
-      // vs. the same color multiple times (like {C}{C})
-      if (colors.length > 1) {
-        // Multi-color producer like Rakdos Carnarium - produces both at once
-        abilities.push({ 
-          id: 'native_multi', 
-          cost: '{T}', 
-          produces: colors,
-          producesAllAtOnce: true // Both colors are added, not a choice
-        });
-        hasExplicitChoicePattern = true;
-      } else if (colors.length === 1) {
-        // Same color multiple times - produces N of the same color
-        abilities.push({ 
-          id: 'native_multi_same', 
-          cost: '{T}', 
-          produces: colors,
-          amount: manaSymbols.length // Produces N mana of this color
-        });
-        hasExplicitChoicePattern = true;
-      }
+    if (appendTapAddMultiManaAbility(abilities, landOracleText)) {
+      hasExplicitChoicePattern = true;
     }
     
     // ========================================================================
@@ -291,8 +264,9 @@ export function getManaAbilitiesForPermanent(
     }
   }
   
-  // Colorless mana producers (lands with explicit colorless production)
-  if (isLand && landOracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
+  // Colorless mana producers (lands with explicit colorless production).
+  // Negative lookahead skips `{C}{C}` so Ancient Tomb stays native_multi_same.
+  if (isLand && landOracleText.match(/\{t\}:\s*add\s*\{c\}(?!\{)/i)) {
     abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
   }
   
@@ -494,58 +468,61 @@ export function getManaAbilitiesForPermanent(
       // This handles artifacts that produce 2+ fixed mana of specified types.
       // Note: Variable mana (devotion, creature count) is handled by hasScalingManaAbility check above.
       // ========================================================================
-      const nonLandMultiManaMatch = nativeOracleText.match(/\{t\}:\s*add\s+((?:\{[wubrgc]\}){2,})/i);
-      let handledAsMultiMana = false;
-      if (nonLandMultiManaMatch) {
-        const manaSymbols = nonLandMultiManaMatch[1].match(/\{([wubrgc])\}/gi) || [];
-        const colors: string[] = [];
-        for (const sym of manaSymbols) {
-          const color = sym.replace(/[{}]/g, '').toUpperCase();
-          if (!colors.includes(color)) {
-            colors.push(color);
+      let handledAsMultiMana = appendTapAddMultiManaAbility(abilities, nativeOracleText);
+      
+      // Dual-choice tap abilities (Talismans): "{T}: Add {U} or {R}. This artifact deals 1 damage to you."
+      // Must run before the single-symbol `{T}: Add {U}` scan, which otherwise collapses
+      // the first listed color into native_u and never offers a choice.
+      if (!handledAsMultiMana) {
+        const dualOrMatch = nativeOracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);
+        if (dualOrMatch) {
+          const colors = [
+            dualOrMatch[1].toUpperCase(),
+            dualOrMatch[2].toUpperCase(),
+          ];
+          const colorKey = colors.slice().sort().join(',');
+          const alreadyHasChoiceAbility = abilities.some((ability) =>
+            !ability.producesAllAtOnce &&
+            ability.produces.slice().sort().join(',') === colorKey
+          );
+          if (!alreadyHasChoiceAbility) {
+            const damageMatch = nativeOracleText.match(
+              /\{t\}:\s*add\s+\{[wubrgc]\}\s+or\s+\{[wubrgc]\}\.\s*(?:~|this artifact|[^.]+?)\s+deals\s+(\d+)\s+damage\s+to\s+you/i,
+            );
+            const damageAmount = damageMatch ? parseInt(damageMatch[1], 10) : 0;
+            abilities.push({
+              id: 'native_choice_2',
+              cost: '{T}',
+              produces: colors,
+              producesAllAtOnce: false,
+              ...(Number.isFinite(damageAmount) && damageAmount > 0
+                ? { damageEffect: { type: 'damage_self', amount: damageAmount } }
+                : {}),
+            });
           }
         }
-        if (colors.length > 1) {
-          // Multi-color producer (e.g., Simic Signet {G}{U}) - produces different colors at once
-          abilities.push({ 
-            id: 'native_multi', 
-            cost: '{T}', 
-            produces: colors,
-            producesAllAtOnce: true
-          });
-          handledAsMultiMana = true;
-        } else if (colors.length === 1) {
-          // Same color multiple times (e.g., Sol Ring {C}{C}) - produces N of the same color
-          abilities.push({ 
-            id: 'native_multi_same', 
-            cost: '{T}', 
-            produces: colors,
-            amount: manaSymbols.length // Produces N mana of this color
-          });
-          handledAsMultiMana = true;
-        }
       }
-      
+
       // Only check single-color patterns if we didn't already handle as multi-mana
       if (!handledAsMultiMana) {
-        // Check for each colored mana - simple fixed-amount abilities only
-        if (nativeOracleText.match(/\{t\}:\s*add\s+\{w\}/i)) {
+        // Negative lookahead skips "{T}: Add {U} or {R}" so dual-choice stays one ability.
+        if (nativeOracleText.match(/\{t\}:\s*add\s+\{w\}(?!\s+or\s+\{)/i)) {
           abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
         }
-        if (nativeOracleText.match(/\{t\}:\s*add\s+\{u\}/i)) {
+        if (nativeOracleText.match(/\{t\}:\s*add\s+\{u\}(?!\s+or\s+\{)/i)) {
           abilities.push({ id: 'native_u', cost: '{T}', produces: ['U'] });
         }
-        if (nativeOracleText.match(/\{t\}:\s*add\s+\{b\}/i)) {
+        if (nativeOracleText.match(/\{t\}:\s*add\s+\{b\}(?!\s+or\s+\{)/i)) {
           abilities.push({ id: 'native_b', cost: '{T}', produces: ['B'] });
         }
-        if (nativeOracleText.match(/\{t\}:\s*add\s+\{r\}/i)) {
+        if (nativeOracleText.match(/\{t\}:\s*add\s+\{r\}(?!\s+or\s+\{)/i)) {
           abilities.push({ id: 'native_r', cost: '{T}', produces: ['R'] });
         }
-        if (nativeOracleText.match(/\{t\}:\s*add\s+\{g\}/i)) {
+        if (nativeOracleText.match(/\{t\}:\s*add\s+\{g\}(?!\s+or\s+\{)/i)) {
           abilities.push({ id: 'native_g', cost: '{T}', produces: ['G'] });
         }
         // Check for colorless mana
-        if (nativeOracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
+        if (nativeOracleText.match(/\{t\}:\s*add\s*\{c\}(?!\s+or\s+\{)/i)) {
           abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
         }
       }

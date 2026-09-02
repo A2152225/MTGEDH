@@ -4479,6 +4479,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect((((game as any).libraries.get(opponentId) || []) as any[]).map((card: any) => card.id)).toEqual(['siphon_opponent_top_2']);
 
     (game.state as any).manaPool[playerId] = { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 0 };
+    (game.state as any).priority = playerId;
 
     const exileCandidate = getCastableSpellCandidates({ state: game.state, libraries: (game as any).libraries } as any, playerId as any, {
       mode: 'main',

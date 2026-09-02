@@ -45,11 +45,17 @@ export function repairCardIdAwayFromZones(
   let exile = 0;
   let graveyard = 0;
   let library = 0;
+  const player = Array.isArray(state.players)
+    ? state.players.find((entry: any) => String(entry?.id || '') === playerId)
+    : undefined;
 
   if (scrub.has('hand')) {
     hand = removeReplayDuplicateCardEntries(zone.hand, cardId);
     if (Array.isArray(zone.hand)) {
       zone.handCount = zone.hand.length;
+    }
+    if (player && Array.isArray(player.hand)) {
+      hand += removeReplayDuplicateCardEntries(player.hand, cardId);
     }
   }
 
@@ -58,12 +64,18 @@ export function repairCardIdAwayFromZones(
     if (Array.isArray(zone.exile)) {
       zone.exileCount = zone.exile.length;
     }
+    if (player && Array.isArray(player.exile)) {
+      exile += removeReplayDuplicateCardEntries(player.exile, cardId);
+    }
   }
 
   if (scrub.has('graveyard')) {
     graveyard = removeReplayDuplicateCardEntries(zone.graveyard, cardId);
     if (Array.isArray(zone.graveyard)) {
       zone.graveyardCount = zone.graveyard.length;
+    }
+    if (player && Array.isArray(player.graveyard)) {
+      graveyard += removeReplayDuplicateCardEntries(player.graveyard, cardId);
     }
   }
 

@@ -215,7 +215,7 @@ Each entry point:
 `isOracleIrExecutionHandled()` / `isOracleIrMandatoryExecutionComplete()` verify:
 
 - No `unknown` steps
-- All mandatory steps applied OR bridged to resolution queue
+- All mandatory steps applied, persisted on `oracleIrPendingResumeStepsJson`, or owned by a queued prompt that carries resume/choice JSON. Raw queue growth (shock / check-land / as-enters copy) is **not** a continuation bridge.
 - Optional steps either applied, queued, or correctly deferred to Effect Program
 
 If incomplete → **legacy fallback runs** (regex / categorizeSpell). This is the primary double-application risk.
@@ -379,6 +379,7 @@ Cast instant/sorcery → stack
 | Pre-commit pipeline | `server/src/state/modules/oracleIrTransitionPipeline.ts` |
 | Server apply + queue | `server/src/state/modules/oracleIrServerZoneSync.ts` |
 | Step wiring / all-or-nothing | `server/src/state/modules/oracleIrStepWiring.ts` |
+| Continuation bridge | `server/src/state/modules/oracleIrContinuationBridge.ts` |
 | Trigger IR entry | `server/src/state/modules/oracleIrTriggerExecution.ts` |
 | Spell IR entry | `server/src/state/modules/oracleIrSpellExecution.ts` |
 | Activated IR entry | `server/src/state/modules/oracleIrAbilityExecution.ts` |

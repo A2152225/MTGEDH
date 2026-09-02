@@ -45,8 +45,9 @@ import {
   collectAttackYouTaxForDefender,
   collectMaxAttackersEachCombat,
 } from "../../state/modules/staticEffectSpecAttackYouTax.js";
-import { collectThisTurnAttackTaxForAttacker } from "../../state/modules/staticEffectSpecAttackTaxThisTurn.js";
+import { collectThisTurnAttackLifeTaxForAttacker, collectThisTurnAttackTaxForAttacker } from "../../state/modules/staticEffectSpecAttackTaxThisTurn.js";
 import { collectAttackYouTaxPhyrexianForDefender } from "../../state/modules/staticEffectSpecAttackYouTaxPhyrexian.js";
+import { collectAttackerSelfAttackTax } from "../../../../shared/src/combatAttackerSelfTax.js";
 import type { AttackYouTaxPhyrexianItem } from "../../state/modules/staticEffectSpecAttackYouTaxPhyrexian.js";
 import {
   buildAttackCostPhyrexianChoices,
@@ -143,6 +144,7 @@ export async function handleDeclareAttackers(
     // Pillowfort attack-you tax from oracle StaticEffectSpec, per attacking creature
     // (Ghostly Prison is uniform; Elephant Grass is color-gated).
     let totalAttackCostRequired = 0;
+    let totalAttackLifeRequired = 0;
     const attackCostBreakdown: { playerId: string; cost: number; sources: string[] }[] = [];
     const attackCostByDefender = new Map<string, { cost: number; sources: string[] }>();
     const attackCostPhyrexianItems: AttackYouTaxPhyrexianItem[] = [];
@@ -153,16 +155,25 @@ export async function handleDeclareAttackers(
       const attackingCreature = battlefield.find((perm: any) =>
         perm.id === attacker.creatureId && perm.controller === playerId
       );
-      const tax = collectAttackYouTaxForDefender(game.state, defendingPlayerId, attackingCreature);
+      const tax = collectAttackYouTaxForDefender(game.state, defendingPlayerId, attackingCreature, {
+        attackTargetPermanentId: String(attacker.targetPermanentId || ''),
+      });
       const thisTurnTax = collectThisTurnAttackTaxForAttacker(game.state, defendingPlayerId);
+      const thisTurnLifeTax = collectThisTurnAttackLifeTaxForAttacker(game.state, defendingPlayerId);
       const phyrexianTax = collectAttackYouTaxPhyrexianForDefender(game.state, defendingPlayerId, attackingCreature);
+      const selfTax = collectAttackerSelfAttackTax(attackingCreature, battlefield, {
+        players: game.state?.players,
+      });
       attackCostPhyrexianItems.push(...phyrexianTax.items);
-      const combinedCost = tax.cost + thisTurnTax.cost;
-      if (combinedCost <= 0 && phyrexianTax.items.length === 0) continue;
+      const combinedCost = tax.cost + thisTurnTax.cost + selfTax.cost;
+      totalAttackLifeRequired += thisTurnLifeTax.cost;
+      if (combinedCost <= 0 && phyrexianTax.items.length === 0 && thisTurnLifeTax.cost <= 0) continue;
       totalAttackCostRequired += combinedCost;
       const combinedSources = [
         ...tax.sources,
         ...thisTurnTax.sources,
+        ...thisTurnLifeTax.sources,
+        ...selfTax.sources,
         ...phyrexianTax.items.map((item) => item.source),
       ];
       const existing = attackCostByDefender.get(defendingPlayerId);
@@ -399,12 +410,13 @@ export async function handleDeclareAttackers(
       return;
     }
 
-    if (totalAttackCostRequired > 0 || attackCostPhyrexianItems.length > 0) {
+    if (totalAttackCostRequired > 0 || attackCostPhyrexianItems.length > 0 || totalAttackLifeRequired > 0) {
       const attackerIdsToExclude = resolvedAttackers.map((entry) => String(entry.creatureId || ''));
       const afford = canAffordAttackCostPayment(game.state, playerId, {
         generic: totalAttackCostRequired,
         items: attackCostPhyrexianItems,
         excludedPermanentIds: attackerIdsToExclude,
+        fixedLife: totalAttackLifeRequired,
       });
 
       if (!afford.ok) {
@@ -424,7 +436,8 @@ export async function handleDeclareAttackers(
           ? `${phyrexianChoices.map((choice) => choice.symbol).join('')} (or 2 life each)`
           : '';
         const genericLabel = totalAttackCostRequired > 0 ? `{${totalAttackCostRequired}}` : '';
-        const costLabel = [phyrexianLabel, genericLabel].filter(Boolean).join(' and ') || '{0}';
+        const lifeLabel = totalAttackLifeRequired > 0 ? `${totalAttackLifeRequired} life` : '';
+        const costLabel = [phyrexianLabel, genericLabel, lifeLabel].filter(Boolean).join(' and ') || '{0}';
         const attackCostStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.OPTION_CHOICE,
           playerId: playerId as any,
@@ -439,6 +452,7 @@ export async function handleDeclareAttackers(
           ],
           attackCostPayment: true,
           attackCostAmount: totalAttackCostRequired,
+          attackCostLifeAmount: totalAttackLifeRequired,
           attackCostBreakdown,
           attackCostPhyrexianItems,
           attackCostPhyrexianChoices: phyrexianChoices,

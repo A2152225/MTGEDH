@@ -364,11 +364,12 @@ export function pruneRedundantSurveilReminderSteps(
 }
 
 function parseChosenTypeTopLookChooseFromTopSequence(
-  current: OracleEffectStep,
+  current: OracleEffectStep | undefined,
   next: OracleEffectStep | undefined,
   after: OracleEffectStep | undefined,
   fourth: OracleEffectStep | undefined,
 ): { step: OracleEffectStep; consumed: number } | null {
+  if (!current) return null;
   const normalizeStepText = (step: OracleEffectStep | undefined): string =>
     normalizeOracleText(String(step?.raw || '')).replace(/[.]+$/g, '').trim().toLowerCase();
 
@@ -455,6 +456,21 @@ export function mergeLookChooseFromTopAbilities(
         merged.push(chosenTypeTopReveal.step);
         i += chosenTypeTopReveal.consumed - 1;
         continue;
+      }
+
+      if (current.kind === 'choose_creature_type') {
+        const chosenTypeAfterChoose = parseChosenTypeTopLookChooseFromTopSequence(
+          next,
+          after,
+          fourth,
+          ability.steps[i + 4],
+        );
+        if (chosenTypeAfterChoose) {
+          merged.push(current);
+          merged.push(chosenTypeAfterChoose.step);
+          i += chosenTypeAfterChoose.consumed;
+          continue;
+        }
       }
 
       const libraryReorder = parseLookTopPutOneOnTopRestBottomPair(current, next);

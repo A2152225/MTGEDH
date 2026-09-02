@@ -41,6 +41,149 @@ interface Props {
   onUnignore: (cardId: string) => void;
   onClearAll: () => void;
   you?: PlayerID;
+  variant?: 'overlay' | 'rail';
+  railCollapsed?: boolean;
+  onExpandRail?: () => void;
+}
+
+function renderIgnoredCardsRail(opts: {
+  ignoredCards: IgnoredCard[];
+  onUnignore: (cardId: string) => void;
+  onClearAll: () => void;
+  railCollapsed?: boolean;
+  onExpandRail?: () => void;
+}) {
+  const { ignoredCards, onUnignore, onClearAll, railCollapsed, onExpandRail } = opts;
+
+  if (railCollapsed) {
+    return (
+      <button
+        type="button"
+        onClick={() => onExpandRail?.()}
+        title="Expand utility rail to manage ignored cards"
+        style={{
+          width: '100%',
+          padding: '8px 12px',
+          borderRadius: 6,
+          border: '1px solid #444',
+          backgroundColor: '#2a2a2a',
+          color: '#fff',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          fontSize: 13,
+        }}
+      >
+        {ignoredCards.length} Ignored
+      </button>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        background: '#1a1a1a',
+        border: '1px solid #333',
+        borderRadius: 8,
+        padding: '8px 12px',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          marginBottom: 8,
+        }}
+      >
+        <span style={{ fontSize: 13, color: '#ddd', fontWeight: 500 }}>
+          Ignored
+        </span>
+        {ignoredCards.length > 1 && (
+          <button
+            type="button"
+            onClick={onClearAll}
+            style={{
+              padding: '4px 8px',
+              fontSize: 10,
+              borderRadius: 4,
+              border: '1px solid #444',
+              background: '#252525',
+              color: '#d1d5db',
+              cursor: 'pointer',
+            }}
+          >
+            Clear All
+          </button>
+        )}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {ignoredCards.map((card) => (
+          <div
+            key={card.cardId || card.permanentId}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              maxWidth: '100%',
+              minWidth: 0,
+              padding: '4px 6px',
+              background: '#252525',
+              border: '1px solid #333',
+              borderRadius: 6,
+            }}
+          >
+            {card.imageUrl && (
+              <img
+                src={card.imageUrl}
+                alt=""
+                style={{
+                  width: 18,
+                  height: 24,
+                  borderRadius: 2,
+                  objectFit: 'cover',
+                  flexShrink: 0,
+                }}
+              />
+            )}
+            <span
+              title={card.cardName}
+              style={{
+                fontSize: 11,
+                color: '#ddd',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: 120,
+              }}
+            >
+              {card.cardName || 'Card'}
+            </span>
+            <button
+              type="button"
+              onClick={() => onUnignore(card.cardId ?? card.permanentId)}
+              title="Stop ignoring this card"
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#888',
+                cursor: 'pointer',
+                fontSize: 12,
+                lineHeight: 1,
+                padding: 0,
+                flexShrink: 0,
+              }}
+            >
+              X
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -58,13 +201,23 @@ function getZoneInfo(zone?: IgnoredCardZone): { icon: string; label: string; col
   }
 }
 
-export function IgnoredCardsPanel({ ignoredCards, onUnignore, onClearAll, you }: Props) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
+export function IgnoredCardsPanel({ ignoredCards, onUnignore, onClearAll, you, variant = 'overlay', railCollapsed = false, onExpandRail }: Props) {
+  const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isMinimized, setIsMinimized] = useState(true);
 
   // Don't render if no ignored cards
   if (!ignoredCards || ignoredCards.length === 0) {
     return null;
+  }
+
+  if (variant === 'rail') {
+    return renderIgnoredCardsRail({
+      ignoredCards,
+      onUnignore,
+      onClearAll,
+      railCollapsed,
+      onExpandRail,
+    });
   }
 
   if (isMinimized) {

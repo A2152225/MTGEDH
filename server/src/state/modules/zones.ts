@@ -125,6 +125,7 @@ export function importDeckResolved(
   
   libraries.set(playerId, mappedCards);
   const libLen = libraries.get(playerId)?.length ?? 0;
+  zones[playerId]!.library = mappedCards;
   zones[playerId]!.libraryCount = libLen;
   
   debug(2, `[importDeckResolved] Library set for player ${playerId}. Final library size: ${libLen}`);
@@ -144,6 +145,7 @@ export function shuffleLibrary(ctx: GameContext, playerId: PlayerID) {
   ctx.libraries.set(playerId, lib);
   const zones = ctx.state.zones = ctx.state.zones || {};
   const z = zones[playerId] || (zones[playerId] = { hand: [], handCount: 0, libraryCount: lib.length, graveyard: [], graveyardCount: 0 } as any);
+  z.library = lib;
   z.libraryCount = lib.length;
   ctx.bumpSeq();
 }
@@ -377,6 +379,7 @@ export {
   processDrawTriggers,
 };
 export { applySkipDrawReplacementChoice } from "./zones-handlers/zonesDrawReplacementSkipDrawApply.js";
+export { applyOpponentLibraryDrawReplacementChoice } from "./zones-handlers/zonesDrawReplacementOpponentLibraryExileApply.js";
 
 import { processMillTriggers } from "./zones-handlers/zonesProcessMillTriggers.js";
 export { processMillTriggers };

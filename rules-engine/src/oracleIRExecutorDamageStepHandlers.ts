@@ -32,6 +32,7 @@ import { buildEffectBridgeOptions, interceptDamageViaBridge } from './oracleIREx
 import { resolveSinglePermanentDamageTargetId } from './oracleIRExecutorDamageStepHandlers-handlers/oracleIRExecutorDamagePermanentTarget';
 import { findSourceObject } from './oracleIRExecutorDamageStepHandlers-handlers/oracleIRExecutorDamagePreventionLookups';
 import type { PreventDamageStepHandlerResult } from './oracleIRExecutorDamageStepHandlers-handlers/oracleIRExecutorDamagePreventionStepTypes';
+import { resolveControlledPermanentCountDamageAmount } from './oracleIRExecutorDamageStepHandlers-handlers/oracleIRExecutorDamageControlledCountAmount';
 export type { PreventDamageStepHandlerResult };
 
 type StepApplyResult = {
@@ -160,13 +161,8 @@ function resolveReferenceDamageAmountFromState(
     ).length;
   }
 
-  const controlledTypeMatch = raw.match(/^the number of ([a-z0-9 +/'-]+?)s you control$/i);
-  if (controlledTypeMatch) {
-    const typeText = String(controlledTypeMatch[1] || '').trim();
-    return ((state.battlefield || []) as any[]).filter(permanent =>
-      String(permanent?.controller || '').trim() === controllerId && permanentTypeLineContains(permanent, typeText)
-    ).length;
-  }
+  const controlledCount = resolveControlledPermanentCountDamageAmount(state, raw, ctx);
+  if (controlledCount !== null) return controlledCount;
 
   return null;
 }
@@ -227,6 +223,43 @@ function resolveDamageAmountSourceObjects(
   }
 
   return [];
+}
+
+function withDamageAmountTargetPlayer(
+  ctx: OracleIRExecutionContext,
+  playerId: PlayerID,
+): OracleIRExecutionContext {
+  return {
+    ...ctx,
+    selectorContext: {
+      ...(ctx.selectorContext || {}),
+      targetPlayerId: playerId,
+    },
+  };
+}
+
+function resolveDamageAmountBoundPlayerId(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'deal_damage' }>,
+  ctx: OracleIRExecutionContext,
+  players: readonly PlayerID[],
+): PlayerID | undefined {
+  if (players[0]) return players[0];
+  const creatureId = String(
+    ctx.targetCreatureId
+    || ctx.selectorContext?.targetCreatureId
+    || ctx.selectorContext?.targetPermanentId
+    || ctx.targetPermanentId
+    || resolveSingleCreatureTargetId(state, step.target as any, ctx)
+    || resolveSinglePermanentDamageTargetId(state, step.target, ctx)
+    || '',
+  ).trim();
+  if (!creatureId) return undefined;
+  const creature = ((state.battlefield || []) as any[]).find(
+    (entry) => String(entry?.id || '').trim() === creatureId,
+  );
+  const controller = String(creature?.controller || creature?.controllerId || '').trim();
+  return controller ? (controller as PlayerID) : undefined;
 }
 
 function resolveDamageAmount(
@@ -571,8 +604,17 @@ export function applyDealDamageStep(
   const fightEarly = trySpecialDealDamageStep(state, step, ctx, 0);
   if (fightEarly) return normalizeSpecialDamageResult(fightEarly);
 
-  const amount = resolveDamageAmount(state, step.amount, step.source, ctx, runtime, step.whereX);
-  if (amount === null) {
+  const players = resolvePlayersFromDamageTarget(state, step.target as any, ctx);
+  const boundPlayerId = resolveDamageAmountBoundPlayerId(state, step, ctx, players);
+  const amount = resolveDamageAmount(
+    state,
+    step.amount,
+    step.source,
+    boundPlayerId ? withDamageAmountTargetPlayer(ctx, boundPlayerId) : ctx,
+    runtime,
+    step.whereX,
+  );
+  if (amount === null && players.length === 0) {
     return {
       applied: false,
       message: `Skipped deal damage (unknown amount): ${step.raw}`,
@@ -581,7 +623,7 @@ export function applyDealDamageStep(
     };
   }
 
-  const specialDamage = trySpecialDealDamageStep(state, step, ctx, amount);
+  const specialDamage = trySpecialDealDamageStep(state, step, ctx, amount ?? 0);
   if (specialDamage) return normalizeSpecialDamageResult(specialDamage);
 
   let nextState = state;
@@ -589,18 +631,34 @@ export function applyDealDamageStep(
   const damageSourceId = String(ctx.sourceId || '').trim() || undefined;
   const sourceKeywords = resolveDamageSourceKeywords(nextState, ctx);
 
-  const players = resolvePlayersFromDamageTarget(nextState, step.target as any, ctx);
   if (players.length > 0) {
     let totalDamageDealt = 0;
     for (const playerId of players) {
-      const bridged = resolveBridgedDamageAmount(nextState, amount, ctx, { targetPlayerId: playerId });
+      const playerAmount = resolveDamageAmount(
+        nextState,
+        step.amount,
+        step.source,
+        withDamageAmountTargetPlayer(ctx, playerId),
+        runtime,
+        step.whereX,
+      );
+      if (playerAmount === null) {
+        return {
+          applied: false,
+          message: `Skipped deal damage (unknown amount): ${step.raw}`,
+          reason: 'unknown_amount',
+          options: { classification: 'ambiguous' },
+        };
+      }
+
+      const bridged = resolveBridgedDamageAmount(nextState, playerAmount, ctx, { targetPlayerId: playerId });
       if (bridged.halted) {
         return { applied: true, state: nextState, log, count: 0, excessDamageDealtThisWay: 0 };
       }
 
       let finalAmount = bridged.amount;
       if (!bridged.usesBridge) {
-        const prevention = previewPreventedDamage(nextState, amount, damageSourceId, { targetPlayerId: playerId });
+        const prevention = previewPreventedDamage(nextState, playerAmount, damageSourceId, { targetPlayerId: playerId });
         nextState = prevention.state ?? nextState;
         log.push(...prevention.log);
         finalAmount = prevention.remainingDamage;
@@ -632,6 +690,15 @@ export function applyDealDamageStep(
     }
 
     return { applied: true, state: nextState, log, count: totalDamageDealt, excessDamageDealtThisWay: 0 };
+  }
+
+  if (amount === null) {
+    return {
+      applied: false,
+      message: `Skipped deal damage (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+      options: { classification: 'ambiguous' },
+    };
   }
 
   const singlePermanentId = resolveSinglePermanentDamageTargetId(nextState, step.target, ctx);

@@ -1,6 +1,15 @@
 import { debugWarn } from '../../utils/debug.js';
 
 /**
+ * True when this card's oracle grants no maximum hand size (Reliquary Tower,
+ * Thought Vessel, Spellbook, Folio of Fancies, …).
+ */
+export function cardGrantsNoMaximumHandSize(card: any): boolean {
+  const oracle = String(card?.oracle_text || card?.oracleText || card?.text || '').toLowerCase();
+  return oracle.includes('no maximum hand size');
+}
+
+/**
  * Maximum hand size for cleanup discard (Rule 514.1).
  * Returns Infinity when the player has no maximum hand size.
  */

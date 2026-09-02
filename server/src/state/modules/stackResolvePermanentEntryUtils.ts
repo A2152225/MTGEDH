@@ -31,6 +31,7 @@ import { applyMetallicMimicEntryBonus } from './triggerChosenTypeSpellUtils.js';
 import { applyGraveyardTypeEntryCounterGrants } from './graveyardTypeEntryCounterBonus.js';
 import { cardEntersPrepared, setPermanentPrepared } from './prepared.js';
 import { hydratePermanentCardOracleInPlace, hydrateCardOracleInPlace } from './cardOracleHydration.js';
+import { inferLeaveBattlefieldExileReplacement, applyLeaveBattlefieldExileReplacementStamp } from './leaveBattlefieldReplacementStamp.js';
 import { lookupLocalCardByNameSync } from '../../services/localCardLookup.js';
 import { queueMutateTriggeredAbilities as queueMutateTriggeredAbilitiesImpl } from './stackResolvePermanentEntryUtils-handlers/queueMutateTriggeredAbilities.js';
 import type {
@@ -317,13 +318,22 @@ export function resolvePermanentSpellBattlefieldEntry(
   }
 
   const leaveBattlefieldReplacementDestination = String(
-    (effectiveCard as any)?.leaveBattlefieldReplacementDestination || (item as any)?.card?.leaveBattlefieldReplacementDestination || ''
+    (effectiveCard as any)?.leaveBattlefieldReplacementDestination
+    || (item as any)?.leaveBattlefieldReplacementDestination
+    || (item as any)?.card?.leaveBattlefieldReplacementDestination
+    || ''
   ).trim().toLowerCase();
   const leaveBattlefieldReplacementSourceName = String(
-    (effectiveCard as any)?.leaveBattlefieldReplacementSourceName || (item as any)?.card?.leaveBattlefieldReplacementSourceName || ''
+    (effectiveCard as any)?.leaveBattlefieldReplacementSourceName
+    || (item as any)?.leaveBattlefieldReplacementSourceName
+    || (item as any)?.card?.leaveBattlefieldReplacementSourceName
+    || ''
   ).trim();
   const leaveBattlefieldReplacementLifeGain = Number(
-    (effectiveCard as any)?.leaveBattlefieldReplacementLifeGain || (item as any)?.card?.leaveBattlefieldReplacementLifeGain || 0
+    (effectiveCard as any)?.leaveBattlefieldReplacementLifeGain
+    || (item as any)?.leaveBattlefieldReplacementLifeGain
+    || (item as any)?.card?.leaveBattlefieldReplacementLifeGain
+    || 0
   );
   const fromSelfReplacement = selfLeaveBattlefieldReplacementDestination(
     String((effectiveCard as any)?.oracle_text || (effectiveCard as any)?.oracleText || ''),
@@ -512,6 +522,44 @@ export function resolvePermanentSpellBattlefieldEntry(
   applySneakPermanentBattlefieldEntry(newPermanent, item);
 
   hydratePermanentCardOracleInPlace(newPermanent);
+
+  if (
+    (item as any)?.castFromGraveyard === true
+    || (effectiveCard as any)?.castFromGraveyard === true
+    || (item as any)?.card?.castFromGraveyard === true
+    || ['graveyard', 'gy'].includes(
+      String(
+        (item as any)?.fromZone
+        || (item as any)?.castSourceZone
+        || (item as any)?.card?.fromZone
+        || (item as any)?.card?.castSourceZone
+        || '',
+      ).trim().toLowerCase(),
+    )
+  ) {
+    (newPermanent as any).castFromGraveyard = true;
+    (newPermanent as any).fromZone = 'graveyard';
+    if (newPermanent.card && typeof newPermanent.card === 'object') {
+      (newPermanent.card as any).castFromGraveyard = true;
+      (newPermanent.card as any).fromZone = 'graveyard';
+    }
+    const permissionSourceName = String(
+      (item as any)?.graveyardPermissionSourceName
+      || (item as any)?.card?.graveyardPermissionSourceName
+      || (effectiveCard as any)?.graveyardPermissionSourceName
+      || '',
+    ).trim();
+    if (permissionSourceName) {
+      (newPermanent as any).graveyardPermissionSourceName = permissionSourceName;
+      if (newPermanent.card && typeof newPermanent.card === 'object') {
+        (newPermanent.card as any).graveyardPermissionSourceName = permissionSourceName;
+      }
+    }
+  }
+  applyLeaveBattlefieldExileReplacementStamp(
+    newPermanent,
+    inferLeaveBattlefieldExileReplacement(newPermanent, state, item),
+  );
 
   const isMutatingSpell =
     !wasCastWithMorph &&

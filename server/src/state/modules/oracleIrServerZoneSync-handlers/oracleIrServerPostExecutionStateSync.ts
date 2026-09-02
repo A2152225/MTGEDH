@@ -26,6 +26,7 @@ import type { GameContext } from '../../context.js';
 import { clearPreparedPermanent, setPermanentPrepared } from '../prepared.js';
 import { getNextEndStepFireTurnNumber } from '../triggerDelayedEffectUtils.js';
 import { registerLinkedExile } from '../triggers/linked-exile.js';
+import { stampLiveExileCardWithSource } from '../exileWithSourceStamp.js';
 
 function findCardsMovedFromGraveyardToExile(
   state: any,
@@ -110,9 +111,27 @@ export function syncIrGraveyardExilesToSourcePermanentExiledCards(
     ? (sourcePermanent as any).exiledCards
     : [];
 
-  for (const { card } of movedCards) {
+  const zones = state.zones && typeof state.zones === 'object' ? state.zones : {};
+  for (const { ownerId, card } of movedCards) {
     const cardId = String(card?.id || '').trim();
     if (!cardId) continue;
+    stampLiveExileCardWithSource(card, sourcePermanentId);
+    const ownerZones = zones[ownerId];
+    if (Array.isArray(ownerZones?.exile)) {
+      for (const zoneCard of ownerZones.exile) {
+        if (String(zoneCard?.id || '').trim() === cardId) {
+          stampLiveExileCardWithSource(zoneCard, sourcePermanentId);
+        }
+      }
+    }
+    const ownerPlayer = (state.players || []).find((player: any) => String(player?.id || '') === String(ownerId));
+    if (Array.isArray(ownerPlayer?.exile)) {
+      for (const playerCard of ownerPlayer.exile) {
+        if (String(playerCard?.id || '').trim() === cardId) {
+          stampLiveExileCardWithSource(playerCard, sourcePermanentId);
+        }
+      }
+    }
     if ((sourcePermanent as any).exiledCards.some((entry: any) => String(entry?.id || '') === cardId)) {
       continue;
     }
@@ -120,6 +139,7 @@ export function syncIrGraveyardExilesToSourcePermanentExiledCards(
       ...card,
       zone: 'exile',
       exiledWith: sourcePermanentId,
+      exiledWithSourceId: sourcePermanentId,
     });
   }
 }
@@ -351,12 +371,27 @@ export function syncIrReanimationRidersFromOracleIRResult(
 
   if (!hasReanimationBridge) return;
 
+  const recentlyChangedControlIds = new Set(
+    (Array.isArray(state.controlChangeEffects) ? state.controlChangeEffects : [])
+      .map((entry: any) => String(entry?.permanentId || '').trim())
+      .filter(Boolean),
+  );
+  const isReanimation = appliedKinds.has('move_zone');
+
   for (const perm of state.battlefield || []) {
     if (!perm || typeof perm !== 'object') continue;
 
     const granted = (Array.isArray(perm.grantedAbilities) ? perm.grantedAbilities : [])
       .map((ability: unknown) => String(ability || '').trim().toLowerCase());
-    if (granted.includes('haste')) {
+    // Haste on a stolen/exchanged creature must keep summoning sickness so
+    // Act of Treason / Reins of Power match combat's haste-vs-sickness check.
+    // Reanimation (move_zone) still clears the flag for Whip-style tests.
+    const permanentId = String(perm.id || '').trim();
+    if (
+      granted.includes('haste') &&
+      isReanimation &&
+      !recentlyChangedControlIds.has(permanentId)
+    ) {
       perm.summoningSickness = false;
     }
 

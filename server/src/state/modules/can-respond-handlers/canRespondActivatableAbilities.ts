@@ -2,8 +2,8 @@
 // Origin parent: server/src/state/modules/can-respond.ts
 // Cluster moved: hasActivatableAbility, hasGraveyardActivatedAbility,
 // canActivateAnyAbility, plus loyalty/sacrifice/station/exile/hand helpers.
-// Public entry symbols: canActivateAnyAbility, hasSacrificePrefixActivatedAbility,
-// hasActivatableLoyaltyAbility.
+// Public entry symbols: canActivateAnyAbility, hasActivatableAbility,
+// hasSacrificePrefixActivatedAbility, hasActivatableLoyaltyAbility.
 
 import type { GameContext } from '../../context.js';
 import type { PlayerID } from '../../../../../shared/src/index.js';
@@ -225,7 +225,7 @@ export function hasSacrificePrefixActivatedAbility(
  * Check if a permanent has an activated ability that can be activated
  * and requires priority (excludes mana abilities per Rule 605)
  */
-function hasActivatableAbility(
+export function hasActivatableAbility(
   ctx: GameContext,
   playerId: PlayerID,
   permanent: any,

@@ -26,6 +26,8 @@ import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import type { AICastableSpellCandidate } from "./aiActionCandidateTypes.js";
 import { getAIParsedManaCostAmount } from "./aiChoicePromptHandlers.js";
 import { canAIPayAdditionalCost } from "./aiManaCostHelpers.js";
+import { evaluateAIJoinForcesCast, MIN_JOIN_FORCES_POTENTIAL_MANA } from "./aiJoinForcesDecision.js";
+import { canAIAssembleSpellPaymentPlan } from "./aiSpellPaymentPlanHelpers.js";
 
 function getAIActionContext(game: any): any {
   return getAIHandlerDeps().getAIActionContext(game);
@@ -98,6 +100,18 @@ export function findCastableSpells(
         debug(1, `[AI] findCastableSpells: Skipping ${castCard?.name || candidate.card?.name || 'spell'} because the current board has no legal context for it`);
       }
       return useful;
+    })
+    .filter((candidate) => {
+      const castCard = candidate.castCard || candidate.card;
+      const joinForces = evaluateAIJoinForcesCast(game, playerId, castCard, candidate.cost);
+      if (!joinForces.shouldCast) {
+        debug(
+          1,
+          `[AI] findCastableSpells: Skipping ${castCard?.name || candidate.card?.name} — Join Forces leftover=${joinForces.leftoverMana} otherPlayers=${joinForces.otherPlayersMana} (need >=${MIN_JOIN_FORCES_POTENTIAL_MANA})`,
+        );
+        return false;
+      }
+      return true;
     })
     .filter((candidate) => {
       // Check additional non-mana costs first to make sure AI can pay them before checking mana payment plan
@@ -181,9 +195,16 @@ export function findCastableSpells(
         (candidate as any).__aiPaymentCost = paymentCost;
       }
 
-      // Shared candidates already passed canPayManaCostWithAvailableSources.
-      // Do not JSON-clone the full game to simulate non-tap mana abilities here —
-      // assemble the real payment plan only when the AI commits to the cast.
+      // Shared payability can overcount bounce/restricted sources. Require a real
+      // payment plan before offering the spell so we do not queue mana_payment_choice
+      // and sit 8–15s on a cancel. Clone/simulate only when non-tap mana exists.
+      if (!canAIAssembleSpellPaymentPlan(game, playerId, paymentCost, excludedHandCardIds, castCard)) {
+        debug(
+          1,
+          `[AI] findCastableSpells: Skipping ${castCard?.name || card?.name || cardId} — cannot assemble payment`,
+        );
+        return false;
+      }
       return true;
     })
     .map((candidate) => {

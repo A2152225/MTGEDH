@@ -9,6 +9,7 @@ import {
   manaSourceAllowsSpendPurpose,
   parseManaCost,
   parseManaSpendRestrictionFromOracleText,
+  sourcePrefersUncounterableChosenTypeCast,
   typeLineIndicatesArtifactSpell,
   paymentToPool,
 } from '../src/utils/manaUtils';
@@ -356,5 +357,183 @@ describe('restricted mana sources (Vibranium / Powerstone)', () => {
     expect(remaining.colors.G).toBe(0);
     expect(remaining.usedFromPool.green).toBe(2);
     expect(remaining.usedFromPool.red).toBe(1);
+  });
+});
+
+describe('uncounterable chosen-type mana auto-pay', () => {
+  const cavernAnyColor = {
+    id: 'cavern_1::native_any',
+    sourcePermanentId: 'cavern_1',
+    abilityId: 'native_any',
+    name: 'Cavern of Souls',
+    options: ['W', 'U', 'B', 'R', 'G'] as const,
+    spendRestriction: { restriction: 'chosen_type_creature_spell', restrictedTo: 'elf' },
+    grantsUncounterableOnSpend: true,
+  };
+  const cavernColorless = {
+    id: 'cavern_1::native_c',
+    sourcePermanentId: 'cavern_1',
+    abilityId: 'native_c',
+    name: 'Cavern of Souls',
+    options: ['C'] as const,
+  };
+  const forest = { id: 'forest_1', sourcePermanentId: 'forest_1', name: 'Forest', options: ['G'] as const };
+  const unclaimedAnyColor = {
+    id: 'ut_1::native_any',
+    sourcePermanentId: 'ut_1',
+    abilityId: 'native_any',
+    name: 'Unclaimed Territory',
+    options: ['W', 'U', 'B', 'R', 'G'] as const,
+    spendRestriction: { restriction: 'chosen_type_creature_spell', restrictedTo: 'elf' },
+  };
+  const elfPurpose = buildRestrictedManaPurposeForSpell({
+    name: 'Llanowar Elves',
+    type_line: 'Creature — Elf Druid',
+    mana_cost: '{G}',
+  });
+  const goblinPurpose = buildRestrictedManaPurposeForSpell({
+    name: 'Goblin Guide',
+    type_line: 'Creature — Goblin Scout',
+    mana_cost: '{R}',
+  });
+  const instantPurpose = buildRestrictedManaPurposeForSpell({
+    name: 'Giant Growth',
+    type_line: 'Instant',
+    mana_cost: '{G}',
+  });
+  const changelingPurpose = buildRestrictedManaPurposeForSpell({
+    name: 'Chameleon Colossus',
+    type_line: 'Creature — Shapeshifter',
+    oracle_text: 'Changeling (This card is every creature type.)',
+    mana_cost: '{2}{G}{G}',
+  });
+
+  it('prefers matching Cavern any-color over a Forest for a colored pip', () => {
+    expect(sourcePrefersUncounterableChosenTypeCast(cavernAnyColor, elfPurpose)).toBe(true);
+    expect(manaSourceAllowsSpendPurpose(cavernAnyColor, elfPurpose)).toBe(true);
+
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 1, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      [forest as any, cavernColorless as any, cavernAnyColor as any],
+      new Set(),
+      undefined,
+      elfPurpose,
+    );
+
+    expect(suggestion.has('cavern_1::native_any')).toBe(true);
+    expect(suggestion.get('cavern_1::native_any')).toEqual({ color: 'G', count: 1 });
+    expect(suggestion.has('forest_1')).toBe(false);
+    expect(suggestion.has('cavern_1::native_c')).toBe(false);
+  });
+
+  it('uses Cavern any-color for the colored pip before Forest generic on {1}{G}', () => {
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 1, C: 0 },
+        generic: 1,
+        hybrids: [],
+      },
+      [forest as any, cavernColorless as any, cavernAnyColor as any],
+      new Set(),
+      undefined,
+      elfPurpose,
+    );
+
+    expect(suggestion.get('cavern_1::native_any')).toEqual({ color: 'G', count: 1 });
+    expect(suggestion.get('forest_1')).toEqual({ color: 'G', count: 1 });
+    expect(suggestion.has('cavern_1::native_c')).toBe(false);
+  });
+
+  it('prefers matching Cavern any-color over {C} and Forest for generic', () => {
+    const wastes = { id: 'wastes_1', sourcePermanentId: 'wastes_1', name: 'Wastes', options: ['C'] as const };
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 1,
+        hybrids: [],
+      },
+      [wastes as any, forest as any, cavernColorless as any, cavernAnyColor as any],
+      new Set(),
+      undefined,
+      elfPurpose,
+    );
+
+    expect(suggestion.has('cavern_1::native_any')).toBe(true);
+    expect(suggestion.has('cavern_1::native_c')).toBe(false);
+    expect(suggestion.has('wastes_1')).toBe(false);
+    expect(suggestion.has('forest_1')).toBe(false);
+  });
+
+  it('does not spend matching Cavern any-color on a different creature type', () => {
+    expect(manaSourceAllowsSpendPurpose(cavernAnyColor, goblinPurpose)).toBe(false);
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 1, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      [forest as any, cavernAnyColor as any, cavernColorless as any],
+      new Set(),
+      undefined,
+      goblinPurpose,
+    );
+    expect(suggestion.has('cavern_1::native_any')).toBe(false);
+    expect(suggestion.get('forest_1')).toEqual({ color: 'G', count: 1 });
+  });
+
+  it('does not spend Cavern any-color on a non-creature spell', () => {
+    expect(manaSourceAllowsSpendPurpose(cavernAnyColor, instantPurpose)).toBe(false);
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 1, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      [forest as any, cavernAnyColor as any],
+      new Set(),
+      undefined,
+      instantPurpose,
+    );
+    expect(suggestion.has('cavern_1::native_any')).toBe(false);
+    expect(suggestion.get('forest_1')).toEqual({ color: 'G', count: 1 });
+  });
+
+  it('does not prefer Unclaimed Territory any-color over a Forest', () => {
+    expect(sourcePrefersUncounterableChosenTypeCast(unclaimedAnyColor, elfPurpose)).toBe(false);
+    expect(manaSourceAllowsSpendPurpose(unclaimedAnyColor, elfPurpose)).toBe(true);
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 1, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      [forest as any, unclaimedAnyColor as any],
+      new Set(),
+      undefined,
+      elfPurpose,
+    );
+    expect(suggestion.get('forest_1')).toEqual({ color: 'G', count: 1 });
+    expect(suggestion.has('ut_1::native_any')).toBe(false);
+  });
+
+  it('treats changeling as matching the chosen creature type', () => {
+    expect(manaSourceAllowsSpendPurpose(cavernAnyColor, changelingPurpose)).toBe(true);
+    expect(sourcePrefersUncounterableChosenTypeCast(cavernAnyColor, changelingPurpose)).toBe(true);
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 1, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      [forest as any, cavernAnyColor as any],
+      new Set(),
+      undefined,
+      changelingPurpose,
+    );
+    expect(suggestion.get('cavern_1::native_any')).toEqual({ color: 'G', count: 1 });
   });
 });

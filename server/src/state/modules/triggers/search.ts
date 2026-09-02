@@ -24,6 +24,25 @@ export interface LibrarySearchTriggerSource {
   searchedLibraryOwnerId?: string;
 }
 
+/**
+ * CR 701.19: a player searched their library only if the instruction uses "search".
+ * Archive Trap / similar trap costs care about an opponent searching **their own** library.
+ */
+export function recordOwnLibrarySearchThisTurn(
+  state: any,
+  searchingPlayerId: string,
+  searchedLibraryOwnerId?: string,
+): void {
+  const searcher = String(searchingPlayerId || '').trim();
+  const owner = String(searchedLibraryOwnerId || searcher).trim();
+  if (!searcher || searcher !== owner) return;
+  const ledger = Array.isArray(state?.playersWhoSearchedOwnLibraryThisTurn)
+    ? state.playersWhoSearchedOwnLibraryThisTurn
+    : [];
+  if (!ledger.includes(searcher)) ledger.push(searcher);
+  if (state) state.playersWhoSearchedOwnLibraryThisTurn = ledger;
+}
+
 export function detectLibrarySearchTriggers(card: any, permanent: any): LibrarySearchTrigger[] {
   const triggers: LibrarySearchTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
@@ -151,9 +170,10 @@ export function queueLibrarySearchTriggers(
   if (!searchingPlayerId) {
     return [];
   }
-  if ((ctx as any)?.isReplaying) return [];
 
   const searchedLibraryOwnerId = String(source?.searchedLibraryOwnerId || searchingPlayerId);
+  recordOwnLibrarySearchThisTurn(ctx.state, searchingPlayerId, searchedLibraryOwnerId);
+  if ((ctx as any)?.isReplaying) return [];
   const triggers = orderTriggersByAPNAP(ctx, getLibrarySearchTriggers(ctx, searchingPlayerId, searchedLibraryOwnerId));
   if (triggers.length === 0) {
     return [];

@@ -7,8 +7,8 @@
 import { hasTrainingKeyword } from "../../../../../rules-engine/src/keywordAbilities/training.js";
 import { stripReminderParentheticals } from "../../../../../rules-engine/src/oracleReminderText.js";
 import { getEffectivePower } from "../../../socket/util-handlers/getEffectivePowerToughness.js";
-import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.js";
 import { KNOWN_ATTACK_TRIGGERS } from "./card-data-tables.js";
+import { mergeDetectorOracleWithContinuousGrants } from "./detectorGrantedOracle.js";
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
 import { appendAttackDetectionGeneric } from "./attack-detection-generic.js";
@@ -93,24 +93,16 @@ function pushFirebendingTrigger(
 export function detectAttackTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
   const printedOracle = stripReminderParentheticals(String(card?.oracle_text || ""));
-  const continuousGranted = gameState
-    ? getContinuousGrantedAbilitiesForPermanent(permanent, gameState)
-    : [];
-  const abilityLikeGranted = continuousGranted.filter((entry) => (
-    /when(?:ever)?\b|at the |:/.test(String(entry || ''))
-  ));
-  const oracleText = abilityLikeGranted.length > 0
-    ? `${printedOracle}\n${abilityLikeGranted.join('\n')}`
-    : printedOracle;
+  const { oracleText, grantedAbilities } = mergeDetectorOracleWithContinuousGrants(
+    printedOracle,
+    permanent,
+    gameState,
+  );
   const lowerOracle = oracleText.toLowerCase();
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
-  const grantedAbilities = [
-    ...(Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : []),
-    ...continuousGranted,
-  ];
   const temporaryAbilities = Array.isArray(permanent?.temporaryAbilities)
     ? permanent.temporaryAbilities
         .map((entry: any) => (typeof entry === 'string' ? entry : entry?.ability))

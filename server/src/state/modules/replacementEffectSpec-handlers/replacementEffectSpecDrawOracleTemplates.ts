@@ -17,6 +17,20 @@ interface OracleDrawReplacementTemplate {
 /** Oracle-pattern draw replacements (no card-name routing). */
 const ORACLE_DRAW_REPLACEMENT_TEMPLATES: readonly OracleDrawReplacementTemplate[] = [
   {
+    templateId: 'player-draw-exile-opponent-library-face-down',
+    oracleMustIncludeAll: [
+      'if a player would draw a card',
+      'exiles the top card of one of their opponents',
+      'libraries face down instead',
+    ],
+    spec: {
+      event: 'card-draw',
+      instead: { choiceRequired: true },
+      effectId: 'draw-replaced-by-exile-opponent-library',
+      reason: 'draw_replaced_by_exile_opponent_library',
+    },
+  },
+  {
     templateId: 'player-draw-reveal-choice',
     oracleMustIncludeAll: ['if a player would draw a card', 'reveal', 'it instead'],
     spec: {
@@ -150,6 +164,9 @@ export function collectOraclePatternDrawReplacementSpecsFromState(state: unknown
         const exceptKeywords = extractSkipDrawExceptKeywords(oracle);
         if (exceptKeywords.length === 0) continue;
         extraMetadata.exceptKeywords = exceptKeywords;
+        extraMetadata.sourcePermanentId = sourcePermanentId;
+      }
+      if (template.templateId === 'player-draw-exile-opponent-library-face-down') {
         extraMetadata.sourcePermanentId = sourcePermanentId;
       }
       specs.push({

@@ -46,6 +46,7 @@ export function parseTriggerResidualMassTemporaryPtGrantsOne(
     return [{
       kind: 'flip_coin',
       who: { kind: 'you' },
+      count: 'that_many',
       raw,
       ...sequence,
     } as unknown as OracleEffectStep];

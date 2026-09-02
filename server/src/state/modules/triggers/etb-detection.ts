@@ -10,6 +10,7 @@ import { detectTargetType } from "./detect-target-type.js";
 import { stripReminderParentheticals } from "../../../../../rules-engine/src/oracleReminderText.js";
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
 import type { EtbDetectionState } from "./etb-detection-state.js";
+import { mergeDetectorOracleWithContinuousGrants } from "./detectorGrantedOracle.js";
 import { ETB_STATIC_ALTERNATIVES } from "./etb-detection-helpers.js";
 import { appendEtbDetectionEarly } from "./etb-detection-early.js";
 import { appendEtbDetectionMid } from "./etb-detection-mid.js";
@@ -18,17 +19,18 @@ import { appendEtbDetectionLate } from "./etb-detection-late.js";
 /**
  * Detect ETB triggers from a card
  */
-export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[] {
+export function detectETBTriggers(card: any, permanent?: any, gameState?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
   const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
   const isTransformCard = (card?.layout === 'transform' || card?.layout === 'double_faced_token') && cardFaces.length >= 2;
   const activeFaceIndex = (permanent as any)?.transformed ? 1 : 0;
   const activeFace = isTransformCard ? cardFaces[activeFaceIndex] || cardFaces[0] : undefined;
-  const oracleText = stripReminderParentheticals(String(
+  const printedOracle = stripReminderParentheticals(String(
     isTransformCard
       ? activeFace?.oracle_text || card?.oracle_text || ""
       : card?.oracle_text || ""
   ));
+  const { oracleText } = mergeDetectorOracleWithContinuousGrants(printedOracle, permanent, gameState);
   const lowerOracle = oracleText.toLowerCase();
   const cardName = String(
     isTransformCard
@@ -115,6 +117,6 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   return triggers;
 }
 
-export function getETBTriggersForPermanent(card: any, permanent: any): TriggeredAbility[] {
-  return detectETBTriggers(card, permanent);
+export function getETBTriggersForPermanent(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
+  return detectETBTriggers(card, permanent, gameState);
 }

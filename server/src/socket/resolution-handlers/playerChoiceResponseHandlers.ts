@@ -16,10 +16,11 @@ import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { appendEvent } from "../../db/index.js";
 import { applyDungeonTargetPlayerEffect } from "../../state/modules/dungeon-effects.js";
+import { maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution } from "../../state/modules/oracleIrServerZoneSync.js";
 import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolution/index.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "../player-selection.js";
-import { getPlayerName } from "../util.js";
+import { broadcastGame, getPlayerName } from "../util.js";
 
 export async function handlePlayerChoiceResponse(
   io: Server,
@@ -29,6 +30,19 @@ export async function handlePlayerChoiceResponse(
   response: ResolutionStepResponse
 ): Promise<void> {
   const stepData = step as any;
+
+  if (String(stepData?.oracleIrChoiceStepJson || '').trim()) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const resumed = maybeApplyOracleIrChoiceStepFromResolution(ctx, step, response);
+    if (resumed) {
+      maybeResumeOracleIRStepsAfterResolution(ctx, step);
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+  }
 
   // Resolution Queue player choice used by legacy player-selection effects (Stuffy Doll, Xantcha, Vislor, etc.)
   if (stepData?.effectData) {
@@ -54,7 +68,10 @@ export async function handlePlayerChoiceResponse(
       response.playerId as PlayerID,
       selectedPlayerId as PlayerID,
       stepData.sourceName || 'Choose Player',
-      stepData.effectData,
+      {
+        ...stepData.effectData,
+        opponentOnly: stepData.effectData?.opponentOnly === true || stepData.opponentOnly === true,
+      },
       false
     );
     return;
@@ -91,7 +108,10 @@ export async function handlePlayerChoiceResponse(
       response.playerId as PlayerID,
       selectedPlayerId as PlayerID,
       stepData.sourceName || 'Choose Player',
-      effectData,
+      {
+        ...effectData,
+        opponentOnly: stepData.controlChangeData?.opponentOnly === true || stepData.opponentOnly === true,
+      },
       false,
     );
     return;

@@ -33,6 +33,7 @@ import { ts, repairMissingPriorityIfStuck } from "./repairMissingPriorityIfStuck
 import { kickIdleAutoPassPendingResolutionSteps } from "./autoPassIdleResolutionKick.js";
 import { listAttackersAgainstDefender } from "../combat-handlers/combatMustBeBlockedIfAble.js";
 import { reassignPriorityIfHolderCannotReceive } from "../../state/modules/priorityEligibility.js";
+import { isDisconnectAutoPassGraceBlocking } from "../disconnectAutoPassGrace.js";
 
 export type CheckAndTriggerAutoPassDeps = {
   broadcastGame: (io: Server, game: InMemoryGame, gameId: string) => void;
@@ -207,6 +208,12 @@ export function runCheckAndTriggerAutoPass(
       debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} claimed priority, returning (ID: ${debugCallId})`);
       return;
     }
+
+    if (priorityPlayerId && isDisconnectAutoPassGraceBlocking(gameId, priorityPlayerId, game)) {
+      clearScheduledHumanAutoPass(gameId, priorityPlayerId);
+      debug(2, `${ts()} [checkAndTriggerAutoPass] Disconnect grace - not auto-passing for ${priority} (ID: ${debugCallId})`);
+      return;
+    }
     
     // CRITICAL: Forced pass preferences skip the normal legal-action idle check.
     // Loop drain only skips idle while the stack is non-empty.
@@ -282,6 +289,11 @@ export function runCheckAndTriggerAutoPass(
       // Only proceed if priority hasn't changed
       if (currentPriority !== priority) {
         debug(2, `${ts()} [executeAutoPass] Priority changed from ${priority} to ${currentPriority}, aborting (ID: ${debugCallId})`);
+        return;
+      }
+
+      if (isDisconnectAutoPassGraceBlocking(gameId, String(priority), game)) {
+        debug(2, `${ts()} [executeAutoPass] Disconnect grace - aborting auto-pass for ${priority} (ID: ${debugCallId})`);
         return;
       }
       

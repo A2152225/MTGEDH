@@ -1,8 +1,9 @@
 /**
  * Origin: server/src/rules-engine/target-availability.ts
  * Cluster: stack objects that must have a single target (Bolt Bend, Redirect)
+ *   or that target only a single permanent or player (Chef's Kiss).
  * Public: countStackItemTargets, stackItemHasExactlyOneTarget,
- *   stackItemMeetsSingleTargetRequirement
+ *   uniqueStackTargetIds, stackItemMeetsSingleTargetRequirement
  */
 
 import { parseTargetRequirements } from './targetingParseTargetRequirements.js';
@@ -17,6 +18,16 @@ function isConcreteStackTarget(entry: unknown): boolean {
   return false;
 }
 
+function readTargetId(entry: unknown): string {
+  if (entry == null || entry === '') return '';
+  if (typeof entry === 'string' || typeof entry === 'number') return String(entry).trim();
+  if (typeof entry === 'object') {
+    const record = entry as { id?: unknown; playerId?: unknown; targetId?: unknown };
+    return String(record.id || record.playerId || record.targetId || '').trim();
+  }
+  return '';
+}
+
 export function countStackItemTargets(stackItem: any): number {
   if (!stackItem) return 0;
   const targets = stackItem.targets;
@@ -27,6 +38,25 @@ export function countStackItemTargets(stackItem: any): number {
     return 1;
   }
   return 0;
+}
+
+export function uniqueStackTargetIds(stackItem: any): string[] {
+  if (!stackItem) return [];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const pushId = (value: unknown) => {
+    const id = readTargetId(value);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    ids.push(id);
+  };
+  if (Array.isArray(stackItem.targets)) {
+    for (const entry of stackItem.targets) pushId(entry);
+  } else {
+    pushId(stackItem.target);
+    pushId(stackItem.targetId);
+  }
+  return ids;
 }
 
 export function stackItemHasExactlyOneTarget(stackItem: any): boolean {
@@ -55,10 +85,33 @@ function stackAbilityMeetsSingleTargetRequirement(stackItem: any): boolean {
   return stackItem?.requiresTarget === true || stackItem?.needsTargetSelection === true;
 }
 
+function isPermanentOrPlayerId(id: string, state: any): boolean {
+  if (!id) return false;
+  if (!state) return true;
+  const players = Array.isArray(state?.players) ? state.players : [];
+  if (players.some((player: any) => String(player?.id || '').trim() === id)) return true;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  if (battlefield.some((perm: any) => String(perm?.id || '').trim() === id)) return true;
+  return false;
+}
+
+function stackItemTargetsOnlySinglePermanentOrPlayer(stackItem: any, state: any): boolean {
+  const uniqueIds = uniqueStackTargetIds(stackItem);
+  if (uniqueIds.length !== 1) return false;
+  return isPermanentOrPlayerId(uniqueIds[0]!, state);
+}
+
 export function stackItemMeetsSingleTargetRequirement(
   stackItem: any,
-  targetReqs?: { stackObjectMustHaveSingleTarget?: boolean } | null,
+  targetReqs?: {
+    stackObjectMustHaveSingleTarget?: boolean;
+    stackObjectMustTargetOnlySinglePermanentOrPlayer?: boolean;
+  } | null,
+  state?: any,
 ): boolean {
+  if (targetReqs?.stackObjectMustTargetOnlySinglePermanentOrPlayer) {
+    return stackItemTargetsOnlySinglePermanentOrPlayer(stackItem, state);
+  }
   if (!targetReqs?.stackObjectMustHaveSingleTarget) return true;
   if (isStackAbility(stackItem)) {
     return stackAbilityMeetsSingleTargetRequirement(stackItem);

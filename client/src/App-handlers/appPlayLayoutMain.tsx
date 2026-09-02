@@ -9,16 +9,22 @@ import type { KnownCardRef, CardFace } from "../../../shared/src";
 import { ResolutionMinimizedChip, ResolutionPromptMinimizeButton } from "../components/ResolutionMinimizedChip";
 import { SeatStrip } from "../components/SeatStrip";
 import { GameStatusIndicator } from "../components/GameStatusIndicator";
+import { GameStatusPhaseStrip } from "../components/GameStatusPhaseStrip";
 import { DeckManagerModal } from "../components/DeckManagerModal";
 import { AddAIToGameControl } from "../components/AddAIToGameControl";
 import GameList from "../components/GameList";
+import { AuthSessionPanel } from "../components/AuthSessionPanel";
+import { SettingsMenu } from "../components/SettingsMenu";
 
 export function renderAppPlayLayoutMain(p: Record<string, any>) {
   const {
     activeResolutionPrompt,
     aiControlEnabled,
     aiStrategy,
+    allPlayersHaveDecks,
     allPlayersKeptHands,
+    damageReplacementEffectActiveCount,
+    damageReplacementMode,
     appearanceSettings,
     availableUndoCount,
     canKeepHand,
@@ -28,14 +34,11 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
     clearPlayerFocus,
     connected,
     effectiveGameId,
-    fetchDebug,
     focusedPlayerId,
-    gameIdInput,
     handleCastCommander,
     handleDeckMgrOpenChange,
     handleFocusPlayer,
     handleIgnoreTriggerSourceFromStack,
-    handleJoin,
     handleLocalImportConfirmChange,
     handleOpenUndoMenu,
     handleRequestUndo,
@@ -54,6 +57,7 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
     isPreGame,
     isResolutionStepMinimized,
     isYouPlayer,
+    isSpectator,
     joinCollapsed,
     joinFromList,
     layout,
@@ -66,9 +70,11 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
     mulligansTaken,
     myPendingResolutionCount,
     nameInput,
+    authSession,
     needsDeckImport,
     openSplitCardChoice,
     pendingBottomCount,
+    phaseAdvanceBlockReason,
     pickRandomDeck,
     pickingRandomDeck,
     playLandWithPromptSync,
@@ -85,8 +91,10 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
     scheduleResolutionPromptNudge,
     setAppearanceModalOpen,
     setCreateGameModalOpen,
+    setDamageReplacementMode,
     setDeckBuilderOpen,
-    setGameIdInput,
+    setPhaseNavigatorAdvancing,
+    setReplacementEffectSettingsOpen,
     setJoinCollapsed,
     setMissingImport,
     setNameInput,
@@ -122,7 +130,7 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
   );
   return (
     <>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, width: "100%", maxWidth: "100%", overflow: "hidden", paddingRight: 8 }}>
         {/* JOIN / ACTIVE GAMES (collapsible/accordion) - at very top */}
         <div
           style={{
@@ -163,47 +171,16 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
                   marginTop: 8,
                 }}
               >
-                <input
-                  value={gameIdInput}
-                  onChange={(e) => setGameIdInput(e.target.value as any)}
-                  placeholder="Game ID"
-                  style={{
-                    padding: "4px 8px",
-                    borderRadius: 4,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(0,0,0,0.3)",
-                    color: "#e5e5e5",
-                    fontSize: 12,
-                  }}
+                <AuthSessionPanel
+                  user={authSession?.user ?? null}
+                  busy={authSession?.busy}
+                  error={authSession?.error}
+                  nameInput={nameInput}
+                  onNameInput={setNameInput}
+                  onLogin={(username, password) => authSession?.login ? authSession.login(username, password) : Promise.reject(new Error('Auth is not ready. Refresh the page.'))}
+                  onRegister={(payload) => authSession?.register ? authSession.register(payload) : Promise.reject(new Error('Auth is not ready. Refresh the page.'))}
+                  onLogout={() => { void authSession?.logout?.(); }}
                 />
-                <input
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                  placeholder="Name"
-                  style={{
-                    padding: "4px 8px",
-                    borderRadius: 4,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(0,0,0,0.3)",
-                    color: "#e5e5e5",
-                    fontSize: 12,
-                  }}
-                />
-                <button 
-                  onClick={handleJoin} 
-                  disabled={!connected}
-                  style={{
-                    padding: "4px 12px",
-                    borderRadius: 4,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(59, 130, 246, 0.3)",
-                    color: "#93c5fd",
-                    fontSize: 12,
-                    cursor: connected ? "pointer" : "not-allowed",
-                  }}
-                >
-                  Join
-                </button>
                 <button
                   onClick={() => setCreateGameModalOpen(true)}
                   disabled={!connected}
@@ -233,57 +210,16 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
                 >
                   🗂️ Deck Builder
                 </button>
-                <button
-                  onClick={() =>
-                    socket.emit("requestState", { gameId: gameIdInput })
-                  }
-                  disabled={!connected}
-                  style={{
-                    padding: "4px 12px",
-                    borderRadius: 4,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(0,0,0,0.3)",
-                    color: "#9ca3af",
-                    fontSize: 12,
-                    cursor: connected ? "pointer" : "not-allowed",
-                  }}
-                >
-                  Refresh
-                </button>
-                <button
-                  onClick={() => fetchDebug()}
-                  disabled={!connected || !safeView}
-                  style={{
-                    padding: "4px 12px",
-                    borderRadius: 4,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(0,0,0,0.3)",
-                    color: "#9ca3af",
-                    fontSize: 12,
-                    cursor: connected && safeView ? "pointer" : "not-allowed",
-                  }}
-                >
-                  Debug
-                </button>
-                <button
-                  onClick={() => setAppearanceModalOpen(true)}
-                  style={{
-                    backgroundColor: "#6366f1",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 4,
-                    padding: "4px 12px",
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
-                  title="Customize table and play area colors"
-                >
-                  🎨 Appearance
-                </button>
+                <SettingsMenu
+                  user={authSession?.user ?? null}
+                  busy={authSession?.busy}
+                  onLogout={() => { void authSession?.logout?.(); }}
+                  onOpenAppearance={() => setAppearanceModalOpen(true)}
+                />
               </div>
 
               <div style={{ marginTop: 8 }}>
-                <GameList onJoin={joinFromList} currentPlayerId={you} />
+                <GameList onJoin={joinFromList} currentPlayerId={you} isAdmin={!!authSession?.user?.isAdmin} />
               </div>
             </>
           )}
@@ -291,6 +227,12 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
 
         {/* HEADER (game id, format) — compact on mobile play */}
         {!showMobileChrome ? (
+          safeView ? (
+            <div style={{ fontSize: 12, color: textColors.secondary, padding: "0 2px" }}>
+              Game: {effectiveGameId} • Format:{" "}
+              {String(safeView?.format ?? "")}
+            </div>
+          ) : (
           <div
             style={{
               display: "flex",
@@ -306,6 +248,7 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
               </div>
             </div>
           </div>
+          )
         ) : (
           <div style={{ fontSize: 11, color: textColors.secondary, padding: '0 2px' }}>
             {String(safeView?.format ?? "Commander")} • {effectiveGameId}
@@ -329,6 +272,41 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
             dayNight={(safeView as any).dayNight}
             cityBlessing={(safeView as any).cityBlessing}
             isYouPlayer={isYouPlayer}
+            isSpectator={isSpectator}
+            onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
+            isPreGame={isPreGame}
+            onJoinAsPlayer={() => joinFromList(safeView.id, false)}
+            onSpectate={() => joinFromList(safeView.id, true)}
+            phaseStrip={
+              <GameStatusPhaseStrip
+                currentPhase={safeView.phase}
+                currentStep={safeView.step}
+                turnPlayer={safeView.turnPlayer}
+                you={you}
+                isYourTurn={Boolean(isYouPlayer && safeView.turnPlayer != null && safeView.turnPlayer === you)}
+                hasPriority={Boolean(isYouPlayer && safeView.priority === you)}
+                stackEmpty={!((safeView as any).stack?.length > 0)}
+                allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
+                phaseAdvanceBlockReason={phaseAdvanceBlockReason}
+                showDamageReplacementToggle={damageReplacementEffectActiveCount > 1}
+                damageReplacementMode={damageReplacementMode}
+                onSetDamageReplacementMode={(mode) => {
+                  if (!safeView?.id) return;
+                  setDamageReplacementMode(mode);
+                  socket.emit("setReplacementEffectOrder", {
+                    gameId: safeView.id,
+                    effectType: "damage",
+                    mode,
+                    customOrder: [],
+                  });
+                }}
+                onOpenReplacementEffectSettings={() => setReplacementEffectSettingsOpen(true)}
+                onAdvanceOneStep={() => socket.emit("nextStep", { gameId: safeView.id })}
+                onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
+                onAdvancingChange={setPhaseNavigatorAdvancing}
+                onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })}
+              />
+            }
             gameOver={(safeView as any).gameOver}
             immediateConcede={Boolean((safeView as any).houseRules?.immediateConcede)}
             onConcede={() => socket.emit("concede", { gameId: safeView.id })}
@@ -709,7 +687,7 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
           </div>
         )}
 
-        {showMobileChrome && safeView && (
+        {safeView && (
           <SeatStrip
             players={safeView.players || []}
             you={you || undefined}
@@ -729,6 +707,8 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
             border: "1px solid rgba(255,255,255,0.1)",
             borderRadius: 6,
             padding: 4,
+            position: "relative",
+            minWidth: 0,
           }}
         >
           {safeView ? (
@@ -749,6 +729,7 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
               splitLands
               enableReorderForYou={isYouPlayer}
               you={you || undefined}
+              accountUser={authSession?.user ?? null}
               zones={safeView.zones}
               commandZone={safeView.commandZone as any}
               format={String(safeView.format || "")}

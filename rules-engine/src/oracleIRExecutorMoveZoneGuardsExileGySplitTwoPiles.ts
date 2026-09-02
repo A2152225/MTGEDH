@@ -13,6 +13,7 @@ import {
   exileUpToMatchingFromGraveyard,
   resolveUncastExiledThisWayCardIds,
   exileOneMatchingCardFromEachPlayersGraveyard,
+  putOneMatchingCardFromEachOpponentsGraveyardOntoBattlefield,
   putAllMatchingCriteriaFromGraveyardOntoBattlefield,
   moveUnplayedExileCardsToGraveyard,
   cardMatchesMoveZoneSingleTargetCriteria,
@@ -695,6 +696,22 @@ export function tryApplyMoveZoneGuardsFromExileGySplitTwoPiles(args: MoveZoneGua
     return buildAppliedResult({
       state: result.state,
       log: result.log.length > 0 ? result.log : [`No graveyard cards to exile: ${step.raw}`],
+    });
+  }
+
+  if (parsedSingleCardFromEachPlayersGy && step.to === 'battlefield') {
+    const result = putOneMatchingCardFromEachOpponentsGraveyardOntoBattlefield(
+      nextState,
+      controllerId,
+      parsedSingleCardFromEachPlayersGy,
+      getChosenObjectIds(ctx),
+      step.entersTapped,
+      step.entersFaceDown,
+      step.withCounters,
+    );
+    return buildAppliedResult({
+      state: result.state,
+      log: result.log.length > 0 ? result.log : [`No graveyard cards to put onto the battlefield: ${step.raw}`],
     });
   }
 

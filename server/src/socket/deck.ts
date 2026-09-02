@@ -16,7 +16,6 @@ import { ensureGame, broadcastGame } from "./util";
 import { appendEvent } from "../db";
 import {
   saveDeck as saveDeckDB,
-  listDecks,
   getDeck as getDeckDB,
   renameDeck as renameDeckDB,
   deleteDeck as deleteDeckDB,
@@ -25,6 +24,8 @@ import {
   moveDeckToFolder,
   buildFolderTree,
 } from "../db/decks";
+import { listDecksVisibleTo, canReadDeck, normalizeDeckVisibility } from "../decks/deckAccess.js";
+import { getSocketAccountIsAdmin, getSocketAccountUserId } from "../auth/attachSocketAuth.js";
 import type { KnownCardRef, PlayerID, GameState } from "../../../shared/src";
 import { GamePhase, createCardFromScryfall } from "../../../shared/src";
 import { COMMANDER_PRECONS } from "../../../shared/src/precons";
@@ -65,6 +66,10 @@ import {
   generateUniqueCardInstanceId,
   MIN_PRECON_DECK_SIZE,
 } from "./deck-handlers/deckImportResolutionSupport.js";
+
+function visibleDecksForSocket(socket: Socket) {
+  return listDecksVisibleTo(getSocketAccountUserId(socket), getSocketAccountIsAdmin(socket));
+}
 
 export function handleImportWipeConfirmVote(
   io: Server,
@@ -352,15 +357,17 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             }
           }
 
+          const accountUserId = getSocketAccountUserId(socket);
           saveDeckDB({
             id: deckId,
             name: name.trim(),
             text: list,
-            created_by_id: pid,
-            created_by_name: playerName,
+            created_by_id: accountUserId || pid,
+            created_by_name: (socket.data as any)?.accountDisplayName || playerName,
             card_count: cardCount,
             resolved_cards: resolvedCardsJson,
             folder: folder || '',
+            visibility: normalizeDeckVisibility((payload as any)?.visibility, accountUserId ? 'private' : 'public'),
           });
 
           debug(1, "[deck] saveDeck saved", {
@@ -375,7 +382,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           socket.emit("deckSaved", { gameId, deckId, cached: !!resolvedCardsJson });
 
           // Broadcast updated deck list and folder tree to all clients in the game
-          const allDecks = listDecks();
+          const allDecks = visibleDecksForSocket(socket);
           io.to(gameId).emit("savedDecksList", {
             gameId,
             decks: allDecks,
@@ -392,7 +399,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     }
   );
 
-  // updateSavedDeck - update an existing deck's name and list (owner or localhost admin)
+  // updateSavedDeck - update an existing deck's name and list (owner-only)
   socket.on(
     "updateSavedDeck",
     (payload?: {
@@ -507,7 +514,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
           socket.emit("deckUpdated", { gameId, deck: updated });
 
-          const allDecks = listDecks();
+          const allDecks = visibleDecksForSocket(socket);
           io.to(gameId).emit("savedDecksList", {
             gameId,
             decks: allDecks,
@@ -565,7 +572,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      const allDecks = listDecks();
+      const allDecks = visibleDecksForSocket(socket);
       const folderStr = typeof folder === 'string' ? folder : undefined;
       const decksToShow = folderStr !== undefined 
         ? allDecks.filter(d => d.folder === folderStr)
@@ -638,7 +645,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         }
 
         const deck = getDeckDB(deckId);
-        if (!deck) {
+        if (!deck || !canReadDeck(deck, getSocketAccountUserId(socket), getSocketAccountIsAdmin(socket))) {
           socket.emit("deckError", { gameId, message: "Deck not found." });
           return;
         }
@@ -737,7 +744,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         // Broadcast updated deck list
         io.to(gameId).emit("savedDecksList", {
           gameId,
-          decks: listDecks(),
+          decks: visibleDecksForSocket(socket),
         });
       } catch (err) {
         debugError(1, "renameSavedDeck handler failed:", err);
@@ -821,7 +828,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         // Broadcast updated deck list
         io.to(gameId).emit("savedDecksList", {
           gameId,
-          decks: listDecks(),
+          decks: visibleDecksForSocket(socket),
         });
       } catch (err) {
         debugError(1, "deleteSavedDeck handler failed:", err);
@@ -887,6 +894,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         const saved = getDeckDB(deckId);
         if (!saved) {
           socket.emit("deckError", { gameId, message: "Deck not found." });
+          return;
+        }
+
+        if (!canModifySavedDeck(socket, saved, pid)) {
+          socket.emit("deckError", { gameId, message: "You can only cache decks you created." });
           return;
         }
 
@@ -957,7 +969,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         socket.emit("deckCached", { gameId, deckId, cachedCount: resolvedCards.length });
 
         // Broadcast updated deck list to show the cached indicator
-        const allDecks = listDecks();
+        const allDecks = visibleDecksForSocket(socket);
         io.to(gameId).emit("savedDecksList", {
           gameId,
           decks: allDecks,
@@ -1038,7 +1050,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         socket.emit("deckMoved", { gameId, deckId, folder });
 
         // Broadcast updated deck list
-        const allDecks = listDecks();
+        const allDecks = visibleDecksForSocket(socket);
         io.to(gameId).emit("savedDecksList", {
           gameId,
           decks: allDecks,

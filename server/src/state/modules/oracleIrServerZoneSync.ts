@@ -146,6 +146,8 @@ import {
   queueSeparateIntoPilesPromptsFromOracleIRResult,
   bridgeLibraryChaosExchangeFromOracleIRResult,
 } from './oracleIrServerZoneSync-handlers/oracleIrServerZoneDraftPilesChaosPrompts.js';
+import { hasPendingWarpWorldOracleIrPrompt } from './oracleIrServerZoneSync-handlers/oracleIrServerWarpWorldChoicePrompts.js';
+import { maybeFlushChaosResolutionZoneTriggersIfIdle } from './oracleIrChaosResolutionTriggerHold.js';
 import {
   queueCopyPermanentChoicePromptsFromOracleIRResult,
   queueMoveZoneChoicePromptsFromOracleIRResult,
@@ -290,10 +292,11 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
   const playerId = String(stepData.playerId || step?.playerId || '').trim() as PlayerID;
   const choiceId = String(params.choiceId || '').trim();
   const payChoiceId = String(stepData.optionalPaymentPayChoiceId || 'pay').trim();
-  const paid = !params.cancelled && choiceId === payChoiceId;
+  const choiceManaAmount = choiceId.startsWith('pay:') ? choiceId.slice(4) : '';
+  const paid = !params.cancelled && (choiceId === payChoiceId || choiceId === 'pay' || Boolean(choiceManaAmount));
 
   if (paid && String(stepData.optionalPaymentValidationKind || '') === 'mana') {
-    const manaCost = String(stepData.optionalPaymentManaCost || stepData.manaCost || '').trim();
+    const manaCost = String(choiceManaAmount || stepData.optionalPaymentManaCost || stepData.manaCost || '').trim();
     if (manaCost) {
       payManaCostWithAvailableSources((ctx as any).state, playerId, manaCost);
     }
@@ -399,6 +402,8 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
           unlessPayKind: stepData.oracleIrUnlessPayKind === 'life' ? 'life' : 'mana',
           choice: 'pay',
           targetSpellId: String(stepData.oracleIrTargetSpellId || '').trim() || undefined,
+          targetPermanentId: String(stepData.oracleIrTargetPermanentId || '').trim() || undefined,
+          unlessPaysManaAmount: String(choiceManaAmount || stepData.optionalPaymentManaCost || '').trim() || undefined,
         });
       }
     } else if (stepData.oracleIrOptionalMayChoice === true) {
@@ -488,6 +493,7 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
         unlessPayKind: stepData.oracleIrUnlessPayKind === 'life' ? 'life' : 'mana',
         choice: 'decline',
         targetSpellId: String(stepData.oracleIrTargetSpellId || '').trim() || undefined,
+        targetPermanentId: String(stepData.oracleIrTargetPermanentId || '').trim() || undefined,
       });
     }
   } else if (stepData.oracleIrOptionalMayChoice === true) {
@@ -567,51 +573,69 @@ export function maybeResumeOracleIRStepsAfterResolution(
   ctx: GameContext,
   step: any,
 ): OracleIRExecutionResult | null {
-  const resumeJson = String(step?.oracleIrResumeStepsJson || '').trim();
-  if (!resumeJson) {
-    return null;
-  }
-
-  let remainingSteps: OracleEffectStep[] = [];
   try {
-    const parsed = JSON.parse(resumeJson);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
+    const gameId = String((ctx as any).gameId || '').trim();
+    if (gameId && gameId !== 'unknown' && hasPendingWarpWorldOracleIrPrompt(gameId, step?.id)) {
       return null;
     }
-    remainingSteps = parsed as OracleEffectStep[];
-  } catch {
-    return null;
-  }
+    if (String(step?.oracleIrWarpWorldChoice || '').trim()) {
+      try {
+        const parsed = JSON.parse(String(step?.oracleIrChoiceStepJson || '[]'));
+        if (Array.isArray(parsed) && parsed.length > 1) return null;
+      } catch {
+        // fall through to resumeJson
+      }
+    }
 
-  const resumeContext = buildOracleIrResumeContextFromResolutionStep(step);
+    const resumeJson = String(step?.oracleIrResumeStepsJson || '').trim();
+    if (!resumeJson) {
+      return null;
+    }
 
-  return resumeOracleIRRemainingStepsFromResolution(ctx, {
-    controller: String(step?.oracleIrControllerId || step?.playerId || '').trim() as PlayerID,
-    sourceId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
-    sourceName: String(step?.oracleIrSourceName || step?.sourceName || '').trim() || undefined,
-    steps: remainingSteps,
-    targetSpellId: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim() || undefined,
-    ...(resumeContext.chosenObjectIds ? { chosenObjectIds: resumeContext.chosenObjectIds } : {}),
-    ...(resumeContext.selectorContext ? { selectorContext: resumeContext.selectorContext } : {}),
-    ...(resumeContext.voteChoiceCounts ? { voteChoiceCounts: resumeContext.voteChoiceCounts } : {}),
-    ...(typeof resumeContext.winningVoteChoice !== 'undefined'
-      ? { winningVoteChoice: resumeContext.winningVoteChoice }
-      : {}),
-    ...(Number.isFinite(Number(step?.oracleIrXValue))
-      ? { xValue: Number(step.oracleIrXValue) }
-      : {}),
-    triggerItem: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim()
-      ? {
-          id: String(step?.copyTriggeredAbilityTriggerStackItemId || '').trim() || undefined,
-          permanentId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
-          source: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
-          triggeringStackItemId: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim(),
-          effectData: {
+    let remainingSteps: OracleEffectStep[] = [];
+    try {
+      const parsed = JSON.parse(resumeJson);
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        return null;
+      }
+      remainingSteps = parsed as OracleEffectStep[];
+    } catch {
+      return null;
+    }
+
+    const resumeContext = buildOracleIrResumeContextFromResolutionStep(step);
+
+    return resumeOracleIRRemainingStepsFromResolution(ctx, {
+      controller: String(step?.oracleIrControllerId || step?.playerId || '').trim() as PlayerID,
+      sourceId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
+      sourceName: String(step?.oracleIrSourceName || step?.sourceName || '').trim() || undefined,
+      steps: remainingSteps,
+      targetSpellId: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim() || undefined,
+      ...(resumeContext.chosenObjectIds ? { chosenObjectIds: resumeContext.chosenObjectIds } : {}),
+      ...(resumeContext.selectorContext ? { selectorContext: resumeContext.selectorContext } : {}),
+      ...(resumeContext.voteChoiceCounts ? { voteChoiceCounts: resumeContext.voteChoiceCounts } : {}),
+      ...(typeof resumeContext.winningVoteChoice !== 'undefined'
+        ? { winningVoteChoice: resumeContext.winningVoteChoice }
+        : {}),
+      ...(Number.isFinite(Number(step?.oracleIrXValue))
+        ? { xValue: Number(step.oracleIrXValue) }
+        : {}),
+      triggerItem: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim()
+        ? {
+            id: String(step?.copyTriggeredAbilityTriggerStackItemId || '').trim() || undefined,
+            permanentId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
+            source: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
             triggeringStackItemId: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim(),
-          },
-        }
-      : undefined,
-  });
+            effectData: {
+              triggeringStackItemId: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim(),
+            },
+          }
+        : undefined,
+    });
+  } finally {
+    processPendingOracleIrCompoundResumeOnContext(ctx);
+    maybeFlushChaosResolutionZoneTriggersIfIdle(ctx);
+  }
 }
 
 export function resumeOracleIrPendingCompoundStepsFromState(
@@ -641,16 +665,27 @@ export function resumeOracleIrPendingCompoundStepsFromState(
   const sourceId = String(state?.oracleIrPendingResumeSourceId || '').trim() || undefined;
   const sourceName = String(state?.oracleIrPendingResumeSourceName || '').trim() || undefined;
 
-  const result = resumeOracleIRRemainingStepsFromResolution(ctx, {
-    controller,
-    sourceId,
-    sourceName,
-    steps: remainingSteps,
-  });
-  if (result) {
-    clearOracleIrPendingCompoundResumeOnState(state);
+  // Consume before apply so nested persist can write a fresh halt leftover.
+  const resumeSnapshot = {
+    oracleIrPendingResumeStepsJson: state.oracleIrPendingResumeStepsJson,
+    oracleIrPendingResumeControllerId: state.oracleIrPendingResumeControllerId,
+    oracleIrPendingResumeSourceId: state.oracleIrPendingResumeSourceId,
+    oracleIrPendingResumeSourceName: state.oracleIrPendingResumeSourceName,
+  };
+  clearOracleIrPendingCompoundResumeOnState(state);
+  try {
+    return resumeOracleIRRemainingStepsFromResolution(ctx, {
+      controller,
+      sourceId,
+      sourceName,
+      steps: remainingSteps,
+    });
+  } catch (err) {
+    if (!String(state.oracleIrPendingResumeStepsJson || '').trim()) {
+      Object.assign(state, resumeSnapshot);
+    }
+    throw err;
   }
-  return result;
 }
 
 export function processPendingOracleIrCompoundResumeOnContext(

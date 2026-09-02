@@ -2,8 +2,12 @@
  * Shared helpers for cards that say "choose a creature type" / "chosen type".
  */
 
-import type { ManaRestrictionType } from '../../../../shared/src/index.js';
 import { cardHasCreatureType, permanentHasCreatureTypeNow } from '../creatureTypeNow.js';
+
+export {
+  parseChosenTypeManaSpendRestriction,
+  getChosenTypeManaSpendRestriction,
+} from '../../../../shared/src/chosenTypeManaSpendRestriction.js';
 
 /** Living Weapon / Job Select / For Mirrodin! / Midnight Angel Armor-style equipment ETB. */
 export function isEquipmentCreateTokenThenAttachOracle(oracleText: string): boolean {
@@ -146,13 +150,16 @@ export function parseActivationChosenTypeRevealTop(text: string): boolean {
     && lower.includes('creature card of the chosen type');
 }
 
-/** Herald's Horn upkeep / Gathering Stone ETB+upkeep */
+/** Herald's Horn upkeep / Gathering Stone ETB+upkeep / Bloodline Shaman reveal-top */
 export function parseChosenTypeTopCardRevealToHand(text: string): {
   creatureCardsOnly: boolean;
   allowGraveyardIfDeclined: boolean;
+  otherwiseGraveyard: boolean;
 } | null {
   const lower = String(text || '').toLowerCase();
-  if (!lower.includes('look at the top card of your library')) return null;
+  const looksAtTop = lower.includes('look at the top card of your library');
+  const revealsTop = lower.includes('reveal the top card of your library');
+  if (!looksAtTop && !revealsTop) return null;
   if (!lower.includes('chosen type')) return null;
 
   const creatureCardsOnly =
@@ -161,10 +168,13 @@ export function parseChosenTypeTopCardRevealToHand(text: string): {
   const allowGraveyardIfDeclined =
     lower.includes('put it into your graveyard')
     && lower.includes("if you don't put");
+  const otherwiseGraveyard =
+    /otherwise,?\s*put it into your graveyard/i.test(lower)
+    || (revealsTop && lower.includes('put it into your graveyard') && !allowGraveyardIfDeclined);
 
   if (!creatureCardsOnly && !lower.includes('card of the chosen type')) return null;
 
-  return { creatureCardsOnly, allowGraveyardIfDeclined };
+  return { creatureCardsOnly, allowGraveyardIfDeclined, otherwiseGraveyard };
 }
 
 export function cardMatchesChosenTypeFilter(
@@ -276,50 +286,6 @@ export function parseChosenTypeUntilEndOfTurnBuff(oracleText: string): {
     ? abilityText.split(/\s+and\s+|,\s*/i).map((part) => part.trim().toLowerCase()).filter(Boolean)
     : undefined;
   return { power, toughness, abilities };
-}
-
-export function parseChosenTypeManaSpendRestriction(oracleText: string): {
-  creatureSpellsOnly: boolean;
-  allowsCreatureSourceAbilities?: boolean;
-} | null {
-  const oracle = String(oracleText || '').toLowerCase();
-  if (!oracle.includes('of the chosen type')) return null;
-  const allowsCreatureSourceAbilities =
-    oracle.includes('activate an ability of a creature source of the chosen type') ||
-    oracle.includes('activate abilities of creature sources of the chosen type');
-  if (
-    oracle.includes('spend this mana only to cast a creature spell of the chosen type') ||
-    oracle.includes('spend this mana only to cast creature spells of the chosen type') ||
-    (allowsCreatureSourceAbilities && oracle.includes('cast a creature spell of the chosen type'))
-  ) {
-    return { creatureSpellsOnly: true, ...(allowsCreatureSourceAbilities ? { allowsCreatureSourceAbilities: true } : {}) };
-  }
-  if (oracle.includes('spend this mana only to cast spells of the chosen type')) {
-    return { creatureSpellsOnly: false };
-  }
-  return null;
-}
-
-export function getChosenTypeManaSpendRestriction(
-  permanent: any,
-  oracleText?: string,
-): { restriction: ManaRestrictionType; restrictedTo: string } | null {
-  const chosenType = String(permanent?.chosenCreatureType || '').trim().toLowerCase();
-  if (!chosenType) return null;
-
-  const parsed = parseChosenTypeManaSpendRestriction(String(oracleText || permanent?.card?.oracle_text || ''));
-  if (!parsed) return null;
-
-  const restriction: ManaRestrictionType = parsed.allowsCreatureSourceAbilities
-    ? 'chosen_type_creature_source'
-    : parsed.creatureSpellsOnly
-      ? 'chosen_type_creature_spell'
-      : 'chosen_type_spell';
-
-  return {
-    restriction,
-    restrictedTo: chosenType,
-  };
 }
 
 export function filterHandCreatureCardsOfChosenType(hand: any[], chosenType: string): any[] {

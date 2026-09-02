@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { appendEvent } from '../../db/index.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
+import { listLivingGamePlayers } from './priorityEligibility.js';
 
 function serializeTemptingOfferSteps(
   steps: readonly any[],
@@ -50,7 +51,7 @@ export function queueTemptingOfferResolutionSteps(
 
   const cardName = String(params.cardName || 'Tempting Offer Spell').trim() || 'Tempting Offer Spell';
   const controller = params.controller;
-  const allPlayers = Array.isArray(state?.players) ? state.players : [];
+  const allPlayers = listLivingGamePlayers(ctx);
   const opponents = allPlayers.filter((player: any) => String(player?.id || '') !== String(controller));
   if (opponents.length === 0) {
     debug(2, `[${params.logPrefix || 'temptingOffer'}] ${cardName} has no opponents — skip offer prompts`);

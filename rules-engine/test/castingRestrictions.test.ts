@@ -149,6 +149,25 @@ describe('Casting Restrictions', () => {
       expect(restrictions[0].type).toBe(CastingRestrictionType.CANT_CAST_SPELLS);
       expect(restrictions[0].onlyDuringYourTurn).toBe(true);
     });
+
+    it('detects land-count mana-value restriction on noncreature spells', () => {
+      const lavinia = createPermanent(
+        'lavinia-1',
+        'Lavinia, Azorius Renegade',
+        "Each opponent can't cast noncreature spells with mana value greater than the number of lands that player controls.\nWhenever an opponent casts a spell, if no mana was spent to cast it, counter that spell."
+      );
+
+      const restrictions = detectCastingRestrictions(lavinia, 'player1');
+
+      expect(restrictions).toHaveLength(1);
+      expect(restrictions[0].type).toBe(CastingRestrictionType.CMC_RESTRICTION);
+      expect(restrictions[0].affectedPlayers).toBe('opponents');
+      expect(restrictions[0].spellTypeRestriction).toBe('noncreature');
+      expect(restrictions[0].cmcRestriction).toEqual({
+        comparison: 'greater_than',
+        valueFrom: 'caster_controlled_lands',
+      });
+    });
     
     it('returns empty array for non-restriction cards', () => {
       const creature = createPermanent(
@@ -332,6 +351,28 @@ describe('Casting Restrictions', () => {
       // Controller is not affected
       const controllerResult = canCastSpell(state, 'player1', spell, 0, 'graveyard');
       expect(controllerResult.canCast).toBe(true);
+    });
+
+    it('blocks noncreature spells above the caster\'s land count', () => {
+      const lavinia = createPermanent(
+        'lavinia-1',
+        'Lavinia, Azorius Renegade',
+        "Each opponent can't cast noncreature spells with mana value greater than the number of lands that player controls."
+      );
+      const island = {
+        id: 'island-1',
+        controller: 'player2',
+        controllerId: 'player2',
+        type_line: 'Basic Land — Island',
+        card: { name: 'Island', type_line: 'Basic Land — Island', oracle_text: '' },
+      };
+
+      const state = createGameState([lavinia], [island]);
+
+      expect(canCastSpell(state, 'player2', createSpell('Counterspell', 'Instant', 2)).canCast).toBe(false);
+      expect(canCastSpell(state, 'player2', createSpell('Lightning Bolt', 'Instant', 1)).canCast).toBe(true);
+      expect(canCastSpell(state, 'player2', createSpell('Grizzly Bears', 'Creature — Bear', 2)).canCast).toBe(true);
+      expect(canCastSpell(state, 'player1', createSpell('Counterspell', 'Instant', 2)).canCast).toBe(true);
     });
     
     it('enforces sorcery speed with Teferi, Time Raveler', () => {

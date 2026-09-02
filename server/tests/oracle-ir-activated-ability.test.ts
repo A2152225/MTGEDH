@@ -496,4 +496,70 @@ describe('oracle IR activated ability execution', () => {
     expect(result.handled).toBe(true);
     expect(result.applied).toBeGreaterThanOrEqual(1);
   });
+
+  it('sends Humble Defector to the targeted opponent, not the activator', () => {
+    const ctx = {
+      state: {
+        players: [
+          { id: 'p1', name: 'P1' },
+          { id: 'p2', name: 'P2' },
+          { id: 'p3', name: 'P3' },
+        ],
+        battlefield: [
+          {
+            id: 'humble_1',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: true,
+            card: {
+              id: 'humble_card',
+              name: 'Humble Defector',
+              type_line: 'Creature — Human Rogue',
+              oracle_text:
+                '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
+            },
+          },
+        ],
+        life: { p1: 40, p2: 40, p3: 40 },
+        turnNumber: 1,
+        cardsDrawnThisTurn: {},
+        zones: {
+          p1: {
+            hand: [],
+            library: [
+              { id: 'drawn_1', name: 'Island' },
+              { id: 'drawn_2', name: 'Mountain' },
+            ],
+            graveyard: [],
+            exile: [],
+            libraryCount: 2,
+          },
+          p2: { hand: [], library: [], graveyard: [], exile: [] },
+          p3: { hand: [], library: [], graveyard: [], exile: [] },
+        },
+      },
+      gameId: 'test_humble_defector_opponent_only',
+      bumpSeq: () => {},
+      libraries: new Map([
+        ['p1', [{ id: 'drawn_1', name: 'Island' }, { id: 'drawn_2', name: 'Mountain' }]],
+        ['p2', []],
+        ['p3', []],
+      ]),
+    } as any;
+
+    const result = tryApplyOracleIRToActivatedAbility(ctx, {
+      controller: 'p1',
+      sourceName: 'Humble Defector',
+      oracleText:
+        '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
+      sourcePermanentId: 'humble_1',
+      targets: ['p3'],
+      allowOptional: true,
+    });
+
+    expect(result.handled).toBe(true);
+    const humble = ctx.state.battlefield.find((perm: any) => perm.id === 'humble_1');
+    expect(humble?.controller).toBe('p3');
+    expect(humble?.controller).not.toBe('p1');
+  });
 });

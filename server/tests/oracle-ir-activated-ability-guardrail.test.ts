@@ -37,6 +37,6 @@ describe('oracle IR activated ability guardrail', () => {
 
   it('refuses uncategorized spell fallback when mandatory steps would be dropped', () => {
     expect(uncategorizedFallbackSource.includes('mandatoryIncluded.length < mandatoryAll.length')).toBe(true);
-    expect(uncategorizedFallbackSource.includes('isOracleIrExecutionHandled(result, queueStart, queueAfter, parsedSteps)')).toBe(true);
+    expect(uncategorizedFallbackSource.includes('isOracleIrExecutionHandled(result, queueStart, queueAfter, parsedSteps, (ctx as any).state, gameId)')).toBe(true);
   });
 });

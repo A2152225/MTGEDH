@@ -31,3 +31,19 @@ export function isGameReplayLocked(game: any, gameId?: string): boolean {
   const id = String(gameId || game?.gameId || '').trim();
   return Boolean(id && isGameRestoring(id));
 }
+
+export function pauseHumanPriorityAfterRestore(game: any): void {
+  try {
+    const state = game?.state as any;
+    if (!state) return;
+    const pauseId = String(state.priority || state.turnPlayer || '').trim();
+    if (!pauseId) return;
+    const players = Array.isArray(state.players) ? state.players : [];
+    const player = players.find((entry: any) => String(entry?.id || '') === pauseId);
+    if (player?.isAI || player?.spectator || player?.isSpectator) return;
+    if (player?.hasLost || player?.eliminated || player?.conceded) return;
+    state._pauseHumanAutoPassUntilActionFor = pauseId;
+  } catch {
+    // best-effort only
+  }
+}

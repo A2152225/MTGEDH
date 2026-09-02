@@ -16,6 +16,7 @@ import {
   parseKeywordAlternateManaCost,
   parseMadnessCost,
   parseMutateCost,
+  parseRatherThanPayThisSpellManaCost,
   parseWarpCost,
 } from "../../state/modules/alternate-costs.js";
 import { getMiracleCastInfo } from "../../state/modules/casting-modifiers.js";
@@ -61,6 +62,11 @@ export function resolveEffectiveSpellBaseManaCost(pendingCast: any): string {
 
   if (forcedAlternateCostId === 'free' || pendingCast?.castWithoutPayingManaCost === true) {
     return '{0}';
+  }
+
+  if (forcedAlternateCostId === 'alternate') {
+    const ratherThanPayCost = parseRatherThanPayThisSpellManaCost(oracleText);
+    if (ratherThanPayCost) return ratherThanPayCost;
   }
 
   if (forcedAlternateCostId && forcedAlternateCostId !== 'normal') {

@@ -5,6 +5,7 @@ import { useAppPlayStateLate } from "./App-handlers/appPlayStateLate";
 import { useAppPlayLeftoverHandlers } from "./App-handlers/appPlayLeftoverHandlers";
 import { useAppPlayRuntime } from "./App-handlers/appPlayRuntime";
 import { renderAppPlayShell } from "./App-handlers/appPlayShell";
+import { useAuthSession } from "./hooks/useAuthSession";
 
 /* App component */
 export function App() {
@@ -548,6 +549,7 @@ export function App() {
     yourLibraryCount,
     canPass,
     isYouPlayer,
+    isSpectator,
     showMobileChrome,
     needsDeckImport,
     yourHandCards,
@@ -851,7 +853,12 @@ export function App() {
     yourTurnBannerVisible,
   });
 
+  const authSession = useAuthSession({
+    onLoginPrefillName: setNameInput,
+  });
+
   return renderAppPlayShell({
+        authSession,
         activeResolutionPrompt,
         additionalCostModalData,
         additionalCostModalOpen,
@@ -1041,6 +1048,7 @@ export function App() {
         isResolutionStepMinimized,
         isTable,
         isYouPlayer,
+        isSpectator,
         joinCollapsed,
         joinForcesContributions,
         joinForcesModalOpen,

@@ -19,6 +19,7 @@ import {
   logOracleIrAllOrNothingFailure,
 } from './oracleIrStepWiring.js';
 import { isOracleIrExecutionHandled } from './oracleIrSpellExecution.js';
+import { isOracleIrContinuationBridged } from './oracleIrContinuationBridge.js';
 import {
   buildTriggerExecutionOptionsFromSteps,
   collectTriggerExecutionSteps,
@@ -84,18 +85,33 @@ function describeOracleIrTriggerPrimaryIncomplete(
   options: {
     triggerType?: string;
     canApplyPreselectedChooseMode: boolean;
+    state?: any;
+    gameId?: string;
   },
 ): readonly string[] {
   const reasons = [
-    ...describeOracleIrExecutionHandledIncomplete(result, queueBefore, queueAfter, steps),
+    ...describeOracleIrExecutionHandledIncomplete(
+      result,
+      queueBefore,
+      queueAfter,
+      steps,
+      options.state,
+      options.gameId,
+    ),
   ];
   const applied = result.appliedSteps.length;
   const pendingOptional = (result.pendingOptionalSteps || []).length;
   const pendingContinuation = (result.pendingContinuationSteps || []).length;
-  const queueBridged = queueAfter > queueBefore;
+  const queueGrew = queueAfter > queueBefore;
+  const continuationBridged = isOracleIrContinuationBridged({
+    state: options.state,
+    gameId: options.gameId,
+    resolutionQueueStepsBefore: queueBefore,
+    resolutionQueueStepsAfter: queueAfter,
+  });
 
   if (
-    !queueBridged
+    !queueGrew
     && applied === 0
     && triggerCopyStepsNeedServerTargetQueue(steps)
   ) {
@@ -103,7 +119,7 @@ function describeOracleIrTriggerPrimaryIncomplete(
   }
 
   if (
-    !queueBridged
+    !queueGrew
     && applied > 0
     && String(options.triggerType || '').toLowerCase() === 'annihilator'
     && steps.some((step) => step.kind === 'sacrifice')
@@ -112,7 +128,7 @@ function describeOracleIrTriggerPrimaryIncomplete(
   }
 
   if (
-    !queueBridged
+    !continuationBridged
     && pendingOptional > 0
     && applied > 0
   ) {
@@ -122,7 +138,7 @@ function describeOracleIrTriggerPrimaryIncomplete(
   }
 
   if (
-    !queueBridged
+    !continuationBridged
     && pendingContinuation > 0
     && !reasons.some((reason) => reason.startsWith('pending_continuation_without_queue_bridge'))
   ) {
@@ -285,6 +301,10 @@ function resolveTriggerTargetBinding(
     ));
     if (stamped) {
       targetSpellId = String(stamped.id || '').trim() || undefined;
+    } else {
+      // Keep the bound id even if the object already left the stack so copy
+      // effects (Hive Mind) use last-known information instead of another spell.
+      targetSpellId = triggeringStackItemId;
     }
   }
   if (!targetSpellId) {
@@ -539,6 +559,16 @@ function buildTriggerIrContext(
       : '')
     || '',
   ).trim();
+  const boundStackSpell = binding.targetSpellId
+    ? (state?.stack || []).find((item: any) => String(item?.id || '').trim() === String(binding.targetSpellId))
+    : undefined;
+  const spentToCast = Number(boundStackSpell?.manaSpentTotal ?? boundStackSpell?.card?.manaSpentTotal);
+  const noManaSpentToCast = Number.isFinite(spentToCast)
+    ? spentToCast === 0
+    : ((boundStackSpell?.castWithoutPayingManaCost === true
+      || boundStackSpell?.card?.castWithoutPayingManaCost === true)
+      ? true
+      : undefined);
   const irCtx = buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
@@ -560,11 +590,13 @@ function buildTriggerIrContext(
       ...(lastAntecedentBattlefieldPermanentIds.length > 0
         ? { lastAntecedentBattlefieldPermanentIds }
         : {}),
+      ...(typeof noManaSpentToCast === 'boolean' ? { noManaSpentToCast } : {}),
       selectorContext: {
         ...(binding.chosenObjectIds ? { chosenObjectIds: binding.chosenObjectIds } : {}),
         ...(binding.targetPlayerId ? { targetPlayerId: binding.targetPlayerId } : {}),
         ...(defendingOpponentId ? { targetOpponentId: defendingOpponentId } : {}),
         ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
+        ...(typeof noManaSpentToCast === 'boolean' ? { noManaSpentToCast } : {}),
         ...(resolvedTargetPermanentId ? { targetPermanentId: resolvedTargetPermanentId } : {}),
         ...(resolvedTargetIsCreature ? { targetCreatureId: resolvedTargetPermanentId } : {}),
         ...(chosenCreatureType ? { chosenCreatureType } : {}),
@@ -863,7 +895,13 @@ export function tryResolveTriggerViaOracleIR(
       ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
       : queueBefore;
     const queueBridged = queueAfter > queueBefore;
-    let handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter, steps);
+    const continuationBridged = isOracleIrContinuationBridged({
+      state,
+      gameId,
+      resolutionQueueStepsBefore: queueBefore,
+      resolutionQueueStepsAfter: queueAfter,
+    });
+    let handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter, steps, state, gameId);
     const applied = result.appliedSteps.length;
 
     if (
@@ -887,7 +925,7 @@ export function tryResolveTriggerViaOracleIR(
 
     if (
       handled
-      && !queueBridged
+      && !continuationBridged
       && (result.pendingContinuationSteps || []).length > 0
     ) {
       handled = false;
@@ -895,7 +933,7 @@ export function tryResolveTriggerViaOracleIR(
 
     if (
       handled
-      && !queueBridged
+      && !continuationBridged
       && (result.pendingOptionalSteps || []).length > 0
       && applied > 0
     ) {
@@ -904,7 +942,7 @@ export function tryResolveTriggerViaOracleIR(
 
     if (
       handled
-      && !queueBridged
+      && !continuationBridged
       && (result.automationGaps || []).some((gap) => gap.reasonCode === 'player_choice_required')
     ) {
       handled = false;
@@ -946,6 +984,8 @@ export function tryResolveTriggerViaOracleIR(
           {
             triggerType: params.triggerItem?.triggerType,
             canApplyPreselectedChooseMode,
+            state,
+            gameId,
           },
         ),
         { applied, parsed: steps.length },

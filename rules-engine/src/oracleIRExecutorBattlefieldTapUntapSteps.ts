@@ -34,6 +34,39 @@ export function applyTapOrUntapStep(
 
   const effectiveTarget = effectiveStepTarget(step) || step.target;
   const targetText = String((effectiveTarget as any)?.text || '').trim().toLowerCase();
+  const compoundYouAndOpponent = targetText.match(
+    /^(all|each) creatures? you control and (all|each) creatures? (?:target |that )?opponent controls$/i,
+  );
+  if (compoundYouAndOpponent) {
+    const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+    const yours = resolveDirectBattlefieldPermanents(
+      battlefield,
+      { kind: 'raw', text: 'all creatures you control' },
+      ctx,
+    );
+    const theirs = resolveDirectBattlefieldPermanents(
+      battlefield,
+      { kind: 'raw', text: 'all creatures that opponent controls' },
+      ctx,
+    );
+    const targetIds = [...new Set(
+      [...yours, ...theirs]
+        .map((perm: any) => String((perm as any)?.id || '').trim())
+        .filter(Boolean),
+    )];
+    const choice: 'tap' | 'untap' = step.mode ?? 'untap';
+    return {
+      applied: true,
+      state: applyTapOrUntapToBattlefield(state, targetIds, choice),
+      log: [`${choice === 'tap' ? 'Tapped' : 'Untapped'} ${targetIds.length} permanent(s)`],
+      ...(choice === 'tap'
+        ? {
+            lastTappedMatchingPermanentCount: targetIds.length,
+            lastTappedMatchingPermanentIds: targetIds,
+          }
+        : {}),
+    };
+  }
   if (/^(?:each of )?those permanents$/i.test(targetText)) {
     const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
     const battlefieldIds = new Set(

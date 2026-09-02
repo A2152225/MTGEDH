@@ -10,6 +10,7 @@ import type { GameContext } from "../../context.js";
 import { cardHasCreatureType } from "../../creatureTypeNow.js";
 import { getEffectiveColors } from "../effectiveColors.js";
 import { detectSpellCastTriggers } from "./spell-cast-detection.js";
+import { spellSharesCreatureTypeWithSource } from "./spellCastSharedCreatureType.js";
 import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
 /**
  * Get all spell-cast triggers that should fire when a spell is cast
@@ -113,6 +114,10 @@ export function getSpellCastTriggers(
         const spellsCastThisTurn = (Array.isArray(ctx.state?.spellsCastThisTurn) ? ctx.state.spellsCastThisTurn : [])
           .filter((castEntry: any) => String(castEntry?.casterId || '') === casterId);
         shouldTrigger = activePlayer !== controllerId && spellsCastThisTurn.length === 1;
+      }
+
+      if (shouldTrigger && trigger.requiresSharedCreatureTypeWithSource) {
+        shouldTrigger = spellSharesCreatureTypeWithSource(spellCard, permanent);
       }
       
       if (shouldTrigger) {

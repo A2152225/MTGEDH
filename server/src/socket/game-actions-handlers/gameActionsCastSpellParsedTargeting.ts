@@ -133,6 +133,7 @@ export function deriveSpellSpecFromParsedTargetReqs(
       maxTargets,
       spellTypeFilter: mapped.spellTypeFilter || 'ANY_SPELL',
       targetDescription: targetReqs.targetDescription,
+      ...(targetReqs.stackTargetsIgnoreCantBeCountered ? { ignoreCantBeCountered: true } : {}),
       ...(targetReqs.minTargetsIsX ? { minTargetsIsX: true } : {}),
       ...(targetReqs.maxTargetsIsX ? { maxTargetsIsX: true } : {}),
     }, targetReqs);

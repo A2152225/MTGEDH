@@ -3,7 +3,7 @@
 // Public entry symbols: useAppPlayDerivedEffects.
 // Leaf must not import App.tsx or App-handlers/index.ts.
 
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import type { BattlefieldPermanent, ChatMsg, KnownCardRef } from "../../../shared/src";
 import { useGameStateLog } from "../hooks/useGameStateLog";
 import { useRandomDeckPicker } from "../hooks/useRandomDeckPicker";
@@ -222,8 +222,13 @@ export function useAppPlayDerivedEffects(p: Record<string, any>) {
     return 0;
   }, [safeView, you]);
   const canPass = !!safeView && !!you && safeView.priority === you;
-  const isYouPlayer =
-    !!safeView && !!you && Array.isArray(safeView.players) && safeView.players.some((p: any) => p.id === you);
+  const youEntry =
+    !!safeView && !!you && Array.isArray(safeView.players)
+      ? (safeView.players as any[]).find((p: any) => p && p.id === you)
+      : undefined;
+  const youFlaggedSpectator = !!(youEntry && (youEntry.spectator || youEntry.isSpectator));
+  const isYouPlayer = !!youEntry && !youFlaggedSpectator;
+  const isSpectator = !!safeView && !!you && !isYouPlayer;
   const showMobileChrome =
     isTable && mobilePlayLayout.showMobileChrome && !!safeView && !!you && isYouPlayer;
   const needsDeckImport = yourLibraryCount === 0;
@@ -286,6 +291,29 @@ export function useAppPlayDerivedEffects(p: Record<string, any>) {
       notifyUnfocusedYourTurn();
     }
   }, [safeView?.id, safeView?.turnPlayer, you, isPreGame]);
+
+  const previousPriorityRef = useRef<{ gameId?: string; priority?: string | null }>({});
+
+  useEffect(() => {
+    const gameId = safeView?.id;
+    const currentPriority = safeView ? (safeView.priority ?? null) : (priority ?? null);
+    const prev = previousPriorityRef.current;
+    const gainedYourPriority =
+      !!you &&
+      isYouPlayer &&
+      !!currentPriority &&
+      currentPriority === you &&
+      !isPreGame &&
+      prev.gameId === gameId &&
+      prev.priority != null &&
+      prev.priority !== currentPriority;
+
+    previousPriorityRef.current = { gameId, priority: currentPriority };
+
+    if (gainedYourPriority) {
+      notifyUnfocusedYourTurn();
+    }
+  }, [safeView?.id, safeView?.priority, priority, you, isYouPlayer, isPreGame]);
 
   useEffect(() => {
     if (!yourTurnBannerVisible) return;
@@ -418,12 +446,12 @@ export function useAppPlayDerivedEffects(p: Record<string, any>) {
     return Number.isFinite(n) ? n : 0;
   }, [safeView]);
 
-  // Auto-collapse join panel once you're an active player
+  // Auto-collapse join panel whenever a live game view is up (player or spectator)
   React.useEffect(() => {
-    if (isYouPlayer) {
+    if (safeView) {
       setJoinCollapsed(true);
     }
-  }, [isYouPlayer]);
+  }, [safeView?.id]);
 
   // Auto-show deck import prompt for players without a deck (when joining in pre-game)
   React.useEffect(() => {
@@ -663,6 +691,7 @@ export function useAppPlayDerivedEffects(p: Record<string, any>) {
     yourLibraryCount,
     canPass,
     isYouPlayer,
+    isSpectator,
     showMobileChrome,
     needsDeckImport,
     yourHandCards,

@@ -1,6 +1,6 @@
 /**
- * Background-tab attention when it becomes the local player's turn:
- * flash the document title and play a short chime. No-ops while focused.
+ * Background-tab attention when it becomes the local player's turn or they
+ * gain priority: flash the document title and play a short chime. No-ops while focused.
  *
  * Public entry symbols: isPageUnfocused, notifyUnfocusedYourTurn,
  * stopTurnAttentionNotify, YOUR_TURN_ALERT_TITLE.
@@ -10,6 +10,7 @@ export const YOUR_TURN_ALERT_TITLE = 'Your turn! — MTGEDH';
 const DEFAULT_TITLE = 'MTGEDH';
 const FLASH_MS = 900;
 const FLASH_CYCLES = 16;
+const NOTIFY_DEBOUNCE_MS = 2000;
 
 type PageFocusState = {
   hidden: boolean;
@@ -30,6 +31,7 @@ let flashTimer: number | null = null;
 let restoredTitle: string | null = null;
 let stopListenersBound = false;
 let audioCtx: AudioContext | null = null;
+let lastNotifyAt = 0;
 
 function restoreTitle(): void {
   if (restoredTitle != null && typeof document !== 'undefined') {
@@ -99,7 +101,7 @@ function playTone(ctx: AudioContext, frequency: number, start: number, duration:
   oscillator.type = 'sine';
   oscillator.frequency.setValueAtTime(frequency, start);
   gain.gain.setValueAtTime(0.0001, start);
-  gain.gain.exponentialRampToValueAtTime(0.08, start + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.12, start + 0.02);
   gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
   oscillator.connect(gain);
   gain.connect(ctx.destination);
@@ -125,16 +127,35 @@ function playTurnChime(): void {
   }
 }
 
+function showOsNotification(): void {
+  try {
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission !== 'granted') return;
+    new Notification('Your turn', {
+      body: 'MTGEDH — you have priority',
+      tag: 'mtgedh-your-turn',
+      silent: true,
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Flash the tab title and play a chime if the page is in the background.
+ * Debounced so a turn-start and priority-gain in the same moment share one chime.
  * Returns whether a notification was started.
  */
 export function notifyUnfocusedYourTurn(): boolean {
   const page = readPageFocusState();
   if (!page || !isPageUnfocused(page)) return false;
+  const now = Date.now();
+  if (now - lastNotifyAt < NOTIFY_DEBOUNCE_MS) return false;
+  lastNotifyAt = now;
   ensureStopOnReturn();
   startTitleFlash();
   playTurnChime();
+  showOsNotification();
   try {
     const badge = (navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void> }).setAppBadge;
     if (typeof badge === 'function') void badge.call(navigator, 1);

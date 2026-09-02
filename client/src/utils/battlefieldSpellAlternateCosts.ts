@@ -1,3 +1,8 @@
+import {
+  findFreeHandCastsThisTurnSource,
+  grantsStaticFreeHandCasts,
+} from '../../../rules-engine/src/freeHandCastGrant';
+
 export type BattlefieldSpellAlternateCost = {
   id: string;
   label: string;
@@ -23,16 +28,6 @@ export function shouldApplyBattlefieldSpellAlternateCosts(
   return spellToCast.fromZone === 'hand';
 }
 
-function grantsFreeHandCasts(text: string): boolean {
-  const oracleText = String(text || '').toLowerCase();
-  if (!oracleText.includes('without paying')) return false;
-  if (!oracleText.includes('from your hand')) return false;
-  if (!oracleText.includes('you may cast')) return false;
-  return oracleText.includes('cast spells from your hand')
-    || oracleText.includes('cast nonland cards from your hand')
-    || oracleText.includes('cast cards from your hand');
-}
-
 function grantsExternalWubrgAlternateCost(text: string): boolean {
   const oracleText = String(text || '').toLowerCase();
   return oracleText.includes('{w}{u}{b}{r}{g}')
@@ -55,8 +50,9 @@ export function buildBattlefieldSpellAlternateCosts(options: {
     text?: string;
     oracle_text?: string;
   }> | null;
+  lastingEffects?: readonly unknown[] | null;
 }): BattlefieldSpellAlternateCost[] {
-  const { spellToCast, controllerId, battlefield, emblems } = options;
+  const { spellToCast, controllerId, battlefield, emblems, lastingEffects } = options;
   if (!shouldApplyBattlefieldSpellAlternateCosts(spellToCast) || !controllerId) {
     return [];
   }
@@ -83,6 +79,11 @@ export function buildBattlefieldSpellAlternateCosts(options: {
     });
   };
 
+  const thisTurn = findFreeHandCastsThisTurnSource({ lastingEffects: lastingEffects || [] }, controllerId);
+  if (thisTurn) {
+    addFreeCastOption(thisTurn.sourceName);
+  }
+
   for (const permanent of battlefield || []) {
     if (!permanent || permanent.controller !== controllerId) continue;
 
@@ -94,7 +95,7 @@ export function buildBattlefieldSpellAlternateCosts(options: {
       addExternalWubrgOption(sourceName);
     }
 
-    if (grantsFreeHandCasts(oracleText)) {
+    if (grantsStaticFreeHandCasts(oracleText)) {
       addFreeCastOption(sourceName);
     }
   }
@@ -110,7 +111,7 @@ export function buildBattlefieldSpellAlternateCosts(options: {
       addExternalWubrgOption(sourceName);
     }
 
-    if (grantsFreeHandCasts(emblemText)) {
+    if (grantsStaticFreeHandCasts(emblemText)) {
       addFreeCastOption(sourceName);
     }
   }

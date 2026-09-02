@@ -48,6 +48,7 @@ import {
   applyMillStep,
   applyRevealHandStep,
 } from './oracleIRExecutorPlayerStepHandlers';
+import { applyPayEnergyStep } from './oracleIRExecutorPayEnergyStep';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import type {
@@ -159,6 +160,7 @@ export function tryApplyMainLoopMillPtTokenSteps(
         lastMovedCards,
         lastScryLookedAtCount,
         lastReferenceAmount,
+        lastMovedCountByPlayer,
         lastStepOutcome,
         lastActionOutcome,
         replayMutations,
@@ -174,6 +176,7 @@ export function tryApplyMainLoopMillPtTokenSteps(
       lastMovedCards,
       lastScryLookedAtCount,
       lastReferenceAmount,
+      lastMovedCountByPlayer,
       lastStepOutcome,
       lastActionOutcome,
       replayMutations,
@@ -340,7 +343,12 @@ export function tryApplyMainLoopMillPtTokenSteps(
           }
           if (Array.isArray(appliedResult.lastMovedCards) && appliedResult.lastMovedCards.length > 0) {
             lastMovedCards = [...appliedResult.lastMovedCards];
-            currentCtx = { ...currentCtx, lastMovedCards };
+            currentCtx = {
+              ...currentCtx,
+              lastMovedCards,
+              lastRevealedCards: lastMovedCards,
+              lastRevealedCardCount,
+            };
           }
           const revealedPlayers = resolvePlayers(nextState, step.who, currentCtx);
           if (revealedPlayers.length === 1) {
@@ -443,6 +451,20 @@ export function tryApplyMainLoopMillPtTokenSteps(
           evaluateModifyPtWhereX
         );
         applyHandledStepResult(step, result);
+        break;
+      }
+      case 'pay_energy': {
+        const result = applyPayEnergyStep(nextState, step, currentCtx);
+        const applied = applyHandledStepResult(step, result);
+        if (applied) {
+          const paid = Math.max(0, Number((result as { count?: number }).count) || 0);
+          lastReferenceAmount = paid;
+          currentCtx = {
+            ...currentCtx,
+            energyPaidThisWay: paid,
+            referenceAmount: paid,
+          };
+        }
         break;
       }
       case 'double_player_counters': {

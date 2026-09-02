@@ -444,6 +444,17 @@ export function specMatchesStaticCondition(
     }
     case 'target_has_creature_type':
       return permanentHasCreatureType(permanent as any, String(condition.creatureType || ''));
+    case 'target_lacks_creature_type':
+      return !permanentHasCreatureType(permanent as any, String(condition.creatureType || ''));
+    case 'target_is_commander':
+      return (permanent as any).isCommander === true
+        || String((permanent as any).card?.isCommander || '') === 'true';
+    case 'target_owned_by_source_controller': {
+      const controller = String(spec.sourceController || '').trim();
+      if (!controller) return false;
+      const owner = String((permanent as any).owner || permanent.controller || '').trim();
+      return owner === controller;
+    }
     case 'target_has_type': {
       const cardType = String(condition.cardType || '').trim().toLowerCase().replace(/[^a-z]/g, '');
       if (!cardType) return false;

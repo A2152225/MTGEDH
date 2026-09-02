@@ -86,13 +86,31 @@ describe('counterspell unless-pay target binding', () => {
 
   it('binds Arcane Denial stack targets the same way as Mana Leak', () => {
     const state = makeFourPlayerCounterState();
-    const arcaneDenialText = 'Counter target spell. Its controller may draw a card.';
+    const arcaneDenialText =
+      "Counter target spell. Its controller may draw up to two cards at the beginning of the next turn's upkeep.\nYou draw a card at the beginning of the next turn's upkeep.";
     const binding = inferOracleIrTargetBinding(state, ['spell-victim'], 'p_caster');
     expect(binding.targetSpellId).toBe('spell-victim');
 
-    const steps = parseOracleTextToIR(arcaneDenialText, 'Arcane Denial').abilities[0]?.steps ?? [];
+    const steps = parseOracleTextToIR(arcaneDenialText, 'Arcane Denial').abilities.flatMap(
+      (ability) => ability.steps || [],
+    );
     const counterStep = steps.find((step) => step.kind === 'counter_spell');
     expect(counterStep).toBeTruthy();
+
+    const delayedDraws = steps.filter((step) => step.kind === 'schedule_delayed_trigger') as any[];
+    expect(delayedDraws).toHaveLength(2);
+
+    const opponentDraw = delayedDraws.find((step) => /its controller/i.test(String(step.effect || '')));
+    const casterDraw = delayedDraws.find((step) => /^you draw/i.test(String(step.effect || '')));
+    expect(opponentDraw?.timing).toBe('next_upkeep');
+    expect(casterDraw?.timing).toBe('next_upkeep');
+
+    const opponentNested = (opponentDraw?.steps || []).find((nested: any) => nested.kind === 'draw');
+    const casterNested = (casterDraw?.steps || []).find((nested: any) => nested.kind === 'draw');
+    expect(opponentNested?.who).toEqual({ kind: 'controller_of_referenced_object' });
+    expect(opponentNested?.amount).toEqual({ kind: 'number', value: 2 });
+    expect(casterNested?.who).toEqual({ kind: 'you' });
+    expect(casterNested?.amount).toEqual({ kind: 'number', value: 1 });
   });
 
   it('counters the targeted spell when its controller declines in four-player games', () => {

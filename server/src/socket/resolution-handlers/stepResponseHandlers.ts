@@ -49,8 +49,27 @@ import { handleRulesChoiceGroupResponse } from "./rulesChoiceGroupResponseHandle
 import { emitNextPendingResolutionStep } from "./resolutionStepTimeoutAndCancelHandlers.js";
 import { resumePlayerSpellCastAfterPayment } from "./spellCastPaymentResumeHandlers.js";
 import { handleTargetSelectionResponse } from "./targetSelectionResponseHandlers.js";
+import { processPendingOracleIrCompoundResume } from "../resolutionProcessPendingHandlers.js";
 
 export async function handleStepResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  try {
+    await handleStepResponseBody(io, game, gameId, step, response);
+  } finally {
+    try {
+      processPendingOracleIrCompoundResume(io, game, gameId);
+    } catch (err) {
+      debugWarn(1, '[Resolution] processPendingOracleIrCompoundResume after step response failed:', err);
+    }
+  }
+}
+
+async function handleStepResponseBody(
   io: Server,
   game: any,
   gameId: string,
@@ -268,6 +287,7 @@ export async function handleStepResponse(
       break;
 
     case ResolutionStepType.X_VALUE_SELECTION:
+    case ResolutionStepType.NUMBER_CHOICE:
       await getResolutionHandlerDeps().handleXValueSelectionResponse(io, game, gameId, step, response);
       return;
       

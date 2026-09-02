@@ -17,7 +17,7 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
   targetType?: string;
   targetConstraint?: 'opponent' | 'you';
   targetZone?: 'graveyard';
-  targetDestination?: 'hand' | 'battlefield' | 'library_top' | 'library_bottom';
+  targetDestination?: 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | 'exile';
   targetGraveyardScope?: 'your' | 'any' | 'opponent';
   destinationUsesSelectedCardOwner?: boolean;
   battlefieldControllerMode?: 'selector' | 'owner';
@@ -47,7 +47,7 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
   const requiresTarget = lower.includes('target');
   let targetType: string | undefined;
   let targetZone: 'graveyard' | undefined;
-  let targetDestination: 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | undefined;
+  let targetDestination: 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | 'exile' | undefined;
   let targetGraveyardScope: 'your' | 'any' | 'opponent' | undefined;
   let destinationUsesSelectedCardOwner = false;
   let battlefieldControllerMode: 'selector' | 'owner' | undefined;
@@ -132,17 +132,26 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
         destinationUsesSelectedCardOwner = true;
       } else if (lower.includes('on the bottom of your library')) {
         targetDestination = 'library_bottom';
+      } else if (/\bexiles?\s+(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target\b/.test(lower)) {
+        targetDestination = 'exile';
       }
 
       if (lower.includes('any number of target')) {
         minTargets = 0;
         maxTargets = 99;
-      } else if (/\bup to one target\b/.test(lower)) {
-        minTargets = 0;
-        maxTargets = 1;
-      } else if (/\bup to two target\b/.test(lower)) {
-        minTargets = 0;
-        maxTargets = 2;
+      } else {
+        const upToMatch = lower.match(/\bup to (one|two|three|four|five|six|seven|eight|nine|ten|\d+) target\b/);
+        if (upToMatch) {
+          const word = String(upToMatch[1] || '');
+          const parsed = ({
+            one: 1, two: 2, three: 3, four: 4, five: 5,
+            six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+          } as Record<string, number>)[word] ?? Number.parseInt(word, 10);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            minTargets = 0;
+            maxTargets = parsed;
+          }
+        }
       }
 
       if (targetDestination === 'battlefield') {

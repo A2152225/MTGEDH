@@ -13,6 +13,10 @@
  * The private `appendCastFromExilePromptResolveEvent` helper came along; these were its only callers.
  * `handleCastFromExilePromptChoice` takes a `helpers.sanitizeStepForClient` callback because the
  * retry path re-prompts the player and that sanitizer still lives in the parent.
+ * If a generic cast-from-exile "cast" choice does not actually start a cast
+ * (no stack growth, card still in exile, no pending payment/target step), the
+ * prompt is treated as declined (Possibility Storm bottoms the card) instead of
+ * re-queued — otherwise AI auto-picks "cast" forever.
  * Both branches always returned, so each call site is `await handler(...); return;`.
  *
  * Wired through resolutionHandlerDeps. Must not import resolution.ts.
@@ -39,6 +43,23 @@ import {
 import { advanceStepPersistingEvent } from "../step-advance.js";
 import { emitToPlayer, getPlayerName } from "../util.js";
 import { extractOptionChoiceSelectionId } from "./resolutionOptionChoiceSelectionIds.js";
+
+function resolutionStepReferencesExiledCard(queuedStep: any, exiledCardId: string): boolean {
+  const wanted = String(exiledCardId || '').trim();
+  if (!wanted) return false;
+  const fields = [
+    queuedStep?.sourceId,
+    queuedStep?.cardId,
+    queuedStep?.spellCardId,
+    queuedStep?.spellCastContext?.cardId,
+    queuedStep?.effectId,
+    queuedStep?.id,
+  ];
+  return fields.some((value) => {
+    const text = String(value || '').trim();
+    return Boolean(text) && (text === wanted || text.includes(wanted));
+  });
+}
 
 /** Callback seam for the one parent-owned helper this cluster still needs. */
 export type CastFromExilePromptHelpers = {
@@ -203,6 +224,7 @@ export async function handleCastFromExilePromptChoice(
   response: ResolutionStepResponse,
   helpers: CastFromExilePromptHelpers,
 ): Promise<void> {
+  void helpers;
   const stepData = step as any;
   const playerId = response.playerId;
 
@@ -229,6 +251,8 @@ export async function handleCastFromExilePromptChoice(
 
   const exiledCard = zones.exile[cardIndex];
   const sourceName = String(stepData.sourceName || step.sourceName || 'Ability');
+  let applyDecline = choiceId !== 'cast';
+  let failedCastAttempt = false;
 
   if (choiceId === 'cast') {
     const stackLengthBefore = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
@@ -264,42 +288,31 @@ export async function handleCastFromExilePromptChoice(
     const hasPendingCast = pendingSpellCasts.some((entry: any) => String(entry?.cardId || '') === exiledCardId);
     const queueAfterCast = ResolutionQueueManager.getQueue(gameId);
     const hasPendingStep = Boolean(
-      (queueAfterCast?.activeStep && (
-        String((queueAfterCast.activeStep as any)?.sourceId || '') === exiledCardId ||
-        String((queueAfterCast.activeStep as any)?.cardId || '') === exiledCardId ||
-        String((queueAfterCast.activeStep as any)?.spellCardId || '') === exiledCardId ||
-        String((queueAfterCast.activeStep as any)?.spellCastContext?.cardId || '') === exiledCardId
-      )) ||
+      (queueAfterCast?.activeStep && resolutionStepReferencesExiledCard(queueAfterCast.activeStep, exiledCardId)) ||
       (Array.isArray(queueAfterCast?.steps) && queueAfterCast.steps.some((queuedStep: any) =>
-        String(queuedStep?.sourceId || '') === exiledCardId ||
-        String(queuedStep?.cardId || '') === exiledCardId ||
-        String(queuedStep?.spellCardId || '') === exiledCardId ||
-        String(queuedStep?.spellCastContext?.cardId || '') === exiledCardId
+        resolutionStepReferencesExiledCard(queuedStep, exiledCardId)
       ))
     );
     const progressed = stackLengthAfter > stackLengthBefore || !cardStillInExile || hasPendingCast || hasPendingStep;
 
-    if (!progressed) {
-      const { id: _oldId, status: _oldStatus, response: _oldResponse, ...retryStepData } = step as any;
-      const retryStep = ResolutionQueueManager.addStep(gameId, retryStepData as any);
-      emitToPlayer(io, playerId as any, 'resolutionStepPrompt', {
-        gameId,
-        step: helpers.sanitizeStepForClient(gameId, retryStep as any),
+    if (progressed) {
+      appendCastFromExilePromptResolveEvent(gameId, game, {
+        playerId,
+        sourceId: String((step as any).sourceId || '').trim(),
+        resolvedStepId: String((step as any).id || '').trim(),
+        cardId: exiledCardId,
+        choice: 'cast',
+        declineDestination,
+        declineDamageEachOpponent,
+        declineDamageSourcePermanentId,
       });
-      return;
+    } else {
+      applyDecline = true;
+      failedCastAttempt = true;
     }
+  }
 
-    appendCastFromExilePromptResolveEvent(gameId, game, {
-      playerId,
-      sourceId: String((step as any).sourceId || '').trim(),
-      resolvedStepId: String((step as any).id || '').trim(),
-      cardId: exiledCardId,
-      choice: 'cast',
-      declineDestination,
-      declineDamageEachOpponent,
-      declineDamageSourcePermanentId,
-    });
-  } else {
+  if (applyDecline) {
     const findCreatureOnBattlefieldById = (id: string): any | null => {
       if (!id) return null;
       const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
@@ -440,7 +453,11 @@ export async function handleCastFromExilePromptChoice(
       gameId,
       from: 'system',
       message:
-        declineDamageEachOpponent > 0
+        failedCastAttempt && declineDestination === 'library_bottom_random'
+          ? `${getPlayerName(game, playerId)} could not cast ${exiledCard.name} and it was put on the bottom of their library (${sourceName}).`
+          : failedCastAttempt && declineDestination === 'graveyard'
+            ? `${getPlayerName(game, playerId)} could not cast ${exiledCard.name} and it was put into their graveyard (${sourceName}).`
+        : declineDamageEachOpponent > 0
           ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name}${declineDestination === 'graveyard' ? ' and it was put into their graveyard' : declineDestination === 'library_bottom_random' ? ' and it was put on the bottom of their library' : declineDestination === 'cease_to_exist' ? ' and the copy ceased to exist' : ''}. ${sourceName} deals ${declineDamageEachOpponent} damage to each opponent.`
           : declineDestination === 'graveyard'
             ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} and it was put into their graveyard (${sourceName}).`

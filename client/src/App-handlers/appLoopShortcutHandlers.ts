@@ -5,6 +5,7 @@
 
 import React, { useRef, useState } from "react";
 import { socket } from "../socket";
+import { fetchLoadableServerDeckSummaries } from "../utils/serverDeckApi";
 import type { ClientGameView, PlayerID } from "../../../shared/src";
 import { type LoopShortcutConsentPrompt } from "../components/LoopShortcutConsentModal";
 import {
@@ -191,9 +192,8 @@ export function useAppLoopShortcutHandlers(deps: AppLoopShortcutHandlerDeps) {
 
   // Fetch saved decks when create game modal opens
   const refreshSavedDecks = React.useCallback(() => {
-    fetch('/api/decks')
-      .then(res => res.ok ? res.json() : { decks: [] })
-      .then(data => setSavedDecks(data.decks || []))
+    fetchLoadableServerDeckSummaries()
+      .then((decks) => setSavedDecks(decks))
       .catch(() => setSavedDecks([]));
   }, []);
 

@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS decks (
   created_by_name TEXT NOT NULL,
   card_count INTEGER NOT NULL,
   resolved_cards TEXT,
-  folder TEXT DEFAULT ''
+  folder TEXT DEFAULT '',
+  visibility TEXT NOT NULL DEFAULT 'public'
 );
 CREATE INDEX IF NOT EXISTS decks_created_at_idx ON decks(created_at DESC);
 `);
@@ -42,23 +43,60 @@ try {
   }
   // Always ensure folder index exists (safe for new and migrated databases)
   db.exec(`CREATE INDEX IF NOT EXISTS decks_folder_idx ON decks(folder)`);
+  const hasVisibility = tableInfo.some(col => col.name === 'visibility');
+  if (!hasVisibility) {
+    db.exec(`ALTER TABLE decks ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'`);
+    debug(2, '[DB] Added visibility column to decks table');
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS decks_visibility_idx ON decks(visibility)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS decks_owner_idx ON decks(created_by_id)`);
 } catch (e) {
   debugWarn(1, '[DB] Migration check failed:', e);
 }
 
 const insertStmt = db.prepare(`
-  INSERT INTO decks (id, name, text, created_at, created_by_id, created_by_name, card_count, resolved_cards, folder)
-  VALUES (@id, @name, @text, @created_at, @created_by_id, @created_by_name, @card_count, @resolved_cards, @folder)
+  INSERT INTO decks (id, name, text, created_at, created_by_id, created_by_name, card_count, resolved_cards, folder, visibility)
+  VALUES (@id, @name, @text, @created_at, @created_by_id, @created_by_name, @card_count, @resolved_cards, @folder, @visibility)
 `);
-const listStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created_by_name, card_count, folder, CASE WHEN resolved_cards IS NOT NULL AND resolved_cards != '' THEN 1 ELSE 0 END as has_cached_cards FROM decks ORDER BY folder, created_at DESC`);
-const listByFolderStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created_by_name, card_count, folder, CASE WHEN resolved_cards IS NOT NULL AND resolved_cards != '' THEN 1 ELSE 0 END as has_cached_cards FROM decks WHERE folder = ? ORDER BY created_at DESC`);
+const listStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created_by_name, card_count, folder, visibility, CASE WHEN resolved_cards IS NOT NULL AND resolved_cards != '' THEN 1 ELSE 0 END as has_cached_cards FROM decks ORDER BY folder, created_at DESC`);
+const listByFolderStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created_by_name, card_count, folder, visibility, CASE WHEN resolved_cards IS NOT NULL AND resolved_cards != '' THEN 1 ELSE 0 END as has_cached_cards FROM decks WHERE folder = ? ORDER BY created_at DESC`);
+const listPublicStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created_by_name, card_count, folder, visibility, CASE WHEN resolved_cards IS NOT NULL AND resolved_cards != '' THEN 1 ELSE 0 END as has_cached_cards FROM decks WHERE visibility IS NULL OR visibility != 'private' ORDER BY folder, created_at DESC`);
+const listByOwnerStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created_by_name, card_count, folder, visibility, CASE WHEN resolved_cards IS NOT NULL AND resolved_cards != '' THEN 1 ELSE 0 END as has_cached_cards FROM decks WHERE created_by_id = ? ORDER BY folder, created_at DESC`);
 const getStmt = db.prepare(`SELECT * FROM decks WHERE id = ?`);
 const renameStmt = db.prepare(`UPDATE decks SET name = ? WHERE id = ?`);
-const updateDeckContentStmt = db.prepare(`UPDATE decks SET name = ?, text = ?, card_count = ?, resolved_cards = ? WHERE id = ?`);
+const updateDeckContentStmt = db.prepare(`UPDATE decks SET name = ?, text = ?, card_count = ?, resolved_cards = COALESCE(?, resolved_cards), visibility = COALESCE(?, visibility) WHERE id = ?`);
 const deleteStmt = db.prepare(`DELETE FROM decks WHERE id = ?`);
 const updateResolvedCardsStmt = db.prepare(`UPDATE decks SET resolved_cards = ? WHERE id = ?`);
 const updateFolderStmt = db.prepare(`UPDATE decks SET folder = ? WHERE id = ?`);
 const listFoldersStmt = db.prepare(`SELECT DISTINCT folder FROM decks WHERE folder != '' ORDER BY folder`);
+
+function normalizeVisibility(value: unknown): 'public' | 'private' {
+  return value === 'private' ? 'private' : 'public';
+}
+
+function mapDeckSummaryRow(row: {
+  id: string;
+  name: string;
+  created_at: number;
+  created_by_id: string;
+  created_by_name: string;
+  card_count: number;
+  has_cached_cards: number;
+  folder: string | null;
+  visibility?: string | null;
+}): SavedDeckSummary {
+  return {
+    id: row.id,
+    name: row.name,
+    created_at: row.created_at,
+    created_by_id: row.created_by_id,
+    created_by_name: row.created_by_name,
+    card_count: row.card_count,
+    has_cached_cards: row.has_cached_cards === 1,
+    folder: row.folder || '',
+    visibility: normalizeVisibility(row.visibility),
+  };
+}
 
 export function saveDeck(deck: {
   id: string;
@@ -69,12 +107,14 @@ export function saveDeck(deck: {
   card_count: number;
   resolved_cards?: string | null;
   folder?: string;
+  visibility?: 'public' | 'private';
 }) {
   insertStmt.run({
     ...deck,
     created_at: Date.now(),
     resolved_cards: deck.resolved_cards ?? null,
-    folder: deck.folder ?? ''
+    folder: deck.folder ?? '',
+    visibility: normalizeVisibility(deck.visibility),
   });
 }
 
@@ -108,17 +148,39 @@ export function listDecks(folder?: string): SavedDeckSummary[] {
     card_count: number;
     has_cached_cards: number;
     folder: string | null;
+    visibility?: string | null;
   }>;
-  return rows.map(row => ({
-    id: row.id,
-    name: row.name,
-    created_at: row.created_at,
-    created_by_id: row.created_by_id,
-    created_by_name: row.created_by_name,
-    card_count: row.card_count,
-    has_cached_cards: row.has_cached_cards === 1,
-    folder: row.folder || ''
-  }));
+  return rows.map(mapDeckSummaryRow);
+}
+
+export function listPublicDecks(): SavedDeckSummary[] {
+  const rows = listPublicStmt.all() as Array<{
+    id: string;
+    name: string;
+    created_at: number;
+    created_by_id: string;
+    created_by_name: string;
+    card_count: number;
+    has_cached_cards: number;
+    folder: string | null;
+    visibility?: string | null;
+  }>;
+  return rows.map(mapDeckSummaryRow);
+}
+
+export function listDecksByOwner(userId: string): SavedDeckSummary[] {
+  const rows = listByOwnerStmt.all(userId) as Array<{
+    id: string;
+    name: string;
+    created_at: number;
+    created_by_id: string;
+    created_by_name: string;
+    card_count: number;
+    has_cached_cards: number;
+    folder: string | null;
+    visibility?: string | null;
+  }>;
+  return rows.map(mapDeckSummaryRow);
 }
 
 /**
@@ -209,6 +271,7 @@ export function getDeck(id: string): SavedDeckDetail | null {
     card_count: number;
     resolved_cards: string | null;
     folder: string | null;
+    visibility?: string | null;
   } | undefined;
   if (!row) return null;
   
@@ -234,7 +297,8 @@ export function getDeck(id: string): SavedDeckDetail | null {
     entries,
     has_cached_cards: !!cachedCards && cachedCards.length > 0,
     cached_cards: cachedCards,
-    folder: row.folder || ''
+    folder: row.folder || '',
+    visibility: normalizeVisibility(row.visibility),
   };
 }
 
@@ -253,6 +317,7 @@ export function updateDeckContent(
     text: string;
     card_count: number;
     resolved_cards?: string | null;
+    visibility?: 'public' | 'private';
   },
 ): SavedDeckSummary | null {
   updateDeckContentStmt.run(
@@ -260,6 +325,7 @@ export function updateDeckContent(
     updates.text,
     updates.card_count,
     updates.resolved_cards ?? null,
+    updates.visibility ?? null,
     id,
   );
   const d = getDeck(id);

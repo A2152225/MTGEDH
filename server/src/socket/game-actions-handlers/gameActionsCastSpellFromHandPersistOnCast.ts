@@ -35,7 +35,7 @@ import { broadcastGame, getPlayerName } from "../util";
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
 import { recordSpellCastThisTurn } from "./gameActionsSpellCastTriggerDetection.js";
 import { processSpellCastTriggersForCast } from "./gameActionsSpellCastTriggerProcessing.js";
-import { findTriggeringSpellOnStack } from "../../state/modules/triggerCastSpellStackBinding.js";
+import { cloneTriggeringStackItemSnapshot, findTriggeringSpellOnStack } from "../../state/modules/triggerCastSpellStackBinding.js";
 import {
   applyHeroicTrigger,
   consumeDelayedSpellCopiesForCast,
@@ -367,12 +367,18 @@ export async function persistAndProcessCastSpellFromHand(
             if (!item) continue;
             if (String(item.type || '').trim() === 'triggered_ability') continue;
             if (String(item.controller || '') !== String(playerId)) continue;
-            if (String(item.type || '').trim() === 'spell' || item.card) {
+            const itemName = String(item?.card?.name || item?.name || '').trim().toLowerCase();
+            const wantedName = String(cardInHand?.name || '').trim().toLowerCase();
+            if (wantedName && itemName && itemName === wantedName) {
               onCastTriggeringStackItemId = String(item.id || '').trim();
               break;
             }
           }
         }
+        const onCastTriggeringStackItem = onCastTriggeringStackItemId
+          ? onCastStackArr.find((item: any) => item && String(item.id || '') === onCastTriggeringStackItemId)
+          : null;
+        const onCastTriggeringStackItemSnapshot = cloneTriggeringStackItemSnapshot(onCastTriggeringStackItem);
 
         const onCastTriggers = resolveOnCastSpellTriggerDescriptions(cardInHand);
         for (const onCastTrigger of onCastTriggers) {
@@ -401,12 +407,18 @@ export async function persistAndProcessCastSpellFromHand(
             triggerType: 'triggered_ability',
             effect: onCastTrigger.effect,
             mandatory: !isOptionalMay,
-            ...(onCastTriggeringStackItemId
-              ? {
-                  triggeringStackItemId: onCastTriggeringStackItemId,
-                  effectData: { triggeringStackItemId: onCastTriggeringStackItemId },
-                }
-              : null),
+            ...(onCastTriggeringStackItemId ? { triggeringStackItemId: onCastTriggeringStackItemId } : null),
+            effectData: {
+              ...(onCastTriggeringStackItemId ? { triggeringStackItemId: onCastTriggeringStackItemId } : null),
+              triggeringSpell: {
+                id: cardInHand?.id,
+                name: cardInHand?.name,
+                type_line: cardInHand?.type_line,
+              },
+              ...(onCastTriggeringStackItemSnapshot
+                ? { triggeringSpellStackItem: onCastTriggeringStackItemSnapshot }
+                : null),
+            },
             card: {
               ...cardInHand,
               owner: cardInHand.owner || playerId,
@@ -630,6 +642,10 @@ export async function persistAndProcessCastSpellFromHand(
             }
           }
         }
+        const opponentCastTriggeringStackItem = boundCastSpell
+          || opponentCastStackArr.find((item: any) => item && String(item.id || '') === opponentCastTriggeringStackItemId)
+          || null;
+        const opponentCastTriggeringStackItemSnapshot = cloneTriggeringStackItemSnapshot(opponentCastTriggeringStackItem);
         
         // Track if this is the first noncreature spell the caster has cast this turn
         const spellTypeLine = (cardInHand?.type_line || '').toLowerCase();
@@ -723,6 +739,7 @@ export async function persistAndProcessCastSpellFromHand(
                 type_line: cardInHand?.type_line,
                 ...(castSourceZone ? { castSourceZone } : null),
               },
+              ...(opponentCastTriggeringStackItemSnapshot ? { triggeringSpellStackItem: opponentCastTriggeringStackItemSnapshot } : null),
               paymentCost: trigger.paymentCost,
               paymentAmount: trigger.paymentAmount,
               benefitIfNotPaid: trigger.benefitIfNotPaid,

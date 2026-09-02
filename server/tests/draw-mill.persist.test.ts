@@ -130,7 +130,7 @@ describe('undo/replay Medium #7: silent drawCards / mill persistence', () => {
     expect(milled).toBe(2);
     const millAppends = vi.mocked(appendEvent).mock.calls.filter((c) => c[2] === 'mill');
     expect(millAppends.length).toBe(1);
-    expect(millAppends[0]?.[3]).toEqual(expect.objectContaining({ playerId: p1, count: 2 }));
+    expect(millAppends[0]?.[3]).toEqual(expect.objectContaining({ playerId: p1, count: 2, cardIds: ['m1', 'm2'] }));
 
     seedLibrary(game, p1, [{ id: 'm3', name: 'Mill Three' }]);
     vi.mocked(appendEvent).mockClear();

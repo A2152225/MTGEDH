@@ -5,14 +5,16 @@
  * targeting, findCastableCommander.
  *
  * Public entry symbols: applyAISelectedLandFace, findPlayableLand,
- * rememberAIFailedSpellCast, isAIFailedSpellCastCard, findCastableCommander,
- * checkAuraHasValidTarget, findAuraTarget.
+ * chooseAIPlayableLandCandidate, rememberAIFailedSpellCast,
+ * isAIFailedSpellCastCard, findCastableCommander, checkAuraHasValidTarget,
+ * findAuraTarget.
  */
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { getCastableCommanderCandidates, getPlayableLandCandidates } from "../../state/modules/can-respond.js";
 import { getAvailableMana } from "../../state/modules/mana-check.js";
 import { getEffectiveAdditionalCost } from "../game-actions.js";
 import { debug, debugWarn } from "../../utils/debug.js";
+import { cardGrantsNoMaximumHandSize } from "../../state/modules/handSizeUtils.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import type { AICastableCommanderCandidate, AIPlayableLandCandidate } from "./aiActionCandidateTypes.js";
 import { canAIPayAdditionalCost } from "./aiManaCostHelpers.js";
@@ -44,10 +46,18 @@ export function applyAISelectedLandFace(card: any, selectedFaceIndex?: number): 
 }
 
 /**
- * Find a playable land in the AI's supported zones.
- * Prefer the top of the library when the same player-side permission model allows it,
- * then fall back to lands in hand.
+ * Reliquary Tower before other lands. Delaying a colored land (and the spell it
+ * would enable this turn) is worth not discarding the rest of the hand later.
  */
+export function chooseAIPlayableLandCandidate(
+  candidates: readonly AIPlayableLandCandidate[],
+): AIPlayableLandCandidate | null {
+  if (candidates.length === 0) return null;
+  return candidates.find((candidate) => cardGrantsNoMaximumHandSize(candidate.card))
+    || candidates[0]
+    || null;
+}
+
 export function isCardAlreadyOnBattlefield(game: any, playerId: PlayerID, cardId: string): boolean {
   const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
   return battlefield.some((permanent: any) => permanent?.controller === playerId && permanent?.card?.id === cardId);
@@ -56,24 +66,12 @@ export function isCardAlreadyOnBattlefield(game: any, playerId: PlayerID, cardId
 export function findPlayableLand(game: any, playerId: PlayerID): AIPlayableLandCandidate | null {
   const candidates = getPlayableLandCandidates(getAIActionContext(game), playerId, {
     skipBattlefieldDuplicates: true,
+  }).filter((candidate) => {
+    const cardId = String(candidate.card?.id || '');
+    return !cardId || !isCardAlreadyOnBattlefield(game, playerId, cardId);
   });
 
-  const firstCandidate = candidates[0] || null;
-  if (!firstCandidate) {
-    return null;
-  }
-
-  if (firstCandidate.card?.id && isCardAlreadyOnBattlefield(game, playerId, String(firstCandidate.card.id))) {
-    debugWarn(1, '[AI] Skipping stale duplicate land already on battlefield:', {
-      playerId,
-      cardId: firstCandidate.card.id,
-      cardName: firstCandidate.card.name,
-      sourceZone: firstCandidate.sourceZone,
-    });
-    return null;
-  }
-
-  return firstCandidate;
+  return chooseAIPlayableLandCandidate(candidates);
 }
 
 

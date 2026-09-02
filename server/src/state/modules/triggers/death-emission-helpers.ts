@@ -9,6 +9,7 @@
 
 import type { GameContext } from "../../context.js";
 import { detectDeathTriggers } from "./death-detection.js";
+import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.js";
 import { permanentHasCreatureTypeNow } from "../../creatureTypeNow.js";
 import { getCurrentGoaders } from "../goad-effects.js";
 
@@ -38,7 +39,7 @@ export interface DeathTriggerResult {
   triggerType?: string;
 }
 
-export function getPermanentRulesTextFragments(perm: any): string[] {
+export function getPermanentRulesTextFragments(perm: any, gameState?: any): string[] {
   const fragments: string[] = [];
 
   const oracleText = String(perm?.card?.oracle_text || '').trim().toLowerCase();
@@ -47,9 +48,12 @@ export function getPermanentRulesTextFragments(perm: any): string[] {
   }
 
   const grantedAbilities = Array.isArray(perm?.grantedAbilities) ? perm.grantedAbilities : [];
-  for (const ability of grantedAbilities) {
+  const continuousGranted = gameState
+    ? getContinuousGrantedAbilitiesForPermanent(perm, gameState)
+    : [];
+  for (const ability of [...grantedAbilities, ...continuousGranted]) {
     const text = String(ability || '').trim().toLowerCase();
-    if (text) {
+    if (text && !fragments.includes(text)) {
       fragments.push(text);
     }
   }
@@ -439,7 +443,7 @@ function shouldQueueDetectedDeathTrigger(
       'named_or_another_keyword_creature_dies',
       'named_or_nontoken_dies_or_combat_damage_to_player',
     ]);
-    if (!selfAndOtherTypes.has(triggerType)) {
+    if (!selfAndOtherTypes.has(triggerType) && triggerType !== 'put_into_graveyard_from_battlefield') {
       return false;
     }
     const oracle = String(sourcePermanent?.card?.oracle_text || '');
@@ -477,7 +481,9 @@ function shouldQueueDetectedDeathTrigger(
     return sourceDamagedDyingCreatureThisTurn(ctx, sourcePermanent, dyingCreature);
   }
 
-  const clauses = extractDeathEventSubjects(String(sourcePermanent?.card?.oracle_text || ''));
+  const clauses = extractDeathEventSubjects(
+    getPermanentRulesTextFragments(sourcePermanent, ctx.state).join('\n'),
+  );
   if (clauses.length === 0) return false;
   return clauses.some((clause) => deathTriggerClauseMatchesDyingCreature(
     ctx,
@@ -495,11 +501,16 @@ export function appendDetectedDeathWatcherTriggers(
   dyingCreature: any,
   dyingCreatureController: string,
 ): void {
+  const detectState = {
+    ...(ctx.state || {}),
+    battlefield: permanentsToScan,
+  };
+  const detectCtx = { ...ctx, state: detectState };
   for (const permanent of permanentsToScan) {
     if (!permanent?.card) continue;
     const controllerId = String(permanent.controller || dyingCreatureController || '');
-    for (const trigger of detectDeathTriggers(permanent.card, permanent)) {
-      if (!shouldQueueDetectedDeathTrigger(ctx, trigger, permanent, dyingCreature, dyingCreatureController)) {
+    for (const trigger of detectDeathTriggers(permanent.card, permanent, detectState)) {
+      if (!shouldQueueDetectedDeathTrigger(detectCtx, trigger, permanent, dyingCreature, dyingCreatureController)) {
         continue;
       }
       const extras: Partial<DeathTriggerResult> = {};
@@ -535,11 +546,12 @@ export function appendDetectedSelfDeathTriggers(
   results: DeathTriggerResult[],
   dyingPermanent: any,
   dyingController: string,
+  gameState?: any,
 ): void {
   const card = dyingPermanent?.card;
   if (!card) return;
   const isCreature = String(card?.type_line || '').toLowerCase().includes('creature');
-  for (const trigger of detectDeathTriggers(card, dyingPermanent)) {
+  for (const trigger of detectDeathTriggers(card, dyingPermanent, gameState)) {
     const triggerType = String(trigger.triggerType || '');
     if (triggerType === 'enters_or_dies') {
       pushDetectedDeathTrigger(results, trigger, dyingController);
@@ -601,7 +613,7 @@ export function appendHauntLeaveDeathTriggers(
       if (!card?.oracle_text) continue;
       const sourceId = String(candidate?.id || card?.id || '');
       const controllerId = String(candidate?.owner || candidate?.controller || card?.owner || '');
-      for (const trigger of detectDeathTriggers(card, { id: sourceId, controller: controllerId, card })) {
+      for (const trigger of detectDeathTriggers(card, { id: sourceId, controller: controllerId, card }, ctx.state)) {
         if (String(trigger.triggerType || '') !== 'haunts_creature_dies') continue;
         pushDetectedDeathTrigger(
           results,

@@ -22,6 +22,7 @@ import type { MoveZoneSingleTargetCriteria } from './oracleIRExecutorZoneOpsSing
 import {
   stripFaceDownSuffix,
   stripPutIntoGraveyardThisTurnQualifier,
+  graveyardThisTurnCriteriaFromQualifier,
 } from './oracleIRExecutorZoneOpsSingleTargetMatchers';
 
 const stripImpulsePermissionMarkers = stripPlayableFromExileTags;
@@ -377,7 +378,7 @@ export function parseMoveZoneAllFromTargetPlayersExile(what: {
 }
 
 export function parseMoveZoneAllFromEachPlayersGraveyard(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):
-  | Pick<MoveZoneSingleTargetCriteria, 'cardType' | 'colorsAnyOf' | 'creatureTypesAnyOf' | 'putIntoGraveyardThisTurn'>
+  | Pick<MoveZoneSingleTargetCriteria, 'cardType' | 'colorsAnyOf' | 'creatureTypesAnyOf' | 'putIntoGraveyardThisTurn' | 'putIntoGraveyardFromLibraryThisTurn'>
   | null {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim();
@@ -406,7 +407,7 @@ export function parseMoveZoneAllFromEachPlayersGraveyard(what: { readonly kind: 
   }
 
   if (/^all\s+cards?\s+from\s+(?:each\s+player's\s+graveyard|each\s+players'\s+graveyard|all\s+graveyards)$/i.test(lower)) {
-    return { cardType: 'any', ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}) };
+    return { cardType: 'any', ...graveyardThisTurnCriteriaFromQualifier(withTurn) };
   }
 
   const inAllGysMatch = cleaned.match(/^all\s+(.+?)\s+cards?\s+in\s+all\s+graveyards$/i);
@@ -414,7 +415,7 @@ export function parseMoveZoneAllFromEachPlayersGraveyard(what: { readonly kind: 
     const typeText = String(inAllGysMatch[1] || '').trim();
     const parsed = parseCompoundCardTypeFromText(typeText) || parseSimpleCardTypeFromText(typeText);
     if (!parsed) return null;
-    return { cardType: parsed, ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}) };
+    return { cardType: parsed, ...graveyardThisTurnCriteriaFromQualifier(withTurn) };
   }
 
   const m = cleaned.match(
@@ -429,12 +430,12 @@ export function parseMoveZoneAllFromEachPlayersGraveyard(what: { readonly kind: 
     return {
       cardType: 'creature',
       creatureTypesAnyOf: [creatureSubtype],
-      ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
+      ...graveyardThisTurnCriteriaFromQualifier(withTurn),
     };
   }
   const parsed = parseCompoundCardTypeFromText(typeText) || parseSimpleCardTypeFromText(typeText);
   if (!parsed) return null;
-  return { cardType: parsed, ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}) };
+  return { cardType: parsed, ...graveyardThisTurnCriteriaFromQualifier(withTurn) };
 }
 
 export function parseMoveZoneMassBattlefieldCreatureBounce(what: {

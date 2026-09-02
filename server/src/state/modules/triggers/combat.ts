@@ -237,7 +237,7 @@ export function getCombatDamageTriggersForCreature(
 ): CombatTriggeredAbility[] {
   if (damageDealt <= 0) return [];
   
-  return detectCombatDamageTriggers(attackingPermanent.card, attackingPermanent);
+  return detectCombatDamageTriggers(attackingPermanent.card, attackingPermanent, ctx.state);
 }
 
 export { getAttackTriggersForCreatures } from "./attack-triggers-for-creatures.js";
@@ -610,6 +610,16 @@ export function checkDamageReceivedTrigger(
 
 // detectBlockTriggers + BlockTrigger live in block-detection.ts / block-trigger-type.ts (leftover-merged).
 
+function isSelfBecomesBlockedOnly(trigger: BlockTrigger): boolean {
+  const triggerType = String(trigger.triggerType || '');
+  if (triggerType.includes('blocks_or_becomes_blocked')) return false;
+  return triggerType === 'self_becomes_blocked';
+}
+
+function isSelfBlocksOrBecomesBlocked(trigger: BlockTrigger): boolean {
+  return String(trigger.triggerType || '').includes('blocks_or_becomes_blocked');
+}
+
 /**
  * Get block triggers for creatures that are blocking
  * @param ctx - Game context
@@ -627,13 +637,14 @@ export function getBlockTriggersForCreatures(
   
   // Check each blocking creature for block triggers
   for (const blocker of blockingCreatures) {
-    const blockerTriggers = detectBlockTriggers(blocker.card, blocker);
+    const blockerTriggers = detectBlockTriggers(blocker.card, blocker, ctx.state);
     const keywordText = String(blocker?.card?.oracle_text || '') ||
       (Array.isArray(blocker?.card?.keywords) ? (blocker?.card?.keywords || []).join('\n') : '');
     const blockKeywordTriggers = detectKeywords(keywordText, blocker?.card?.name || 'Unknown').keywords
       .filter((keyword) => keyword.timing === 'blocks' && keyword.keyword === 'bushido');
     
     for (const trigger of blockerTriggers) {
+      if (isSelfBecomesBlockedOnly(trigger)) continue;
       triggers.push({
         permanentId: trigger.permanentId,
         cardName: trigger.cardName,
@@ -709,7 +720,9 @@ export function getBlockedTriggersForCreatures(
     ].filter(Boolean).join('\n');
     const blockKeywords = detectKeywords(keywordText, attacker?.card?.name || 'Unknown').keywords
       .filter((keyword) => keyword.timing === 'blocks');
-    if (blockKeywords.length === 0) continue;
+    const blockedOracleTriggers = detectBlockTriggers(attacker.card, attacker, ctx.state)
+      .filter((trigger) => isSelfBecomesBlockedOnly(trigger) || isSelfBlocksOrBecomesBlocked(trigger));
+    if (blockKeywords.length === 0 && blockedOracleTriggers.length === 0) continue;
 
     const blockedByIds = Array.isArray(attacker?.blockedBy)
       ? attacker.blockedBy.map((value: any) => String(value || '').trim()).filter(Boolean)
@@ -779,6 +792,22 @@ export function getBlockedTriggersForCreatures(
           },
         });
       }
+    }
+
+    for (const trigger of blockedOracleTriggers) {
+      triggers.push({
+        permanentId: trigger.permanentId || attacker.id,
+        cardName: trigger.cardName || attacker.card?.name || 'Unknown',
+        controllerId: trigger.controllerId || attacker.controller,
+        triggerType: 'blocked',
+        description: trigger.description,
+        effect: trigger.effect,
+        mandatory: trigger.mandatory,
+        value: {
+          blockingCreatureIds: blockedByIds,
+          defendingPlayer,
+        },
+      });
     }
   }
 

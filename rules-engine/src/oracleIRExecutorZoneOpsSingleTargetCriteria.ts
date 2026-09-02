@@ -25,6 +25,8 @@ export type MoveZoneSingleTargetCriteria = {
   readonly manaValueLteReferencePower?: boolean;
   readonly manaValueLtReferenceLoyalty?: boolean;
   readonly milledThisTurn?: boolean;
+  /** Graveyard card put there from a library this turn (mill / similar). */
+  readonly putIntoGraveyardFromLibraryThisTurn?: boolean;
   readonly hasXManaCost?: boolean;
   readonly powerLte?: number;
   readonly powerGte?: number;

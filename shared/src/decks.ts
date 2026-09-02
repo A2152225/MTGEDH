@@ -9,6 +9,8 @@ export interface SavedDeckSummary {
   has_cached_cards?: boolean;
   /** Folder path for organizing decks (e.g., "Precons/2024/Bloomburrow") */
   folder?: string;
+  /** public: anyone can browse/load; private: owner-only list/load/edit */
+  visibility?: 'public' | 'private';
 }
 
 /** Cached card data from Scryfall */

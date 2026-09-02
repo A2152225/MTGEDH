@@ -3,7 +3,7 @@
 // default (exile, piles, sacrifice, choose_mode, conditional, unless_*, modify_damage).
 // Public entry symbol: tryApplyMainLoopLateSteps.
 
-import type { BattlefieldPermanent, PlayerID } from '../../shared/src';
+import type { BattlefieldPermanent } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import {
   applyConditionalReferenceAmount,
@@ -17,13 +17,20 @@ import {
   evaluateUnlessSacrificesStep,
   applyScheduleDelayedBattlefieldActionStep,
 } from './oracleIRExecutorBattlefieldStepHandlers';
-import { moveTargetedCardFromExile } from './oracleIRExecutorZoneOps';
+import { applyRepeatedZoneDraftStep } from './oracleIRExecutorRepeatedZoneDraft';
 import { evaluateAnyPlayerMayStep } from './oracleIRExecutorAnyPlayerMayStep';
 import {
   evaluateUnlessPaysLifeStep,
   evaluateUnlessPaysManaStep,
   evaluateUnlessDiscardsStep,
 } from './oracleIRExecutorPlayerStepHandlers';
+import {
+  bindUnlessPaysForEachContext,
+  bindUnlessPaysForEachStackContext,
+  resolveUnlessPaysForEachPermanentIds,
+  resolveUnlessPaysForEachStackObjectIds,
+  stripUnlessPaysChoiceFromContext,
+} from './oracleIRExecutorUnlessPaysForEachPermanents';
 import { normalizeOracleManaCostString } from './oracleIRExecutorManaUtils';
 import { applyCounterSpellStep } from './oracleIRExecutorMainLoopCounterSpellStep';
 import {
@@ -314,103 +321,19 @@ export function tryApplyMainLoopLateSteps(
         break;
       }
       case 'repeated_zone_draft': {
-        const draftPoolCards: any[] = Array.isArray(lastExiledCards) && lastExiledCards.length > 0
-          ? [...lastExiledCards]
-          : Array.isArray((currentCtx as any).lastMovedCards)
-            ? [...(currentCtx as any).lastMovedCards]
-            : [];
-        const findExiledCardOwner = (cardId: string): string | null => {
-          for (const player of (nextState.players || []) as any[]) {
-            const exile = Array.isArray(player?.exile) ? player.exile : [];
-            if (exile.some((card: any) => String(card?.id || '').trim() === cardId)) {
-              return String(player?.id || '').trim();
-            }
-          }
-          return null;
-        };
-        const remainingCardIds = draftPoolCards
-          .map((card) => String(card?.id || '').trim())
-          .filter((id) => Boolean(id) && findExiledCardOwner(id) !== null);
-
-        if (remainingCardIds.length === 0) {
-          setLastStepOutcome(step, 'applied');
-          log.push(`No cards remain to draft: ${step.raw}`);
-          appliedSteps.push(step);
+        const result = applyRepeatedZoneDraftStep(nextState, step, currentCtx, lastExiledCards);
+        if (result.kind === 'skipped') {
+          recordSkippedStep(step, result.message, result.reason, result.options);
           break;
         }
-
-        const startingPlayerId =
-          step.whoStarts?.kind === 'you' ? String(controllerId).trim() : String(controllerId).trim();
-        const turnOrderIds = (Array.isArray((nextState as any).turnOrder) && (nextState as any).turnOrder.length > 0
-          ? (nextState as any).turnOrder
-          : (nextState.players || []).map((player: any) => player?.id)
-        )
-          .map((id: unknown) => String(id || '').trim())
-          .filter(Boolean);
-        const startIndex = Math.max(0, turnOrderIds.indexOf(startingPlayerId));
-        const chooserOrder = turnOrderIds.length > 0
-          ? [...turnOrderIds.slice(startIndex), ...turnOrderIds.slice(0, startIndex)]
-          : [startingPlayerId];
-        const entersTapped = step.entersTapped === true;
-
-        if (currentCtx.interactivePlayerChoices === true) {
-          recordSkippedStep(
-            step,
-            `Skipped repeated zone draft (requires player choice): ${step.raw}`,
-            'player_choice_required',
-            {
-              classification: 'player_choice',
-              metadata: {
-                remainingCardIds,
-                chooserOrder,
-                entersTapped,
-                destination: step.destination,
-              },
-            }
-          );
-          break;
-        }
-
-        let workingState = nextState;
-        let remainingPool = [...remainingCardIds];
-        let chooserIndex = 0;
-        const draftLog: string[] = [];
-        const draftedBattlefieldIds: string[] = [];
-        while (remainingPool.length > 0) {
-          const chooserId = chooserOrder[chooserIndex % chooserOrder.length] as PlayerID;
-          chooserIndex += 1;
-          const cardId = remainingPool.shift() as string;
-          const ownerId = findExiledCardOwner(cardId);
-          if (!ownerId) continue;
-          const result = moveTargetedCardFromExile(
-            workingState,
-            ownerId as PlayerID,
-            cardId,
-            'any',
-            'battlefield',
-            chooserId,
-            entersTapped
-          );
-          if (result.kind !== 'applied') continue;
-          workingState = result.state;
-          draftLog.push(...(result.log || []));
-          if (Array.isArray((result as any).movedPermanentIds)) {
-            draftedBattlefieldIds.push(...((result as any).movedPermanentIds || []));
-          }
-        }
-
-        nextState = workingState;
-        lastMovedBattlefieldPermanentIds = draftedBattlefieldIds;
+        nextState = result.state;
+        lastMovedBattlefieldPermanentIds = [...result.lastMovedBattlefieldPermanentIds];
         currentCtx = {
           ...currentCtx,
-          lastMovedBattlefieldPermanentIds: draftedBattlefieldIds,
+          lastMovedBattlefieldPermanentIds,
         };
         setLastStepOutcome(step, 'applied');
-        log.push(
-          ...(draftLog.length > 0
-            ? draftLog
-            : [`Drafted ${remainingCardIds.length} card(s) onto the battlefield: ${step.raw}`])
-        );
+        log.push(...result.log);
         appliedSteps.push(step);
         break;
       }
@@ -614,34 +537,46 @@ export function tryApplyMainLoopLateSteps(
         break;
       }
       case 'unless_pays_life': {
-        const result = evaluateUnlessPaysLifeStep(nextState, step, currentCtx);
-        if (!('shouldApplyNestedSteps' in result)) {
-          recordSkippedStep(step, result.message, result.reason, {
-            ...result.options,
-            metadata: normalizeSkipMetadata(result.options?.metadata),
-          });
-          break;
-        }
-
-        if (result.state) {
-          nextState = result.state;
-        }
-        log.push(...result.log);
-        if (!result.shouldApplyNestedSteps) {
+        const forEachIds = resolveUnlessPaysForEachPermanentIds(nextState, step, currentCtx);
+        if (Array.isArray(forEachIds) && forEachIds.length === 0) {
           appliedSteps.push(step);
           break;
         }
+        const lifeIterations = Array.isArray(forEachIds) ? forEachIds : [''];
+        let lifeHalted = false;
+        for (const permanentId of lifeIterations) {
+          const boundCtx = permanentId
+            ? bindUnlessPaysForEachContext(currentCtx, permanentId)
+            : currentCtx;
+          const result = evaluateUnlessPaysLifeStep(nextState, step, boundCtx);
+          if (!('shouldApplyNestedSteps' in result)) {
+            recordSkippedStep(step, result.message, result.reason, {
+              ...result.options,
+              metadata: normalizeSkipMetadata(result.options?.metadata),
+            });
+            lifeHalted = true;
+            break;
+          }
 
-        const nestedResult = recurse(nextState, step.steps, currentCtx, options);
-        nextState = nestedResult.state;
-        log.push(...nestedResult.log);
-        appliedSteps.push(...nestedResult.appliedSteps);
-        skippedSteps.push(...nestedResult.skippedSteps);
-        automationGaps.push(...nestedResult.automationGaps);
-        pendingOptionalSteps.push(...nestedResult.pendingOptionalSteps);
-        absorbExecutionReplayMutations(nestedResult);
-        mergeNestedExecutionOutcome(nestedResult);
-        appliedSteps.push(step);
+          if (result.state) {
+            nextState = result.state;
+          }
+          log.push(...result.log);
+          if (!result.shouldApplyNestedSteps) {
+            continue;
+          }
+
+          const nestedResult = recurse(nextState, step.steps, boundCtx, options);
+          nextState = nestedResult.state;
+          log.push(...nestedResult.log);
+          appliedSteps.push(...nestedResult.appliedSteps);
+          skippedSteps.push(...nestedResult.skippedSteps);
+          automationGaps.push(...nestedResult.automationGaps);
+          pendingOptionalSteps.push(...nestedResult.pendingOptionalSteps);
+          absorbExecutionReplayMutations(nestedResult);
+          mergeNestedExecutionOutcome(nestedResult);
+        }
+        if (!lifeHalted) appliedSteps.push(step);
         break;
       }
       case 'unless_discards': {
@@ -758,34 +693,100 @@ export function tryApplyMainLoopLateSteps(
         break;
       }
       case 'unless_pays_mana': {
-        const result = evaluateUnlessPaysManaStep(nextState, step, currentCtx);
-        if (!('shouldApplyNestedSteps' in result)) {
-          recordSkippedStep(step, result.message, result.reason, {
-            ...result.options,
-            metadata: normalizeSkipMetadata(result.options?.metadata),
-          });
-          break;
-        }
-
-        if (result.state) {
-          nextState = result.state;
-        }
-        log.push(...result.log);
-        if (!result.shouldApplyNestedSteps) {
+        const stackIds = resolveUnlessPaysForEachStackObjectIds(nextState, step, currentCtx);
+        const forEachIds = stackIds ?? resolveUnlessPaysForEachPermanentIds(nextState, step, currentCtx);
+        if (Array.isArray(forEachIds) && forEachIds.length === 0) {
           appliedSteps.push(step);
           break;
         }
+        const bindKind: 'stack' | 'permanent' | 'none' = Array.isArray(stackIds)
+          ? 'stack'
+          : Array.isArray(forEachIds)
+            ? 'permanent'
+            : 'none';
+        let iterationIds = Array.isArray(forEachIds) ? [...forEachIds] : [''];
+        const boundResumeId = bindKind === 'stack'
+          ? String(currentCtx.targetSpellId || currentCtx.selectorContext?.targetSpellId || '').trim()
+          : String(currentCtx.targetPermanentId || currentCtx.targetCreatureId || '').trim();
+        const hasStampedChoice =
+          currentCtx.unlessPaysManaChoice === 'pay'
+          || currentCtx.unlessPaysManaChoice === 'decline'
+          || currentCtx.selectorContext?.unlessPaysManaChoice === 'pay'
+          || currentCtx.selectorContext?.unlessPaysManaChoice === 'decline';
+        if (hasStampedChoice && boundResumeId && iterationIds.includes(boundResumeId)) {
+          iterationIds = [boundResumeId, ...iterationIds.filter((id) => id !== boundResumeId)];
+        }
+        let manaHalted = false;
+        let iterationCtx = currentCtx;
+        let consumedStampedChoice = false;
+        for (const iterationId of iterationIds) {
+          const boundCtx = iterationId && bindKind === 'stack'
+            ? bindUnlessPaysForEachStackContext(iterationCtx, iterationId)
+            : iterationId && bindKind === 'permanent'
+              ? bindUnlessPaysForEachContext(iterationCtx, iterationId)
+              : iterationCtx;
+          const result = evaluateUnlessPaysManaStep(nextState, step, boundCtx);
+          if (!('shouldApplyNestedSteps' in result)) {
+            recordSkippedStep(step, result.message, result.reason, {
+              ...result.options,
+              metadata: normalizeSkipMetadata(result.options?.metadata),
+            });
+            for (const nested of Array.isArray(step.steps) ? step.steps : []) {
+              skippedSteps.push(nested);
+            }
+            manaHalted = true;
+            break;
+          }
 
-        const nestedResult = recurse(nextState, step.steps, currentCtx, options);
-        nextState = nestedResult.state;
-        log.push(...nestedResult.log);
-        appliedSteps.push(...nestedResult.appliedSteps);
-        skippedSteps.push(...nestedResult.skippedSteps);
-        automationGaps.push(...nestedResult.automationGaps);
-        pendingOptionalSteps.push(...nestedResult.pendingOptionalSteps);
-        absorbExecutionReplayMutations(nestedResult);
-        mergeNestedExecutionOutcome(nestedResult);
-        appliedSteps.push(step);
+          if (result.state) {
+            nextState = result.state;
+          }
+          log.push(...result.log);
+          const paidAmount = String((result as { paidManaAmount?: string }).paidManaAmount || '').trim();
+          const paidCtx = paidAmount
+            ? {
+                ...boundCtx,
+                unlessPaysManaChoice: 'pay' as const,
+                unlessPaysManaAmount: paidAmount,
+                selectorContext: {
+                  ...(boundCtx.selectorContext || {}),
+                  unlessPaysManaChoice: 'pay' as const,
+                  unlessPaysManaAmount: paidAmount,
+                },
+              }
+            : boundCtx;
+          if (!result.shouldApplyNestedSteps) {
+            const paidFollowups = Array.isArray((step as { paidSteps?: readonly OracleEffectStep[] }).paidSteps)
+              ? (step as { paidSteps: readonly OracleEffectStep[] }).paidSteps
+              : [];
+            if (paidFollowups.length > 0) {
+              const nestedPaid = recurse(nextState, paidFollowups, paidCtx, options);
+              nextState = nestedPaid.state;
+              log.push(...nestedPaid.log);
+              appliedSteps.push(...nestedPaid.appliedSteps);
+              skippedSteps.push(...nestedPaid.skippedSteps);
+              automationGaps.push(...nestedPaid.automationGaps);
+              pendingOptionalSteps.push(...nestedPaid.pendingOptionalSteps);
+              absorbExecutionReplayMutations(nestedPaid);
+              mergeNestedExecutionOutcome(nestedPaid);
+            }
+          } else {
+            const nestedResult = recurse(nextState, step.steps, boundCtx, options);
+            nextState = nestedResult.state;
+            log.push(...nestedResult.log);
+            appliedSteps.push(...nestedResult.appliedSteps);
+            skippedSteps.push(...nestedResult.skippedSteps);
+            automationGaps.push(...nestedResult.automationGaps);
+            pendingOptionalSteps.push(...nestedResult.pendingOptionalSteps);
+            absorbExecutionReplayMutations(nestedResult);
+            mergeNestedExecutionOutcome(nestedResult);
+          }
+          if (hasStampedChoice && !consumedStampedChoice) {
+            consumedStampedChoice = true;
+            iterationCtx = stripUnlessPaysChoiceFromContext(iterationCtx);
+          }
+        }
+        if (!manaHalted) appliedSteps.push(step);
         break;
       }
       case 'modify_damage': {

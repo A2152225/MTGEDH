@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { socket } from "../socket";
+import { authHeaders } from "../utils/authSessionStorage";
 import { debug, debugWarn, debugError } from "../utils/debug";
 
 
@@ -35,6 +36,7 @@ interface GameListProps {
   pollMs?: number;
   onRefresh?: () => void;
   currentPlayerId?: string | null;
+  isAdmin?: boolean;
 }
 
 function ResumeProgressBar({ progress }: { progress: ResumeProgress }) {
@@ -81,7 +83,7 @@ function ResumeProgressBar({ progress }: { progress: ResumeProgress }) {
 }
 
 export default function GameList(props: GameListProps) {
-  const { onJoin, pollMs = 5000, onRefresh, currentPlayerId } = props;
+  const { onJoin, pollMs = 5000, onRefresh, currentPlayerId, isAdmin } = props;
   const [games, setGames] = useState<GameRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -267,13 +269,9 @@ export default function GameList(props: GameListProps) {
     return phase !== "" && phase !== "pre_game";
   };
 
-  const isLocalhost = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname === "");
-  
   // Check if the current player can delete a specific game
   const canDelete = (game: GameRow): boolean => {
-    // Localhost can always delete
-    if (isLocalhost) return true;
-    // Game creators can delete their games
+    if (isAdmin) return true;
     if (currentPlayerId && game.createdByPlayerId === currentPlayerId) return true;
     return false;
   };
@@ -298,9 +296,12 @@ export default function GameList(props: GameListProps) {
     try {
       setDeleting(game.id);
       
-      if (isLocalhost) {
-        // Admin endpoint for localhost
-        const res = await fetch(`/admin/games/${encodeURIComponent(game.id)}`, { method: "DELETE" });
+      if (isAdmin) {
+        const res = await fetch(`/admin/games/${encodeURIComponent(game.id)}`, {
+          method: "DELETE",
+          credentials: "include",
+          headers: authHeaders(),
+        });
         if (!res.ok) {
           const txt = await res.text();
           alert("Delete failed: " + txt);
@@ -432,7 +433,7 @@ export default function GameList(props: GameListProps) {
                         onClick={() => handleDelete(g)}
                         title={
                           resume ? "Wait for restore to finish" :
-                          isLocalhost ? "Admin delete" :
+                          isAdmin ? "Admin delete" :
                           currentPlayerId && g.createdByPlayerId === currentPlayerId ? "Delete your game" :
                           g.activeConnectionsCount === 0 ? "Delete (no active players)" :
                           "Delete"

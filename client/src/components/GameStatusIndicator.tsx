@@ -3,7 +3,8 @@
 // Also includes control buttons (Concede, Leave Game, Undo) and randomness (Dice, Coin Flip) in the same row.
 // Also includes AI control toggle for autopilot mode.
 
-import React, { useState, useRef, useEffect, type ReactNode } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { PlayerRef, PlayerID } from '../../../shared/src';
 import type { UndoBoundaryPreview } from './UndoRequestModal';
 
@@ -28,6 +29,11 @@ interface Props {
   cityBlessing?: Record<PlayerID, boolean>;
   // Control button handlers
   isYouPlayer?: boolean;
+  isSpectator?: boolean;
+  isPreGame?: boolean;
+  onJoinAsPlayer?: () => void;
+  onSpectate?: () => void;
+  phaseStrip?: ReactNode;
   gameOver?: boolean;
   immediateConcede?: boolean;
   onConcede?: () => void;
@@ -71,6 +77,7 @@ interface Props {
   onToggleAIControl?: (enable: boolean, difficulty?: number) => void;
   /** Tighter single-row layout for mobile play. */
   compact?: boolean;
+  onPassPriority?: () => void;
 }
 
 // Maps phase values to display names and colors
@@ -102,10 +109,31 @@ const stepConfig: Record<string, { label: string; subColor: string }> = {
   'cleanup': { label: 'Cleanup', subColor: '#c4b5fd' },
 };
 
+const UNDO_MENU_Z = 8500;
+
+function computeUndoMenuBox(button: HTMLElement, menu: HTMLElement | null) {
+  const rect = button.getBoundingClientRect();
+  const gap = 4;
+  const pad = 8;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const width = Math.min(Math.max(280, rect.width), vw - pad * 2);
+  const menuH = menu?.offsetHeight || 200;
+  const spaceBelow = vh - rect.bottom - gap;
+  const spaceAbove = rect.top - gap;
+  const openUp = spaceBelow < Math.min(menuH, 180) && spaceAbove > spaceBelow;
+  const left = Math.min(Math.max(pad, rect.right - width), vw - width - pad);
+  const maxHeight = Math.max(80, (openUp ? spaceAbove : spaceBelow) - pad);
+  const top = openUp
+    ? Math.max(pad, rect.top - gap - Math.min(menuH, maxHeight))
+    : rect.bottom + gap;
+  return { top, left, width, maxHeight };
+}
+
 export function GameStatusIndicator({ 
   turn, phase, step, turnPlayer, priority, players, you, combat,
   monarch, initiative, dayNight, cityBlessing,
-  isYouPlayer, gameOver, immediateConcede, onConcede, onLeaveGame, onUndo, onOpenUndoMenu, availableUndoCount = 0,
+  isYouPlayer, isSpectator, isPreGame, onJoinAsPlayer, onSpectate, phaseStrip, gameOver, immediateConcede, onConcede, onLeaveGame, onUndo, onOpenUndoMenu, availableUndoCount = 0,
   undoTurnPhaseTargets = [],
   onUndoToTurnPhase,
   onRequestUndoTurnPhaseTargets,
@@ -113,18 +141,44 @@ export function GameStatusIndicator({
   extraActions,
   aiControlEnabled, aiStrategy, onToggleAIControl,
   compact = false,
+  onPassPriority,
 }: Props) {
   const [showDiceMenu, setShowDiceMenu] = useState(false);
   const [showUndoMenu, setShowUndoMenu] = useState(false);
+  const [undoMenuBox, setUndoMenuBox] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   const diceMenuRef = useRef<HTMLDivElement>(null);
   const undoMenuRef = useRef<HTMLDivElement>(null);
-  // Close menus when clicking outside
+  const undoButtonRef = useRef<HTMLButtonElement>(null);
+  const layoutUndoMenu = useCallback(() => {
+    const btn = undoButtonRef.current;
+    if (!btn) return;
+    setUndoMenuBox(computeUndoMenuBox(btn, undoMenuRef.current));
+  }, []);
+  useLayoutEffect(() => {
+    if (!showUndoMenu) {
+      setUndoMenuBox(null);
+      return;
+    }
+    layoutUndoMenu();
+    const raf = requestAnimationFrame(layoutUndoMenu);
+    window.addEventListener('resize', layoutUndoMenu);
+    window.addEventListener('scroll', layoutUndoMenu, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', layoutUndoMenu);
+      window.removeEventListener('scroll', layoutUndoMenu, true);
+    };
+  }, [showUndoMenu, undoTurnPhaseTargets.length, layoutUndoMenu]);
+  // Close menus when clicking outside (portaled undo list is not under undoButtonRef)
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (diceMenuRef.current && !diceMenuRef.current.contains(event.target as Node)) {
         setShowDiceMenu(false);
       }
-      if (undoMenuRef.current && !undoMenuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const inUndoBtn = Boolean(undoButtonRef.current?.contains(target));
+      const inUndoMenu = Boolean(undoMenuRef.current?.contains(target));
+      if (showUndoMenu && !inUndoBtn && !inUndoMenu) {
         setShowUndoMenu(false);
       }
     }
@@ -175,7 +229,7 @@ export function GameStatusIndicator({
       display: 'flex',
       flexDirection: 'column',
       gap: compact ? 6 : 10,
-      padding: compact ? '6px 10px' : '8px 16px',
+      padding: compact ? '6px 10px' : '8px 20px 8px 16px',
       background: 'linear-gradient(90deg, rgba(15,15,25,0.95), rgba(25,25,40,0.95))',
       borderRadius: 10,
       border: '1px solid rgba(99,102,241,0.3)',
@@ -183,6 +237,10 @@ export function GameStatusIndicator({
       color: '#e5e7eb',
       fontSize: compact ? 12 : 13,
       width: '100%',
+      minWidth: 0,
+      maxWidth: '100%',
+      boxSizing: 'border-box',
+      overflow: 'hidden',
     }}>
       <div style={{
         display: 'flex',
@@ -191,6 +249,8 @@ export function GameStatusIndicator({
         gap: 16,
         flexWrap: 'wrap',
         width: '100%',
+        minWidth: 0,
+        maxWidth: '100%',
       }}>
         <div style={{
           display: 'flex',
@@ -198,7 +258,7 @@ export function GameStatusIndicator({
           gap: 16,
           flexWrap: 'wrap',
           rowGap: 8,
-          flex: '1 1 700px',
+          flex: '1 1 auto',
           minWidth: 0,
         }}>
       {/* Turn + Round (round is display-only from cumulative turn / seated players) */}
@@ -267,10 +327,114 @@ export function GameStatusIndicator({
         </span>
       </div>
 
+      {/* Priority indicator */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: 6,
+        padding: '4px 10px',
+        borderRadius: 6,
+        background: youHavePriority ? 'rgba(16,185,129,0.2)' : 'transparent',
+        border: youHavePriority ? '1px solid rgba(16,185,129,0.4)' : '1px solid transparent',
+      }}>
+        <span style={{ color: '#9ca3af', fontSize: 11 }}>Priority:</span>
+        <span style={{ 
+          fontWeight: 600, 
+          color: youHavePriority ? '#34d399' : '#e5e7eb'
+        }}>
+          {youHavePriority ? '✓ You' : priorityPlayerName}
+        </span>
+      </div>
+      {youHavePriority && onPassPriority && !isSpectator && !gameOver && (
+        <button
+          type="button"
+          onClick={onPassPriority}
+          style={{
+            minHeight: 36,
+            padding: '8px 16px',
+            borderRadius: 6,
+            border: 'none',
+            background: '#10b981',
+            color: '#fff',
+            cursor: 'pointer',
+            fontSize: 14,
+            fontWeight: 700,
+            whiteSpace: 'nowrap',
+          }}
+          title="Pass priority"
+        >
+          Pass
+        </button>
+      )}
+      </div>
+
+      {isSpectator && (
+        <span
+          style={{
+            padding: '2px 8px',
+            borderRadius: 4,
+            background: 'rgba(147, 197, 253, 0.18)',
+            border: '1px solid rgba(147, 197, 253, 0.45)',
+            color: '#93c5fd',
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.06em',
+          }}
+        >
+          SPECTATING
+        </span>
+      )}
+
+      {isPreGame && isSpectator && onJoinAsPlayer && (
+        <button
+          type="button"
+          onClick={onJoinAsPlayer}
+          style={{
+            padding: '4px 10px',
+            fontSize: 11,
+            fontWeight: 600,
+            background: 'rgba(16, 185, 129, 0.22)',
+            border: '1px solid rgba(16, 185, 129, 0.5)',
+            borderRadius: 4,
+            color: '#6ee7b7',
+            cursor: 'pointer',
+          }}
+          title="Take a seat in this pre-game lobby"
+        >
+          Join this game
+        </button>
+      )}
+
+      {isPreGame && isYouPlayer && onSpectate && (
+        <button
+          type="button"
+          onClick={onSpectate}
+          style={{
+            padding: '4px 10px',
+            fontSize: 11,
+            fontWeight: 600,
+            background: 'rgba(147, 197, 253, 0.16)',
+            border: '1px solid rgba(147, 197, 253, 0.4)',
+            borderRadius: 4,
+            color: '#93c5fd',
+            cursor: 'pointer',
+          }}
+          title="Watch this pre-game lobby as a spectator"
+        >
+          Spectate
+        </button>
+      )}
+
       {/* Vertical divider */}
       <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
 
-      {/* Phase indicator */}
+      {/* Phase indicator: docked navigator replaces the static chip when provided */}
+      {phaseStrip ? (
+        <div style={{ flex: '0 1 auto', minWidth: 0 }}>
+          {phaseStrip}
+        </div>
+      ) : (
       <div style={{ 
         display: 'flex', 
         alignItems: 'center', 
@@ -300,6 +464,7 @@ export function GameStatusIndicator({
           )}
         </div>
       </div>
+      )}
 
       {/* Combat indicator (when in combat) */}
       {isCombatPhase && attackerCount > 0 && (
@@ -321,28 +486,6 @@ export function GameStatusIndicator({
           </div>
         </>
       )}
-
-      {/* Vertical divider */}
-      <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
-
-      {/* Priority indicator */}
-      <div style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: 6,
-        padding: '4px 10px',
-        borderRadius: 6,
-        background: youHavePriority ? 'rgba(16,185,129,0.2)' : 'transparent',
-        border: youHavePriority ? '1px solid rgba(16,185,129,0.4)' : '1px solid transparent',
-      }}>
-        <span style={{ color: '#9ca3af', fontSize: 11 }}>Priority:</span>
-        <span style={{ 
-          fontWeight: 600, 
-          color: youHavePriority ? '#34d399' : '#e5e7eb'
-        }}>
-          {youHavePriority ? '✓ You' : priorityPlayerName}
-        </span>
-      </div>
 
       {/* Day/Night indicator */}
       {dayNight && (
@@ -473,7 +616,7 @@ export function GameStatusIndicator({
       )}
 
       {/* Randomness buttons - Dice & Coin Flip */}
-      {!compact && (onRollDie || onFlipCoin) && (
+      {!compact && !isSpectator && (onRollDie || onFlipCoin) && (
         <>
           <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -578,7 +721,7 @@ export function GameStatusIndicator({
         </div>
 
         {!compact && showAiControl && (
-          <div>
+          <div style={{ minWidth: 0 }}>
             <button
               onClick={() => {
                 if (aiControlEnabled) {
@@ -623,11 +766,13 @@ export function GameStatusIndicator({
           gap: 12,
           flexWrap: 'wrap',
           width: '100%',
+          minWidth: 0,
+          maxWidth: '100%',
           paddingTop: 8,
           borderTop: '1px solid rgba(255,255,255,0.08)',
         }}>
           {extraActions && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flex: '1 1 420px', minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flex: '1 1 auto', minWidth: 0 }}>
               {extraActions}
             </div>
           )}
@@ -638,9 +783,10 @@ export function GameStatusIndicator({
               alignItems: 'center', 
               gap: 6,
               flexWrap: 'wrap',
+              minWidth: 0,
               marginLeft: 'auto',
             }}>
-          {onConcede && (
+          {onConcede && !isSpectator && (
             <button
               onClick={() => {
                 const message = immediateConcede
@@ -690,9 +836,10 @@ export function GameStatusIndicator({
               🚪 Leave
             </button>
           )}
-          {onUndo && availableUndoCount > 0 && (
-            <div ref={undoMenuRef} style={{ position: 'relative' }}>
+          {onUndo && !isSpectator && availableUndoCount > 0 && (
+            <div style={{ position: 'relative' }}>
               <button
+                ref={undoButtonRef}
                 onClick={() => {
                   if (!canOpenUndoMenu) return;
                   if (!showUndoMenu) {
@@ -721,13 +868,16 @@ export function GameStatusIndicator({
                 <span>▼</span>
               </button>
 
-              {showUndoMenu && (
+              {showUndoMenu && typeof document !== 'undefined' && createPortal(
                 <div
+                  ref={undoMenuRef}
                   style={{
-                    position: 'absolute',
-                    top: '100%',
-                    right: 0,
-                    marginTop: 4,
+                    position: 'fixed',
+                    top: undoMenuBox?.top ?? 0,
+                    left: undoMenuBox?.left ?? 0,
+                    width: undoMenuBox?.width ?? 280,
+                    maxHeight: undoMenuBox?.maxHeight ?? 360,
+                    visibility: undoMenuBox ? 'visible' : 'hidden',
                     background: 'rgba(30, 30, 40, 0.98)',
                     border: '1px solid rgba(99, 102, 241, 0.5)',
                     borderRadius: 8,
@@ -735,9 +885,12 @@ export function GameStatusIndicator({
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 4,
-                    zIndex: 1000,
+                    zIndex: UNDO_MENU_Z,
                     boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
                     minWidth: 280,
+                    boxSizing: 'border-box',
+                    overflow: 'hidden',
+                    pointerEvents: 'auto',
                   }}
                 >
                   {onUndoToTurnPhase && (
@@ -767,7 +920,7 @@ export function GameStatusIndicator({
                       ) : (
                         <div
                           style={{
-                            maxHeight: 320,
+                            maxHeight: undoMenuBox ? Math.max(72, undoMenuBox.maxHeight - 44) : 320,
                             overflowY: 'auto',
                             display: 'flex',
                             flexDirection: 'column',
@@ -813,7 +966,8 @@ export function GameStatusIndicator({
                       )}
                     </>
                   )}
-                </div>
+                </div>,
+                document.body,
               )}
             </div>
           )}

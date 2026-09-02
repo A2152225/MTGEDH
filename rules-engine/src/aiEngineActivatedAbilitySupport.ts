@@ -52,6 +52,16 @@ function candidateAllowsAnyPlayerActivation(perm: BattlefieldPermanent, abilityT
   });
 }
 
+/**
+ * Cycling / channel / reinforce / Kogla-and-Yidaro: the cost discards the source
+ * card itself, so the ability is only legal from hand (or another discard zone),
+ * never from the battlefield.
+ */
+export function isHandOnlyDiscardThisCardActivatedAbility(abilityText: string): boolean {
+  const text = String(abilityText || '');
+  return /\bdiscard this card\b/i.test(text) || /\bdiscard ~\b/i.test(text);
+}
+
 export interface ActivatedAbilityChoice {
   readonly permanent: BattlefieldPermanent;
   readonly abilityId?: string;
@@ -110,9 +120,11 @@ function getAIActivatedAbilityCandidates(perm: BattlefieldPermanent): AIActivate
       const costText = String(activatedMatch[1] || '').trim();
       const effectText = String(activatedMatch[2] || '').trim();
       if (!costText || !effectText) continue;
+      const abilityText = `${costText}: ${effectText}`;
+      if (isHandOnlyDiscardThisCardActivatedAbility(abilityText)) continue;
       candidates.push({
         abilityId: `${cardId}-ability-${genericAbilityIndex++}`,
-        abilityText: `${costText}: ${effectText}`,
+        abilityText,
         effectText,
       });
       continue;
@@ -123,9 +135,11 @@ function getAIActivatedAbilityCandidates(perm: BattlefieldPermanent): AIActivate
       const costText = String(textOnlyMatch[1] || '').trim();
       const effectText = String(textOnlyMatch[2] || '').trim();
       if (!costText || !effectText) continue;
+      const abilityText = `${costText}: ${effectText}`;
+      if (isHandOnlyDiscardThisCardActivatedAbility(abilityText)) continue;
       candidates.push({
         abilityId: `${cardId}-ability-${genericAbilityIndex++}`,
-        abilityText: `${costText}: ${effectText}`,
+        abilityText,
         effectText,
       });
     }
@@ -240,6 +254,9 @@ export function detectActivatedAbility(perm: BattlefieldPermanent): string | nul
   }
 
   if (activatedAbilityPattern.test(oracleText)) {
+    if (isHandOnlyDiscardThisCardActivatedAbility(card.oracle_text || '')) {
+      return null;
+    }
     return card.oracle_text || null;
   }
 
@@ -660,6 +677,9 @@ export function findBestActivatedAbility(
         })();
 
     for (const candidate of scoredCandidates) {
+      if (isHandOnlyDiscardThisCardActivatedAbility(candidate.abilityText)) {
+        continue;
+      }
       if (!isOwnPermanent && !candidateAllowsAnyPlayerActivation(perm, candidate.abilityText)) {
         continue;
       }

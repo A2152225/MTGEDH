@@ -11,18 +11,13 @@ import {
   listGames as dbListGames,
   deleteGame as dbDeleteGame,
 } from "./db/index.js";
-import {
-  listDecks,
-  saveDeck,
-  getDeck,
-  updateDeckContent,
-  renameDeck,
-  deleteDeck,
-} from "./db/decks.js";
-import { resolveDeckList } from "./services/deckImport.js";
 import { addSuggestion, loadSuggestions } from "./db/houseRuleSuggestions.js";
 import { ensureLocalCardLookupIndex, lookupLocalCards } from "./services/localCardLookup.js";
-import { parseDecklist, clearPlaneswalkerCache, shouldSkipDeckLine, normalizeName } from "./services/scryfall";
+import { clearPlaneswalkerCache, normalizeName } from "./services/scryfall";
+import { registerAuthHttpRoutes } from "./auth/authHttp.js";
+import { isLoopbackSocket } from "./auth/loopback.js";
+import { getRequestAuthUser, userIsAdmin } from "./auth/requestUser.js";
+import { registerDeckHttpRoutes } from "./decks/decksHttp.js";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -341,34 +336,8 @@ app.get("/api/oracle-ir/telemetry", (req, res) => {
 // Localhost-only live table soak: create game + AI + decks, then free-cast listed cards.
 registerOracleIrLiveSoakRoutes(app);
 
-// API: list saved decks (for AI opponent deck selection)
-function getRequestRemoteAddress(req: express.Request): string {
-  return String(req.ip || req.socket.remoteAddress || '').replace(/^::ffff:/, '');
-}
-
-function isLocalhostRequest(req: express.Request): boolean {
-  const remote = getRequestRemoteAddress(req);
-  return remote === '127.0.0.1' || remote === '::1' || remote === 'localhost' || remote.startsWith('127.0.0.1:');
-}
-
-function canModifyDeckViaApi(
-  req: express.Request,
-  deck: { created_by_id: string },
-  playerId?: string,
-): boolean {
-  if (isLocalhostRequest(req)) return true;
-  return !!playerId && deck.created_by_id === playerId;
-}
-
-app.get("/api/decks", (req, res) => {
-  try {
-    const decks = listDecks();
-    res.json({ decks });
-  } catch (err) {
-    debugError(1, "GET /api/decks failed:", err);
-    res.status(500).json({ error: "Failed to list decks" });
-  }
-});
+registerAuthHttpRoutes(app);
+registerDeckHttpRoutes(app);
 
 /** Local-first card preview for deck builder (oracle text + image URIs). No Scryfall. */
 app.post("/api/cards/lookup", (req, res) => {
@@ -428,227 +397,6 @@ app.post("/api/cards/lookup", (req, res) => {
   }
 });
 
-// API: save a deck (for AI opponent deck import)
-app.post("/api/decks", (req, res) => {
-  try {
-    const { name, text, playerId, playerName, cacheCards } = req.body;
-    
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      res.status(400).json({ error: "Deck name is required" });
-      return;
-    }
-    
-    if (!text || typeof text !== 'string' || !text.trim()) {
-      res.status(400).json({ error: "Deck text is required" });
-      return;
-    }
-    
-    // Use the shared parseDecklist function for consistent parsing
-    let cardCount = 0;
-    let parsed: Array<{ name: string; count: number }> = [];
-    try {
-      parsed = parseDecklist(text);
-      cardCount = parsed.reduce((sum, entry) => sum + (entry.count || 1), 0);
-    } catch (e) {
-      debugWarn(1, "[API] parseDecklist failed, using fallback count:", e);
-      // Fallback: simple line count
-      cardCount = text.split(/\r?\n/).filter((l: string) => l.trim().length > 0).length;
-    }
-
-    const createdById = typeof playerId === 'string' && playerId.trim() ? playerId.trim() : 'api';
-    const createdByName = typeof playerName === 'string' && playerName.trim()
-      ? playerName.trim()
-      : (createdById === 'api' ? 'API Import' : createdById);
-    
-    const deckId = `deck_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-    (async () => {
-      let resolvedCardsJson: string | null = null;
-      if (cacheCards && parsed.length > 0) {
-        try {
-          const resolution = await resolveDeckList(parsed, { uniqueInstanceIds: false });
-          if (resolution.resolvedCards.length > 0) {
-            resolvedCardsJson = JSON.stringify(resolution.resolvedCards);
-          }
-        } catch (e) {
-          debugWarn(1, "[API] save deck cacheCards failed:", e);
-        }
-      }
-
-      saveDeck({
-        id: deckId,
-        name: name.trim(),
-        text: text.trim(),
-        created_by_id: createdById,
-        created_by_name: createdByName,
-        card_count: cardCount,
-        resolved_cards: resolvedCardsJson,
-      });
-      
-      debug(1, "[API] Deck saved:", { deckId, name: name.trim(), cardCount, createdById });
-      
-      res.json({ success: true, deckId, cardCount });
-    })().catch((err) => {
-      debugError(1, "POST /api/decks async failed:", err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: "Failed to save deck" });
-      }
-    });
-  } catch (err) {
-    debugError(1, "POST /api/decks failed:", err);
-    res.status(500).json({ error: "Failed to save deck" });
-  }
-});
-
-// API: get a single saved deck (standalone deck builder)
-app.get("/api/decks/:id", (req, res) => {
-  try {
-    const deck = getDeck(String(req.params.id || ''));
-    if (!deck) {
-      res.status(404).json({ error: "Deck not found" });
-      return;
-    }
-    res.json({ deck });
-  } catch (err) {
-    debugError(1, "GET /api/decks/:id failed:", err);
-    res.status(500).json({ error: "Failed to get deck" });
-  }
-});
-
-// API: update a saved deck (owner or localhost admin)
-app.put("/api/decks/:id", (req, res) => {
-  const deckId = String(req.params.id || '');
-  const { name, text, playerId, cacheCards } = req.body || {};
-
-  if (!name || typeof name !== 'string' || !name.trim()) {
-    res.status(400).json({ error: "Deck name is required" });
-    return;
-  }
-  if (!text || typeof text !== 'string' || !text.trim()) {
-    res.status(400).json({ error: "Deck text is required" });
-    return;
-  }
-
-  const existing = getDeck(deckId);
-  if (!existing) {
-    res.status(404).json({ error: "Deck not found" });
-    return;
-  }
-
-  const safePlayerId = typeof playerId === 'string' ? playerId : undefined;
-  if (!canModifyDeckViaApi(req, existing, safePlayerId)) {
-    res.status(403).json({ error: "You can only edit decks you created." });
-    return;
-  }
-
-  (async () => {
-    let cardCount = 0;
-    let parsed: Array<{ name: string; count: number }> = [];
-    try {
-      parsed = parseDecklist(text);
-      cardCount = parsed.reduce((sum, entry) => sum + (entry.count || 1), 0);
-    } catch (e) {
-      debugWarn(1, "[API] update deck parseDecklist failed, using line count estimate", e);
-      const lines = text.split(/\r?\n/).filter((l: string) => !shouldSkipDeckLine(l));
-      cardCount = lines.length;
-    }
-
-    let resolvedCardsJson: string | null | undefined = undefined;
-    if (cacheCards && parsed.length > 0) {
-      try {
-        const resolution = await resolveDeckList(parsed, { uniqueInstanceIds: false });
-        resolvedCardsJson = resolution.resolvedCards.length > 0
-          ? JSON.stringify(resolution.resolvedCards)
-          : null;
-      } catch (e) {
-        debugWarn(1, "[API] update deck cacheCards failed:", e);
-        resolvedCardsJson = null;
-      }
-    }
-
-    const updated = updateDeckContent(deckId, {
-      name: name.trim(),
-      text,
-      card_count: cardCount,
-      ...(resolvedCardsJson !== undefined ? { resolved_cards: resolvedCardsJson } : {}),
-    });
-    if (!updated) {
-      res.status(500).json({ error: "Failed to update deck" });
-      return;
-    }
-    res.json({ success: true, deck: updated });
-  })().catch((err) => {
-    debugError(1, "PUT /api/decks/:id failed:", err);
-    if (!res.headersSent) {
-      res.status(500).json({ error: "Failed to update deck" });
-    }
-  });
-});
-
-// API: rename a saved deck (owner or localhost admin)
-app.patch("/api/decks/:id", (req, res) => {
-  try {
-    const deckId = String(req.params.id || '');
-    const { name, playerId } = req.body || {};
-
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      res.status(400).json({ error: "Deck name is required" });
-      return;
-    }
-
-    const existing = getDeck(deckId);
-    if (!existing) {
-      res.status(404).json({ error: "Deck not found" });
-      return;
-    }
-
-    const safePlayerId = typeof playerId === 'string' ? playerId : undefined;
-    if (!canModifyDeckViaApi(req, existing, safePlayerId)) {
-      res.status(403).json({ error: "You can only rename decks you created." });
-      return;
-    }
-
-    const deck = renameDeck(deckId, name.trim());
-    if (!deck) {
-      res.status(404).json({ error: "Deck not found" });
-      return;
-    }
-    res.json({ success: true, deck });
-  } catch (err) {
-    debugError(1, "PATCH /api/decks/:id failed:", err);
-    res.status(500).json({ error: "Failed to rename deck" });
-  }
-});
-
-// API: delete a saved deck (owner or localhost admin)
-app.delete("/api/decks/:id", (req, res) => {
-  try {
-    const deckId = String(req.params.id || '');
-    const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : undefined;
-
-    const existing = getDeck(deckId);
-    if (!existing) {
-      res.status(404).json({ error: "Deck not found" });
-      return;
-    }
-
-    if (!canModifyDeckViaApi(req, existing, playerId)) {
-      res.status(403).json({ error: "You can only delete decks you created." });
-      return;
-    }
-
-    const ok = deleteDeck(deckId);
-    if (!ok) {
-      res.status(500).json({ error: "Failed to delete deck" });
-      return;
-    }
-    res.json({ success: true, deckId });
-  } catch (err) {
-    debugError(1, "DELETE /api/decks/:id failed:", err);
-    res.status(500).json({ error: "Failed to delete deck" });
-  }
-});
-
 // API: submit a house rule suggestion
 app.post("/api/house-rule-suggestions", (req, res) => {
   try {
@@ -676,6 +424,12 @@ app.post("/api/house-rule-suggestions", (req, res) => {
   }
 });
 
+
+function canUseAdminHttp(req: { socket?: { remoteAddress?: string } }): boolean {
+  if (userIsAdmin(getRequestAuthUser(req as any))) return true;
+  return isLoopbackSocket(req);
+}
+
 // API: list house rule suggestions (admin only - localhost)
 app.get("/api/house-rule-suggestions", (req, res) => {
   try {
@@ -702,14 +456,7 @@ app.get("/api/house-rule-suggestions", (req, res) => {
 // Admin: delete a game (only from localhost)
 app.delete("/admin/games/:id", (req, res) => {
   try {
-    // Determine requester IP (works for direct connections). If behind proxy, adjust trust proxy as needed.
-    const remote = (req.ip || req.socket.remoteAddress || "").toString();
-    const allowed =
-      remote === "127.0.0.1" ||
-      remote === "::1" ||
-      remote === "localhost" ||
-      remote === "127.0.0.1:3001";
-    if (!allowed) {
+    if (!canUseAdminHttp(req)) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
@@ -754,13 +501,7 @@ app.delete("/admin/games/:id", (req, res) => {
 // Admin: delete ALL games (only from localhost)
 app.delete("/admin/games", (req, res) => {
   try {
-    const remote = (req.ip || req.socket.remoteAddress || "").toString();
-    const allowed =
-      remote === "127.0.0.1" ||
-      remote === "::1" ||
-      remote === "localhost" ||
-      remote === "127.0.0.1:3001";
-    if (!allowed) {
+    if (!canUseAdminHttp(req)) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }

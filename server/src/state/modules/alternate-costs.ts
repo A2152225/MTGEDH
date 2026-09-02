@@ -21,6 +21,7 @@ import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
 import { parseManaCost, normalizeParsedManaCost, canPayManaCostWithAvailableSources } from "./mana-check";
 import { collectStaticEffectSources } from "./static-effect-sources";
+import { findFreeHandCastsThisTurnSource, grantsStaticFreeHandCasts } from "../../../../rules-engine/src/freeHandCastGrant.js";
 import { spellHasConvokeForCast } from "./casting-modifiers.js";
 import { permanentIsCommanderCard } from "./triggerPermanentUtils.js";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan } from "./cost-adjustments.js";
@@ -581,6 +582,71 @@ export function parseKeywordAlternateManaCost(
   return match ? match[1].replace(/\s+/g, '').trim() : undefined;
 }
 
+/**
+ * "You may pay {X} rather than pay this spell's mana cost."
+ * Mindbreak Trap / other self-alternate mana costs, including trap {0}.
+ */
+export function parseRatherThanPayThisSpellManaCost(oracleText: string): string | undefined {
+  const match = String(oracleText || '').match(
+    /you may pay (\{\s*[^}]+\s*\}(?:\s*\{\s*[^}]+\s*\})*) rather than pay this spell(?:'|’)s mana cost/i,
+  );
+  return match ? match[1].replace(/\s+/g, '').trim() : undefined;
+}
+
+function countOpponentSpellsCastThisTurnByCaster(state: any, playerId: PlayerID): Map<string, number> {
+  const counts = new Map<string, number>();
+  const spells = Array.isArray(state?.spellsCastThisTurn) ? state.spellsCastThisTurn : [];
+  const selfId = String(playerId || '').trim();
+  for (const entry of spells) {
+    const casterId = String(entry?.casterId || entry?.controller || '').trim();
+    if (!casterId || casterId === selfId) continue;
+    counts.set(casterId, (counts.get(casterId) || 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * Trap-style: a single opponent must have cast three or more spells this turn.
+ */
+export function opponentCastThreeOrMoreSpellsThisTurn(state: any, playerId: PlayerID): boolean {
+  return [...countOpponentSpellsCastThisTurnByCaster(state, playerId).values()].some((count) => count >= 3);
+}
+
+/**
+ * Trap-style: an opponent searched their own library this turn (Archive Trap).
+ */
+export function opponentSearchedTheirLibraryThisTurn(state: any, playerId: PlayerID): boolean {
+  if (state?.opponentSearchedLibraryThisTurn === true) return true;
+  const selfId = String(playerId || '').trim();
+  const searched = Array.isArray(state?.playersWhoSearchedOwnLibraryThisTurn)
+    ? state.playersWhoSearchedOwnLibraryThisTurn
+    : [];
+  return searched.some((id: unknown) => {
+    const pid = String(id || '').trim();
+    return Boolean(pid && pid !== selfId);
+  });
+}
+
+/**
+ * Payable self "rather than pay this spell's mana cost" when any If-condition is met.
+ */
+export function getSelfRatherThanPayAlternateManaCost(
+  ctx: GameContext,
+  playerId: PlayerID,
+  card: any,
+): string | undefined {
+  const oracleText = String(card?.oracle_text || card?.oracleText || '');
+  const manaCost = parseRatherThanPayThisSpellManaCost(oracleText);
+  if (!manaCost) return undefined;
+  if (/if an opponent cast three or more spells this turn/i.test(oracleText)) {
+    if (!opponentCastThreeOrMoreSpellsThisTurn(ctx.state, playerId)) return undefined;
+  }
+  if (/if an opponent searched their library this turn/i.test(oracleText)) {
+    if (!opponentSearchedTheirLibraryThisTurn(ctx.state, playerId)) return undefined;
+  }
+  return manaCost;
+}
+
 export function buildWarpPaymentAlternateCost(
   adjustedWarpManaCost: string,
   oracleText?: string,
@@ -653,15 +719,13 @@ export function getOmniscienceSource(
 ): { sourceId: string; sourceName: string } | null {
   const { state } = ctx;
 
-  const grantsFreeHandCasts = (text: string): boolean => {
-    const oracleText = String(text || '').toLowerCase();
-    if (!oracleText.includes('without paying')) return false;
-    if (!oracleText.includes('from your hand')) return false;
-    if (!oracleText.includes('you may cast')) return false;
-    return oracleText.includes('cast spells from your hand')
-      || oracleText.includes('cast nonland cards from your hand')
-      || oracleText.includes('cast cards from your hand');
-  };
+  const thisTurn = findFreeHandCastsThisTurnSource(state, playerId);
+  if (thisTurn) {
+    return {
+      sourceId: thisTurn.sourceId,
+      sourceName: thisTurn.sourceName,
+    };
+  }
 
   for (const source of collectStaticEffectSources(state)) {
     if (!source.affectsAllPlayers && source.controller !== String(playerId || '')) continue;
@@ -669,7 +733,7 @@ export function getOmniscienceSource(
     const cardName = source.sourceName.toLowerCase();
     const oracleText = source.oracleText.toLowerCase();
 
-    if (cardName.includes("omniscience") || grantsFreeHandCasts(oracleText)) {
+    if (cardName.includes("omniscience") || grantsStaticFreeHandCasts(oracleText)) {
       return {
         sourceId: source.sourceId,
         sourceName: source.sourceName || "Omniscience",
@@ -770,6 +834,14 @@ export function hasPayableAlternateCost(
   }
 
   if (getOmniscienceSource(ctx, playerId)) return true;
+
+  const ratherThanPayCost = getSelfRatherThanPayAlternateManaCost(ctx, playerId, card);
+  if (
+    ratherThanPayCost
+    && canPayAdjustedAlternateManaCost(ctx, playerId, card, ratherThanPayCost, excludedHandCardIds)
+  ) {
+    return true;
+  }
   
   return false;
 }
@@ -858,6 +930,16 @@ export function getAllAlternateCostOptions(
       description: `Pay ${conditionalAlt.manaCost} for different effect`,
       manaCost: conditionalAlt.manaCost,
       additionalEffects: conditionalAlt.conditionalEffect ? [conditionalAlt.conditionalEffect] : undefined,
+    });
+  }
+
+  const ratherThanPayCost = getSelfRatherThanPayAlternateManaCost(ctx, playerId, card);
+  if (ratherThanPayCost && !conditionalAlt.hasCost) {
+    options.push({
+      type: 'alternate',
+      name: 'Alternate Cost',
+      description: `Pay ${ratherThanPayCost} rather than this spell's mana cost`,
+      manaCost: ratherThanPayCost,
     });
   }
   

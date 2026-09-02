@@ -14,13 +14,6 @@ export function stripQuotedEmblemClausesForStaticScan(text: string): string {
   return result;
 }
 
-/** Backgrounds grant quoted triggered abilities to commanders — not static keyword grants. */
-export function stripCommanderGrantedAbilityQuotesForStaticScan(text: string): string {
-  return String(text || '').replace(/commander\s+creatures?\s+you\s+own\s+have\s+"[^"]*"/gi, '');
-}
-
 export function sanitizeOracleTextForStaticEffectScan(text: string): string {
-  return stripCommanderGrantedAbilityQuotesForStaticScan(
-    stripQuotedEmblemClausesForStaticScan(text),
-  );
+  return stripQuotedEmblemClausesForStaticScan(text);
 }

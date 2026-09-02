@@ -10,6 +10,7 @@ import { applyStateBasedActions } from "../../../rules-engine/index.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 import { ResolutionQueueManager } from "../../resolution/index.js";
 import { ResolutionStepType } from "../../resolution/types.js";
+import { recalculatePlayerEffects } from "../game-state-effects.js";
 import { processLinkedExileReturns } from "../triggered-abilities.js";
 import { queueExiledFromBattlefieldTriggers } from "../triggers/zone-change.js";
 import { processLTBTriggers } from "../triggerEmissionFamilyUtils.js";
@@ -75,6 +76,12 @@ export function movePermanentToExile(
     processLTBTriggers(ctx, perm, { cause: 'exile' });
   } catch (err) {
     debugWarn(1, '[movePermanentToExile] processLTBTriggers failed:', err);
+  }
+
+  try {
+    recalculatePlayerEffects(ctx);
+  } catch (err) {
+    debugWarn(1, '[movePermanentToExile] Failed to recalculate player effects:', err);
   }
 
   // Defensive: If we can't determine an owner/controller, don't write to zones[undefined].

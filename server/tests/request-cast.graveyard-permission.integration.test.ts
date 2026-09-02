@@ -2399,6 +2399,14 @@ describe('requestCastSpell graveyard permission windows (integration)', () => {
     );
 
     expect(dragonPermanent).toBeDefined();
+    expect(
+      ((((game.state as any).zones?.[playerId]?.graveyard) || []) as any[]).map((card: any) => card.id),
+    ).not.toContain('dragon_spell_1');
+    expect(dragonPermanent?.castFromGraveyard || dragonPermanent?.card?.castFromGraveyard).toBe(true);
+    expect(
+      dragonPermanent?.leaveBattlefieldReplacementDestination
+      || dragonPermanent?.card?.leaveBattlefieldReplacementDestination,
+    ).toBe('exile');
     expect(movePermanentToGraveyard(game as any, String(dragonPermanent.id))).toBe(true);
 
     const graveyardIds = ((((game.state as any).zones?.[playerId]?.graveyard) || []) as any[]).map((card: any) => card.id);

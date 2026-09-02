@@ -44,6 +44,7 @@ import {
 
 export {
   getCommanderColorIdentity,
+  getLandTopLayerProducibleColorSymbols,
   getMoxAmberAvailableColors,
   getOpponentLandProducibleColorSymbols,
   isMoxAmberConditionalManaSource,
@@ -55,10 +56,11 @@ export {
 
 
 export type { ManaAbility, ManaModifier } from "./mana-abilities-handlers/manaAbilityLandTypeModifiers.js";
-export { getEffectiveBasicLandTypes, detectManaModifiers } from "./mana-abilities-handlers/manaAbilityLandTypeModifiers.js";
+export { getEffectiveBasicLandTypes, detectManaModifiers, getOverridingLandTypeModifier } from "./mana-abilities-handlers/manaAbilityLandTypeModifiers.js";
 
 
 export { getManaAbilitiesForPermanent } from "./mana-abilities-handlers/manaAbilitiesForPermanent.js";
+export { resolveManaAbilityLifeEffect } from "./mana-abilities-handlers/manaAbilitySelfDamage.js";
 
 
 /**

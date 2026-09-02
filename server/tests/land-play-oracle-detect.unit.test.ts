@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { calculateMaxLandsPerTurn } from '../src/state/modules/game-state-effects.js';
+import { calculateMaxLandsPerTurn, recalculatePlayerEffects } from '../src/state/modules/game-state-effects.js';
+import { createInitialGameState } from '../src/state/gameState.js';
+import { movePermanentToExile } from '../src/state/modules/counters_tokens.js';
+import { movePermanentToLibrary } from '../src/state/modules/zones.js';
 
 // Quoted from mtg_data.db (is_token = 0), 2026-08-27.
 const EXPLORATION_ORACLE = 'You may play an additional land on each of your turns.';
@@ -84,5 +87,50 @@ describe('calculateMaxLandsPerTurn is oracle-only (no ADDITIONAL_LAND_PLAY_CARDS
         'p1',
       ),
     ).toBe(2);
+  });
+
+  it('drops extra land plays when the granting permanent is shuffled into the library', () => {
+    const game = createInitialGameState('land_ltb_library');
+    game.applyEvent({ type: 'join', playerId: 'p1', name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: 'p2', name: 'P2' } as any);
+    (game.state as any).zones = {
+      p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+      p2: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+    };
+    game.libraries.set('p1' as any, []);
+    game.libraries.set('p2' as any, []);
+    (game.state as any).battlefield = [
+      perm('fx1', 'p1', 'Fixture Extra Drop', EXPLORATION_ORACLE),
+    ];
+    (game.state as any).battlefield[0].owner = 'p1';
+    recalculatePlayerEffects(game as any);
+    expect((game.state as any).maxLandsPerTurn?.p1).toBe(2);
+    expect(calculateMaxLandsPerTurn(game as any, 'p1')).toBe(2);
+
+    expect(movePermanentToLibrary(game as any, 'fx1', 'shuffle')).toBe(true);
+    expect(((game.state as any).battlefield || []).some((entry: any) => entry?.id === 'fx1')).toBe(false);
+    expect(calculateMaxLandsPerTurn(game as any, 'p1')).toBe(1);
+    expect((game.state as any).maxLandsPerTurn?.p1).toBe(1);
+  });
+
+  it('drops extra land plays when the granting permanent is exiled', () => {
+    const game = createInitialGameState('land_ltb_exile');
+    game.applyEvent({ type: 'join', playerId: 'p1', name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: 'p2', name: 'P2' } as any);
+    (game.state as any).zones = {
+      p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+      p2: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      perm('fx1', 'p1', 'Fixture Extra Drop', EXPLORATION_ORACLE),
+    ];
+    (game.state as any).battlefield[0].owner = 'p1';
+    recalculatePlayerEffects(game as any);
+    expect((game.state as any).maxLandsPerTurn?.p1).toBe(2);
+
+    movePermanentToExile(game as any, 'fx1');
+    expect(((game.state as any).battlefield || []).some((entry: any) => entry?.id === 'fx1')).toBe(false);
+    expect(calculateMaxLandsPerTurn(game as any, 'p1')).toBe(1);
+    expect((game.state as any).maxLandsPerTurn?.p1).toBe(1);
   });
 });

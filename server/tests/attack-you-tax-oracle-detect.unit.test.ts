@@ -4,9 +4,11 @@ import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutor.js';
 import { collectStaticEffectSpecsFromState } from '../src/state/modules/staticEffectSpec.js';
 import {
+  blockerCantBlockCreaturesYouControl,
   collectAttackYouMaxAttackersForDefender,
   collectAttackYouProhibitionForAttacker,
   collectAttackYouTaxForDefender,
+  collectBlockLifeTax,
   collectBlockTax,
   collectMaxAttackersEachCombat,
   collectMaxBlockersEachCombat,
@@ -780,5 +782,128 @@ describe('attack-you tax oracle detect', () => {
         source: 'Shore Refuge',
       }),
     ]);
+  });
+
+  it('charges Nils {X} equal to counters on the attacking creature', () => {
+    const nilsOracle =
+      "At the beginning of your end step, for each player, put a +1/+1 counter on up to one target creature that player controls.\nEach creature with one or more counters on it can't attack you or planeswalkers you control unless its controller pays {X}, where X is the number of counters on that creature.";
+    const state = {
+      battlefield: [
+        {
+          id: 'nils_1',
+          controller: 'p2',
+          card: {
+            name: 'Nils, Discipline Enforcer',
+            type_line: 'Legendary Creature — Human Cleric',
+            oracle_text: nilsOracle,
+          },
+        },
+      ],
+    };
+    const attacker = {
+      id: 'bear_1',
+      controller: 'p1',
+      counters: { '+1/+1': 2, lore: 1 },
+      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+    };
+    expect(collectAttackYouTaxForDefender(state, 'p2', attacker as any).cost).toBe(3);
+    expect(collectAttackYouTaxForDefender(state, 'p2', {
+      ...attacker,
+      counters: {},
+    } as any).cost).toBe(0);
+  });
+
+  it('parses Onakke Oathkeeper as planeswalker-only tax', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'onakke_1',
+          controller: 'p2',
+          card: {
+            name: 'Onakke Oathkeeper',
+            type_line: 'Creature — Ogre Spirit',
+            oracle_text:
+              "Creatures can't attack planeswalkers you control unless their controller pays {1} for each creature they control that's attacking a planeswalker you control.",
+          },
+        },
+        {
+          id: 'pw_1',
+          controller: 'p2',
+          card: { name: 'Jace', type_line: 'Legendary Planeswalker — Jace', oracle_text: '' },
+        },
+      ],
+    };
+    const attacker = {
+      id: 'bear_1',
+      controller: 'p1',
+      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+    };
+    expect(collectAttackYouTaxForDefender(state, 'p2', attacker as any).cost).toBe(0);
+    expect(collectAttackYouTaxForDefender(state, 'p2', attacker as any, {
+      attackTargetPermanentId: 'pw_1',
+    }).cost).toBe(1);
+  });
+
+  it('parses Heat Wave as per-blocker life tax except blue', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'heat_1',
+          controller: 'p2',
+          card: {
+            name: 'Heat Wave',
+            type_line: 'Enchantment',
+            oracle_text:
+              "Cumulative upkeep {R} (At the beginning of your upkeep, put an age counter on this permanent, then sacrifice it unless you pay its upkeep cost for each age counter on it.)\nBlue creatures can't block creatures you control.\nNonblue creatures can't block creatures you control unless their controller pays 1 life for each blocking creature they control.",
+          },
+        },
+        {
+          id: 'blocker_green',
+          controller: 'p1',
+          card: { name: 'Bear', type_line: 'Creature — Bear', colors: ['G'] },
+        },
+        {
+          id: 'blocker_blue',
+          controller: 'p1',
+          card: { name: 'Merfolk', type_line: 'Creature — Merfolk', colors: ['U'] },
+        },
+      ],
+    };
+    expect(collectBlockLifeTax(state, {
+      uniqueBlockerIds: new Set(['blocker_green', 'blocker_blue']),
+      blockerIsTaxed: () => true,
+    }).cost).toBe(1);
+  });
+
+  it('locks Heat Wave blue creatures from blocking the source controller\'s creatures', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'heat_1',
+          controller: 'p2',
+          card: {
+            name: 'Heat Wave',
+            type_line: 'Enchantment',
+            oracle_text:
+              "Cumulative upkeep {R} (At the beginning of your upkeep, put an age counter on this permanent, then sacrifice it unless you pay its upkeep cost for each age counter on it.)\nBlue creatures can't block creatures you control.\nNonblue creatures can't block creatures you control unless their controller pays 1 life for each blocking creature they control.",
+          },
+        },
+        {
+          id: 'blocker_green',
+          controller: 'p1',
+          card: { name: 'Bear', type_line: 'Creature — Bear', colors: ['G'] },
+        },
+        {
+          id: 'blocker_blue',
+          controller: 'p1',
+          card: { name: 'Merfolk', type_line: 'Creature — Merfolk', colors: ['U'] },
+        },
+      ],
+    };
+    const green = state.battlefield[1] as any;
+    const blue = state.battlefield[2] as any;
+    expect(blockerCantBlockCreaturesYouControl(state as any, blue, 'p2')).toBe(true);
+    expect(blockerCantBlockCreaturesYouControl(state as any, green, 'p2')).toBe(false);
+    expect(blockerCantBlockCreaturesYouControl(state as any, blue, 'p1')).toBe(false);
   });
 });

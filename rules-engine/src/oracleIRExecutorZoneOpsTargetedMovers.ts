@@ -10,10 +10,9 @@ import { type OracleIrBattlefieldEntryContext } from './oracleIRExecutorBattlefi
 import { getCurrentTurnNumber, stampCardsPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
 import {
   addBattlefieldPermanentsToState,
-  canCardEnterAttachedToTarget,
   createBattlefieldPermanentsFromCards,
-  getBattlefieldAttachmentTarget,
   resolveBattlefieldEntryBeforeCommit,
+  resolveMoverAttachment,
 } from './oracleIRExecutorZoneOpsBattlefieldEntry';
 import type { BattlefieldEntryCardOverrides } from './oracleIRExecutorZoneOpsBattlefieldEntry';
 import { tryCommitNonBattlefieldZoneMove } from './oracleIRExecutorZoneOpsGraveyardSelectMoves';
@@ -170,15 +169,14 @@ export function moveTargetedCardFromGraveyard(
   }
 
   const controllerId = battlefieldControllerId || playerId;
-  const attachmentTarget = attachedToBattlefieldPermanentId
-    ? getBattlefieldAttachmentTarget(state, attachedToBattlefieldPermanentId)
-    : undefined;
-  if (
-    attachedToBattlefieldPermanentId &&
-    (!attachmentTarget || !canCardEnterAttachedToTarget(card, controllerId, attachmentTarget, battlefieldEntryOverrides))
-  ) {
-    return { kind: 'impossible' };
-  }
+  const attachment = resolveMoverAttachment(
+    state,
+    card,
+    controllerId,
+    attachedToBattlefieldPermanentId,
+    battlefieldEntryOverrides,
+  );
+  if (attachment.kind === 'impossible') return { kind: 'impossible' };
 
   const entryResolution = resolveBattlefieldEntryBeforeCommit(
     state,
@@ -197,8 +195,10 @@ export function moveTargetedCardFromGraveyard(
     entryResolution.entersFaceDown,
     entryResolution.withCounters,
     'gy',
-    attachmentTarget,
-    battlefieldEntryOverrides
+    attachment.attachmentTarget,
+    battlefieldEntryOverrides,
+    undefined,
+    attachment.enchantedPlayerId,
   );
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), graveyard: kept } as any) : p
@@ -307,15 +307,14 @@ export function moveTopCardFromLibrary(
   }
 
   const controllerId = battlefieldControllerId || playerId;
-  const attachmentTarget = attachedToBattlefieldPermanentId
-    ? getBattlefieldAttachmentTarget(state, attachedToBattlefieldPermanentId)
-    : undefined;
-  if (
-    attachedToBattlefieldPermanentId &&
-    (!attachmentTarget || !canCardEnterAttachedToTarget(card, controllerId, attachmentTarget, battlefieldEntryOverrides))
-  ) {
-    return { kind: 'impossible' };
-  }
+  const attachment = resolveMoverAttachment(
+    state,
+    card,
+    controllerId,
+    attachedToBattlefieldPermanentId,
+    battlefieldEntryOverrides,
+  );
+  if (attachment.kind === 'impossible') return { kind: 'impossible' };
 
   const entryResolution = resolveBattlefieldEntryBeforeCommit(
     state,
@@ -334,9 +333,10 @@ export function moveTopCardFromLibrary(
     entryResolution.entersFaceDown,
     entryResolution.withCounters,
     'library',
-    attachmentTarget,
+    attachment.attachmentTarget,
     battlefieldEntryOverrides,
-    faceDownWardCost
+    faceDownWardCost,
+    attachment.enchantedPlayerId,
   );
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), library: keptLibrary } as any) : p
@@ -446,15 +446,14 @@ export function moveBottomCardFromLibrary(
   }
 
   const controllerId = battlefieldControllerId || playerId;
-  const attachmentTarget = attachedToBattlefieldPermanentId
-    ? getBattlefieldAttachmentTarget(state, attachedToBattlefieldPermanentId)
-    : undefined;
-  if (
-    attachedToBattlefieldPermanentId &&
-    (!attachmentTarget || !canCardEnterAttachedToTarget(card, controllerId, attachmentTarget, battlefieldEntryOverrides))
-  ) {
-    return { kind: 'impossible' };
-  }
+  const attachment = resolveMoverAttachment(
+    state,
+    card,
+    controllerId,
+    attachedToBattlefieldPermanentId,
+    battlefieldEntryOverrides,
+  );
+  if (attachment.kind === 'impossible') return { kind: 'impossible' };
 
   const entryResolution = resolveBattlefieldEntryBeforeCommit(
     state,
@@ -473,9 +472,10 @@ export function moveBottomCardFromLibrary(
     entryResolution.entersFaceDown,
     entryResolution.withCounters,
     'library',
-    attachmentTarget,
+    attachment.attachmentTarget,
     battlefieldEntryOverrides,
-    faceDownWardCost
+    faceDownWardCost,
+    attachment.enchantedPlayerId,
   );
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), library: keptLibrary } as any) : p

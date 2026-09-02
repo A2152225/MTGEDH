@@ -62,7 +62,7 @@ export function normalizeCardColor(value: string | undefined): string | null {
 }
 
 export function cardRepresentsPermanent(card: any): boolean {
-  const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+  const typeLine = getExecutorTypeLineLower(card);
   return (
     typeLine.includes('artifact') ||
     typeLine.includes('battle') ||

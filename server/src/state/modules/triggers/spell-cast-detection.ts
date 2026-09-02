@@ -9,6 +9,10 @@ import {
   getSpellCastConditionData as parseSpellCastConditionData,
   getSpellCastEffectMetadata as parseSpellCastEffectMetadata,
 } from "./spell-cast-condition-helpers.js";
+import {
+  applyFirstTimeEachTurnFlags,
+  resolveDetectorOracleForPermanent,
+} from "./detectorGrantedOracle.js";
 import { appendSpellCastDetectionLate } from "./spell-cast-detection-late.js";
 import { appendSpellCastDetectionMid } from "./spell-cast-detection-mid.js";
 import type { SpellCastDetectionState } from "./spell-cast-detection-state.js";
@@ -25,7 +29,10 @@ import { timingTriggerEffect } from "./timing-effect-extraction.js";
  */
 export function detectSpellCastTriggers(card: any, permanent: any, state?: unknown): SpellCastTrigger[] {
   const triggers: SpellCastTrigger[] = [];
-  const { cardName, oracleText } = getActivePermanentCardFace(card, permanent, state);
+  const face = getActivePermanentCardFace(card, permanent, state);
+  const annotated = resolveDetectorOracleForPermanent(permanent, face.oracleText, state);
+  const cardName = face.cardName;
+  const oracleText = annotated.oracleText;
   const lowerOracle = oracleText.toLowerCase();
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
@@ -252,6 +259,25 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
     });
   }
 
+  const sharesCreatureTypeMatch = oracleText.match(
+    /whenever you cast a spell that shares a creature type with this creature,?\s*([^.]+)/i,
+  );
+  if (sharesCreatureTypeMatch) {
+    const effectText = timingTriggerEffect(oracleText, sharesCreatureTypeMatch);
+    if (effectText && !triggers.some((trigger) => trigger.effect === effectText && trigger.requiresSharedCreatureTypeWithSource)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: `Whenever you cast a spell that shares a creature type with this creature, ${effectText}`,
+        effect: effectText,
+        spellCondition: 'any',
+        requiresSharedCreatureTypeWithSource: true,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
   const detectionState: SpellCastDetectionState = {
     triggers,
     oracleText,
@@ -268,5 +294,5 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
   appendSpellCastDetectionMid(detectionState);
   appendSpellCastDetectionLate(detectionState);
 
-  return triggers;
+  return applyFirstTimeEachTurnFlags(triggers, annotated);
 }

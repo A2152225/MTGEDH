@@ -21,6 +21,7 @@ export type { BasicLandType, ManaAbility, ManaModifier } from "./manaAbilityLand
 export {
   getCommanderColorIdentity,
   getEffectivePowerForMana,
+  getLandTopLayerProducibleColorSymbols,
   getMoxAmberAvailableColors,
   getOpponentLandProducibleColorSymbols,
   isMoxAmberConditionalManaSource,
@@ -33,6 +34,15 @@ export {
 
 // Native + granted tap-for-mana abilities for one permanent.
 export { getManaAbilitiesForPermanent } from "./manaAbilitiesForPermanent.js";
+
+// Tap-add self-damage (Ancient Tomb, pain lands) plus `{C}{C}` ability rows.
+export {
+  appendTapAddMultiManaAbility,
+  applyManaAbilityLifeEffectToState,
+  damageEffectFromAbilityText,
+  parseManaAbilityLineSelfDamage,
+  resolveManaAbilityLifeEffect,
+} from "./manaAbilitySelfDamage.js";
 
 // Continuous tap_for_* grants (Riftstone Portal / Cryptolith) → ManaAbility rows.
 export { manaAbilitiesFromContinuousTapGrants } from "./manaAbilityContinuousTapGrants.js";

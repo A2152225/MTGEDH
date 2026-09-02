@@ -151,4 +151,58 @@ describe('joinGame reconnect broadcast delivery (integration)', () => {
     expect(sitting.connected).toBe(true);
     expect((game.state as any).autoPassForTurn[playerId]).toBeUndefined();
   });
+
+  it('re-emits ignoredCardsUpdated to a seated player on requestState', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      {
+        id: playerId,
+        name: 'Reconnect Tester',
+        spectator: false,
+        life: 40,
+        seatToken: 'seat_reconnect',
+      },
+    ];
+    (game.state as any).ignoredCardsForAutoPass = {
+      [playerId]: {
+        perm1: {
+          permanentId: 'perm1',
+          cardId: 'card1',
+          cardName: 'Sol Ring',
+          zone: 'battlefield',
+        },
+      },
+    };
+    (game as any).participantsList.length = 0;
+    (game as any).joinedBySocket.clear();
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket('fresh_socket', emitted);
+
+    registerJoinHandlers(io as any, socket as any);
+    await handlers['joinGame']({ gameId, fixedPlayerId: playerId });
+
+    emitted.length = 0;
+    handlers['requestState']({ gameId });
+
+    const stateEmit = emitted.find((entry) => entry.event === 'state');
+    const ignoredEmit = emitted.find((entry) => entry.event === 'ignoredCardsUpdated');
+    expect(stateEmit).toBeDefined();
+    expect(ignoredEmit).toBeDefined();
+    expect(ignoredEmit?.payload?.gameId).toBe(gameId);
+    expect(ignoredEmit?.payload?.playerId).toBe(playerId);
+    expect(ignoredEmit?.payload?.ignoredCards).toEqual([
+      {
+        permanentId: 'perm1',
+        cardId: 'card1',
+        cardName: 'Sol Ring',
+        imageUrl: undefined,
+        zone: 'battlefield',
+      },
+    ]);
+  });
 });

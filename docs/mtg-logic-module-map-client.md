@@ -19,18 +19,18 @@ Public leftover **36.0 KB** (near ceiling — do not append). Keeps `App` (**35.
 | `appLoopShortcutHandlers.ts` | `useAppLoopShortcutHandlers`, `AppLoopShortcutHandlerDeps`. **29.8 KB**. |
 | `appPlaySocketEffects.ts` | `useAppPlaySocketEffects`, `AppPlaySocketEffectDeps`. **33.9 KB**. |
 | `appPlayOverlaysEarly.tsx` | `renderAppPlayOverlaysEarly`. **28.3 KB**. |
-| `appDismissResolutionStepUi.ts` | `useAppDismissResolutionStepUi`. **4.9 KB**. |
+| `appDismissResolutionStepUi.ts` | `useAppDismissResolutionStepUi`. Clears resolution-prompt modal state including scry/surveil `peek`. **~5.3 KB**. |
 | `appResolutionStepPromptEarly.ts` | `handleAppResolutionStepPromptEarly`. **29.9 KB**. |
 | `appResolutionStepPromptLate.ts` | `handleAppResolutionStepPromptLate`. **30.3 KB**. |
-| `appResolutionStepPromptEffects.ts` | `useAppResolutionStepPromptEffects`. **14.6 KB**. |
+| `appResolutionStepPromptEffects.ts` | `useAppResolutionStepPromptEffects`. On `gameResumeProgress` done, dismiss leftover choice UI (including surveil `peek`) and nudge the real pending step. **~15 KB**. |
 | `appPlayModalHandlers.ts` | `useAppPlayModalHandlers`. **19.6 KB**. |
-| `appPlayCombatHandlers.ts` | `useAppPlayCombatHandlers`. Combat lists use `expandGroupedTokensForDisplay`; defender untapped-creature pills use `tokenDisplayInstanceCount`. Declare-attackers defender lists omit players who have left the game (`playerIsLegalAttackTarget`). |
+| `appPlayCombatHandlers.ts` | `useAppPlayCombatHandlers`. Combat lists use `expandGroupedTokensForDisplay`; defender untapped-creature pills use `tokenDisplayInstanceCount`. Declare-attackers defender lists omit players who have left the game (`playerIsLegalAttackTarget`). Assign-attackers tax preview uses `collectAttackYouTaxPreviewForDefender` (generic `{N}`/`{X}` plus Norn's Annex `{W/P}`). |
 | `appPlayLayoutMain.tsx` | `renderAppPlayLayoutMain`. **31.3 KB**. Pre-game `AddAIToGameControl` lives in `client/src/components/AddAIToGameControl.tsx` (add/remove AI before hands lock). |
 | `appPlayLayoutRail.tsx` | `renderAppPlayLayoutRail`. **23.2 KB**. |
 | `appPlayOverlaysLate.tsx` | `renderAppPlayOverlaysLate`. **28.1 KB**. Wires `GameRebuildProgressOverlay` (Your Turn–style centered pill; `pointerEvents: none`; listens for `gameResumeProgress`). |
 | `appPlayOverlaysMid.tsx` | `renderAppPlayOverlaysMid`. **17.8 KB**. |
 | `appPlayOverlaysChoice.tsx` | `renderAppPlayOverlaysChoice`. **20.7 KB**. |
-| `appPlayOverlaysCombat.tsx` | `renderAppPlayOverlaysCombat`. **19.0 KB**. |
+| `appPlayOverlaysCombat.tsx` | `renderAppPlayOverlaysCombat`. **19.0 KB**. Hideaway/draft `CardSelectionModal` accepts `cardId`/`id` and two-step Aura attach options. |
 | `appPlayDerivedEffects.ts` | `useAppPlayDerivedEffects`. **23.9 KB**. |
 | `appPlayStateEarly.ts` | `useAppPlayStateEarly`. **22.9 KB**. |
 | `appPlayStateLate.ts` | `useAppPlayStateLate`. **23.9 KB**. |
@@ -105,13 +105,13 @@ Public leftover **28.7 KB**. Keeps `CombatSelectionModal` (27.0 KB leftover: hoo
 | Module | Owns |
 | --- | --- |
 | `CombatSelectionModal-handlers/index.ts` | Internal TOC. Named re-exports only. |
-| `combatSelectionModalTypes.ts` | `DefenderAttackInfo`, `CombatSelectionModalProps`, `AttackerSelection`, `BlockerSelection`. |
+| `combatSelectionModalTypes.ts` | `DefenderAttackInfo` (generic + Phyrexian `{W/P}` tax), `CombatSelectionModalProps`, `AttackerSelection`, `BlockerSelection`. |
 | `combatSelectionModalCreatureInfo.ts` | `getCreatureInfo`, `DangerIndicators`. |
 | `combatSelectionModalGroupCreatures.ts` | `groupCreatures`, `CreatureGroup`. Expands grouped emit piles via `groupedTokenMemberCount`. |
 | `combatSelectionModalDangerBadges.tsx` | `DangerBadge`, `DangerIndicatorBadges`. |
 | `combatSelectionModalAttackTarget.tsx` | `resolveAttackTargetLabel`, `AttackTargetBadge`, `getCombatCardPreviewHandlers`. |
 | `combatSelectionModalSelectionSupport.ts` | `checkMenaceBlocking`, `cloneSelectedBlockers`, `getBlockerAssignments`, `countBlockingCreatures`, `countTotalBlockAssignments`, `splitCreatureGroups`, `buildAttackerSelections`. |
-| `combatSelectionModalAttackerPanel.tsx` | Nested attacker-mode JSX (`CombatAttackerSelectionPanel`). |
+| `combatSelectionModalAttackerPanel.tsx` | Nested attacker-mode JSX (`CombatAttackerSelectionPanel`). Shows current-selection attack-you tax (generic and `{W/P}`). |
 | `combatSelectionModalBlockerPanel.tsx` | Nested blocker-mode JSX (`CombatBlockerSelectionPanel`). |
 
 ### `activatedAbilityParser-handlers/` (extracted from `client/src/utils/activatedAbilityParser.ts`)
@@ -163,13 +163,18 @@ Public leftover **32.1 KB**. Re-exports `parseAlternateCosts` / `AlternateCost`.
 
 | Module | Owns |
 | --- | --- |
-| `manaSourceBuilder.ts` | Cast/ability payment rows from battlefield permanents. **38.6 KB** — do not append. Stamps `activationManaCost` on Signet-style `{1}{T}` rows. |
-| `manaSuggestedPaymentActivation.ts` | Sequential auto-pay for `{1}, {T}` mana abilities (Signets): mixed-bundle assign, activation pip charge, free-tap-first payment order. |
-| `manaUtils.ts` | Parse cost, suggest payment, `manaBonuses` native+aura assignment. Re-exports restricted-mana purpose helpers. Auto-pay prefers free taps and charges Signet activation into remaining generic. **37.4 KB**. |
-| `manaRestrictedSpendPurpose.ts` | Client `canUseRestrictedManaClient` / `buildRestrictedManaPurposeForSpell`, including Secluded Courtyard `chosen_type_*` matching for hand and commander casts. |
+| `manaSourceBuilder.ts` | Cast/ability payment rows from battlefield permanents. **38.6 KB** — do not append. Stamps `activationManaCost` on Signet-style `{1}{T}` rows. Chosen-type any-color overlay lives in `manaSourceChosenTypeRestriction.ts` so `{C}` stays unrestricted. |
+| `manaSourceChosenTypeRestriction.ts` | Overlay `chosen_type_*` spend restriction + `grantsUncounterableOnSpend` on Cavern / Unclaimed any-color inline abilities only. `{T}: Add {C}` is unrestricted. |
+| `manaSuggestedPaymentActivation.ts` | Sequential auto-pay for `{1}, {T}` mana abilities (Signets): mixed-bundle assign, activation pip charge, free-tap-first payment order. `simulateSequentialPaymentPool` nets land-float mana spent to activate a Signet so the picker remaining total is the spell cost, not gross produced. |
+| `manaUtils.ts` | Parse cost, suggest payment, `manaBonuses` native+aura assignment. Re-exports restricted-mana purpose helpers. Auto-pay prefers free taps and charges Signet activation into remaining generic. Matching Cavern any-color beats basics for color then generic. **~38 KB**. |
+| `manaRestrictedSpendPurpose.ts` | Client `canUseRestrictedManaClient` / `buildRestrictedManaPurposeForSpell`, including Secluded Courtyard `chosen_type_*` matching for hand and commander casts. `sourcePrefersUncounterableChosenTypeCast` is true only when the ability grants uncounterable and purpose matches the chosen type. |
 | `manaSourceLandAuraBonuses.ts` | Stored chosen-color resolve (Thriving Grove) + tap-for-mana aura bonuses (Fertile Ground, Wild Growth, Utopia Sprawl). |
 | `expandGroupedTokens.ts` | Emit token-stack instance counts (`groupedTokenMemberCount`, `tokenDisplayInstanceCount`, `shouldCollapseTokenGroups`, `expandGroupedTokensForDisplay`). Combat attacker lists expand `groupedTokenIds` even when `tokenCount` is missing. |
 | `resolutionChoicePrimitives.ts` | Generic option / library-search / X mapping. `readResolutionPromptCause` copies `causeName` / `causeImage` / `causeLabel` for choose-one and optional-ability prompts. |
 | `ResolutionPromptCause.tsx` | Shared “You cast Reckless Blaze” chip on option-choice and may-ability prompts. |
 | `turnAttentionNotify.ts` | Unfocused-tab your-turn alert: title flash + short chime. `notifyUnfocusedYourTurn`, `isPageUnfocused`. |
+| `bottomOrderConfirm.ts` | Confirm payload for `BOTTOM_ORDER`: prefer `bottomOrder`, fall back to `keepTopOrder` so Confirm never submits an empty permutation. |
+| `ScrySurveilModal.tsx` | Scry / surveil two-column keep/other. `bottom_order` (Warp World remainder) is a single horizontally scrolling left→right reorder; Confirm sends that full list as `bottomOrder`. |
 | `creatureUtils.ts` | Creature combat helpers: `isCurrentlyCreature`, `hasCurrentKeyword` / `hasCurrentHaste`, `canCreatureAttackNow`. Other-only lords are not self-haste; sickness is summoningSickness or enteredThisTurn. CombatSelectionModal force-selects goaded attackers only when `canCreatureAttackNow` is true. |
+| `combatAttackTax.ts` | Assign-attackers pillowfort tax preview from oracle (no card-name routing). Generic `{N}` / Sphere `{X}` / domain `{X}` / Nils counters `{X}` plus Norn's Annex `{W/P}`; this-turn War Tax from `lastingEffects`; Whipgrass granted `{1}` per Cleric on the attacker; Cowed-style host-aura hand tax via `players`. Formats current-selection cost. Live declare uses server `StaticEffectSpec` + attacker self-tax. |
+| `battlefieldSpellAlternateCosts.ts` | Fist of Suns / static Omniscience from battlefield+emblems; this-turn free hand casts only from `lastingEffects.freeHandCastsThisTurn` (`freeHandCastGrant.ts`). Yusri’s five-flip rider is not a static grant. |

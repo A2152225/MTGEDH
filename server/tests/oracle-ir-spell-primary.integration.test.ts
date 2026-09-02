@@ -163,7 +163,7 @@ describe('oracle IR spell execution', () => {
     );
     const queueAfter = ResolutionQueueManager.getQueue(gameId).steps.length;
 
-    expect(isOracleIrExecutionHandled(result, queueBefore, queueAfter)).toBe(true);
+    expect(isOracleIrExecutionHandled(result, queueBefore, queueAfter, undefined, game.state, gameId)).toBe(true);
     expect(ResolutionQueueManager.getStepsForPlayer(gameId, p1).some(
       (step) => step.type === ResolutionStepType.DISCARD_SELECTION,
     )).toBe(true);

@@ -13,7 +13,8 @@ import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { restoreAllPendingEffectProgramRuntimes } from "../state/effects/index.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { defaultPlayerZones, ensureStateZonesForPlayers } from "./join-handlers/joinEnsureStateZones.js";
-import { clearDeferredLeaveOnReconnect } from "./join-handlers/joinReconnectPlayer.js";
+import { clearDeferredLeaveOnReconnect, refreshConnectedHumanClockOnReconnect } from "./join-handlers/joinReconnectPlayer.js";
+import { findExistingSeatForSocket, tryConvertPreGameSeat, syncOwnPreGameSeatRole } from "./join-handlers/joinConvertSeat.js";
 
 /**
  * Register join handlers.
@@ -335,9 +336,20 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               });
             }
 
+            // Convert same-socket pre-game spectator <-> player before reattach.
+            const existingOwnId = findExistingSeatForSocket(game, socket, gameId);
+            const convertedSeat = tryConvertPreGameSeat({
+              game,
+              socket,
+              gameId,
+              spectator,
+              playerName,
+              seatToken,
+            });
+
             // Try reattach by seatToken first (strong preference).
-            let forcedFixedPlayerId = fixedPlayerId;
-            let resolvedToken: string | undefined = undefined;
+            let forcedFixedPlayerId = fixedPlayerId || convertedSeat?.playerId;
+            let resolvedToken: string | undefined = convertedSeat?.seatToken || undefined;
             if (!forcedFixedPlayerId && seatToken) {
               const byToken = findPlayerBySeatToken(game, seatToken);
               if (byToken && byToken.id) {
@@ -470,8 +482,8 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
             // IMPORTANT: if we have a forcedFixedPlayerId (reconnect intent), DO NOT call game.join
             // because some implementations may create a new player despite the fixed id. Use the
             // server's deterministic fallback reattach/create logic instead.
-            let playerId: string = "";
-            let added = false;
+            let playerId: string = convertedSeat?.playerId || "";
+            let added = Boolean(convertedSeat?.added);
 
             const shouldCallGameJoin =
               typeof (game as any).join === "function" && !forcedFixedPlayerId;
@@ -724,6 +736,24 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               rebindEngineParticipant(game, playerId, socket.id);
             }
 
+            // Re-sync role only if we stayed on this socket's original row.
+            try {
+              if (playerId && existingOwnId && String(playerId) === String(existingOwnId)) {
+                syncOwnPreGameSeatRole({
+                  game,
+                  socket,
+                  gameId,
+                  playerId,
+                  spectator: Boolean(spectator),
+                  playerName,
+                  seatToken: resolvedToken,
+                  existingOwnId,
+                });
+              }
+            } catch {
+              // non-fatal
+            }
+
             // Ensure server-side zones for players exist
             try {
               ensureStateZonesForPlayers(game);
@@ -751,6 +781,14 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 playerId,
                 Boolean(spectator)
               );
+            } catch {
+              // non-fatal
+            }
+
+            try {
+              if (!spectator && playerId) {
+                refreshConnectedHumanClockOnReconnect(io, game, gameId, playerId);
+              }
             } catch {
               // non-fatal
             }
@@ -1042,6 +1080,18 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
         seq: (game as any).seq || 0,
         forceStateReplace: true,
       });
+      if (!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator) && playerId) {
+        try {
+          emitIgnoredCardsUpdatedToSocket(
+            socket,
+            gameId,
+            playerId,
+            getPlayerIgnoredCards(game.state, playerId),
+          );
+        } catch (err) {
+          debugWarn(1, "requestState: emit ignoredCardsUpdated failed", err);
+        }
+      }
       schedulePriorityTimeout(io, game, gameId);
     } catch (e) {
       debugWarn(1, "requestState handler failed:", e);

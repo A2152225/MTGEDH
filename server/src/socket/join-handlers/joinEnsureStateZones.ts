@@ -87,6 +87,9 @@ export function ensureStateZonesForPlayers(game: any) {
     stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
     stateAny.cardsDrawnThisTurn = stateAny.cardsDrawnThisTurn || {};
     stateAny.spellsCastThisTurn = Array.isArray(stateAny.spellsCastThisTurn) ? stateAny.spellsCastThisTurn : [];
+    stateAny.playersWhoSearchedOwnLibraryThisTurn = Array.isArray(stateAny.playersWhoSearchedOwnLibraryThisTurn)
+      ? stateAny.playersWhoSearchedOwnLibraryThisTurn
+      : [];
     stateAny.spellsCastFromHandThisTurn = stateAny.spellsCastFromHandThisTurn || {};
     stateAny.noncreatureSpellsCastThisTurn = stateAny.noncreatureSpellsCastThisTurn || {};
     stateAny.damageTakenThisTurnByPlayer = stateAny.damageTakenThisTurnByPlayer || {};

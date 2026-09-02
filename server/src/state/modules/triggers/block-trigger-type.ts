@@ -11,6 +11,7 @@ export interface BlockTrigger {
   description: string;
   effect?: string;
   mandatory: boolean;
+  oncePerTurn?: boolean;
   blockedCreatureId?: string;
   requiredTypePhrase?: string;
   createTokens?: {

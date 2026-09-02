@@ -15,6 +15,7 @@ import { tryApplyAttackYouProhibitedExceptKeywordsGrant } from './oracleIRExecut
 import { tryApplyBlockTaxThisTurnGrant } from './oracleIRExecutorBlockTaxThisTurn';
 import { tryApplyPreventLifeGainThisTurnGrant } from './oracleIRExecutorPreventLifeGainThisTurn';
 import { tryApplyUntilEotProtectionOverrideGrant } from './oracleIRExecutorUntilEotProtectionOverride';
+import { tryApplyFreeHandCastsThisTurnGrant } from './oracleIRExecutorFreeHandCastsThisTurn';
 
 export function applyGrantStaticAbilityStep(
   state: GameState,
@@ -23,6 +24,8 @@ export function applyGrantStaticAbilityStep(
 ): BattlefieldStepHandlerResult {
   const thisTurnLock = tryApplyPreventLifeGainThisTurnGrant(state, step, ctx);
   if (thisTurnLock) return thisTurnLock;
+  const freeHandCasts = tryApplyFreeHandCastsThisTurnGrant(state, step, ctx);
+  if (freeHandCasts) return freeHandCasts;
   const attackYouLock = tryApplyAttackYouProhibitedExceptKeywordsGrant(state, step, ctx);
   if (attackYouLock) return attackYouLock;
   const thisTurnAttackTax = tryApplyAttackTaxThisTurnGrant(state, step, ctx);

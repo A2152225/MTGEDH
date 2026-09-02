@@ -20,6 +20,24 @@ function splitTrailingGrantedDiesTriggerFollowup(clause: string): string[] {
   return [String(match[1] || '').trim(), String(match[2] || '').trim()].filter(Boolean);
 }
 
+function splitConservativeGetEnergyThenPayAnyEnergyClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const normalized = normalizeOracleText(args.rawClause).trim();
+  const match = normalized.match(
+    /^(.*?get(?:s)?\s+(?:\{E\})+(?:\s*\([^)]*\))?),\s*then\s+(you may pay any amount of \{E\})$/i,
+  );
+  if (!match) return null;
+  const first = String(match[1] || '').trim();
+  const second = String(match[2] || '').trim();
+  if (!first || !second) return null;
+  const firstStep = args.parseEffectClauseToStep(first);
+  const secondStep = args.parseEffectClauseToStep(second);
+  if (firstStep.kind !== 'add_player_counter' || secondStep.kind !== 'pay_energy') return null;
+  return [first, second];
+}
+
 function splitConservativeCantAttackOrBlockClause(args: {
   rawClause: string;
   parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
@@ -57,7 +75,7 @@ function splitConservativeActionConjunctionClause(args: {
   if (!normalized || !/\band\b/i.test(normalized)) return null;
 
   const splitMatch = normalized.match(
-    /^(.*?)\s+and\s+((?:you|each player|each opponent|target player|target opponent|that player|that opponent|this permanent|this creature|that creature|it|they|suspects?|creates?|draws?|discards?|exiles?|returns?|puts?|destroys?|gains?|loses?|deals?|taps?|untaps?|mills?|surveils?|scrys?|investigates?|populates?|goads?)\b.+)$/i
+    /^(.*?)\s+and\s+((?:you|each player|each opponent|target player|target opponent|that player|that opponent|this permanent|this creature|that creature|it|they|suspects?|creates?|draws?|discards?|exiles?|returns?|puts?|destroys?|counters?|gains?|loses?|deals?|taps?|untaps?|mills?|surveils?|scrys?|investigates?|populates?|goads?)\b.+)$/i
   );
   if (!splitMatch) return null;
 
@@ -449,6 +467,7 @@ export function buildAbilityClauses(args: {
   }
 
   const expandedClauses = combinedClauses.flatMap(clause =>
+    splitConservativeGetEnergyThenPayAnyEnergyClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeSacrificeLeadClause({ rawClause: clause, cardName, parseEffectClauseToStep }) ??
     splitConservativeTemporaryAbilityEvasionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeGrantedDiesTriggerSetBasePtClause({ rawClause: clause, parseEffectClauseToStep }) ??

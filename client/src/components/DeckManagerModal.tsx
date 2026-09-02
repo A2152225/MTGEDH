@@ -8,7 +8,10 @@ import type { GameID } from '../../../shared/src/types';
 import { PreconBrowser } from './PreconBrowser';
 import { useIsTouch } from '../hooks/useIsTouch';
 import { colors, fontSize, radii, safeArea, spacing, touch, z } from '../theme';
-import { fetchServerDeckSummaries } from '../utils/serverDeckApi';
+import { fetchMyServerDeckSummaries, fetchServerDeckSummaries } from '../utils/serverDeckApi';
+import type { AuthUser } from '../utils/authApi';
+import { canMutateDeck } from '../utils/deckAccess';
+import { DeckVisibilitySelect, VisibilityBadge } from './DeckManagerModal-handlers/deckManagerModalAccountUi';
 import {
   loadLocalSavedDecks,
   saveLocalSavedDecks,
@@ -18,6 +21,7 @@ import { DeckListTextarea } from './DeckListTextarea';
 import { useDeckResolvePreview } from '../hooks/useDeckResolvePreview';
 import { useDeckManagerModalRandomImportHandlers } from './DeckManagerModal-handlers/deckManagerModalRandomImportHandlers';
 import { createDeckManagerModalSaveCacheHandlers } from './DeckManagerModal-handlers/deckManagerModalSaveCacheHandlers';
+import { renderDeckManagerModalServerPanel } from './DeckManagerModal-handlers/deckManagerModalServerPanel';
 
 type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };
 
@@ -37,6 +41,7 @@ export interface DeckManagerModalProps {
   /** When set, runs once after the modal opens (e.g. mobile "Random Deck" shortcut). */
   initialAction?: 'random' | null;
   onInitialActionConsumed?: () => void;
+  accountUser?: AuthUser | null;
 }
 
 export function DeckManagerModal({
@@ -52,10 +57,13 @@ export function DeckManagerModal({
   onUseSavedDeck,
   initialAction,
   onInitialActionConsumed,
+  accountUser,
 }: DeckManagerModalProps) {
   const isTouch = useIsTouch();
   const useSheet = isTouch;
   const [tab, setTab] = useState<'local' | 'server' | 'preview' | 'precons'>('local');
+  const [serverScope, setServerScope] = useState<'mine' | 'public'>('public');
+  const [saveVisibility, setSaveVisibility] = useState<'public' | 'private'>('private');
 
   // Local input
   const [localList, setLocalList] = useState<SavedLocalDeck[]>([]);
@@ -97,13 +105,9 @@ export function DeckManagerModal({
   const pendingServerEditIdRef = useRef<string | null>(null);
   pendingServerEditIdRef.current = pendingServerEditId;
 
-  const isLocalClient = typeof window !== 'undefined'
-    && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
   const useRestServer = !!(canServer && !gameId);
 
-  const canEditServerDeck = (deck: SavedDeckSummary) =>
-    isLocalClient || (!!playerId && deck.created_by_id === playerId);
+  const canEditServerDeck = (deck: SavedDeckSummary) => canMutateDeck(deck, accountUser);
 
   const clearEditMode = () => {
     setEditingLocalId(null);
@@ -124,13 +128,26 @@ export function DeckManagerModal({
 
   const refreshRestServerDecks = React.useCallback(async () => {
     try {
-      const decks = await fetchServerDeckSummaries();
-      setServerDecks(decks);
+      if (serverScope === 'mine') {
+        if (!accountUser) {
+          setServerDecks([]);
+          setServerErr(null);
+          return;
+        }
+        const decks = await fetchMyServerDeckSummaries();
+        setServerDecks(decks);
+      } else {
+        const decks = await fetchServerDeckSummaries();
+        setServerDecks(decks);
+      }
       setServerErr(null);
     } catch (err) {
-      setServerErr(err instanceof Error ? err.message : 'Failed to load server decks');
+      const raw = err instanceof Error ? err.message : 'Failed to load server decks';
+      const isAuth = /log in|unauthorized|\b401\b/i.test(raw);
+      setServerDecks([]);
+      setServerErr(isAuth ? 'Log in to see your server decks.' : raw);
     }
-  }, []);
+  }, [accountUser, serverScope]);
 
   const applyServerDeckDetail = (deck: SavedDeckDetail) => {
     const pendingEditId = pendingServerEditIdRef.current;
@@ -161,7 +178,7 @@ export function DeckManagerModal({
     setLocalList(loadLocalSavedDecks());
     if (canServer && gameId) socket.emit('listSavedDecks', { gameId });
     if (useRestServer) void refreshRestServerDecks();
-  }, [open, canServer, gameId, useRestServer, refreshRestServerDecks, clearPreview]);
+  }, [open, canServer, gameId, useRestServer, refreshRestServerDecks, clearPreview, serverScope, accountUser]);
 
   // Socket listeners
   useEffect(() => {
@@ -307,9 +324,15 @@ export function DeckManagerModal({
 
   const filteredServer = useMemo(() => {
     const q = serverFilter.trim().toLowerCase();
-    if (!q) return serverDecks;
-    return serverDecks.filter(d => d.name.toLowerCase().includes(q));
-  }, [serverDecks, serverFilter]);
+    let list = serverDecks;
+    if (serverScope === 'mine') {
+      list = accountUser ? list.filter(d => d.created_by_id === accountUser.id) : [];
+    } else if (!accountUser?.isAdmin) {
+      list = list.filter(d => (d.visibility || 'public') !== 'private');
+    }
+    if (!q) return list;
+    return list.filter(d => d.name.toLowerCase().includes(q));
+  }, [serverDecks, serverFilter, serverScope, accountUser]);
 
   const { importPreconDeck, handleRandomDeck } = useDeckManagerModalRandomImportHandlers({
     open,
@@ -383,6 +406,8 @@ export function DeckManagerModal({
     detail,
     setDetail,
     setCachingDeckId,
+    saveVisibility,
+    accountUserId: accountUser?.id,
   });
 
   const backdropStyle: React.CSSProperties = {
@@ -505,9 +530,14 @@ export function DeckManagerModal({
           <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
             <button type="button" onClick={() => { setTab('local'); setDetail(null); }} disabled={tab === 'local'} style={tabButtonStyle(tab === 'local')}>Local</button>
             {canServer && (
-              <button type="button" onClick={() => { setTab('server'); setDetail(null); }} disabled={tab === 'server'} style={tabButtonStyle(tab === 'server')}>
-                Server
-              </button>
+              <>
+                <button type="button" onClick={() => { setTab('server'); setServerScope('mine'); setDetail(null); }} disabled={tab === 'server' && serverScope === 'mine'} style={tabButtonStyle(tab === 'server' && serverScope === 'mine')}>
+                  My server decks
+                </button>
+                <button type="button" onClick={() => { setTab('server'); setServerScope('public'); setDetail(null); }} disabled={tab === 'server' && serverScope === 'public'} style={tabButtonStyle(tab === 'server' && serverScope === 'public')}>
+                  Public decks
+                </button>
+              </>
             )}
             <button type="button" onClick={() => { setTab('precons'); setDetail(null); }} disabled={tab === 'precons'} style={tabButtonStyle(tab === 'precons', '#22c55e')}>
               📦 Precons
@@ -650,10 +680,13 @@ export function DeckManagerModal({
                       {updatingServer ? 'Saving…' : 'Save Server Changes'}
                     </button>
                   )}
-                  {canServer && !editingServerDeckId && (
+                  {canServer && !editingServerDeckId && accountUser && (
+                    <>
+                      <DeckVisibilitySelect value={saveVisibility} onChange={setSaveVisibility} />
                     <button type="button" onClick={saveServer} disabled={!localText.trim() || !localName.trim() || saving} style={actionButtonStyle}>
                       {saving ? 'Saving…' : 'Save to Server'}
                     </button>
+                    </>
                   )}
                 </div>
                 {localErr && <div style={{ marginTop: 6, fontSize: 11, color: '#f87171' }}>{localErr}</div>}
@@ -665,8 +698,15 @@ export function DeckManagerModal({
                 </div>
                 <div style={{ border: '1px solid #333', borderRadius: 6, padding: 6, maxHeight: 320, overflowY: 'auto', background: '#111' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <input id="save-to-server" type="checkbox" checked={alsoSaveToServer} onChange={e => setAlsoSaveToServer(e.target.checked)} />
-                    <label htmlFor="save-to-server" style={{ fontSize: 12, color: '#ddd' }}>Also save to server when importing</label>
+                    {accountUser ? (
+                      <>
+                        <input id="save-to-server" type="checkbox" checked={alsoSaveToServer} onChange={e => setAlsoSaveToServer(e.target.checked)} />
+                        <label htmlFor="save-to-server" style={{ fontSize: 12, color: '#ddd' }}>Also save to server when importing</label>
+                        <DeckVisibilitySelect value={saveVisibility} onChange={setSaveVisibility} />
+                      </>
+                    ) : (
+                      <span style={{ fontSize: 12, color: '#9ca3af' }}>Log in to save server decks</span>
+                    )}
                   </div>
                   {filteredLocal.length === 0 && <div style={{ fontSize: 12, color: '#888' }}>No decks</div>}
                   {filteredLocal.map(d => (
@@ -697,177 +737,52 @@ export function DeckManagerModal({
             </div>
           )}
 
-          {tab === 'server' && (
-            <div style={{ display: 'grid', gridTemplateColumns: stackColumns, gap: 16 }}>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12 }}>Server Decks ({serverDecks.length})</span>
-                  <input value={serverFilter} onChange={e => setServerFilter(e.target.value)} placeholder="Filter" style={{ width: useSheet ? '100%' : 140 }} />
-                </div>
-                <div style={{ border: '1px solid #333', borderRadius: 6, padding: 6, maxHeight: useSheet ? 280 : 320, overflowY: 'auto', background: '#111' }}>
-                  {filteredServer.length === 0 && <div style={{ fontSize: 12, color: '#888' }}>None</div>}
-                  {filteredServer.map(d => (
-                    <div
-                      key={d.id}
-                      style={{
-                        borderBottom: '1px solid #222',
-                        padding: '8px 4px',
-                        display: useSheet ? 'flex' : 'grid',
-                        flexDirection: useSheet ? 'column' : undefined,
-                        gridTemplateColumns: useSheet ? undefined : '1fr auto auto auto auto auto',
-                        gap: useSheet ? 8 : 6,
-                        alignItems: useSheet ? 'stretch' : 'center',
-                      }}
-                    >
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 12, color: '#eee', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 4 }}>
-                          {d.name}
-                          {d.has_cached_cards && (
-                            <span title="Card data cached - faster loading" style={{ fontSize: 10, color: '#4ade80', marginLeft: 4 }}>⚡</span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: 10, color: '#999' }}>
-                          {new Date(d.created_at).toLocaleDateString()} • {d.created_by_name} • {d.card_count} cards
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <button type="button" onClick={() => requestDetail(d.id)} style={actionButtonStyle}>View</button>
-                        <button type="button" onClick={() => importServer(d.id)} style={actionButtonStyle}>Use</button>
-                        {canEditServerDeck(d) && (
-                          <button type="button" onClick={() => beginEditServer(d.id)} style={actionButtonStyle}>Edit</button>
-                        )}
-                        {!d.has_cached_cards && !useRestServer && (
-                          <button
-                            type="button"
-                            onClick={() => cacheDeck(d.id)}
-                            disabled={cachingDeckId === d.id}
-                            style={{ ...actionButtonStyle, color: '#fbbf24' }}
-                            title="Cache card data for faster loading"
-                          >
-                            {cachingDeckId === d.id ? '…' : 'Cache'}
-                          </button>
-                        )}
-                        {canEditServerDeck(d) && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => renameServerDeck(d)}
-                              style={actionButtonStyle}
-                            >
-                              Rename
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteServerDeck(d)}
-                              style={{ ...actionButtonStyle, color: '#f87171' }}
-                            >
-                              Delete
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {serverErr && <div style={{ marginTop: 8, fontSize: 11, color: '#f87171' }}>{serverErr}</div>}
-              </div>
-              <div>
-                <div style={{ fontSize: 12, marginBottom: 6 }}>Save current pasted deck (from Local tab)</div>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: useSheet
-                      ? '1fr'
-                      : (resolvedPreviewCards.length > 0 || totalPreviewCopies > 0
-                        ? 'minmax(0, 1fr) 200px'
-                        : '1fr'),
-                    gap: 10,
-                    alignItems: 'stretch',
-                    height: useSheet ? undefined : deckEditorHeight,
-                    minHeight: useSheet ? undefined : deckEditorHeight,
-                  }}
-                >
-                  <DeckListTextarea
-                    value={localText}
-                    onChange={(next) => {
-                      setLocalText(next);
-                      syncPreviewToText(next);
-                    }}
-                    onKeyDown={(e) => onTextareaKeyDown(e, localText)}
-                    onPaste={(e) => onTextareaPaste(e, localText)}
-                    placeholder="Paste list, switch name below"
-                    unresolvedLineNumbers={unresolvedPreviewLineNumbers}
-                    style={{
-                      height: useSheet ? 180 : '100%',
-                      minHeight: useSheet ? 180 : 0,
-                      resize: useSheet ? 'vertical' : 'none',
-                    }}
-                  />
-                  <DeckResolvePreviewPanel
-                    cards={resolvedPreviewCards}
-                    compact={useSheet}
-                    fillHeight={!useSheet}
-                    focusCardKey={resolvedFocusCardKey}
-                    focusToken={resolvedFocusToken}
-                    resolvedCopies={resolvedPreviewCopies}
-                    totalCopies={totalPreviewCopies}
-                  />
-                </div>
-                {unresolvedPreviewLines.length > 0 && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      padding: '8px 10px',
-                      borderRadius: 6,
-                      border: '1px solid rgba(248, 113, 113, 0.45)',
-                      background: 'rgba(127, 29, 29, 0.25)',
-                      color: '#fecaca',
-                      fontSize: 12,
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                      Could not resolve {unresolvedPreviewLines.length} line
-                      {unresolvedPreviewLines.length === 1 ? '' : 's'}
-                    </div>
-                    <div style={{ maxHeight: 72, overflowY: 'auto' }}>
-                      {unresolvedPreviewLines.slice(0, 12).map((line) => (
-                        <div key={`${line.lineNumber}-${line.name}`}>
-                          Line {line.lineNumber}: {line.name}
-                        </div>
-                      ))}
-                      {unresolvedPreviewLines.length > 12 && (
-                        <div>…and {unresolvedPreviewLines.length - 12} more</div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                <input
-                  value={localName}
-                  onChange={e => setLocalName(e.target.value)}
-                  placeholder="Name"
-                  style={{ width: '100%', marginTop: 8 }}
-                />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                  <input id="cache-cards-server" type="checkbox" checked={cacheCards} onChange={e => setCacheCards(e.target.checked)} />
-                  <label htmlFor="cache-cards-server" style={{ fontSize: 12, color: '#ddd' }}>Cache card data</label>
-                </div>
-                <button
-                  type="button"
-                  onClick={saveServer}
-                  disabled={!localText.trim() || !localName.trim() || saving}
-                  style={{ marginTop: 8, ...actionButtonStyle }}
-                >
-                  {saving ? 'Saving…' : 'Save to Server'}
-                </button>
-              </div>
-            </div>
-          )}
-
+          {tab === 'server' && renderDeckManagerModalServerPanel({
+            stackColumns,
+            serverScope,
+            filteredServer,
+            useSheet,
+            serverFilter,
+            setServerFilter,
+            requestDetail,
+            importServer,
+            canEditServerDeck,
+            beginEditServer,
+            cacheDeck,
+            cachingDeckId,
+            useRestServer,
+            renameServerDeck,
+            deleteServerDeck,
+            serverErr,
+            localName,
+            setLocalName,
+            localText,
+            setLocalText,
+            syncPreviewToText,
+            onTextareaKeyDown,
+            onTextareaPaste,
+            unresolvedPreviewLineNumbers,
+            resolvedPreviewCards,
+            totalPreviewCopies,
+            deckEditorHeight,
+            resolvedFocusCardKey,
+            resolvedFocusToken,
+            resolvedPreviewCopies,
+            unresolvedPreviewLines,
+            cacheCards,
+            setCacheCards,
+            accountUser,
+            saveVisibility,
+            setSaveVisibility,
+            saveServer,
+            saving,
+            actionButtonStyle,
+          })}
           {tab === 'preview' && detail && (
             <div>
               <h5 style={{ margin: '4px 0', fontSize: 14 }}>
                 {detail.name}
+                <VisibilityBadge visibility={detail.visibility} />
                 {detail.has_cached_cards && (
                   <span title="Card data cached" style={{ fontSize: 10, color: '#4ade80', marginLeft: 6 }}>⚡ Cached</span>
                 )}

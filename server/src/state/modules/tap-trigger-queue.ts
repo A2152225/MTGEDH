@@ -5,6 +5,7 @@ import { debugWarn } from '../../utils/debug.js';
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { buildTapTriggeredStackItem, collectTapTriggersForTapEvent, serializeTapTriggeredStackItem } from './triggers/tap-untap.js';
 import { orderTriggersByAPNAP } from './triggers/ordering.js';
+import { recordFirstTimeEachTurnTriggerQueued } from './triggerDoThisOnlyOnceEachTurn.js';
 
 function pushTapTriggerOntoStackCore(
   state: any,
@@ -28,6 +29,7 @@ function pushTapTriggerOntoStackCore(
   }
 
   state.stack.push(stackItem);
+  recordFirstTimeEachTurnTriggerQueued(state, trigger);
 
   if (gameId && gameId !== 'unknown') {
     try {

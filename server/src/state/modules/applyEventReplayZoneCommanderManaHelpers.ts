@@ -13,6 +13,8 @@ import { recordDurablePermissionUse } from "./durable-permissions.js";
 import { resolveCastPermissionId } from "./castIntent.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { calculateManaProduction, getOrInitManaPool } from "../../socket/util.js";
+import { applyManaAbilityLifeEffectToState, resolveManaAbilityLifeEffect } from "./mana-abilities-handlers/manaAbilitySelfDamage.js";
+
 export function getReplayStartingPlayerId(state: any): string {
   return String(state?.startingPlayerId || state?.startingPlayer || state?.turnPlayer || '').trim();
 }
@@ -206,12 +208,15 @@ export function resolveReplayCommanderCard(ctx: any, event: any, commanderId: st
 }
 
 export function getReplayLibraryForPlayer(ctx: any, playerId: string): any[] {
-  if (Array.isArray(ctx?.libraries?.get?.(playerId))) {
-    return ctx.libraries.get(playerId);
-  }
-  if (Array.isArray(ctx?.libraries?.[playerId])) {
-    return ctx.libraries[playerId];
-  }
+  const fromMap = ctx?.libraries?.get?.(playerId);
+  const fromObject = ctx?.libraries?.[playerId];
+  const fromZones = (ctx?.state as any)?.zones?.[playerId]?.library;
+  if (Array.isArray(fromMap) && fromMap.length > 0) return fromMap;
+  if (Array.isArray(fromObject) && fromObject.length > 0) return fromObject;
+  if (Array.isArray(fromZones) && fromZones.length > 0) return fromZones;
+  if (Array.isArray(fromMap)) return fromMap;
+  if (Array.isArray(fromObject)) return fromObject;
+  if (Array.isArray(fromZones)) return fromZones;
   return [];
 }
 
@@ -778,17 +783,10 @@ export function applyRecordedManaToPool(ctx: any, playerId: string, rawMana: unk
 
 export function inferLegacyManaLifeEffect(permanent: any, manaColor: unknown): { amount: number; isDamage: boolean } {
   const chosenColor = normalizeManaColorCode(manaColor);
-  const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
-  if (chosenColor === 'C') return { amount: 0, isDamage: false };
-
-  const isDamage = oracleText.includes('deals 1 damage to you');
-  const isLifePayment = !isDamage && oracleText.includes('{t},') && oracleText.includes('pay 1 life');
-
-  if (!isDamage && !isLifePayment) {
-    return { amount: 0, isDamage: false };
-  }
-
-  return { amount: 1, isDamage };
+  return resolveManaAbilityLifeEffect({
+    card: permanent?.card,
+    producesColoredMana: chosenColor !== 'C',
+  });
 }
 
 export function getReplayManaActivationCostKey(playerId: string, permanentId: unknown, abilityId?: unknown): string {
@@ -838,32 +836,7 @@ export function consumeReplayManaActivationLifeCost(rawState: any, playerId: str
 }
 
 export function applyManaAbilityLifeLoss(ctx: any, playerId: string, amount: number, tracksDamage: boolean): void {
-  const finalAmount = Number(amount || 0);
-  if (!playerId || finalAmount <= 0) return;
-
-  (ctx.state as any).life = (ctx.state as any).life || {};
-  const startingLife = Number((ctx.state as any).startingLife || 40);
-  const currentLife = Number((ctx.state as any).life?.[playerId] ?? startingLife);
-  (ctx.state as any).life[playerId] = Math.max(0, currentLife - finalAmount);
-
-  try {
-    if (tracksDamage) {
-      (ctx.state as any).damageTakenThisTurnByPlayer = (ctx.state as any).damageTakenThisTurnByPlayer || {};
-      (ctx.state as any).damageTakenThisTurnByPlayer[String(playerId)] =
-        (((ctx.state as any).damageTakenThisTurnByPlayer[String(playerId)] || 0) + finalAmount);
-    }
-
-    (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
-    (ctx.state as any).lifeLostThisTurn[String(playerId)] =
-      (((ctx.state as any).lifeLostThisTurn[String(playerId)] || 0) + finalAmount);
-  } catch {
-    // best-effort only
-  }
-
-  const player = ((ctx.state as any).players || []).find((p: any) => p?.id === playerId);
-  if (player) { 
-    player.life = (ctx.state as any).life[playerId];
-  }
+  applyManaAbilityLifeEffectToState(ctx?.state, playerId, { amount, isDamage: tracksDamage });
 }
 
 export function applyRecordedLifePayment(ctx: GameContext, playerId: string, rawAmount: unknown): void {

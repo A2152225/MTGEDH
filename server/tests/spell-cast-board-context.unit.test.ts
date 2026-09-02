@@ -171,5 +171,44 @@ describe('spell cast board context (AI + soak)', () => {
       }],
     });
     expect(isSpellCastBoardContextUseful(withStack, 'ai', summaryDismissal)).toBe(true);
+
+    const ownSpellOnly = buildGame({
+      stack: [{
+        id: 'tithe',
+        type: 'spell',
+        controller: 'ai',
+        card: { name: 'Smothering Tithe', type_line: 'Enchantment' },
+      }],
+    });
+    expect(isAISpellContextuallyUseful(ownSpellOnly, 'ai' as any, summaryDismissal)).toBe(false);
+    expect(getSpellCastBoardGaps(ownSpellOnly, 'ai', summaryDismissal)).toContain('no_stack_spell_target');
+
+    const ownAbilityOnly = buildGame({
+      stack: [{
+        id: 'etb',
+        type: 'ability',
+        controller: 'ai',
+        card: { name: 'Mulldrifter', type_line: 'Creature — Elemental' },
+      }],
+    });
+    expect(isAISpellContextuallyUseful(ownAbilityOnly, 'ai' as any, summaryDismissal)).toBe(false);
+
+    const mixedStack = buildGame({
+      stack: [
+        {
+          id: 'tithe',
+          type: 'spell',
+          controller: 'ai',
+          card: { name: 'Smothering Tithe', type_line: 'Enchantment' },
+        },
+        {
+          id: 'bolt',
+          type: 'spell',
+          controller: 'p2',
+          card: { name: 'Lightning Bolt', type_line: 'Instant' },
+        },
+      ],
+    });
+    expect(isSpellCastBoardContextUseful(mixedStack, 'ai', summaryDismissal)).toBe(true);
   });
 });

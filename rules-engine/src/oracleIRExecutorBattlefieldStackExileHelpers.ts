@@ -1,13 +1,27 @@
 // Extracted from oracleIRExecutorBattlefieldStepHandlers.ts.
 // Cluster: isNamedSelfSacrificeReference, exileSourceStackObject,
-// isStackSpellExileTarget, exileSpellFromStackById.
-// Public entries: those four helpers.
+// isStackSpellExileTarget, exileSpellFromStackById, exileChosenSpellsFromStack.
+// Public entries: those five helpers.
 
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { getChosenObjectIdsFromContext } from './oracleIRExecutorBattlefieldCardZoneLocation';
 import { normalizeExileTargetReferenceText } from './oracleIRExecutorBattlefieldExileZoneHelpers';
 import { buildNameReferenceAliases } from './oracleIRExecutorBattlefieldNameAliases';
 import { normalizeSelfReferenceText } from './oracleIRExecutorBattlefieldSelfReference';
+import { getStackItems } from './stackOperations';
+
+function readMutableStackItems(state: GameState): any[] {
+  return [...getStackItems((state as any)?.stack)];
+}
+
+function withUpdatedStackItems(state: GameState, stackItems: readonly any[]): GameState {
+  const stack = (state as any)?.stack;
+  if (stack && !Array.isArray(stack) && Array.isArray(stack.objects)) {
+    return { ...state, stack: { ...stack, objects: [...stackItems] } } as GameState;
+  }
+  return { ...state, stack: [...stackItems] } as GameState;
+}
 
 export function isNamedSelfSacrificeReference(
   what: { readonly kind: string; readonly text?: string; readonly raw?: string },
@@ -33,8 +47,12 @@ export function exileSourceStackObject(
   const sourceId = String(ctx.sourceId || '').trim();
   if (!sourceId) return null;
 
-  const stack = Array.isArray((state as any).stack) ? [...((state as any).stack as any[])] : [];
-  const stackIndex = stack.findIndex(item => String((item as any)?.id || '').trim() === sourceId);
+  const stack = readMutableStackItems(state);
+  const stackIndex = stack.findIndex(item => {
+    const itemId = String((item as any)?.id || '').trim();
+    const cardId = String((item as any)?.card?.id || '').trim();
+    return itemId === sourceId || cardId === sourceId;
+  });
   if (stackIndex < 0) return null;
 
   const stackObject = stack[stackIndex] as any;
@@ -61,7 +79,7 @@ export function exileSourceStackObject(
   stack.splice(stackIndex, 1);
 
   return {
-    state: { ...(state as any), players: updatedPlayers as any, stack: stack as any } as any,
+    state: { ...withUpdatedStackItems(state, stack), players: updatedPlayers as any } as any,
     log: [`${playerId} exiles ${stackCard.name} from the stack`],
   };
 }
@@ -71,7 +89,7 @@ export function isStackSpellExileTarget(
 ): boolean {
   if (target.kind !== 'raw') return false;
   const normalized = normalizeExileTargetReferenceText(String((target as any).text || '')).toLowerCase();
-  return /^(?:it|that spell|that card|the spell|the card)$/.test(normalized);
+  return /^(?:it|that spell|that card|the spell|the card|any number of target spells|target spells?)$/.test(normalized);
 }
 
 export function exileSpellFromStackById(
@@ -82,8 +100,12 @@ export function exileSpellFromStackById(
   const targetSpellId = String(spellId || '').trim();
   if (!targetSpellId) return null;
 
-  const stack = Array.isArray((state as any).stack) ? [...((state as any).stack as any[])] : [];
-  const spellIndex = stack.findIndex(item => String((item as any)?.id || '').trim() === targetSpellId);
+  const stack = readMutableStackItems(state);
+  const spellIndex = stack.findIndex(item => {
+    const itemId = String((item as any)?.id || '').trim();
+    const cardId = String((item as any)?.card?.id || '').trim();
+    return itemId === targetSpellId || cardId === targetSpellId;
+  });
   if (spellIndex < 0) return null;
 
   const targetSpell = stack[spellIndex] as any;
@@ -115,8 +137,29 @@ export function exileSpellFromStackById(
   });
 
   return {
-    state: { ...(state as any), stack: stack as any, players: updatedPlayers as any } as GameState,
+    state: { ...withUpdatedStackItems(state, stack), players: updatedPlayers as any } as GameState,
     log: [`${ownerId} exiles ${exiledSpellCard.name} from the stack`],
   };
+}
+
+export function exileChosenSpellsFromStack(
+  state: GameState,
+  ctx: OracleIRExecutionContext,
+): { readonly state: GameState; readonly log: readonly string[] } {
+  const ids = Array.from(new Set([
+    ...getChosenObjectIdsFromContext(ctx),
+    String(ctx.targetSpellId || '').trim(),
+    String(ctx.selectorContext?.targetSpellId || '').trim(),
+  ].filter(Boolean)));
+
+  let working = state;
+  const log: string[] = [];
+  for (const id of ids) {
+    const result = exileSpellFromStackById(working, id, ctx);
+    if (!result) continue;
+    working = result.state;
+    log.push(...result.log);
+  }
+  return { state: working, log };
 }
 

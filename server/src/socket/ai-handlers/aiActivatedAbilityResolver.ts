@@ -348,6 +348,7 @@ export async function requestAISharedBattlefieldAbilityActivation(
   }
 
   const before = snapshotAIAbilityActivationState(game, gameId, playerId, permanentId);
+  let rejectedPayload: unknown;
 
   try {
     const { registerInteractionHandlers } = await import('../interaction.js');
@@ -360,6 +361,7 @@ export async function requestAISharedBattlefieldAbilityActivation(
       },
       emit: (event: string, payload: any) => {
         if (event === 'error') {
+          rejectedPayload = payload;
           debugWarn(1, '[AI] Shared battlefield activation rejected ability:', {
             gameId,
             playerId,
@@ -387,6 +389,17 @@ export async function requestAISharedBattlefieldAbilityActivation(
     });
 
     await Promise.resolve();
+
+    if (rejectedPayload) {
+      debugWarn(1, '[AI] Shared battlefield activation rejected; not treating auto-tap as progress', {
+        gameId,
+        playerId,
+        permanentId,
+        abilityId,
+        payload: rejectedPayload,
+      });
+      return false;
+    }
 
     if (request.drainQueuedSteps) {
       for (let attempt = 0; attempt < 6; attempt += 1) {

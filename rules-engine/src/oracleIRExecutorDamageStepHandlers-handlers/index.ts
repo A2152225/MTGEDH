@@ -12,6 +12,9 @@ export type { PreventDamageStepHandlerResult } from './oracleIRExecutorDamagePre
 // Shared any-target / target permanent id resolution.
 export { resolveSinglePermanentDamageTargetId } from './oracleIRExecutorDamagePermanentTarget';
 
+// Controlled-permanent reference damage amounts (lands that player controls, nonbasic, twice).
+export { resolveControlledPermanentCountDamageAmount } from './oracleIRExecutorDamageControlledCountAmount';
+
 // Prevention recipient/source ids plus battlefield/stack source lookup.
 export {
   findSourceObject,

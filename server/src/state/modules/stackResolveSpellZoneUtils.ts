@@ -224,8 +224,20 @@ export function moveResolvedInstantOrSorceryAfterResolution(
   const hasRebound = /\brebound\b/i.test(oracleText);
   const wasCastFromHand = item?.castFromHand === true || item?.source === 'hand';
   const wasCastFromRebound = item?.castFromRebound === true;
-  const castWithAbility = String(item?.card?.castWithAbility || item?.castWithAbility || '').trim().toLowerCase();
-  const shouldExileAfterResolutionFromGraveyardAbility = shouldExileStackCardInsteadOfGraveyard(item);
+  const castWithAbility = String(
+    item?.card?.castWithAbility
+    || item?.castWithAbility
+    || card?.castWithAbility
+    || effectiveCard?.castWithAbility
+    || '',
+  ).trim().toLowerCase();
+  const shouldExileAfterResolutionFromGraveyardAbility =
+    shouldExileStackCardInsteadOfGraveyard(item)
+    || item?.exileAfterResolution === true
+    || item?.card?.exileAfterResolution === true
+    || card?.exileAfterResolution === true
+    || effectiveCard?.exileAfterResolution === true
+    || ['flashback', 'jump-start', 'escape', 'disturb', 'harmonize'].includes(castWithAbility);
 
   const hasParadigm = /\bparadigm\b/i.test(oracleText);
   const stateAny = state as any;
@@ -305,6 +317,14 @@ export function moveResolvedInstantOrSorceryAfterResolution(
       zone: 'exile',
     });
     playerZones.exileCount = (playerZones.exile as any[]).length;
+    const resolvedCardId = String(card?.id || '').trim();
+    if (resolvedCardId) {
+      repairCardIdAwayFromZones(ctx, String(controller), resolvedCardId, [
+        'hand',
+        'graveyard',
+        'library',
+      ]);
+    }
     debug(2, `[moveResolvedInstantOrSorceryAfterResolution] ${castWithAbility || 'graveyard-cast'} spell ${effectiveCard?.name || 'unnamed'} exiled for ${controller} after resolution`);
     persistMoveResolvedInstantOrSorceryEvent(ctx, {
       controller,

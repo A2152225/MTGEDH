@@ -22,7 +22,8 @@ import { orderTriggersByAPNAP } from "../../state/modules/triggers/ordering.js";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../../state/resolution/index.js";
 import { uid } from "../../state/utils";
 import { debug, debugWarn } from "../../utils/debug.js";
-import { findTriggeringSpellOnStack } from "../../state/modules/triggerCastSpellStackBinding.js";
+import { cloneTriggeringStackItemSnapshot, findTriggeringSpellOnStack } from "../../state/modules/triggerCastSpellStackBinding.js";
+import { queueStackPutTriggers } from "../../state/modules/triggers/stack-put.js";
 import { queueOptionalPaymentStep } from "../optional-payment-prompts.js";
 import { deriveCastUsedManaFromPermanentSource, getPlayerName, millUntilLand } from "../util";
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
@@ -86,6 +87,15 @@ export function processSpellCastTriggersForCast(
     }
 
     const resolvedTriggeringStackItemId = triggeringStackItem ? String(triggeringStackItem.id || '') : undefined;
+    const triggeringSpellStackItemSnapshot = cloneTriggeringStackItemSnapshot(triggeringStackItem);
+    if (resolvedTriggeringStackItemId) {
+      queueStackPutTriggers({
+        state: game.state,
+        gameId,
+        seq: (game as any).seq,
+        bumpSeq: (game as any).bumpSeq,
+      } as any, resolvedTriggeringStackItemId);
+    }
     const spellCastTriggers = getSpellCastTriggersForCard(game, casterId, spellCard, castSourceZone);
     const castManaPayment = Array.isArray((triggeringStackItem as any)?.manaPayment)
       ? (triggeringStackItem as any).manaPayment
@@ -279,6 +289,7 @@ export function processSpellCastTriggersForCast(
             ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone, sourceCastZone: normalizedCastSourceZone } : null),
             ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
             triggeringSpell: triggeringSpellSnapshot,
+            ...(triggeringSpellStackItemSnapshot ? { triggeringSpellStackItem: triggeringSpellStackItemSnapshot } : null),
           },
           ...(inferredTargetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
           ...(inferredTargetMetadata.targetType ? { targetType: inferredTargetMetadata.targetType } : null),
@@ -408,6 +419,7 @@ export function processSpellCastTriggersForCast(
                   casterId: String(casterId),
                   ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
                   ...(triggeringSpellSnapshot ? { triggeringSpell: triggeringSpellSnapshot } : null),
+                  ...(triggeringSpellStackItemSnapshot ? { triggeringSpellStackItem: triggeringSpellStackItemSnapshot } : null),
                 },
               },
             },
@@ -416,7 +428,16 @@ export function processSpellCastTriggersForCast(
         }
 
         if (!copiedViaOracleIr) {
-          cloneTriggeredSpellCopy(gameId, game, io, trigger, casterId, resolvedTriggeringStackItemId, String(spellCard?.id || ''));
+          cloneTriggeredSpellCopy(
+            gameId,
+            game,
+            io,
+            trigger,
+            casterId,
+            resolvedTriggeringStackItemId,
+            String(spellCard?.id || ''),
+            triggeringSpellStackItemSnapshot,
+          );
         }
       }
 
@@ -508,6 +529,7 @@ export function processSpellCastTriggersForCast(
             ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone, sourceCastZone: normalizedCastSourceZone } : null),
             ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
             triggeringSpell: triggeringSpellSnapshot,
+            ...(triggeringSpellStackItemSnapshot ? { triggeringSpellStackItem: triggeringSpellStackItemSnapshot } : null),
           },
           requiresTarget: true,
           targetType: trigger.targetType || 'permanent',
@@ -532,6 +554,7 @@ export function processSpellCastTriggersForCast(
               ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone, sourceCastZone: normalizedCastSourceZone } : null),
               ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
               triggeringSpell: triggeringSpellSnapshot,
+            ...(triggeringSpellStackItemSnapshot ? { triggeringSpellStackItem: triggeringSpellStackItemSnapshot } : null),
             },
             requiresTarget: true,
             targetType: trigger.targetType || 'permanent',
@@ -609,6 +632,10 @@ export function processOpponentSpellCastTriggersForCast(
             triggeringSpell: triggeringSpellSnapshot,
           },
         }, { casterId, cardId: String(spellCard?.id || '') })?.id || '') || undefined;
+    if (!triggeringStackItem && resolvedTriggeringStackItemId) {
+      triggeringStackItem = stackArr.find((item: any) => item && String(item.id || '') === resolvedTriggeringStackItemId) || null;
+    }
+    const triggeringSpellStackItemSnapshot = cloneTriggeringStackItemSnapshot(triggeringStackItem);
     const spellTypeLine = String(spellCard?.type_line || '').toLowerCase();
     const isNoncreatureSpell = !spellTypeLine.includes('creature');
     const noncreatureSpellsThisTurn = (game.state?.noncreatureSpellsCastThisTurn || {})[casterId] || 0;
@@ -645,6 +672,10 @@ export function processOpponentSpellCastTriggersForCast(
       }
       const sourcePerm = (game.state?.battlefield || []).find((perm: any) => perm && perm.id === (trigger as any).permanentId);
       const needsThatPlayerRef = /\bthat player\b/i.test(triggerText);
+      const baseRefs: any = {
+        triggeringStackItemId: resolvedTriggeringStackItemId,
+        stackItem: triggeringStackItem || undefined,
+      };
       const ok = isInterveningIfSatisfied(
         ctxForInterveningIf,
         String(trigger.controllerId),
@@ -652,11 +683,12 @@ export function processOpponentSpellCastTriggersForCast(
         sourcePerm,
         needsThatPlayerRef && resolvedCasterId
           ? {
+              ...baseRefs,
               thatPlayerId: resolvedCasterId,
               referencedPlayerId: resolvedCasterId,
               theirPlayerId: resolvedCasterId,
             }
-          : undefined,
+          : baseRefs,
       );
       if (ok === false) {
         debug(2, `[processOpponentSpellCastTriggersForCast] Skipping opponent spell trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
@@ -673,6 +705,7 @@ export function processOpponentSpellCastTriggersForCast(
         permanentId: trigger.permanentId,
         sourceName: trigger.cardName,
         description: trigger.description,
+        effect: trigger.effect || trigger.benefitIfNotPaid,
         triggerType: trigger.triggerType,
         mandatory: trigger.mandatory,
         targetPlayer: String((trigger as any).casterId || casterId || ''),
@@ -684,6 +717,7 @@ export function processOpponentSpellCastTriggersForCast(
           ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone, sourceCastZone: normalizedCastSourceZone } : null),
           ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
           triggeringSpell: triggeringSpellSnapshot,
+          ...(triggeringSpellStackItemSnapshot ? { triggeringSpellStackItem: triggeringSpellStackItemSnapshot } : null),
           paymentCost: trigger.paymentCost,
           paymentAmount: trigger.paymentAmount,
           benefitIfNotPaid: trigger.benefitIfNotPaid,

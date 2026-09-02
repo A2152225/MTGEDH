@@ -101,14 +101,16 @@ export function tryApplyInstantSorceryLegacyBodyHandlers(
 
   logLegacySpellRegexPrimaryMiss(oracleIrSpellHandled, spellName, oracleText);
 
-  applyInstantSorceryControlChangeAndMassZoneEffects(ctx, {
-    controller,
-    effectiveCard,
-    item,
-    oracleText,
-    oracleTextLower,
-    targets,
-  });
+  if (uncategorizedSpellFallbackApplied <= 0) {
+    applyInstantSorceryControlChangeAndMassZoneEffects(ctx, {
+      controller,
+      effectiveCard,
+      item,
+      oracleText,
+      oracleTextLower,
+      targets,
+    });
+  }
 
   applyInstantSorceryTokenForEachCreatureHandler(ctx, {
     controller,

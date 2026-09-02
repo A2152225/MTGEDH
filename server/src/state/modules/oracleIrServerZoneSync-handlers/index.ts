@@ -66,6 +66,11 @@ export {
   queueSeparateIntoPilesPromptsFromOracleIRResult,
   bridgeLibraryChaosExchangeFromOracleIRResult,
 } from "./oracleIrServerZoneDraftPilesChaosPrompts.js";
+export {
+  queueWarpWorldChoicePromptsFromOracleIRResult,
+  hasPendingWarpWorldOracleIrPrompt,
+} from "./oracleIrServerWarpWorldChoicePrompts.js";
+export { queueCoinIgnoreOnePromptsFromOracleIRResult } from "./oracleIrServerCoinIgnoreOnePrompts.js";
 
 // Copy-permanent and move-zone TARGET_SELECTION / LIBRARY_SEARCH queues.
 export {
@@ -140,6 +145,7 @@ export {
 // Player-zone hydrate/sync, delayed flicker/draw bridges.
 export {
   enrichBattlefieldTokenImages,
+  repairNamelessBattlefieldCards,
   buildShadowProbeContext,
   hydrateOracleIRPlayerZonesFromContext,
   snapshotGraveyardCardIds,

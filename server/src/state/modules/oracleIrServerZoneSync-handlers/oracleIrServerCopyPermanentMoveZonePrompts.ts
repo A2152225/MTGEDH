@@ -150,6 +150,9 @@ function collectMoveZoneChoiceSteps(
       // Handled by queueMoveZoneDestinationChoicePromptsFromOracleIRResult (OPTION_CHOICE).
       continue;
     }
+    if (String((gap.metadata as any)?.warpWorldChoice || '').trim()) {
+      continue;
+    }
     const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'move_zone' }> | undefined;
     if (!step || isLandPlayFromHandStep(step)) continue;
     const key = `${String((step as any).raw || '')}:${String((step.what as any)?.text || '')}`;
@@ -170,6 +173,10 @@ function collectMoveZoneChoiceSteps(
       const destinations = (gap.metadata as any)?.moveZoneDestinationChoice;
       return Array.isArray(destinations) && destinations.length > 0;
     });
+    const isWarpWorldChoiceGap = matchingGaps.some((gap) =>
+      Boolean(String((gap.metadata as any)?.warpWorldChoice || '').trim()),
+    );
+    if (isWarpWorldChoiceGap) continue;
     if (isDestinationChoiceGap) continue;
     // Unsupported / impossible skips must not re-queue the same LIBRARY_SEARCH
     // (Emeria upkeep reanimate looped when a non-creature pick failed to apply).

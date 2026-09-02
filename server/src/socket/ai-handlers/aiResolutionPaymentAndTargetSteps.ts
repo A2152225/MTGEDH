@@ -14,6 +14,7 @@ import { getEffectivePower, getEffectiveToughness } from "../util.js";
 import { canPermanentBeTargetedByPlayer } from "../../rules-engine/targeting.js";
 import { chooseAIScrySelection } from "./aiZoneSearchChoiceHandlers.js";
 import { chooseAIManaColorForActivation } from "./aiManaCostHelpers.js";
+import { chooseAIJoinForcesContribution } from "./aiJoinForcesDecision.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 
 export async function handleAIResolutionPaymentAndTargetSteps(
@@ -196,8 +197,9 @@ export async function handleAIResolutionPaymentAndTargetSteps(
       }
 
       case 'join_forces': {
-        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(0));
-        debug(1, `[AI] join_forces: declining to contribute mana`);
+        const contribution = chooseAIJoinForcesContribution(game, step);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(contribution));
+        debug(1, `[AI] join_forces: contributing ${contribution} mana`);
         break;
       }
 

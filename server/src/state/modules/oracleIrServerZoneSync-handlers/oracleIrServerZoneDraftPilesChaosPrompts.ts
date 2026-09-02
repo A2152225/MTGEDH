@@ -2,8 +2,7 @@
 // Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
 // Cluster moved: queueRepeatedZoneDraftChoicePromptFromOracleIRResult,
 //   queueSeparateIntoPilesPromptsFromOracleIRResult, and
-//   bridgeLibraryChaosExchangeFromOracleIRResult, plus
-//   findExiledCardDisplayInfo.
+//   bridgeLibraryChaosExchangeFromOracleIRResult.
 // Public entry symbols: queueRepeatedZoneDraftChoicePromptFromOracleIRResult,
 //   queueSeparateIntoPilesPromptsFromOracleIRResult,
 //   bridgeLibraryChaosExchangeFromOracleIRResult.
@@ -15,6 +14,11 @@ import type {
   OracleIRExecutionContext,
   OracleIRExecutionResult,
 } from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import {
+  buildRepeatedZoneDraftCardChoiceInfo,
+  filterLegalRepeatedZoneDraftCardIds,
+  findNextRepeatedZoneDraftChooserIndex,
+} from '../../../../../rules-engine/src/oracleIRExecutorRepeatedZoneDraft.js';
 import type { GameContext } from '../../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
 import {
@@ -27,26 +31,6 @@ import {
   queueLibraryChaosCastOffers,
   type LibraryChaosExchangeStep,
 } from '../oracleIrLibraryChaosExchange.js';
-
-function findExiledCardDisplayInfo(
-  state: any,
-  cardId: string,
-): { id: string; name: string; imageUrl?: string } | null {
-  const wanted = String(cardId || '').trim();
-  if (!wanted) return null;
-  for (const player of (Array.isArray(state?.players) ? state.players : []) as any[]) {
-    const exile = Array.isArray(player?.exile) ? player.exile : [];
-    const card = exile.find((entry: any) => String(entry?.id || '').trim() === wanted);
-    if (card) {
-      return {
-        id: wanted,
-        name: String(card?.name || 'Unknown card').trim() || 'Unknown card',
-        imageUrl: typeof card?.imageUrl === 'string' ? card.imageUrl : undefined,
-      };
-    }
-  }
-  return null;
-}
 
 /**
  * Bridges a `repeated_zone_draft` player-choice gap (Thieves' Auction style) to a
@@ -94,11 +78,15 @@ export function queueRepeatedZoneDraftChoicePromptFromOracleIRResult(
       : [String(params.controller)];
     const entersTapped = gap.metadata?.entersTapped === true;
     const destination = String(gap.metadata?.destination || 'battlefield');
-    const firstChooser = (chooserOrder[0] || String(params.controller)) as PlayerID;
+    const firstChooserIndex = findNextRepeatedZoneDraftChooserIndex(state, remainingCardIds, chooserOrder, 0);
+    if (firstChooserIndex === null) continue;
+    const firstChooser = (chooserOrder[firstChooserIndex] || String(params.controller)) as PlayerID;
+    const legalCardIds = filterLegalRepeatedZoneDraftCardIds(state, remainingCardIds, firstChooser);
 
-    const cards = remainingCardIds
-      .map((cardId) => findExiledCardDisplayInfo(state, cardId))
-      .filter(Boolean) as { id: string; name: string; imageUrl?: string }[];
+    const cards = legalCardIds
+      .map((cardId) => buildRepeatedZoneDraftCardChoiceInfo(state, cardId, firstChooser))
+      .filter(Boolean);
+    if (cards.length === 0) continue;
 
     ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
       type: ResolutionStepType.REPEATED_ZONE_DRAFT,
@@ -110,7 +98,7 @@ export function queueRepeatedZoneDraftChoicePromptFromOracleIRResult(
       remainingCardIds,
       cards,
       chooserOrder,
-      chooserIndex: 0,
+      chooserIndex: firstChooserIndex,
       entersTapped,
       destination,
       oracleIrChoiceStepJson: JSON.stringify([step]),

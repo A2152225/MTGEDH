@@ -192,6 +192,7 @@ export function pickMainLoopFamilyCore(ctx: MainLoopStepFamilyCtx): Pick<
   | 'lastMovedCards'
   | 'lastScryLookedAtCount'
   | 'lastReferenceAmount'
+  | 'lastMovedCountByPlayer'
   | 'lastStepOutcome'
   | 'lastActionOutcome'
   | 'replayMutations'
@@ -204,6 +205,7 @@ export function pickMainLoopFamilyCore(ctx: MainLoopStepFamilyCtx): Pick<
     lastMovedCards: ctx.lastMovedCards,
     lastScryLookedAtCount: ctx.lastScryLookedAtCount,
     lastReferenceAmount: ctx.lastReferenceAmount,
+    lastMovedCountByPlayer: ctx.lastMovedCountByPlayer,
     lastStepOutcome: ctx.lastStepOutcome,
     lastActionOutcome: ctx.lastActionOutcome,
     replayMutations: ctx.replayMutations,
@@ -221,6 +223,7 @@ export function pullMainLoopFamilyCoreFromCtx(
   into.lastMovedCards = ctx.lastMovedCards;
   into.lastScryLookedAtCount = ctx.lastScryLookedAtCount;
   into.lastReferenceAmount = ctx.lastReferenceAmount;
+  into.lastMovedCountByPlayer = ctx.lastMovedCountByPlayer;
   into.lastStepOutcome = ctx.lastStepOutcome;
   into.lastActionOutcome = ctx.lastActionOutcome;
   into.replayMutations = ctx.replayMutations;

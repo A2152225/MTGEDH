@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { saveServerDeckViaApi } from '../utils/serverDeckApi';
 import { socket } from '../socket';
 import {
   createAiOpponentFromPreset,
@@ -34,6 +35,7 @@ interface CreateGameModalProps {
   onCreateGame: (config: GameCreationConfig) => void;
   savedDecks?: SavedDeckSummary[];
   onRefreshDecks?: () => void;
+  accountDisplayName?: string;
 }
 
 /**
@@ -128,7 +130,7 @@ const MAX_TOTAL_SEATS = MAX_AI_OPPONENTS + 1;
 /**
  * Modal for creating a new game with format, AI opponent, and deck selection
  */
-export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], onRefreshDecks }: CreateGameModalProps) {
+export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], onRefreshDecks, accountDisplayName }: CreateGameModalProps) {
   const isLocalhost = typeof window !== 'undefined' && (
     window.location.hostname === 'localhost' ||
     window.location.hostname === '127.0.0.1' ||
@@ -145,6 +147,14 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
       return 'Player';
     }
   });
+
+  React.useEffect(() => {
+    if (!accountDisplayName) return;
+    setPlayerName((current) => {
+      if (!current || current === 'Player') return accountDisplayName;
+      return current;
+    });
+  }, [accountDisplayName]);
   const [format, setFormat] = useState<GameFormat>('commander');
   const [startingLife, setStartingLife] = useState(40);
   const [seedInput, setSeedInput] = useState('');
@@ -295,17 +305,13 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     setSaveMessage(null);
     
     try {
-      const response = await fetch('/api/decks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: ai.deckName.trim(),
-          text: ai.deckText.trim(),
-        }),
+      const data = await saveServerDeckViaApi({
+        name: ai.deckName.trim(),
+        text: ai.deckText.trim(),
+        visibility: 'public',
       });
       
-      if (response.ok) {
-        const data = await response.json();
+      if (data.deckId) {
         setSaveMessage('✓ Deck saved successfully');
         if (onRefreshDecks) {
           onRefreshDecks();

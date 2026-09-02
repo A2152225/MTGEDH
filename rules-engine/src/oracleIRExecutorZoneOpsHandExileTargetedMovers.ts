@@ -8,10 +8,9 @@ import { type OracleIrBattlefieldEntryContext } from './oracleIRExecutorBattlefi
 import { stampCardPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
 import {
   addBattlefieldPermanentsToState,
-  canCardEnterAttachedToTarget,
   createBattlefieldPermanentsFromCards,
-  getBattlefieldAttachmentTarget,
   resolveBattlefieldEntryBeforeCommit,
+  resolveMoverAttachment,
 } from './oracleIRExecutorZoneOpsBattlefieldEntry';
 import type { BattlefieldEntryCardOverrides } from './oracleIRExecutorZoneOpsBattlefieldEntry';
 import { cardMatchesType } from './oracleIRExecutorZoneOpsCardTypeMatchers';
@@ -77,15 +76,14 @@ export function moveTargetedCardFromHand(
   }
 
   const controllerId = battlefieldControllerId || playerId;
-  const attachmentTarget = attachedToBattlefieldPermanentId
-    ? getBattlefieldAttachmentTarget(state, attachedToBattlefieldPermanentId)
-    : undefined;
-  if (
-    attachedToBattlefieldPermanentId &&
-    (!attachmentTarget || !canCardEnterAttachedToTarget(card, controllerId, attachmentTarget, battlefieldEntryOverrides))
-  ) {
-    return { kind: 'impossible' };
-  }
+  const attachment = resolveMoverAttachment(
+    state,
+    card,
+    controllerId,
+    attachedToBattlefieldPermanentId,
+    battlefieldEntryOverrides,
+  );
+  if (attachment.kind === 'impossible') return { kind: 'impossible' };
 
   const entryResolution = resolveBattlefieldEntryBeforeCommit(
     state,
@@ -104,8 +102,10 @@ export function moveTargetedCardFromHand(
     entryResolution.entersFaceDown,
     entryResolution.withCounters,
     'hand',
-    attachmentTarget,
-    battlefieldEntryOverrides
+    attachment.attachmentTarget,
+    battlefieldEntryOverrides,
+    undefined,
+    attachment.enchantedPlayerId,
   );
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), hand: kept } as any) : p
@@ -242,15 +242,14 @@ export function moveTargetedCardFromExile(
   }
 
   const controllerId = battlefieldControllerId || playerId;
-  const attachmentTarget = attachedToBattlefieldPermanentId
-    ? getBattlefieldAttachmentTarget(state, attachedToBattlefieldPermanentId)
-    : undefined;
-  if (
-    attachedToBattlefieldPermanentId &&
-    (!attachmentTarget || !canCardEnterAttachedToTarget(card, controllerId, attachmentTarget, battlefieldEntryOverrides))
-  ) {
-    return { kind: 'impossible' };
-  }
+  const attachment = resolveMoverAttachment(
+    state,
+    card,
+    controllerId,
+    attachedToBattlefieldPermanentId,
+    battlefieldEntryOverrides,
+  );
+  if (attachment.kind === 'impossible') return { kind: 'impossible' };
 
   const entryResolution = resolveBattlefieldEntryBeforeCommit(
     state,
@@ -269,8 +268,10 @@ export function moveTargetedCardFromExile(
     entryResolution.entersFaceDown,
     entryResolution.withCounters,
     'exile',
-    attachmentTarget,
-    battlefieldEntryOverrides
+    attachment.attachmentTarget,
+    battlefieldEntryOverrides,
+    undefined,
+    attachment.enchantedPlayerId,
   );
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), exile: kept } as any) : p

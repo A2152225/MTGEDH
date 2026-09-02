@@ -197,4 +197,110 @@ describe('generic cast-from-exile targeted free casts (integration)', () => {
       .map((target: any) => (typeof target === 'string' ? target : target?.id));
     expect(normalizedTargets).toContain(opponentId);
   });
+
+  it('bottoms a Possibility Storm hit instead of retrying when the free-cast cannot start', async () => {
+    const stormGameId = 'test_cast_from_exile_failed_cast_bottoms';
+    await resetGame(stormGameId);
+    createGameIfNotExists(stormGameId, 'commander', 40, undefined, playerId);
+
+    const game = ensureGame(stormGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = opponentId;
+    (game.state as any).priority = opponentId;
+    (game.state as any).battlefield = [];
+    (game.state as any).stack = [];
+    (game as any).libraries = new Map([[playerId, []]]);
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        exile: [
+          {
+            id: 'murder_1',
+            name: 'Murder',
+            mana_cost: '{1}{B}{B}',
+            manaCost: '{1}{B}{B}',
+            type_line: 'Instant',
+            oracle_text: 'Destroy target creature.',
+            zone: 'exile',
+          },
+        ],
+        exileCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        libraryCount: 0,
+      },
+    };
+
+    const step = ResolutionQueueManager.addStep(stormGameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Possibility Storm: You may cast Murder from exile without paying its mana cost.',
+      mandatory: false,
+      sourceName: 'Possibility Storm',
+      options: [
+        { id: 'cast', label: 'Cast Murder' },
+        { id: 'decline', label: "Don't cast" },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      castFromExileCardId: 'murder_1',
+      castFromExileCard: {
+        id: 'murder_1',
+        name: 'Murder',
+        type_line: 'Instant',
+        oracle_text: 'Destroy target creature.',
+        zone: 'exile',
+      },
+      castFromExileCastWithoutPayingManaCost: true,
+      castFromExileBypassExilePermissionCheck: true,
+      castFromExileIgnoreTimingRestrictions: true,
+      castFromExileDeclineDestination: 'library_bottom_random',
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, stormGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({
+      gameId: stormGameId,
+      stepId: String(step.id),
+      selections: 'cast',
+      cancelled: false,
+    });
+
+    const exileIds = ((((game.state as any).zones?.[playerId]?.exile) || []) as any[]).map((card: any) => card.id);
+    expect(exileIds).not.toContain('murder_1');
+    const libraryIds = ((((game.state as any).zones?.[playerId]?.library) || []) as any[]).map((card: any) => card.id);
+    expect(libraryIds).toContain('murder_1');
+
+    const retriedPrompt = ResolutionQueueManager.getQueue(stormGameId).steps.find((entry: any) =>
+      String(entry?.castFromExileCardId || '') === 'murder_1',
+    );
+    expect(retriedPrompt).toBeUndefined();
+    expect(emitted.some((event) => event.event === 'resolutionStepPrompt' && String(event.payload?.step?.castFromExileCardId || '') === 'murder_1')).toBe(false);
+
+    await resetGame(stormGameId);
+  });
 });

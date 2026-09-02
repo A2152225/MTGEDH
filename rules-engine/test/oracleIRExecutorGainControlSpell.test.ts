@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { GameState } from '../../shared/src';
 import { applyGainControlStep } from '../src/oracleIRExecutorBattlefieldStepHandlers.js';
 import { applyChangeTargetStep } from '../src/oracleIRExecutorPlayerStepHandlers.js';
@@ -91,5 +91,101 @@ describe('Oracle IR gain control of a stack spell', () => {
     expect(retargeted.targets).toEqual([
       expect.objectContaining({ id: 'p2' }),
     ]);
+  });
+
+  it('leaves targets unchanged when every legal new target is excluded', () => {
+    const ir = parseOracleTextToIR(CHEFS_KISS_TEXT, "Chef's Kiss");
+    const changeTarget = ir.abilities
+      .flatMap((ability) => ability.steps || [])
+      .find((step) => step.kind === 'change_target');
+
+    const state = {
+      players: [
+        { id: 'p1', name: 'P1' },
+        { id: 'p2', name: 'P2' },
+      ],
+      stack: [
+        {
+          id: 'stack-spike-1',
+          type: 'spell',
+          controller: 'p2',
+          card: { name: 'Lava Spike', type_line: 'Sorcery', oracle_text: 'Lava Spike deals 3 damage to target player.' },
+          targets: ['p1'],
+          copyRetargetValidTargets: [
+            { id: 'p1', name: 'P1', type: 'player' },
+          ],
+        },
+      ],
+      battlefield: [],
+    } as unknown as GameState;
+
+    const result = applyChangeTargetStep(
+      state,
+      changeTarget as Extract<typeof changeTarget, { kind: 'change_target' }>,
+      {
+        controllerId: 'p1',
+        sourceId: 'stack-chefs-kiss-1',
+        sourceName: "Chef's Kiss",
+        targetSpellId: 'stack-spike-1',
+      } as any,
+    );
+
+    expect(result.applied).toBe(true);
+    expect((result.state as any).stack[0].targets).toEqual(['p1']);
+  });
+
+  it('reselects each target instance independently when they share an object', () => {
+    const ir = parseOracleTextToIR(CHEFS_KISS_TEXT, "Chef's Kiss");
+    const changeTarget = ir.abilities
+      .flatMap((ability) => ability.steps || [])
+      .find((step) => step.kind === 'change_target');
+
+    const randomSpy = vi.spyOn(Math, 'random')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0.99);
+
+    const state = {
+      players: [
+        { id: 'p1', name: 'P1' },
+        { id: 'p2', name: 'P2' },
+        { id: 'p3', name: 'P3' },
+      ],
+      stack: [
+        {
+          id: 'stack-double-1',
+          type: 'spell',
+          controller: 'p2',
+          card: { name: 'Twin Bolt', type_line: 'Instant' },
+          targets: [
+            { id: 'p2', type: 'player' },
+            { id: 'p2', type: 'player' },
+          ],
+          copyRetargetValidTargets: [
+            { id: 'p1', name: 'P1', type: 'player' },
+            { id: 'p2', name: 'P2', type: 'player' },
+            { id: 'p3', name: 'P3', type: 'player' },
+          ],
+        },
+      ],
+      battlefield: [],
+    } as unknown as GameState;
+
+    const result = applyChangeTargetStep(
+      state,
+      changeTarget as Extract<typeof changeTarget, { kind: 'change_target' }>,
+      {
+        controllerId: 'p1',
+        sourceId: 'stack-chefs-kiss-1',
+        sourceName: "Chef's Kiss",
+        targetSpellId: 'stack-double-1',
+      } as any,
+    );
+
+    randomSpy.mockRestore();
+    expect(result.applied).toBe(true);
+    const nextTargets = (result.state as any).stack[0].targets;
+    expect(nextTargets).toHaveLength(2);
+    expect(nextTargets[0].id).toBe('p2');
+    expect(nextTargets[1].id).toBe('p3');
   });
 });

@@ -243,7 +243,7 @@ export type OracleEffectStepC =
         | 'next_cleanup_step'
         | 'when_control_lost'
         | 'when_leaves_battlefield';
-      readonly action: 'sacrifice' | 'exile';
+      readonly action: 'sacrifice' | 'exile' | 'destroy';
       readonly who?: OraclePlayerSelector;
       readonly object: OracleObjectSelector;
       readonly condition?: OracleBattlefieldObjectCondition;
@@ -677,6 +677,7 @@ export type OracleEffectStepC =
       readonly kind: 'unless_pays_life';
       readonly who: OraclePlayerSelector;
       readonly amount: number;
+      readonly forEachPermanentText?: string;
       readonly steps: readonly OracleEffectStep[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
@@ -729,12 +730,21 @@ export type OracleEffectStepC =
   | {
       /**
        * Wrapper for effects that only happen if a referenced player doesn't or
-       * can't pay a fixed mana cost.
+       * can't pay a mana cost. `mana` is `{N}` / `{X}` (or the unit for scaled
+       * taxes). Optional `manaAmountRaw` / `whereX` resolve at execute.
        */
       readonly kind: 'unless_pays_mana';
       readonly who: OraclePlayerSelector;
       readonly mana: string;
+      readonly manaAmountRaw?: string;
+      readonly whereX?: string;
+      readonly forEachOpponentStackObjects?: boolean;
+      readonly forEachPermanentText?: string;
+      /** Winter's Chill: controller may pay {1} or {2} (or decline). */
+      readonly manaOptions?: readonly string[];
       readonly steps: readonly OracleEffectStep[];
+      /** Applied after a successful pay (e.g. “if that player pays only {1}”). */
+      readonly paidSteps?: readonly OracleEffectStep[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

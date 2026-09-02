@@ -9,9 +9,16 @@ import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
 import { isOracleIndexInsideParenthetical } from "./etb-detection-helpers.js";
 import { findFirstRegexMatchAcrossOracleLines, timingTriggerEffect } from "./timing-effect-extraction.js";
 import { normalizeCreatureTypeWord } from "../../../../../shared/src/creatureTypes.js";
-export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
+import {
+  applyFirstTimeEachTurnFlags,
+  resolveDetectorOracleForPermanent,
+} from "./detectorGrantedOracle.js";
+
+export function detectBlockTriggers(card: any, permanent: any, gameState?: any): BlockTrigger[] {
   const triggers: BlockTrigger[] = [];
-  const oracleText = (card?.oracle_text || "");
+  const printedOracle = (card?.oracle_text || "");
+  const annotated = resolveDetectorOracleForPermanent(permanent, printedOracle, gameState);
+  const oracleText = annotated.oracleText;
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
@@ -503,6 +510,10 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     if (typeof match.index === 'number' && isOracleIndexInsideParenthetical(oracleText, match.index)) continue;
     const effectText = timingTriggerEffect(oracleText, match);
     if (!effectText || triggers.some((trigger) => trigger.effect === effectText)) continue;
+    const clause = String(match[0] || '');
+    const triggerType = /\bblocks or becomes blocked\b/i.test(clause)
+      ? 'self_blocks_or_becomes_blocked'
+      : 'self_becomes_blocked';
     triggers.push({
       permanentId,
       cardName,
@@ -510,8 +521,9 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType,
     });
   }
 
-  return triggers;
+  return applyFirstTimeEachTurnFlags(triggers, annotated);
 }

@@ -13,14 +13,16 @@ import {
   isSacrificeCreatureOrSelfOracle,
 } from "./upkeepTriggerDetectHelpers.js";
 import { shouldTriggerEcho } from "./upkeepEchoHelpers.js";
+import { resolveDetectorOracleForPermanent } from "../triggers/detectorGrantedOracle.js";
 
 /**
  * Detect upkeep triggers from a card's oracle text
  */
 export function detectUpkeepTriggers(card: any, permanent: any, state?: any): UpkeepTrigger[] {
   const triggers: UpkeepTrigger[] = [];
-  const activeFace = getActivePermanentCardFace(card, permanent);
-  const oracleText = activeFace.oracleText;
+  const activeFace = getActivePermanentCardFace(card, permanent, state);
+  const annotated = resolveDetectorOracleForPermanent(permanent, activeFace.oracleText, state);
+  const oracleText = annotated.oracleText;
   const lowerOracle = oracleText.toLowerCase();
   const cardName = activeFace.cardName;
   const permanentId = permanent?.id || "";

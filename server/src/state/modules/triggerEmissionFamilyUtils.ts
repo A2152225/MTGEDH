@@ -22,6 +22,7 @@ import {
   hasUnsupportedTargetRequirement,
   inferGenericTriggeredAbilityTargetMetadata,
 } from './triggers/target-metadata.js';
+import { queueStackPutTriggers } from './triggers/stack-put.js';
 
 function snapshotPermanent(permanent: any): any | undefined {
   if (!permanent || typeof permanent !== 'object') return undefined;
@@ -103,6 +104,7 @@ export function queueGenericTriggeredAbility(
     }
   }
 
+  queueStackPutTriggers(ctx, triggerId);
   return stackItem;
 }
 
@@ -374,7 +376,7 @@ export function processFaceUpTriggers(ctx: GameContext, faceUpPermanent: any): a
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
 
-    const detected = detectETBTriggers(permanent.card, permanent);
+    const detected = detectETBTriggers(permanent.card, permanent, state);
     for (const trigger of detected) {
       const triggerType = String(trigger.triggerType || '');
       if (!isFaceUpTriggerType(triggerType)) continue;
@@ -451,7 +453,7 @@ export function processMonstrousTriggers(ctx: GameContext, permanent: any): any[
 export function processLTBTriggers(
   ctx: GameContext,
   leftPermanent: any,
-  options?: { cause?: string },
+  options?: { cause?: string; ltbDetectCache?: Map<string, any[]> },
 ): any[] {
   if ((ctx as any)?.isReplaying) return [];
   if (!leftPermanent) return [];
@@ -467,6 +469,9 @@ export function processLTBTriggers(
 
   const candidates = [...battlefield, leftPermanent];
   const seenKeys = new Set<string>();
+  const detectState = battlefield.some((perm: any) => String(perm?.id || '') === leftId)
+    ? state
+    : { ...state, battlefield: [...battlefield, leftPermanent] };
 
   for (const permanent of candidates) {
     if (!permanent?.card) continue;
@@ -474,7 +479,12 @@ export function processLTBTriggers(
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
 
-    const detected = detectLTBTriggers(permanent.card, permanent);
+    const cacheKey = String(permanent.id || '');
+    let detected = options?.ltbDetectCache?.get(cacheKey);
+    if (!detected) {
+      detected = detectLTBTriggers(permanent.card, permanent, detectState);
+      options?.ltbDetectCache?.set(cacheKey, detected);
+    }
     for (const trigger of detected) {
       const triggerType = String(trigger.triggerType || 'ltb');
       const controllerId = String(permanent.controller || leftController || '');
@@ -681,6 +691,9 @@ export function processDetectedAbilityActivatedTriggers(
         }
       }
     }
+  }
+  if (!event.isManaAbility && event.stackItemId) {
+    queued.push(...queueStackPutTriggers(ctx, String(event.stackItemId)));
   }
   return queued;
 }

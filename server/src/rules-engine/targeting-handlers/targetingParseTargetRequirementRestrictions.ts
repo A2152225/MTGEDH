@@ -38,6 +38,8 @@ export type ParsedTargetRequirementStatKeywordFilters = {
   creatureRestriction?: TargetRestriction;
   /** Bolt Bend / Redirect: the chosen stack object must already have exactly one target. */
   stackObjectMustHaveSingleTarget?: boolean;
+  /** Chef's Kiss: all target instances must point at one permanent or player. */
+  stackObjectMustTargetOnlySinglePermanentOrPlayer?: boolean;
 };
 
 function escapeRegExp(value: string): string {
@@ -145,7 +147,9 @@ export function parseTargetRequirementStatKeywordFilters(oracleText?: string): P
     }
   }
 
-  if (/\b(?:spell(?:\s+or\s+ability)?|(?:activated|triggered)\s+ability|ability)\s+with a single target\b/i.test(t)) {
+  if (/\btargets only a single (?:permanent or player|player or permanent)\b/i.test(t)) {
+    result.stackObjectMustTargetOnlySinglePermanentOrPlayer = true;
+  } else if (/\b(?:spell(?:\s+or\s+ability)?|(?:activated|triggered)\s+ability|ability)\s+with a single target\b/i.test(t)) {
     result.stackObjectMustHaveSingleTarget = true;
   }
 
@@ -176,6 +180,7 @@ export function attachParsedTargetRequirementStatKeywordFilters<T extends object
     && !filters.statRequirement
     && !filters.creatureRestriction
     && !filters.stackObjectMustHaveSingleTarget
+    && !filters.stackObjectMustTargetOnlySinglePermanentOrPlayer
   ) {
     return result as T & ParsedTargetRequirementStatKeywordFilters;
   }

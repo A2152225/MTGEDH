@@ -11,11 +11,25 @@ import type { GameContext } from "../../context.js";
 import { queueCombatDamageChat } from "../combatDamageChat.js";
 import { hasExtraCombat, consumeExtraCombat } from "./turnScheduledStepsAndExtras.js";
 import { clearCombatState } from "./turnClearCombatState.js";
+import { playerIdCanReceivePriority } from "../priorityEligibility.js";
 import { debug, debugError, debugWarn } from "../../../utils/debug.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
   return new Date().toISOString();
+}
+
+function activePlayerCanTakeExtraCombat(ctx: GameContext): boolean {
+  const turnPlayer = String((ctx as any).state?.turnPlayer || '').trim();
+  return Boolean(turnPlayer) && playerIdCanReceivePriority(ctx, turnPlayer);
+}
+
+function discardExtraCombatsIfActivePlayerIneligible(ctx: GameContext): void {
+  const state = (ctx as any).state;
+  if (!Array.isArray(state?.extraCombats) || state.extraCombats.length === 0) return;
+  if (activePlayerCanTakeExtraCombat(ctx)) return;
+  debug(2, `${ts()} [nextStep] Discarding ${state.extraCombats.length} extra combat(s) — active player ${state.turnPlayer} cannot receive priority`);
+  state.extraCombats = [];
 }
 
 export type NextStepPhaseAdvance = {
@@ -160,7 +174,7 @@ export function computeNextStepPhaseAdvance(
         // NOTE: End of combat triggers will be pushed AFTER phase/step update below
       } else {
         // After endCombat, check for extra combat phases before going to postcombatMain
-        if (hasExtraCombat(ctx)) {
+        if (hasExtraCombat(ctx) && activePlayerCanTakeExtraCombat(ctx)) {
           // There's an extra combat phase pending
           const extraCombat = consumeExtraCombat(ctx);
           debug(2, `${ts()} [nextStep] Starting extra combat phase from ${extraCombat?.source || 'Unknown'}`);
@@ -179,6 +193,7 @@ export function computeNextStepPhaseAdvance(
             }
           }
         } else {
+          discardExtraCombatsIfActivePlayerIneligible(ctx);
           // No extra combat, go to postcombatMain
           nextPhase = "postcombatMain";
           nextStep = "MAIN2";
@@ -193,7 +208,7 @@ export function computeNextStepPhaseAdvance(
       // inserts another combat, then another postcombat main. Tymna-style
       // "beginning of each of your postcombat main phases" fires again at that
       // later MAIN2+ entry — not mid-phase and not at end of combat.
-      if (hasExtraCombat(ctx)) {
+      if (hasExtraCombat(ctx) && activePlayerCanTakeExtraCombat(ctx)) {
         const extraCombat = consumeExtraCombat(ctx);
         debug(2, `${ts()} [nextStep] Starting extra combat from postcombat main (${extraCombat?.source || 'Unknown'})`);
         nextPhase = "combat";
@@ -207,6 +222,7 @@ export function computeNextStepPhaseAdvance(
           }
         }
       } else {
+        discardExtraCombatsIfActivePlayerIneligible(ctx);
         nextPhase = "ending";
         nextStep = "END";
       }

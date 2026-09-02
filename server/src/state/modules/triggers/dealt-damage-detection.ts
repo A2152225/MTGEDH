@@ -6,14 +6,15 @@
 
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
+import { mergeDetectorOracleWithContinuousGrants } from "./detectorGrantedOracle.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import { escapeCardNameForRegex } from "./types.js";
 /**
  * Detect "dealt damage" triggers (Arcbond, etc.)
  */
-export function detectDealtDamageTriggers(card: any, permanent: any): TriggeredAbility[] {
+export function detectDealtDamageTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
-  const oracleText = String(card?.oracle_text || '');
+  const { oracleText } = mergeDetectorOracleWithContinuousGrants(String(card?.oracle_text || ''), permanent, gameState);
   const cardName = String(card?.name || 'Unknown');
   const permanentId = permanent?.id || '';
   const controllerId = permanent?.controller || '';

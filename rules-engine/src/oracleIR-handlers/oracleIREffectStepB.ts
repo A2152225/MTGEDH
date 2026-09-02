@@ -260,6 +260,15 @@ export type OracleEffectStepB =
       readonly raw: string;
     }
   | {
+      /** “You may pay any amount of {E}.” Stamps energyPaidThisWay / referenceAmount. */
+      readonly kind: 'pay_energy';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'double_player_counters';
       readonly who: OraclePlayerSelector;
       readonly optional?: boolean;

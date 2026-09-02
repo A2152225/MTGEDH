@@ -20,16 +20,26 @@ function extractActivatedAbilityTexts(oracle: string): string[] {
     .filter((part) => isGrantedActivatedAbilityText(part));
 }
 
-function exileCardsFromState(state: unknown): any[] {
+function exileCardsFromState(state: unknown, sourcePermanentId: string): any[] {
   const record = state as {
     zones?: Record<string, { exile?: readonly unknown[] }>;
     exile?: readonly unknown[];
+    players?: readonly { exile?: readonly unknown[] }[];
+    battlefield?: readonly { id?: string; exiledCards?: readonly unknown[] }[];
   };
   const out: any[] = [];
   if (Array.isArray(record.exile)) out.push(...record.exile);
   const zones = record.zones && typeof record.zones === 'object' ? record.zones : {};
   for (const zone of Object.values(zones)) {
     if (Array.isArray(zone?.exile)) out.push(...zone.exile);
+  }
+  for (const player of record.players || []) {
+    if (Array.isArray(player?.exile)) out.push(...player.exile);
+  }
+  const sourceId = String(sourcePermanentId || '').trim();
+  for (const perm of record.battlefield || []) {
+    if (String(perm?.id || '').trim() !== sourceId) continue;
+    if (Array.isArray(perm?.exiledCards)) out.push(...perm.exiledCards);
   }
   return out;
 }
@@ -43,7 +53,7 @@ export function collectActivatedAbilitiesExiledWithSource(
   if (!sourceId) return [];
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const card of exileCardsFromState(state)) {
+  for (const card of exileCardsFromState(state, sourceId)) {
     const linked = String(
       card?.exiledWithSourceId
       || card?.card?.exiledWithSourceId

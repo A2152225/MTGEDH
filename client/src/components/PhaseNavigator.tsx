@@ -266,6 +266,125 @@ export function PhaseNavigator({
     }
   }, [isDragging, handleMouseMove, handleMouseUp]);
   
+  // Docked status-bar mode: fixed 3-slot carousel (prior | current | next).
+  if (docked) {
+    const phaseCount = PHASE_ORDER.length;
+    const cur = currentIndex >= 0 ? currentIndex : 0;
+    const prevIdx = (cur - 1 + phaseCount) % phaseCount;
+    const nextIdx = (cur + 1) % phaseCount;
+    const prevPhase = PHASE_ORDER[prevIdx];
+    const curPhase = PHASE_ORDER[cur];
+    const nextPhase = PHASE_ORDER[nextIdx];
+    // Next wrapping to Untap is a new turn; skip-to-next-turn is not supported.
+    const nextWrapped = nextIdx <= cur;
+    const nextClickable = canAdvance && !nextWrapped;
+
+    return (
+      <div
+        title={phaseAdvanceBlockReason || undefined}
+        style={{
+          position: 'relative',
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 4,
+          padding: '2px 4px',
+          width: 232,
+          minWidth: 232,
+          maxWidth: 232,
+          boxSizing: 'border-box',
+          color: '#e5e7eb',
+        }}
+      >
+        <button
+          type="button"
+          disabled
+          style={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 3,
+            flex: '0 0 72px',
+            width: 72,
+            boxSizing: 'border-box',
+            padding: '2px 4px',
+            borderRadius: 4,
+            border: '1px solid transparent',
+            background: 'transparent',
+            color: '#6b7280',
+            cursor: 'default',
+            opacity: 0.5,
+            fontSize: 10,
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+          }}
+          title={prevPhase.label}
+        >
+          <span style={{ fontSize: 12 }}>{prevPhase.icon}</span>
+          <span>{prevPhase.label}</span>
+        </button>
+        <button
+          type="button"
+          disabled
+          style={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 3,
+            flex: '0 0 72px',
+            width: 72,
+            boxSizing: 'border-box',
+            padding: '2px 4px',
+            borderRadius: 4,
+            border: '1px solid #10b981',
+            background: 'rgba(16,185,129,0.2)',
+            color: '#34d399',
+            cursor: 'default',
+            fontSize: 10,
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+          }}
+          title={curPhase.label}
+        >
+          <span style={{ fontSize: 12 }}>{curPhase.icon}</span>
+          <span>{curPhase.label}</span>
+        </button>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); nextClickable && handlePhaseClick(nextIdx); }}
+          disabled={!nextClickable}
+          style={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 3,
+            flex: '0 0 72px',
+            width: 72,
+            boxSizing: 'border-box',
+            padding: '2px 4px',
+            borderRadius: 4,
+            border: '1px solid transparent',
+            background: 'rgba(50,50,70,0.35)',
+            color: '#e5e7eb',
+            cursor: nextClickable ? 'pointer' : 'default',
+            fontSize: 10,
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+          }}
+          title={nextClickable ? `Click to advance to ${nextPhase.label}` : nextPhase.label}
+        >
+          <span style={{ fontSize: 12 }}>{nextPhase.icon}</span>
+          <span>{nextPhase.label}</span>
+        </button>
+      </div>
+    );
+  }
   if (!isExpanded) {
     // Collapsed view - just show current phase and expand button
     return (

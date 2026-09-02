@@ -7,6 +7,7 @@ import {
 } from './oracleIRParserSacrificeHelpers';
 import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 import { tryParseAnyPlayerMayCompoundClause } from './oracleIRAnyPlayerMay';
+import { tryParseCounterUnlessPaysClause } from './oracleIRParserCounterUnlessPays';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
@@ -186,6 +187,19 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
+  const forEachOpponentPutMatch = clause.match(/^for\s+each\s+opponent,\s+put\s+(.+?)\s+onto\s+(.+)$/i);
+  if (forEachOpponentPutMatch) {
+    const whatRaw = String(forEachOpponentPutMatch[1] || '')
+      .trim()
+      .replace(/\bfrom that player's graveyard\b/i, "from each opponent's graveyard");
+    return parseMoveZoneStep({
+      whatRaw,
+      toRaw: String(forEachOpponentPutMatch[2] || '').trim(),
+      rawClause,
+      withMeta,
+    });
+  }
+
   const forEachOpponentExileMatch = clause.match(/^for\s+each\s+opponent,\s+exile\s+(.+)$/i);
   if (forEachOpponentExileMatch) {
     return withMeta({
@@ -193,6 +207,11 @@ export function tryParseZoneAndRemovalClause(args: {
       target: parseObjectSelector(String(forEachOpponentExileMatch[1] || '').trim()),
       raw: rawClause,
     });
+  }
+
+  const counterUnlessPays = tryParseCounterUnlessPaysClause({ clause, rawClause, withMeta });
+  if (counterUnlessPays) {
+    return counterUnlessPays;
   }
 
   const destroyMatch = clause.match(/^destroy\s+(.+)$/i);
@@ -226,42 +245,11 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
-    const counterUnlessPaysMatch = clause.match(/^counter\s+target\s+spell\s+unless\s+its\s+controller\s+pays\s+(\{[^}]+\})$/i);
-  if (counterUnlessPaysMatch) {
-    return withMeta({
-      kind: 'unless_pays_mana',
-      who: parsePlayerSelector('its controller'),
-      mana: String(counterUnlessPaysMatch[1] || '').trim(),
-      steps: [
-        withMeta({ kind: 'counter_spell', target: parseObjectSelector('target spell'), raw: rawClause })
-      ],
-      raw: rawClause,
-    });
-  }
-
   const counterUnlessDiscardMatch = clause.match(/^counter\s+(.+?)\s+unless\s+its\s+controller\s+discards?\s+(?:a|an|one|\d+|[a-z]+)\s+cards?$/i);
   if (counterUnlessDiscardMatch && /\b(?:spell|ability|abilities)\b/i.test(String(counterUnlessDiscardMatch[1] || ''))) {
     return withMeta({
       kind: 'counter_spell',
       target: parseObjectSelector(String(counterUnlessDiscardMatch[1] || '').trim()),
-      raw: rawClause,
-    });
-  }
-
-  const counterUnlessVariablePaysMatch = clause.match(/^counter\s+(target\s+.+?)\s+unless\s+its\s+controller\s+pays\s+(.+)$/i);
-  if (counterUnlessVariablePaysMatch && /\b(?:spell|spells|ability|abilities)\b/i.test(String(counterUnlessVariablePaysMatch[1] || ''))) {
-    return withMeta({
-      kind: 'counter_spell',
-      target: parseObjectSelector(String(counterUnlessVariablePaysMatch[1] || '').trim()),
-      raw: rawClause,
-    });
-  }
-
-  const counterContextualUnlessPaysMatch = clause.match(/^counter\s+(that\s+spell\s+or\s+ability|that\s+spell|that\s+ability)\s+unless\s+its\s+controller\s+pays\s+(.+)$/i);
-  if (counterContextualUnlessPaysMatch) {
-    return withMeta({
-      kind: 'counter_spell',
-      target: parseObjectSelector(String(counterContextualUnlessPaysMatch[1] || '').trim()),
       raw: rawClause,
     });
   }
@@ -291,6 +279,44 @@ export function tryParseZoneAndRemovalClause(args: {
     return withMeta({
       kind: 'counter_spell',
       target: parseObjectSelector(String(counterContextualStackObjectMatch[1] || '').trim()),
+      raw: rawClause,
+    });
+  }
+
+  const exileOtherSpellsAndCounterAbilitiesMatch = clause.match(
+    /^exile\s+all\s+other\s+spells\s+and\s+counter\s+all\s+abilities$/i,
+  );
+  if (exileOtherSpellsAndCounterAbilitiesMatch) {
+    return withMeta({
+      kind: 'counter_spell',
+      target: parseObjectSelector('all other spells and all abilities'),
+      raw: rawClause,
+    });
+  }
+
+  const counterAllOtherSpellsMatch = clause.match(/^counter\s+all\s+other\s+spells$/i);
+  if (counterAllOtherSpellsMatch) {
+    return withMeta({
+      kind: 'counter_spell',
+      target: parseObjectSelector('all other spells'),
+      raw: rawClause,
+    });
+  }
+
+  const exileAllOtherSpellsMatch = clause.match(/^exile\s+all\s+other\s+spells$/i);
+  if (exileAllOtherSpellsMatch) {
+    return withMeta({
+      kind: 'counter_spell',
+      target: parseObjectSelector('all other spells'),
+      raw: rawClause,
+    });
+  }
+
+  const counterAllAbilitiesMatch = clause.match(/^counter\s+all\s+abilities$/i);
+  if (counterAllAbilitiesMatch) {
+    return withMeta({
+      kind: 'counter_spell',
+      target: parseObjectSelector('all abilities'),
       raw: rawClause,
     });
   }

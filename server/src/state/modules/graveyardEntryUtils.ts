@@ -74,9 +74,13 @@ export function pushCardToPlayerGraveyardWithReplacements(
     ? buildDiscardProvenanceFields((ctx as any).state, ownerId)
     : {};
 
+  const turnNumber = Number((ctx as any)?.state?.turnNumber ?? (ctx as any)?.state?.turn ?? 0) || 0;
   graveyard.push({
     ...card,
     zone: 'graveyard',
+    putIntoGraveyardFrom: sourceZone,
+    putIntoGraveyardTurn: turnNumber,
+    ...(sourceZone === 'library' ? { milledTurn: turnNumber } : {}),
     ...discardFields,
     ...(options.extraFields || {}),
   });

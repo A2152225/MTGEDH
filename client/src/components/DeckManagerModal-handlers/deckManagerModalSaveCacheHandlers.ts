@@ -58,6 +58,8 @@ export type DeckManagerModalSaveCacheHandlerDeps = {
   detail: SavedDeckDetail | null;
   setDetail: Dispatch<SetStateAction<SavedDeckDetail | null>>;
   setCachingDeckId: Dispatch<SetStateAction<string | null>>;
+  saveVisibility?: 'public' | 'private';
+  accountUserId?: string;
 };
 
 export function createDeckManagerModalSaveCacheHandlers(
@@ -98,6 +100,8 @@ export function createDeckManagerModalSaveCacheHandlers(
     detail,
     setDetail,
     setCachingDeckId,
+    saveVisibility,
+    accountUserId,
   } = deps;
 
   const saveLocal = () => {
@@ -147,9 +151,9 @@ export function createDeckManagerModalSaveCacheHandlers(
   };
 
   const saveLocalDeckToServer = async (name: string, text: string) => {
-    if (!canServer) return;
+    if (!canServer || !accountUserId) return;
     if (gameId) {
-      socket.emit('saveDeck', { gameId, name, list: text, cacheCards });
+      socket.emit('saveDeck', { gameId, name, list: text, cacheCards, visibility: saveVisibility || 'private' });
       return;
     }
     if (!useRestServer) return;
@@ -158,9 +162,10 @@ export function createDeckManagerModalSaveCacheHandlers(
       await saveServerDeckViaApi({
         name,
         text,
-        playerId,
+        playerId: accountUserId || playerId,
         playerName,
         cacheCards,
+        visibility: saveVisibility || 'private',
       });
       await refreshRestServerDecks();
       setServerErr(null);
@@ -217,7 +222,7 @@ export function createDeckManagerModalSaveCacheHandlers(
     if (!localText.trim() || !localName.trim()) { setServerErr('Name & text required'); return; }
     if (gameId) {
       setSaving(true);
-      socket.emit('saveDeck', { gameId, name: localName.trim(), list: localText, cacheCards });
+      socket.emit('saveDeck', { gameId, name: localName.trim(), list: localText, cacheCards, visibility: saveVisibility || 'private' });
       return;
     }
     if (!useRestServer) {
@@ -250,8 +255,9 @@ export function createDeckManagerModalSaveCacheHandlers(
         await updateServerDeckViaApi(editingServerDeckId, {
           name: localName.trim(),
           text: localText,
-          playerId,
+          playerId: accountUserId || playerId,
           cacheCards,
+          visibility: saveVisibility,
         });
         clearEditMode();
         setLocalName('');

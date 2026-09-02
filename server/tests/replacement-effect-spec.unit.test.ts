@@ -537,6 +537,35 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
     });
   });
 
+  it('routes Shared Fate-style opponent-library exile draw replacement through declarative registry', () => {
+    const state = {
+      battlefield: [{
+        id: 'shared_fate_1',
+        controller: 'p2',
+        card: {
+          name: 'Shared Fate',
+          oracle_text:
+            "If a player would draw a card, that player exiles the top card of one of their opponents' libraries face down instead.\nEach player may look at cards they exiled with this enchantment, and they may play lands and cast spells from among those cards.",
+        },
+      }],
+    };
+
+    const result = evaluateDeclarativeReplacementEvent({
+      type: 'card-draw',
+      state,
+      playerId: 'p1',
+      count: 1,
+    }, state);
+
+    expect(result).toMatchObject({
+      applied: false,
+      choiceRequired: true,
+      effectId: 'draw-replaced-by-exile-opponent-library',
+      sourceName: 'Shared Fate',
+      reason: 'draw_replaced_by_exile_opponent_library',
+    });
+  });
+
   it('routes Alms Collector shared draw through declarative registry', () => {
     const state = {
       battlefield: [{

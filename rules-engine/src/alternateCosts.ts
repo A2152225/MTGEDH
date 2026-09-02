@@ -13,6 +13,7 @@
 
 import type { ManaCost } from './types/mana';
 import type { PlayerID } from '../../shared/src';
+import { grantsStaticFreeHandCasts } from './freeHandCastGrant';
 
 /**
  * Alternate cost types
@@ -572,8 +573,8 @@ export function detectExternalAlternateCostSources(
     const oracleText = (perm.card.oracle_text || '').toLowerCase();
     
     // Omniscience: "You may cast spells from your hand without paying their mana costs."
-    if (cardName.includes('omniscience') || 
-        oracleText.includes('cast spells from your hand without paying their mana cost')) {
+    // Exclude this-turn / "if you won N flips this way" riders (Yusri).
+    if (cardName.includes('omniscience') || grantsStaticFreeHandCasts(perm.card.oracle_text || '')) {
       sources.push(createOmniscienceSource(perm.id));
     }
     
@@ -688,6 +689,7 @@ export default {
   createWUBRGAlternateCostSource,
   createBringerCost,
   detectExternalAlternateCostSources,
+  grantsStaticFreeHandCasts,
   hasSelfWUBRGCost,
   getAvailableAlternateCosts,
   WUBRG_COST,

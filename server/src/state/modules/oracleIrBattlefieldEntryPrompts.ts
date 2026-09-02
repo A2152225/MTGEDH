@@ -24,6 +24,12 @@ import {
 } from '../../socket/game-actions-handlers/gameActionsPermanentEntryPrompts.js';
 import { checkAsEntersCopyChoiceForNewPermanents } from './asEntersCopyChoice.js';
 import { applyGraveyardTypeEntryCounterGrants } from './graveyardTypeEntryCounterBonus.js';
+import {
+  applyAsEntersAutomaticReplacementsForPermanent,
+  tryApplyAsEntersAutomaticReplacementsForPermanent,
+} from './oracleIrBattlefieldEntryAutomaticReplacements.js';
+import { applyAsEntersAutomaticReplacementsAfterOracleIR } from './oracleIrAsEntersAutomaticReplacements.js';
+import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { debug } from '../../utils/debug.js';
 
@@ -101,9 +107,12 @@ export function queueBattlefieldEntryReplacementPromptsAfterOracleIR(
   const gameId = String(ctx.gameId || '').trim();
   if (!gameId) return;
 
-  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const io = (ctx as any).io;
   const players = Array.isArray(state?.players) ? state.players : [];
+
+  applyAsEntersAutomaticReplacementsAfterOracleIR(ctx, state, battlefieldIdsBefore);
+
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
 
   for (const permanent of battlefield) {
     const id = String(permanent?.id || '').trim();
@@ -116,6 +125,17 @@ export function queueBattlefieldEntryReplacementPromptsAfterOracleIR(
     const controller = controllerOf(permanent);
     if (!controller) continue;
     applyGraveyardTypeEntryCounterGrants(state, permanent, controller);
+    try {
+      tryApplyAsEntersAutomaticReplacementsForPermanent(
+        state,
+        permanent,
+        controller,
+        applyAsEntersAutomaticReplacementsForPermanent,
+      );
+    } catch (error) {
+      // Unbound / missing helper must not kill the process (tsx transpile-only).
+      debug(2, `[oracleIR] as-enters automatic replacements skipped: ${error}`);
+    }
     const imageUrl = card.image_uris?.small || card.image_uris?.normal;
     const typeLine = String(card.type_line || '').toLowerCase();
     const isLand = typeLine.includes('land');
@@ -148,7 +168,9 @@ export function queueBattlefieldEntryReplacementPromptsAfterOracleIR(
       }
     }
 
-    const sacrificeCost = detectSacrificeUnlessPayETB(cardName, oracleText);
+    const sacrificeCost = !isOracleIrTriggerPrimaryEnabled()
+      ? detectSacrificeUnlessPayETB(cardName, oracleText)
+      : null;
     if (sacrificeCost) {
       const existing = ResolutionQueueManager
         .getStepsForPlayer(gameId, controller as PlayerID)

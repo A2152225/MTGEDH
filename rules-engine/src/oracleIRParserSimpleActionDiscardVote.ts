@@ -403,6 +403,22 @@ export function tryParseSimpleActionDiscardVoteClauses(args: SimpleActionClauseP
   }
 
   {
+    // Silver-border / playtest: "you become this permanent" (Abian, Luvion Usurper).
+    const becomeThisPermanent = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}become(?:s)?\\s+this\\s+(?:permanent|planeswalker|creature)$`, 'i'),
+    );
+    if (becomeThisPermanent) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('you'),
+        effectText: [String(clause || '').trim()],
+        duration: 'static',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
+  {
     const ventureMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}venture(?:s)?\\s+into\\s+(?:the\\s+dungeon|undercity)$`, 'i'));
     if (ventureMatch) {
       return withMeta({

@@ -91,6 +91,15 @@ function playerControlsPermanentNameIncluding(state: any, playerId: PlayerID, na
 export function cardMeetsPlayFromExileConditions(state: any, card: any, playerId: PlayerID): boolean {
   if (!card || typeof card !== 'object') return true;
 
+  const requiredSourceId = String((card as any)?.playFromExileRequiresSourcePermanentId || '').trim();
+  if (requiredSourceId) {
+    const battlefield = Array.isArray((state as any)?.battlefield) ? (state as any).battlefield : [];
+    const sourcePresent = battlefield.some((permanent: any) =>
+      String(permanent?.id || '') === requiredSourceId && permanent?.phasedOut !== true
+    );
+    if (!sourcePresent) return false;
+  }
+
   const requiredPlaneswalkerNamePart = String((card as any)?.playFromExileRequiresControllerPlaneswalkerNameIncludes || '').trim();
   if (requiredPlaneswalkerNamePart) {
     return playerControlsPermanentNameIncluding(state, playerId, requiredPlaneswalkerNamePart, 'planeswalker');
@@ -150,7 +159,14 @@ export function getPlayableExileCardsForPlayer(state: any, playerId: PlayerID): 
       const cardId = String((card as any)?.id || '');
       if (!cardId) continue;
 
-      if (!includeAll) {
+      const requiresLinkedSource = String((card as any)?.playFromExileRequiresSourcePermanentId || '').trim();
+      if (includeAll) {
+        // Own-zone cards still need the linked source in play and this player's play permission
+        // (Shared Fate is face-down in the library owner's exile, not the drawer's).
+        if (requiresLinkedSource && !cardAllowsPlayerToPlayFromExile(card, playerId, currentTurn, state)) {
+          continue;
+        }
+      } else {
         const hasMarker = isCardMarkedPlayableFromExile(state, playerId, cardId, currentTurn);
         const conditionAllows = cardMeetsPlayFromExileConditions(state, card, playerId);
         const cardAllows = cardAllowsPlayerToPlayFromExile(card, playerId, currentTurn, state);

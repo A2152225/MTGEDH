@@ -28,14 +28,15 @@ Coordinator owns this file. Extract chats must not edit it — paste owed rows.
 | `resolutionColorTypeNameChoiceResponseHandlers.ts` | Color / type / card-name choices *(exports TBD)* |
 | `resolutionCommanderZoneResponseHandlers.ts` | Commander zone-change prompts *(exports TBD)* |
 | `resolutionDiscardResponseCoreHandlers.ts`, `resolutionDiscardActivationResumeHandlers.ts`, `resolutionDiscardTriggerUtils.ts` | Discard: apply core, activation resume, trigger utils (phase split example) *(exports TBD)* |
-| `resolutionGraveyardSelectionApplyHandlers.ts` (39.9 KB), `resolutionGraveyardSelectionResumeHandlers.ts`, `resolutionGraveyardSelectionHelperUtils.ts` | Graveyard selection: apply vs resume phase split *(exports TBD)* |
-| `resolutionHideawayZoneDraftPermanentChoiceResponseHandlers.ts` | Hideaway / zone draft / permanent choice *(exports TBD)* |
+| `resolutionGraveyardSelectionApplyHandlers.ts` (39.9 KB), `resolutionGraveyardSelectionResumeHandlers.ts`, `resolutionGraveyardSelectionHelperUtils.ts` | Graveyard selection: apply vs resume phase split. GY→exile apply stamps `exiledWith` / `exiledWithSourceId` from `triggeredAbilitySourcePermanentId` via `exileWithSourceStamp.ts` (not stack-item `effectId`). Persist `confirmGraveyardTargets` carries `exiledWithSourceId` for replay. Triggered GY→exile with remaining effect text is **not** a concrete zone move (`isConcreteTriggeredGraveyardZoneMove`) so Hazel’s Food tail still runs through `executeTriggerEffect`. |
+| `resolutionHideawayZoneDraftPermanentChoiceResponseHandlers.ts` | Hideaway / zone draft / permanent choice. Repeated zone draft honors `attachId` / `enchantedPlayerId` for Auras and Curses. |
 | `resolutionJoinForcesTemptingOfferResponseHandlers.ts`, `resolutionJoinForcesTemptingZoneChoiceResponseHandlers.ts` | Join forces and tempting offer *(exports TBD)* |
 | `resolutionKeywordChoiceHandlers.ts` (35.6 KB) | Keyword choices *(exports TBD)* |
-| `resolutionLibrarySearchHandlers.ts`, `resolutionLibrarySearchStepUtils.ts`, `resolutionLibrarySearchOracleIrChoiceResume.ts`, `resolutionLibrarySearchOracleIrResumeUtils.ts`, `resolutionLibraryLookResponseHandlers.ts` | Library search / look, including Oracle IR resume (leaf-import example) *(exports TBD)* |
+| `resolutionLibrarySearchHandlers.ts`, `resolutionLibrarySearchStepUtils.ts`, `resolutionLibrarySearchOracleIrChoiceResume.ts`, `resolutionLibrarySearchOracleIrResumeUtils.ts`, `resolutionLibraryLookResponseHandlers.ts` | Library search / look, including Oracle IR resume (leaf-import example). `BOTTOM_ORDER` with `oracleIrChoiceStepJson` applies the IR remainder instead of pushing duplicate library cards. Warp World remainder after 903.9a must not re-run reveal/put (empty pending continuation). Remainder cards hydrate names/`image_uris`; client `ScrySurveilModal` bottom_order is a horizontal left→right reorder (`bottomOrderConfirm.ts`). `handleBottomOrderResponse` catches Oracle IR apply failures so a throw cannot leave Pass Priority stuck. |
 | `resolutionModalChoiceResponseHandlers.ts` | Modal choices. Choose-one resume copies `triggeringStackItemId` / `effectData` / caster onto the synthetic trigger so “that spell” still binds. |
 | `resolutionOptionChoiceEarlySpecialsPrefixHandlers.ts` (39.5 KB), `resolutionOptionChoiceEarlySpecialsConfirmCastPaymentHandlers.ts` (36.9 KB) | Early `handleOptionChoiceResponse` specials; try-handle boolean prefix pattern. ConfirmCastPayment reflexive consume `validateLifePayment` passes `ctx` + `controllerId`. Optional-payment path must not overwrite live `ctx.bumpSeq` with `game.bumpSeq` (that cycle blew the stack on shock-land pay-2-life). |
 | `resolutionOptionChoiceSkipDrawReplacementHandlers.ts` | Island Sanctuary skip-draw OPTION_CHOICE (`tryHandleSkipDrawReplacementChoice`). |
+| `resolutionOptionChoiceOpponentLibraryDrawReplacementHandlers.ts` | Shared Fate-family opponent-library draw replacement OPTION_CHOICE (`tryHandleOpponentLibraryDrawReplacementChoice`). |
 | `resolutionPaymentManaUtils.ts`, `resolutionWardUtils.ts` | Mana payment and ward helpers *(exports TBD)* |
 | `resolutionProcessPendingHandlers.ts` | Pending-resolution processing *(exports TBD)* |
 | `resolutionPutCardOntoBattlefieldUtils.ts`, `resolutionCloneQueuedPromptUtils.ts`, `resolutionStepTypeSpecificFieldsUtils.ts`, `resolutionSyntheticCastSocketUtils.ts` | Shared step/prompt utilities *(exports TBD)* |
@@ -59,7 +60,7 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `manaPaymentChoicePrefixHandlers.ts` | MANA_PAYMENT_CHOICE ward / sacrifice-unless-pay prefix. Entry: `tryHandleManaPaymentChoiceWardAndSacrificePrefix`. |
 | `manaPaymentChoiceActivationHandlers.ts` | MANA_PAYMENT_CHOICE activation-payment branch. Entry: `tryHandleManaPaymentChoiceActivation`. |
 | `manaPaymentChoicePhyrexianHandlers.ts` | MANA_PAYMENT_CHOICE Phyrexian tail. Entry: `handleManaPaymentChoicePhyrexianActivation`. |
-| `manaPaymentSpellCastResponseHandlers.ts` | MANA_PAYMENT_CHOICE spell-cast payment. Entry: `handleSpellPaymentChoiceResponse`. |
+| `manaPaymentSpellCastResponseHandlers.ts` | MANA_PAYMENT_CHOICE spell-cast payment. Entry: `handleSpellPaymentChoiceResponse`. AI cancel (could not assemble payment) records `rememberAIFailedSpellCast` so `findCastableSpells` skips that card for the rest of the turn. |
 | `modeSelectionCastResumeHandlers.ts` | MODE_SELECTION modal/spree/tiered/overload cast resume. |
 | `modeSelectionGenericChoiceHandlers.ts` | MODE_SELECTION generic pick + target recomputation. |
 | `modeSelectionTargetOptionBuilders.ts` | Mode-aware target option/spec builders. |
@@ -93,7 +94,7 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `optionChoiceWardPaymentHandlers.ts` | Ward pay-or-counter OPTION_CHOICE. |
 | `optionChoicePayOrElseHandlers.ts` | Sacrifice-unless-pay, Force of Will pitch, opponent-may-pay. |
 | `optionChoiceCastFromGraveyardPrompts.ts` | Play/cast from graveyard OPTION_CHOICE. |
-| `optionChoiceCastFromExilePrompts.ts` | Cast-from-exile + Dance with Calamity. |
+| `optionChoiceCastFromExilePrompts.ts` | Cast-from-exile + Dance with Calamity. A generic “cast” choice that does not start a cast (no stack growth, card still in exile, no pending payment/target) is treated as the decline destination instead of re-queued, so Possibility Storm AI cannot loop `option_choice` forever. |
 | `optionChoiceReflexiveExileWhenYouDoHandlers.ts` | Reflexive exile when-you-do that move then push. |
 | `optionChoiceReflexiveWhenYouDoQueueHandlers.ts` | Reflexive when-you-do that only queue the follow-up. |
 | `optionChoiceDungeonRoomPrompts.ts` | Dungeon room penalty / free-cast / Throne. |
@@ -116,9 +117,9 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `aiSimpleChoiceStepResponses.ts` | AI color/vote/clash/proliferate/riot/…. |
 | `aiCostAndExploreStepResponses.ts` | AI station/life/explore/mode/squad/…. |
 | `aiTargetSelectionStepResponses.ts` | AI fight/tap-untap/counters/mutate. |
-| `aiHandAndDraftStepResponses.ts` | AI X / mana-color / hand-to-bottom / hideaway / draft. |
+| `aiHandAndDraftStepResponses.ts` | AI X / mana-color / hand-to-bottom / hideaway / draft. Auction Auras with multiple hosts send `{ cardId, attachId }`. |
 | `resolutionAutoResolveGate.ts` | `shouldAutoResolveResolutionStep` — AI seats auto-answer STEP_ADDED prompts. Humans (including idle Smart Pass) keep a fresh per-step clock for APNAP choices such as Kynaios; timeout auto-completes those choices. Direct parent import. |
-| `xValueSelectionResponseHandlers.ts` | X_VALUE_SELECTION (spell-cast X + Blight X). On deps. |
+| `xValueSelectionResponseHandlers.ts` | X_VALUE_SELECTION (spell-cast X, delayed up-to-N draw, Blight X). On deps. Delayed `delayedDrawUpTo` draws the chosen 0..N. |
 | `triggerOrderResponseHandlers.ts` | TRIGGER_ORDER. On deps. |
 | `extortPaymentResponseHandlers.ts` | EXTORT_PAYMENT. On deps. Do not merge into `resolutionKeywordChoiceHandlers.ts`. |
 | `mayAbilityAndOptionalTriggerHandlers.ts` | May-ability + optional triggered “you may” + auto-decline drain. On deps. |
@@ -126,7 +127,7 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `spellCastPaymentResumeHandlers.ts` | `resumePlayerSpellCastAfterPayment` / `resumeAISpellCastAfterPayment`. |
 | `targetSelectionResponseHandlers.ts` | Remaining TARGET_SELECTION dispatcher. Direct parent import. |
 | `optionChoiceResponseHandlers.ts` | Remaining OPTION_CHOICE dispatcher. Direct parent import. |
-| `stepResponseHandlers.ts` | `handleStepResponse` core. Direct parent import. |
+| `stepResponseHandlers.ts` | `handleStepResponse` core. Direct parent import. After every step response (including shock / check-land), `processPendingOracleIrCompoundResume` drains leftover IR steps persisted when as-enters prompts grew the queue. |
 | `registerResolutionHandlers.ts` | Socket register (query/submit/cancel/preference/disconnect). Parent re-export. |
 | `sanitizeStepForClient.ts` | Client sanitizer. Copies `causeName` / `causeImage` / `causeLabel` from the triggering spell (or explicit step fields) so choose-one prompts can show what caused them. Does not send `triggerData`. Parent re-export. |
 | `emitResolutionStepPrompt.ts` | Prompt emit. Parent re-export. |

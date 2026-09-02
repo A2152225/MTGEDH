@@ -26,6 +26,7 @@ import {
   getChosenObjectIds,
   getTargetObjectId,
   getTargetPlayerId,
+  ownerIdFromMovedCardSnapshots,
   resolveUniqueChosenAnyGraveyardTargetId,
 } from './oracleIRExecutorMoveZoneReferenceResolvers';
 import {
@@ -35,6 +36,13 @@ import {
   resolveMoveZoneSingleTargetCriteriaWithX,
 } from './oracleIRExecutorMoveZoneContextualCardResolvers';
 import { buildAppliedResult, shuffleCardArray } from './oracleIRExecutorMoveZoneStepResultBuilders';
+import { readPlayerZoneCards, writePlayerZoneCards } from './oracleIRExecutorPlayerUtils';
+import { resolveRevealedThisWayCardPile } from './oracleIRLedgerCardAccess';
+import {
+  orderRestIdsForLibraryBottom,
+  parseWarpWorldSelectorMaps,
+  trySkipRevealedThisWayRestAnyOrder,
+} from './oracleIRExecutorWarpWorldInteractive';
 
 export function tryApplyMoveZoneGuardsFromAnotherFromGraveyard(args: MoveZoneGuardArgs): MoveZoneStepHandlerResult | undefined {
   const { state, step, ctx, runtime, nextState, log, controllerId, effectiveWithCounters, battlefieldEntryOverrides, finalizeAppliedResult, attachmentResolution } = args;
@@ -448,27 +456,68 @@ export function tryApplyMoveZoneGuardsFromAnotherFromGraveyard(args: MoveZoneGua
         .map(id => String(id || '').trim())
         .filter(Boolean)
     );
-    const candidateIds = resolveContextualCardIdsInZones(nextState, ctx, runtime, [
-      'library',
-      'exile',
-      'hand',
-      'graveyard',
-    ]);
-    const restIds = candidateIds.filter(
-      id => !preferredIds.has(id) && !movedBattlefieldIds.has(id)
-    );
+    const revealedPile = resolveRevealedThisWayCardPile(ctx, step);
+    const remainderMovedCards = revealedPile.length > 0
+      ? revealedPile
+      : Array.isArray(runtime?.lastMovedCards)
+        ? runtime.lastMovedCards
+        : ctx.lastMovedCards;
+    const restIds = (() => {
+      if (revealedPile.length > 0) {
+        const ids: string[] = [];
+        for (const card of revealedPile) {
+          const cardId = String(card?.id || '').trim();
+          if (!cardId) continue;
+          const ownerId = String(card?.owner || card?.ownerId || '').trim();
+          const location = findBoundCardZoneLocation(nextState, cardId, ownerId || undefined);
+          if (!location || location.zone === 'hand') continue;
+          ids.push(cardId);
+        }
+        return ids;
+      }
+      const candidateIds = resolveContextualCardIdsInZones(nextState, ctx, runtime, [
+        'library',
+        'exile',
+        'hand',
+        'graveyard',
+      ]);
+      return candidateIds.filter(
+        (id) => !preferredIds.has(id) && !movedBattlefieldIds.has(id),
+      );
+    })();
     let workingState = nextState;
     const combinedLog: string[] = [];
     if (step.to === 'library') {
       const placement = getLibraryPlacement(step) || 'bottom';
       const randomOrder =
         step.order === 'random' || /\bin a random order\b/i.test(String(step.raw || ''));
+      const remainderSkip = trySkipRevealedThisWayRestAnyOrder({
+        state: nextState,
+        ctx,
+        restIds,
+        stepOrder: randomOrder ? 'random' : step.order,
+        stepRaw: String(step.raw || ''),
+      });
+      if (remainderSkip) return remainderSkip;
+      const maps = parseWarpWorldSelectorMaps(ctx);
 
       const remainderIdsByOwnerInLibrary = new Map<string, string[]>();
       const remainderIdsByOwnerOutsideLibrary = new Map<string, string[]>();
+      const remainingHints = Array.isArray(remainderMovedCards) ? [...remainderMovedCards] : [];
       for (const cardId of restIds) {
-        const location = findBoundCardZoneLocation(workingState, cardId);
+        const hintIdx = remainingHints.findIndex(
+          (card: any) => String(card?.id || '').trim() === String(cardId || '').trim(),
+        );
+        const hint = hintIdx >= 0 ? remainingHints.splice(hintIdx, 1)[0] : undefined;
+        const location = findBoundCardZoneLocation(
+          workingState,
+          cardId,
+          String(hint?.owner || hint?.ownerId || '').trim()
+            || ownerIdFromMovedCardSnapshots(remainderMovedCards, cardId),
+        );
         if (!location) continue;
+        // A same-id copy still in hand is not the revealed library leftover.
+        if (location.zone === 'hand') continue;
         const bucket =
           location.zone === 'library' ? remainderIdsByOwnerInLibrary : remainderIdsByOwnerOutsideLibrary;
         const existing = bucket.get(location.playerId) || [];
@@ -480,18 +529,29 @@ export function tryApplyMoveZoneGuardsFromAnotherFromGraveyard(args: MoveZoneGua
         const player = workingState.players.find((entry: any) => entry.id === playerId) as any;
         if (!player) continue;
         const wanted = new Set(ids);
-        const library = Array.isArray(player.library) ? player.library : [];
+        const library = readPlayerZoneCards(workingState, playerId as PlayerID, player, 'library');
         const remainderCards = library.filter((card: any) => wanted.has(String(card?.id || '').trim()));
         const keptLibrary = library.filter((card: any) => !wanted.has(String(card?.id || '').trim()));
-        const orderedRemainder = randomOrder ? shuffleCardArray(remainderCards) : remainderCards;
+        let orderedRemainder = remainderCards;
+        if (randomOrder) {
+          orderedRemainder = shuffleCardArray(remainderCards);
+        } else if ((maps.libraryBottomOrderByPlayer[playerId] || []).length > 0) {
+          const byId = new Map(
+            remainderCards.map((card: any) => [String(card?.id || '').trim(), card] as const),
+          );
+          orderedRemainder = orderRestIdsForLibraryBottom(
+            workingState,
+            ids,
+            maps.libraryBottomOrderByPlayer,
+            step.order,
+            remainderMovedCards,
+          )
+            .map((id) => byId.get(id))
+            .filter(Boolean);
+        }
         const nextLibrary =
           placement === 'top' ? [...orderedRemainder, ...keptLibrary] : [...keptLibrary, ...orderedRemainder];
-        workingState = {
-          ...(workingState as any),
-          players: workingState.players.map((entry: any) =>
-            entry.id === playerId ? { ...entry, library: nextLibrary } : entry
-          ),
-        } as GameState;
+        writePlayerZoneCards(workingState, playerId as PlayerID, player, 'library', nextLibrary);
         combinedLog.push(`${playerId} put ${ids.length} revealed card(s) on the ${placement} of their library`);
       }
 

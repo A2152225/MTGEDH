@@ -5,8 +5,24 @@
 // Leaf must not import mana-check.ts or mana-check-handlers/index.ts.
 
 import type { PlayerID } from "../../../../../shared/src/index.js";
-import { getCommanderColorIdentity } from "../mana-abilities.js";
+import { getCommanderColorIdentity, getLandTopLayerProducibleColorSymbols } from "../mana-abilities.js";
 import { stripReminderTextFromOracle } from "./manaCheckOracleText.js";
+
+const SYMBOL_TO_COLOR_KEY: Record<string, string> = {
+  W: 'white',
+  U: 'blue',
+  B: 'black',
+  R: 'red',
+  G: 'green',
+  C: 'colorless',
+};
+
+function addLandTopLayerColors(state: any, permanent: any, into: Set<string>): void {
+  for (const symbol of getLandTopLayerProducibleColorSymbols(state, permanent)) {
+    const colorKey = SYMBOL_TO_COLOR_KEY[symbol];
+    if (colorKey) into.add(colorKey);
+  }
+}
 
 /**
  * Helper function to get colors that opponent permanents can produce
@@ -41,8 +57,17 @@ export function getOpponentPermanentColors(state: any, playerId: PlayerID, onlyL
     const oracleText = stripReminderTextFromOracle(permanent.card.oracle_text || '').toLowerCase();
     const counters = permanent.counters || {};
     
-    // Filter to only lands if requested (for cards like Exotic Orchard that say "land")
-    if (onlyLands && !typeLine.includes("land")) continue;
+    // Lands (including Ashaya creature-lands): printed types, grants, Command Tower
+    // identity — never recurse into another Exotic Orchard / Fellwar / Reflecting Pool.
+    if (onlyLands) {
+      addLandTopLayerColors(state, permanent, opponentColors);
+      continue;
+    }
+
+    if (typeLine.includes("land")) {
+      addLandTopLayerColors(state, permanent, opponentColors);
+      continue;
+    }
     
     // Check basic lands and land subtypes first (Rule 305.6)
     const isBasicOrSubtype = /^(plains|island|swamp|mountain|forest)$/i.test(cardName) ||
@@ -181,7 +206,15 @@ export function getControlledPermanentColors(
     const oracleText = stripReminderTextFromOracle(permanent.card.oracle_text || '').toLowerCase();
     const counters = permanent.counters || {};
 
-    if (onlyLands && !typeLine.includes('land')) continue;
+    if (onlyLands) {
+      addLandTopLayerColors(state, permanent, controlledColors);
+      continue;
+    }
+
+    if (typeLine.includes('land')) {
+      addLandTopLayerColors(state, permanent, controlledColors);
+      continue;
+    }
 
     // Check basic lands and land subtypes first (Rule 305.6)
     const isBasicOrSubtype = /^(plains|island|swamp|mountain|forest)$/i.test(cardName) ||

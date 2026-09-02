@@ -10,6 +10,13 @@ import type { TriggerPromptData } from "../components/TriggeredAbilityModal";
 import type { UndoBoundaryPreview, UndoRequestData } from "../components/UndoRequestModal";
 import type { OrderingMode, ReplacementEffectItem } from "../components/ReplacementEffectOrderModal";
 import { canCreatureAttackNow, isCurrentlyCreature } from "../utils/creatureUtils";
+import {
+  applyStashedIgnoredCardsIfMatch,
+  payloadMatchesViewer,
+  shouldSeedIgnoredCardsFromView,
+  stashIgnoredCardsPayload,
+  type IgnoredCardsUpdatedPayload,
+} from "../utils/ignoredCardsSync";
 
 type ReplacementEffectMode = "minimize" | "maximize" | "custom" | "auto";
 
@@ -576,22 +583,57 @@ export function useAppPlaySocketEffects(deps: AppPlaySocketEffectDeps) {
     };
   }, [safeView?.id]);
 
-  // Ignored cards update listener (for auto-pass and playability checks)
+  const lastIgnoredCardsPayloadRef = React.useRef<IgnoredCardsUpdatedPayload | null>(null);
+  const appliedIgnoredCardsGameRef = React.useRef<string | null>(null);
+  const youRef = React.useRef(you);
+  const viewIdRef = React.useRef(safeView?.id);
+  youRef.current = you;
+  viewIdRef.current = safeView?.id;
+
+  // Stash ignoredCardsUpdated so a join emit is not dropped before you/safeView.id exist.
   React.useEffect(() => {
     const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id && payload.playerId === you) {
-        setIgnoredCards(payload.ignoredCards || []);
+      const stashed = stashIgnoredCardsPayload(lastIgnoredCardsPayloadRef, payload);
+      if (!stashed) return;
+      if (payloadMatchesViewer(stashed, viewIdRef.current, youRef.current)) {
+        setIgnoredCards(stashed.ignoredCards || []);
+        appliedIgnoredCardsGameRef.current = stashed.gameId ?? null;
       }
     };
     socket.on("ignoredCardsUpdated" as any, handler);
     return () => {
       socket.off("ignoredCardsUpdated" as any, handler);
     };
+  }, []);
+
+  React.useEffect(() => {
+    const next = applyStashedIgnoredCardsIfMatch(lastIgnoredCardsPayloadRef, safeView?.id, you);
+    if (next) {
+      setIgnoredCards(next);
+      appliedIgnoredCardsGameRef.current = safeView?.id ?? null;
+    }
   }, [safeView?.id, you]);
 
-  // Drop stale ignored-card UI while disconnected; server resyncs on rejoin.
+  const viewIgnoredMap = (safeView as any)?.ignoredCardsForAutoPass;
+  React.useEffect(() => {
+    if (!safeView?.id || !you) return;
+    setIgnoredCards((prev: any[]) => {
+      const seeded = shouldSeedIgnoredCardsFromView({
+        gameId: safeView.id,
+        playerId: you,
+        railEmpty: !Array.isArray(prev) || prev.length === 0,
+        appliedLiveForGameId: appliedIgnoredCardsGameRef.current,
+        viewMap: viewIgnoredMap?.[you],
+      });
+      return seeded ?? prev;
+    });
+  }, [safeView?.id, you, viewIgnoredMap]);
+
+  // Drop stale ignored-card UI while disconnected; join/requestState/view seed refill.
   React.useEffect(() => {
     if (!connected) {
+      lastIgnoredCardsPayloadRef.current = null;
+      appliedIgnoredCardsGameRef.current = null;
       setIgnoredCards([]);
     }
   }, [connected]);

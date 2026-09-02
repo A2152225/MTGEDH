@@ -5,7 +5,6 @@ import type {
   PlayerStepHandlerResult,
   UnlessDiscardsResult,
   UnlessPaysLifeResult,
-  UnlessPaysManaResult,
 } from './oracleIRExecutorPlayerStepTypes';
 export type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
 import { getNormalizedChosenIds } from './oracleIRExecutorPlayerStepShared';
@@ -13,8 +12,6 @@ import { applyDiscardStep } from './oracleIRExecutorPlayerDiscardStep';
 import {
   type OracleIRReplayMutation,
 } from './oracleIRReplayMutations';
-import { payManaCost } from './spellCasting';
-import { createEmptyManaPool } from './types/mana';
 import {
   adjustLife,
   getCardManaValue,
@@ -292,9 +289,6 @@ export {
   buildSearchLibrarySelectionOptions,
   getChosenObjectIds,
 } from './oracleIRExecutorPlayerSelectionOptions';
-
-import { parseSupportedManaCostString } from './oracleIRExecutorPlayerGraveyardPermissionHelpers';
-
 
 export {
   applyCreateEmblemStep,
@@ -754,103 +748,7 @@ export function evaluateUnlessDiscardsStep(
   };
 }
 
-export function evaluateUnlessPaysManaStep(
-  state: GameState,
-  step: Extract<OracleEffectStep, { kind: 'unless_pays_mana' }>,
-  ctx: OracleIRExecutionContext
-): UnlessPaysManaResult {
-  const players = resolvePlayers(state, step.who, ctx);
-  if (players.length !== 1) {
-    return {
-      applied: false,
-      message: `Skipped unless-pays-mana step (needs player choice): ${step.raw}`,
-      reason: 'player_choice_required',
-      options: {
-        classification: 'player_choice',
-        metadata: {
-          selectorKind: step.who.kind,
-          candidateCount: players.length,
-          manaCost: step.mana,
-        },
-      },
-    };
-  }
-
-  const payerId = players[0];
-  const payer = (state.players || []).find(player => String(player?.id || '').trim() === String(payerId || '').trim()) as any;
-  if (!payer) {
-    return {
-      applied: false,
-      message: `Skipped unless-pays-mana step (unsupported player selector): ${step.raw}`,
-      reason: 'unsupported_player_selector',
-    };
-  }
-
-  const manaCost = parseSupportedManaCostString(step.mana, Number(ctx.xValue));
-  if (!manaCost) {
-    return {
-      applied: false,
-      message: `Skipped unless-pays-mana step (unsupported mana cost): ${step.raw}`,
-      reason: 'failed_to_apply',
-      options: { classification: 'ambiguous' },
-    };
-  }
-
-  const explicitChoice =
-    ctx.unlessPaysManaChoice === 'pay' || ctx.unlessPaysManaChoice === 'decline'
-      ? ctx.unlessPaysManaChoice
-      : (ctx.selectorContext?.unlessPaysManaChoice === 'pay' || ctx.selectorContext?.unlessPaysManaChoice === 'decline'
-          ? ctx.selectorContext.unlessPaysManaChoice
-          : (ctx.unlessPaysLifeChoice === 'pay' || ctx.unlessPaysLifeChoice === 'decline'
-              ? ctx.unlessPaysLifeChoice
-              : (ctx.selectorContext?.unlessPaysLifeChoice === 'pay' || ctx.selectorContext?.unlessPaysLifeChoice === 'decline'
-                  ? ctx.selectorContext.unlessPaysLifeChoice
-                  : undefined)));
-
-  const manaPoolRecord: Record<PlayerID, any> = { ...((((state as any).manaPool || {}) as any) || {}) };
-  const currentPool = manaPoolRecord[payerId] || createEmptyManaPool();
-  const payment = payManaCost(currentPool, manaCost);
-  const canPayMana = Boolean(payment.success && payment.remainingPool);
-
-  if (canPayMana) {
-    if (explicitChoice === 'pay') {
-      manaPoolRecord[payerId] = payment.remainingPool;
-      return {
-        applied: true,
-        shouldApplyNestedSteps: false,
-        state: { ...(state as any), manaPool: manaPoolRecord } as any,
-        log: [`Resolved unless-pays-mana step (payer chose to pay ${step.mana}): ${step.raw}`],
-      };
-    }
-
-    if (explicitChoice === 'decline') {
-      return {
-        applied: true,
-        shouldApplyNestedSteps: true,
-        log: [`Resolved unless-pays-mana step (payer declined to pay ${step.mana}): ${step.raw}`],
-      };
-    }
-
-    return {
-      applied: false,
-      message: `Skipped unless-pays-mana step (opponent choice required): ${step.raw}`,
-      reason: 'player_choice_required',
-      options: {
-        classification: 'player_choice',
-        metadata: {
-          payerId,
-          manaCost: step.mana,
-        },
-      },
-    };
-  }
-
-  return {
-    applied: true,
-    shouldApplyNestedSteps: true,
-    log: [`Resolved unless-pays-mana step (payer cannot pay ${step.mana}): ${step.raw}`],
-  };
-}
+export { evaluateUnlessPaysManaStep } from './oracleIRExecutorUnlessPaysManaStep';
 
 function readPlayerLifeTotal(state: GameState, playerId: string): number {
   const normalizedId = String(playerId || '').trim();

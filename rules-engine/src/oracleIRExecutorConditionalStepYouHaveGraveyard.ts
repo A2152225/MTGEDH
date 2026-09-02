@@ -269,6 +269,17 @@ export function tryEvaluateConditionalYouHaveGraveyard(
   if (normalizedRaw === 'no mana was spent to cast it') {
     if (ctx.noManaSpentToCast === true || (ctx.selectorContext as any)?.noManaSpentToCast === true) return true;
     if (ctx.noManaSpentToCast === false || (ctx.selectorContext as any)?.noManaSpentToCast === false) return false;
+    const targetSpellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
+    if (targetSpellId) {
+      const stackItem = ((nextState as any)?.stack || []).find(
+        (entry: any) => String(entry?.id || '').trim() === targetSpellId,
+      );
+      if (stackItem?.castWithoutPayingManaCost === true || stackItem?.card?.castWithoutPayingManaCost === true) {
+        return true;
+      }
+      const spellSpent = getAmountOfManaSpent(stackItem);
+      if (spellSpent !== null) return spellSpent === 0;
+    }
     const sourceRef = getContextSourceObject(ctx, (idRaw: string) =>
       findObjectByIdInState(nextState, battlefield, idRaw)
     );
@@ -487,6 +498,17 @@ export function tryEvaluateConditionalYouHaveGraveyard(
 
   if (normalizedRaw === 'you win the flip') {
     return typeof ctx.wonCoinFlip === 'boolean' ? ctx.wonCoinFlip : null;
+  }
+
+  {
+    const wonFlipsThisWay = normalizedRaw.match(/^you won (five|\d+) flips? this way$/i);
+    if (wonFlipsThisWay) {
+      const threshold = parseSmallNumberWord(String(wonFlipsThisWay[1] || '').trim());
+      if (threshold === null) return null;
+      const wins = Number((ctx as { coinFlipWinsThisWay?: number }).coinFlipWinsThisWay);
+      if (!Number.isFinite(wins)) return false;
+      return wins >= threshold;
+    }
   }
 
   if (normalizedRaw === 'you lose the flip') {

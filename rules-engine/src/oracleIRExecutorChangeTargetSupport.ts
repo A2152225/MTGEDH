@@ -87,6 +87,7 @@ function collectRetargetCandidates(
   spell: any,
   controllerId: string,
   excludeText: string,
+  ctx?: OracleIRExecutionContext,
 ): Array<{ id: string; type?: string; [key: string]: unknown }> {
   const battlefield = Array.isArray((state as any)?.battlefield) ? ((state as any).battlefield as any[]) : [];
   const players = Array.isArray((state as any)?.players) ? ((state as any).players as any[]) : [];
@@ -108,28 +109,48 @@ function collectRetargetCandidates(
     })
     .filter((target): target is { id: string; type?: string } => Boolean(target?.id));
 
+  const oracleText = String(spell?.card?.oracle_text || spell?.oracle_text || spell?.activatedAbilityText || '');
+  const isAnyTarget = /\bany target\b/i.test(oracleText);
+
   let candidates = fromMetadata;
+  if (candidates.length === 0 && typeof ctx?.collectLegalRetargetCandidates === 'function') {
+    candidates = ctx.collectLegalRetargetCandidates(state, spell, String(spell?.controller || controllerId))
+      .map((target) => {
+        const id = normalizeId(target);
+        if (!id) return null;
+        return {
+          ...target,
+          id,
+          type: String(target?.type || (currentLooksLikePlayer ? 'player' : 'permanent')).trim() || undefined,
+        };
+      })
+      .filter((target): target is { id: string; type?: string } => Boolean(target?.id));
+  }
   if (candidates.length === 0) {
-    if (currentLooksLikePlayer) {
-      candidates = players
-        .map((player) => {
-          const id = normalizeId(player?.id);
-          return id ? { id, type: 'player', name: String(player?.name || id) } : null;
-        })
-        .filter((target): target is { id: string; type: string; name: string } => Boolean(target));
+    const playerCandidates = players
+      .map((player) => {
+        const id = normalizeId(player?.id);
+        return id ? { id, type: 'player', name: String(player?.name || id) } : null;
+      })
+      .filter((target): target is { id: string; type: string; name: string } => Boolean(target));
+    const permanentCandidates = battlefield
+      .map((permanent) => {
+        const id = normalizeId(permanent?.id);
+        return id
+          ? {
+              id,
+              type: 'permanent',
+              name: String(permanent?.card?.name || permanent?.name || id),
+            }
+          : null;
+      })
+      .filter((target): target is { id: string; type: string; name: string } => Boolean(target));
+    if (isAnyTarget) {
+      candidates = [...playerCandidates, ...permanentCandidates];
+    } else if (currentLooksLikePlayer) {
+      candidates = playerCandidates;
     } else {
-      candidates = battlefield
-        .map((permanent) => {
-          const id = normalizeId(permanent?.id);
-          return id
-            ? {
-                id,
-                type: 'permanent',
-                name: String(permanent?.card?.name || permanent?.name || id),
-              }
-            : null;
-        })
-        .filter((target): target is { id: string; type: string; name: string } => Boolean(target));
+      candidates = permanentCandidates;
     }
   }
 
@@ -145,17 +166,37 @@ function pickRandomCandidate<T>(candidates: readonly T[]): T | null {
   return candidates[index] ?? candidates[0]!;
 }
 
-function applyCandidateToSpell(spell: any, candidate: { id: string; type?: string; [key: string]: unknown }): any {
+function candidateAsTarget(
+  existing: any,
+  candidate: { id: string; type?: string; [key: string]: unknown },
+): any {
+  if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+    return { ...existing, id: candidate.id };
+  }
+  return candidate && typeof candidate === 'object'
+    ? { ...candidate, id: candidate.id, type: candidate.type || 'permanent' }
+    : { id: candidate.id, type: candidate.type || 'permanent' };
+}
+
+function applyCandidatesToSpellSlots(
+  spell: any,
+  candidates: ReadonlyArray<{ id: string; type?: string; [key: string]: unknown }>,
+): any {
   const existingTargets = Array.isArray(spell?.targets) ? spell.targets : [];
-  const existing = existingTargets.find((target: any) => normalizeId(target) === candidate.id);
-  const nextTarget = existing && typeof existing === 'object' && !Array.isArray(existing)
-    ? { ...existing, id: candidate.id }
-    : candidate && typeof candidate === 'object'
-      ? { ...candidate, id: candidate.id, type: candidate.type || 'permanent' }
-      : { id: candidate.id, type: candidate.type || 'permanent' };
+  if (existingTargets.length <= 1) {
+    const chosen = pickRandomCandidate(candidates);
+    if (!chosen) return spell;
+    return {
+      ...spell,
+      targets: [candidateAsTarget(existingTargets[0], chosen)],
+    };
+  }
   return {
     ...spell,
-    targets: [nextTarget],
+    targets: existingTargets.map((slot: any) => {
+      const chosen = pickRandomCandidate(candidates);
+      return chosen ? candidateAsTarget(slot, chosen) : slot;
+    }),
   };
 }
 
@@ -211,15 +252,18 @@ export function applyRandomRetargetToStackSpells(
     const stack = getStackItems((nextState as any)?.stack);
     const spell = stack.find((item) => normalizeId((item as any)?.id) === spellId);
     if (!spell) continue;
-    const candidates = collectRetargetCandidates(nextState, spell, controllerId, excludeText);
-    const chosen = pickRandomCandidate(candidates);
-    if (!chosen) {
+    const candidates = collectRetargetCandidates(nextState, spell, controllerId, excludeText, ctx);
+    if (candidates.length === 0) {
       log.push(`No legal random targets for ${spellId}; left existing targets unchanged`);
       changed = true;
       continue;
     }
-    nextState = replaceStackItem(nextState, spellId, applyCandidateToSpell(spell, chosen));
-    log.push(`Reselected targets of ${spellId} at random to ${chosen.id}`);
+    const nextSpell = applyCandidatesToSpellSlots(spell, candidates);
+    nextState = replaceStackItem(nextState, spellId, nextSpell);
+    const nextIds = (Array.isArray(nextSpell?.targets) ? nextSpell.targets : [])
+      .map((target: any) => normalizeId(target))
+      .filter(Boolean);
+    log.push(`Reselected targets of ${spellId} at random to ${nextIds.join(', ') || '(unchanged)'}`);
     changed = true;
   }
 

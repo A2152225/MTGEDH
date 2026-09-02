@@ -3,6 +3,7 @@
  * Cluster: chosen-card / put-this-way / compound graveyard what-parsers and movers
  * from parseMoveZoneTheChosenCards through parseMoveZoneAnyNumberCardsTotalMvXFromYourGraveyard.
  * Public entry symbols: parseMoveZoneTheChosenCards, exileOneMatchingCardFromEachPlayersGraveyard,
+ * putOneMatchingCardFromEachOpponentsGraveyardOntoBattlefield,
  * putAllMatchingCriteriaFromGraveyardOntoBattlefield, moveUnplayedExileCardsToGraveyard.
  */
 import type { GameState, PlayerID } from '../../shared/src';
@@ -21,7 +22,9 @@ import { parseMoveZoneSingleTargetCriteria } from './oracleIRExecutorZoneOpsSing
 import type { MoveZoneSingleTargetCriteria } from './oracleIRExecutorZoneOpsSingleTargetCriteria';
 import {
   cardMatchesMoveZoneSingleTargetCriteria,
+  graveyardThisTurnCriteriaFromQualifier,
   normalizeCardNameForCriteria,
+  stripPutIntoGraveyardThisTurnQualifier,
 } from './oracleIRExecutorZoneOpsSingleTargetMatchers';
 import { moveTargetedCardFromGraveyard } from './oracleIRExecutorZoneOpsTargetedMovers';
 import { resolveFirstMatchingCardIdFromPlayerGraveyard } from './oracleIRExecutorZoneOpsUpToCountWhatParsers';
@@ -88,23 +91,40 @@ export function parseMoveZoneSingleCardFromEachPlayersGraveyard(what: {
   readonly raw?: string;
 }): MoveZoneSingleTargetCriteria | null {
   if (what.kind !== 'raw') return null;
-  const raw = String((what as any).text || '').trim().replace(/[.\s]+$/g, '');
-  if (/^a card from each player's graveyard$/i.test(raw) || /^a card from each graveyard$/i.test(raw)) {
-    return { cardType: 'any' };
+  const raw = String((what as any).text || '')
+    .replace(/[\u2019]/g, "'")
+    .trim()
+    .replace(/[.\s]+$/g, '');
+  const withTurn = stripPutIntoGraveyardThisTurnQualifier(raw);
+  const cleaned = withTurn.selectorText;
+  const turnFlags = graveyardThisTurnCriteriaFromQualifier(withTurn);
+  if (/^a card from each player's graveyard$/i.test(cleaned) || /^a card from each graveyard$/i.test(cleaned)) {
+    return { cardType: 'any', ...turnFlags };
   }
-  const eachGraveyardMatch = raw.match(/^an?\s+(.+?)\s+card from each graveyard$/i);
+  if (/^a card from each opponent's graveyard$/i.test(cleaned)) {
+    return { cardType: 'any', graveyardOwner: 'opponent', ...turnFlags };
+  }
+  const eachOpponentMatch = cleaned.match(/^an?\s+(.+?)\s+card from each opponent's graveyard$/i);
+  if (eachOpponentMatch) {
+    const typeText = String(eachOpponentMatch[1] || '').trim();
+    const parsed =
+      parseSimpleCardTypeFromText(typeText) ||
+      parseCompoundCardTypeFromText(typeText);
+    if (parsed) return { cardType: parsed, graveyardOwner: 'opponent', ...turnFlags };
+  }
+  const eachGraveyardMatch = cleaned.match(/^an?\s+(.+?)\s+card from each graveyard$/i);
   if (eachGraveyardMatch) {
     const typeText = String(eachGraveyardMatch[1] || '').trim();
     const parsed =
       parseSimpleCardTypeFromText(typeText) ||
       parseCompoundCardTypeFromText(typeText);
-    if (parsed) return { cardType: parsed };
+    if (parsed) return { cardType: parsed, ...turnFlags };
   }
-  const match = raw.match(/^an?\s+(.+?)\s+card from each player's graveyard$/i);
+  const match = cleaned.match(/^an?\s+(.+?)\s+card from each player's graveyard$/i);
   if (!match) return null;
   const parsed = parseSimpleCardTypeFromText(String(match[1] || '').trim());
   if (!parsed) return null;
-  return { cardType: parsed };
+  return { cardType: parsed, ...turnFlags };
 }
 
 export function parseMoveZoneThisCreatureAndTargetYouControl(what: {
@@ -393,6 +413,50 @@ export function exileOneMatchingCardFromEachPlayersGraveyard(
     const cardId = resolveFirstMatchingCardIdFromPlayerGraveyard(nextState, playerId, [criteria], preferredIds);
     if (!cardId) continue;
     const result = moveTargetedCardFromGraveyard(nextState, playerId, cardId, criteria, 'exile');
+    if (result.kind !== 'applied') continue;
+    nextState = result.state;
+    log.push(...(result.log || []));
+  }
+  return { state: nextState, log };
+}
+
+export function putOneMatchingCardFromEachOpponentsGraveyardOntoBattlefield(
+  state: GameState,
+  controllerId: PlayerID,
+  criteria: MoveZoneSingleTargetCriteria,
+  preferredIds: readonly string[] = [],
+  entersTapped?: boolean,
+  entersFaceDown?: boolean,
+  withCounters?: Record<string, number>,
+): { readonly state: GameState; readonly log: readonly string[] } {
+  let nextState = state;
+  const log: string[] = [];
+  const currentTurn = getCurrentTurnNumber(state);
+  for (const player of state.players || []) {
+    const playerId = String((player as any)?.id || '').trim() as PlayerID;
+    if (!playerId || playerId === controllerId) continue;
+    let cardId = resolveFirstMatchingCardIdFromPlayerGraveyard(nextState, playerId, [criteria], preferredIds);
+    if (!cardId) {
+      const graveyard = Array.isArray((nextState.players.find((entry) => entry.id === playerId) as any)?.graveyard)
+        ? ((nextState.players.find((entry) => entry.id === playerId) as any).graveyard as any[])
+        : [];
+      const first = graveyard.find((card: any) =>
+        cardMatchesMoveZoneSingleTargetCriteria(card, criteria, undefined, currentTurn),
+      );
+      cardId = String(first?.id || '').trim();
+    }
+    if (!cardId) continue;
+    const result = moveTargetedCardFromGraveyard(
+      nextState,
+      playerId,
+      cardId,
+      criteria,
+      'battlefield',
+      controllerId,
+      entersTapped,
+      entersFaceDown,
+      withCounters,
+    );
     if (result.kind !== 'applied') continue;
     nextState = result.state;
     log.push(...(result.log || []));

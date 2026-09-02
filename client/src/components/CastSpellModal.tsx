@@ -10,11 +10,13 @@ import {
   calculateRemainingCostAfterFloatingMana,
   canUseRestrictedManaClient,
   buildRestrictedManaPurposeForSpell,
+  canPayCost,
   type ManaPaymentSource,
   type OtherCardInfo,
   type ManaPool,
 } from '../utils/manaUtils';
 import { buildSuggestedPaymentItems } from '../utils/manaSourceBuilder';
+import { manaPoolToColorRecord, simulateSequentialPaymentPool } from '../utils/manaSuggestedPaymentActivation';
 import { parseAlternateCosts, type AlternateCost } from './CastSpellModal-handlers/castSpellModalParseAlternateCosts';
 
 export { parseAlternateCosts, type AlternateCost };
@@ -431,6 +433,32 @@ export function CastSpellModal({
     restrictedPurpose,
   ]);
 
+  const sequentialSourceById = useMemo(
+    () => new Map(effectiveSuggestedSources.map((source) => [source.id, source])),
+    [effectiveSuggestedSources],
+  );
+
+  const paymentCoversCost = useMemo(() => {
+    if (skipManaPaymentPicker) return true;
+    const items = payment.length > 0 ? payment : suggestedPaymentItems;
+    if (items.length === 0) return true;
+    const simulated = simulateSequentialPaymentPool(
+      items,
+      sequentialSourceById,
+      manualFloatingManaSelection ? undefined : manaPoolToColorRecord(floatingMana),
+    );
+    if (simulated.unpaidActivationPips > 0) return false;
+    return canPayCost(spellCostForPayment, simulated.pool);
+  }, [
+    skipManaPaymentPicker,
+    payment,
+    suggestedPaymentItems,
+    sequentialSourceById,
+    manualFloatingManaSelection,
+    floatingMana,
+    spellCostForPayment,
+  ]);
+
   useEffect(() => {
     if (!open) return;
     setPayment(suggestedPaymentItems);
@@ -447,6 +475,17 @@ export function CastSpellModal({
 
     if (explicitPaymentSelectionRequired && finalPayment.length === 0) {
       return;
+    }
+
+    if (!skipManaPaymentPicker && finalPayment.length > 0) {
+      const simulated = simulateSequentialPaymentPool(
+        finalPayment,
+        sequentialSourceById,
+        manualFloatingManaSelection ? undefined : manaPoolToColorRecord(floatingMana),
+      );
+      if (simulated.unpaidActivationPips > 0 || !canPayCost(spellCostForPayment, simulated.pool)) {
+        return;
+      }
     }
 
     const effectiveCostId = forcedAlternateCostId && forcedAlternateCostId.length > 0
@@ -813,15 +852,27 @@ export function CastSpellModal({
           <button onClick={handleCancel}>Cancel</button>
           <button
             onClick={handleConfirm}
-            disabled={explicitPaymentSelectionRequired && payment.length === 0 && suggestedPaymentItems.length === 0}
+            disabled={
+              (explicitPaymentSelectionRequired && payment.length === 0 && suggestedPaymentItems.length === 0)
+              || (payment.length > 0 && !paymentCoversCost)
+            }
             style={{
-              background: explicitPaymentSelectionRequired && payment.length === 0 && suggestedPaymentItems.length === 0 ? '#4b5563' : '#2b6cb0',
+              background: (explicitPaymentSelectionRequired && payment.length === 0 && suggestedPaymentItems.length === 0)
+                || (payment.length > 0 && !paymentCoversCost)
+                ? '#4b5563'
+                : '#2b6cb0',
               color: '#fff',
               border: 'none',
               padding: '6px 16px',
               borderRadius: 6,
-              cursor: explicitPaymentSelectionRequired && payment.length === 0 && suggestedPaymentItems.length === 0 ? 'not-allowed' : 'pointer',
-              opacity: explicitPaymentSelectionRequired && payment.length === 0 && suggestedPaymentItems.length === 0 ? 0.7 : 1,
+              cursor: (explicitPaymentSelectionRequired && payment.length === 0 && suggestedPaymentItems.length === 0)
+                || (payment.length > 0 && !paymentCoversCost)
+                ? 'not-allowed'
+                : 'pointer',
+              opacity: (explicitPaymentSelectionRequired && payment.length === 0 && suggestedPaymentItems.length === 0)
+                || (payment.length > 0 && !paymentCoversCost)
+                ? 0.7
+                : 1,
             }}
           >
             {confirmLabel || (selectedCostId !== 'normal' ? `Cast with ${currentCost?.label}` : 'Cast Spell')}

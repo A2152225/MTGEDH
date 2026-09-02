@@ -30,8 +30,18 @@ const TAX_RE = new RegExp(
   `^(?:${COLOR_PREFIX}\\s+)?creatures ${ATTACK_YOU_TAIL} unless their controller pays \\{([^}]+)\\}`,
   'i',
 );
+const COUNTERS_TAX_RE = new RegExp(
+  `^each creature with one or more counters on it ${ATTACK_YOU_TAIL} unless its controller pays \\{([^}]+)\\}`,
+  'i',
+);
 const BLOCK_TAX_RE =
   /^creatures can't block unless their controller pays \{([^}]+)\}/i;
+const BLOCK_LIFE_TAX_RE =
+  /^(?:(nonblack|nonwhite|nonblue|nonred|nongreen)\s+)?creatures can't block creatures you control unless their controller pays (\d+) life/i;
+const CANT_BLOCK_YOU_CONTROL_RE =
+  /^(white|blue|black|red|green) creatures can't block creatures you control$/i;
+const ATTACK_PW_TAX_RE =
+  /^creatures can't attack planeswalkers you control unless their controller pays \{([^}]+)\}/i;
 const PROHIBIT_RE = new RegExp(
   `^(?:${COLOR_PREFIX}\\s+)?creatures ${ATTACK_YOU_TAIL}$`,
   'i',
@@ -91,6 +101,10 @@ function colorWordToCondition(word: string | undefined): StaticEffectCondition |
   if (!normalized) return undefined;
   if (normalized === 'nonblack') return { kind: 'target_is_not_black_creature' };
   if (normalized === 'black') return { kind: 'target_has_mana_color', color: 'black' };
+  if (normalized === 'white') return { kind: 'target_has_mana_color', color: 'white' };
+  if (normalized === 'blue') return { kind: 'target_has_mana_color', color: 'blue' };
+  if (normalized === 'red') return { kind: 'target_has_mana_color', color: 'red' };
+  if (normalized === 'green') return { kind: 'target_has_mana_color', color: 'green' };
   return null;
 }
 
@@ -117,6 +131,12 @@ function parseTaxGrant(costToken: string, sentence: string): StaticEffectGrant |
         attackYouTaxCountBasis: 'basic_land_types_you_control',
       };
     }
+    if (/number of counters on that creature/i.test(lower)) {
+      return {
+        attackYouTaxGeneric: 1,
+        attackYouTaxCountBasis: 'counters_on_target',
+      };
+    }
     return null;
   }
   return null;
@@ -127,6 +147,27 @@ function parseBlockTaxGrant(costToken: string): StaticEffectGrant | null {
   if (/^\d+$/.test(token)) {
     return { blockTaxGeneric: parseInt(token, 10) };
   }
+  return null;
+}
+
+function parseAttackPlaneswalkerTaxGrant(costToken: string): StaticEffectGrant | null {
+  const token = String(costToken || '').trim();
+  if (/^\d+$/.test(token)) {
+    return { attackPlaneswalkerYouControlTaxGeneric: parseInt(token, 10) };
+  }
+  return null;
+}
+
+function nonColorWordToExceptColor(
+  word: string | undefined,
+): StaticEffectGrant['blockTaxLifeExceptColor'] | null | undefined {
+  const normalized = String(word || '').trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === 'nonblack') return 'black';
+  if (normalized === 'nonwhite') return 'white';
+  if (normalized === 'nonblue') return 'blue';
+  if (normalized === 'nonred') return 'red';
+  if (normalized === 'nongreen') return 'green';
   return null;
 }
 
@@ -202,6 +243,13 @@ function pushAttackYouProhibit(
  * Collective Restraint: "...pays {X} ... where X is the number of basic land types
  *   among lands you control."
  * Norn's Annex: "...pays {W/P} for each of those creatures."
+ * Onakke Oathkeeper: "Creatures can't attack planeswalkers you control unless
+ *   their controller pays {1}..."
+ * Heat Wave: "Blue creatures can't block creatures you control." /
+ *   "Nonblue creatures can't block creatures you control unless their
+ *   controller pays 1 life..."
+ * Nils: "Each creature with one or more counters on it can't attack you ... pays {X}
+ *   where X is the number of counters on that creature."
  * Archangel of Tithes: "As long as this creature is untapped, creatures can't attack
  *   you or planeswalkers you control unless their controller pays {1}..."
  *   / "As long as this creature is attacking, creatures can't block unless their
@@ -259,6 +307,20 @@ export function pushAttackYouTaxSpecs(
 
     if (UNTIL_EOT.test(rawSentence)) continue;
 
+    const countersTaxMatch = sentence.match(COUNTERS_TAX_RE);
+    if (countersTaxMatch) {
+      const grant = parseTaxGrant(String(countersTaxMatch[1] || ''), sentence);
+      if (grant && Number(grant.attackYouTaxGeneric || 0) > 0) {
+        specs.push(buildSpec(
+          source,
+          'attack-you-tax-counters',
+          { kind: 'player_you' },
+          grant,
+        ));
+      }
+      continue;
+    }
+
     const taxMatch = sentence.match(TAX_RE);
     if (taxMatch) {
       const merged = mergeColorCondition(condition, taxMatch[1]);
@@ -279,6 +341,56 @@ export function pushAttackYouTaxSpecs(
         { kind: 'player_you' },
         grant,
         merged,
+      ));
+      continue;
+    }
+
+    const attackPwTaxMatch = sentence.match(ATTACK_PW_TAX_RE);
+    if (attackPwTaxMatch) {
+      const grant = parseAttackPlaneswalkerTaxGrant(String(attackPwTaxMatch[1] || ''));
+      if (grant && Number(grant.attackPlaneswalkerYouControlTaxGeneric || 0) > 0) {
+        specs.push(buildSpec(
+          source,
+          'attack-pw-you-control-tax',
+          { kind: 'player_you' },
+          grant,
+          condition,
+        ));
+      }
+      continue;
+    }
+
+    const cantBlockYouControl = sentence.match(CANT_BLOCK_YOU_CONTROL_RE);
+    if (cantBlockYouControl) {
+      const colorCondition = colorWordToCondition(String(cantBlockYouControl[1] || ''));
+      if (!colorCondition) continue;
+      const merged = mergeGatedCondition(condition, colorCondition);
+      if (merged === null) continue;
+      specs.push(buildSpec(
+        source,
+        'cant-block-creatures-you-control',
+        { kind: 'all_creatures' },
+        { cantBlockCreaturesYouControl: true },
+        merged,
+      ));
+      continue;
+    }
+
+    const blockLifeTaxMatch = sentence.match(BLOCK_LIFE_TAX_RE);
+    if (blockLifeTaxMatch) {
+      const exceptColor = nonColorWordToExceptColor(blockLifeTaxMatch[1]);
+      if (exceptColor === null) continue;
+      const life = parseInt(String(blockLifeTaxMatch[2] || ''), 10);
+      if (!Number.isFinite(life) || life <= 0) continue;
+      specs.push(buildSpec(
+        source,
+        'block-tax-life',
+        { kind: 'all_creatures' },
+        {
+          blockTaxLife: life,
+          ...(exceptColor ? { blockTaxLifeExceptColor: exceptColor } : {}),
+        },
+        condition,
       ));
       continue;
     }

@@ -493,11 +493,13 @@ export function applyLobbySetupEvents(ctx: GameContext, e: GameEvent): boolean {
             break;
           }
           const libraryAfter = buildLibraryFromRemainingIds(library, [], shuffledLibraryIds);
+          const libraryAfterCards = cloneLibraryCards(libraryAfter);
           const zones = (ctx.state as any).zones || {};
           const z = zones[shufflePlayerId] = zones[shufflePlayerId] || {};
-          z.libraryCount = libraryAfter.length;
+          z.library = libraryAfterCards;
+          z.libraryCount = libraryAfterCards.length;
           if (ctx.libraries?.set) {
-            ctx.libraries.set(shufflePlayerId, cloneLibraryCards(libraryAfter));
+            ctx.libraries.set(shufflePlayerId, libraryAfterCards);
           }
         } else if (shufflePlayerId) {
           shuffleLibrary(ctx as any, shufflePlayerId as any);

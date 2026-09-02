@@ -6,7 +6,8 @@ import {
   collapseIdenticalManaSources,
   createSuggestedPaymentItemsFromSource,
 } from '../src/utils/manaSourceBuilder';
-import type { ManaPaymentSource } from '../src/utils/manaUtils';
+import { buildRestrictedManaPurposeForSpell, canPayCost, type ManaPaymentSource } from '../src/utils/manaUtils';
+import { simulateSequentialPaymentPool } from '../src/utils/manaSuggestedPaymentActivation';
 
 describe('buildSuggestedPaymentItems', () => {
   it('uses floating pool mana before tapping lands when explicit pool items are enabled', () => {
@@ -203,6 +204,29 @@ describe('buildSuggestedPaymentItems', () => {
     const breedingPool = sources.filter((source) => source.name === 'Breeding Pool');
     expect(breedingPool.length).toBeGreaterThanOrEqual(1);
     expect(breedingPool.some((source) => source.options.includes('U') && source.options.includes('G'))).toBe(true);
+  });
+
+  it('includes Talisman of Creativity pain mana as a U or R choice separate from {C}', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [
+      {
+        id: 'talisman_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'talisman_card',
+          name: 'Talisman of Creativity',
+          type_line: 'Artifact',
+          oracle_text: '{T}: Add {C}.\n{T}: Add {U} or {R}. This artifact deals 1 damage to you.',
+        },
+      },
+    ] as any);
+
+    const talismanSources = sources.filter((source) => source.name === 'Talisman of Creativity');
+    expect(talismanSources.some((source) => source.options.length === 1 && source.options[0] === 'C')).toBe(true);
+    expect(talismanSources.some((source) =>
+      source.options.includes('U') && source.options.includes('R') && source.options.length === 2
+    )).toBe(true);
   });
 
   it('includes Forest Island duals with missing oracle via basic land types', () => {
@@ -814,5 +838,199 @@ describe('signet sequential auto-pay', () => {
     expect(signetIndex).toBeGreaterThan(0);
     expect(items.slice(0, signetIndex).every((item) => item.permanentId !== 'signet_1')).toBe(true);
     expect(items.length).toBe(3);
+  });
+
+  it('autopays {2} with a land first, then Izzet Signet', () => {
+    const izzetSignet = {
+      id: 'izzet_signet_1',
+      controller: 'p1',
+      owner: 'p1',
+      tapped: false,
+      card: {
+        id: 'izzet_signet_card',
+        name: 'Izzet Signet',
+        type_line: 'Artifact',
+        oracle_text: '{1}, {T}: Add {U}{R}.',
+      },
+    };
+    const plains = {
+      id: 'plains_1',
+      controller: 'p1',
+      owner: 'p1',
+      tapped: false,
+      card: {
+        id: 'plains_card',
+        name: 'Plains',
+        type_line: 'Basic Land — Plains',
+        oracle_text: '{T}: Add {W}.',
+      },
+    };
+    const sources = buildAvailableManaSourcesForPlayer('p1', [izzetSignet, plains] as any);
+    const items = buildSuggestedPaymentItems(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 2,
+        hybrids: [],
+      },
+      sources,
+      new Set(),
+    );
+
+    expect(items.map((item) => item.permanentId)).toEqual(['plains_1', 'izzet_signet_1']);
+    const signet = items.find((item) => item.permanentId === 'izzet_signet_1');
+    expect(signet?.producedColors?.slice().sort()).toEqual(['R', 'U']);
+    expect(Number(signet?.count || 0)).toBe(2);
+  });
+});
+
+describe('simulateSequentialPaymentPool', () => {
+  const genericTwo = {
+    colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+    generic: 2,
+    hybrids: [] as Array<Array<'W' | 'U' | 'B' | 'R' | 'G' | 'C'>>,
+  };
+
+  it('nets a land-plus-Signet payment to the two mana the spell can spend', () => {
+    const sources = new Map([
+      ['plains_1', { activationManaCost: undefined }],
+      ['izzet_signet_1', { activationManaCost: '{1}' }],
+    ]);
+    const simulated = simulateSequentialPaymentPool(
+      [
+        { permanentId: 'plains_1', mana: 'W', count: 1 },
+        { permanentId: 'izzet_signet_1', mana: 'U', count: 2, producedColors: ['U', 'R'] },
+      ],
+      sources,
+    );
+
+    expect(simulated.unpaidActivationPips).toBe(0);
+    expect(simulated.pool).toEqual({ W: 0, U: 1, B: 0, R: 1, G: 0, C: 0 });
+    expect(canPayCost(genericTwo, simulated.pool)).toBe(true);
+  });
+
+  it('does not treat a lone Signet as covering {2} with no floating mana', () => {
+    const sources = new Map([
+      ['izzet_signet_1', { activationManaCost: '{1}' }],
+    ]);
+    const simulated = simulateSequentialPaymentPool(
+      [
+        { permanentId: 'izzet_signet_1', mana: 'U', count: 2, producedColors: ['U', 'R'] },
+      ],
+      sources,
+    );
+
+    expect(simulated.unpaidActivationPips).toBe(1);
+    expect(canPayCost(genericTwo, simulated.pool) && simulated.unpaidActivationPips === 0).toBe(false);
+  });
+});
+
+describe('chosen-type Cavern of Souls source stamping', () => {
+  const cavernOracle =
+    'As this land enters, choose a creature type.\n'
+    + '{T}: Add {C}.\n'
+    + '{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type, and that spell can\'t be countered.';
+  const unclaimedOracle =
+    'As this land enters, choose a creature type.\n'
+    + '{T}: Add {C}.\n'
+    + '{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type.';
+
+  const cavernPermanent = {
+    id: 'cavern_1',
+    controller: 'p1',
+    owner: 'p1',
+    tapped: false,
+    chosenCreatureType: 'Elf',
+    card: {
+      id: 'cavern_card',
+      name: 'Cavern of Souls',
+      type_line: 'Land',
+      oracle_text: cavernOracle,
+    },
+  };
+  const forestPermanent = {
+    id: 'forest_1',
+    controller: 'p1',
+    owner: 'p1',
+    tapped: false,
+    card: {
+      id: 'forest_card',
+      name: 'Forest',
+      type_line: 'Basic Land — Forest',
+      oracle_text: '{T}: Add {G}.',
+    },
+  };
+
+  it('stamps chosen-type restriction and uncounterable only on any-color, not {C}', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [cavernPermanent] as any);
+    const colorless = sources.find((source) => source.abilityId === 'native_c' || source.options.join('') === 'C');
+    const anyColor = sources.find((source) => source.abilityId === 'native_any');
+
+    expect(colorless).toBeTruthy();
+    expect(colorless?.spendRestriction).toBeUndefined();
+    expect(colorless?.grantsUncounterableOnSpend).toBeUndefined();
+
+    expect(anyColor).toBeTruthy();
+    expect(anyColor?.spendRestriction).toEqual({
+      restriction: 'chosen_type_creature_spell',
+      restrictedTo: 'elf',
+    });
+    expect(anyColor?.grantsUncounterableOnSpend).toBe(true);
+  });
+
+  it('does not stamp restriction before a creature type is chosen', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [{
+      ...cavernPermanent,
+      chosenCreatureType: undefined,
+    }] as any);
+    const anyColor = sources.find((source) => source.abilityId === 'native_any');
+    expect(anyColor?.spendRestriction).toBeUndefined();
+    expect(anyColor?.grantsUncounterableOnSpend).toBeUndefined();
+  });
+
+  it('stamps Unclaimed Territory restriction without uncounterable', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [{
+      id: 'ut_1',
+      controller: 'p1',
+      owner: 'p1',
+      tapped: false,
+      chosenCreatureType: 'Elf',
+      card: {
+        id: 'ut_card',
+        name: 'Unclaimed Territory',
+        type_line: 'Land',
+        oracle_text: unclaimedOracle,
+      },
+    }] as any);
+    const anyColor = sources.find((source) => source.abilityId === 'native_any');
+    expect(anyColor?.spendRestriction).toEqual({
+      restriction: 'chosen_type_creature_spell',
+      restrictedTo: 'elf',
+    });
+    expect(anyColor?.grantsUncounterableOnSpend).toBeUndefined();
+  });
+
+  it('suggests Cavern any-color for a matching Elf {G} over Forest', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [forestPermanent, cavernPermanent] as any);
+    const items = buildSuggestedPaymentItems(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 1, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      sources,
+      new Set(),
+      undefined,
+      {
+        purpose: buildRestrictedManaPurposeForSpell({
+          name: 'Llanowar Elves',
+          type_line: 'Creature — Elf Druid',
+          mana_cost: '{G}',
+        }),
+      },
+    );
+
+    expect(items).toEqual([
+      expect.objectContaining({ permanentId: 'cavern_1', mana: 'G', count: 1 }),
+    ]);
   });
 });

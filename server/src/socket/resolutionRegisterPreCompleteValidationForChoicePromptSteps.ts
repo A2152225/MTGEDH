@@ -24,6 +24,7 @@ import {
   type ResolutionStep,
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
+import { isRepeatedZoneDraftPickLegal, repeatedZoneDraftNeedsExplicitAttachId } from "../../../rules-engine/src/oracleIRExecutorRepeatedZoneDraft.js";
 
 export type ChoicePromptPreCompleteValidationArgs = {
   socket: Socket;
@@ -262,10 +263,18 @@ export function validateChoicePromptStepsBeforeComplete(
       const stepAny = step as any;
       const raw: any = response.selections as any;
       let selectedCardId = '';
+      let preferredAttachId = '';
       if (typeof raw === 'string') selectedCardId = raw;
-      else if (Array.isArray(raw) && raw.length > 0) selectedCardId = String(raw[0] || '');
-      else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      else if (Array.isArray(raw) && raw.length > 0) {
+        const first = raw[0];
+        if (typeof first === 'string') selectedCardId = first;
+        else if (first && typeof first === 'object') {
+          selectedCardId = String(first.cardId || first.selectedCardId || first.id || '');
+          preferredAttachId = String(first.attachId || first.attachedTo || first.hostId || first.playerId || '').trim();
+        }
+      } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
         selectedCardId = String(raw.cardId || raw.selectedCardId || raw.id || '');
+        preferredAttachId = String(raw.attachId || raw.attachedTo || raw.hostId || raw.playerId || '').trim();
       }
       selectedCardId = String(selectedCardId || '').trim();
       if (!selectedCardId) {
@@ -277,6 +286,20 @@ export function validateChoicePromptStepsBeforeComplete(
         : [];
       if (!remaining.includes(selectedCardId)) {
         socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected card is not in the remaining draft pool' });
+        return false;
+      }
+      const chooserId = String(pid || response.playerId || step.playerId || '').trim();
+      if (game?.state && chooserId && !isRepeatedZoneDraftPickLegal(game.state, selectedCardId, chooserId)) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'That card cannot legally enter the battlefield right now' });
+        return false;
+      }
+      if (
+        game?.state
+        && chooserId
+        && repeatedZoneDraftNeedsExplicitAttachId(game.state, selectedCardId, chooserId)
+        && !preferredAttachId
+      ) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Choose which permanent or player that Aura will enchant' });
         return false;
       }
     }

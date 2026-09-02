@@ -145,4 +145,28 @@ describe('this-turn attack tax oracle IR', () => {
       }),
     ]);
   });
+
+  it('stamps Sivitri +1 as until_your_next_turn attack-you life tax', () => {
+    const sivitri =
+      "[+1]: Until your next turn, creatures can't attack you or planeswalkers you control unless their controller pays 2 life for each of those creatures.";
+    expect(tryParseAttackTaxThisTurnClause({
+      clause: sivitri,
+      rawClause: sivitri,
+      withMeta,
+    })).toMatchObject({
+      kind: 'grant_static_ability',
+      duration: 'until_next_turn',
+      effectText: ["can't attack you unless their controller pays 2 life"],
+    });
+    const result = applyGrants(sivitri, 'Sivitri, Dragon Master');
+    expect((result.state as any).lastingEffects).toEqual([
+      expect.objectContaining({
+        type: 'attackTaxLife',
+        duration: 'until_your_next_turn',
+        amount: 2,
+        defenderId: 'p1',
+        global: false,
+      }),
+    ]);
+  });
 });

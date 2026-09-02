@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCommanderFreeCastPaymentExtras,
   canUseFreeAlternateCost,
+  getOmniscienceSource,
   hasCommanderFreeAlternateCost,
 } from '../src/state/modules/alternate-costs.js';
 import { sanitizeStepForClient } from '../src/socket/resolution.js';
@@ -254,6 +255,47 @@ describe('canUseFreeAlternateCost', () => {
       name: 'Lightning Bolt',
       oracle_text: 'Lightning Bolt deals 3 damage to any target.',
       castWithoutPayingManaCost: true,
+    })).toBe(true);
+  });
+
+  it("does not treat Yusri's five-flip rider as battlefield Omniscience", () => {
+    const yusriOracle =
+      'Flying\nWhenever Yusri attacks, choose a number between 1 and 5. Flip that many coins. For each flip you win, draw a card. For each flip you lose, Yusri deals 2 damage to you. If you won five flips this way, you may cast spells from your hand this turn without paying their mana costs.';
+    const yusriCtx = createTestContext({
+      battlefield: [{
+        id: 'yusri_1',
+        controller: 'p1',
+        card: {
+          name: "Yusri, Fortune's Flame",
+          oracle_text: yusriOracle,
+        },
+      }],
+    });
+    expect(getOmniscienceSource(yusriCtx, 'p1' as PlayerID)).toBeNull();
+    expect(canUseFreeAlternateCost(yusriCtx, 'p1' as PlayerID, {
+      name: 'Lightning Bolt',
+      oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+    })).toBe(false);
+  });
+
+  it('allows free hand casts from a this-turn lasting grant', () => {
+    const grantCtx = createTestContext({
+      battlefield: [],
+      lastingEffects: [{
+        type: 'freeHandCastsThisTurn',
+        duration: 'this_turn',
+        controllerId: 'p1',
+        sourceId: 'yusri_1',
+        sourceName: "Yusri, Fortune's Flame",
+      }],
+    });
+    expect(getOmniscienceSource(grantCtx, 'p1' as PlayerID)).toEqual({
+      sourceId: 'yusri_1',
+      sourceName: "Yusri, Fortune's Flame",
+    });
+    expect(canUseFreeAlternateCost(grantCtx, 'p1' as PlayerID, {
+      name: 'Lightning Bolt',
+      oracle_text: 'Lightning Bolt deals 3 damage to any target.',
     })).toBe(true);
   });
 });

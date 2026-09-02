@@ -19,7 +19,7 @@ export function isCurrentBatchReminderRulesClarification(normalizedText: string,
     /^tapped unless you control a legendary creature$/i.test(normalizedText) ||
     /^then ask a person outside the game to choose the creature that best fits the chosen criteria$/i.test(normalizedText) ||
     /^then those votes are revealed$/i.test(normalizedText) ||
-    /^then you may pay any amount of \{E\}$/i.test(normalizedText) ||
+    (isParentheticalText && /^then you may pay any amount of \{E\}$/i.test(normalizedText)) ||
     /^this ability costs \{1\} less to activate for each legendary creature you control$/i.test(normalizedText) ||
     /^this creature phases out$/i.test(normalizedText) ||
     /^this effect can(?:not|'t) reduce the mana in that cost to less than one mana$/i.test(normalizedText) ||
@@ -272,7 +272,6 @@ export function isCurrentBatchReminderRulesClarification(normalizedText: string,
     /^for each land, destroy that land unless any player pays .+ life\.?$/i.test(normalizedText) ||
     /^you may play forests from your graveyard\.?$/i.test(normalizedText) ||
     /^for each attacking creature, its owner puts it on their choice of the top or bottom of their library\.?$/i.test(normalizedText) ||
-    /^exile any number of target spells\.?$/i.test(normalizedText) ||
     /^exile up to five target permanent cards from your graveyard and separate them into two piles\.?$/i.test(normalizedText) ||
     /^exile the bottom card of target player'?s graveyard\.?$/i.test(normalizedText) ||
     /^each player exiles two cards from their hand\.?$/i.test(normalizedText) ||

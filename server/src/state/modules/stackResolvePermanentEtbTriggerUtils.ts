@@ -56,7 +56,7 @@ export function queuePermanentEntersBattlefieldTriggerStackItems(
   const newPermId = options.newPermId;
 
   try {
-    const allTriggers = getETBTriggersForPermanent(effectiveCard, newPermanent);
+    const allTriggers = getETBTriggersForPermanent(effectiveCard, newPermanent, state);
     for (const trigger of allTriggers) {
       if (trigger.triggerType !== 'job_select' && trigger.triggerType !== 'living_weapon') {
         continue;

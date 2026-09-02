@@ -302,6 +302,18 @@ export function interceptOracleIRTransitions(
   const replacementLog: ReplacementEffectResult[] = [];
 
   for (const transition of transitions) {
+    const sourceZone = String(transition.event?.sourceZone || '').trim();
+    const destinationZone = String(transition.event?.destinationZone || '').trim();
+    const cause = String(transition.cause || transition.event?.cause || '');
+    // Reveal/look/scry observations are library→library. They must not re-offer
+    // 903.9a (or other replacements) as if the card were moving into the library.
+    if (
+      cause.includes('library_observation')
+      || (sourceZone === 'library' && destinationZone === 'library')
+    ) {
+      ready.push(transition);
+      continue;
+    }
     const result = applyOraclePatternDamageAmountReplacements(
       state,
       transition,
@@ -628,10 +640,12 @@ export function queueOracleIrDeferredReplacementPrompts(
             continuationSteps: params.continuationSteps,
           });
           movePermanentToExile(ctx, permanentId, followup);
+        } else if (destinationZone === 'library' || destinationZone === 'hand') {
+          // Warp World already wrote the commander via IR; do not treat library/hand
+          // as a graveyard 903.9a. Continuation stays on pending resume JSON.
+          continue;
         } else {
-          // graveyard / hand / library / unknown: queue the graveyard commander choice.
-          // Hand/library commander prompts are handled by dedicated zone helpers elsewhere;
-          // IR sacrifice/edict paths are graveyard-bound.
+          // graveyard / unknown: queue the graveyard commander choice.
           movePermanentToGraveyard(ctx, permanentId, true);
         }
       }

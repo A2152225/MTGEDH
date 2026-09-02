@@ -3,7 +3,7 @@
 // Cluster moved: player-zone hydrate/sync, emblem hydrate/sync, graveyard/exile
 //   snapshots, token image enrich, and delayed upkeep-draw / flicker-return
 //   bridges from Oracle IR results.
-// Public entry symbols: enrichBattlefieldTokenImages, buildShadowProbeContext,
+// Public entry symbols: enrichBattlefieldTokenImages, repairNamelessBattlefieldCards, buildShadowProbeContext,
 //   hydrateOracleIRPlayerZonesFromContext, snapshotGraveyardCardIds,
 //   snapshotExileCardIds, bridgeScheduleDelayedDrawAtNextUpkeepFromOracleIRResult,
 //   bridgeScheduleDelayedFlickerReturnsFromOracleIRResult,
@@ -11,16 +11,61 @@
 // Existing public API stays re-exported from the parent.
 
 import type { PlayerID } from '../../../../../shared/src/index.js';
-import type { OracleEffectStep } from '../../../../../rules-engine/src/oracleIR.js';
-import type { OracleIRExecutionResult } from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import type { OracleEffectStep, OraclePlayerSelector } from '../../../../../rules-engine/src/oracleIR.js';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionResult,
+} from '../../../../../rules-engine/src/oracleIRExecutor.js';
+import { resolvePlayers } from '../../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
 import type { GameContext } from '../../context.js';
 import { processMillTriggers } from '../zones.js';
 import { recordCardPutIntoGraveyardThisTurn } from '../turn-tracking.js';
 import { checkGraveyardTrigger } from '../zone-manipulation.js';
 import { scheduleExiledCardReturnToBattlefield } from '../executeSpellEffect.js';
 import { scheduleDelayedDrawAtNextUpkeep } from '../triggerDelayedEffectUtils.js';
+import { delayedUpkeepDrawIsUpToFromStep } from '../triggerDelayedDrawUpToUtils.js';
 import { enrichTokenCardImages } from '../../../services/tokens.js';
+import { lookupLocalCardByNameSync } from '../../../services/localCardLookup.js';
 import { debugWarn } from '../../../utils/debug.js';
+import {
+  flattenZoneCardForBattlefield,
+  isUsableCardDisplayName,
+} from '../../../../../rules-engine/src/oracleIRExecutorZoneCardIdentity.js';
+
+export function repairNamelessBattlefieldCards(state: any): void {
+  for (const perm of state?.battlefield || []) {
+    if (!perm || perm.isFaceDown) continue;
+    const flat = flattenZoneCardForBattlefield(perm.card);
+    if (flat && typeof flat === 'object') perm.card = flat;
+    const card = perm.card as Record<string, unknown> | undefined;
+    if (!card || typeof card !== 'object') continue;
+    const name = String(card.name || '').trim();
+    const id = String(card.id || perm.id || '').trim();
+    const hasImage = Boolean(
+      (card.image_uris as { small?: string; normal?: string } | undefined)?.small
+      || (card.image_uris as { small?: string; normal?: string } | undefined)?.normal
+      || (card as { imageUrl?: string }).imageUrl,
+    );
+    if (isUsableCardDisplayName(name, id) && hasImage) continue;
+    const lookupName = isUsableCardDisplayName(name, id) ? name : '';
+    if (!lookupName) continue;
+    try {
+      const lookedUp = lookupLocalCardByNameSync(lookupName);
+      if (!lookedUp) continue;
+      if (!isUsableCardDisplayName(String(card.name || ''), id) && lookedUp.name) {
+        card.name = lookedUp.name;
+      }
+      if (!hasImage && lookedUp.image_uris) {
+        card.image_uris = lookedUp.image_uris;
+      }
+      if (!card.type_line && lookedUp.type_line) {
+        card.type_line = lookedUp.type_line;
+      }
+    } catch {
+      // best-effort display repair after Warp World put
+    }
+  }
+}
 
 export function enrichBattlefieldTokenImages(state: any): void {
   const cardsNeedingImages: any[] = [];
@@ -114,6 +159,16 @@ function syncOracleIREmblemsToState(state: any): boolean {
   return true;
 }
 
+function pickPopulatedZoneArray(...candidates: unknown[]): any[] | undefined {
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate) && candidate.length > 0) return candidate;
+  }
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+  return undefined;
+}
+
 export function hydrateOracleIRPlayerZonesFromContext(ctx: GameContext, state: any): void {
   for (const player of state.players || []) {
     const playerId = String(player?.id || '').trim();
@@ -139,25 +194,31 @@ export function hydrateOracleIRPlayerZonesFromContext(ctx: GameContext, state: a
     const playerId = String(player?.id || '').trim();
     if (!playerId) continue;
 
-    if (canSyncLibraries) {
-      const library = libraries.get(playerId as PlayerID);
-      if (Array.isArray(library)) {
-        player.library = library.map((card: any) => ({ ...card, zone: card?.zone || 'library' }));
-      }
+    const playerZones = zones[playerId] || {};
+    const mapLibrary = canSyncLibraries ? libraries.get(playerId as PlayerID) : undefined;
+    const chosenLibrary = pickPopulatedZoneArray(mapLibrary, playerZones.library, player.library);
+    if (chosenLibrary) {
+      player.library = chosenLibrary.map((card: any) => ({ ...card, zone: card?.zone || 'library' }));
     }
 
-    const playerZones = zones[playerId] || {};
-    if (Array.isArray(playerZones.graveyard)) {
-      player.graveyard = playerZones.graveyard.map((card: any) => ({ ...card, zone: card?.zone || 'graveyard' }));
+    const chosenGraveyard = pickPopulatedZoneArray(playerZones.graveyard, player.graveyard);
+    if (chosenGraveyard) {
+      player.graveyard = chosenGraveyard.map((card: any) => ({ ...card, zone: card?.zone || 'graveyard' }));
     }
-    if (Array.isArray(playerZones.hand)) {
-      player.hand = playerZones.hand.map((card: any) => ({ ...card, zone: card?.zone || 'hand' }));
+    const chosenHand = pickPopulatedZoneArray(playerZones.hand, player.hand);
+    if (chosenHand) {
+      player.hand = chosenHand.map((card: any) => ({ ...card, zone: card?.zone || 'hand' }));
     }
     if (typeof playerZones.handCount === 'number' && Number.isFinite(playerZones.handCount)) {
       player.handCount = playerZones.handCount;
     }
-    if (Array.isArray(playerZones.exile)) {
-      player.exile = playerZones.exile.map((card: any) => ({ ...card, zone: card?.zone || 'exile' }));
+    const chosenExile = pickPopulatedZoneArray(playerZones.exile, player.exile);
+    if (chosenExile) {
+      player.exile = chosenExile.map((card: any) => ({ ...card, zone: card?.zone || 'exile' }));
+    }
+    const chosenCommand = pickPopulatedZoneArray(playerZones.commandZone, player.commandZone);
+    if (chosenCommand) {
+      player.commandZone = chosenCommand.map((card: any) => ({ ...card, zone: card?.zone || 'command' }));
     }
   }
 }
@@ -186,12 +247,14 @@ export function snapshotExileCardIds(state: any): Map<string, Set<string>> {
   for (const player of state.players || []) {
     const playerId = String(player?.id || '').trim();
     if (!playerId) continue;
-    const exile = Array.isArray(zones[playerId]?.exile)
-      ? zones[playerId].exile
-      : Array.isArray(player?.exile)
-        ? player.exile
-        : [];
-    out.set(playerId, new Set(exile.map((card: any) => String(card?.id || '')).filter(Boolean)));
+    const ids = new Set<string>();
+    const zoneExile = Array.isArray(zones[playerId]?.exile) ? zones[playerId].exile : [];
+    const playerExile = Array.isArray(player?.exile) ? player.exile : [];
+    for (const card of [...zoneExile, ...playerExile]) {
+      const cardId = String(card?.id || '').trim();
+      if (cardId) ids.add(cardId);
+    }
+    out.set(playerId, ids);
   }
   return out;
 }
@@ -256,10 +319,67 @@ function parseDelayedUpkeepDrawCountFromStep(
   }
 
   const effect = String(step.effect || '');
-  const match = effect.match(/\bdraw\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\b/i);
+  const match = effect.match(
+    /\bdraw(?:s)?\s+(?:up to\s+)?(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\b/i,
+  );
   if (match) return parseDelayedUpkeepDrawCount(match[1], 1);
   if (/\bdraw a card\b/i.test(effect)) return 1;
   return 1;
+}
+
+function delayedUpkeepDrawWho(
+  step: Extract<OracleEffectStep, { kind: 'schedule_delayed_trigger' }>,
+): OraclePlayerSelector {
+  const nestedSteps = Array.isArray(step.steps) ? step.steps : [];
+  const drawStep = nestedSteps.find((nested) => nested.kind === 'draw') as
+    | Extract<OracleEffectStep, { kind: 'draw' }>
+    | undefined;
+  if (drawStep?.who) return drawStep.who;
+
+  const effect = String(step.effect || '').trim();
+  if (/^its controller\b/i.test(effect)) return { kind: 'controller_of_referenced_object' };
+  if (/^(?:that player|they)\b/i.test(effect)) return { kind: 'target_player' };
+  return { kind: 'you' };
+}
+
+function resolveDelayedUpkeepDrawPlayerId(params: {
+  step: Extract<OracleEffectStep, { kind: 'schedule_delayed_trigger' }>;
+  state: any;
+  irCtx?: OracleIRExecutionContext;
+  fallbackController: string;
+  stackBefore?: ReadonlyArray<{ id?: string; controller?: string }>;
+}): string {
+  const fallback = String(params.fallbackController || '').trim();
+  const who = delayedUpkeepDrawWho(params.step);
+  if (!who || who.kind === 'you') return fallback;
+
+  const irCtx = params.irCtx;
+  const spellId = String(
+    irCtx?.targetSpellId
+    || irCtx?.selectorContext?.targetSpellId
+    || (Array.isArray(irCtx?.selectorContext?.chosenObjectIds) ? irCtx?.selectorContext?.chosenObjectIds[0] : '')
+    || '',
+  ).trim();
+
+  if (who.kind === 'controller_of_referenced_object') {
+    const fromBefore = (params.stackBefore || []).find((entry) => String(entry?.id || '').trim() === spellId);
+    const beforeController = String(fromBefore?.controller || '').trim();
+    if (beforeController) return beforeController;
+
+    const onStack = Array.isArray(params.state?.stack)
+      ? params.state.stack.find((entry: any) => String(entry?.id || '').trim() === spellId)
+      : undefined;
+    const stackController = String(onStack?.controller || onStack?.owner || '').trim();
+    if (stackController) return stackController;
+  }
+
+  if (irCtx) {
+    const resolved = resolvePlayers(params.state, who, irCtx);
+    const first = String(resolved[0] || '').trim();
+    if (first) return first;
+  }
+
+  return fallback;
 }
 
 function mapDelayedTriggerTimingToFlickerReturnAt(
@@ -307,23 +427,37 @@ export function bridgeScheduleDelayedDrawAtNextUpkeepFromOracleIRResult(
     controller: PlayerID;
     sourceName?: string;
     sourceId?: string;
+    state?: any;
+    irCtx?: OracleIRExecutionContext;
+    stackBefore?: ReadonlyArray<{ id?: string; controller?: string }>;
   },
 ): void {
   const delayedDrawSteps = (result.appliedSteps || []).filter(isScheduleDelayedUpkeepDrawStep);
   if (delayedDrawSteps.length === 0) return;
 
-  const playerId = String(params.controller || '').trim();
-  if (!playerId) return;
+  const casterId = String(params.controller || '').trim();
+  if (!casterId) return;
 
   const sourceName = String(params.sourceName || 'Delayed trigger').trim() || 'Delayed trigger';
   const sourceId = String(params.sourceId || '').trim() || undefined;
+  const state = params.state ?? (ctx as any).state;
 
   for (const step of delayedDrawSteps) {
+    const playerId = resolveDelayedUpkeepDrawPlayerId({
+      step,
+      state,
+      irCtx: params.irCtx,
+      fallbackController: casterId,
+      stackBefore: params.stackBefore,
+    });
+    if (!playerId) continue;
     scheduleDelayedDrawAtNextUpkeep(ctx, {
       playerId,
+      createdBy: casterId,
       sourceName,
       sourceId,
       count: parseDelayedUpkeepDrawCountFromStep(step),
+      ...(delayedUpkeepDrawIsUpToFromStep(step) ? { upTo: true } : null),
     });
   }
 }
@@ -430,6 +564,12 @@ export function syncOracleIRPlayerZonesToContext(
     if (Array.isArray(player.exile)) {
       playerZones.exile = [...player.exile];
       playerZones.exileCount = player.exile.length;
+      changed = true;
+    }
+
+    if (Array.isArray(player.commandZone)) {
+      playerZones.commandZone = [...player.commandZone];
+      playerZones.commandZoneCount = player.commandZone.length;
       changed = true;
     }
 

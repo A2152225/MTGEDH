@@ -15,6 +15,9 @@ function normalizeEffectText(effectText: string): string {
 export function inferGenericTriggeredAbilityTargetMetadata(effectText: string): GenericTriggeredAbilityTargetMetadata {
   const normalized = normalizeEffectText(effectText);
   const lower = normalized.toLowerCase();
+  if (/\breselect\s+(?:the\s+|its\s+)?targets?\s+at\s+random/i.test(lower)) {
+    return {};
+  }
   if (!/\btarget\b/.test(lower)) {
     return {};
   }

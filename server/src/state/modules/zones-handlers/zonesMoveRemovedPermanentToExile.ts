@@ -11,6 +11,7 @@ import { ResolutionQueueManager } from "../../resolution/index.js";
 import { ResolutionStepType } from "../../resolution/types.js";
 import { processLinkedExileReturns } from "../triggers/linked-exile.js";
 import { queueExiledFromBattlefieldTriggers } from "../triggers/zone-change.js";
+import { repairCardIdAwayFromZones } from "../stackReplayUtils.js";
 
 export function moveRemovedPermanentToExile(
   ctx: GameContext,
@@ -156,6 +157,10 @@ export function moveRemovedPermanentToExile(
   };
   z.exile = z.exile || [];
   z.exile.push(exiledCard);
+  const exiledCardId = String(zoneCard?.id || exiledCard?.id || '').trim();
+  if (exiledCardId && owner) {
+    repairCardIdAwayFromZones(ctx, String(owner), exiledCardId, ['hand', 'graveyard', 'library']);
+  }
   if (normalizedRemovedPermanentId) {
     processLinkedExileReturns(ctx, normalizedRemovedPermanentId);
   }

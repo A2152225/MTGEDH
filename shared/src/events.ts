@@ -669,4 +669,7 @@ export interface InterServerEvents {
 export interface SocketData {
   playerId?: PlayerID;
   spectator?: boolean;
+  accountUserId?: string;
+  accountUsername?: string;
+  accountDisplayName?: string;
 }

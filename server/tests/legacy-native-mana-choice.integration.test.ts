@@ -57,6 +57,7 @@ describe('legacy native mana choice ids (integration)', () => {
     'test_legacy_native_mana_choice_pain',
     'test_legacy_native_mana_choice_pay_life',
     'test_legacy_native_mana_choice_multi',
+    'test_legacy_native_mana_choice_talisman',
   ];
 
   async function resetGame(gameId: string) {
@@ -305,5 +306,74 @@ describe('legacy native mana choice ids (integration)', () => {
     expect(lastManaEvent?.payload?.abilityId).toBe('native_multi');
     expect(lastManaEvent?.payload?.manaColor).toBe('MULTI');
     expect(lastManaEvent?.payload?.addedMana).toEqual({ black: 1, red: 1 });
+  });
+
+  it('queues a U/R choice for Talisman of Creativity printed pain-mana ability instead of collapsing to {U}', async () => {
+    const gameId = gameIds[3];
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'talisman_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'talisman_card_1',
+          name: 'Talisman of Creativity',
+          type_line: 'Artifact',
+          oracle_text: '{T}: Add {C}.\n{T}: Add {U} or {R}. This artifact deals 1 damage to you.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId,
+      permanentId: 'talisman_1',
+      abilityId: 'talisman_card_1-ability-1',
+    });
+
+    const permanent = (game.state as any).battlefield.find((entry: any) => entry.id === 'talisman_1');
+    expect(Boolean(permanent?.tapped)).toBe(true);
+
+    let queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(String(queue.steps[0]?.type || '')).toBe('mana_color_selection');
+    expect([...(queue.steps[0] as any)?.allowedColors || []].sort()).toEqual(['R', 'U']);
+    expect((game.state as any).life?.[playerId]).toBe(40);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(queue.steps[0]?.id || ''),
+      selections: 'blue',
+    });
+
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 });
+    expect((game.state as any).life?.[playerId]).toBe(39);
+    expect((game.state as any).damageTakenThisTurnByPlayer?.[playerId]).toBe(1);
+
+    queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(0);
   });
 });

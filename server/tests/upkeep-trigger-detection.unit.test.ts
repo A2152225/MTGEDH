@@ -75,6 +75,21 @@ describe('upkeep trigger detection', () => {
     expect(String(triggers[0]?.effect || '').toLowerCase()).toContain('lose 1 life');
   });
 
+  it('keeps Power Surge where-X on the each-player upkeep effect', () => {
+    const triggers = detectUpkeepTriggers({
+      name: 'Power Surge',
+      oracle_text:
+        "At the beginning of each player's upkeep, this enchantment deals X damage to that player, where X is the number of untapped lands they controlled at the beginning of this turn.",
+    }, permanent);
+
+    const eachPlayer = triggers.find((trigger) => trigger.triggerType === 'each_player_upkeep');
+    expect(eachPlayer).toBeDefined();
+    expect(String(eachPlayer?.effect || '').toLowerCase()).toContain('deals x damage to that player');
+    expect(String(eachPlayer?.effect || '').toLowerCase()).toContain(
+      'untapped lands they controlled at the beginning of this turn',
+    );
+  });
+
   it('types Eldrazi Monument as a single sacrifice_creature_or_self upkeep', () => {
     const triggers = detectUpkeepTriggers({
       name: 'Eldrazi Monument',

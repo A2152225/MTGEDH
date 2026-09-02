@@ -412,17 +412,31 @@ export function useAppResolutionStepPromptEffects(p: Record<string, any>) {
         scheduleResolutionPromptNudge(payload.gameId!);
       }
     };
+
+    const handleGameResumeProgress = (payload: {
+      gameId?: string;
+      isRestoring?: boolean;
+    }) => {
+      if (!payload?.gameId || payload.gameId !== safeView?.id) return;
+      if (payload.isRestoring) return;
+      lastResolutionStepsRef.current.clear();
+      setActiveResolutionPrompt(null);
+      dismissResolutionStepUi();
+      scheduleResolutionPromptNudge(payload.gameId);
+    };
     
     socket.on("resolutionStepPrompt", handleResolutionStepPrompt);
     socket.on("resolutionStepCancelled", handleResolutionStepCancelled);
     socket.on("noResolutionStep", handleNoResolutionStep);
     socket.on("resolutionQueueChanged", handleResolutionQueueChanged);
+    socket.on("gameResumeProgress", handleGameResumeProgress);
     
     return () => {
       socket.off("resolutionStepPrompt", handleResolutionStepPrompt);
       socket.off("resolutionStepCancelled", handleResolutionStepCancelled);
       socket.off("noResolutionStep", handleNoResolutionStep);
       socket.off("resolutionQueueChanged", handleResolutionQueueChanged);
+      socket.off("gameResumeProgress", handleGameResumeProgress);
     };
   }, [safeView?.id, openConfirmFromResolutionStep, you, mulliganBottomLastSubmittedStepId, dismissResolutionStepUi, scheduleResolutionPromptNudge]);
 }

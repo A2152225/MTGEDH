@@ -99,6 +99,10 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
       }
 
       if (requirement.kind === 'opponent' || requirement.kind === 'player') {
+        // Tribute N is an opponent pay/decline choice, not a controller as-enters player pick.
+        if (/\btribute\s+\d+\b/i.test(String(effectiveCard?.oracle_text || effectiveCard?.oracleText || ''))) {
+          continue;
+        }
         if (newPermanent.chosenPlayer) continue;
         const opponentOnly = requirement.kind === 'opponent';
         const allPlayers = state.players || [];

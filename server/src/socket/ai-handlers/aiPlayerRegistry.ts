@@ -28,6 +28,7 @@ import {
 function syncAIPlayerDerivedStrategy(game: any, playerId: PlayerID, strategy: AIStrategy): void {
   const player = (game?.state?.players || []).find((entry: any) => entry?.id === playerId);
   if (!player) return;
+  player.isAI = true;
   player.strategy = strategy;
   player.aiStrategy = strategy;
 }

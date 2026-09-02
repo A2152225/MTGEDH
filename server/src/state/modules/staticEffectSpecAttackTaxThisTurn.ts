@@ -28,6 +28,21 @@ export function collectThisTurnAttackTaxForAttacker(
   state: { lastingEffects?: readonly unknown[] } | null | undefined,
   defenderId: string,
 ): ThisTurnAttackTaxForAttacker {
+  return collectThisTurnAttackStamp(state, defenderId, 'attackTaxGeneric');
+}
+
+export function collectThisTurnAttackLifeTaxForAttacker(
+  state: { lastingEffects?: readonly unknown[] } | null | undefined,
+  defenderId: string,
+): ThisTurnAttackTaxForAttacker {
+  return collectThisTurnAttackStamp(state, defenderId, 'attackTaxLife');
+}
+
+function collectThisTurnAttackStamp(
+  state: { lastingEffects?: readonly unknown[] } | null | undefined,
+  defenderId: string,
+  type: 'attackTaxGeneric' | 'attackTaxLife',
+): ThisTurnAttackTaxForAttacker {
   const effects = Array.isArray(state?.lastingEffects) ? state.lastingEffects : [];
   const defender = String(defenderId || '').trim();
   const sources: string[] = [];
@@ -35,7 +50,7 @@ export function collectThisTurnAttackTaxForAttacker(
 
   for (const entry of effects) {
     const stamp = entry as AttackTaxGenericStamp;
-    if (String(stamp?.type || '') !== 'attackTaxGeneric') continue;
+    if (String(stamp?.type || '') !== type) continue;
     const amount = Number(stamp.amount);
     if (!Number.isFinite(amount) || amount <= 0) continue;
 

@@ -69,6 +69,7 @@ const CONTINUATION_SENTENCE_PATTERNS = [
   /^exile\b/i,
   /^search\b/i,
   /^shuffle\b/i,
+  /^flip (?:a coin|that many coins|coins)\b/i,
   /^(?:sacrifice|exile)\s+(?:it|them|that token|those tokens|the token|the tokens)\b/i,
 ];
 

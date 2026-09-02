@@ -20,7 +20,7 @@ import { processDrawTriggers, persistDrawCardsEvent } from "./state/modules/zone
 import { applyEmptyLibraryDrawConsequences } from "./state/modules/game-state-effects.js";
 import { createGameIfNotExists, getEvents, gameExistsInDb } from "./db"; // NEW: import getEvents for replay, gameExistsInDb for deleted game check
 import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
-import { markGameRestoring, clearGameRestoring, isUndoProbeGameId } from "./gameRestoreState.js";
+import { markGameRestoring, clearGameRestoring, isUndoProbeGameId, pauseHumanPriorityAfterRestore } from "./gameRestoreState.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
 import { BOOT_ID } from "./utils/bootId.js";
 import { ResolutionQueueManager } from "./state/resolution/index.js";
@@ -802,6 +802,11 @@ class GameManagerClass {
       reassignPriorityIfHolderCannotReceive((game as any).ctx || game);
     } catch (e) {
       debugWarn(1, `[GameManager] reassignPriorityIfHolderCannotReceive failed for ${gameId}`, e);
+    }
+    try {
+      pauseHumanPriorityAfterRestore(game);
+    } catch (e) {
+      debugWarn(1, `[GameManager] pauseHumanPriorityAfterRestore failed for ${gameId}`, e);
     }
     return game;
   }

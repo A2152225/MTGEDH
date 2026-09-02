@@ -4,15 +4,14 @@
 // Leaf must not import App.tsx or App-handlers/index.ts.
 
 import { socket } from "../socket";
-import { readPlayerLife, lifeTotalColor } from "../utils/gameDisplayHelpers";
 import type { KnownCardRef, CardFace } from "../../../shared/src";
 import { CardPreviewLayer, PreviewSizeControl } from "../components/CardPreviewLayer";
 import { MobileActionDock } from "../components/MobileActionDock";
 import { YourTurnBanner } from "../components/YourTurnBanner";
 import { MobileHandStrip } from "../components/MobileHandStrip";
 import { MobilePlaySheets } from "../components/MobilePlaySheets";
-import { PhaseNavigator } from "../components/PhaseNavigator";
 import { AutoPassSettingsPanel } from "../components/AutoPassSettingsPanel";
+import { IgnoredCardsPanel } from "../components/IgnoredCardsPanel";
 import { LoopShortcutPanel } from "../components/LoopShortcutPanel";
 import { clampLoopShortcutIterations } from "../utils/loopShortcuts";
 
@@ -26,15 +25,12 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
     autoPassSteps,
     autoYesOptional,
     canPass,
-    clearPlayerFocus,
     damageReplacementEffectActiveCount,
     damageReplacementMode,
-    focusedPlayerId,
     handleClearAllAutoPass,
     handleClearLoopShortcut,
     handleDeckMgrOpenChange,
     handleDeleteSavedLoopShortcut,
-    handleFocusPlayer,
     handleIgnoreTriggerSourceFromStack,
     handleLoadSavedLoopShortcut,
     handleRunLoopShortcut,
@@ -47,11 +43,13 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
     handleToggleAutoPassEmptyStackOnOpponentsTurn,
     handleToggleAutoPassForTurn,
     handleToggleAutoYesOptional,
+    ignoredCards,
     ignoredTriggerSources,
     imagePref,
     isLoopShortcutRecording,
     isLoopShortcutRunning,
     isPreGame,
+    isSpectator,
     layout,
     leaveGame,
     loopShortcutItems,
@@ -65,7 +63,6 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
     openSplitCardChoice,
     phaseAdvanceBlockReason,
     playLandWithPromptSync,
-    playerFocusOrder,
     priority,
     reasonCannotCast,
     reasonCannotPlayLand,
@@ -93,10 +90,26 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
     yourHandCount,
     yourTurnBannerVisible,
   } = p;
+
+  const handleUnignoreCard = (cardId: string) => {
+    if (!safeView) return;
+    socket.emit("unignoreCardForAutoPass" as any, {
+      gameId: safeView.id,
+      cardId,
+    });
+  };
+
+  const handleClearIgnoredCards = () => {
+    if (!safeView) return;
+    socket.emit("clearIgnoredCards" as any, {
+      gameId: safeView.id,
+    });
+  };
+
   return (
     <>
       {/* RIGHT COLUMN: docked utilities on wider screens */}
-      <div>
+      <div style={{ minWidth: 0, width: '100%', overflow: 'hidden', maxWidth: '100%', boxSizing: 'border-box' }}>
         {showUtilityRail && safeView && you && (
           <div
             style={{
@@ -105,6 +118,11 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
               display: 'flex',
               flexDirection: 'column',
               gap: 10,
+              width: '100%',
+              zIndex: 20,
+              overflow: 'hidden',
+              maxWidth: '100%',
+              minWidth: 0,
             }}
           >
             <div
@@ -145,176 +163,21 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
               </button>
             </div>
 
-            {utilityRailCollapsed ? (
-              <div
-                style={{
-                  borderRadius: 10,
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  background: 'rgba(20,20,30,0.95)',
-                  padding: '10px 8px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                  alignItems: 'center',
-                  color: '#e5e7eb',
-                  textAlign: 'center',
-                }}
-              >
-                <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#93c5fd' }}>
-                  {playerFocusOrder.length} Seats
-                </div>
-                <div style={{ fontSize: 10, color: '#9ca3af', lineHeight: 1.4 }}>
-                  Expand for focus, phase, auto-pass, and shortcuts.
-                </div>
-                <div style={{ width: '100%', height: 1, background: 'rgba(255,255,255,0.08)' }} />
-                <div style={{ fontSize: 10, color: '#34d399', lineHeight: 1.3 }}>Turn</div>
-                <div style={{ fontSize: 11, fontWeight: 600, wordBreak: 'break-word' }}>
-                  {playerFocusOrder.find((player: any) => player.id === safeView.turnPlayer)?.name || 'Waiting'}
-                </div>
-                {safeView.turnPlayer && (
-                  <div
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: lifeTotalColor(readPlayerLife(safeView.life, safeView.turnPlayer)),
-                    }}
-                  >
-                    {readPlayerLife(safeView.life, safeView.turnPlayer)} life
-                  </div>
-                )}
-              </div>
-            ) : (
+            {utilityRailCollapsed && !isSpectator && (
+              <IgnoredCardsPanel
+                variant="rail"
+                railCollapsed
+                ignoredCards={ignoredCards || []}
+                you={you}
+                onUnignore={handleUnignoreCard}
+                onClearAll={handleClearIgnoredCards}
+                onExpandRail={() => setUtilityRailCollapsed(false)}
+              />
+            )}
+
+            {!utilityRailCollapsed && (
               <>
-                <div
-                  style={{
-                    borderRadius: 10,
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    background: 'rgba(20,20,30,0.95)',
-                    padding: 10,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                    color: '#e5e7eb',
-                  }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Player Focus
-                  </div>
-                  <div style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.4 }}>
-                    Turn-order view switcher. Click a player to center on their board. Click again or use Table overview to pan freely.
-                  </div>
-                  <button
-                    type="button"
-                    onClick={clearPlayerFocus}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: 8,
-                      border: focusedPlayerId
-                        ? '1px solid rgba(59,130,246,0.85)'
-                        : '1px solid rgba(255,255,255,0.08)',
-                      background: focusedPlayerId
-                        ? 'rgba(255,255,255,0.04)'
-                        : 'rgba(30,64,175,0.28)',
-                      color: '#fff',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      fontSize: 12,
-                      fontWeight: 600,
-                    }}
-                    title="Zoom out and pan the full table without snapping to a player board"
-                  >
-                    Table overview
-                  </button>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {playerFocusOrder.map((player: any, index: number) => {
-                      const isTurnPlayer = safeView.turnPlayer === player.id;
-                      const isFocused = focusedPlayerId === player.id;
-                      const isYouPlayerFocus = you === player.id;
-                      const playerLife = readPlayerLife(safeView.life, player.id);
-                      return (
-                        <button
-                          key={player.id}
-                          type="button"
-                          onClick={() => handleFocusPlayer(player.id)}
-                          style={{
-                            width: '100%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 8,
-                            padding: '8px 10px',
-                            borderRadius: 8,
-                            border: isFocused
-                              ? '1px solid rgba(59,130,246,0.85)'
-                              : '1px solid rgba(255,255,255,0.08)',
-                            background: isFocused
-                              ? 'rgba(30,64,175,0.28)'
-                              : 'rgba(255,255,255,0.04)',
-                            color: '#fff',
-                            cursor: 'pointer',
-                            textAlign: 'left',
-                          }}
-                          title={`Center on ${player.name}`}
-                        >
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                            <span style={{ fontSize: 10, color: '#9ca3af', minWidth: 18 }}>{index + 1}.</span>
-                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {player.name}{isYouPlayerFocus ? ' (You)' : ''}
-                            </span>
-                            <span
-                              style={{
-                                flexShrink: 0,
-                                fontSize: 12,
-                                fontWeight: 700,
-                                color: lifeTotalColor(playerLife),
-                                fontVariantNumeric: 'tabular-nums',
-                              }}
-                              title={`${player.name}: ${playerLife} life`}
-                            >
-                              {playerLife}
-                            </span>
-                          </span>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                            {isTurnPlayer && <span style={{ fontSize: 10, color: '#34d399' }}>Turn</span>}
-                            {isFocused && <span style={{ fontSize: 10, color: '#93c5fd' }}>Focused</span>}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <PhaseNavigator
-                  docked
-                  currentPhase={safeView.phase}
-                  currentStep={safeView.step}
-                  turnPlayer={safeView.turnPlayer}
-                  you={you}
-                  isYourTurn={safeView.turnPlayer != null && safeView.turnPlayer === you}
-                  hasPriority={safeView.priority === you}
-                  stackEmpty={!((safeView as any).stack?.length > 0)}
-                  allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
-                  phaseAdvanceBlockReason={phaseAdvanceBlockReason}
-                  showDamageReplacementToggle={damageReplacementEffectActiveCount > 1}
-                  damageReplacementMode={damageReplacementMode}
-                  onSetDamageReplacementMode={(mode) => {
-                    if (!safeView?.id) return;
-                    setDamageReplacementMode(mode);
-                    socket.emit('setReplacementEffectOrder', {
-                      gameId: safeView.id,
-                      effectType: 'damage',
-                      mode,
-                      customOrder: [],
-                    });
-                  }}
-                  onOpenReplacementEffectSettings={() => setReplacementEffectSettingsOpen(true)}
-                  onAdvanceOneStep={() => socket.emit("nextStep", { gameId: safeView.id })}
-                  onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
-                  onAdvancingChange={setPhaseNavigatorAdvancing}
-                  onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })}
-                />
-
+                {!isSpectator && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <AutoPassSettingsPanel
                     docked
@@ -333,6 +196,14 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
                     onToggleAutoPassEmptyStackOnOpponentsTurn={handleToggleAutoPassEmptyStackOnOpponentsTurn}
                     autoYesOptionalEnabled={autoYesOptional}
                     onToggleAutoYesOptional={handleToggleAutoYesOptional}
+                  />
+
+                  <IgnoredCardsPanel
+                    variant="rail"
+                    ignoredCards={ignoredCards || []}
+                    you={you}
+                    onUnignore={handleUnignoreCard}
+                    onClearAll={handleClearIgnoredCards}
                   />
 
                   <button
@@ -398,8 +269,9 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
                     statusText={loopShortcutStatusText}
                   />
 
-                  <PreviewSizeControl />
                 </div>
+                )}
+                <PreviewSizeControl />
               </>
             )}
           </div>

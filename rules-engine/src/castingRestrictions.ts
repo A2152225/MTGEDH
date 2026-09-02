@@ -240,9 +240,20 @@ export function canCastSpell(
         break;
         
       case CastingRestrictionType.CMC_RESTRICTION:
+        if (restriction.spellTypeRestriction === 'noncreature' && isCreature) {
+          break;
+        }
         if (restriction.cmcRestriction) {
-          const cmc = spell.cmc || spell.mana_value || 0;
-          const { comparison, value } = restriction.cmcRestriction;
+          const cmc = Number(
+            spell.cmc ?? spell.mana_value ?? spell.card?.cmc ?? spell.card?.mana_value ?? 0,
+          );
+          const { comparison } = restriction.cmcRestriction;
+          const value = restriction.cmcRestriction.valueFrom === 'caster_controlled_lands'
+            ? countControlledLandsForPlayer(state, playerId)
+            : Number(restriction.cmcRestriction.value);
+          if (!Number.isFinite(cmc) || !Number.isFinite(value)) {
+            break;
+          }
           
           switch (comparison) {
             case 'equals':
@@ -307,6 +318,13 @@ function getRestrictionDescription(restriction: CastingRestriction): string {
       return "can only cast spells from hand";
     case CastingRestrictionType.CANT_ACTIVATE_ABILITIES:
       return "can't activate abilities";
+    case CastingRestrictionType.CMC_RESTRICTION:
+      if (restriction.cmcRestriction?.valueFrom === 'caster_controlled_lands') {
+        return restriction.spellTypeRestriction === 'noncreature'
+          ? "can't cast noncreature spells with mana value greater than lands you control"
+          : "can't cast spells with mana value greater than lands you control";
+      }
+      return "mana value restricted";
     default:
       return "casting restricted";
   }
@@ -425,4 +443,16 @@ function getProcessedBattlefield(gameState: GameState): BattlefieldPermanent[] {
   return applyStaticAbilitiesToBattlefield(
     (gameState.battlefield || []) as BattlefieldPermanent[]
   ) as BattlefieldPermanent[];
+}
+
+function countControlledLandsForPlayer(state: GameState, playerId: string): number {
+  const battlefield = getProcessedBattlefield(state);
+  const casterId = String(playerId || '').trim();
+  if (!casterId) return 0;
+  return battlefield.filter((permanent: any) => {
+    const controller = String(permanent?.controller || permanent?.controllerId || '').trim();
+    if (controller !== casterId) return false;
+    const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
+    return /\bland\b/.test(typeLine);
+  }).length;
 }

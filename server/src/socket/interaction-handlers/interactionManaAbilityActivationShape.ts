@@ -77,6 +77,23 @@ function parseExplicitSelectedManaProduction(text: string): {
   }
 
   const effectText = rawText.includes(':') ? rawText.split(':').slice(1).join(':') : rawText;
+  // "{T}: Add {U} or {R}" / "Add {W}, {U}, or {B}" — choice of one, not the first symbol only.
+  const choiceSymbolsMatch = effectText.match(
+    /\badd\s+(\{[wubrgc]\}(?:\s*(?:,\s*(?:or\s+)?|\s+or\s+)\{[wubrgc]\})+)/i,
+  );
+  if (choiceSymbolsMatch) {
+    const matchedSegment = String(choiceSymbolsMatch[1] || '');
+    const manaSymbols = matchedSegment.match(/\{([wubrgc])\}/gi) || [];
+    const produces = [...new Set(manaSymbols.map((symbol) => symbol.replace(/[{}]/g, '').toUpperCase()))];
+    if (produces.length > 0) {
+      return {
+        produces,
+        baseAmount: 1,
+        producesAllAtOnce: false,
+      };
+    }
+  }
+
   const directSymbolsMatch = effectText.match(/\badd\s+((?:\{[wubrgc]\}){1,})/i);
   if (directSymbolsMatch) {
     const matchedSegment = String(directSymbolsMatch[1] || '');

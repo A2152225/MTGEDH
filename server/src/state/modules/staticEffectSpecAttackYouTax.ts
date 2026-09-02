@@ -3,8 +3,10 @@
 // (no card-name routing). Parse lives in staticEffectSpecOracleParsingAttackYouTax.ts.
 // Public entry symbols: collectAttackYouTaxForDefender,
 // collectAttackYouProhibitionForAttacker, collectAttackYouMaxAttackersForDefender,
-// collectMaxAttackersEachCombat, collectMaxBlockersEachCombat, collectBlockTax.
+// collectMaxAttackersEachCombat, collectMaxBlockersEachCombat, collectBlockTax,
+// collectBlockLifeTax, blockerCantBlockCreaturesYouControl.
 
+import { countCountersOnPermanent } from '../../../../shared/src/combatAttackerSelfTax.js';
 import type { BattlefieldPermanent } from '../../../../shared/src/index.js';
 import {
   bindKeywordResolver,
@@ -59,6 +61,7 @@ function resolveAttackYouTaxAmount(
   spec: StaticEffectSpec,
   battlefield: readonly BattlefieldPermanent[],
   defenderId: string,
+  attacker?: BattlefieldPermanent,
 ): number {
   const base = Number(spec.grant.attackYouTaxGeneric || 0);
   if (!Number.isFinite(base) || base <= 0) return 0;
@@ -68,6 +71,10 @@ function resolveAttackYouTaxAmount(
   }
   if (basis === 'basic_land_types_you_control') {
     return base * countBasicLandTypesYouControl(battlefield, defenderId);
+  }
+  if (basis === 'counters_on_target') {
+    if (!attacker) return 0;
+    return base * countCountersOnPermanent(attacker);
   }
   return base;
 }
@@ -106,10 +113,23 @@ export function collectAttackYouTaxForDefender(
   state: StaticConditionState & { battlefield?: readonly BattlefieldPermanent[] },
   defenderId: string,
   attacker?: BattlefieldPermanent,
+  options?: {
+    readonly attackTargetPermanentId?: string;
+  },
 ): AttackYouTaxForDefender {
   const controller = String(defenderId || '').trim();
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
   if (!controller) return { cost: 0, sources: [] };
+
+  const attackTargetId = String(options?.attackTargetPermanentId || '').trim();
+  const attackTarget = attackTargetId
+    ? battlefield.find((perm) => String(perm.id || '') === attackTargetId)
+    : undefined;
+  const attackingPlaneswalker = Boolean(
+    attackTarget
+    && String(attackTarget.controller || '') === controller
+    && /\bplaneswalker\b/i.test(typeLineOf(attackTarget)),
+  );
 
   const specs = collectStaticEffectSpecsFromState(state);
   const keywordResolver = bindKeywordResolver(specs, state);
@@ -117,14 +137,22 @@ export function collectAttackYouTaxForDefender(
   let cost = 0;
   for (const spec of specs) {
     if (String(spec.sourceController || '') !== controller) continue;
-    if (typeof spec.grant.attackYouTaxGeneric !== 'number') continue;
     if (!specAppliesToAttacker(spec, attacker)) continue;
     if (staticConditionRequiresAttacker(spec) && !attacker) continue;
     const conditionPermanent = conditionPermanentForSpec(spec, battlefield, attacker);
     if (!specMatchesStaticCondition(conditionPermanent, spec, state, keywordResolver)) {
       continue;
     }
-    const amount = resolveAttackYouTaxAmount(spec, battlefield, controller);
+
+    const pwTax = Number(spec.grant.attackPlaneswalkerYouControlTaxGeneric || 0);
+    if (Number.isFinite(pwTax) && pwTax > 0 && attackingPlaneswalker) {
+      cost += pwTax;
+      sources.push(String(spec.sourceName || spec.id || 'an effect'));
+      continue;
+    }
+
+    if (typeof spec.grant.attackYouTaxGeneric !== 'number') continue;
+    const amount = resolveAttackYouTaxAmount(spec, battlefield, controller, attacker);
     if (amount <= 0) continue;
     cost += amount;
     sources.push(String(spec.sourceName || spec.id || 'an effect'));
@@ -306,4 +334,81 @@ export function collectBlockTax(
   cost += thisTurn.cost;
   sources.push(...thisTurn.sources);
   return { cost, sources };
+}
+
+function permanentHasManaColor(permanent: BattlefieldPermanent | undefined, color: string): boolean {
+  if (!permanent) return false;
+  const wanted = String(color || '').trim().toLowerCase();
+  if (!wanted) return false;
+  const fromArray = (value: unknown): string[] =>
+    Array.isArray(value) ? value.map((entry) => String(entry || '').trim().toLowerCase()).filter(Boolean) : [];
+  const colors = [
+    ...fromArray((permanent as any)?.colors),
+    ...fromArray((permanent as any)?.card?.colors),
+    ...fromArray((permanent as any)?.color_identity),
+    ...fromArray((permanent as any)?.card?.color_identity),
+  ];
+  const colorCode: Record<string, string> = { white: 'w', blue: 'u', black: 'b', red: 'r', green: 'g' };
+  const code = colorCode[wanted];
+  return colors.includes(wanted) || (code ? colors.includes(code) : false);
+}
+
+/**
+ * Per-blocker life tax to block creatures the spec source controller controls
+ * (Heat Wave). Unique blockers pay once.
+ */
+export function collectBlockLifeTax(
+  state: StaticConditionState & { battlefield?: readonly BattlefieldPermanent[] },
+  args: {
+    readonly uniqueBlockerIds: ReadonlySet<string>;
+    readonly blockerIsTaxed: (blocker: BattlefieldPermanent, sourceController: string) => boolean;
+  },
+): AttackYouTaxForDefender {
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const specs = collectStaticEffectSpecsFromState(state);
+  const keywordResolver = bindKeywordResolver(specs, state);
+  const sources: string[] = [];
+  let cost = 0;
+  const blockers = battlefield.filter((perm) => args.uniqueBlockerIds.has(String(perm.id || '')));
+  for (const spec of specs) {
+    const life = Number(spec.grant.blockTaxLife);
+    if (!Number.isFinite(life) || life <= 0) continue;
+    const dummy = { id: '' } as BattlefieldPermanent;
+    if (!specMatchesStaticCondition(dummy, spec, state, keywordResolver)) continue;
+    const exceptColor = spec.grant.blockTaxLifeExceptColor;
+    const sourceController = String(spec.sourceController || '').trim();
+    let taxed = 0;
+    for (const blocker of blockers) {
+      if (!args.blockerIsTaxed(blocker, sourceController)) continue;
+      if (exceptColor && permanentHasManaColor(blocker, exceptColor)) continue;
+      taxed += 1;
+    }
+    if (taxed <= 0) continue;
+    cost += life * taxed;
+    sources.push(String(spec.sourceName || spec.id || 'an effect'));
+  }
+  return { cost, sources };
+}
+
+/**
+ * Heat Wave: blue creatures can't block creatures the spec source controller
+ * controls. `blocker` is the would-be blocker; `attackerController` is the
+ * controller of the creature being blocked.
+ */
+export function blockerCantBlockCreaturesYouControl(
+  state: StaticConditionState & { battlefield?: readonly BattlefieldPermanent[] },
+  blocker: BattlefieldPermanent,
+  attackerController: string,
+): boolean {
+  const wantedController = String(attackerController || '').trim();
+  if (!wantedController) return false;
+  const specs = collectStaticEffectSpecsFromState(state);
+  const keywordResolver = bindKeywordResolver(specs, state);
+  for (const spec of specs) {
+    if (!spec.grant.cantBlockCreaturesYouControl) continue;
+    if (String(spec.sourceController || '').trim() !== wantedController) continue;
+    if (!specMatchesStaticCondition(blocker, spec, state, keywordResolver)) continue;
+    return true;
+  }
+  return false;
 }

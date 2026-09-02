@@ -131,12 +131,15 @@ export {
 } from "./death-emission.js";
 export { collectDeathTriggerEffectText } from "./death-detection.js";
 export { detectAttackTriggers } from "./attack-detection.js";
+export { mergeDetectorOracleWithContinuousGrants, isAbilityLikeGrantedText, resolveDetectorOracleForPermanent } from "./detectorGrantedOracle.js";
 export { detectLTBTriggers } from "./ltb-detection.js";
 export { detectAbilityActivatedTriggers } from "./ability-activated-detection.js";
 export { detectCombatDamageTriggers } from "./combat-damage-detection.js";
 export { detectTapTriggers, type TapTrigger } from "./tap-detection.js";
 export { detectSpellCastTriggers } from "./spell-cast-detection.js";
 export { getSpellCastTriggers } from "./spell-cast-get-triggers.js";
+export { detectStackPutTriggers, queueStackPutTriggers } from "./stack-put.js";
+export { spellSharesCreatureTypeWithSource } from "./spellCastSharedCreatureType.js";
 export { detectDealtDamageTriggers } from "./dealt-damage-detection.js";
 export { detectMonstrousTriggers, detectTransformTriggers } from "./status-keyword-detection.js";
 export {

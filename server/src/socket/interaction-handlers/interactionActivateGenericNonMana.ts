@@ -28,6 +28,7 @@ import { filterLibraryCardsForSearch } from "../library-search.js";
 import { broadcastGame, getPlayerName } from "../util";
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
 import { persistAbilityActivatedTriggerPushes } from "./interactionActivateBattlefieldAbilityHelpers.js";
+import { notifySpellOrAbilityPutOnStack } from "../../state/modules/stackPutNotify.js";
 import {
   matchesParsedGraveyardCardTargetType,
   persistQueuedBattlefieldAbilityStepActivation,
@@ -287,6 +288,7 @@ export async function tryHandleActivateGenericNonMana(
     const tutorInfo = detectTutorEffect(abilityText);
 
     const activatedAbilityTextForStack = resolvedActivatedAbilityText;
+    let autoSelectedPlayerTargetIds: string[] | undefined;
 
     const parsedGraveyardTargetReqs = parseTargetRequirements(resolvedAbilityText, {
       gameState: game.state,
@@ -438,13 +440,21 @@ export async function tryHandleActivateGenericNonMana(
       return true;
     }
 
+    const parsedTargetTypes = Array.isArray(parsedGraveyardTargetReqs.targetTypes)
+      ? parsedGraveyardTargetReqs.targetTypes
+      : [];
+    const parsedTargetTypesArePlayersOnly = parsedTargetTypes.length > 0
+      && parsedTargetTypes.every((targetType) => {
+        const normalized = String(targetType || '').toLowerCase();
+        return normalized === 'player' || normalized === 'opponent';
+      });
     const hasParsedMultiTargetSelection = parsedGraveyardTargetReqs.needsTargets
-      && Array.isArray(parsedGraveyardTargetReqs.targetTypes)
-      && parsedGraveyardTargetReqs.targetTypes.length > 0
+      && parsedTargetTypes.length > 0
       && !hasParsedGraveyardTargets
       && (
         Number(parsedGraveyardTargetReqs.maxTargets ?? parsedGraveyardTargetReqs.minTargets ?? 0) > 1
         || selectionRequiresSharedCardType(parsedGraveyardTargetReqs.targetDescription, resolvedAbilityText)
+        || parsedTargetTypesArePlayersOnly
       );
 
     if (hasParsedMultiTargetSelection) {
@@ -553,6 +563,13 @@ export async function tryHandleActivateGenericNonMana(
         return true;
       }
 
+      const autoSelectSinglePlayerTarget = parsedTargetTypesArePlayersOnly
+        && uniqueTargets.length === 1
+        && Number(parsedGraveyardTargetReqs.minTargets || 0) <= 1
+        && Number(parsedGraveyardTargetReqs.maxTargets ?? 1) <= 1;
+      if (autoSelectSinglePlayerTarget) {
+        autoSelectedPlayerTargetIds = uniqueTargets.map((target) => String(target.id || '').trim()).filter(Boolean);
+      } else {
       const queuedStep = {
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: pid as PlayerID,
@@ -599,6 +616,7 @@ export async function tryHandleActivateGenericNonMana(
 
       broadcastGame(io, game, gameId);
       return true;
+      }
     }
 
     const parsedBattlefieldAbilityTargeting = parseAbilityTargeting(resolvedAbilityText);
@@ -719,6 +737,7 @@ export async function tryHandleActivateGenericNonMana(
         description: resolvedAbilityText,
         activatedAbilityText: activatedAbilityTextForStack,
         abilityType: 'tutor',
+        ...(autoSelectedPlayerTargetIds?.length ? { targets: autoSelectedPlayerTargetIds } : {}),
         searchParams: {
           filter,
           searchCriteria: tutorInfo.searchCriteria,
@@ -733,6 +752,7 @@ export async function tryHandleActivateGenericNonMana(
       
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
+      notifySpellOrAbilityPutOnStack(game as any, stackItem.id);
       
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
@@ -798,6 +818,7 @@ export async function tryHandleActivateGenericNonMana(
       activatedAbilityText: activatedAbilityTextForStack,
       xValue: selectedXValue,
       activatedAbilityIndex: selectedAbilityIndex,
+      ...(autoSelectedPlayerTargetIds?.length ? { targets: autoSelectedPlayerTargetIds } : {}),
       ...(isOnceDuringEachOfYourTurnActivatedEffect(oncePerTurnActivatedEffect)
         ? { oncePerTurnActivated: true }
         : null),

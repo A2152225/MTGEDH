@@ -18,6 +18,7 @@ import { detectKeywords, getAttackTriggerKeywords, getETBKeywords, getDeathTrigg
 import { listLegalHauntCreatureTargets } from "./hauntKeywordUtils.js";
 import type { KeywordTriggerResult, KeywordTriggerContext } from "./keyword-trigger-handlers/keywordTriggerTypes.js";
 import { permanentHasKeyword, getPermanentKeywords } from "./keyword-trigger-handlers/keywordTriggerPermanentLookup.js";
+import { playerCannotReceivePriority } from "./priorityEligibility.js";
 import {
   handleProwess,
   handleDethrone,
@@ -528,12 +529,23 @@ function handleBackup(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Key
 function handleTribute(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Creature';
   const n = keyword.value || 1;
-  
-  // Get an opponent
-  const opponents = ctx.players?.filter((p: any) => p.id !== ctx.controller) || [];
-  const opponent = opponents[0];
-  
+  const controllerId = String(ctx.controller || '').trim();
+  const listedPlayers = Array.isArray(ctx.players) ? ctx.players : [];
+  const statePlayers = Array.isArray(ctx.state?.players) ? ctx.state.players : [];
+  const opponents = [...listedPlayers, ...statePlayers].filter((player: any) => {
+    const id = String(player?.id || player?.playerId || '').trim();
+    return Boolean(id) && id !== controllerId && !playerCannotReceivePriority(player, { state: ctx.state });
+  });
+  const opponent = opponents[0]
+    || Object.keys(ctx.state?.life || {}).filter((id) => id && id !== controllerId).map((id) => ({ id, name: id }))[0]
+    || Object.keys(ctx.state?.zones || {}).filter((id) => id && id !== controllerId).map((id) => ({ id, name: id }))[0];
+
   if (!opponent) {
+    return { keyword: 'tribute', processed: true };
+  }
+
+  const opponentId = String(opponent.id || opponent.playerId || '').trim();
+  if (!opponentId) {
     return { keyword: 'tribute', processed: true };
   }
   
@@ -546,11 +558,11 @@ function handleTribute(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Ke
         { id: 'pay', name: `Put ${n} +1/+1 counter${n > 1 ? 's' : ''} on it` },
         { id: 'decline', name: 'Decline (trigger bonus effect)' },
       ],
-      playerId: opponent.id,
+      playerId: opponentId,
       permanentId: ctx.permanent?.id,
       value: n,
     },
-    chatMessage: `${cardName}'s Tribute ${n} - ${opponent.name || opponent.id} may put counters on it`,
+    chatMessage: `${cardName}'s Tribute ${n} - ${opponent.name || opponentId} may put counters on it`,
   };
 }
 

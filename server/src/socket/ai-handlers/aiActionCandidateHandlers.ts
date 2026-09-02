@@ -15,6 +15,7 @@ import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { abilityAllowsAnyPlayerActivation } from "../../../../shared/src/anyPlayerActivatedAbility.js";
 import { AIDecisionType } from "../../../../rules-engine/src/AIEngine.js";
+import { isHandOnlyDiscardThisCardActivatedAbility } from "../../../../rules-engine/src/aiEngineActivatedAbilitySupport.js";
 import { canRespond } from "../../state/modules/can-respond.js";
 import { parseManaCost, type ParsedManaCost } from "../../state/modules/mana-check.js";
 import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
@@ -37,6 +38,7 @@ import type {
   AIPlayableLandCandidate,
 } from "./aiActionCandidateTypes.js";
 import { AI_MANA_ABILITY_PATTERN, COLOR_IDENTITY_MAP } from "./aiConstants.js";
+import { isPointlessGainLifeActivatedAbility } from "./aiActivatedAbilityContextualIdle.js";
 import { findCastableSpells } from "./aiFindCastableSpells.js";
 import { getPaymentSources } from "./aiPaymentSources.js";
 import { aiEngine, getAIPendingSpellCastStatus } from "./aiScheduler.js";
@@ -199,6 +201,14 @@ export function canAIActivateBattlefieldAbilityNow(
   const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
   const permanent = battlefield.find((entry: any) => String(entry?.id || '') === String(action?.permanentId || ''));
   if (!permanent) {
+    return false;
+  }
+
+  if (isPointlessGainLifeActivatedAbility({ state: game.state } as any, playerId, permanent)) {
+    return false;
+  }
+
+  if (isHandOnlyDiscardThisCardActivatedAbility(String(action?.abilityText || ''))) {
     return false;
   }
 

@@ -17,6 +17,7 @@ import type { OracleIRTransitionHaltState } from '../../../../../rules-engine/sr
 import { createEmptyStepLedger } from '../../../../../rules-engine/src/oracleIRStepLedger.js';
 import type { GameContext } from '../../context.js';
 import { ResolutionQueueManager } from '../../resolution/index.js';
+import { debug } from '../../../utils/debug.js';
 import { persistOracleIrReplayMutationsFromExecution, persistCounterDiffsFromOracleIR, persistTemporaryEtbWindowsFromOracleIR } from '../../effects/effectProgramReplayMutationPersistence.js';
 import { persistBattlefieldPermanentPatchesFromOracleIR, snapshotBattlefieldPermanentReplayPatches } from '../../effects/battlefieldPermanentReplayPersistence.js';
 import { queueTopLibraryChoicePromptsFromOracleIRResult } from '../oracleIrServerScrySurveilPromptUtils.js';
@@ -31,9 +32,12 @@ import { queueEachPlayerCounterPlacementPromptsFromOracleIRResult } from '../tri
 import { bridgeGameStateOracleEffectsAfterOracleIR } from '../triggerGameStateOracleBridgeUtils.js';
 import { bridgeCreatedTokenEtbTriggersAfterOracleIR } from '../triggerOracleIrTokenEtbBridge.js';
 import { bridgeEnteredPermanentEtbTriggersAfterOracleIR } from '../triggerOracleIrPermanentEtbBridge.js';
+import { prepareChaosResolutionZoneTriggersAfterOracleIR } from '../oracleIrChaosResolutionTriggerHold.js';
+import { collectLegalRetargetCandidatesForStackItem } from '../oracleIrRetargetLegalTargets.js';
 import { queueBattlefieldEntryReplacementPromptsAfterOracleIR } from '../oracleIrBattlefieldEntryPrompts.js';
 import { queueOracleIrReflexiveWhenYouDoFollowups } from '../triggerReflexiveWhenYouDoQueueUtils.js';
 import { syncDerivedContinuousEffects } from '../staticEffectSpec.js';
+import { recalculatePlayerEffects } from '../game-state-effects.js';
 import { mirrorGraveyardCastingPermissionsToDurable } from '../graveyard-permissions.js';
 import { syncCastingModifierGrantsFromOracleIRResult } from '../casting-modifiers.js';
 import {
@@ -78,6 +82,8 @@ import {
   queueSeparateIntoPilesPromptsFromOracleIRResult,
   bridgeLibraryChaosExchangeFromOracleIRResult,
 } from './oracleIrServerZoneDraftPilesChaosPrompts.js';
+import { queueWarpWorldChoicePromptsFromOracleIRResult } from './oracleIrServerWarpWorldChoicePrompts.js';
+import { queueCoinIgnoreOnePromptsFromOracleIRResult } from './oracleIrServerCoinIgnoreOnePrompts.js';
 import {
   queueCopyPermanentChoicePromptsFromOracleIRResult,
   queueMoveZoneChoicePromptsFromOracleIRResult,
@@ -120,8 +126,10 @@ import {
   queueRedistributeLifeTotalsPromptsFromOracleIRResult,
   queueFlipCoinLifeStakesPromptsFromOracleIRResult,
 } from './oracleIrServerLifeFlipCoinPrompts.js';
+import { queueChooseNumberPromptsFromOracleIRResult } from './oracleIrServerChooseNumberPrompts.js';
 import {
   enrichBattlefieldTokenImages,
+  repairNamelessBattlefieldCards,
   hydrateOracleIRPlayerZonesFromContext,
   snapshotGraveyardCardIds,
   snapshotExileCardIds,
@@ -135,6 +143,7 @@ import {
   syncCounterReplacementEffectsAfterOracleIR,
   syncPreparedCopiesAfterBattlefieldControllerChanges,
   syncPreparedCopiesFromControlChangeEffects,
+  normalizeOracleIrControlChangeEffectsForServer,
   applyMillReplacementEffectsToSteps,
 } from './oracleIrServerMillCounterPreparedSync.js';
 import { queueSacrificeChoicePromptsFromOracleIRResult } from './oracleIrServerApplyDeps.js';
@@ -235,11 +244,30 @@ export function applyOracleIRStepsOnServer(
     deferOptionalPerPlayerChoices,
     deferStackSpellCopiesToServer: true,
     serverBridge,
+    collectLegalRetargetCandidates: (gameState, spell, targetingPlayerId) =>
+      collectLegalRetargetCandidatesForStackItem(gameState, spell, targetingPlayerId),
   }, {
     ...options,
     haltOnPlayerChoiceRequired: options.haltOnPlayerChoiceRequired ?? true,
   });
   Object.assign(state, result.state);
+  normalizeOracleIrControlChangeEffectsForServer(state);
+  try {
+    const warpWorldLog = (result.log || []).filter((line) =>
+      /shuffled \d+ owned permanent|Skipped owned-permanents shuffle|Skipped reveal-top|reveals |put \d+ revealed|revealed-this-way remainder/i
+        .test(String(line || ''))
+    );
+    if (warpWorldLog.length > 0) {
+      debug(2, '[oracleIR] Warp World apply', {
+        lastMovedCountByPlayer: result.lastMovedCountByPlayer || null,
+        pendingKinds: (result.pendingContinuationSteps || []).map((step) => String((step as any)?.kind || '')),
+        skippedKinds: (result.skippedSteps || []).map((step) => String((step as any)?.kind || '')),
+        log: warpWorldLog,
+      });
+    }
+  } catch {
+    // diagnostic only
+  }
   try {
     // Fire "whenever you draw" triggers for IR draws (Temple Bell, Kynaios, etc.).
     // Turn-based draws already go through zones.draw*; IR commits previously skipped this.
@@ -319,8 +347,14 @@ export function applyOracleIRStepsOnServer(
     ).trim() || undefined,
     continuationSteps: result.pendingContinuationSteps,
   });
+  repairNamelessBattlefieldCards(state);
   enrichBattlefieldTokenImages(state);
   syncDerivedContinuousEffects(state);
+  try {
+    recalculatePlayerEffects(ctx);
+  } catch {
+    // best-effort: extra land play / top-of-library caches after IR zone moves
+  }
   syncCounterReplacementEffectsAfterOracleIR(ctx, state, countersBefore);
   syncAllOracleIRPlayerZonesAfterResolution(ctx);
   syncImpulseExilePlayPermissionsToState(state);
@@ -331,6 +365,9 @@ export function applyOracleIRStepsOnServer(
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    state,
+    irCtx,
+    stackBefore: stackBeforeCounter,
   });
   const resolutionQueueStepsBefore = gameId && gameId !== 'unknown' && !(ctx as any).isReplaying
     ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
@@ -406,17 +443,27 @@ export function applyOracleIRStepsOnServer(
     triggerItem: resolutionTriggerItem,
     effectText: String(params?.oracleText || adjustedSteps.map((step) => String((step as any).raw || '')).filter(Boolean).join(' ')),
   });
-  bridgeCreatedTokenEtbTriggersAfterOracleIR(ctx, state, result);
+  const chaosZoneHold = prepareChaosResolutionZoneTriggersAfterOracleIR(
+    ctx,
+    state,
+    result,
+    triggerEmissionBefore,
+  );
+  // As-enters replacements (shock pay-2-life, check/reveal, color/copy) apply as
+  // the permanent is entering — even while Warp World holds when-enters triggers.
   queueBattlefieldEntryReplacementPromptsAfterOracleIR(
     ctx,
     state,
     new Set(triggerEmissionBefore.permanents.keys()),
   );
-  bridgeEnteredPermanentEtbTriggersAfterOracleIR(
-    ctx,
-    state,
-    new Set(triggerEmissionBefore.permanents.keys()),
-  );
+  if (!chaosZoneHold.skipLiveEtb) {
+    bridgeCreatedTokenEtbTriggersAfterOracleIR(ctx, state, result);
+    bridgeEnteredPermanentEtbTriggersAfterOracleIR(
+      ctx,
+      state,
+      new Set(triggerEmissionBefore.permanents.keys()),
+    );
+  }
   queueOracleIrReflexiveWhenYouDoFollowups(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -533,6 +580,12 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
   });
+  queueChooseNumberPromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
   queueRedistributeLifeTotalsPromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -595,6 +648,18 @@ export function applyOracleIRStepsOnServer(
     triggerItem: resolutionTriggerItem,
   });
   queueRepeatedZoneDraftChoicePromptFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueWarpWorldChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueCoinIgnoreOnePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,

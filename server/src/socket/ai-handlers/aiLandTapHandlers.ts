@@ -12,7 +12,7 @@ import { debug, debugWarn } from "../../utils/debug.js";
 import { ensureGame } from "../util.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import {
-  getManaProduction,
+  getAIManaProductionOptions,
   hasCreatureSummoningSickness,
   hasManaAbility,
 } from "./aiManaCostHelpers.js";
@@ -113,32 +113,7 @@ export function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerI
     if (permanentCannotActivateTapAbilities(perm, game.state)) continue;
     
     // Check what colors this produces
-    let producedColors = getManaProduction(perm.card);
-    
-    // Special handling for Exotic Orchard / Fellwar Stone
-    if (producedColors.length === 0) {
-      const cardName = (perm.card?.name || '').toLowerCase();
-      const oracleText = (perm.card?.oracle_text || '').toLowerCase();
-      
-      if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
-          oracleText.includes('land an opponent controls')) {
-        const opponentColors = new Set<string>();
-        
-        for (const opponentPerm of battlefield) {
-          if (!opponentPerm || opponentPerm.controller === playerId) continue;
-          
-          const opponentTypeLine = (opponentPerm.card?.type_line || '').toLowerCase();
-          if (!opponentTypeLine.includes('land')) continue;
-          
-          const opponentLandColors = getManaProduction(opponentPerm.card);
-          if (opponentLandColors.length === 0) continue;
-          
-          opponentLandColors.forEach(c => opponentColors.add(c));
-        }
-        
-        producedColors = Array.from(opponentColors);
-      }
-    }
+    const producedColors = getAIManaProductionOptions(game, playerId, perm);
     
     // Check if any produced color is retained
     for (const color of producedColors) {
@@ -246,33 +221,7 @@ export async function executeAITapLandsForMana(
     if (typeLine.includes('creature') && hasCreatureSummoningSickness(perm)) continue;
     if (permanentCannotActivateTapAbilities(perm, game.state)) continue;
     
-    let producedColors = getManaProduction(perm.card);
-    
-    // Special handling for Exotic Orchard / Fellwar Stone
-    if (producedColors.length === 0) {
-      const cardName = (perm.card?.name || '').toLowerCase();
-      const oracleText = (perm.card?.oracle_text || '').toLowerCase();
-      
-      if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
-          oracleText.includes('land an opponent controls')) {
-        const opponentColors = new Set<string>();
-        const battlefield = game.state?.battlefield || [];
-        
-        for (const opponentPerm of battlefield) {
-          if (!opponentPerm || opponentPerm.controller === playerId) continue;
-          
-          const opponentTypeLine = (opponentPerm.card?.type_line || '').toLowerCase();
-          if (!opponentTypeLine.includes('land')) continue;
-          
-          const opponentLandColors = getManaProduction(opponentPerm.card);
-          if (opponentLandColors.length === 0) continue;
-          
-          opponentLandColors.forEach(c => opponentColors.add(c));
-        }
-        
-        producedColors = Array.from(opponentColors);
-      }
-    }
+    const producedColors = getAIManaProductionOptions(game, playerId, perm);
     
     if (producedColors.length === 0) continue;
     

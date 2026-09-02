@@ -6,6 +6,7 @@
 
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
+import { mergeDetectorOracleWithContinuousGrants } from "./detectorGrantedOracle.js";
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
 import type { DeathDetectionState } from "./death-detection-state.js";
 import { appendDeathDetectionEarly } from "./death-detection-early.js";
@@ -60,9 +61,9 @@ export function collectDeathTriggerEffectText(oracleText: string, match: RegExpM
  * - "Undying" keyword
  * - "Persist" keyword
  */
-export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility[] {
+export function detectDeathTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
-  const oracleText = (card?.oracle_text || "");
+  const { oracleText } = mergeDetectorOracleWithContinuousGrants(card?.oracle_text || "", permanent, gameState);
   const lowerOracle = oracleText.toLowerCase();
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();

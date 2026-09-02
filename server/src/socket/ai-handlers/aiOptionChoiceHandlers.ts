@@ -225,6 +225,10 @@ export function chooseAIOptionSelectionsForStep(
     return chooseAISkipDrawReplacementSelection(options, resolveOptionId);
   }
 
+  if (step?.opponentLibraryDrawReplacement === true) {
+    return resolveOptionId(options[0]) || String(options[0]?.id || '').trim() || null;
+  }
+
   if (step?.zursWeirdingOpponentChoice === true) {
     return chooseAIZursWeirdingOpponentSelection(game, playerId, step, options, resolveOptionId);
   }

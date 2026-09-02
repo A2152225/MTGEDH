@@ -17,10 +17,22 @@ import {
   countTicketSymbols,
 } from './oracleIRParserSimpleActionHelpers';
 import type { SimpleActionClauseParseArgs } from './oracleIRParserSimpleActionHelpers';
+import { parseUnlessPaysManaExpression, tryParseCounterUnlessPaysClause } from './oracleIRParserCounterUnlessPays';
+import { tryParseCoinFlipThisWayClause } from './oracleIRParserCoinFlipThisWay';
 
 export function tryParseSimpleActionEarlyClauses(args: SimpleActionClauseParseArgs): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
   const tryParseSimpleActionClause = args.parseRest;
+
+  {
+    const counterUnlessPays = tryParseCounterUnlessPaysClause({ clause, rawClause, withMeta });
+    if (counterUnlessPays) return counterUnlessPays;
+  }
+
+  {
+    const coinFlipThisWay = tryParseCoinFlipThisWayClause({ clause, rawClause, withMeta });
+    if (coinFlipThisWay) return coinFlipThisWay;
+  }
 
   {
     // "Tap the creature, remove it from combat, and creatures it was blocking
@@ -122,16 +134,19 @@ export function tryParseSimpleActionEarlyClauses(args: SimpleActionClauseParseAr
 
   {
     const unlessThatPlayerPays = clause.match(
-      /^(.+?)\s+unless\s+(that\s+player|that\s+opponent|its\s+controller|they)\s+pays?\s+(\{[^}]+\})\.?$/i,
+      /^(.+?)\s+unless\s+(you|that\s+player|that\s+opponent|its\s+controller|they)\s+pays?\s+(.+)$/i,
     );
     if (unlessThatPlayerPays) {
+      const parsedPay = parseUnlessPaysManaExpression(String(unlessThatPlayerPays[3] || ''));
       const innerClause = String(unlessThatPlayerPays[1] || '').trim();
-      const innerStep = tryParseSimpleActionClause({
-        clause: innerClause,
-        rawClause: innerClause,
-        withMeta,
-      });
-      if (innerStep && innerStep.kind !== 'unknown') {
+      const innerStep = parsedPay
+        ? tryParseSimpleActionClause({
+            clause: innerClause,
+            rawClause: innerClause,
+            withMeta,
+          })
+        : null;
+      if (parsedPay && innerStep && innerStep.kind !== 'unknown') {
         // "You may [effect] unless that player pays {C}" is ability-level optional
         // (controller may/tax), not a nested may wrapping the tax step. Marking
         // unless_pays optional caused a second Yes/No before the pay prompt.
@@ -141,7 +156,9 @@ export function tryParseSimpleActionEarlyClauses(args: SimpleActionClauseParseAr
         return withMeta({
           kind: 'unless_pays_mana',
           who: parsePlayerSelector(String(unlessThatPlayerPays[2] || 'that player').trim()),
-          mana: String(unlessThatPlayerPays[3] || '').trim(),
+          mana: parsedPay.mana,
+          ...(parsedPay.manaAmountRaw ? { manaAmountRaw: parsedPay.manaAmountRaw } : {}),
+          ...(parsedPay.whereX ? { whereX: parsedPay.whereX } : {}),
           steps: nestedSteps,
           raw: rawClause,
         });

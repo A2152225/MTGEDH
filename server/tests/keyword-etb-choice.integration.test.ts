@@ -79,6 +79,10 @@ function seedGame(gameId: string, playerId: string, opponentId: string) {
     [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
     [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
   };
+  (game.state as any).commandZone = {
+    [playerId]: { commanderIds: ['cmd_p1'], commanderNames: ['Test Commander 1'] },
+    [opponentId]: { commanderIds: ['cmd_p2'], commanderNames: ['Test Commander 2'] },
+  };
 
   return game;
 }

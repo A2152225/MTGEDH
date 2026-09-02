@@ -26,6 +26,7 @@ import {
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
 import { persistQueuedBattlefieldAbilityStepActivation } from "./interactionActivationEventPersistence.js";
 import { isBattlefieldSorcerySpeedWindow } from "./interactionGraveyardCastCostAndTimingRules.js";
+import { notifySpellOrAbilityPutOnStack } from "../../state/modules/stackPutNotify.js";
 
 export async function tryHandleActivateEquipFortifyReconfigure(
   ctx: ActivateBattlefieldAbilityContext,
@@ -470,6 +471,7 @@ export async function tryHandleActivateEquipFortifyReconfigure(
 
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
+    notifySpellOrAbilityPutOnStack(game as any, stackItem.id);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,

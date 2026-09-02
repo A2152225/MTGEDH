@@ -210,6 +210,17 @@ export function parseResidualCombatCounterAndPaymentGuardsTwo(
     } as unknown as OracleEffectStep];
   }
 
+  if (/^you\s+may\s+cast\s+(?:spells|nonland cards|cards)\s+from\s+your\s+hand\s+this\s+turn\s+without\s+paying\s+their\s+mana\s+costs?$/i.test(raw)) {
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('you'),
+      duration: 'this_turn',
+      effectText: ['you may cast spells from your hand without paying their mana costs'],
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep];
+  }
+
   if (/^you\s+may\s+cast\s+that\s+card\s+for\s+as\s+long\s+as\s+it\s+remains\s+exiled,\s+and\s+you\s+may\s+spend\s+mana\s+as\s+though\s+it\s+were\s+mana\s+of\s+any\s+color\s+to\s+cast\s+that\s+spell$/i.test(raw)) {
     return [{
       kind: 'grant_exile_permission',

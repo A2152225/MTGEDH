@@ -764,7 +764,7 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const preventCombatToAndBy = clause.match(/^prevent\s+all\s+combat\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+and\s+dealt\s+by\s+(.+?)(?:\s+this\s+turn)?$/i);
+    const preventCombatToAndBy = clause.match(/^prevent\s+all\s+combat\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+and\s+dealt\s+by\s+(.+?)(?:\s+this\s+(?:turn|combat))?$/i);
     if (preventCombatToAndBy) {
       const target = parseObjectSelector(String(preventCombatToAndBy[1] || '').trim());
       return withMeta({

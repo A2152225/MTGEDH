@@ -93,7 +93,7 @@ export function applyStackPromptEvents(ctx: GameContext, e: GameEvent): boolean 
                   playerId: String((queuedStep as any).playerId || playerId || '') as any,
                   description: String((queuedStep as any).description || ''),
                   mandatory: (queuedStep as any).mandatory !== false,
-                } as any, { allowDuringReplay: true });
+                } as any, { allowDuringReplay: true, skipEmit: true });
               }
             }
 
@@ -327,7 +327,7 @@ export function applyStackPromptEvents(ctx: GameContext, e: GameEvent): boolean 
                   playerId: String((queuedStep as any).playerId || playerId || '') as any,
                   description: String((queuedStep as any).description || ''),
                   mandatory: (queuedStep as any).mandatory !== false,
-                } as any, { allowDuringReplay: true });
+                } as any, { allowDuringReplay: true, skipEmit: true });
                 stateMutated = true;
               }
             }

@@ -16,6 +16,7 @@ import {
   isOracleIrMandatoryExecutionComplete,
   logOracleIrAllOrNothingFailure,
 } from './oracleIrStepWiring.js';
+import { isOracleIrContinuationBridged } from './oracleIrContinuationBridge.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import {
@@ -157,12 +158,14 @@ export function isOracleIrExecutionHandled(
   resolutionQueueStepsAfter: number,
   parsedSteps?: readonly OracleEffectStep[],
   state?: any,
+  gameId?: string,
 ): boolean {
-  const queueBridged = resolutionQueueStepsAfter > resolutionQueueStepsBefore;
-  if (hasUnqueuedPlayerChoiceGap(result, queueBridged, state)) return false;
+  const queueGrew = resolutionQueueStepsAfter > resolutionQueueStepsBefore;
+  const continuationBridged = isOracleIrContinuationBridged({ state, gameId, resolutionQueueStepsBefore, resolutionQueueStepsAfter });
+  if (hasUnqueuedPlayerChoiceGap(result, continuationBridged, state)) return false;
 
   const pendingContinuation = (result.pendingContinuationSteps || []).length;
-  if (pendingContinuation > 0 && !queueBridged) return false;
+  if (pendingContinuation > 0 && !continuationBridged) return false;
 
   const applied = result.appliedSteps.length;
   const pendingOptional = (result.pendingOptionalSteps || []).length;
@@ -170,7 +173,8 @@ export function isOracleIrExecutionHandled(
     applied > 0
     || pendingOptional > 0
     || pendingContinuation > 0
-    || queueBridged
+    || queueGrew
+    || continuationBridged
     || (result.automationGaps || []).some((gap) => gap.classification === 'player_choice');
 
   if (!hasEffect) return false;
@@ -180,6 +184,7 @@ export function isOracleIrExecutionHandled(
       resolutionQueueStepsBefore,
       resolutionQueueStepsAfter,
       state,
+      gameId,
     });
   }
 
@@ -383,7 +388,7 @@ export function tryResolveSpellViaOracleIR(
     const queueAfter = gameId !== 'unknown'
       ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
       : queueBefore;
-    const handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter, steps, state);
+    const handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter, steps, state, gameId);
     const applied = result.appliedSteps.length;
 
     applyOracleIrSpellStructuralSupplements(ctx, params);
@@ -403,7 +408,7 @@ export function tryResolveSpellViaOracleIR(
       logOracleIrAllOrNothingFailure(
         'spell',
         params.spellName,
-        describeOracleIrExecutionHandledIncomplete(result, queueBefore, queueAfter, steps, state),
+        describeOracleIrExecutionHandledIncomplete(result, queueBefore, queueAfter, steps, state, gameId),
         { applied, parsed: steps.length },
         {
           gameId: gameId !== 'unknown' ? gameId : undefined,

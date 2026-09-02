@@ -21,6 +21,8 @@ import {
   getPlayerLibraryFromContext,
   buildLibraryAfterCascadeResolve,
   eventHasOwnField,
+  pickMutablePlayerLibrary,
+  writePlayerLibrary,
 } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { debugWarn } from "../../../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
@@ -524,7 +526,7 @@ export function applyRevealLandChoiceEvents(ctx: GameContext, e: GameEvent): boo
           }
 
           if (pid && permanentId && selectedCardId) {
-            const library = ctx.libraries.get(pid) || [];
+            const library = pickMutablePlayerLibrary(ctx, pid);
             const lookedAtCount = Math.min(lookedAtCardIds.length || 0, library.length);
             const topCards = library.splice(0, lookedAtCount);
             const selectedCard = topCards.find((card: any) => String(card?.id || '') === selectedCardId);
@@ -540,13 +542,7 @@ export function applyRevealLandChoiceEvents(ctx: GameContext, e: GameEvent): boo
               library.push({ ...(card as any), zone: 'library' });
             }
 
-            ctx.libraries.set(pid, library);
-
-            ctx.state.zones = ctx.state.zones || {};
-            const z: any = ctx.state.zones[pid] || { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
-            ctx.state.zones[pid] = z;
-            z.library = library.map((card: any) => ({ ...(card as any), zone: 'library' }));
-            z.libraryCount = library.length;
+            writePlayerLibrary(ctx, pid, library);
 
             const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
             const permanent = battlefield.find((entry: any) => String(entry?.id || '') === permanentId) as any;

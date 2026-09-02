@@ -22,6 +22,7 @@ import { getEffectiveColors } from "../../state/modules/effectiveColors.js";
 import { persistNamedSpellCastThisGame } from "../../state/modules/namedSpellsCastThisGame.js";
 import { consumeNextSpellCostReductionAfterCast } from "../../state/modules/nextSpellCostReduction.js";
 import { detectSpellCastTriggers, type SpellCastTrigger } from "../../state/modules/triggered-abilities";
+import { spellSharesCreatureTypeWithSource } from "../../state/modules/triggers/spellCastSharedCreatureType.js";
 import { debugWarn } from "../../utils/debug.js";
 import {
   broadcastGame,
@@ -67,6 +68,9 @@ export function getSpellCastTriggersForCard(game: any, casterId: string, spellCa
       return false;
     }
     if (trigger.sourceZoneRequirement === 'not_hand' && spellSourceZone === 'hand') {
+      return false;
+    }
+    if (trigger.requiresSharedCreatureTypeWithSource && !spellSharesCreatureTypeWithSource(card, sourcePermanent)) {
       return false;
     }
 

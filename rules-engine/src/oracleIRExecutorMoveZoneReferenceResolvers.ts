@@ -11,7 +11,7 @@
 // pickDeterministicGraveyardTargetId, resolveUniqueChosenAnyGraveyardTargetId,
 // resolveBoundGraveyardTargetObjectId, isContextualBoundCardReference, resolveEnchantedCreaturePermanentId,
 // isContextualBoundCardsReference, resolveMoveZoneGraveyardCount, collectBothCardsZoneEntries,
-// readPlayerOrZoneCards, findBoundCardZoneLocation, inferPreferredSourceCardZones,
+// readPlayerOrZoneCards, findBoundCardZoneLocation, ownerIdFromMovedCardSnapshots, inferPreferredSourceCardZones,
 // isSourcePermanentOnBattlefield, collectSourceCardZoneMatches, resolveSourceCardZoneLocation.
 
 import type { GameState, PlayerID } from '../../shared/src';
@@ -19,6 +19,7 @@ import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { resolveReferencedPlayerZone } from './oracleIRExecutorReferenceUtils';
 import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
+import { readPlayerZoneCards } from './oracleIRExecutorPlayerZoneAccess';
 import {
   cardMatchesMoveZoneSingleTargetCriteria,
   parseMoveZoneBottomCardFromLibrary,
@@ -540,6 +541,9 @@ export function readPlayerOrZoneCards(
   playerId: PlayerID,
   zone: 'graveyard' | 'hand' | 'exile' | 'library',
 ): any[] {
+  if (zone === 'library') {
+    return readPlayerZoneCards(state, playerId, player, 'library');
+  }
   const fromPlayer = Array.isArray(player?.[zone]) ? player[zone] : [];
   const fromZones = Array.isArray((state as any).zones?.[playerId]?.[zone])
     ? (state as any).zones[playerId][zone]
@@ -557,15 +561,43 @@ export function readPlayerOrZoneCards(
   return merged;
 }
 
-export function findBoundCardZoneLocation(state: GameState, targetCardId: string): BoundCardZoneLocation | null {
+export function ownerIdFromMovedCardSnapshots(
+  cards: readonly any[] | undefined,
+  cardId: string,
+): string | undefined {
+  const wanted = String(cardId || '').trim();
+  if (!wanted || !Array.isArray(cards)) return undefined;
+  for (const card of cards) {
+    if (String(card?.id || '').trim() !== wanted) continue;
+    const ownerId = String((card as any)?.owner || (card as any)?.ownerId || '').trim();
+    if (ownerId) return ownerId;
+  }
+  return undefined;
+}
+
+function pickBoundCardZoneLocation(matches: readonly BoundCardZoneLocation[]): BoundCardZoneLocation | null {
+  if (matches.length === 0) return null;
+  if (matches.length === 1) return matches[0];
+  const libraryMatches = matches.filter((entry) => entry.zone === 'library');
+  if (libraryMatches.length === 1) return libraryMatches[0];
+  return null;
+}
+
+export function findBoundCardZoneLocation(
+  state: GameState,
+  targetCardId: string,
+  preferredPlayerId?: string,
+): BoundCardZoneLocation | null {
   const wantedId = String(targetCardId || '').trim();
   if (!wantedId) return null;
 
+  const preferredOwner = String(preferredPlayerId || '').trim();
   const matches: BoundCardZoneLocation[] = [];
   const seen = new Set<string>();
   for (const player of state.players || []) {
     const playerId = String((player as any)?.id || '').trim() as PlayerID;
     if (!playerId) continue;
+    if (preferredOwner && playerId !== preferredOwner) continue;
 
     for (const zone of ['graveyard', 'hand', 'exile', 'library'] as const) {
       const cards = readPlayerOrZoneCards(state, player, playerId, zone);
@@ -578,7 +610,7 @@ export function findBoundCardZoneLocation(state: GameState, targetCardId: string
     }
   }
 
-  return matches.length === 1 ? matches[0] : null;
+  return pickBoundCardZoneLocation(matches);
 }
 
 export function inferPreferredSourceCardZones(stepRaw: string | undefined): readonly ('graveyard' | 'hand' | 'exile')[] | null {

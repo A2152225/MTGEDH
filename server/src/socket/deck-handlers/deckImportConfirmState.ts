@@ -2,7 +2,7 @@
  * Origin parent: server/src/socket/deck.ts
  *
  * Cluster moved: pending confirmation type/map, import-buffer card mapping,
- * confirm-id / room / localhost saved-deck guards, and wipe-confirm RQ cancel.
+ * confirm-id / room / owner-only saved-deck guards, and wipe-confirm RQ cancel.
  *
  * Public entry symbols: PendingConfirm, toImportBufferCard,
  * pendingImportConfirmations, makeImportConfirmId, isSocketInGameRoom,
@@ -77,22 +77,17 @@ export function isSocketInGameRoom(socket: Socket, gameId: string): boolean {
   }
 }
 
-function getSocketRemoteAddress(socket: Socket): string {
-  return String(socket.handshake?.address || (socket as any).conn?.remoteAddress || '')
-    .replace(/^::ffff:/, '');
-}
-
-function isLocalhostSocket(socket: Socket): boolean {
-  const remote = getSocketRemoteAddress(socket);
-  return remote === '127.0.0.1' || remote === '::1' || remote === 'localhost';
-}
-
 export function canModifySavedDeck(
   socket: Socket,
   deck: { created_by_id: string },
   playerId: PlayerID,
 ): boolean {
-  return deck.created_by_id === playerId || isLocalhostSocket(socket);
+  if ((socket.data as any)?.accountIsAdmin === true) return true;
+  const accountUserId = typeof (socket.data as any)?.accountUserId === 'string'
+    ? String((socket.data as any).accountUserId)
+    : '';
+  return deck.created_by_id === playerId
+    || (!!accountUserId && deck.created_by_id === accountUserId);
 }
 
 export function cancelImportWipeConfirmResolutionSteps(gameId: string, confirmId: string) {

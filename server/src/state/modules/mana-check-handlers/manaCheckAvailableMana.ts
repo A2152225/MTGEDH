@@ -12,6 +12,8 @@ import {
   getCreatureCountManaAmount,
   getDevotionManaAmount,
   resolvePowerThresholdInsteadManaAbility,
+  getEffectiveBasicLandTypes,
+  getOverridingLandTypeModifier,
 } from "../mana-abilities.js";
 import { canCountPermanentManaAbilities } from "./manaCheckActivationGate.js";
 import { permanentCannotActivateTapAbilities } from "../staticEffectSpecActivationLocks.js";
@@ -27,6 +29,49 @@ import {
 } from "./manaCheckRemoveCounterCost.js";
 import { filterOutCostedTapMatches } from "./manaCheckCostedTapFilter.js";
 import { getOpponentPermanentColors, getControlledPermanentColors } from "./manaCheckPermanentColors.js";
+
+const BASIC_LAND_TYPE_TO_POOL_KEY: Record<string, string> = {
+  plains: 'white',
+  island: 'blue',
+  swamp: 'black',
+  mountain: 'red',
+  forest: 'green',
+};
+
+const POOL_KEY_TO_LETTER: Record<string, string> = {
+  white: 'W',
+  blue: 'U',
+  black: 'B',
+  red: 'R',
+  green: 'G',
+  colorless: 'C',
+};
+
+function addOptimisticLandTypeChoice(
+  pool: Record<string, number>,
+  landTypes: string[],
+  fallbackColorKey?: string,
+): boolean {
+  const keys: string[] = [];
+  for (const landType of landTypes) {
+    const colorKey = BASIC_LAND_TYPE_TO_POOL_KEY[String(landType || '').toLowerCase()];
+    if (colorKey && !keys.includes(colorKey)) keys.push(colorKey);
+  }
+  if (keys.length === 0 && fallbackColorKey) {
+    pool[fallbackColorKey] = (pool[fallbackColorKey] || 0) + 1;
+    return true;
+  }
+  if (keys.length === 0) return false;
+  for (const colorKey of keys) {
+    pool[colorKey] = (pool[colorKey] || 0) + 1;
+  }
+  if (keys.length >= 2) {
+    const lettersSorted = keys.map((key) => POOL_KEY_TO_LETTER[key]).filter(Boolean).sort().join('');
+    const markerKey = `choiceColors_${lettersSorted}`;
+    (pool as any)[markerKey] = Number((pool as any)[markerKey] || 0) + 1;
+  }
+  return true;
+}
 
 /**
  * Get total available mana for a player, including:
@@ -81,10 +126,17 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
       continue;
     }
     
-    // Special case: Basic lands (Mountain, Island, etc.)
-    // Handle these first since they don't have oracle text with mana abilities
+    // Special case: Basic lands (Mountain, Island, etc.) and type-setting auras
+    // (Spreading Seas). Use granted/override types so Yavimaya / Spreading Seas
+    // are not skipped by the printed-name shortcut.
     const isBasicLandName = /^(plains|island|swamp|mountain|forest)$/i.test(cardName);
     const isSnowCoveredBasic = /^snow-covered\s+(plains|island|swamp|mountain|forest)$/i.test(cardName);
+    const effectiveLandTypes = getEffectiveBasicLandTypes(state, permanent);
+    const landTypeOverride = getOverridingLandTypeModifier(state, permanent);
+    if (landTypeOverride) {
+      addOptimisticLandTypeChoice(pool, effectiveLandTypes);
+      continue;
+    }
     if (isBasicLandName || isSnowCoveredBasic) {
       const baseName = cardName.replace(/^snow-covered\s+/i, '');
       const landToColor: Record<string, string> = {
@@ -94,11 +146,13 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
         'mountain': 'red',
         'forest': 'green',
       };
-      const colorKey = landToColor[baseName];
-      if (colorKey) {
-        pool[colorKey] = (pool[colorKey] || 0) + 1;
-      }
-      continue; // Skip oracle text check for basic lands
+      addOptimisticLandTypeChoice(pool, effectiveLandTypes, landToColor[baseName]);
+      continue;
+    }
+    if (!typeLine.includes('land') && effectiveLandTypes.length > 0
+        && !/\{t\}[^:]*:\s*add\s+/i.test(oracleText)) {
+      addOptimisticLandTypeChoice(pool, effectiveLandTypes);
+      continue;
     }
 
     // Scaling / dynamic / power-threshold-instead mana (Bighorner, Helga, Raucous Audience, etc.)

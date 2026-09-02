@@ -89,6 +89,23 @@ export interface StaticEffectGrant {
    */
   blockTaxGeneric?: number;
   /**
+   * Heat Wave: extra life to block creatures the source controller controls,
+   * charged once per blocking creature. Optional except-color skips that color
+   * (nonblue → except blue).
+   */
+  blockTaxLife?: number;
+  blockTaxLifeExceptColor?: 'white' | 'blue' | 'black' | 'red' | 'green';
+  /**
+   * Heat Wave: creatures matching the spec condition can't block creatures
+   * the source controller controls (not a blanket can't-block).
+   */
+  cantBlockCreaturesYouControl?: boolean;
+  /**
+   * Onakke Oathkeeper: extra generic mana to attack planeswalkers this spec's
+   * source controller controls (not "attack you").
+   */
+  attackPlaneswalkerYouControlTaxGeneric?: number;
+  /**
    * Steward / Hazel: copy activated abilities of cards exiled with the
    * source (`land` / `creature` / `artifact` type-line filter).
    */
@@ -97,7 +114,8 @@ export interface StaticEffectGrant {
 
 export type StaticEffectAttackYouTaxCountBasis =
   | 'enchantments_you_control'
-  | 'basic_land_types_you_control';
+  | 'basic_land_types_you_control'
+  | 'counters_on_target';
 
 /** How to count "each other …" for dynamic P/T statics. */
 export type StaticEffectCountBasis =
@@ -138,6 +156,11 @@ export type StaticEffectConditionKind =
   | 'target_power_at_most'
   /** Combat Calligrapher: Inklings can't attack you. */
   | 'target_has_creature_type'
+  /** Clash of Realities: Non-Spirit creatures (generic N-type). */
+  | 'target_lacks_creature_type'
+  /** Backgrounds: commander creatures you own. */
+  | 'target_is_commander'
+  | 'target_owned_by_source_controller'
   /** Artifact / enchantment / land creature lords (card type, not subtype). */
   | 'target_has_type'
   /** OTJ designation: Assassin, Mercenary, Pirate, Rogue, or Warlock. */

@@ -17,6 +17,7 @@ import {
   preferredForcedAttackTarget,
 } from '../utils/combatGoad';
 import { canCreatureAttackNow } from '../utils/creatureUtils';
+import { formatSelectedAttackersTax } from '../utils/combatAttackTax';
 import { playerIsLegalAttackTarget } from '../../../rules-engine/src/playerInGameStatus';
 import { getCreatureInfo } from './CombatSelectionModal-handlers/combatSelectionModalCreatureInfo';
 import { groupCreatures } from './CombatSelectionModal-handlers/combatSelectionModalGroupCreatures';
@@ -209,6 +210,15 @@ export function CombatSelectionModal({
     }
     return lookup;
   }, [players, defenderNameById]);
+
+  const selectedAttackCostLabel = useMemo(() => {
+    if (mode !== 'attackers') return null;
+    return formatSelectedAttackersTax(
+      selectedAttackers.entries(),
+      defenderInfoMap,
+      { defenderNameById: playerNameById, battlefield, players },
+    );
+  }, [mode, selectedAttackers, defenderInfoMap, playerNameById, battlefield]);
 
   // Filter to only untapped creatures for blocking
   const availableForBlock = useMemo(() => {
@@ -531,7 +541,9 @@ export function CombatSelectionModal({
     const blockCount = countTotalBlockAssignments(selectedBlockers);
     const summary =
       mode === 'attackers'
-        ? `${selectedAttackers.size} attacker${selectedAttackers.size !== 1 ? 's' : ''}`
+        ? `${selectedAttackers.size} attacker${selectedAttackers.size !== 1 ? 's' : ''}${
+            selectedAttackCostLabel ? ` · ${selectedAttackCostLabel}` : ''
+          }`
         : `${blockCount} block${blockCount !== 1 ? 's' : ''}`;
 
     return (
@@ -718,6 +730,7 @@ export function CombatSelectionModal({
           handleSetAttackTarget={handleSetAttackTarget}
           battlefieldForBlocking={battlefieldForBlocking}
           playerNameById={playerNameById}
+          players={players}
         />
 
         <CombatBlockerSelectionPanel
@@ -797,8 +810,10 @@ export function CombatSelectionModal({
                 ) ? 0.5 : 1,
               }}
             >
-              {mode === 'attackers' 
-                ? `Attack with ${selectedAttackers.size} Creature${selectedAttackers.size !== 1 ? 's' : ''}`
+              {mode === 'attackers'
+                ? `Attack with ${selectedAttackers.size} Creature${selectedAttackers.size !== 1 ? 's' : ''}${
+                    selectedAttackCostLabel ? ` (costs ${selectedAttackCostLabel})` : ''
+                  }`
                 : `Confirm Blockers (${countTotalBlockAssignments(selectedBlockers)})`}
             </button>
           </div>

@@ -5,7 +5,6 @@ import {
   MANA_COLORS,
   parseManaCost,
   applyXValueToParsedCost,
-  paymentToPool,
   canPayCost,
   computeColorsNeededByOtherCards,
   calculateSuggestedPayment,
@@ -22,6 +21,7 @@ import {
   type ManaPool,
 } from '../utils/manaUtils';
 import { buildSuggestedPaymentItems, createPaymentItemFromSource, getSourcePermanentId } from '../utils/manaSourceBuilder';
+import { manaPoolToColorRecord, simulateSequentialPaymentPool } from '../utils/manaSuggestedPaymentActivation';
 import { SacrificeSelectionModal } from './SacrificeSelectionModal';
 
 function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>): boolean {
@@ -217,32 +217,37 @@ export function PaymentPicker(props: PaymentPickerProps) {
     [floatingSources, manualFloatingManaSelection, sources]
   );
 
-  const { colors: costAfterFloating, generic: genericAfterFloating, hybrids: hybridsAfterFloating, usedFromPool } = useMemo(() => {
+  const { usedFromPool } = useMemo(() => {
     if (manualFloatingManaSelection) {
       return {
-        colors: { ...cost.colors },
-        generic: cost.generic,
-        hybrids: [...cost.hybrids],
         usedFromPool: {},
       };
     }
 
     return calculateRemainingCostAfterFloatingMana(cost, floatingMana, restrictedPurpose);
   }, [cost, floatingMana, manualFloatingManaSelection, restrictedPurpose]);
-  const costForPayment = useMemo(() => ({ 
-    colors: costAfterFloating, 
-    generic: genericAfterFloating, 
-    hybrids: hybridsAfterFloating 
-  }), [costAfterFloating, genericAfterFloating, hybridsAfterFloating]);
-  
-  // Check if floating mana is being used
   const hasFloatingManaUsed = useMemo(() => {
     return usedFromPool && Object.values(usedFromPool).some(v => v > 0);
   }, [usedFromPool]);
-  
-  const pool = useMemo(() => paymentToPool(chosen), [chosen]);
-  const satisfied = useMemo(() => canPayEnhanced(costForPayment, pool), [costForPayment, pool]);
-  const remaining = useMemo(() => remainingAfter(costForPayment, pool), [costForPayment, pool]);
+
+  const sourceById = useMemo(() => new Map(effectiveSources.map((source) => [source.id, source])), [effectiveSources]);
+  const simulatedPayment = useMemo(() => {
+    const startingPool = manualFloatingManaSelection ? undefined : manaPoolToColorRecord(floatingMana);
+    return simulateSequentialPaymentPool(chosen, sourceById, startingPool);
+  }, [chosen, sourceById, floatingMana, manualFloatingManaSelection]);
+  const pool = useMemo(
+    () => simulateSequentialPaymentPool(chosen, sourceById).pool,
+    [chosen, sourceById],
+  );
+  const satisfied = useMemo(
+    () => simulatedPayment.unpaidActivationPips === 0 && canPayEnhanced(cost, simulatedPayment.pool),
+    [simulatedPayment, cost],
+  );
+  const remaining = useMemo(() => {
+    const left = remainingAfter(cost, simulatedPayment.pool);
+    if (simulatedPayment.unpaidActivationPips <= 0) return left;
+    return { ...left, generic: left.generic + simulatedPayment.unpaidActivationPips };
+  }, [cost, simulatedPayment]);
 
   const getPaymentItemKey = (item: PaymentItem) => String(item.paymentSourceId || item.permanentId || '');
   const chosenCountBySourceId = useMemo(() => {
@@ -297,8 +302,6 @@ export function PaymentPicker(props: PaymentPickerProps) {
       restrictedPurpose,
     );
   }, [cost, sourcesEligibleForSuggestion, colorsToPreserve, chosen.length, floatingMana, manualFloatingManaSelection, restrictedPurpose]);
-
-  const sourceById = useMemo(() => new Map(effectiveSources.map((source) => [source.id, source])), [effectiveSources]);
 
   const getConsumableSourcesForIds = (sourceIds: Iterable<string>): ManaPaymentSource[] => {
     const seen = new Set<string>();
@@ -399,7 +402,16 @@ export function PaymentPicker(props: PaymentPickerProps) {
       setSourceQuantity(source, mana, current + 1);
       return;
     }
-    if (chosenById.has(source.id)) return;
+    if (chosenById.has(source.id)) {
+      const existing = chosen.find((payment) => getPaymentItemKey(payment) === source.id);
+      const canSwitchColor = Boolean(existing && existing.mana !== mana && (source.options?.length || 0) > 1);
+      if (!canSwitchColor) return;
+      onChange(chosen.map((payment) => {
+        if (getPaymentItemKey(payment) !== source.id) return payment;
+        return { ...createPaymentItem(source, mana), paymentSourceId: source.id };
+      }));
+      return;
+    }
     if (source.sacrificeCost) {
       setPendingSacrificeSelection({ source, mana });
       return;
@@ -474,6 +486,11 @@ export function PaymentPicker(props: PaymentPickerProps) {
           Hybrid: {remaining.hybrids.map((g, i) => <span key={i} style={{ border: '1px solid #ddd', borderRadius: 12, padding: '2px 6px', fontSize: 12 }}>{g.join('/')}</span>)}
         </span>}
         {costBadge('Generic', remaining.generic)}
+        {simulatedPayment.unpaidActivationPips > 0 && (
+          <span style={{ fontSize: 12, color: '#c05621' }}>
+            Selected sources need {simulatedPayment.unpaidActivationPips} more mana to activate
+          </span>
+        )}
         {satisfied && <span style={{ fontSize: 12, color: '#2b6cb0' }}>Cost satisfied</span>}
       </div>
 
@@ -689,7 +706,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
                   const selectedMana = chosen.find((payment) => getPaymentItemKey(payment) === s.id)?.mana;
                   const disabledColor = !spendAllowed || (stackQty > 1
                     ? (chosenQty >= stackQty && selectedMana === opt)
-                    : used);
+                    : (used && selectedMana === opt));
                   return (
                     <button
                       key={`${s.id}:${opt}`}
@@ -706,13 +723,17 @@ export function PaymentPicker(props: PaymentPickerProps) {
                       title={
                         !spendAllowed
                           ? 'Restricted mana cannot be spent on this spell/ability'
+                          : used && selectedMana === opt && stackQty <= 1
+                          ? 'Currently selected'
                           : disabledColor && stackQty <= 1
                           ? 'Already used'
                           : isSuggestedColor
                             ? `Suggested: Add ${suggestedQty || suggested?.count || 1}× ${opt}`
                             : stackQty > 1
                               ? `Add one ${opt} (qty ${chosenQty}/${stackQty})`
-                              : `Add ${hasAmount ? `${getManaPerActivation(s)}×` : ''}${opt}`
+                              : used
+                                ? `Switch to ${opt}`
+                                : `Add ${hasAmount ? `${getManaPerActivation(s)}×` : ''}${opt}`
                       }
                     >
                       {displayText}

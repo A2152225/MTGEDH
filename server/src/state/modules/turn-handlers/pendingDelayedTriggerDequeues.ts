@@ -273,7 +273,10 @@ export function dequeuePendingUpkeepDrawTriggers(ctx: GameContext): any[] {
       }
 
       const count = Math.max(1, Math.floor(Number(entry?.count || 1)));
-      const effectText = count === 1 ? 'Draw a card.' : `Draw ${count} cards.`;
+      const upTo = entry?.upTo === true;
+      const effectText = upTo
+        ? (count === 1 ? 'You may draw up to one card.' : `You may draw up to ${count} cards.`)
+        : (count === 1 ? 'Draw a card.' : `Draw ${count} cards.`);
       const playerId = String(entry?.playerId || entry?.createdBy || '').trim();
       if (!playerId) continue;
 
@@ -287,6 +290,7 @@ export function dequeuePendingUpkeepDrawTriggers(ctx: GameContext): any[] {
         stackItem: {
           delayedAction: 'draw',
           delayedDrawCount: count,
+          ...(upTo ? { delayedDrawUpTo: true } : null),
           delayedSourceName: String(entry?.sourceName || 'Delayed trigger').trim(),
           delayedScheduleId: String(entry?.scheduleId || '').trim() || undefined,
         },

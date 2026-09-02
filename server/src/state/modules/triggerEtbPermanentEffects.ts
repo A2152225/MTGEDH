@@ -196,6 +196,7 @@ export function triggerETBEffectsForPermanent(
   permanent: any,
   controller: PlayerID,
   includeSelfTriggers = true,
+  options?: { readonly etbTriggerCache?: Map<string, ReturnType<typeof getETBTriggersForPermanent>> },
 ): void {
   const state = (ctx as any).state;
   if (!state?.battlefield) return;
@@ -245,10 +246,15 @@ export function triggerETBEffectsForPermanent(
   const pendingExternalEtbTriggers: any[] = [];
   
   // Check all other permanents for triggers that fire when creatures/permanents enter
+  const etbTriggerCache = options?.etbTriggerCache;
   for (const perm of state.battlefield) {
     if (!perm || perm.id === permanent.id) continue;
-    
-    const otherTriggers = getETBTriggersForPermanent(perm.card, perm);
+    const watcherId = String(perm?.id || '').trim();
+    let otherTriggers = watcherId && etbTriggerCache ? etbTriggerCache.get(watcherId) : undefined;
+    if (!otherTriggers) {
+      otherTriggers = getETBTriggersForPermanent(perm.card, perm, state);
+      if (watcherId && etbTriggerCache) etbTriggerCache.set(watcherId, otherTriggers);
+    }
     for (const trigger of otherTriggers) {
       // creature_etb triggers (Cathars' Crusade, Soul Warden, etc.)
       if (trigger.triggerType === 'creature_etb' && isCreature) {

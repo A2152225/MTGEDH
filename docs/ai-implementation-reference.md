@@ -57,11 +57,13 @@ At cleanup step, AI discards down to max hand size:
 
 1. Check for "no maximum hand size" effects (Reliquary Tower, etc.)
 2. If over max, `chooseCardsToDiscard()` scores cards:
+   - No-max-hand-size cards (Reliquary Tower, Thought Vessel): +250 (keep first)
    - Lands: +100 (keep)
    - Creatures: +20 (keep)
    - Removal spells: +30 (keep)
    - Low CMC: +0-10 based on cost (keep cheaper)
 3. Lowest scored cards are discarded first
+4. Land drop always prefers Reliquary Tower over other playable lands (delaying a colored land / spell is worth keeping the hand)
 
 ### Color Identity Extraction
 

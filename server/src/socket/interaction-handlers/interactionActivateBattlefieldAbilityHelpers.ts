@@ -28,6 +28,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../../state/resoluti
 import { parseWordNumber } from "../../state/utils";
 import { parseStationAbilities } from "../../utils/stationParser.js";
 import { debugWarn } from "../../utils/debug.js";
+import { resolveManaAbilityLifeEffect } from "../../state/modules/mana-abilities-handlers/manaAbilitySelfDamage.js";
 import {
   calculateTotalAvailableMana,
   consumeManaFromPool,
@@ -96,22 +97,7 @@ export function getManaAbilityLifeEffect(card: any, producesColoredMana: boolean
   amount: number;
   isDamage: boolean;
 } {
-  if (!producesColoredMana) {
-    return { amount: 0, isDamage: false };
-  }
-
-  const oracleText = String(card?.oracle_text || '').toLowerCase();
-  const isDamage = oracleText.includes('deals 1 damage to you');
-  const isLifePayment = !isDamage && oracleText.includes('{t},') && oracleText.includes('pay 1 life');
-
-  if (!isDamage && !isLifePayment) {
-    return { amount: 0, isDamage: false };
-  }
-
-  return {
-    amount: 1,
-    isDamage,
-  };
+  return resolveManaAbilityLifeEffect({ card, producesColoredMana });
 }
 
 export function parseStationThreshold(oracleText: string): number {
@@ -516,7 +502,10 @@ export function extractActivatedAbilitiesFromText(text: string): Array<{ cost: s
   const seen = new Set<string>();
 
   const pushColonAbility = (costRaw: string, effectRaw: string) => {
-    const cost = String(costRaw || '').trim();
+    const cost = String(costRaw || '')
+      .trim()
+      .replace(/^(?:boast|forecast|channel|exhaust)\s*[—–-]\s*/i, '')
+      .trim();
     const effect = String(effectRaw || '').trim();
     if (!cost || !effect) return;
     if (!isRecognizedActivatedAbilityCostText(cost)) {

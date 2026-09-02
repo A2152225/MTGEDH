@@ -7,6 +7,7 @@
 
 import type { GameContext } from "../../context.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
+import { playerIdCanReceivePriority } from "../priorityEligibility.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
@@ -245,11 +246,22 @@ export function checkPendingInteractions(ctx: GameContext): {
       const attackersDeclaredBy: string[] = Array.isArray(state.attackersDeclaredBy) ? state.attackersDeclaredBy : [];
 
       if (turnPlayer && !attackersDeclaredBy.includes(turnPlayer)) {
-        result.hasPending = true;
-        result.pendingTypes.push('attacker_declaration');
-        result.details.attackersNeeded = true;
-        result.details.turnPlayer = turnPlayer;
-        debug(2, `${ts()} [checkPendingInteractions] Waiting for ${turnPlayer} to declare attackers`);
+        // An eliminated / inactive / deckless active player can never receive
+        // priority, so waiting for them deadlocks: living players pass, the
+        // holder is skipped, and auto-pass / AI ping-pongs forever.
+        if (!playerIdCanReceivePriority(ctx, turnPlayer)) {
+          if (!Array.isArray(state.attackersDeclaredBy)) {
+            state.attackersDeclaredBy = [];
+          }
+          state.attackersDeclaredBy.push(turnPlayer);
+          debug(2, `${ts()} [checkPendingInteractions] Auto-declaring empty attackers for ${turnPlayer} (cannot receive priority)`);
+        } else {
+          result.hasPending = true;
+          result.pendingTypes.push('attacker_declaration');
+          result.details.attackersNeeded = true;
+          result.details.turnPlayer = turnPlayer;
+          debug(2, `${ts()} [checkPendingInteractions] Waiting for ${turnPlayer} to declare attackers`);
+        }
       }
     }
 

@@ -55,6 +55,12 @@ describe('calculateAdditionalDraws is oracle-only (no ADDITIONAL_DRAW_CARDS tabl
     const ctx = ctxFor([perm('fx1', 'p1', 'Fixture Draw And Land', RITES_DRAW_ORACLE)]);
     expect(calculateAdditionalDraws(ctx, 'p1')).toBe(1);
     expect(calculateAdditionalDraws(ctx, 'p2')).toBe(1);
+    expect(
+      detectDrawStepTriggers(
+        { name: 'Rites of Flourishing', oracle_text: RITES_DRAW_ORACLE },
+        { id: 'fx1', controller: 'p1' },
+      ),
+    ).toHaveLength(0);
   });
 
   it('grants +1 only to the controller from "your draw step" oracle', () => {

@@ -105,6 +105,31 @@ export function applyScheduleDelayedBattlefieldActionStep(
     return { applied: true, state: scheduled.state, log: scheduled.log };
   }
 
+  if (step.action === 'destroy') {
+    const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.object as any, runtime);
+    const permanents =
+      recentTargets.length > 0
+        ? recentTargets
+        : resolveDirectBattlefieldPermanents(battlefield, step.object as any, ctx);
+    if (permanents.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped delayed destroy scheduling (no deterministic target): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+
+    const scheduled = registerDelayedBattlefieldAction(
+      state,
+      ctx,
+      (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID,
+      timing,
+      'destroy',
+      permanents,
+    );
+    return { applied: true, state: scheduled.state, log: scheduled.log };
+  }
+
   const recentTokenTargets = resolveRecentlyCreatedTokenPermanents(battlefield, step.object as any, runtime);
   const recentMovedTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.object as any, runtime);
   if (recentTokenTargets.length > 0 || recentMovedTargets.length > 0) {

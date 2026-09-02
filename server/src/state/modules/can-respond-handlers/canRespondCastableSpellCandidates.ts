@@ -15,6 +15,7 @@ import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan } from '../cos
 import { getEffectiveAdditionalCost } from '../../../socket/game-actions.js';
 import { debug, debugWarn } from '../../../utils/debug.js';
 import { isSpellCastingProhibitedByChosenName } from '../chosen-name-restrictions.js';
+import { isSpellCastingProhibitedByStaticRestriction } from '../staticCastingRestrictions.js';
 import {
   cardAllowsPlayerToPlayFromExile,
   cardMeetsPlayFromExileConditions,
@@ -249,6 +250,9 @@ function collectCastableSpellCandidates(
 
       for (const castCard of getHandCastEvaluationCards(card)) {
         if (isSpellCastingProhibitedByChosenName(state, playerId, castCard.name || '').prohibited) {
+          continue;
+        }
+        if (isSpellCastingProhibitedByStaticRestriction(state, playerId, castCard, sourceZone).prohibited) {
           continue;
         }
 

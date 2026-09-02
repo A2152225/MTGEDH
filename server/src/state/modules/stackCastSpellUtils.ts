@@ -6,7 +6,7 @@ import { cleanupCardLeavingExile, removeCardFromAnyPlayerExile } from './playabl
 import { castCommander } from './commander.js';
 import { extractModalModesFromOracleText } from '../../utils/oraclePromptContext.js';
 import { deriveSelfEntryCountersFromOracleIR } from '../../../../rules-engine/src/oracleIRSelfEntryCounters.js';
-import { repairReplayCardSourceZones } from './stackReplayUtils.js';
+import { repairCardIdAwayFromZones, repairReplayCardSourceZones } from './stackReplayUtils.js';
 import {
   recordCommittedCrimeThisTurn,
   recordGraveyardPermanentTypesCastThisTurn,
@@ -136,6 +136,7 @@ export function castSpell(
           card = gyCards.splice(gyIdx, 1)[0];
           (z as any).graveyardCount = gyCards.length;
           castFromGraveyard = true;
+          repairCardIdAwayFromZones(ctx, String(playerId), String(cardOrId), ['graveyard']);
         } else if (libraryCards) {
           const libraryIdx = libraryCards.findIndex((c: any) => c && c.id === cardOrId);
           if (libraryIdx !== -1) {
@@ -190,6 +191,7 @@ export function castSpell(
         gyCards.splice(gyIdx, 1);
         (z as any).graveyardCount = gyCards.length;
         castFromGraveyard = true;
+        repairCardIdAwayFromZones(ctx, String(playerId), String(card?.id || ''), ['graveyard']);
       }
     }
 

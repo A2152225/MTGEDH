@@ -64,7 +64,7 @@ export { handleAdditionalCostPaymentResponse } from "./additionalCostPaymentResp
 // SQUAD_COST_PAYMENT: record the squad multiplier and resume the gated cast.
 export { handleSquadCostPaymentResponse } from "./squadCostPaymentResponseHandlers.js";
 
-// X_VALUE_SELECTION: spell-cast X and Blight X activation-cost choose-X.
+// X_VALUE_SELECTION: spell-cast X, delayed up-to-N draw, and Blight X activation-cost choose-X.
 export { handleXValueSelectionResponse } from "./xValueSelectionResponseHandlers.js";
 
 // TRIGGER_ORDER: reorder simultaneous triggered abilities on the stack (CR 603.3b).

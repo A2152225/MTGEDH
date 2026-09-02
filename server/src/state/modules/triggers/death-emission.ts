@@ -86,7 +86,7 @@ export function getDeathTriggers(
 
   results.push(...collectDelayedDiesWatcherTriggers(ctx, dyingCreature));
 
-  appendDetectedSelfDeathTriggers(results, dyingCreature, dyingCreatureController);
+  appendDetectedSelfDeathTriggers(results, dyingCreature, dyingCreatureController, ctx.state);
 
   const dyingCard = dyingCreature?.card;
   const dyingCardName = String(dyingCard?.name || 'Unknown');
@@ -148,7 +148,7 @@ export function getDeathTriggers(
     const key = normalizeDeathEffectKey(String(existing?.effect || ''));
     if (key) seenSelfEffects.add(key);
   }
-  for (const rulesText of getPermanentRulesTextFragments(dyingCreature)) {
+  for (const rulesText of getPermanentRulesTextFragments(dyingCreature, ctx.state)) {
     const textForScan = stripReminderParentheticals(rulesText);
     const matches = textForScan.matchAll(selfDiesPattern);
     for (const match of matches) {
@@ -221,7 +221,7 @@ export function getDeathTriggers(
     if (!card) continue;
     
     const cardName = (card.name || '').toLowerCase();
-    const oracleText = getPermanentRulesTextFragments(permanent).join('\n');
+    const oracleText = getPermanentRulesTextFragments(permanent, ctx.state).join('\n');
     const lowerOracleText = oracleText.toLowerCase();
     const permanentController = String(permanent.controller || '').trim();
     const attachedTo = String((permanent as any)?.attachedTo || '').trim();

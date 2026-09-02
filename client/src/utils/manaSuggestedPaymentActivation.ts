@@ -1,7 +1,8 @@
 // Origin parent: client/src/utils/manaUtils.ts / manaSourceBuilder.ts
 // Cluster moved: sequential {1}{T} mana-ability auto-pay (Signets, Talismans).
 // Public entry symbols: getSourceActivationManaPips, getFixedMixedManaBundleColors,
-//   tryAssignFixedMixedManaBundle, chargeSourceActivationCost, sortPaymentItemsForSequentialActivation.
+//   tryAssignFixedMixedManaBundle, chargeSourceActivationCost, sortPaymentItemsForSequentialActivation,
+//   manaPoolToColorRecord, simulateSequentialPaymentPool.
 
 import type { PaymentItem } from '../../../shared/src';
 import type { Color, ManaPaymentSource } from './manaUtils';
@@ -131,10 +132,99 @@ export function sortPaymentItemsForSequentialActivation(
 
 function getPaymentItemActivationPips(
   item: PaymentItem,
-  sourceById: ReadonlyMap<string, ManaPaymentSource>,
+  sourceById: ReadonlyMap<string, Pick<ManaPaymentSource, 'activationManaCost'>>,
 ): number {
   const paymentSourceId = String((item as { paymentSourceId?: string }).paymentSourceId || '');
   const source = (paymentSourceId && sourceById.get(paymentSourceId))
     || sourceById.get(String(item.permanentId || ''));
   return source ? getSourceActivationManaPips(source) : 0;
+}
+
+const GENERIC_DRAIN_ORDER: readonly Color[] = ['C', 'W', 'U', 'B', 'R', 'G'];
+
+export function manaPoolToColorRecord(
+  pool?: Partial<Record<'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless', number>> | null,
+): Record<Color, number> {
+  return {
+    W: Number(pool?.white || 0),
+    U: Number(pool?.blue || 0),
+    B: Number(pool?.black || 0),
+    R: Number(pool?.red || 0),
+    G: Number(pool?.green || 0),
+    C: Number(pool?.colorless || 0),
+  };
+}
+
+function emptyColorPool(): Record<Color, number> {
+  return { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+}
+
+function addPaymentItemProduction(pool: Record<Color, number>, item: PaymentItem): void {
+  const produced = Array.isArray(item.producedColors)
+    ? item.producedColors
+        .map((color) => String(color || '').toUpperCase())
+        .filter((color): color is Color => MANA_COLOR_SET.has(color as Color))
+    : [];
+  if (produced.length > 0) {
+    for (const color of produced) {
+      pool[color] = (pool[color] || 0) + 1;
+    }
+    return;
+  }
+
+  const mana = String(item.mana || '').toUpperCase() as Color;
+  if (!MANA_COLOR_SET.has(mana)) return;
+  const amount = Math.max(1, Number(item.count || 1));
+  pool[mana] = (pool[mana] || 0) + amount;
+}
+
+function consumeGenericPipsFromColorPool(pool: Record<Color, number>, pips: number): number {
+  let left = Math.max(0, pips);
+  for (const color of GENERIC_DRAIN_ORDER) {
+    if (left <= 0) break;
+    const available = Number(pool[color] || 0);
+    if (available <= 0) continue;
+    const use = Math.min(available, left);
+    pool[color] = available - use;
+    left -= use;
+  }
+  return left;
+}
+
+export type SequentialPaymentPoolResult = {
+  pool: Record<Color, number>;
+  unpaidActivationPips: number;
+};
+
+/**
+ * Replay payment items in tap order: pay each source's extra activation cost from
+ * the running pool, then add what it produces. Lands that only exist to float a
+ * Signet `{1}` are consumed before the bundle is added.
+ */
+export function simulateSequentialPaymentPool(
+  payment: PaymentItem[],
+  sourceById: ReadonlyMap<string, Pick<ManaPaymentSource, 'activationManaCost'>>,
+  startingPool?: Partial<Record<Color, number>> | null,
+): SequentialPaymentPoolResult {
+  const pool = emptyColorPool();
+  pool.W = Number(startingPool?.W || 0);
+  pool.U = Number(startingPool?.U || 0);
+  pool.B = Number(startingPool?.B || 0);
+  pool.R = Number(startingPool?.R || 0);
+  pool.G = Number(startingPool?.G || 0);
+  pool.C = Number(startingPool?.C || 0);
+
+  let unpaidActivationPips = 0;
+  for (const item of Array.isArray(payment) ? payment : []) {
+    const permanentId = String(item.permanentId || '');
+    if (!permanentId.startsWith('__pool__')) {
+      unpaidActivationPips += consumeGenericPipsFromColorPool(
+        pool,
+        getPaymentItemActivationPips(item, sourceById),
+      );
+    }
+    addPaymentItemProduction(pool, item);
+  }
+
+  return { pool, unpaidActivationPips };
 }

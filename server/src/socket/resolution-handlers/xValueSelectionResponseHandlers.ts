@@ -2,8 +2,9 @@
  * socket/resolution-handlers/xValueSelectionResponseHandlers.ts
  *
  * Origin parent: server/src/socket/resolution.ts (handleStepResponse switch).
- * Cluster moved: handleXValueSelectionResponse (spell-cast X and Blight X
- * activation-cost choose-X, then resume the gated cast or enqueue blight TARGET_SELECTION).
+ * Cluster moved: handleXValueSelectionResponse (spell-cast X, delayed
+ * up-to-N draw, and Blight X activation-cost choose-X, then resume the
+ * gated cast or enqueue blight TARGET_SELECTION).
  * Public entry symbols: handleXValueSelectionResponse.
  *
  * Terminal for the case: the original `break` becomes `return`.
@@ -21,8 +22,13 @@ import {
 import { debugWarn } from "../../utils/debug.js";
 import { requestCastSpellForSocket } from "../game-actions.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "../util.js";
+import {
+  applyDelayedDrawUpToChoice,
+  isDelayedDrawUpToSelectionStep,
+} from "../../state/modules/triggerDelayedDrawUpToUtils.js";
+import { resumeOracleIRRemainingStepsFromResolution } from "../../state/modules/oracleIrServerZoneSync-handlers/oracleIrServerResumeAndChoiceApply.js";
 
-/** X_VALUE_SELECTION: record chosen X for a spell cast or Blight X activation cost. */
+/** X_VALUE_SELECTION: record chosen X for a spell cast, delayed up-to draw, or Blight X activation cost. */
 export async function handleXValueSelectionResponse(
   io: Server,
   game: any,
@@ -40,6 +46,78 @@ export async function handleXValueSelectionResponse(
   else if (rawSelection && typeof rawSelection === 'object' && rawSelection.xValue != null) selectedXValue = Number(rawSelection.xValue);
 
   selectedXValue = Number.isFinite(selectedXValue) ? Math.max(0, Math.floor(selectedXValue as number)) : null;
+
+  if (isDelayedDrawUpToSelectionStep(stepAny)) {
+    applyDelayedDrawUpToChoice(game, stepAny, response.cancelled ? 0 : selectedXValue);
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (stepAny?.oracleIrChooseNumberChoice === true) {
+    let choiceSteps: any[] = [];
+    try {
+      const parsed = JSON.parse(String(stepAny.oracleIrChoiceStepJson || '[]'));
+      choiceSteps = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      choiceSteps = [];
+    }
+    let remainingSteps: any[] = [];
+    try {
+      const parsed = JSON.parse(String(stepAny.oracleIrResumeStepsJson || '[]'));
+      remainingSteps = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      remainingSteps = [];
+    }
+    if (response.cancelled) return;
+    const minValue = Math.max(0, Math.floor(Number(stepAny.minValue ?? 0)));
+    const maxValue = Math.max(minValue, Math.floor(Number(stepAny.maxValue ?? minValue)));
+    const chosen = selectedXValue == null
+      ? null
+      : Math.max(minValue, Math.min(maxValue, selectedXValue));
+    if (chosen == null) {
+      debugWarn(1, `[Resolution] Choose number: invalid selection: ${JSON.stringify(response.selections)}`);
+      return;
+    }
+    resumeOracleIRRemainingStepsFromResolution(game, {
+      controller: String(stepAny.oracleIrControllerId || pid).trim(),
+      sourceId: String(stepAny.oracleIrSourceId || stepAny.sourceId || '').trim() || undefined,
+      sourceName: String(stepAny.oracleIrSourceName || stepAny.sourceName || '').trim() || undefined,
+      steps: [...choiceSteps, ...remainingSteps],
+      selectorContext: { chosenNumber: chosen },
+    });
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (stepAny?.oracleIrPayEnergyChoice === true) {
+    let paySteps: any[] = [];
+    try {
+      const parsed = JSON.parse(String(stepAny.oracleIrChoiceStepJson || '[]'));
+      paySteps = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      paySteps = [];
+    }
+    let remainingSteps: any[] = [];
+    try {
+      const parsed = JSON.parse(String(stepAny.oracleIrResumeStepsJson || '[]'));
+      remainingSteps = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      remainingSteps = [];
+    }
+    const paid = response.cancelled ? 0 : (selectedXValue ?? 0);
+    resumeOracleIRRemainingStepsFromResolution(game, {
+      controller: String(stepAny.oracleIrControllerId || pid).trim(),
+      sourceId: String(stepAny.oracleIrSourceId || stepAny.sourceId || '').trim() || undefined,
+      sourceName: String(stepAny.oracleIrSourceName || stepAny.sourceName || '').trim() || undefined,
+      steps: [...paySteps, ...remainingSteps],
+      energyPaidThisWay: paid,
+    });
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
 
   if (stepAny?.spellCastXSelection === true) {
     if (response.cancelled) {

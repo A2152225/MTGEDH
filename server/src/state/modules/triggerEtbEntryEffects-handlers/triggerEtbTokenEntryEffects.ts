@@ -52,7 +52,7 @@ export function triggerETBEffectsForToken(
   for (const perm of state.battlefield) {
     if (!perm || perm.id === token.id) continue;
     
-    const otherTriggers = getETBTriggersForPermanent(perm.card, perm);
+    const otherTriggers = getETBTriggersForPermanent(perm.card, perm, state);
     for (const trigger of otherTriggers) {
       // creature_etb triggers (Cathars' Crusade, Soul Warden, etc.)
       if (trigger.triggerType === 'creature_etb' && isCreature) {

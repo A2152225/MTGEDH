@@ -52,6 +52,7 @@ import {
 } from "./gameActionsPermanentEntryPrompts.js";
 import { checkAsEntersCopyChoiceForNewPermanents } from "../../state/modules/asEntersCopyChoice.js";
 import { getPlayerLibraryCards, getTopLibraryCard } from "./gameActionsPlayerZoneCards.js";
+import { isOracleIrTriggerPrimaryEnabled } from "../../state/modules/oracleIrFeatureFlags.js";
 
 export function getRequestedLandPlayCandidate(
   game: any,
@@ -309,37 +310,39 @@ export function finalizePlayedLand(
     });
   }
 
-  const sacrificeCost = detectSacrificeUnlessPayETB(cardName, oracleText);
-  if (sacrificeCost) {
-    const battlefield = game.state?.battlefield || [];
-    const permanent = battlefield.find((p: any) =>
-      p.card?.id === cardId &&
-      p.controller === playerId
-    );
+  if (!isOracleIrTriggerPrimaryEnabled()) {
+    const sacrificeCost = detectSacrificeUnlessPayETB(cardName, oracleText);
+    if (sacrificeCost) {
+      const battlefield = game.state?.battlefield || [];
+      const permanent = battlefield.find((p: any) =>
+        p.card?.id === cardId &&
+        p.controller === playerId
+      );
 
-    if (permanent) {
-      const existing = ResolutionQueueManager
-        .getStepsForPlayer(gameId, playerId as any)
-        .find((s: any) => (s as any)?.sacrificeUnlessPayChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
+      if (permanent) {
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((s: any) => (s as any)?.sacrificeUnlessPayChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
 
-      if (!existing) {
-        ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.MANA_PAYMENT_CHOICE,
-          playerId: playerId as any,
-          sourceId: permanent.id,
-          sourceName: cardName,
-          sourceImage: cardImageUrl,
-          description: `${cardName}: Pay ${sacrificeCost} to keep it. Cancel to sacrifice it.`,
-          mandatory: false,
-          activationPaymentChoice: true,
-          confirmLabel: `Pay ${sacrificeCost}`,
-          permanentId: permanent.id,
-          cardName,
-          manaCost: sacrificeCost,
-          sacrificeUnlessPayChoice: true,
-        } as any);
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+            playerId: playerId as any,
+            sourceId: permanent.id,
+            sourceName: cardName,
+            sourceImage: cardImageUrl,
+            description: `${cardName}: Pay ${sacrificeCost} to keep it. Cancel to sacrifice it.`,
+            mandatory: false,
+            activationPaymentChoice: true,
+            confirmLabel: `Pay ${sacrificeCost}`,
+            permanentId: permanent.id,
+            cardName,
+            manaCost: sacrificeCost,
+            sacrificeUnlessPayChoice: true,
+          } as any);
+        }
+        debug(2, `[playLand] ${cardName} has "sacrifice unless you pay ${sacrificeCost}" ETB trigger`);
       }
-      debug(2, `[playLand] ${cardName} has "sacrifice unless you pay ${sacrificeCost}" ETB trigger`);
     }
   }
 

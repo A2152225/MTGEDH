@@ -29,12 +29,18 @@ import {
 import {
   getDiedCreatureManaValueFromCtx,
   getLibraryPlacement,
-  moveContextualCardToDestination,
+  moveContextualRestToLibraryBottom,
   resolveAmongThemCriteriaWithX,
-  resolveContextualCardIdsInZones,
+  resolveContextualRestPoolIdsInZones,
   resolveMoveZoneSingleTargetCriteriaWithX,
 } from './oracleIRExecutorMoveZoneContextualCardResolvers';
 import { buildAppliedResult } from './oracleIRExecutorMoveZoneStepResultBuilders';
+import { resolveRevealedThisWayCardPile } from './oracleIRLedgerCardAccess';
+import {
+  orderRestIdsForLibraryBottom,
+  parseWarpWorldSelectorMaps,
+  trySkipRevealedThisWayRestAnyOrder,
+} from './oracleIRExecutorWarpWorldInteractive';
 
 export function tryApplyMoveZoneGuardsFromThatCardReference(args: MoveZoneGuardArgs): MoveZoneStepHandlerResult | undefined {
   const { state, step, ctx, runtime, nextState, log, controllerId, effectiveWithCounters, battlefieldEntryOverrides, finalizeAppliedResult, attachmentResolution } = args;
@@ -295,32 +301,29 @@ export function tryApplyMoveZoneGuardsFromThatCardReference(args: MoveZoneGuardA
   }
 
   if (parsedRevealedThisWayRest && step.to === 'library' && getLibraryPlacement(step) === 'bottom') {
-    const candidateIds = resolveContextualCardIdsInZones(nextState, ctx, runtime, ['hand', 'exile']);
-    if (candidateIds.length === 0) {
-      return buildAppliedResult({
-        state: nextState,
-        log: [`No revealed-this-way rest cards: ${step.raw}`],
-      });
-    }
-    let workingState = nextState;
-    const combinedLog: string[] = [];
-    for (const cardId of candidateIds) {
-      const location = findBoundCardZoneLocation(workingState, cardId);
-      if (!location || location.zone === 'library') continue;
-      const result = moveContextualCardToDestination(
-        workingState,
-        location,
-        cardId,
-        'library_bottom',
-        { controllerId, cardType: 'any' }
-      );
-      if (result.kind !== 'applied') continue;
-      workingState = result.state;
-      combinedLog.push(...(result.log || []));
-    }
+    const restIds = resolveContextualRestPoolIdsInZones(nextState, ctx, runtime, ['library', 'hand', 'exile']);
+    const remainderSkip = trySkipRevealedThisWayRestAnyOrder({
+      state: nextState,
+      ctx,
+      restIds,
+      stepOrder: step.order,
+      stepRaw: String(step.raw || ''),
+    });
+    if (remainderSkip) return remainderSkip;
+    const maps = parseWarpWorldSelectorMaps(ctx);
+    const orderedRestIds = orderRestIdsForLibraryBottom(
+      nextState,
+      restIds,
+      maps.libraryBottomOrderByPlayer,
+      step.order,
+      resolveRevealedThisWayCardPile(ctx, step),
+    );
+    const restResult = moveContextualRestToLibraryBottom(nextState, controllerId, ctx, runtime, [], {
+      explicitRestIds: orderedRestIds,
+    });
     return buildAppliedResult({
-      state: workingState,
-      log: combinedLog.length > 0 ? combinedLog : [`Moved revealed-this-way rest to library bottom: ${step.raw}`],
+      state: restResult.state,
+      log: restResult.log.length > 0 ? restResult.log : [`Moved revealed-this-way rest to library bottom: ${step.raw}`],
     });
   }
 

@@ -22,6 +22,10 @@ import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
 import { extractCreatureTypes as extractCreatureTypesFromTypeLine } from '../../../../../shared/src/creatureTypes.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./target-metadata.js";
 import { detectTapTriggers, type TapTrigger } from "./tap-detection.js";
+import {
+  recordFirstTimeEachTurnTriggerQueued,
+  shouldSkipFirstTimeEachTurnTrigger,
+} from "../triggerDoThisOnlyOnceEachTurn.js";
 
 export { detectTapTriggers };
 export type { TapTrigger };
@@ -450,10 +454,11 @@ export function getTapTriggers(
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
     
-    const permTriggers = detectTapTriggers(permanent.card, permanent);
+    const permTriggers = detectTapTriggers(permanent.card, permanent, ctx.state);
     
     for (const trigger of permTriggers) {
       if (trigger.triggerCondition === 'becomes_untapped') continue;
+      if (shouldSkipFirstTimeEachTurnTrigger(ctx.state, trigger)) continue;
       // Only trigger for the controller's permanents becoming tapped
       if (permanent.controller !== tappedByPlayerId) continue;
       
@@ -558,7 +563,7 @@ export function getBecomesUntappedTriggers(
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
 
-    const permTriggers = detectTapTriggers(permanent.card, permanent);
+    const permTriggers = detectTapTriggers(permanent.card, permanent, ctx.state);
     for (const trigger of permTriggers) {
       if (trigger.triggerCondition !== 'becomes_untapped') continue;
 

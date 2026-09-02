@@ -13,6 +13,11 @@
  */
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { cardAnalyzer } from "../../../../rules-engine/src/CardAnalyzer.js";
+import {
+  getEffectiveBasicLandTypes as getBattlefieldGrantedBasicLandTypes,
+  getOpponentLandProducibleColorSymbols,
+} from "../../state/modules/mana-abilities.js";
+import { manaColorForBasicLandType } from "../../../../shared/src/landTypes.js";
 import { getAvailableMana, parseManaCost, getTotalManaFromPool } from "../../state/modules/mana-check.js";
 import { buildCounterRemovalCostOptions } from "../../state/modules/counter-removal-costs.js";
 import { debugWarn } from "../../utils/debug.js";
@@ -46,15 +51,9 @@ export function getManaProduction(card: any): string[] {
   if (oracleText.includes('{g}') || oracleText.includes('add {g}')) colors.push('G');
   if (oracleText.includes('{c}') || oracleText.includes('add {c}')) colors.push('C');
   
-  // Special case: Cards that produce mana based on opponents' lands
-  // Exotic Orchard: "Add one mana of any color that a land an opponent controls could produce."
-  // Fellwar Stone: "Add one mana of any color that a land an opponent controls could produce."
-  // These should NOT return all colors here - they need context about opponents' lands
-  // For now, we'll handle these specially and return empty to indicate they need special handling
-  const cardName = (card?.name || '').toLowerCase();
-  if (cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) {
-    // These need special handling in getPaymentSources - they can only produce colors
-    // that opponent lands can produce. Return empty here to signal special handling needed.
+  // Opponent-land "could produce" sources need battlefield context (Exotic Orchard / Fellwar).
+  // Return empty here so getAIManaProductionOptions can fill from the top-layer land scan.
+  if (/that (?:a |an )?land an opponent controls could produce/i.test(oracleText)) {
     return [];
   }
   
@@ -90,24 +89,9 @@ export function getAIManaProductionOptions(game: any, playerId: PlayerID, perman
   const cardName = String(permanent?.card?.name || '').toLowerCase();
   const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
 
-  if (producedColors.length === 0) {
-    if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
-        oracleText.includes('land an opponent controls')) {
-      const opponentColors = new Set<string>();
-      const battlefield = game.state?.battlefield || [];
-
-      for (const opponentPerm of battlefield) {
-        if (!opponentPerm || opponentPerm.controller === playerId) continue;
-
-        const opponentTypeLine = String(opponentPerm.card?.type_line || '').toLowerCase();
-        if (!opponentTypeLine.includes('land')) continue;
-
-        const opponentLandColors = getManaProduction(opponentPerm.card);
-        for (const color of opponentLandColors) opponentColors.add(color);
-      }
-
-      producedColors = Array.from(opponentColors);
-    }
+  if (producedColors.length === 0
+      && /that (?:a |an )?land an opponent controls could produce/i.test(oracleText)) {
+    producedColors = getOpponentLandProducibleColorSymbols(game?.state, playerId);
   }
 
   // Choose-a-color dynamic taps (Nyx Lotus / Nykthos devotion, Three Tree City invest line, etc.).
@@ -131,6 +115,12 @@ export function getAIManaProductionOptions(game: any, playerId: PlayerID, perman
     if (/\badd\s*\{c\}/i.test(oracleText) || isLand) {
       producedColors = [...producedColors, 'C'];
     }
+  }
+
+  // Yavimaya / Urborg / Ashaya: granted basic land types are not on the printed type line.
+  for (const landType of getBattlefieldGrantedBasicLandTypes(game?.state, permanent)) {
+    const mana = manaColorForBasicLandType(landType);
+    if (mana) producedColors = [...producedColors, mana];
   }
 
   return [...new Set(producedColors.filter((color) => ['W', 'U', 'B', 'R', 'G', 'C'].includes(String(color).toUpperCase())))];
@@ -325,34 +315,8 @@ export function calculateAvailableMana(game: any, playerId: PlayerID): { total: 
       // Creatures with summoning sickness can't tap for mana
       if (hasCreatureSummoningSickness(perm)) continue;
       if (permanentCannotActivateTapAbilities(perm, game.state)) continue;
-      
-      let producedColors = getManaProduction(perm.card);
-      
-      // Special handling for cards that produce mana based on opponents' lands
-      if (producedColors.length === 0) {
-        const cardName = (perm.card?.name || '').toLowerCase();
-        const oracleText = (perm.card?.oracle_text || '').toLowerCase();
-        
-        if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
-            oracleText.includes('land an opponent controls')) {
-          const opponentColors = new Set<string>();
-          
-          for (const opponentPerm of battlefield) {
-            if (!opponentPerm || opponentPerm.controller === playerId) continue;
-            
-            const opponentTypeLine = (opponentPerm.card?.type_line || '').toLowerCase();
-            if (!opponentTypeLine.includes('land')) continue;
-            
-            const opponentLandColors = getManaProduction(opponentPerm.card);
-            if (opponentLandColors.length === 0) continue;
-            
-            opponentLandColors.forEach(c => opponentColors.add(c));
-          }
-          
-          producedColors = Array.from(opponentColors);
-        }
-      }
-      
+
+      const producedColors = getAIManaProductionOptions(game, playerId, perm);
       if (producedColors.length === 0) continue;
       
       // Track which sources can produce each color

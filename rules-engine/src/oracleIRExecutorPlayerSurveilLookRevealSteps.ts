@@ -25,6 +25,7 @@ import {
   resolvePlayers,
   resolveRevealUntilReferenceAmountForPlayer,
 } from './oracleIRExecutorPlayerUtils';
+import { resolveThatManyRevealAmountForPlayer } from './oracleIRExecutorRevealThatManyAmount';
 import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import { usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
 
@@ -293,7 +294,8 @@ export function applyLookTopStep(
 export function applyRevealTopStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'reveal_top' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  lastMovedCountByPlayer?: Readonly<Record<string, number>>,
 ): PlayerStepHandlerResult {
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
@@ -311,10 +313,6 @@ export function applyRevealTopStep(
   const bridgeOptions = usedOracleIrServerBridge(ctx)
     ? { ctx, stepIndex: Number(ctx.currentStepIndex), stepKind: step.kind }
     : undefined;
-
-  const isThatManyOrMuchReference =
-    step.amount.kind === 'reference_amount' &&
-    /^that\s+(?:many|much)$/i.test(String(step.amount.raw || '').trim());
 
   for (const playerId of players) {
     const untilReveal = resolveRevealUntilReferenceAmountForPlayer(state, playerId, step.amount, ctx);
@@ -337,12 +335,16 @@ export function applyRevealTopStep(
       continue;
     }
 
-    const perPlayerAmount = isThatManyOrMuchReference
-      ? (ctx as any)?.lastMovedCountByPlayer?.[playerId]
-      : undefined;
+    const thatManyAmount = resolveThatManyRevealAmountForPlayer({
+      playerId,
+      amount: step.amount,
+      stepRaw: step.raw,
+      ctx,
+      lastMovedCountByPlayer,
+    });
     const amount =
-      typeof perPlayerAmount === 'number' && Number.isFinite(perPlayerAmount)
-        ? perPlayerAmount
+      typeof thatManyAmount === 'number' && Number.isFinite(thatManyAmount)
+        ? thatManyAmount
         : resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
             whereX: step.whereX,
           });

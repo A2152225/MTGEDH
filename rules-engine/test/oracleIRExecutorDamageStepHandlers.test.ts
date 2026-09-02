@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { GameState } from '../../shared/src';
 import { applyDealDamageStep } from '../src/oracleIRExecutorDamageStepHandlers';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
 
 function makeState(overrides: Partial<GameState> & Record<string, unknown> = {}): GameState {
   return {
@@ -12,6 +13,25 @@ function makeState(overrides: Partial<GameState> & Record<string, unknown> = {})
     stack: [],
     ...overrides,
   } as any;
+}
+
+function player(id: string, seat: number) {
+  return { id, name: id.toUpperCase(), seat, life: 40, hand: [], graveyard: [], library: [], exile: [], counters: {} } as any;
+}
+
+function land(id: string, controller: string, typeLine: string) {
+  return {
+    id,
+    controller,
+    owner: controller,
+    type_line: typeLine,
+    card: { id: `${id}-card`, name: id, type_line: typeLine },
+  };
+}
+
+function findDealDamage(oracleText: string, cardName: string) {
+  const ir = parseOracleTextToIR(oracleText, cardName);
+  return ir.abilities.flatMap((ability) => ability.steps).find((entry) => entry.kind === 'deal_damage');
 }
 
 describe('oracleIRExecutorDamageStepHandlers', () => {
@@ -212,5 +232,289 @@ describe('oracleIRExecutorDamageStepHandlers', () => {
 
     expect(p1.life).toBe(42);
     expect(target.counters?.damage).toBe(2);
+  });
+
+  it('deals Treacherous Terrain damage to each opponent equal to that player\'s lands', () => {
+    const oracleText =
+      'Treacherous Terrain deals damage to each opponent equal to the number of lands that player controls.\n'
+      + 'Basic landcycling {2} ({2}, Discard this card: Search your library for a basic land card, reveal it, put it into your hand, then shuffle.)';
+    const ir = parseOracleTextToIR(oracleText, 'Treacherous Terrain');
+    const step = ir.abilities.flatMap((ability) => ability.steps).find((entry) => entry.kind === 'deal_damage');
+    expect(step).toMatchObject({
+      kind: 'deal_damage',
+      amount: { kind: 'reference_amount', raw: 'the number of lands that player controls' },
+      target: { kind: 'raw', text: 'each opponent' },
+    });
+
+    const land = (id: string, controller: string) => ({
+      id,
+      controller,
+      owner: controller,
+      type_line: 'Basic Land — Forest',
+      card: { id: `${id}-card`, name: 'Forest', type_line: 'Basic Land — Forest' },
+    });
+
+    const state = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [], counters: {} } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [], counters: {} } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, hand: [], graveyard: [], library: [], exile: [], counters: {} } as any,
+      ],
+      battlefield: [
+        land('p1-land-1', 'p1'),
+        land('p1-land-2', 'p1'),
+        land('p2-land-1', 'p2'),
+        land('p2-land-2', 'p2'),
+        land('p2-land-3', 'p2'),
+        land('p3-land-1', 'p3'),
+        land('p3-land-2', 'p3'),
+        land('p3-land-3', 'p3'),
+        land('p3-land-4', 'p3'),
+        land('p3-land-5', 'p3'),
+      ],
+    });
+
+    const result = applyDealDamageStep(
+      state,
+      step as any,
+      {
+        controllerId: 'p1',
+        sourceName: 'Treacherous Terrain',
+      } as any,
+    );
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+
+    expect(result.state.players.find((player: any) => player.id === 'p1')?.life).toBe(40);
+    expect(result.state.players.find((player: any) => player.id === 'p2')?.life).toBe(37);
+    expect(result.state.players.find((player: any) => player.id === 'p3')?.life).toBe(35);
+  });
+
+  it('deals Acidic Soil damage to each player equal to lands they control', () => {
+    const step = findDealDamage(
+      'Acidic Soil deals damage to each player equal to the number of lands they control.',
+      'Acidic Soil',
+    );
+    expect(step).toMatchObject({
+      kind: 'deal_damage',
+      amount: { kind: 'reference_amount', raw: 'the number of lands they control' },
+      target: { kind: 'raw', text: 'each player' },
+    });
+
+    const result = applyDealDamageStep(
+      makeState({
+        players: [player('p1', 0), player('p2', 1), player('p3', 2)],
+        battlefield: [
+          land('p1-a', 'p1', 'Basic Land — Forest'),
+          land('p1-b', 'p1', 'Basic Land — Forest'),
+          land('p2-a', 'p2', 'Basic Land — Forest'),
+          land('p2-b', 'p2', 'Basic Land — Forest'),
+          land('p2-c', 'p2', 'Basic Land — Forest'),
+          land('p3-a', 'p3', 'Basic Land — Forest'),
+        ],
+      }),
+      step as any,
+      { controllerId: 'p1', sourceName: 'Acidic Soil' } as any,
+    );
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+    expect(result.state.players.find((entry: any) => entry.id === 'p1')?.life).toBe(38);
+    expect(result.state.players.find((entry: any) => entry.id === 'p2')?.life).toBe(37);
+    expect(result.state.players.find((entry: any) => entry.id === 'p3')?.life).toBe(39);
+  });
+
+  it('deals Price of Progress damage equal to twice each player\'s nonbasic lands', () => {
+    const step = findDealDamage(
+      'Price of Progress deals damage to each player equal to twice the number of nonbasic lands that player controls.',
+      'Price of Progress',
+    );
+    expect(step).toMatchObject({
+      kind: 'deal_damage',
+      amount: { kind: 'reference_amount', raw: 'twice the number of nonbasic lands that player controls' },
+      target: { kind: 'raw', text: 'each player' },
+    });
+
+    const result = applyDealDamageStep(
+      makeState({
+        players: [player('p1', 0), player('p2', 1), player('p3', 2)],
+        battlefield: [
+          land('p1-basic', 'p1', 'Basic Land — Forest'),
+          land('p1-shock', 'p1', 'Land — Forest Island'),
+          land('p2-shock-1', 'p2', 'Land — Mountain'),
+          land('p2-shock-2', 'p2', 'Land — Swamp'),
+          land('p2-basic', 'p2', 'Basic Land — Plains'),
+          land('p3-basic-1', 'p3', 'Basic Land — Island'),
+          land('p3-basic-2', 'p3', 'Basic Land — Island'),
+        ],
+      }),
+      step as any,
+      { controllerId: 'p1', sourceName: 'Price of Progress' } as any,
+    );
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+    expect(result.state.players.find((entry: any) => entry.id === 'p1')?.life).toBe(38);
+    expect(result.state.players.find((entry: any) => entry.id === 'p2')?.life).toBe(36);
+    expect(result.state.players.find((entry: any) => entry.id === 'p3')?.life).toBe(40);
+  });
+
+  it('deals Typhoon damage to each opponent equal to Islands that player controls', () => {
+    const step = findDealDamage(
+      'Typhoon deals damage to each opponent equal to the number of Islands that player controls.',
+      'Typhoon',
+    );
+    expect(step).toMatchObject({
+      kind: 'deal_damage',
+      amount: { kind: 'reference_amount', raw: 'the number of islands that player controls' },
+      target: { kind: 'raw', text: 'each opponent' },
+    });
+
+    const result = applyDealDamageStep(
+      makeState({
+        players: [player('p1', 0), player('p2', 1), player('p3', 2)],
+        battlefield: [
+          land('p1-island', 'p1', 'Basic Land — Island'),
+          land('p2-island-1', 'p2', 'Basic Land — Island'),
+          land('p2-island-2', 'p2', 'Basic Land — Island'),
+          land('p2-forest', 'p2', 'Basic Land — Forest'),
+          land('p3-mountain', 'p3', 'Basic Land — Mountain'),
+        ],
+      }),
+      step as any,
+      { controllerId: 'p1', sourceName: 'Typhoon' } as any,
+    );
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+    expect(result.state.players.find((entry: any) => entry.id === 'p1')?.life).toBe(40);
+    expect(result.state.players.find((entry: any) => entry.id === 'p2')?.life).toBe(38);
+    expect(result.state.players.find((entry: any) => entry.id === 'p3')?.life).toBe(40);
+  });
+
+  it('deals Ground Assault damage to a creature equal to lands you control', () => {
+    const step = findDealDamage(
+      'Ground Assault deals damage to target creature equal to the number of lands you control.',
+      'Ground Assault',
+    );
+    expect(step).toMatchObject({
+      kind: 'deal_damage',
+      amount: { kind: 'reference_amount', raw: 'the number of lands you control' },
+      target: { kind: 'raw', text: 'target creature' },
+    });
+
+    const result = applyDealDamageStep(
+      makeState({
+        battlefield: [
+          land('p1-a', 'p1', 'Basic Land — Forest'),
+          land('p1-b', 'p1', 'Basic Land — Forest'),
+          land('p1-c', 'p1', 'Basic Land — Forest'),
+          land('p2-a', 'p2', 'Basic Land — Mountain'),
+          {
+            id: 'target-creature',
+            controller: 'p2',
+            owner: 'p2',
+            counters: {},
+            card: { id: 'bear', name: 'Grizzly Bears', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+          } as any,
+        ],
+      }),
+      step as any,
+      {
+        controllerId: 'p1',
+        sourceName: 'Ground Assault',
+        targetCreatureId: 'target-creature',
+      } as any,
+    );
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+    const target = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'target-creature');
+    expect(target?.counters?.damage).toBe(3);
+  });
+
+  it("deals Weight of Spires damage equal to the creature's controller's nonbasic lands", () => {
+    const step = findDealDamage(
+      "Weight of Spires deals damage to target creature equal to the number of nonbasic lands that creature's controller controls.",
+      'Weight of Spires',
+    );
+    expect(step).toMatchObject({
+      kind: 'deal_damage',
+      amount: { kind: 'reference_amount', raw: "the number of nonbasic lands that creature's controller controls" },
+      target: { kind: 'raw', text: 'target creature' },
+    });
+
+    const result = applyDealDamageStep(
+      makeState({
+        battlefield: [
+          land('p1-shock', 'p1', 'Land — Forest Island'),
+          land('p2-shock-1', 'p2', 'Land — Mountain'),
+          land('p2-shock-2', 'p2', 'Land — Swamp'),
+          land('p2-basic', 'p2', 'Basic Land — Plains'),
+          {
+            id: 'target-creature',
+            controller: 'p2',
+            owner: 'p2',
+            counters: {},
+            card: { id: 'bear', name: 'Grizzly Bears', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+          } as any,
+        ],
+      }),
+      step as any,
+      {
+        controllerId: 'p1',
+        sourceName: 'Weight of Spires',
+        targetCreatureId: 'target-creature',
+      } as any,
+    );
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+    const target = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'target-creature');
+    expect(target?.counters?.damage).toBe(2);
+  });
+
+  it('deals Power Surge damage from the turn-start untapped-land snapshot', () => {
+    const oracleText =
+      "At the beginning of each player's upkeep, this enchantment deals X damage to that player, where X is the number of untapped lands they controlled at the beginning of this turn.";
+    const step = findDealDamage(oracleText, 'Power Surge');
+    expect(step).toMatchObject({
+      kind: 'deal_damage',
+      amount: { kind: 'x' },
+      target: { kind: 'raw', text: 'that player' },
+      whereX: { kind: 'where', raw: 'the number of untapped lands they controlled at the beginning of this turn' },
+    });
+
+    const snapshotLand = (id: string, tapped: boolean) => ({
+      ...land(id, 'p2', 'Basic Land — Island'),
+      tapped,
+    });
+
+    const result = applyDealDamageStep(
+      makeState({
+        battlefield: [
+          snapshotLand('p2-untapped', false),
+          snapshotLand('p2-was-tapped', false),
+          snapshotLand('p2-still-tapped', false),
+        ],
+        turnStartBattlefieldSnapshot: [
+          snapshotLand('p2-untapped', false),
+          snapshotLand('p2-was-tapped', true),
+          snapshotLand('p2-still-tapped', true),
+        ],
+      }),
+      step as any,
+      {
+        controllerId: 'p1',
+        sourceName: 'Power Surge',
+        selectorContext: { targetPlayerId: 'p2' },
+      } as any,
+    );
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+    const p2 = result.state.players.find((entry: any) => entry.id === 'p2') as any;
+    expect(p2.life).toBe(39);
   });
 });

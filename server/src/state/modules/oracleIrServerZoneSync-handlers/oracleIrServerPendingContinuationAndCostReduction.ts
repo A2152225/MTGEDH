@@ -14,6 +14,7 @@ import type {
 import type { GameContext } from '../../context.js';
 import { unwrapYouDoResumeSteps } from '../oracleIrServerPromptResumeUtils.js';
 import { grantNextSpellCostReduction } from '../nextSpellCostReduction.js';
+import { hasQueuedOracleIrContinuationOwner } from '../oracleIrContinuationBridge.js';
 
 export function persistUnqueuedPendingContinuationFromOracleIRResult(
   ctx: GameContext,
@@ -29,8 +30,14 @@ export function persistUnqueuedPendingContinuationFromOracleIRResult(
 ): void {
   const pending = result.pendingContinuationSteps;
   if (!Array.isArray(pending) || pending.length === 0) return;
-  if (params.resolutionQueueStepsAfter > params.resolutionQueueStepsBefore) return;
   if (String(state?.oracleIrPendingResumeStepsJson || '').trim()) return;
+
+  const gameId = String((ctx as any).gameId || '').trim();
+  // As-enters prompts (shock / check-land / copy / color) grow the queue without
+  // owning leftover IR steps. Skip persist only when a queued step actually
+  // carries resume/choice JSON. Unknown gameId still persists rather than
+  // treating raw queue growth as a bridge.
+  if (hasQueuedOracleIrContinuationOwner(gameId)) return;
 
   state.oracleIrPendingResumeStepsJson = JSON.stringify(unwrapYouDoResumeSteps(pending));
   state.oracleIrPendingResumeControllerId = params.controller;

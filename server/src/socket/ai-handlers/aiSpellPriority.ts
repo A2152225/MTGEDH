@@ -10,6 +10,7 @@ import { cardAnalyzer, SynergyArchetype } from "../../../../rules-engine/src/Car
 import { parseManaCost } from "../../state/modules/mana-check.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { calculateCardSynergyPressure, ensureAIDeckProfile } from "./aiDeckProfileHandlers.js";
+import { cardGrantsNoMaximumHandSize } from "../../state/modules/handSizeUtils.js";
 
 function getSpellCmc(cost: { generic: number; colors: Record<string, number> }): number {
   return getAIHandlerDeps().getSpellCmc(cost);
@@ -151,6 +152,14 @@ export function calculateSpellPriority(
   // Card draw is valuable
   if (oracleText.includes('draw') && oracleText.includes('card')) {
     priority += 20;
+  }
+
+  // Thought Vessel / Spellbook: worth delaying other casts so the hand is not gutted later.
+  if (cardGrantsNoMaximumHandSize(card)) {
+    priority += 40;
+    if (hand.length >= 7) {
+      priority += 50;
+    }
   }
   
   // Ramp spells are valuable early (land ramp)

@@ -13,7 +13,7 @@ import { ensureGame } from "../util.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import type { AISupportedCardSourceZone } from "./aiActionCandidateTypes.js";
 import { permanentHasLeaveBattlefieldExileReplacement } from "./aiDeckProfileHandlers.js";
-import { getManaProduction } from "./aiManaCostHelpers.js";
+import { getAIManaProductionOptions } from "./aiManaCostHelpers.js";
 import { canChooseShockLandPayLife } from "../land-helpers.js";
 
 function getAISourceCards(game: any, playerId: PlayerID, sourceZone: AISupportedCardSourceZone): any[] {
@@ -258,33 +258,7 @@ export async function handleBounceLandETB(game: any, playerId: PlayerID, bounceL
     }
     
     // Lands that only produce colorless are less valuable
-    let producedColors = getManaProduction(card);
-    
-    // Special handling for Exotic Orchard / Fellwar Stone
-    if (producedColors.length === 0) {
-      const cardName = (card?.name || '').toLowerCase();
-      const oracleText = (card?.oracle_text || '').toLowerCase();
-      
-      if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
-          oracleText.includes('land an opponent controls')) {
-        const opponentColors = new Set<string>();
-        const battlefield = game.state?.battlefield || [];
-        
-        for (const opponentPerm of battlefield) {
-          if (!opponentPerm || opponentPerm.controller === playerId) continue;
-          
-          const opponentTypeLine = (opponentPerm.card?.type_line || '').toLowerCase();
-          if (!opponentTypeLine.includes('land')) continue;
-          
-          const opponentLandColors = getManaProduction(opponentPerm.card);
-          if (opponentLandColors.length === 0) continue;
-          
-          opponentLandColors.forEach(c => opponentColors.add(c));
-        }
-        
-        producedColors = Array.from(opponentColors);
-      }
-    }
+    const producedColors = getAIManaProductionOptions(game, playerId, perm);
     
     if (producedColors.length === 1 && producedColors[0] === 'C') {
       score -= 5;

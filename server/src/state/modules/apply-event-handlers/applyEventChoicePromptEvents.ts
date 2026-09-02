@@ -8,7 +8,7 @@
 import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
 import { clearReplayQueuedSteps, addReplayQueuedStepIfMissing } from "../applyEventReplayZoneCommanderManaHelpers.js";
-import { cloneLibraryCards } from "../applyEventReplayCardMoveLibraryHelpers.js";
+import { pickMutablePlayerLibrary, writePlayerLibrary } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { debugWarn } from "../../../utils/debug.js";
 import { ResolutionStepType } from "../../resolution/index.js";
 import { addRestrictedManaToPool, getOrInitManaPool } from "../../../socket/util.js";
@@ -214,9 +214,7 @@ export function applyChoicePromptEvents(ctx: GameContext, e: GameEvent): boolean
             const zone = (zones[controllerId] = zones[controllerId] || { hand: [], handCount: 0, library: [], libraryCount: 0 });
             zone.hand = Array.isArray(zone.hand) ? zone.hand : [];
 
-            const library = Array.isArray((ctx as any).libraries?.get?.(controllerId))
-              ? (ctx as any).libraries.get(controllerId)
-              : (Array.isArray(zone.library) ? zone.library : []);
+            const library = pickMutablePlayerLibrary(ctx, controllerId);
             const handIndex = (zone.hand as any[]).findIndex((card: any) => String(card?.id || '') === chosenCardId);
             let movedCard = handIndex >= 0
               ? (zone.hand as any[]).splice(handIndex, 1)[0]
@@ -238,12 +236,8 @@ export function applyChoicePromptEvents(ctx: GameContext, e: GameEvent): boolean
               }
             }
 
-            zone.library = library;
             zone.handCount = (zone.hand as any[]).length;
-            zone.libraryCount = (library as any[]).length;
-            if ((ctx as any).libraries?.set) {
-              (ctx as any).libraries.set(controllerId, cloneLibraryCards(library as any[]));
-            }
+            writePlayerLibrary(ctx, controllerId, library);
           }
 
           ctx.bumpSeq();
@@ -444,7 +438,7 @@ export function applyChoicePromptEvents(ctx: GameContext, e: GameEvent): boolean
             exileCount: 0,
           });
 
-          const lib: any[] = Array.isArray(z.library) ? z.library : (z.library = []);
+          const lib: any[] = pickMutablePlayerLibrary(ctx, controllerId);
           const hand: any[] = Array.isArray(z.hand) ? z.hand : (z.hand = []);
           const graveyard: any[] = Array.isArray(z.graveyard) ? z.graveyard : (z.graveyard = []);
           const exile: any[] = Array.isArray(z.exile) ? z.exile : (z.exile = []);
@@ -497,17 +491,13 @@ export function applyChoicePromptEvents(ctx: GameContext, e: GameEvent): boolean
             moveCard(otherCard, otherZone);
           }
 
-          z.library = lib;
+          writePlayerLibrary(ctx, controllerId, lib);
           z.hand = hand;
           z.graveyard = graveyard;
           z.exile = exile;
-          z.libraryCount = lib.length;
           z.handCount = hand.length;
           z.graveyardCount = graveyard.length;
           z.exileCount = exile.length;
-          if (ctx.libraries?.set) {
-            ctx.libraries.set(controllerId as any, cloneLibraryCards(lib));
-          }
 
           if (replayGameId) {
             clearReplayQueuedSteps(replayGameId, (step: any) => {

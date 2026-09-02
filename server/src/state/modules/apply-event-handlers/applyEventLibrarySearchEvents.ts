@@ -18,6 +18,8 @@ import {
   getPlayerLibraryFromContext,
   buildLibraryAfterSearchResolve,
   eventHasOwnField,
+  pickMutablePlayerLibrary,
+  writePlayerLibrary,
 } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { debugWarn } from "../../../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
@@ -39,7 +41,7 @@ export function applyLibrarySearchEvents(ctx: GameContext, e: GameEvent): boolea
         const destination = (e as any).moveTo || (e as any).destination || "hand";
         try {
           if (pid && cardIds.length > 0) {
-            const lib = ctx.libraries.get(pid) || [];
+            const lib = pickMutablePlayerLibrary(ctx, pid);
             const zones = ctx.state.zones || {};
             const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
             zones[pid] = z;
@@ -67,8 +69,7 @@ export function applyLibrarySearchEvents(ctx: GameContext, e: GameEvent): boolea
             }
             
             z.handCount = (z.hand as any[]).length;
-            z.libraryCount = lib.length;
-            ctx.libraries.set(pid, lib);
+            writePlayerLibrary(ctx, pid, lib);
           }
           ctx.bumpSeq();
         } catch (err) {
@@ -213,10 +214,7 @@ export function applyLibrarySearchEvents(ctx: GameContext, e: GameEvent): boolea
           }
 
           (z as any).library = libraryAfter;
-          z.libraryCount = libraryAfter.length;
-          if (ctx.libraries?.set) {
-            ctx.libraries.set(searchOwnerId, cloneLibraryCards(libraryAfter));
-          }
+          writePlayerLibrary(ctx, searchOwnerId, cloneLibraryCards(libraryAfter));
 
           const moveToBattlefield = (card: any) => {
             if (!card) return;

@@ -552,8 +552,7 @@ export function extractReplayActivationCost(fullAbilityText: string): {
 }
 
 export function snapshotLibraryForReplay(ctx: GameContext, playerId: string): any[] {
-  const zoneLibrary = ((ctx.state as any)?.zones?.[playerId]?.library || []) as any[];
-  const libraryCards = ctx.libraries.get(playerId as any) || zoneLibrary;
+  const libraryCards = pickMutablePlayerLibrary(ctx, playerId);
   return libraryCards.map((libraryCard: any) => ({
     id: libraryCard.id,
     name: libraryCard.name,
@@ -577,14 +576,101 @@ export function cloneLibraryCards(cards: any[]): any[] {
 }
 
 export function getPlayerLibraryFromContext(ctx: any, playerId: string): any[] {
+  return pickMutablePlayerLibrary(ctx, playerId).map((card: any) => ({ ...card }));
+}
+
+/**
+ * Prefer `ctx.libraries` when it actually has cards. An empty `zones.library`
+ * (join/ensure defaults) must not starve or overwrite a populated Map.
+ * Inverse of millCardsFromLibrary: empty Map still falls back to a populated zone store.
+ */
+export function pickMutablePlayerLibrary(ctx: any, playerId: string): any[] {
   const pid = String(playerId || '').trim();
   if (!pid) return [];
   const fromMap = ctx?.libraries?.get?.(pid);
-  if (Array.isArray(fromMap) && fromMap.length > 0) {
-    return fromMap.map((card: any) => ({ ...card }));
-  }
   const fromZones = (ctx?.state as any)?.zones?.[pid]?.library;
-  return Array.isArray(fromZones) ? fromZones.map((card: any) => ({ ...card })) : [];
+  if (Array.isArray(fromMap) && fromMap.length > 0) return fromMap;
+  if (Array.isArray(fromZones) && fromZones.length > 0) return fromZones;
+  if (Array.isArray(fromMap)) return fromMap;
+  if (Array.isArray(fromZones)) return fromZones;
+  return [];
+}
+
+export function writePlayerLibrary(ctx: any, playerId: string, library: any[]): void {
+  const pid = String(playerId || '').trim();
+  if (!pid) return;
+  const lib = Array.isArray(library) ? library : [];
+  if (ctx?.libraries && typeof ctx.libraries.set === 'function') {
+    ctx.libraries.set(pid, lib);
+  }
+  const state = ctx?.state as any;
+  if (!state) return;
+  state.zones = state.zones || {};
+  const zoneState = state.zones[pid] = state.zones[pid] || {
+    hand: [],
+    handCount: 0,
+    libraryCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+  };
+  zoneState.library = lib;
+  zoneState.libraryCount = lib.length;
+}
+
+/**
+ * Draw from the dual library store for sacrifice-to-draw (Commander's Sphere).
+ * Live and replay must share this so an empty `zones.library` cannot wipe the Map.
+ * Returns the cards moved into hand.
+ */
+export function applySacrificeDrawFromAuthoritativeLibrary(
+  ctx: any,
+  playerId: string,
+  drawnCardIds?: string[],
+): any[] {
+  const pid = String(playerId || '').trim();
+  if (!pid) return [];
+
+  const requestedIds = (Array.isArray(drawnCardIds) ? drawnCardIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+
+  const state = ctx?.state as any;
+  if (!state) return [];
+  state.zones = state.zones || {};
+  const zoneState = state.zones[pid] = state.zones[pid] || {
+    hand: [],
+    handCount: 0,
+    libraryCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+  };
+  zoneState.hand = Array.isArray(zoneState.hand) ? zoneState.hand : [];
+
+  const activeLibrary = pickMutablePlayerLibrary(ctx, pid);
+  let drawn: any[] = [];
+  let remainder = activeLibrary;
+
+  if (requestedIds.length > 0) {
+    const extracted = extractLibraryCardsByIds(activeLibrary, requestedIds);
+    drawn = extracted.extracted;
+    remainder = extracted.remainder;
+  } else if (activeLibrary.length > 0) {
+    const card = activeLibrary.shift();
+    if (card) drawn = [card];
+    remainder = activeLibrary;
+  }
+
+  writePlayerLibrary(ctx, pid, remainder);
+
+  for (const card of drawn) {
+    const cardId = String(card?.id || '').trim();
+    if (cardId && zoneState.hand.some((entry: any) => String(entry?.id || '').trim() === cardId)) {
+      continue;
+    }
+    zoneState.hand.push({ ...card, zone: 'hand' });
+  }
+  zoneState.handCount = zoneState.hand.length;
+  return drawn;
 }
 
 export function extractLibraryCardsByIds(library: readonly any[], ids: readonly string[]): {

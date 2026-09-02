@@ -132,12 +132,15 @@ export function cloneTriggeredSpellCopy(
 
   const stack = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
   const original = originalStackItem
-    || stack.find((item: any) => item && String(item.id || '').trim() === normalizedStackItemId)
-    || stack.find((item: any) => (
-      item
-      && normalizedTriggeringSpellCardId.length > 0
-      && String(item?.card?.id || '').trim() === normalizedTriggeringSpellCardId
-    ));
+    || (normalizedStackItemId
+      ? stack.find((item: any) => item && String(item.id || '').trim() === normalizedStackItemId)
+      : undefined)
+    || (!normalizedStackItemId && normalizedTriggeringSpellCardId
+      ? stack.find((item: any) => (
+        item
+        && String(item?.card?.id || '').trim() === normalizedTriggeringSpellCardId
+      ))
+      : undefined);
   if (!original) {
     return null;
   }
@@ -313,8 +316,7 @@ export function consumeDelayedSpellCopiesForCast(
 
   const stack = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
   const original = originalStackItem
-    || stack.find((item: any) => item && String(item.id || '').trim() === normalizedTriggeringStackItemId)
-    || stack.find((item: any) => item && String(item?.card?.id || '').trim() === String(spellCard?.id || '').trim());
+    || stack.find((item: any) => item && String(item.id || '').trim() === normalizedTriggeringStackItemId);
   if (!original) {
     return;
   }

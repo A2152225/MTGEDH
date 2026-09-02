@@ -23,6 +23,7 @@ import {
 import { handleMayRevealHandWinIfOwnNamedChoice } from "./optionChoiceMayRevealHandWinHandlers.js";
 import { sanitizeStepForClient } from "./sanitizeStepForClient.js";
 import { tryHandleSkipDrawReplacementChoice } from "../resolutionOptionChoiceSkipDrawReplacementHandlers.js";
+import { tryHandleOpponentLibraryDrawReplacementChoice } from "../resolutionOptionChoiceOpponentLibraryDrawReplacementHandlers.js";
 
 /** OPTION_CHOICE: dispatch the chosen prompt flag to the specialized handler. */
 /**
@@ -43,6 +44,10 @@ export async function handleOptionChoiceResponse(
   debug(2, `[Resolution] Option choice response from ${playerId}: ${selectedOption}`);
 
   if (await tryHandleSkipDrawReplacementChoice(io, game, gameId, step, response)) {
+    return;
+  }
+
+  if (await tryHandleOpponentLibraryDrawReplacementChoice(io, game, gameId, step, response)) {
     return;
   }
 

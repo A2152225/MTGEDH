@@ -25,9 +25,11 @@ import {
 } from "./combatLegalityGates.js";
 import { findMustBeBlockedIfAbleViolation } from "./combatMustBeBlockedIfAble.js";
 import {
+  collectBlockLifeTax,
   collectBlockTax,
   collectMaxBlockersEachCombat,
 } from "../../state/modules/staticEffectSpecAttackYouTax.js";
+import { collectBlockerSelfTax } from "../../../../shared/src/combatAttackerSelfTax.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 
 export function lookupBattlefieldPermanentName(battlefield: any[], permanentId: string): string {
@@ -610,16 +612,56 @@ export async function handleDeclareBlockers(
     }
 
     const perBlockerTax = collectBlockTax(game.state);
-    const totalBlockCostRequired = perBlockerTax.cost * uniqueBlockerIds.size;
-    if (totalBlockCostRequired > 0) {
+    let selfTaxTotal = 0;
+    const selfTaxSources: string[] = [];
+    for (const blockerId of uniqueBlockerIds) {
+      const blockerCreature = battlefield.find((perm: any) => String(perm?.id || '') === String(blockerId));
+      const selfTax = collectBlockerSelfTax(blockerCreature, battlefield, {
+        players: game.state?.players,
+      });
+      selfTaxTotal += selfTax.cost;
+      for (const source of selfTax.sources) {
+        if (!selfTaxSources.includes(source)) selfTaxSources.push(source);
+      }
+    }
+    const totalBlockCostRequired = perBlockerTax.cost * uniqueBlockerIds.size + selfTaxTotal;
+    const attackerById = new Map(
+      battlefield.map((perm: any) => [String(perm?.id || ''), perm]),
+    );
+    const lifeTax = collectBlockLifeTax(game.state, {
+      uniqueBlockerIds,
+      blockerIsTaxed: (blocker, sourceController) => {
+        const blockerId = String(blocker.id || '');
+        return resolvedBlockers.some((entry: any) => {
+          if (String(entry?.blockerId || '') !== blockerId) return false;
+          const attacker = attackerById.get(String(entry?.attackerId || ''));
+          return String(attacker?.controller || '') === String(sourceController || '');
+        });
+      },
+    });
+    const totalBlockLifeRequired = lifeTax.cost;
+    const blockSources = [...perBlockerTax.sources, ...selfTaxSources, ...lifeTax.sources];
+    if (totalBlockCostRequired > 0 || totalBlockLifeRequired > 0) {
       const totalAvailable = getMaxGenericManaAvailable(game.state, playerId, {
         excludedPermanentIds: [...uniqueBlockerIds],
       });
 
-      if (totalAvailable < totalBlockCostRequired) {
+      if (totalBlockCostRequired > 0 && totalAvailable < totalBlockCostRequired) {
         socket.emit("error", {
           code: "INSUFFICIENT_MANA_FOR_BLOCK",
-          message: `Cannot block. Need to pay {${totalBlockCostRequired}} for ${perBlockerTax.sources.join(', ')}. You have {${totalAvailable}} available.`,
+          message: `Cannot block. Need to pay {${totalBlockCostRequired}} for ${blockSources.join(', ')}. You have {${totalAvailable}} available.`,
+        });
+        return;
+      }
+      const playerLife = Number(
+        game.state?.life?.[playerId]
+        ?? (game.state?.players || []).find((entry: any) => String(entry?.id || '') === String(playerId))?.life
+        ?? 40,
+      );
+      if (totalBlockLifeRequired > 0 && playerLife <= totalBlockLifeRequired) {
+        socket.emit("error", {
+          code: "INSUFFICIENT_LIFE_FOR_BLOCK",
+          message: `Cannot block. Need to pay ${totalBlockLifeRequired} life for ${lifeTax.sources.join(', ')}.`,
         });
         return;
       }
@@ -628,21 +670,25 @@ export async function handleDeclareBlockers(
         .find((step: any) => step?.blockCostPayment === true);
 
       if (!existingPrompt) {
+        const manaLabel = totalBlockCostRequired > 0 ? `{${totalBlockCostRequired}}` : '';
+        const lifeLabel = totalBlockLifeRequired > 0 ? `${totalBlockLifeRequired} life` : '';
+        const costLabel = [manaLabel, lifeLabel].filter(Boolean).join(' and ');
         const blockCostStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.OPTION_CHOICE,
           playerId: playerId as any,
           sourceName: 'Block Cost',
-          description: `Pay {${totalBlockCostRequired}} to block (${perBlockerTax.sources.join(', ')})`,
+          description: `Pay ${costLabel} to block (${blockSources.join(', ')})`,
           mandatory: true,
           minSelections: 1,
           maxSelections: 1,
           options: [
-            { id: 'pay_block_cost', label: `Pay {${totalBlockCostRequired}} and block` },
+            { id: 'pay_block_cost', label: `Pay ${costLabel} and block` },
             { id: 'cancel_block', label: 'Cancel block' },
           ],
           blockCostPayment: true,
           blockCostAmount: totalBlockCostRequired,
-          blockCostSources: perBlockerTax.sources,
+          blockCostLifeAmount: totalBlockLifeRequired,
+          blockCostSources: blockSources,
           blockers: resolvedBlockers,
         } as any);
 

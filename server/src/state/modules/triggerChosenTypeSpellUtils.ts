@@ -8,6 +8,7 @@ import {
   isMetallicMimicOracle,
   parseChosenTypeTopCardRevealToHand,
 } from './chosen-creature-type.js';
+import { millCardsFromLibrary } from './triggerLibraryMillUtils.js';
 import { drawCards as drawCardsFromZone, drawCardsByIds } from './zones.js';
 
 export function applyMetallicMimicEntryBonus(ctx: GameContext, enteringPermanent: any, controller: PlayerID): void {
@@ -61,6 +62,9 @@ export function resolveChosenTypeTopCardRevealToHand(
   if (!topCard) return true;
 
   if (!cardMatchesChosenTypeFilter(topCard, chosenType, parsed.creatureCardsOnly)) {
+    if (parsed.otherwiseGraveyard) {
+      millCardsFromLibrary((ctx as any).state, controller, 1, ctx, { skipEventPersistence: true });
+    }
     debug(2, `[resolveChosenTypeTopCardRevealToHand] ${sourceName}: top card is not a ${chosenType}`);
     return true;
   }

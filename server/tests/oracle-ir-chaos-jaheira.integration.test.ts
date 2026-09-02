@@ -89,13 +89,17 @@ async function castTargetPayAndResolve(
     (entry: any) =>
       entry.type === ResolutionStepType.MANA_PAYMENT_CHOICE && (entry as any).spellPaymentRequired === true,
   ) as any;
-  expect(paymentStep).toBeDefined();
-
-  await handlers.submitResolutionResponse({
-    gameId,
-    stepId: String(paymentStep.id),
-    selections: { payment },
-  });
+  const alreadyOnStack = Array.isArray((game.state as any).stack)
+    && (game.state as any).stack.some((entry: any) => String(entry?.card?.id || '') === String(cardId));
+  if (paymentStep) {
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: String(paymentStep.id),
+      selections: { payment },
+    });
+  } else {
+    expect(alreadyOnStack).toBe(true);
+  }
 
   let safety = 0;
   while ((game.state as any).stack.length > 0 && safety++ < 12) {

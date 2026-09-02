@@ -76,6 +76,29 @@ describe('deleteGame authorization (integration)', () => {
     expect(ack).toBeUndefined();
   });
 
+  it('allows an authenticated admin to deleteGame they did not create', async () => {
+    const creator = 'p_creator_admin';
+    createGameIfNotExists(gameId, 'commander', 40, undefined, creator);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(
+      { playerId: 'p_admin', spectator: false, accountIsAdmin: true, accountUserId: 'user_admin' },
+      emitted,
+    );
+
+    const io = createMockIo(emitted);
+    registerGameManagementHandlers(io as any, socket as any);
+
+    await handlers['deleteGame']({ gameId, claimedPlayerId: 'p_admin' });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err).toBeUndefined();
+    const ack = emitted.find(e => e.event === 'gameDeletedAck');
+    expect(ack?.payload?.gameId).toBe(gameId);
+  });
+
   it('does not throw when payload is missing (crash-safety)', async () => {
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket({ playerId: 'p1', spectator: false }, emitted);

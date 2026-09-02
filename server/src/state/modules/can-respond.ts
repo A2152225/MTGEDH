@@ -120,10 +120,11 @@ export { canCastAnySpell };
 import { isActivatedAbilityConditionMet } from "./can-respond-handlers/canRespondActivatedAbilityCondition.js";
 import {
   canActivateAnyAbility,
+  hasActivatableAbility,
   hasSacrificePrefixActivatedAbility,
   hasActivatableLoyaltyAbility,
 } from "./can-respond-handlers/canRespondActivatableAbilities.js";
-export { canActivateAnyAbility, hasSacrificePrefixActivatedAbility };
+export { canActivateAnyAbility, hasActivatableAbility, hasSacrificePrefixActivatedAbility };
 import { getCommandZoneCommanderCandidates, getCastableCommanderCandidates } from "./can-respond-handlers/canRespondCommandZoneCandidates.js";
 export { getCommandZoneCommanderCandidates, getCastableCommanderCandidates };
 import {

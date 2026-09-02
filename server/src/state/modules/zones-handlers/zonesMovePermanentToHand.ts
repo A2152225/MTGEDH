@@ -7,6 +7,7 @@ import type { PlayerID } from "../../../../../shared/src/types.js";
 import { buildZoneObjectWithRetainedCounters } from "../../../../../shared/src/zoneRetainedCounters.js";
 import type { GameContext } from "../../context.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
+import { recalculatePlayerEffects } from "../game-state-effects.js";
 import { ResolutionQueueManager } from "../../resolution/index.js";
 import { ResolutionStepType } from "../../resolution/types.js";
 import { revertCopyPermanentToOriginal } from "../permanent-copy.js";
@@ -63,6 +64,12 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
     processLTBTriggers(ctx, perm, { cause: 'bounce' });
   } catch (err) {
     debugWarn(1, '[movePermanentToHand] processLTBTriggers failed:', err);
+  }
+
+  try {
+    recalculatePlayerEffects(ctx);
+  } catch (err) {
+    debugWarn(1, '[movePermanentToHand] Failed to recalculate player effects:', err);
   }
 
   const leaveReplacement = tryApplyDeclarativeLeaveBattlefieldDestinationReplacement(

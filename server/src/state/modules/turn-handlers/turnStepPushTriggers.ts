@@ -19,6 +19,22 @@ function ts() {
   return new Date().toISOString();
 }
 
+function withThatPlayerTurnBinding<T extends Record<string, unknown>>(
+  stackItem: T,
+  turnPlayer: string,
+  effectText: string,
+): T {
+  const text = String(effectText || '');
+  if (!/\bthat player\b/i.test(text) || /\btarget player\b/i.test(text)) {
+    return stackItem;
+  }
+  return {
+    ...stackItem,
+    thatPlayerId: turnPlayer,
+    targetPlayerId: turnPlayer,
+  };
+}
+
 /**
  * Put simultaneous step/phase triggers on the stack with APNAP ordering.
  * Called from nextStep via a thin wrapper that closes over turnPlayer and
@@ -167,7 +183,7 @@ export function pushTurnStepTriggersToStack(
                 // Add all triggers to the stack first (they will be reordered by the player)
                 for (const item of triggerItems) {
                   const extra = item.stackItem && typeof item.stackItem === 'object' ? item.stackItem : {};
-                  const stackItem = {
+                  const stackItem = withThatPlayerTurnBinding({
                     ...extra,
                     id: item.id,
                     type: 'triggered_ability',
@@ -181,7 +197,7 @@ export function pushTurnStepTriggersToStack(
                     requiresChoice: item.requiresChoice,
                     ...(Array.isArray(item.modalOptions) ? { modalOptions: item.modalOptions } : null),
                     triggeringPlayer: turnPlayer,
-                  };
+                  }, turnPlayer, String(item.effect || ''));
                   (ctx as any).state.stack.push(stackItem);
                   pushTriggerDoublerCopies((ctx as any).state, stackItem);
                   persistTurnStepTriggeredAbility(ctx, stackItem, `${triggerType} nextStep`);
@@ -212,7 +228,8 @@ export function pushTurnStepTriggersToStack(
               const trigger = playerTriggers[0];
               const triggerId = `${idPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
               const extra = trigger.stackItem && typeof trigger.stackItem === 'object' ? trigger.stackItem : {};
-              const stackItem = {
+              const effectText = String(trigger.description || trigger.effect || '');
+              const stackItem = withThatPlayerTurnBinding({
                 ...extra,
                 id: triggerId,
                 type: 'triggered_ability',
@@ -226,7 +243,7 @@ export function pushTurnStepTriggersToStack(
                 requiresChoice: trigger.requiresChoice,  // Preserve modal choice flag
                 ...(Array.isArray(trigger.modalOptions) ? { modalOptions: trigger.modalOptions } : null),
                 triggeringPlayer: turnPlayer,
-              };
+              }, turnPlayer, effectText);
               (ctx as any).state.stack.push(stackItem);
               pushTriggerDoublerCopies((ctx as any).state, stackItem);
               persistTurnStepTriggeredAbility(ctx, stackItem, `${triggerType} nextStep`);

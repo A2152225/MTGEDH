@@ -12,6 +12,7 @@ import {
   mergeSplitChooseModeParsedAbilities,
 } from './oracleIRParserAbilityMerges';
 import { parseAbilityToIRAbility as parseAbilityToIRAbilityFromModule } from './oracleIRParserAbilityToIR';
+import { foldUnlessPaysMayPayOrFollowups } from './oracleIRParserPostprocessUnlessPaysMayPayOrFollowups';
 import { expandChaosZoneTemplateAbilities } from './oracleIRParserChaosZoneTemplates';
 import { mergeRevealTopShareTypeMayCastAbilities } from './oracleIRParserRevealTopShareTypeMayCast';
 import {
@@ -287,6 +288,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandYouMayTransformIfYouDoAbilities(abilities);
   abilities = wrapIfYouDoConditionOnParsedAbilities(abilities);
   abilities = expandSimpleConditionalUnknownAbilities(abilities);
+  abilities = foldUnlessPaysMayPayOrFollowups(abilities);
   abilities = mergeKinshipRevealConditionalAbilities(abilities);
   abilities = expandCopySpellUnknownAbilities(abilities);
   abilities = mergeDanglingCopySpellAbilities(abilities);

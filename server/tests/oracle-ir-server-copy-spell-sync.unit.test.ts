@@ -321,4 +321,62 @@ describe('queueCopySpellStackPushFromOracleIRResult', () => {
 
     ResolutionQueueManager.removeQueue(gameId);
   });
+
+  it('does not copy a leftover live spell when the bound this_spell id already left', () => {
+    const gameId = 'test_this_spell_bound_id_left';
+    const playerId = 'p1';
+    const leftoverId = 'stack_warp_1';
+    const state: any = {
+      stack: [{
+        id: leftoverId,
+        type: 'spell',
+        controller: playerId,
+        card: {
+          id: 'warp_1',
+          name: 'Warp World',
+          type_line: 'Sorcery',
+          oracle_text: 'Each player shuffles all permanents they own into their library...',
+        },
+      }],
+    };
+    const copyStep = {
+      kind: 'copy_spell',
+      subject: 'this_spell',
+      raw: 'Copy this spell.',
+    } as const;
+    const result: any = {
+      appliedSteps: [copyStep],
+      skippedSteps: [],
+      automationGaps: [{
+        reasonCode: 'server_stack_copy_required',
+        stepKind: 'copy_spell',
+        raw: copyStep.raw,
+        metadata: { copyCount: 1 },
+      }],
+    };
+    const irCtx = buildOracleIRExecutionContext({
+      controllerId: playerId,
+      sourceId: 'gone_storm_1',
+      sourceName: "Sevinne's Reclamation",
+    });
+    const ctx: any = {
+      gameId,
+      state: { seq: 0 },
+      bumpSeq: vi.fn(),
+      io: { to: () => ({ emit: vi.fn() }) },
+    };
+
+    const appendEventSpy = vi.spyOn(db, 'appendEvent').mockImplementation(() => undefined as any);
+    const bridged = queueCopySpellStackPushFromOracleIRResult(ctx, state, result, {
+      controller: playerId,
+      sourceName: "Sevinne's Reclamation",
+      irCtx,
+      sourceItem: { id: 'gone_storm_1', sourceName: "Sevinne's Reclamation" },
+    });
+    appendEventSpy.mockRestore();
+
+    expect(bridged).toBe(false);
+    expect(getStackItems(state.stack)).toHaveLength(1);
+    expect(getStackItems(state.stack)[0]?.id).toBe(leftoverId);
+  });
 });

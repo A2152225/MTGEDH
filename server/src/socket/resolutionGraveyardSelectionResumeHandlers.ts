@@ -32,6 +32,7 @@ import {
   getResolutionSourcePermanentSnapshot,
 } from "./resolutionKeywordChoiceHandlers.js";
 import { resumePlayerCastSpellFromHand } from "./resolutionSyntheticCastSocketUtils.js";
+import { resolveGraveyardExileSourcePermanentId } from "../state/modules/exileWithSourceStamp.js";
 
 export type GraveyardSelectionApplyResult = {
   io: Server;
@@ -129,6 +130,9 @@ export async function finishGraveyardSelectionAfterApply(
       purpose: purpose || undefined,
       collectEvidenceMinManaValue: Number.isFinite(collectEvidenceMinManaValue) ? collectEvidenceMinManaValue : undefined,
       evidenceCollected: evidenceCollected || undefined,
+      ...(destination === 'exile'
+        ? { exiledWithSourceId: resolveGraveyardExileSourcePermanentId(stepData) || undefined }
+        : {}),
     });
   } catch (e) {
     debugWarn(1, 'appendEvent(confirmGraveyardTargets) failed:', e);

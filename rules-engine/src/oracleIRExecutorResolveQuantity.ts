@@ -244,6 +244,22 @@ export function resolveOracleQuantity(
     });
     if (forEachAmount !== null) return forEachAmount;
 
+    {
+      const wins = Number((ctx as { coinFlipWinsThisWay?: number }).coinFlipWinsThisWay);
+      const losses = Number((ctx as { coinFlipLossesThisWay?: number }).coinFlipLossesThisWay);
+      if (/^(?:the number of )?flips? you won this way$/i.test(normalized) && Number.isFinite(wins)) {
+        return Math.max(0, wins);
+      }
+      if (/^(?:the number of )?flips? you lost this way$/i.test(normalized) && Number.isFinite(losses)) {
+        return Math.max(0, losses);
+      }
+      const perLost = normalized.match(/^(\d+)\s+for each flip you lost this way$/i);
+      if (perLost && Number.isFinite(losses)) {
+        const per = Number.parseInt(String(perLost[1] || '0'), 10);
+        if (Number.isFinite(per) && per > 0) return Math.max(0, per * losses);
+      }
+    }
+
     const combatDamageAmount = tryEvaluateCombatDamageReferenceCount(state, controllerId, normalized, ctx);
     if (combatDamageAmount !== null) return combatDamageAmount;
 

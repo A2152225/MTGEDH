@@ -291,6 +291,23 @@ export function cloneAISpellPaymentSimulationGame(game: any): any {
     };
   }
 
+function canAISimulateNonTapManaToPaySpell(
+    game: any,
+    playerId: PlayerID,
+    parsedCost: ReturnType<typeof parseManaCost>,
+    excludedHandCardIds?: string[],
+  ): boolean {
+    if (getAINonTapManaAbilityCandidates(game, playerId, parsedCost, excludedHandCardIds).length > 0) {
+      return true;
+    }
+    const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+    return battlefield.some((permanent: any) => {
+      if (String(permanent?.controller || '') !== String(playerId)) return false;
+      if (!hasManaAbility(permanent?.card)) return false;
+      return /charge counter/i.test(String(permanent?.card?.oracle_text || ''));
+    });
+  }
+
   export function canAIAssembleSpellPaymentPlan(
     game: any,
     playerId: PlayerID,
@@ -301,6 +318,14 @@ export function cloneAISpellPaymentSimulationGame(game: any): any {
     const purpose = buildAISpellRestrictedManaPurpose(spellCard);
     if (buildAISpellPaymentPlan(game, playerId, parsedCost, [], purpose) !== null) {
       return true;
+    }
+
+    // JSON-cloning the full game is only useful when a non-tap mana ability or
+    // charge-counter battery might still produce the missing mana. Tap-land
+    // mismatches (canPay yes, assemble no) must fail cheaply so listing does
+    // not queue a 8–15s mana_payment_choice the AI will cancel.
+    if (!canAISimulateNonTapManaToPaySpell(game, playerId, parsedCost, excludedHandCardIds)) {
+      return false;
     }
 
     const simulatedGame = cloneAISpellPaymentSimulationGame(game);

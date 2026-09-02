@@ -362,6 +362,7 @@ export type { ManaProductionInfo } from "./util-handlers/manaProductionTypes.js"
 export {
   resolveActivatedAbilityLineById,
   resolveClientStyleManaAbilityById,
+  resolveLegacyManaAbilityById,
 } from "./util-handlers/manaAbilityLineResolvers.js";
 
 

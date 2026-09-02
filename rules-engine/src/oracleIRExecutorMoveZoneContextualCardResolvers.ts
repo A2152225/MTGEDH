@@ -20,8 +20,10 @@ import type { OracleIrBattlefieldEntryContext } from './oracleIRExecutorBattlefi
 import {
   collectMostRecentLedgerCards,
   collectRevealedThisWayCardsLedgerFirst,
+  resolveRevealedThisWayCardPile,
 } from './oracleIRLedgerCardAccess';
-import { getCardManaValue, readPlayerZoneCards } from './oracleIRExecutorPlayerUtils';
+import { getCardManaValue, readPlayerZoneCards, writePlayerZoneCards } from './oracleIRExecutorPlayerUtils';
+import { findBestZoneCardIndex } from './oracleIRExecutorZoneCardIdentity';
 import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import {
   moveTargetedCardFromExile,
@@ -32,6 +34,12 @@ import {
   type MoveZoneSingleTargetCriteria,
   type SimpleCardType,
 } from './oracleIRExecutorZoneOps';
+import {
+  addBattlefieldPermanentsToState,
+  createBattlefieldPermanentsFromCards,
+  resolveBattlefieldEntryBeforeCommit,
+  resolveMoverAttachment,
+} from './oracleIRExecutorZoneOpsBattlefieldEntry';
 import type { BoundCardZoneLocation, MoveZoneRuntime } from './oracleIRExecutorMoveZoneStepTypes';
 import {
   findBoundCardZoneLocation,
@@ -40,6 +48,7 @@ import {
   getSourcePermanentLoyalty,
   getSourcePermanentPower,
   isContextualBoundCardReference,
+  ownerIdFromMovedCardSnapshots,
 } from './oracleIRExecutorMoveZoneReferenceResolvers';
 
 export function getDiedCreatureManaValueFromCtx(
@@ -200,8 +209,9 @@ export function moveContextualCardToDestination(
     battlefieldEntryOverrides?: any;
     ctx?: OracleIRExecutionContext;
     stepKind?: string;
+    attachedToBattlefieldPermanentId?: string;
   }
-): { kind: 'applied'; state: GameState; log: string[] } | { kind: 'impossible' } | { kind: 'halted' } {
+): { kind: 'applied'; state: GameState; log: string[]; movedPermanentIds?: readonly string[] } | { kind: 'impossible' } | { kind: 'halted' } {
   const cardType = options.cardType || 'any';
   const oracleIrEntry: OracleIrBattlefieldEntryContext | undefined =
     destination === 'battlefield' && options.ctx
@@ -210,38 +220,43 @@ export function moveContextualCardToDestination(
 
   const normalizeZoneMoveResult = (
     result:
-      | { kind: 'applied'; state: GameState; log: readonly string[] | string[] }
+      | { kind: 'applied'; state: GameState; log: readonly string[] | string[]; movedPermanentIds?: readonly string[] }
       | { kind: 'impossible' }
       | { kind: 'halted' },
-  ): { kind: 'applied'; state: GameState; log: string[] } | { kind: 'impossible' } | { kind: 'halted' } => {
+  ): { kind: 'applied'; state: GameState; log: string[]; movedPermanentIds?: readonly string[] } | { kind: 'impossible' } | { kind: 'halted' } => {
     if (result.kind === 'applied') {
-      return { kind: 'applied', state: result.state, log: [...(result.log || [])] };
+      const movedPermanentIds = Array.isArray((result as any).movedPermanentIds)
+        ? [...(result as any).movedPermanentIds]
+        : undefined;
+      return {
+        kind: 'applied',
+        state: result.state,
+        log: [...(result.log || [])],
+        ...(movedPermanentIds && movedPermanentIds.length > 0 ? { movedPermanentIds } : {}),
+      };
     }
     return result;
   };
   if (location.zone === 'library') {
     const player = state.players.find(p => p.id === location.playerId) as any;
-    const library = Array.isArray(player?.library) ? [...player.library] : [];
-    const index = library.findIndex((card: any) => String(card?.id || '').trim() === cardId);
+    const library = readPlayerZoneCards(state, location.playerId, player, 'library');
+    const index = findBestZoneCardIndex(library, cardId);
     if (index < 0) return { kind: 'impossible' };
     const [card] = library.splice(index, 1);
+    writePlayerZoneCards(state, location.playerId, player, 'library', library);
     if (destination === 'library_bottom') {
-      const updatedPlayers = state.players.map(p =>
-        p.id === location.playerId ? ({ ...(p as any), library: [...library, card] } as any) : p
-      );
+      writePlayerZoneCards(state, location.playerId, player, 'library', [...library, card]);
       return {
         kind: 'applied',
-        state: { ...state, players: updatedPlayers as any } as GameState,
+        state,
         log: [`${location.playerId} puts ${cardId} on the bottom of their library`],
       };
     }
     if (destination === 'library_top') {
-      const updatedPlayers = state.players.map(p =>
-        p.id === location.playerId ? ({ ...(p as any), library: [card, ...library] } as any) : p
-      );
+      writePlayerZoneCards(state, location.playerId, player, 'library', [card, ...library]);
       return {
         kind: 'applied',
-        state: { ...state, players: updatedPlayers as any } as GameState,
+        state,
         log: [`${location.playerId} puts ${cardId} on the top of their library`],
       };
     }
@@ -268,25 +283,46 @@ export function moveContextualCardToDestination(
       };
     }
     if (destination === 'battlefield') {
-      const hand = Array.isArray(player?.hand) ? [...player.hand, card] : [card];
-      const updatedPlayers = state.players.map(p =>
-        p.id === location.playerId ? ({ ...(p as any), library, hand } as any) : p
-      );
-      const handResult = moveTargetedCardFromHand(
-        { ...state, players: updatedPlayers as any } as GameState,
-        location.playerId,
-        cardId,
-        options.cardType || 'any',
-        'battlefield',
-        options.controllerId,
-        options.entersTapped,
-        options.entersFaceDown,
-        options.withCounters,
-        undefined,
+      const controllerId = options.controllerId || location.playerId;
+      const attachment = resolveMoverAttachment(
+        state,
+        card,
+        controllerId,
+        options.attachedToBattlefieldPermanentId,
         options.battlefieldEntryOverrides,
-        oracleIrEntry
       );
-      return normalizeZoneMoveResult(handResult);
+      if (attachment.kind === 'impossible') return { kind: 'impossible' };
+      const entryResolution = resolveBattlefieldEntryBeforeCommit(
+        state,
+        card,
+        controllerId,
+        {
+          entersTapped: options.entersTapped,
+          entersFaceDown: options.entersFaceDown,
+          withCounters: options.withCounters,
+        },
+        oracleIrEntry,
+      );
+      if (entryResolution.kind === 'halted') return { kind: 'halted' };
+      const newPermanent = createBattlefieldPermanentsFromCards(
+        [card],
+        location.playerId,
+        controllerId,
+        entryResolution.entersTapped,
+        entryResolution.entersFaceDown,
+        entryResolution.withCounters,
+        'library',
+        attachment.attachmentTarget,
+        options.battlefieldEntryOverrides,
+        undefined,
+        attachment.enchantedPlayerId,
+      );
+      return {
+        kind: 'applied',
+        state: addBattlefieldPermanentsToState(state, newPermanent),
+        log: [`${controllerId} puts 1 card from ${location.playerId}'s library onto the battlefield`],
+        movedPermanentIds: newPermanent.map(perm => String((perm as any)?.id || '').trim()).filter(Boolean),
+      };
     }
     if (destination === 'exile') {
       const exile = Array.isArray(player?.exile) ? [...player.exile, card] : [card];
@@ -312,7 +348,7 @@ export function moveContextualCardToDestination(
       options.entersTapped,
       options.entersFaceDown,
       options.withCounters,
-      undefined,
+      options.attachedToBattlefieldPermanentId,
       undefined,
       options.battlefieldEntryOverrides,
       undefined,
@@ -331,7 +367,7 @@ export function moveContextualCardToDestination(
       options.entersTapped,
       options.entersFaceDown,
       options.withCounters,
-      undefined,
+      options.attachedToBattlefieldPermanentId,
       options.battlefieldEntryOverrides,
       oracleIrEntry
     );
@@ -347,7 +383,7 @@ export function moveContextualCardToDestination(
     options.entersTapped,
     options.entersFaceDown,
     options.withCounters,
-    undefined,
+    options.attachedToBattlefieldPermanentId,
     options.battlefieldEntryOverrides,
     oracleIrEntry
   );
@@ -649,9 +685,10 @@ export function moveContextualRestToLibraryBottom(
   controllerId: PlayerID,
   ctx: OracleIRExecutionContext,
   runtime: MoveZoneRuntime | undefined,
-  movedIds: readonly string[]
+  movedIds: readonly string[],
+  options?: { readonly explicitRestIds?: readonly string[] },
 ): { state: GameState; log: string[] } {
-  return moveContextualRestAfterPrimaryMove(state, controllerId, ctx, runtime, movedIds, 'library_bottom');
+  return moveContextualRestAfterPrimaryMove(state, controllerId, ctx, runtime, movedIds, 'library_bottom', options);
 }
 
 export function resolveRevealThisWayRestDestination(
@@ -691,10 +728,14 @@ export function moveContextualRestAfterPrimaryMove(
   ctx: OracleIRExecutionContext,
   runtime: MoveZoneRuntime | undefined,
   movedIds: readonly string[],
-  destination: 'graveyard' | 'library_bottom'
+  destination: 'graveyard' | 'library_bottom',
+  options?: { readonly explicitRestIds?: readonly string[] },
 ): { state: GameState; log: string[] } {
   const moved = new Set(movedIds.map(id => String(id || '').trim()).filter(Boolean));
-  const restIds = resolveContextualRestPoolIdsInZones(state, ctx, runtime, ['library', 'hand', 'exile']).filter(
+  const restIds = (options?.explicitRestIds !== undefined
+    ? [...options.explicitRestIds]
+    : resolveContextualRestPoolIdsInZones(state, ctx, runtime, ['library', 'hand', 'exile'])
+  ).filter(
     id => !moved.has(id)
   );
   if (restIds.length === 0) return { state, log: [] };
@@ -726,11 +767,14 @@ export function resolveContextualCardIdsInZones(
     : Array.isArray(ctx.lastMilledCards)
       ? ctx.lastMilledCards
       : [];
-  const movedCards = Array.isArray(runtime?.lastMovedCards)
-    ? runtime.lastMovedCards
-    : Array.isArray(ctx.lastMovedCards)
-      ? ctx.lastMovedCards
-      : [];
+  const revealedCards = resolveRevealedThisWayCardPile(ctx);
+  const movedCards = revealedCards.length > 0
+    ? revealedCards
+    : Array.isArray(runtime?.lastMovedCards)
+      ? runtime.lastMovedCards
+      : Array.isArray(ctx.lastMovedCards)
+        ? ctx.lastMovedCards
+        : [];
   const discardedCards = Array.isArray(runtime?.lastDiscardedCards)
     ? runtime.lastDiscardedCards
     : Array.isArray(ctx.lastDiscardedCards)
@@ -765,7 +809,8 @@ export function resolveContextualCardIdsInZones(
   }
 
   return candidateIds.filter(cardId => {
-    const location = findBoundCardZoneLocation(state, cardId);
+    const ownerId = ownerIdFromMovedCardSnapshots(movedCards, cardId);
+    const location = findBoundCardZoneLocation(state, cardId, ownerId);
     return Boolean(location && zones.includes(location.zone));
   });
 }

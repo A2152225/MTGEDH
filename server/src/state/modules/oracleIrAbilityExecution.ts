@@ -296,6 +296,8 @@ export function tryApplyStationChargeCountersViaOracleIR(
     const handled = isOracleIrActivatedAbilityHandled(steps, result, {
       resolutionQueueStepsBefore: queueBefore,
       resolutionQueueStepsAfter: queueAfter,
+      state,
+      gameId,
     });
     const countersAdded = readCountersAdded();
 
@@ -311,6 +313,8 @@ export function tryApplyStationChargeCountersViaOracleIR(
         describeOracleIrActivatedAbilityIncomplete(steps, result, {
           resolutionQueueStepsBefore: queueBefore,
           resolutionQueueStepsAfter: queueAfter,
+          state,
+          gameId,
         }),
         { applied: result.appliedSteps.length, parsed: steps.length },
         { gameId: gameId !== 'unknown' ? gameId : undefined },
@@ -507,6 +511,8 @@ export function tryApplyOracleIRToActivatedAbility(
     const handled = isOracleIrActivatedAbilityHandled(steps, result, {
       resolutionQueueStepsBefore: queueBefore,
       resolutionQueueStepsAfter: queueAfter,
+      state,
+      gameId,
     });
 
     if (!handled) {
@@ -520,6 +526,8 @@ export function tryApplyOracleIRToActivatedAbility(
           describeOracleIrActivatedAbilityIncomplete(steps, result, {
             resolutionQueueStepsBefore: queueBefore,
             resolutionQueueStepsAfter: queueAfter,
+            state,
+            gameId,
           }),
           { applied, parsed: steps.length },
           { gameId: gameId !== 'unknown' ? gameId : undefined },

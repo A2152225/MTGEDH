@@ -35,6 +35,7 @@ export type OracleEffectStepA =
       readonly who: OraclePlayerSelector;
       readonly call?: 'heads' | 'tails';
       readonly repeatUntil?: 'lose_flip';
+      readonly count?: number | 'that_many';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -490,6 +491,16 @@ export type OracleEffectStepA =
       readonly kind: 'choose_color';
       /** Optional restricted color set, expressed as mana symbols such as {W}. */
       readonly manaOptions?: readonly string[];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /** Choose a number in [min, max] (Yusri "choose a number between 1 and 5"). */
+      readonly kind: 'choose_number';
+      readonly who: OraclePlayerSelector;
+      readonly min: number;
+      readonly max: number;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

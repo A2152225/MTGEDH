@@ -71,7 +71,7 @@ export function registerDelayedBattlefieldAction(
   ctx: OracleIRExecutionContext,
   controllerId: PlayerID,
   timing: DelayedTriggerTiming,
-  action: 'sacrifice' | 'exile',
+  action: 'sacrifice' | 'exile' | 'destroy',
   permanents: readonly BattlefieldPermanent[],
   condition?: OracleBattlefieldObjectCondition,
   whoText?: string,
@@ -86,6 +86,7 @@ export function registerDelayedBattlefieldAction(
   const trimmedWhoText = String(whoText || '').trim();
   const effect = (() => {
     if (action === 'exile') return `Exile ${reference}.`;
+    if (action === 'destroy') return `Destroy ${reference}.`;
     if (!trimmedWhoText) return `Sacrifice ${reference}${renderBattlefieldObjectCondition(condition)}.`;
 
     const subject = trimmedWhoText;

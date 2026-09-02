@@ -8,6 +8,10 @@ import type { BattlefieldPermanent, PlayerRef } from '../../../../shared/src';
 export interface DefenderAttackInfo {
   untappedCreatureCount: number;
   attackTaxPerCreature: number;
+  /** Norn's Annex `{W/P}` (and stacked copies): color mana or 2 life per item per attacker. */
+  attackTaxPhyrexianPerCreature?: Array<{ symbol: string; life: number }>;
+  /** Nils: `{X}` = counters on that attacking creature. */
+  attackTaxCountersOnAttacker?: boolean;
 }
 
 export interface CombatSelectionModalProps {

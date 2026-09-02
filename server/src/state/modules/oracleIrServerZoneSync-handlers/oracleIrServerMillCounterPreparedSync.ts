@@ -5,7 +5,8 @@
 // Public entry symbols: snapshotBattlefieldControllers, snapshotBattlefieldCounters,
 //   syncCounterReplacementEffectsAfterOracleIR,
 //   syncPreparedCopiesAfterBattlefieldControllerChanges,
-//   syncPreparedCopiesFromControlChangeEffects, applyMillReplacementEffectsToSteps.
+//   syncPreparedCopiesFromControlChangeEffects,
+//   normalizeOracleIrControlChangeEffectsForServer, applyMillReplacementEffectsToSteps.
 // Called from applyOracleIRStepsOnServer in the parent; not part of the public API
 // except applyMillReplacementEffectsToSteps.
 
@@ -114,6 +115,26 @@ export function syncPreparedCopiesFromControlChangeEffects(state: any): void {
     const perm = (state.battlefield || []).find((entry: any) => String(entry?.id || '').trim() === permanentId);
     if (!perm) continue;
     syncPreparedPermanentAfterControlChange(state, perm, previousController);
+  }
+}
+
+/** Server cleanup / tests use `eot` and capitalized keyword grants. */
+export function normalizeOracleIrControlChangeEffectsForServer(state: any): void {
+  const effects = Array.isArray(state?.controlChangeEffects) ? state.controlChangeEffects : [];
+  for (const effect of effects) {
+    const duration = String(effect?.duration || '').trim().toLowerCase();
+    if (duration === 'until_end_of_turn' || duration === 'turn') {
+      effect.duration = 'eot';
+    }
+  }
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  for (const perm of battlefield) {
+    const granted = Array.isArray(perm?.grantedAbilities) ? perm.grantedAbilities : [];
+    for (let i = 0; i < granted.length; i += 1) {
+      if (String(granted[i] || '').trim().toLowerCase() === 'haste') {
+        granted[i] = 'Haste';
+      }
+    }
   }
 }
 

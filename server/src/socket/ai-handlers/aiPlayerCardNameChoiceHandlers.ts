@@ -62,7 +62,9 @@ export function chooseAIPlayerChoiceId(game: any, playerId: PlayerID, step: any)
     return ranked[0].candidateId;
   }
 
-  return candidateIds[0];
+  return opponentOnly
+    ? candidateIds.find((candidateId) => candidateId !== String(playerId))
+    : candidateIds[0];
 }
 
 function scoreVisibleCardNameCandidate(game: any, playerId: PlayerID, candidateName: string): number {

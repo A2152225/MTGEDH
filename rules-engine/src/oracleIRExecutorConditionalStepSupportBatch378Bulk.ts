@@ -193,7 +193,16 @@ export function evaluateBatch378BulkConditionalClause(params: Batch378BulkParams
 
   if (normalizedRaw === 'an opponent searched their library this turn') {
     const flag = (nextState as any)?.opponentSearchedLibraryThisTurn;
-    return typeof flag === 'boolean' ? flag : null;
+    if (typeof flag === 'boolean') return flag;
+    const controller = String(controllerId || '').trim();
+    const searched = Array.isArray((nextState as any)?.playersWhoSearchedOwnLibraryThisTurn)
+      ? (nextState as any).playersWhoSearchedOwnLibraryThisTurn
+      : null;
+    if (!Array.isArray(searched)) return null;
+    return searched.some((id: unknown) => {
+      const pid = String(id || '').trim();
+      return Boolean(pid && pid !== controller);
+    });
   }
 
   if (normalizedRaw === "a creature card with flying was exiled with this creature's delve ability") {

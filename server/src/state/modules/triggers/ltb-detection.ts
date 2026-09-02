@@ -6,6 +6,7 @@
 
 import { stripReminderParentheticals } from "../../../../../rules-engine/src/oracleReminderText.js";
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
+import { mergeDetectorOracleWithContinuousGrants } from "./detectorGrantedOracle.js";
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
 import { LTB_STATIC_ALTERNATIVES } from "./etb-detection-helpers.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
@@ -13,11 +14,16 @@ import { timingTriggerEffect } from "./timing-effect-extraction.js";
 /**
  * Detect leaves-the-battlefield triggers from a card's oracle text.
  */
-export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[] {
+export function detectLTBTriggers(card: any, permanent?: any, gameState?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
   // Detector regexes scan raw oracle text. Remove only recognized keyword
   // reminders first so a reminder's "when/whenever" cannot become a trigger.
-  const oracleText = stripReminderParentheticals(String(card?.oracle_text || ''));
+  const merged = mergeDetectorOracleWithContinuousGrants(
+    String(card?.oracle_text || ''),
+    permanent,
+    gameState,
+  );
+  const oracleText = stripReminderParentheticals(merged.oracleText);
   const lowerOracle = oracleText.toLowerCase();
   const cardName = String(card?.name || 'Unknown');
   const permanentId = permanent?.id || '';

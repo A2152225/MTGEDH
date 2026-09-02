@@ -61,7 +61,11 @@ describe('Oracle IR gap batch 234 support', () => {
   it('skips scaled unless-pay sacrifice when paid', () => {
     const steps = collectStepsFromText('sacrifice this creature unless you pay {1} for each card in your hand.');
     const result = applyOracleIRStepsToGameState(
-      baseState(),
+      baseState({
+        manaPool: {
+          p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+        } as any,
+      }),
       steps,
       buildOracleIRExecutionContext({
         controllerId: 'p1' as PlayerID,
@@ -82,6 +86,9 @@ describe('Oracle IR gap batch 234 support', () => {
           counters: { '+1/+1': 2 },
         },
       ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 3 },
+      } as any,
     });
     const steps = collectStepsFromText(
       'put a +1/+1 counter on this creature, then sacrifice this creature unless you pay {1} for each +1/+1 counter on it.',

@@ -8,6 +8,7 @@
  */
 import type { GameContext } from '../../context.js';
 import { detectDealtDamageTriggers } from './dealt-damage-detection.js';
+import { mergeDetectorOracleWithContinuousGrants } from './detectorGrantedOracle.js';
 import { parseAnyTargetThatIsntCreatureType } from './damage-redirect-target-type.js';
 import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
@@ -248,10 +249,14 @@ export function processSelfDealtDamageNonRedirectTriggers(
   if ((ctx as any)?.isReplaying) return [];
   if (!damagedPermanent?.card || damageAmount <= 0) return [];
 
-  const oracle = String(damagedPermanent.card?.oracle_text || '');
-  if (!oracle || isThatMuchDamageRedirectOracle(oracle)) return [];
+  const { oracleText: mergedOracle } = mergeDetectorOracleWithContinuousGrants(
+    String(damagedPermanent.card?.oracle_text || ''),
+    damagedPermanent,
+    (ctx as any)?.state,
+  );
+  if (isThatMuchDamageRedirectOracle(mergedOracle)) return [];
 
-  const detected = detectDealtDamageTriggers(damagedPermanent.card, damagedPermanent)
+  const detected = detectDealtDamageTriggers(damagedPermanent.card, damagedPermanent, (ctx as any)?.state)
     .filter((trigger) => trigger.triggerType === 'dealt_damage');
   if (detected.length === 0) return [];
 
@@ -429,7 +434,7 @@ export function processPermanentDealtDamageWatchers(
     seen.add(key);
     if (!dealtDamageWatcherAppliesToPermanent(permanent, damagedPermanent)) continue;
 
-    const detected = detectDealtDamageTriggers(permanent.card, permanent)
+    const detected = detectDealtDamageTriggers(permanent.card, permanent, state)
       .filter((trigger) => trigger.triggerType === 'dealt_damage');
     for (const trigger of detected) {
       hits.push({ watcher: permanent, trigger });
@@ -499,7 +504,7 @@ export function processPlayerDealtDamageTriggers(
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
     if (!dealtDamageWatcherAppliesToPlayer(permanent, damagedPlayerId, options)) continue;
-    const detected = detectDealtDamageTriggers(permanent.card, permanent)
+    const detected = detectDealtDamageTriggers(permanent.card, permanent, state)
       .filter((trigger) => trigger.triggerType === 'dealt_damage');
     for (const trigger of detected) {
       hits.push({ watcher: permanent, trigger });

@@ -8,6 +8,7 @@ import {
 import { isPerPlayerOptionalEffectText } from '../../../../rules-engine/src/oracleIRPerPlayerOptional.js';
 export { isEachPlayerMayPutCountersOnCreatureTheyControlStep } from '../../../../rules-engine/src/oracleIRCounterPlacement.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
+import { listLivingGamePlayers } from './priorityEligibility.js';
 
 function resolveCounterPlacementConditionalText(
   triggerDescription: string,
@@ -84,7 +85,7 @@ export function queueEachPlayerCounterPlacementPromptsFromOracleIRResult(
 
   const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
   const sourceId = String(params.sourceId || params.triggerItem?.sourceId || params.triggerItem?.source || '').trim() || undefined;
-  const players = Array.isArray(state?.players) ? state.players : [];
+  const players = listLivingGamePlayers(ctx);
   if (players.length === 0) return;
 
   const candidateSteps: OracleEffectStep[] = [];

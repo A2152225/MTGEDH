@@ -282,6 +282,7 @@ export function createContext(gameId: string): GameContext {
   // Intervening-if: baseline per-game/last-turn trackers.
   // These start at safe defaults so early-game checks don't collapse to null.
   (state as any).spellsCastThisTurn = [];
+  (state as any).playersWhoSearchedOwnLibraryThisTurn = [];
   (state as any).spellsCastLastTurnCount = 0;
   (state as any).spellsCastLastTurnByPlayerCounts = {};
   (state as any).lifeLostLastTurnByPlayerCounts = {};

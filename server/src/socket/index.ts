@@ -21,6 +21,7 @@ import { registerReplayHandlers } from "./replay.js";
 import { registerOpponentMayPayHandlers } from "./opponent-may-pay.js";
 import { registerResolutionHandlers, initializeAIResolutionHandler, initializePriorityResolutionHandler } from "./resolution.js";
 import { GameManager } from "../GameManager.js";
+import { attachSocketAuth } from "../auth/attachSocketAuth.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
@@ -40,6 +41,7 @@ export function registerSocketHandlers(
 
   io.on("connection", (socket) => {
     debug(2, `Socket connected: ${socket.id}`);
+    attachSocketAuth(socket);
 
     // Defense-in-depth: once a socket is associated with a gameId,
     // reject any incoming event that targets a different gameId or a room

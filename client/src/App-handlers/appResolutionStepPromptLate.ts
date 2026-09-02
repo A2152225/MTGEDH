@@ -105,9 +105,23 @@ export function handleAppResolutionStepPromptLate(
       }
       else if (step.type === 'repeated_zone_draft') {
         const sourceName = step.sourceName || 'Draft';
-        const cards = Array.isArray(step.cards)
+        const rawCards = Array.isArray(step.cards)
           ? step.cards
           : (Array.isArray(step.remainingCardIds) ? step.remainingCardIds.map((id: string) => ({ id, name: id })) : []);
+        const cards = rawCards.map((card: any) => ({
+          cardId: String(card.cardId || card.id || '').trim(),
+          cardName: String(card.cardName || card.name || card.cardId || card.id || '').trim(),
+          imageUrl: card.imageUrl,
+          attachOptions: Array.isArray(card.attachOptions)
+            ? card.attachOptions
+                .map((opt: any) => ({
+                  cardId: String(opt.cardId || opt.id || '').trim(),
+                  cardName: String(opt.cardName || opt.name || opt.id || '').trim(),
+                  imageUrl: opt.imageUrl,
+                }))
+                .filter((opt: { cardId: string }) => Boolean(opt.cardId))
+            : undefined,
+        })).filter((card: { cardId: string }) => Boolean(card.cardId));
         setHideawayChoiceData({
           sourceName,
           imageUrl: step.sourceImage || step.sourceImageUrl,

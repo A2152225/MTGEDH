@@ -129,6 +129,7 @@ function normalizeRequirementTargetType(rawTargetType: string | undefined): stri
     .replace(/^nonland permanents?$/g, 'nonland permanent')
     .replace(/^noncreature permanents?$/g, 'noncreature permanent')
     .replace(/^creatures?$/g, 'creature')
+    .replace(/^spells?$/g, 'spell')
     .replace(/^permanents?$/g, 'permanent')
     .replace(/^artifacts?$/g, 'artifact')
     .replace(/^enchantments?$/g, 'enchantment')
@@ -140,7 +141,7 @@ function normalizeRequirementTargetType(rawTargetType: string | undefined): stri
 function isRequirementStackSpellTargetType(targetTypeLower: string): boolean {
   const normalized = String(targetTypeLower || '').trim().toLowerCase();
   if (!normalized) return false;
-  if (normalized === 'spell') return true;
+  if (normalized === 'spell' || normalized === 'spells') return true;
   return (
     normalized.endsWith(' spell')
     || normalized.includes(' spell')
@@ -148,7 +149,7 @@ function isRequirementStackSpellTargetType(targetTypeLower: string): boolean {
   );
 }
 
-function stackItemMatchesSpellTargetType(stackItem: any, targetTypeLower: string): boolean {
+function stackItemMatchesSpellTargetType(stackItem: any, targetTypeLower: string, targetReqs?: any): boolean {
   if (!stackItem) return false;
   if (
     stackItem.type === 'ability'
@@ -158,7 +159,10 @@ function stackItemMatchesSpellTargetType(stackItem: any, targetTypeLower: string
   ) {
     return false;
   }
-  if (stackItem.canBeCountered === false || stackItem.cantBeCountered === true) {
+  if (
+    (stackItem.canBeCountered === false || stackItem.cantBeCountered === true)
+    && targetReqs?.stackTargetsIgnoreCantBeCountered !== true
+  ) {
     return false;
   }
 
@@ -190,8 +194,8 @@ export function buildSpellTargetListFromRequirements(game: any, playerId: string
     // Stack spells must be checked before battlefield "noncreature"/"nonland" substring matches.
     if (isRequirementStackSpellTargetType(targetTypeLower) || targetTypeLower === 'spell') {
       const stackItems = (game.state.stack || []).filter((entry: any) =>
-        stackItemMatchesSpellTargetType(entry, targetTypeLower)
-        && stackItemMeetsSingleTargetRequirement(entry, targetReqs)
+        stackItemMatchesSpellTargetType(entry, targetTypeLower, targetReqs)
+        && stackItemMeetsSingleTargetRequirement(entry, targetReqs, game.state)
       );
       for (const item of stackItems) {
         validTargetList.push({
@@ -334,7 +338,7 @@ export function buildSpellTargetListFromRequirements(game: any, playerId: string
     if (targetTypeLower === 'ability') {
       const stackItems = (game.state.stack || []).filter((entry: any) =>
         (entry?.type === 'ability' || entry?.type === 'triggered_ability' || entry?.type === 'activated_ability')
-        && stackItemMeetsSingleTargetRequirement(entry, targetReqs)
+        && stackItemMeetsSingleTargetRequirement(entry, targetReqs, game.state)
       );
       for (const item of stackItems) {
         validTargetList.push({

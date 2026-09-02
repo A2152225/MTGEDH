@@ -97,6 +97,127 @@ describe('AI contextual auto-pass idle', () => {
     expect(canRespond(ctx, 'ai' as PlayerID)).toBe(true);
     expect(isAiContextuallyIdleForAutoPass(ctx, 'ai' as PlayerID)).toBe(false);
   });
+
+  const elixirPermanent = {
+    id: 'stack_elixir',
+    controller: 'ai',
+    tapped: false,
+    card: {
+      id: 'elixir_card',
+      name: 'Elixir of Immortality',
+      type_line: 'Artifact',
+      oracle_text: '{2}, {T}: You gain 5 life. Shuffle Elixir of Immortality and your graveyard into your library.',
+    },
+  };
+
+  it('treats Elixir of Immortality as idle at high life with an empty graveyard and no threat', () => {
+    const ctx = createTestContext(kingOffTurnState({
+      zones: {
+        ai: { hand: [], graveyard: [] },
+        human: { hand: [] },
+      },
+      battlefield: [elixirPermanent],
+    }));
+    expect(canRespond(ctx, 'ai' as PlayerID)).toBe(true);
+    expect(isAiContextuallyIdleForAutoPass(ctx, 'ai' as PlayerID)).toBe(true);
+  });
+
+  it('keeps thinking on Elixir when life gain is needed', () => {
+    const ctx = createTestContext(kingOffTurnState({
+      players: [
+        { id: 'ai', name: 'King', isAI: true, life: 18 },
+        { id: 'human', name: 'Human', isAI: false, life: 40 },
+      ],
+      zones: {
+        ai: { hand: [], graveyard: [] },
+        human: { hand: [] },
+      },
+      battlefield: [elixirPermanent],
+    }));
+    expect(isAiContextuallyIdleForAutoPass(ctx, 'ai' as PlayerID)).toBe(false);
+  });
+
+  it('keeps thinking on Elixir when attackers are coming at it', () => {
+    const ctx = createTestContext(kingOffTurnState({
+      step: 'DECLARE_ATTACKERS',
+      zones: {
+        ai: { hand: [], graveyard: [] },
+        human: { hand: [] },
+      },
+      battlefield: [
+        elixirPermanent,
+        {
+          id: 'bear',
+          controller: 'human',
+          attacking: 'ai',
+          card: { name: 'Bear', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+        },
+      ],
+    }));
+    expect(isAiContextuallyIdleForAutoPass(ctx, 'ai' as PlayerID)).toBe(false);
+  });
+
+  it('keeps thinking on Elixir when the graveyard is worth shuffling back', () => {
+    const ctx = createTestContext(kingOffTurnState({
+      zones: {
+        ai: {
+          hand: [],
+          graveyard: [
+            { id: 'gy1', name: 'Kodama\'s Reach', type_line: 'Sorcery' },
+            { id: 'gy2', name: 'Cultivate', type_line: 'Sorcery' },
+            { id: 'gy3', name: 'Cyclonic Rift', type_line: 'Instant' },
+          ],
+        },
+        human: { hand: [] },
+      },
+      battlefield: [elixirPermanent],
+    }));
+    expect(isAiContextuallyIdleForAutoPass(ctx, 'ai' as PlayerID)).toBe(false);
+  });
+
+  it('keeps thinking on Elixir when it is targeted for destruction', () => {
+    const ctx = createTestContext(kingOffTurnState({
+      zones: {
+        ai: { hand: [], graveyard: [] },
+        human: { hand: [] },
+      },
+      battlefield: [elixirPermanent],
+      stack: [{
+        id: 'naturalize',
+        type: 'spell',
+        controller: 'human',
+        targets: ['stack_elixir'],
+        card: {
+          name: 'Naturalize',
+          type_line: 'Instant',
+          oracle_text: 'Destroy target artifact or enchantment.',
+        },
+      }],
+    }));
+    expect(isAiContextuallyIdleForAutoPass(ctx, 'ai' as PlayerID)).toBe(false);
+  });
+
+  it('keeps thinking on Elixir when the graveyard is about to be exiled', () => {
+    const ctx = createTestContext(kingOffTurnState({
+      zones: {
+        ai: { hand: [], graveyard: [{ id: 'gy1', name: 'Sol Ring', type_line: 'Artifact' }] },
+        human: { hand: [] },
+      },
+      battlefield: [elixirPermanent],
+      stack: [{
+        id: 'bojuka',
+        type: 'triggered_ability',
+        controller: 'human',
+        targets: ['ai'],
+        card: {
+          name: 'Bojuka Bog',
+          type_line: 'Land',
+          oracle_text: 'When Bojuka Bog enters, exile target player\'s graveyard.',
+        },
+      }],
+    }));
+    expect(isAiContextuallyIdleForAutoPass(ctx, 'ai' as PlayerID)).toBe(false);
+  });
 });
 
 describe('canRespond / spell-candidate cache', () => {

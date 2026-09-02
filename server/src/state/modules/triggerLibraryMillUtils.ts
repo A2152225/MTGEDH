@@ -38,6 +38,7 @@ function persistMillEvent(
   stateAny: any,
   playerId: string,
   milled: number,
+  milledCards?: any[],
   options?: MillCardsOptions,
 ): void {
   if (options?.skipEventPersistence) return;
@@ -45,12 +46,15 @@ function persistMillEvent(
   const gameId = String((ctx as any)?.gameId || stateAny?.gameId || '').trim();
   if (!gameId || gameId === 'unknown') return;
   if (milled <= 0) return;
+  const cardIds = (Array.isArray(milledCards) ? milledCards : [])
+    .map((card: any) => String(card?.id || '').trim())
+    .filter(Boolean);
   try {
     appendEvent(
       gameId,
       Number((ctx as any)?.seq?.value ?? (ctx as any)?.seq ?? stateAny?.seq ?? 0),
       'mill',
-      { playerId, count: milled },
+      { playerId, count: milled, ...(cardIds.length > 0 ? { cardIds } : {}) },
     );
   } catch (err) {
     debugWarn(1, '[millCardsFromLibrary] appendEvent(mill) failed:', err);
@@ -70,6 +74,7 @@ export function millCardsFromLibrary(
       ? ((ctx as any).libraries as Map<string, any[]>)
       : undefined;
   let milled = 0;
+  const milledCards: any[] = [];
 
   for (let idx = 0; idx < Math.max(0, count | 0); idx += 1) {
     // Prefer the libraries Map when it actually has cards. An empty Map is not
@@ -94,6 +99,7 @@ export function millCardsFromLibrary(
       }
     }
     if (!card) break;
+    milledCards.push(card);
     if (ctx) {
       pushCardToGraveyardFromLibrary(ctx, playerId, card, zones.graveyard);
     } else {
@@ -118,6 +124,6 @@ export function millCardsFromLibrary(
     zones.libraryCount = zones.library.length;
   }
   zones.graveyardCount = zones.graveyard.length;
-  persistMillEvent(ctx, stateAny, String(playerId), milled, options);
+  persistMillEvent(ctx, stateAny, String(playerId), milled, milledCards, options);
   return milled;
 }

@@ -198,6 +198,7 @@ export function parseSimpleBattlefieldSelector(
         /\bthey control\b/i.test(oppPlural) ||
         /\b(?:your opponents|opponents)\s+control\b/i.test(oppPlural) ||
         /\b(?:each opponent|an opponent)\s+controls\b/i.test(oppPlural) ||
+        /\b(?:that|target)\s+opponent\s+controls\b/i.test(oppPlural) ||
         /\byou\s+(?:don'?t|do not)\s+control\b/i.test(oppPlural)
       ) {
         remainder = oppPlural.trim();
@@ -227,6 +228,7 @@ export function parseSimpleBattlefieldSelector(
   if (/\b(?:each opponent|an opponent)\s+controls\b/i.test(remainder)) controllerFilter = 'opponents';
   if (/\btarget player controls\b/i.test(remainder)) controllerFilter = 'target_player';
   if (/\bthat player controls\b/i.test(remainder)) controllerFilter = 'target_player';
+  if (/\b(?:that|target)\s+opponent\s+controls\b/i.test(remainder)) controllerFilter = 'target_player';
   if (/\bthey control\b/i.test(remainder)) controllerFilter = 'target_player';
   if (/\byou\s+(?:don'?t|do not)\s+control\b/i.test(remainder)) controllerFilter = 'opponents';
 
@@ -236,6 +238,7 @@ export function parseSimpleBattlefieldSelector(
     .replace(/\b(?:each opponent|an opponent)\s+controls\b/i, '')
     .replace(/\btarget player controls\b/i, '')
     .replace(/\bthat player controls\b/i, '')
+    .replace(/\b(?:that|target)\s+opponent\s+controls\b/i, '')
     .replace(/\bthey control\b/i, '')
     .replace(/\byou\s+(?:don'?t|do not)\s+control\b/i, '')
     .trim();
@@ -247,6 +250,11 @@ export function parseSimpleBattlefieldSelector(
   if (/^tapped\s+/i.test(remainder)) {
     tappedOnly = true;
     remainder = remainder.replace(/^tapped\s+/i, '').trim();
+  }
+  let parsedNontokenOnly = false;
+  if (/^nontoken\s+/i.test(remainder)) {
+    parsedNontokenOnly = true;
+    remainder = remainder.replace(/^nontoken\s+/i, '').trim();
   }
   if (!remainder) return null;
   if (/\bnonland\b/.test(remainder) && !/^(?:target\s+)?nonland(?:,?\s+nontoken)?\s+permanents?\b/.test(remainder)) return null;
@@ -268,6 +276,7 @@ export function parseSimpleBattlefieldSelector(
       types: ['nonland_permanent'],
       controllerFilter,
       excludeSourceId,
+      ...(parsedNontokenOnly ? { nontokenOnly: true } : {}),
       ...(tappedOnly ? { tappedOnly: true } : {}),
     };
   }
@@ -278,6 +287,7 @@ export function parseSimpleBattlefieldSelector(
       types: ['permanent'],
       controllerFilter,
       excludeSourceId,
+      ...(parsedNontokenOnly ? { nontokenOnly: true } : {}),
       ...(tappedOnly ? { tappedOnly: true } : {}),
     };
   }
@@ -325,6 +335,7 @@ export function parseSimpleBattlefieldSelector(
       controllerFilter,
       excludeSourceId,
       usesChosenCreatureType: true,
+      ...(parsedNontokenOnly ? { nontokenOnly: true } : {}),
       ...(tappedOnly ? { tappedOnly: true } : {}),
     };
   }
@@ -347,6 +358,7 @@ export function parseSimpleBattlefieldSelector(
       controllerFilter,
       excludeSourceId,
       attackingOnly: true,
+      ...(parsedNontokenOnly ? { nontokenOnly: true } : {}),
       ...(tappedOnly ? { tappedOnly: true } : {}),
     };
   }
@@ -359,6 +371,7 @@ export function parseSimpleBattlefieldSelector(
       typeLineTermsAnyOf: [basicLandType],
       controllerFilter,
       excludeSourceId,
+      ...(parsedNontokenOnly ? { nontokenOnly: true } : {}),
       ...(tappedOnly ? { tappedOnly: true } : {}),
     };
   }
@@ -390,6 +403,7 @@ export function parseSimpleBattlefieldSelector(
     ...(colorsAnyOf && colorsAnyOf.length > 0 ? { colorsAnyOf } : {}),
     ...(colorlessOnly ? { colorlessOnly: true } : {}),
     excludeSourceId,
+    ...(parsedNontokenOnly ? { nontokenOnly: true } : {}),
     ...(tappedOnly ? { tappedOnly: true } : {}),
   };
 }

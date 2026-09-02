@@ -106,6 +106,9 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
   if ((ctx as any).energy) {
     out.energyCounters = { ...(ctx as any).energy };
   }
+  if (Array.isArray(state.lastingEffects)) {
+    out.lastingEffects = state.lastingEffects.map((entry: any) => ({ ...entry }));
+  }
 
   if (!Array.isArray(out.players) || out.players.length === 0) {
     const participants = (ctx as any).participantsList || [];

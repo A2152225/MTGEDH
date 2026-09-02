@@ -6,13 +6,19 @@
 // Public entry symbols: resolvePermanentChosenColorSymbol,
 // parseManaSpendRestrictionFromOracle, resolvePowerThresholdInsteadManaAbility,
 // isMoxAmberConditionalManaSource, getMoxAmberAvailableColors,
-// getOpponentLandProducibleColorSymbols, getCommanderColorIdentity.
+// getLandTopLayerProducibleColorSymbols, getOpponentLandProducibleColorSymbols,
+// getCommanderColorIdentity.
 // Leaf must not import mana-abilities.ts or mana-abilities-handlers/index.ts.
 
 import { getActualPowerToughness } from "../../utils.js";
 import { lookupLocalCardByNameSync } from "../../../services/localCardLookup.js";
 import { deriveCardColorIdentity } from "../commander.js";
-import type { ManaAbility } from "./manaAbilityLandTypeModifiers.js";
+import {
+  DEFAULT_BASIC_LAND_MANA_MAP,
+  getEffectiveBasicLandTypes,
+  getOverridingLandTypeModifier,
+  type ManaAbility,
+} from "./manaAbilityLandTypeModifiers.js";
 
 const COLOR_SYMBOL_ORDER = ['W', 'U', 'B', 'R', 'G'] as const;
 
@@ -269,8 +275,77 @@ const COLOR_KEY_TO_SYMBOL: Record<string, string> = {
 };
 
 /**
+ * Colors a land can produce from its own type line, granted basic types
+ * (Yavimaya / Urborg / Dryad), Command Tower identity, and printed add
+ * abilities. Skips "could produce" clauses so a second Exotic Orchard /
+ * Fellwar Stone / Reflecting Pool does not recurse.
+ */
+export function getLandTopLayerProducibleColorSymbols(gameState: any, permanent: any): string[] {
+  const card = permanent?.card;
+  if (!card) return [];
+  const typeLine = String(card.type_line || '').toLowerCase();
+  const effectiveTypes = getEffectiveBasicLandTypes(gameState, permanent);
+  if (!typeLine.includes('land') && effectiveTypes.length === 0) return [];
+
+  const colors = new Set<string>();
+  const oracleText = String(card.oracle_text || '').toLowerCase();
+  const counters = permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : {};
+  const isCouldProduceSource =
+    /that (?:a |an )?(?:land|permanent).*could produce/i.test(oracleText)
+    || /among (?:lands|permanents)/i.test(oracleText);
+
+  for (const landType of effectiveTypes) {
+    const mana = DEFAULT_BASIC_LAND_MANA_MAP[landType];
+    if (mana) colors.add(mana);
+  }
+
+  if (getOverridingLandTypeModifier(gameState, permanent)) {
+    return [...COLOR_SYMBOL_ORDER, 'C'].filter((color) => colors.has(color));
+  }
+
+  const isCommanderIdentitySource =
+    /commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(oracleText);
+  if (isCommanderIdentitySource) {
+    const controllerId = String(permanent.controller || '');
+    if (controllerId) {
+      for (const colorKey of getCommanderColorIdentity(gameState, controllerId)) {
+        const symbol = COLOR_KEY_TO_SYMBOL[colorKey];
+        if (symbol) colors.add(symbol);
+      }
+    }
+  }
+
+  if (!isCouldProduceSource) {
+    const hasCounterReplacement =
+      /if\s+.*\s+has\s+(?:a|an)\s+(\w+)\s+counter.*instead\s+add\s+one\s+mana\s+of\s+any\s+color/i.test(oracleText);
+    if (hasCounterReplacement) {
+      const counterMatch = oracleText.match(/if\s+.*\s+has\s+(?:a|an)\s+(\w+)\s+counter/i);
+      const requiredCounterType = String(counterMatch?.[1] || '').toLowerCase();
+      if (requiredCounterType && Number(counters[requiredCounterType] || 0) > 0) {
+        for (const symbol of COLOR_SYMBOL_ORDER) colors.add(symbol);
+      }
+    } else if (
+      /one mana of any color|add.*any color/i.test(oracleText)
+      && !isCommanderIdentitySource
+    ) {
+      for (const symbol of COLOR_SYMBOL_ORDER) colors.add(symbol);
+    }
+
+    for (const match of oracleText.matchAll(/\{([wubrgc])\}/gi)) {
+      const symbol = String(match[1] || '').toUpperCase();
+      if ((COLOR_SYMBOL_ORDER as readonly string[]).includes(symbol as any) || symbol === 'C') {
+        colors.add(symbol);
+      }
+    }
+  }
+
+  return [...COLOR_SYMBOL_ORDER, 'C'].filter((color) => colors.has(color));
+}
+
+/**
  * Colors opponent lands could produce (Rule 106.7), as WUBRG symbols.
  * Used by Fellwar Stone / Exotic Orchard-style mana abilities.
+ * Each opponent land is resolved at the top layer only.
  */
 export function getOpponentLandProducibleColorSymbols(gameState: any, playerId: string): string[] {
   const colors = new Set<string>();
@@ -278,47 +353,10 @@ export function getOpponentLandProducibleColorSymbols(gameState: any, playerId: 
 
   for (const permanent of battlefield) {
     if (!permanent || permanent.controller === playerId) continue;
-    const card = permanent.card;
-    if (!card) continue;
-
-    const typeLine = String(card.type_line || '').toLowerCase();
-    if (!typeLine.includes('land')) continue;
-
-    const cardName = String(card.name || '').toLowerCase();
-    const oracleText = String(card.oracle_text || '').toLowerCase();
-
-    if (/plains/i.test(cardName) || typeLine.includes('plains')) colors.add('W');
-    if (/island/i.test(cardName) || typeLine.includes('island')) colors.add('U');
-    if (/swamp/i.test(cardName) || typeLine.includes('swamp')) colors.add('B');
-    if (/mountain/i.test(cardName) || typeLine.includes('mountain')) colors.add('R');
-    if (/forest/i.test(cardName) || typeLine.includes('forest')) colors.add('G');
-
-    if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)
-      || /^snow-covered\s+(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
-      continue;
-    }
-
-    // Explicit mana symbols in land abilities.
-    for (const match of oracleText.matchAll(/\{([wubrgc])\}/gi)) {
-      const sym = String(match[1] || '').toUpperCase();
-      if (sym === 'C') continue;
-      if ((COLOR_SYMBOL_ORDER as readonly string[]).includes(sym as any)) {
-        colors.add(sym);
+    for (const symbol of getLandTopLayerProducibleColorSymbols(gameState, permanent)) {
+      if ((COLOR_SYMBOL_ORDER as readonly string[]).includes(symbol as any)) {
+        colors.add(symbol);
       }
-    }
-
-    // Command Tower / Arcane Signet style on opponent lands.
-    if (/commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(oracleText)) {
-      const controllerId = String(permanent.controller || '');
-      if (controllerId) {
-        for (const colorKey of getCommanderColorIdentity(gameState, controllerId)) {
-          const sym = COLOR_KEY_TO_SYMBOL[colorKey];
-          if (sym) colors.add(sym);
-        }
-      }
-    } else if (/one mana of any color/i.test(oracleText)
-      && !/that (?:a |an )?(?:land|permanent)|among (?:lands|permanents)/i.test(oracleText)) {
-      for (const sym of COLOR_SYMBOL_ORDER) colors.add(sym);
     }
   }
 

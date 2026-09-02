@@ -10,6 +10,7 @@
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../../rules-engine/src/creatureUpgradeAbilities";
 import { appendEvent } from "../../db";
 import { triggerAbilityActivatedTriggers } from "../../state/modules/triggers/ability-activated.js";
+import { notifySpellOrAbilityPutOnStack } from "../../state/modules/stackPutNotify.js";
 import {
   broadcastGame,
   calculateTotalAvailableMana,
@@ -88,8 +89,9 @@ export async function tryHandleActivateLevelOutlastUpgrade(
     consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:level-up]');
     
     game.state.stack = game.state.stack || [];
+    const levelUpStackId = `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     game.state.stack.push({
-      id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: levelUpStackId,
       type: 'ability',
       controller: pid,
       source: permanentId,
@@ -101,6 +103,7 @@ export async function tryHandleActivateLevelOutlastUpgrade(
         amount: 1,
       },
     } as any);
+    notifySpellOrAbilityPutOnStack(game as any, levelUpStackId);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -187,8 +190,9 @@ export async function tryHandleActivateLevelOutlastUpgrade(
     permanent.tapped = true;
 
     game.state.stack = game.state.stack || [];
+    const outlastStackId = `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     game.state.stack.push({
-      id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: outlastStackId,
       type: 'ability',
       controller: pid,
       source: permanentId,
@@ -201,6 +205,7 @@ export async function tryHandleActivateLevelOutlastUpgrade(
         counterType: '+1/+1',
       },
     } as any);
+    notifySpellOrAbilityPutOnStack(game as any, outlastStackId);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -264,8 +269,9 @@ export async function tryHandleActivateLevelOutlastUpgrade(
     consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:monstrosity]');
 
     game.state.stack = game.state.stack || [];
+    const monstrosityStackId = `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     game.state.stack.push({
-      id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: monstrosityStackId,
       type: 'ability',
       controller: pid,
       source: permanentId,
@@ -277,6 +283,7 @@ export async function tryHandleActivateLevelOutlastUpgrade(
         amount: monstrosityN,
       },
     } as any);
+    notifySpellOrAbilityPutOnStack(game as any, monstrosityStackId);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -338,8 +345,9 @@ export async function tryHandleActivateLevelOutlastUpgrade(
     consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:adapt]');
 
     game.state.stack = game.state.stack || [];
+    const adaptStackId = `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     game.state.stack.push({
-      id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: adaptStackId,
       type: 'ability',
       controller: pid,
       source: permanentId,
@@ -351,6 +359,7 @@ export async function tryHandleActivateLevelOutlastUpgrade(
         amount: adaptN,
       },
     } as any);
+    notifySpellOrAbilityPutOnStack(game as any, adaptStackId);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,

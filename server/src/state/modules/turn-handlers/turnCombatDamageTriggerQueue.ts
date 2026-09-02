@@ -41,6 +41,7 @@ export function applyDealCombatDamageTriggerQueue(
   result: DealCombatDamageResult,
 ): void {
     const pendingCombatDamageTriggerEntries: CombatDamageTriggerQueueEntry[] = [];
+    const state = (ctx as any).state;
 
     // Queue per-attacker combat damage triggers onto the stack.
     // This covers triggers like: "Whenever ~ deals combat damage to a player, ..."
@@ -57,7 +58,7 @@ export function applyDealCombatDamageTriggerQueue(
           const attackerPerm = battlefield.find((p: any) => p?.id === attackerId);
           if (!attackerPerm?.card) continue;
 
-          const triggers = detectCombatDamageTriggers(attackerPerm.card, attackerPerm);
+          const triggers = detectCombatDamageTriggers(attackerPerm.card, attackerPerm, state);
           const perAttackerTriggers = triggers.filter(t =>
             (t.triggerType === 'deals_combat_damage' || t.triggerType === 'deals_damage') && !t.batched
           );
@@ -159,7 +160,7 @@ export function applyDealCombatDamageTriggerQueue(
         for (const perm of battlefield) {
           if (String(perm?.controller || '') !== String(damagedPlayerId) || !perm?.card) continue;
 
-          const triggers = detectCombatDamageTriggers(perm.card, perm);
+          const triggers = detectCombatDamageTriggers(perm.card, perm, state);
           const oracleText = String(perm.card?.oracle_text || '');
           if (!triggers.some((trigger) => trigger.triggerType === 'you_are_dealt_damage')) {
             const lowerOracleText = oracleText.toLowerCase();
@@ -284,7 +285,7 @@ export function applyDealCombatDamageTriggerQueue(
           for (const perm of battlefield) {
             if (String(perm?.controller || '') !== String(controllerId) || !perm?.card) continue;
 
-            const triggers = detectCombatDamageTriggers(perm.card, perm);
+            const triggers = detectCombatDamageTriggers(perm.card, perm, state);
             const batchedTriggers = triggers.filter((trigger) =>
               trigger.triggerType === 'creatures_deal_combat_damage_batched' && trigger.batched
             );

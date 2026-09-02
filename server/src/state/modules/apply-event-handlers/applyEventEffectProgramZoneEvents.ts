@@ -16,6 +16,7 @@ import {
 } from "../stackReplayUtils.js";
 import { parsePT } from "../../utils";
 import { debugWarn } from "../../../utils/debug.js";
+import { pickMutablePlayerLibrary, writePlayerLibrary } from "../applyEventReplayCardMoveLibraryHelpers.js";
 
 export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -118,16 +119,13 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
               }
             }
           } else if (fromZone === 'library') {
-            const lib = ctx.libraries.get(fromPlayerId) || [];
+            const lib = pickMutablePlayerLibrary(ctx, fromPlayerId);
             const libIndex = cardId
               ? lib.findIndex((entry: any) => entry && String(entry.id || '') === cardId)
               : -1;
             if (libIndex !== -1) {
               [card] = lib.splice(libIndex, 1);
-              ctx.libraries.set(fromPlayerId, lib);
-              const zones = (ctx.state as any).zones || {};
-              const z = zones[fromPlayerId] || {};
-              z.libraryCount = lib.length;
+              writePlayerLibrary(ctx, fromPlayerId, lib);
             }
           } else if (fromZone === 'hand' || fromZone === 'graveyard' || fromZone === 'exile') {
             const zones = (ctx.state as any).zones || {};
@@ -214,7 +212,7 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
               } as any);
             }
           } else if (toZone === 'library' && card) {
-            const lib = ctx.libraries.get(playerId) || [];
+            const lib = pickMutablePlayerLibrary(ctx, playerId);
             if (!lib.some((entry: any) => entry && String(entry.id || '') === String(card.id || ''))) {
               const placement = String((e as any).libraryPlacement || '').trim().toLowerCase() === 'bottom'
                 ? 'bottom'
@@ -224,10 +222,7 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
               } else {
                 lib.unshift({ ...card, zone: 'library' });
               }
-              ctx.libraries.set(playerId, lib);
-              const zones = (ctx.state as any).zones || {};
-              const z = zones[playerId] = zones[playerId] || {};
-              z.libraryCount = lib.length;
+              writePlayerLibrary(ctx, playerId, lib);
             }
           } else if ((toZone === 'hand' || toZone === 'graveyard' || toZone === 'exile') && card) {
             const zones = (ctx.state as any).zones = (ctx.state as any).zones || {};

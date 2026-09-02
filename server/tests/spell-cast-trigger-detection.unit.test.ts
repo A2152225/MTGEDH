@@ -223,4 +223,27 @@ describe('spell cast trigger detection gaps', () => {
     expect(String(triggers[0]?.effect || '')).toMatch(/create a 2\/2 red imp/i);
     expect(isModalChooseModesEffectText(String(triggers[0]?.effect || ''))).toBe(true);
   });
+
+  it('detects opponent zero-mana-spent counter (Lavinia)', () => {
+    const triggers = detectOpponentSpellCastTriggers({
+      name: 'Lavinia, Azorius Renegade',
+      oracle_text:
+        "Each opponent can't cast noncreature spells with mana value greater than the number of lands that player controls.\nWhenever an opponent casts a spell, if no mana was spent to cast it, counter that spell.",
+    }, permanent);
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0]?.casterScope).toBe('opponent');
+    expect(triggers[0]?.spellCondition).toBe('any');
+    expect(String(triggers[0]?.benefitIfNotPaid || '')).toMatch(/counter that spell/i);
+    expect(String(triggers[0]?.description || '')).toMatch(/if no mana was spent to cast it/i);
+  });
+
+  it('detects any-player zero-mana-spent counter (Vexing Bauble)', () => {
+    const triggers = detectOpponentSpellCastTriggers({
+      name: 'Vexing Bauble',
+      oracle_text:
+        'Whenever a player casts a spell, if no mana was spent to cast it, counter that spell.\n{1}, {T}, Sacrifice this artifact: Draw a card.',
+    }, permanent);
+    expect(triggers.some((t) => t.casterScope === 'any_player')).toBe(true);
+    expect(triggers.some((t) => /counter that spell/i.test(String(t.benefitIfNotPaid || '')))).toBe(true);
+  });
 });

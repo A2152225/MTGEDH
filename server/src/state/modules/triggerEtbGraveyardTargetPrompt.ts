@@ -120,7 +120,10 @@ export function queueSelfEtbGraveyardTargetPrompt(
     if (targetAction === 'cast') return;
 
     const targetDestination = String((options.enrichedMetadata as any).targetDestination || '').toLowerCase();
-    const destination = targetDestination || 'battlefield';
+    const destination = targetDestination
+      || (/\bexiles?\s+(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target\b/i.test(options.effectText)
+        ? 'exile'
+        : 'battlefield');
     const queueStep = ResolutionQueueManager.addStep(gameIdLocal, {
       type: ResolutionStepType.GRAVEYARD_SELECTION,
       playerId: options.controller as any,

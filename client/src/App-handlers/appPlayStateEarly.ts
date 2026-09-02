@@ -134,6 +134,7 @@ export function useAppPlayStateEarly(p: Record<string, any>) {
         controllerId: you,
         battlefield: safeView.battlefield,
         emblems: (safeView as any).emblems,
+        lastingEffects: (safeView as any).lastingEffects,
       }) as AlternateCost[];
     }, [safeView, spellToCast, you]);
 
@@ -203,13 +204,20 @@ export function useAppPlayStateEarly(p: Record<string, any>) {
   const [hideawayChoiceData, setHideawayChoiceData] = useState<{
     sourceName: string;
     imageUrl?: string;
-    cards: Array<{ cardId: string; cardName: string; imageUrl?: string }>;
+    cards: Array<{
+      cardId: string;
+      cardName: string;
+      imageUrl?: string;
+      attachOptions?: Array<{ cardId: string; cardName: string; imageUrl?: string }>;
+    }>;
     title?: string;
     subtitle?: string;
     oracleText?: string;
     confirmButtonText?: string;
     mandatory: boolean;
     stepId?: string;
+    pendingDraftCardId?: string;
+    attachOptions?: Array<{ cardId: string; cardName: string; imageUrl?: string }>;
   } | null>(null);
 
   // Proliferate modal state

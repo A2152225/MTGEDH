@@ -88,6 +88,7 @@ export async function processAttackCostPaymentBeforeStepComplete(
   }
 
   const amount = Number(stepData.attackCostAmount || 0) || 0;
+  const lifeAmount = Number(stepData.attackCostLifeAmount || 0) || 0;
   const attackers = Array.isArray(stepData.attackers) ? stepData.attackers : [];
   const breakdown = Array.isArray(stepData.attackCostBreakdown) ? stepData.attackCostBreakdown : [];
   const phyrexianItems = Array.isArray(stepData.attackCostPhyrexianItems)
@@ -116,6 +117,7 @@ export async function processAttackCostPaymentBeforeStepComplete(
     items: phyrexianItems,
     choices: phyrexianChoices,
     excludedPermanentIds: attackers.map((entry: any) => String(entry?.creatureId || '')).filter(Boolean),
+    fixedLife: lifeAmount,
   });
   if (!payment.ok) {
     socket.emit('error', {

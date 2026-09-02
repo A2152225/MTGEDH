@@ -302,7 +302,7 @@ export function queueDealsDamageToPlayerTriggersFromPermanent(
   if (!sourcePerm?.card) return;
   if (Math.max(0, Number(damageAmount) || 0) <= 0) return;
 
-  const triggers = detectCombatDamageTriggers(sourcePerm.card, sourcePerm);
+  const triggers = detectCombatDamageTriggers(sourcePerm.card, sourcePerm, state);
   const damageToPlayerTriggers = triggers.filter((t: any) => t?.triggerType === 'deals_damage' && !t?.batched);
   if (damageToPlayerTriggers.length === 0) return;
 

@@ -2,7 +2,8 @@
  * Origin: oracleIRExecutorZoneOps.ts
  * Cluster: cardMatchesMoveZoneSingleTargetCriteria and exile-selector matching,
  * plus the qualifier/name helpers they closed over.
- * Public entry symbols: cardMatchesMoveZoneSingleTargetCriteria, cardMatchesExileSelectorText.
+ * Public entry symbols: cardMatchesMoveZoneSingleTargetCriteria, cardMatchesExileSelectorText,
+ * stripPutIntoGraveyardThisTurnQualifier, graveyardThisTurnCriteriaFromQualifier.
  */
 import { cardHasCreatureType, isValidCreatureType } from '../../shared/src/creatureTypes';
 import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
@@ -33,14 +34,42 @@ import {
 export function stripPutIntoGraveyardThisTurnQualifier(raw: string): {
   readonly selectorText: string;
   readonly putIntoGraveyardThisTurn: boolean;
+  readonly putIntoGraveyardFromLibraryThisTurn: boolean;
 } {
   const cleaned = String(raw || '').replace(/[.\s]+$/g, '').trim();
+  const fromLibrary = cleaned
+    .replace(
+      /\s+that\s+(?:was|were)\s+put\s+there\s+from\s+(?:their|a|your|its owner(?:'s|’s)?)\s+library\s+this\s+turn$/i,
+      '',
+    )
+    .trim();
+  if (fromLibrary !== cleaned) {
+    return {
+      selectorText: fromLibrary,
+      putIntoGraveyardThisTurn: true,
+      putIntoGraveyardFromLibraryThisTurn: true,
+    };
+  }
   const selectorText = cleaned
     .replace(/\s+that\s+(?:was|were)\s+put\s+there(?:\s+from\s+(?:anywhere|the\s+battlefield))?\s+this\s+turn$/i, '')
     .trim();
   return {
     selectorText,
     putIntoGraveyardThisTurn: selectorText !== cleaned,
+    putIntoGraveyardFromLibraryThisTurn: false,
+  };
+}
+
+export function graveyardThisTurnCriteriaFromQualifier(withTurn: {
+  readonly putIntoGraveyardThisTurn: boolean;
+  readonly putIntoGraveyardFromLibraryThisTurn?: boolean;
+}): {
+  readonly putIntoGraveyardThisTurn?: true;
+  readonly putIntoGraveyardFromLibraryThisTurn?: true;
+} {
+  return {
+    ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true as const } : {}),
+    ...(withTurn.putIntoGraveyardFromLibraryThisTurn ? { putIntoGraveyardFromLibraryThisTurn: true as const } : {}),
   };
 }
 
@@ -221,7 +250,17 @@ export function cardMatchesMoveZoneSingleTargetCriteria(
     if (!requiredName || !cardName || requiredName !== cardName) return false;
   }
 
-  if (criteria.putIntoGraveyardThisTurn) {
+  if (criteria.putIntoGraveyardFromLibraryThisTurn) {
+    const fromLibrary = String((card as any)?.putIntoGraveyardFrom || '').toLowerCase() === 'library';
+    const milledTurn = Number((card as any)?.milledTurn);
+    const putIntoGraveyardTurn = Number((card as any)?.putIntoGraveyardTurn);
+    const milledThisTurn = Number.isFinite(milledTurn) && Number.isFinite(currentTurn) && milledTurn === currentTurn;
+    const gyThisTurn =
+      Number.isFinite(putIntoGraveyardTurn) && Number.isFinite(currentTurn) && putIntoGraveyardTurn === currentTurn;
+    if (!(fromLibrary && gyThisTurn) && !milledThisTurn) {
+      return false;
+    }
+  } else if (criteria.putIntoGraveyardThisTurn) {
     const putIntoGraveyardTurn = Number((card as any)?.putIntoGraveyardTurn);
     if (!Number.isFinite(putIntoGraveyardTurn) || !Number.isFinite(currentTurn) || putIntoGraveyardTurn !== currentTurn) {
       return false;

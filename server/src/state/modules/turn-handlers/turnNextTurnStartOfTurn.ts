@@ -164,15 +164,20 @@ export function runNextTurnStartOfTurn(
 
     // Snapshot "started the turn untapped" per permanent (before untap step runs).
     // This is replay-stable because it is derived from authoritative state at nextTurn.
+    // Full copies also feed where-X ("untapped lands they controlled at the beginning of this turn").
     try {
       const stateAny = (ctx as any).state as any;
       const battlefield = Array.isArray(stateAny?.battlefield) ? (stateAny.battlefield as any[]) : [];
       stateAny.permanentUntappedAtTurnBegin = {};
+      const turnStartBattlefieldSnapshot: any[] = [];
       for (const p of battlefield) {
+        if (!p) continue;
+        turnStartBattlefieldSnapshot.push({ ...p });
         const id = p?.id;
         if (!id) continue;
-        stateAny.permanentUntappedAtTurnBegin[String(id)] = !(p as any).tapped;
+        stateAny.permanentUntappedAtTurnBegin[String(id)] = !(p as any).tapped && !(p as any).isTapped;
       }
+      stateAny.turnStartBattlefieldSnapshot = turnStartBattlefieldSnapshot;
     } catch {
       // best-effort only
     }
@@ -310,6 +315,12 @@ export function runNextTurnStartOfTurn(
         stateAny.spellsCastThisTurn = [];
         debug(2, `${ts()} [nextTurn] Cleared spellsCastThisTurn for new turn`);
       }
+    } catch {
+      // best-effort only
+    }
+
+    try {
+      (ctx as any).state.playersWhoSearchedOwnLibraryThisTurn = [];
     } catch {
       // best-effort only
     }

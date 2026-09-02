@@ -7,6 +7,14 @@ import { uid } from '../../utils.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
+import {
+  applyFirstTimeEachTurnFlags,
+  resolveDetectorOracleForPermanent,
+} from './detectorGrantedOracle.js';
+import {
+  recordFirstTimeEachTurnTriggerQueued,
+  shouldSkipFirstTimeEachTurnTrigger,
+} from '../triggerDoThisOnlyOnceEachTurn.js';
 
 export interface CounterPlacedTrigger {
   permanentId: string;
@@ -24,6 +32,8 @@ export interface CounterPlacedTrigger {
   mandatory: boolean;
   counterFilter: string;
   targetFilter: 'creature' | 'permanent' | 'enchantment';
+  oncePerTurn?: boolean;
+  onlyOnControllerTurn?: boolean;
 }
 
 export interface CounterRemovedTrigger {
@@ -75,9 +85,11 @@ function collectCounterRemovedTriggerEffectText(oracleText: string, match: RegEx
   return continuation ? `${effect}. ${continuation}` : effect;
 }
 
-export function detectCounterPlacedTriggers(card: any, permanent: any): CounterPlacedTrigger[] {
+export function detectCounterPlacedTriggers(card: any, permanent: any, gameState?: any): CounterPlacedTrigger[] {
   const triggers: CounterPlacedTrigger[] = [];
-  const oracleText = String(card?.oracle_text || '');
+  const printedOracle = String(card?.oracle_text || '');
+  const annotated = resolveDetectorOracleForPermanent(permanent, printedOracle, gameState);
+  const oracleText = annotated.oracleText;
   const permanentId = String(permanent?.id || '');
   const controllerId = String(permanent?.controller || '');
   const cardName = String(card?.name || 'Unknown');
@@ -226,7 +238,7 @@ export function detectCounterPlacedTriggers(card: any, permanent: any): CounterP
     });
   }
 
-  return triggers;
+  return applyFirstTimeEachTurnFlags(triggers, annotated);
 }
 
 export function getCounterPlacedTriggers(
@@ -249,8 +261,9 @@ export function getCounterPlacedTriggers(
     if (!permanent || !permanent.card) continue;
     if (String(permanent.controller || '') !== targetController) continue;
 
-    const permanentTriggers = detectCounterPlacedTriggers(permanent.card, permanent);
+    const permanentTriggers = detectCounterPlacedTriggers(permanent.card, permanent, ctx.state);
     for (const trigger of permanentTriggers) {
+      if (shouldSkipFirstTimeEachTurnTrigger(ctx.state, trigger)) continue;
       if (trigger.triggerType === 'counters_put_on_self') {
         if (String(permanent.id || '') !== String(targetPermanent?.id || '')) continue;
       } else if (trigger.targetFilter === 'creature' && !targetTypeLine.includes('creature')) {
@@ -364,6 +377,7 @@ export function queueCounterPlacedTriggers(
 
     stateAny.stack.push(stackItem);
     queued.push(stackItem);
+    recordFirstTimeEachTurnTriggerQueued(stateAny, trigger);
 
     if (gameId && gameId !== 'unknown') {
       try {

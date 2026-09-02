@@ -56,3 +56,58 @@ describe('AI Xantcha any-player {3} timing', () => {
     )).toBe(true);
   });
 });
+
+const KOGLA_ORACLE =
+  'When Kogla and Yidaro enters, choose one —\n' +
+  '\u2022 It gains trample and haste until end of turn.\n' +
+  '\u2022 It fights target creature you don\'t control.\n' +
+  '{2}{R}{G}, Discard this card: Destroy up to one target artifact or enchantment. Shuffle this card into your library from your graveyard, then draw a card.';
+
+const koglaAction = {
+  activate: true,
+  permanentId: 'stack_htqnsr3f',
+  cardName: 'Kogla and Yidaro',
+  abilityId: 'b760ebdf-bea6-4c43-a187-4a02ebf95ebf_mtdha500_21_i3a2l9-ability-0',
+  abilityText: '{2}{R}{G}, Discard this card: Destroy up to one target artifact or enchantment. Shuffle this card into your library from your graveyard, then draw a card.',
+};
+
+function koglaGame() {
+  return {
+    state: {
+      turnPlayer: 'ai',
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      stack: [{ id: 'trig_kogla_etb', type: 'triggered_ability' }],
+      manaPool: {
+        ai: { white: 1, blue: 1, black: 1, red: 1, green: 14, colorless: 1 },
+      },
+      battlefield: [{
+        id: 'stack_htqnsr3f',
+        controller: 'ai',
+        owner: 'ai',
+        tapped: false,
+        card: {
+          id: 'b760ebdf-bea6-4c43-a187-4a02ebf95ebf',
+          name: 'Kogla and Yidaro',
+          type_line: 'Legendary Creature — Ape Dinosaur Turtle',
+          oracle_text: KOGLA_ORACLE,
+        },
+      }],
+    },
+  };
+}
+
+describe('AI Kogla and Yidaro discard-this-card is not a battlefield ability', () => {
+  it('rejects the hand-only discard ability at response speed', () => {
+    expect(canAIActivateBattlefieldAbilityNow(koglaGame(), 'ai', koglaAction, 'response')).toBe(false);
+  });
+
+  it('rejects the hand-only discard ability on the AI main phase', () => {
+    expect(canAIActivateBattlefieldAbilityNow(
+      koglaGame(),
+      'ai',
+      koglaAction,
+      'main',
+    )).toBe(false);
+  });
+});

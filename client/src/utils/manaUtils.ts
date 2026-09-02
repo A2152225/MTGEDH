@@ -5,7 +5,7 @@
 import type { PaymentItem, ManaColor } from '../../../shared/src';
 import type { SacrificeType } from '../../../shared/src/textUtils';
 import type { RestrictedManaPoolEntry, RestrictedManaSpendPurpose } from './manaRestrictedSpendPurpose';
-import { canUseRestrictedManaClient } from './manaRestrictedSpendPurpose';
+import { canUseRestrictedManaClient, sourcePrefersUncounterableChosenTypeCast } from './manaRestrictedSpendPurpose';
 import {
   chargeSourceActivationCost,
   getSourceActivationManaPips,
@@ -17,6 +17,7 @@ export {
   typeLineIndicatesArtifactSpell,
   canUseRestrictedManaClient,
   buildRestrictedManaPurposeForSpell,
+  sourcePrefersUncounterableChosenTypeCast,
 } from './manaRestrictedSpendPurpose';
 
 export type Color = ManaColor;
@@ -79,6 +80,11 @@ export interface ManaPaymentSource {
    * Auto-pay and manual selection must not assign this source when purpose fails the check.
    */
   spendRestriction?: { restriction: string; restrictedTo?: string };
+  /**
+   * True when this ability's mana also makes the matching chosen-type creature
+   * spell uncounterable (Cavern of Souls any-color). Never set on `{C}`.
+   */
+  grantsUncounterableOnSpend?: boolean;
   /**
    * Extra mana to activate this ability, excluding {T} (Signet `{1}`, Three Tree `{2}`).
    * Auto-pay must float this from other sources/pool in the same payment, and tap those first.
@@ -825,6 +831,10 @@ export function calculateSuggestedPayment(
         }
         const activationCmp = getSourceActivationManaPips(a) - getSourceActivationManaPips(b);
         if (activationCmp !== 0) return activationCmp;
+        const uncounterableCmp =
+          Number(sourcePrefersUncounterableChosenTypeCast(b, purpose))
+          - Number(sourcePrefersUncounterableChosenTypeCast(a, purpose));
+        if (uncounterableCmp !== 0) return uncounterableCmp;
         const aNative = a.options.includes(c);
         const bNative = b.options.includes(c);
         if (aNative !== bNative) return aNative ? -1 : 1;
@@ -885,7 +895,8 @@ export function calculateSuggestedPayment(
         const nativePenalty = source.options.includes(c) ? 0 : 8;
         const optionPenalty = source.options.length;
         const activationPenalty = getSourceActivationManaPips(source) * 20;
-        const score = preservePenalty + consumablePenalty + nativePenalty + optionPenalty + activationPenalty;
+        const uncounterableBonus = sourcePrefersUncounterableChosenTypeCast(source, purpose) ? -40 : 0;
+        const score = preservePenalty + consumablePenalty + nativePenalty + optionPenalty + activationPenalty + uncounterableBonus;
         
         if (score < bestScore) {
           bestScore = score;
@@ -932,6 +943,11 @@ export function calculateSuggestedPayment(
 
       const activationCmp = getSourceActivationManaPips(a) - getSourceActivationManaPips(b);
       if (activationCmp !== 0) return activationCmp;
+
+      const uncounterableCmp =
+        Number(sourcePrefersUncounterableChosenTypeCast(b, purpose))
+        - Number(sourcePrefersUncounterableChosenTypeCast(a, purpose));
+      if (uncounterableCmp !== 0) return uncounterableCmp;
 
       // 1. Colorless-only sources first (best for generic)
       const aColorlessOnly = isColorlessOnly(a);

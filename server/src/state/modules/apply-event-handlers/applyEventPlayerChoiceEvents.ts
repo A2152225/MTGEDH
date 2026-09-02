@@ -327,6 +327,15 @@ export function applyPlayerChoiceEvents(ctx: GameContext, e: GameEvent): boolean
           }
 
           if (effectType === 'control_change') {
+            if (
+              (effectData.opponentOnly === true || (e as any).opponentOnly === true)
+              && choosingPlayerId
+              && selectedPlayerId === choosingPlayerId
+            ) {
+              debugWarn(1, `[applyEvent] playerSelection(control_change): refused self as opponent for ${permanentId}`);
+              ctx.bumpSeq();
+              break;
+            }
             if (permanent) {
               const previousController = String(permanent.controller || '');
               permanent.controller = selectedPlayerId;

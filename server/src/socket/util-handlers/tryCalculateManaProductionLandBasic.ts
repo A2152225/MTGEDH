@@ -8,8 +8,9 @@
 
 import type { ManaProductionInfo } from "./manaProductionTypes.js";
 import { parseSpelledOutAmount } from "./manaProductionAmountParse.js";
-import { getEffectiveBasicLandTypes, manaColorForBasicLandType } from "../../../../shared/src/landTypes.js";
+import { getEffectiveBasicLandTypes as getPrintedAndChosenBasicLandTypes, manaColorForBasicLandType } from "../../../../shared/src/landTypes.js";
 import {
+  getEffectiveBasicLandTypes as getBattlefieldGrantedBasicLandTypes,
   getMoxAmberAvailableColors,
   isMoxAmberConditionalManaSource,
   resolvePermanentChosenColorSymbol,
@@ -311,15 +312,22 @@ export function tryCalculateManaProductionLandBasic(
     }
   }
   
-  // Handle basic land types (printed + chosen-type grants like Thran Portal)
+  // Handle basic land types (printed + chosen-type grants like Thran Portal,
+  // plus battlefield grants such as Yavimaya, Cradle of Growth / Urborg).
   if (!hasSelectedLegacyManaAbility) {
-    const effectiveBasicTypes = getEffectiveBasicLandTypes(permanent as any);
-    if (effectiveBasicTypes.length > 0) {
-      for (const landType of effectiveBasicTypes) {
-        const mana = manaColorForBasicLandType(landType);
-        if (mana && !result.colors.includes(mana)) result.colors.push(mana);
+    const effectiveBasicTypes = [
+      ...getPrintedAndChosenBasicLandTypes(permanent as any),
+      ...getBattlefieldGrantedBasicLandTypes(gameState, permanent),
+    ];
+    let addedGrantedOrPrintedType = false;
+    for (const landType of effectiveBasicTypes) {
+      const mana = manaColorForBasicLandType(landType);
+      if (mana && !result.colors.includes(mana)) {
+        result.colors.push(mana);
+        addedGrantedOrPrintedType = true;
       }
-    } else {
+    }
+    if (!addedGrantedOrPrintedType && effectiveBasicTypes.length === 0) {
       if (typeLine.includes('plains') && !result.colors.includes('W')) result.colors.push('W');
       if (typeLine.includes('island') && !result.colors.includes('U')) result.colors.push('U');
       if (typeLine.includes('swamp') && !result.colors.includes('B')) result.colors.push('B');

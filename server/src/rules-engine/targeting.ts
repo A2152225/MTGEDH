@@ -391,8 +391,8 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
   if (spec.op === 'COUNTER_TARGET_SPELL') {
     const stack = (state as any).stack || [];
     for (const stackItem of stack) {
-      // Skip items that can't be countered
-      if (stackItem.canBeCountered === false) continue;
+      // Skip items that can't be countered unless this effect exiles instead
+      if (stackItem.canBeCountered === false && spec.ignoreCantBeCountered !== true) continue;
       
       // Skip abilities (they're not spells)
       if (stackItem.type === 'ability' || stackItem.type === 'triggered_ability' || stackItem.type === 'activated_ability') continue;

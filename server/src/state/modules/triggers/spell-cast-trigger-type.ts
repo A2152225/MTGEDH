@@ -22,6 +22,8 @@ export interface SpellCastTrigger {
   firstSpellThisTurn?: boolean;
   firstSpellDuringOpponentTurn?: boolean;
   sourceZoneRequirement?: 'hand' | 'library' | 'exile' | 'graveyard' | 'not_hand';
+  /** Folk Hero: spell must share a creature type with the source permanent. */
+  requiresSharedCreatureTypeWithSource?: boolean;
   requiresTarget?: boolean;
   targetType?: string; // e.g., "permanent" for tap/untap effects
   createsToken?: boolean;

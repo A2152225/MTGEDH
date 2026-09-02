@@ -4,7 +4,7 @@
 // Cluster: Priority passing, mulligans, life totals, cleanup/discard, mill and draw replacements.
 // Public entry: applyPriorityMulliganLifeEvents(ctx, e) -> true when it handled the event.
 //
-// Handles: passPriority, mulligan, keepHand, unkeepHand, mulliganPutToBottom, setLife, adjustLife, cleanupDiscard, increasePlayerSpeed, discardEffect, mill, zursWeirdingDrawReplacementResolve, dredgeDrawReplacementResolve, skipDrawReplacementResolve, playOpeningHandCards, skipOpeningHandActions
+// Handles: passPriority, mulligan, keepHand, unkeepHand, mulliganPutToBottom, setLife, adjustLife, cleanupDiscard, increasePlayerSpeed, discardEffect, mill, zursWeirdingDrawReplacementResolve, dredgeDrawReplacementResolve, skipDrawReplacementResolve, opponentLibraryDrawReplacementResolve, playOpeningHandCards, skipOpeningHandActions
 import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
 import { pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
@@ -15,6 +15,7 @@ import {
   applyDredgeDrawReplacementChoice,
   applySkipDrawReplacementChoice,
   applyZursWeirdingOpponentChoice,
+  applyOpponentLibraryDrawReplacementChoice,
 } from "../zones";
 import { passPriority } from "../turn";
 import {
@@ -26,6 +27,11 @@ import {
 import { debugWarn } from "../../../utils/debug.js";
 import { ensureDeferredOracleIrStackItem } from "../oracleIrDeferredStackFinalize.js";
 import { consumeReplayedActivatedAbilityStackItems } from "../replay-prompt-cleanup.js";
+import {
+  extractLibraryCardsByIds,
+  pickMutablePlayerLibrary,
+  writePlayerLibrary,
+} from "../applyEventReplayCardMoveLibraryHelpers.js";
 
 export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -114,7 +120,7 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
           if (!z || !Array.isArray(z.hand)) break;
           
           const hand = z.hand as any[];
-          const lib = ctx.libraries.get(pid) || [];
+          const lib = pickMutablePlayerLibrary(ctx, pid);
           
           // Move each selected card from hand to bottom of library
           for (const cardId of cardIds) {
@@ -127,8 +133,7 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
           
           // Update counts
           z.handCount = hand.length;
-          z.libraryCount = lib.length;
-          ctx.libraries.set(pid, lib);
+          writePlayerLibrary(ctx, pid, lib);
           
           // Mark hand as kept after putting cards on bottom
           const state = ctx.state as any;
@@ -361,23 +366,38 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
           consumeReplayedActivatedAbilityStackItems(ctx, e as Record<string, unknown>);
         }
         try {
-          const lib = ctx.libraries.get(pid) || [];
+          const requestedIds = (
+            Array.isArray((e as any).cardIds)
+              ? (e as any).cardIds
+              : Array.isArray((e as any).milledCardIds)
+                ? (e as any).milledCardIds
+                : []
+          )
+            .map((id: unknown) => String(id || '').trim())
+            .filter(Boolean);
+          const lib = pickMutablePlayerLibrary(ctx, pid);
           const zones = ctx.state.zones || {};
           const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
           zones[pid] = z;
           z.graveyard = z.graveyard || [];
           const graveyard = z.graveyard as any[];
-          
-          // Mill top N cards
-          const milled = lib.splice(0, Math.min(count, lib.length));
+
+          let milled: any[] = [];
+          let remainder = lib;
+          if (requestedIds.length > 0) {
+            const extracted = extractLibraryCardsByIds(lib, requestedIds);
+            milled = extracted.extracted;
+            remainder = extracted.remainder;
+          } else {
+            milled = lib.splice(0, Math.min(count, lib.length));
+            remainder = lib;
+          }
+          writePlayerLibrary(ctx, pid, remainder);
           for (const card of milled) {
             pushCardToPlayerGraveyardWithReplacements(ctx as any, String(pid), card, graveyard);
           }
-          
-          // Update counts
-          z.libraryCount = lib.length;
+
           z.graveyardCount = graveyard.length;
-          ctx.libraries.set(pid, lib);
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(mill): failed", err);
@@ -465,6 +485,33 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
           });
         } catch (err) {
           debugWarn(1, 'applyEvent(skipDrawReplacementResolve): failed', err);
+        }
+        break;
+      }
+
+      case "opponentLibraryDrawReplacementResolve": {
+        const playerId = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.opponentLibraryDrawReplacement === true && (!playerId || String(step?.playerId || '').trim() === playerId);
+            });
+          }
+
+          applyOpponentLibraryDrawReplacementChoice(ctx as any, {
+            playerId,
+            opponentId: String((e as any).opponentId || '').trim(),
+            remainingDrawCountAfterChoice: Number((e as any).remainingDrawCountAfterChoice || 0),
+            sourcePermanentId: String((e as any).sourcePermanentId || '').trim(),
+            sourceName: String((e as any).sourceName || '').trim(),
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(opponentLibraryDrawReplacementResolve): failed', err);
         }
         break;
       }

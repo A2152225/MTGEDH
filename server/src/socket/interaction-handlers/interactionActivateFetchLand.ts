@@ -18,6 +18,7 @@ import {
   validateManaPayment,
 } from "../util";
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
+import { notifySpellOrAbilityPutOnStack } from "../../state/modules/stackPutNotify.js";
 import { parseSearchCriteria } from "./interactionTutorSearchCriteriaParsing.js";
 
 export async function tryHandleActivateFetchLand(
@@ -268,6 +269,7 @@ export async function tryHandleActivateFetchLand(
         cardImageUrl: card?.image_uris?.small || card?.image_uris?.normal,
       },
     } as any);
+    notifySpellOrAbilityPutOnStack(game as any, abilityStackId);
     
     if (typeof game.bumpSeq === "function") {
       game.bumpSeq();

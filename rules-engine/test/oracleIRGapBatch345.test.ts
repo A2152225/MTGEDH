@@ -47,6 +47,32 @@ describe('Oracle IR gap batch 345 — top condition clusters', () => {
 
     expect(
       evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'no mana was spent to cast it' },
+        nextState: {
+          ...state,
+          stack: [{ id: 'stack-spell-1', type: 'spell', manaSpentTotal: 0 }],
+        } as GameState,
+        controllerId,
+        ctx: { ...baseParams.ctx, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' },
+        lastActionOutcome: null,
+      })
+    ).toBe(true);
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'no mana was spent to cast it' },
+        nextState: {
+          ...state,
+          stack: [{ id: 'stack-spell-1', type: 'spell', manaSpentTotal: 2 }],
+        } as GameState,
+        controllerId,
+        ctx: { ...baseParams.ctx, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' },
+        lastActionOutcome: null,
+      })
+    ).toBe(false);
+
+    expect(
+      evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: 'you would lose the game' },
         nextState: state,
         controllerId,

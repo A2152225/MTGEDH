@@ -18,6 +18,11 @@ import {
   resolveChangeTargetExcludeText,
 } from '../../../../rules-engine/src/oracleIRExecutorChangeTargetSupport.js';
 import { getStackItems } from '../../../../rules-engine/src/stackOperations.js';
+import {
+  findTriggeringSpellOnStack,
+  readTriggeringStackItemSnapshot,
+  resolveLiveOrLastKnownStackItem,
+} from './triggerCastSpellStackBinding.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
@@ -30,8 +35,10 @@ import {
   buildResolvedAbilityCopySnapshot,
   buildResolvedSpellCopySnapshot,
   wasSpellCastFromGraveyard,
-} from './stackResolveSpellCopyChoiceUtils.js';import { appendEvent } from '../../db/index.js';
+} from './stackResolveSpellCopyChoiceUtils.js';
+import { appendEvent } from '../../db/index.js';
 import { persistNamedSpellCastThisGame } from './namedSpellsCastThisGame.js';
+import { queueStackPutTriggers } from './triggers/stack-put.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 
 function isAbilityCopyStep(
@@ -82,7 +89,7 @@ function findCopySpellStepForGap(
   return undefined;
 }
 
-function appendCopiedSpellToServerStack(state: any, copiedItem: any): void {
+function appendCopiedSpellToServerStack(state: any, copiedItem: any, ctx?: GameContext): void {
   if (Array.isArray(state?.stack)) {
     state.stack.push(copiedItem);
   } else if (state?.stack && typeof state.stack === 'object' && Array.isArray(state.stack.objects)) {
@@ -96,6 +103,11 @@ function appendCopiedSpellToServerStack(state: any, copiedItem: any): void {
       name: copiedItem?.card?.name,
       id: copiedItem?.id,
     });
+  }
+
+  const copiedId = String(copiedItem?.id || '').trim();
+  if (ctx && copiedId) {
+    queueStackPutTriggers(ctx, copiedId);
   }
 }
 
@@ -146,9 +158,23 @@ function resolveDeferredCopyTargetStackItem(
       (item: any) => String(item?.id || '').trim() === directTargetId,
     );
     if (directItem) return directItem;
+    const lastKnown = resolveLiveOrLastKnownStackItem(state, triggerItem, directTargetId);
+    if (lastKnown) return lastKnown;
+    // Bound spell already left the stack and we have no snapshot — do not copy a different live spell.
+    return null;
   }
 
   if (step.subject === 'target_spell') {
+    const hasBoundSpell = Boolean(
+      triggerItem?.triggeringStackItemId
+      || triggerItem?.effectData?.triggeringStackItemId
+      || triggerItem?.effectData?.triggeringSpell
+      || triggerItem?.triggeringSpell
+      || readTriggeringStackItemSnapshot(triggerItem)
+    );
+    if (hasBoundSpell) {
+      return findTriggeringSpellOnStack(state, triggerItem);
+    }
     const resolution = resolveCopiedTargetSpellStackItem({ state, step, ctx: irCtx });
     return resolution.stackItem || null;
   }
@@ -165,33 +191,28 @@ function resolveDeferredCopyTargetStackItem(
         (item: any) => String(item?.id || '').trim() === lookupId,
       );
       if (byId) return byId;
+      const lastKnown = resolveLiveOrLastKnownStackItem(state, triggerItem, lookupId);
+      if (lastKnown) return lastKnown;
     }
 
+    const snapshot = readTriggeringStackItemSnapshot(triggerItem);
+    if (snapshot) return snapshot;
+
     // On-cast self triggers often set sourceId to the card id (not stack id).
-    // Fall back to the matching cast spell still on the stack.
+    // Match that card instance only — never a different same-named spell.
     const sourceCardId = String(
       triggerItem?.card?.id
       || irCtx.sourceId
       || triggerItem?.source
       || '',
     ).trim();
-    const sourceName = String(
-      irCtx.sourceName
-      || triggerItem?.sourceName
-      || triggerItem?.card?.name
-      || '',
-    ).trim().toLowerCase();
     const controller = String(irCtx.controllerId || triggerItem?.controller || '').trim();
+    const wantedCardId = sourceCardId || lookupId;
+    if (!wantedCardId) return null;
     const byCard = stackItems.find((item: any) => {
       if (String(item?.type || '').trim() === 'triggered_ability') return false;
       if (controller && String(item?.controller || '').trim() !== controller) return false;
-      const itemCardId = String(item?.card?.id || '').trim();
-      if (sourceCardId && itemCardId && itemCardId === sourceCardId) return true;
-      if (sourceName) {
-        const itemName = String(item?.card?.name || item?.name || '').trim().toLowerCase();
-        if (itemName && itemName === sourceName) return true;
-      }
-      return false;
+      return String(item?.card?.id || '').trim() === wantedCardId;
     });
     return byCard || null;
   }
@@ -309,9 +330,7 @@ function resolveCopyRetargetMetadata(
   const triggeringStackItemId = resolveTriggeringStackItemId(triggerItem, irCtx);
   if (!triggeringStackItemId) return fromTriggerItem;
 
-  const triggeringStackItem = getStackItems(state?.stack).find(
-    (item: any) => String(item?.id || '').trim() === triggeringStackItemId,
-  );
+  const triggeringStackItem = resolveLiveOrLastKnownStackItem(state, triggerItem, triggeringStackItemId);
   return {
     ...fromTriggerItem,
     ...copyRetargetMetadataFromSource(triggeringStackItem),
@@ -634,7 +653,7 @@ export function queueCopySpellStackPushFromOracleIRResult(
         if (!abilityCopy && copySpellIsEachOtherPlayer(copyStep)) {
           copiedItem = withoutInheritedSpellModeChoices(copiedItem);
         }
-        appendCopiedSpellToServerStack(state, copiedItem);
+        appendCopiedSpellToServerStack(state, copiedItem, ctx);
         pushedCopyCount += 1;
 
         if (abilityCopy) {

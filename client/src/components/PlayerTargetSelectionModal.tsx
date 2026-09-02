@@ -65,7 +65,7 @@ export function PlayerTargetSelectionModal({
   // Filter players based on restrictions
   const validPlayers = useMemo(() => {
     return players.filter(player => {
-      if (opponentOnly && !player.isOpponent) return false;
+      if (opponentOnly && (player.isSelf || !player.isOpponent)) return false;
       if (selfOnly && !player.isSelf) return false;
       return true;
     });

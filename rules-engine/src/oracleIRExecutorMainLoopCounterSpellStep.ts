@@ -9,6 +9,7 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { getStateGrantedCounterImmunityForSpell } from './futureSpellEffects';
 import { stampCardsPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
+import { getStackItems } from './stackOperations';
 
 const COUNTER_IMMUNITY_COLOR_SYMBOLS: Record<string, string> = {
   white: 'W',
@@ -297,15 +298,31 @@ function stackItemMatchesCounterTargetKind(
   return spellCanBeCountered(state, stackItem, ctx);
 }
 
+function readCounterSpellStackItems(state: GameState): any[] {
+  return [...getStackItems((state as any)?.stack)];
+}
+
+function withUpdatedCounterSpellStack(state: GameState, stackItems: readonly any[]): GameState {
+  const stack = (state as any)?.stack;
+  if (stack && !Array.isArray(stack) && Array.isArray(stack.objects)) {
+    return { ...state, stack: { ...stack, objects: [...stackItems] } } as GameState;
+  }
+  return { ...state, stack: [...stackItems] } as GameState;
+}
+
 function filterCounterStackCandidates(
   state: GameState,
   stackItems: readonly any[],
   ctx: OracleIRExecutionContext,
   targetKind: CounterStackTargetKind,
 ): any[] {
+  const sourceId = String(ctx.sourceId || '').trim();
   return stackItems.filter((item) => {
     const itemId = String((item as any)?.id || '').trim();
-    if (!itemId || itemId === String(ctx.sourceId || '').trim()) return false;
+    if (!itemId) return false;
+    if (sourceId && (itemId === sourceId || String((item as any)?.card?.id || '').trim() === sourceId)) {
+      return false;
+    }
     return stackItemMatchesCounterTargetKind(state, item, ctx, targetKind);
   });
 }
@@ -313,7 +330,7 @@ function filterCounterStackCandidates(
 export function applyCounterSpellStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'counter_spell' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext & { readonly skipBulkStackWipe?: boolean },
 ):
   | { readonly applied: true; readonly state: GameState; readonly log: readonly string[]; readonly lastMovedCards: readonly any[] }
   | {
@@ -326,9 +343,61 @@ export function applyCounterSpellStep(
         readonly persist?: boolean;
       };
     } {
-  const stackItems = Array.isArray((state as any).stack) ? [ ...((state as any).stack as any[]) ] : [];
+  const stackItems = readCounterSpellStackItems(state);
   const directTargetId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
   const targetKind = inferCounterStackTargetKind(step);
+  const combined = counterSpellStepCombinedText(step);
+  const eachOpponentStack = /\beach\s+spell and ability your opponents control\b/i.test(combined)
+    || /\bfor each spell and ability your opponents control\b/i.test(combined);
+  const bulkAllOtherSpells = /\ball other spells\b/i.test(combined);
+  const bulkAllAbilities = /\bcounter all abilities\b/i.test(combined)
+    || (/\ball abilities\b/i.test(combined) && bulkAllOtherSpells);
+
+  // Untargeted wipes must not collapse to a leftover targetSpellId (cast-time
+  // stamp, Hive Mind retarget metadata, or a bound triggering spell). Nested
+  // per-item applies set skipBulkStackWipe so they take the single-object path.
+  if ((eachOpponentStack || bulkAllOtherSpells || bulkAllAbilities) && !ctx.skipBulkStackWipe) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    let bulkKind: CounterStackTargetKind = targetKind;
+    if (bulkAllOtherSpells && bulkAllAbilities) bulkKind = 'spell_or_ability';
+    else if (bulkAllAbilities && !bulkAllOtherSpells) bulkKind = 'ability';
+    else if (bulkAllOtherSpells) bulkKind = 'spell';
+    const bulkItems = filterCounterStackCandidates(state, stackItems, ctx, bulkKind)
+      .filter((item) => {
+        if (!eachOpponentStack) return true;
+        const itemController = String(item?.controller || item?.controllerId || '').trim();
+        return Boolean(itemController) && itemController !== controllerId;
+      });
+    let current = state;
+    const logs: string[] = [];
+    const moved: any[] = [];
+    for (const item of bulkItems) {
+      const itemId = String(item?.id || '').trim();
+      if (!itemId) continue;
+      const nested = applyCounterSpellStep(current, step, {
+        ...ctx,
+        skipBulkStackWipe: true,
+        targetSpellId: itemId,
+        selectorContext: {
+          ...(ctx.selectorContext || {}),
+          targetSpellId: itemId,
+        },
+      });
+      if (!nested.applied) continue;
+      current = nested.state;
+      logs.push(...nested.log);
+      moved.push(...nested.lastMovedCards);
+    }
+    const emptyLog = eachOpponentStack
+      ? `Countered no opponent spells or abilities: ${step.raw}`
+      : `Countered no matching stack objects: ${step.raw}`;
+    return {
+      applied: true,
+      state: current,
+      log: logs.length > 0 ? logs : [emptyLog],
+      lastMovedCards: moved,
+    };
+  }
   const targetLabel = targetKind === 'ability' ? 'ability' : targetKind === 'spell_or_ability' ? 'spell or ability' : 'spell';
   const candidates = filterCounterStackCandidates(state, stackItems, ctx, targetKind);
 
@@ -403,10 +472,7 @@ export function applyCounterSpellStep(
 
     return {
       applied: true,
-      state: {
-        ...state,
-        stack: updatedStack,
-      },
+      state: withUpdatedCounterSpellStack(state, updatedStack),
       log: [`Countered ability ${abilityDesc}`],
       lastMovedCards: [],
     };
@@ -438,10 +504,7 @@ export function applyCounterSpellStep(
   if ((movedCard as any)?.ceaseOnCounter === true || (targetStackItem as any)?.ceaseOnCounter === true) {
     return {
       applied: true,
-      state: {
-        ...state,
-        stack: updatedStack,
-      },
+      state: withUpdatedCounterSpellStack(state, updatedStack),
       log: [`Countered copied spell ${targetName} (ceased to exist)`],
       lastMovedCards: [],
     };
@@ -467,7 +530,9 @@ export function applyCounterSpellStep(
       || (targetStackItem as any)?.card?.castFromGraveyard
       || (movedCard as any)?.castFromGraveyard,
   );
-  const shouldExile = exileAfterResolution
+  const forceExileSpells = /\bexile\b/i.test(String(step.raw || '')) && /\bspells?\b/i.test(combined);
+  const shouldExile = forceExileSpells
+    || exileAfterResolution
     || castFromGraveyard
     || STACK_GY_EXILE_ABILITIES.has(castWithAbility);
 
@@ -491,8 +556,7 @@ export function applyCounterSpellStep(
   return {
     applied: true,
     state: {
-      ...state,
-      stack: updatedStack,
+      ...withUpdatedCounterSpellStack(state, updatedStack),
       players: updatedPlayers as any,
     },
     log: [

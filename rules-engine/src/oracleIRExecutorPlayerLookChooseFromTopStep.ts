@@ -68,7 +68,9 @@ export function buildLookChooseFromTopSelectionOptions(
   if (lookedCount <= 0) return null;
 
   const lookedCards = library.slice(0, lookedCount);
-  const chosenCreatureType = String(ctx.selectorContext?.chosenCreatureType || '').trim();
+  const chosenCreatureType = String(
+    ctx.selectorContext?.chosenCreatureType || ctx.chosenCreatureType || '',
+  ).trim();
   const manaValueLimit = resolveLookChooseManaValueLimit(state, playerId, step.selectorText, ctx);
   const selectableCardIds = lookedCards
     .filter(card => cardMatchesLookChooseSelector(card, step.selectorText, manaValueLimit, chosenCreatureType))
@@ -222,7 +224,9 @@ export function applyLookChooseFromTopStep(
     const lookedCount = Math.max(0, Math.min(library.length, amount | 0));
     let lookedCards = library.slice(0, lookedCount);
     const chosenCards: any[] = [];
-    const chosenCreatureType = String(ctx.selectorContext?.chosenCreatureType || '').trim();
+    const chosenCreatureType = String(
+      ctx.selectorContext?.chosenCreatureType || ctx.chosenCreatureType || '',
+    ).trim();
     const manaValueLimit = resolveLookChooseManaValueLimit(nextState, playerId, step.selectorText, ctx);
     const nonMatchRest = (step as { nonMatchRest?: string }).nonMatchRest || 'library_bottom';
 

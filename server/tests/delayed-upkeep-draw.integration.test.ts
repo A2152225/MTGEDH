@@ -3,7 +3,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createGameIfNotExists, deleteGame, getEvents, initDb, truncateEventsForUndo } from '../src/db/index.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
-import { ResolutionQueueManager } from '../src/state/resolution/index.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+import { applyDelayedDrawUpToChoice, chooseDelayedDrawUpToCount } from '../src/state/modules/triggerDelayedDrawUpToUtils.js';
+import { handleXValueSelectionResponse } from '../src/socket/resolution-handlers/xValueSelectionResponseHandlers.js';
 
 async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
@@ -48,6 +50,11 @@ function seedDelayedDrawGame(gameId: string) {
   };
   (game.state as any).battlefield = [];
   (game.state as any).stack = [];
+  (game.state as any).pendingDelayedDrawsAtNextUpkeep = [];
+  (game.state as any).commandZone = {
+    [playerId]: { commanderIds: ['cmd_p1'], commanderNames: ['Test Commander 1'] },
+    [opponentId]: { commanderIds: ['cmd_p2'], commanderNames: ['Test Commander 2'] },
+  };
   (game as any).libraries.set(playerId, [{ ...drawCard }]);
   (game as any).libraries.set(opponentId, []);
 
@@ -168,5 +175,141 @@ describe('delayed next-upkeep draw triggers (integration)', () => {
       count: 1,
       fireAtTurnNumber: 2,
     }));
+  });
+
+  it('queues an up-to picker instead of drawing when the delayed draw is up to N', () => {
+    const { game, playerId } = seedDelayedDrawGame(gameId);
+    (game as any).libraries.set(playerId, [
+      { id: 'draw_card_1', name: 'Delayed Draw Card 1', type_line: 'Instant' },
+      { id: 'draw_card_2', name: 'Delayed Draw Card 2', type_line: 'Instant' },
+      { id: 'draw_card_3', name: 'Delayed Draw Card 3', type_line: 'Instant' },
+    ]);
+    (game.state as any).zones[playerId].libraryCount = 3;
+
+    game.applyEvent({
+      type: 'scheduleDelayedDrawAtNextUpkeep',
+      playerId,
+      sourceName: 'Arcane Denial',
+      entries: [{
+        scheduleId: 'delayed_up_to_draw_1',
+        playerId,
+        createdBy: playerId,
+        sourceName: 'Arcane Denial',
+        count: 2,
+        upTo: true,
+        fireAtTurnNumber: 2,
+        fireAtStep: 'upkeep',
+      }],
+    } as any);
+
+    const pendingDraws = (game.state as any).pendingDelayedDrawsAtNextUpkeep || [];
+    expect(pendingDraws).toHaveLength(1);
+    expect(pendingDraws[0]).toEqual(expect.objectContaining({
+      playerId,
+      sourceName: 'Arcane Denial',
+      count: 2,
+      upTo: true,
+    }));
+
+    game.nextTurn();
+    game.nextStep();
+
+    const upkeepStack = (game.state as any).stack || [];
+    expect(upkeepStack).toHaveLength(1);
+    expect(upkeepStack[0]).toEqual(expect.objectContaining({
+      delayedAction: 'draw',
+      delayedDrawCount: 2,
+      delayedDrawUpTo: true,
+    }));
+
+    game.resolveTopOfStack();
+
+    expect(((game.state as any).zones[playerId].hand || [])).toHaveLength(0);
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((entry: any) => entry.type === 'x_value_selection' && entry.delayedDrawUpTo === true) as any;
+    expect(step).toEqual(expect.objectContaining({
+      playerId,
+      minValue: 0,
+      maxValue: 2,
+      mandatory: true,
+      delayedDrawUpTo: true,
+    }));
+    expect(chooseDelayedDrawUpToCount(game, playerId, step)).toBe(2);
+
+    applyDelayedDrawUpToChoice(game, step, 2);
+
+    expect(((game.state as any).zones[playerId].hand || []).map((card: any) => card.id)).toEqual([
+      'draw_card_1',
+      'draw_card_2',
+    ]);
+    expect(((game as any).libraries.get(playerId) || [])).toHaveLength(1);
+  });
+
+  it('lets the player draw zero from an up-to delayed draw', () => {
+    const { game, playerId } = seedDelayedDrawGame(gameId);
+
+    game.applyEvent({
+      type: 'scheduleDelayedDrawAtNextUpkeep',
+      playerId,
+      sourceName: 'Arcane Denial',
+      entries: [{
+        scheduleId: 'delayed_up_to_draw_zero',
+        playerId,
+        createdBy: playerId,
+        sourceName: 'Arcane Denial',
+        count: 2,
+        upTo: true,
+        fireAtTurnNumber: 2,
+        fireAtStep: 'upkeep',
+      }],
+    } as any);
+
+    game.nextTurn();
+    game.nextStep();
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((entry: any) => entry.type === 'x_value_selection' && entry.delayedDrawUpTo === true) as any;
+    expect(step).toBeTruthy();
+
+    applyDelayedDrawUpToChoice(game, step, 0);
+
+    expect(((game.state as any).zones[playerId].hand || [])).toHaveLength(0);
+    expect(((game as any).libraries.get(playerId) || [])).toHaveLength(1);
+  });
+
+  it('draws the chosen count from the X_VALUE_SELECTION response handler', async () => {
+    const { game, playerId } = seedDelayedDrawGame(gameId);
+    (game as any).libraries.set(playerId, [
+      { id: 'draw_card_1', name: 'Delayed Draw Card 1', type_line: 'Instant' },
+      { id: 'draw_card_2', name: 'Delayed Draw Card 2', type_line: 'Instant' },
+    ]);
+    (game.state as any).zones[playerId].libraryCount = 2;
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.X_VALUE_SELECTION,
+      playerId: playerId as any,
+      description: 'Arcane Denial: Choose how many cards to draw (up to 2).',
+      mandatory: true,
+      minValue: 0,
+      maxValue: 2,
+      delayedDrawUpTo: true,
+    } as any);
+
+    const io = {
+      to: () => ({ emit: () => {} }),
+      emit: () => {},
+    } as any;
+
+    await handleXValueSelectionResponse(io, game, gameId, step, {
+      stepId: String(step.id),
+      playerId: playerId as any,
+      selections: 1,
+      cancelled: false,
+      timestamp: Date.now(),
+    });
+
+    expect(((game.state as any).zones[playerId].hand || []).map((card: any) => card.id)).toEqual(['draw_card_1']);
+    expect(((game as any).libraries.get(playerId) || [])).toHaveLength(1);
   });
 });

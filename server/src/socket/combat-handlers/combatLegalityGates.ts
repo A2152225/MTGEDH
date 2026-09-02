@@ -29,6 +29,7 @@ import {
 import { sanitizeOracleTextForStaticEffectScan } from "../../../../rules-engine/src/staticEffectOracleSanitize.js";
 import { protectionPreventsSource } from "../../state/modules/combat-mechanics.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "../../state/modules/staticEffectSpec.js";
+import { blockerCantBlockCreaturesYouControl } from "../../state/modules/staticEffectSpecAttackYouTax.js";
 import { getEffectivePower } from "../util.js";
 import { debug } from "../../utils/debug.js";
 
@@ -593,6 +594,13 @@ export function canBlockAttacker(
     return {
       canBlock: false,
       reason: "Blocker can't block",
+    };
+  }
+
+  if (gameState && blockerCantBlockCreaturesYouControl(gameState as any, blocker, String(attacker?.controller || ''))) {
+    return {
+      canBlock: false,
+      reason: "Can't block creatures that player controls",
     };
   }
 

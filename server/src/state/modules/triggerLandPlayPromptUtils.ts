@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
+import { listLivingGamePlayers } from './priorityEligibility.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 
 export {
@@ -78,7 +79,7 @@ export function queueEachPlayerMayPutLandOrDrawBatch(
   },
 ): boolean {
   const state = (ctx as any).state;
-  const players = Array.isArray(state?.players) ? state.players : [];
+  const players = listLivingGamePlayers(ctx);
   if (players.length === 0) return false;
 
   const gameId = String((ctx as any).gameId || (ctx as any).id || params.triggerItem?.gameId || '').trim();

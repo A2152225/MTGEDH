@@ -22,6 +22,7 @@ import { AppearanceSettingsModal } from "../components/AppearanceSettingsModal";
 import { XValueSelectionModal } from "../components/XValueSelectionModal";
 import { CreateGameModal } from "../components/CreateGameModal";
 import { DeckManagerModal } from "../components/DeckManagerModal";
+import { MoveLocalDecksModal } from "../components/MoveLocalDecksModal";
 import NameInUseModal from "../components/NameInUseModal";
 
 export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
@@ -83,6 +84,7 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
     myCreatures,
     nameInUsePayload,
     nameInput,
+    authSession,
     pendingSpellXSelection,
     proliferateData,
     proliferateModalOpen,
@@ -249,6 +251,7 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
         onCreateGame={handleCreateGame}
         savedDecks={savedDecks}
         onRefreshDecks={refreshSavedDecks}
+        accountDisplayName={authSession?.user?.displayName}
       />
 
       {/* Standalone Deck Builder Modal */}
@@ -264,9 +267,15 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
         playerId={you ?? undefined}
         playerName={nameInput || undefined}
         canServer={true}
+        accountUser={authSession?.user ?? null}
         wide
         initialAction={deckBuilderInitialAction}
         onInitialActionConsumed={() => setDeckBuilderInitialAction(null)}
+      />
+
+      <MoveLocalDecksModal
+        open={!!authSession?.moveLocalDecksOpen && !!authSession?.user}
+        onClose={() => authSession?.setMoveLocalDecksOpen(false)}
       />
 
       {/* Appearance Settings Modal */}
@@ -362,15 +371,16 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
       />
 
       <CardSelectionModal
+        key={`${hideawayChoiceData?.stepId || 'hideaway'}-${hideawayChoiceData?.pendingDraftCardId || 'card'}`}
         open={resolutionPromptOpen(hideawayChoiceModalOpen, hideawayChoiceData?.stepId)}
         title={hideawayChoiceData?.title || 'Hideaway'}
         subtitle={hideawayChoiceData?.subtitle}
         sourceCardName={hideawayChoiceData?.sourceName}
         sourceCardImageUrl={hideawayChoiceData?.imageUrl}
         oracleText={hideawayChoiceData?.oracleText}
-        options={(hideawayChoiceData?.cards || []).map((card: any) => ({
-          id: card.cardId,
-          name: card.cardName,
+        options={((hideawayChoiceData?.attachOptions || hideawayChoiceData?.cards || []) as any[]).map((card: any) => ({
+          id: card.cardId || card.id,
+          name: card.cardName || card.name,
           imageUrl: card.imageUrl,
         }))}
         minSelections={1}

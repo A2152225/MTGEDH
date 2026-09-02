@@ -18,43 +18,39 @@ const ACTIVATED_COST_PREFIX =
   /^(?:(?:\{[^}]+\}|\{T\})\s*,?\s*)+:\s*(.+)$/i;
 
 const MANA = '\\{(?:X|\\d+)\\}';
-const PAY = `unless\\s+their\\s+controller\\s+pays\\s+(${MANA})`;
+const PAY_MANA = `unless\\s+their\\s+controller\\s+pays\\s+(${MANA})`;
+const PAY_LIFE = 'unless\\s+their\\s+controller\\s+pays\\s+(\\d+)\\s+life';
 const EACH = '(?:\\s+for\\s+each\\s+(?:attacking\\s+creature\\s+they\\s+control|of\\s+those\\s+creatures|creature\\s+they\\s+control\\s+that(?:\'|’)s\\s+attacking\\s+you))?';
 const ATTACK_YOU = 'can(?:not|\'t|’t)\\s+attack\\s+you(?:\\s+or\\s+planeswalkers\\s+you\\s+control)?';
 const ATTACK_GLOBAL = 'can(?:not|\'t|’t)\\s+attack';
 
-const THIS_TURN_ATTACK_YOU_LEADING = new RegExp(
-  `^this\\s+turn,?\\s+creatures\\s+${ATTACK_YOU}\\s+${PAY}${EACH}\\.?$`,
-  'i',
-);
+function buildAttackYouPatterns(pay: string): { untilNext: RegExp; thisTurnLeading: RegExp; thisTurnTrailing: RegExp } {
+  return {
+    untilNext: new RegExp(`^until\\s+your\\s+next\\s+turn,?\\s+creatures\\s+${ATTACK_YOU}\\s+${pay}${EACH}\\.?$`, 'i'),
+    thisTurnLeading: new RegExp(`^this\\s+turn,?\\s+creatures\\s+${ATTACK_YOU}\\s+${pay}${EACH}\\.?$`, 'i'),
+    thisTurnTrailing: new RegExp(`^creatures\\s+${ATTACK_YOU}\\s+${pay}${EACH}\\s+this\\s+turn\\.?$`, 'i'),
+  };
+}
 
-const THIS_TURN_ATTACK_YOU_TRAILING = new RegExp(
-  `^creatures\\s+${ATTACK_YOU}\\s+${PAY}${EACH}\\s+this\\s+turn\\.?$`,
-  'i',
-);
-
-const UNTIL_NEXT_TURN_ATTACK_YOU = new RegExp(
-  `^until\\s+your\\s+next\\s+turn,?\\s+creatures\\s+${ATTACK_YOU}\\s+${PAY}${EACH}\\.?$`,
-  'i',
-);
+const MANA_YOU = buildAttackYouPatterns(PAY_MANA);
+const LIFE_YOU = buildAttackYouPatterns(PAY_LIFE);
 
 const THIS_TURN_GLOBAL_LEADING = new RegExp(
-  `^this\\s+turn,?\\s+creatures\\s+${ATTACK_GLOBAL}\\s+${PAY}${EACH}\\.?$`,
+  `^this\\s+turn,?\\s+creatures\\s+${ATTACK_GLOBAL}\\s+${PAY_MANA}${EACH}\\.?$`,
   'i',
 );
 
 const THIS_TURN_GLOBAL_TRAILING = new RegExp(
-  `^creatures\\s+${ATTACK_GLOBAL}\\s+${PAY}${EACH}\\s+this\\s+turn\\.?$`,
+  `^creatures\\s+${ATTACK_GLOBAL}\\s+${PAY_MANA}${EACH}\\s+this\\s+turn\\.?$`,
   'i',
 );
 
 function stripActivatedCostPrefix(clause: string): string {
-  const match = String(clause || '').trim().match(ACTIVATED_COST_PREFIX);
-  return match ? String(match[1] || '').trim() : String(clause || '').trim();
-}
-
-function manaFromMatch(match: RegExpMatchArray | null): string {
-  return String(match?.[1] || '').trim();
+  const trimmed = String(clause || '').trim();
+  const loyalty = trimmed.match(/^\[(?:[+\-]?\d+|x)\]:\s*(.+)$/i);
+  if (loyalty) return String(loyalty[1] || '').trim();
+  const match = trimmed.match(ACTIVATED_COST_PREFIX);
+  return match ? String(match[1] || '').trim() : trimmed;
 }
 
 export function tryParseAttackTaxThisTurnClause(args: {
@@ -71,29 +67,37 @@ export function tryParseAttackTaxThisTurnClause(args: {
 
   const body = stripActivatedCostPrefix(clause);
 
-  const untilNextYou = body.match(UNTIL_NEXT_TURN_ATTACK_YOU);
-  const thisTurnYou = untilNextYou
+  const untilNextLife = body.match(LIFE_YOU.untilNext);
+  const thisTurnLife = untilNextLife
     ? null
-    : (body.match(THIS_TURN_ATTACK_YOU_LEADING) || body.match(THIS_TURN_ATTACK_YOU_TRAILING));
-  const thisTurnGlobal = untilNextYou || thisTurnYou
+    : (body.match(LIFE_YOU.thisTurnLeading) || body.match(LIFE_YOU.thisTurnTrailing));
+  const untilNextYou = untilNextLife || thisTurnLife
+    ? null
+    : body.match(MANA_YOU.untilNext);
+  const thisTurnYou = untilNextYou || untilNextLife || thisTurnLife
+    ? null
+    : (body.match(MANA_YOU.thisTurnLeading) || body.match(MANA_YOU.thisTurnTrailing));
+  const thisTurnGlobal = untilNextYou || thisTurnYou || untilNextLife || thisTurnLife
     ? null
     : (body.match(THIS_TURN_GLOBAL_LEADING) || body.match(THIS_TURN_GLOBAL_TRAILING));
-  const match = untilNextYou || thisTurnYou || thisTurnGlobal;
+  const match = untilNextLife || thisTurnLife || untilNextYou || thisTurnYou || thisTurnGlobal;
   if (!match) return null;
 
-  const mana = manaFromMatch(match);
-  if (!mana) return null;
+  const isLife = Boolean(untilNextLife || thisTurnLife);
+  const amountToken = String(match[1] || '').trim();
+  if (!amountToken) return null;
 
-  const attackYou = Boolean(untilNextYou || thisTurnYou);
+  const attackYou = Boolean(untilNextYou || thisTurnYou || untilNextLife || thisTurnLife);
+  const payText = isLife ? `${amountToken} life` : amountToken;
   const effectText = attackYou
-    ? `can't attack you unless their controller pays ${mana}`
-    : `can't attack unless their controller pays ${mana}`;
+    ? `can't attack you unless their controller pays ${payText}`
+    : `can't attack unless their controller pays ${payText}`;
 
   return withMeta({
     kind: 'grant_static_ability',
     target: parseObjectSelector(attackYou ? 'you' : 'creatures'),
     effectText: [effectText],
-    duration: untilNextYou ? 'until_next_turn' : 'this_turn',
+    duration: (untilNextYou || untilNextLife) ? 'until_next_turn' : 'this_turn',
     raw: rawClause,
   });
 }

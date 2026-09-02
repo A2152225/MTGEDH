@@ -290,6 +290,8 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   statRequirement?: StatRequirement;
   creatureRestriction?: TargetRestriction;
   stackObjectMustHaveSingleTarget?: boolean;
+  stackObjectMustTargetOnlySinglePermanentOrPlayer?: boolean;
+  stackTargetsIgnoreCantBeCountered?: boolean;
 } {
   if (!oracleText) return { needsTargets: false, targetTypes: [], minTargets: 0, maxTargets: 0, targetDescription: '' };
   
@@ -306,8 +308,14 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   let maxTargets = 0;
   let targetDescription = '';
   const statKeywordFilters = parseTargetRequirementStatKeywordFilters(oracleText);
+  const stackTargetsIgnoreCantBeCountered =
+    /\bexile\b[\s\S]*\btarget spells?\b/i.test(oracleText)
+    && !/\bcounter\b[\s\S]*\btarget spells?\b/i.test(oracleText);
   const finish = <T extends { needsTargets: boolean }>(result: T) =>
-    attachParsedTargetRequirementStatKeywordFilters(result, statKeywordFilters);
+    attachParsedTargetRequirementStatKeywordFilters({
+      ...result,
+      ...(stackTargetsIgnoreCantBeCountered ? { stackTargetsIgnoreCantBeCountered: true } : {}),
+    }, statKeywordFilters);
 
   const parseGroupedTargetPhrase = (
     rawTargetPhrase: string,
@@ -386,6 +394,8 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
 
     if (/\bcreatures?\b/i.test(normalizedTargetPhrase)) {
       targetTypes.push('creature');
+    } else if (/\bspells?\b/i.test(normalizedTargetPhrase) && !/\bpermanent\b/i.test(normalizedTargetPhrase)) {
+      targetTypes.push('spell');
     } else if (/\bartifacts?\b/i.test(normalizedTargetPhrase)) {
       targetTypes.push('artifact');
     } else if (/\benchantments?\b/i.test(normalizedTargetPhrase)) {

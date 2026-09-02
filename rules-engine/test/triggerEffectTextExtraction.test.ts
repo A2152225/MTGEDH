@@ -106,4 +106,45 @@ describe('triggerEffectTextExtraction', () => {
     expect(effect.toLowerCase()).toContain('instead');
     expect(effect.toLowerCase()).not.toContain('equip');
   });
+
+  it("keeps Yusri's flip-and-cast rider on the attack trigger", () => {
+    // Quoted from mtg_data.db (is_token = 0).
+    const oracle =
+      "Flying\nWhenever Yusri attacks, choose a number between 1 and 5. Flip that many coins. For each flip you win, draw a card. For each flip you lose, Yusri deals 2 damage to you. If you won five flips this way, you may cast spells from your hand this turn without paying their mana costs.";
+    const match = oracle.match(/whenever Yusri attacks,?\s*([^.]+)/i);
+    expect(match).not.toBeNull();
+
+    const effect = extractTriggeredEffectFromTimingMatch(oracle, match!);
+    expect(effect.toLowerCase()).toContain('choose a number between 1 and 5');
+    expect(effect.toLowerCase()).toContain('flip that many coins');
+    expect(effect.toLowerCase()).toContain('for each flip you win');
+    expect(effect.toLowerCase()).toContain('for each flip you lose');
+    expect(effect.toLowerCase()).toContain('won five flips this way');
+    expect(effect.toLowerCase()).toContain('without paying their mana costs');
+  });
+
+  it('does not attach Rites of Flourishing extra-land static text to the draw-step trigger', () => {
+    // Quoted from mtg_data.db (is_token = 0), 2026-08-28.
+    const oracle =
+      "At the beginning of each player's draw step, that player draws an additional card.\nEach player may play an additional land on each of their turns.";
+    const match = oracle.match(/at the beginning of each player's draw step,?\s*([^.]+)/i);
+    expect(match).not.toBeNull();
+
+    const effect = extractTriggeredEffectFromTimingMatch(oracle, match!);
+    expect(effect.toLowerCase()).toBe('that player draws an additional card.');
+    expect(effect.toLowerCase()).not.toContain('additional land');
+  });
+
+  it('does not attach Gitrog extra-land static text to the upkeep trigger', () => {
+    // Quoted from mtg_data.db (is_token = 0), 2026-08-28.
+    const oracle =
+      'Deathtouch\nAt the beginning of your upkeep, sacrifice The Gitrog Monster unless you sacrifice a land.\nYou may play an additional land on each of your turns.\nWhenever one or more land cards are put into your graveyard from anywhere, draw a card.';
+    const match = oracle.match(/at the beginning of your upkeep,?\s*([^.]+)/i);
+    expect(match).not.toBeNull();
+
+    const effect = extractTriggeredEffectFromTimingMatch(oracle, match!);
+    expect(effect.toLowerCase()).toContain('sacrifice the gitrog monster unless you sacrifice a land');
+    expect(effect.toLowerCase()).not.toContain('additional land');
+    expect(effect.toLowerCase()).not.toContain('draw a card');
+  });
 });

@@ -179,6 +179,10 @@ export function trySpecialTapOrUntapStep(
     }
     return null;
   }
+  // Compound "you control and … opponent controls" must not short-circuit to you-only.
+  if (/untap all creatures you control\s+and\s+(all|each) creatures?/i.test(raw)) {
+    return null;
+  }
   const controllerId = String(ctx.controllerId || 'p1').trim();
   const battlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
     if (String(perm?.controller || '').trim() !== controllerId) return perm;

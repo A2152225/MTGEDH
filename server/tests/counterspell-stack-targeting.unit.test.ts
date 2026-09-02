@@ -4,6 +4,7 @@ import { buildSpellTargetListFromRequirements } from '../src/socket/game-actions
 import { hasValidTargetsForSpell } from '../src/rules-engine/target-availability.js';
 import { evaluateTargeting, parseTargetRequirements } from '../src/rules-engine/targeting.js';
 import type { SpellSpec } from '../src/rules-engine/targeting-handlers/targetingSpellSpecTypes.js';
+import { inferStackTargetLocations, shouldFizzleStackSpellForMissingTargets } from '../src/state/modules/stackTargetLegalityUtils.js';
 
 describe('Fierce Guardianship / counterspell stack targeting', () => {
   it('parses target noncreature spell as a stack requirement, not a battlefield permanent', () => {
@@ -285,5 +286,95 @@ describe('COUNTER_TARGET_SPELL may target the caster\'s own stack spell', () => 
     };
     expect(evaluateTargeting(state as any, 'p1', counterAny)).toEqual([]);
     expect(hasValidTargetsForSpell(state, 'p1', counterspell, { conservative: false })).toBe(false);
+  });
+});
+
+describe('Mindbreak Trap stack targeting', () => {
+  const mindbreakOracle =
+    "If an opponent cast three or more spells this turn, you may pay {0} rather than pay this spell's mana cost.\nExile any number of target spells.";
+
+  it('parses any number of target spells as optional stack spells', () => {
+    const reqs = parseTargetRequirements(mindbreakOracle);
+    expect(reqs.needsTargets).toBe(true);
+    expect(reqs.targetTypes).toEqual(['spell']);
+    expect(reqs.minTargets).toBe(0);
+    expect(reqs.stackTargetsIgnoreCantBeCountered).toBe(true);
+    expect(inferStackTargetLocations(mindbreakOracle).has('stack')).toBe(true);
+    expect(inferStackTargetLocations(mindbreakOracle).has('battlefield')).toBe(false);
+  });
+
+  it('offers uncounterable stack spells as legal exile targets', () => {
+    const game = {
+      state: {
+        players: [
+          { id: 'p1', name: 'P1', life: 40 },
+          { id: 'p2', name: 'P2', life: 40 },
+        ],
+        battlefield: [],
+        stack: [
+          {
+            id: 'stack_uncounterable',
+            type: 'spell',
+            controller: 'p2',
+            canBeCountered: false,
+            card: { name: 'Force of Will', type_line: 'Instant' },
+          },
+          {
+            id: 'stack_warp',
+            type: 'spell',
+            controller: 'p2',
+            card: { name: 'Warp World', type_line: 'Sorcery' },
+          },
+          {
+            id: 'stack_trigger',
+            type: 'triggered_ability',
+            controller: 'p2',
+            sourceName: 'Hive Mind',
+          },
+        ],
+      },
+    };
+
+    const reqs = parseTargetRequirements(mindbreakOracle);
+    const targets = buildSpellTargetListFromRequirements(game, 'p1', reqs);
+    expect(targets.map((t) => t.id).sort()).toEqual(['stack_uncounterable', 'stack_warp']);
+    expect(targets.every((t) => t.kind === 'stack')).toBe(true);
+  });
+
+  it('does not fizzle on resolve when chosen stack spells are still there', () => {
+    const state = {
+      players: [
+        { id: 'p1', name: 'P1', life: 40 },
+        { id: 'p2', name: 'P2', life: 40 },
+      ],
+      battlefield: [],
+      stack: [
+        {
+          id: 'stack_uncounterable',
+          type: 'spell',
+          controller: 'p2',
+          canBeCountered: false,
+          card: { name: 'Force of Will', type_line: 'Instant' },
+        },
+        {
+          id: 'stack_warp',
+          type: 'spell',
+          controller: 'p2',
+          card: { name: 'Warp World', type_line: 'Sorcery' },
+        },
+      ],
+    };
+    const item = {
+      id: 'stack_mindbreak',
+      type: 'spell',
+      controller: 'p1',
+      targets: ['stack_uncounterable', 'stack_warp'],
+      card: {
+        name: 'Mindbreak Trap',
+        type_line: 'Instant — Trap',
+        oracle_text: mindbreakOracle,
+      },
+    };
+    expect(shouldFizzleStackSpellForMissingTargets(state, item, 'p1')).toBe(false);
   });
 });

@@ -61,6 +61,7 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
       
       // Check if the player is the creator of the game (validated against DB record)
       const isCreator = playerId ? isGameCreator(gameId, playerId) : false;
+      const isAdmin = (socket.data as any)?.accountIsAdmin === true;
       
       debug(1, "[socket] deleteGame requested", {
         gameId,
@@ -71,8 +72,8 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
         isCreator,
       });
 
-      // Allow delete only for the creator (validated via DB).
-      if (!isCreator) {
+      // Allow delete for the creator (validated via DB) or an authenticated admin.
+      if (!isCreator && !isAdmin) {
         socket.emit("error", {
           code: "DELETE_GAME_NOT_AUTHORIZED",
           message: "Only the game creator can delete this game.",

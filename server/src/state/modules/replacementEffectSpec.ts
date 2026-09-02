@@ -34,6 +34,7 @@ export type {
   ReplacementEffectSpec,
 } from './replacementEffectSpec-handlers/replacementEffectSpecTypes.js';
 import { normalizeOraclePatternText, readCardOracleText } from './replacementEffectSpec-handlers/replacementEffectSpecOracleTextUtils.js';
+import { inferLeaveBattlefieldExileReplacement } from './leaveBattlefieldReplacementStamp.js';
 import { collectOraclePatternLifeGainReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLifeGainOracleTemplates.js';
 import { overlaySpecsMatchLifeGain, matchesLifeGainSpec } from './replacementEffectSpec-handlers/replacementEffectSpecLifeGainMatch.js';
 import { collectOraclePatternLifeLossReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLifeLossOracleTemplates.js';
@@ -343,12 +344,15 @@ function permanentHasCounter(permanent: any, counterName: string): boolean {
   return false;
 }
 
-function readLeaveBattlefieldReplacementDestination(permanent: any): string {
-  return normalizeReplacementToken(
+function readLeaveBattlefieldReplacementDestination(permanent: any, state?: any): string {
+  const explicit = normalizeReplacementToken(
     permanent?.leaveBattlefieldReplacementDestination
       || permanent?.card?.leaveBattlefieldReplacementDestination
       || '',
   );
+  if (explicit === 'exile') return explicit;
+  const inferred = inferLeaveBattlefieldExileReplacement(permanent, state);
+  return inferred?.leaveBattlefieldReplacementDestination === 'exile' ? 'exile' : explicit;
 }
 
 function readReplacementSourceName(permanent: any): string | undefined {
@@ -390,7 +394,7 @@ function matchesZoneChangeSpec(event: ZoneChangeReplacementEvent, match: Replace
 
   const permanent = event.object;
   if (match.leaveBattlefieldExileInstead === true
-    && readLeaveBattlefieldReplacementDestination(permanent) !== 'exile') {
+    && readLeaveBattlefieldReplacementDestination(permanent, event.state) !== 'exile') {
     return false;
   }
   if (match.objectIsToken === true && !objectIsTokenPermanent(permanent)) return false;

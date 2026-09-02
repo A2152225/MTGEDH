@@ -68,6 +68,19 @@ const RESTRICTION_PATTERNS: {
     affectedPlayers: 'opponents',
     duration: RestrictionDuration.WHILE_SOURCE_ON_BATTLEFIELD,
   },
+  {
+    pattern: /(?:each\s+opponent|your\s+opponents?)\s+can't\s+cast\s+noncreature\s+spells?\s+with\s+mana\s+value\s+greater\s+than\s+the\s+number\s+of\s+lands\s+that\s+player\s+controls/i,
+    type: CastingRestrictionType.CMC_RESTRICTION,
+    affectedPlayers: 'opponents',
+    duration: RestrictionDuration.WHILE_SOURCE_ON_BATTLEFIELD,
+    extractor: () => ({
+      spellTypeRestriction: 'noncreature',
+      cmcRestriction: {
+        comparison: 'greater_than' as const,
+        valueFrom: 'caster_controlled_lands' as const,
+      },
+    }),
+  },
 ];
 
 /**

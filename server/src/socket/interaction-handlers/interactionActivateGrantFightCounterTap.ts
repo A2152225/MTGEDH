@@ -330,6 +330,7 @@ export async function tryHandleActivateGrantFightCounterTap(
       type: 'control_change' as const,
       permanentId,
       drawCards: drawCount,
+      opponentOnly: true,
     };
 
     // Queue opponent selection via Resolution Queue (ResolutionStepType.PLAYER_CHOICE)

@@ -256,10 +256,42 @@ export function useAppPlayModalHandlers(p: Record<string, any>) {
       return;
     }
 
+    const selectedId = String(selectedIds[0] || '').trim();
+    if (hideawayChoiceData.pendingDraftCardId && Array.isArray(hideawayChoiceData.attachOptions)) {
+      socket.emit('submitResolutionResponse', {
+        gameId: safeView.id,
+        stepId,
+        selections: { cardId: hideawayChoiceData.pendingDraftCardId, attachId: selectedId },
+        cancelled: false,
+      });
+      setHideawayChoiceModalOpen(false);
+      setHideawayChoiceData(null);
+      return;
+    }
+
+    const selectedCard = (hideawayChoiceData.cards || []).find(
+      (card: any) => String(card.cardId || card.id || '') === selectedId,
+    );
+    const attachOptions = Array.isArray(selectedCard?.attachOptions) ? selectedCard.attachOptions : [];
+    if (attachOptions.length > 1) {
+      setHideawayChoiceData({
+        ...hideawayChoiceData,
+        pendingDraftCardId: selectedId,
+        attachOptions,
+        title: `Attach ${selectedCard?.cardName || 'Aura'}`,
+        subtitle: 'Choose a legal host or player',
+        confirmButtonText: 'Attach',
+      });
+      return;
+    }
+
     socket.emit('submitResolutionResponse', {
       gameId: safeView.id,
       stepId,
-      selections: selectedIds[0],
+      selections:
+        attachOptions.length === 1
+          ? { cardId: selectedId, attachId: attachOptions[0].cardId }
+          : selectedId,
       cancelled: false,
     });
     debug(2, '[HideawayChoice] Completed resolution step via resolution queue');

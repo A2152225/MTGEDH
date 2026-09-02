@@ -90,6 +90,7 @@ export { isActivatedAbilityConditionMet } from "./canRespondActivatedAbilityCond
 // Battlefield / GY / exile / hand activated abilities and canActivateAnyAbility.
 export {
   canActivateAnyAbility,
+  hasActivatableAbility,
   hasSacrificePrefixActivatedAbility,
   hasActivatableLoyaltyAbility,
 } from "./canRespondActivatableAbilities.js";

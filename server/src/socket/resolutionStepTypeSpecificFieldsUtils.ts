@@ -196,6 +196,15 @@ export function getTypeSpecificFields(step: ResolutionStep): Record<string, any>
       if ('squadCost' in step) fields.squadCost = (step as any).squadCost;
       if ('imageUrl' in step) fields.imageUrl = (step as any).imageUrl;
       break;
+
+    case ResolutionStepType.X_VALUE_SELECTION:
+    case ResolutionStepType.NUMBER_CHOICE:
+      if ('minValue' in step) fields.minValue = (step as any).minValue;
+      if ('maxValue' in step) fields.maxValue = (step as any).maxValue;
+      if ('xCount' in step) fields.xCount = (step as any).xCount;
+      if ('affordableXHint' in step) fields.affordableXHint = (step as any).affordableXHint;
+      if ((step as any).delayedDrawUpTo === true) fields.delayedDrawUpTo = true;
+      break;
       
     case ResolutionStepType.MODE_SELECTION:
       if ('modes' in step) fields.modes = step.modes;
@@ -379,6 +388,12 @@ export function getTypeSpecificFields(step: ResolutionStep): Record<string, any>
         fields.remainingDrawCountAfterChoice = (step as any).remainingDrawCountAfterChoice;
         fields.skipDrawSourcePermanentId = (step as any).skipDrawSourcePermanentId;
         fields.skipDrawSourceName = (step as any).skipDrawSourceName;
+      }
+
+      if ((step as any)?.opponentLibraryDrawReplacement === true) {
+        fields.opponentLibraryDrawReplacement = true;
+        fields.remainingDrawCountAfterChoice = (step as any).remainingDrawCountAfterChoice;
+        fields.sourcePermanentId = (step as any).sourcePermanentId;
       }
 
       if ((step as any)?.counterPlacementTrigger === true || (step as any)?.agitatorAntTrigger === true) {

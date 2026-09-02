@@ -9,6 +9,7 @@ import {
 } from './triggerDelayedEffectUtils.js';
 import { destroyPermanent, movePermanentToExile } from './counters_tokens.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentBridge.js';
+import { queueDelayedDrawUpToChoice } from './triggerDelayedDrawUpToUtils.js';
 
 export interface TriggerDelayedCleanupParams {
   readonly ctx: GameContext;
@@ -25,6 +26,15 @@ export function applyDelayedCleanupTriggersFromMetadata(
 
   if (action === 'draw') {
     const count = Math.max(1, Math.floor(Number(params.triggerItem?.delayedDrawCount || 1)));
+    if (params.triggerItem?.delayedDrawUpTo === true) {
+      return queueDelayedDrawUpToChoice({
+        ctx: params.ctx,
+        controller: params.controller,
+        sourceName: params.sourceName,
+        triggerItem: params.triggerItem,
+        maxCount: count,
+      });
+    }
     drawCardsFromZone(params.ctx, params.controller, count);
     return true;
   }

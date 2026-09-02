@@ -77,6 +77,28 @@ export function queueUnlessPayChoicePromptsFromOracleIRResult(
 
     const skippedStep = findSkippedOracleStep(result, gap);
 
+    if (stepKind === 'pay_energy' && skippedStep?.kind === 'pay_energy') {
+      const payerId = String(metadata.payerId || params.controller).trim() as PlayerID;
+      const maxEnergy = Math.max(0, Math.floor(Number(metadata.maxEnergy ?? 0)));
+      queuedKeys.add(queueKey);
+      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+        type: ResolutionStepType.X_VALUE_SELECTION,
+        playerId: payerId,
+        description: `${sourceName}: Pay any amount of energy (0–${maxEnergy}).`,
+        mandatory: true,
+        sourceId,
+        sourceName,
+        minValue: 0,
+        maxValue: maxEnergy,
+        oracleIrPayEnergyChoice: true,
+        oracleIrChoiceStepJson: JSON.stringify([skippedStep]),
+        oracleIrControllerId: params.controller,
+        oracleIrSourceId: sourceId,
+        oracleIrSourceName: sourceName,
+      } as any, result, params) as any);
+      continue;
+    }
+
     if (stepKind === 'lose_life' && skippedStep?.kind === 'lose_life') {
       const lifeAmount = resolveOptionalPayLifeAmount(state, skippedStep, params.controller, params.irCtx);
       if (!Number.isFinite(lifeAmount) || lifeAmount <= 0) continue;
@@ -208,32 +230,44 @@ export function queueUnlessPayChoicePromptsFromOracleIRResult(
     }
 
     if (stepKind === 'unless_pays_mana' && skippedStep?.kind === 'unless_pays_mana') {
-      const manaCost = normalizeOracleManaCostString(String((skippedStep as any).mana || metadata.manaCost || '').trim());
-      if (!manaCost) continue;
+      const manaOptions = Array.isArray((skippedStep as any).manaOptions)
+        ? ((skippedStep as any).manaOptions as string[]).map((entry) => normalizeOracleManaCostString(String(entry || '').trim())).filter(Boolean)
+        : (Array.isArray(metadata.manaOptions)
+          ? (metadata.manaOptions as string[]).map((entry) => normalizeOracleManaCostString(String(entry || '').trim())).filter(Boolean)
+          : []);
+      const manaCost = normalizeOracleManaCostString(String(metadata.manaCost || (skippedStep as any).mana || '').trim());
+      if (!manaCost && manaOptions.length === 0) continue;
 
       const players = resolvePlayers(state, (skippedStep as any).who, params.irCtx);
       const payerId = String(metadata.payerId || players[0] || params.controller).trim() as PlayerID;
       queuedKeys.add(queueKey);
 
-      const boundTargetSpellId = resolveOracleIrBoundTargetSpellId(params.irCtx);
+      const boundTargetSpellId = String(metadata.targetSpellId || resolveOracleIrBoundTargetSpellId(params.irCtx) || '').trim();
+      const boundTargetPermanentId = String(metadata.targetPermanentId || '').trim();
+      const payOptions = (manaOptions.length > 1 ? manaOptions : [manaCost]).filter(Boolean);
+      const options = [
+        ...payOptions.map((cost) => ({
+          id: payOptions.length > 1 ? `pay:${cost}` : 'pay',
+          label: `Pay ${cost}`,
+          description: `Pay ${cost}`,
+        })),
+        { id: 'decline', label: 'Decline', description: 'Decline to pay' },
+      ];
 
       ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
         type: ResolutionStepType.OPTION_CHOICE,
         playerId: payerId,
-        description: `${sourceName}: ${gapRaw || `Pay ${manaCost} or decline`}`,
+        description: `${sourceName}: ${gapRaw || `Pay ${payOptions.join(' or ')} or decline`}`,
         mandatory: true,
         sourceId,
         sourceName,
-        options: [
-          { id: 'pay', label: `Pay ${manaCost}`, description: `Pay ${manaCost}` },
-          { id: 'decline', label: 'Decline', description: 'Decline to pay' },
-        ],
+        options,
         minSelections: 1,
         maxSelections: 1,
         optionalPaymentPrompt: true,
         optionalPaymentValidationKind: 'mana',
-        optionalPaymentManaCost: manaCost,
-        optionalPaymentPayChoiceId: 'pay',
+        optionalPaymentManaCost: payOptions[0],
+        optionalPaymentPayChoiceId: payOptions.length > 1 ? `pay:${payOptions[0]}` : 'pay',
         optionalPaymentDeclineChoiceId: 'decline',
         oracleIrUnlessPayChoice: true,
         oracleIrUnlessPayKind: 'mana',
@@ -242,6 +276,7 @@ export function queueUnlessPayChoicePromptsFromOracleIRResult(
         oracleIrSourceId: sourceId,
         oracleIrSourceName: sourceName,
         ...(boundTargetSpellId ? { oracleIrTargetSpellId: boundTargetSpellId } : {}),
+        ...(boundTargetPermanentId ? { oracleIrTargetPermanentId: boundTargetPermanentId } : {}),
       } as any, result, params) as any);
       continue;
     }

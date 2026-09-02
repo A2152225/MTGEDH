@@ -7,7 +7,10 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { parseOracleTextToIR } from './oracleIRParser';
-import { generateCoinFlipResult } from './coinFlip';
+import {
+  generateCoinFlipResultWithIgnoreOne,
+  resolveCoinFlipWithIgnoreOne,
+} from './coinFlipIgnoreOneReplacement';
 import { performDieRoll, performMultipleDieRolls } from './dieRoll';
 import { applyRegenerateStep } from './oracleIRExecutorBattlefieldStepHandlers';
 import { opponentsHaveCantWinEffect, playerHasCantLoseEffect } from './winEffectCards';
@@ -51,6 +54,23 @@ function getLastDieRollResultForPlayer(state: GameState, playerId: PlayerID): nu
   }
 
   return null;
+}
+
+function resolveFlipCoinCount(
+  step: Extract<OracleEffectStep, { kind: 'flip_coin' }>,
+  ctx: { chosenNumber?: number; selectorContext?: { chosenNumber?: number } },
+): number | 'choice_required' {
+  if (step.repeatUntil === 'lose_flip') return 1;
+  const explicit = step.count;
+  const thatMany = explicit === 'that_many' || /^flip that many coins$/i.test(String(step.raw || ''));
+  if (thatMany) {
+    const n = Number(ctx.selectorContext?.chosenNumber ?? ctx.chosenNumber);
+    if (!Number.isFinite(n) || n < 1) return 'choice_required';
+    return Math.max(1, Math.min(99, Math.floor(n)));
+  }
+  const numeric = Number(explicit);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.min(99, Math.floor(numeric));
+  return 1;
 }
 
 export function tryApplyMainLoopCoinDieDrawSteps(
@@ -242,42 +262,98 @@ export function tryApplyMainLoopCoinDieDrawSteps(
         }
 
         const call = step.call || 'heads';
+        const flipCount = resolveFlipCoinCount(step, currentCtx);
+        if (flipCount === 'choice_required') {
+          recordSkippedStep(
+            step,
+            `Skipped flip coin (needs chosen number): ${step.raw}`,
+            'player_choice_required',
+            { classification: 'player_choice' },
+          );
+          break;
+        }
+
         const stateAny: any = nextState as any;
         stateAny.lastCoinFlipByPlayer = stateAny.lastCoinFlipByPlayer || {};
         stateAny.coinFlipsThisTurn = stateAny.coinFlipsThisTurn || {};
         const flipSummaries: string[] = [];
         let lastWon = typeof currentCtx.wonCoinFlip === 'boolean' ? currentCtx.wonCoinFlip : undefined;
+        let batchWins = 0;
+        let batchLosses = 0;
 
+        let skipFlipForChoice = false;
         for (const playerId of players) {
           const results: Array<'heads' | 'tails'> = [];
           const wins: boolean[] = [];
-          const firstResult =
-            typeof lastWon === 'boolean'
-              ? lastWon
-                ? call
-                : call === 'heads'
-                  ? 'tails'
-                  : 'heads'
-              : generateCoinFlipResult();
-          results.push(firstResult);
-          wins.push(firstResult === call);
-          if (step.repeatUntil === 'lose_flip') {
-            while (wins[wins.length - 1] && results.length < 100) {
-              const nextFlip = generateCoinFlipResult();
-              results.push(nextFlip);
-              wins.push(nextFlip === call);
+          const generateOneFlip = (): 'heads' | 'tails' | undefined => {
+            if (typeof lastWon === 'boolean') {
+              return lastWon ? call : (call === 'heads' ? 'tails' : 'heads');
+            }
+            if (currentCtx.interactivePlayerChoices === true) {
+              const pending = resolveCoinFlipWithIgnoreOne(nextState, playerId, {
+                call,
+                interactive: true,
+                keepChoices: currentCtx.selectorContext?.coinIgnoreOneKeepChoices,
+                rawFlips: currentCtx.selectorContext?.coinIgnoreOneRawFlips,
+              });
+              if (pending.kind === 'choice_required') {
+                recordSkippedStep(
+                  step,
+                  `Skipped flip coin (choose which result to ignore): ${step.raw}`,
+                  'player_choice_required',
+                  {
+                    classification: 'player_choice',
+                    metadata: {
+                      coinIgnoreOneChoice: true,
+                      pendingCoinPlayerId: pending.playerId,
+                      pendingCoinFirst: pending.a,
+                      pendingCoinSecond: pending.b,
+                      coinIgnoreOneRawFlipsJson: JSON.stringify(pending.rawFlips),
+                      coinIgnoreOneKeepChoicesJson: JSON.stringify(pending.keepChoices),
+                      coinIgnoreOneCall: call,
+                    },
+                  },
+                );
+                skipFlipForChoice = true;
+                return undefined;
+              }
+              return pending.result;
+            }
+            return generateCoinFlipResultWithIgnoreOne(nextState, playerId, { call });
+          };
+
+          for (let i = 0; i < flipCount; i += 1) {
+            const nextResult = generateOneFlip();
+            if (nextResult === undefined) break;
+            results.push(nextResult);
+            wins.push(nextResult === call);
+            if (step.repeatUntil === 'lose_flip') {
+              while (wins[wins.length - 1] && results.length < 100) {
+                const extraFlip = generateCoinFlipResultWithIgnoreOne(nextState, playerId, { call });
+                results.push(extraFlip);
+                wins.push(extraFlip === call);
+              }
             }
           }
+          if (skipFlipForChoice) break;
+          if (results.length === 0) break;
+
           const result = results[results.length - 1];
           const won = wins[wins.length - 1] === true;
           const timestamp = Date.now();
+          const winCount = wins.filter(Boolean).length;
+          batchWins += winCount;
+          batchLosses += wins.length - winCount;
           const flipRecord = {
             playerId,
             call,
             result,
             won,
             timestamp,
-            ...(step.repeatUntil === 'lose_flip' ? { repeatUntil: 'lose_flip', results, wins } : {}),
+            results,
+            wins,
+            winCount,
+            ...(step.repeatUntil === 'lose_flip' ? { repeatUntil: 'lose_flip' } : {}),
           };
           stateAny.lastCoinFlip = flipRecord;
           stateAny.lastCoinFlipByPlayer[playerId] = flipRecord;
@@ -288,8 +364,17 @@ export function tryApplyMainLoopCoinDieDrawSteps(
           lastWon = won;
         }
 
+        if (skipFlipForChoice) {
+          break;
+        }
+
         nextState = stateAny as GameState;
-        currentCtx = { ...currentCtx, wonCoinFlip: lastWon };
+        currentCtx = {
+          ...currentCtx,
+          wonCoinFlip: lastWon,
+          coinFlipWinsThisWay: batchWins,
+          coinFlipLossesThisWay: batchLosses,
+        };
         setLastStepOutcome(step, 'applied');
         log.push(`[oracle-ir] ${flipSummaries.join('; ')}`);
         appliedSteps.push(step);

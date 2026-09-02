@@ -9,6 +9,7 @@ import { ResolutionStepType } from '../resolution/index.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
+import { readTriggeringStackItemSnapshot } from './triggerCastSpellStackBinding.js';
 
 const OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 const OPTIONAL_COPY_ABILITY_LIFE_PAYMENT_PATTERN = /^you may pay (\d+) life again\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
@@ -19,6 +20,7 @@ export function cloneStackItemForAbilityCopy(
   sourceName: string,
   controller: PlayerID,
   triggeringStackItemId: unknown,
+  triggerItem?: any,
 ): any | null {
   const state: any = (ctx as any).state;
   const stack = Array.isArray(state?.stack) ? state.stack : [];
@@ -28,7 +30,8 @@ export function cloneStackItemForAbilityCopy(
     return null;
   }
 
-  const original = stack.find((entry: any) => entry && String(entry.id || '') === targetStackItemId);
+  const original = stack.find((entry: any) => entry && String(entry.id || '') === targetStackItemId)
+    || readTriggeringStackItemSnapshot(triggerItem);
   if (!original) {
     debugWarn(2, `[resolveTopOfStack] ${sourceName}: triggering stack item ${targetStackItemId} no longer exists`);
     return null;
@@ -249,7 +252,7 @@ export function tryDeferCopyTriggeredAbilityPrompts(
       },
       onPay: async () => {
         payManaCostWithAvailableSources(state as any, triggerController as PlayerID, manaCost);
-        const copiedItem = cloneStackItemForAbilityCopy(ctx, sourceName, triggerController as PlayerID, (item as any).triggeringStackItemId);
+        const copiedItem = cloneStackItemForAbilityCopy(ctx, sourceName, triggerController as PlayerID, (item as any).triggeringStackItemId, item);
         if (copiedItem) {
           persistCopyTriggeredAbilityResolve(true, String((copiedItem as any).id || '').trim());
         }
@@ -326,6 +329,7 @@ export function tryDeferCopyTriggeredAbilityPrompts(
           sourceName,
           triggerController as PlayerID,
           (item as any).triggeringStackItemId,
+          item,
         );
         if (copiedItem) {
           persistCopyTriggeredAbilityResolve(true, String((copiedItem as any).id || '').trim());
@@ -350,7 +354,7 @@ export function tryDeferCopyTriggeredAbilityPrompts(
   }
 
   if (isDirectAbilityCopy) {
-    const copiedItem = cloneStackItemForAbilityCopy(ctx, sourceName, triggerController as PlayerID, (item as any).triggeringStackItemId);
+    const copiedItem = cloneStackItemForAbilityCopy(ctx, sourceName, triggerController as PlayerID, (item as any).triggeringStackItemId, item);
     if (copiedItem) {
       appendCopyTriggeredAbilityResolveEvent(ctx, {
         sourceId: String((item as any).source || sourceId || '').trim() || undefined,

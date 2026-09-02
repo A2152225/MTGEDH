@@ -68,6 +68,9 @@ export async function handleSpellPaymentChoiceResponse(
   const forcedAlternateCostId = stepData.forcedAlternateCostId != null ? String(stepData.forcedAlternateCostId) : undefined;
 
   if (response.cancelled) {
+    if (isAIPlayer(gameId, pid as any)) {
+      rememberAIFailedSpellCast(game, String(pid), String(cardId || ''));
+    }
     const suspendedLibrarySearchStep = effectId && (game.state as any)?.pendingSpellCasts?.[effectId]?.librarySearchStepToResume;
     if (effectId && (game.state as any)?.pendingSpellCasts?.[effectId]) {
       delete (game.state as any).pendingSpellCasts[effectId];

@@ -10,7 +10,9 @@ import type { GameState, PlayerID } from '../../shared/src';
 import {
   getCurrentTurnNumber,
   isCardExiledWithSource,
+  readPlayerZoneCards,
   stampCardPutIntoGraveyardThisTurn,
+  writePlayerZoneCards,
 } from './oracleIRExecutorPlayerUtils';
 import { parseSimpleCardTypeFromText } from './oracleIRExecutorZoneOpsCardTypeMatchers';
 import type { SimpleCardType } from './oracleIRExecutorZoneOpsCardTypeMatchers';
@@ -68,7 +70,7 @@ export function moveCountFromHandToLibrary(
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return { kind: 'impossible' };
 
-  const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+  const hand = readPlayerZoneCards(state, playerId, player, 'hand');
   if (hand.length < count) return { kind: 'impossible' };
 
   const preferred = new Set(preferredIds.map(id => String(id || '').trim()).filter(Boolean));
@@ -99,16 +101,19 @@ export function moveCountFromHandToLibrary(
       controller: card?.controller || card?.controllerId || playerId,
       controllerId: card?.controllerId || card?.controller || playerId,
     }));
-  const library = Array.isArray(player.library) ? [...player.library] : [];
-  const nextLibrary = placement === 'top' ? [...movedCards, ...library] : [...library, ...movedCards];
-
-  const updatedPlayers = state.players.map(p =>
-    p.id === playerId ? ({ ...(p as any), hand: keptHand, library: nextLibrary } as any) : p
+  const workingPlayers = state.players.map((entry) =>
+    entry.id === playerId ? ({ ...(entry as any) } as any) : entry
   );
+  const workingPlayer = workingPlayers.find((entry) => entry.id === playerId) as any;
+  const workingState = { ...state, players: workingPlayers } as GameState;
+  const library = readPlayerZoneCards(workingState, playerId, workingPlayer, 'library');
+  const nextLibrary = placement === 'top' ? [...movedCards, ...library] : [...library, ...movedCards];
+  writePlayerZoneCards(workingState, playerId, workingPlayer, 'hand', keptHand);
+  writePlayerZoneCards(workingState, playerId, workingPlayer, 'library', nextLibrary);
 
   return {
     kind: 'applied',
-    state: { ...state, players: updatedPlayers as any } as any,
+    state: workingState,
     log: [`${playerId} puts ${movedCards.length} card(s) from hand on the ${placement} of their library`],
     movedCards,
   };
@@ -394,28 +399,28 @@ export function shufflePlayerHandAndGraveyardIntoLibrary(
   state: GameState,
   playerId: PlayerID
 ): { readonly state: GameState; readonly log: readonly string[] } {
-  const player = state.players.find(p => p.id === playerId) as any;
+  const workingPlayers = (state.players || []).map((entry) =>
+    entry.id === playerId ? ({ ...(entry as any) } as any) : entry
+  );
+  const player = workingPlayers.find((entry) => entry.id === playerId) as any;
   if (!player) return { state, log: [] };
 
-  const hand = Array.isArray(player.hand) ? [...player.hand] : [];
-  const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
-  const movingCards = [...hand, ...graveyard];
-  if (movingCards.length === 0) return { state, log: [] };
-
-  const library = Array.isArray(player.library) ? [...player.library] : [];
-  const shuffled = [...movingCards];
+  const workingState = { ...state, players: workingPlayers } as GameState;
+  const hand = readPlayerZoneCards(workingState, playerId, player, 'hand');
+  const graveyard = readPlayerZoneCards(workingState, playerId, player, 'graveyard');
+  const library = readPlayerZoneCards(workingState, playerId, player, 'library');
+  const movingCards = [...hand, ...graveyard].map((card: any) => ({ ...card, zone: 'library' }));
+  const shuffled = [...library, ...movingCards];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
     const swapIndex = Math.floor(Math.random() * (index + 1));
     [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
   }
 
-  const updatedPlayers = state.players.map(p =>
-    p.id === playerId
-      ? ({ ...(p as any), hand: [], graveyard: [], library: [...library, ...shuffled] } as any)
-      : p
-  );
+  writePlayerZoneCards(workingState, playerId, player, 'hand', []);
+  writePlayerZoneCards(workingState, playerId, player, 'graveyard', []);
+  writePlayerZoneCards(workingState, playerId, player, 'library', shuffled);
   return {
-    state: { ...state, players: updatedPlayers as any } as GameState,
+    state: workingState,
     log: [`${playerId} shuffled ${movingCards.length} card(s) from hand/graveyard into their library`],
   };
 }

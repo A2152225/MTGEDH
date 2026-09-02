@@ -45,6 +45,7 @@ export interface PlayerSelectionEffectData {
   mustAttackEachCombat?: boolean;
   cantAttackOwner?: boolean;
   drawCards?: number;
+  opponentOnly?: boolean;
   
   // Custom effect handler
   customHandler?: (
@@ -285,7 +286,11 @@ export function applyPlayerSelectionEffect(
     }
     
     case 'control_change': {
-      // Transfer control of permanent (Vislor Turlough, Xantcha)
+      // Transfer control of permanent (Vislor Turlough, Xantcha, Humble Defector)
+      if (effectData.opponentOnly && String(selectedPlayerId) === String(choosingPlayerId)) {
+        debugWarn(1, `[playerSelection] Refused control change of ${cardName} to the activating player`);
+        return;
+      }
       if (effectData.permanentId) {
         const permanent = battlefield.find((p: any) => p && p.id === effectData.permanentId);
         if (permanent) {
@@ -411,6 +416,7 @@ export function applyPlayerSelectionEffect(
       mustAttackEachCombat: effectData.mustAttackEachCombat === true,
       cantAttackOwner: effectData.cantAttackOwner === true,
       drawCards: Number(effectData.drawCards || 0),
+      opponentOnly: effectData.opponentOnly === true,
     },
     goadExpiryTurn: appliedGoadExpiryTurn,
     wasTimeout,

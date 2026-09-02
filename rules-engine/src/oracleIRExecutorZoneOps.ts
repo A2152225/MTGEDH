@@ -170,6 +170,7 @@ export type {
 } from './oracleIRExecutorZoneOpsChosenCompoundWhatParsers';
 export {
   exileOneMatchingCardFromEachPlayersGraveyard,
+  putOneMatchingCardFromEachOpponentsGraveyardOntoBattlefield,
   moveUnplayedExileCardsToGraveyard,
   parseMoveZoneAllAurasAttachedToTargetPermanentYouOwn,
   parseMoveZoneAnyNumberCardsTotalMvXFromYourGraveyard,

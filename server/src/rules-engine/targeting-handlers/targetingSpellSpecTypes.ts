@@ -112,6 +112,7 @@ export type SpellSpec = {
   controllerOnly?: boolean; // For "creature you control" patterns (Acrobatic Maneuver, Cloudshift)
   opponentOnly?: boolean; // For "an opponent controls" patterns
   excludeSource?: boolean; // For "another target" patterns (Skrelv, etc.) - cannot target the source
+  ignoreCantBeCountered?: boolean; // Exile-from-stack (Mindbreak Trap) can target uncounterable spells
   multiFilter?: PermanentFilter[]; // For "artifact or enchantment" patterns (Nature's Claim) - uses OR logic
   creatureRestriction?: TargetRestriction; // For restrictions that only apply to creatures when multiFilter includes CREATURE (Atraxa's Fall)
   addExtraCombat?: boolean;

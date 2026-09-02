@@ -111,6 +111,173 @@ describe('AI mode selection', () => {
     expect(spent).toBeGreaterThan(0);
   });
 
+  it('picks fight over keyword modes when it can kill a high-threat creature', () => {
+    const playerId = 'ai1' as PlayerID;
+    const koglaModes = {
+      sourceId: 'kogla-1',
+      sourceName: 'Kogla and Yidaro',
+      modes: [
+        {
+          id: 'Mode 1',
+          label: 'It gains trample and haste until end of turn.',
+          description: 'It gains trample and haste until end of turn.',
+        },
+        {
+          id: 'Mode 2',
+          label: "It fights target creature you don't control.",
+          description: "It fights target creature you don't control.",
+        },
+      ],
+      minModes: 1,
+      maxModes: 1,
+    };
+
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI'), createPlayer('opp1', 'Opponent')],
+        battlefield: [
+          {
+            id: 'kogla-1',
+            controller: playerId,
+            power: 7,
+            toughness: 7,
+            card: {
+              name: 'Kogla and Yidaro',
+              type_line: 'Legendary Creature — Ape Dinosaur Turtle',
+              power: '7',
+              toughness: '7',
+              colors: ['G', 'R'],
+              oracle_text: '',
+            },
+          },
+          {
+            id: 'sphinx-1',
+            controller: 'opp1',
+            power: 4,
+            toughness: 6,
+            card: {
+              name: 'Consecrated Sphinx',
+              type_line: 'Creature — Sphinx',
+              power: '4',
+              toughness: '6',
+              oracle_text: 'Flying\nWhenever an opponent draws a card, you may draw two cards.',
+            },
+          },
+        ],
+        zones: { [playerId]: { hand: [] } },
+      },
+    } as any;
+
+    const decision = chooseAIModeSelectionsForStep(game, playerId, koglaModes);
+    expect(decision).toEqual({ selections: ['Mode 2'], cancelled: false });
+  });
+
+  it('keeps the keyword mode when fight cannot kill a real threat', () => {
+    const playerId = 'ai1' as PlayerID;
+    const koglaModes = {
+      sourceId: 'kogla-1',
+      sourceName: 'Kogla and Yidaro',
+      modes: [
+        {
+          id: 'Mode 1',
+          label: 'It gains trample and haste until end of turn.',
+          description: 'It gains trample and haste until end of turn.',
+        },
+        {
+          id: 'Mode 2',
+          label: "It fights target creature you don't control.",
+          description: "It fights target creature you don't control.",
+        },
+      ],
+      minModes: 1,
+      maxModes: 1,
+    };
+
+    const makeGame = (opponent: any) => ({
+      state: {
+        players: [createPlayer(playerId, 'AI'), createPlayer('opp1', 'Opponent')],
+        battlefield: [
+          {
+            id: 'kogla-1',
+            controller: playerId,
+            power: 7,
+            toughness: 7,
+            card: {
+              name: 'Kogla and Yidaro',
+              type_line: 'Legendary Creature — Ape Dinosaur Turtle',
+              power: '7',
+              toughness: '7',
+              colors: ['G', 'R'],
+              oracle_text: '',
+            },
+          },
+          opponent,
+        ],
+        zones: { [playerId]: { hand: [] } },
+      },
+    } as any);
+
+    const vanilla = chooseAIModeSelectionsForStep(makeGame({
+      id: 'bear-1',
+      controller: 'opp1',
+      power: 2,
+      toughness: 2,
+      card: {
+        name: 'Grizzly Bears',
+        type_line: 'Creature — Bear',
+        power: '2',
+        toughness: '2',
+        oracle_text: '',
+      },
+    }), playerId, koglaModes);
+    expect(vanilla.selections).toEqual(['Mode 1']);
+
+    const indestructible = chooseAIModeSelectionsForStep(makeGame({
+      id: 'darksteel-1',
+      controller: 'opp1',
+      power: 8,
+      toughness: 4,
+      card: {
+        name: 'Consecrated Sphinx',
+        type_line: 'Creature — Sphinx',
+        power: '8',
+        toughness: '4',
+        oracle_text: 'Flying, indestructible\nWhenever an opponent draws a card, you may draw two cards.',
+      },
+    }), playerId, koglaModes);
+    expect(indestructible.selections).toEqual(['Mode 1']);
+
+    const hexproof = chooseAIModeSelectionsForStep(makeGame({
+      id: 'hex-1',
+      controller: 'opp1',
+      power: 4,
+      toughness: 6,
+      card: {
+        name: 'Consecrated Sphinx',
+        type_line: 'Creature — Sphinx',
+        power: '4',
+        toughness: '6',
+        oracle_text: 'Flying, hexproof\nWhenever an opponent draws a card, you may draw two cards.',
+      },
+    }), playerId, koglaModes);
+    expect(hexproof.selections).toEqual(['Mode 1']);
+
+    const protectionFromGreen = chooseAIModeSelectionsForStep(makeGame({
+      id: 'pro-g-1',
+      controller: 'opp1',
+      power: 4,
+      toughness: 6,
+      card: {
+        name: 'Consecrated Sphinx',
+        type_line: 'Creature — Sphinx',
+        power: '4',
+        toughness: '6',
+        oracle_text: 'Flying, protection from green\nWhenever an opponent draws a card, you may draw two cards.',
+      },
+    }), playerId, koglaModes);
+    expect(protectionFromGreen.selections).toEqual(['Mode 1']);
+  });
+
   it('declines ward when a Signet bundle only looks affordable in the aggregate pool', () => {
     const playerId = 'ai1' as PlayerID;
     const game = {

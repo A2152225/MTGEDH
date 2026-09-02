@@ -32,6 +32,9 @@ export function useAppDismissResolutionStepUi(p: Record<string, any>) {
     setDiscardResolutionReason,
     setDiscardResolutionStepId,
     setDiscardResolutionTitle,
+    setExplorePrompt,
+    setBatchExploreIndividual,
+    setBatchExplorePrompt,
     setFatesealModalOpen,
     setFightTargetModalOpen,
     setGraveyardSelectionModalOpen,
@@ -53,7 +56,11 @@ export function useAppDismissResolutionStepUi(p: Record<string, any>) {
     setMutateModalOpen,
     setOpeningHandActionsModalOpen,
     setOpeningHandActionsStepId,
+    setOpponentMayPayPrompt,
+    setOpponentMayPayStepId,
     setOptionChoiceModalOpen,
+    setPeek,
+    setPendingSpellXSelection,
     setPendingTriggers,
     setPhyrexianManaModalOpen,
     setPonderModalOpen,
@@ -141,6 +148,14 @@ export function useAppDismissResolutionStepUi(p: Record<string, any>) {
     // when the resolution queue is dismissed so loop replay cannot leave it stuck open.
     setCastSpellModalOpen(false);
     setSpellToCast(null);
+    // Scry/surveil/bottom-order live in `peek`, not a *ModalOpen flag.
+    setPeek(null);
+    setExplorePrompt(null);
+    setBatchExplorePrompt(null);
+    setBatchExploreIndividual(null);
+    setOpponentMayPayPrompt(null);
+    setOpponentMayPayStepId(null);
+    setPendingSpellXSelection(null);
   }, []);
 
 

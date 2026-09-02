@@ -142,7 +142,7 @@ Dry-run / audit callers omit `serverBridge`; ledger still populated via direct s
 1. Set `currentCtx.currentStepIndex = stepIndex` each iteration.
 2. After zone-affecting steps, call `recordCardsToStepLedger()` to snapshot moved cards.
 3. When `serverBridge` present, zone steps call `proposeTransitions` instead of direct mutation.
-4. **Phase J:** `onApplied` receives `sanitizeBridgedStepCarryOver(result)` — when `skipLedgerFlush` is set (bridge pre-recorded ledger), strip `lastMovedCards` / `lastExiledCards` / `lastDiscardedCards` / `lastMilledCards` before updating `currentCtx` carry-over slots.
+4. **Phase J:** `onApplied` receives `sanitizeBridgedStepCarryOver(result)` — when `skipLedgerFlush` is set (bridge pre-recorded ledger), strip `lastExiledCards` / `lastDiscardedCards` / `lastMilledCards` / `lastSacrificedPermanents` before updating `currentCtx` carry-over slots. `lastMovedCards` / `lastRevealedCards` are restored after sanitize so Warp World reveal→put keeps per-owner piles (omitting `lastMovedCards` reused shuffle leftovers and dropped shared Scryfall ids).
 
 **Bridged carry-over helpers** (`oracleIRStepLedgerRuntime.ts`):
 

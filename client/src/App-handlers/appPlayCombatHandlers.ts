@@ -11,6 +11,7 @@ import { canCreatureBlockNow, isCurrentlyCreature } from "../utils/creatureUtils
 import { expandGroupedTokensForDisplay, tokenDisplayInstanceCount } from "../utils/expandGroupedTokens";
 import { debugError } from "../utils/debug";
 import { playerIsLegalAttackTarget } from "../../../rules-engine/src/playerInGameStatus";
+import { collectAttackYouTaxPreviewForDefender } from "../utils/combatAttackTax";
 
 export function useAppPlayCombatHandlers(p: Record<string, any>) {
   const {
@@ -389,36 +390,9 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
   }, [safeView, you]);
 
   // Per-defender attack info: untapped creature count and attack tax per attacker.
-  // The tax is parsed from pillow-fort enchantments (Ghostly Prison, Propaganda, etc.)
+  // Tax is oracle-parsed on the client for the assign-attackers preview (including `{W/P}`).
   const defenderInfoMap = useMemo(() => {
     if (!safeView || !you) return undefined;
-
-    const KNOWN_ATTACK_TAX_BY_NAME: Record<string, number> = {
-      'windborn muse': 2,
-      'ghostly prison': 2,
-      'propaganda': 2,
-      'baird, steward of argive': 1,
-    };
-
-    const getAttackTaxPerCreature = (perm: BattlefieldPermanent): number => {
-      const oracle = ((perm.card as any)?.oracle_text || '').toLowerCase();
-      const name = ((perm.card as any)?.name || '').toLowerCase();
-
-      const strictMatch = oracle.match(
-        /creatures can't attack you (?:or a planeswalker you control )?unless their controller pays \{(\d+)\}/i,
-      );
-      if (strictMatch) return parseInt(strictMatch[1], 10);
-
-      const genericMatch = oracle.match(
-        /creatures?\s+can't\s+attack\s+you\s+unless\s+.*pays?\s+\{(\d+)\}/i,
-      );
-      if (genericMatch) return parseInt(genericMatch[1], 10);
-
-      for (const [knownName, cost] of Object.entries(KNOWN_ATTACK_TAX_BY_NAME)) {
-        if (name.includes(knownName)) return cost;
-      }
-      return 0;
-    };
 
     const resolveDefendingPlayerId = (defenderId: string): string => {
       const battlefield: BattlefieldPermanent[] = safeView.battlefield || [];
@@ -429,13 +403,17 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
       return targetPerm?.controller ? String(targetPerm.controller) : defenderId;
     };
 
-    const result: Record<string, { untappedCreatureCount: number; attackTaxPerCreature: number }> = {};
+    const result: Record<string, {
+      untappedCreatureCount: number;
+      attackTaxPerCreature: number;
+      attackTaxPhyrexianPerCreature: Array<{ symbol: string; life: number }>;
+      attackTaxCountersOnAttacker: boolean;
+    }> = {};
     const battlefield: BattlefieldPermanent[] = safeView.battlefield || [];
     for (const defender of defenders) {
       const defId = String(defender.id);
       const defendingPlayerId = resolveDefendingPlayerId(defId);
 
-      // Count untapped creatures controlled by this opponent
       const untappedCreatureCount = battlefield.reduce((sum: number, p: BattlefieldPermanent) => {
         if (p.controller !== defendingPlayerId) return sum;
         if (p.tapped) return sum;
@@ -444,14 +422,17 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
         return sum + tokenDisplayInstanceCount(p);
       }, 0);
 
-      // Compute attack tax from pillow-fort permanents controlled by the defending player
-      let attackTaxPerCreature = 0;
-      for (const perm of battlefield) {
-        if (perm.controller !== defendingPlayerId) continue;
-        attackTaxPerCreature = Math.max(attackTaxPerCreature, getAttackTaxPerCreature(perm));
-      }
-
-      result[defId] = { untappedCreatureCount, attackTaxPerCreature };
+      const tax = collectAttackYouTaxPreviewForDefender(
+        battlefield,
+        defendingPlayerId,
+        (safeView as any)?.lastingEffects,
+      );
+      result[defId] = {
+        untappedCreatureCount,
+        attackTaxPerCreature: tax.generic,
+        attackTaxPhyrexianPerCreature: tax.phyrexian,
+        attackTaxCountersOnAttacker: tax.countersOnAttacker,
+      };
     }
     return result;
   }, [safeView, you, defenders]);

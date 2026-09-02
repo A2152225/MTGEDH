@@ -13,7 +13,12 @@ import {
   cardMatchesMoveZoneSingleTargetCriteria,
   resolveAmongThemMatchingCardIds,
 } from './oracleIRExecutorZoneOps';
-import { findBoundCardZoneLocation, getChosenObjectIds } from './oracleIRExecutorMoveZoneReferenceResolvers';
+import { auraEnterAttachmentId, readBoundZoneCard, resolveAuraEnterAttachment } from './oracleIRExecutorAuraEnterAttachment';
+import { findBoundCardZoneLocation, getChosenObjectIds, ownerIdFromMovedCardSnapshots } from './oracleIRExecutorMoveZoneReferenceResolvers';
+import {
+  preferredAuraAttachIdFromContext,
+  trySkipEnchantmentWaveAuraAttach,
+} from './oracleIRExecutorWarpWorldInteractive';
 import {
   getLibraryPlacement,
   moveContextualCardToDestination,
@@ -24,6 +29,14 @@ import {
   resolveRevealThisWayRestDestination,
 } from './oracleIRExecutorMoveZoneContextualCardResolvers';
 import { buildAppliedResult } from './oracleIRExecutorMoveZoneStepResultBuilders';
+import { readPlayerZoneCards, writePlayerZoneCards } from './oracleIRExecutorPlayerUtils';
+import { resolveRevealedThisWayCardPile } from './oracleIRLedgerCardAccess';
+import {
+  findBestZoneCardIndex,
+  flattenZoneCardForBattlefield,
+  mergeRevealedCardIdentity,
+  takeRevealedCardSnapshot,
+} from './oracleIRExecutorZoneCardIdentity';
 
 export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZoneGuardArgs): MoveZoneStepHandlerResult | undefined {
   const { state, step, ctx, runtime, nextState, log, controllerId, effectiveWithCounters, battlefieldEntryOverrides } = args;
@@ -40,27 +53,86 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
   ) {
     const preferredIds = getChosenObjectIds(ctx);
     const effectiveCriteria = resolveAmongThemCriteriaWithX(parsedTypedCardsRevealedThisWay || { cardType: 'any' }, ctx);
-    const candidateIds = resolveContextualCardIdsInZones(nextState, ctx, runtime, ['library', 'exile', 'hand', 'graveyard']);
-    const matchingIds = candidateIds.filter(cardId => {
-      const location = findBoundCardZoneLocation(nextState, cardId);
+    const revealedCards = resolveRevealedThisWayCardPile(ctx, step);
+    const candidateRefs: Array<{ cardId: string; ownerId?: string }> =
+      revealedCards.length > 0
+        ? revealedCards
+            .map((card: any) => ({
+              cardId: String(card?.id || '').trim(),
+              ownerId: String(card?.owner || card?.ownerId || '').trim() || undefined,
+            }))
+            .filter((ref) => ref.cardId)
+        : resolveContextualCardIdsInZones(nextState, ctx, runtime, ['library', 'exile', 'hand', 'graveyard']).map(
+            (cardId) => ({
+              cardId,
+              ownerId: ownerIdFromMovedCardSnapshots(revealedCards, cardId),
+            }),
+          );
+    const matchingRefs = candidateRefs.filter(({ cardId, ownerId }) => {
+      const location = findBoundCardZoneLocation(nextState, cardId, ownerId);
       if (!location) return false;
       const player = nextState.players.find(p => p.id === location.playerId) as any;
-      const zoneCards = Array.isArray(player?.[location.zone]) ? player[location.zone] : [];
-      const card = zoneCards.find((entry: any) => String(entry?.id || '').trim() === cardId);
-      return card && cardMatchesMoveZoneSingleTargetCriteria(card, effectiveCriteria);
+      const zoneCards =
+        location.zone === 'library'
+          ? readPlayerZoneCards(nextState, location.playerId, player, 'library')
+          : Array.isArray(player?.[location.zone]) ? player[location.zone] : [];
+      const card = location.zone === 'library'
+        ? zoneCards[findBestZoneCardIndex(zoneCards, cardId)]
+        : zoneCards.find((entry: any) => String(entry?.id || '').trim() === cardId);
+      return card && cardMatchesMoveZoneSingleTargetCriteria(
+        flattenZoneCardForBattlefield(card) || card,
+        effectiveCriteria,
+      );
     });
-    if (matchingIds.length === 0 && !parsedRevealedThisWayRestToLibrary) {
+    const matchingIds = matchingRefs.map((ref) => ref.cardId);
+    if (matchingRefs.length === 0 && !parsedRevealedThisWayRestToLibrary) {
       return buildAppliedResult({ state: nextState, log: [`No matching revealed-this-way cards: ${step.raw}`] });
     }
     let workingState = nextState;
     const combinedLog: string[] = [];
     const movedCardIds: string[] = [];
     const movedBattlefieldIds: string[] = [];
-    for (const cardId of matchingIds) {
-      const location = findBoundCardZoneLocation(workingState, cardId);
+    const hostSnapshot =
+      step.to === 'battlefield' ? [...(((workingState.battlefield || []) as any[]) || [])] : [];
+    const remainingRevealed = [...revealedCards];
+    if (step.to === 'battlefield') {
+      const auraSkip = trySkipEnchantmentWaveAuraAttach({
+        state: workingState,
+        ctx,
+        matchingIds,
+        hostSnapshot,
+        ownerControlsMovedCards: step.battlefieldController?.kind === 'owner_of_moved_cards',
+        stepRaw: String(step.raw || ''),
+      });
+      if (auraSkip) return auraSkip;
+    }
+    for (const { cardId, ownerId } of matchingRefs) {
+      const location = findBoundCardZoneLocation(workingState, cardId, ownerId);
       if (!location) continue;
       const battlefieldControllerId =
         step.battlefieldController?.kind === 'owner_of_moved_cards' ? location.playerId : controllerId;
+      if (location.zone === 'library' && step.to === 'battlefield') {
+        const player = workingState.players.find(p => p.id === location.playerId) as any;
+        const pile = readPlayerZoneCards(workingState, location.playerId, player, 'library');
+        const idx = findBestZoneCardIndex(pile, cardId);
+        if (idx >= 0) {
+          pile[idx] = mergeRevealedCardIdentity(
+            pile[idx],
+            takeRevealedCardSnapshot(remainingRevealed, cardId, ownerId),
+          );
+          writePlayerZoneCards(workingState, location.playerId, player, 'library', pile);
+        }
+      }
+      let attachedToId: string | undefined;
+      if (step.to === 'battlefield') {
+        const card = readBoundZoneCard(workingState, location.playerId, location.zone, cardId);
+        const attachment = resolveAuraEnterAttachment(workingState, card, battlefieldControllerId, {
+          hostPool: hostSnapshot,
+          preferredAttachId: preferredAuraAttachIdFromContext(ctx, cardId),
+        });
+        if (attachment.kind === 'illegal') continue;
+        attachedToId = auraEnterAttachmentId(attachment);
+      }
       const result =
         location.zone === 'library'
           ? moveContextualCardToDestination(workingState, location, cardId, step.to, {
@@ -71,6 +143,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
               entersFaceDown: step.entersFaceDown,
               withCounters: effectiveWithCounters,
               battlefieldEntryOverrides,
+              attachedToBattlefieldPermanentId: attachedToId,
             })
           : location.zone === 'graveyard'
             ? moveTargetedCardFromGraveyard(
@@ -83,7 +156,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                 step.entersTapped,
                 step.entersFaceDown,
                 effectiveWithCounters,
-                undefined,
+                attachedToId,
                 undefined,
                 battlefieldEntryOverrides
               )
@@ -100,7 +173,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                   step.entersTapped,
                   step.entersFaceDown,
                   effectiveWithCounters,
-                  undefined,
+                  attachedToId,
                   battlefieldEntryOverrides
                 )
               : moveTargetedCardFromExile(
@@ -113,7 +186,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                   step.entersTapped,
                   step.entersFaceDown,
                   effectiveWithCounters,
-                  undefined,
+                  attachedToId,
                   battlefieldEntryOverrides
                 );
       if (result.kind !== 'applied') continue;

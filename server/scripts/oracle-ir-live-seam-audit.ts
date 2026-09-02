@@ -12,6 +12,8 @@
       enters, a creature you control dies) actually detect?
     - Do exile-source payoffs (time counter removed while exiled) detect, and does
       the suspend upkeep path emit them?
+    - Do quoted "have …" granted triggers fire on a blank recipient (not only parse
+      on the lord)?
 
   Run:
     npm run oracle-ir:live-seam
@@ -32,12 +34,20 @@ import { collectStaticEffectSpecsFromState } from '../src/state/modules/staticEf
 import {
   detectAttackTriggers,
   detectBlockTriggers,
+  detectCombatDamageTriggers,
   detectDeathTriggers,
+  detectDealtDamageTriggers,
   detectETBTriggers,
+  detectLTBTriggers,
+  detectTargetedTriggers,
+  detectTapTriggers,
+  detectSpellCastTriggers,
 } from '../src/state/modules/triggered-abilities.js';
-import { detectCounterRemovedTriggers } from '../src/state/modules/triggers/counters.js';
+import { detectUpkeepTriggers } from '../src/state/modules/upkeep-triggers.js';
+import { detectCounterPlacedTriggers, detectCounterRemovedTriggers } from '../src/state/modules/triggers/counters.js';
 import { isAttackWatcherTriggerType } from '../src/state/modules/triggers/attack-watcher-queue.js';
 import { detectLandfallTriggers } from '../src/state/modules/triggers/landfall.js';
+import { normalizeCreatureTypeWord } from '../../shared/src/creatureTypes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
@@ -57,7 +67,8 @@ export type LiveSeamId =
   | 'etb_watcher'
   | 'death_watcher'
   | 'exile_time_counter'
-  | 'exile_time_counter_emission';
+  | 'exile_time_counter_emission'
+  | 'granted_quoted_trigger';
 
 export type LiveSeamCard = {
   name: string;
@@ -339,6 +350,216 @@ function evaluateExile(card: LiveSeamCard, oracle: string, gaps: LiveSeamGap[], 
   }
 }
 
+type GrantedQuotedKind = 'etb' | 'attack' | 'combat_damage' | 'dealt_damage' | 'death' | 'targeted' | 'counters_put' | 'becomes_tapped' | 'spell_cast' | 'becomes_blocked' | 'ltb' | 'upkeep' | 'gy_from_battlefield' | 'dealt_damage_dies';
+
+function grantedQuoteKinds(quote: string): GrantedQuotedKind[] {
+  const text = String(quote || '').trim();
+  const lower = text.toLowerCase();
+  if (!text || /^\{/.test(text) || /^\{t\}/i.test(lower)) return [];
+  const kinds: GrantedQuotedKind[] = [];
+  if (/when(?:ever)? this (?:creature|permanent|land|artifact|enchantment) enters/.test(lower)) {
+    kinds.push('etb');
+  }
+  if (
+    /when(?:ever)? this (?:creature|permanent|vehicle) attacks/.test(lower)
+    && !/\battacks or (?:blocks|dies)\b/.test(lower)
+  ) {
+    kinds.push('attack');
+  }
+  if (/deals combat damage/.test(lower)) {
+    kinds.push('combat_damage');
+  }
+  if (/is dealt (?:combat )?damage/.test(lower)) {
+    kinds.push('dealt_damage');
+  }
+  if (/when(?:ever)? this (?:creature|permanent) dies/.test(lower)) {
+    kinds.push('death');
+  }
+  if (/becomes the target of/.test(lower)) {
+    kinds.push('targeted');
+  }
+  if (/counters? (?:are|is) put on this/.test(lower)) {
+    kinds.push('counters_put');
+  }
+  if (/becomes tapped/.test(lower)) {
+    kinds.push('becomes_tapped');
+  }
+  if (/whenever you cast a spell/.test(lower) && !/^\{/.test(text)) {
+    kinds.push('spell_cast');
+  }
+  if (/becomes blocked/.test(lower)) {
+    kinds.push('becomes_blocked');
+  }
+  if (
+    /when(?:ever)? this (?:creature|permanent) enters or leaves/.test(lower)
+    || /when(?:ever)? this (?:creature|permanent) leaves the battlefield/.test(lower)
+  ) {
+    kinds.push('ltb');
+  }
+  if (/at the beginning of your upkeep/.test(lower)) {
+    kinds.push('upkeep');
+  }
+  if (/when(?:ever)?.+put into a graveyard from the battlefield/.test(lower)) {
+    kinds.push('gy_from_battlefield');
+  }
+  if (/dealt damage by this creature this turn dies/.test(lower)) {
+    kinds.push('dealt_damage_dies');
+  }
+  return kinds;
+}
+
+function grantedQuotedKindDetects(
+  kind: GrantedQuotedKind,
+  recipient: { card: any },
+  gameState: { battlefield: any[] },
+): boolean {
+  const card = recipient.card;
+  if (kind === 'etb') return detectETBTriggers(card, recipient, gameState).length > 0;
+  if (kind === 'attack') return detectAttackTriggers(card, recipient, gameState).length > 0;
+  if (kind === 'combat_damage') return detectCombatDamageTriggers(card, recipient, gameState).length > 0;
+  if (kind === 'dealt_damage') return detectDealtDamageTriggers(card, recipient, gameState).length > 0;
+  if (kind === 'targeted') return detectTargetedTriggers(card, recipient, gameState).length > 0;
+  if (kind === 'counters_put') return detectCounterPlacedTriggers(card, recipient, gameState).length > 0;
+  if (kind === 'becomes_tapped') return detectTapTriggers(card, recipient, gameState).length > 0;
+  if (kind === 'spell_cast') return detectSpellCastTriggers(card, recipient, gameState).length > 0;
+  if (kind === 'becomes_blocked') return detectBlockTriggers(card, recipient, gameState).length > 0;
+  if (kind === 'ltb') {
+    return detectLTBTriggers(card, recipient, gameState).some((trigger) => (
+      trigger.triggerType === 'ltb' || trigger.triggerType === 'self_enters_or_leaves'
+    ));
+  }
+  if (kind === 'upkeep') return detectUpkeepTriggers(card, recipient, gameState).length > 0;
+  if (kind === 'gy_from_battlefield') {
+    return detectDeathTriggers(card, recipient, gameState).some((trigger) => (
+      trigger.triggerType === 'put_into_graveyard_from_battlefield'
+    ));
+  }
+  if (kind === 'dealt_damage_dies') {
+    return detectDeathTriggers(card, recipient, gameState).some((trigger) => (
+      trigger.triggerType === 'dealt_damage_dies'
+    ));
+  }
+  return detectDeathTriggers(card, recipient, gameState).length > 0;
+}
+
+function capitalizeCreatureType(word: string): string {
+  const lower = String(word || '').trim().toLowerCase().replace(/s$/, '');
+  if (!lower) return 'Creature';
+  return `Creature — ${lower.charAt(0).toUpperCase()}${lower.slice(1)}`;
+}
+
+function recipientForQuotedHavePrefix(prefix: string, index: number) {
+  const text = String(prefix || '').toLowerCase();
+  const id = `seam_grant_recipient_${index}`;
+  const baseCard = {
+    id: `${id}_card`,
+    name: 'Seam Recipient',
+    oracle_text: '',
+  };
+  if (/commander creatures you own/.test(text)) {
+    return {
+      id,
+      controller: 'p1',
+      owner: 'p1',
+      isCommander: true,
+      card: { ...baseCard, type_line: 'Creature' },
+    };
+  }
+  if (/\ball\s+artifacts?\s*$/.test(text) || /\bother\s+artifacts?\s*$/.test(text)) {
+    return {
+      id,
+      controller: 'p1',
+      owner: 'p1',
+      card: { ...baseCard, type_line: 'Artifact' },
+    };
+  }
+  if (/\ball\s+enchantments?\s*$/.test(text) || /\bother\s+enchantments?\s*$/.test(text)) {
+    return {
+      id,
+      controller: 'p1',
+      owner: 'p1',
+      card: { ...baseCard, type_line: 'Enchantment' },
+    };
+  }
+  if (/\ball\s+lands?\s*$/.test(text) || /\bother\s+lands?\s*$/.test(text)) {
+    return {
+      id,
+      controller: 'p1',
+      owner: 'p1',
+      card: { ...baseCard, type_line: 'Land' },
+    };
+  }
+  if (/non-([a-z]+) creatures/.test(text)) {
+    return {
+      id,
+      controller: 'p1',
+      owner: 'p1',
+      card: { ...baseCard, type_line: 'Creature — Bear' },
+    };
+  }
+  const allType = text.match(/all\s+([a-z]+)s?(?:\s+creatures?)?\s*$/);
+  if (allType && allType[1] !== 'creature' && allType[1] !== 'permanent') {
+    return {
+      id,
+      controller: 'p1',
+      owner: 'p1',
+      card: { ...baseCard, type_line: capitalizeCreatureType(allType[1]) },
+    };
+  }
+  const typedControl = text.match(/(?:other\s+)?([a-z]+) creatures you control\s*$/);
+  if (typedControl && typedControl[1] !== 'other') {
+    return {
+      id,
+      controller: 'p1',
+      owner: 'p1',
+      card: { ...baseCard, type_line: capitalizeCreatureType(typedControl[1]) },
+    };
+  }
+  const tribalYouControl = text.match(/(?:other\s+)?([a-z]+) you control\s*$/);
+  if (tribalYouControl) {
+    const creatureType = normalizeCreatureTypeWord(String(tribalYouControl[1] || ''));
+    if (creatureType) {
+      return {
+        id,
+        controller: 'p1',
+        owner: 'p1',
+        card: { ...baseCard, type_line: `Creature — ${creatureType.charAt(0).toUpperCase()}${creatureType.slice(1)}` },
+      };
+    }
+  }
+  return {
+    id,
+    controller: 'p1',
+    owner: 'p1',
+    card: { ...baseCard, type_line: 'Creature' },
+  };
+}
+
+function evaluateGrantedQuotedTriggers(card: LiveSeamCard, oracle: string, gaps: LiveSeamGap[]): void {
+  const matches = [...String(oracle || '').matchAll(/have\s+["“]([^"”]+)["”]/gi)];
+  if (matches.length === 0) return;
+
+  const lord = battlefieldProbe(card);
+
+  for (const [index, match] of matches.entries()) {
+    const quote = String(match[1] || '').trim();
+    const kinds = grantedQuoteKinds(quote);
+    if (kinds.length === 0) continue;
+    const prefix = String(oracle || '').slice(0, Number(match.index || 0));
+    if (/does(?:n['’]?t| not)\s*$/i.test(prefix.trimEnd())) continue;
+    const recipient = recipientForQuotedHavePrefix(prefix, index);
+    const gameState = { battlefield: [lord, recipient] };
+    for (const kind of kinds) {
+      if (!grantedQuotedKindDetects(kind, recipient, gameState)) {
+        gaps.push({
+          seam: 'granted_quoted_trigger',
+          detail: `${kind}: ${quote}`,
+        });
+      }
+    }
+  }
+}
+
 export function evaluateLiveSeams(card: LiveSeamCard, options?: { exileEmission?: boolean }): LiveSeamGap[] {
   const oracle = String(card.oracle_text || '').trim();
   if (!oracle) return [];
@@ -348,6 +569,7 @@ export function evaluateLiveSeams(card: LiveSeamCard, options?: { exileEmission?
   evaluateCompounds(card, oracle, gaps);
   evaluateWatchers(card, oracle, gaps);
   evaluateExile(card, oracle, gaps, exileEmission);
+  evaluateGrantedQuotedTriggers(card, oracle, gaps);
   return gaps;
 }
 

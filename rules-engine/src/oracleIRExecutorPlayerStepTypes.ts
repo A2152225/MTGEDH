@@ -62,7 +62,13 @@ export type UnlessPaysLifeResult =
   | StepSkipResult;
 
 export type UnlessPaysManaResult =
-  | { readonly applied: true; readonly shouldApplyNestedSteps: boolean; readonly state?: GameState; readonly log: readonly string[] }
+  | {
+      readonly applied: true;
+      readonly shouldApplyNestedSteps: boolean;
+      readonly state?: GameState;
+      readonly log: readonly string[];
+      readonly paidManaAmount?: string;
+    }
   | StepSkipResult;
 
 export type UnlessDiscardsResult =

@@ -25,6 +25,18 @@ const QUOTED_OTHER_CREATURES_HAVE_RE =
   /(?:^|[.\n;])\s*other creatures have\s+["\u201C]([^"\u201D]+)["\u201D]/gi;
 const QUOTED_OTHER_PERMANENT_TYPE_HAVE_RE =
   /(?:^|[.\n;])\s*other (enchantments?|artifacts?|permanents?) have\s+["\u201C]([^"\u201D]+)["\u201D]/gi;
+const QUOTED_ALL_TYPE_HAVE_RE =
+  /(?:^|[.\n;])\s*all\s+([a-z]+)s?(?:\s+creatures?)?\s+have\s+["\u201C]([^"\u201D]+)["\u201D]/gi;
+const QUOTED_NON_TYPE_CREATURES_HAVE_RE =
+  /(?:^|[.\n;])\s*non-([a-z]+) creatures have\s+["\u201C]([^"\u201D]+)["\u201D]/gi;
+const QUOTED_COMMANDER_YOU_OWN_HAVE_RE =
+  /(?:^|[.\n;])\s*commander creatures you own have\s+["\u201C]([^"\u201D]+)["\u201D]/gi;
+const QUOTED_PERMANENTS_YOU_CONTROL_HAVE_RE =
+  /(?:^|[.\n;])\s*(other\s+)?permanents you control have\s+["\u201C]([^"\u201D]+)["\u201D]/gi;
+const QUOTED_TRIBAL_YOU_CONTROL_HAVE_RE =
+  /(?:^|[.\n;])\s*(other\s+)?([a-z]+)s?\s+you control have\s+["\u201C]([^"\u201D]+)["\u201D]/gi;
+const QUOTED_CARD_TYPE_YOU_CONTROL_HAVE_RE =
+  /\b(?:creatures?|permanents?|artifacts?|enchantments?|lands?|planeswalkers?)\s+you control have\b/i;
 const CITYS_BLESSING_CARD_TYPE_GET_RE =
   /(?:^|[.\n;])\s*(other\s+)?(artifact|enchantment|land) creatures you control get\s+(\+\d+\s*\/\s*\+\d+)\s+as long as you have the city'?s blessing/gi;
 const HISTORIC_DURING_TURN_HAVE_RE =
@@ -174,6 +186,102 @@ export function pushQuotedNumericAndBasePTLordSpecs(
       { kind: 'other_all_permanents' },
       parseLordAbilitiesFromTail(`"${match[2] || ''}"`),
       { kind: 'target_has_type', cardType },
+    );
+  }
+
+  for (const match of text.matchAll(QUOTED_ALL_TYPE_HAVE_RE)) {
+    const rawType = String(match[1] || '').toLowerCase().replace(/s$/, '');
+    const quoted = String(match[2] || '');
+    const abilities = parseLordAbilitiesFromTail(`"${quoted}"`);
+    if (rawType === 'creature') {
+      pushAbilitySpec(
+        specs,
+        source,
+        'all-creatures-quoted-ability-grant',
+        { kind: 'all_creatures' },
+        abilities,
+      );
+      continue;
+    }
+    if (rawType === 'permanent') {
+      pushAbilitySpec(
+        specs,
+        source,
+        'all-permanents-quoted-ability-grant',
+        { kind: 'all_permanents' },
+        abilities,
+      );
+      continue;
+    }
+    if (rawType === 'artifact' || rawType === 'enchantment' || rawType === 'land') {
+      pushAbilitySpec(
+        specs,
+        source,
+        `all-${rawType}-quoted-ability-grant`,
+        { kind: 'all_permanents' },
+        abilities,
+        { kind: 'target_has_type', cardType: rawType },
+      );
+      continue;
+    }
+    const creatureType = parseLordCreatureType(rawType);
+    if (!creatureType || !isCreatureTypeWord(creatureType)) continue;
+    pushAbilitySpec(
+      specs,
+      source,
+      `all-${creatureType}-quoted-ability-grant`,
+      { kind: 'all_creatures_of_type', creatureType },
+      abilities,
+    );
+  }
+
+  for (const match of text.matchAll(QUOTED_NON_TYPE_CREATURES_HAVE_RE)) {
+    const creatureType = parseLordCreatureType(String(match[1] || ''));
+    if (!creatureType || !isCreatureTypeWord(creatureType)) continue;
+    pushAbilitySpec(
+      specs,
+      source,
+      `non-${creatureType}-creatures-quoted-ability-grant`,
+      { kind: 'all_creatures' },
+      parseLordAbilitiesFromTail(`"${match[2] || ''}"`),
+      { kind: 'target_lacks_creature_type', creatureType },
+    );
+  }
+
+  for (const match of text.matchAll(QUOTED_COMMANDER_YOU_OWN_HAVE_RE)) {
+    pushAbilitySpec(
+      specs,
+      source,
+      'commander-you-own-quoted-ability-grant',
+      { kind: 'all_creatures' },
+      parseLordAbilitiesFromTail(`"${match[1] || ''}"`),
+      { kind: 'target_is_commander' },
+      [{ kind: 'target_owned_by_source_controller' }],
+    );
+  }
+
+  for (const match of text.matchAll(QUOTED_PERMANENTS_YOU_CONTROL_HAVE_RE)) {
+    const isOther = Boolean(match[1]);
+    pushAbilitySpec(
+      specs,
+      source,
+      `${isOther ? 'other-' : ''}permanents-quoted-ability-grant`,
+      { kind: isOther ? 'other_permanents_you_control' : 'permanents_you_control' },
+      parseLordAbilitiesFromTail(`"${match[2] || ''}"`),
+    );
+  }
+
+  for (const match of text.matchAll(QUOTED_TRIBAL_YOU_CONTROL_HAVE_RE)) {
+    if (QUOTED_CARD_TYPE_YOU_CONTROL_HAVE_RE.test(String(match[0] || ''))) continue;
+    const isOther = Boolean(match[1]);
+    const creatureType = parseLordCreatureType(String(match[2] || ''));
+    if (!creatureType || !isCreatureTypeWord(creatureType)) continue;
+    pushAbilitySpec(
+      specs,
+      source,
+      `${isOther ? 'other-' : ''}${creatureType}-quoted-ability-grant`,
+      { kind: isOther ? 'other_creatures_you_control' : 'creatures_you_control', creatureType },
+      parseLordAbilitiesFromTail(`"${match[3] || ''}"`),
     );
   }
 

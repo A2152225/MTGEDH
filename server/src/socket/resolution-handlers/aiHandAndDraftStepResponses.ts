@@ -5,7 +5,8 @@
  * Cluster moved: the opening run of AI auto-answers for X / mana-color / hand / draft prompts -
  * X_VALUE_SELECTION, MANA_COLOR_SELECTION (single color or a distribution keyed by the chosen
  * code), HAND_TO_BOTTOM (bottom the last N cards), RETURN_CONTROLLED_PERMANENT_CHOICE,
- * HIDEAWAY_CHOICE, REPEATED_ZONE_DRAFT (take the first remaining card) and JOIN_FORCES (decline).
+ * HIDEAWAY_CHOICE, REPEATED_ZONE_DRAFT (first legal card; include attachId when
+ * that Aura has more than one legal host) and JOIN_FORCES (shared draw/lands pay into X).
  * Public entry symbol: buildAiHandAndDraftStepResponse.
  *
  * The seven `case` bodies became one dispatcher because they were contiguous in the parent switch
@@ -13,7 +14,8 @@
  * assigning `response = buildAiHandAndDraftStepResponse(game, step);`. Four branches used to `break`
  * without assigning a response (no cards to bottom, no permanent / hideaway card / draft card
  * available); those now `return null`, which leaves the parent's `response` null exactly as before.
- * Heuristics and debug strings are unchanged. Returns null for a step type outside this group too.
+ * JOIN_FORCES uses `chooseAIJoinForcesContribution` (shared-positive X for all AIs). Returns null for a
+ * step type outside this group too.
  *
  * Reads `game` but never `io` or the queue, so resolution.ts imports it directly. Must not import
  * resolution.ts.
@@ -25,12 +27,14 @@ import {
   type ResolutionStepResponse,
 } from "../../state/resolution/index.js";
 import { debug, debugWarn } from "../../utils/debug.js";
+import { filterLegalRepeatedZoneDraftCardIds, buildRepeatedZoneDraftCardChoiceInfo } from "../../../../rules-engine/src/oracleIRExecutorRepeatedZoneDraft.js";
 import {
   chooseAIHideawayCardId,
   chooseAIManaColorForActivation,
   chooseAIReturnControlledPermanentId,
   chooseAIXValueSelection,
 } from "../ai.js";
+import { chooseAIJoinForcesContribution } from "../ai-handlers/aiJoinForcesDecision.js";
 
 /** AI answer for the X / mana-color / hand / draft prompts listed in the module header. */
 export function buildAiHandAndDraftStepResponse(
@@ -159,15 +163,20 @@ export function buildAiHandAndDraftStepResponse(
     case ResolutionStepType.REPEATED_ZONE_DRAFT: {
       const draftStep = step as any;
       const remaining = Array.isArray(draftStep.remainingCardIds) ? draftStep.remainingCardIds : [];
-      const cardId = String(remaining[0] || '').trim();
+      const chooserId = String(step.playerId || '').trim();
+      const legalIds = filterLegalRepeatedZoneDraftCardIds(game?.state, remaining, chooserId);
+      const cardId = String(legalIds[0] || remaining[0] || '').trim();
       if (!cardId) {
         debugWarn(1, `[Resolution] AI repeated zone draft: no cards remaining`);
         return null;
       }
+      const draftInfo = buildRepeatedZoneDraftCardChoiceInfo(game?.state, cardId, chooserId);
+      const attachOptions = Array.isArray(draftInfo?.attachOptions) ? draftInfo.attachOptions : [];
+      const attachId = attachOptions.length > 1 ? String(attachOptions[0]?.id || '').trim() : '';
       const response: ResolutionStepResponse = {
         stepId: step.id,
         playerId: step.playerId,
-        selections: [cardId],
+        selections: attachId ? { cardId, attachId } : [cardId],
         cancelled: false,
         timestamp: Date.now(),
       };
@@ -176,15 +185,15 @@ export function buildAiHandAndDraftStepResponse(
     }
 
     case ResolutionStepType.JOIN_FORCES: {
-      // AI declines to contribute to Join Forces (simple strategy)
+      const contribution = chooseAIJoinForcesContribution(game, step);
       const response: ResolutionStepResponse = {
         stepId: step.id,
         playerId: step.playerId,
-        selections: 0,
+        selections: contribution,
         cancelled: false,
         timestamp: Date.now(),
       };
-      debug(2, `[Resolution] AI declines to contribute to Join Forces`);
+      debug(2, `[Resolution] AI Join Forces contribution=${contribution}`);
       return response;
     }
 

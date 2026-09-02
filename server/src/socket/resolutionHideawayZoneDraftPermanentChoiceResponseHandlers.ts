@@ -22,6 +22,16 @@ import { parsePT, uid } from "../state/utils.js";
 import { debug, debugWarn } from "../utils/debug.js";
 import { appendQueuedResolutionPromptEvent } from "./resolutionCloneQueuedPromptUtils.js";
 import { broadcastGame, getPlayerName } from "./util.js";
+import {
+  buildRepeatedZoneDraftCardChoiceInfo,
+  filterLegalRepeatedZoneDraftCardIds,
+  findExiledDraftCard,
+  findNextRepeatedZoneDraftChooserIndex,
+  isRepeatedZoneDraftPickLegal,
+  repeatedZoneDraftNeedsExplicitAttachId,
+  resolveRepeatedZoneDraftAuraAttachId,
+} from "../../../rules-engine/src/oracleIRExecutorRepeatedZoneDraft.js";
+import { recordDeferredChaosEtbPermanentId } from "../state/modules/oracleIrChaosResolutionTriggerHold.js";
 
 /**
  * Handle Return Controlled Permanent Choice response.
@@ -290,10 +300,18 @@ export function handleRepeatedZoneDraftResponse(
   const chooserId = String(response.playerId || step.playerId || '').trim();
   const selection = response.selections as any;
   let selectedCardId = '';
+  let preferredAttachId = '';
   if (typeof selection === 'string') selectedCardId = selection;
-  else if (Array.isArray(selection) && selection.length > 0) selectedCardId = String(selection[0] || '');
-  else if (selection && typeof selection === 'object' && !Array.isArray(selection)) {
+  else if (Array.isArray(selection) && selection.length > 0) {
+    const first = selection[0];
+    if (typeof first === 'string') selectedCardId = first;
+    else if (first && typeof first === 'object') {
+      selectedCardId = String(first.cardId || first.selectedCardId || first.id || '');
+      preferredAttachId = String(first.attachId || first.attachedTo || first.hostId || first.playerId || '').trim();
+    }
+  } else if (selection && typeof selection === 'object' && !Array.isArray(selection)) {
     selectedCardId = String(selection.cardId || selection.selectedCardId || selection.id || '');
+    preferredAttachId = String(selection.attachId || selection.attachedTo || selection.hostId || selection.playerId || '').trim();
   }
   selectedCardId = String(selectedCardId || '').trim();
   if (!selectedCardId || !chooserId) {
@@ -306,6 +324,28 @@ export function handleRepeatedZoneDraftResponse(
     .filter(Boolean);
   if (!remainingCardIds.includes(selectedCardId)) {
     debugWarn(1, `[Resolution] Repeated zone draft: ${selectedCardId} not in remaining pool`);
+    return;
+  }
+  if (!isRepeatedZoneDraftPickLegal(game.state, selectedCardId, chooserId)) {
+    debugWarn(1, `[Resolution] Repeated zone draft: ${selectedCardId} is not legally returnable for ${chooserId}`);
+    return;
+  }
+  if (repeatedZoneDraftNeedsExplicitAttachId(game.state, selectedCardId, chooserId) && !preferredAttachId) {
+    debugWarn(1, `[Resolution] Repeated zone draft: ${selectedCardId} needs an attach host`);
+    return;
+  }
+
+  const preview = findExiledDraftCard(game.state, selectedCardId);
+  const previewAttachId = preview
+    ? resolveRepeatedZoneDraftAuraAttachId(
+        game.state,
+        preview.card,
+        chooserId,
+        preferredAttachId || undefined,
+      )
+    : undefined;
+  if (preferredAttachId && previewAttachId !== preferredAttachId) {
+    debugWarn(1, `[Resolution] Repeated zone draft: ${preferredAttachId} is not a legal attach target for ${selectedCardId}`);
     return;
   }
 
@@ -334,6 +374,18 @@ export function handleRepeatedZoneDraftResponse(
   const entersTapped = stepData.entersTapped !== false;
   const typeLine = String(card.type_line || '').toLowerCase();
   const isCreature = typeLine.includes('creature');
+  const attachId = resolveRepeatedZoneDraftAuraAttachId(
+    game.state,
+    card,
+    chooserId,
+    preferredAttachId || undefined,
+  );
+  const playerIds = new Set(
+    ((Array.isArray(game.state.players) ? game.state.players : []) as any[])
+      .map((player: any) => String(player?.id || '').trim())
+      .filter(Boolean),
+  );
+  const isPlayerAttach = Boolean(attachId && playerIds.has(attachId));
   game.state.battlefield.push({
     id: permanentId,
     controller: chooserId,
@@ -344,7 +396,21 @@ export function handleRepeatedZoneDraftResponse(
     baseToughness: isCreature ? parsePT(card.toughness) : undefined,
     summoningSickness: isCreature,
     card: { ...card, zone: 'battlefield' },
+    ...(attachId && !isPlayerAttach ? { attachedTo: attachId } : {}),
+    ...(isPlayerAttach
+      ? { attachedTo: attachId, enchanting: attachId, enchantedPlayerId: attachId }
+      : {}),
   });
+  if (attachId && !isPlayerAttach) {
+    const host = game.state.battlefield.find((perm: any) => String(perm?.id || '') === attachId);
+    if (host) {
+      const attachments = Array.isArray(host.attachments) ? [...host.attachments] : [];
+      if (!attachments.includes(permanentId)) attachments.push(permanentId);
+      host.attachments = attachments;
+    }
+  }
+
+  recordDeferredChaosEtbPermanentId(game.state, permanentId);
 
   const nextRemaining = remainingCardIds.filter((id: string) => id !== selectedCardId);
   const chooserOrder = (Array.isArray(stepData.chooserOrder) ? stepData.chooserOrder : [chooserId])
@@ -353,7 +419,7 @@ export function handleRepeatedZoneDraftResponse(
   const currentIndex = Number.isFinite(Number(stepData.chooserIndex))
     ? Math.max(0, Number(stepData.chooserIndex))
     : Math.max(0, chooserOrder.indexOf(chooserId));
-  const nextChooserIndex = chooserOrder.length > 0 ? (currentIndex + 1) % chooserOrder.length : 0;
+  const nextChooserStartIndex = chooserOrder.length > 0 ? (currentIndex + 1) % chooserOrder.length : 0;
 
   try {
     appendEvent(gameId, (game as any).seq ?? 0, 'effectProgramZoneMove', {
@@ -375,7 +441,7 @@ export function handleRepeatedZoneDraftResponse(
       permanentId,
       remainingCardIds: nextRemaining,
       chooserOrder,
-      chooserIndex: nextChooserIndex,
+      chooserIndex: nextChooserStartIndex,
       sourceId: stepData.sourceId,
       sourceName: stepData.sourceName,
       resolvedStepId: String(stepData.id || step.id || ''),
@@ -397,22 +463,26 @@ export function handleRepeatedZoneDraftResponse(
   }
 
   if (nextRemaining.length > 0 && chooserOrder.length > 0) {
+    const nextChooserIndex = findNextRepeatedZoneDraftChooserIndex(
+      game.state,
+      nextRemaining,
+      chooserOrder,
+      nextChooserStartIndex,
+    );
+    if (nextChooserIndex === null) {
+      const ctx = ((game as any).ctx || game) as any;
+      ctx.gameId = gameId;
+      ctx.state = game.state;
+      maybeResumeOracleIRStepsAfterResolution(ctx, step);
+      game.state = ctx.state;
+      broadcastGame(io, game, gameId);
+      return;
+    }
     const nextChooser = chooserOrder[nextChooserIndex] || chooserOrder[0];
-    const cards = nextRemaining
-      .map((cardId: string) => {
-        for (const zones of Object.values(game.state.zones as Record<string, any>)) {
-          const exile = Array.isArray(zones?.exile) ? zones.exile : [];
-          const found = exile.find((entry: any) => String(entry?.id || '') === cardId);
-          if (found) {
-            return {
-              id: cardId,
-              name: String(found.name || cardId),
-              imageUrl: found.image_uris?.normal || found.imageUrl,
-            };
-          }
-        }
-        return { id: cardId, name: cardId };
-      });
+    const legalIds = filterLegalRepeatedZoneDraftCardIds(game.state, nextRemaining, nextChooser);
+    const cards = legalIds
+      .map((cardId: string) => buildRepeatedZoneDraftCardChoiceInfo(game.state, cardId, nextChooser))
+      .filter(Boolean);
 
     const nextDraftStep = {
       type: ResolutionStepType.REPEATED_ZONE_DRAFT,

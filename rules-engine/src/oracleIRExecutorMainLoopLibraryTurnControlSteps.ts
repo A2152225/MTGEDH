@@ -314,7 +314,21 @@ export function tryApplyMainLoopLibraryTurnControlSteps(
       }
       case 'exchange_control': {
         const result = applyExchangeControlStep(nextState, step, currentCtx);
-        applyHandledStepResult(step, result);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          const antecedentIds = Array.isArray(appliedResult.lastAntecedentBattlefieldPermanentIds)
+            ? appliedResult.lastAntecedentBattlefieldPermanentIds
+                .map((id: unknown) => String(id || '').trim())
+                .filter(Boolean)
+            : [];
+          if (antecedentIds.length > 0) {
+            currentCtx = {
+              ...currentCtx,
+              lastAntecedentBattlefieldPermanentIds: antecedentIds,
+              lastMovedBattlefieldPermanentIds: antecedentIds,
+            };
+            lastMovedBattlefieldPermanentIds = [...antecedentIds];
+          }
+        });
         break;
       }
       case 'take_extra_turn': {
@@ -530,6 +544,41 @@ export function tryApplyMainLoopLibraryTurnControlSteps(
         };
         setLastStepOutcome(step, 'applied');
         log.push(`Chose color ${normalizedChosenMana}`);
+        appliedSteps.push(step);
+        break;
+      }
+      case 'choose_number': {
+        const minValue = Math.max(0, Math.floor(Number((step as { min?: number }).min ?? 0)));
+        const maxValue = Math.max(minValue, Math.floor(Number((step as { max?: number }).max ?? minValue)));
+        const rawChosen = Number(
+          currentCtx.selectorContext?.chosenNumber ?? (currentCtx as { chosenNumber?: number }).chosenNumber,
+        );
+        if (!Number.isFinite(rawChosen)) {
+          recordSkippedStep(
+            step,
+            `Skipped choose number (requires player choice): ${step.raw}`,
+            'player_choice_required',
+            {
+              classification: 'player_choice',
+              metadata: {
+                minValue,
+                maxValue,
+              },
+            },
+          );
+          break;
+        }
+        const chosenNumber = Math.max(minValue, Math.min(maxValue, Math.floor(rawChosen)));
+        currentCtx = {
+          ...currentCtx,
+          chosenNumber,
+          selectorContext: {
+            ...(currentCtx.selectorContext || {}),
+            chosenNumber,
+          },
+        };
+        setLastStepOutcome(step, 'applied');
+        log.push(`Chose number ${chosenNumber}`);
         appliedSteps.push(step);
         break;
       }

@@ -3,6 +3,8 @@ import { games, priorityTimers } from "./socket.js";
 import { broadcastGame } from "./util";
 import { appendEvent } from "../db";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { clearScheduledHumanAutoPass } from "./util-handlers/autoPassTimerState.js";
+import { startDisconnectAutoPassGrace } from "./disconnectAutoPassGrace.js";
 
 /**
  * Register disconnect / leave handlers.
@@ -290,6 +292,29 @@ export function registerDisconnectHandlers(io: Server, socket: Socket) {
             debugWarn(1, "disconnect fallback handling failed:", e);
           }
         }
+      }
+
+      // Refresh/drop only: hold idle + Smart-Pass so a tab refresh can rejoin.
+      // leaveGame does not use this path (that is concede-and-pass-now).
+      try {
+        if (playerId) {
+          const spectator = Boolean((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+          const players = Array.isArray((game as any)?.state?.players) ? (game as any).state.players : [];
+          const seated = players.find((entry: any) => String(entry?.id || "") === String(playerId));
+          const alreadyLeft = Boolean(
+            seated?.leftGame
+            || seated?.conceded
+            || seated?.hasLost
+            || seated?.eliminated
+            || (game as any)?.state?.autoPassForTurn?.[playerId]
+          );
+          if (!spectator && seated && !seated.spectator && !seated.isSpectator && !alreadyLeft) {
+            clearScheduledHumanAutoPass(gameId, playerId);
+            startDisconnectAutoPassGrace(gameId, playerId);
+          }
+        }
+      } catch {
+        // non-fatal
       }
 
       // Clear priority timer if the disconnected player had priority

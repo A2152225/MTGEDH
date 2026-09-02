@@ -74,6 +74,7 @@ export function TableLayout(props: {
   reasonCannotCast?: (card: any) => string | null;
   onImportDeckText?: (txt: string, name?: string) => void;
   onUseSavedDeck?: (deckId: string) => void;
+  accountUser?: { id: string; username: string; displayName: string } | null;
   onLocalImportConfirmChange?: (open: boolean) => void;
   // External control for deck manager visibility
   externalDeckMgrOpen?: boolean;
@@ -846,6 +847,7 @@ export function TableLayout(props: {
               gameId={gameId}
               playerId={you}
               canServer={!!isYouPlayer}
+              accountUser={props.accountUser ?? null}
               anchorEl={externalDeckMgrAnchorEl ?? decksBtnRef.current}
               wide
               onUseSavedDeck={(deckId) => handleRequestUseSavedDeck(deckId)}

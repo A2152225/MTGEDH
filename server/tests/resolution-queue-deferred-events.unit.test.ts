@@ -65,4 +65,35 @@ describe('ResolutionQueueManager deferred step-added events', () => {
       ResolutionQueueManager.removeQueue(gameId);
     }
   });
+
+  it('does not emit STEP_ADDED for allowDuringReplay restore enqueue', () => {
+    const replayGameId = 'test_resolution_queue_replay_skip_emit';
+    ResolutionQueueManager.removeQueue(replayGameId);
+    const addedStepIds: string[] = [];
+    const handler = (event: ResolutionQueueEvent, eventGameId: string, step?: { id?: string }) => {
+      if (eventGameId !== replayGameId || event !== ResolutionQueueEvent.STEP_ADDED || !step?.id) return;
+      addedStepIds.push(String(step.id));
+    };
+    ResolutionQueueManager.on(handler);
+
+    try {
+      ResolutionQueueManager.beginReplay(replayGameId);
+      const step = ResolutionQueueManager.addStep(replayGameId, {
+        type: ResolutionStepType.SURVEIL,
+        playerId: 'p1',
+        description: 'Surveil 1',
+        mandatory: true,
+        cards: [{ id: 'c1', name: 'Card 1' }],
+        surveilCount: 1,
+      } as any, { allowDuringReplay: true });
+      ResolutionQueueManager.endReplay(replayGameId);
+
+      expect(String(step.id || '')).toBeTruthy();
+      expect(ResolutionQueueManager.getQueue(replayGameId).steps.some((entry) => entry.id === step.id)).toBe(true);
+      expect(addedStepIds).toHaveLength(0);
+    } finally {
+      ResolutionQueueManager.off(handler);
+      ResolutionQueueManager.removeQueue(replayGameId);
+    }
+  });
 });

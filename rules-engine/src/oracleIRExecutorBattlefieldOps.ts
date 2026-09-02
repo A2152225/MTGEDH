@@ -13,7 +13,8 @@ import {
   type SimplePermanentType,
 } from './oracleIRExecutorBattlefieldParser';
 import { isMassTapOrUntapSelectorText, resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
-import { stampCardPutIntoGraveyardThisTurn, writePlayerZoneCards } from './oracleIRExecutorPlayerUtils';
+import { flattenZoneCardForBattlefield } from './oracleIRExecutorZoneCardIdentity';
+import { stampCardPutIntoGraveyardThisTurn, writePlayerCommandZoneCard, writePlayerZoneCards } from './oracleIRExecutorPlayerUtils';
 import { shuffleArray } from './oracleIRExecutorPlayerStepShared';
 import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { putAttractionInJunkyard, shouldAttractionGoToCommandZone } from './remainingCardTypes';
@@ -295,14 +296,25 @@ function isAttractionPermanent(perm: BattlefieldPermanent): boolean {
   return typeLine.includes('attraction');
 }
 
+export function isCommanderPermanent(state: GameState, perm: BattlefieldPermanent): boolean {
+  if ((perm as any)?.isCommander === true || (perm as any)?.card?.isCommander === true) return true;
+  const ownerId = String((perm as any)?.owner || (perm as any)?.ownerId || '').trim();
+  const cardId = String((perm as any)?.card?.id || '').trim();
+  if (!ownerId || !cardId) return false;
+  const info = (state as any)?.commandZone?.[ownerId];
+  const ids = Array.isArray(info?.commanderIds) ? info.commanderIds : [];
+  return ids.includes(cardId);
+}
+
 function placeRemovedPermanentInOwnerZone(params: {
   state: GameState;
   player: any;
   perm: BattlefieldPermanent;
   adjustedDestination: 'graveyard' | 'exile' | 'hand' | 'library';
   libraryPlacement?: 'top' | 'bottom';
+  commanderLibraryChoices?: Readonly<Record<string, 'command' | 'library'>>;
 }): 'graveyard' | 'exile' | 'hand' | 'library' | 'command' {
-  const { state, player, perm, adjustedDestination, libraryPlacement } = params;
+  const { state, player, perm, adjustedDestination, libraryPlacement, commanderLibraryChoices } = params;
 
   if (adjustedDestination !== 'exile' && isAttractionPermanent(perm) && shouldAttractionGoToCommandZone(adjustedDestination)) {
     const commandZone = Array.isArray(player.commandZone) ? [...player.commandZone] : [];
@@ -341,12 +353,34 @@ function placeRemovedPermanentInOwnerZone(params: {
   }
 
   if (adjustedDestination === 'library') {
+    const permanentId = String((perm as any)?.id || '').trim();
+    const commanderChoice = permanentId ? commanderLibraryChoices?.[permanentId] : undefined;
+    const choseCommand = commanderChoice === 'command';
+    const choseLibrary = commanderChoice === 'library';
+    if (choseCommand || (isCommanderPermanent(state, perm) && !choseLibrary)) {
+      const ownerId = String((player as any)?.id || (perm as any)?.owner || (perm as any)?.ownerId || '').trim() as PlayerID;
+      const commandCard = {
+        ...buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'command'),
+        id: resolveZoneCardIdFromPermanent(perm),
+        isCommander: true,
+      };
+      writePlayerCommandZoneCard(state, ownerId, player, commandCard, [
+        commandCard.id,
+        String((perm as any)?.card?.id || '').trim(),
+        permanentId,
+      ]);
+      return 'command';
+    }
     const library = Array.isArray(player.library) ? [...player.library] : [];
-    const movedCard = {
+    const libraryCard = flattenZoneCardForBattlefield({
       ...buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'library'),
       id: resolveZoneCardIdFromPermanent(perm),
-    };
-    const nextLibrary = libraryPlacement === 'top' ? [movedCard, ...library] : [...library, movedCard];
+    });
+    const typeLine = String(
+      libraryCard?.type_line || (perm as any)?.card?.type_line || (perm as any)?.type_line || '',
+    ).trim();
+    if (typeLine) libraryCard.type_line = typeLine;
+    const nextLibrary = libraryPlacement === 'top' ? [libraryCard, ...library] : [...library, libraryCard];
     const ownerId = String((player as any)?.id || '').trim() as PlayerID;
     if (ownerId) {
       writePlayerZoneCards(state, ownerId, player, 'library', nextLibrary);
@@ -371,6 +405,7 @@ function moveRemovedPermanentToOwnerZoneExplicit(params: {
   perm: BattlefieldPermanent;
   destination: 'graveyard' | 'exile' | 'hand' | 'library';
   libraryPlacement?: 'top' | 'bottom';
+  commanderLibraryChoices?: Readonly<Record<string, 'command' | 'library'>>;
 }): 'graveyard' | 'exile' | 'hand' | 'library' | 'command' {
   return placeRemovedPermanentInOwnerZone({
     ...params,
@@ -384,6 +419,7 @@ function moveRemovedPermanentToOwnerZone(params: {
   perm: BattlefieldPermanent;
   destination: 'graveyard' | 'exile' | 'hand' | 'library';
   libraryPlacement?: 'top' | 'bottom';
+  commanderLibraryChoices?: Readonly<Record<string, 'command' | 'library'>>;
 }): 'graveyard' | 'exile' | 'hand' | 'library' | 'command' {
   const { perm, destination, libraryPlacement } = params;
   const adjustedDestination =
@@ -420,7 +456,13 @@ export function permanentMatchesSelector(
   }
 
   if (sel.controllerFilter === 'target_player') {
-    const targetPlayerId = String(ctx.selectorContext?.targetPlayerId || ctx.targetPlayerId || '').trim() as PlayerID;
+    const targetPlayerId = String(
+      ctx.selectorContext?.targetPlayerId
+      || ctx.targetPlayerId
+      || ctx.selectorContext?.targetOpponentId
+      || ctx.targetOpponentId
+      || '',
+    ).trim() as PlayerID;
     if (!targetPlayerId || permanentControllerId !== targetPlayerId) return false;
   }
 
@@ -866,7 +908,10 @@ export function moveBattlefieldPermanentsByIdToOwnersLibraries(
   state: GameState,
   permanentIds: readonly string[],
   placement: 'top' | 'bottom',
-  options?: { shuffle?: boolean },
+  options?: {
+    shuffle?: boolean;
+    commanderLibraryChoices?: Readonly<Record<string, 'command' | 'library'>>;
+  },
 ): { state: GameState; log: string[]; movedCards?: any[] } {
   const wanted = new Set(permanentIds.map(id => String(id || '').trim()).filter(Boolean));
   if (wanted.size === 0) return { state, log: [] };
@@ -915,6 +960,7 @@ export function moveBattlefieldPermanentsByIdToOwnersLibraries(
       perm,
       destination: 'library',
       libraryPlacement: placement,
+      commanderLibraryChoices: options?.commanderLibraryChoices,
     });
     if (actualDestination === 'exile') redirectedToExile += 1;
     if (actualDestination === 'command') redirectedToCommand += 1;

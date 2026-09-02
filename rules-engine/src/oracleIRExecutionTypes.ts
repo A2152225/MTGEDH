@@ -117,6 +117,16 @@ export interface OracleIRSelectorContext {
   readonly attackingPlayerId?: PlayerID;
   readonly beheldQuality?: string;
   readonly bottomOrder?: readonly string[];
+  /** 903.9a mass-shuffle: per-permanent command zone vs library. */
+  readonly commanderLibraryChoices?: Readonly<Record<string, 'command' | 'library'>>;
+  /** Warp World enchantment-wave Aura attach announcements keyed by card id. */
+  readonly auraAttachByCardId?: Readonly<Record<string, string>>;
+  /** Warp World remainder: per-owner library-bottom order of revealed leftover cards. */
+  readonly libraryBottomOrderByPlayer?: Readonly<Record<string, readonly string[]>>;
+  /** Krark's Thumb family: which of each differing pair to keep (`first` / `second`). */
+  readonly coinIgnoreOneKeepChoices?: readonly ('first' | 'second')[];
+  /** Locked raw coin results so resume does not re-roll ignore-one pairs. */
+  readonly coinIgnoreOneRawFlips?: readonly ('heads' | 'tails')[];
   readonly castFromExile?: boolean;
   readonly castFromZone?: string;
   readonly chosenColors?: readonly string[];
@@ -243,6 +253,10 @@ export interface OracleIRExecutionEventHint {
   readonly enteredFromZone?: string;
   /** Result of a relevant coin flip when the wrapper condition depends on it. */
   readonly wonCoinFlip?: boolean;
+  /** Wins from the immediately preceding multi-coin flip ("this way"). */
+  readonly coinFlipWinsThisWay?: number;
+  /** Losses from the immediately preceding multi-coin flip ("this way"). */
+  readonly coinFlipLossesThisWay?: number;
   /** Winning choice text for vote-result wrappers such as "carnage gets more votes". */
   readonly winningVoteChoice?: string | null;
   /** Explicit vote tallies keyed by choice text when already known from runtime context. */
@@ -348,6 +362,10 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly referenceSpellManaValue?: number;
   /** Result of a relevant coin flip when already known from runtime context. */
   readonly wonCoinFlip?: boolean;
+  /** Wins from the immediately preceding multi-coin flip ("this way"). */
+  readonly coinFlipWinsThisWay?: number;
+  /** Losses from the immediately preceding multi-coin flip ("this way"). */
+  readonly coinFlipLossesThisWay?: number;
   /** Winning vote choice when already known from runtime context. */
   readonly winningVoteChoice?: string | null;
   /** Numeric amount referenced by text like "that much" from trigger data or prior steps. */
@@ -438,6 +456,15 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
    */
   readonly deferStackSpellCopiesToServer?: boolean;
   /**
+   * Live legal-target list for random `change_target` when the stack item has no
+   * `copyRetargetValidTargets` stamp (Grip of Chaos / Chef's Kiss).
+   */
+  readonly collectLegalRetargetCandidates?: (
+    state: GameState,
+    spell: any,
+    targetingPlayerId: string,
+  ) => ReadonlyArray<{ id: string; type?: string; name?: string }>;
+  /**
    * Step-indexed memory: traits of objects affected by each prior step in this resolution.
    * Populated by transition commit or interim recordCardsToStepLedger bridge.
    */
@@ -480,6 +507,8 @@ export interface OracleIRExecutionResult {
   readonly lastMovedCards?: readonly any[];
   readonly lastMilledCards?: readonly any[];
   readonly lastRevealedCardCount?: number;
+  /** Per-player "that many" amounts (Warp World) when a later prompt resumes after shuffle. */
+  readonly lastMovedCountByPlayer?: Readonly<Record<string, number>>;
   /** Structured replay events for server persistence after effect-program IR runs. */
   readonly replayMutations?: readonly import('./oracleIRReplayMutations').OracleIRReplayMutation[];
 }

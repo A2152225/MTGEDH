@@ -215,6 +215,76 @@ describe('spell win-if-cast-same-name-this-game (Approach of the Second Sun fami
     });
   });
 
+  it('does not copy a leftover live spell after the bound stack id left', () => {
+    const leftover = {
+      id: 'warp_1',
+      type: 'spell',
+      controller: 'p1',
+      card: { id: 'warp_card', name: 'Warp World', type_line: 'Sorcery' },
+    };
+    const appendEventSpy = vi.spyOn(db, 'appendEvent').mockImplementation(() => undefined as any);
+    const copied = cloneTriggeredSpellCopy(
+      'test_clone_bound_id_left',
+      { state: { stack: [leftover] }, seq: 0, bumpSeq: () => {} },
+      mockIo(),
+      {
+        permanentId: 'perm_copy',
+        cardName: 'Hive Mind',
+        controllerId: 'p1',
+        description: 'Whenever a player casts an instant or sorcery spell, copy that spell.',
+        effect: 'Copy that spell.',
+        spellCondition: 'instant_sorcery',
+        mandatory: true,
+      } as any,
+      'p1',
+      'gone_stack_id',
+      'warcraft_card',
+    );
+    appendEventSpy.mockRestore();
+
+    expect(copied).toBeNull();
+    expect(leftover.id).toBe('warp_1');
+  });
+
+  it('copies the last-known snapshot instead of a leftover live spell', () => {
+    const leftover = {
+      id: 'warp_1',
+      type: 'spell',
+      controller: 'p1',
+      card: { id: 'warp_card', name: 'Warp World', type_line: 'Sorcery' },
+    };
+    const snapshot = {
+      id: 'gone_stack_id',
+      type: 'spell',
+      controller: 'p1',
+      card: { id: 'warcraft_card', name: 'Master Warcraft', type_line: 'Instant' },
+    };
+    const gameState: any = { stack: [leftover] };
+    const appendEventSpy = vi.spyOn(db, 'appendEvent').mockImplementation(() => undefined as any);
+    const copied = cloneTriggeredSpellCopy(
+      'test_clone_last_known_snapshot',
+      { state: gameState, seq: 0, bumpSeq: () => {} },
+      mockIo(),
+      {
+        permanentId: 'perm_copy',
+        cardName: 'Hive Mind',
+        controllerId: 'p1',
+        description: 'Whenever a player casts an instant or sorcery spell, copy that spell.',
+        effect: 'Copy that spell.',
+        spellCondition: 'instant_sorcery',
+        mandatory: true,
+      } as any,
+      'p1',
+      'gone_stack_id',
+      'warcraft_card',
+      snapshot,
+    );
+    appendEventSpy.mockRestore();
+
+    expect(copied?.card?.name).toBe('Master Warcraft');
+    expect(gameState.stack.filter((item: any) => String(item?.card?.name || '') === 'Warp World')).toHaveLength(1);
+  });
+
   it('persists cloneTriggeredSpellCopy under the copy id', () => {
     const ctx = makeSpellCtx({ sourceName: 'Custom Second Dawn' });
     ctx.state.stack[0].type = 'spell';

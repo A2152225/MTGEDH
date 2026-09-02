@@ -41,6 +41,10 @@ import {
   type GraveyardSelectionApplyResult,
 } from "./resolutionGraveyardSelectionResumeHandlers.js";
 import { tryApplyTriggeredAbilityGraveyardSelectionViaExecute } from "./resolutionGraveyardSelectionTriggerExecute.js";
+import {
+  resolveGraveyardExileSourcePermanentId,
+  stampCardExiledWithSource,
+} from "../state/modules/exileWithSourceStamp.js";
 
 export async function handleGraveyardSelectionResponse(
   io: Server,
@@ -801,7 +805,9 @@ export async function handleGraveyardSelectionResponse(
       touchedZoneOwners.add(destinationPlayerId);
     } else if (destination === 'exile') {
       // Exile belongs to the zone owner, not the selecting player.
-      (cardSourceZones.exile as any[]).push({ ...(card as any), zone: 'exile' });
+      (cardSourceZones.exile as any[]).push(
+        stampCardExiledWithSource(card, resolveGraveyardExileSourcePermanentId(stepData)),
+      );
     }
   }
 

@@ -398,8 +398,13 @@ export function commitLibraryTopObservation(args: {
   const bridgeResult = bridge.proposeTransitions(transitions);
   if (bridgeResult.halt) {
     // Same-zone library observations are not replacement-eligible moves. Halting here
-    // aborted follow-up steps such as Chaos Warp's "if it's a permanent card, put it
-    // onto the battlefield".
+    // aborted follow-up steps such as Warp World / Chaos Warp put-from-reveal.
+    // proposeTransitions still stamps transitionHaltState; clear it so the main loop
+    // does not treat this successful reveal as "Deferred replacement effect choice required".
+    if (args.ctx?.transitionHaltState) {
+      args.ctx.transitionHaltState.halted = false;
+      args.ctx.transitionHaltState.deferred = [];
+    }
     return { halted: false, ledgerRecordedViaBridge: false };
   }
 

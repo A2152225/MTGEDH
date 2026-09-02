@@ -4,7 +4,7 @@
  */
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
-import { generateCoinFlipResult } from '../../../../rules-engine/src/coinFlip.js';
+import { generateCoinFlipResultWithIgnoreOne } from '../../../../rules-engine/src/coinFlipIgnoreOneReplacement.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { broadcastGame } from '../../socket/util.js';
@@ -58,7 +58,7 @@ export function resolveFlipCoinLifeStakesIteration(
   const opponentId = String(options.opponentId);
   const stake = Math.max(1, Math.floor(Number(options.stake) || 1));
   const call: 'heads' | 'tails' = 'heads';
-  const result = generateCoinFlipResult();
+  const result = generateCoinFlipResultWithIgnoreOne(state, controllerId, { call });
   const won = result === call;
 
   if (won) {

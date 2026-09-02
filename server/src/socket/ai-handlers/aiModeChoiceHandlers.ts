@@ -5,12 +5,98 @@
  * chooseAIModeSelectionsForStep, chooseAIKynaiosChoiceSelection.
  *
  * Public entry symbols: chooseAIModeSelectionsForStep, chooseAIKynaiosChoiceSelection.
+ *
+ * Fight modes score as removal only when the source can kill a high-threat
+ * opposing creature (lethal power / deathtouch, not indestructible, not
+ * hexproof/shroud/protection from the fighter).
  */
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { choosePBudgetModeSelections } from "../../../../shared/src/modeSelectionPBudget.js";
-import { canPlayLand } from "../../state/modules/can-respond.js";
+import { cardAnalyzer, ThreatLevel } from "../../../../rules-engine/src/CardAnalyzer.js";
+import { canPermanentBeTargetedByPlayer } from "../../rules-engine/targeting.js";
+import { protectionPreventsSource } from "../../state/modules/combat-mechanics.js";
 import { getAvailableMana, parseManaCost, canPayManaCostWithAvailableSources } from "../../state/modules/mana-check.js";
+import { permanentHasKeyword } from "../game-actions-handlers/gameActionsPermanentKeywordGrants.js";
+import { getEffectivePower, getEffectiveToughness } from "../util.js";
 import { getAIBattlefield, getAIHand, getAIPlayerLife } from "./aiDeckProfileHandlers.js";
+
+const FIGHT_MODE_PATTERN = /\bfights?\b/i;
+const HIGH_REMOVAL_PRIORITY = 3;
+
+function isCreaturePermanent(permanent: any): boolean {
+  return String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase().includes('creature');
+}
+
+function resolveFightSourcePermanent(game: any, playerId: PlayerID, step: any): any | null {
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const sourceId = String(step?.sourceId || step?.effectProgramSourceId || '').trim();
+  if (sourceId) {
+    const byId = battlefield.find((permanent: any) => String(permanent?.id || '') === sourceId);
+    if (byId) return byId;
+  }
+
+  const sourceName = String(step?.sourceName || step?.effectProgramSourceName || '').trim().toLowerCase();
+  if (!sourceName) return null;
+  const named = battlefield.filter((permanent: any) =>
+    String(permanent?.controller || '') === String(playerId)
+    && String(permanent?.card?.name || '').toLowerCase() === sourceName
+  );
+  return named.length > 0 ? named[named.length - 1] : null;
+}
+
+function fighterDealsLethalFightDamage(
+  fighter: any,
+  target: any,
+  battlefield: any[],
+  gameState: any,
+): boolean {
+  if (permanentHasKeyword(target, battlefield, String(target?.controller || ''), 'indestructible')) {
+    return false;
+  }
+  if (permanentHasKeyword(fighter, battlefield, String(fighter?.controller || ''), 'deathtouch')) {
+    return getEffectivePower(fighter, gameState) >= 1;
+  }
+  return getEffectivePower(fighter, gameState) >= getEffectiveToughness(target, gameState);
+}
+
+function isHighPriorityFightThreat(target: any): boolean {
+  if (target?.isCommander === true) return true;
+  const analysis = cardAnalyzer.analyzeCard(target);
+  return analysis.threatLevel >= ThreatLevel.HIGH || analysis.removalTargetPriority > HIGH_REMOVAL_PRIORITY;
+}
+
+function scoreFightModeAsKillOption(game: any, playerId: PlayerID, step: any, modeText: string): number {
+  if (!FIGHT_MODE_PATTERN.test(modeText)) return 0;
+
+  const fighter = resolveFightSourcePermanent(game, playerId, step);
+  if (!fighter || !isCreaturePermanent(fighter)) return 0;
+
+  const gameState = game?.state;
+  const battlefield = Array.isArray(gameState?.battlefield) ? gameState.battlefield : [];
+  const fighterToughness = getEffectiveToughness(fighter, gameState);
+  let best = 0;
+
+  for (const opponent of battlefield) {
+    if (!opponent || String(opponent.controller || '') === String(playerId)) continue;
+    if (!isCreaturePermanent(opponent)) continue;
+    if (!canPermanentBeTargetedByPlayer(opponent, gameState, playerId)) continue;
+    if (protectionPreventsSource(opponent, fighter, gameState)) continue;
+    if (!fighterDealsLethalFightDamage(fighter, opponent, battlefield, gameState)) continue;
+    if (!isHighPriorityFightThreat(opponent)) continue;
+
+    const opponentPower = getEffectivePower(opponent, gameState);
+    const weAlsoDie = opponentPower >= fighterToughness
+      && !permanentHasKeyword(fighter, battlefield, String(fighter?.controller || ''), 'indestructible');
+    const analysis = cardAnalyzer.analyzeCard(opponent);
+    const critical = analysis.threatLevel >= ThreatLevel.CRITICAL || opponent?.isCommander === true;
+    // Survive-and-kill matches destroy. A trade still beats keyword modes when the
+    // target is a real threat (HIGH+) or a commander.
+    const score = weAlsoDie ? (critical ? 14 : 10) : 14 + Math.min(4, Math.max(0, analysis.threatLevel - ThreatLevel.HIGH));
+    if (score > best) best = score;
+  }
+
+  return best;
+}
 
 function scoreModeOption(game: any, playerId: PlayerID, step: any, mode: any): number {
   const text = `${String(mode?.label || '')} ${String(mode?.description || '')}`.toLowerCase();
@@ -24,6 +110,7 @@ function scoreModeOption(game: any, playerId: PlayerID, step: any, mode: any): n
   if (/(gain life|lifelink)/i.test(text)) score += getAIPlayerLife(game, playerId) <= 12 ? 8 : 2;
   if (/(trample|flying|double strike|vigilance)/i.test(text)) score += 6;
   if (/(discard|sacrifice|lose life)/i.test(text)) score -= 6;
+  score += scoreFightModeAsKillOption(game, playerId, step, text);
 
   return score;
 }

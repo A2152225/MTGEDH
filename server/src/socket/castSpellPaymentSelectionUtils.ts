@@ -5,7 +5,7 @@
  * Cluster: exclusive floating-pool color picks vs implicit leftover pool,
  * and whether a mana source reserves its permanent id (tap vs repeatable sacrifice).
  * Entry: castSpellPaymentHasExplicitFloatingRefs, addUnselectedFloatingPoolRemainder,
- * reserveCastSpellPaymentPermanentId.
+ * subtractConsumedManaFromSelectedPaymentTotals, reserveCastSpellPaymentPermanentId.
  */
 
 import { parseFloatingPaymentPermanentId } from './util.js';
@@ -38,6 +38,17 @@ export function addUnselectedFloatingPoolRemainder(
     if (remainder > 0) {
       targetTotals[key] = Number(targetTotals[key] || 0) + remainder;
     }
+  }
+}
+
+export function subtractConsumedManaFromSelectedPaymentTotals(
+  selectedTotals: Record<string, number>,
+  consumed: Partial<Record<(typeof CAST_SPELL_PAYMENT_SELECTION_MANA_KEYS)[number], number>> | null | undefined,
+): void {
+  for (const key of CAST_SPELL_PAYMENT_SELECTION_MANA_KEYS) {
+    const amount = Number(consumed?.[key] || 0);
+    if (amount <= 0) continue;
+    selectedTotals[key] = Math.max(0, Number(selectedTotals[key] || 0) - amount);
   }
 }
 

@@ -2,6 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { isCommanderGrantBackgroundOracle } from './battlefieldAbilityBadges.js';
+import { isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetadata.js';
 import { getNextEndStepFireTurnNumber } from './triggerDelayedEffectUtils.js';
 
 function applyReanimatedPermanentLeaveBattlefieldRiders(
@@ -66,6 +67,12 @@ export function applyPermanentKeywordGrantFromText(
   const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
   const oracleText = String(permanent?.card?.oracle_text || fullText || '');
   if (typeLine.includes('background') && isCommanderGrantBackgroundOracle(oracleText)) {
+    return false;
+  }
+
+  // Modal "choose one — • It gains haste…" is a stack trigger, not an automatic
+  // entry rider. Applying the first mode here skipped the mode-choice prompt.
+  if (isModalChooseModesEffectText(fullText) || isModalChooseModesEffectText(oracleText)) {
     return false;
   }
 

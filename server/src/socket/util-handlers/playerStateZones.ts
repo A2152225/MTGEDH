@@ -103,6 +103,30 @@ export function ensureStateZonesForPlayers(game: any) {
   }
 }
 
+/** Prefer a populated ctx.libraries Map over an empty zones.library (and the reverse). */
+function pickMutablePlayerLibraryForMill(ctx: any, playerId: string): any[] {
+  const fromMap = ctx?.libraries?.get?.(playerId);
+  const fromZones = ctx?.state?.zones?.[playerId]?.library;
+  if (Array.isArray(fromMap) && fromMap.length > 0) return fromMap;
+  if (Array.isArray(fromZones) && fromZones.length > 0) return fromZones;
+  if (Array.isArray(fromMap)) return fromMap;
+  if (Array.isArray(fromZones)) return fromZones;
+  return [];
+}
+
+function writePlayerLibraryForMill(ctx: any, playerId: string, library: any[]): void {
+  const lib = Array.isArray(library) ? library : [];
+  if (ctx?.libraries && typeof ctx.libraries.set === 'function') {
+    ctx.libraries.set(playerId, lib);
+  }
+  const state = ctx?.state as any;
+  if (!state) return;
+  state.zones = state.zones || {};
+  const zoneState = state.zones[playerId] = state.zones[playerId] || defaultPlayerZones();
+  zoneState.library = lib;
+  zoneState.libraryCount = lib.length;
+}
+
 /**
  * Mill cards from the top of a player's library until a land is revealed.
  * Moves all revealed cards to the graveyard and returns the milled cards.
@@ -113,10 +137,10 @@ export function millUntilLand(
 ): { milled: any[]; landHit?: any } {
   const result = { milled: [] as any[], landHit: undefined as any };
   try {
-    const zones = game.state?.zones?.[targetPlayerId];
-    if (!zones || !Array.isArray(zones.library)) return result;
-    
-    zones.graveyard = zones.graveyard || [];
+    game.state = game.state || {};
+    game.state.zones = game.state.zones || {};
+    const zones = game.state.zones[targetPlayerId] = game.state.zones[targetPlayerId] || defaultPlayerZones();
+    zones.graveyard = Array.isArray(zones.graveyard) ? zones.graveyard : [];
     const millCtx = {
       state: game.state,
       libraries: game.libraries,
@@ -124,9 +148,11 @@ export function millUntilLand(
       rng: game.rng,
       gameId: game.gameId || game.id,
     } as any;
-    
-    while (zones.library.length > 0) {
-      const card = zones.library.shift();
+    const lib = pickMutablePlayerLibraryForMill(millCtx, targetPlayerId);
+    if (lib.length === 0) return result;
+
+    while (lib.length > 0) {
+      const card = lib.shift();
       if (!card) break;
       result.milled.push(card);
       const isLand = (card.type_line || "").toLowerCase().includes("land");
@@ -136,8 +162,8 @@ export function millUntilLand(
         break;
       }
     }
-    
-    zones.libraryCount = zones.library?.length ?? zones.libraryCount;
+
+    writePlayerLibraryForMill(millCtx, targetPlayerId, lib);
     zones.graveyardCount = zones.graveyard?.length ?? zones.graveyardCount;
 
     if (result.milled.length > 0 && !game?.isReplaying) {

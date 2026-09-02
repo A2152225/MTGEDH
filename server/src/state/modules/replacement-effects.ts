@@ -8,6 +8,7 @@ import {
 } from './game-state-effects.js';
 import { computeCounterPlacementModifiedDeltas } from './replacementCounterPlacementUtils.js';
 import { applyPlayerDamageLifeFloorCaps } from './replacementEffectsDamageLifeFloor.js';
+import { inferLeaveBattlefieldExileReplacement } from './leaveBattlefieldReplacementStamp.js';
 
 export type ReplacementZone = 'battlefield' | 'graveyard' | 'exile' | 'hand' | 'library' | 'command' | 'stack';
 
@@ -337,16 +338,21 @@ const leaveBattlefieldExileEvaluator: ReplacementEffectEvaluator = (event) => {
   const explicitDestination = normalizeReplacementText(
     permanent?.leaveBattlefieldReplacementDestination || permanent?.card?.leaveBattlefieldReplacementDestination || ''
   );
+  const inferredStamp = explicitDestination === 'exile'
+    ? undefined
+    : inferLeaveBattlefieldExileReplacement(permanent, event.state);
+  const exileInstead = explicitDestination === 'exile'
+    || inferredStamp?.leaveBattlefieldReplacementDestination === 'exile';
 
-  if (explicitDestination === 'exile') {
+  if (exileInstead) {
     return {
       applied: true,
       eventType: event.type,
       effectId: 'leave-battlefield-exile-instead',
-      sourceName: getReplacementSourceName(permanent),
+      sourceName: getReplacementSourceName(permanent) || inferredStamp?.leaveBattlefieldReplacementSourceName,
       originalDestination: destination,
       replacementDestination: 'exile',
-      lifeGain: getReplacementLifeGain(permanent),
+      lifeGain: getReplacementLifeGain(permanent) ?? inferredStamp?.leaveBattlefieldReplacementLifeGain,
       reason: 'explicit_leave_battlefield_replacement',
     };
   }

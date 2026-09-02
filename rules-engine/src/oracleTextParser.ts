@@ -187,7 +187,7 @@ const SELF_ENTERS_SHORT_PATTERN = /^(This\s+[^.;]+?)\s+enters\s+([^.;]+?)[.;]?$/
 const SELF_ENTERS_WITH_COUNTERS_PATTERN =
   /^([^.;]+?)\s+enters(?: the battlefield)?\s+(with\s+(?:a|an|\d+|x|[a-z]+)\s+.+?\s+counters?\s+on\s+(?:it|him|her))[.;]?$/i;
 const CONDITIONAL_SELF_ENTERS_PATTERN = /^If\s+(.+?),\s+((?:This\s+[^.;]+?|It)\s+enters(?: the battlefield)?\s+[^.;]+?)[.;]?$/i;
-const ENTERS_AS_PATTERN = /^As\s+(.+?)\s+enters the battlefield,\s+(.+)$/i;
+const ENTERS_AS_PATTERN = /^As\s+(.+?)\s+enters(?: the battlefield)?,\s+(.+)$/i;
 
 function isLikelySelfEntryCounterSubject(subject: string): boolean {
   const normalized = String(subject || '').trim().toLowerCase();
@@ -604,6 +604,16 @@ function isSpellInstructionLineInner(trimmed: string): boolean {
     return false;
   }
   if (/^during\s+your\s+turn,\s*this\s+spell\s+costs?\b/i.test(trimmed)) {
+    return false;
+  }
+  // Trap / Force-style "you may pay {X} rather than pay this spell's mana cost" is cast-time.
+  // Do not treat the If-condition's "cast" as a resolution verb (Mindbreak Trap).
+  if (
+    /\brather than pay this spell(?:'|’)s mana cost\b/i.test(trimmed)
+    && !/\b(?:exile|counter|destroy|return|draw)\b/i.test(
+      trimmed.replace(/\brather than pay this spell(?:'|’)s mana cost\b/gi, ' ')
+    )
+  ) {
     return false;
   }
 

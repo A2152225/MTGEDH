@@ -13,6 +13,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import {
   readPlayerZoneCards,
   writePlayerZoneCards,
+  writePlayerCommandZoneCard,
   getCurrentTurnNumber,
   stampCardPutIntoGraveyardThisTurn,
   stampCardsPutIntoGraveyardThisTurn,
@@ -21,6 +22,7 @@ import {
 export {
   readPlayerZoneCards,
   writePlayerZoneCards,
+  writePlayerCommandZoneCard,
   getCurrentTurnNumber,
   stampCardPutIntoGraveyardThisTurn,
   stampCardsPutIntoGraveyardThisTurn,
@@ -1043,6 +1045,7 @@ export function millCardsForPlayer(
     ownerId: playerId,
     owner: playerId,
     putIntoGraveyardFrom: 'library',
+    milledTurn: getCurrentTurnNumber(state),
   }));
 
   const stepIndex = bridgeOptions?.stepIndex;

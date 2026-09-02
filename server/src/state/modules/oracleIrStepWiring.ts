@@ -7,6 +7,7 @@ import {
   ORACLE_IR_FALLBACK_STEP_KINDS,
   TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS,
 } from './trigger-runtime-wiring.js';
+import { isOracleIrContinuationBridged } from './oracleIrContinuationBridge.js';
 
 /**
  * Step kinds supported for activated abilities but not yet in the shared fallback set.
@@ -128,17 +129,21 @@ export function isActivatedAbilityEffectFullyWired(steps: readonly OracleEffectS
 
 export function hasUnqueuedPlayerChoiceGap(
   result: OracleIRExecutionResult,
-  queueBridged: boolean,
+  continuationBridged: boolean,
   state?: any,
 ): boolean {
-  if (queueBridged) return false;
-  return (result.automationGaps || []).some((gap) => {
+  const hasGap = (result.automationGaps || []).some((gap) => {
     if (gap.reasonCode !== 'player_choice_required') return false;
     if (String(gap.stepKind || '') === 'discard' && hasPendingDiscardBridge(state)) {
       return false;
     }
     return true;
   });
+  if (!hasGap) return false;
+  if (continuationBridged) return false;
+  // Shock / as-enters prompts grow the queue without owning leftover IR steps.
+  if ((result.pendingContinuationSteps || []).length > 0) return true;
+  return false;
 }
 
 function hasPendingDiscardBridge(state: any): boolean {
@@ -160,10 +165,10 @@ function summarizeOracleIrStep(step: OracleEffectStep): string {
 function appendUnqueuedPlayerChoiceReasons(
   reasons: string[],
   result: OracleIRExecutionResult,
-  queueBridged: boolean,
+  continuationBridged: boolean,
   state?: any,
 ): void {
-  if (!hasUnqueuedPlayerChoiceGap(result, queueBridged, state)) return;
+  if (!hasUnqueuedPlayerChoiceGap(result, continuationBridged, state)) return;
   for (const gap of result.automationGaps || []) {
     if (gap.reasonCode !== 'player_choice_required') continue;
     const stepHint = gap.stepKind
@@ -186,12 +191,19 @@ export function describeOracleIrMandatoryExecutionIncomplete(
     resolutionQueueStepsBefore?: number;
     resolutionQueueStepsAfter?: number;
     state?: any;
+    gameId?: string;
   },
 ): readonly string[] {
   const reasons: string[] = [];
   const queueBefore = Number(options?.resolutionQueueStepsBefore ?? 0);
   const queueAfter = Number(options?.resolutionQueueStepsAfter ?? 0);
-  const queueBridged = queueAfter > queueBefore;
+  const queueGrew = queueAfter > queueBefore;
+  const continuationBridged = isOracleIrContinuationBridged({
+    state: options?.state,
+    gameId: options?.gameId,
+    resolutionQueueStepsBefore: queueBefore,
+    resolutionQueueStepsAfter: queueAfter,
+  });
   const discardBridged = hasPendingDiscardBridge(options?.state);
 
   const mandatoryParsed = parsedSteps.filter((step) => !isOptionalOracleEffectStep(step));
@@ -200,7 +212,8 @@ export function describeOracleIrMandatoryExecutionIncomplete(
       (result.appliedSteps || []).length > 0
       || (result.pendingOptionalSteps || []).length > 0
       || (result.pendingContinuationSteps || []).length > 0
-      || queueBridged;
+      || queueGrew
+      || continuationBridged;
     if (!hasEffect) {
       reasons.push('no_mandatory_steps_and_no_effect_applied_or_queued');
     }
@@ -211,7 +224,7 @@ export function describeOracleIrMandatoryExecutionIncomplete(
     (step) => !isOptionalOracleEffectStep(step),
   );
   for (const step of skippedMandatory) {
-    if (queueBridged) continue;
+    if (continuationBridged) continue;
     if (discardBridged && step.kind === 'discard') continue;
     reasons.push(`skipped_mandatory_step: ${summarizeOracleIrStep(step)}`);
   }
@@ -227,7 +240,7 @@ export function describeOracleIrMandatoryExecutionIncomplete(
     if (isOracleEffectStepCoveredByApplied(step, appliedFingerprints, continuationFingerprints)) {
       continue;
     }
-    if (queueBridged) continue;
+    if (continuationBridged) continue;
     if (discardBridged && step.kind === 'discard') continue;
     reasons.push(`unapplied_mandatory_step: ${summarizeOracleIrStep(step)}`);
   }
@@ -256,12 +269,14 @@ export function describeOracleIrExecutionHandledIncomplete(
   resolutionQueueStepsAfter: number,
   parsedSteps?: readonly OracleEffectStep[],
   state?: any,
+  gameId?: string,
 ): readonly string[] {
   const reasons: string[] = [];
-  const queueBridged = resolutionQueueStepsAfter > resolutionQueueStepsBefore;
+  const queueGrew = resolutionQueueStepsAfter > resolutionQueueStepsBefore;
+  const continuationBridged = isOracleIrContinuationBridged({ state, gameId, resolutionQueueStepsBefore: resolutionQueueStepsBefore, resolutionQueueStepsAfter: resolutionQueueStepsAfter });
   const pendingContinuation = (result.pendingContinuationSteps || []).length;
 
-  if (pendingContinuation > 0 && !queueBridged) {
+  if (pendingContinuation > 0 && !continuationBridged) {
     const kinds = (result.pendingContinuationSteps || [])
       .map((step) => String(step.kind || 'unknown'))
       .join(', ');
@@ -270,7 +285,7 @@ export function describeOracleIrExecutionHandledIncomplete(
     );
   }
 
-  appendUnqueuedPlayerChoiceReasons(reasons, result, queueBridged, state);
+  appendUnqueuedPlayerChoiceReasons(reasons, result, continuationBridged, state);
 
   const applied = result.appliedSteps.length;
   const pendingOptional = (result.pendingOptionalSteps || []).length;
@@ -278,7 +293,8 @@ export function describeOracleIrExecutionHandledIncomplete(
     applied > 0
     || pendingOptional > 0
     || pendingContinuation > 0
-    || queueBridged
+    || queueGrew
+    || continuationBridged
     || (result.automationGaps || []).some((gap) => gap.classification === 'player_choice');
 
   if (!hasEffect) {
@@ -290,6 +306,7 @@ export function describeOracleIrExecutionHandledIncomplete(
       resolutionQueueStepsBefore,
       resolutionQueueStepsAfter,
       state,
+      gameId,
     })) {
       reasons.push(reason);
     }
@@ -304,14 +321,22 @@ export function describeOracleIrActivatedAbilityIncomplete(
   options?: {
     resolutionQueueStepsBefore?: number;
     resolutionQueueStepsAfter?: number;
+    state?: any;
+    gameId?: string;
   },
 ): readonly string[] {
   const reasons: string[] = [];
   const queueBefore = Number(options?.resolutionQueueStepsBefore ?? 0);
   const queueAfter = Number(options?.resolutionQueueStepsAfter ?? 0);
-  const queueBridged = queueAfter > queueBefore;
+  const queueGrew = queueAfter > queueBefore;
+  const continuationBridged = isOracleIrContinuationBridged({
+    state: options?.state,
+    gameId: options?.gameId,
+    resolutionQueueStepsBefore: queueBefore,
+    resolutionQueueStepsAfter: queueAfter,
+  });
 
-  appendUnqueuedPlayerChoiceReasons(reasons, result, queueBridged);
+  appendUnqueuedPlayerChoiceReasons(reasons, result, continuationBridged, options?.state);
 
   const applied = (result.appliedSteps || []).length;
   const pendingOptional = (result.pendingOptionalSteps || []).length;
@@ -321,7 +346,8 @@ export function describeOracleIrActivatedAbilityIncomplete(
     applied === 0
     && pendingOptional === 0
     && pendingContinuation === 0
-    && !queueBridged
+    && !queueGrew
+    && !continuationBridged
   ) {
     reasons.push('no_steps_applied_or_queued');
   }
@@ -375,7 +401,8 @@ export function logOracleIrAllOrNothingFailure(
 
 /**
  * Returns true when every mandatory parsed step was applied, queued for continuation,
- * or bridged to the resolution queue. Prevents silent partial multi-step effects.
+ * or owned by a persisted/queued IR resume (not merely any new resolution prompt).
+ * Prevents silent partial multi-step effects.
  */
 export function isOracleIrMandatoryExecutionComplete(
   parsedSteps: readonly OracleEffectStep[],
@@ -384,6 +411,7 @@ export function isOracleIrMandatoryExecutionComplete(
     resolutionQueueStepsBefore?: number;
     resolutionQueueStepsAfter?: number;
     state?: any;
+    gameId?: string;
   },
 ): boolean {
   return describeOracleIrMandatoryExecutionIncomplete(parsedSteps, result, options).length === 0;
@@ -395,6 +423,8 @@ export function isOracleIrActivatedAbilityHandled(
   options?: {
     resolutionQueueStepsBefore?: number;
     resolutionQueueStepsAfter?: number;
+    state?: any;
+    gameId?: string;
   },
 ): boolean {
   return describeOracleIrActivatedAbilityIncomplete(parsedSteps, result, options).length === 0;

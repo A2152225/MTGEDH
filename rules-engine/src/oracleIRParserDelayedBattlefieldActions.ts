@@ -129,6 +129,18 @@ function tryParseDelayedBattlefieldAction(args: {
     });
   }
 
+  const mDestroy = actionText.match(/^destroy\s+(.+)$/i);
+  if (mDestroy) {
+    return withMeta({
+      kind: 'schedule_delayed_battlefield_action',
+      timing,
+      action: 'destroy',
+      object: parseObjectSelector(mDestroy[1]),
+      ...(watchText ? { watch: parseObjectSelector(watchText) } : {}),
+      raw: rawClause,
+    });
+  }
+
   return null;
 }
 

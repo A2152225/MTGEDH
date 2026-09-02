@@ -10,8 +10,9 @@ import {
 } from './oracleIRStepLedger';
 export type { StepLedger } from './oracleIRStepLedger';
 
+// lastMovedCards / lastRevealedCards stay on bridged results so Warp World
+// reveal→put can keep per-owner piles (omit used to drop them and reuse shuffle leftovers).
 export const BRIDGED_STEP_CARRY_OVER_KEYS = [
-  'lastMovedCards',
   'lastExiledCards',
   'lastDiscardedCards',
   'lastMilledCards',

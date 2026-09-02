@@ -64,6 +64,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'cant_activate_abilities',
   'modify_exile_permissions',
   'choose_card_name',
+  'choose_number',
   'register_lose_game_replacement',
   'investigate',
   'blight',
@@ -289,6 +290,7 @@ const TRIGGER_CHOICE_STEP_KINDS = new Set<string>([
   'choose_basic_land_type',
   'choose_opponent',
   'choose_target_creature',
+  'choose_number',
 ]);
 
 /** gain_control steps with server executor + prepared-sync coverage in applyOracleIRStepsOnServer. */

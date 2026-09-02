@@ -47,10 +47,16 @@ export function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   const withMeta = <T extends OracleEffectStep>(step: T): T => {
     const out: any = { ...step };
     if (sequence) out.sequence = sequence;
-    // "You may [effect] unless … pays" normalizes as optional, but unless_pays is the
-    // tax prompt itself — stamping optional caused a second Yes/No (and skip-on-deny).
+    // "You may [effect] unless … pays" and "you may pay any amount of {E}" already
+    // prompt; stamping optional caused a second Yes/No (and skip-on-deny).
     const kind = String(step?.kind || '');
-    if (optional && kind !== 'unless_pays_mana' && kind !== 'unless_pays_life' && kind !== 'unless_sacrifices') {
+    if (
+      optional
+      && kind !== 'unless_pays_mana'
+      && kind !== 'unless_pays_life'
+      && kind !== 'unless_sacrifices'
+      && kind !== 'pay_energy'
+    ) {
       out.optional = optional;
     }
     return out;

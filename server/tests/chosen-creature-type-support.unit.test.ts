@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { chosenTypeManaAbilityGrantsUncounterableCast } from '../../shared/src/chosenTypeManaSpendRestriction.js';
 import {
   applyArcaneAdaptationToControllerCreatures,
   countControlledCreaturesOfChosenType,
@@ -202,6 +203,15 @@ describe('chosen creature type infrastructure', () => {
     expect(parseChosenTypeManaSpendRestriction(
       '{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type or activate an ability of a creature source of the chosen type.',
     )).toEqual({ creatureSpellsOnly: true, allowsCreatureSourceAbilities: true });
+    expect(chosenTypeManaAbilityGrantsUncounterableCast(
+      'As this land enters, choose a creature type.\n{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type, and that spell can\'t be countered.',
+    )).toBe(true);
+    expect(chosenTypeManaAbilityGrantsUncounterableCast(
+      'As this land enters, choose a creature type.\n{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type.',
+    )).toBe(false);
+    expect(chosenTypeManaAbilityGrantsUncounterableCast(
+      'As this land enters, choose a creature type.\n{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast spells of the chosen type.',
+    )).toBe(false);
   });
 
   it('annotates Echoing Cavern with chosen-type spell mana restriction', () => {
@@ -1111,10 +1121,12 @@ describe('chosen-type creature ETB trigger resolution', () => {
     expect(parseChosenTypeTopCardRevealToHand(hornUpkeep)).toEqual({
       creatureCardsOnly: true,
       allowGraveyardIfDeclined: false,
+      otherwiseGraveyard: false,
     });
     expect(parseChosenTypeTopCardRevealToHand(gatheringStone)).toEqual({
       creatureCardsOnly: false,
       allowGraveyardIfDeclined: true,
+      otherwiseGraveyard: false,
     });
     expect(cardMatchesChosenTypeFilter(
       { type_line: 'Creature — Elf Druid' },

@@ -44,6 +44,7 @@ export type { ParsedTargetRequirementStatKeywordFilters } from "./targetingParse
 export {
   countStackItemTargets,
   stackItemHasExactlyOneTarget,
+  uniqueStackTargetIds,
   stackItemMeetsSingleTargetRequirement,
 } from "./targetingStackObjectSingleTarget.js";
 

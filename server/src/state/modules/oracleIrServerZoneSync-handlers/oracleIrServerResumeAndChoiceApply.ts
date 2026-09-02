@@ -42,6 +42,17 @@ import {
   buildChosenManaFromDistribution,
 } from './oracleIrServerManaCounterChoicePrompts.js';
 import { bindQueueSacrificeChoicePromptsFromOracleIRResult } from './oracleIrServerApplyDeps.js';
+import {
+  extractBottomOrderIds,
+  extractWarpWorldChoiceId,
+} from './oracleIrServerWarpWorldChoicePrompts.js';
+import {
+  parseJsonArrayRecord,
+  parseJsonRecord,
+  WARP_WORLD_CHOICE_AURA,
+  WARP_WORLD_CHOICE_COMMANDER,
+  WARP_WORLD_CHOICE_REMAINDER,
+} from '../../../../../rules-engine/src/oracleIRExecutorWarpWorldInteractive.js';
 
 type MutableOracleIRExecutionResult = {
   -readonly [K in keyof OracleIRExecutionResult]: OracleIRExecutionResult[K];
@@ -286,12 +297,17 @@ export function resumeOracleIRUnlessPayFromResolution(
     choice: 'pay' | 'decline';
     targetPlayerId?: PlayerID;
     targetSpellId?: string;
+    targetPermanentId?: string;
+    unlessPaysManaAmount?: string;
   },
 ): OracleIRExecutionResult {
   const choiceBinding =
     params.unlessPayKind === 'mana'
       ? { unlessPaysManaChoice: params.choice as 'pay' | 'decline' }
       : { unlessPaysLifeChoice: params.choice as 'pay' | 'decline' };
+  const amountBinding = params.unlessPaysManaAmount
+    ? { unlessPaysManaAmount: params.unlessPaysManaAmount }
+    : {};
 
   const irCtx = buildOracleIRExecutionContext(
     {
@@ -299,8 +315,14 @@ export function resumeOracleIRUnlessPayFromResolution(
       sourceId: params.sourceId,
       sourceName: params.sourceName,
       targetSpellId: params.targetSpellId,
-      selectorContext: choiceBinding,
+      targetPermanentId: params.targetPermanentId,
+      selectorContext: {
+        ...choiceBinding,
+        ...amountBinding,
+        ...(params.targetPermanentId ? { targetPermanentId: params.targetPermanentId } : {}),
+      },
       ...choiceBinding,
+      ...amountBinding,
     },
     {
       targetPlayerId: params.targetPlayerId,
@@ -350,6 +372,7 @@ export function resumeOracleIRRemainingStepsFromResolution(
     chosenObjectIds?: readonly string[];
     selectorContext?: Record<string, unknown>;
     xValue?: number;
+    energyPaidThisWay?: number;
     voteChoiceCounts?: Readonly<Record<string, number>>;
     winningVoteChoice?: string | null;
   },
@@ -372,6 +395,7 @@ export function resumeOracleIRRemainingStepsFromResolution(
       }
     : (resumeChosenIds.length > 0 ? { chosenObjectIds: resumeChosenIds } : undefined);
   const xValue = Number(params.xValue);
+  const chosenNumber = Number((params.selectorContext as { chosenNumber?: number } | undefined)?.chosenNumber);
 
   const irCtx = buildOracleIRExecutionContext(
     {
@@ -383,6 +407,10 @@ export function resumeOracleIRRemainingStepsFromResolution(
       stepLedger: readStepLedgerFromState(state),
       appliedStepKinds: readAppliedStepKindsFromState(state),
       ...(Number.isFinite(xValue) ? { xValue } : {}),
+      ...(Number.isFinite(chosenNumber) ? { chosenNumber: Math.floor(chosenNumber) } : {}),
+      ...(Number.isFinite(Number(params.energyPaidThisWay))
+        ? { energyPaidThisWay: Math.max(0, Math.floor(Number(params.energyPaidThisWay))) }
+        : {}),
       ...(selectorContext ? { selectorContext } : {}),
       ...(boundBattlefieldIds.length > 0 ? { lastMovedBattlefieldPermanentIds: boundBattlefieldIds } : {}),
       ...(params.voteChoiceCounts ? { voteChoiceCounts: params.voteChoiceCounts } : {}),
@@ -453,6 +481,8 @@ export function resumeOracleIRStepWithChoiceFromResolution(
     targetSpellId?: string;
     allowOptional?: boolean;
     xValue?: number;
+    lastMovedCards?: readonly unknown[];
+    lastMovedCountByPlayer?: Readonly<Record<string, number>>;
   },
 ): OracleIRExecutionResult | null {
   if (!Array.isArray(params.steps) || params.steps.length === 0) {
@@ -490,6 +520,12 @@ export function resumeOracleIRStepWithChoiceFromResolution(
       ...(Number.isFinite(xValue) ? { xValue } : {}),
       ...(typeof params.selectorContext?.targetPermanentId === 'string'
         ? { targetPermanentId: String(params.selectorContext.targetPermanentId) }
+        : {}),
+      ...(Array.isArray(params.lastMovedCards) && params.lastMovedCards.length > 0
+        ? { lastMovedCards: params.lastMovedCards }
+        : {}),
+      ...(params.lastMovedCountByPlayer && Object.keys(params.lastMovedCountByPlayer).length > 0
+        ? { lastMovedCountByPlayer: params.lastMovedCountByPlayer }
         : {}),
       selectorContext,
     },
@@ -533,6 +569,126 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
   // but the selection is pay/decline ? not an object choice.
   if (step?.optionalPaymentPrompt === true) {
     return null;
+  }
+
+  const warpWorldChoice = String(step?.oracleIrWarpWorldChoice || '').trim();
+  if (
+    warpWorldChoice === WARP_WORLD_CHOICE_COMMANDER
+    || warpWorldChoice === WARP_WORLD_CHOICE_AURA
+    || warpWorldChoice === WARP_WORLD_CHOICE_REMAINDER
+  ) {
+    const choiceJson = String(step?.oracleIrChoiceStepJson || '').trim();
+    if (!choiceJson) return null;
+    let choiceSteps: OracleEffectStep[] = [];
+    try {
+      const parsed = JSON.parse(choiceJson);
+      if (!Array.isArray(parsed) || parsed.length === 0) return null;
+      choiceSteps = parsed as OracleEffectStep[];
+    } catch {
+      return null;
+    }
+    const controller = String(step?.oracleIrControllerId || step?.playerId || '').trim() as PlayerID;
+    if (!controller) return null;
+
+    let selectorContext: Record<string, unknown> = {};
+    if (warpWorldChoice === WARP_WORLD_CHOICE_COMMANDER) {
+      const permanentId = String(step?.pendingCommanderPermanentId || '').trim();
+      const choiceId = extractWarpWorldChoiceId(response.selections).toLowerCase();
+      if (!permanentId || !choiceId) return null;
+      const prior = parseJsonRecord(step?.oracleIrCommanderLibraryChoicesJson);
+      prior[permanentId] = choiceId === 'library' || choiceId === 'stay' ? 'library' : 'command';
+      selectorContext = { commanderLibraryChoices: prior };
+    } else if (warpWorldChoice === WARP_WORLD_CHOICE_AURA) {
+      const cardId = String(step?.pendingAuraCardId || '').trim();
+      const attachId = extractWarpWorldChoiceId(response.selections);
+      if (!cardId || !attachId) return null;
+      const prior = parseJsonRecord(step?.oracleIrAuraAttachByCardIdJson);
+      prior[cardId] = attachId;
+      selectorContext = { auraAttachByCardId: prior };
+    } else {
+      const playerId = String(step?.pendingRemainderPlayerId || step?.playerId || '').trim();
+      const bottomIds = extractBottomOrderIds(response.selections);
+      if (!playerId || bottomIds.length === 0) return null;
+      const prior = parseJsonArrayRecord(step?.oracleIrLibraryBottomOrderByPlayerJson);
+      prior[playerId] = bottomIds;
+      selectorContext = { libraryBottomOrderByPlayer: prior };
+    }
+
+    let lastMovedCards: unknown[] | undefined;
+    try {
+      const parsed = JSON.parse(String(step?.oracleIrLastMovedCardsJson || '[]'));
+      if (Array.isArray(parsed) && parsed.length > 0) lastMovedCards = parsed;
+    } catch {
+      lastMovedCards = undefined;
+    }
+    let lastMovedCountByPlayer: Record<string, number> | undefined;
+    try {
+      const parsed = JSON.parse(String(step?.oracleIrLastMovedCountByPlayerJson || '{}'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const mapped: Record<string, number> = {};
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+          const amount = Number(value);
+          if (!key.trim() || !Number.isFinite(amount)) continue;
+          mapped[key] = amount;
+        }
+        if (Object.keys(mapped).length > 0) lastMovedCountByPlayer = mapped;
+      }
+    } catch {
+      lastMovedCountByPlayer = undefined;
+    }
+
+    return resumeOracleIRStepWithChoiceFromResolution(ctx, {
+      controller,
+      sourceId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
+      sourceName: String(step?.oracleIrSourceName || step?.sourceName || '').trim() || undefined,
+      steps: choiceSteps,
+      selectorContext,
+      ...(lastMovedCards ? { lastMovedCards } : {}),
+      ...(lastMovedCountByPlayer ? { lastMovedCountByPlayer } : {}),
+      ...(Number.isFinite(Number(step?.oracleIrXValue)) ? { xValue: Number(step.oracleIrXValue) } : {}),
+    });
+  }
+
+  if (step?.coinIgnoreOneChoice === true) {
+    const choiceJson = String(step?.oracleIrChoiceStepJson || '').trim();
+    if (!choiceJson) return null;
+    let choiceSteps: OracleEffectStep[] = [];
+    try {
+      const parsed = JSON.parse(choiceJson);
+      if (!Array.isArray(parsed) || parsed.length === 0) return null;
+      choiceSteps = parsed as OracleEffectStep[];
+    } catch {
+      return null;
+    }
+    const controller = String(step?.oracleIrControllerId || step?.playerId || '').trim() as PlayerID;
+    if (!controller) return null;
+    const keep = extractWarpWorldChoiceId(response.selections).toLowerCase();
+    if (keep !== 'first' && keep !== 'second') return null;
+    let priorKeeps: string[] = [];
+    try {
+      const parsed = JSON.parse(String(step?.coinIgnoreOneKeepChoicesJson || '[]'));
+      if (Array.isArray(parsed)) priorKeeps = parsed.map((entry) => String(entry || '').trim()).filter(Boolean);
+    } catch {
+      priorKeeps = [];
+    }
+    priorKeeps.push(keep);
+    let rawFlips: string[] = [];
+    try {
+      const parsed = JSON.parse(String(step?.coinIgnoreOneRawFlipsJson || '[]'));
+      if (Array.isArray(parsed)) rawFlips = parsed.map((entry) => String(entry || '').trim()).filter(Boolean);
+    } catch {
+      rawFlips = [];
+    }
+    return resumeOracleIRStepWithChoiceFromResolution(ctx, {
+      controller,
+      sourceId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
+      sourceName: String(step?.oracleIrSourceName || step?.sourceName || '').trim() || undefined,
+      steps: choiceSteps,
+      selectorContext: {
+        coinIgnoreOneKeepChoices: priorKeeps,
+        coinIgnoreOneRawFlips: rawFlips,
+      },
+    });
   }
 
   if (step?.oracleIrMoveZoneDestinationChoice === true) {

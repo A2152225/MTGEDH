@@ -367,6 +367,20 @@ describe('static lord live-seam gaps', () => {
       spec.scope.kind === 'other_all_creatures'
       && spec.grant.abilities?.some((ability) => /whenever this creature attacks/i.test(ability))
     ))).toBe(true);
+
+    const harmonic = parseStaticEffectSpecsFromOraclePermanent(
+      battlefieldPerm(
+        'harmonic_1',
+        'Harmonic Sliver',
+        'Creature — Sliver',
+        'All Slivers have "When this permanent enters, destroy target artifact or enchantment."',
+      ) as any,
+    );
+    expect(harmonic.some((spec) => (
+      spec.scope.kind === 'all_creatures_of_type'
+      && spec.scope.creatureType === 'sliver'
+      && spec.grant.abilities?.some((ability) => /when this permanent enters/i.test(ability))
+    ))).toBe(true);
   });
 
   it('parses city\'s blessing, historic-during-turn, and base P/T setters', () => {

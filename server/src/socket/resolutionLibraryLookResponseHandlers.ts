@@ -10,7 +10,7 @@
 
 import type { Server } from "socket.io";
 import { appendEvent } from "../db/index.js";
-import { maybeResumeOracleIRStepsAfterResolution } from "../state/modules/oracleIrServerZoneSync.js";
+import { maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution } from "../state/modules/oracleIrServerZoneSync.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import {
   ResolutionQueueManager,
@@ -260,6 +260,28 @@ export function handleBottomOrderResponse(
   if (!bottomIds.every(id => stepSet.has(id))) {
     debugWarn(2, `[Resolution] bottom_order: selection contains cards not in original set`);
     return;
+  }
+
+  if (String((step as any)?.oracleIrChoiceStepJson || '').trim()) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    try {
+      const resumed = maybeApplyOracleIrChoiceStepFromResolution(ctx, step, {
+        selections: { bottomOrder: bottomIds },
+      });
+      if (resumed) {
+        maybeResumeOracleIRStepsAfterResolution(ctx, step);
+        if (typeof game.bumpSeq === "function") game.bumpSeq();
+        broadcastGame(io, game, gameId);
+        return;
+      }
+    } catch (err) {
+      debugWarn(1, `[Resolution] bottom_order Oracle IR apply failed:`, err);
+      if (typeof game.bumpSeq === "function") game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
   }
 
   const byId = new Map<string, any>(cards.map((c: any) => [String(c.id), c]));

@@ -11,6 +11,7 @@ import type { Socket } from "socket.io";
 import type { PaymentItem } from "../../../../shared/src/index.js";
 import { isFreeCastIntent, resolveCastPermissionId } from "../../state/modules/castIntent.js";
 import { isSpellCastingProhibitedByChosenName } from "../../state/modules/chosen-name-restrictions.js";
+import { isSpellCastingProhibitedByStaticRestriction } from "../../state/modules/staticCastingRestrictions.js";
 import { canCastFromTop } from "../../state/modules/game-state-effects";
 import { normalizeKickerManaCost, parseKickerCostOptions } from "../../state/modules/kickerCostUtils.js";
 import { getMultikickerChargeEntryCounters } from "../../state/modules/multikickerCastUtils.js";
@@ -491,6 +492,20 @@ export function tryResolveCastSpellFromHandFront(
         socket.emit('error', {
           code: 'CANNOT_CAST_CHOSEN_NAME',
           message: `Spells named "${cardInHand.name || 'that card'}" can't be cast (${blocker} chose that name).`,
+        });
+        return;
+      }
+
+      const staticCastRestriction = isSpellCastingProhibitedByStaticRestriction(
+        game.state,
+        playerId,
+        cardInHand,
+        castSourceZone,
+      );
+      if (staticCastRestriction.prohibited) {
+        socket.emit('error', {
+          code: 'CANNOT_CAST_STATIC_RESTRICTION',
+          message: staticCastRestriction.reason || 'An effect prevents you from casting that spell.',
         });
         return;
       }

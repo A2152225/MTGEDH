@@ -11,4 +11,6 @@
 // Zone defaults plus authoritative game.state.zones / intervening-if tracker seed.
 export { defaultPlayerZones, ensureStateZonesForPlayers } from "./joinEnsureStateZones.js";
 // Clear stale deferred-leave flags when a sitting player reconnects after restore.
-export { clearDeferredLeaveOnReconnect } from "./joinReconnectPlayer.js";
+export { clearDeferredLeaveOnReconnect, refreshConnectedHumanClockOnReconnect } from "./joinReconnectPlayer.js";
+// Same-socket pre-game spectator <-> player conversion.
+export { isPreGamePhase, findExistingSeatForSocket, applyPreGameSeatRole, tryConvertPreGameSeat, syncOwnPreGameSeatRole } from "./joinConvertSeat.js";

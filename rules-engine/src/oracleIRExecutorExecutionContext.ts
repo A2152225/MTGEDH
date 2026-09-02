@@ -162,6 +162,10 @@ export function buildOracleIRExecutionContext(
     baseSel?.unlessPaysManaChoice === 'pay' || baseSel?.unlessPaysManaChoice === 'decline'
       ? baseSel.unlessPaysManaChoice
       : undefined;
+  const baseUnlessPaysManaAmount =
+    typeof baseSel?.unlessPaysManaAmount === 'string'
+      ? baseSel.unlessPaysManaAmount.trim() || undefined
+      : (typeof base.unlessPaysManaAmount === 'string' ? base.unlessPaysManaAmount.trim() || undefined : undefined);
   const baseUnlessDiscardsChoice =
     baseSel?.unlessDiscardsChoice === 'discard' || baseSel?.unlessDiscardsChoice === 'decline'
       ? baseSel.unlessDiscardsChoice
@@ -273,8 +277,24 @@ export function buildOracleIRExecutionContext(
     ...(hintUnlessPaysManaChoice || baseUnlessPaysManaChoice
       ? { unlessPaysManaChoice: hintUnlessPaysManaChoice ?? baseUnlessPaysManaChoice }
       : {}),
+    ...(baseUnlessPaysManaAmount ? { unlessPaysManaAmount: baseUnlessPaysManaAmount } : {}),
     ...(hintUnlessDiscardsChoice || baseUnlessDiscardsChoice
       ? { unlessDiscardsChoice: hintUnlessDiscardsChoice ?? baseUnlessDiscardsChoice }
+      : {}),
+    ...(baseSel?.libraryBottomOrderByPlayer && typeof baseSel.libraryBottomOrderByPlayer === 'object'
+      ? { libraryBottomOrderByPlayer: { ...baseSel.libraryBottomOrderByPlayer } }
+      : {}),
+    ...(Array.isArray(baseSel?.coinIgnoreOneKeepChoices)
+      ? { coinIgnoreOneKeepChoices: [...baseSel.coinIgnoreOneKeepChoices] }
+      : {}),
+    ...(Array.isArray(baseSel?.coinIgnoreOneRawFlips)
+      ? { coinIgnoreOneRawFlips: [...baseSel.coinIgnoreOneRawFlips] }
+      : {}),
+    ...(baseSel?.commanderLibraryChoices && typeof baseSel.commanderLibraryChoices === 'object'
+      ? { commanderLibraryChoices: { ...baseSel.commanderLibraryChoices } }
+      : {}),
+    ...(baseSel?.auraAttachByCardId && typeof baseSel.auraAttachByCardId === 'object'
+      ? { auraAttachByCardId: { ...baseSel.auraAttachByCardId } }
       : {}),
     ...(hintUnlessSacrificesChoice || baseUnlessSacrificesChoice
       ? { unlessSacrificesChoice: hintUnlessSacrificesChoice ?? baseUnlessSacrificesChoice }

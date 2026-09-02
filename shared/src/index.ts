@@ -10,6 +10,7 @@ export * from "./mayAutoPreference.js";
 export * from "./combatLandwalk.js";
 export * from "./counterCombatRestrictions.js";
 export * from "./controlledCreatureCombatGate.js";
+export * from "./combatAttackerSelfTax.js";
 export * from "./cardFactory.js";
 export * from "./hydrateCardOracleText.js";
 export * from "./copyTokenUtils.js";

@@ -14,7 +14,6 @@ import {
   getTotalManaProduction,
   getManaPerActivation,
   getSourceAvailableQuantity,
-  parseManaSpendRestrictionFromOracleText,
   buildProducedColorsForSelectedMana,
   type ManaPool,
   type ManaPaymentSource,
@@ -24,6 +23,10 @@ import {
   collectLandAuraManaBonuses,
   resolveClientPermanentChosenColorSymbol,
 } from './manaSourceLandAuraBonuses';
+import {
+  inlineManaAbilityGrantsUncounterableChosenTypeCast,
+  resolveInlineManaAbilitySpendRestriction,
+} from './manaSourceChosenTypeRestriction';
 
 type InlineSelectedPaymentAbility = {
   id: string;
@@ -755,9 +758,12 @@ function buildInlineManaSourcesForPermanent(
     for (let index = 0; index < instanceCount; index += 1) {
       const sourceId = instanceCount > 1 ? `${sourceBaseId}#${index}` : sourceBaseId;
       const keepSeparate = permanentHasAttachments(perm, globalBattlefield) || manaBonuses.length > 0;
-      const spendRestriction = parseManaSpendRestrictionFromOracleText(
-        [String(ability.effect || ''), String(ability.description || ''), String((card as any).oracle_text || '')].join('\n'),
-      ) || undefined;
+      const abilityForRestriction = { ...ability, id: normalizedAbilityId };
+      const spendRestriction = resolveInlineManaAbilitySpendRestriction(perm, abilityForRestriction);
+      const grantsUncounterableOnSpend = inlineManaAbilityGrantsUncounterableChosenTypeCast(
+        perm,
+        abilityForRestriction,
+      );
 
       sources.push({
         id: sourceId,
@@ -774,6 +780,7 @@ function buildInlineManaSourcesForPermanent(
         ...(keepSeparate ? { keepSeparate: true } : {}),
         ...(manaBonuses.length > 0 ? { manaBonuses } : {}),
         ...(spendRestriction ? { spendRestriction } : {}),
+        ...(grantsUncounterableOnSpend ? { grantsUncounterableOnSpend: true } : {}),
         ...(ability.manaCost ? { activationManaCost: ability.manaCost } : {}),
       });
     }

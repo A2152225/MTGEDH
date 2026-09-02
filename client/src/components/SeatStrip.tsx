@@ -1,5 +1,5 @@
 /**
- * Horizontal player focus strip for mobile play — tap a seat to center the board.
+ * Horizontal player focus strip — click a seat to center the board (desktop and mobile).
  */
 
 import React from 'react';
@@ -67,7 +67,7 @@ export const SeatStrip: React.FC<SeatStripProps> = ({
           style={{
             flex: '0 0 auto',
             scrollSnapAlign: 'start',
-            minHeight: 40,
+            minHeight: 32,
             padding: `${spacing.xs}px ${spacing.sm}px`,
             borderRadius: radii.lg,
             border: isOverviewActive
@@ -76,6 +76,7 @@ export const SeatStrip: React.FC<SeatStripProps> = ({
             background: isOverviewActive
               ? 'rgba(59,130,246,0.22)'
               : colors.surfaceTransparent,
+            boxShadow: 'none',
             color: colors.textPrimary,
             fontSize: fontSize.sm,
             fontWeight: isOverviewActive ? 600 : 500,
@@ -108,7 +109,7 @@ export const SeatStrip: React.FC<SeatStripProps> = ({
             style={{
               flex: '0 0 auto',
               scrollSnapAlign: 'start',
-              minHeight: 40,
+              minHeight: 32,
               padding: `${spacing.xs}px ${spacing.sm}px`,
               borderRadius: radii.lg,
               border: isFocused
@@ -117,6 +118,7 @@ export const SeatStrip: React.FC<SeatStripProps> = ({
               background: isFocused
                 ? 'rgba(59,130,246,0.22)'
                 : colors.surfaceTransparent,
+              boxShadow: isTurn ? 'inset 0 -2px 0 #34d399' : 'none',
               color: colors.textPrimary,
               fontSize: fontSize.sm,
               fontWeight: isFocused ? 600 : 500,

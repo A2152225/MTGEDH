@@ -11,6 +11,7 @@ import type { Server, Socket } from "socket.io";
 import type { PaymentItem, PlayerID } from "../../../../shared/src/index.js";
 import {
   canUseFreeAlternateCost,
+  getSelfRatherThanPayAlternateManaCost,
   parseKeywordAlternateManaCost,
   parseMadnessCost,
   parseMutateCost,
@@ -176,9 +177,19 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
       const resolvedWarpCost = alternateCostId === 'warp'
         ? (parseWarpCost(String(cardInHand.oracle_text || '')) || '')
         : '';
-      const resolvedKeywordAlternateCost = (!resolvedWarpCost && alternateCostId && alternateCostId !== 'normal')
+      const resolvedKeywordAlternateCost = (!resolvedWarpCost && alternateCostId && alternateCostId !== 'normal' && alternateCostId !== 'alternate')
         ? (parseKeywordAlternateManaCost(String(cardInHand.oracle_text || ''), alternateCostId) || '')
         : '';
+      const resolvedRatherThanPayCost = alternateCostId === 'alternate'
+        ? (getSelfRatherThanPayAlternateManaCost(game as any, playerId, cardInHand) || '')
+        : '';
+      if (alternateCostId === 'alternate' && !resolvedRatherThanPayCost) {
+        socket.emit('error', {
+          code: 'INVALID_ALTERNATE_COST',
+          message: `${String(cardInHand?.name || 'That spell')} alternate cost is not available.`,
+        });
+        return;
+      }
       const resolvedOverloadCost = overloadRequested
         ? String((cardInHand as any).overloadCost || '') || (() => {
             const match = String((cardInHand as any).oracle_text || '').match(/overload\s*\{([^}]+)\}/i);
@@ -318,6 +329,8 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
                   ? resolvedMutateCost
                   : resolvedWarpCost
                     ? resolvedWarpCost
+                    : resolvedRatherThanPayCost
+                      ? resolvedRatherThanPayCost
                     : resolvedKeywordAlternateCost
                       ? resolvedKeywordAlternateCost
                   : resolvedOverloadCost

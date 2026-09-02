@@ -271,6 +271,17 @@ export function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { 
     };
   }
 
+  if (/^(?:you\s+)?become this (?:permanent|planeswalker|creature)$/i.test(normalized)) {
+    return {
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('you'),
+      effectText: [normalized],
+      duration: 'static',
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
   if (/^venture into (?:the dungeon|undercity)$/i.test(normalized)) {
     return {
       kind: 'venture_into_dungeon',
